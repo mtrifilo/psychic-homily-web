@@ -167,6 +167,73 @@ describe('VerifyEmailPage', () => {
     expect(mockApiRequest).not.toHaveBeenCalled()
   })
 
+  // The dead-link card carries its own copy of the resend handler, so the
+  // throttle and session branches are pinned here too and not only on the gate.
+  it('renders a throttled fresh-link request as a cooldown', async () => {
+    mockApiRequest.mockImplementation(async (path: string) => {
+      if (path.includes('/auth/verify-email/send')) {
+        throw Object.assign(new Error('Rate limit exceeded.'), {
+          status: 429,
+          retryAfter: 25,
+        })
+      }
+      return { success: false, message: 'token expired' }
+    })
+
+    renderWithProviders(<VerifyEmailPage />)
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: /Send a fresh link/i })
+      ).toBeInTheDocument()
+    })
+
+    await userEvent.click(
+      screen.getByRole('button', { name: /Send a fresh link/i })
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Resend available in 25s')).toBeInTheDocument()
+    })
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /Send a fresh link/i })
+    ).toBeDisabled()
+  })
+
+  it('offers sign-in when the session died while the card sat open', async () => {
+    mockApiRequest.mockImplementation(async (path: string) => {
+      if (path.includes('/auth/verify-email/send')) {
+        throw Object.assign(new Error('unauthorized'), { status: 401 })
+      }
+      return { success: false, message: 'token expired' }
+    })
+
+    renderWithProviders(<VerifyEmailPage />)
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: /Send a fresh link/i })
+      ).toBeInTheDocument()
+    })
+
+    await userEvent.click(
+      screen.getByRole('button', { name: /Send a fresh link/i })
+    )
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Your session has expired.'
+      )
+    })
+    expect(
+      screen.getByRole('link', { name: /Sign in to send a fresh link/i })
+    ).toHaveAttribute('href', '/auth?returnTo=%2Fprofile%3Ftab%3Dsettings')
+    expect(
+      screen.queryByText(/We could not send that email just now/)
+    ).not.toBeInTheDocument()
+  })
+
   it('routes a signed-out visitor through sign-in instead of a dead resend', () => {
     mockToken = null
     mockIsAuthenticated = false
