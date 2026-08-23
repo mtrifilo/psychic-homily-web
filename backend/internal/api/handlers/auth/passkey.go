@@ -24,15 +24,21 @@ type PasskeyHandler struct {
 	webauthnService contracts.WebAuthnServiceInterface
 	jwtService      contracts.JWTServiceInterface
 	userService     contracts.UserServiceInterface
-	config          *config.Config
+	// emailService exists solely to send the verification email at passkey
+	// signup. Passkey-first accounts are created with email_verified=false
+	// (webauthn.go FinishSignupRegistrationWithLegal), exactly like password
+	// registration, so they need the same link in their inbox.
+	emailService contracts.EmailServiceInterface
+	config       *config.Config
 }
 
 // NewPasskeyHandler creates a new passkey handler
-func NewPasskeyHandler(webauthnService contracts.WebAuthnServiceInterface, jwtService contracts.JWTServiceInterface, userService contracts.UserServiceInterface, cfg *config.Config) *PasskeyHandler {
+func NewPasskeyHandler(webauthnService contracts.WebAuthnServiceInterface, jwtService contracts.JWTServiceInterface, userService contracts.UserServiceInterface, emailService contracts.EmailServiceInterface, cfg *config.Config) *PasskeyHandler {
 	return &PasskeyHandler{
 		webauthnService: webauthnService,
 		jwtService:      jwtService,
 		userService:     userService,
+		emailService:    emailService,
 		config:          cfg,
 	}
 }
@@ -849,6 +855,12 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 		"user_id", user.ID,
 		"email", email,
 	)
+
+	// Same rationale as password registration: the account is created
+	// unverified and show submission is gated on email_verified, so the
+	// verification link has to reach the inbox. Best-effort — the account and
+	// session already exist by this point.
+	sendVerificationEmailBestEffort(ctx, h.jwtService, h.emailService, user, verificationTriggerPasskeySignup)
 
 	resp.Body.Success = true
 	resp.Body.Message = "Account created successfully"

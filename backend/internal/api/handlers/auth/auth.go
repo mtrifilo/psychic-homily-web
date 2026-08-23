@@ -715,6 +715,17 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 	// Send Discord notification for new user signup
 	h.discordService.NotifyNewUser(user)
 
+	// Send the email-verification link. Registration creates the account with
+	// email_verified=false and show submission is gated on that flag, so without
+	// this send a new user is logged in but silently blocked from the one
+	// capability /auth advertises, with nothing in their inbox to fix it.
+	//
+	// Best-effort: the account already exists and the session cookie is already
+	// set, so an email-service failure must not turn a successful signup into an
+	// error. The resend affordances (submission gate, Settings) are the recovery
+	// path, and they do surface failures.
+	sendVerificationEmailBestEffort(ctx, h.jwtService, h.emailService, user, verificationTriggerSignup)
+
 	resp.Body.Success = true
 	resp.Body.Token = token
 	resp.Body.User = user
@@ -1005,7 +1016,7 @@ func (h *AuthHandler) SendMagicLinkHandler(ctx context.Context, input *SendMagic
 	// verification step), so re-send the verification email as a side effect
 	// and return the generic response. The user proceeds via that link.
 	if !user.EmailVerified {
-		h.resendVerificationEmail(ctx, user)
+		sendVerificationEmailBestEffort(ctx, h.jwtService, h.emailService, user, verificationTriggerMagicLink)
 		return resp, nil
 	}
 
@@ -1032,33 +1043,6 @@ func (h *AuthHandler) SendMagicLinkHandler(ctx context.Context, input *SendMagic
 	)
 
 	return resp, nil
-}
-
-// resendVerificationEmail re-sends an email-verification link to an unverified
-// account as a side effect of a magic-link request. It is fire-and-forget:
-// failures are logged but never surfaced to the caller, so the magic-link
-// response stays enumeration-safe.
-func (h *AuthHandler) resendVerificationEmail(ctx context.Context, user *authm.User) {
-	if user.Email == nil || *user.Email == "" {
-		return
-	}
-	token, err := h.jwtService.CreateVerificationToken(user.ID, *user.Email)
-	if err != nil {
-		logger.AuthError(ctx, "magic_link_verification_token_failed", err,
-			"user_id", user.ID,
-		)
-		return
-	}
-	if err := h.emailService.SendVerificationEmail(*user.Email, token); err != nil {
-		logger.AuthError(ctx, "magic_link_verification_email_failed", err,
-			"user_id", user.ID,
-		)
-		return
-	}
-	logger.AuthInfo(ctx, "magic_link_verification_resent",
-		"user_id", user.ID,
-		"email_hash", logger.HashEmail(*user.Email),
-	)
 }
 
 // VerifyMagicLinkRequest represents the request to verify a magic link

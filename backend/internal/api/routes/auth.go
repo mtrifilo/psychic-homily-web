@@ -89,6 +89,28 @@ func setupAuthRoutes(rc RouteContext) {
 	huma.Post(rc.API, "/auth/logout", authHandler.LogoutHandler)
 }
 
+// VerificationResendPerMinute is the per-IP budget for POST
+// /auth/verify-email/send. A real user clicks resend once, maybe twice after a
+// typo or a slow inbox; five leaves room for a shared NAT without leaving the
+// endpoint open as an email-bombing amplifier.
+const VerificationResendPerMinute = 5
+
+// verificationResendRateLimiter builds the limiter for the verification resend
+// endpoint, honoring the same DISABLE_AUTH_RATE_LIMITS escape hatch as the
+// public auth routes (PSY-475): every E2E worker shares 127.0.0.1, so a live
+// limiter here would 429 unrelated shards.
+func verificationResendRateLimiter() func(http.Handler) http.Handler {
+	if IsAuthRateLimitDisabled(os.Getenv) {
+		return noopRateLimiter()
+	}
+	return httprate.Limit(
+		VerificationResendPerMinute,
+		1*time.Minute,
+		httprate.WithKeyFuncs(middleware.KeyByClientIP),
+		httprate.WithLimitHandler(rateLimitHandler),
+	)
+}
+
 // setupProtectedAuthRoutes configures the auth-related Huma routes that run on
 // the protected group (or the public API for HMAC-signed unsubscribe endpoints
 // and the email-verify confirm endpoint). Split out of SetupRoutes during the
@@ -102,7 +124,21 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	// PSY-1087: self-scoped next-tier progress (approved-edits bar + met/unmet list).
 	advancementHandler := authh.NewAdvancementHandler(rc.SC.AutoPromotion)
 	huma.Get(rc.Protected, "/auth/profile/advancement", advancementHandler.GetAdvancementHandler)
-	huma.Post(rc.Protected, "/auth/verify-email/send", authHandler.SendVerificationEmailHandler)
+	// Verification resend is rate-limited (PSY-1871). Signup now emails the
+	// link automatically and the /shows/submit gate puts a resend button in
+	// front of every blocked user, so this endpoint went from obscure to
+	// one-click. Unthrottled, it is an inbox-bombing and Resend-quota vector
+	// for any authenticated caller.
+	//
+	// Budget is deliberately separate from the 10/min public auth budget: this
+	// endpoint requires a session, and sharing a counter with /auth/login would
+	// let resend clicks lock a user out of logging in. Same per-IP key and same
+	// DISABLE_AUTH_RATE_LIMITS escape hatch as the public auth group, so E2E
+	// shards sharing 127.0.0.1 are unaffected.
+	verifyEmailGroup := huma.NewGroup(rc.Protected, "")
+	verifyEmailGroup.UseMiddleware(humaFromHTTP(verificationResendRateLimiter()))
+	huma.Post(verifyEmailGroup, "/auth/verify-email/send", authHandler.SendVerificationEmailHandler)
+
 	huma.Post(rc.Protected, "/auth/change-password", authHandler.ChangePasswordHandler)
 
 	// Token refresh uses lenient middleware (accepts tokens expired within 7 days)
@@ -179,7 +215,7 @@ func setupPasskeyRoutes(rc RouteContext) {
 		return
 	}
 
-	passkeyHandler := authh.NewPasskeyHandler(rc.SC.WebAuthn, rc.SC.JWT, rc.SC.User, rc.Cfg)
+	passkeyHandler := authh.NewPasskeyHandler(rc.SC.WebAuthn, rc.SC.JWT, rc.SC.User, rc.SC.Email, rc.Cfg)
 
 	// Create rate limiter for passkey endpoints: 20 requests per minute per IP
 	// Slightly more lenient than auth due to multi-step WebAuthn flow.
