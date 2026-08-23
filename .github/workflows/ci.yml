@@ -586,8 +586,8 @@ jobs:
     # isolated runner, so there's no cross-shard port / DB contention.
     # Shard count chosen from the PSY-417 baseline (93s test phase,
     # 372s cumulative test-time) — 4 shards roughly quarters the test phase.
-    # Changing the shard count also requires updating the blob-count assert
-    # in e2e-report ("Require a blob from every shard").
+    # Changing the shard count also requires updating EXPECTED_SHARDS in the
+    # e2e-report job's env, which drives its blob-count guard.
     strategy:
       fail-fast: false
       matrix:
@@ -661,13 +661,19 @@ jobs:
         run: bunx playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
         env:
           CI: true
+          # Pin the blob filename. Playwright's default name inserts a
+          # command hash whenever any CLI filter is used (--grep, --project,
+          # --only-changed, a positional path) and zero-pads the shard index
+          # at 10+ shards; either would silently break e2e-report's
+          # per-shard blob check, which looks these names up exactly.
+          PLAYWRIGHT_BLOB_OUTPUT_NAME: report-${{ matrix.shardIndex }}.zip
 
       - name: Upload blob report
         # always() uploads a blob that exists even when the JOB was cancelled
         # after the test phase wrote it. It cannot conjure a blob for a run
         # killed mid-suite (the blob reporter writes only at end-of-run) —
         # report COMPLETENESS is guarded in e2e-report, which fails unless it
-        # can count all four shards' blobs.
+        # can count every shard's blob.
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
@@ -687,6 +693,12 @@ jobs:
     # naming is deliberately skipped here (unlike the e2e jobs): the job is
     # short and single-purpose, so the job cap is attribution enough.
     timeout-minutes: 10
+    env:
+      # The one place this job encodes the shard count; must match
+      # strategy.matrix.shardTotal in e2e-tests. Blob filenames are pinned
+      # to report-<shardIndex>.zip at the producer (PLAYWRIGHT_BLOB_OUTPUT_NAME
+      # on the shard test step), so no Playwright naming rule can drift them.
+      EXPECTED_SHARDS: 4
     steps:
       - uses: actions/checkout@v4
 
@@ -703,6 +715,32 @@ jobs:
           pattern: blob-report-*
           merge-multiple: true
 
+      # Counted on the pristine downloaded tree, BEFORE merge-reports runs:
+      # merge-reports extracts each blob's attachments into
+      # all-blob-reports/resources/, and trace attachments are themselves
+      # .zip files, so a post-merge recursive count measures Playwright's
+      # extraction layout instead of shard completeness (four all-green main
+      # runs went red exactly that way). -maxdepth 1 matches the depth of
+      # merge-reports' own non-recursive readdir, so if the blobs ever nest
+      # (upload path change, merge-multiple dropped) this guard fails loudly
+      # instead of counting blobs the merge cannot see. The report-* prefix
+      # is stricter than merge's plain .zip filter; that is deliberate
+      # belt-and-braces, not a mirror.
+      - name: Count shard blobs
+        # The id is load-bearing: Require a blob from every shard reads these
+        # outputs by name; if it is renamed, that step's outcome check fails
+        # closed.
+        id: shard-blobs
+        run: |
+          count=$(find all-blob-reports -maxdepth 1 -type f -name 'report-*.zip' | wc -l | tr -d ' ')
+          missing=''
+          for i in $(seq 1 "$EXPECTED_SHARDS"); do
+            [ -e "all-blob-reports/report-$i.zip" ] || missing="$missing report-$i.zip"
+          done
+          missing="${missing# }"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "missing=$missing" >> "$GITHUB_OUTPUT"
+
       - name: Merge into HTML report
         working-directory: ./frontend
         run: bunx playwright merge-reports --reporter html ../all-blob-reports
@@ -716,18 +754,43 @@ jobs:
 
       # A shard killed mid-run writes no blob at all (the blob reporter only
       # writes at end-of-run), and merge-reports silently publishes a
-      # complete-looking report over the missing shard. This assert runs
-      # AFTER the merge and upload on purpose: the (partial) report for the
-      # surviving shards is the only per-test output CI produces, so it must
-      # publish first; then the job goes red here, the gap is named, and
-      # notify-main-failure fires.
-      # Keep the expected count in sync with strategy.matrix.shardTotal in
-      # e2e-tests (currently 4).
+      # complete-looking report over the missing shard. The count comes from
+      # the pre-merge Count shard blobs step but is asserted here, AFTER the
+      # merge and upload, on purpose: when the merge succeeds, the (partial)
+      # report for the surviving shards publishes first; a merge crash
+      # yields no merged report and the diagnostic below is the only signal.
+      # !cancelled() keeps that diagnostic alive when an earlier step fails
+      # (skipping only on run cancellation), and the outcome + non-numeric
+      # checks fail closed if the Count step never produced a count (an
+      # empty value would otherwise make the [ -ne ] comparison error out
+      # and the step pass green).
       - name: Require a blob from every shard
+        if: ${{ !cancelled() }}
+        env:
+          COUNT_OUTCOME: ${{ steps.shard-blobs.outcome }}
+          COUNT: ${{ steps.shard-blobs.outputs.count }}
+          MISSING: ${{ steps.shard-blobs.outputs.missing }}
         run: |
-          count=$(find all-blob-reports -name '*.zip' | wc -l)
-          if [ "$count" -ne 4 ]; then
-            echo "::error::expected 4 shard blobs, found $count; either a shard died before writing its report, or the shard count changed without updating this guard"
+          if [ "$COUNT_OUTCOME" != "success" ]; then
+            echo "::error::the Count shard blobs step did not complete (outcome: '$COUNT_OUTCOME'); an earlier step failed, or the shard-blobs step id changed. Shard completeness is unverified for this run"
+            exit 1
+          fi
+          case "$EXPECTED_SHARDS" in
+            ''|*[!0-9]*|0)
+              echo "::error::EXPECTED_SHARDS is missing, non-numeric, or zero ('$EXPECTED_SHARDS'); set it in the e2e-report job env"
+              exit 1 ;;
+          esac
+          case "$COUNT" in
+            ''|*[!0-9]*)
+              echo "::error::shard blob count is missing or non-numeric ('$COUNT'); the shard-blobs step output is malformed"
+              exit 1 ;;
+          esac
+          if [ -n "$MISSING" ]; then
+            echo "::error::missing shard blobs: $MISSING; a shard died before writing its report, or the blob naming/upload layout changed"
+            exit 1
+          fi
+          if [ "$COUNT" -ne "$EXPECTED_SHARDS" ]; then
+            echo "::error::expected $EXPECTED_SHARDS shard blobs, found $COUNT; the shard count changed without updating EXPECTED_SHARDS, or the blob upload layout changed"
             exit 1
           fi
 
