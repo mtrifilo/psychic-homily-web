@@ -705,9 +705,10 @@ disabled at startup by setting the corresponding `DISABLE_*` env var to `"1"`.
 Any other value (including unset) leaves the service enabled, so local
 `go run ./cmd/server` keeps starting everything by default.
 
-The frontend E2E harness (`frontend/e2e/global-setup.ts`) sets all nine flags
-to `"1"` so the E2E backend runs lean — no scheduled tickers, no log spam,
-no nondeterministic DB state changes from ambient background jobs.
+The frontend E2E harness (`frontend/e2e/global-setup.ts`) sets all of these flags
+to `"1"` so the E2E backend runs lean: no scheduled tickers, no log spam,
+no nondeterministic DB state changes from ambient background jobs. A new
+`DISABLE_*` flag belongs there too.
 
 | Variable                          | Disables                                                        |
 | --------------------------------- | --------------------------------------------------------------- |
@@ -720,6 +721,30 @@ no nondeterministic DB state changes from ambient background jobs.
 | `DISABLE_RELATIONSHIP_DERIVATION` | Derived artist relationships (shared_bills + shared_label)      |
 | `DISABLE_STREET_GEOCODE_SWEEP`    | Daily venue street-geocode reconciliation via Nominatim (PSY-1544) |
 | `DISABLE_SWEEP_HEALTH_CHECK`      | Overdue-sweep alerting — reports stopped background loops to Sentry (PSY-1612) |
+| `DISABLE_SHOW_NOTIFY_OUTBOX`      | Follower notifications for ingest-created shows (PSY-1894). **The kill switch for outbound show email** |
+
+`DISABLE_SHOW_NOTIFY_OUTBOX` gates the ENQUEUE as well as the drain, so setting it
+stops rows being written rather than letting a backlog build for a burst on
+re-enable. Both halves re-read it live, so it takes effect **without a restart**.
+
+Two caveats for an incident. It is read **per process**, so an ingest CLI run from
+elsewhere (`cmd/discovery-import`) needs it in that environment too. And rows
+already `pending` when it was set will drain once it is cleared, so clear the
+backlog first (`DELETE FROM show_notify_queue WHERE status = 'pending'`) if you
+want a clean restart; that is safe precisely because those rows have not notified
+anyone. Jobs older than `SHOW_NOTIFY_OUTBOX_MAX_JOB_AGE_HOURS` are dropped unsent
+regardless, which bounds any burst.
+
+To retry a job that went `failed`, reuse the row rather than deleting it:
+`UPDATE show_notify_queue SET status='pending', attempts=0, last_error=NULL WHERE id=...`.
+`DELETE` drops the "already considered" record, so a later re-ingest of that show
+could notify people the first pass had already reached.
+
+Tuning knobs: `SHOW_NOTIFY_OUTBOX_INTERVAL_SECONDS` (default `60`),
+`SHOW_NOTIFY_OUTBOX_BATCH` (default `5` shows per tick),
+`SHOW_NOTIFY_OUTBOX_STALE_RECLAIM_MINUTES` (default `30`, and **not measured**:
+see the poller's `reclaimStale` doc), `SHOW_NOTIFY_OUTBOX_MAX_JOB_AGE_HOURS`
+(default `24`).
 
 The street-geocode sweep's cadence and per-run network budget are tunable:
 `STREET_GEOCODE_SWEEP_INTERVAL_HOURS` (default `24`),

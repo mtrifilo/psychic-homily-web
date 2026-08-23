@@ -221,6 +221,12 @@ function startBackend(): ChildProcess {
       // without this the E2E backend would start a loop the harness's
       // "no scheduled tickers" contract says it doesn't.
       DISABLE_SWEEP_HEALTH_CHECK: '1',
+      // PSY-1894. Also default-ON, and its enqueue rides the show-create
+      // transaction, so without this an E2E test that creates a show leaves a
+      // queue row that the poller drains into notification_log rows a later
+      // assertion can see. Exactly the nondeterministic DB state this block exists
+      // to prevent.
+      DISABLE_SHOW_NOTIFY_OUTBOX: '1',
       // PSY-432: enable the /admin/test-fixtures/reset endpoint. Guarded by
       // a default-deny ENVIRONMENT check on the backend — the server
       // refuses to boot if ENABLE_TEST_FIXTURES=1 and ENVIRONMENT is not

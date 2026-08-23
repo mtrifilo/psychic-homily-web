@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"log"
 	"strings"
 	"time"
@@ -1246,6 +1247,30 @@ func ComputeFilterUnsubscribeSignature(filterID uint, secret string) string {
 // ──────────────────────────────────────────────
 
 func buildFilterEmailHTML(filterName, showTitle, showDate, venueText, artistText, priceText, showURL, unsubscribeURL string) string {
+	// ESCAPE EVERY INTERPOLATED VALUE. This template is fmt.Sprintf, not
+	// html/template, so nothing escapes by default, and the values are entity text
+	// the platform does not author: show titles, artist and venue names, and a
+	// user-chosen filter name — none charset-restricted, all up to 255 chars.
+	//
+	// The exposure grew with PSY-1894. Before it, the only strings reaching this
+	// template came from shows a human admin had explicitly approved; now scraped
+	// third-party venue-calendar text reaches it automatically. An unescaped title
+	// like `</p><a href="https://evil.example/login">Verify your account</a><p>`
+	// would arrive as a working, SPF/DKIM-aligned phishing link from this
+	// platform's own sender.
+	//
+	// showURL and unsubscribeURL are built by this package from an id and an HMAC,
+	// so they carry no caller text — but they are escaped too rather than reasoned
+	// about individually, so nobody has to re-derive which arguments are safe.
+	filterName = html.EscapeString(filterName)
+	showTitle = html.EscapeString(showTitle)
+	showDate = html.EscapeString(showDate)
+	venueText = html.EscapeString(venueText)
+	artistText = html.EscapeString(artistText)
+	priceText = html.EscapeString(priceText)
+	showURL = html.EscapeString(showURL)
+	unsubscribeURL = html.EscapeString(unsubscribeURL)
+
 	venueSection := ""
 	if venueText != "" {
 		venueSection = fmt.Sprintf(`<p style="font-size: 15px; color: #444; margin: 4px 0;"><strong>Venue:</strong> %s</p>`, venueText)

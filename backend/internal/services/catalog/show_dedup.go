@@ -83,10 +83,33 @@ import (
 //     loser comes out of the merge flagged as a duplicate of ITSELF, and that
 //     column is served to clients on the show payload.
 //
+//   - show_notify_queue.show_id is the one column here that is DROPPED rather
+//     than re-pointed, and the reason is a correctness requirement of PSY-1894
+//     rather than convenience. That table's UNIQUE (show_id) means "this show has
+//     already been considered for follower notification", and its emptiness at
+//     deploy is what guarantees the rollout never notified anyone about the
+//     pre-existing catalogue. Re-pointing a loser's still-`pending` job onto a
+//     winner that has no row would manufacture exactly the thing that guarantee
+//     forbids: a merge, months later, announcing a show that predates the
+//     feature. Nor could the row be re-pointed onto a winner that HAS one — the
+//     UNIQUE would reject it. Dropping is therefore both the only shape that
+//     fits the index and the only shape that preserves the no-backfill property.
+//
+//     Be honest about what that costs, because it is NOT always "a duplicate
+//     notification suppressed". When the winner has no queue row of its own — the
+//     realistic shape during and after rollout, where the winner is one of the
+//     pre-existing shows that structurally can never be announced — the loser's
+//     `pending` job was the ONLY notification the event would ever get, and this
+//     drop destroys it. Same when the winner's row is `skipped` or `failed`. That
+//     is a silent, user-visible loss, so each drop is logged per-show through
+//     logDroppedEntityRefs rather than only counted in the summary: an aggregate
+//     cannot tell an operator WHICH show went quiet.
+//
 // TestShowForeignKeysAreAllHandled fails if a migration adds another.
 var showFKColumns = []string{
 	"enrichment_queue.show_id",
 	"show_artists.show_id",
+	"show_notify_queue.show_id",
 	"show_reports.show_id",
 	"show_venues.show_id",
 	"shows.duplicate_of_show_id",
@@ -96,6 +119,37 @@ var showFKColumns = []string{
 // disposition in showFKColumns.
 func showFKColumnListed(qualified string) bool {
 	for _, col := range showFKColumns {
+		if col == qualified {
+			return true
+		}
+	}
+	return false
+}
+
+// showFKColumnsNeverRepointed are columns whose recorded disposition in
+// showFKColumns is "DROP", not "move". moveShowFKRows refuses them.
+//
+// The two lists serve different masters, which is why this one exists.
+// showFKColumns is the COMPLETENESS inventory — TestShowForeignKeysAreAllHandled
+// asserts it equals the real set of foreign keys to shows.id, so every new column
+// must appear there or CI fails. But moveShowFKRows uses membership in that same
+// list as its permission check, so simply recording a column made re-pointing it a
+// legal call. For show_notify_queue that is precisely the operation its own
+// disposition argues at length must never happen: it would either abort the merge
+// on UNIQUE (show_id), or move a `pending` job onto a winner and let a merge
+// announce a show that predates the feature.
+//
+// A prohibition that lives only in a doc comment is one refactor away from being
+// violated by someone doing the obvious thing (adding the table to the inventory
+// loop). This makes it a runtime error instead.
+var showFKColumnsNeverRepointed = []string{
+	"show_notify_queue.show_id",
+}
+
+// showFKColumnRepointBanned reports whether "table.column" is recorded as
+// drop-only.
+func showFKColumnRepointBanned(qualified string) bool {
+	for _, col := range showFKColumnsNeverRepointed {
 		if col == qualified {
 			return true
 		}
@@ -164,6 +218,11 @@ type ShowDedupSummary struct {
 	ShowReportsSkipped int64
 	EnrichmentMoved    int64
 	DuplicateOfRepoint int64
+	// NotifyJobsDropped counts show_notify_queue rows deleted with the loser. It
+	// is a DROP rather than a move (see showFKColumns), and it is reported so a
+	// reviewer can see when a merge discarded a notification that had not gone
+	// out yet, rather than having that happen invisibly under the FK cascade.
+	NotifyJobsDropped int64
 
 	// History tables, which move through a provenance decision rather than
 	// through the inventory loop. See refsRepointedElsewhere.
@@ -210,6 +269,7 @@ func (s *ShowDedupSummary) Add(other *ShowDedupSummary) {
 	s.ShowReportsSkipped += other.ShowReportsSkipped
 	s.EnrichmentMoved += other.EnrichmentMoved
 	s.DuplicateOfRepoint += other.DuplicateOfRepoint
+	s.NotifyJobsDropped += other.NotifyJobsDropped
 
 	s.PendingEditsMoved += other.PendingEditsMoved
 	s.PendingEditsSkipped += other.PendingEditsSkipped
@@ -426,6 +486,28 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 		return fmt.Errorf("enrichment_queue: %w", res.Error)
 	}
 	summary.EnrichmentMoved += res.RowsAffected
+
+	// show_notify_queue is DROPPED, not re-pointed. See its entry in
+	// showFKColumns for the argument: the row means "already considered for
+	// follower notification", its UNIQUE is on show_id alone so it cannot be
+	// moved onto a winner that has one, and moving it onto a winner that has none
+	// would let a merge announce a show that predates the feature. Deleting it
+	// explicitly rather than leaving it to the FK cascade keeps this function's
+	// stated invariant true — every foreign key to shows.id is handled here — so
+	// the delete below can go on meaning "nothing was silently destroyed".
+	res = tx.Exec(`DELETE FROM show_notify_queue WHERE show_id = ?`, loserID)
+	if res.Error != nil {
+		return fmt.Errorf("show_notify_queue: %w", res.Error)
+	}
+	summary.NotifyJobsDropped += res.RowsAffected
+	if res.RowsAffected > 0 {
+		// Logged per-show for the same reason show_reports is: this can be the only
+		// notification the event would ever have received (see showFKColumns), and
+		// "which show went quiet" is not a question the aggregate counter can answer.
+		logDroppedEntityRefs(
+			mergeEntityShow, winnerID, loserID,
+			map[string]int64{"show_notify_queue": res.RowsAffected})
+	}
 
 	// shows.duplicate_of_show_id is the self-reference, so the winner's own row
 	// has to be excluded: a winner already flagged as a duplicate of the loser
@@ -659,6 +741,16 @@ func moveShowFKRows(tx *gorm.DB, table, showCol, dedupeOn string, winnerID, lose
 	if !showFKColumnListed(table + "." + showCol) {
 		return 0, 0, fmt.Errorf(
 			"move show fk rows: %s.%s is not in showFKColumns, so it has no recorded disposition",
+			table, showCol)
+	}
+	// Being in the inventory is necessary but not sufficient: some columns are
+	// recorded there BECAUSE the completeness guard demands it, while their
+	// disposition is "drop", not "move". Without this second check, adding such a
+	// column to the inventory silently granted permission to re-point it.
+	if showFKColumnRepointBanned(table + "." + showCol) {
+		return 0, 0, fmt.Errorf(
+			"move show fk rows: %s.%s is recorded as drop-only in showFKColumnsNeverRepointed "+
+				"and must not be re-pointed; see its entry in showFKColumns for why",
 			table, showCol)
 	}
 	if winnerID == 0 || loserID == 0 {
