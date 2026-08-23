@@ -661,6 +661,12 @@ jobs:
         run: bunx playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
         env:
           CI: true
+          # Pin the blob filename. Playwright's default name inserts a
+          # command hash whenever any CLI filter is used (--grep, --project,
+          # --only-changed, a positional path) and zero-pads the shard index
+          # at 10+ shards; either would silently break e2e-report's
+          # per-shard blob check, which looks these names up exactly.
+          PLAYWRIGHT_BLOB_OUTPUT_NAME: report-${{ matrix.shardIndex }}.zip
 
       - name: Upload blob report
         # always() uploads a blob that exists even when the JOB was cancelled
@@ -689,9 +695,9 @@ jobs:
     timeout-minutes: 10
     env:
       # The one place this job encodes the shard count; must match
-      # strategy.matrix.shardTotal in e2e-tests. Playwright zero-pads blob
-      # names to the digit width of the total (report-01.zip at 10+); the
-      # Count shard blobs step derives names with the same padding rule.
+      # strategy.matrix.shardTotal in e2e-tests. Blob filenames are pinned
+      # to report-<shardIndex>.zip at the producer (PLAYWRIGHT_BLOB_OUTPUT_NAME
+      # on the shard test step), so no Playwright naming rule can drift them.
       EXPECTED_SHARDS: 4
     steps:
       - uses: actions/checkout@v4
@@ -710,25 +716,26 @@ jobs:
           merge-multiple: true
 
       # Counted on the pristine downloaded tree, BEFORE merge-reports runs:
-      # merge-reports extracts every blob's attachments into this same
-      # directory, and trace attachments are themselves .zip files, so a
-      # post-merge count would measure Playwright's extraction layout instead
-      # of shard completeness (four all-green main runs went red exactly that
-      # way). -maxdepth 1 mirrors merge-reports' own non-recursive readdir:
-      # if the blobs ever nest (upload path change, merge-multiple dropped),
-      # the merge consumes nothing, so this guard must fail loudly too rather
-      # than count blobs the merge cannot see.
+      # merge-reports extracts each blob's attachments into
+      # all-blob-reports/resources/, and trace attachments are themselves
+      # .zip files, so a post-merge recursive count measures Playwright's
+      # extraction layout instead of shard completeness (four all-green main
+      # runs went red exactly that way). -maxdepth 1 matches the depth of
+      # merge-reports' own non-recursive readdir, so if the blobs ever nest
+      # (upload path change, merge-multiple dropped) this guard fails loudly
+      # instead of counting blobs the merge cannot see. The report-* prefix
+      # is stricter than merge's plain .zip filter; that is deliberate
+      # belt-and-braces, not a mirror.
       - name: Count shard blobs
         # The id is load-bearing: Require a blob from every shard reads these
-        # outputs by name; if it is renamed, that step's missing-count check
-        # fails closed.
+        # outputs by name; if it is renamed, that step's outcome check fails
+        # closed.
         id: shard-blobs
         run: |
           count=$(find all-blob-reports -maxdepth 1 -type f -name 'report-*.zip' | wc -l | tr -d ' ')
           missing=''
           for i in $(seq 1 "$EXPECTED_SHARDS"); do
-            name=$(printf 'report-%0*d.zip' "${#EXPECTED_SHARDS}" "$i")
-            [ -e "all-blob-reports/$name" ] || missing="$missing $name"
+            [ -e "all-blob-reports/report-$i.zip" ] || missing="$missing report-$i.zip"
           done
           missing="${missing# }"
           echo "count=$count" >> "$GITHUB_OUTPUT"
@@ -749,23 +756,33 @@ jobs:
       # writes at end-of-run), and merge-reports silently publishes a
       # complete-looking report over the missing shard. The count comes from
       # the pre-merge Count shard blobs step but is asserted here, AFTER the
-      # merge and upload, on purpose: the (partial) report for the surviving
-      # shards is the only per-test output CI produces, so it must publish
-      # first; then the job goes red here, the gap is named, and
-      # notify-main-failure fires. always() keeps the named-gap diagnostic
-      # alive even when a corrupt blob kills the merge step itself, and the
-      # non-numeric check fails closed if the Count step never ran (an empty
-      # value would otherwise make the [ -ne ] comparison error out and the
-      # step pass green).
+      # merge and upload, on purpose: when the merge succeeds, the (partial)
+      # report for the surviving shards publishes first; a merge crash
+      # yields no merged report and the diagnostic below is the only signal.
+      # !cancelled() keeps that diagnostic alive when an earlier step fails
+      # (skipping only on run cancellation), and the outcome + non-numeric
+      # checks fail closed if the Count step never produced a count (an
+      # empty value would otherwise make the [ -ne ] comparison error out
+      # and the step pass green).
       - name: Require a blob from every shard
-        if: ${{ always() }}
+        if: ${{ !cancelled() }}
         env:
+          COUNT_OUTCOME: ${{ steps.shard-blobs.outcome }}
           COUNT: ${{ steps.shard-blobs.outputs.count }}
           MISSING: ${{ steps.shard-blobs.outputs.missing }}
         run: |
+          if [ "$COUNT_OUTCOME" != "success" ]; then
+            echo "::error::the Count shard blobs step did not complete (outcome: '$COUNT_OUTCOME'); an earlier step failed, or the shard-blobs step id changed. Shard completeness is unverified for this run"
+            exit 1
+          fi
+          case "$EXPECTED_SHARDS" in
+            ''|*[!0-9]*|0)
+              echo "::error::EXPECTED_SHARDS is missing, non-numeric, or zero ('$EXPECTED_SHARDS'); set it in the e2e-report job env"
+              exit 1 ;;
+          esac
           case "$COUNT" in
             ''|*[!0-9]*)
-              echo "::error::shard blob count is missing or non-numeric ('$COUNT'); the Count shard blobs step did not run or its id changed"
+              echo "::error::shard blob count is missing or non-numeric ('$COUNT'); the shard-blobs step output is malformed"
               exit 1 ;;
           esac
           if [ -n "$MISSING" ]; then
