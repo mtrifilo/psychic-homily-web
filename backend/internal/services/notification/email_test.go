@@ -140,8 +140,65 @@ func TestSendVerificationEmail_Success(t *testing.T) {
 	email := <-emails
 	assert.Contains(t, email.From, "noreply@test.com")
 	assert.Equal(t, []string{"user@test.com"}, email.To)
-	assert.Contains(t, email.Subject, "Verify your email")
+	assert.Equal(t, "Verify your email", email.Subject)
 	assert.Contains(t, email.Html, "http://localhost:3000/verify-email?token=abc-token-123")
+}
+
+// TestSendVerificationEmail_Structure pins the parts of the rendered template
+// that carry meaning: the framing, the alerts-first body, and the two ways a
+// recipient can reach the link. Copy edits should update these assertions
+// deliberately.
+func TestSendVerificationEmail_Structure(t *testing.T) {
+	svc, emails, _ := setupEmailTest(t)
+
+	require.NoError(t, svc.SendVerificationEmail("user@test.com", "abc-token-123"))
+	body := (<-emails).Html
+
+	assert.Contains(t, body, "PSYCHIC HOMILY", "masthead")
+	assert.Contains(t, body, "YOUR ACCOUNT · PENDING VERIFICATION", "kicker")
+	assert.Contains(t, body, "Verify your email.", "headline")
+	assert.Contains(t, body, "A verified email is what lets the index reach you.", "body lead")
+	assert.Contains(t, body, "alerts for the artists and venues you follow", "alerts-first framing")
+	assert.Contains(t, body, "THIS LINK EXPIRES IN 24 HOURS", "expiry note")
+	assert.Contains(t, body, "Not you? Ignore this email and nothing happens.", "reassurance")
+	assert.Contains(t, body, "If the button fails, paste this link into your browser:",
+		"plain-link fallback label")
+
+	// The link appears twice: once as the button href, once as pasteable text.
+	assert.Equal(t, 2,
+		strings.Count(body, "http://localhost:3000/verify-email?token=abc-token-123"),
+		"button href plus plain-link fallback")
+
+	// Design-system palette, inlined as hex because email cannot read CSS vars.
+	for _, hex := range []string{"#f4f1ea", "#1a1714", "#6b5e4f", "#cabe9f", "#d2541b"} {
+		assert.Contains(t, body, hex, "expected DS color %s", hex)
+	}
+
+	// Truth boundary. No send path gates alert delivery on email_verified:
+	// sendFilterEmail resolves a recipient with a bare email lookup and never
+	// reads the flag, and the only enforcement anywhere is show submission in
+	// the catalog create handler. So the copy may say what a verified address is
+	// for, and may claim submission in the present tense, but must not claim that
+	// verifying switches alert delivery on. Loosen these only alongside a send
+	// path that actually checks the flag.
+	assert.Contains(t, body, "will land", "alert benefit stays future-tense")
+	assert.Contains(t, body, "unlocks submitting shows",
+		"submission gating is real, so it can be claimed in the present tense")
+	assert.NotContains(t, body, "switch on email alerts",
+		"claims verification activates alert delivery; nothing enforces that")
+	assert.NotContains(t, body, "Once verified, you can",
+		"present-tense mechanism claim")
+	assert.NotContains(t, body, "YOUR ALERTS",
+		"kicker must not imply alerts are held pending verification")
+
+	// The pre-redesign template said this; the rebuilt one must not.
+	assert.NotContains(t, body, "Arizona music calendar")
+	assert.NotContains(t, body, "Verify Your Email Address")
+	assert.NotContains(t, body, "#f97316", "stale orange")
+
+	// Owner mandate: no em dashes in user-facing copy.
+	assert.NotContains(t, body, "\u2014", "em dash")
+	assert.NotContains(t, body, "&mdash;", "em dash entity")
 }
 
 func TestSendVerificationEmail_NotConfigured(t *testing.T) {
