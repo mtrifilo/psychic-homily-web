@@ -84,15 +84,23 @@ func (s *EmailService) SendVerificationEmail(toEmail, token string) error {
 
 // verificationEmailHTML builds the body of the verification email.
 //
-// The copy leads with alerts rather than with submissions because that is what
-// a verified address actually unlocks first for a new account: following
-// artists and venues and hearing about their shows. Submitting is the second
-// reason, not the headline.
+// The copy leads with alerts because reaching people about shows is the point
+// of an address on file, but it stays on the right side of one line: it says
+// what a verified address is FOR, never that verifying switches delivery on.
+// Nothing in the product gates alert delivery on the flag. The show-alert
+// sender resolves a recipient with a bare email lookup in sendFilterEmail and
+// never reads email_verified; the only place the flag actually blocks anything
+// is show submission, in the catalog create handler. So "it unlocks submitting
+// shows" is a present-tense promise the code keeps, and the alert sentence is
+// deliberately future-tense.
+//
+// If alert delivery ever does start gating on verification, this paragraph can
+// make the stronger claim. Until then it must not.
 func verificationEmailHTML(verifyURL string) string {
 	body := emailHeadline("Verify your email.") +
 		emailParagraph("A verified email is what lets the index reach you. "+
-			"Once verified, you can switch on email alerts for the artists and "+
-			"venues you follow, and submit shows to the shared calendar.") +
+			"It is where alerts for the artists and venues you follow will "+
+			"land, and it unlocks submitting shows to the shared calendar.") +
 		emailButton(verifyURL, "Verify email") +
 		emailMonoNote("THIS LINK EXPIRES IN 24 HOURS") +
 		emailFineprint([]string{
@@ -101,7 +109,7 @@ func verificationEmailHTML(verifyURL string) string {
 			verifyURL,
 		})
 
-	return emailShell("YOUR ALERTS · PENDING VERIFICATION", body)
+	return emailShell("YOUR ACCOUNT · PENDING VERIFICATION", body)
 }
 
 // SendMagicLinkEmail sends a magic link login email to the user

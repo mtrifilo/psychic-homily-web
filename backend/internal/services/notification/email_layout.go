@@ -111,10 +111,10 @@ func emailShell(kicker, bodyRows string) string {
 // hands the remainder to the rule.
 //
 // nowrap makes the kicker the table's minimum width, so it has a length budget:
-// roughly 34 characters, which is about 250px at 11px mono plus the 12px gutter,
+// roughly 35 characters, which is about 255px at 11px mono plus the 12px gutter,
 // against the ~270px a 320px phone leaves after the mobile padding. Past that
 // the frame starts scrolling sideways. Keep new kickers at or under the length
-// of "YOUR ALERTS · PENDING VERIFICATION" or give the rule its own wrapping
+// of "YOUR ACCOUNT · PENDING VERIFICATION" or give the rule its own wrapping
 // treatment first.
 func emailMasthead(kicker string) string {
 	return fmt.Sprintf(`<tr>

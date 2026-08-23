@@ -155,10 +155,10 @@ func TestSendVerificationEmail_Structure(t *testing.T) {
 	body := (<-emails).Html
 
 	assert.Contains(t, body, "PSYCHIC HOMILY", "masthead")
-	assert.Contains(t, body, "YOUR ALERTS · PENDING VERIFICATION", "kicker")
+	assert.Contains(t, body, "YOUR ACCOUNT · PENDING VERIFICATION", "kicker")
 	assert.Contains(t, body, "Verify your email.", "headline")
 	assert.Contains(t, body, "A verified email is what lets the index reach you.", "body lead")
-	assert.Contains(t, body, "switch on email alerts", "alerts-first framing")
+	assert.Contains(t, body, "alerts for the artists and venues you follow", "alerts-first framing")
 	assert.Contains(t, body, "THIS LINK EXPIRES IN 24 HOURS", "expiry note")
 	assert.Contains(t, body, "Not you? Ignore this email and nothing happens.", "reassurance")
 	assert.Contains(t, body, "If the button fails, paste this link into your browser:",
@@ -173,6 +173,23 @@ func TestSendVerificationEmail_Structure(t *testing.T) {
 	for _, hex := range []string{"#f4f1ea", "#1a1714", "#6b5e4f", "#cabe9f", "#d2541b"} {
 		assert.Contains(t, body, hex, "expected DS color %s", hex)
 	}
+
+	// Truth boundary. No send path gates alert delivery on email_verified:
+	// sendFilterEmail resolves a recipient with a bare email lookup and never
+	// reads the flag, and the only enforcement anywhere is show submission in
+	// the catalog create handler. So the copy may say what a verified address is
+	// for, and may claim submission in the present tense, but must not claim that
+	// verifying switches alert delivery on. Loosen these only alongside a send
+	// path that actually checks the flag.
+	assert.Contains(t, body, "will land", "alert benefit stays future-tense")
+	assert.Contains(t, body, "unlocks submitting shows",
+		"submission gating is real, so it can be claimed in the present tense")
+	assert.NotContains(t, body, "switch on email alerts",
+		"claims verification activates alert delivery; nothing enforces that")
+	assert.NotContains(t, body, "Once verified, you can",
+		"present-tense mechanism claim")
+	assert.NotContains(t, body, "YOUR ALERTS",
+		"kicker must not imply alerts are held pending verification")
 
 	// The pre-redesign template said this; the rebuilt one must not.
 	assert.NotContains(t, body, "Arizona music calendar")
