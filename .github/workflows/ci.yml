@@ -703,6 +703,23 @@ jobs:
           pattern: blob-report-*
           merge-multiple: true
 
+      # Counted on the pristine downloaded tree, BEFORE merge-reports runs:
+      # merge-reports extracts every blob's attachments into this same
+      # directory, and trace attachments are themselves .zip files, so a
+      # post-merge count measures Playwright's extraction layout instead of
+      # shard completeness (four all-green main runs went red exactly that
+      # way). The pristine tree contains nothing but the shard blobs, so a
+      # recursive count stays correct even if the artifact nesting changes.
+      - name: Count shard blobs
+        id: shard-blobs
+        run: |
+          count=$(find all-blob-reports -type f -name '*.zip' | wc -l)
+          missing=$(for i in 1 2 3 4; do
+            find all-blob-reports -type f -name "report-$i.zip" | grep -q . || printf 'report-%s.zip ' "$i"
+          done)
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "missing=$missing" >> "$GITHUB_OUTPUT"
+
       - name: Merge into HTML report
         working-directory: ./frontend
         run: bunx playwright merge-reports --reporter html ../all-blob-reports
@@ -716,23 +733,20 @@ jobs:
 
       # A shard killed mid-run writes no blob at all (the blob reporter only
       # writes at end-of-run), and merge-reports silently publishes a
-      # complete-looking report over the missing shard. This assert runs
-      # AFTER the merge and upload on purpose: the (partial) report for the
-      # surviving shards is the only per-test output CI produces, so it must
-      # publish first; then the job goes red here, the gap is named, and
+      # complete-looking report over the missing shard. The count comes from
+      # the pre-merge Count shard blobs step but is asserted here, AFTER the
+      # merge and upload, on purpose: the (partial) report for the surviving
+      # shards is the only per-test output CI produces, so it must publish
+      # first; then the job goes red here, the gap is named, and
       # notify-main-failure fires.
-      # Keep the expected count in sync with strategy.matrix.shardTotal in
-      # e2e-tests (currently 4).
-      # -maxdepth 1 is load-bearing: merge-reports extracts each blob's
-      # attachments into a resources/ subdirectory INSIDE the input dir, and
-      # trace attachments are themselves .zip files, so a run where any test
-      # retried would otherwise count extra zips and fail all-green runs.
-      # The shard blobs land flat at the top level (merge-multiple: true).
+      # Keep the expected count here and the shard loop in Count shard blobs
+      # in sync with strategy.matrix.shardTotal in e2e-tests (currently 4).
       - name: Require a blob from every shard
         run: |
-          count=$(find all-blob-reports -maxdepth 1 -name '*.zip' | wc -l)
+          count='${{ steps.shard-blobs.outputs.count }}'
+          missing='${{ steps.shard-blobs.outputs.missing }}'
           if [ "$count" -ne 4 ]; then
-            echo "::error::expected 4 shard blobs, found $count; either a shard died before writing its report, or the shard count changed without updating this guard"
+            echo "::error::expected 4 shard blobs, found $count${missing:+ (missing: $missing)}; either a shard died before writing its report, the shard count changed without updating this guard, or the blob upload layout changed"
             exit 1
           fi
 
