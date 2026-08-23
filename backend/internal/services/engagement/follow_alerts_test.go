@@ -26,7 +26,7 @@ import (
 func boolPtr(b bool) *bool { return &b }
 
 // shippedAlertDefaults is the account matrix a user who has configured nothing
-// resolves to — the shipped defaults, which is what a NULL alert_defaults
+// resolves to: the shipped defaults, which is what a NULL alert_defaults
 // column means (PSY-1907). Most cases below are about the per-follow layer, so
 // they hold the account layer at its untouched value.
 func shippedAlertDefaults() authm.AccountAlertDefaults {
@@ -56,7 +56,7 @@ func TestDefaultFollowAlertPreference_ScopeAxis(t *testing.T) {
 
 // PSY-1907: the channels a follow inherits come from the ACCOUNT matrix, so a
 // user who turned email on (or in-app off) in settings gets that on every
-// follow they never configured — no data migration, no stamped rows.
+// follow they never configured, with no data migration and no stamped rows.
 func TestDefaultFollowAlertPreference_TakesChannelsFromAccountMatrix(t *testing.T) {
 	raw := json.RawMessage(`{"shows":{"email":true},"releases":{"in_app":false}}`)
 	account := authm.ResolveAccountAlertDefaults(&raw)
@@ -724,7 +724,7 @@ func (suite *FollowServiceIntegrationTestSuite) setAccountAlertDefaults(userID u
 }
 
 // PSY-1907: the account matrix is the layer a follow with no overrides
-// inherits, so changing it in settings reaches follows that already exist —
+// inherits, so changing it in settings reaches follows that already exist,
 // including the ones made before the setting was ever touched.
 func (suite *FollowServiceIntegrationTestSuite) TestFollowAlerts_InheritAccountDefaults() {
 	user := suite.createTestUser()

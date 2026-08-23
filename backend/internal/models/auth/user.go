@@ -116,8 +116,8 @@ type UserPreferences struct {
 	HomeMetro *string `json:"home_metro" gorm:"column:home_metro;size:10"`
 
 	// AlertDefaults is the account-level alert matrix, per alert type x channel.
-	// NULL, and any absent key inside it, mean "inherit the shipped defaults" —
-	// see ResolveAccountAlertDefaults in alert_defaults.go for why absent has to
+	// NULL, and any absent key inside it, mean "inherit the shipped defaults".
+	// See ResolveAccountAlertDefaults in alert_defaults.go for why absent has to
 	// stay representable.
 	AlertDefaults *json.RawMessage `json:"alert_defaults" gorm:"column:alert_defaults;type:jsonb"`
 

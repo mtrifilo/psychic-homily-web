@@ -218,8 +218,8 @@ func TestSetAlertDefaultsHandler_PartialUpdateReachesServiceAsPointers(t *testin
 	}
 }
 
-// An explicit false is a real override and must not be mistaken for "unset" —
-// this is the exact cell where a bool-shaped API would lose the user's choice.
+// An explicit false is a real override and must not be mistaken for "unset".
+// This is the exact cell where a bool-shaped API would lose the user's choice.
 func TestSetAlertDefaultsHandler_ExplicitFalseIsAnOverride(t *testing.T) {
 	var got authm.AccountAlertDefaultsUpdate
 	h := alertPrefsHandler(&testhelpers.MockUserService{

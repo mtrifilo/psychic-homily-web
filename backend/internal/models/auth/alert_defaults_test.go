@@ -92,7 +92,7 @@ func TestMergeAccountAlertDefaults_EveryChannelRoundTrips(t *testing.T) {
 }
 
 // A partial write must leave the cells it does not mention ABSENT, not pinned
-// at today's resolved value — otherwise the first toggle a user touches would
+// at today's resolved value. Otherwise the first toggle a user touches would
 // freeze the shipped defaults into their row forever.
 func TestMergeAccountAlertDefaults_LeavesUnmentionedChannelsAbsent(t *testing.T) {
 	merged, err := MergeAccountAlertDefaults(nil, AccountAlertDefaultsUpdate{
@@ -150,7 +150,7 @@ func TestMergeAccountAlertDefaults_EmptyUpdateWritesNothing(t *testing.T) {
 
 // This column has exactly one writer, so an unparseable value is corruption
 // rather than a sibling's data, and the write path is the only chance to
-// repair it — quietly, rather than locking the user out of their settings.
+// repair it quietly, rather than locking the user out of their settings.
 func TestMergeAccountAlertDefaults_RepairsUnparseableDocument(t *testing.T) {
 	stored := json.RawMessage(`not json`)
 

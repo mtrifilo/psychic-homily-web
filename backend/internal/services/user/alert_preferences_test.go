@@ -16,7 +16,7 @@ import (
 
 // PSY-1907: home area + account-level alert defaults, against a real database.
 // These need Postgres because the behaviour under test is about what the
-// COLUMN holds — NULL versus a stored false — which is exactly what an
+// COLUMN holds (NULL versus a stored false), which is exactly what an
 // in-memory fake would paper over.
 
 type AlertPreferencesIntegrationTestSuite struct {

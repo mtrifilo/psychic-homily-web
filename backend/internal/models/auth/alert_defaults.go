@@ -18,7 +18,7 @@ import (
 //
 //	shipped defaults  ->  account defaults  ->  per-follow overrides
 //
-// and at EVERY layer ABSENT MEANS INHERIT — the same philosophy PSY-1893 gave
+// and at EVERY layer ABSENT MEANS INHERIT, the same philosophy PSY-1893 gave
 // the per-follow layer. A NULL column, a missing alert type and a missing
 // channel key are all "inherit", never "false". That is why this is a JSONB
 // document and not a grid of boolean columns: a bool has no third state, so a
@@ -192,7 +192,7 @@ func MergeAccountAlertDefaults(raw *json.RawMessage, update AccountAlertDefaults
 	byType, err := decodeAlertJSONObject(raw)
 	if err != nil {
 		// This column has exactly one writer, so an unparseable value is not a
-		// sibling's data to protect — it is corruption, and the write path is
+		// sibling's data to protect. It is corruption, and the write path is
 		// the only chance to repair it.
 		byType = map[string]json.RawMessage{}
 	}

@@ -15,8 +15,8 @@ import (
 
 // Account-level alert preferences (PSY-1907).
 //
-// One read serves the whole account alerts surface — the home area and the
-// resolved alert matrix — because both are edited on the same settings card and
+// One read serves the whole account alerts surface (the home area and the
+// resolved alert matrix), because both are edited on the same settings card and
 // the matrix is only meaningful next to the area that its near-me scope depends
 // on. Writes stay one endpoint per preference, matching every sibling in
 // user_preferences.go, and both return the full resolved state so the client
@@ -47,7 +47,7 @@ func (h *UserPreferencesHandler) GetAlertPreferencesHandler(ctx context.Context,
 }
 
 // SetHomeMetroRequest replaces the user's home area. Omitting metro, or sending
-// null or an empty string, clears it — this is a PUT, so the body is the whole
+// null or an empty string, clears it. This is a PUT, so the body is the whole
 // new value.
 type SetHomeMetroRequest struct {
 	Body struct {

@@ -24,7 +24,7 @@ import (
 const homeMetroMaxLength = 10
 
 // GetAlertPreferences returns the user's home area and RESOLVED account alert
-// matrix. A user with no preferences row is not an error — they simply have no
+// matrix. A user with no preferences row is not an error: they simply have no
 // home area and inherit every shipped default, which is exactly what a NULL
 // alert_defaults resolves to.
 func (s *UserService) GetAlertPreferences(userID uint) (*authm.AlertPreferences, error) {
@@ -53,8 +53,8 @@ func (s *UserService) GetAlertPreferences(userID uint) (*authm.AlertPreferences,
 // venues.metro and artists.metro. Anything else is rejected rather than stored,
 // because a home metro that no venue can ever match would make near-me scoping
 // deliver nothing while looking configured. The dataset is US CBSA only, so a
-// non-US user cannot set a home area today — the same limit venues already
-// carry, and it degrades correctly: no home area means near-me falls back to
+// non-US user cannot set a home area today. That is the same limit venues
+// already carry, and it degrades correctly: no home area means near-me falls back to
 // everywhere (engagement.EffectiveShowScope) instead of silently delivering
 // nothing.
 func (s *UserService) SetHomeMetro(userID uint, metro *string) error {
@@ -194,7 +194,7 @@ func (s *UserService) upsertPreference(
 // GORM omits a zero value for any field carrying a `default` tag, so the
 // opt-out booleans insert as TRUE and the opt-in ones as FALSE exactly as the
 // migrations declare, instead of all landing on Go's false. The two alert
-// columns are nullable pointers precisely so they stay OUT of that mechanism —
+// columns are nullable pointers precisely so they stay OUT of that mechanism:
 // NULL there is a meaningful value ("inherit"), not an artefact of a zero value.
 func upsertUserPreferences(db *gorm.DB, prefs *authm.UserPreferences, column string) error {
 	err := db.Clauses(clause.OnConflict{
