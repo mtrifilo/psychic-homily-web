@@ -133,8 +133,13 @@ export function CheckInboxInterstitial({
         </Button>
       </div>
 
+      {/*
+        The failure branch announces itself through `role="alert"`, so the
+        success branch needs a live region too. Without one a screen-reader
+        user gets silence on the happy path and only hears about the sad one.
+      */}
       {resend.isSuccess && (
-        <p className="text-sm text-success-foreground">
+        <p role="status" className="text-sm text-success-foreground">
           Sent again. Give it a minute to arrive.
         </p>
       )}

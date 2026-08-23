@@ -118,7 +118,9 @@ describe('CheckInboxInterstitial', () => {
         <CheckInboxInterstitial email="listener@example.com" returnTo="/" />
       )
 
-      expect(screen.getByText(/Sent again/)).toBeInTheDocument()
+      // Announced, not just rendered: the failure branch is a live region, so
+      // the success branch has to be one too.
+      expect(screen.getByRole('status')).toHaveTextContent('Sent again.')
     })
 
     it('disables the button while a resend is in flight', () => {

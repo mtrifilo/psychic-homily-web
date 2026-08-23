@@ -616,7 +616,7 @@ function AuthPageContent() {
   // Redirect if already authenticated.
   //
   // A just-registered user IS authenticated, so the interstitial has to hold
-  // this back — otherwise the redirect fires the instant `setUser` lands and
+  // this back. Otherwise the redirect fires the instant `setUser` lands and
   // the user never learns an email is waiting. On a reload `registeredEmail`
   // is gone and the redirect resumes, so the state cannot strand anyone.
   useEffect(() => {
