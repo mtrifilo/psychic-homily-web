@@ -723,9 +723,14 @@ jobs:
       # notify-main-failure fires.
       # Keep the expected count in sync with strategy.matrix.shardTotal in
       # e2e-tests (currently 4).
+      # -maxdepth 1 is load-bearing: merge-reports extracts each blob's
+      # attachments into a resources/ subdirectory INSIDE the input dir, and
+      # trace attachments are themselves .zip files, so a run where any test
+      # retried would otherwise count extra zips and fail all-green runs.
+      # The shard blobs land flat at the top level (merge-multiple: true).
       - name: Require a blob from every shard
         run: |
-          count=$(find all-blob-reports -name '*.zip' | wc -l)
+          count=$(find all-blob-reports -maxdepth 1 -name '*.zip' | wc -l)
           if [ "$count" -ne 4 ]; then
             echo "::error::expected 4 shard blobs, found $count; either a shard died before writing its report, or the shard count changed without updating this guard"
             exit 1
