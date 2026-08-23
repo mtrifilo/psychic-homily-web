@@ -46,8 +46,10 @@ const (
 
 // Storage keys for the alert_defaults document. They are deliberately equal to
 // contracts.FollowAlertTypeShows / FollowAlertTypeReleases so a stored document
-// reads the same as a follow's settings document; the two must stay in step and
-// TestAlertDefaultKeysMatchFollowAlertTypes is what notices if they drift.
+// reads the same as a follow's settings document, and the two must stay in
+// step. TestAccountAlertChannelsFor_KeysMatchFollowAlertTypes is what notices
+// if they drift; it lives in services/engagement, not here, because this
+// package cannot import contracts (contracts imports this one).
 const (
 	alertDefaultsKeyShows    = "shows"
 	alertDefaultsKeyReleases = "releases"

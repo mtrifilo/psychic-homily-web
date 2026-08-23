@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/geo"
 )
@@ -70,10 +71,11 @@ func (s *UserService) SetHomeMetro(userID uint, metro *string) error {
 			// and so an over-long value cannot reach a VARCHAR(10) column if
 			// this validation is ever loosened.
 			if len(trimmed) > homeMetroMaxLength {
-				return fmt.Errorf("unknown metro: value exceeds %d characters", homeMetroMaxLength)
+				return autherrors.ErrUnknownHomeMetro(
+					fmt.Sprintf("code is longer than %d characters", homeMetroMaxLength))
 			}
 			if _, ok := geo.MetroPrincipalByCBSA(trimmed); !ok {
-				return fmt.Errorf("unknown metro: %s", trimmed)
+				return autherrors.ErrUnknownHomeMetro(trimmed)
 			}
 			value = &trimmed
 		}
@@ -96,35 +98,41 @@ func (s *UserService) SetAccountAlertDefaults(userID uint, update authm.AccountA
 		return nil
 	}
 
+	// Create the row first, if it is not already there, so the merge below
+	// ALWAYS has a row to lock. Without this the first-ever write has nothing
+	// to take a lock on, and two concurrent first writes would each merge from
+	// NULL and the loser would overwrite the winner's whole document rather
+	// than only its own cell: a settings card saving two alert types at once
+	// would report success and silently drop one of them.
+	if err := ensureUserPreferencesRow(s.db, userID); err != nil {
+		return err
+	}
+
 	// Row lock, then read-modify-write in Go. The merge has to preserve alert
 	// types and channels this update does not mention, so it needs the current
 	// document; locking it keeps a concurrent sibling write from being lost
 	// between the read and the write.
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		var prefs authm.UserPreferences
-		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("user_id = ?", userID).
-			Take(&prefs).Error
-		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			Take(&prefs).Error; err != nil {
+			// Not-found is a real failure now: the row was just ensured, so its
+			// absence means it was deleted underneath us (account deletion).
 			return fmt.Errorf("failed to load user preferences: %w", err)
 		}
-		missingRow := errors.Is(err, gorm.ErrRecordNotFound)
 
-		merged, mergeErr := authm.MergeAccountAlertDefaults(prefs.AlertDefaults, update)
-		if mergeErr != nil {
-			return fmt.Errorf("failed to merge alert defaults: %w", mergeErr)
+		merged, err := authm.MergeAccountAlertDefaults(prefs.AlertDefaults, update)
+		if err != nil {
+			return fmt.Errorf("failed to merge alert defaults: %w", err)
 		}
 		if merged == nil {
 			// SetsNothing() already covered this; belt and braces so a future
 			// axis cannot start writing an empty document by accident.
 			return nil
 		}
-		raw := json.RawMessage(merged)
 
-		if missingRow {
-			prefs := authm.UserPreferences{UserID: userID, AlertDefaults: &raw}
-			return upsertUserPreferences(tx, &prefs, "alert_defaults")
-		}
+		raw := json.RawMessage(merged)
 		if err := tx.Model(&authm.UserPreferences{}).
 			Where("user_id = ?", userID).
 			Update("alert_defaults", &raw).Error; err != nil {
@@ -132,6 +140,18 @@ func (s *UserService) SetAccountAlertDefaults(userID uint, update authm.AccountA
 		}
 		return nil
 	})
+}
+
+// ensureUserPreferencesRow creates the user's preferences row if it has none,
+// leaving every column at its DDL default. DO NOTHING rather than DO UPDATE:
+// this call must never change a value, only guarantee that a row exists for a
+// caller that is about to lock and merge one.
+func ensureUserPreferencesRow(db *gorm.DB, userID uint) error {
+	prefs := authm.UserPreferences{UserID: userID}
+	if err := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&prefs).Error; err != nil {
+		return fmt.Errorf("failed to create user preferences: %w", err)
+	}
+	return nil
 }
 
 // upsertPreference updates one column on the user's preferences row, creating

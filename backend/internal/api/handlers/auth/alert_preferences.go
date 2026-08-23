@@ -2,11 +2,13 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/api/middleware"
+	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	authm "psychic-homily-backend/internal/models/auth"
 )
@@ -66,10 +68,16 @@ func (h *UserPreferencesHandler) SetHomeMetroHandler(ctx context.Context, req *S
 			"user_id", user.ID,
 			"request_id", logger.GetRequestID(ctx),
 		)
-		// An unrecognized CBSA is the expected failure and is a client error;
-		// 422 matches every sibling preference write in this package.
-		return nil, huma.Error422UnprocessableEntity(
-			fmt.Sprintf("Failed to save home metro: %s", err.Error()),
+		// Only a rejected value is a client error. A failed write is not, and
+		// reporting one as a 422 would tell the user their input was bad, stop
+		// the client retrying, and log a 4xx for a server fault. The service
+		// error text is never returned either: it can carry driver detail.
+		var authErr *autherrors.AuthError
+		if errors.As(err, &authErr) && authErr.Code == autherrors.CodeUnknownHomeMetro {
+			return nil, huma.Error422UnprocessableEntity(authErr.Message)
+		}
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to save home metro (request_id: %s)", logger.GetRequestID(ctx)),
 		)
 	}
 
@@ -150,6 +158,13 @@ func alertChannelUpdate(input *AlertChannelDefaultsInput) *authm.AlertChannelDef
 // it changed.
 func (h *UserPreferencesHandler) alertPreferencesResponse(ctx context.Context, userID uint) (*AlertPreferencesResponse, error) {
 	prefs, err := h.userService.GetAlertPreferences(userID)
+	// A nil result with a nil error is a broken implementation, not a state
+	// this endpoint can render: every real user resolves to at least the
+	// shipped defaults. Treat it as the server fault it is rather than
+	// dereferencing it.
+	if err == nil && prefs == nil {
+		err = fmt.Errorf("alert preferences resolved to nothing")
+	}
 	if err != nil {
 		logger.FromContext(ctx).Error("get_alert_preferences_failed",
 			"error", err.Error(),

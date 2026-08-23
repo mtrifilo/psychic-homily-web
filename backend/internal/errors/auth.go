@@ -46,6 +46,11 @@ const (
 	CodeInvalidReplyPermission = "INVALID_REPLY_PERMISSION"
 	// CodeUsernameTaken indicates a username unique-constraint violation on profile update.
 	CodeUsernameTaken = "USERNAME_TAKEN"
+	// CodeUnknownHomeMetro indicates a home-area metro code that does not resolve
+	// in the CBSA dataset venue and artist metros are drawn from. Typed so the
+	// handler can tell a rejected value from a failed write, which must not both
+	// report "your input was invalid".
+	CodeUnknownHomeMetro = "UNKNOWN_HOME_METRO"
 )
 
 // AuthError represents an authentication-related error with additional context.
@@ -205,6 +210,15 @@ func ErrAgeConfirmationRequired(detail string) *AuthError {
 // ErrInvalidReplyPermission creates an invalid default-reply-permission error.
 func ErrInvalidReplyPermission(permission string) *AuthError {
 	return NewAuthError(CodeInvalidReplyPermission, "Invalid reply permission", fmt.Errorf("invalid reply_permission: %s", permission))
+}
+
+// ErrUnknownHomeMetro creates a rejected-home-metro error. detail stays in the
+// internal error: it is caller-supplied text, and the user-facing message says
+// what to do about it without echoing anything back.
+func ErrUnknownHomeMetro(detail string) *AuthError {
+	return NewAuthError(CodeUnknownHomeMetro,
+		"That is not a metro we recognize. Pick one from the list.",
+		fmt.Errorf("unknown home metro: %s", detail))
 }
 
 // ErrUsernameTaken creates a username unique-constraint-violation error.

@@ -3,9 +3,11 @@ package auth
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 )
 
@@ -130,7 +132,7 @@ func TestSetHomeMetroHandler_AbsentMetroClears(t *testing.T) {
 func TestSetHomeMetroHandler_UnknownMetroIs422(t *testing.T) {
 	h := alertPrefsHandler(&testhelpers.MockUserService{
 		SetHomeMetroFn: func(uint, *string) error {
-			return errors.New("unknown metro: 99999")
+			return autherrors.ErrUnknownHomeMetro("99999")
 		},
 	})
 
@@ -140,6 +142,43 @@ func TestSetHomeMetroHandler_UnknownMetroIs422(t *testing.T) {
 
 	_, err := h.SetHomeMetroHandler(authedAlertCtx(), req)
 	testhelpers.AssertHumaError(t, err, 422)
+	if strings.Contains(err.Error(), "99999") {
+		t.Errorf("the rejected value must stay in the logs, not the response: %v", err)
+	}
+}
+
+// A failed WRITE is not a rejected value. Reporting one as a 422 would tell the
+// user their input was bad, stop the client retrying, and record a 4xx for a
+// server fault, and echoing the error would leak driver text.
+func TestSetHomeMetroHandler_WriteFailureIs500(t *testing.T) {
+	h := alertPrefsHandler(&testhelpers.MockUserService{
+		SetHomeMetroFn: func(uint, *string) error {
+			return errors.New("failed to update home_metro: pq: connection reset by peer")
+		},
+	})
+
+	metro := "38060"
+	req := &SetHomeMetroRequest{}
+	req.Body.Metro = &metro
+
+	_, err := h.SetHomeMetroHandler(authedAlertCtx(), req)
+	testhelpers.AssertHumaError(t, err, 500)
+	if strings.Contains(err.Error(), "pq:") {
+		t.Errorf("driver text must not reach the client: %v", err)
+	}
+}
+
+// A nil result with a nil error is a broken implementation, not something to
+// render: dereferencing it would panic the request instead of failing it.
+func TestAlertPreferences_NilResultIs500(t *testing.T) {
+	h := alertPrefsHandler(&testhelpers.MockUserService{
+		GetAlertPreferencesFn: func(uint) (*authm.AlertPreferences, error) {
+			return nil, nil
+		},
+	})
+
+	_, err := h.GetAlertPreferencesHandler(authedAlertCtx(), &GetAlertPreferencesRequest{})
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // The request carries only the cells the user changed; the response carries

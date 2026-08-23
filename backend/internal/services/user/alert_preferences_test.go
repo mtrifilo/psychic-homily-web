@@ -2,12 +2,14 @@ package user
 
 import (
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
+	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -125,8 +127,14 @@ func (suite *AlertPreferencesIntegrationTestSuite) TestSetHomeMetro_RejectsUnkno
 			value := bad
 			err := suite.userService.SetHomeMetro(user.ID, &value)
 			suite.Require().Error(err)
-			suite.Contains(err.Error(), "unknown metro")
-			suite.Less(len(err.Error()), 200, "the error must not echo an unbounded value")
+
+			// Typed, so the handler can tell a rejected VALUE from a failed
+			// WRITE and answer 422 rather than 500 for exactly one of them.
+			var authErr *autherrors.AuthError
+			suite.Require().ErrorAs(err, &authErr)
+			suite.Equal(autherrors.CodeUnknownHomeMetro, authErr.Code)
+			suite.NotContains(authErr.Message, bad, "the rejected value stays out of the user-facing message")
+			suite.Less(len(err.Error()), 200, "the error must not carry an unbounded value")
 
 			prefs, prefsErr := suite.userService.GetAlertPreferences(user.ID)
 			suite.Require().NoError(prefsErr)
@@ -229,6 +237,43 @@ func (suite *AlertPreferencesIntegrationTestSuite) TestAlertPreferences_HomeMetr
 	suite.Require().NoError(err)
 	suite.Nil(prefs.HomeMetro)
 	suite.True(prefs.AlertDefaults.Shows.Email, "clearing the home area is not clearing the matrix")
+}
+
+// Two first-ever writes for the same user must both survive. Before the row
+// exists there is nothing to lock, so without creating it up front each write
+// would merge from NULL and the loser would overwrite the winner's whole
+// document: an alerts card saving both alert types at once would report
+// success and silently drop one of them.
+func (suite *AlertPreferencesIntegrationTestSuite) TestSetAccountAlertDefaults_ConcurrentFirstWritesBothSurvive() {
+	user := suite.createUser("alerts-defaults-race@example.com")
+
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	updates := []authm.AccountAlertDefaultsUpdate{
+		{Shows: &authm.AlertChannelDefaultsUpdate{Email: boolPtrLocal(true)}},
+		{Releases: &authm.AlertChannelDefaultsUpdate{InApp: boolPtrLocal(false)}},
+	}
+	for i, update := range updates {
+		wg.Add(1)
+		go func(i int, update authm.AccountAlertDefaultsUpdate) {
+			defer wg.Done()
+			errs[i] = suite.userService.SetAccountAlertDefaults(user.ID, update)
+		}(i, update)
+	}
+	wg.Wait()
+	for _, err := range errs {
+		suite.Require().NoError(err)
+	}
+
+	prefs, err := suite.userService.GetAlertPreferences(user.ID)
+	suite.Require().NoError(err)
+	suite.True(prefs.AlertDefaults.Shows.Email, "the shows write survived")
+	suite.False(prefs.AlertDefaults.Releases.InApp, "the releases write survived")
+
+	var rows int64
+	suite.Require().NoError(suite.db.Model(&authm.UserPreferences{}).
+		Where("user_id = ?", user.ID).Count(&rows).Error)
+	suite.EqualValues(1, rows, "exactly one preferences row")
 }
 
 // A preferences row created by an alert write must still get the DDL defaults
