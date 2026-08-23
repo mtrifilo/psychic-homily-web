@@ -140,8 +140,48 @@ func TestSendVerificationEmail_Success(t *testing.T) {
 	email := <-emails
 	assert.Contains(t, email.From, "noreply@test.com")
 	assert.Equal(t, []string{"user@test.com"}, email.To)
-	assert.Contains(t, email.Subject, "Verify your email")
+	assert.Equal(t, "Verify your email", email.Subject)
 	assert.Contains(t, email.Html, "http://localhost:3000/verify-email?token=abc-token-123")
+}
+
+// TestSendVerificationEmail_Structure pins the parts of the rendered template
+// that carry meaning: the framing, the alerts-first body, and the two ways a
+// recipient can reach the link. Copy edits should update these assertions
+// deliberately.
+func TestSendVerificationEmail_Structure(t *testing.T) {
+	svc, emails, _ := setupEmailTest(t)
+
+	require.NoError(t, svc.SendVerificationEmail("user@test.com", "abc-token-123"))
+	body := (<-emails).Html
+
+	assert.Contains(t, body, "PSYCHIC HOMILY", "masthead")
+	assert.Contains(t, body, "YOUR ALERTS · PENDING VERIFICATION", "kicker")
+	assert.Contains(t, body, "Verify your email.", "headline")
+	assert.Contains(t, body, "A verified email is what lets the index reach you.", "body lead")
+	assert.Contains(t, body, "switch on email alerts", "alerts-first framing")
+	assert.Contains(t, body, "THIS LINK EXPIRES IN 24 HOURS", "expiry note")
+	assert.Contains(t, body, "Not you? Ignore this email and nothing happens.", "reassurance")
+	assert.Contains(t, body, "If the button fails, paste this link into your browser:",
+		"plain-link fallback label")
+
+	// The link appears twice: once as the button href, once as pasteable text.
+	assert.Equal(t, 2,
+		strings.Count(body, "http://localhost:3000/verify-email?token=abc-token-123"),
+		"button href plus plain-link fallback")
+
+	// Design-system palette, inlined as hex because email cannot read CSS vars.
+	for _, hex := range []string{"#f4f1ea", "#1a1714", "#6b5e4f", "#cabe9f", "#d2541b"} {
+		assert.Contains(t, body, hex, "expected DS color %s", hex)
+	}
+
+	// The pre-redesign template said this; the rebuilt one must not.
+	assert.NotContains(t, body, "Arizona music calendar")
+	assert.NotContains(t, body, "Verify Your Email Address")
+	assert.NotContains(t, body, "#f97316", "stale orange")
+
+	// Owner mandate: no em dashes in user-facing copy.
+	assert.NotContains(t, body, "\u2014", "em dash")
+	assert.NotContains(t, body, "&mdash;", "em dash entity")
 }
 
 func TestSendVerificationEmail_NotConfigured(t *testing.T) {
