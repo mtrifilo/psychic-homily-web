@@ -46,12 +46,16 @@ vi.mock('@/features/auth', () => ({
   }),
 }))
 
+// Mutable so a test can flip the viewer to authenticated mid-signup, which is
+// what the real `useRegister` does when it awaits a profile refetch.
+let mockAuthState = {
+  setUser: vi.fn(),
+  isAuthenticated: false,
+  isLoading: false,
+}
+
 vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => ({
-    setUser: vi.fn(),
-    isAuthenticated: false,
-    isLoading: false,
-  }),
+  useAuthContext: () => mockAuthState,
 }))
 
 vi.mock('@/app/auth/_components/passkey-login', () => ({
@@ -70,12 +74,12 @@ vi.mock('@/app/auth/_components/google-oauth-button', () => ({
 
 async function renderSignupForm() {
   const user = userEvent.setup()
-  renderWithProviders(<AuthPage />)
+  const rendered = renderWithProviders(<AuthPage />)
 
   // Switch to the signup tab (Radix unmounts inactive tab content)
   await user.click(screen.getByRole('tab', { name: 'Create account' }))
 
-  return { user }
+  return { user, rerender: () => rendered.rerender(<AuthPage />) }
 }
 
 // --- Tests ---
@@ -84,6 +88,11 @@ describe('SignupForm deferred validation', () => {
   beforeEach(() => {
     mockPush.mockReset()
     mockRegisterMutate.mockReset()
+    mockAuthState = {
+      setUser: vi.fn(),
+      isAuthenticated: false,
+      isLoading: false,
+    }
   })
 
   it('renders form fields without validation errors initially', async () => {
@@ -261,7 +270,7 @@ describe('SignupForm deferred validation', () => {
   // learns a verification email is already waiting.
   describe('post-signup handoff', () => {
     async function submitValidSignup() {
-      const { user } = await renderSignupForm()
+      const { user, rerender } = await renderSignupForm()
 
       await user.type(screen.getByLabelText('Email'), 'test@example.com')
       await user.type(screen.getByLabelText('Password'), 'validPassword123!')
@@ -273,16 +282,20 @@ describe('SignupForm deferred validation', () => {
         expect(mockRegisterMutate).toHaveBeenCalled()
       })
 
-      return mockRegisterMutate.mock.calls[0][1] as {
-        onSuccess: (data: unknown) => void
+      return {
+        rerender,
+        callbacks: mockRegisterMutate.mock.calls[0][1] as {
+          onSuccess: (data: unknown) => void
+          onError: (error: unknown) => void
+        },
       }
     }
 
     it('shows the interstitial for the registered address instead of navigating', async () => {
-      const options = await submitValidSignup()
+      const { callbacks } = await submitValidSignup()
 
       act(() => {
-        options.onSuccess({
+        callbacks.onSuccess({
           user: { id: '1', email: 'test@example.com' },
         })
       })
@@ -294,11 +307,58 @@ describe('SignupForm deferred validation', () => {
       expect(mockPush).not.toHaveBeenCalled()
     })
 
-    it('leaves the form in place when the response carries no user', async () => {
-      const options = await submitValidSignup()
+    // The redirect race this closes is real: `useRegister` awaits a full
+    // profile refetch inside its own onSuccess, so the viewer is already
+    // authenticated before this component's onSuccess ever runs. Claiming the
+    // page at submit rather than at success is what keeps the redirect from
+    // firing in that window.
+    it('holds back the already-authenticated redirect while the request is in flight', async () => {
+      const { rerender } = await submitValidSignup()
+
+      // The session now exists, but the register callback has not run yet.
+      mockAuthState = {
+        setUser: vi.fn(),
+        isAuthenticated: true,
+        isLoading: false,
+      }
+      act(() => {
+        rerender()
+      })
+
+      await waitFor(() => {
+        expect(mockRegisterMutate).toHaveBeenCalled()
+      })
+      expect(mockPush).not.toHaveBeenCalled()
+    })
+
+    it('releases the page back to the redirect when registration fails', async () => {
+      const { callbacks, rerender } = await submitValidSignup()
 
       act(() => {
-        options.onSuccess({ success: true })
+        callbacks.onError(new Error('Email already registered'))
+      })
+      mockAuthState = {
+        setUser: vi.fn(),
+        isAuthenticated: true,
+        isLoading: false,
+      }
+      act(() => {
+        rerender()
+      })
+
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith('/')
+      })
+    })
+
+    // Documents pre-existing behavior rather than endorsing it: a `success`
+    // response with no user leaves the form untouched with no error shown.
+    // Worth fixing, but it predates the interstitial and is not this change.
+    it('leaves the form in place when the response carries no user', async () => {
+      const { callbacks } = await submitValidSignup()
+
+      act(() => {
+        callbacks.onSuccess({ success: true })
       })
 
       expect(

@@ -52,6 +52,19 @@ describe('CheckInboxInterstitial', () => {
     expect(screen.getByText(/expires in 24 hours/)).toBeInTheDocument()
   })
 
+  // This surface replaces the signup card in place, so it gets none of the
+  // App Router's route announcement and the focused submit button unmounts
+  // underneath the user. Without moving focus, submitting signup is silent.
+  it('takes focus on its heading so the swap is announced', () => {
+    renderWithProviders(
+      <CheckInboxInterstitial email="listener@example.com" returnTo="/" />
+    )
+
+    expect(
+      screen.getByRole('heading', { name: 'Check your inbox.' })
+    ).toHaveFocus()
+  })
+
   it('states what is open before verifying without promising alerts', () => {
     renderWithProviders(
       <CheckInboxInterstitial email="listener@example.com" returnTo="/" />

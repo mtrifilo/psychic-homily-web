@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { Loader2 } from 'lucide-react'
 import { useSendVerificationEmail } from '@/features/auth'
@@ -69,6 +70,16 @@ export function CheckInboxInterstitial({
   returnTo,
 }: CheckInboxInterstitialProps) {
   const resend = useSendVerificationEmail()
+  const headingRef = useRef<HTMLHeadingElement>(null)
+
+  // This surface replaces the signup card in place rather than navigating, so
+  // it inherits none of the App Router's route announcement, and the submit
+  // button that had focus unmounts underneath the user. Without this a screen
+  // reader user hears nothing and a keyboard user is dropped at the top of the
+  // document with no sign that the account was created.
+  useEffect(() => {
+    headingRef.current?.focus()
+  }, [])
 
   // returnTo decision (PSY-1878): a user sent to /auth mid-task still needs to
   // be told an email is waiting, so the interstitial always shows. What changes
@@ -86,7 +97,11 @@ export function CheckInboxInterstitial({
         One email sent · one click to finish
       </p>
 
-      <h1 className="font-display text-[26px] font-bold leading-tight text-foreground">
+      <h1
+        ref={headingRef}
+        tabIndex={-1}
+        className="font-display text-[26px] font-bold leading-tight text-foreground focus:outline-none"
+      >
         Check your inbox.
       </h1>
 

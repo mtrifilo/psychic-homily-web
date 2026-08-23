@@ -195,6 +195,19 @@ describe('AuthPage', () => {
       expect(screen.getByText('Sign in to your account')).toBeInTheDocument()
       expect(mockPush).not.toHaveBeenCalled()
     })
+
+    // Radix unmounts the signup panel on the tab change, destroying the button
+    // that had focus. Without handing focus to the tab list first, the click
+    // drops a keyboard user at the top of the document.
+    it('moves focus to the sign-in tab rather than dropping it', async () => {
+      const user = userEvent.setup()
+      renderWithProviders(<AuthPage />)
+
+      await user.click(screen.getByRole('tab', { name: 'Create account' }))
+      await user.click(screen.getByRole('button', { name: 'Sign in' }))
+
+      expect(screen.getByRole('tab', { name: 'Sign in' })).toHaveFocus()
+    })
   })
 
   describe('OAuth / URL error banner', () => {
