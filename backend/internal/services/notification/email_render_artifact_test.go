@@ -26,8 +26,9 @@ func TestRenderEmailArtifact(t *testing.T) {
 	svc, emails, _ := setupEmailTest(t)
 	svc.frontendURL = "https://psychichomily.com"
 
-	// A realistic verification JWT, so the plain-link fallback is exercised at
-	// the length recipients will actually see.
+	// A fabricated token, signature and all. It is here only to give the
+	// plain-link fallback a string of the length real recipients will see, so
+	// the wrapping can be judged; it verifies against nothing.
 	token := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9." +
 		"eyJzdWIiOiI0MjEiLCJwdXJwb3NlIjoiZW1haWxfdmVyaWZpY2F0aW9uIiwiZXhwIjoxNzcyMDAwMDAwfQ." +
 		"qN3sQ7bXk1r8mZ0vD2wLpYtH5cA9fJgU6eR4iO1nS8k"
