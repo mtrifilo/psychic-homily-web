@@ -31,7 +31,6 @@ function makeEntry(overrides: Partial<LinkSuggestionEntry> = {}): LinkSuggestion
     confidence: 'high',
     region_match: true,
     live: true,
-    notes: null,
     status: 'pending',
     created_at: '2026-06-23T12:00:00Z',
     ...overrides,

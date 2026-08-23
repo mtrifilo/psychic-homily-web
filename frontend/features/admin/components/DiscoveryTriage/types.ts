@@ -9,68 +9,45 @@
  * the PSY-1190 profile→embed resolver, which runs server-side async).
  * Reject just marks the row. Both stamp the reviewer and are idempotent on
  * replay; a re-review with a *different* verdict is a 409.
+ *
+ * The wire shapes below are generated, not hand-written — regenerate with
+ * `bun run api:types`.
  */
+import type { components } from '@/types/api'
 
-/** Streaming platform a suggestion targets. */
+/**
+ * Streaming platform a suggestion targets. A DOCUMENTATION type, not a wire
+ * type: the OpenAPI document types `platform` as a plain string, so the
+ * generated entry carries `string` and this records the value domain.
+ */
 export type LinkSuggestionPlatform = 'bandcamp' | 'spotify'
 
 /**
- * Region confidence tier (PSY-1191 semantics, carried through the sweep):
- * `high` = the MusicBrainz candidate's geography aligned with a PH show
- * region; `review` = region mismatch, non-US, or no PH region to compare —
- * a possible touring act or namesake the admin should VERIFY before linking.
- *
- * `review` is NEVER a gate and is NEVER auto-accepted or hidden: the row is
- * still surfaced and the admin can still accept it. The tier only flags the
- * lower certainty so the reviewer slows down.
- */
-export type LinkSuggestionConfidence = 'high' | 'review'
-
-/**
  * One pending suggestion in the review queue, joined to its artist for
- * direct rendering. Mirrors `contracts.LinkSuggestionEntry`. Shape is
- * LOCKED.
+ * direct rendering. Shape is LOCKED.
+ *
+ * `confidence` is the region confidence tier (PSY-1191 semantics, carried
+ * through the sweep): `high` = the MusicBrainz candidate's geography aligned
+ * with a PH show region; `review` = region mismatch, non-US, or no PH region
+ * to compare — a possible touring act or namesake the admin should VERIFY
+ * before linking. `review` is NEVER a gate and is NEVER auto-accepted or
+ * hidden: the row is still surfaced and the admin can still accept it. The
+ * tier only flags the lower certainty so the reviewer slows down. The spec
+ * types the field as a plain string, so it is not a union here.
  */
-export interface LinkSuggestionEntry {
-  id: number
-  artist_id: number
-  artist_name: string
-  artist_slug?: string | null
-  platform: LinkSuggestionPlatform
-  url: string
-  source: string
-  mb_artist_id?: string | null
-  mb_artist_name?: string | null
-  confidence: LinkSuggestionConfidence
-  region_match: boolean
-  live: boolean
-  notes?: string | null
-  /** Always `pending` in the list response. */
-  status: string
-  created_at: string
-}
+export type LinkSuggestionEntry = components['schemas']['LinkSuggestionEntry']
 
 /**
- * Paginated review-queue response. Mirrors
- * `contracts.LinkSuggestionListResult`. Shape is LOCKED.
+ * Paginated review-queue response. Shape is LOCKED.
+ *
+ * `suggestions` is nullable on the wire: the Go field is
+ * `[]LinkSuggestionEntry` with no `omitempty`, so a nil slice marshals to
+ * JSON `null`, not `[]`. Consumers must guard.
  */
-export interface LinkSuggestionListResult {
-  suggestions: LinkSuggestionEntry[]
-  total: number
-}
+export type LinkSuggestionListResult = components['schemas']['LinkSuggestionListResult']
 
-/**
- * Response from accept/reject. Mirrors
- * `contracts.LinkSuggestionReviewResult`. Shape is LOCKED.
- */
-export interface LinkSuggestionReviewResult {
-  id: number
-  artist_id: number
-  /** Resulting status: `accepted` or `rejected`. */
-  status: string
-  reviewed_at?: string | null
-  reviewed_by_user_id?: number | null
-}
+/** Response from accept/reject. Shape is LOCKED. */
+export type LinkSuggestionReviewResult = components['schemas']['LinkSuggestionReviewResult']
 
 /**
  * Pagination default. Backend caps `limit` at 200; the UI uses 25 so the

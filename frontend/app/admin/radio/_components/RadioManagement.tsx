@@ -89,6 +89,7 @@ import {
   type RadioStationDetail,
   type RadioShowListItem,
   type RadioSyncRun,
+  type RadioSyncRunStatus,
   type RadioStationHealth,
   type RadioLifecycleState,
   type CreateRadioStationInput,
@@ -864,13 +865,27 @@ function PlaysMatchSummary({
 // Status display config for a sync run (PSY-1136). `partial` = imported data but
 // hit per-episode/match errors (the old "completed with errors"); `skipped` = the
 // station circuit breaker was open.
-const SYNC_RUN_STATUS_DISPLAY: Record<RadioSyncRun['status'], { label: string; color: string }> = {
+// `run.status` is typed `string` by the generated schema (the OpenAPI document
+// does not enumerate the enum). Keying by the documented value domain keeps
+// adding a known status a compile error, and `syncRunStatusDisplay` confines
+// the resulting widening to one place: an unrecognised status degrades to its
+// raw wire value instead of crashing on `undefined.color`.
+const SYNC_RUN_STATUS_DISPLAY: Record<RadioSyncRunStatus, { label: string; color: string }> = {
   running: { label: 'running', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
   success: { label: 'success', color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' },
   partial: { label: 'completed with errors', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' },
   failed: { label: 'failed', color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' },
   skipped: { label: 'skipped (breaker)', color: 'bg-muted text-muted-foreground' },
   cancelled: { label: 'cancelled', color: 'bg-muted text-muted-foreground' },
+}
+
+function syncRunStatusDisplay(status: RadioSyncRun['status']) {
+  return (
+    SYNC_RUN_STATUS_DISPLAY[status as RadioSyncRunStatus] ?? {
+      label: status,
+      color: 'bg-muted text-muted-foreground',
+    }
+  )
 }
 
 function SyncRunStatusIcon({ status }: { status: RadioSyncRun['status'] }) {
@@ -883,8 +898,10 @@ function SyncRunStatusIcon({ status }: { status: RadioSyncRun['status'] }) {
       return <AlertCircle className="h-4 w-4 text-amber-500" />
     case 'failed':
       return <AlertCircle className="h-4 w-4 text-destructive" />
-    case 'skipped':
-    case 'cancelled':
+    // skipped, cancelled, and — since `status` is `string` on the wire — any
+    // value this build does not know, which still needs a glyph rather than a
+    // hole in the row.
+    default:
       return <XCircle className="h-4 w-4 text-muted-foreground" />
   }
 }
@@ -901,7 +918,8 @@ export function SyncRunRow({ run }: { run: RadioSyncRun }) {
 
   const isActive = run.status === 'running'
   const isTerminalGood = run.status === 'success' || run.status === 'partial'
-  const display = SYNC_RUN_STATUS_DISPLAY[run.status]
+  const display =
+    syncRunStatusDisplay(run.status)
   const progress = run.episodes_found > 0
     ? Math.round((run.episodes_imported / run.episodes_found) * 100)
     : 0
@@ -1126,6 +1144,13 @@ function StationSyncRunFeed({ stationId }: { stationId: number }) {
 
 // One compact cross-station failure row: station + status + when + a one-line error
 // summary, clickable to open the station's detail.
+//
+// A run is NOT guaranteed to have a station: `station_id` / `station_name` carry
+// `omitempty` on the Go DTO and are deliberately absent on global rematch runs,
+// which have no station scope. The hand-written type declared both as required
+// until PSY-1600, so such a row rendered an EMPTY station label and its click
+// silently no-opped (`stations.find(s => s.id === undefined)` never matches).
+// A station-less row is now labelled and rendered as a non-interactive div.
 function GlobalFailureRow({
   run,
   onOpen,
@@ -1133,19 +1158,17 @@ function GlobalFailureRow({
   run: RadioSyncRun
   onOpen: (stationId: number) => void
 }) {
-  const display = SYNC_RUN_STATUS_DISPLAY[run.status]
+  const display = syncRunStatusDisplay(run.status)
   const firstError = run.errors?.[0]
   const extraErrors = (run.errors?.length ?? 0) - 1
-  return (
-    <button
-      type="button"
-      onClick={() => onOpen(run.station_id)}
-      className="w-full rounded-lg border p-3 text-left hover:bg-muted/50 transition-colors"
-    >
+  // Narrowed into a local so the check survives into the onClick closure.
+  const stationId = run.station_id
+  const body = (
+    <>
       <div className="flex items-center gap-2">
         <SyncRunStatusIcon status={run.status} />
         <Badge className={display.color}>{display.label}</Badge>
-        <span className="font-medium">{run.station_name}</span>
+        <span className="font-medium">{run.station_name ?? 'All stations'}</span>
         <span className="text-xs uppercase tracking-wide text-muted-foreground">{run.run_type}</span>
         <span className="ml-auto text-xs text-muted-foreground">
           {new Date(run.started_at).toLocaleString()}
@@ -1158,6 +1181,20 @@ function GlobalFailureRow({
           {extraErrors > 0 ? ` (+${extraErrors} more)` : ''}
         </p>
       )}
+    </>
+  )
+
+  if (stationId === undefined) {
+    return <div className="rounded-lg border p-3">{body}</div>
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(stationId)}
+      className="w-full rounded-lg border p-3 text-left hover:bg-muted/50 transition-colors"
+    >
+      {body}
     </button>
   )
 }
@@ -2238,6 +2275,7 @@ function UnmatchedPlayRow({
   successMessage: string | undefined
 }) {
   const suggestions = group.suggested_matches ?? []
+  const stationNames = group.station_names ?? []
 
   return (
     <tr className="hover:bg-muted/30 transition-colors">
@@ -2249,7 +2287,7 @@ function UnmatchedPlayRow({
       </td>
       <td className="px-4 py-3">
         <div className="flex flex-wrap gap-1">
-          {group.station_names.map((name) => (
+          {stationNames.map((name) => (
             <Badge key={name} variant="outline" className="text-xs">
               {name}
             </Badge>

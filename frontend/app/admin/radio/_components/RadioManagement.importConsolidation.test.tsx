@@ -24,6 +24,10 @@ const listItem: RadioStationListItem = {
   logo_url: null,
   is_active: true,
   show_count: 1,
+  network_id: null,
+  network_slug: null,
+  network: null,
+  sibling_stations: null,
 }
 
 const show: RadioShowListItem = {
@@ -37,8 +41,11 @@ const show: RadioShowListItem = {
   image_url: null,
   is_active: true,
   schedule_locked: false,
+  schedule_display: null,
   lifecycle_state: 'active',
   latest_air_date: null,
+  latest_starts_at: null,
+  latest_ends_at: null,
   episode_count: 3,
 }
 

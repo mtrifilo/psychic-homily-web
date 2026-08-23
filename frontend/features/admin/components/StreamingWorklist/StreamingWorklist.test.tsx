@@ -115,7 +115,8 @@ describe('StreamingWorklist', () => {
 
   it('falls back to the artist ID when no slug is present', () => {
     mockWorklistData({
-      entries: [makeEntry({ artist_id: 42, artist_slug: null })],
+      // `*string` + `omitempty`: an absent slug is omitted, never `null`.
+      entries: [makeEntry({ artist_id: 42, artist_slug: undefined })],
       total: 1,
     })
 

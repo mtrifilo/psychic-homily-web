@@ -6,6 +6,7 @@
  */
 
 import type { ArtistResponse } from '@/features/shows'
+import type { components } from '@/types/api'
 import { formatLocation } from '@/lib/formatLocation'
 
 export interface Venue {
@@ -310,28 +311,21 @@ export interface VenueEditRequest {
 // ============================================================================
 
 /**
- * Unverified venue awaiting admin verification
+ * Unverified venue awaiting admin verification.
+ *
+ * Generated, not hand-written — regenerate with `bun run api:types`. Both of
+ * these are admin-only (the sole consumer is the unverified-venues admin
+ * page), which is why they are aliased here while the public venue shapes in
+ * this file are still hand-written.
  */
-export interface UnverifiedVenue {
-  id: number
-  slug: string
-  name: string
-  address: string | null
-  city: string
-  state: string
-  zipcode: string | null
-  submitted_by: number | null
-  created_at: string
-  show_count: number
-}
+export type UnverifiedVenue = components['schemas']['UnverifiedVenueResponse']
 
 /**
- * Response for admin listing unverified venues
+ * Response for admin listing unverified venues. `venues` is nullable on the
+ * wire (Go slice, no `omitempty`); consumers must guard.
  */
-export interface UnverifiedVenuesResponse {
-  venues: UnverifiedVenue[]
-  total: number
-}
+export type UnverifiedVenuesResponse =
+  components['schemas']['GetUnverifiedVenuesResponseBody']
 
 // ============================================================================
 // Venue Genre Profile Types
