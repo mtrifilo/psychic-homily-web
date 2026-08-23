@@ -12,12 +12,17 @@ import { useSendVerificationEmail } from '@/features/auth'
 import {
   VERIFICATION_RESEND_COOLDOWN_SECONDS,
   formatResendStatus,
+  isVerificationResendUnauthorized,
   resendStatusAnnouncement,
   useVerificationResendCooldown,
   verificationResendRetryAfter,
 } from '@/features/auth/hooks/useVerificationResendCooldown'
+import { buildAuthHref } from '@/lib/auth-href'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+
+/** Where a reader whose session died mid-gate is sent to get a new one. */
+const SIGN_IN_HREF = buildAuthHref('/shows/submit')
 import { AIFormFiller, ShowForm } from '@/features/shows'
 import type { ExtractedShowData } from '@/lib/types/extraction'
 
@@ -39,6 +44,7 @@ function EmailVerificationRequired() {
   const cooldown = useVerificationResendCooldown()
   const [emailSent, setEmailSent] = useState(false)
   const [sendFailed, setSendFailed] = useState(false)
+  const [sessionExpired, setSessionExpired] = useState(false)
   const status = formatResendStatus(emailSent, cooldown.secondsRemaining)
   const announcement = resendStatusAnnouncement(emailSent, cooldown.isCoolingDown)
 
@@ -56,6 +62,12 @@ function EmailVerificationRequired() {
       if (retryAfter !== null) {
         // Throttled, not broken: park the control rather than raise an alert.
         cooldown.start(retryAfter)
+        return
+      }
+      if (isVerificationResendUnauthorized(error)) {
+        // The session died while this gate sat open. Point at sign-in rather
+        // than a generic failure, and do not page on-call for an expiry.
+        setSessionExpired(true)
         return
       }
       setSendFailed(true)
@@ -102,15 +114,31 @@ function EmailVerificationRequired() {
             </Button>
           </div>
 
-          {/* The seconds are hidden from assistive tech so the live region
-              announces the state, not each tick. See resendStatusAnnouncement. */}
+          {/* Mounted unconditionally: assistive tech announces changes WITHIN a
+              live region already on the page, so a region inserted together
+              with its text is announced unreliably. The visible line ticks once
+              a second and is kept out of the region for the reason in
+              resendStatusAnnouncement. */}
+          <p className="sr-only" role="status">
+            {announcement ?? ''}
+          </p>
+
           {status && (
             <p
-              role="status"
+              aria-hidden="true"
               className="font-mono text-[11px] uppercase tracking-[0.44px] text-primary"
             >
-              <span className="sr-only">{announcement}</span>
-              <span aria-hidden="true">{status}</span>
+              {status}
+            </p>
+          )}
+
+          {sessionExpired && (
+            <p role="alert" className="text-sm text-destructive">
+              Your session has expired.{' '}
+              <Link href={SIGN_IN_HREF} className="underline">
+                Sign in again
+              </Link>{' '}
+              to send the email.
             </p>
           )}
 

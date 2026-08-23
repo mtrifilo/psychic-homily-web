@@ -12,14 +12,35 @@ import { useConfirmVerification, useSendVerificationEmail } from '@/features/aut
 import {
   VERIFICATION_RESEND_COOLDOWN_SECONDS,
   formatResendStatus,
+  isVerificationResendUnauthorized,
   resendStatusAnnouncement,
   useVerificationResendCooldown,
   verificationResendRetryAfter,
 } from '@/features/auth/hooks/useVerificationResendCooldown'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { buildAuthHref } from '@/lib/auth-href'
+import type { ApiError } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 
 const KICKER = 'font-mono text-[11px] uppercase tracking-[0.66px]'
+
+/** Where a reader with no usable session is sent to get one. */
+const SIGN_IN_HREF = buildAuthHref('/profile?tab=settings')
+
+/**
+ * True when the backend judged the token itself bad, rather than failing to
+ * judge it at all.
+ *
+ * `useConfirmVerification` raises an `AuthError` carrying status 400 for every
+ * verdict the backend returns in a 200 body (invalid token, email mismatch,
+ * unknown user). Anything else out of `apiRequest` is a network drop, a 5xx or
+ * a rate limit, where the link may be perfectly good. Telling that reader
+ * their link expired sends them to fetch a replacement that will fail the same
+ * way.
+ */
+function isTokenRejected(error: unknown): boolean {
+  return Boolean(error) && (error as ApiError).status === 400
+}
 
 /**
  * The landing card every /verify-email state renders into.
@@ -148,8 +169,10 @@ function DeadLinkLanding({ reason }: { reason: 'expired' | 'invalid' }) {
   const cooldown = useVerificationResendCooldown()
   const [sent, setSent] = useState(false)
   const [failed, setFailed] = useState(false)
+  const [sessionExpired, setSessionExpired] = useState(false)
   const status = formatResendStatus(sent, cooldown.secondsRemaining)
   const announcement = resendStatusAnnouncement(sent, cooldown.isCoolingDown)
+  const canResend = isAuthenticated && !sessionExpired
 
   const handleSendFreshLink = async () => {
     if (sendVerificationEmail.isPending || cooldown.isCoolingDown) {
@@ -165,6 +188,13 @@ function DeadLinkLanding({ reason }: { reason: 'expired' | 'invalid' }) {
       if (retryAfter !== null) {
         // Throttled, not broken. Park the control instead of alarming anyone.
         cooldown.start(retryAfter)
+        return
+      }
+      if (isVerificationResendUnauthorized(error)) {
+        // The cookie died while this card sat open. Swap in the sign-in route
+        // this component already knows how to render, and do not page on-call
+        // for an expected session expiry.
+        setSessionExpired(true)
         return
       }
       setFailed(true)
@@ -193,7 +223,7 @@ function DeadLinkLanding({ reason }: { reason: 'expired' | 'invalid' }) {
         newest email in your inbox.
       </p>
 
-      {isAuthenticated ? (
+      {canResend ? (
         <Button
           onClick={handleSendFreshLink}
           disabled={sendVerificationEmail.isPending || cooldown.isCoolingDown}
@@ -208,24 +238,34 @@ function DeadLinkLanding({ reason }: { reason: 'expired' | 'invalid' }) {
         // resend endpoint would only 401. Route through sign-in instead of
         // offering a button that cannot work.
         <Button asChild>
-          <Link href="/auth?returnTo=%2Fprofile%3Ftab%3Dsettings">
-            Sign in to send a fresh link
-          </Link>
+          <Link href={SIGN_IN_HREF}>Sign in to send a fresh link</Link>
         </Button>
       )}
 
-      {/* The seconds are hidden from assistive tech so the live region announces
-          the state, not each tick. See resendStatusAnnouncement. */}
+      {/* Mounted unconditionally: assistive tech announces changes WITHIN a
+          live region that is already on the page, so a region inserted together
+          with its text is announced unreliably. The visible line ticks once a
+          second and is hidden from the region for the reason in
+          resendStatusAnnouncement. */}
+      <p className="sr-only" role="status">
+        {announcement ?? ''}
+      </p>
+
       {status && (
-        <p className={`${KICKER} text-primary`} role="status">
-          <span className="sr-only">{announcement}</span>
-          <span aria-hidden="true">{status}</span>
+        <p className={`${KICKER} text-primary`} aria-hidden="true">
+          {status}
         </p>
       )}
 
       {failed && (
         <p className="text-sm text-destructive" role="alert">
           We could not send that email just now. Please try again in a moment.
+        </p>
+      )}
+
+      {sessionExpired && (
+        <p className="text-sm text-destructive" role="alert">
+          Your session has expired. Sign in again to send a fresh link.
         </p>
       )}
     </LandingCard>
@@ -242,6 +282,32 @@ function CheckingLanding() {
         <Loader2 className="size-5 animate-spin text-muted-foreground" />
         One moment.
       </h1>
+    </LandingCard>
+  )
+}
+
+/**
+ * The check did not complete: a dropped connection, a 5xx, a rate limit.
+ *
+ * Kept apart from the dead-link card because the link may be fine. Sending
+ * this reader off for a replacement would waste the one they already hold and
+ * fail again for the same reason, so the only action offered is to retry the
+ * same token.
+ */
+function CheckFailedLanding({ onRetry }: { onRetry: () => void }) {
+  return (
+    <LandingCard tone="destructive">
+      <p className={`${KICKER} text-destructive`}>
+        Contributor record · Check failed
+      </p>
+      <h1 className="font-display text-[26px] font-bold text-foreground">
+        We could not check that link.
+      </h1>
+      <p className="text-sm leading-[22px] text-foreground">
+        Something went wrong on our end, and your link may still be good. Try
+        again in a moment before sending yourself a new one.
+      </p>
+      <Button onClick={onRetry}>Try again</Button>
     </LandingCard>
   )
 }
@@ -266,7 +332,11 @@ function VerifyEmailContent() {
   }
 
   if (confirmVerification.isError) {
-    return <DeadLinkLanding reason="expired" />
+    return isTokenRejected(confirmVerification.error) ? (
+      <DeadLinkLanding reason="expired" />
+    ) : (
+      <CheckFailedLanding onRetry={() => confirmVerification.mutate(token)} />
+    )
   }
 
   if (confirmVerification.isSuccess) {

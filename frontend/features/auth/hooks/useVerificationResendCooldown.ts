@@ -60,22 +60,37 @@ export function formatResendStatus(
 }
 
 /**
+ * True when a resend failed because the session is gone rather than because
+ * the send itself broke.
+ *
+ * Worth separating for two reasons: the reader needs a way forward (sign in
+ * again), not a generic "try later"; and a cookie expiring while a card sat
+ * open is an ordinary event, so it must not page on-call as a Sentry error.
+ */
+export function isVerificationResendUnauthorized(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false
+  }
+  const status = (error as ApiError).status
+  return status === 401 || status === 403
+}
+
+/**
  * What a screen reader should hear, or `null` when there is nothing to say.
  *
- * Deliberately carries no second count. The visible line ticks once a second,
- * and a polite live region whose text changes that often announces sixty times
- * over one cooldown, burying the one fact that matters. This string changes
- * only when the state does, so call sites render it inside the live region and
- * mark the ticking copy `aria-hidden`.
+ * Deliberately carries no second count and does NOT vary with the cooldown.
+ * The visible line ticks once a second, and a polite live region whose text
+ * changes that often announces sixty times over one cooldown. Keying the
+ * announcement off `sent` alone also means the region stays byte-identical
+ * when the wait runs out, so nobody gets "Verification email sent" read back
+ * to them a minute after they sent it, unprompted.
  */
 export function resendStatusAnnouncement(
   sent: boolean,
   isCoolingDown: boolean
 ): string | null {
   if (sent) {
-    return isCoolingDown
-      ? 'Verification email sent. Check your inbox. You can send another in about a minute.'
-      : 'Verification email sent. Check your inbox.'
+    return 'Verification email sent. Check your inbox.'
   }
   if (isCoolingDown) {
     return 'Resend is not available yet. Please wait a moment.'

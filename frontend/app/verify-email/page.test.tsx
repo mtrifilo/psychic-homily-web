@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { apiRequest } from '@/lib/api'
 import VerifyEmailPage from './page'
@@ -104,6 +105,55 @@ describe('VerifyEmailPage', () => {
     ).toBeInTheDocument()
     // The backend's raw failure text never reaches the reader.
     expect(screen.queryByText(/token expired/)).not.toBeInTheDocument()
+  })
+
+  // A dropped connection or a 5xx says nothing about the link. Calling it
+  // expired sends the reader to fetch a replacement that fails the same way.
+  it('does not call the link expired when the check itself failed', async () => {
+    mockApiRequest.mockRejectedValue(
+      Object.assign(new Error('Network request failed'), { status: 503 })
+    )
+
+    renderWithProviders(<VerifyEmailPage />)
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('heading', { name: 'We could not check that link.' })
+      ).toBeInTheDocument()
+    })
+    expect(
+      screen.queryByRole('heading', { name: 'That link has expired.' })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Try again' })
+    ).toBeInTheDocument()
+  })
+
+  it('retries the same token from the check-failed card', async () => {
+    mockApiRequest.mockRejectedValue(
+      Object.assign(new Error('Network request failed'), { status: 503 })
+    )
+
+    renderWithProviders(<VerifyEmailPage />)
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: 'Try again' })
+      ).toBeInTheDocument()
+    })
+    const callsBeforeRetry = mockApiRequest.mock.calls.length
+
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+
+    await waitFor(() => {
+      expect(mockApiRequest.mock.calls.length).toBeGreaterThan(callsBeforeRetry)
+    })
+    expect(mockApiRequest).toHaveBeenLastCalledWith(
+      expect.stringContaining('/auth/verify-email/confirm'),
+      expect.objectContaining({
+        body: JSON.stringify({ token: 'verify-token' }),
+      })
+    )
   })
 
   it('does not claim expiry when the URL carries no token at all', () => {

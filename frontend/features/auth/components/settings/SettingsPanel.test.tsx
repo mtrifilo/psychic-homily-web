@@ -315,7 +315,7 @@ describe('SettingsPanel', () => {
     await user.click(screen.getByRole('button', { name: /Resend verification/ }))
 
     await waitFor(() => {
-      expect(screen.getByRole('status')).toHaveTextContent('Again in 45s')
+      expect(screen.getByText('Again in 45s')).toBeInTheDocument()
     })
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.queryByText(/Rate limit exceeded/)).not.toBeInTheDocument()
@@ -508,7 +508,7 @@ describe('SettingsPanel', () => {
 
     expect(mockSendVerificationMutateAsync).toHaveBeenCalled()
     await waitFor(() => {
-      expect(screen.getByRole('status')).toHaveTextContent('Sent · Again in 60s')
+      expect(screen.getByText('Sent · Again in 60s')).toBeInTheDocument()
     })
     // The control stays on the row so the state reads as a wait, not a vanish.
     expect(

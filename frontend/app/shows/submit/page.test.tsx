@@ -89,19 +89,18 @@ describe('SubmitShowPage verification gate', () => {
       expect.objectContaining({ method: 'POST' })
     )
     await waitFor(() => {
-      expect(screen.getByRole('status')).toHaveTextContent(
-        'Sent · Check your inbox · Resend available in 60s'
-      )
+      expect(
+        screen.getByText('Sent · Check your inbox · Resend available in 60s')
+      ).toBeInTheDocument()
     })
     expect(resendButton()).toBeDisabled()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     // Assistive tech hears the state once, not the per-second tick, so the
-    // announced text carries no second count.
-    expect(
-      screen.getByText(
-        'Verification email sent. Check your inbox. You can send another in about a minute.'
-      )
-    ).toBeInTheDocument()
+    // live region carries no second count and the ticking line is hidden.
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Verification email sent. Check your inbox.'
+    )
+    expect(screen.getByRole('status')).not.toHaveTextContent(/\d/)
     expect(screen.getByText(/Resend available in 60s/)).toHaveAttribute(
       'aria-hidden',
       'true'
@@ -124,14 +123,40 @@ describe('SubmitShowPage verification gate', () => {
     await userEvent.click(resendButton())
 
     await waitFor(() => {
-      expect(screen.getByRole('status')).toHaveTextContent(
-        'Resend available in 30s'
-      )
+      expect(screen.getByText('Resend available in 30s')).toBeInTheDocument()
     })
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.queryByText(/Rate limit exceeded/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/Check your inbox/i)).not.toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Resend is not available yet. Please wait a moment.'
+    )
     expect(resendButton()).toBeDisabled()
+  })
+
+  // A cookie that expired while the gate sat open is an ordinary event, not a
+  // send failure: it gets a way forward and stays out of Sentry.
+  it('points an expired session at sign-in rather than a generic failure', async () => {
+    mockApiRequest.mockRejectedValueOnce(
+      Object.assign(new Error('unauthorized'), { status: 401 })
+    )
+
+    renderWithProviders(<SubmitShowPage />)
+
+    await userEvent.click(resendButton())
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Your session has expired.'
+      )
+    })
+    expect(screen.getByRole('link', { name: 'Sign in again' })).toHaveAttribute(
+      'href',
+      '/auth?returnTo=%2Fshows%2Fsubmit'
+    )
+    expect(
+      screen.queryByText(/We could not send that email just now/)
+    ).not.toBeInTheDocument()
   })
 
   it('shows generic copy on a server failure instead of the backend message', async () => {

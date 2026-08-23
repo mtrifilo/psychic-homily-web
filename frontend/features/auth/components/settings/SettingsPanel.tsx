@@ -8,6 +8,7 @@ import { useSendVerificationEmail, useExportData, useGenerateCLIToken } from '@/
 // by this component's own suite, and the countdown is worth exercising for real.
 import {
   VERIFICATION_RESEND_COOLDOWN_SECONDS,
+  isVerificationResendUnauthorized,
   resendStatusAnnouncement,
   useVerificationResendCooldown,
   verificationResendRetryAfter,
@@ -53,6 +54,7 @@ export function SettingsPanel() {
   const generateCLIToken = useGenerateCLIToken()
   const [emailSent, setEmailSent] = useState(false)
   const [resendFailed, setResendFailed] = useState(false)
+  const [resendSessionExpired, setResendSessionExpired] = useState(false)
   const resendCooldown = useVerificationResendCooldown()
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [cliToken, setCLIToken] = useState<string | null>(null)
@@ -90,6 +92,11 @@ export function SettingsPanel() {
       if (retryAfter !== null) {
         // Throttled, not broken: park the control rather than raise an alert.
         resendCooldown.start(retryAfter)
+        return
+      }
+      if (isVerificationResendUnauthorized(error)) {
+        // Session gone, not a broken send. Say so, and keep it out of Sentry.
+        setResendSessionExpired(true)
         return
       }
       setResendFailed(true)
@@ -183,20 +190,29 @@ export function SettingsPanel() {
                 Resend verification
               </Button>
 
-              {/* The seconds are hidden from assistive tech so the live region
-                  announces the state, not each tick. */}
+              {/* Mounted unconditionally: assistive tech announces changes
+                  WITHIN a live region already on the page, so a region inserted
+                  together with its text is announced unreliably. The seconds
+                  stay out of it so it does not speak once a second. */}
+              <span className="sr-only" role="status">
+                {resendStatusAnnouncement(
+                  emailSent,
+                  resendCooldown.isCoolingDown
+                ) ?? ''}
+              </span>
+
               {resendStatus && (
                 <span
-                  role="status"
+                  aria-hidden="true"
                   className="font-mono text-[11px] uppercase tracking-[0.66px] text-muted-foreground"
                 >
-                  <span className="sr-only">
-                    {resendStatusAnnouncement(
-                      emailSent,
-                      resendCooldown.isCoolingDown
-                    )}
-                  </span>
-                  <span aria-hidden="true">{resendStatus}</span>
+                  {resendStatus}
+                </span>
+              )}
+
+              {resendSessionExpired && (
+                <span role="alert" className="text-sm text-destructive">
+                  Your session has expired. Sign in again to resend.
                 </span>
               )}
 

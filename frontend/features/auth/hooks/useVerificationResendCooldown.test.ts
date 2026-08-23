@@ -3,6 +3,7 @@ import { act, renderHook } from '@testing-library/react'
 import {
   VERIFICATION_RESEND_COOLDOWN_SECONDS,
   formatResendStatus,
+  isVerificationResendUnauthorized,
   resendStatusAnnouncement,
   useVerificationResendCooldown,
   verificationResendRetryAfter,
@@ -26,6 +27,19 @@ describe('verificationResendRetryAfter', () => {
     expect(verificationResendRetryAfter(new Error('boom'))).toBeNull()
     expect(verificationResendRetryAfter(null)).toBeNull()
     expect(verificationResendRetryAfter('429')).toBeNull()
+  })
+})
+
+describe('isVerificationResendUnauthorized', () => {
+  it('recognises a dead session', () => {
+    expect(isVerificationResendUnauthorized({ status: 401 })).toBe(true)
+    expect(isVerificationResendUnauthorized({ status: 403 })).toBe(true)
+  })
+
+  it('leaves throttles and real failures alone', () => {
+    expect(isVerificationResendUnauthorized({ status: 429 })).toBe(false)
+    expect(isVerificationResendUnauthorized({ status: 500 })).toBe(false)
+    expect(isVerificationResendUnauthorized(null)).toBe(false)
   })
 })
 
@@ -58,6 +72,15 @@ describe('resendStatusAnnouncement', () => {
     ] as const) {
       expect(resendStatusAnnouncement(sent, cooling)).not.toMatch(/\d/)
     }
+  })
+
+  // If this varied with the cooldown, the live region would change the moment
+  // the wait ran out and read the confirmation back a minute after the send,
+  // with no user action in between.
+  it('does not change when the cooldown expires after a send', () => {
+    expect(resendStatusAnnouncement(true, true)).toBe(
+      resendStatusAnnouncement(true, false)
+    )
   })
 
   it('distinguishes a confirmed send from a bare wait', () => {
