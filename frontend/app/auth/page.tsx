@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useForm } from '@tanstack/react-form'
@@ -24,6 +24,11 @@ import { PasswordStrengthMeter } from '@/components/ui/password-strength-meter'
 import { PasskeyLoginButton } from '@/app/auth/_components/passkey-login'
 import { PasskeySignupButton } from '@/app/auth/_components/passkey-signup'
 import { GoogleOAuthButton } from '@/app/auth/_components/google-oauth-button'
+import {
+  SignupIntentFooter,
+  SignupIntentPanel,
+} from '@/app/auth/_components/signup-intent-panel'
+import { CheckInboxInterstitial } from '@/app/auth/_components/check-inbox-interstitial'
 import { getUniqueErrors } from '@/lib/utils/formErrors'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION, MIN_SIGNUP_AGE } from '@/lib/legal'
 import {
@@ -308,8 +313,33 @@ function LoginForm({ returnTo }: { returnTo: string }) {
   )
 }
 
-function SignupForm({ returnTo }: { returnTo: string }) {
-  const router = useRouter()
+/**
+ * The signup tab's claim on the page while a registration is in flight or has
+ * just landed.
+ *
+ * Two phases rather than one, because `useRegister` awaits a full
+ * `/auth/profile` refetch inside its own `onSuccess` before this component's
+ * `onSuccess` ever runs. During that await the viewer is already
+ * authenticated, so a one-phase "set the email when it succeeds" handoff would
+ * let the already-authenticated redirect fire first and navigate away from an
+ * interstitial that had not been claimed yet. `pending` is set synchronously
+ * at submit, which closes that window entirely.
+ */
+type SignupHandoff =
+  | { status: 'pending'; email: string }
+  | { status: 'complete'; email: string }
+
+interface SignupFormProps {
+  returnTo: string
+  /**
+   * Reports the signup tab's claim on the page. The page swaps in the
+   * check-your-inbox interstitial rather than navigating, so the address never
+   * has to travel through the URL. `null` releases the claim.
+   */
+  onHandoffChange: (handoff: SignupHandoff | null) => void
+}
+
+function SignupForm({ returnTo, onHandoffChange }: SignupFormProps) {
   const registerMutation = useRegister()
   const { setUser } = useAuthContext()
   const [showPassword, setShowPassword] = useState(false)
@@ -326,6 +356,10 @@ function SignupForm({ returnTo }: { returnTo: string }) {
       ageConfirmed: false,
     } as SignupFormData,
     onSubmit: async ({ value }) => {
+      // Claimed before the request goes out, not after it lands. See the
+      // SignupHandoff doc comment for the redirect race this closes.
+      onHandoffChange({ status: 'pending', email: value.email })
+
       registerMutation.mutate(
         {
           email: value.email,
@@ -338,16 +372,27 @@ function SignupForm({ returnTo }: { returnTo: string }) {
         },
         {
           onSuccess: data => {
-            if (data.user) {
-              setUser({
-                id: data.user.id,
-                email: data.user.email,
-                first_name: data.user.first_name,
-                last_name: data.user.last_name,
-                email_verified: false,
-              })
-              router.push(returnTo)
+            if (!data.user) {
+              // No session to hand off to. Release the claim so the page
+              // behaves exactly as it did before the attempt.
+              onHandoffChange(null)
+              return
             }
+
+            setUser({
+              id: data.user.id,
+              email: data.user.email,
+              first_name: data.user.first_name,
+              last_name: data.user.last_name,
+              email_verified: false,
+            })
+            onHandoffChange({
+              status: 'complete',
+              email: data.user.email || value.email,
+            })
+          },
+          onError: () => {
+            onHandoffChange(null)
           },
         }
       )
@@ -590,6 +635,9 @@ function AuthPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { isAuthenticated, isLoading } = useAuthContext()
+  const [activeTab, setActiveTab] = useState('login')
+  const [signupHandoff, setSignupHandoff] = useState<SignupHandoff | null>(null)
+  const signInTabRef = useRef<HTMLButtonElement>(null)
 
   // Get error from URL query params (e.g., OAuth errors)
   const urlError = safeDecodeQueryParam(searchParams.get('error'))
@@ -597,18 +645,37 @@ function AuthPageContent() {
   // Get returnTo from URL query params (for redirecting after login)
   const returnTo = sanitizeReturnTo(searchParams.get('returnTo'))
 
-  // Redirect if already authenticated
+  // Redirect if already authenticated.
+  //
+  // A registering user becomes authenticated partway through the signup
+  // request, so the signup tab's claim has to hold this back. Otherwise the
+  // redirect fires the moment the session exists and the user never learns an
+  // email is waiting. The claim is in-memory only: on a reload it is gone and
+  // the redirect resumes, so it cannot strand anyone.
   useEffect(() => {
-    if (isAuthenticated && !isLoading) {
+    if (isAuthenticated && !isLoading && !signupHandoff) {
       router.push(returnTo)
     }
-  }, [isAuthenticated, isLoading, router, returnTo])
+  }, [isAuthenticated, isLoading, router, returnTo, signupHandoff])
 
   // Show loading state while checking auth
   if (isLoading) {
     return (
       <div className="flex min-h-[calc(100vh-64px)] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (signupHandoff?.status === 'complete') {
+    return (
+      <div className="flex min-h-[calc(100vh-64px)] items-center justify-center px-4 py-12">
+        <div className="w-full max-w-md">
+          <CheckInboxInterstitial
+            email={signupHandoff.email}
+            returnTo={returnTo}
+          />
+        </div>
       </div>
     )
   }
@@ -647,9 +714,9 @@ function AuthPageContent() {
         {/* Auth Card with Tabs */}
         <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
           <CardHeader className="pb-4">
-            <Tabs defaultValue="login" className="w-full">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
               <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="login">Sign in</TabsTrigger>
+                <TabsTrigger ref={signInTabRef} value="login">Sign in</TabsTrigger>
                 <TabsTrigger value="signup">Create account</TabsTrigger>
               </TabsList>
 
@@ -666,12 +733,24 @@ function AuthPageContent() {
               </TabsContent>
 
               <TabsContent value="signup" className="mt-6">
-                <CardTitle className="text-lg">Create an account</CardTitle>
-                <CardDescription className="mt-1">
-                  Sign up to submit shows and join the community
-                </CardDescription>
+                <SignupIntentPanel />
+                <div className="mt-6">
+                  <SignupForm
+                    returnTo={returnTo}
+                    onHandoffChange={setSignupHandoff}
+                  />
+                </div>
                 <div className="mt-4">
-                  <SignupForm returnTo={returnTo} />
+                  <SignupIntentFooter
+                    onSignInClick={() => {
+                      // Radix unmounts this panel on the tab change, taking the
+                      // focused button with it. The tab list itself never
+                      // unmounts, so hand focus over first and land the user
+                      // where clicking the tab directly would have.
+                      signInTabRef.current?.focus()
+                      setActiveTab('login')
+                    }}
+                  />
                 </div>
               </TabsContent>
             </Tabs>

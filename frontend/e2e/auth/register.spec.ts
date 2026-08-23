@@ -7,7 +7,7 @@ const REGISTER_USER = {
 }
 
 test.describe('Registration', () => {
-  test('registers a new account and redirects to home', { tag: '@smoke' }, async ({ page }) => {
+  test('registers a new account and lands on the check-your-inbox interstitial', { tag: '@smoke' }, async ({ page }) => {
     await page.goto('/auth')
 
     // Switch to signup tab
@@ -26,12 +26,23 @@ test.describe('Registration', () => {
     // Submit
     await page.getByRole('button', { name: 'Create account' }).click()
 
-    // Redirects away from /auth on success
-    await page.waitForURL((url) => !url.pathname.startsWith('/auth'), {
-      timeout: 15_000,
-    })
+    // PSY-1900: signup no longer navigates on success. The card is replaced
+    // in place by the check-your-inbox interstitial, which names the address
+    // the verification link went to.
+    await expect(
+      page.getByRole('heading', { name: 'Check your inbox.' })
+    ).toBeVisible({ timeout: 15_000 })
+    // `exact` keeps this off the surrounding sentence, which also contains the
+    // address, so strict mode sees one node rather than two.
+    await expect(
+      page.getByText(REGISTER_USER.email, { exact: true })
+    ).toBeVisible()
+    await expect(page.getByText(/It expires in 24 hours/)).toBeVisible()
+    await expect(
+      page.getByRole('link', { name: 'Browse upcoming shows' })
+    ).toBeVisible()
 
-    // Nav shows avatar dropdown
+    // The session is live even though the user has not verified yet.
     await expect(
       page.getByRole('button', { name: 'User menu' })
     ).toBeVisible({ timeout: 5_000 })
