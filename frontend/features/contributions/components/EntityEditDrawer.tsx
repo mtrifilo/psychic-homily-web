@@ -19,6 +19,10 @@ import { useSuggestEdit } from '../hooks/useSuggestEdit'
 import { useShowEdit } from '../hooks/useShowEdit'
 import type { EditableEntityType, EditableField, FieldChange, EntityEditSuccess } from '../types'
 import { EDITABLE_FIELDS, fieldChangeValue, validateFieldValue } from '../types'
+import { useDismissTimer } from '@/lib/hooks/common'
+
+// How long the in-drawer success flash shows before the drawer closes itself.
+const APPLIED_CLOSE_DELAY_MS = 1000
 
 /** Extracts a field value from an entity object, handling nested social fields. */
 function getEntityFieldValue(entity: Record<string, unknown>, field: string): string {
@@ -196,6 +200,13 @@ export function EntityEditDrawer({
     [changes]
   )
 
+  // Hold the in-drawer success flash, then close. Timer must not outlive
+  // unmount, see useDismissTimer (PSY-1664).
+  const { schedule: scheduleAppliedClose } = useDismissTimer(() => {
+    onOpenChange(false)
+    onSuccess?.({ applied: true })
+  }, APPLIED_CLOSE_DELAY_MS)
+
   const hasChanges = changes.length > 0
   const hasFieldErrors = Object.keys(fieldErrors).length > 0
   const canSubmit =
@@ -214,10 +225,7 @@ export function EntityEditDrawer({
         // in-drawer flash is intentional: the page-level success banner
         // (rendered by the parent via `useEntitySaveSuccessBanner`) is
         // what carries the confirmation forward after the drawer closes.
-        setTimeout(() => {
-          onOpenChange(false)
-          onSuccess?.({ applied: true })
-        }, 1000)
+        scheduleAppliedClose()
       } else {
         onSuccess?.({ applied: false })
       }

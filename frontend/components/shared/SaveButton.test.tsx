@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { SaveButton } from './SaveButton'
 
@@ -288,6 +288,38 @@ describe('SaveButton', () => {
     // failure surfaces in the tooltip.
     expect(await screen.findByText(/Failed to save show/)).toBeInTheDocument()
     expect(screen.getByLabelText('Add to My List')).toBeInTheDocument()
+  })
+
+  // The error auto-hide used to be an untracked `setTimeout`, so it still fired
+  // ~3s after the button unmounted and called `setState` into a torn-down React
+  // DOM. Under vitest that lands after jsdom teardown and throws
+  // `ReferenceError: window is not defined`, failing the whole run with every
+  // test passing. No timer may outlive the component.
+  it('leaves no pending error timer behind on unmount', async () => {
+    vi.useFakeTimers()
+    try {
+      const toggleErr = new Error('Server is down')
+      mockUseSaveShowToggle.mockReturnValue({
+        isLoading: false,
+        toggle: vi.fn(async () => {
+          throw toggleErr
+        }),
+        error: toggleErr,
+      })
+
+      const { unmount } = render(<SaveButton showId={1} />)
+      // The catch that arms the timer runs in a promise continuation, so let
+      // the microtask queue drain before asserting the timer exists.
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button'))
+      })
+      expect(vi.getTimerCount()).toBeGreaterThan(0)
+
+      unmount()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   // ── showLabel variant

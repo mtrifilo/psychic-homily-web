@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { APITokenManagement } from './api-token-management'
@@ -419,5 +419,66 @@ describe('APITokenManagement', () => {
       .find(btn => btn.closest('[role="dialog"]'))
     expect(submitBtn).toBeDefined()
     expect(submitBtn).toBeDisabled()
+  })
+
+  // The "copied ✓" confirmation used to arm an untracked `setTimeout`, so it
+  // still fired ~2s after the panel unmounted and called `setState` into a
+  // torn-down React DOM (under vitest that lands after jsdom teardown and fails
+  // the whole run). No timer may survive unmount; the symptom itself is not
+  // reproducible from inside a test.
+  it('leaves no pending copied-confirmation timer behind on unmount', async () => {
+    mockTokensData = { tokens: [] }
+    mockCreateMutateAsync.mockResolvedValueOnce({ token: 'ph_unmount_token' })
+
+    // fireEvent (not userEvent) means no userEvent clipboard stub, so install
+    // one directly and restore the original descriptor afterwards.
+    const originalClipboard = navigator.clipboard
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+    })
+    vi.useFakeTimers()
+    try {
+      const { unmount } = renderWithProviders(<APITokenManagement />)
+
+      // Issue a token first so the Copy button mounts. Both the creation and
+      // the copy arm their state from awaited continuations, so each click has
+      // to be flushed inside act().
+      await act(async () => {
+        fireEvent.click(
+          screen.getByRole('button', { name: /Generate new token/ })
+        )
+      })
+      const submitBtn = screen
+        .getAllByRole('button', { name: /Create Token/ })
+        .find(btn => btn.closest('[role="dialog"]'))
+      expect(submitBtn).toBeDefined()
+      await act(async () => {
+        fireEvent.click(submitBtn!)
+      })
+
+      const copyBtn = screen
+        .getByText('ph_unmount_token')
+        .parentElement?.querySelector('button')
+      expect(copyBtn).toBeTruthy()
+
+      // The open Radix dialog leaves library timers pending that outlive
+      // unmount (4 at the time of writing), so assert on the delta this
+      // component adds rather than an absolute zero.
+      const baseline = vi.getTimerCount()
+      await act(async () => {
+        fireEvent.click(copyBtn!)
+      })
+      expect(vi.getTimerCount()).toBeGreaterThan(baseline)
+
+      unmount()
+      expect(vi.getTimerCount()).toBeLessThanOrEqual(baseline)
+    } finally {
+      vi.useRealTimers()
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: originalClipboard,
+      })
+    }
   })
 })

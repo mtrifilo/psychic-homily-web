@@ -20,7 +20,12 @@ import { useArtistSearch } from '@/features/artists/hooks/useArtistSearch'
 import { useVenueSearch } from '@/features/venues/hooks/useVenueSearch'
 import { useSearchTags } from '@/features/tags/hooks'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
+import { useDismissTimer } from '@/lib/hooks/common'
 import { useQuery } from '@tanstack/react-query'
+
+// Grace period between blur and closing the results dropdown, so a mousedown on
+// a result is not raced by the close.
+const BLUR_CLOSE_DELAY_MS = 200
 
 // Sentinel for the adjust-during-render hydration sync below: a value
 // guaranteed distinct from any real hydration key, so the guard also fires on
@@ -57,6 +62,12 @@ function MultiSelectSearch({
   const [query, setQuery] = useState('')
   const [isOpen, setIsOpen] = useState(false)
   const [selectedItems, setSelectedItems] = useState<SearchableItem[]>([])
+  // Delay the close so a click on a dropdown item registers first.
+  // Timer must not outlive unmount, see useDismissTimer (PSY-1664).
+  const { schedule: scheduleClose } = useDismissTimer(
+    () => setIsOpen(false),
+    BLUR_CLOSE_DELAY_MS
+  )
   const { data: results, isLoading } = searchHook(query)
 
   // Sync initialItems into selectedItems when they become available (edit mode
@@ -150,10 +161,7 @@ function MultiSelectSearch({
           onFocus={() => {
             if (query.length > 0) setIsOpen(true)
           }}
-          onBlur={() => {
-            // Delay to allow click on results
-            setTimeout(() => setIsOpen(false), 200)
-          }}
+          onBlur={scheduleClose}
           className="pl-9"
         />
 

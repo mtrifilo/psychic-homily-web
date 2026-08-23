@@ -6,9 +6,14 @@ import { X } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
+import { useDismissTimer } from '@/lib/hooks/common'
 import { useArtistSearch } from '../hooks/useArtistSearch'
 import { getArtistLocation } from '../types'
 import { FieldInfo } from '@/components/forms/FormField'
+
+// Grace period between blur and resolving the field, so a mousedown on a
+// dropdown option is not raced by the close.
+const BLUR_CONFIRM_DELAY_MS = 150
 
 interface ArtistInputProps {
   field: AnyFieldApi
@@ -77,18 +82,17 @@ export function ArtistInput({
     onArtistMatch?.(undefined)
   }
 
-  const handleBlur = () => {
-    // Delay closing to allow click on dropdown items
-    setTimeout(() => {
-      if (field.state.value?.trim()) {
-        handleConfirm()
-      } else {
-        setIsOpen(false)
-        setSearchValue('')
-      }
-      field.handleBlur()
-    }, 150)
-  }
+  // Delay closing so a click on a dropdown item registers first.
+  // Timer must not outlive unmount, see useDismissTimer (PSY-1664).
+  const { schedule: handleBlur } = useDismissTimer(() => {
+    if (field.state.value?.trim()) {
+      handleConfirm()
+    } else {
+      setIsOpen(false)
+      setSearchValue('')
+    }
+    field.handleBlur()
+  }, BLUR_CONFIRM_DELAY_MS)
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {

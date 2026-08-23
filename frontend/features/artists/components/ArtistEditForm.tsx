@@ -5,6 +5,7 @@ import { useForm } from '@tanstack/react-form'
 import { z } from 'zod'
 import { Loader2, Edit2, AlertCircle, CheckCircle2 } from 'lucide-react'
 import { useArtistUpdate } from '@/lib/hooks/admin/useAdminArtists'
+import { useDismissTimer } from '@/lib/hooks/common'
 import type { Artist, ArtistEditRequest } from '../types'
 import {
   Dialog,
@@ -19,6 +20,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { FieldInfo } from '@/components/forms/FormField'
+
+// How long the success flash shows before the dialog closes itself.
+const SUCCESS_CLOSE_DELAY_MS = 1500
 
 const artistEditSchema = z.object({
   name: z.string().min(1, 'Artist name is required'),
@@ -74,6 +78,14 @@ export function ArtistEditForm({
     setShowSuccess(false)
   }
 
+  // Hold the success flash, then close. Timer must not outlive unmount,
+  // see useDismissTimer (PSY-1664).
+  const { schedule: scheduleSuccessClose } = useDismissTimer(() => {
+    resetDialogState()
+    onOpenChange(false)
+    onSuccess?.()
+  }, SUCCESS_CLOSE_DELAY_MS)
+
   const initialValues: FormValues = {
     name: artist.name,
     city: artist.city || '',
@@ -128,11 +140,7 @@ export function ArtistEditForm({
         {
           onSuccess: () => {
             setShowSuccess(true)
-            setTimeout(() => {
-              resetDialogState()
-              onOpenChange(false)
-              onSuccess?.()
-            }, 1500)
+            scheduleSuccessClose()
           },
           onError: err => {
             setError(

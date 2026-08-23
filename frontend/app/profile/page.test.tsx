@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderWithProviders, screen, waitFor, within } from '@/test/utils'
+import {
+  act,
+  fireEvent,
+  renderWithProviders,
+  screen,
+  waitFor,
+  within,
+} from '@/test/utils'
 import userEvent from '@testing-library/user-event'
 
 const mockReplace = vi.fn()
@@ -344,6 +351,34 @@ describe('ProfilePage (PSY-683)', () => {
         behavior: 'smooth',
         block: 'start',
       })
+    })
+
+    // The "Profile updated" confirmation used to arm an untracked `setTimeout`,
+    // so it still fired ~3s after the page unmounted and called `setState` into
+    // a torn-down React DOM (under vitest that lands after jsdom teardown and
+    // fails the whole run). No timer may survive unmount; the symptom itself is
+    // not reproducible from inside a test.
+    it('leaves no pending saved-confirmation timer behind on unmount', async () => {
+      vi.useFakeTimers()
+      try {
+        const { unmount } = renderWithProviders(<ProfilePage />)
+
+        // Dirty the form so Save Changes is enabled, then save. The timer is
+        // armed in the awaited mutation's continuation, so the click has to be
+        // flushed inside act() before the timer exists.
+        fireEvent.change(screen.getByLabelText(/^bio$/i), {
+          target: { value: 'new bio' },
+        })
+        await act(async () => {
+          fireEvent.click(screen.getByRole('button', { name: /save changes/i }))
+        })
+        expect(vi.getTimerCount()).toBeGreaterThan(0)
+
+        unmount()
+        expect(vi.getTimerCount()).toBe(0)
+      } finally {
+        vi.useRealTimers()
+      }
     })
   })
 

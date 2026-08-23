@@ -440,3 +440,64 @@ describe('EntityEditDrawer venue capacity (PSY-1694)', () => {
     expect(getSubmitButton()).toBeDisabled()
   })
 })
+
+// PSY-1664: an applied (direct) edit flashes success in the drawer, then closes
+// itself on a delay. That delay used to be a bare `setTimeout`, so it still
+// fired after the drawer unmounted and called `onOpenChange` / `onSuccess` into
+// a torn-down React DOM. The invariant is that no timer survives unmount.
+describe('EntityEditDrawer applied-close timer cleanup (PSY-1664)', () => {
+  const directEditProps = {
+    open: true,
+    onOpenChange: vi.fn(),
+    entityType: 'artist' as const,
+    entityId: 42,
+    entityName: 'Amyl and the Sniffers',
+    entity: { name: 'Amyl and the Sniffers', instagram: '' } as Record<string, unknown>,
+    canEditDirectly: true,
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('leaves no pending close timer behind on unmount', () => {
+    vi.useFakeTimers()
+    try {
+      // The drawer only arms the close timer when the mutation reports the
+      // edit was applied directly rather than queued for review.
+      mockMutate.mockImplementation(
+        (
+          _vars: unknown,
+          opts?: { onSuccess?: (data: { applied: boolean }) => void }
+        ) => {
+          opts?.onSuccess?.({ applied: true })
+        }
+      )
+
+      const { unmount } = renderWithProviders(
+        <EntityEditDrawer {...directEditProps} onSuccess={vi.fn()} />
+      )
+
+      // The Sheet the drawer renders in keeps its own animation timers alive
+      // across unmount, so this measures the drawer's delta rather than an
+      // absolute zero.
+      const baseline = vi.getTimerCount()
+
+      fireEvent.change(screen.getByLabelText(/^Name$/), {
+        target: { value: 'Amyl & The Sniffers' },
+      })
+      fireEvent.change(screen.getByLabelText(/Why are you making this change/), {
+        target: { value: 'Fix the ampersand in the name' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: /Save Changes/i }))
+
+      expect(mockMutate).toHaveBeenCalledTimes(1)
+      expect(vi.getTimerCount()).toBeGreaterThan(baseline)
+
+      unmount()
+      expect(vi.getTimerCount()).toBeLessThanOrEqual(baseline)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})

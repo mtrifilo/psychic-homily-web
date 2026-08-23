@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import AppearanceSettingsPage from './page'
@@ -171,5 +171,29 @@ describe('AppearanceSettingsPage', () => {
     mockAuthState = { ...mockAuthState, user: { nav_mode: 'top' } }
     rerender(<AppearanceSettingsPage />)
     expect(screen.getByRole('switch')).not.toBeChecked()
+  })
+
+  // The "Saved" confirmation used to arm an untracked `setTimeout`, so it still
+  // fired ~3s after the page unmounted and called `setState` into a torn-down
+  // React DOM (under vitest that lands after jsdom teardown and fails the whole
+  // run). No timer may survive unmount; the symptom itself is not reproducible
+  // from inside a test.
+  it('leaves no pending saved-confirmation timer behind on unmount', async () => {
+    vi.useFakeTimers()
+    try {
+      const { unmount } = renderWithProviders(<AppearanceSettingsPage />)
+
+      // The timer is armed in the awaited mutation's continuation, so the click
+      // has to be flushed inside act() before the timer exists.
+      await act(async () => {
+        fireEvent.click(screen.getByRole('switch'))
+      })
+      expect(vi.getTimerCount()).toBeGreaterThan(0)
+
+      unmount()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

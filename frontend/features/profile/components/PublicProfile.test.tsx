@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { screen, fireEvent } from '@testing-library/react'
+import { screen, fireEvent, act } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 import { PublicProfile } from './PublicProfile'
 import type { PublicProfileResponse } from '@/features/auth'
@@ -607,6 +607,40 @@ describe('PublicProfile', () => {
       screen.getByRole('button', { name: /copy a link to this profile/i })
     )
     expect(await screen.findByText('Copy failed')).toBeInTheDocument()
+  })
+
+  // The Share button's "Copied ✓" reset used to be an untracked `setTimeout`,
+  // so it still fired ~2s after the profile unmounted and called `setState`
+  // into a torn-down React DOM. Under vitest that lands after jsdom teardown
+  // and throws `ReferenceError: window is not defined`, failing the whole run
+  // with every test passing. No timer may outlive the component.
+  it('leaves no pending copy-reset timer behind on unmount', async () => {
+    vi.useFakeTimers()
+    try {
+      const writeText = vi.fn().mockResolvedValue(undefined)
+      Object.assign(navigator, { clipboard: { writeText } })
+
+      mockUsePublicProfile.mockReturnValue({
+        data: makeProfile(),
+        isLoading: false,
+        error: null,
+      })
+
+      const { unmount } = renderWithProviders(<PublicProfile username="alice" />)
+      // showShareState runs in a promise continuation after the clipboard
+      // write, so let the microtask queue drain before asserting.
+      await act(async () => {
+        fireEvent.click(
+          screen.getByRole('button', { name: /copy a link to this profile/i })
+        )
+      })
+      expect(vi.getTimerCount()).toBeGreaterThan(0)
+
+      unmount()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('shows both Edit profile and Share to the owner', () => {

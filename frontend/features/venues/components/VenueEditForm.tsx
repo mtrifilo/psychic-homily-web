@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { useVenueUpdate } from '../hooks/useVenueEdit'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { useDismissTimer } from '@/lib/hooks/common'
 import type { VenueWithShowCount, Venue } from '../types'
 import { detectVenueChanges, type VenueEditFormValues } from './venue-edit-utils'
 import {
@@ -26,6 +27,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { FieldInfo } from '@/components/forms/FormField'
+
+// How long the success flash shows before the dialog closes itself.
+const SUCCESS_CLOSE_DELAY_MS = 1500
 
 // Form validation schema
 const venueEditSchema = z.object({
@@ -76,6 +80,14 @@ export function VenueEditForm({
     setShowSuccess(false)
   }
 
+  // Hold the success flash, then close. Timer must not outlive unmount,
+  // see useDismissTimer (PSY-1664).
+  const { schedule: scheduleSuccessClose } = useDismissTimer(() => {
+    resetDialogState()
+    onOpenChange(false)
+    onSuccess?.()
+  }, SUCCESS_CLOSE_DELAY_MS)
+
   const isAdmin = user?.is_admin ?? false
 
   // Initialize form with venue data
@@ -112,11 +124,7 @@ export function VenueEditForm({
         {
           onSuccess: () => {
             setShowSuccess(true)
-            setTimeout(() => {
-              resetDialogState()
-              onOpenChange(false)
-              onSuccess?.()
-            }, 1500)
+            scheduleSuccessClose()
           },
           onError: err => {
             setError(

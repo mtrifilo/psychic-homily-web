@@ -29,6 +29,10 @@ import {
   CheckCircle2,
 } from 'lucide-react'
 import { formatTokenDate, formatTokenDateTime, isTokenExpiringSoon } from './api-token-utils'
+import { useAutoDismissBanner } from '@/lib/hooks/common'
+
+// How long the "copied ✓" confirmation stays up after copying a token.
+const TOKEN_COPIED_DISMISS_MS = 2000
 
 function TokenRow({ token, onRevoke, isRevoking }: {
   token: APIToken
@@ -124,7 +128,13 @@ export function APITokenManagement() {
   const [description, setDescription] = useState('')
   const [expirationDays, setExpirationDays] = useState('90')
   const [newToken, setNewToken] = useState<string | null>(null)
-  const [tokenCopied, setTokenCopied] = useState(false)
+  // Shared auto-dismiss primitive rather than a hand-rolled timer, which must
+  // not outlive unmount. See useAutoDismissBanner / useDismissTimer (PSY-1664).
+  const {
+    value: tokenCopied,
+    show: showTokenCopied,
+    clear: clearTokenCopied,
+  } = useAutoDismissBanner<true>(TOKEN_COPIED_DISMISS_MS)
 
   const handleCreateToken = async () => {
     try {
@@ -146,15 +156,14 @@ export function APITokenManagement() {
   const handleCopyToken = async () => {
     if (newToken) {
       await navigator.clipboard.writeText(newToken)
-      setTokenCopied(true)
-      setTimeout(() => setTokenCopied(false), 2000)
+      showTokenCopied(true)
     }
   }
 
   const handleCloseCreateDialog = () => {
     setIsCreateDialogOpen(false)
     setNewToken(null)
-    setTokenCopied(false)
+    clearTokenCopied()
   }
 
   const handleRevoke = async (tokenId: number) => {

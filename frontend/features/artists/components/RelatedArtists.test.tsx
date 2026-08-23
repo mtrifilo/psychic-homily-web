@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { installImmediateResizeObserver } from '@/test/mocks/resizeObserver'
@@ -331,6 +331,30 @@ describe('ArtistSimilarSidebar', () => {
 
     await user.selectOptions(screen.getByLabelText('Sort'), 'niche')
     expect(isBefore('Low Degree', 'High Degree')).toBe(true) // niche favors the low-degree leaf
+  })
+
+  // The Suggest-similar panel's blur delay used to be an untracked
+  // `setTimeout`, so it still fired ~150ms after unmount and called `setState`
+  // into a torn-down React DOM. Under vitest that lands after jsdom teardown
+  // and throws `ReferenceError: window is not defined`, failing the whole run.
+  it('leaves no pending Suggest-similar blur timer behind on unmount', () => {
+    vi.useFakeTimers()
+    try {
+      const { unmount } = renderWithProviders(
+        <ArtistSimilarSidebar artistId={1} artistSlug="gatecreeper" onOpenGraph={() => {}} />
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'Suggest similar' }))
+      // Baseline-delta rather than an absolute 0: react-query keeps its own
+      // timers alive past unmount, which this test is not about.
+      const baseline = vi.getTimerCount()
+      fireEvent.blur(screen.getByPlaceholderText('Search for a similar artist...'))
+      expect(vi.getTimerCount()).toBeGreaterThan(baseline)
+
+      unmount()
+      expect(vi.getTimerCount()).toBeLessThanOrEqual(baseline)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

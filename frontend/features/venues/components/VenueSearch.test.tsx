@@ -98,4 +98,22 @@ describe('VenueSearch', () => {
 
     expect(input.value).toBe('')
   })
+
+  // The blur delay used to be an untracked `setTimeout`, so it still fired
+  // ~150ms after unmount and called `setState` into a torn-down React DOM.
+  // Under vitest that lands after jsdom teardown and throws `ReferenceError:
+  // window is not defined`, failing the whole run with every test passing.
+  it('leaves no pending blur timer behind on unmount', () => {
+    vi.useFakeTimers()
+    try {
+      const { unmount } = renderWithProviders(<VenueSearch />)
+      fireEvent.blur(screen.getByPlaceholderText('Search venues...'))
+      expect(vi.getTimerCount()).toBeGreaterThan(0)
+
+      unmount()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

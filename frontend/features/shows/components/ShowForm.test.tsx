@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor, fireEvent } from '@testing-library/react'
+import { screen, waitFor, fireEvent, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import type { ExtractedShowData } from '@/lib/types/extraction'
@@ -544,6 +544,60 @@ describe('ShowForm — successful submit', () => {
         '/contribute/submissions?submitted=private'
       )
     })
+  })
+
+  // PSY-1664: the post-submit success flash used to defer `onSuccess` behind a
+  // bare `setTimeout`, so it still fired after the form unmounted and called
+  // into a parent that was already gone. No timer may survive unmount.
+  it('leaves no pending success timer behind on unmount', async () => {
+    mockShowSubmit.mutate.mockImplementation((_vars, opts) => {
+      opts?.onSuccess?.({ status: 'approved' })
+    })
+
+    vi.useFakeTimers()
+    try {
+      const onSuccess = vi.fn()
+      // redirectOnCreate={false} picks the 1500ms onSuccess path over the
+      // 2000ms router redirect.
+      const { unmount } = renderWithProviders(
+        <ShowForm mode="create" onSuccess={onSuccess} redirectOnCreate={false} />
+      )
+
+      fireEvent.change(screen.getByPlaceholderText('Enter artist name'), {
+        target: { value: 'Headliner Band' },
+      })
+      fireEvent.change(screen.getByLabelText(/^Venue$/i), {
+        target: { value: 'Some Venue' },
+      })
+      fireEvent.change(screen.getByLabelText(/^City$/i), {
+        target: { value: 'Phoenix' },
+      })
+      fireEvent.change(screen.getByLabelText(/^State$/i), {
+        target: { value: 'AZ' },
+      })
+      fireSet(screen.getByLabelText(/^Date$/i) as HTMLInputElement, futureDate())
+
+      const baseline = vi.getTimerCount()
+
+      // TanStack Form's submit is async, so the mutation (and the timer it
+      // arms) only lands after the promise continuation runs.
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /submit show/i }))
+      })
+
+      expect(mockShowSubmit.mutate).toHaveBeenCalledTimes(1)
+      expect(vi.getTimerCount()).toBeGreaterThan(baseline)
+
+      unmount()
+      expect(vi.getTimerCount()).toBe(0)
+
+      // Well past the 1500ms delay: the callback must never land after the
+      // form is gone.
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(onSuccess).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('routes approved submissions to the Contribute console after success feedback', async () => {
