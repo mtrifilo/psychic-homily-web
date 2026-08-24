@@ -3,6 +3,8 @@ import {
   NOTIFICATION_ENTITY_COMMENT_REPLY,
   NOTIFICATION_ENTITY_COMMENT_MENTION,
   NOTIFICATION_ENTITY_REQUEST_FULFILLMENT_PROPOSED,
+  NOTIFICATION_ENTITY_ARTIST_SHOW_ALERT,
+  isArtistShowAlertNotification,
   isCommentNotification,
   isRequestNotification,
   NOTIFY_ENTITY_TYPES,
@@ -53,8 +55,32 @@ describe('notification entity constants', () => {
     )
   })
 
+  it('exposes the PSY-1896 artist show-alert row type', () => {
+    expect(NOTIFICATION_ENTITY_ARTIST_SHOW_ALERT).toBe('artist_show_alert')
+  })
+
   it('lists the quick-create entity types', () => {
     expect(NOTIFY_ENTITY_TYPES).toEqual(['artist', 'venue', 'label', 'tag'])
+  })
+})
+
+describe('isArtistShowAlertNotification', () => {
+  it('returns true for an artist_show_alert row', () => {
+    expect(
+      isArtistShowAlertNotification(logEntry({ entity_type: 'artist_show_alert' }))
+    ).toBe(true)
+  })
+
+  it('returns false for the generic show row it must not be confused with', () => {
+    expect(isArtistShowAlertNotification(logEntry({ entity_type: 'show' }))).toBe(
+      false
+    )
+  })
+
+  it('is disjoint from the comment and request predicates', () => {
+    const alert = logEntry({ entity_type: 'artist_show_alert' })
+    expect(isCommentNotification(alert)).toBe(false)
+    expect(isRequestNotification(alert)).toBe(false)
   })
 })
 
@@ -137,6 +163,19 @@ describe('normalizeNotificationDeepLinks', () => {
     )
     const untouched = logEntry({ comment_url: 'https://example.com/x' })
     expect(normalizeNotificationDeepLinks(untouched)).toBe(untouched)
+  })
+
+  // PSY-1896: alert_show_url is server-built and absolute like its siblings, so
+  // missing it here would make an artist-alert row click a full navigation,
+  // which cancels the mark-read POST fired from the same click.
+  it('normalizes alert_show_url', () => {
+    const sameOrigin = logEntry({
+      entity_type: 'artist_show_alert',
+      alert_show_url: `${window.location.origin}/shows/oneida-valley-bar`,
+    })
+    expect(normalizeNotificationDeepLinks(sameOrigin).alert_show_url).toBe(
+      '/shows/oneida-valley-bar'
+    )
   })
 })
 

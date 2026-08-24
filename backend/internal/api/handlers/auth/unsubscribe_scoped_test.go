@@ -170,3 +170,60 @@ func TestUnsubscribeScoped_ServiceError(t *testing.T) {
 		t.Fatalf("expected 500, got %d", w.Code)
 	}
 }
+
+// PSY-1896: artist show-alert emails carry an RFC 8058 one-click link, so the
+// POST path a mailbox provider uses has to reach the setter and answer JSON.
+func TestUnsubscribeArtistShowAlerts_POST_OneClick_Success(t *testing.T) {
+	secret := "test-secret"
+	uid := uint(11)
+	sig := engagement.ComputeScopedUnsubscribeSignature(uid, engagement.UnsubscribeScopeArtistShowAlerts, secret)
+
+	var gotUID uint
+	mock := &testhelpers.MockUserService{
+		UnsubscribeArtistShowAlertEmailsFn: func(userID uint) error {
+			gotUID = userID
+			return nil
+		},
+	}
+	h := NewUserPreferencesHandler(mock, secret)
+
+	req := httptest.NewRequest(http.MethodPost,
+		"/unsubscribe/artist-show-alerts?uid=11&sig="+sig, strings.NewReader("List-Unsubscribe=One-Click"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	h.UnsubscribeArtistShowAlertsPageHandler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (body=%s)", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"unsubscribed":true`) {
+		t.Errorf("POST response should contain unsubscribed:true, body was %q", w.Body.String())
+	}
+	if gotUID != uid {
+		t.Errorf("expected UnsubscribeArtistShowAlertEmails(uid=%d), got %d", uid, gotUID)
+	}
+}
+
+// The scope binds the signature, so a link minted for another category must not
+// be replayable against this one.
+func TestUnsubscribeArtistShowAlerts_RejectsAnotherScopesSignature(t *testing.T) {
+	secret := "test-secret"
+	uid := uint(11)
+	foreign := engagement.ComputeScopedUnsubscribeSignature(uid, engagement.UnsubscribeScopeSceneDigest, secret)
+
+	mock := &testhelpers.MockUserService{
+		UnsubscribeArtistShowAlertEmailsFn: func(uint) error {
+			t.Error("a signature minted for another scope must never reach the setter")
+			return nil
+		},
+	}
+	h := NewUserPreferencesHandler(mock, secret)
+
+	req := httptest.NewRequest(http.MethodGet, "/unsubscribe/artist-show-alerts?uid=11&sig="+foreign, nil)
+	w := httptest.NewRecorder()
+	h.UnsubscribeArtistShowAlertsPageHandler(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", w.Code)
+	}
+}

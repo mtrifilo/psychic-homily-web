@@ -88,6 +88,11 @@ type NotificationLogEntry struct {
 	SentAt     time.Time  `json:"sent_at"`
 	ReadAt     *time.Time `json:"read_at,omitempty"`
 
+	// SubjectEntityID is the FOLLOWED entity whose subscription produced the
+	// row, where EntityID is what the row is about. Set only on follow-driven
+	// alerts; its type is implied by EntityType. PSY-1896.
+	SubjectEntityID *uint `json:"subject_entity_id,omitempty"`
+
 	// Comment-driven enrichment fields (populated only for comment_reply /
 	// comment_mention rows). PSY-595.
 	CommenterName     string `json:"commenter_name,omitempty"`
@@ -103,6 +108,17 @@ type NotificationLogEntry struct {
 	// requester is notified that a fulfillment awaits their approval. PSY-890.
 	RequestTitle string `json:"request_title,omitempty"`
 	RequestURL   string `json:"request_url,omitempty"`
+
+	// Artist show-alert enrichment fields (populated only for
+	// artist_show_alert rows; entity_id holds the show_id and
+	// subject_entity_id the followed artist). PSY-1896.
+	//
+	// AlertShowURL is absolute and same-origin-relativized by the frontend
+	// before use, like CommentURL and RequestURL: a full navigation would
+	// cancel the row's mark-read request.
+	AlertArtistName string `json:"alert_artist_name,omitempty"`
+	AlertShowTitle  string `json:"alert_show_title,omitempty"`
+	AlertShowURL    string `json:"alert_show_url,omitempty"`
 }
 
 // NotificationFilterServiceInterface defines the contract for notification filter operations.

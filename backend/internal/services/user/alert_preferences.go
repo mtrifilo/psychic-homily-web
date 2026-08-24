@@ -11,6 +11,9 @@ import (
 
 	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	engagementm "psychic-homily-backend/internal/models/engagement"
+	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/services/geo"
 )
 
@@ -140,6 +143,57 @@ func (s *UserService) SetAccountAlertDefaults(userID uint, update authm.AccountA
 		}
 		return nil
 	})
+}
+
+// UnsubscribeArtistShowAlertEmails stops the artist new-show alert EMAILS for a
+// user, and is what the RFC 8058 one-click link behind those emails calls
+// (PSY-1896).
+//
+// It takes two writes because the preference is resolved from two layers and
+// either one alone can keep the mail flowing:
+//
+//  1. The account matrix's shows.email goes false. That reaches every follow the
+//     user never configured, which is most of them.
+//  2. Every EXPLICIT per-follow email:true override on an artist follow is
+//     cleared. Those sit BELOW the account defaults in the inherit chain, so
+//     without this step a user who once switched email on for one band would
+//     click unsubscribe, be told it worked, and keep getting mail for that band.
+//     An unsubscribe that does not unsubscribe is worse than no link at all: the
+//     recipient's next move is Report Spam, which costs sending reputation for
+//     every other email the platform sends.
+//
+// The IN-APP channel is deliberately untouched. The user refused an email, not
+// the product's notifications, and silently emptying their inbox as well would
+// be a bigger change than the button they pressed.
+//
+// Not atomic across the two writes, and the order is chosen so a failure between
+// them fails SAFE in the direction that matters: the account write lands first,
+// so a crash before the override sweep leaves the majority of follows already
+// silenced and the endpoint reports an error the caller surfaces. The reverse
+// order would report success with the account default still on.
+func (s *UserService) UnsubscribeArtistShowAlertEmails(userID uint) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	off := false
+	if err := s.SetAccountAlertDefaults(userID, authm.AccountAlertDefaultsUpdate{
+		Shows: &authm.AlertChannelDefaultsUpdate{Email: &off},
+	}); err != nil {
+		return fmt.Errorf("failed to clear account show-alert email default: %w", err)
+	}
+
+	// FollowService is a thin handle over the same *gorm.DB, so constructing one
+	// here costs nothing and keeps the user_bookmarks JSONB merge in the package
+	// that owns it rather than growing a second implementation of it.
+	if err := engagement.NewFollowService(s.db).DisableFollowAlertEmailChannel(
+		userID,
+		string(engagementm.BookmarkEntityArtist),
+		contracts.FollowAlertTypeShows,
+	); err != nil {
+		return fmt.Errorf("failed to clear per-follow show-alert email overrides: %w", err)
+	}
+	return nil
 }
 
 // ensureUserPreferencesRow creates the user's preferences row if it has none,

@@ -19,9 +19,11 @@ export {
   FILTER_SOURCE_MANAGED,
   NOTIFICATION_ENTITY_COMMENT_REPLY,
   NOTIFICATION_ENTITY_COMMENT_MENTION,
+  NOTIFICATION_ENTITY_ARTIST_SHOW_ALERT,
   formatTimeAgo,
   getFilterSummary,
   isCommentNotification,
+  isArtistShowAlertNotification,
 } from './types'
 
 export {

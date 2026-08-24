@@ -113,14 +113,24 @@ func (s *NotificationFilterService) notifySceneFollowers(show *catalogm.Show, sh
 
 		// Cross-system dedup: skip anyone already notified about this show (a
 		// filter match — including in-app-only filters, whose log row IS the
-		// bell notification — or a prior approval cycle). One notification per
-		// (user, show) across both systems is the deliberate semantic. The
-		// table's UNIQUE includes filter_id — NULLs compare distinct — so this
-		// check, not the constraint, is what prevents scene-follow duplicates.
+		// bell notification — an ARTIST-follow alert from the pass that runs
+		// immediately before this one, or a prior approval cycle). One
+		// notification per (user, show) across all three systems is the
+		// deliberate semantic. The table's UNIQUE includes filter_id — NULLs
+		// compare distinct — so this check, not the constraint, is what prevents
+		// scene-follow duplicates.
+		//
+		// The artist-alert arm deliberately ignores `channel`: that writer uses
+		// one row per lane, so a user with in-app on and email off has only an
+		// 'in_app' row, and a channel='email' predicate would miss it and send
+		// this generic scene email on top of the specific alert they just got
+		// (PSY-1896).
 		var existing int64
 		if err := s.db.Model(&notificationm.NotificationLog{}).
-			Where("user_id = ? AND entity_type = ? AND entity_id = ? AND channel = ?",
-				f.UserID, "show", show.ID, "email").
+			Where(`(entity_type = ? AND channel = ? AND entity_id = ? AND user_id = ?)
+			    OR (entity_type = ? AND entity_id = ? AND user_id = ?)`,
+				notificationm.NotificationEntityShow, notificationm.NotificationChannelEmail, show.ID, f.UserID,
+				notificationm.NotificationEntityArtistShowAlert, show.ID, f.UserID).
 			Count(&existing).Error; err != nil {
 			log.Printf("scene-follow notify: dedup check for user %d: %v", f.UserID, err)
 			continue

@@ -191,6 +191,10 @@ func (n *nilDBUserService) SetAccountAlertDefaults(userID uint, update authm.Acc
 	return fmt.Errorf("database not initialized")
 }
 
+func (n *nilDBUserService) UnsubscribeArtistShowAlertEmails(userID uint) error {
+	return fmt.Errorf("database not initialized")
+}
+
 // newNilDBUserService returns a UserServiceInterface that returns
 // "database not initialized" for every DB-dependent method.
 func newNilDBUserService() contracts.UserServiceInterface {

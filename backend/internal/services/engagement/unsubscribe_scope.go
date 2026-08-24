@@ -18,6 +18,19 @@ const (
 	UnsubscribeScopeMention           = "mention"
 	UnsubscribeScopeCollectionDigest  = "collection-digest"
 	UnsubscribeScopeSceneDigest       = "scene-digest"
+
+	// UnsubscribeScopeArtistShowAlerts opts a recipient out of the emails sent
+	// when an artist they follow announces a show (PSY-1896).
+	//
+	// Signed on the USER, not on one follow, and that is deliberate. A per-follow
+	// link would be the tighter mirror of the per-filter scheme, but "unsubscribe"
+	// on a mailbox provider's native button means "stop this stream"; a link that
+	// silenced one band out of thirty would leave the recipient still receiving
+	// the mail they just refused, and the next lever they reach for is Report
+	// Spam. It stops the whole artist-show-alert email stream, and leaves the
+	// IN-APP alerts alone: an email opt-out is not a request to stop being
+	// notified in the product.
+	UnsubscribeScopeArtistShowAlerts = "artist-show-alerts"
 )
 
 // ComputeScopedUnsubscribeSignature computes HMAC-SHA256 over

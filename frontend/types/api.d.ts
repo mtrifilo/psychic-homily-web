@@ -13957,6 +13957,9 @@ export interface components {
             venue_ids?: number[] | null;
         };
         NotificationLogEntry: {
+            alert_artist_name?: string;
+            alert_show_title?: string;
+            alert_show_url?: string;
             channel: string;
             /** Format: int64 */
             comment_entity_id?: number;
@@ -13980,6 +13983,8 @@ export interface components {
             request_url?: string;
             /** Format: date-time */
             sent_at: string;
+            /** Format: int64 */
+            subject_entity_id?: number;
         };
         OAuthAccount: {
             /** Format: date-time */

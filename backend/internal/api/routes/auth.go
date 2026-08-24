@@ -205,6 +205,12 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	// PSY-1342: weekly scene digest unsubscribe (same chi GET+POST shape).
 	rc.Router.Get("/unsubscribe/scene-digest", userPrefsHandler.UnsubscribeSceneDigestPageHandler)
 	rc.Router.Post("/unsubscribe/scene-digest", userPrefsHandler.UnsubscribeSceneDigestPageHandler)
+	// PSY-1896: artist new-show alert emails (same chi GET+POST shape). The
+	// path segment IS the signed scope, so it must stay in step with
+	// engagement.UnsubscribeScopeArtistShowAlerts or every link already in an
+	// inbox 404s.
+	rc.Router.Get("/unsubscribe/artist-show-alerts", userPrefsHandler.UnsubscribeArtistShowAlertsPageHandler)
+	rc.Router.Post("/unsubscribe/artist-show-alerts", userPrefsHandler.UnsubscribeArtistShowAlertsPageHandler)
 
 	// Public email verification confirm endpoint (user clicks link from email)
 	huma.Post(rc.API, "/auth/verify-email/confirm", authHandler.ConfirmVerificationHandler)

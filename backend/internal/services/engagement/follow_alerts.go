@@ -169,6 +169,115 @@ func EffectiveShowScope(scope string, hasHomeArea bool) string {
 	return scope
 }
 
+// ResolveFollowAlerts is the delivery-side seam onto the three-layer resolution
+// this file already implements: shipped defaults, then the account matrix, then
+// the follow's own stored overrides (PSY-1893/1907).
+//
+// It exists so the alert matcher (PSY-1896) can resolve a page of followers
+// WITHOUT going through GetFollowAlertSettings, which loads the follow row and
+// the account matrix one user at a time. A show with two hundred followers would
+// be four hundred queries; the matcher instead reads both in bulk and calls this
+// per row. The alternative — re-deriving the layering at the delivery site — is
+// exactly the drift this seam exists to prevent, and it would drift on the axis
+// where a mistake is worst: email is an intentional opt-in, so a resolver that
+// disagreed by one layer would mail people who never asked.
+//
+// account is passed in rather than read here for the same reason: one read of
+// the matrix per user, not one per follow.
+func ResolveFollowAlerts(
+	entityType string,
+	entityID uint,
+	settings *json.RawMessage,
+	account authm.AccountAlertDefaults,
+) *contracts.FollowAlertSettings {
+	return resolveFollowAlerts(entityType, entityID, settings, account)
+}
+
+// DisableFollowAlertEmailChannel turns the email channel OFF on every one of a
+// user's follows of entityType for alertType, and is what makes a one-click
+// unsubscribe from those emails actually stick (PSY-1896).
+//
+// The account matrix alone cannot deliver that promise. Per-follow overrides sit
+// BELOW the account defaults in the inherit chain, so a user who once switched
+// email on for a particular band keeps receiving mail for that band no matter
+// what the account row says. RFC 8058 requires the link to stop the stream, so
+// the unsubscribe has to reach the overrides too. The caller pairs this with the
+// account-level write; neither half is sufficient alone.
+//
+// Follows that never overrode the channel are left untouched: they already
+// inherit, so writing an explicit false would only pin them against a future
+// change to the account default. That keeps this a repair of explicit opt-ins
+// rather than a mass write across the user's whole library.
+//
+// The merge runs through mergeFollowAlertSettings so sibling keys in the shared
+// settings document survive, and so this path cannot drift from the one the API
+// uses. Row-by-row rather than one jsonb_set statement because the document is
+// shared and may be malformed; the merge already knows how to repair that, and a
+// SQL path would either error on a non-object or clobber the whole column.
+func (s *FollowService) DisableFollowAlertEmailChannel(userID uint, entityType, alertType string) error {
+	if s.db == nil {
+		return apperrors.ErrFollowInternal(fmt.Errorf("database not initialized"))
+	}
+	if err := validateFollowAlertEntityType(entityType); err != nil {
+		return err
+	}
+
+	off := false
+	update := contracts.FollowAlertUpdate{}
+	switch alertType {
+	case contracts.FollowAlertTypeShows:
+		update.Shows = &contracts.FollowAlertPreferenceUpdate{Email: &off}
+	case contracts.FollowAlertTypeReleases:
+		update.Releases = &contracts.FollowAlertPreferenceUpdate{Email: &off}
+	default:
+		return apperrors.ErrFollowInvalidAlertSettings(
+			fmt.Sprintf("unknown alert type: %s", alertType))
+	}
+
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		var bookmarks []engagementm.UserBookmark
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("user_id = ? AND entity_type = ? AND action = ?",
+				userID, engagementm.BookmarkEntityType(entityType), engagementm.BookmarkActionFollow).
+			Find(&bookmarks).Error; err != nil {
+			return apperrors.ErrFollowInternal(fmt.Errorf("failed to load follows: %w", err))
+		}
+
+		for i := range bookmarks {
+			stored := decodeStoredFollowAlerts(bookmarks[i].Settings)
+			if !storedFollowAlertEmailIsOn(stored, alertType) {
+				continue
+			}
+			merged, err := mergeFollowAlertSettings(bookmarks[i].Settings, update)
+			if err != nil {
+				return apperrors.ErrFollowInternal(err)
+			}
+			if err := tx.Model(&engagementm.UserBookmark{}).
+				Where("id = ?", bookmarks[i].ID).
+				Update("settings", gorm.Expr("?::jsonb", string(merged))).Error; err != nil {
+				return apperrors.ErrFollowInternal(
+					fmt.Errorf("failed to clear follow email override: %w", err))
+			}
+		}
+		return nil
+	})
+}
+
+// storedFollowAlertEmailIsOn reports whether a follow carries an EXPLICIT
+// email:true override for the alert type. Absent is not "on" here even when the
+// account default says on, because the account write is the other half of the
+// unsubscribe and reaches every inheriting follow by itself.
+func storedFollowAlertEmailIsOn(stored storedFollowAlerts, alertType string) bool {
+	var pref *storedFollowAlertPreference
+	switch alertType {
+	case contracts.FollowAlertTypeShows:
+		pref = stored.Shows
+	case contracts.FollowAlertTypeReleases:
+		pref = stored.Releases
+	}
+	return pref != nil && pref.Email != nil && *pref.Email
+}
+
 // validateFollowAlertEntityType rejects follow targets with no alert
 // subscription before any database access.
 func validateFollowAlertEntityType(entityType string) error {

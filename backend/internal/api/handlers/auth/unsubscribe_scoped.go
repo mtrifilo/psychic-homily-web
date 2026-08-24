@@ -60,6 +60,23 @@ func (h *UserPreferencesHandler) UnsubscribeSceneDigestPageHandler(w http.Respon
 	})
 }
 
+// UnsubscribeArtistShowAlertsPageHandler serves /unsubscribe/artist-show-alerts
+// (PSY-1896).
+//
+// Unlike its siblings, the setter behind this one is not a single boolean:
+// artist show-alert emails are resolved from an account default UNDER
+// per-follow overrides, so the service has to clear both. See
+// UserService.UnsubscribeArtistShowAlertEmails. The in-app channel is untouched
+// — the recipient refused an email, not the product.
+func (h *UserPreferencesHandler) UnsubscribeArtistShowAlertsPageHandler(w http.ResponseWriter, r *http.Request) {
+	h.handleScopedUnsubscribe(w, r, scopedUnsubscribeConfig{
+		scope:     engagement.UnsubscribeScopeArtistShowAlerts,
+		setPref:   func(uid uint) error { return h.userService.UnsubscribeArtistShowAlertEmails(uid) },
+		noun:      "artist show-alert emails",
+		logSuffix: "artist_show_alerts",
+	})
+}
+
 // handleScopedUnsubscribe is the shared GET/POST body for the scoped
 // unsubscribe handlers. Mirrors UnsubscribeCollectionDigestPageHandler but
 // parameterized by scope + preference setter.

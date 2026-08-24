@@ -188,6 +188,78 @@ func emailMonoNote(text string) string {
 `, emailMonoStack, emailMutedForeground, htmlEscape(text), emailRowGap, emailBackground)
 }
 
+// emailMonoDetails renders the mono DETAILS BLOCK: several aligned metadata
+// lines about the thing the message is announcing, such as when, where, and who
+// else is on the bill.
+//
+// Separate from emailMonoNote rather than folded into it, because the two carry
+// different content at the same size: emailMonoNote is one fact about the
+// MESSAGE ("this link expires in 24 hours"), and this is a small table of facts
+// about the SUBJECT. Folding them together would mean passing a single string
+// with newlines, and a newline is whitespace in HTML: every line would run
+// together into one paragraph. Each line gets its own block element instead.
+//
+// Callers pass lines already padded to align their values (WHEN ...., WHERE ...)
+// which only lands because the stack is monospace. white-space:pre keeps the
+// runs of padding the caller wrote, since HTML would otherwise collapse them to
+// a single space and the alignment would be lost in every client.
+func emailMonoDetails(lines []string) string {
+	var b strings.Builder
+	for _, line := range lines {
+		fmt.Fprintf(&b, `<div style="white-space:pre;">%s</div>`, htmlEscape(line))
+	}
+	return fmt.Sprintf(`<tr>
+<td style="padding:0 0 %[4]s 0; font-family:%[1]s; font-size:12px; line-height:20px; letter-spacing:0.44px; color:%[2]s; background-color:%[5]s;">%[3]s</td>
+</tr>
+`, emailMonoStack, emailForeground, b.String(), emailRowGap, emailBackground)
+}
+
+// emailFineprintLink is one labelled destination in a fineprint footer.
+type emailFineprintLink struct {
+	Href  string
+	Label string
+}
+
+// emailFineprintWithLinks renders the closing block for a message that has to
+// offer the recipient a way out: the "why you are getting this" line, then a row
+// of anchors.
+//
+// emailFineprint cannot do this. It escapes every line it is given, which is
+// correct for prose and fatal for markup, so an unsubscribe link passed through
+// it arrives as visible angle brackets. Rather than loosen that escaping — the
+// one thing standing between a scraped venue-calendar string and a working
+// phishing link in this platform's own DKIM-aligned mail — the links are a
+// separate, structured parameter whose href and label are escaped individually
+// and whose <a> element this function alone controls.
+//
+// Every alert email needs this shape, so it lives beside the other builders
+// instead of being spelled out at one call site: a footer with a working opt-out
+// is what RFC 8058 compliance looks like in the body, and the next template must
+// inherit it rather than reinvent it.
+func emailFineprintWithLinks(lines []string, links []emailFineprintLink) string {
+	var b strings.Builder
+	for _, line := range lines {
+		fmt.Fprintf(&b,
+			`<div style="word-wrap:break-word; word-break:break-word; overflow-wrap:anywhere;">%s</div>`,
+			htmlEscape(line))
+	}
+	if len(links) > 0 {
+		b.WriteString(`<div style="word-wrap:break-word; word-break:break-word; overflow-wrap:anywhere;">`)
+		for i, link := range links {
+			if i > 0 {
+				b.WriteString(" &middot; ")
+			}
+			fmt.Fprintf(&b, `<a href="%s" style="color:%s; text-decoration:underline;">%s</a>`,
+				htmlEscape(link.Href), emailPrimary, htmlEscape(link.Label))
+		}
+		b.WriteString(`</div>`)
+	}
+	return fmt.Sprintf(`<tr>
+<td style="padding:0 0 %[4]s 0; font-family:%[1]s; font-size:12px; font-weight:400; line-height:18px; color:%[2]s; background-color:%[5]s;">%[3]s</td>
+</tr>
+`, emailSansStack, emailMutedForeground, b.String(), emailRowGap, emailBackground)
+}
+
 // emailFineprint renders the closing lines: the "not you" reassurance and the
 // plain-link fallback for recipients whose client swallows the button.
 //

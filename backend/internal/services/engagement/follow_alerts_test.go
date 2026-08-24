@@ -773,3 +773,66 @@ func (suite *FollowServiceIntegrationTestSuite) TestFollowAlerts_OverrideBeatsAc
 	suite.False(read.Shows.Email, "this follow opted out of an account-wide opt-in")
 	suite.True(read.Releases.InApp, "the untouched sibling still inherits")
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PSY-1896: unsubscribing from artist show-alert EMAILS
+// ─────────────────────────────────────────────────────────────────────────────
+
+// The one-click unsubscribe has to reach the per-follow layer, because that
+// layer is NARROWER than the account matrix: clearing only the account default
+// would leave a user who once switched email on for one band still receiving
+// mail for that band, after being told the unsubscribe worked.
+func (suite *FollowServiceIntegrationTestSuite) TestDisableFollowAlertEmailChannel_ClearsExplicitOptIns() {
+	user := suite.createTestUser()
+	optedIn := suite.createTestArtist("unsub-opted-in")
+	inheriting := suite.createTestArtist("unsub-inheriting")
+	suite.Require().NoError(suite.followService.Follow(user.ID, "artist", optedIn))
+	suite.Require().NoError(suite.followService.Follow(user.ID, "artist", inheriting))
+
+	_, err := suite.followService.SetFollowAlertSettings(user.ID, "artist", optedIn,
+		contracts.FollowAlertUpdate{Shows: &contracts.FollowAlertPreferenceUpdate{Email: boolPtr(true)}})
+	suite.Require().NoError(err)
+
+	suite.Require().NoError(suite.followService.DisableFollowAlertEmailChannel(
+		user.ID, "artist", contracts.FollowAlertTypeShows))
+
+	after, err := suite.followService.GetFollowAlertSettings(user.ID, "artist", optedIn)
+	suite.Require().NoError(err)
+	suite.False(after.Shows.Email, "the explicit opt-in must be gone, not merely overridden")
+	suite.True(after.Shows.InApp, "an email opt-out is not a request to stop being notified in the product")
+
+	suite.Empty(suite.rawSettings(user.ID, "artist", inheriting),
+		"a follow that never overrode the channel is left inheriting, not pinned against a future default")
+}
+
+// The sweep must not reach past the alert type or the user it was asked about.
+func (suite *FollowServiceIntegrationTestSuite) TestDisableFollowAlertEmailChannel_IsNarrowlyScoped() {
+	user := suite.createTestUser()
+	other := suite.createTestUser()
+	artistID := suite.createTestArtist("unsub-scope-artist")
+	suite.Require().NoError(suite.followService.Follow(user.ID, "artist", artistID))
+	suite.Require().NoError(suite.followService.Follow(other.ID, "artist", artistID))
+
+	_, err := suite.followService.SetFollowAlertSettings(user.ID, "artist", artistID,
+		contracts.FollowAlertUpdate{
+			Shows:    &contracts.FollowAlertPreferenceUpdate{Email: boolPtr(true)},
+			Releases: &contracts.FollowAlertPreferenceUpdate{Email: boolPtr(true)},
+		})
+	suite.Require().NoError(err)
+	_, err = suite.followService.SetFollowAlertSettings(other.ID, "artist", artistID,
+		contracts.FollowAlertUpdate{Shows: &contracts.FollowAlertPreferenceUpdate{Email: boolPtr(true)}})
+	suite.Require().NoError(err)
+
+	suite.Require().NoError(suite.followService.DisableFollowAlertEmailChannel(
+		user.ID, "artist", contracts.FollowAlertTypeShows))
+
+	mine, err := suite.followService.GetFollowAlertSettings(user.ID, "artist", artistID)
+	suite.Require().NoError(err)
+	suite.False(mine.Shows.Email)
+	suite.Require().NotNil(mine.Releases)
+	suite.True(mine.Releases.Email, "unsubscribing from show alerts must not silence release alerts")
+
+	theirs, err := suite.followService.GetFollowAlertSettings(other.ID, "artist", artistID)
+	suite.Require().NoError(err)
+	suite.True(theirs.Shows.Email, "one recipient's unsubscribe must not touch another account")
+}
