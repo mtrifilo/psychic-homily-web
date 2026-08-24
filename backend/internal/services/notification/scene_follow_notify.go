@@ -116,21 +116,14 @@ func (s *NotificationFilterService) notifySceneFollowers(show *catalogm.Show, sh
 		// bell notification — an ARTIST-follow alert from the pass that runs
 		// immediately before this one, or a prior approval cycle). One
 		// notification per (user, show) across all three systems is the
-		// deliberate semantic. The table's UNIQUE includes filter_id — NULLs
+		// deliberate semantic, and notifiedAboutShow is the one place that
+		// spells which rows count. The table's UNIQUE includes filter_id — NULLs
 		// compare distinct — so this check, not the constraint, is what prevents
 		// scene-follow duplicates.
-		//
-		// The artist-alert arm deliberately ignores `channel`: that writer uses
-		// one row per lane, so a user with in-app on and email off has only an
-		// 'in_app' row, and a channel='email' predicate would miss it and send
-		// this generic scene email on top of the specific alert they just got
-		// (PSY-1896).
 		var existing int64
 		if err := s.db.Model(&notificationm.NotificationLog{}).
-			Where(`(entity_type = ? AND channel = ? AND entity_id = ? AND user_id = ?)
-			    OR (entity_type = ? AND entity_id = ? AND user_id = ?)`,
-				notificationm.NotificationEntityShow, notificationm.NotificationChannelEmail, show.ID, f.UserID,
-				notificationm.NotificationEntityArtistShowAlert, show.ID, f.UserID).
+			Where("user_id = ? AND entity_id = ?", f.UserID, show.ID).
+			Where(notifiedAboutShow("notification_log")).
 			Count(&existing).Error; err != nil {
 			log.Printf("scene-follow notify: dedup check for user %d: %v", f.UserID, err)
 			continue
@@ -142,9 +135,9 @@ func (s *NotificationFilterService) notifySceneFollowers(show *catalogm.Show, sh
 		logEntry := notificationm.NotificationLog{
 			UserID:     f.UserID,
 			FilterID:   nil, // scene follows have no filter row
-			EntityType: "show",
+			EntityType: notificationm.NotificationEntityShow,
 			EntityID:   show.ID,
-			Channel:    "email",
+			Channel:    notificationm.NotificationChannelEmail,
 			SentAt:     now,
 		}
 		if err := s.db.Create(&logEntry).Error; err != nil {

@@ -204,6 +204,61 @@ func TestUnsubscribeArtistShowAlerts_POST_OneClick_Success(t *testing.T) {
 	}
 }
 
+// A GET on this scope must NOT mutate. Its setter rewrites every one of the
+// user's artist and venue follows, and a GET that mutates is fired by mail
+// scanners and link-preview bots that follow links with no human involved.
+func TestUnsubscribeArtistShowAlerts_GET_ConfirmsWithoutMutating(t *testing.T) {
+	secret := "test-secret"
+	uid := uint(11)
+	sig := engagement.ComputeScopedUnsubscribeSignature(uid, engagement.UnsubscribeScopeArtistShowAlerts, secret)
+
+	mock := &testhelpers.MockUserService{
+		UnsubscribeArtistShowAlertEmailsFn: func(uint) error {
+			t.Error("a GET must not unsubscribe: a link scanner would silently destroy per-follow opt-ins")
+			return nil
+		},
+	}
+	h := NewUserPreferencesHandler(mock, secret)
+
+	target := "/unsubscribe/artist-show-alerts?uid=11&sig=" + sig
+	req := httptest.NewRequest(http.MethodGet, target, nil)
+	w := httptest.NewRecorder()
+	h.UnsubscribeArtistShowAlertsPageHandler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `method="POST"`) {
+		t.Errorf("confirm page must POST back to complete the unsubscribe, body was: %s", body)
+	}
+	// The signed query string has to survive into the form action, or the POST
+	// fails signature verification and the recipient cannot unsubscribe at all.
+	if !strings.Contains(body, "sig="+sig) {
+		t.Errorf("confirm page must carry the signature into its form action, body was: %s", body)
+	}
+	if !strings.Contains(body, "artist show-alert emails") {
+		t.Errorf("confirm page must name the category, body was: %s", body)
+	}
+}
+
+// A bad signature must fail at the door, BEFORE the confirm page is rendered,
+// so a tampered link never shows a button that cannot work.
+func TestUnsubscribeArtistShowAlerts_GET_BadSignatureDoesNotPrompt(t *testing.T) {
+	h := NewUserPreferencesHandler(&testhelpers.MockUserService{}, "secret")
+
+	req := httptest.NewRequest(http.MethodGet, "/unsubscribe/artist-show-alerts?uid=42&sig=bogus", nil)
+	w := httptest.NewRecorder()
+	h.UnsubscribeArtistShowAlertsPageHandler(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", w.Code)
+	}
+	if strings.Contains(w.Body.String(), `method="POST"`) {
+		t.Error("a tampered link must not be offered a confirm button")
+	}
+}
+
 // The scope binds the signature, so a link minted for another category must not
 // be replayable against this one.
 func TestUnsubscribeArtistShowAlerts_RejectsAnotherScopesSignature(t *testing.T) {

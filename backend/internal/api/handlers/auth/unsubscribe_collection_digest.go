@@ -186,6 +186,55 @@ const scopedUnsubscribeConfirmationTemplate = `<!DOCTYPE html>
 </body>
 </html>`
 
+// writeUnsubscribeConfirmPrompt renders a GET page that asks the recipient to
+// confirm, POSTing back to the same signed URL (PSY-1896).
+//
+// It exists so a scope whose setter does more than flip one boolean never
+// mutates on a GET. Mail scanners and link-preview bots follow links without a
+// human, and for those scopes a drive-by GET would destroy per-follow choices
+// the user made. The mailbox provider's RFC 8058 POST skips this page entirely,
+// so the one-click path stays one click.
+//
+// action is the request URI, so the HMAC query string is carried through
+// unchanged; it is escaped because it reaches an HTML attribute. noun comes from
+// a fixed internal allowlist.
+func writeUnsubscribeConfirmPrompt(ctx context.Context, w http.ResponseWriter, action, noun string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	page := fmt.Sprintf(unsubscribeConfirmPromptTemplate,
+		html.EscapeString(action), html.EscapeString(noun))
+	respond.SafeWrite(ctx, w, []byte(page))
+}
+
+// unsubscribeConfirmPromptTemplate is the GET confirm page. The two %s are the
+// form action (the signed URL) and the category noun. Literal CSS percent signs
+// are escaped (%%) because this is rendered via fmt.Sprintf.
+const unsubscribeConfirmPromptTemplate = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Unsubscribe | Psychic Homily</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; margin: 0; padding: 32px 16px; background: #fafafa; color: #1a1a1a;">
+    <div style="max-width: 480px; margin: 48px auto; background: #ffffff; border: 1px solid #e5e5e5; border-radius: 12px; padding: 32px; text-align: center;">
+        <h1 style="margin: 0 0 12px; font-size: 22px; font-weight: 600;">Unsubscribe?</h1>
+        <p style="margin: 0 0 24px; color: #555; line-height: 1.5;">
+            This turns off %[2]s, including any you switched on for individual
+            artists. Your in-app alerts are not affected.
+        </p>
+        <form method="POST" action="%[1]s" style="margin: 0;">
+            <button type="submit" style="display: inline-block; padding: 10px 20px; border: 0; border-radius: 8px; background: #f97316; color: #ffffff; font-size: 15px; font-weight: 600; cursor: pointer;">Yes, unsubscribe</button>
+        </form>
+        <p style="margin: 20px 0 0;">
+            <a href="/settings" style="color: #555;">Manage all notification settings instead</a>
+        </p>
+    </div>
+</body>
+</html>`
+
 // unsubscribeErrorTemplate is the error page rendered on GET. {{message}}
 // is replaced with an HTML-escaped human-readable message.
 const unsubscribeErrorTemplate = `<!DOCTYPE html>

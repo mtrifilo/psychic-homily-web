@@ -2,6 +2,7 @@ package notification
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -282,15 +283,41 @@ func TestBuildArtistShowAlertEmailHTML(t *testing.T) {
 	assert.Contains(t, out, "&lt;script&gt;")
 }
 
-// TestInboxVisibleRows pins the ONE row shape the bell hides, and pins it
+// TestInboxVisibleRows pins the row shapes the bell hides, and pins it
 // negatively too: the predicate must not become the `channel = 'in_app'` read
 // that would empty every existing user's inbox.
 func TestInboxVisibleRows(t *testing.T) {
 	pred := inboxVisibleRows("nl")
-	assert.Contains(t, pred, "nl.entity_type = 'artist_show_alert'")
+	for _, entityType := range emailLaneAlertTypes {
+		assert.Contains(t, pred, "nl.entity_type = '"+entityType+"'",
+			"every two-lane alert type must have its email lane hidden")
+	}
 	assert.Contains(t, pred, "nl.channel = 'email'")
-	assert.True(t, len(pred) > 0 && pred[:4] == "NOT ",
-		"it must EXCLUDE one shape, never restrict the read to one channel")
+	assert.True(t, strings.HasPrefix(pred, "NOT "),
+		"it must EXCLUDE shapes, never restrict the read to one channel")
+	assert.NotContains(t, pred, "= 'in_app'",
+		"a channel='in_app' read would empty the inbox of every filter and scene row")
+}
+
+// TestNotifiedAboutShow pins the shared cross-system dedup predicate. All three
+// fanouts consult it, so a shape missing here is a user told twice about one
+// show by two different systems.
+func TestNotifiedAboutShow(t *testing.T) {
+	pred := notifiedAboutShow("nl")
+
+	assert.Contains(t, pred, "nl.entity_type = 'show'")
+	assert.Contains(t, pred, "nl.channel = 'email'",
+		"filter and scene rows are only 'delivered' on the email channel")
+
+	for _, entityType := range showAlertEntityTypes {
+		assert.Contains(t, pred, "nl.entity_type = '"+entityType+"'")
+		// The asymmetry that matters: a two-lane alert type must NOT carry a
+		// channel qualifier, or the in-app-only recipient (the DEFAULT, since
+		// email is opt-in) is missed and gets a second notification.
+		assert.NotContains(t, pred,
+			"nl.entity_type = '"+entityType+"' AND nl.channel",
+			"an in-app-only alert still means the user was told")
+	}
 }
 
 // =============================================================================
@@ -669,6 +696,50 @@ func (s *NotificationFilterSuite) TestArtistAlert_RefusesAShowThatIsNotPubliclyV
 
 	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
 	s.Equal(int64(0), s.inAppAlerts(userID, showID))
+}
+
+// TestArtistAlert_WorksFromAPartiallyPopulatedShow is the regression test for
+// the shape the ADMIN approve handlers actually call with.
+//
+// Neither of them loads the model: both build
+// `&catalogm.Show{ID, Title, EventDate, Price, Slug, City, State}` and hand that
+// over. Reading Status off such a literal sees the zero value, which would have
+// made this feature silently dead on the entire human-moderated path, and
+// reading SubmittedBy sees nil, which would have disabled self-exclusion. The
+// delivery pass takes both from the canonical row instead.
+func (s *NotificationFilterSuite) TestArtistAlert_WorksFromAPartiallyPopulatedShow() {
+	userID := s.createTestUser()
+	artistID := s.createTestArtist("Oneida")
+	s.followArtist(userID, artistID)
+
+	venueID := s.createTestVenue("Valley Bar")
+	showID := s.createTestShow("Oneida at Valley Bar", []uint{artistID}, []uint{venueID})
+
+	// Exactly the literal admin_shows.go constructs: no Status, no SubmittedBy.
+	partial := &catalogm.Show{ID: showID, Title: "Oneida at Valley Bar"}
+	s.Require().NoError(s.svc.MatchAndNotify(partial))
+
+	s.Equal(int64(1), s.inAppAlerts(userID, showID),
+		"an admin approval must alert followers, not be silenced by an unset Status")
+}
+
+// And the same shape must NOT become a way around the visibility fence: a
+// caller-supplied literal cannot assert a status the row does not have.
+func (s *NotificationFilterSuite) TestArtistAlert_PartialShowCannotForgeVisibility() {
+	userID := s.createTestUser()
+	artistID := s.createTestArtist("Oneida")
+	s.followArtist(userID, artistID)
+
+	venueID := s.createTestVenue("Valley Bar")
+	showID := s.createTestShow("Someone's private list", []uint{artistID}, []uint{venueID})
+	s.Require().NoError(s.db.Model(&catalogm.Show{}).Where("id = ?", showID).
+		Update("status", catalogm.ShowStatusPrivate).Error)
+
+	forged := &catalogm.Show{ID: showID, Title: "Someone's private list", Status: catalogm.ShowStatusApproved}
+	s.Require().NoError(s.svc.MatchAndNotify(forged))
+
+	s.Equal(int64(0), s.inAppAlerts(userID, showID),
+		"the status guard must read the row, not the caller's claim about it")
 }
 
 // TestArtistAlert_SubmitterIsNotAlerted mirrors the scene pass: whoever entered

@@ -557,7 +557,11 @@ func (s *NotificationFilterService) findMatchingFilters(
 
 	// Build the matching query using PostgreSQL array overlap operator (&&).
 	// GORM uses ? for parameter binding.
-	query := `
+	// The NOT EXISTS arm is the filter pass's half of the one-notification-per-
+	// (user, show) rule, and it consults the SHARED shape predicate: a user the
+	// artist-follow pass already reached must not also be matched here on a later
+	// run (an outbox re-process, or an edit followed by a re-approve).
+	query := fmt.Sprintf(`
 		SELECT nf.id as filter_id, nf.user_id, nf.name, nf.source, nf.notify_email, nf.notify_in_app
 		FROM notification_filters nf
 		WHERE nf.is_active = TRUE
@@ -571,12 +575,11 @@ func (s *NotificationFilterService) findMatchingFilters(
 		  AND NOT EXISTS (
 		      SELECT 1 FROM notification_log nl
 		      WHERE nl.user_id = nf.user_id
-		        AND nl.entity_type = 'show'
 		        AND nl.entity_id = ?
-		        AND nl.channel = 'email'
+		        AND %s
 		  )
 		ORDER BY nf.id ASC
-	`
+	`, notifiedAboutShow("nl"))
 
 	// Handle nil arrays — PostgreSQL needs empty arrays, not NULL
 	if showArtistIDs == nil {
@@ -634,11 +637,12 @@ func (s *NotificationFilterService) processUserMatches(userID uint, show *catalo
 			})
 	}
 
-	// Cross-filter + cross-system dedup: one email-channel row per (user, show).
+	// Cross-filter + cross-system dedup: one user-visible notification per
+	// (user, show), across filters, artist follows and scene follows.
 	var existing int64
 	if err := s.db.Model(&notificationm.NotificationLog{}).
-		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND channel = ?",
-			userID, "show", show.ID, "email").
+		Where("user_id = ? AND entity_id = ?", userID, show.ID).
+		Where(notifiedAboutShow("notification_log")).
 		Count(&existing).Error; err != nil {
 		log.Printf("failed to dedup notification for user %d, show %d: %v", userID, show.ID, err)
 		return
@@ -651,9 +655,9 @@ func (s *NotificationFilterService) processUserMatches(userID uint, show *catalo
 	logEntry := notificationm.NotificationLog{
 		UserID:     userID,
 		FilterID:   &delivery.FilterID,
-		EntityType: "show",
+		EntityType: notificationm.NotificationEntityShow,
 		EntityID:   show.ID,
-		Channel:    "email",
+		Channel:    notificationm.NotificationChannelEmail,
 		SentAt:     now,
 	}
 	if err := s.db.Create(&logEntry).Error; err != nil {
@@ -914,6 +918,39 @@ func (s *NotificationFilterService) GetUserNotifications(userID uint, limit, off
 	return entries, nil
 }
 
+// ──────────────────────────────────────────────
+// notification_log row shapes
+//
+// Three predicates over this table have to agree about which rows mean what.
+// They are built here, from the model's constants, so that adding a fourth
+// alert type is ONE edit rather than a hunt through five query sites that fail
+// silently when one is missed.
+//
+// Each returns a literal SQL fragment. Nothing caller-supplied reaches them:
+// the only interpolations are an alias chosen at the call site and constants
+// from models/notification.
+// ──────────────────────────────────────────────
+
+// emailLaneAlertTypes are the entity types whose writer uses ONE ROW PER
+// CHANNEL LANE, where the channel='email' row stands for a message already in
+// the recipient's mailbox rather than for an inbox entry.
+//
+// A new two-lane alert type MUST be listed here. Leaving it off does not fail:
+// its email-lane rows simply start appearing in the bell and inflating the
+// unread badge, which is the kind of bug nobody reports as a bug.
+var emailLaneAlertTypes = []string{
+	notificationm.NotificationEntityArtistShowAlert,
+}
+
+// showAlertEntityTypes are the entity types that mean "this user has been told
+// about a show", where entity_id is the show id.
+//
+// NotificationEntityShow is deliberately NOT in this list: it needs a channel
+// qualifier the others do not (see notifiedAboutShow), so it is spelled there.
+var showAlertEntityTypes = []string{
+	notificationm.NotificationEntityArtistShowAlert,
+}
+
 // inboxVisibleRows is the predicate that hides notification_log rows which are
 // NOT bell entries, for a table alias.
 //
@@ -921,24 +958,51 @@ func (s *NotificationFilterService) GetUserNotifications(userID uint, limit, off
 // scene-follow writers stamp channel='email' on rows that are a user's only
 // in-app record, so a `channel = 'in_app'` read would empty the inbox. Adding
 // one is a standing trap, and this predicate is narrow precisely so it does not
-// become that read.
-//
-// It excludes exactly one thing: the EMAIL-lane row of an artist show alert
-// (PSY-1896). That writer uses one row per lane — the in-app row is the bell
-// entry, the email row is the durable record the daily email budget counts — so
-// a user with in-app off and email on has a row that stands for a message
-// already in their mailbox and must not also appear (and count as unread) in
-// their inbox.
+// become that read. It excludes only the email LANE of a two-lane alert type
+// (PSY-1896), whose in-app sibling is the bell entry.
 //
 // Applied to every read of the log: the list, the unread count, and mark-all.
 // Leaving it off any one of them produces a count that disagrees with the list.
 func inboxVisibleRows(alias string) string {
-	return fmt.Sprintf(
-		"NOT (%[1]s.entity_type = '%[2]s' AND %[1]s.channel = '%[3]s')",
-		alias,
-		notificationm.NotificationEntityArtistShowAlert,
-		notificationm.NotificationChannelEmail,
-	)
+	clauses := make([]string, 0, len(emailLaneAlertTypes))
+	for _, entityType := range emailLaneAlertTypes {
+		clauses = append(clauses, fmt.Sprintf(
+			"NOT (%[1]s.entity_type = '%[2]s' AND %[1]s.channel = '%[3]s')",
+			alias, entityType, notificationm.NotificationChannelEmail))
+	}
+	if len(clauses) == 0 {
+		return "TRUE"
+	}
+	return strings.Join(clauses, " AND ")
+}
+
+// notifiedAboutShow is the predicate for "this user has ALREADY been told about
+// this show, by any of the systems that can tell them".
+//
+// One user gets one notification per show across all three fanouts: criteria
+// filters, artist follows, and scene follows. Each stage consults this before
+// delivering, so the predicate has to name every shape any of them writes, and
+// naming it in one place is what keeps the three stages from drifting apart.
+// The scene pass drifting from the filter pass is exactly how a user ends up
+// told twice about one show.
+//
+// The two arms are asymmetric on purpose. Filter and scene rows share
+// entity_type='show' and are distinguished from nothing else, so they need the
+// channel='email' qualifier that has always marked "delivered" on that path.
+// The two-lane alert types need NO channel qualifier: either lane means the
+// user was reached, and requiring 'email' there would miss the in-app-only
+// recipient, who is the DEFAULT (email is opt-in).
+//
+// alias is the table or alias the caller queries through.
+func notifiedAboutShow(alias string) string {
+	clauses := []string{fmt.Sprintf(
+		"(%[1]s.entity_type = '%[2]s' AND %[1]s.channel = '%[3]s')",
+		alias, notificationm.NotificationEntityShow, notificationm.NotificationChannelEmail)}
+	for _, entityType := range showAlertEntityTypes {
+		clauses = append(clauses, fmt.Sprintf(
+			"%s.entity_type = '%s'", alias, entityType))
+	}
+	return "(" + strings.Join(clauses, " OR ") + ")"
 }
 
 // enrichArtistShowAlertNotifications populates the artist name, show title and

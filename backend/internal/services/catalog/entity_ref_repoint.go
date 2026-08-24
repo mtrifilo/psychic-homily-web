@@ -5,6 +5,8 @@ import (
 	"log/slog"
 
 	"gorm.io/gorm"
+
+	notificationm "psychic-homily-backend/internal/models/notification"
 )
 
 // This file holds the inventory of polymorphic (entity_type, entity_id) tables
@@ -206,6 +208,90 @@ func repointEntityRefs(
 		moved[ref.table] = r.RowsAffected
 	}
 	return moved, dropped, nil
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Follow-driven alert rows in notification_log (PSY-1896)
+//
+// These two functions exist because notification_log carries entity ids the
+// inventory above CANNOT see, and a merge that misses them corrupts a user's
+// inbox rather than failing.
+//
+// The inventory keys every re-point on `entity_type = 'show' | 'artist' |
+// 'venue'`. An artist show-alert row has entity_type = 'artist_show_alert', so
+// the loop's UPDATE matches none of them even though its entity_id IS a show id.
+// And subject_entity_id is a second, non-polymorphic entity reference the
+// inventory has no concept of at all: its column name is not entity_id and its
+// type is implied by the discriminator.
+//
+// Neither column has a foreign key, so nothing raises when a merge leaves them
+// behind. The row simply points at a deleted id, and the inbox renders it
+// stripped of its title, link and artist name.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// repointArtistShowAlertShows moves artist show-alert rows from a losing show
+// onto the winner, dropping the ones the winner already has.
+//
+// The drop is required by uq_notification_log_artist_show_alert, the partial
+// UNIQUE on (user_id, entity_id, channel). A user who was alerted about BOTH
+// shows before they were found to be duplicates has a row for each, and moving
+// the loser's onto the winner would violate it and abort the whole merge. The
+// dropped row is the redundant half of a duplicate notification the user already
+// received, so nothing they can see is lost.
+func repointArtistShowAlertShows(tx *gorm.DB, winnerID, loserID uint) (moved, dropped int64, err error) {
+	del := tx.Exec(`
+		DELETE FROM notification_log l
+		WHERE l.entity_type = ?
+		  AND l.entity_id = ?
+		  AND EXISTS (
+		        SELECT 1 FROM notification_log w
+		        WHERE w.entity_type = l.entity_type
+		          AND w.entity_id = ?
+		          AND w.user_id = l.user_id
+		          AND w.channel = l.channel
+		      )
+	`, notificationm.NotificationEntityArtistShowAlert, loserID, winnerID)
+	if del.Error != nil {
+		return 0, 0, fmt.Errorf("failed to drop conflicting artist show-alert rows: %w", del.Error)
+	}
+
+	upd := tx.Exec(`
+		UPDATE notification_log SET entity_id = ?
+		WHERE entity_type = ? AND entity_id = ?
+	`, winnerID, notificationm.NotificationEntityArtistShowAlert, loserID)
+	if upd.Error != nil {
+		return 0, 0, fmt.Errorf("failed to move artist show-alert rows: %w", upd.Error)
+	}
+	return upd.RowsAffected, del.RowsAffected, nil
+}
+
+// repointAlertSubjectEntity moves notification_log.subject_entity_id from a
+// losing entity onto the winner, for the alert types whose subject is that kind
+// of entity.
+//
+// A plain UPDATE with no dedupe, because subject_entity_id is in no unique
+// index: it is the row's LABEL (which band the alert is about), not part of its
+// identity. Two rows for one user that end up naming the same artist are two
+// alerts about two different shows, which is correct.
+func repointAlertSubjectEntity(tx *gorm.DB, entityTypes []string, canonicalID, mergeFromID uint) (int64, error) {
+	if len(entityTypes) == 0 {
+		return 0, nil
+	}
+	r := tx.Exec(`
+		UPDATE notification_log SET subject_entity_id = ?
+		WHERE subject_entity_id = ? AND entity_type IN ?
+	`, canonicalID, mergeFromID, entityTypes)
+	if r.Error != nil {
+		return 0, fmt.Errorf("failed to move alert subject references: %w", r.Error)
+	}
+	return r.RowsAffected, nil
+}
+
+// artistSubjectAlertTypes are the notification_log entity types whose
+// subject_entity_id holds an ARTIST id. A new artist-subject alert type must be
+// added here or an artist merge will strand its rows' labels.
+var artistSubjectAlertTypes = []string{
+	notificationm.NotificationEntityArtistShowAlert,
 }
 
 // logDroppedEntityRefs records the rows a merge DELETED rather than moved.

@@ -2,6 +2,7 @@ package notification
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"sort"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/getsentry/sentry-go"
 	"github.com/lib/pq"
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
 	authm "psychic-homily-backend/internal/models/auth"
@@ -115,18 +117,41 @@ func (s *NotificationFilterService) notifyArtistFollowers(show *catalogm.Show, s
 		return
 	}
 
-	// Defence in depth at the trust boundary. Both of today's callers have
-	// already established that the show is publicly visible — the admin handlers
-	// because they just approved it, the outbox because catalogm.ShowAnnounceable
-	// passed — so this guard should never fire. It is here anyway because the
-	// blast radius of it being wrong is mailing strangers about a private or
-	// rejected show, and because MatchAndNotify is an exported method that a
-	// future caller could reach with a show neither of those paths vetted.
-	if show.Status != catalogm.ShowStatusApproved {
-		log.Printf("artist-follow notify: refusing to announce show %d with status %q",
-			show.ID, show.Status)
+	// Re-read the canonical row rather than trusting the caller's.
+	//
+	// This is NOT belt and braces: MatchAndNotify's callers do not agree on how
+	// complete a Show they hand over. The outbox poller passes the row it loaded
+	// from the database, but both admin approve handlers BUILD A PARTIAL LITERAL
+	// (id, title, event date, price, slug, city, state) with no Status and no
+	// SubmittedBy. Reading Status off that literal would see the zero value on
+	// every admin approval and silence this feature on the entire human-moderated
+	// path; reading SubmittedBy would see nil and quietly disable self-exclusion,
+	// so the admin who entered a show would be alerted about it.
+	//
+	// Both facts are security-relevant and neither is optional, so this pass takes
+	// them from the row itself. One indexed primary-key read per show is a cheap
+	// price for not depending on which caller you came from.
+	//
+	// A missing row means the show was deleted between the trigger and this
+	// goroutine, which is a reason to say nothing.
+	canonical, err := s.loadShowForAlert(show.ID)
+	if err != nil {
+		log.Printf("artist-follow notify: %v", err)
 		return
 	}
+	if canonical == nil {
+		return
+	}
+
+	// The visibility fence. Announcing a private, pending or rejected show would
+	// either leak a user's own list or advertise something moderation has not
+	// passed, so it fails CLOSED against the authoritative status read above.
+	if canonical.Status != catalogm.ShowStatusApproved {
+		log.Printf("artist-follow notify: refusing to announce show %d with status %q",
+			canonical.ID, canonical.Status)
+		return
+	}
+	show = canonical
 
 	followers, err := s.artistFollowersForShow(show.ID, showArtistIDs)
 	if err != nil {
@@ -143,7 +168,7 @@ func (s *NotificationFilterService) notifyArtistFollowers(show *catalogm.Show, s
 		return
 	}
 
-	area, err := s.showAreaMetros(show.ID)
+	area, err := s.resolveShowArea(show.ID)
 	if err != nil {
 		log.Printf("artist-follow notify: %v", err)
 		return
@@ -174,6 +199,21 @@ func (s *NotificationFilterService) notifyArtistFollowers(show *catalogm.Show, s
 		}
 		s.deliverArtistAlert(r, show, now)
 	}
+}
+
+// loadShowForAlert reads the show back by id. A missing row is (nil, nil): a
+// show deleted between the trigger and this goroutine is an expected outcome,
+// not an error worth retrying.
+func (s *NotificationFilterService) loadShowForAlert(showID uint) (*catalogm.Show, error) {
+	var show catalogm.Show
+	err := s.db.Where("id = ?", showID).First(&show).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load show %d for alert: %w", showID, err)
+	}
+	return &show, nil
 }
 
 // artistFollowersForShow returns every artist follow whose target plays this
@@ -269,10 +309,10 @@ func (a showAreaMetros) matches(homeMetro string) bool {
 	return ok
 }
 
-// showAreaMetros resolves the show's venues to CBSA codes. venues.metro is
+// resolveShowArea reads the show's venues into a showAreaMetros. venues.metro is
 // derived by the same offline Census dataset that fills user_preferences.
 // home_metro, so the two are directly comparable as codes.
-func (s *NotificationFilterService) showAreaMetros(showID uint) (showAreaMetros, error) {
+func (s *NotificationFilterService) resolveShowArea(showID uint) (showAreaMetros, error) {
 	type venueMetroRow struct {
 		Metro *string `gorm:"column:metro"`
 	}
@@ -402,13 +442,12 @@ func resolveArtistAlertRecipients(
 	return out
 }
 
-// usersAlreadyNotifiedAboutShow returns the subset of recipients the filter or
-// scene-follow systems have already told about this show.
+// usersAlreadyNotifiedAboutShow returns the subset of recipients some other
+// system has already told about this show.
 //
-// Those two write entity_type='show' with channel='email' — including for
-// in-app-only filters, where the row is the user's only bell record. One query
-// for the whole set rather than one per user, which is what the filter pass
-// still does.
+// Shares notifiedAboutShow with the filter and scene passes, so all three agree
+// about which rows count as "already told". One query for the whole set rather
+// than one per user, which is what the filter pass still does.
 func (s *NotificationFilterService) usersAlreadyNotifiedAboutShow(
 	showID uint,
 	recipients []artistAlertRecipient,
@@ -420,8 +459,8 @@ func (s *NotificationFilterService) usersAlreadyNotifiedAboutShow(
 
 	var notified []uint
 	err := s.db.Model(&notificationm.NotificationLog{}).
-		Where("user_id IN ? AND entity_type = ? AND entity_id = ? AND channel = ?",
-			ids, notificationm.NotificationEntityShow, showID, notificationm.NotificationChannelEmail).
+		Where("user_id IN ? AND entity_id = ?", ids, showID).
+		Where(notifiedAboutShow("notification_log")).
 		Distinct().
 		Pluck("user_id", &notified).Error
 	if err != nil {
@@ -464,9 +503,29 @@ func (s *NotificationFilterService) deliverArtistAlert(
 		return
 	}
 
-	// The email row is claimed BEFORE the send, not after. A crash between the
-	// two loses an email; claiming after would risk sending two, and a duplicate
-	// alert is the failure the recipient notices and the one that costs sending
+	// The daily budget is checked BEFORE the lane is claimed, and the order is
+	// load-bearing in both directions.
+	//
+	// Claiming first looks safer and is not. The claim is PERMANENT — the partial
+	// UNIQUE means a later attempt finds RowsAffected == 0 — so a row claimed and
+	// then refused by the budget is an email that can never be sent, for a user who
+	// may have in-app switched off and would therefore receive nothing at all. And
+	// the budget is SHARED with the filter and scene-follow senders, which count
+	// every channel='email' row in the last 24 hours: claims that never became mail
+	// would spend other notifications' allowance, so one bulk ingest could silence
+	// a user's filter emails for a day.
+	//
+	// Checking first costs the opposite risk, that the count is stale by the time
+	// the send happens. That is the same window every other sender here already
+	// accepts, and it errs toward delivering an email the user asked for.
+	if !s.withinDailyEmailBudget(r.userID) {
+		log.Printf("rate limit: skipping artist-alert email for user %d", r.userID)
+		return
+	}
+
+	// The lane is claimed BEFORE the send, not after. A crash between the two
+	// loses an email; claiming after would risk sending two, and a duplicate alert
+	// is the failure the recipient notices and the one that costs sending
 	// reputation.
 	claimed, err := s.claimArtistAlertRow(r, show.ID, notificationm.NotificationChannelEmail, now)
 	if err != nil {
@@ -477,6 +536,29 @@ func (s *NotificationFilterService) deliverArtistAlert(
 		return
 	}
 	s.sendArtistShowAlertEmail(r, show)
+}
+
+// withinDailyEmailBudget reports whether the user has room in the shared
+// per-user daily email allowance.
+//
+// The comparison is `<` against the same maxFilterEmailsPerDay the filter and
+// scene-follow senders use, and it is evaluated at the same point in their
+// flow — before this alert's own row exists — so all three enforce ONE threshold
+// rather than three that differ by an off-by-one.
+func (s *NotificationFilterService) withinDailyEmailBudget(userID uint) bool {
+	var emailCount int64
+	dayAgo := time.Now().UTC().Add(-24 * time.Hour)
+	if err := s.db.Model(&notificationm.NotificationLog{}).
+		Where("user_id = ? AND channel = ? AND sent_at > ?",
+			userID, notificationm.NotificationChannelEmail, dayAgo).
+		Count(&emailCount).Error; err != nil {
+		// Fail CLOSED. An unreadable budget is not permission to send: the cap
+		// exists to bound outbound mail, and an unbounded burst is the failure it
+		// was put there to prevent.
+		log.Printf("artist-follow notify: daily email budget check for user %d: %v", userID, err)
+		return false
+	}
+	return emailCount < int64(maxFilterEmailsPerDay)
 }
 
 // claimArtistAlertRow inserts one lane's row, reporting whether THIS call
@@ -506,27 +588,9 @@ func (s *NotificationFilterService) claimArtistAlertRow(
 	return res.RowsAffected > 0, nil
 }
 
-// sendArtistShowAlertEmail renders and sends the alert, under the same per-user
-// daily email budget every other notification email obeys.
+// sendArtistShowAlertEmail renders and sends the alert. The caller has already
+// checked the shared daily budget and claimed the email lane.
 func (s *NotificationFilterService) sendArtistShowAlertEmail(r artistAlertRecipient, show *catalogm.Show) {
-	// Shared budget, counted over the whole email channel. Artist alerts are
-	// opt-in per follow, so a user with many followed bands and email switched on
-	// is the exact shape this cap exists for: a festival lineup landing in one
-	// ingest run must not become fifty messages.
-	var emailCount int64
-	dayAgo := time.Now().UTC().Add(-24 * time.Hour)
-	s.db.Model(&notificationm.NotificationLog{}).
-		Where("user_id = ? AND channel = ? AND sent_at > ?",
-			r.userID, notificationm.NotificationChannelEmail, dayAgo).
-		Count(&emailCount)
-	if emailCount > int64(maxFilterEmailsPerDay) {
-		// Strictly greater, not >=: this row's own email-lane claim is already in
-		// the table by the time we count, so an == here would refuse the tenth
-		// message of the day rather than the eleventh.
-		log.Printf("rate limit: skipping artist-alert email for user %d (sent %d today)", r.userID, emailCount)
-		return
-	}
-
 	var email string
 	if err := s.db.Table("users").Where("id = ?", r.userID).Pluck("email", &email).Error; err != nil || email == "" {
 		log.Printf("artist-follow notify: no email for user %d: %v", r.userID, err)
@@ -543,7 +607,11 @@ func (s *NotificationFilterService) sendArtistShowAlertEmail(r artistAlertRecipi
 	manageURL := fmt.Sprintf("%s/settings/notifications", s.frontendURL)
 
 	html := buildArtistShowAlertEmailHTML(r.artistName, r.scope, c, unsubscribeURL, manageURL)
-	subject := fmt.Sprintf("%s announced a show", r.artistName)
+	// The subject is a HEADER, and this is the first place a scraped third-party
+	// string reaches one. HTML escaping does nothing for headers: a CR or LF in an
+	// artist name is how a header is split and another one injected. The body
+	// builders escape their own inputs; this does not go through them.
+	subject := fmt.Sprintf("%s announced a show", sanitizeEmailHeaderValue(r.artistName))
 
 	if err := s.sendEmail(email, subject, html, unsubscribeURL); err != nil {
 		sentry.WithScope(func(scope *sentry.Scope) {

@@ -183,15 +183,28 @@ func (s *UserService) UnsubscribeArtistShowAlertEmails(userID uint) error {
 		return fmt.Errorf("failed to clear account show-alert email default: %w", err)
 	}
 
-	// FollowService is a thin handle over the same *gorm.DB, so constructing one
-	// here costs nothing and keeps the user_bookmarks JSONB merge in the package
-	// that owns it rather than growing a second implementation of it.
-	if err := engagement.NewFollowService(s.db).DisableFollowAlertEmailChannel(
-		userID,
+	// FollowService is a thin handle over the same *gorm.DB (NewFollowService
+	// stores it and nothing else), so constructing one here costs nothing and
+	// keeps the user_bookmarks JSONB merge in the package that owns it rather
+	// than growing a second implementation of it. If it ever acquires real
+	// dependencies, this becomes a constructor argument.
+	follows := engagement.NewFollowService(s.db)
+
+	// BOTH follow types that carry show alerts, because the account write above
+	// is not narrower than that: alert_defaults has ONE `shows` key covering
+	// artist and venue show alerts alike. Sweeping only artist follows would
+	// leave the two halves of this unsubscribe disagreeing about what it
+	// silenced, and the half that disagreed would be the one that keeps sending.
+	for _, entityType := range []string{
 		string(engagementm.BookmarkEntityArtist),
-		contracts.FollowAlertTypeShows,
-	); err != nil {
-		return fmt.Errorf("failed to clear per-follow show-alert email overrides: %w", err)
+		string(engagementm.BookmarkEntityVenue),
+	} {
+		if err := follows.DisableFollowAlertEmailChannel(
+			userID, entityType, contracts.FollowAlertTypeShows,
+		); err != nil {
+			return fmt.Errorf("failed to clear per-follow show-alert email overrides for %s: %w",
+				entityType, err)
+		}
 	}
 	return nil
 }

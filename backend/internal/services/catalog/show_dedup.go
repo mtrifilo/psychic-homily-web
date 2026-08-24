@@ -223,6 +223,11 @@ type ShowDedupSummary struct {
 	// reviewer can see when a merge discarded a notification that had not gone
 	// out yet, rather than having that happen invisibly under the FK cascade.
 	NotifyJobsDropped int64
+	// AlertRowsMoved counts follow-driven alert rows in notification_log whose
+	// entity_id was re-pointed onto the winner (PSY-1896). Reported because
+	// those rows are a user's inbox history, and a merge silently stranding
+	// them shows up as notifications that lost their title and link.
+	AlertRowsMoved int64
 
 	// History tables, which move through a provenance decision rather than
 	// through the inventory loop. See refsRepointedElsewhere.
@@ -270,6 +275,7 @@ func (s *ShowDedupSummary) Add(other *ShowDedupSummary) {
 	s.EnrichmentMoved += other.EnrichmentMoved
 	s.DuplicateOfRepoint += other.DuplicateOfRepoint
 	s.NotifyJobsDropped += other.NotifyJobsDropped
+	s.AlertRowsMoved += other.AlertRowsMoved
 
 	s.PendingEditsMoved += other.PendingEditsMoved
 	s.PendingEditsSkipped += other.PendingEditsSkipped
@@ -593,6 +599,21 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 	}
 	summary.addEntityRefCounts(entityRefsMoved, entityRefsDropped)
 	logDroppedEntityRefs(mergeEntityShow, winnerID, loserID, entityRefsDropped)
+
+	// notification_log rows for follow-driven show alerts (PSY-1896). Separate
+	// from the loop above because they key on their own entity_type, so
+	// polymorphicEntityRefs cannot see them even though their entity_id is a
+	// show id. Left behind they point at a deleted show and the user's inbox row
+	// loses its title and link. See repointArtistShowAlertShows.
+	alertsMoved, alertsDropped, err := repointArtistShowAlertShows(tx, winnerID, loserID)
+	if err != nil {
+		return err
+	}
+	summary.AlertRowsMoved += alertsMoved
+	if alertsDropped > 0 {
+		logDroppedEntityRefs(mergeEntityShow, winnerID, loserID,
+			map[string]int64{"notification_log (artist_show_alert)": alertsDropped})
+	}
 
 	// Delete the loser show. Nothing should be left to CASCADE: every foreign key
 	// to shows.id is named in showFKColumns, and every one of them was re-pointed
