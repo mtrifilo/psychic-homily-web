@@ -89,6 +89,22 @@ export const followAlertHasScopeAxis = (entityType: string): boolean =>
   entityType !== 'venues'
 
 /**
+ * Whether this follow type puts out records at all.
+ *
+ * A SEPARATE predicate from the scope axis, even though the two split the same
+ * way today (a venue has neither). They are different facts, and this module
+ * already learned that lesson once with the pending-delivery notes: inferring
+ * one axis from another reads as a coincidence that happens to hold, and
+ * silently grants the inferred property to the next type someone adds.
+ *
+ * A positive list rather than an exclusion, for the same reason
+ * `isAlertCapableFollowType` is one: the server is the authority, and it omits
+ * `releases` from every settings payload that has none.
+ */
+export const followAlertHasReleaseAxis = (entityType: string): boolean =>
+  entityType === 'artists'
+
+/**
  * The pending-delivery disclosure for one follow type, or null when that
  * type's alerts genuinely deliver today.
  *
@@ -248,7 +264,13 @@ export const followAlertsPaused = (
   settings.shows.enabled &&
   !followAlertHasChannel(settings.shows)
 
-/** The bracket/summary word for a paused subscription, in both surfaces. */
+/**
+ * The word for a paused subscription, in all three places it appears: the
+ * entity page's state line, the Library row's bracket, and the Library bar,
+ * where it is the PREDICATE of "New follows start at: …". That last one is a
+ * grammatical constraint on any replacement: "no channels" would read as
+ * "New follows start at: no channels".
+ */
 export const ALERTS_PAUSED_SUMMARY = 'paused'
 
 /**
@@ -288,14 +310,20 @@ const ALERTS_PAUSED_SCOPE_KEPT =
   'The scope for this follow is saved, so it is still what it was.'
 
 /**
- * The clause the active tooltip carries and the paused one must not lose.
+ * The clause `FollowAlertsReveal`'s ARTIST_TOOLTIP carries, which the paused
+ * copy must not lose: the chips are still on screen under a pause, so they can
+ * still be misread as governing releases, and this copy REPLACES the tooltip
+ * that said otherwise.
  *
- * The chips are still on screen under a pause, so they can still be misread as
- * governing releases, and the pause copy replaces the tooltip that said
- * otherwise. Paired with the release-delivery disclosure, which is a separate
- * fact about a separate axis.
+ * It does NOT reuse `RELEASE_ALERTS_PENDING_NOTE` verbatim. That string ends
+ * "These settings decide where they will reach you once they are", written for
+ * the account matrix card where "these settings" are the release channel
+ * checkboxes. Under the chips, the only settings on screen are scope options
+ * the release axis does not have and the server 422s, so the borrowed sentence
+ * would point at the exact control the sentence before it just denied.
  */
-const ALERTS_PAUSED_RELEASES_UNAFFECTED = `New releases are never geography-scoped, so none of this affects them. ${RELEASE_ALERTS_PENDING_NOTE}`
+const ALERTS_PAUSED_RELEASES_UNAFFECTED =
+  'New releases are never geography-scoped, so none of this affects them. Release alerts are still being switched on, and their channels are in your alert settings.'
 
 /**
  * Why a follow reads paused, what lifts it, and anything else still true of
@@ -320,7 +348,9 @@ const followAlertsPausedDetail = (entityType: string): string =>
   [
     ALERTS_PAUSED_EFFECT,
     followAlertHasScopeAxis(entityType) ? ALERTS_PAUSED_SCOPE_KEPT : null,
-    followAlertHasScopeAxis(entityType) ? ALERTS_PAUSED_RELEASES_UNAFFECTED : null,
+    followAlertHasReleaseAxis(entityType)
+      ? ALERTS_PAUSED_RELEASES_UNAFFECTED
+      : null,
     followAlertPendingNote(entityType),
   ]
     .filter(Boolean)

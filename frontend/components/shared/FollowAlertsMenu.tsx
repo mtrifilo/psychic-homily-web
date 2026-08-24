@@ -14,11 +14,11 @@ import { useUpdateFollowAlerts } from '@/lib/hooks/common/useFollowAlerts'
 import {
   ALERTS_HREF,
   ALERTS_PAUSED_CHOICE_LABEL,
-  ALERTS_PAUSED_LEAD,
   ALERTS_PAUSED_SUMMARY,
   followAlertChoice,
-  followAlertHasScopeAxis,
+  followAlertHasReleaseAxis,
   followAlertOptions,
+  followAlertPendingNote,
   followAlertsPaused,
   followAlertsPausedNote,
   followAlertSummaryFor,
@@ -69,8 +69,10 @@ export function FollowAlertsMenu({
   const current = followAlertChoice(alerts, { entityType, hasHomeMetro })
   const options = followAlertOptions({ entityType, hasHomeMetro })
   // Release alerts and geographic scope happen to split the same way (a venue
-  // has neither), but they are separate facts; this names the one it means.
-  const hasReleaseAxis = followAlertHasScopeAxis(entityType)
+  // has neither), but they are separate facts, so this reads the release one.
+  // Was a local alias over the scope predicate; the real predicate now lives
+  // beside it in the shared vocabulary, so the two cannot drift.
+  const hasReleaseAxis = followAlertHasReleaseAxis(entityType)
 
   // The SERVER decides which follow types carry a subscription, and it says so
   // per row by populating `alerts` or leaving it out. Reading that beats
@@ -122,15 +124,18 @@ export function FollowAlertsMenu({
             // follower at a Settings row that will never fire for them is the
             // same cross-surface disagreement this control exists to end, and
             // `FollowAlertsReveal` already forks its tooltip this way.
-            // Short while paused, deliberately. `BracketLink` sets an explicit
-            // aria-label, so `title` becomes the accessible DESCRIPTION, which
-            // is announced on every row a screen reader lands on. The full
-            // note is one node down, inside the menu.
+            // `BracketLink` sets an explicit aria-label, so `title` is the
+            // accessible DESCRIPTION, announced on every row a screen reader
+            // lands on. So it carries only what the NAME does not already
+            // say: nothing at all while paused on a type whose alerts
+            // deliver (the name says "paused" and the menu holds the prose),
+            // and the pending-delivery disclosure on a type where "paused"
+            // alone would read as "un-pause and they resume".
             title={
               paused
-                ? ALERTS_PAUSED_LEAD
+                ? (followAlertPendingNote(entityType) ?? undefined)
                 : hasReleaseAxis
-                  ? `New-show alerts for ${entityName}. Release alerts are set in Settings.`
+                  ? `New-show alerts for ${entityName}. Release alerts are set in Settings, and are still being switched on.`
                   : `New-show alerts for ${entityName}.`
             }
             // No `active`: this is a menu button, not a toggle. aria-pressed

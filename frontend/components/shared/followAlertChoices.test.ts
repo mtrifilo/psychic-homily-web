@@ -412,10 +412,25 @@ describe('followAlertsPausedNote', () => {
   // The scope chips stay on screen under the pause, so they can still be
   // misread as governing releases, which is the exact misreading the active
   // tooltip's release clause exists to prevent.
-  it('keeps the release disclosure for the type whose chips imply a scope', () => {
+  it('keeps the release disclosure for the type that has a release axis', () => {
     const note = followAlertsPausedNote('artists')
     expect(note).toContain('never geography-scoped')
-    expect(note).toContain(RELEASE_ALERTS_PENDING_NOTE)
+    expect(note).toContain('Release alerts are still being switched on')
+  })
+
+  // NOT the matrix card's string verbatim. That one ends "These settings
+  // decide where they will reach you once they are", written where "these
+  // settings" are the release channel checkboxes. Under the scope chips, the
+  // only settings on screen are ones the release axis does not have and the
+  // server 422s, so the borrowed sentence would point at the exact control
+  // the sentence before it just ruled out.
+  it('does not borrow the matrix card wording, whose referent is not here', () => {
+    expect(followAlertsPausedNote('artists')).not.toContain(
+      RELEASE_ALERTS_PENDING_NOTE
+    )
+    expect(followAlertsPausedNote('artists')).toContain(
+      'their channels are in your alert settings'
+    )
   })
 
   // A venue follow has no release axis at all: the server omits `releases`

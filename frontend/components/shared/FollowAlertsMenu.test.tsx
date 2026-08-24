@@ -207,21 +207,24 @@ describe('FollowAlertsMenu', () => {
       expect(screen.getByRole('menuitem', { name: 'Off' })).toBeInTheDocument()
     })
 
-    // Reachable and previously broken: with the account channels off, picking
+    // Reachable, and previously broken. With the account channels off, picking
     // an ON option on a row that was switched off flips the row INTO paused.
-    // If that swapped the trigger out, focus went to <body>.
-    it('still writes the chosen option, which resolves back to paused', async () => {
-      renderMenu({
-        alerts: {
-          entity_type: 'artist',
-          entity_id: 1,
-          shows: { enabled: false, in_app: false, email: false },
-        },
-      })
+    // The whole interaction runs here so RADIX does the focus restore: it
+    // focuses the trigger on close, and when the paused branch swapped that
+    // trigger for a link, it focused a node that no longer existed and the
+    // next Tab restarted at the top of a list that can run 50 rows deep.
+    it('writes the choice and keeps focus when the row flips into paused', async () => {
+      const offAlerts: FollowAlertSettings = {
+        entity_type: 'artist',
+        entity_id: 1,
+        shows: { enabled: false, in_app: false, email: false },
+      }
+      const { rerender } = renderMenu({ alerts: offAlerts })
 
-      await userEvent.click(
-        screen.getByRole('button', { name: /Show alerts for Alpha: off/i })
-      )
+      const trigger = screen.getByRole('button', {
+        name: /Show alerts for Alpha: off/i,
+      })
+      await userEvent.click(trigger)
       await userEvent.click(screen.getByRole('menuitem', { name: 'Near me' }))
 
       expect(mockUpdate).toHaveBeenCalledWith({
@@ -229,6 +232,20 @@ describe('FollowAlertsMenu', () => {
         entityId: 1,
         update: { shows: { enabled: true, scope: 'near_me' } },
       })
+
+      // What the server resolves that write back to, with no channel on.
+      rerender(
+        <FollowAlertsMenu
+          entityType="artists"
+          entityId={1}
+          entityName="Alpha"
+          alerts={pausedAlerts()}
+          hasHomeMetro
+        />
+      )
+
+      expect(screen.getByText('alerts: paused')).toBeInTheDocument()
+      expect(document.activeElement).toBe(trigger)
     })
 
     // The explanation is one node inside the menu, reachable by keyboard and
@@ -251,39 +268,6 @@ describe('FollowAlertsMenu', () => {
       // control mounted stays honest.
       expect(screen.getByText('While paused:')).toBeInTheDocument()
       expect(screen.queryByText('New shows')).toBeNull()
-    })
-
-    // The bug this shape exists to prevent, measured. Choosing an ON option on
-    // a switched-off row flips that row INTO paused; when that swapped the
-    // trigger for a link, Radix restored focus to a node that no longer
-    // existed and the next Tab restarted at the top of the list.
-    it('keeps focus on the trigger when a write flips the row into paused', async () => {
-      const offAlerts: FollowAlertSettings = {
-        entity_type: 'artist',
-        entity_id: 1,
-        shows: { enabled: false, in_app: false, email: false },
-      }
-      const { rerender } = renderMenu({ alerts: offAlerts })
-
-      const trigger = screen.getByRole('button', {
-        name: /Show alerts for Alpha: off/i,
-      })
-      trigger.focus()
-      expect(document.activeElement).toBe(trigger)
-
-      rerender(
-        <FollowAlertsMenu
-          entityType="artists"
-          entityId={1}
-          entityName="Alpha"
-          alerts={pausedAlerts()}
-          hasHomeMetro
-        />
-      )
-
-      expect(screen.getByText('alerts: paused')).toBeInTheDocument()
-      expect(document.activeElement).toBe(trigger)
-      expect(document.activeElement).not.toBe(document.body)
     })
 
     // A name, not a description: 50 rows announcing the same paragraph makes

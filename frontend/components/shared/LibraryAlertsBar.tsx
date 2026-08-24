@@ -82,34 +82,43 @@ export function LibraryAlertsBar({ entityType }: LibraryAlertsBarProps) {
   //
   // Gated on the PREFERENCES read, not on the scope axis: one `shows` key
   // covers both follow types, so a venue follow pauses on the same fact.
+  //
+  // UNKNOWN is representable and is not "channels on". The optional chaining
+  // concedes a payload could arrive without the key, and defaulting that to
+  // false would have the bar assert "New follows start at: Near me" from a
+  // read that told it nothing. Every other unknown in this feature fails
+  // closed; `matrixKnown` gates the whole block so this one does too.
   const accountShowChannels = preferences?.alert_defaults?.shows
+  const matrixKnown = accountShowChannels !== undefined
   const newFollowsPaused =
-    accountShowChannels !== undefined &&
-    !followAlertHasChannel(accountShowChannels)
+    matrixKnown && !followAlertHasChannel(accountShowChannels)
 
   return (
     <div className="mb-4 border border-border bg-card px-3.5 py-3">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[13px]">
-        {/* The pause is stated on every tab this bar renders on, because it
-            is true of every follow type here. The starting SCOPE is a scoped
-            tab's fact only, and it is the half the pause replaces: with no
-            channel on, a reader does not take "New follows start at: Near me"
-            as a statement about geography, they take it as a delivery
-            promise, directly above a column of brackets saying paused. */}
+        {/* The pause is stated on every tab this bar renders on, because one
+            `shows` key governs every follow type here.
+
+            The LEAD-IN forks, because only a scoped tab has a sentence being
+            replaced. There, "New follows start at: Near me" is what a reader
+            takes as a delivery promise with no channel on, so the pause takes
+            its slot and its phrasing. The Venues tab renders no such sentence
+            in any other state, so a "new follows" lead-in there would be a
+            scope-shaped claim on a tab with no scope axis, and would explain
+            nothing about the column of paused brackets below it. */}
         {newFollowsPaused ? (
           <>
-            {/* Same lead-in as the sentence it replaces, because it answers
-                the same question. An unqualified "New-show alerts: paused"
-                would assert a state over every row, and a follow carrying a
-                per-follow channel override still delivers; this half is only
-                ever about what a NEW follow inherits. */}
             <span className="text-muted-foreground">
-              New follows start at:{' '}
+              {hasScopeAxis ? 'New follows start at: ' : 'New-show alerts: '}
               <span className="text-foreground">{ALERTS_PAUSED_SUMMARY}</span>
             </span>
             <BracketLink
               label="turn a channel on"
-              ariaLabel="New follows start paused. Turn a channel on in alert settings."
+              ariaLabel={
+                hasScopeAxis
+                  ? 'New follows start paused. Turn a channel on in alert settings.'
+                  : 'New-show alerts are paused. Turn a channel on in alert settings.'
+              }
               href={ALERTS_HREF}
               className="font-mono text-[11px]"
             />
@@ -165,11 +174,13 @@ export function LibraryAlertsBar({ entityType }: LibraryAlertsBarProps) {
             obeys. On a scoped tab the degradation is severe: the bar loses its
             area half AND every row's bracket disappears, because an unknown
             home area makes each menu render null, so a user reasonably
-            concludes their follows carry no alert subscription at all. On the
-            Venues tab the rows survive (their option list needs no area), but
-            whether those alerts are paused is now unknown, which is its own
-            thing worth saying. Either way, two controls over one field must
-            not disagree about whether a failure is worth mentioning. */}
+            concludes their follows carry no alert subscription at all.
+
+            On the Venues tab the ROWS are fine either way: each carries its
+            own resolved subscription in the list payload, so a bracket still
+            reads paused or on without this query. What is unanswerable is
+            this bar's own half, which reads the account matrix. It says so
+            rather than rendering an empty bar. */}
         {readFailed && (
           <>
             <span className="text-muted-foreground" role="alert">

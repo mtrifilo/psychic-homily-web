@@ -337,6 +337,12 @@ export function AlertSettings() {
     return profileFailed ? { kind: 'unavailable' } : { kind: 'pending' }
   }
 
+  // Only true once the matrix has RESOLVED. An unresolved read must not paint
+  // a pause over follows that are delivering, the same rule every other
+  // surface in this feature obeys.
+  const showAlertsPaused =
+    defaults !== undefined && !defaults.shows.in_app && !defaults.shows.email
+
   const rows: AlertRow[] = [
     {
       id: 'shows',
@@ -348,8 +354,29 @@ export function AlertSettings() {
       // "In-app" is the claim that has been observed end to end. PSY-1896's
       // email lane is built and covered by integration tests, but no owner has
       // watched a real message arrive, so it is not named as live here.
-      description:
-        'Which shows count for an artist is that follow’s own scope, near me or everywhere. A venue sits in one place, so its alerts have no scope. In-app alerts for artists are live; venue alerts are still being switched on.',
+      // The pause is AUTHORED here, and every "turn a channel on" link across
+      // the product lands on this row. Clearing both boxes inherits down into
+      // every artist and venue follow that never overrode a channel, so those
+      // surfaces all start reading "paused" from this one act. A card that
+      // sends people here to fix it cannot be the one surface that never
+      // mentions the state, in either direction.
+      description: (
+        <>
+          Which shows count for an artist is that follow&rsquo;s own scope, near
+          me or everywhere. A venue sits in one place, so its alerts have no
+          scope. In-app alerts for artists are live; venue alerts are still
+          being switched on.
+          {showAlertsPaused && (
+            <>
+              {' '}
+              <span className="text-foreground">
+                With both off, new-show alerts for every artist and venue you
+                follow are paused. Each follow&rsquo;s scope is saved.
+              </span>
+            </>
+          )}
+        </>
+      ),
       inApp: matrixToggle(
         matrix => matrix.shows.in_app,
         next => setAlertDefaults.mutate({ shows: { in_app: next } })
