@@ -137,20 +137,21 @@ type accruableVenue struct {
 // on a table which is deliberately never pruned (the inbox row reads its members
 // live, so deleting them would blank delivered history).
 //
-// Be precise about what that bound does NOT do. It gates on whether the venue
-// has ANY follower, not on which followers exist, and venueFollowers resolves
-// the recipient list at FLUSH time with no created_at filter. So a user who
-// follows the venue partway through the day DOES receive that day's whole batch,
-// including shows announced before they subscribed — and because a late show
-// re-opens an already-dispatched group, they can be enrolled as late as the end
-// of the venue-local day.
+// Be precise about what that bound does and does not do, because it looks like a
+// subscription rule and is not one. It gates on whether the venue has ANY
+// follower, and venueFollowers resolves the recipient list at FLUSH time with no
+// created_at filter. Two consequences, in opposite directions:
 //
-// That is the intended behaviour rather than an accident: the alert's subject is
-// "what is new at this venue today", the reader has just declared interest in
-// exactly that venue, and the alternative (a same-day subscriber hearing nothing
-// until tomorrow) is the silence the merged follow control exists to remove.
-// Stated here because it is a real user-visible property that the accrual gate
-// looks like it prevents and does not.
+//   - A venue that ALREADY had a follower accrues normally, so someone who
+//     follows it later the same day receives that whole day's batch, including
+//     shows announced before they subscribed. That is intended: the alert's
+//     subject is "what is new at this venue today", and the reader has just
+//     declared interest in exactly that venue.
+//   - A venue with NO followers accrues nothing at all. Its FIRST follower
+//     therefore sees only shows accrued after their follow row existed — if the
+//     drop finished before they subscribed, they get nothing for it. That is the
+//     price of bounding a table nobody prunes, and it is the case the paragraph
+//     above does NOT cover.
 func (s *NotificationFilterService) accrueVenueShowAlerts(show *catalogm.Show, showVenueIDs pq.Int64Array) {
 	if show == nil || len(showVenueIDs) == 0 {
 		return
@@ -186,14 +187,28 @@ func (s *NotificationFilterService) accrueVenueShowAlerts(show *catalogm.Show, s
 		// venue's clock.
 		day := now.In(utils.EventLocation(v.Timezone, v.State)).Format(alertDayLayout)
 
-		// ON CONFLICT DO NOTHING against the natural primary key, so re-running
-		// MatchAndNotify for the same show (a reclaimed outbox row, an admin
-		// approve after an ingest) accrues nothing new.
+		// A (venue, show) pair accrues ONCE, EVER — not once per day.
+		//
+		// ON CONFLICT DO NOTHING alone would only cover a re-run on the SAME day,
+		// because alert_day is part of the primary key. That leaves a real
+		// duplicate: unpublish a show and re-approve it tomorrow and
+		// MatchAndNotify runs again, accrues under a new alert_day, claims under a
+		// new alert_bucket, and mails the follower a second time about the same
+		// show. Nothing else would catch it — venue alerts key on the VENUE, so
+		// they are invisible to the show-keyed cross-system dedup by design.
+		//
+		// The NOT EXISTS is what closes that, and the ON CONFLICT stays for the
+		// same-day race the guard cannot see (two concurrent MatchAndNotify runs
+		// both passing the check before either inserts).
 		if err := s.db.Exec(`
 			INSERT INTO venue_show_alert_batch (venue_id, alert_day, show_id, created_at)
-			VALUES (?, ?::date, ?, ?)
+			SELECT ?, ?::date, ?, ?
+			WHERE NOT EXISTS (
+			      SELECT 1 FROM venue_show_alert_batch
+			      WHERE venue_id = ? AND show_id = ?
+			  )
 			ON CONFLICT DO NOTHING
-		`, v.ID, day, show.ID, now).Error; err != nil {
+		`, v.ID, day, show.ID, now, v.ID, show.ID).Error; err != nil {
 			log.Printf("venue-alert accrual: venue %d, show %d, day %s: %v", v.ID, show.ID, day, err)
 		}
 	}
@@ -218,6 +233,11 @@ type venueAlertShow struct {
 	EventDate   time.Time
 	SubmittedBy *uint
 	ArtistText  string
+	// EditedAfterAccrual marks a member whose show row was written after we
+	// decided to announce it. Such a member still counts, still claims its in-app
+	// row and still renders in the inbox; it is left out of the EMAIL only. See
+	// where it is set for the argument.
+	EditedAfterAccrual bool
 }
 
 // venueAlertBatch is one resolved batch: its venue, its day, and the members
@@ -228,9 +248,10 @@ type venueAlertBatch struct {
 	venueURL  string
 	loc       *time.Location
 	shows     []venueAlertShow
-	// watermark is the instant the members were read. Only rows accrued at or
-	// before it may be stamped dispatched, because only those were resolved.
-	watermark time.Time
+	// resolved is the exact set of member show ids this flush read. The dispatch
+	// stamp is bounded by it, so a row that became visible after the read cannot
+	// be retired without ever having been considered.
+	resolved []uint
 }
 
 // venueFollowerRow is one venue follow. Exactly one row per (user, venue), so
@@ -288,18 +309,28 @@ func (s *NotificationFilterService) FlushVenueShowAlerts(
 		return 0
 	}
 
-	dispatched := 0
-	for _, key := range keys {
+	// retired counts groups this tick RESOLVED — which is not the same as groups
+	// that reached a reader. A batch whose members all turned out to be
+	// unannounceable, and a venue whose followers all unfollowed, both resolve to
+	// "nothing to send" and are retired. Named for what it measures so the tick
+	// log cannot be read as a delivery count.
+	retired, processed := 0, 0
+	for i, key := range keys {
 		if ctx.Err() != nil {
 			log.Printf("venue-alert flush: tick canceled, %d groups left for the next tick",
-				len(keys)-dispatched)
+				len(keys)-i)
 			break
 		}
+		processed++
 		if s.flushVenueAlertGroup(ctx, key, maxAge) {
-			dispatched++
+			retired++
 		}
 	}
-	return dispatched
+	if processed > retired {
+		log.Printf("venue-alert flush: %d of %d groups left undispatched for the next tick",
+			processed-retired, processed)
+	}
+	return retired
 }
 
 // venueAlertGroupsReadyToFlush finds the batches whose drop looks finished.
@@ -361,7 +392,7 @@ func (s *NotificationFilterService) flushVenueAlertGroup(
 	batch, err := s.loadVenueAlertBatch(key)
 	if err != nil {
 		log.Printf("venue-alert flush: %v", err)
-		s.retireVenueAlertGroupIfTooOld(key, maxAge, err)
+		s.noteVenueAlertGroupFailure(key, maxAge, err)
 		return false
 	}
 	if batch == nil {
@@ -372,47 +403,66 @@ func (s *NotificationFilterService) flushVenueAlertGroup(
 	}
 
 	if len(batch.shows) == 0 {
-		// Every member was deleted, cancelled, unpublished or has already
-		// happened since it was accrued. Retire what we READ rather than
-		// re-examining it forever: nothing here is announceable and nothing about
-		// it will become announceable again inside this day.
-		s.markVenueAlertGroupDispatched(key, batch.watermark)
+		// Nothing in what we read is announceable: every member was deleted,
+		// cancelled, unpublished, has already happened, or has moved to another
+		// venue. Retire exactly what we READ rather than re-examining it forever;
+		// nothing about those rows will become announceable again inside this day.
+		s.markVenueAlertGroupDispatched(key, batch.resolved)
+		s.clearVenueAlertGroupFailure(key)
 		return true
 	}
 
 	if err := s.deliverVenueAlertBatch(ctx, batch); err != nil {
+		// A CANCELLED tick is a deploy, not a failure. It must not advance the
+		// poison-pill bound: doing so would let the single most common
+		// operational event abandon a pending alert, which is the opposite of
+		// what the cancellation check was added for.
+		if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			log.Printf("venue-alert flush: canceled mid-batch for venue %d on %s, left for the next tick",
+				key.VenueID, key.AlertDay)
+			return false
+		}
 		// Leave the rows undispatched so the next tick retries. Every step is
 		// idempotent, so a retry costs work rather than duplicate mail.
 		log.Printf("venue-alert flush: %v", err)
-		s.retireVenueAlertGroupIfTooOld(key, maxAge, err)
+		s.noteVenueAlertGroupFailure(key, maxAge, err)
 		return false
 	}
 
-	s.markVenueAlertGroupDispatched(key, batch.watermark)
+	s.markVenueAlertGroupDispatched(key, batch.resolved)
+	s.clearVenueAlertGroupFailure(key)
 	return true
 }
 
-// retireVenueAlertGroupIfTooOld is the poison-pill bound: a group that keeps
-// failing is eventually stamped dispatched and abandoned, loudly.
+// noteVenueAlertGroupFailure records that a group's flush failed, and abandons
+// it once it has been failing for longer than maxAge.
 //
-// Without it a group whose delivery errors deterministically is retried forever,
-// and the shape of the selection query makes that far worse than a wasted tick:
+// # Why a bound is needed at all
+//
 // venueAlertGroupsReadyToFlush orders by MIN(created_at) ASC and takes the first
-// `limit`, so a permanently-failing group is by definition at the HEAD of that
-// ordering and re-occupies a slot on every tick. Five of them (the default
-// batch) and the venue-alert loop stops delivering for every venue on the
-// platform, with nothing but a repeating log line to show for it.
+// `limit`, so a group whose delivery errors deterministically is by definition at
+// the HEAD of that ordering and re-occupies a slot on every tick. Five of them
+// (the default batch) and the venue-alert loop stops delivering for every venue
+// on the platform, with nothing but a repeating log line to show for it.
 //
-// This is the same disposition the show-notify outbox gives an expired job, and
-// for the same reason: an announcement that has been stuck for hours is no
-// longer worth sending, and the bound has to be on the CLOCK rather than on an
-// attempt counter, because the clock is the one thing that cannot be reset by a
-// path that returns the row to the queue.
+// # Why it measures FAILURE DURATION and not row age
 //
-// Retiring stamps the WHOLE group (no watermark). That is deliberate: the point
-// is to make the group stop being selected, and a watermark would leave the
-// newest rows behind to re-select it immediately.
-func (s *NotificationFilterService) retireVenueAlertGroupIfTooOld(
+// The obvious implementation — retire when the group's oldest undispatched row
+// is older than maxAge — is wrong in the case that matters most. Any window in
+// which accrual runs and the flush does not (the kill switch set overnight, a
+// restart loop, a provider outage) leaves a backlog whose rows are ALL older
+// than the bound the moment delivery resumes. The first transient error on any
+// of them would then abandon it immediately: the recovery would destroy exactly
+// the alerts it was meant to deliver. Row age answers "how long has this been
+// waiting", and the question here is "how long has this been broken".
+//
+// State is in memory rather than a column. That is a deliberate trade: a restart
+// forgets the failure history and a group gets a fresh maxAge, which errs toward
+// RETRYING rather than abandoning, and abandoning is the destructive direction.
+// The map holds only groups that are currently failing and every entry is
+// removed on success or on retirement, so it is bounded by the number of
+// simultaneously-broken venue-days.
+func (s *NotificationFilterService) noteVenueAlertGroupFailure(
 	key venueAlertGroupKey,
 	maxAge time.Duration,
 	cause error,
@@ -421,22 +471,42 @@ func (s *NotificationFilterService) retireVenueAlertGroupIfTooOld(
 		return
 	}
 
-	var oldest time.Time
-	err := s.db.Raw(`
-		SELECT MIN(created_at) FROM venue_show_alert_batch
-		WHERE venue_id = ? AND alert_day = ?::date AND dispatched_at IS NULL
-	`, key.VenueID, key.AlertDay).Scan(&oldest).Error
-	if err != nil || oldest.IsZero() || time.Since(oldest) <= maxAge {
+	s.venueAlertFailuresMu.Lock()
+	if s.venueAlertFailures == nil {
+		s.venueAlertFailures = make(map[venueAlertGroupKey]time.Time)
+	}
+	first, seen := s.venueAlertFailures[key]
+	if !seen {
+		first = time.Now()
+		s.venueAlertFailures[key] = first
+	}
+	s.venueAlertFailuresMu.Unlock()
+
+	failingFor := time.Since(first)
+	if failingFor <= maxAge {
 		return
 	}
 
 	// Loud, and per-group: this is a silent user-visible loss otherwise. An
 	// operator needs to know WHICH venue-day went unannounced, which an aggregate
 	// counter cannot say.
-	log.Printf("venue-alert flush: ABANDONING venue %d on %s after %s of failures; "+
+	log.Printf("venue-alert flush: ABANDONING venue %d on %s after %s of continuous failures; "+
 		"its followers will not be told about that day's shows. last error: %v",
-		key.VenueID, key.AlertDay, maxAge, cause)
-	s.markVenueAlertGroupDispatched(key, time.Time{})
+		key.VenueID, key.AlertDay, failingFor.Round(time.Second), cause)
+
+	// Stamps the WHOLE group (nil id set), unlike a normal dispatch. The point is
+	// to make the group stop being selected at all; bounding it to what was read
+	// would leave the newest rows behind to re-select it immediately.
+	s.markVenueAlertGroupDispatched(key, nil)
+	s.clearVenueAlertGroupFailure(key)
+}
+
+// clearVenueAlertGroupFailure forgets a group's failure history, so a group that
+// recovers gets the full bound again next time it breaks.
+func (s *NotificationFilterService) clearVenueAlertGroupFailure(key venueAlertGroupKey) {
+	s.venueAlertFailuresMu.Lock()
+	delete(s.venueAlertFailures, key)
+	s.venueAlertFailuresMu.Unlock()
 }
 
 // loadVenueAlertBatch reads a batch's venue and its still-announceable members.
@@ -469,23 +539,25 @@ func (s *NotificationFilterService) loadVenueAlertBatch(key venueAlertGroupKey) 
 		return nil, fmt.Errorf("venue %d for alert batch: %w", key.VenueID, err)
 	}
 
-	// The WATERMARK is taken BEFORE the members are read, and it is what bounds
-	// the dispatch stamp at the end of the flush.
+	// Every member row in the group, with the instant it was accrued.
 	//
-	// Delivery is slow — one synchronous provider request per email recipient —
-	// and the show-notify outbox keeps accruing throughout. Stamping the whole
-	// group afterwards would retire rows that arrived DURING delivery and were
-	// never resolved, and the group would never be selected again. That is not
-	// "the late show misses the email" (which is the documented, harmless case,
-	// because it still joins the inbox row): on the paths that write no
-	// notification_log row at all — every member unannounceable, no followers, or
-	// a recipient whose whole batch was already covered elsewhere — it is an
-	// announcement nobody ever receives.
-	watermark := time.Now()
-
-	var shows []catalogm.Show
+	// Read WITHOUT any time bound, and the dispatch stamp is bounded by the ids
+	// this returns rather than by a clock. A clock bound looks equivalent and is
+	// not: accrual stamps created_at from the Go process before its INSERT
+	// commits, so a row can become visible AFTER a later watermark was taken
+	// while carrying an EARLIER created_at. Such a row would be stamped
+	// dispatched by a flush that never read it — and since the group is then
+	// never re-selected, that show is silently never announced to anyone. During
+	// a bulk drop, which is this feature's whole workload, concurrent accruals
+	// against one venue-day make that the common case rather than a rare race.
+	// Stamping the exact id set has no such window.
+	type batchMemberRow struct {
+		catalogm.Show
+		AccruedAt time.Time `gorm:"column:accrued_at"`
+	}
+	var rows []batchMemberRow
 	err = s.db.Raw(`
-		SELECT s.*
+		SELECT s.*, b.created_at AS accrued_at
 		FROM shows s
 		JOIN venue_show_alert_batch b ON b.show_id = s.id
 		-- Re-validate the membership against the CURRENT bill. A show's venues
@@ -494,24 +566,17 @@ func (s *NotificationFilterService) loadVenueAlertBatch(key venueAlertGroupKey) 
 		-- "new shows at A" naming a show that has since moved to venue B.
 		JOIN show_venues sv ON sv.show_id = s.id AND sv.venue_id = b.venue_id
 		WHERE b.venue_id = ? AND b.alert_day = ?::date
-		  AND b.created_at <= ?
-		  -- Announce the show that was APPROVED, not whatever it says now.
-		  --
-		  -- Unlike the artist alert, which sends inside MatchAndNotify with the
-		  -- just-approved row, this send happens minutes later. A submitter can
-		  -- edit their own approved show with no re-review, so that gap is a
-		  -- window in which unreviewed text could be mailed to every follower of
-		  -- a venue the submitter has no relationship with, from the platform's
-		  -- own DKIM-aligned sender.
-		  --
-		  -- Dropping an edited show from the digest is the safe direction to
-		  -- fail: it still reaches the inbox row, which is in-product and
-		  -- attributable, whereas outbound mail is neither.
-		  AND s.updated_at <= b.created_at
-	`, key.VenueID, key.AlertDay, watermark).Scan(&shows).Error
+	`, key.VenueID, key.AlertDay).Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("venue alert batch members for venue %d on %s: %w",
 			key.VenueID, key.AlertDay, err)
+	}
+
+	shows := make([]catalogm.Show, 0, len(rows))
+	accruedAt := make(map[uint]time.Time, len(rows))
+	for _, r := range rows {
+		shows = append(shows, r.Show)
+		accruedAt[r.ID] = r.AccruedAt
 	}
 
 	// Re-check announceability at DELIVERY time with the SAME predicate the
@@ -523,7 +588,13 @@ func (s *NotificationFilterService) loadVenueAlertBatch(key venueAlertGroupKey) 
 	now := time.Now()
 	members := make([]venueAlertShow, 0, len(shows))
 	ids := make([]uint, 0, len(shows))
+	// resolved is EVERY member row this flush read, announceable or not. It is
+	// what the dispatch stamp is bounded by, and it must include the ones being
+	// skipped: they were considered and rejected, so leaving them undispatched
+	// would re-select the group forever.
+	resolved := make([]uint, 0, len(shows))
 	for i := range shows {
+		resolved = append(resolved, shows[i].ID)
 		if ok, _ := catalogm.ShowAnnounceable(&shows[i], now); !ok {
 			continue
 		}
@@ -533,6 +604,31 @@ func (s *NotificationFilterService) loadVenueAlertBatch(key venueAlertGroupKey) 
 			Slug:        shows[i].Slug,
 			EventDate:   shows[i].EventDate,
 			SubmittedBy: shows[i].SubmittedBy,
+			// EDITED AFTER ACCRUAL. Not a membership question — an EMAIL question.
+			//
+			// Unlike the artist alert, which sends inside MatchAndNotify with the
+			// just-approved row, this send happens minutes later, and a submitter
+			// may edit their own approved show with no re-review. That gap is a
+			// window in which unreviewed text could be mailed to every follower of
+			// a venue the submitter has no relationship with, from the platform's
+			// own DKIM-aligned sender.
+			//
+			// So the show stays in the batch — it still claims its in-app row and
+			// still appears in the inbox, which is in-product, attributable and
+			// revocable — and only the EMAIL leaves it out. Filtering it out of
+			// membership instead would be worse than the problem: a single-show
+			// venue-day would empty the batch, take the "nothing announceable"
+			// branch, and retire the group having written no row on either lane,
+			// so a typo fix would silently cancel the alert outright.
+			//
+			// Partial by construction, and deliberately so. shows.updated_at moves
+			// for ANY write to that row, so this over-triggers (an enrichment pass
+			// costs a show its place in one email); and it does not cover the
+			// venue name or the bill, which live in other tables. Fencing those
+			// too would drop digests every time a geocode or timezone sweep
+			// touched a venue row, which trades a narrow risk for a broad silent
+			// loss. See the PR for the residual.
+			EditedAfterAccrual: shows[i].UpdatedAt.After(accruedAt[shows[i].ID]),
 		})
 		ids = append(ids, shows[i].ID)
 	}
@@ -556,7 +652,7 @@ func (s *NotificationFilterService) loadVenueAlertBatch(key venueAlertGroupKey) 
 		venueURL:  entityURL(s.frontendURL, "venues", venue.Slug, venue.ID),
 		loc:       loc,
 		shows:     members,
-		watermark: watermark,
+		resolved:  resolved,
 	}, nil
 }
 
@@ -911,23 +1007,29 @@ func (s *NotificationFilterService) claimVenueAlertRow(
 // markVenueAlertGroupDispatched stamps the rows this flush RESOLVED, so the
 // group stops being selected until a new member joins it.
 //
-// Bounded by the watermark taken before the members were read. Rows that
-// accrued during delivery are deliberately left undispatched, which re-selects
-// the group on the next tick — the delivery claim makes that re-run silent, and
-// it is the only thing that stops a slow delivery from retiring an announcement
-// nobody was ever told about. See the watermark's comment in loadVenueAlertBatch.
+// Bounded by the exact show ids that were read, never by a clock. A row that
+// became visible after the read keeps dispatched_at NULL and re-selects the
+// group on the next tick, where it is resolved properly — the delivery claim
+// makes that re-run silent. A time bound cannot do this: accrual stamps
+// created_at before its INSERT commits, so a row can appear late while carrying
+// an early timestamp, and it would be retired by a flush that never saw it.
 //
-// A zero watermark means "the whole group", which is what retirement wants: the
+// A nil id set means "the whole group", which is what retirement wants: the
 // point there is to make the group stop being selected at all.
 func (s *NotificationFilterService) markVenueAlertGroupDispatched(
 	key venueAlertGroupKey,
-	watermark time.Time,
+	resolved []uint,
 ) {
 	q := s.db.Table("venue_show_alert_batch").
 		Where("venue_id = ? AND alert_day = ?::date AND dispatched_at IS NULL",
 			key.VenueID, key.AlertDay)
-	if !watermark.IsZero() {
-		q = q.Where("created_at <= ?", watermark)
+	if resolved != nil {
+		if len(resolved) == 0 {
+			// Read the group and found nothing in it. There is nothing to stamp,
+			// and stamping the group would be stamping rows that arrived since.
+			return
+		}
+		q = q.Where("show_id = ANY(?)", pq.Array(resolved))
 	}
 	if err := q.UpdateColumn("dispatched_at", gorm.Expr("NOW()")).Error; err != nil {
 		log.Printf("venue-alert flush: marking venue %d on %s dispatched: %v",
@@ -945,6 +1047,24 @@ func (s *NotificationFilterService) sendVenueShowAlertEmail(
 	r venueAlertRecipient,
 	batch *venueAlertBatch,
 ) {
+	// The email carries only members whose content is still the content we
+	// decided to announce. The in-app row, which the caller has already claimed,
+	// keeps all of them: it is in-product, attributable and revocable, whereas a
+	// message from the platform's DKIM-aligned sender is none of those.
+	mailable := make([]venueAlertShow, 0, len(r.shows))
+	for _, sh := range r.shows {
+		if sh.EditedAfterAccrual {
+			continue
+		}
+		mailable = append(mailable, sh)
+	}
+	if len(mailable) == 0 {
+		// Nothing left to say honestly. The lane is already claimed, so this
+		// recipient simply gets no mail for this batch — they still have the
+		// inbox row, which names every member.
+		return
+	}
+
 	var email string
 	if err := s.db.Table("users").Where("id = ?", r.userID).Pluck("email", &email).Error; err != nil || email == "" {
 		log.Printf("venue-alert notify: no email for user %d: %v", r.userID, err)
@@ -968,13 +1088,18 @@ func (s *NotificationFilterService) sendVenueShowAlertEmail(
 	)
 	manageURL := fmt.Sprintf("%s/settings/notifications", s.frontendURL)
 
-	html := buildVenueShowAlertEmailHTML(batch, r.shows, unsubscribeURL, manageURL)
+	html := buildVenueShowAlertEmailHTML(batch, mailable, unsubscribeURL, manageURL)
 
 	// The subject is a HEADER, and a venue name on an ingest-created row is
 	// scraped third-party text. HTML escaping does nothing for headers: a CR or
 	// LF in the name is how a header is split and another one injected.
+	//
+	// Bounded as well as sanitized: an unfolded multi-kilobyte subject is
+	// provider-dependent behaviour ranging from truncation to outright rejection,
+	// and a rejected send is logged and swallowed below — a silently lost alert.
 	subject := fmt.Sprintf("%s at %s",
-		venueAlertShowCountPhrase(len(r.shows)), sanitizeEmailHeaderValue(batch.venueName))
+		venueAlertShowCountPhrase(len(mailable)),
+		truncateRunes(sanitizeEmailHeaderValue(batch.venueName), maxEmailSubjectEntityRunes))
 
 	if err := s.sendEmail(email, subject, html, unsubscribeURL); err != nil {
 		sentry.WithScope(func(scope *sentry.Scope) {

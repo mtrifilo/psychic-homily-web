@@ -853,6 +853,37 @@ func (s *NotificationFilterSuite) TestVenueAlert_UnannounceableMembersAreNotAnno
 		"a cancelled show must not be announced")
 }
 
+// TestVenueAlert_ReApprovedShowIsNotAnnouncedTwice closes the one duplicate the
+// per-day key cannot see on its own.
+//
+// ON CONFLICT DO NOTHING only covers a re-run on the SAME day, because alert_day
+// is part of the primary key. Unpublish a show and re-approve it tomorrow and
+// MatchAndNotify runs again, accrues under a new day, claims under a new bucket,
+// and mails the follower a second time about the same show. Nothing else catches
+// it: venue alerts key on the VENUE, so they are invisible to the show-keyed
+// cross-system dedup by design.
+func (s *NotificationFilterSuite) TestVenueAlert_ReApprovedShowIsNotAnnouncedTwice() {
+	userID := s.createTestUser()
+	venueID := s.createTestVenue("Valley Bar")
+	s.followVenueWithAlerts(userID, venueID, `{}`)
+
+	showID := s.createTestShow("A show", nil, []uint{venueID})
+	s.announce(showID)
+	s.Equal(1, s.flushNow())
+
+	// Simulate yesterday's delivered batch, then a re-approval today.
+	yesterday := time.Now().In(utils.EventLocation(nil, "AZ")).AddDate(0, 0, -1).Format(alertDayLayout)
+	s.Require().NoError(s.db.Exec(
+		`UPDATE venue_show_alert_batch SET alert_day = ?::date WHERE venue_id = ?`,
+		yesterday, venueID).Error)
+
+	s.announce(showID)
+
+	s.Equal(int64(1), s.batchMembers(venueID, yesterday))
+	s.Equal(int64(0), s.batchMembers(venueID, venueLocalToday()),
+		"a show already accrued at this venue must not accrue again on a later day")
+}
+
 // TestVenueAlert_UnfollowedVenueAccruesNothing pins the write-side bound that
 // keeps a never-pruned table from growing with the catalogue.
 func (s *NotificationFilterSuite) TestVenueAlert_UnfollowedVenueAccruesNothing() {
@@ -861,7 +892,8 @@ func (s *NotificationFilterSuite) TestVenueAlert_UnfollowedVenueAccruesNothing()
 	s.Equal(int64(0), s.batchMembers(venueID, venueLocalToday()))
 }
 
-// TestVenueAlert_ShowsAccruedDuringDeliveryAreNotRetired is the watermark.
+// TestVenueAlert_OnlyResolvedRowsAreRetired pins that the dispatch stamp is
+// bounded by the exact member ids the flush READ.
 //
 // Delivery is slow (one synchronous provider request per email recipient) and
 // accrual keeps running throughout, so a flush that stamped the WHOLE group
@@ -870,9 +902,13 @@ func (s *NotificationFilterSuite) TestVenueAlert_UnfollowedVenueAccruesNothing()
 // is an announcement nobody ever receives, because the group is never selected
 // again.
 //
-// Simulated by accruing a row dated AFTER the flush's watermark, which is what a
-// mid-delivery arrival looks like from the mark's point of view.
-func (s *NotificationFilterSuite) TestVenueAlert_ShowsAccruedDuringDeliveryAreNotRetired() {
+// The bound is an ID SET rather than a timestamp, and this test constructs the
+// case that distinguishes them: a row whose created_at is in the PAST but which
+// becomes visible only after the group was read. Accrual stamps created_at from
+// the Go process before its INSERT commits, so that ordering is ordinary during
+// a bulk drop — and a watermark would stamp such a row as dispatched having
+// never seen it.
+func (s *NotificationFilterSuite) TestVenueAlert_OnlyResolvedRowsAreRetired() {
 	userID := s.createTestUser()
 	venueID := s.createTestVenue("Valley Bar")
 	s.followVenueWithAlerts(userID, venueID, `{}`)
@@ -880,18 +916,34 @@ func (s *NotificationFilterSuite) TestVenueAlert_ShowsAccruedDuringDeliveryAreNo
 
 	s.announce(s.createTestShow("First", nil, []uint{venueID}))
 
-	lateShow := s.createTestShow("Arrived mid-delivery", nil, []uint{venueID})
+	// Resolve the group exactly as a flush does.
+	key := venueAlertGroupKey{VenueID: venueID, AlertDay: day}
+	batch, err := s.svc.loadVenueAlertBatch(key)
+	s.Require().NoError(err)
+	s.Require().NotNil(batch)
+	s.Require().Len(batch.resolved, 1)
+
+	// ...then a row commits mid-delivery, carrying an EARLIER timestamp.
+	lateShow := s.createTestShow("Committed mid-delivery", nil, []uint{venueID})
 	s.Require().NoError(s.db.Exec(`
 		INSERT INTO venue_show_alert_batch (venue_id, alert_day, show_id, created_at)
-		VALUES (?, ?::date, ?, now() + interval '1 hour')`, venueID, day, lateShow).Error)
+		VALUES (?, ?::date, ?, now() - interval '1 hour')`, venueID, day, lateShow).Error)
 
-	s.Equal(1, s.flushNow())
+	s.svc.markVenueAlertGroupDispatched(key, batch.resolved)
 
-	var undispatched int64
+	var undispatched []uint
 	s.Require().NoError(s.db.Table("venue_show_alert_batch").
-		Where("venue_id = ? AND dispatched_at IS NULL", venueID).Count(&undispatched).Error)
-	s.Equal(int64(1), undispatched,
-		"a row accrued after the flush read the group must stay undispatched for the next tick")
+		Where("venue_id = ? AND dispatched_at IS NULL", venueID).
+		Pluck("show_id", &undispatched).Error)
+	s.Require().Len(undispatched, 1,
+		"a row that became visible after the group was read must stay undispatched")
+	s.Equal(lateShow, undispatched[0])
+
+	// ...and the next tick picks it up and delivers it, rather than the show
+	// being silently lost forever.
+	s.Equal(1, s.flushNow())
+	s.Equal(int64(1), s.venueInAppAlerts(userID, venueID, day))
+	s.Equal(int64(2), s.batchMembers(venueID, day))
 }
 
 // TestVenueAlert_ClaimFailureIsReportedNotSwallowed pins the disposition that a
@@ -942,21 +994,44 @@ func (s *NotificationFilterSuite) TestVenueAlert_PoisonBatchIsEventuallyAbandone
 		return n
 	}
 
-	// A batch younger than the bound is left alone, however it failed.
-	s.svc.retireVenueAlertGroupIfTooOld(key, time.Hour, fmt.Errorf("boom"))
-	s.Equal(int64(1), undispatched(), "a young batch must keep being retried")
+	// Backdate the batch so its ROWS are far older than the bound. This is the
+	// shape an outage recovery has, and the reason retirement measures failure
+	// duration rather than row age: on a row-age bound, every backlogged group
+	// would be abandoned by its first transient error, destroying exactly the
+	// alerts the recovery was meant to deliver.
+	s.Require().NoError(s.db.Exec(`
+		UPDATE venue_show_alert_batch SET created_at = now() - interval '3 days'
+		WHERE venue_id = ?`, venueID).Error)
+
+	// A FIRST failure is retried, however old the rows are.
+	s.svc.noteVenueAlertGroupFailure(key, time.Hour, fmt.Errorf("boom"))
+	s.Equal(int64(1), undispatched(),
+		"a first failure must be retried, however old the rows are")
 
 	// A zero bound disables retirement entirely, which is what the tests that
 	// care about ordinary delivery rely on.
-	s.svc.retireVenueAlertGroupIfTooOld(key, 0, fmt.Errorf("boom"))
+	s.svc.noteVenueAlertGroupFailure(key, 0, fmt.Errorf("boom"))
 	s.Equal(int64(1), undispatched())
 
-	// Past the bound it is abandoned, so it stops holding a slot.
-	s.svc.retireVenueAlertGroupIfTooOld(key, time.Nanosecond, fmt.Errorf("boom"))
+	// Now make the FAILURE old rather than the rows. Set directly rather than
+	// sleeping: the property is about elapsed failure time, and a test that
+	// waited for it would be slow and flaky for no extra coverage.
+	s.svc.venueAlertFailuresMu.Lock()
+	s.svc.venueAlertFailures[key] = time.Now().Add(-2 * time.Hour)
+	s.svc.venueAlertFailuresMu.Unlock()
+
+	s.svc.noteVenueAlertGroupFailure(key, time.Hour, fmt.Errorf("boom"))
 	s.Equal(int64(0), undispatched(),
 		"a group failing past max age must be abandoned rather than starving the queue")
 	s.Equal(int64(0), s.venueInAppAlerts(userID, venueID, day),
 		"abandoning is a silent non-delivery, not a delivery")
+
+	// And the failure history is cleared, so a venue-day that starts failing
+	// again later gets the full bound rather than being retired instantly.
+	s.svc.venueAlertFailuresMu.Lock()
+	_, stillTracked := s.svc.venueAlertFailures[key]
+	s.svc.venueAlertFailuresMu.Unlock()
+	s.False(stillTracked, "retirement must forget the group's failure history")
 }
 
 // TestVenueAlert_CanceledContextStopsTheTick pins the shutdown behaviour. A tick

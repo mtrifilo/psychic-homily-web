@@ -10,6 +10,7 @@ import (
 	"html"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/getsentry/sentry-go"
@@ -33,6 +34,19 @@ type NotificationFilterService struct {
 	emailService contracts.EmailServiceInterface
 	jwtSecret    string // for HMAC unsubscribe URLs
 	frontendURL  string
+
+	// venueAlertFailures records, per venue-day batch, when its flush FIRST
+	// started failing (PSY-1895). It is what lets the poison-pill bound measure
+	// how long a group has been broken rather than how old its rows are — see
+	// noteVenueAlertGroupFailure for why that distinction decides whether an
+	// outage recovery delivers a backlog or destroys it.
+	//
+	// Entries exist only while a group is failing and are removed on success or
+	// on retirement, so the map is bounded by the number of simultaneously-broken
+	// venue-days. Guarded because the flush poller and the request-path methods
+	// share one service instance.
+	venueAlertFailuresMu sync.Mutex
+	venueAlertFailures   map[venueAlertGroupKey]time.Time
 }
 
 // NewNotificationFilterService creates a new notification filter service.
@@ -1294,6 +1308,14 @@ func (s *NotificationFilterService) enrichVenueShowAlertNotifications(
 		-- The show must still be AT this venue: an ordinary edit replaces
 		-- show_venues wholesale and never touches the batch row.
 		JOIN show_venues sv ON sv.show_id = s.id AND sv.venue_id = b.venue_id
+		-- The reader's OWN alert row for this venue-day. It supplies the instant
+		-- the notification was delivered, which is what freezes the dedup below.
+		JOIN notification_log own
+		  ON own.user_id = ?
+		 AND own.entity_type = ?
+		 AND own.entity_id = b.venue_id
+		 AND own.alert_bucket = b.alert_day
+		 AND own.channel = ?
 		WHERE b.venue_id = ANY(?) AND b.alert_day = ANY(?::date[])
 		  -- The same fence the flush applied before announcing it. Only DELETED
 		  -- shows leave the batch on their own, so without this a show pulled by
@@ -1301,14 +1323,30 @@ func (s *NotificationFilterService) enrichVenueShowAlertNotifications(
 		  AND s.status = ? AND s.is_cancelled = false
 		  -- ...and the reader's own dedup, so this count cannot disagree with the
 		  -- email the same flush sent.
+		  --
+		  -- Bounded by own.sent_at: only alerts that existed WHEN THIS ROW WAS
+		  -- DELIVERED count. Without that bound the dedup is re-evaluated on every
+		  -- read against a log that keeps growing, so a later artist alert about a
+		  -- show in this batch would retroactively shrink a notification the user
+		  -- already received — "5 new shows" decaying to "2", or to an empty row.
+		  -- This reproduces what the flush actually saw, which is the only version
+		  -- of the count that can be stable.
 		  AND NOT EXISTS (
 		        SELECT 1 FROM notification_log nl
-		        WHERE nl.user_id = ?
+		        WHERE nl.user_id = own.user_id
 		          AND nl.entity_id = s.id
+		          AND nl.sent_at <= own.sent_at
 		          AND `+notifiedAboutShow("nl")+`
 		      )
 		ORDER BY b.venue_id, b.alert_day, s.event_date ASC, s.id ASC
-	`, pq.Array(venueIDs), pq.Array(buckets), catalogm.ShowStatusApproved, userID,
+	`,
+		// Bind order follows the query text: the JOIN's three, then the WHERE.
+		userID,
+		notificationm.NotificationEntityVenueShowAlert,
+		notificationm.NotificationChannelInApp,
+		pq.Array(venueIDs),
+		pq.Array(buckets),
+		catalogm.ShowStatusApproved,
 	).Scan(&members).Error; err != nil {
 		log.Printf("warning: failed to load venue alert batches for inbox enrichment: %v", err)
 		return

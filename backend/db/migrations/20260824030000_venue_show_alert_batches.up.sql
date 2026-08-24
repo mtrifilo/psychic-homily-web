@@ -120,13 +120,20 @@ ALTER TABLE notification_log
 
 -- Re-applying after a rollback is the one case that can find rows of this
 -- discriminator ALREADY PRESENT with a NULL bucket: the down migration keeps the
--- rows (they are real inbox history) but drops the column. Those rows are
--- unrenderable — the read path skips a venue alert with no bucket — and NOT
+-- rows (they are real inbox history a user received) but drops the column. NOT
 -- VALID below would grandfather them in permanently, sitting outside the unique
--- index. Clearing them is what makes a rollback and re-apply return to a state
--- the constraint actually describes. A no-op on the first apply, which is the
--- only case that exists in a forward-only deploy.
-DELETE FROM notification_log
+-- index and rendering bare — enrichment skips a venue alert with no bucket, so
+-- the row shows with no venue name and no count.
+--
+-- BACKFILLED, not deleted. sent_at::date is the right recovery value and not an
+-- approximation of one: the bucket is the venue-local day the batch covered, and
+-- the row was written during that day's flush. It can differ from the original
+-- by a day for a venue far from UTC, which is a cosmetic drift on historical
+-- rows and strictly better than the alternatives — deleting would destroy
+-- notifications real users received (exactly what the down migration preserves
+-- them for), and leaving them NULL would leave the unique index inert for them.
+UPDATE notification_log
+   SET alert_bucket = sent_at::date
  WHERE entity_type = 'venue_show_alert' AND alert_bucket IS NULL;
 
 CREATE UNIQUE INDEX uq_notification_log_venue_show_alert

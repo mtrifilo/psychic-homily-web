@@ -62,10 +62,15 @@ const (
 	// failing one is by definition at the head and re-occupies a slot every tick.
 	// Five of them and the loop stops delivering for every venue on the platform.
 	//
+	// It measures how long delivery has been FAILING, not how old the batch is —
+	// see noteVenueAlertGroupFailure for why row age would destroy exactly the
+	// backlog an outage recovery is meant to deliver.
+	//
 	// Six hours is chosen so that an ordinary incident (a database restart, a
 	// deploy, a provider outage) still delivers on recovery, while a genuinely
-	// stuck group stops holding the queue open. Abandoning is logged per-group at
-	// warning level, because it is a silent user-visible loss otherwise.
+	// stuck group stops holding the queue open. Abandoning emits one log line per
+	// group containing "ABANDONING venue" — an unlevelled log.Printf like the rest
+	// of this package, so alert on the pattern rather than on a level.
 	defaultVenueAlertMaxAge = 6 * time.Hour
 )
 

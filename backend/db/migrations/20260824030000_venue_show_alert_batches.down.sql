@@ -21,9 +21,12 @@
 -- compare DISTINCT inside the re-created partial UNIQUE — they would match
 -- nothing. What actually stops a second alert on a re-up is that
 -- venue_show_alert_batch is dropped below and comes back EMPTY, so the flush
--- poller has nothing to resolve. (The up migration deletes those bucket-less
--- rows on the way back in, because they are unrenderable and would otherwise sit
--- outside the index forever.)
+-- poller has nothing to resolve.
+--
+-- The up migration BACKFILLS those bucket-less rows from sent_at::date rather
+-- than deleting them, so the history this file preserves survives the round trip
+-- (a day's drift is possible for a venue far from UTC). Read the two files
+-- together: this one keeps the rows, that one makes them legal again.
 --
 -- The CHECK is dropped before the column it constrains; the index before the
 -- column it indexes. Postgres would cascade both, but naming them keeps the

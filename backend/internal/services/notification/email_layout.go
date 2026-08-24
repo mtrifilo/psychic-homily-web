@@ -236,6 +236,30 @@ func emailMonoDetails(lines []string) string {
 `, emailMonoStack, emailForeground, b.String(), emailRowGap, emailBackground)
 }
 
+// maxEmailSubjectEntityRunes bounds a scraped entity name interpolated into a
+// Subject header.
+//
+// Sanitizing the name stops header SPLITTING; it does nothing about length, and
+// an unfolded multi-kilobyte subject is provider-dependent behaviour ranging
+// from truncation to rejection. A rejected send on the alert paths is logged and
+// swallowed, so the failure mode is a silently lost notification.
+//
+// 120 is well past what any client displays (the masthead's own budget is ~35
+// characters) and well short of the 998-octet line limit, leaving room for the
+// rest of the subject.
+const maxEmailSubjectEntityRunes = 120
+
+// truncateRunes shortens a string to at most n RUNES, appending an ellipsis when
+// it cuts. Runes, not bytes, so a multi-byte name cannot be sliced mid-character
+// into invalid UTF-8.
+func truncateRunes(value string, n int) string {
+	runes := []rune(value)
+	if len(runes) <= n {
+		return value
+	}
+	return string(runes[:n]) + "…"
+}
+
 // emailListRow is one entry in an emailListRows table: a short left-hand label,
 // a title, and an optional secondary detail line under the title.
 type emailListRow struct {

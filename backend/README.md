@@ -780,9 +780,9 @@ than by the schedule.
 Batches are selected oldest-first, so a group whose delivery keeps FAILING sits
 at the head of that ordering and re-occupies a slot on every tick; five of them
 would stop venue alerts platform-wide. Past this age such a group is abandoned
-unsent and logged per-group at warning level (`ABANDONING venue N on YYYY-MM-DD`).
-That log line is a real user-visible loss — those followers were never told about
-that day's shows — so it is worth alerting on.
+unsent, with one log line per group containing the string `ABANDONING venue N on
+YYYY-MM-DD`. That line is a real user-visible loss — those followers were never
+told about that day's shows — so it is worth alerting on by pattern.
 
 The street-geocode sweep's cadence and per-run network budget are tunable:
 `STREET_GEOCODE_SWEEP_INTERVAL_HOURS` (default `24`),
