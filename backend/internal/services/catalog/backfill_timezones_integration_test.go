@@ -149,13 +149,23 @@ func (suite *BackfillIntegrationTestSuite) TestBackfill_ReanchorsBerlinShowAndCa
 //
 // Also covers the geocoder MISSING the venue: the pass then falls back to the
 // stored zone, which is the right answer and the likely one for a UK city.
+//
+// CHARACTERIZATION TEST. It exercises the PSY-987 backfill, which this change
+// does not touch, and it would pass unchanged on main. It is here because the
+// rollout depends on that repair path handling a shape the existing suite did
+// not cover, so a future edit to reanchorEventDate has something to break.
+//
+// October is deliberate: it is the ticket's actual reproduction, and it does
+// depend on Oct 23 2026 being BST (UTC+1), which holds under current tzdata
+// since BST ends Oct 25. The DST-free version of the same invariant is
+// TestGenerateShowSlug_VenueTimezoneAheadOfUTC, which uses Asia/Tokyo.
 func (suite *BackfillIntegrationTestSuite) TestBackfill_ReanchorsAlreadyGeocodedNonUSVenue() {
 	london := mustLoc(suite.T(), "Europe/London")
 	phoenix := mustLoc(suite.T(), "America/Phoenix")
 
-	// The exact instant production holds for the Leeds show in the ticket.
+	// 20:00 Phoenix on Oct 23, which is 2026-10-24T03:00:00Z: the exact instant
+	// production holds for the Leeds show in the ticket.
 	stored := time.Date(2026, 10, 23, 20, 0, 0, 0, phoenix)
-	suite.Equal("2026-10-24T03:00:00Z", stored.UTC().Format(time.RFC3339))
 
 	venueID, showID, artistID := suite.seedShow("Leeds", "England", stored)
 	zone := "Europe/London"

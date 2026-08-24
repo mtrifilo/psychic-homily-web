@@ -3,6 +3,7 @@ package admin
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -530,24 +531,26 @@ func (s *DataSyncService) importVenue(venue *contracts.ExportedVenue, dryRun boo
 //
 // The export format carries no timezone (ExportedVenue is name/address/socials
 // only), and the zone is derived data the importer geocodes onto the venue row
-// itself, so the authority is the DB rather than the payload. Returns nil when
-// the venue is not in the database yet, which leaves the caller on the
-// state-map fallback it used before: an import that creates the venue and the
+// itself, so the authority is the DB rather than the payload.
+//
+// A missing venue is not an error: an import that creates the venue and the
 // show in one pass still slugs from the state, and the venue's real zone
 // reaches the slug on the next re-import or via cmd/dedup-shows'
-// RecanonicaliseShowSlug.
+// RecanonicaliseShowSlug. A failed QUERY is different and is logged rather than
+// silently read as "no zone" — inside the import transaction it also poisons
+// the statements after it, so the operator needs it named here rather than
+// discovering it as an unrelated abort downstream.
 func storedVenueTimezone(db *gorm.DB, venues []contracts.ExportedVenue) *string {
 	if len(venues) == 0 {
 		return nil
 	}
-	var venue catalogm.Venue
-	err := db.Select("timezone").
-		Where("LOWER(name) = LOWER(?) AND LOWER(city) = LOWER(?)", venues[0].Name, venues[0].City).
-		First(&venue).Error
+	tz, err := shared.VenueTimezoneByNameCity(db, venues[0].Name, venues[0].City)
 	if err != nil {
+		slog.Error("could not read the venue timezone for a show slug; falling back to the state map",
+			"venue_name", venues[0].Name, "city", venues[0].City, "error", err)
 		return nil
 	}
-	return venue.Timezone
+	return tz
 }
 
 // importShow imports a single show with deduplication

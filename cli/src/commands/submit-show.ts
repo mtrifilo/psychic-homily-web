@@ -436,7 +436,21 @@ function displayPreview(plans: ShowPlan[], resolvedTags?: ResolvedTag[][]): void
       ? ` ${green(`DUPLICATE (ID: ${plan.duplicate.existingShowId})`)}`
       : "";
     display.header(`Show${idx}: ${label}${dupTag}`);
+    // Show the anchoring zone and the instant it produces, not just the date
+    // the input stated. The zone silently decides what gets stored, and a
+    // wrong one is only visible here as a UTC timestamp on the wrong day
+    // (PSY-1873). "(from state)" flags that no venue zone was available, which
+    // is the case worth a second look for a venue outside the US.
+    const previewZone = resolveVenueTimezone(
+      plan.venues[0]?.state || plan.input.venues[0]?.state || plan.input.state,
+      plan.venues[0]?.timezone
+    );
+    const zoneSource = plan.venues[0]?.timezone ? "venue" : "from state";
     display.kv("Date", plan.input.event_date);
+    display.kv(
+      "Anchored",
+      `${buildShowPayload(plan).event_date} ${gray(`(${previewZone}, ${zoneSource})`)}`
+    );
     display.kv("Location", `${plan.input.city}, ${plan.input.state}`);
 
     if (plan.input.price !== undefined) {

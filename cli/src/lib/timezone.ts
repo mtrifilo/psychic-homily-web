@@ -83,14 +83,18 @@ export function getTimezoneForState(state: string): string {
  * back America/Phoenix for "England", "QC", or "" alike.
  *
  * PSY-1873: `ph submit-show` keyed on the state map alone, so a date-only show
- * at a Leeds venue was written as 20:00 Phoenix (2026-10-24T03:00:00Z) and the
- * show page, which reads venues.timezone, rendered it at 4:00 AM the next
- * calendar day. 316 of the 349 shows at non-US venues in production carry that
- * exact signature.
+ * at a venue outside the US was written as 20:00 Phoenix while the show page,
+ * which reads venues.timezone, rendered it in the venue's real zone. That is
+ * wrong by the offset between the two, which for European venues moves the
+ * show onto the following calendar day at around 4 AM. Nearly every show at a
+ * non-US venue in production carried that signature.
  *
- * Mirrors resolveShowTimezone in frontend/lib/utils/formatters.ts. An
- * unloadable zone string falls through to the state map rather than crashing,
- * because Intl.DateTimeFormat throws a RangeError on a bad zone.
+ * Mirrors the LOGIC of resolveShowTimezone in
+ * frontend/lib/utils/formatters.ts, though not its memoization: that one sits
+ * on a render path that asks the same question hundreds of times, while this
+ * resolves once per show in a batch. An unloadable zone string falls through to
+ * the state map rather than crashing, because Intl.DateTimeFormat throws a
+ * RangeError on a bad zone.
  */
 export function resolveVenueTimezone(
   state?: string,

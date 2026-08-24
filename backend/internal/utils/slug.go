@@ -59,12 +59,13 @@ func GenerateVenueSlug(name, city, state string) string {
 // Phoenix default.
 //
 // venueTimezone is what makes the answer right outside the US (PSY-1873).
-// Keying the slug on `state` alone sent every non-US venue through the state
-// map's Phoenix default: a Leeds show stored at 2026-10-24T03:00:00Z slugged
-// itself "2026-10-23-..." (20:00 Phoenix) while the show page rendered
-// "Sat, Oct 24" in Europe/London. Pass nil only where no venue row is in hand.
-// The state map is a fallback for missing data, never a substitute for a zone
-// the venue already knows.
+// Keying the slug on `state` alone sends every non-US venue through the state
+// map's Phoenix default, so the slug is dated in Arizona while the page is
+// rendered in the venue's real zone. Those disagree by the offset between them,
+// which for a European evening show is a whole calendar day.
+//
+// Pass nil only where no venue row is in hand. The state map is a fallback for
+// missing data, never a substitute for a zone the venue already knows.
 func GenerateShowSlug(eventDate time.Time, headlinerName, venueName string, venueTimezone *string, state string) string {
 	localDate := eventDate.In(EventLocation(venueTimezone, state))
 	dateStr := localDate.Format("2006-01-02")
