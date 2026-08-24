@@ -77,6 +77,25 @@ type NotificationLog struct {
 	// subject: filter matches, scene follows, comment replies, mentions, and
 	// request fulfillments.
 	SubjectEntityID *uint `gorm:"column:subject_entity_id" json:"subject_entity_id,omitempty"`
+
+	// AlertBucket is the calendar day a COALESCED alert covers, and it is part
+	// of that alert's identity rather than metadata about it (PSY-1895).
+	//
+	// Venue show alerts are one row per (user, venue, DAY): tomorrow's alert for
+	// the same venue is a different notification, not a duplicate of today's.
+	// (EntityType, EntityID) is ('venue_show_alert', venue id) and has no room
+	// for the day, so it is stored here and included in
+	// uq_notification_log_venue_show_alert.
+	//
+	// A time.Time on a DATE column: only the calendar fields are meaningful, and
+	// the driver reads the value back at midnight UTC regardless of the zone the
+	// day was computed in. Compare and write it as a day, never as an instant.
+	//
+	// NULL for every per-event writer. A database CHECK forbids NULL on
+	// venue_show_alert rows specifically, because a NULL there would make the
+	// unique index inert (NULLs compare distinct) and re-send the alert on every
+	// flush.
+	AlertBucket *time.Time `gorm:"column:alert_bucket" json:"alert_bucket,omitempty"`
 }
 
 // TableName specifies the table name for NotificationLog.
@@ -125,6 +144,30 @@ const (
 	// show's venues, and this one names the artist. Sharing "show" would have
 	// made this row inherit the scene label, which is the wrong sentence.
 	NotificationEntityArtistShowAlert = "artist_show_alert"
+
+	// NotificationEntityVenueShowAlert marks a notification_log row created
+	// because a VENUE the user follows announced new shows (PSY-1895).
+	//
+	// Its ids do not line up with its artist sibling, and the difference is the
+	// single most important thing to know about this discriminator:
+	//
+	//	artist_show_alert:  entity_id = SHOW id,  subject_entity_id = artist id
+	//	venue_show_alert:   entity_id = VENUE id, subject_entity_id = NULL
+	//
+	// A venue alert is COALESCED — one row stands for every show announced at
+	// that venue on one venue-local day — so there is no single show for
+	// entity_id to hold. It holds the venue, the day lives in alert_bucket, and
+	// the shows are looked up from venue_show_alert_batch at read time (which is
+	// what lets a show announced later the same day join a row already
+	// delivered). subject_entity_id is NULL because the followed entity and the
+	// row's subject are the SAME venue; storing it twice would only create two
+	// values that can disagree.
+	//
+	// The consequence that matters at every query site: this entity_id is NOT a
+	// show id. It must never join showAlertEntityTypes in the notification
+	// service, or the shared "already told about this show" predicate would
+	// compare a venue id against a show id and silence unrelated notifications.
+	NotificationEntityVenueShowAlert = "venue_show_alert"
 
 	// NotificationEntityRequestFulfillmentProposed marks a notification_log row
 	// created when someone proposes a fulfillment for a community request (the
