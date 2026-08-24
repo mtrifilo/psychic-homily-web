@@ -521,11 +521,20 @@ export function AlertSettings() {
           )}
 
           <div className="mt-4 space-y-1 border-t border-border pt-3.5">
+            {/* The exception is now stated on BOTH counts, because a custom
+                alert breaks both halves. `QuickCreateFilter` inserts
+                `NotifyEmail: true` and the builder pre-checks the same
+                switch, so that email starts flowing without a box in this
+                table ever being switched on. Excepting it from the
+                unsubscribe rule while quietly including it in the
+                stays-off-until-you-switch-it-on rule left the sentence no
+                truer than the wider one it replaced. */}
             <p className="text-xs text-muted-foreground">
               Every email in the table above stays off until you switch it on,
               row by row, and carries a one-click unsubscribe link.
-              Unsubscribing flips the matching box above, except for a custom
-              alert, which switches off email for that one alert instead.
+              Unsubscribing flips the matching box above. A custom alert is
+              the exception on both counts: it starts emailing as soon as you
+              build it, and its email is switched off on the alert itself.
             </p>
             {/* The sentence above used to claim "every email governed by this
                 card", which a reader takes as every email the index sends.

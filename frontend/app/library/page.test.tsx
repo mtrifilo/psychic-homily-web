@@ -79,6 +79,10 @@ vi.mock('@/lib/hooks/common/useFollow', () => ({
 const mockUpdateFollowAlerts = vi.fn()
 let mockAlertPreferences: {
   home_metro: string | null
+  alert_defaults?: {
+    shows: { in_app: boolean; email: boolean }
+    releases: { in_app: boolean; email: boolean }
+  }
 } | null = { home_metro: '38060' }
 
 vi.mock('@/features/auth/hooks/useAlertPreferences', () => ({
@@ -629,10 +633,16 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
     })
 
     // Enabled with both channels off means the notifier skips this recipient,
-    // so the row cannot summarize itself as "near me" and the bar above it
-    // cannot promise what a new follow would start at. Both read the SAME
-    // resolved payload precisely so they cannot disagree.
+    // so the row cannot summarize itself as "near me". The bar states the
+    // ACCOUNT half of the same fact, which is what a new follow inherits.
     it('reads paused on the row and the bar when no channel is left', () => {
+      mockAlertPreferences = {
+        home_metro: '38060',
+        alert_defaults: {
+          shows: { in_app: false, email: false },
+          releases: { in_app: true, email: false },
+        },
+      }
       setArtistPage(
         artistRow({
           entity_type: 'artist',
@@ -647,6 +657,58 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       ).toBeTruthy()
       expect(screen.queryByText(/New follows start at/)).toBeNull()
       expect(screen.queryByRole('button', { name: /alerts for Alpha/i })).toBeNull()
+    })
+
+    // A follow the user switched off is not paused, and it must not drag the
+    // rest of the tab with it. The bar answers from the account matrix, so a
+    // mixed tab, and a partial page of a cursor-paginated list, cannot move
+    // its answer at all.
+    it('keeps the pause with one switched-off follow in the same tab', () => {
+      mockAlertPreferences = {
+        home_metro: '38060',
+        alert_defaults: {
+          shows: { in_app: false, email: false },
+          releases: { in_app: true, email: false },
+        },
+      }
+      mockSearchParams = new URLSearchParams('tab=artists')
+      mockUseLibraryFollowing.mockReturnValue({
+        data: {
+          pages: [
+            {
+              following: [
+                artistRow({
+                  entity_type: 'artist',
+                  entity_id: 1,
+                  shows: { enabled: true, in_app: false, email: false },
+                }),
+                {
+                  ...artistRow({
+                    entity_type: 'artist',
+                    entity_id: 2,
+                    shows: { enabled: false, in_app: false, email: false },
+                  }),
+                  entity_id: 2,
+                  name: 'Beta',
+                  slug: 'beta',
+                },
+              ],
+              limit: 50,
+            },
+          ],
+        },
+        isLoading: false,
+        isFetching: false,
+        hasNextPage: false,
+        fetchNextPage: vi.fn(),
+        isFetchingNextPage: false,
+        isFetchNextPageError: false,
+        error: null,
+      })
+      renderWithProviders(<LibraryPage />)
+
+      expect(screen.getByText('paused')).toBeInTheDocument()
+      expect(screen.queryByText(/New follows start at/)).toBeNull()
     })
 
     it('writes the chosen scope through the follow-alerts mutation', async () => {

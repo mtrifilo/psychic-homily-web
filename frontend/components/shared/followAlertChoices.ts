@@ -263,8 +263,10 @@ export const ALERTS_PAUSED_SUMMARY = 'paused'
  * it could do would help. Naming where the account-wide channels live is a
  * true statement either way.
  */
-const ALERTS_PAUSED_BASE =
-  'New-show alerts are paused: neither in-app nor email is switched on for them, so nothing is delivered. Switching either back on resumes them, and the account-wide channels are in your alert settings.'
+const ALERTS_PAUSED_LEAD = 'New-show alerts are paused.'
+
+const ALERTS_PAUSED_EFFECT =
+  'Neither in-app nor email is switched on for them, so nothing is delivered. Switching either back on resumes them, and the account-wide channels are in your alert settings.'
 
 /**
  * The reassurance that only an artist follow has anything to be reassured
@@ -288,14 +290,18 @@ const ALERTS_PAUSED_SCOPE_KEPT =
  * told their alerts "resume when you switch a channel back on" would be
  * hearing a promise venue delivery cannot keep yet.
  */
-export const followAlertsPausedNote = (entityType: string): string =>
+export const followAlertsPausedDetail = (entityType: string): string =>
   [
-    ALERTS_PAUSED_BASE,
+    ALERTS_PAUSED_EFFECT,
     followAlertHasScopeAxis(entityType) ? ALERTS_PAUSED_SCOPE_KEPT : null,
     followAlertPendingNote(entityType),
   ]
     .filter(Boolean)
     .join(' ')
+
+/** The same explanation, for a surface that has not already said "paused". */
+export const followAlertsPausedNote = (entityType: string): string =>
+  `${ALERTS_PAUSED_LEAD} ${followAlertsPausedDetail(entityType)}`
 
 /**
  * The `[ alerts: … ]` bracket text for a Library row.

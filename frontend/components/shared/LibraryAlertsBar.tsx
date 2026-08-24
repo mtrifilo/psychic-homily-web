@@ -8,6 +8,7 @@ import {
   ALERTS_HREF,
   ALERTS_PAUSED_SUMMARY,
   CUSTOM_ALERTS_HREF,
+  followAlertHasChannel,
   followAlertHasScopeAxis,
   followAlertPendingNote,
 } from './followAlertChoices'
@@ -15,17 +16,6 @@ import {
 interface LibraryAlertsBarProps {
   /** PLURAL follow path segment for the tab this bar sits above. */
   entityType: string
-  /**
-   * Every loaded row on this tab is paused, so this tab is being silenced
-   * wholesale rather than one follow at a time.
-   *
-   * Passed DOWN from the page rather than derived from the account matrix
-   * here. The rows carry their own resolved settings, which is the same
-   * source each row's bracket reads, so the bar and the brackets cannot
-   * disagree, and it costs the Venues tab no request, which is why that tab
-   * deliberately fetches no account preferences at all.
-   */
-  alertsPaused?: boolean
 }
 
 /**
@@ -42,10 +32,7 @@ interface LibraryAlertsBarProps {
  * the shipped alert matrix pins channels only. Drawing pickable chips here
  * would be a control with nowhere to save to.
  */
-export function LibraryAlertsBar({
-  entityType,
-  alertsPaused = false,
-}: LibraryAlertsBarProps) {
+export function LibraryAlertsBar({ entityType }: LibraryAlertsBarProps) {
   // A venue sits in one place. Its follows have no scope axis at all, so the
   // starting-scope sentence and the home area would be explaining a
   // restriction this tab's follows do not have, and contradicting the venue
@@ -70,53 +57,70 @@ export function LibraryAlertsBar({
   const areaKnown = hasScopeAxis && Boolean(preferences)
   const readFailed = isError && !preferences
 
+  // Whether a follow made RIGHT NOW would arrive silent.
+  //
+  // Read from the ACCOUNT matrix, not from the rows on screen, because that is
+  // the question this half of the bar answers: what a new follow starts at. A
+  // new follow inherits the account channels and nothing else, so no sample of
+  // existing rows can answer it. Deriving it from the rows instead was wrong
+  // three ways: one follow switched off by hand collapsed an `every`, an `any`
+  // would have claimed a pause over rows that deliver, and either way the
+  // sample is one page of a cursor-paginated list, so the answer changed on
+  // Load more.
+  //
+  // This costs no request. The bar already reads this query for the home area,
+  // and the Venues tab (which fetches neither) has no starting-scope sentence
+  // to correct in the first place.
+  const accountShowChannels = hasScopeAxis
+    ? preferences?.alert_defaults?.shows
+    : undefined
+  const newFollowsPaused =
+    accountShowChannels !== undefined &&
+    !followAlertHasChannel(accountShowChannels)
+
   return (
     <div className="mb-4 border border-border bg-card px-3.5 py-3">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[13px]">
-        {/* Once every row is paused, the starting SCOPE is not the answer to
-            the question this bar exists to answer. It stays true as a fact
-            and reads as a delivery promise directly above a column of
-            brackets that all say otherwise, so the pause takes its place and
-            the way out of it is offered once here rather than per row. */}
-        {alertsPaused && (
-          <>
-            <span className="text-muted-foreground">
-              New-show alerts:{' '}
-              <span className="text-foreground">{ALERTS_PAUSED_SUMMARY}</span>
-            </span>
-            <BracketLink
-              label="turn a channel on"
-              ariaLabel="New-show alerts are paused. Turn a channel on in alert settings."
-              href={ALERTS_HREF}
-              className="font-mono text-[11px]"
-            />
-            <span className="text-muted-foreground/40" aria-hidden>
-              ·
-            </span>
-          </>
-        )}
+        {/* One slot, two answers to one question. With no channel on, the
+            scope a new follow starts at is not what a reader takes from
+            "New follows start at: Near me": they take a delivery promise,
+            directly above a column of brackets that say paused. So the
+            pause replaces it, and the way out is offered once here rather
+            than on every row.
 
-        {/* The starting scope is the half the pause replaces. The AREA half
-            below stays either way: it is what "near me" will mean when a
-            channel comes back, and this bar is the only place on the page it
-            can be changed. */}
-        {!alertsPaused && areaKnown && (
-          <>
-            <span className="text-muted-foreground">
-              New follows start at:{' '}
-              <span className="text-foreground">
-                {homeMetro ? 'Near me' : 'Everywhere'}
-              </span>
-            </span>
-
-            <span className="text-muted-foreground/40" aria-hidden>
-              ·
-            </span>
-          </>
-        )}
-
+            The AREA half below stays either way: it is what "near me" will
+            mean when a channel comes back, and this bar is the only place on
+            the page it can be changed. */}
         {areaKnown && (
           <>
+            {newFollowsPaused ? (
+              <>
+                <span className="text-muted-foreground">
+                  New-show alerts:{' '}
+                  <span className="text-foreground">
+                    {ALERTS_PAUSED_SUMMARY}
+                  </span>
+                </span>
+                <BracketLink
+                  label="turn a channel on"
+                  ariaLabel="New-show alerts are paused. Turn a channel on in alert settings."
+                  href={ALERTS_HREF}
+                  className="font-mono text-[11px]"
+                />
+              </>
+            ) : (
+              <span className="text-muted-foreground">
+                New follows start at:{' '}
+                <span className="text-foreground">
+                  {homeMetro ? 'Near me' : 'Everywhere'}
+                </span>
+              </span>
+            )}
+
+            <span className="text-muted-foreground/40" aria-hidden>
+              ·
+            </span>
+
             {isEditingArea ? (
               <HomeMetroSelect
                 metro={homeMetro}

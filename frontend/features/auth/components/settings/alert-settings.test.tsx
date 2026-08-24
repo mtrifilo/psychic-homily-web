@@ -588,12 +588,17 @@ describe('AlertSettings', () => {
     ).toHaveAttribute('href', '/library?tab=scenes')
   })
 
-  it('names the custom-alert exception rather than claiming one rule for all', () => {
+  // The custom-alerts row breaks BOTH halves of the footnote, and only the
+  // unsubscribe half used to be excepted. `QuickCreateFilter` inserts
+  // `NotifyEmail: true` and the builder pre-checks the same switch, so that
+  // email starts flowing without a box in this table ever being switched on:
+  // scoping the sentence to the table left its own counterexample inside it.
+  it('excepts the custom alert from the opt-in rule as well as the unsubscribe one', () => {
     renderWithProviders(<AlertSettings />)
 
     expect(
       screen.getByText(
-        /except for a custom alert, which switches off email for that one alert instead/i
+        /A custom alert is the exception on both counts: it starts emailing as soon as you build it, and its email is switched off on the alert itself/i
       )
     ).toBeInTheDocument()
   })

@@ -29,7 +29,6 @@ import { FollowAlertsMenu } from '@/components/shared/FollowAlertsMenu'
 import { LibraryAlertsBar } from '@/components/shared/LibraryAlertsBar'
 import {
   followAlertHasScopeAxis,
-  followAlertsPaused,
   type HomeMetroState,
 } from '@/components/shared/followAlertChoices'
 import { useHomeMetroState } from '@/features/auth/hooks/useAlertPreferences'
@@ -755,16 +754,6 @@ function FollowingList({
   // re-asserting a list of types. On a Labels or Tags tab the context bar
   // would explain a control that is not there.
   const showsAlerts = following.some(entity => entity.alerts)
-  // Every subscription on this tab is enabled and reaching nobody, which in
-  // practice means the account's channels are off rather than each follow
-  // having been silenced one at a time. Read from the rows' own resolved
-  // settings, which already fold in any per-follow override and are the same
-  // source each row's bracket reads, so the two cannot disagree. Rows
-  // without a subscription are not counted either way: a Labels row cannot
-  // pause, and letting one veto the notice would hide it on a mixed tab.
-  const alertsPaused =
-    showsAlerts &&
-    following.every(entity => !entity.alerts || followAlertsPaused(entity.alerts))
   const pluralType = entityTypeInfo[type]?.plural ?? type
   const hasScopeAxis = followAlertHasScopeAxis(pluralType)
   // UNKNOWN, not false, until the read resolves: guessing "no home area" here
@@ -809,9 +798,7 @@ function FollowingList({
           : 'transition-opacity duration-75'
       }
     >
-      {showsAlerts && (
-        <LibraryAlertsBar entityType={pluralType} alertsPaused={alertsPaused} />
-      )}
+      {showsAlerts && <LibraryAlertsBar entityType={pluralType} />}
       <section className="w-full">
         {following.map(entity => (
           <FollowingEntityCard

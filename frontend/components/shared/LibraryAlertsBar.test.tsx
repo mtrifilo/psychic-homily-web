@@ -6,7 +6,17 @@ import { LibraryAlertsBar } from './LibraryAlertsBar'
 
 // The Library's alerts context bar (PSY-1905).
 
-let mockPreferences: { home_metro: string | null } | undefined
+interface MockChannels {
+  in_app: boolean
+  email: boolean
+}
+
+let mockPreferences:
+  | {
+      home_metro: string | null
+      alert_defaults?: { shows: MockChannels; releases: MockChannels }
+    }
+  | undefined
 let mockIsSuccess = true
 let mockIsError = false
 const mockUseAlertPreferences = vi.fn()
@@ -32,7 +42,13 @@ vi.mock('./HomeMetroField', () => ({
 
 describe('LibraryAlertsBar', () => {
   beforeEach(() => {
-    mockPreferences = { home_metro: '38060' }
+    mockPreferences = {
+      home_metro: '38060',
+      alert_defaults: {
+        shows: { in_app: true, email: false },
+        releases: { in_app: true, email: false },
+      },
+    }
     mockIsSuccess = true
     mockIsError = false
     mockUseAlertPreferences.mockReset()
@@ -145,19 +161,31 @@ describe('LibraryAlertsBar', () => {
     })
   })
 
-  // Every row on the tab is enabled and reaching nobody. A starting-scope
-  // sentence reads as a delivery promise directly above a column of brackets
-  // that all say paused, so the pause takes its place.
-  describe('when every row on the tab is paused', () => {
+  // A new follow inherits the ACCOUNT channels, so that is what decides this
+  // half of the bar. With neither on, "New follows start at: Near me" reads
+  // as a delivery promise directly above a column of brackets saying paused.
+  describe('when the account matrix leaves no channel on', () => {
+    const noChannels = () => {
+      mockPreferences = {
+        home_metro: '38060',
+        alert_defaults: {
+          shows: { in_app: false, email: false },
+          releases: { in_app: true, email: false },
+        },
+      }
+    }
+
     it('reports the pause instead of the starting scope', () => {
-      renderWithProviders(<LibraryAlertsBar entityType="artists" alertsPaused />)
+      noChannels()
+      renderWithProviders(<LibraryAlertsBar entityType="artists" />)
 
       expect(screen.getByText('paused')).toBeInTheDocument()
       expect(screen.queryByText(/New follows start at/)).toBeNull()
     })
 
     it('offers the way out once, rather than on every row', () => {
-      renderWithProviders(<LibraryAlertsBar entityType="artists" alertsPaused />)
+      noChannels()
+      renderWithProviders(<LibraryAlertsBar entityType="artists" />)
 
       expect(
         screen.getByRole('link', { name: /paused.*alert settings/i })
@@ -167,12 +195,52 @@ describe('LibraryAlertsBar', () => {
     // The area is what "near me" will mean once a channel comes back, and
     // this bar is the only place on the page it can be changed.
     it('keeps the area half, which the pause does not make meaningless', () => {
-      renderWithProviders(<LibraryAlertsBar entityType="artists" alertsPaused />)
+      noChannels()
+      renderWithProviders(<LibraryAlertsBar entityType="artists" />)
 
       expect(screen.getByText('Phoenix-Mesa-Chandler, AZ')).toBeInTheDocument()
       expect(
         screen.getByRole('button', { name: 'Change your area' })
       ).toBeInTheDocument()
+    })
+
+    // RELEASE channels are a separate row of the same matrix. Reading the
+    // wrong one would pause a tab over a setting that governs records.
+    it('reads the shows row, not whichever row happens to be off', () => {
+      mockPreferences = {
+        home_metro: '38060',
+        alert_defaults: {
+          shows: { in_app: true, email: false },
+          releases: { in_app: false, email: false },
+        },
+      }
+      renderWithProviders(<LibraryAlertsBar entityType="artists" />)
+
+      expect(screen.getByText(/New follows start at/)).toBeInTheDocument()
+      expect(screen.queryByText('paused')).toBeNull()
+    })
+
+    // The Venues tab fetches no account preferences at all, so it has no
+    // starting-scope sentence to correct and must not invent one. Its rows
+    // still carry their own paused brackets.
+    it('says nothing on a tab that reads no account preferences', () => {
+      noChannels()
+      renderWithProviders(<LibraryAlertsBar entityType="venues" />)
+
+      expect(screen.queryByText('paused')).toBeNull()
+      expect(screen.queryByText(/New follows start at/)).toBeNull()
+      expect(
+        screen.getByText(/still being switched on/i)
+      ).toBeInTheDocument()
+    })
+
+    // UNKNOWN is not "no channel". A pending read must not paint a pause over
+    // a subscription that is delivering.
+    it('stays silent while the matrix is still unknown', () => {
+      mockPreferences = undefined
+      renderWithProviders(<LibraryAlertsBar entityType="artists" />)
+
+      expect(screen.queryByText('paused')).toBeNull()
     })
   })
 })

@@ -16,6 +16,7 @@ import {
   followAlertHasScopeAxis,
   followAlertOptions,
   followAlertsPaused,
+  followAlertsPausedDetail,
   followAlertsPausedNote,
   followAlertSummaryFor,
   followAlertUpdateFor,
@@ -91,7 +92,15 @@ export function FollowAlertsMenu({
     return (
       <BracketLink
         label={`alerts: ${ALERTS_PAUSED_SUMMARY}`}
-        ariaLabel={`New-show alerts for ${entityName}: paused. Turn a channel on in alert settings.`}
+        // The explanation goes in the ACCESSIBLE NAME, not only the title.
+        // `title` is a hover affordance: keyboard, touch and most
+        // screen-reader users never see it, and `BracketLink`'s anchor branch
+        // sets aria-label, which wins as the name anyway. Without this they
+        // get the word "paused" and never the reassurance that their scope
+        // survived, which is the half that stops "paused" reading as "your
+        // setting was discarded". The entity-page twin has a real tooltip; a
+        // row cannot carry one per row.
+        ariaLabel={`New-show alerts for ${entityName}: paused. ${followAlertsPausedDetail(entityType)}`}
         title={followAlertsPausedNote(entityType)}
         href={ALERTS_HREF}
         className={cn('font-mono text-[11px]', className)}
