@@ -1697,6 +1697,17 @@ func (s *ArtistService) MergeArtists(canonicalID, mergeFromID uint) (*contracts.
 		}
 		logDroppedEntityRefs(mergeEntityArtist, canonicalID, mergeFromID, refsDropped)
 
+		// 9b. notification_log.subject_entity_id, the SECOND entity reference in
+		// that table (PSY-1896). It names the followed artist an alert is about,
+		// its column is not entity_id, and its type is implied by the row's own
+		// discriminator, so polymorphicEntityRefs has no concept of it. Left
+		// behind, every alert about the merged-away artist loses its name in the
+		// user's inbox. See repointAlertSubjectEntity.
+		if _, err := repointAlertSubjectEntity(
+			tx, artistSubjectAlertTypes, canonicalID, mergeFromID); err != nil {
+			return err
+		}
+
 		// 10. The foreign-key tables whose ON DELETE clause would otherwise
 		// destroy or blank the losing artist's rows. See reassignArtistFKRefs.
 		if err := reassignArtistFKRefs(tx, canonicalID, mergeFromID); err != nil {

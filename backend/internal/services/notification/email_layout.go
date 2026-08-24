@@ -188,8 +188,98 @@ func emailMonoNote(text string) string {
 `, emailMonoStack, emailMutedForeground, htmlEscape(text), emailRowGap, emailBackground)
 }
 
-// emailFineprint renders the closing lines: the "not you" reassurance and the
-// plain-link fallback for recipients whose client swallows the button.
+// sanitizeEmailHeaderValue strips the characters that END a header line, so a
+// caller-supplied string cannot inject one.
+//
+// It exists because escaping is medium-specific and this repo's escaping is all
+// aimed at the BODY: htmlEscape makes a scraped artist name safe inside markup
+// and does nothing at all for a Subject, where the dangerous character is not
+// `<` but a newline. Everything an ingest scrape produces is caller-supplied in
+// that sense, and these messages ship from the platform's own DKIM-aligned
+// sender.
+//
+// Removed rather than replaced: a subject is a single line by definition, so
+// there is no rendering to preserve, and a substitute character would only
+// invite the question of which one.
+func sanitizeEmailHeaderValue(value string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\r' || r == '\n' {
+			return -1
+		}
+		return r
+	}, value)
+}
+
+// emailMonoDetails renders the mono DETAILS BLOCK: several aligned metadata
+// lines about the thing the message is announcing, such as when, where, and who
+// else is on the bill.
+//
+// Separate from emailMonoNote rather than folded into it, because the two carry
+// different content at the same size: emailMonoNote is one fact about the
+// MESSAGE ("this link expires in 24 hours"), and this is a small table of facts
+// about the SUBJECT. Folding them together would mean passing a single string
+// with newlines, and a newline is whitespace in HTML: every line would run
+// together into one paragraph. Each line gets its own block element instead.
+//
+// Callers pass lines already padded to align their values (WHEN ...., WHERE ...)
+// which only lands because the stack is monospace. white-space:pre keeps the
+// runs of padding the caller wrote, since HTML would otherwise collapse them to
+// a single space and the alignment would be lost in every client.
+func emailMonoDetails(lines []string) string {
+	var b strings.Builder
+	for _, line := range lines {
+		fmt.Fprintf(&b, `<div style="white-space:pre;">%s</div>`, htmlEscape(line))
+	}
+	return fmt.Sprintf(`<tr>
+<td style="padding:0 0 %[4]s 0; font-family:%[1]s; font-size:12px; line-height:20px; letter-spacing:0.44px; color:%[2]s; background-color:%[5]s;">%[3]s</td>
+</tr>
+`, emailMonoStack, emailForeground, b.String(), emailRowGap, emailBackground)
+}
+
+// emailFineprintLink is one labelled destination in a fineprint footer.
+type emailFineprintLink struct {
+	Href  string
+	Label string
+}
+
+// emailFineprintWithLinks renders the closing block for a message that has to
+// offer the recipient a way out: the "why you are getting this" line, then a row
+// of anchors.
+//
+// emailFineprint cannot do this. It escapes every line it is given, which is
+// correct for prose and fatal for markup, so an unsubscribe link passed through
+// it arrives as visible angle brackets. Rather than loosen that escaping — the
+// one thing standing between a scraped venue-calendar string and a working
+// phishing link in this platform's own DKIM-aligned mail — the links are a
+// separate, structured parameter whose href and label are escaped individually
+// and whose <a> element this function alone controls.
+//
+// Every alert email needs this shape, so it lives beside the other builders
+// instead of being spelled out at one call site: a footer with a working opt-out
+// is what RFC 8058 compliance looks like in the body, and the next template must
+// inherit it rather than reinvent it.
+func emailFineprintWithLinks(lines []string, links []emailFineprintLink) string {
+	var b strings.Builder
+	for _, line := range lines {
+		b.WriteString(emailFineprintLine(htmlEscape(line)))
+	}
+	if len(links) > 0 {
+		var row strings.Builder
+		for i, link := range links {
+			if i > 0 {
+				row.WriteString(" &middot; ")
+			}
+			// href and label are escaped INDIVIDUALLY and the anchor is written
+			// here, so no caller can hand this function markup.
+			fmt.Fprintf(&row, `<a href="%s" style="color:%s; text-decoration:underline;">%s</a>`,
+				htmlEscape(link.Href), emailPrimary, htmlEscape(link.Label))
+		}
+		b.WriteString(emailFineprintLine(row.String()))
+	}
+	return emailFineprintRow(b.String())
+}
+
+// emailFineprintLine wraps one already-escaped fineprint line.
 //
 // The three wrap declarations are one behavior spelled three ways for three
 // generations of client: overflow-wrap is the current property, word-break is
@@ -198,15 +288,37 @@ func emailMonoNote(text string) string {
 // without breaking ordinary prose mid-word the way word-break:break-all would.
 // Outlook matters most here, since this block exists for recipients whose client
 // swallowed the button.
-func emailFineprint(lines []string) string {
-	var b strings.Builder
-	for _, line := range lines {
-		fmt.Fprintf(&b,
-			`<div style="word-wrap:break-word; word-break:break-word; overflow-wrap:anywhere;">%s</div>`,
-			htmlEscape(line))
-	}
+//
+// Shared by both fineprint builders so the wrap trio has ONE definition. Two
+// copies would drift, and the drift would only show up in the one client nobody
+// tests in.
+//
+// content must already be escaped or deliberately-constructed markup; this
+// function does not escape.
+func emailFineprintLine(content string) string {
+	return fmt.Sprintf(
+		`<div style="word-wrap:break-word; word-break:break-word; overflow-wrap:anywhere;">%s</div>`,
+		content)
+}
+
+// emailFineprintRow wraps assembled fineprint lines in the shared table row.
+func emailFineprintRow(content string) string {
 	return fmt.Sprintf(`<tr>
 <td style="padding:0 0 %[4]s 0; font-family:%[1]s; font-size:12px; font-weight:400; line-height:18px; color:%[2]s; background-color:%[5]s;">%[3]s</td>
 </tr>
-`, emailSansStack, emailMutedForeground, b.String(), emailRowGap, emailBackground)
+`, emailSansStack, emailMutedForeground, content, emailRowGap, emailBackground)
+}
+
+// emailFineprint renders the closing lines: the "not you" reassurance and the
+// plain-link fallback for recipients whose client swallows the button.
+//
+// Escapes every line, so it cannot carry a link. A footer that needs a working
+// opt-out anchor uses emailFineprintWithLinks, which takes its destinations as
+// structured data rather than as markup.
+func emailFineprint(lines []string) string {
+	var b strings.Builder
+	for _, line := range lines {
+		b.WriteString(emailFineprintLine(htmlEscape(line)))
+	}
+	return emailFineprintRow(b.String())
 }

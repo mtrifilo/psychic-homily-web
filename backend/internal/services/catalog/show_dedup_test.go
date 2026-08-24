@@ -574,3 +574,67 @@ func (s *ShowDedupTestSuite) TestDedupChetFakerPair_LegacyAndCanonicalSlugs_PSY5
 	s.Equal(canonicalSlug, *got.Slug,
 		"winner's slug should be recanonicalised to the venue-local-date-first form")
 }
+
+// PSY-1896: follow-driven alert rows carry a show id in notification_log.
+// entity_id under their OWN entity_type, which polymorphicEntityRefs cannot see,
+// so a merge that ignores them strands a user's inbox row against a deleted
+// show and it renders with no title and no link.
+func (s *ShowDedupTestSuite) TestMergeShow_MovesArtistShowAlertRows() {
+	u := s.seedUser("alerts-move@test.local")
+	a := s.seedArtist("Alert Band")
+	v := s.seedVenue("Alert Hall", "Phoenix", "AZ")
+	eventDate := time.Date(2026, 6, 1, 3, 0, 0, 0, time.UTC)
+
+	winner := s.seedShow("Winner", eventDate, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), a.ID, v.ID, "AZ")
+	loser := s.seedShow("Loser", eventDate, time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC), a.ID, v.ID, "AZ")
+
+	// The user was alerted about the LOSER only.
+	s.Require().NoError(s.db.Exec(`
+		INSERT INTO notification_log (user_id, entity_type, entity_id, subject_entity_id, channel, sent_at)
+		VALUES (?, 'artist_show_alert', ?, ?, 'in_app', now())`, u.ID, loser, a.ID).Error)
+
+	summary := &ShowDedupSummary{}
+	s.Require().NoError(s.db.Transaction(func(tx *gorm.DB) error {
+		return MergeDuplicateShow(tx, winner, loser, summary)
+	}))
+
+	var onWinner int64
+	s.Require().NoError(s.db.Table("notification_log").
+		Where("entity_type = 'artist_show_alert' AND entity_id = ?", winner).
+		Count(&onWinner).Error)
+	s.Equal(int64(1), onWinner, "the alert must follow the show it is about")
+	s.Equal(int64(1), summary.AlertRowsMoved)
+}
+
+// The drop half: uq_notification_log_artist_show_alert is UNIQUE on
+// (user_id, entity_id, channel) for this discriminator, so a user alerted about
+// BOTH shows before they were found to be duplicates cannot have the loser's row
+// moved onto the winner. Without the dedupe the whole merge aborts on the
+// constraint.
+func (s *ShowDedupTestSuite) TestMergeShow_DropsConflictingArtistShowAlertRows() {
+	u := s.seedUser("alerts-conflict@test.local")
+	a := s.seedArtist("Conflict Band")
+	v := s.seedVenue("Conflict Hall", "Phoenix", "AZ")
+	eventDate := time.Date(2026, 6, 1, 3, 0, 0, 0, time.UTC)
+
+	winner := s.seedShow("Winner", eventDate, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), a.ID, v.ID, "AZ")
+	loser := s.seedShow("Loser", eventDate, time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC), a.ID, v.ID, "AZ")
+
+	for _, showID := range []uint{winner, loser} {
+		s.Require().NoError(s.db.Exec(`
+			INSERT INTO notification_log (user_id, entity_type, entity_id, subject_entity_id, channel, sent_at)
+			VALUES (?, 'artist_show_alert', ?, ?, 'in_app', now())`, u.ID, showID, a.ID).Error)
+	}
+
+	summary := &ShowDedupSummary{}
+	s.Require().NoError(s.db.Transaction(func(tx *gorm.DB) error {
+		return MergeDuplicateShow(tx, winner, loser, summary)
+	}))
+
+	var onWinner int64
+	s.Require().NoError(s.db.Table("notification_log").
+		Where("entity_type = 'artist_show_alert' AND entity_id = ? AND user_id = ?", winner, u.ID).
+		Count(&onWinner).Error)
+	s.Equal(int64(1), onWinner,
+		"the redundant half of a duplicate notification the user already saw is dropped, not stacked")
+}

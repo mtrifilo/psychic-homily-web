@@ -364,6 +364,11 @@ type UserServiceInterface interface {
 	GetAlertPreferences(userID uint) (*authm.AlertPreferences, error)
 	SetHomeMetro(userID uint, metro *string) error
 	SetAccountAlertDefaults(userID uint, update authm.AccountAlertDefaultsUpdate) error
+	// PSY-1896: what the RFC 8058 one-click link on an artist new-show alert
+	// email calls. Clears the account email default AND every explicit
+	// per-follow email override, because either one alone keeps the mail
+	// flowing. Leaves the in-app channel alone.
+	UnsubscribeArtistShowAlertEmails(userID uint) error
 }
 
 // ──────────────────────────────────────────────

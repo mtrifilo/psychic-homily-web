@@ -405,6 +405,42 @@ func (s *NotificationFilterService) MatchAndNotify(show *catalogm.Show) error {
 		return nil
 	}
 
+	// Re-read the canonical row, and fence the whole fanout on it.
+	//
+	// Callers do not agree on how complete a Show they hand over. The outbox
+	// poller passes the row it loaded; both admin approve handlers BUILD A
+	// PARTIAL LITERAL (id, title, event date, price, slug, city, state) with no
+	// Status and no SubmittedBy. Two facts every pass below depends on are
+	// therefore absent on half the call sites: whether the show is publicly
+	// visible, and who submitted it (which is what keeps the submitter from being
+	// notified about their own show).
+	//
+	// Reading them here rather than in each pass means the answer cannot differ
+	// between passes, and it means the visibility fence actually covers all three
+	// fanouts. Announcing a private, pending or rejected show would either leak a
+	// user's own list or advertise something moderation has not passed, and a
+	// guard that only one of three fanouts respects is not a guard.
+	//
+	// Neither of today's callers can reach this with an unapproved show, so this
+	// is defence in depth rather than a live bug: MatchAndNotify is exported, and
+	// the cost of a future caller getting it wrong is mail to strangers.
+	//
+	// A missing row means the show was deleted between the trigger and this
+	// goroutine, which is a reason to say nothing.
+	canonical, err := s.loadShowForAlert(show.ID)
+	if err != nil {
+		return err
+	}
+	if canonical == nil {
+		return nil
+	}
+	if canonical.Status != catalogm.ShowStatusApproved {
+		log.Printf("notification match: refusing to announce show %d with status %q",
+			canonical.ID, canonical.Status)
+		return nil
+	}
+	show = canonical
+
 	// Gather the show's related IDs for matching
 	showArtistIDs, showVenueIDs, artistLabelIDs, artistTagIDs, err := s.gatherShowRelations(show.ID)
 	if err != nil {
@@ -443,9 +479,14 @@ func (s *NotificationFilterService) MatchAndNotify(show *catalogm.Show) error {
 		s.processUserMatches(userID, show, userFilterMatches)
 	}
 
-	// Scene follows fan out AFTER filters — even when no filter matched — so
-	// their cross-system dedup can defer to filter notifications already
-	// logged for this show (PSY-1341).
+	// Follow-driven fanouts run AFTER the filter pass — even when no filter
+	// matched — so their cross-system dedup can defer to filter notifications
+	// already logged for this show.
+	//
+	// Artist follows before scene follows, most specific first: one user gets one
+	// notification per show, and "a band you follow announced a show" is a better
+	// use of that single slot than "something is on in your city" (PSY-1896).
+	s.notifyArtistFollowers(show, showArtistIDs)
 	s.notifySceneFollowers(show, showArtistIDs)
 
 	return nil
@@ -552,7 +593,11 @@ func (s *NotificationFilterService) findMatchingFilters(
 
 	// Build the matching query using PostgreSQL array overlap operator (&&).
 	// GORM uses ? for parameter binding.
-	query := `
+	// The NOT EXISTS arm is the filter pass's half of the one-notification-per-
+	// (user, show) rule, and it consults the SHARED shape predicate: a user the
+	// artist-follow pass already reached must not also be matched here on a later
+	// run (an outbox re-process, or an edit followed by a re-approve).
+	query := fmt.Sprintf(`
 		SELECT nf.id as filter_id, nf.user_id, nf.name, nf.source, nf.notify_email, nf.notify_in_app
 		FROM notification_filters nf
 		WHERE nf.is_active = TRUE
@@ -566,12 +611,11 @@ func (s *NotificationFilterService) findMatchingFilters(
 		  AND NOT EXISTS (
 		      SELECT 1 FROM notification_log nl
 		      WHERE nl.user_id = nf.user_id
-		        AND nl.entity_type = 'show'
 		        AND nl.entity_id = ?
-		        AND nl.channel = 'email'
+		        AND %s
 		  )
 		ORDER BY nf.id ASC
-	`
+	`, notifiedAboutShow("nl"))
 
 	// Handle nil arrays — PostgreSQL needs empty arrays, not NULL
 	if showArtistIDs == nil {
@@ -629,11 +673,12 @@ func (s *NotificationFilterService) processUserMatches(userID uint, show *catalo
 			})
 	}
 
-	// Cross-filter + cross-system dedup: one email-channel row per (user, show).
+	// Cross-filter + cross-system dedup: one user-visible notification per
+	// (user, show), across filters, artist follows and scene follows.
 	var existing int64
 	if err := s.db.Model(&notificationm.NotificationLog{}).
-		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND channel = ?",
-			userID, "show", show.ID, "email").
+		Where("user_id = ? AND entity_id = ?", userID, show.ID).
+		Where(notifiedAboutShow("notification_log")).
 		Count(&existing).Error; err != nil {
 		log.Printf("failed to dedup notification for user %d, show %d: %v", userID, show.ID, err)
 		return
@@ -646,9 +691,9 @@ func (s *NotificationFilterService) processUserMatches(userID uint, show *catalo
 	logEntry := notificationm.NotificationLog{
 		UserID:     userID,
 		FilterID:   &delivery.FilterID,
-		EntityType: "show",
+		EntityType: notificationm.NotificationEntityShow,
 		EntityID:   show.ID,
-		Channel:    "email",
+		Channel:    notificationm.NotificationChannelEmail,
 		SentAt:     now,
 	}
 	if err := s.db.Create(&logEntry).Error; err != nil {
@@ -841,11 +886,16 @@ func (s *NotificationFilterService) sendEmail(to, subject, html, unsubscribeURL 
 // Notification log
 // ──────────────────────────────────────────────
 
-// GetUserNotifications returns the notification log for a user, paginated.
-// Show-filter rows are returned as-is. Comment-driven rows (entity_type =
-// comment_reply or comment_mention) are enriched in a single follow-up join
-// against the comments + users tables so the bell/inbox UI can render
-// "<commenter> replied: <excerpt>" with a working link target. PSY-595.
+// GetUserNotifications returns the user's INBOX rows, paginated.
+//
+// Not every notification_log row for the user: inboxVisibleRows filters out the
+// ones that are not bell entries (see it for which and why). A caller counting
+// rows here against a raw count of the table will disagree, on purpose.
+//
+// Show-filter and scene-follow rows are returned as-is. Three kinds are enriched
+// in batched follow-up passes so the bell/inbox can render a readable line with
+// a working link target: comment-driven rows (PSY-595), request-fulfillment rows
+// (PSY-890), and artist show-alert rows (PSY-1896).
 func (s *NotificationFilterService) GetUserNotifications(userID uint, limit, offset int) ([]contracts.NotificationLogEntry, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -878,6 +928,7 @@ func (s *NotificationFilterService) GetUserNotifications(userID uint, limit, off
 		Select("nl.*, COALESCE(nf.name, CASE WHEN nl.entity_type = 'show' AND nl.filter_id IS NULL THEN "+sceneNameSubquery+" END, '') as filter_name").
 		Joins("LEFT JOIN notification_filters nf ON nf.id = nl.filter_id").
 		Where("nl.user_id = ?", userID).
+		Where(inboxVisibleRows("nl")).
 		Order("nl.sent_at DESC").
 		Limit(limit).
 		Offset(offset).
@@ -889,21 +940,205 @@ func (s *NotificationFilterService) GetUserNotifications(userID uint, limit, off
 	entries := make([]contracts.NotificationLogEntry, len(logs))
 	for i, l := range logs {
 		entries[i] = contracts.NotificationLogEntry{
-			ID:         l.ID,
-			FilterID:   l.FilterID,
-			FilterName: l.FilterName,
-			EntityType: l.EntityType,
-			EntityID:   l.EntityID,
-			Channel:    l.Channel,
-			SentAt:     l.SentAt,
-			ReadAt:     l.ReadAt,
+			ID:              l.ID,
+			FilterID:        l.FilterID,
+			FilterName:      l.FilterName,
+			EntityType:      l.EntityType,
+			EntityID:        l.EntityID,
+			SubjectEntityID: l.SubjectEntityID,
+			Channel:         l.Channel,
+			SentAt:          l.SentAt,
+			ReadAt:          l.ReadAt,
 		}
 	}
 
-	// Enrich comment-driven + request-driven rows in batched passes.
+	// Enrich comment-driven, request-driven + follow-alert rows in batched passes.
 	s.enrichCommentNotifications(entries)
 	s.enrichRequestNotifications(entries)
+	s.enrichArtistShowAlertNotifications(entries)
 	return entries, nil
+}
+
+// ──────────────────────────────────────────────
+// notification_log row shapes
+//
+// Three predicates over this table have to agree about which rows mean what.
+// They are built here, from the model's constants, so that adding a fourth
+// alert type is ONE edit rather than a hunt through five query sites that fail
+// silently when one is missed.
+//
+// Each returns a literal SQL fragment. Nothing caller-supplied reaches them:
+// the only interpolations are an alias chosen at the call site and constants
+// from models/notification.
+// ──────────────────────────────────────────────
+
+// emailLaneAlertTypes are the entity types whose writer uses ONE ROW PER
+// CHANNEL LANE, where the channel='email' row stands for a message already in
+// the recipient's mailbox rather than for an inbox entry.
+//
+// A new two-lane alert type MUST be listed here. Leaving it off does not fail:
+// its email-lane rows simply start appearing in the bell and inflating the
+// unread badge, which is the kind of bug nobody reports as a bug.
+var emailLaneAlertTypes = []string{
+	notificationm.NotificationEntityArtistShowAlert,
+}
+
+// showAlertEntityTypes are the entity types that mean "this user has been told
+// about a show", where entity_id is the show id.
+//
+// NotificationEntityShow is deliberately NOT in this list: it needs a channel
+// qualifier the others do not (see notifiedAboutShow), so it is spelled there.
+var showAlertEntityTypes = []string{
+	notificationm.NotificationEntityArtistShowAlert,
+}
+
+// inboxVisibleRows is the predicate that hides notification_log rows which are
+// NOT bell entries, for a table alias.
+//
+// The bell is otherwise channel-agnostic, deliberately: the show-filter and
+// scene-follow writers stamp channel='email' on rows that are a user's only
+// in-app record, so a `channel = 'in_app'` read would empty the inbox. Adding
+// one is a standing trap, and this predicate is narrow precisely so it does not
+// become that read. It excludes only the email LANE of a two-lane alert type
+// (PSY-1896), whose in-app sibling is the bell entry.
+//
+// Applied to every read of the log: the list, the unread count, and mark-all.
+// Leaving it off any one of them produces a count that disagrees with the list.
+func inboxVisibleRows(alias string) string {
+	clauses := make([]string, 0, len(emailLaneAlertTypes))
+	for _, entityType := range emailLaneAlertTypes {
+		clauses = append(clauses, fmt.Sprintf(
+			"NOT (%[1]s.entity_type = '%[2]s' AND %[1]s.channel = '%[3]s')",
+			alias, entityType, notificationm.NotificationChannelEmail))
+	}
+	if len(clauses) == 0 {
+		// "1 = 1", not "TRUE": GORM only treats a bare string as raw SQL when it
+		// contains a space, a `?` or an `@`, so a single-token condition with no
+		// arguments is not the no-op it looks like.
+		return "1 = 1"
+	}
+	return strings.Join(clauses, " AND ")
+}
+
+// notifiedAboutShow is the predicate for "this user has ALREADY been told about
+// this show, by any of the systems that can tell them".
+//
+// One user gets one notification per show across all three fanouts: criteria
+// filters, artist follows, and scene follows. Each stage consults this before
+// delivering, so the predicate has to name every shape any of them writes, and
+// naming it in one place is what keeps the three stages from drifting apart.
+// The scene pass drifting from the filter pass is exactly how a user ends up
+// told twice about one show.
+//
+// The two arms are asymmetric on purpose. Filter and scene rows share
+// entity_type='show' and are distinguished from nothing else, so they need the
+// channel='email' qualifier that has always marked "delivered" on that path.
+// The two-lane alert types need NO channel qualifier: either lane means the
+// user was reached, and requiring 'email' there would miss the in-app-only
+// recipient, who is the DEFAULT (email is opt-in).
+//
+// alias is the table or alias the caller queries through.
+func notifiedAboutShow(alias string) string {
+	clauses := []string{fmt.Sprintf(
+		"(%[1]s.entity_type = '%[2]s' AND %[1]s.channel = '%[3]s')",
+		alias, notificationm.NotificationEntityShow, notificationm.NotificationChannelEmail)}
+	for _, entityType := range showAlertEntityTypes {
+		clauses = append(clauses, fmt.Sprintf(
+			"%s.entity_type = '%s'", alias, entityType))
+	}
+	return "(" + strings.Join(clauses, " OR ") + ")"
+}
+
+// enrichArtistShowAlertNotifications populates the artist name, show title and
+// show URL on artist_show_alert rows (PSY-1896), so the inbox can render
+// "<artist> announced a show" with a link to the show rather than the bare
+// entity_type the generic branch falls back to.
+//
+// Two batched lookups, one per table, mirroring enrichRequestNotifications:
+// subject_entity_id resolves the artist and entity_id the show. Either coming
+// back empty (a merged artist, a deleted show) leaves that half blank and the
+// row degrades rather than disappearing — the notification still happened.
+func (s *NotificationFilterService) enrichArtistShowAlertNotifications(entries []contracts.NotificationLogEntry) {
+	showIDs := make([]uint, 0, len(entries))
+	artistIDs := make([]uint, 0, len(entries))
+	seenShow := make(map[uint]struct{}, len(entries))
+	seenArtist := make(map[uint]struct{}, len(entries))
+	for _, e := range entries {
+		if e.EntityType != notificationm.NotificationEntityArtistShowAlert {
+			continue
+		}
+		if _, dup := seenShow[e.EntityID]; !dup {
+			seenShow[e.EntityID] = struct{}{}
+			showIDs = append(showIDs, e.EntityID)
+		}
+		if e.SubjectEntityID == nil {
+			continue
+		}
+		if _, dup := seenArtist[*e.SubjectEntityID]; !dup {
+			seenArtist[*e.SubjectEntityID] = struct{}{}
+			artistIDs = append(artistIDs, *e.SubjectEntityID)
+		}
+	}
+	if len(showIDs) == 0 {
+		return
+	}
+
+	type showRow struct {
+		ID    uint
+		Title string
+		Slug  *string
+	}
+	var shows []showRow
+	if err := s.db.Table("shows").
+		Select("id, title, slug").
+		Where("id IN ?", showIDs).
+		Scan(&shows).Error; err != nil {
+		log.Printf("warning: failed to load shows for inbox enrichment: %v", err)
+		return
+	}
+	showByID := make(map[uint]showRow, len(shows))
+	for _, r := range shows {
+		showByID[r.ID] = r
+	}
+
+	artistByID := make(map[uint]string, len(artistIDs))
+	if len(artistIDs) > 0 {
+		var artists []struct {
+			ID   uint
+			Name string
+		}
+		if err := s.db.Table("artists").
+			Select("id, name").
+			Where("id IN ?", artistIDs).
+			Scan(&artists).Error; err != nil {
+			log.Printf("warning: failed to load artists for inbox enrichment: %v", err)
+		}
+		for _, a := range artists {
+			artistByID[a.ID] = a.Name
+		}
+	}
+
+	for i := range entries {
+		e := &entries[i]
+		if e.EntityType != notificationm.NotificationEntityArtistShowAlert {
+			continue
+		}
+		if e.SubjectEntityID != nil {
+			e.AlertArtistName = artistByID[*e.SubjectEntityID]
+		}
+		show, found := showByID[e.EntityID]
+		if !found {
+			continue
+		}
+		e.AlertShowTitle = show.Title
+		// Same slug-then-id fallback showEmailContent uses: entity slugs are
+		// nullable, and "/shows/" with an empty slug resolves to the index.
+		if show.Slug != nil && *show.Slug != "" {
+			e.AlertShowURL = fmt.Sprintf("%s/shows/%s", s.frontendURL, *show.Slug)
+		} else {
+			e.AlertShowURL = fmt.Sprintf("%s/shows/%d", s.frontendURL, e.EntityID)
+		}
+	}
 }
 
 // enrichRequestNotifications populates request_title + request_url on
@@ -1155,6 +1390,7 @@ func (s *NotificationFilterService) GetUnreadCount(userID uint) (int64, error) {
 	var count int64
 	err := s.db.Model(&notificationm.NotificationLog{}).
 		Where("user_id = ? AND read_at IS NULL", userID).
+		Where(inboxVisibleRows("notification_log")).
 		Count(&count).Error
 	return count, err
 }
@@ -1188,6 +1424,11 @@ func (s *NotificationFilterService) MarkAllNotificationsRead(userID uint) (int64
 	now := time.Now().UTC()
 	result := s.db.Model(&notificationm.NotificationLog{}).
 		Where("user_id = ? AND read_at IS NULL", userID).
+		// Same predicate as the list and the count, so "mark all read" clears
+		// exactly the rows the user could see and its reported count matches the
+		// badge that prompted the click. Leaving the hidden email-lane rows
+		// unread costs nothing: nothing reads their read_at.
+		Where(inboxVisibleRows("notification_log")).
 		Update("read_at", now)
 	if result.Error != nil {
 		return 0, fmt.Errorf("failed to mark all notifications read: %w", result.Error)

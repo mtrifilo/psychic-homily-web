@@ -66,6 +66,17 @@ type NotificationLog struct {
 	Channel    string     `gorm:"size:20;not null" json:"channel"`
 	SentAt     time.Time  `gorm:"not null" json:"sent_at"`
 	ReadAt     *time.Time `json:"read_at,omitempty"`
+
+	// SubjectEntityID is the FOLLOWED entity whose subscription produced this
+	// row, where (EntityType, EntityID) is what the row is ABOUT (PSY-1896).
+	// For an artist show alert that split is artist vs show: the inbox line
+	// reads "<artist> announced a show" while the row points at the show.
+	//
+	// The subject's type is implied by EntityType rather than stored beside it,
+	// so the two can never disagree. NULL for every writer that has no followed
+	// subject: filter matches, scene follows, comment replies, mentions, and
+	// request fulfillments.
+	SubjectEntityID *uint `gorm:"column:subject_entity_id" json:"subject_entity_id,omitempty"`
 }
 
 // TableName specifies the table name for NotificationLog.
@@ -85,6 +96,35 @@ const (
 	// rows surfaced by the bell/inbox (vs the "email" channel used by the
 	// show-filter matcher).
 	NotificationChannelInApp = "in_app"
+
+	// NotificationChannelEmail is the channel value for rows that stand for an
+	// email. It is also what the per-user daily email budget counts
+	// (maxFilterEmailsPerDay), which is the reason a row exists for the email
+	// lane at all.
+	//
+	// Read the column honestly: it says WHICH LANE a row belongs to, not which
+	// lanes the user has enabled. The bell renders rows of either channel today
+	// (the show-filter and scene-follow writers stamp "email" on rows that are
+	// the user's only in-app record), so it is NOT a visibility switch for those
+	// writers. PSY-1896's rows are the exception and say so at their own read
+	// site: they use one row per lane, and the email lane is not a bell entry.
+	NotificationChannelEmail = "email"
+
+	// NotificationEntityShow is the entity_type the show-filter matcher and the
+	// scene-follow fanout write. Spelled once here so a cross-system dedup can
+	// name it without a literal.
+	NotificationEntityShow = "show"
+
+	// NotificationEntityArtistShowAlert marks a notification_log row created
+	// because a show was announced by an ARTIST the user follows (PSY-1896).
+	// entity_id holds the show id and subject_entity_id holds the artist id.
+	//
+	// A discriminator of its own rather than reusing NotificationEntityShow,
+	// because the read path has to tell the three follow-driven show rows apart:
+	// a filter match names its filter, a scene follow is labelled from the
+	// show's venues, and this one names the artist. Sharing "show" would have
+	// made this row inherit the scene label, which is the wrong sentence.
+	NotificationEntityArtistShowAlert = "artist_show_alert"
 
 	// NotificationEntityRequestFulfillmentProposed marks a notification_log row
 	// created when someone proposes a fulfillment for a community request (the

@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // TestRenderEmailArtifact writes the exact HTML a send would hand Resend to the
@@ -35,5 +37,45 @@ func TestRenderEmailArtifact(t *testing.T) {
 
 	require.NoError(t, svc.SendVerificationEmail("someone@example.com", token))
 	require.NoError(t, os.WriteFile(out, []byte((<-emails).Html), 0o600))
+	t.Logf("wrote %s", out)
+}
+
+// TestRenderArtistShowAlertArtifact does the same for the PSY-1896 artist
+// new-show alert, so the direction-A frame, the mono details block and the
+// footer links can be judged in a browser against the Figma mock rather than
+// only through string assertions.
+//
+// It renders the builder directly rather than driving a send: the alert's HTML
+// is built in this package and handed to the generic
+// SendFilterNotificationEmail transport, so the builder's output IS the payload.
+//
+//	RENDER_OUT=/tmp/artist-alert.html go test ./internal/services/notification/ \
+//	  -run TestRenderArtistShowAlertArtifact
+func TestRenderArtistShowAlertArtifact(t *testing.T) {
+	out := os.Getenv("RENDER_OUT")
+	if out == "" {
+		t.Skip("set RENDER_OUT to a file path to capture the rendered email")
+	}
+
+	content := showEmailContentParts{
+		date:       "Saturday, August 29, 2026",
+		venueText:  "Valley Bar",
+		artistText: "Oneida, Din of Celestial Birds",
+		priceText:  "$18",
+		showURL:    "https://psychichomily.com/shows/oneida-valley-bar",
+	}
+	// A fabricated signature of the real length, so the footer's wrapping can be
+	// judged. It verifies against nothing.
+	unsubURL := "https://api.psychichomily.com/unsubscribe/artist-show-alerts" +
+		"?uid=421&sig=9f2c1ad35b7e40c8a6d1e93b0f47c25ad8e6b1349f0a7c25e83bd1470c96af52"
+
+	html := buildArtistShowAlertEmailHTML(
+		"Oneida",
+		contracts.FollowAlertScopeNearMe,
+		content,
+		unsubURL,
+		"https://psychichomily.com/settings/notifications",
+	)
+	require.NoError(t, os.WriteFile(out, []byte(html), 0o600))
 	t.Logf("wrote %s", out)
 }

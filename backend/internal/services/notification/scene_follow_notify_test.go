@@ -132,6 +132,14 @@ func (s *NotificationFilterSuite) TestSceneFollow_AllOffFollowsNeverNotify() {
 	s.Equal(int64(0), s.sceneLogCount(userID, showID))
 }
 
+// The gate itself: only a scene follower who also follows a band on the bill
+// qualifies.
+//
+// Since PSY-1896 the fan is reached by the ARTIST-follow pass, which runs first
+// and is the more specific of the two — an artist follow is what makes them
+// qualify here, so telling them "a band you follow announced a show" instead of
+// "a show is on in Phoenix" spends the one per-(user, show) slot on the better
+// sentence. The gate is unchanged; what moved is which system delivers.
 func (s *NotificationFilterSuite) TestSceneFollow_FollowedBandsOnlyGate() {
 	fan := s.createTestUser()     // follows the artist → notified
 	tourist := s.createTestUser() // follows only the scene → gated out
@@ -145,7 +153,14 @@ func (s *NotificationFilterSuite) TestSceneFollow_FollowedBandsOnlyGate() {
 	showID := s.createTestShow("Gated Show", []uint{artistID}, []uint{venueID})
 
 	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
-	s.Equal(int64(1), s.sceneLogCount(fan, showID))
+
+	s.Equal(int64(1), s.artistAlertRows(fan, showID, notificationm.NotificationChannelInApp),
+		"the artist-follow pass claims the fan first")
+	s.Equal(int64(0), s.sceneLogCount(fan, showID),
+		"and the scene pass must not add a second notification on top of it")
+
+	// The tourist follows no band on the bill, so neither system reaches them.
+	s.Equal(int64(0), s.artistAlertRows(tourist, showID, notificationm.NotificationChannelInApp))
 	s.Equal(int64(0), s.sceneLogCount(tourist, showID))
 }
 

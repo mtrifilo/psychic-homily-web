@@ -11,6 +11,9 @@ import (
 
 	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -312,6 +315,75 @@ func TestAlertPreferences_NilDatabase(t *testing.T) {
 	assert.Error(t, svc.SetAccountAlertDefaults(1, authm.AccountAlertDefaultsUpdate{
 		Shows: &authm.AlertChannelDefaultsUpdate{Email: boolPtrLocal(true)},
 	}))
+	assert.Error(t, svc.UnsubscribeArtistShowAlertEmails(1))
+}
+
+// PSY-1896: the one-click unsubscribe has to clear BOTH layers. Testing the
+// halves separately is not enough — the promise the recipient is shown is that
+// the mail stops, and that promise is only kept by the composition.
+func (suite *AlertPreferencesIntegrationTestSuite) TestUnsubscribeArtistShowAlertEmails_ClearsBothLayers() {
+	user := suite.createUser("alerts-unsub@example.com")
+	artistID := suite.seedArtist("Unsub Band")
+	venueID := suite.seedVenue("Unsub Hall")
+
+	// The user opted in at BOTH layers: account-wide, and again on one follow.
+	// Either one left standing keeps the mail flowing. Releases email is switched
+	// on too, so asserting it SURVIVES means something rather than passing on the
+	// shipped default.
+	suite.Require().NoError(suite.userService.SetAccountAlertDefaults(user.ID,
+		authm.AccountAlertDefaultsUpdate{
+			Shows:    &authm.AlertChannelDefaultsUpdate{Email: boolPtrLocal(true)},
+			Releases: &authm.AlertChannelDefaultsUpdate{Email: boolPtrLocal(true)},
+		}))
+	follows := engagement.NewFollowService(suite.db)
+	suite.Require().NoError(follows.Follow(user.ID, "artist", artistID))
+	suite.Require().NoError(follows.Follow(user.ID, "venue", venueID))
+	_, err := follows.SetFollowAlertSettings(user.ID, "artist", artistID,
+		contracts.FollowAlertUpdate{
+			Shows: &contracts.FollowAlertPreferenceUpdate{Email: boolPtrLocal(true)},
+		})
+	suite.Require().NoError(err)
+	_, err = follows.SetFollowAlertSettings(user.ID, "venue", venueID,
+		contracts.FollowAlertUpdate{
+			Shows: &contracts.FollowAlertPreferenceUpdate{Email: boolPtrLocal(true)},
+		})
+	suite.Require().NoError(err)
+
+	suite.Require().NoError(suite.userService.UnsubscribeArtistShowAlertEmails(user.ID))
+
+	prefs, err := suite.userService.GetAlertPreferences(user.ID)
+	suite.Require().NoError(err)
+	suite.False(prefs.AlertDefaults.Shows.Email, "the account layer must go quiet")
+	suite.True(prefs.AlertDefaults.Shows.InApp,
+		"an email opt-out is not a request to stop being notified in the product")
+	suite.True(prefs.AlertDefaults.Releases.Email,
+		"unsubscribing from show alerts must not touch release alerts")
+
+	artistAlerts, err := follows.GetFollowAlertSettings(user.ID, "artist", artistID)
+	suite.Require().NoError(err)
+	suite.False(artistAlerts.Shows.Email, "the per-follow override is the layer that would still send")
+	suite.True(artistAlerts.Shows.InApp)
+
+	// The account write is not narrower than the `shows` key, which covers venue
+	// show alerts too, so the sweep has to reach venue follows or the two halves
+	// of this unsubscribe disagree about what was silenced.
+	venueAlerts, err := follows.GetFollowAlertSettings(user.ID, "venue", venueID)
+	suite.Require().NoError(err)
+	suite.False(venueAlerts.Shows.Email)
+}
+
+func (suite *AlertPreferencesIntegrationTestSuite) seedArtist(name string) uint {
+	slug := name
+	artist := catalogm.Artist{Name: name, Slug: &slug}
+	suite.Require().NoError(suite.db.Create(&artist).Error)
+	return artist.ID
+}
+
+func (suite *AlertPreferencesIntegrationTestSuite) seedVenue(name string) uint {
+	slug := name
+	venue := catalogm.Venue{Name: name, Slug: &slug, City: "Phoenix", State: "AZ"}
+	suite.Require().NoError(suite.db.Create(&venue).Error)
+	return venue.ID
 }
 
 func TestAlertPreferencesIntegrationTestSuite(t *testing.T) {

@@ -41,6 +41,13 @@ export interface NotificationLogEntry {
   // backend populates request_title + request_url for the inbox row + link.
   request_title?: string
   request_url?: string
+  // Artist show-alert enrichment (PSY-1896): entity_id holds the show_id and
+  // subject_entity_id the followed artist, so the row can say which band the
+  // alert is about rather than only which show.
+  subject_entity_id?: number
+  alert_artist_name?: string
+  alert_show_title?: string
+  alert_show_url?: string
 }
 
 /** GET /me/notifications response shape */
@@ -71,6 +78,18 @@ export const NOTIFICATION_ENTITY_COMMENT_MENTION = 'comment_mention' as const
 export const NOTIFICATION_ENTITY_REQUEST_FULFILLMENT_PROPOSED =
   'request_fulfillment_proposed' as const
 
+/**
+ * Backend notification_log entity_type for the PSY-1896 artist new-show alert.
+ * Must stay in sync with
+ * models/notification.NotificationEntityArtistShowAlert.
+ *
+ * Its own discriminator rather than the generic 'show' row, because the label
+ * differs: a filter match names its filter, a scene follow is labelled from the
+ * show's venues, and this one names the followed band.
+ */
+export const NOTIFICATION_ENTITY_ARTIST_SHOW_ALERT =
+  'artist_show_alert' as const
+
 /** isCommentNotification returns true for the PSY-595 comment row types. */
 export function isCommentNotification(entry: NotificationLogEntry): boolean {
   return (
@@ -81,7 +100,8 @@ export function isCommentNotification(entry: NotificationLogEntry): boolean {
 
 /** isRequestNotification returns true for the PSY-890 request-fulfillment row. */
 /**
- * Server-built deep links (`comment_url`, `request_url`) are ABSOLUTE URLs.
+ * Server-built deep links (`comment_url`, `request_url`, `alert_show_url`) are
+ * ABSOLUTE URLs.
  * Rendered as-is in a <Link>, a same-origin absolute href triggers a full
  * browser navigation, which cancels the in-flight scoped mark-read POST
  * fired from the same click (read-on-click is load-bearing since the
@@ -114,14 +134,31 @@ export function normalizeNotificationDeepLinks(
   const request_url = entry.request_url
     ? toRelativeIfSameOrigin(entry.request_url)
     : entry.request_url
-  if (comment_url === entry.comment_url && request_url === entry.request_url) {
+  const alert_show_url = entry.alert_show_url
+    ? toRelativeIfSameOrigin(entry.alert_show_url)
+    : entry.alert_show_url
+  if (
+    comment_url === entry.comment_url &&
+    request_url === entry.request_url &&
+    alert_show_url === entry.alert_show_url
+  ) {
     return entry
   }
-  return { ...entry, comment_url, request_url }
+  return { ...entry, comment_url, request_url, alert_show_url }
 }
 
 export function isRequestNotification(entry: NotificationLogEntry): boolean {
   return entry.entity_type === NOTIFICATION_ENTITY_REQUEST_FULFILLMENT_PROPOSED
+}
+
+/**
+ * isArtistShowAlertNotification returns true for the PSY-1896 row created when
+ * an artist the user follows announces a show.
+ */
+export function isArtistShowAlertNotification(
+  entry: NotificationLogEntry
+): boolean {
+  return entry.entity_type === NOTIFICATION_ENTITY_ARTIST_SHOW_ALERT
 }
 
 /** Notification filter ownership (PSY-1467). Must stay in sync with

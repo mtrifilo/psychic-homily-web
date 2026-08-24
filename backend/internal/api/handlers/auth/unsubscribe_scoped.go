@@ -28,6 +28,23 @@ type scopedUnsubscribeConfig struct {
 	setPref   func(userID uint) error
 	noun      string // e.g. "tier-change emails"
 	logSuffix string // structured-log event discriminator
+
+	// confirmOnGet makes GET render a confirm button instead of performing the
+	// unsubscribe, so the mutation only ever happens on POST.
+	//
+	// Opt-in per scope rather than on for everything, because turning it on
+	// changes a shipped flow: the existing categories have always unsubscribed
+	// straight from the emailed link, and quietly adding a click for them is a
+	// product change this is not. New categories start in the safer shape.
+	//
+	// Why the safer shape is worth a click: a GET that mutates is fired by
+	// anything that follows links without a human, and corporate mail scanners
+	// and link-preview bots do exactly that. For a single boolean the cost is one
+	// wrongly-flipped flag. For this scope the setter also rewrites every one of
+	// the user's artist and venue follows, so a scanner would silently destroy
+	// per-follow opt-ins the user chose. The RFC 8058 POST that mailbox providers
+	// actually use is unaffected, and it is the path that has to stay one click.
+	confirmOnGet bool
 }
 
 // UnsubscribeTierNotificationsPageHandler serves /unsubscribe/tier-notifications.
@@ -60,6 +77,29 @@ func (h *UserPreferencesHandler) UnsubscribeSceneDigestPageHandler(w http.Respon
 	})
 }
 
+// UnsubscribeArtistShowAlertsPageHandler serves /unsubscribe/artist-show-alerts
+// (PSY-1896).
+//
+// Unlike its siblings, the setter behind this one is not a single boolean:
+// artist show-alert emails are resolved from an account default UNDER
+// per-follow overrides, so the service has to clear both. See
+// UserService.UnsubscribeArtistShowAlertEmails. The in-app channel is untouched
+// — the recipient refused an email, not the product.
+func (h *UserPreferencesHandler) UnsubscribeArtistShowAlertsPageHandler(w http.ResponseWriter, r *http.Request) {
+	h.handleScopedUnsubscribe(w, r, scopedUnsubscribeConfig{
+		scope:        engagement.UnsubscribeScopeArtistShowAlerts,
+		setPref:      func(uid uint) error { return h.userService.UnsubscribeArtistShowAlertEmails(uid) },
+		// The noun says "show-alert emails", not "artist show-alert emails",
+		// because the setter is genuinely that wide: alert_defaults carries ONE
+		// `shows` key covering artist and venue show alerts alike, so the account
+		// write silences both and the per-follow sweep matches it. Naming only
+		// artists here would be the copy promising less than the button does.
+		noun:         "show-alert emails",
+		logSuffix:    "artist_show_alerts",
+		confirmOnGet: true,
+	})
+}
+
 // handleScopedUnsubscribe is the shared GET/POST body for the scoped
 // unsubscribe handlers. Mirrors UnsubscribeCollectionDigestPageHandler but
 // parameterized by scope + preference setter.
@@ -76,6 +116,13 @@ func (h *UserPreferencesHandler) handleScopedUnsubscribe(w http.ResponseWriter, 
 
 	if !engagement.VerifyScopedUnsubscribeSignature(uid, cfg.scope, sig, h.jwtSecret) {
 		writeUnsubscribeError(w, r, http.StatusForbidden, "This unsubscribe link is invalid or has been tampered with.")
+		return
+	}
+
+	// The signature is verified BEFORE the confirm page is rendered, so a bad
+	// link still fails at the door rather than showing a button that will fail.
+	if cfg.confirmOnGet && !isOneClickPost(r) {
+		writeUnsubscribeConfirmPrompt(r.Context(), w, r.URL.RequestURI(), cfg.noun)
 		return
 	}
 

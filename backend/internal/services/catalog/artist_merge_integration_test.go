@@ -983,3 +983,33 @@ func (s *ArtistMergeIntegrationSuite) TestMergeKeepsTheCanonicalMusicBrainzID() 
 	s.Require().NotNil(survivor.MusicBrainzArtistID)
 	s.Equal("mbid-canonical", *survivor.MusicBrainzArtistID)
 }
+
+// PSY-1896: notification_log carries a SECOND entity reference the polymorphic
+// inventory has no concept of. subject_entity_id names the followed artist an
+// alert is about; its column is not entity_id and its type is implied by the
+// row's own discriminator, so the inventory loop cannot see it. It has no
+// foreign key either, so a merge that ignores it raises nothing — the alert just
+// loses the band's name in the user's inbox forever after.
+func (s *ArtistMergeIntegrationSuite) TestMergeRepointsArtistShowAlertSubject() {
+	canonical := s.createArtist("Canonical Band")
+	loser := s.createArtist("Dupe Band")
+	reader := s.createUser("alert-reader")
+
+	// An alert the user already received, about a show, attributed to the artist
+	// that is about to be merged away. entity_id is a show id and is deliberately
+	// left alone by this merge.
+	s.Require().NoError(s.db.Exec(`
+		INSERT INTO notification_log (user_id, entity_type, entity_id, subject_entity_id, channel, sent_at)
+		VALUES (?, 'artist_show_alert', 987654, ?, 'in_app', now())`, reader.ID, loser.ID).Error)
+
+	_, err := s.svc.MergeArtists(canonical.ID, loser.ID)
+	s.Require().NoError(err)
+
+	var subjects []uint
+	s.Require().NoError(s.db.Table("notification_log").
+		Where("user_id = ? AND entity_type = 'artist_show_alert'", reader.ID).
+		Pluck("subject_entity_id", &subjects).Error)
+	s.Require().Len(subjects, 1)
+	s.Equal(canonical.ID, subjects[0],
+		"the alert must name the surviving artist, not an id that no longer exists")
+}

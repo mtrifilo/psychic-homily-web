@@ -67,6 +67,22 @@ function requestFulfillment(overrides: Partial<NotificationLogEntry> = {}): Noti
   }
 }
 
+function artistShowAlert(overrides: Partial<NotificationLogEntry> = {}): NotificationLogEntry {
+  return {
+    id: 6,
+    entity_type: 'artist_show_alert',
+    entity_id: 400,
+    subject_entity_id: 55,
+    channel: 'in_app',
+    sent_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+    read_at: null,
+    alert_artist_name: 'Oneida',
+    alert_show_title: 'Oneida at Valley Bar',
+    alert_show_url: 'https://example.com/shows/oneida-valley-bar',
+    ...overrides,
+  }
+}
+
 describe('NotificationList', () => {
   it('renders empty state when no entries', () => {
     render(<NotificationList entries={[]} />)
@@ -188,6 +204,47 @@ describe('NotificationList', () => {
       />
     )
     expect(screen.getByText('Someone')).toBeInTheDocument()
+  })
+
+  // PSY-1896: the artist new-show alert row.
+  it('names the followed artist and links the show for an artist show alert', () => {
+    render(<NotificationList entries={[artistShowAlert()]} />)
+    expect(screen.getByText('Oneida')).toBeInTheDocument()
+    expect(screen.getByText('announced a show')).toBeInTheDocument()
+    expect(screen.getByText('Oneida at Valley Bar')).toBeInTheDocument()
+    expect(screen.getByRole('link')).toHaveAttribute(
+      'href',
+      'https://example.com/shows/oneida-valley-bar'
+    )
+  })
+
+  it('degrades an artist show alert whose enrichment came back empty', () => {
+    // A merged artist or a deleted show leaves the fields blank. The
+    // notification still happened, so the row must stay usable rather than
+    // rendering a bare entity_type linked to nowhere.
+    render(
+      <NotificationList
+        entries={[
+          artistShowAlert({
+            alert_artist_name: undefined,
+            alert_show_title: undefined,
+            alert_show_url: undefined,
+          }),
+        ]}
+      />
+    )
+    expect(screen.getByText('An artist you follow')).toBeInTheDocument()
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/shows')
+    expect(screen.queryByText('artist_show_alert')).not.toBeInTheDocument()
+  })
+
+  it('marks an unread artist show alert read from the row affordance', async () => {
+    const onMarkRead = vi.fn()
+    render(
+      <NotificationList entries={[artistShowAlert()]} onMarkRead={onMarkRead} />
+    )
+    await userEvent.click(screen.getByText('[mark read]'))
+    expect(onMarkRead).toHaveBeenCalledTimes(1)
   })
 })
 
