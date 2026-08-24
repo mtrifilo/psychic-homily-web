@@ -236,6 +236,75 @@ func emailMonoDetails(lines []string) string {
 `, emailMonoStack, emailForeground, b.String(), emailRowGap, emailBackground)
 }
 
+// emailListRow is one entry in an emailListRows table: a short left-hand label,
+// a title, and an optional secondary detail line under the title.
+type emailListRow struct {
+	// Label is the mono left column, e.g. a date. Kept short — it is given a
+	// fixed 110px column, which fits about twelve monospace characters.
+	Label string
+	// Title is the entry's headline, e.g. a show title.
+	Title string
+	// Detail is the optional second line under the title, e.g. a bill. An empty
+	// Detail renders no line rather than an empty one.
+	Detail string
+}
+
+// emailListRows renders a hairline-separated TABLE of entries: the block a
+// message uses when it is announcing SEVERAL things at once.
+//
+// This is the one layout element the digest could not inherit (PSY-1895, Figma
+// 1577:27). emailMonoDetails describes ONE subject as aligned WHEN/WHERE/WITH
+// lines; three of those stacked reads as three messages stapled together rather
+// than as one list, and its white-space:pre alignment only survives while every
+// value is short.
+//
+// A real <table> with per-row border-top rather than div borders, because the
+// Word engine Outlook renders through drops borders on block elements but
+// honours them on table cells. The last row also carries a border-bottom, which
+// is what makes the block read as terminated instead of running into the
+// paragraph beneath it.
+//
+// Every field is escaped here. Callers pass plain text; a caller that needs a
+// link inside a row would need a structured parameter, the same way
+// emailFineprintWithLinks takes one.
+func emailListRows(rows []emailListRow) string {
+	if len(rows) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	for i, row := range rows {
+		// Every row draws its own top rule; only the last draws a bottom one, so
+		// adjacent rows never double up into a 2px rule.
+		bottom := "0"
+		if i == len(rows)-1 {
+			bottom = "1px"
+		}
+
+		detail := ""
+		if row.Detail != "" {
+			detail = fmt.Sprintf(
+				`<div style="font-family:%[1]s; font-size:13px; line-height:19px; color:%[2]s;">%[3]s</div>`,
+				emailSansStack, emailMutedForeground, htmlEscape(row.Detail))
+		}
+
+		fmt.Fprintf(&b, `<tr>
+<td width="110" valign="top" style="width:110px; padding:12px 16px 12px 0; border-top:1px solid %[1]s; border-bottom:%[6]s solid %[1]s; font-family:%[2]s; font-size:13px; line-height:20px; color:%[3]s; background-color:%[7]s; white-space:nowrap;">%[4]s</td>
+<td valign="top" style="padding:12px 0 12px 0; border-top:1px solid %[1]s; border-bottom:%[6]s solid %[1]s; background-color:%[7]s;"><div style="font-family:%[8]s; font-size:14px; font-weight:600; line-height:20px; color:%[3]s;">%[5]s</div>%[9]s</td>
+</tr>
+`, emailBorder, emailMonoStack, emailForeground, htmlEscape(row.Label), htmlEscape(row.Title),
+			bottom, emailBackground, emailSansStack, detail)
+	}
+
+	return fmt.Sprintf(`<tr>
+<td style="padding:0 0 %[2]s 0;">
+<table role="presentation" width="100%%" cellpadding="0" cellspacing="0" border="0" style="width:100%%; border-collapse:collapse;">
+%[1]s</table>
+</td>
+</tr>
+`, b.String(), emailRowGap)
+}
+
 // emailFineprintLink is one labelled destination in a fineprint footer.
 type emailFineprintLink struct {
 	Href  string

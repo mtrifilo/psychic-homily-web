@@ -115,7 +115,11 @@ type ServiceContainer struct {
 	// PSY-1894: drains show_notify_queue so ingest-created shows fire follower
 	// notifications, not just admin-approved ones.
 	ShowNotifyOutbox *notification.ShowNotifyOutboxPoller
-	AutoPromotion    *adminsvc.AutoPromotionService
+	// PSY-1895: delivers coalesced venue new-show alerts once a venue-day's batch
+	// has gone quiet. Accrual happens inside MatchAndNotify; this is the half
+	// that resolves followers and sends.
+	VenueAlertFlush *notification.VenueAlertFlushPoller
+	AutoPromotion   *adminsvc.AutoPromotionService
 	// PSY-350: weekly collection-subscription digest emails (opt-IN).
 	CollectionDigest *engagement.CollectionDigestService
 	// PSY-1342: weekly followed-scenes digest emails (opt-IN).
@@ -187,6 +191,12 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	// a second copy that could drift.
 	notificationFilter := notification.NewNotificationFilterService(database, email, cfg.JWT.SecretKey, cfg.Email.FrontendURL)
 	showNotifyOutbox := notification.NewShowNotifyOutboxPoller(database, notificationFilter)
+
+	// PSY-1895: the venue-alert flush poller is handed the SAME
+	// notificationFilter instance for the same reason the outbox is. Accrual runs
+	// inside that service's MatchAndNotify and the flush reads what accrual
+	// wrote, so a second instance would be two implementations of one batch.
+	venueAlertFlush := notification.NewVenueAlertFlushPoller(notificationFilter)
 
 	// PSY-1250: artist-location sweep (Phase A). Reuses the SAME shared mbClient
 	// (PSY-1208) so its MusicBrainz traffic stays under the one ~1 req/s throttle; a
@@ -374,6 +384,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		ImageEnrichSweep:       imageEnrichSweep,
 		ImageEnrichOutbox:      imageEnrichOutbox,
 		ShowNotifyOutbox:       showNotifyOutbox,
+		VenueAlertFlush:        venueAlertFlush,
 		ArtistLocationSweep:    artistLocationSweep,
 		ArtistDiscographySweep: artistDiscographySweep,
 		ArtistLinksSweep:       artistLinksSweep,

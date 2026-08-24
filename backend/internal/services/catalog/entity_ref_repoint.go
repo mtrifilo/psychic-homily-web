@@ -300,8 +300,171 @@ func repointAlertSubjectEntity(tx *gorm.DB, entityTypes []string, canonicalID, m
 // artistSubjectAlertTypes are the notification_log entity types whose
 // subject_entity_id holds an ARTIST id. A new artist-subject alert type must be
 // added here or an artist merge will strand its rows' labels.
+//
+// Venue show alerts (PSY-1895) are deliberately absent, and NOT by oversight:
+// their subject_entity_id is NULL. The followed entity and the row's subject are
+// the same venue, so the venue lives in entity_id and there is no second
+// reference to move. repointVenueShowAlertLogs is what handles them.
 var artistSubjectAlertTypes = []string{
 	notificationm.NotificationEntityArtistShowAlert,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Coalesced venue show alerts (PSY-1895)
+//
+// Three more references the inventory loop cannot see, for two different
+// reasons:
+//
+//   - notification_log rows of entity_type 'venue_show_alert' key on their own
+//     discriminator, so the loop's `entity_type = 'venue'` UPDATE misses them —
+//     the same blind spot artist show alerts have. Their entity_id is a VENUE id
+//     (a venue alert is coalesced over a day and has no single show to point
+//     at), so a venue merge is what strands them.
+//   - venue_show_alert_batch is not polymorphic at all. It carries two real
+//     foreign keys, one to venues and one to shows, so BOTH a venue merge and a
+//     show dedup have to move it, and its unique key is the whole natural key
+//     (venue_id, alert_day, show_id) — two columns to dedupe on, which is one
+//     more than the generic helpers take.
+//
+// Every one of these is MOVED rather than dropped, which is the opposite of
+// show_notify_queue's disposition next door and worth being explicit about.
+// That table's UNIQUE means "already considered for notification", so moving a
+// row could manufacture an announcement. These rows mean nothing of the kind:
+// what guarantees exactly-once here is uq_notification_log_venue_show_alert, and
+// re-pointing a batch membership onto the canonical show or venue only corrects
+// which entity an existing alert names.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// repointVenueShowAlertLogs moves venue show-alert inbox rows from a losing
+// venue onto the winner, dropping the ones the winner already has.
+//
+// The drop is required by uq_notification_log_venue_show_alert, the partial
+// UNIQUE on (user_id, entity_id, alert_bucket, channel). A user who follows both
+// halves of a duplicate pair and was alerted about each on the same day holds a
+// row for each, and moving the loser's would violate it and abort the merge. The
+// dropped row is the redundant half of a duplicate notification the user already
+// received.
+//
+// alert_bucket is compared with IS NOT DISTINCT FROM rather than `=` so the
+// dedupe matches what the INDEX matches. A NULL bucket is forbidden on these
+// rows by a CHECK, so this should never differ in practice — but if it ever did,
+// `=` would silently fail to detect the collision and the merge would abort with
+// a unique violation instead of dropping the row.
+func repointVenueShowAlertLogs(tx *gorm.DB, canonicalID, mergeFromID uint) (moved, dropped int64, err error) {
+	if canonicalID == 0 || mergeFromID == 0 || canonicalID == mergeFromID {
+		return 0, 0, fmt.Errorf(
+			"repoint venue show alerts: winner and loser must be two distinct venues (got %d, %d)",
+			canonicalID, mergeFromID)
+	}
+
+	del := tx.Exec(`
+		DELETE FROM notification_log l
+		WHERE l.entity_type = ?
+		  AND l.entity_id = ?
+		  AND EXISTS (
+		        SELECT 1 FROM notification_log w
+		        WHERE w.entity_type = l.entity_type
+		          AND w.entity_id = ?
+		          AND w.user_id = l.user_id
+		          AND w.channel = l.channel
+		          AND w.alert_bucket IS NOT DISTINCT FROM l.alert_bucket
+		      )
+	`, notificationm.NotificationEntityVenueShowAlert, mergeFromID, canonicalID)
+	if del.Error != nil {
+		return 0, 0, fmt.Errorf("failed to drop conflicting venue show-alert rows: %w", del.Error)
+	}
+
+	upd := tx.Exec(`
+		UPDATE notification_log SET entity_id = ?
+		WHERE entity_type = ? AND entity_id = ?
+	`, canonicalID, notificationm.NotificationEntityVenueShowAlert, mergeFromID)
+	if upd.Error != nil {
+		return 0, 0, fmt.Errorf("failed to move venue show-alert rows: %w", upd.Error)
+	}
+	return upd.RowsAffected, del.RowsAffected, nil
+}
+
+// repointVenueShowAlertBatchVenues moves batch memberships from a losing venue
+// onto the winner, dropping the ones that would collide on the winner.
+//
+// A collision here is the ordinary case for a real duplicate pair: the same show
+// listed at both venues on the same day is exactly what makes them duplicates.
+// The dropped row is redundant — the winner already records that show in that
+// day's batch.
+func repointVenueShowAlertBatchVenues(tx *gorm.DB, canonicalID, mergeFromID uint) (moved, dropped int64, err error) {
+	return repointVenueShowAlertBatch(tx, "venue_id",
+		[]string{"alert_day", "show_id"}, canonicalID, mergeFromID)
+}
+
+// repointVenueShowAlertBatchShows moves batch memberships from a losing show
+// onto the winner, dropping the ones that would collide.
+//
+// Unlike show_notify_queue, which the same merge DROPS, this is a plain move.
+// The row records that a show was part of a venue-day's alert, not that a show
+// has been considered for notification, so re-pointing it cannot cause an
+// announcement — it only makes an existing alert name the canonical show. What
+// prevents a second delivery is uq_notification_log_venue_show_alert, which is
+// untouched by any of this.
+//
+// A moved row arriving still-undispatched into a group that has already
+// dispatched is CORRECT and expected: the next flush re-resolves that group, the
+// delivery claim no-ops, and the show simply joins the inbox row. That is the
+// same path a show announced late in the day takes.
+func repointVenueShowAlertBatchShows(tx *gorm.DB, winnerID, loserID uint) (moved, dropped int64, err error) {
+	return repointVenueShowAlertBatch(tx, "show_id",
+		[]string{"venue_id", "alert_day"}, winnerID, loserID)
+}
+
+// repointVenueShowAlertBatch is the shared body of the two functions above:
+// drop the losing rows that would collide on the rest of the natural key, then
+// move the remainder.
+//
+// idCol and keyCols are hardcoded at both call sites and never reach here from
+// caller input, which is what makes the interpolation below safe.
+func repointVenueShowAlertBatch(
+	tx *gorm.DB,
+	idCol string,
+	keyCols []string,
+	canonicalID, mergeFromID uint,
+) (moved, dropped int64, err error) {
+	// A self-merge would correlate every row against itself, so the DELETE would
+	// empty the surviving entity's batches before the no-op move ran. Every
+	// current call path rejects it earlier; the check is free and the failure is
+	// destructive.
+	if canonicalID == 0 || mergeFromID == 0 || canonicalID == mergeFromID {
+		return 0, 0, fmt.Errorf(
+			"repoint venue show alert batch: canonical and merge-from must be two distinct ids (got %d, %d)",
+			canonicalID, mergeFromID)
+	}
+
+	joinPred := ""
+	for _, col := range keyCols {
+		joinPred += fmt.Sprintf(" AND w.%[1]s = l.%[1]s", col)
+	}
+
+	// #nosec G201 -- idCol and keyCols are hardcoded at the two call sites in
+	// this file, never caller input; the ids are bound parameters.
+	delSQL := fmt.Sprintf(`
+		DELETE FROM venue_show_alert_batch l
+		WHERE l.%[1]s = ?
+		  AND EXISTS (
+		        SELECT 1 FROM venue_show_alert_batch w
+		        WHERE w.%[1]s = ?%[2]s
+		      )
+	`, idCol, joinPred)
+	del := tx.Exec(delSQL, mergeFromID, canonicalID)
+	if del.Error != nil {
+		return 0, 0, fmt.Errorf("failed to drop conflicting venue_show_alert_batch rows: %w", del.Error)
+	}
+
+	// #nosec G201 -- see above.
+	updSQL := fmt.Sprintf(
+		"UPDATE venue_show_alert_batch SET %[1]s = ? WHERE %[1]s = ?", idCol)
+	upd := tx.Exec(updSQL, canonicalID, mergeFromID)
+	if upd.Error != nil {
+		return 0, 0, fmt.Errorf("failed to move venue_show_alert_batch rows: %w", upd.Error)
+	}
+	return upd.RowsAffected, del.RowsAffected, nil
 }
 
 // logDroppedEntityRefs records the rows a merge DELETED rather than moved.

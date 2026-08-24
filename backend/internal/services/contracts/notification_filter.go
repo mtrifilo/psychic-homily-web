@@ -119,6 +119,31 @@ type NotificationLogEntry struct {
 	AlertArtistName string `json:"alert_artist_name,omitempty"`
 	AlertShowTitle  string `json:"alert_show_title,omitempty"`
 	AlertShowURL    string `json:"alert_show_url,omitempty"`
+
+	// AlertBucket is the calendar day a COALESCED alert covers, as YYYY-MM-DD,
+	// and it is part of that alert's identity rather than a timestamp about it:
+	// the same venue's alert tomorrow is a different notification. Empty on
+	// every per-event row. PSY-1895.
+	AlertBucket string `json:"alert_bucket,omitempty"`
+
+	// Venue show-alert enrichment fields (populated only for venue_show_alert
+	// rows; entity_id holds the VENUE id and subject_entity_id is NULL). The
+	// shows are resolved from venue_show_alert_batch at READ time rather than
+	// stamped on the row, which is what lets a show announced later the same day
+	// appear in a row that was already delivered. PSY-1895.
+	//
+	// AlertVenueURL is absolute and same-origin-relativized by the frontend
+	// before use, like CommentURL, RequestURL and AlertShowURL: a full
+	// navigation would cancel the row's mark-read request.
+	AlertVenueName string `json:"alert_venue_name,omitempty"`
+	AlertVenueURL  string `json:"alert_venue_url,omitempty"`
+	// AlertShowCount is the batch's FULL size, which is not always the number of
+	// shows named in AlertShowSummary — the summary is capped.
+	AlertShowCount int `json:"alert_show_count,omitempty"`
+	// AlertShowSummary is a short, already-joined preview of the batch's shows,
+	// server-side capped so one busy venue-day cannot produce an inbox row
+	// hundreds of entries long.
+	AlertShowSummary string `json:"alert_show_summary,omitempty"`
 }
 
 // NotificationFilterServiceInterface defines the contract for notification filter operations.
