@@ -12,7 +12,11 @@ import {
 } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { HomeMetroSelect } from '@/components/shared/HomeMetroField'
-import { FOLLOW_ALERTS_PENDING_NOTE } from '@/components/shared/followAlertChoices'
+import {
+  ALERTS_AREA_ANCHOR,
+  CUSTOM_ALERTS_HREF,
+  FOLLOW_ALERTS_PENDING_NOTE,
+} from '@/components/shared/followAlertChoices'
 import { useProfile } from '@/features/auth/hooks/useAuth'
 import { useSetShowReminders } from '@/features/shows'
 import { useSetCollectionDigestPreference } from '@/features/collections'
@@ -22,11 +26,6 @@ import {
   useSetAlertDefaults,
 } from '../../hooks/useAlertPreferences'
 import { cn } from '@/lib/utils'
-
-/** Anchor target for "set your area" links from the entity-page reveal. */
-export const ALERTS_AREA_ANCHOR = 'alerts-area'
-
-const CUSTOM_ALERTS_HREF = '/settings/notification-filters'
 
 /**
  * One channel cell. Three shapes, and the difference matters:
@@ -61,7 +60,7 @@ function ChannelCellView({
 }) {
   if (cell.kind === 'not-applicable') {
     return (
-      <span className="text-sm text-muted-foreground" title={`${label} does not apply here`}>
+      <span className="text-sm text-muted-foreground">
         <span aria-hidden>—</span>
         <span className="sr-only">{label} not available for this alert</span>
       </span>
@@ -106,9 +105,6 @@ function ChannelCellView({
  * user never touched keeps tracking the shipped default rather than being
  * frozen at whatever it was the day they first opened this card.
  *
- * The digest and reminder rows moved here from the Notifications card rather
- * than being duplicated: two controls over one boolean is a defect, not a
- * convenience.
  */
 export function AlertSettings() {
   const { data: profileData } = useProfile()
@@ -126,57 +122,48 @@ export function AlertSettings() {
   const sceneDigestEnabled =
     profileData?.user?.preferences?.notify_on_scene_digest ?? false
 
+  // One cell shape, spelled once. Each row supplies its own read, its own
+  // mutation and therefore its own pending flag, so a row saving does not park
+  // the controls of a row it has nothing to do with.
+  const toggle = (
+    checked: boolean,
+    mutation: { isPending: boolean },
+    onChange: (next: boolean) => void
+  ): ChannelCell => ({ kind: 'toggle', checked, pending: mutation.isPending, onChange })
+
   const rows: AlertRow[] = [
     {
       id: 'shows',
       title: 'An artist or venue you follow announces a show',
       description:
         'Which shows count for an artist is that follow’s own scope, near me or everywhere. A venue sits in one place, so its alerts have no scope.',
-      inApp: {
-        kind: 'toggle',
-        checked: defaults?.shows.in_app ?? true,
-        pending: setAlertDefaults.isPending,
-        onChange: next =>
-          setAlertDefaults.mutate({ shows: { in_app: next } }),
-      },
-      email: {
-        kind: 'toggle',
-        checked: defaults?.shows.email ?? false,
-        pending: setAlertDefaults.isPending,
-        onChange: next => setAlertDefaults.mutate({ shows: { email: next } }),
-      },
+      inApp: toggle(defaults?.shows.in_app ?? true, setAlertDefaults, next =>
+        setAlertDefaults.mutate({ shows: { in_app: next } })
+      ),
+      email: toggle(defaults?.shows.email ?? false, setAlertDefaults, next =>
+        setAlertDefaults.mutate({ shows: { email: next } })
+      ),
     },
     {
       id: 'releases',
       title: 'An artist you follow puts out a release',
       description:
         'A record has no location, so this is never geography-scoped.',
-      inApp: {
-        kind: 'toggle',
-        checked: defaults?.releases.in_app ?? true,
-        pending: setAlertDefaults.isPending,
-        onChange: next =>
-          setAlertDefaults.mutate({ releases: { in_app: next } }),
-      },
-      email: {
-        kind: 'toggle',
-        checked: defaults?.releases.email ?? false,
-        pending: setAlertDefaults.isPending,
-        onChange: next =>
-          setAlertDefaults.mutate({ releases: { email: next } }),
-      },
+      inApp: toggle(defaults?.releases.in_app ?? true, setAlertDefaults, next =>
+        setAlertDefaults.mutate({ releases: { in_app: next } })
+      ),
+      email: toggle(defaults?.releases.email ?? false, setAlertDefaults, next =>
+        setAlertDefaults.mutate({ releases: { email: next } })
+      ),
     },
     {
       id: 'show-reminders',
       title: 'Day-before reminder for a show you saved',
       description: 'One email the day before, for shows in your library.',
       inApp: { kind: 'not-applicable' },
-      email: {
-        kind: 'toggle',
-        checked: showRemindersEnabled,
-        pending: setShowReminders.isPending,
-        onChange: next => setShowReminders.mutate(next),
-      },
+      email: toggle(showRemindersEnabled, setShowReminders, next =>
+        setShowReminders.mutate(next)
+      ),
     },
     {
       id: 'scene-digest',
@@ -184,12 +171,9 @@ export function AlertSettings() {
       description:
         'One email a week with this week’s shows and new bands for the scenes you follow. Stays opt-in.',
       inApp: { kind: 'not-applicable' },
-      email: {
-        kind: 'toggle',
-        checked: sceneDigestEnabled,
-        pending: setSceneDigest.isPending,
-        onChange: next => setSceneDigest.mutate(next),
-      },
+      email: toggle(sceneDigestEnabled, setSceneDigest, next =>
+        setSceneDigest.mutate(next)
+      ),
     },
     {
       id: 'collection-digest',
@@ -197,12 +181,9 @@ export function AlertSettings() {
       description:
         'One email a week summarizing items added to collections you subscribe to. Stays opt-in.',
       inApp: { kind: 'not-applicable' },
-      email: {
-        kind: 'toggle',
-        checked: collectionDigestEnabled,
-        pending: setCollectionDigest.isPending,
-        onChange: next => setCollectionDigest.mutate(next),
-      },
+      email: toggle(collectionDigestEnabled, setCollectionDigest, next =>
+        setCollectionDigest.mutate(next)
+      ),
     },
     {
       id: 'custom-alerts',
@@ -245,64 +226,67 @@ export function AlertSettings() {
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
           ) : (
-            <div role="table" aria-label="Alert channels">
-              <div
-                role="row"
-                className="flex items-center border-b border-border pb-2"
-              >
-                <span role="columnheader" className="flex-1 sr-only">
-                  Alert
-                </span>
-                <span
-                  role="columnheader"
-                  className="w-[90px] text-center font-mono text-[11px] uppercase tracking-[0.6px] text-muted-foreground"
-                >
-                  In-app
-                </span>
-                <span
-                  role="columnheader"
-                  className="w-[90px] text-center font-mono text-[11px] uppercase tracking-[0.6px] text-muted-foreground"
-                >
-                  Email
-                </span>
-              </div>
-
-              {rows.map((row, index) => (
-                <div
-                  role="row"
-                  key={row.id}
-                  className={cn(
-                    'flex items-center py-3',
-                    index < rows.length - 1 && 'border-b border-border'
-                  )}
-                >
-                  <div role="cell" className="min-w-0 flex-1 pr-6">
-                    <p className="text-sm font-medium">{row.title}</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      {row.description}
-                    </p>
-                  </div>
-                  <div
-                    role="cell"
-                    className="flex w-[90px] shrink-0 justify-center"
+            /* A real table, not a grid of role="…" divs: the browser cannot
+               get row/cell nesting wrong, and the row title becomes a genuine
+               row header rather than a cell that happens to be first. */
+            <table className="w-full table-fixed border-collapse">
+              <caption className="sr-only">
+                Alert types and the channels each one reaches you on
+              </caption>
+              <thead>
+                <tr className="border-b border-border">
+                  <th scope="col" className="sr-only">
+                    Alert
+                  </th>
+                  <th
+                    scope="col"
+                    className="w-[90px] pb-2 text-center font-mono text-[11px] font-normal uppercase tracking-[0.6px] text-muted-foreground"
                   >
-                    <ChannelCellView
-                      cell={row.inApp}
-                      label={`In-app: ${row.title}`}
-                    />
-                  </div>
-                  <div
-                    role="cell"
-                    className="flex w-[90px] shrink-0 justify-center"
+                    In-app
+                  </th>
+                  <th
+                    scope="col"
+                    className="w-[90px] pb-2 text-center font-mono text-[11px] font-normal uppercase tracking-[0.6px] text-muted-foreground"
                   >
-                    <ChannelCellView
-                      cell={row.email}
-                      label={`Email: ${row.title}`}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
+                    Email
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, index) => (
+                  <tr
+                    key={row.id}
+                    className={cn(
+                      index < rows.length - 1 && 'border-b border-border'
+                    )}
+                  >
+                    <th
+                      scope="row"
+                      className="py-3 pr-6 text-left align-middle font-normal"
+                    >
+                      <span className="block text-sm font-medium">
+                        {row.title}
+                      </span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                        {row.description}
+                      </span>
+                    </th>
+                    <td className="w-[90px] py-3 text-center align-middle">
+                      <ChannelCellView
+                        cell={row.inApp}
+                        label={`In-app: ${row.title}`}
+                      />
+                    </td>
+                    <td className="w-[90px] py-3 text-center align-middle">
+                      <ChannelCellView
+                        cell={row.email}
+                        label={`Email: ${row.title}`}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
 
           {mutationFailed && (

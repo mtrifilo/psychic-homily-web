@@ -49,7 +49,7 @@ export interface FollowAlertPreference {
   in_app: boolean
   email: boolean
   /** Artist show alerts only; absent for releases and for venue follows. */
-  scope?: string
+  scope?: FollowAlertScope
 }
 
 /** GET /{entity_type}/{entity_id}/follow/alerts (PSY-1893). */

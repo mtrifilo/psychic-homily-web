@@ -1147,44 +1147,48 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
   // than sitting beside it (PSY-1905).
   const headerActions = (
     <div className="flex flex-col items-start gap-1.5">
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-      <FollowButton entityType="artists" entityId={artist.id} variant="bracket" />
-      <AddToCollectionButton
-        entityType="artist"
-        entityId={artist.id}
-        entityName={artist.name}
-        variant="bracket"
-      />
-      {/* Anonymous-visible, so it sits with the other ungated controls rather
-          than down among the authenticated ones. Path comes from the artist's
-          own slug — never the current URL, which may carry `#graph` or an
-          inbound campaign tag. */}
-      <ShareButton
-        path={`/artists/${artist.slug}`}
-        variant="bracket"
-        ariaLabel="Share this artist"
-      />
-      {isAuthenticated && (
-        <BracketLink
-          label={canEditDirectly ? 'Edit' : 'Suggest edit'}
-          onClick={() => setIsEditing(true)}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <FollowButton
+          entityType="artists"
+          entityId={artist.id}
+          variant="bracket"
         />
-      )}
-      {isAuthenticated && (
-        <BracketLink
-          label="Add tag"
-          onClick={() => setAddTagDialogOpen(true)}
+        <AddToCollectionButton
+          entityType="artist"
+          entityId={artist.id}
+          entityName={artist.name}
+          variant="bracket"
         />
-      )}
-      <BracketLink label="Graph" onClick={openGraphDialog} />
-      {isAuthenticated && (
-        <BracketLink
-          label="Report"
-          title="Report an issue"
-          onClick={() => setIsReportOpen(true)}
+        {/* Anonymous-visible, so it sits with the other ungated controls rather
+            than down among the authenticated ones. Path comes from the artist's
+            own slug — never the current URL, which may carry `#graph` or an
+            inbound campaign tag. */}
+        <ShareButton
+          path={`/artists/${artist.slug}`}
+          variant="bracket"
+          ariaLabel="Share this artist"
         />
-      )}
-    </div>
+        {isAuthenticated && (
+          <BracketLink
+            label={canEditDirectly ? 'Edit' : 'Suggest edit'}
+            onClick={() => setIsEditing(true)}
+          />
+        )}
+        {isAuthenticated && (
+          <BracketLink
+            label="Add tag"
+            onClick={() => setAddTagDialogOpen(true)}
+          />
+        )}
+        <BracketLink label="Graph" onClick={openGraphDialog} />
+        {isAuthenticated && (
+          <BracketLink
+            label="Report"
+            title="Report an issue"
+            onClick={() => setIsReportOpen(true)}
+          />
+        )}
+      </div>
       {/* Renders nothing until the artist is followed: the scope question
           only exists once the subscription does. */}
       <FollowAlertsReveal

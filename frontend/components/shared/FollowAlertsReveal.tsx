@@ -1,6 +1,7 @@
 'use client'
 
 import { useIsMutating } from '@tanstack/react-query'
+import { AlertChipRadioGroup } from './AlertChipRadioGroup'
 import { BracketLink } from './BracketLink'
 import { InfoTooltip } from './InfoTooltip'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -14,6 +15,7 @@ import {
 } from '@/lib/hooks/common/useFollowAlerts'
 import { useAlertPreferences } from '@/features/auth/hooks/useAlertPreferences'
 import {
+  ALERTS_AREA_HREF,
   followAlertChoice,
   followAlertOptions,
   followAlertUpdateFor,
@@ -22,9 +24,6 @@ import {
   type FollowAlertChoice,
 } from './followAlertChoices'
 import { cn } from '@/lib/utils'
-
-/** Where a viewer with no home area goes to set one. */
-export const ALERTS_AREA_HREF = '/profile?tab=settings#alerts-area'
 
 const ARTIST_TOOLTIP = `Chooses which of this artist's new shows count as an alert for you. New releases are never geography-scoped, so this does not affect them. ${FOLLOW_ALERTS_PENDING_NOTE}`
 
@@ -61,22 +60,35 @@ export function FollowAlertsReveal({
   const { data: followStatus } = useFollowStatus(entityType, entityId)
   const isFollowing = followStatus?.is_following ?? false
   const supported = isAlertCapableFollowType(entityType)
+  const isVenue = entityType === 'venues'
 
   // `is_following` flips optimistically, so it reads true before the POST that
   // creates the follow has landed. The alerts endpoint is a SUB-resource of
   // that follow and 404s until it exists, so asking on the optimistic flag
   // spends a guaranteed-failing request and a logged error on the happy path.
-  // Waiting for the write to settle costs one render; the follow mutation
-  // invalidates this query on settle, so nothing has to poll for it.
+  // Scoped to THIS entity's write: a page that grows a second follow control
+  // must not have one control's click suspend the other's query.
   const isFollowSettling =
-    useIsMutating({ mutationKey: followMutationKey }) > 0
+    useIsMutating({
+      mutationKey: followMutationKey,
+      predicate: mutation => {
+        const variables = mutation.state.variables as
+          | { entityType?: string; entityId?: number | string }
+          | undefined
+        return (
+          variables?.entityType === entityType &&
+          variables?.entityId === entityId
+        )
+      },
+    }) > 0
 
-  const { data: preferences } = useAlertPreferences()
-  const { data: alerts } = useFollowAlerts(
-    entityType,
-    entityId,
-    supported && isFollowing && !isFollowSettling
-  )
+  const wants = supported && isFollowing && !isFollowSettling
+
+  // Only an artist follow has a geographic scope, so only an artist page needs
+  // to know whether a home area exists. Fetching it on a venue page would buy
+  // a value every code path below provably discards.
+  const { data: preferences } = useAlertPreferences(wants && !isVenue)
+  const { data: alerts } = useFollowAlerts(entityType, entityId, wants)
   const updateAlerts = useUpdateFollowAlerts()
 
   const hasHomeMetro = Boolean(preferences?.home_metro)
@@ -87,10 +99,9 @@ export function FollowAlertsReveal({
   if (!isAuthenticated || !supported || !isFollowing || !current) return null
 
   const options = followAlertOptions({ entityType, hasHomeMetro })
-  const isVenue = entityType === 'venues'
 
   const choose = (choice: FollowAlertChoice) => {
-    if (choice === current || updateAlerts.isPending) return
+    if (updateAlerts.isPending) return
     updateAlerts.mutate({
       entityType,
       entityId,
@@ -99,35 +110,15 @@ export function FollowAlertsReveal({
   }
 
   return (
-    <div
-      className={cn('flex flex-wrap items-center gap-1 text-xs', className)}
-    >
-      <div
-        role="radiogroup"
-        aria-label={`Alerts for ${entityName}`}
-        className="flex flex-wrap items-center gap-1"
-      >
-        <span className="text-muted-foreground">Alerts:</span>
-        {options.map(option => (
-          <button
-            key={option.value}
-            type="button"
-            role="radio"
-            aria-checked={current === option.value}
-            disabled={updateAlerts.isPending}
-            onClick={() => choose(option.value)}
-            className={cn(
-              'rounded-full border px-2 py-0.5 transition-colors',
-              current === option.value
-                ? 'border-primary text-foreground'
-                : 'border-border text-muted-foreground hover:border-primary/60 hover:text-foreground',
-              updateAlerts.isPending && 'opacity-60'
-            )}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
+    <div className={cn('flex flex-wrap items-center gap-1 text-xs', className)}>
+      <AlertChipRadioGroup
+        ariaLabel={`Alerts for ${entityName}`}
+        label="Alerts:"
+        options={options}
+        value={current}
+        onChange={choose}
+        pending={updateAlerts.isPending}
+      />
 
       {/* Near me is not offered until an area exists, so the way to get one
           has to sit right where it is missing. */}
@@ -143,7 +134,6 @@ export function FollowAlertsReveal({
         label="What these alerts cover"
         copy={isVenue ? VENUE_TOOLTIP : ARTIST_TOOLTIP}
       />
-
 
       {updateAlerts.isError && (
         <span className="text-destructive" role="alert">

@@ -267,7 +267,15 @@ export function useFreshlyAdded(
   })
 }
 
-export function useChartScenes(window: ChartWindow) {
+/**
+ * The scene switcher's metro list.
+ *
+ * `enabled` exists for consumers outside the masthead: the response is
+ * unbounded (every metro ever clearing the show floor) and grows with catalog
+ * coverage, so a caller that only sometimes needs it should say so rather than
+ * fetch a directory to discard it (PSY-1905).
+ */
+export function useChartScenes(window: ChartWindow, enabled = true) {
   return useQuery({
     queryKey: chartQueryKeys.scenes(window),
     queryFn: () =>
@@ -275,6 +283,7 @@ export function useChartScenes(window: ChartWindow) {
         withParams(chartEndpoints.SCENES, { window }),
         { method: 'GET' }
       ),
+    enabled,
   })
 }
 

@@ -4,10 +4,10 @@ import { useState } from 'react'
 import { BracketLink } from './BracketLink'
 import { HomeMetroSelect, useHomeMetroLabel } from './HomeMetroField'
 import { useAlertPreferences } from '@/features/auth/hooks/useAlertPreferences'
-import { FOLLOW_ALERTS_PENDING_NOTE } from './followAlertChoices'
-
-/** The Custom alerts manager, still routed under its original path. */
-const CUSTOM_ALERTS_HREF = '/settings/notification-filters'
+import {
+  CUSTOM_ALERTS_HREF,
+  FOLLOW_ALERTS_PENDING_NOTE,
+} from './followAlertChoices'
 
 /**
  * The Library's alerts context bar (PSY-1905).

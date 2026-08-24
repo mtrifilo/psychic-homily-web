@@ -38,18 +38,10 @@ export {
 export { useWebAuthnSupport } from './useWebAuthnSupport'
 
 export { useSetFavoriteCities } from './useFavoriteCities'
-export {
-  useAlertPreferences,
-  useSetHomeMetro,
-  useSetAlertDefaults,
-} from './useAlertPreferences'
-export type {
-  AlertPreferences,
-  AccountAlertDefaults,
-  AlertChannelDefaults,
-  AlertChannelDefaultsUpdate,
-  AlertDefaultsUpdate,
-} from './useAlertPreferences'
+// `useAlertPreferences` is deliberately NOT re-exported here. Its consumers
+// include `components/shared`, which is reachable from the root layout, and a
+// barrel import from there is exactly the shared-chunk trap PSY-1772 closed.
+// Import it by subpath.
 export { useSetChartDefaults } from './useChartDefaults'
 export type { ChartDefaults } from './useChartDefaults'
 

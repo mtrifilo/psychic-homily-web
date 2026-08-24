@@ -32,7 +32,7 @@ const LIBRARY_FOLLOWING_PAGE_SIZE = 50
  */
 export const followMutationKey = ['follow-entity'] as const
 
-const toSingularFollowType = (entityType: string) =>
+export const toSingularFollowType = (entityType: string) =>
   ({
     artists: 'artist',
     venues: 'venue',

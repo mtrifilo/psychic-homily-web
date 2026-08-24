@@ -47,8 +47,13 @@ export interface AlertDefaultsUpdate {
  * Both writes below return this same shape, so they seed the cache directly
  * rather than invalidating and re-fetching: the server already read the merged
  * state back, and a refetch would only re-derive what the response carries.
+ *
+ * `enabled` is a real parameter rather than an always-on fetch because the
+ * biggest consumer is a control mounted on every artist and venue detail page
+ * that renders nothing for most viewers. Callers that cannot use the answer
+ * should not pay for it.
  */
-export const useAlertPreferences = () => {
+export const useAlertPreferences = (enabled = true) => {
   const { isAuthenticated, user } = useAuthContext()
   const viewerId = isAuthenticated ? user?.id : undefined
 
@@ -58,10 +63,34 @@ export const useAlertPreferences = () => {
       apiRequest<AlertPreferences>(API_ENDPOINTS.AUTH.ALERT_PREFERENCES, {
         method: 'GET',
       }),
-    enabled: isAuthenticated && viewerId !== undefined,
+    enabled: enabled && isAuthenticated && viewerId !== undefined,
     staleTime: 5 * 60 * 1000,
   })
 }
+
+/**
+ * What both account-level writes do with their response.
+ *
+ * Seed the cache from the merged state the server read back, then stale every
+ * follow's resolved subscription: the account matrix is the layer an
+ * un-overridden follow inherits from, and a follow's near-me scope resolves
+ * against the home area, so changing either changes what those follows mean.
+ */
+const seedAndStaleFollows =
+  (queryClient: ReturnType<typeof useQueryClient>, userId?: string | number) =>
+  (preferences: AlertPreferences) => {
+    queryClient.setQueryData(
+      queryKeys.auth.alertPreferences(userId),
+      preferences
+    )
+    queryClient.invalidateQueries({
+      predicate: query =>
+        query.queryKey[0] === 'follows' && query.queryKey[1] === 'alerts',
+    })
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.follows.libraryFollowingRoot(userId),
+    })
+  }
 
 /**
  * Replace the home area. `null` clears it, which is the state that makes an
@@ -78,22 +107,7 @@ export const useSetHomeMetro = () => {
         method: 'PUT',
         body: JSON.stringify({ metro }),
       }),
-    onSuccess: preferences => {
-      queryClient.setQueryData(
-        queryKeys.auth.alertPreferences(user?.id),
-        preferences
-      )
-      // Every follow's resolved scope depends on whether a home area exists,
-      // so the per-follow subscriptions the server resolved before this write
-      // are stale the moment it lands.
-      queryClient.invalidateQueries({
-        predicate: query =>
-          query.queryKey[0] === 'follows' && query.queryKey[1] === 'alerts',
-      })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.follows.libraryFollowingRoot(user?.id),
-      })
-    },
+    onSuccess: seedAndStaleFollows(queryClient, user?.id),
   })
 }
 
@@ -108,20 +122,6 @@ export const useSetAlertDefaults = () => {
         method: 'PATCH',
         body: JSON.stringify(update),
       }),
-    onSuccess: preferences => {
-      queryClient.setQueryData(
-        queryKeys.auth.alertPreferences(user?.id),
-        preferences
-      )
-      // The matrix is the layer every un-overridden follow inherits from, so
-      // editing it changes what those follows resolve to.
-      queryClient.invalidateQueries({
-        predicate: query =>
-          query.queryKey[0] === 'follows' && query.queryKey[1] === 'alerts',
-      })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.follows.libraryFollowingRoot(user?.id),
-      })
-    },
+    onSuccess: seedAndStaleFollows(queryClient, user?.id),
   })
 }

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   followAlertChoice,
   followAlertOptions,
-  followAlertSummary,
+  followAlertSummaryFor,
   followAlertUpdateFor,
   isAlertCapableFollowType,
 } from './followAlertChoices'
@@ -144,31 +144,53 @@ describe('followAlertUpdateFor', () => {
   })
 })
 
-describe('followAlertSummary', () => {
+describe('followAlertSummaryFor', () => {
   it('renders the lower-case bracket text for each choice', () => {
-    expect(
-      followAlertSummary(settings({ scope: 'near_me' }), {
-        entityType: 'artists',
-        hasHomeMetro: true,
-      })
-    ).toBe('near me')
-    expect(
-      followAlertSummary(settings({ enabled: false }), {
-        entityType: 'artists',
-        hasHomeMetro: true,
-      })
-    ).toBe('off')
-    expect(
-      followAlertSummary(settings({ enabled: true }), {
-        entityType: 'venues',
-        hasHomeMetro: true,
-      })
-    ).toBe('on')
+    const artistOptions = followAlertOptions({
+      entityType: 'artists',
+      hasHomeMetro: true,
+    })
+    expect(followAlertSummaryFor(artistOptions, 'near_me')).toBe('near me')
+    expect(followAlertSummaryFor(artistOptions, 'everywhere')).toBe(
+      'everywhere'
+    )
+    expect(followAlertSummaryFor(artistOptions, 'off')).toBe('off')
+
+    const venueOptions = followAlertOptions({
+      entityType: 'venues',
+      hasHomeMetro: true,
+    })
+    expect(followAlertSummaryFor(venueOptions, 'on')).toBe('on')
   })
 
-  it('is undefined with no subscription to summarize', () => {
-    expect(
-      followAlertSummary(undefined, { entityType: 'artists', hasHomeMetro: true })
-    ).toBeUndefined()
+  // The summary is looked up in the SAME option list the chips render from, so
+  // a choice the current context does not offer has no text. That pairing is
+  // what keeps the bracket and the menu from ever disagreeing.
+  it('is undefined for a choice this context does not offer', () => {
+    const noAreaOptions = followAlertOptions({
+      entityType: 'artists',
+      hasHomeMetro: false,
+    })
+    expect(followAlertSummaryFor(noAreaOptions, 'near_me')).toBeUndefined()
+  })
+
+  // Every choice followAlertChoice can return for a context must be nameable
+  // in that same context, or a row would render a bracket with no text.
+  it('names every choice the matching context can resolve to', () => {
+    for (const entityType of ['artists', 'venues']) {
+      for (const hasHomeMetro of [true, false]) {
+        const context = { entityType, hasHomeMetro }
+        const options = followAlertOptions(context)
+        for (const shows of [
+          { enabled: false },
+          { enabled: true, scope: 'near_me' as const },
+          { enabled: true, scope: 'everywhere' as const },
+          { enabled: true },
+        ]) {
+          const choice = followAlertChoice(settings(shows), context)!
+          expect(followAlertSummaryFor(options, choice)).toBeDefined()
+        }
+      }
+    }
   })
 })

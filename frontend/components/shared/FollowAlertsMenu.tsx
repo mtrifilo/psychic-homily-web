@@ -11,9 +11,8 @@ import { useUpdateFollowAlerts } from '@/lib/hooks/common/useFollowAlerts'
 import {
   followAlertChoice,
   followAlertOptions,
-  followAlertSummary,
+  followAlertSummaryFor,
   followAlertUpdateFor,
-  isAlertCapableFollowType,
 } from './followAlertChoices'
 import type { FollowAlertSettings } from '@/lib/types/follow'
 import { cn } from '@/lib/utils'
@@ -53,14 +52,17 @@ export function FollowAlertsMenu({
 }: FollowAlertsMenuProps) {
   const updateAlerts = useUpdateFollowAlerts()
 
-  const summary = followAlertSummary(alerts, { entityType, hasHomeMetro })
   const current = followAlertChoice(alerts, { entityType, hasHomeMetro })
 
-  // A follow type with no alert subscription renders no bracket at all, rather
-  // than a disabled one implying it could be switched on.
-  if (!isAlertCapableFollowType(entityType) || !summary || !current) return null
+  // The SERVER decides which follow types carry a subscription, and it says so
+  // per row by populating `alerts` or leaving it out. Reading that beats
+  // re-asserting a hardcoded list the backend would have to be kept in step
+  // with by hand. A row without one renders no bracket at all, rather than a
+  // disabled one implying it could be switched on.
+  if (!current) return null
 
   const options = followAlertOptions({ entityType, hasHomeMetro })
+  const summary = followAlertSummaryFor(options, current)
 
   return (
     <DropdownMenu>

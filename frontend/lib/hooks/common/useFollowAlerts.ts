@@ -1,12 +1,19 @@
 'use client'
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type InfiniteData,
+} from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { toSingularFollowType } from './useFollow'
 import type {
   FollowAlertSettings,
   FollowAlertUpdate,
+  LibraryFollowingPage,
 } from '@/lib/types/follow'
 
 /**
@@ -37,11 +44,15 @@ export const useFollowAlerts = (
         { method: 'GET' }
       ),
     enabled: enabled && isAuthenticated && viewerId !== undefined,
-    // The endpoint is no-store: it is per-user state a control flips
-    // optimistically, and a stale read would show a chip the server disagrees
-    // with. Retry stays off because the expected failure is a 404 meaning
-    // "not following", which retrying cannot turn into a success.
-    staleTime: 0,
+    // Matches the sibling follow-status query. A shorter window buys nothing:
+    // every path that can change this value already reaches the cache without
+    // a refetch (the PATCH seeds it, follow/unfollow invalidate it, and both
+    // account-level writes stale the whole branch), so `staleTime: 0` would
+    // only mean re-fetching on every remount and back-navigation.
+    //
+    // Retry stays off because the expected failure is a 404 meaning "not
+    // following", which retrying cannot turn into a success.
+    staleTime: 2 * 60 * 1000,
     retry: false,
   })
 }
@@ -99,11 +110,31 @@ export const useUpdateFollowAlerts = () => {
         queryKeys.follows.alerts(entityType, entityId, user?.id),
         settings
       )
+
       // Library rows carry their own copy of this subscription, served with
-      // the row so the per-row control renders without a request per row.
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.follows.libraryFollowingRoot(user?.id),
-      })
+      // the row so the list needs no request per row. Patch that copy in place
+      // rather than invalidating the list: the Library query is INFINITE, and
+      // invalidating it refetches every loaded page in sequence, so flipping
+      // one chip on a list the user has paged through three times would cost
+      // three full 50-row round trips to change one field on one row. The
+      // response is the full resolved subscription, so there is nothing to
+      // re-derive from the server anyway.
+      const singularType = toSingularFollowType(entityType)
+      queryClient.setQueryData<InfiniteData<LibraryFollowingPage>>(
+        queryKeys.follows.libraryFollowing(singularType, user?.id),
+        current =>
+          current && {
+            ...current,
+            pages: current.pages.map(page => ({
+              ...page,
+              following: page.following.map(row =>
+                row.entity_type === singularType && row.entity_id === entityId
+                  ? { ...row, alerts: settings }
+                  : row
+              ),
+            })),
+          }
+      )
     },
   })
 }

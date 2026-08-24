@@ -3,7 +3,7 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { FollowAlertsReveal } from './FollowAlertsReveal'
-import type { FollowAlertSettings } from '@/lib/types/follow'
+import type { FollowAlertScope, FollowAlertSettings } from '@/lib/types/follow'
 
 // The post-follow scope reveal of the merged Follow control (PSY-1905).
 
@@ -50,7 +50,7 @@ vi.mock('@/features/auth/hooks/useAlertPreferences', () => ({
 }))
 
 const artistAlerts = (
-  scope: string | undefined = 'near_me',
+  scope: FollowAlertScope | undefined = 'near_me',
   enabled = true
 ): FollowAlertSettings => ({
   entity_type: 'artist',

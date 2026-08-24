@@ -27,7 +27,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { BracketLink, ReleaseSaveButton } from '@/components/shared'
 import { FollowAlertsMenu } from '@/components/shared/FollowAlertsMenu'
 import { LibraryAlertsBar } from '@/components/shared/LibraryAlertsBar'
-import { isAlertCapableFollowType } from '@/components/shared/followAlertChoices'
 import { useAlertPreferences } from '@/features/auth/hooks/useAlertPreferences'
 import { CalendarFeedSection } from '@/features/collections'
 import {
@@ -740,15 +739,15 @@ function FollowingList({
     isFetchingNextPage,
     isFetchNextPageError,
   } = useLibraryFollowing(type)
-  const { data: alertPreferences } = useAlertPreferences()
-  const hasHomeMetro = Boolean(alertPreferences?.home_metro)
-  // Only the tabs whose follows carry an alert subscription get the context
-  // bar. On a Labels or Tags tab it would explain a control that is not there.
-  const showsAlerts = isAlertCapableFollowType(
-    entityTypeInfo[type]?.plural ?? ''
-  )
-
   const following = data?.pages.flatMap(page => page.following) ?? []
+
+  // The server says which follows carry an alert subscription by serving the
+  // row's resolved `alerts` (PSY-1893), so the tab reads that rather than
+  // re-asserting a list of types. On a Labels or Tags tab the context bar
+  // would explain a control that is not there.
+  const showsAlerts = following.some(entity => entity.alerts)
+  const { data: alertPreferences } = useAlertPreferences(showsAlerts)
+  const hasHomeMetro = Boolean(alertPreferences?.home_metro)
 
   if (isLoading && !data) {
     return (

@@ -29,37 +29,44 @@ export type FollowAlertChoice = 'near_me' | 'everywhere' | 'off' | 'on'
 export const FOLLOW_ALERTS_PENDING_NOTE =
   'New-show alerts are still being switched on. This sets what they will cover once they are.'
 
+/**
+ * Where a viewer with no home area goes to set one.
+ *
+ * The anchor and the href live together because they are one fact. Split
+ * across the linking component and the linked card, renaming the anchor
+ * degrades the link to a silent scroll-to-top that no test would catch.
+ */
+export const ALERTS_AREA_ANCHOR = 'alerts-area'
+export const ALERTS_AREA_HREF = `/profile?tab=settings#${ALERTS_AREA_ANCHOR}`
+
+/** The Custom alerts manager, still routed under its original path. */
+export const CUSTOM_ALERTS_HREF = '/settings/notification-filters'
+
 export interface FollowAlertOption {
   value: FollowAlertChoice
   /** Chip label on the entity page. */
   label: string
-  /** Lower-case form for the Library row's `[ alerts: … ]` bracket. */
-  summary: string
 }
 
-const NEAR_ME: FollowAlertOption = {
-  value: 'near_me',
-  label: 'Near me',
-  summary: 'near me',
-}
+const NEAR_ME: FollowAlertOption = { value: 'near_me', label: 'Near me' }
 const EVERYWHERE: FollowAlertOption = {
   value: 'everywhere',
   label: 'Everywhere',
-  summary: 'everywhere',
 }
-const ON: FollowAlertOption = { value: 'on', label: 'On', summary: 'on' }
-const OFF: FollowAlertOption = { value: 'off', label: 'Off', summary: 'off' }
+const ON: FollowAlertOption = { value: 'on', label: 'On' }
+const OFF: FollowAlertOption = { value: 'off', label: 'Off' }
 
-/** Entity types whose follow carries an alert subscription, PLURAL as routed. */
-export const ALERT_CAPABLE_FOLLOW_TYPES = ['artists', 'venues'] as const
-
-export type AlertCapableFollowType =
-  (typeof ALERT_CAPABLE_FOLLOW_TYPES)[number]
-
-export const isAlertCapableFollowType = (
-  entityType: string
-): entityType is AlertCapableFollowType =>
-  (ALERT_CAPABLE_FOLLOW_TYPES as readonly string[]).includes(entityType)
+/**
+ * Whether a follow type carries an alert subscription at all, PLURAL as routed.
+ *
+ * The server is the authority here: its alert endpoints 422 for every other
+ * follow type, and it signals capability per row by populating (or omitting)
+ * `alerts`. Prefer that signal where a payload is in hand. This predicate is
+ * for the ONE case with no payload to read: an entity page deciding whether to
+ * ask in the first place.
+ */
+export const isAlertCapableFollowType = (entityType: string): boolean =>
+  entityType === 'artists' || entityType === 'venues'
 
 /**
  * The choices offered for one follow.
@@ -116,13 +123,15 @@ export const followAlertUpdateFor = (
   }
 }
 
-/** The `[ alerts: … ]` bracket text for a Library row. */
-export const followAlertSummary = (
-  settings: Pick<FollowAlertSettings, 'shows'> | undefined,
-  context: { entityType: string; hasHomeMetro: boolean }
-): string | undefined => {
-  const choice = followAlertChoice(settings, context)
-  if (!choice) return undefined
-  return [NEAR_ME, EVERYWHERE, ON, OFF].find(option => option.value === choice)
-    ?.summary
-}
+/**
+ * The `[ alerts: … ]` bracket text for a Library row.
+ *
+ * Derived from the chip label rather than stored beside it: a second string
+ * per option is a second thing to keep in step for no gain, since the bracket
+ * form has always been the label in lower case.
+ */
+export const followAlertSummaryFor = (
+  options: FollowAlertOption[],
+  choice: FollowAlertChoice
+): string | undefined =>
+  options.find(option => option.value === choice)?.label.toLowerCase()

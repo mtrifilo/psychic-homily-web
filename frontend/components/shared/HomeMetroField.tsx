@@ -39,7 +39,10 @@ const NO_METRO = '__none__'
  * it would hide that.
  */
 export function useHomeMetroLabel(metro: string | null | undefined) {
-  const { data } = useChartScenes(HOME_METRO_WINDOW)
+  // Gated: with no area set there is no code to resolve, and the directory is
+  // unbounded (every metro that has ever had five approved shows), so fetching
+  // it to answer "null" is the one request most Library viewers would pay.
+  const { data } = useChartScenes(HOME_METRO_WINDOW, Boolean(metro))
   return useMemo(() => {
     if (!metro) return null
     return data?.scenes.find(scene => scene.metro === metro)?.name ?? metro
@@ -73,10 +76,17 @@ export function HomeMetroSelect({
 
   const scenes = data?.scenes ?? []
 
-  // The list is derived from metros we actually track shows in, so it CAN come
-  // back empty (a brand-new index, or an outage). Say so rather than rendering
-  // a select whose only row is "no home area", which reads as a broken control.
-  if (!isLoading && scenes.length === 0) {
+  // The offered list is NARROWER than what the server accepts: it is metros
+  // with past shows above a floor, while the backend validates against the
+  // whole CBSA dataset. So a legitimately stored area can be missing from it,
+  // and without this row the Select would fall back to its placeholder and
+  // show a SET area as unset, inviting the user to overwrite it by accident.
+  const storedIsListed = !metro || scenes.some(scene => scene.metro === metro)
+
+  // The list can also come back empty (a brand-new index, or an outage). Say
+  // so rather than rendering a select whose only row is "no home area", which
+  // reads as a broken control.
+  if (!isLoading && scenes.length === 0 && storedIsListed) {
     return (
       <p className={cn('text-sm text-muted-foreground', className)}>
         No metros are available to choose from yet. An area can be set once the
@@ -105,6 +115,9 @@ export function HomeMetroSelect({
         </SelectTrigger>
         <SelectContent>
           <SelectItem value={NO_METRO}>No home area</SelectItem>
+          {!storedIsListed && metro && (
+            <SelectItem value={metro}>{metro}</SelectItem>
+          )}
           {scenes.map(scene => (
             <SelectItem key={scene.metro} value={scene.metro}>
               {scene.name}
