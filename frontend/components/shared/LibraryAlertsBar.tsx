@@ -46,9 +46,12 @@ export function LibraryAlertsBar({ entityType }: LibraryAlertsBarProps) {
   // alerts alike, so the pause is exactly as real on the Venues tab. Gating
   // the read on the scope axis meant a Venues tab could show a column of
   // paused brackets under a bar that never mentioned it, while the Artists tab
-  // one click away explained it and offered the way out. The query is shared
-  // with the entity pages and the settings card and has a five-minute
-  // staleTime, so this is a cache hit rather than a request.
+  // one click away explained it and offered the way out.
+  //
+  // It costs one request per five minutes per session, shared with the entity
+  // pages and the settings card, and only on the tabs whose follows carry a
+  // subscription at all. On the Venues tab this bar is the only observer: the
+  // page's own `useHomeMetroState` is deliberately disabled there.
   const {
     data: preferences,
     isError,
@@ -95,13 +98,18 @@ export function LibraryAlertsBar({ entityType }: LibraryAlertsBarProps) {
             promise, directly above a column of brackets saying paused. */}
         {newFollowsPaused ? (
           <>
+            {/* Same lead-in as the sentence it replaces, because it answers
+                the same question. An unqualified "New-show alerts: paused"
+                would assert a state over every row, and a follow carrying a
+                per-follow channel override still delivers; this half is only
+                ever about what a NEW follow inherits. */}
             <span className="text-muted-foreground">
-              New-show alerts:{' '}
+              New follows start at:{' '}
               <span className="text-foreground">{ALERTS_PAUSED_SUMMARY}</span>
             </span>
             <BracketLink
               label="turn a channel on"
-              ariaLabel="New-show alerts are paused. Turn a channel on in alert settings."
+              ariaLabel="New follows start paused. Turn a channel on in alert settings."
               href={ALERTS_HREF}
               className="font-mono text-[11px]"
             />
@@ -154,12 +162,14 @@ export function LibraryAlertsBar({ entityType }: LibraryAlertsBarProps) {
         )}
 
         {/* FAILED is not PENDING, the rule the entity-page twin states and
-            obeys. Without this the tab degrades silently on a failed read: the
-            bar loses its area half AND every row's bracket disappears, because
-            an unknown home area makes each menu render null. No message, no
-            retry, and a user reasonably concludes their follows carry no alert
-            subscription at all. Two controls over one field must not disagree
-            about whether a failure is worth mentioning. */}
+            obeys. On a scoped tab the degradation is severe: the bar loses its
+            area half AND every row's bracket disappears, because an unknown
+            home area makes each menu render null, so a user reasonably
+            concludes their follows carry no alert subscription at all. On the
+            Venues tab the rows survive (their option list needs no area), but
+            whether those alerts are paused is now unknown, which is its own
+            thing worth saying. Either way, two controls over one field must
+            not disagree about whether a failure is worth mentioning. */}
         {readFailed && (
           <>
             <span className="text-muted-foreground" role="alert">

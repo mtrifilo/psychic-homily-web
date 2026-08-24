@@ -263,7 +263,7 @@ export const ALERTS_PAUSED_SUMMARY = 'paused'
  * it could do would help. Naming where the account-wide channels live is a
  * true statement either way.
  */
-const ALERTS_PAUSED_LEAD = 'New-show alerts are paused.'
+export const ALERTS_PAUSED_LEAD = 'New-show alerts are paused.'
 
 /**
  * "Lifts the pause", NOT "resumes them".
@@ -288,6 +288,16 @@ const ALERTS_PAUSED_SCOPE_KEPT =
   'The scope for this follow is saved, so it is still what it was.'
 
 /**
+ * The clause the active tooltip carries and the paused one must not lose.
+ *
+ * The chips are still on screen under a pause, so they can still be misread as
+ * governing releases, and the pause copy replaces the tooltip that said
+ * otherwise. Paired with the release-delivery disclosure, which is a separate
+ * fact about a separate axis.
+ */
+const ALERTS_PAUSED_RELEASES_UNAFFECTED = `New releases are never geography-scoped, so none of this affects them. ${RELEASE_ALERTS_PENDING_NOTE}`
+
+/**
  * Why a follow reads paused, what lifts it, and anything else still true of
  * that follow type's alerts.
  *
@@ -300,15 +310,17 @@ const ALERTS_PAUSED_SCOPE_KEPT =
  * only that a channel lifts the pause would reasonably expect alerts after
  * that, and venue delivery does not exist yet.
  *
- * The artist tooltip's RELEASE disclosure deliberately does NOT ride along.
- * It is there because the scope chips could be misread as governing releases,
- * and the pause makes no claim about releases at all, so there is nothing here
- * for it to correct. What travels is the disclosure about THIS axis.
+ * So does the RELEASE disclosure, for scope-axis types. This copy REPLACES
+ * the tooltip that carried it, and the scope chips it explains are still on
+ * screen under the pause, so the misreading that disclosure exists to prevent
+ * (that the chips govern releases too) is live in exactly the state that would
+ * have dropped it.
  */
-export const followAlertsPausedDetail = (entityType: string): string =>
+const followAlertsPausedDetail = (entityType: string): string =>
   [
     ALERTS_PAUSED_EFFECT,
     followAlertHasScopeAxis(entityType) ? ALERTS_PAUSED_SCOPE_KEPT : null,
+    followAlertHasScopeAxis(entityType) ? ALERTS_PAUSED_RELEASES_UNAFFECTED : null,
     followAlertPendingNote(entityType),
   ]
     .filter(Boolean)

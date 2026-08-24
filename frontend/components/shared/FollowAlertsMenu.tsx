@@ -14,6 +14,7 @@ import { useUpdateFollowAlerts } from '@/lib/hooks/common/useFollowAlerts'
 import {
   ALERTS_HREF,
   ALERTS_PAUSED_CHOICE_LABEL,
+  ALERTS_PAUSED_LEAD,
   ALERTS_PAUSED_SUMMARY,
   followAlertChoice,
   followAlertHasScopeAxis,
@@ -121,9 +122,13 @@ export function FollowAlertsMenu({
             // follower at a Settings row that will never fire for them is the
             // same cross-surface disagreement this control exists to end, and
             // `FollowAlertsReveal` already forks its tooltip this way.
+            // Short while paused, deliberately. `BracketLink` sets an explicit
+            // aria-label, so `title` becomes the accessible DESCRIPTION, which
+            // is announced on every row a screen reader lands on. The full
+            // note is one node down, inside the menu.
             title={
               paused
-                ? followAlertsPausedNote(entityType)
+                ? ALERTS_PAUSED_LEAD
                 : hasReleaseAxis
                   ? `New-show alerts for ${entityName}. Release alerts are set in Settings.`
                   : `New-show alerts for ${entityName}.`

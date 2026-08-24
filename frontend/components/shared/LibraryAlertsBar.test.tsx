@@ -170,6 +170,19 @@ describe('LibraryAlertsBar', () => {
 
       expect(screen.queryByRole('alert')).toBeNull()
     })
+
+    // Newly reachable: this tab did not read the query at all until the pause
+    // needed it. Its rows are unaffected (a venue's options need no home
+    // area), but whether they are paused is genuinely unknown, which is worth
+    // saying rather than leaving the bar to look merely empty.
+    it('reports the failure on a venues tab, which now reads the matrix too', () => {
+      renderWithProviders(<LibraryAlertsBar entityType="venues" />)
+
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        "Couldn't load your alert settings"
+      )
+      expect(screen.queryByText(/Your area/)).toBeNull()
+    })
   })
 
   // A new follow inherits the ACCOUNT channels, so that is what decides this
@@ -186,12 +199,15 @@ describe('LibraryAlertsBar', () => {
       }
     }
 
-    it('reports the pause instead of the starting scope', () => {
+    // Same lead-in, because it answers the same question. What changes is the
+    // answer: a new follow starts paused, not scoped and delivering.
+    it('answers the starting-state question with the pause', () => {
       noChannels()
       renderWithProviders(<LibraryAlertsBar entityType="artists" />)
 
+      expect(screen.getByText(/New follows start at/)).toBeInTheDocument()
       expect(screen.getByText('paused')).toBeInTheDocument()
-      expect(screen.queryByText(/New follows start at/)).toBeNull()
+      expect(screen.queryByText('Near me')).toBeNull()
     })
 
     it('offers the way out once, rather than on every row', () => {
@@ -227,7 +243,7 @@ describe('LibraryAlertsBar', () => {
       }
       renderWithProviders(<LibraryAlertsBar entityType="artists" />)
 
-      expect(screen.getByText(/New follows start at/)).toBeInTheDocument()
+      expect(screen.getByText('Near me')).toBeInTheDocument()
       expect(screen.queryByText('paused')).toBeNull()
     })
 
@@ -243,7 +259,7 @@ describe('LibraryAlertsBar', () => {
       expect(
         screen.getByRole('link', { name: /paused.*alert settings/i })
       ).toBeInTheDocument()
-      expect(screen.queryByText(/New follows start at/)).toBeNull()
+      expect(screen.queryByText(/Your area/)).toBeNull()
       expect(screen.getByText(/still being switched on/i)).toBeInTheDocument()
     })
 

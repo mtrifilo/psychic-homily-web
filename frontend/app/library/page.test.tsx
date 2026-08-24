@@ -655,8 +655,8 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       expect(
         screen.getByRole('button', { name: 'Show alerts for Alpha: paused' })
       ).toBeTruthy()
-      expect(screen.queryByText(/New follows start at/)).toBeNull()
       expect(screen.getByText('paused')).toBeInTheDocument()
+      expect(screen.queryByText('Near me')).toBeNull()
     })
 
     // A follow the user switched off is not paused, and it must not drag the
@@ -708,7 +708,7 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       renderWithProviders(<LibraryPage />)
 
       expect(screen.getByText('paused')).toBeInTheDocument()
-      expect(screen.queryByText(/New follows start at/)).toBeNull()
+      expect(screen.queryByText('Near me')).toBeNull()
     })
 
     it('writes the chosen scope through the follow-alerts mutation', async () => {

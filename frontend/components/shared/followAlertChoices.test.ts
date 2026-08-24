@@ -8,6 +8,7 @@ import {
   followAlertSummaryFor,
   followAlertUpdateFor,
   isAlertCapableFollowType,
+  RELEASE_ALERTS_PENDING_NOTE,
   VENUE_ALERTS_PENDING_NOTE,
 } from './followAlertChoices'
 import type { FollowAlertSettings } from '@/lib/types/follow'
@@ -397,9 +398,8 @@ describe('followAlertsPausedNote', () => {
     }
   })
 
-  // Pausing hides the control that used to carry the pending disclosure, and
-  // "they resume when you switch a channel back on" is a promise venue
-  // delivery cannot keep yet.
+  // This copy REPLACES the tooltip that carried the disclosures, so anything
+  // that tooltip said and the pause does not retract has to travel with it.
   it('keeps the pending-delivery disclosure a paused surface would otherwise drop', () => {
     expect(followAlertsPausedNote('venues')).toContain(
       VENUE_ALERTS_PENDING_NOTE
@@ -407,6 +407,21 @@ describe('followAlertsPausedNote', () => {
     expect(followAlertsPausedNote('artists')).not.toContain(
       VENUE_ALERTS_PENDING_NOTE
     )
+  })
+
+  // The scope chips stay on screen under the pause, so they can still be
+  // misread as governing releases, which is the exact misreading the active
+  // tooltip's release clause exists to prevent.
+  it('keeps the release disclosure for the type whose chips imply a scope', () => {
+    const note = followAlertsPausedNote('artists')
+    expect(note).toContain('never geography-scoped')
+    expect(note).toContain(RELEASE_ALERTS_PENDING_NOTE)
+  })
+
+  // A venue follow has no release axis at all: the server omits `releases`
+  // from its settings and 422s a PATCH that sends one.
+  it('says nothing about releases to a venue, which has no release axis', () => {
+    expect(followAlertsPausedNote('venues')).not.toContain('geography-scoped')
   })
 })
 

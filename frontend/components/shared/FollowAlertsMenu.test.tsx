@@ -245,6 +245,45 @@ describe('FollowAlertsMenu', () => {
       expect(
         screen.getByRole('menuitem', { name: 'Turn a channel on' })
       ).toHaveAttribute('href', '/profile?tab=settings#alerts')
+
+      // The options stop claiming to be delivering and say what the setting
+      // is while it waits. This relabel is the whole reason keeping the
+      // control mounted stays honest.
+      expect(screen.getByText('While paused:')).toBeInTheDocument()
+      expect(screen.queryByText('New shows')).toBeNull()
+    })
+
+    // The bug this shape exists to prevent, measured. Choosing an ON option on
+    // a switched-off row flips that row INTO paused; when that swapped the
+    // trigger for a link, Radix restored focus to a node that no longer
+    // existed and the next Tab restarted at the top of the list.
+    it('keeps focus on the trigger when a write flips the row into paused', async () => {
+      const offAlerts: FollowAlertSettings = {
+        entity_type: 'artist',
+        entity_id: 1,
+        shows: { enabled: false, in_app: false, email: false },
+      }
+      const { rerender } = renderMenu({ alerts: offAlerts })
+
+      const trigger = screen.getByRole('button', {
+        name: /Show alerts for Alpha: off/i,
+      })
+      trigger.focus()
+      expect(document.activeElement).toBe(trigger)
+
+      rerender(
+        <FollowAlertsMenu
+          entityType="artists"
+          entityId={1}
+          entityName="Alpha"
+          alerts={pausedAlerts()}
+          hasHomeMetro
+        />
+      )
+
+      expect(screen.getByText('alerts: paused')).toBeInTheDocument()
+      expect(document.activeElement).toBe(trigger)
+      expect(document.activeElement).not.toBe(document.body)
     })
 
     // A name, not a description: 50 rows announcing the same paragraph makes
@@ -261,7 +300,7 @@ describe('FollowAlertsMenu', () => {
     // A venue has no scope axis, so promising its scope back would invent a
     // setting that follow never had. It does still have a delivery
     // disclosure, and pausing must not be how that disclosure disappears.
-    it('tailors the explanation to a venue, scope promise and all', () => {
+    it('tailors the explanation to a venue, scope promise and all', async () => {
       renderMenu({
         entityType: 'venues',
         alerts: {
@@ -271,15 +310,11 @@ describe('FollowAlertsMenu', () => {
         },
       })
 
-      const trigger = screen.getByRole('button', { name: /paused/i })
-      expect(trigger).toHaveAttribute(
-        'title',
-        expect.not.stringContaining('scope for this follow')
-      )
-      expect(trigger).toHaveAttribute(
-        'title',
-        expect.stringContaining('still being switched on')
-      )
+      await userEvent.click(screen.getByRole('button', { name: /paused/i }))
+
+      expect(screen.getByText(/still being switched on/i)).toBeInTheDocument()
+      expect(screen.queryByText(/scope for this follow/i)).toBeNull()
+      expect(screen.queryByText(/geography-scoped/i)).toBeNull()
     })
 
     // OFF is a choice made on this follow and keeps its menu; only the
