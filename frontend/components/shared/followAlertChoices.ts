@@ -19,23 +19,33 @@ import type {
 export type FollowAlertChoice = 'near_me' | 'everywhere' | 'off' | 'on'
 
 /**
- * Capability-truth note, shared by every surface that offers this axis.
+ * Capability truth, per alert type, because they no longer share a state.
  *
- * The subscription is real and stored, but the delivery that acts on it is a
- * separate, unshipped piece of work. Controls may say what alerts WILL cover;
- * none of them may imply mail or feed entries are already flowing from it.
- * Delete this constant, and its call sites, when delivery ships.
+ * ARTIST show alerts DELIVER as of PSY-1896: the matcher runs inside
+ * MatchAndNotify and sends both the in-app row and the email. Nothing here may
+ * still call those "coming soon".
+ *
+ * Venue show alerts and release alerts have a stored, resolved subscription and
+ * no delivery behind it: there is no venue-follow notifier and no release
+ * notifier. Their controls may say what the alerts WILL cover; they may not
+ * imply anything is already flowing. Delete each note as its delivery lands.
  */
-export const FOLLOW_ALERTS_PENDING_NOTE =
-  'Alerts from the artists and venues you follow, for both new shows and new releases, are still being switched on. These settings decide what they will cover once they are.'
+export const VENUE_ALERTS_PENDING_NOTE =
+  'Alerts for shows a venue you follow adds are still being switched on. This setting decides what they will cover once they are.'
+
+export const RELEASE_ALERTS_PENDING_NOTE =
+  'Release alerts are still being switched on. These settings decide where they will reach you once they are.'
 
 /**
- * Where a viewer with no home area goes to set one.
+ * Where a viewer with no home area goes to set one, and where an alert email's
+ * "manage" link lands.
  *
- * The anchor and the href live together because they are one fact. Split
- * across the linking component and the linked card, renaming the anchor
+ * The anchors and the hrefs live together because they are one fact. Split
+ * across the linking component and the linked card, renaming an anchor
  * degrades the link to a silent scroll-to-top that no test would catch.
  */
+export const ALERTS_ANCHOR = 'alerts'
+export const ALERTS_HREF = `/profile?tab=settings#${ALERTS_ANCHOR}`
 export const ALERTS_AREA_ANCHOR = 'alerts-area'
 export const ALERTS_AREA_HREF = `/profile?tab=settings#${ALERTS_AREA_ANCHOR}`
 
@@ -76,6 +86,18 @@ export const isAlertCapableFollowType = (entityType: string): boolean =>
  */
 export const followAlertHasScopeAxis = (entityType: string): boolean =>
   entityType !== 'venues'
+
+/**
+ * The pending-delivery disclosure for one follow type, or null when that
+ * type's alerts genuinely deliver today.
+ *
+ * Keyed off the scope axis because the split happens to coincide: the type
+ * that tours is the one PSY-1896 shipped delivery for. Kept as its own
+ * function so that when venue delivery lands, this returns null and no caller
+ * changes.
+ */
+export const followAlertPendingNote = (entityType: string): string | null =>
+  followAlertHasScopeAxis(entityType) ? null : VENUE_ALERTS_PENDING_NOTE
 
 /**
  * Whether the viewer has a home area, or `undefined` while that is still

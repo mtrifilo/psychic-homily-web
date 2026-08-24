@@ -13,9 +13,11 @@ import {
 import { Checkbox } from '@/components/ui/checkbox'
 import { HomeMetroSelect } from '@/components/shared/HomeMetroField'
 import {
+  ALERTS_ANCHOR,
   ALERTS_AREA_ANCHOR,
   CUSTOM_ALERTS_HREF,
-  FOLLOW_ALERTS_PENDING_NOTE,
+  RELEASE_ALERTS_PENDING_NOTE,
+  VENUE_ALERTS_PENDING_NOTE,
 } from '@/components/shared/followAlertChoices'
 import { useProfile } from '@/features/auth/hooks/useAuth'
 import { useSetShowReminders } from '@/features/shows'
@@ -135,10 +137,16 @@ function ChannelCellView({
   )
 }
 
-/** The Alerts card shell, shared by the matrix and its unavailable states. */
+/**
+ * The Alerts card shell, shared by the matrix and its unavailable states.
+ *
+ * Carries `#alerts` because PSY-1896's artist show-alert email links its
+ * "manage" CTA at this card, and that link has to land on the matrix in every
+ * state, including the degraded ones.
+ */
 function AlertsCard({ children }: { children: ReactNode }) {
   return (
-    <Card>
+    <Card id={ALERTS_ANCHOR} className="scroll-mt-24">
       <CardHeader>
         <CardTitle className="text-base">Alerts</CardTitle>
         <CardDescription>
@@ -222,8 +230,12 @@ export function AlertSettings() {
     {
       id: 'shows',
       title: 'An artist or venue you follow announces a show',
+      // One row because the account matrix has ONE `shows` key covering both,
+      // which is also what PSY-1896's unsubscribe writes. Their DELIVERY
+      // differs today, and saying so is the honest way to render one control
+      // over two half-shipped things.
       description:
-        'Which shows count for an artist is that follow’s own scope, near me or everywhere. A venue sits in one place, so its alerts have no scope.',
+        'Which shows count for an artist is that follow’s own scope, near me or everywhere. A venue sits in one place, so its alerts have no scope. Artist alerts are live; venue alerts are still being switched on.',
       inApp: matrixToggle(
         matrix => matrix.shows.in_app,
         next => setAlertDefaults.mutate({ shows: { in_app: next } })
@@ -384,12 +396,12 @@ export function AlertSettings() {
 
           <div className="mt-4 space-y-1 border-t border-border pt-3.5">
             <p className="text-xs text-muted-foreground">
-              Email stays off until you switch it on, row by row. Reminder
-              emails carry a one-click unsubscribe link that flips the same box
-              you see here.
+              Email stays off until you switch it on, row by row. Show-alert
+              and reminder emails carry a one-click unsubscribe link that flips
+              the same box you see here.
             </p>
             <p className="text-xs text-muted-foreground">
-              {FOLLOW_ALERTS_PENDING_NOTE}
+              {VENUE_ALERTS_PENDING_NOTE} {RELEASE_ALERTS_PENDING_NOTE}
             </p>
           </div>
       </AlertsCard>

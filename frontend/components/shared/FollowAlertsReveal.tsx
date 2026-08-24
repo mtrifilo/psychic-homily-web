@@ -24,15 +24,19 @@ import {
   followAlertOptions,
   followAlertUpdateFor,
   isAlertCapableFollowType,
-  FOLLOW_ALERTS_PENDING_NOTE,
+  RELEASE_ALERTS_PENDING_NOTE,
+  VENUE_ALERTS_PENDING_NOTE,
   type FollowAlertChoice,
   type HomeMetroState,
 } from './followAlertChoices'
 import { cn } from '@/lib/utils'
 
-const ARTIST_TOOLTIP = `Chooses which of this artist's new shows count as an alert for you. New releases are never geography-scoped, so this does not affect them. ${FOLLOW_ALERTS_PENDING_NOTE}`
+// Artist show alerts DELIVER (PSY-1896), so this copy says what happens, not
+// what will happen. Release alerts still do not, and they are a separate
+// account-level setting, which is why they get named here rather than implied.
+const ARTIST_TOOLTIP = `Chooses which of this artist's new shows you get alerted about. New releases are never geography-scoped, so this does not affect them. ${RELEASE_ALERTS_PENDING_NOTE}`
 
-const VENUE_TOOLTIP = `Turns alerts on or off for shows this venue adds. A venue sits in one place, so there is nothing to scope. ${FOLLOW_ALERTS_PENDING_NOTE}`
+const VENUE_TOOLTIP = `Turns alerts on or off for shows this venue adds. A venue sits in one place, so there is nothing to scope. ${VENUE_ALERTS_PENDING_NOTE}`
 
 interface FollowAlertsRevealProps {
   /** PLURAL follow path segment: "artists" or "venues". */

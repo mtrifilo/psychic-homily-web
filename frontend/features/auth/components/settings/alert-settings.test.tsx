@@ -386,14 +386,32 @@ describe('AlertSettings', () => {
     )
   })
 
-  // Capability truth: delivery is a separate, unshipped piece of work, and
-  // this card must not imply mail is already flowing from it.
-  it('says plainly that follow-driven alerts are not switched on yet', () => {
+  // Capability truth, and it is now per alert type. Artist show alerts DELIVER
+  // (PSY-1896); venue show alerts and release alerts do not. Claiming either
+  // state for the wrong one is a lie in one direction or the other.
+  it('discloses only the alert types that do not deliver yet', () => {
     renderWithProviders(<AlertSettings />)
 
     expect(
-      screen.getByText(/still being switched on/i)
+      screen.getByText(/Alerts for shows a venue you follow adds are still being switched on/i)
     ).toBeInTheDocument()
+    expect(
+      screen.getByText(/Release alerts are still being switched on/i)
+    ).toBeInTheDocument()
+  })
+
+  it('says artist show alerts are live rather than coming', () => {
+    renderWithProviders(<AlertSettings />)
+
+    expect(
+      screen.getByText(/Artist alerts are live; venue alerts are still being switched on/i)
+    ).toBeInTheDocument()
+  })
+
+  // PSY-1896's artist show-alert email links its "manage" CTA here.
+  it('anchors the matrix so an alert email can deep-link to it', () => {
+    const { container } = renderWithProviders(<AlertSettings />)
+    expect(container.querySelector('#alerts')).not.toBeNull()
   })
 
   it('anchors the area card so "set your area" links can land on it', () => {

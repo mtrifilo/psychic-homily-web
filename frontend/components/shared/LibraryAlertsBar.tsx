@@ -7,7 +7,7 @@ import { useAlertPreferences } from '@/features/auth/hooks/useAlertPreferences'
 import {
   CUSTOM_ALERTS_HREF,
   followAlertHasScopeAxis,
-  FOLLOW_ALERTS_PENDING_NOTE,
+  followAlertPendingNote,
 } from './followAlertChoices'
 
 interface LibraryAlertsBarProps {
@@ -35,6 +35,7 @@ export function LibraryAlertsBar({ entityType }: LibraryAlertsBarProps) {
   // restriction this tab's follows do not have, and contradicting the venue
   // control one page over that says exactly that.
   const hasScopeAxis = followAlertHasScopeAxis(entityType)
+  const pendingNote = followAlertPendingNote(entityType)
 
   const { data: preferences, isSuccess } = useAlertPreferences(hasScopeAxis)
   const [isEditingArea, setIsEditingArea] = useState(false)
@@ -95,9 +96,12 @@ export function LibraryAlertsBar({ entityType }: LibraryAlertsBarProps) {
         />
       </div>
 
-      <p className="mt-2 text-xs text-muted-foreground">
-        {FOLLOW_ALERTS_PENDING_NOTE}
-      </p>
+      {/* Only where there is something pending to disclose. Artist show
+          alerts deliver (PSY-1896), so an "any day now" line above the
+          Artists tab would be the opposite kind of lie. */}
+      {pendingNote && (
+        <p className="mt-2 text-xs text-muted-foreground">{pendingNote}</p>
+      )}
     </div>
   )
 }
