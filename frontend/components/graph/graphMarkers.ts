@@ -35,7 +35,8 @@
  * ruling was to reword.
  *
  * "HAS upcoming shows", not the bare "upcoming shows": both host pages render
- * an <h2>Upcoming shows</h2> section near their graph and legend swatches are
+ * an <h2>Upcoming shows</h2> of their own — immediately above the homepage
+ * legend, and a sibling section on the artist page — and legend swatches are
  * aria-hidden, so a bare key reaches a screen reader as a second,
  * subject-less copy of that heading. The verb makes it read as a property of
  * a NAME on the canvas.

@@ -235,10 +235,6 @@ function HomeGraphLegend({
             graphMarkers, which the ego legend renders too — this key and that
             one must not describe one marker two ways.
 
-            Surface-specific note: the <h2>Upcoming shows</h2> the constant's
-            aria rationale refers to is the section immediately ABOVE this one
-            on the homepage.
-
             The predicate itself is still duplicated, so bounding the marker
             later means editing all four sites: ForceGraphView (canvas draw +
             hover tooltip) and ArtistGraph (its ego canvas draws the dot

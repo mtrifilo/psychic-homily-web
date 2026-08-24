@@ -29,4 +29,19 @@ describe('EgoTypeLegend (PSY-1453)', () => {
     render(<EgoTypeLegend families={['bills']} showUpcomingDot />)
     expect(screen.getByTestId('ego-type-legend').textContent).toBe('billshas upcoming shows')
   })
+
+  // The MIXED case is the only one that discriminates: with both flags set or
+  // both clear, collapsing the two gates into one `showUpcomingDot ||
+  // showPlayableRing` reads identically, and every other spec (here and in
+  // ArtistGraph.palette) renders one of those two. Without this, a canvas
+  // carrying only violet rings could grow a bogus upcoming-show key.
+  it('shows only the playable key when that is the only marker on the canvas', () => {
+    render(<EgoTypeLegend families={['bills']} showPlayableRing />)
+    expect(screen.getByTestId('ego-type-legend').textContent).toBe('billsplayable audio')
+  })
+
+  it('frames the keys as a named group, since every swatch is aria-hidden', () => {
+    render(<EgoTypeLegend families={['bills']} showUpcomingDot />)
+    expect(screen.getByRole('group', { name: 'Graph legend' })).toBeInTheDocument()
+  })
 })
