@@ -20,9 +20,13 @@ import {
 } from '@/features/auth/hooks/useAlertPreferences'
 import {
   ALERTS_AREA_HREF,
+  ALERTS_HREF,
+  ALERTS_PAUSED_NOTE,
+  ALERTS_PAUSED_SUMMARY,
   followAlertChoice,
   followAlertHasScopeAxis,
   followAlertOptions,
+  followAlertsPaused,
   followAlertUpdateFor,
   isAlertCapableFollowType,
   RELEASE_ALERTS_PENDING_NOTE,
@@ -123,6 +127,36 @@ export function FollowAlertsReveal({
   // Nothing to reveal: not following yet, or a follow type with no alert
   // subscription.
   if (!isAuthenticated || !supported || !isFollowing) return null
+
+  // PAUSED outranks the chips, because the chips would lie.
+  //
+  // With both account channels off, this subscription is enabled and reaches
+  // nobody: the notifier skips the recipient before it ever looks at scope. A
+  // chip group with "Near me" lit is then a delivery promise with nothing
+  // behind it, and the fix is not on this control at all — the channel is an
+  // account setting. So say what is true and link where it is fixable.
+  //
+  // Scope chips are withheld rather than shown alongside: every one of them
+  // writes a field that changes nothing until a channel comes back, and the
+  // stored scope is preserved precisely so it does not need re-picking. This
+  // needs no home area and no option list, hence its place above that guard.
+  if (followAlertsPaused(alerts)) {
+    return (
+      <div className={cn('flex flex-wrap items-center gap-2 text-xs', className)}>
+        <span className="text-muted-foreground">
+          Alerts:{' '}
+          <span className="text-foreground">{ALERTS_PAUSED_SUMMARY}</span>
+        </span>
+        <BracketLink
+          label="turn a channel on"
+          ariaLabel={`Alerts for ${entityName} are paused. Turn a channel on in alert settings.`}
+          href={ALERTS_HREF}
+          className="font-mono text-[11px]"
+        />
+        <InfoTooltip label="Why these alerts are paused" copy={ALERTS_PAUSED_NOTE} />
+      </div>
+    )
+  }
 
   // FAILED is not PENDING. Rendering null for both would mean one 4xx (which
   // the global retry policy does not retry at all) leaves a page reading

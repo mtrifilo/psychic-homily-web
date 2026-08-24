@@ -1,4 +1,5 @@
 import type {
+  FollowAlertPreference,
   FollowAlertSettings,
   FollowAlertUpdate,
 } from '@/lib/types/follow'
@@ -205,6 +206,59 @@ export const followAlertUpdateFor = (
         : { shows: { enabled: true, scope: 'everywhere' } }
   }
 }
+
+/**
+ * Whether an enabled subscription has any channel to arrive on.
+ *
+ * `enabled` is only half of the promise. Channels are an ACCOUNT-level setting
+ * (the alert matrix), so a person who switches both in-app and email off for
+ * new-show alerts leaves every follow's subscription enabled and delivering
+ * nothing. The notifier says exactly this and skips the recipient outright:
+ * `if !pref.Enabled || (!pref.InApp && !pref.Email) { continue }`
+ * (`backend/internal/services/notification/artist_follow_notify.go`).
+ *
+ * The controls therefore cannot read `enabled` alone and call it active. A
+ * chip reading "Near me" over a subscription in that state is a delivery
+ * promise nothing behind it can keep.
+ */
+export const followAlertHasChannel = (
+  preference: Pick<FollowAlertPreference, 'in_app' | 'email'>
+): boolean => preference.in_app || preference.email
+
+/**
+ * Whether this follow's show alerts are ON but reaching nobody: PAUSED.
+ *
+ * A distinct third state, not a synonym for off. "Off" is a choice made on
+ * THIS follow and its scope has been given up; paused is an account-wide
+ * silence sitting on top of a follow whose scope is still stored and still
+ * meant. Collapsing the two would have the surfaces write `enabled: false`
+ * (or read back as if someone had), losing a preference the person never
+ * changed the moment they switch a channel off.
+ *
+ * Which is why every paused surface points at the alert matrix rather than
+ * offering a fix of its own: the channel is the thing that is off, and it is
+ * not a per-follow field.
+ */
+export const followAlertsPaused = (
+  settings: Pick<FollowAlertSettings, 'shows'> | undefined
+): boolean =>
+  settings !== undefined &&
+  settings.shows.enabled &&
+  !followAlertHasChannel(settings.shows)
+
+/** The bracket/summary word for a paused subscription, in both surfaces. */
+export const ALERTS_PAUSED_SUMMARY = 'paused'
+
+/**
+ * Why a follow reads paused, and what un-pauses it.
+ *
+ * One string because the entity page and the Library row must not explain the
+ * same state two ways, and because the reassurance is load-bearing: without
+ * it, "paused" reads as "your setting was discarded" and the honest fix looks
+ * like re-picking a scope that was never lost.
+ */
+export const ALERTS_PAUSED_NOTE =
+  'New-show alerts are paused: in-app and email are both switched off for them in your alert settings. Your scope for this follow is saved and resumes when you switch a channel back on.'
 
 /**
  * The `[ alerts: … ]` bracket text for a Library row.

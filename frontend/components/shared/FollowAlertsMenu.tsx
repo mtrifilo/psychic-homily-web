@@ -10,9 +10,13 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { useUpdateFollowAlerts } from '@/lib/hooks/common/useFollowAlerts'
 import {
+  ALERTS_HREF,
+  ALERTS_PAUSED_NOTE,
+  ALERTS_PAUSED_SUMMARY,
   followAlertChoice,
   followAlertHasScopeAxis,
   followAlertOptions,
+  followAlertsPaused,
   followAlertSummaryFor,
   followAlertUpdateFor,
   type HomeMetroState,
@@ -72,6 +76,23 @@ export function FollowAlertsMenu({
   // still-unknown home area, so a near-me follow is never briefly labelled
   // "everywhere".
   if (!current || !options) return null
+
+  // The entity-page twin's rule, on a row: an enabled subscription with both
+  // account channels off delivers nothing, so the bracket must not summarize
+  // it as "near me". It becomes a LINK to the one place the channel can be
+  // switched back on, rather than a menu whose every option writes a field
+  // that changes nothing. The stored scope is untouched and resumes there.
+  if (followAlertsPaused(alerts)) {
+    return (
+      <BracketLink
+        label={`alerts: ${ALERTS_PAUSED_SUMMARY}`}
+        ariaLabel={`Show alerts for ${entityName}: paused. Turn a channel on in alert settings.`}
+        title={ALERTS_PAUSED_NOTE}
+        href={ALERTS_HREF}
+        className={cn('font-mono text-[11px]', className)}
+      />
+    )
+  }
 
   const summary = followAlertSummaryFor(options, current)
 

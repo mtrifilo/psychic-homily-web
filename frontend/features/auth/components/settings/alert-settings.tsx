@@ -522,10 +522,32 @@ export function AlertSettings() {
 
           <div className="mt-4 space-y-1 border-t border-border pt-3.5">
             <p className="text-xs text-muted-foreground">
-              Every email governed by this card stays off until you switch it
-              on, row by row, and carries a one-click unsubscribe link.
+              Every email in the table above stays off until you switch it on,
+              row by row, and carries a one-click unsubscribe link.
               Unsubscribing flips the matching box above, except for a custom
               alert, which switches off email for that one alert instead.
+            </p>
+            {/* The sentence above used to claim "every email governed by this
+                card", which a reader takes as every email the index sends.
+                Scene follows break it and are not in the table: following a
+                scene starts an immediate per-show email with no opt-in
+                anywhere (the notifier's only gate is whether email is
+                configured at all), and the one control over it is the mode
+                toggle on the scene itself. A settings card that lists what
+                reaches you cannot leave out the one stream that arrives
+                without being switched on. */}
+            <p className="text-xs text-muted-foreground">
+              One email is not in the table: following a scene starts sending
+              an immediate email for each new show added there. That one is set
+              per scene, on the scene&apos;s own page, from the list of{' '}
+              <Link
+                href="/library?tab=scenes"
+                className="underline hover:text-foreground"
+              >
+                scenes you follow
+              </Link>
+              . The weekly scene digest above is a separate email and stays
+              opt-in.
             </p>
             <p className="text-xs text-muted-foreground">
               {VENUE_ALERTS_PENDING_NOTE} {RELEASE_ALERTS_PENDING_NOTE}

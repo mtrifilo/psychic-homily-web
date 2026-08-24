@@ -39,8 +39,19 @@ export function FilterList() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Custom alerts</h1>
+          {/* Names the OTHER thing on this page. PSY-1905 merged Follow and
+              Notify me on artist and venue pages, and the merged control
+              deliberately leaves the filters the old button created alone
+              (they are a separate lane with its own per-alert email switch).
+              This page is where they live and where they can be edited,
+              paused or deleted, so it has to say so: otherwise a reader who
+              set one up before the merge sees a list of things they do not
+              remember building, on a page whose heading claims to be about
+              criteria they wrote themselves. */}
           <p className="text-sm text-muted-foreground mt-1">
-            Get told when a new show matching your criteria is added.
+            Get told when a new show matching your criteria is added. Anything
+            you set up with &ldquo;Notify me&rdquo; is listed here too, with
+            its own email switch.
           </p>
         </div>
         <Button onClick={() => setShowCreateForm(true)} className="gap-1.5">
