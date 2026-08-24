@@ -31,30 +31,35 @@ import { useUrlHash } from '@/lib/hooks/common/useUrlHash'
 import { cn } from '@/lib/utils'
 
 /**
- * A ref that scrolls the area card into view when a `[set your area]` link
- * lands here.
+ * A ref that scrolls its card into view when a link carrying that card's
+ * fragment lands here.
  *
- * A callback REF rather than an effect keyed on the hash. `#alerts-area` lives
+ * A callback REF rather than an effect keyed on the hash. Both anchors live
  * inside a Radix TabsContent that mounts only after the client navigation
- * commits, and the card itself can mount later still, so on a cold load
- * (bookmark, refresh, opened in a new tab) nothing with that id exists when
- * the browser — or an effect that only re-runs on `hashchange` — resolves the
+ * commits, and the cards themselves can mount later still, so on a cold load
+ * (bookmark, refresh, opened from an email) nothing with that id exists when
+ * the browser, or an effect that only re-runs on `hashchange`, resolves the
  * fragment. Firing when the NODE arrives is the one signal that is always
  * available at the right moment. `once` keeps a later re-render from yanking
  * the page back after the user has scrolled away.
+ *
+ * Both cards need it, not just the area card: PSY-1896's artist show-alert
+ * email links "Manage alerts in Settings" at `/settings/notifications`, which
+ * this branch retargets to `#alerts`. Without this the emailed reader lands at
+ * the top of the settings tab, two cards above the matrix they were sent to.
  */
-function useAlertsAreaAnchor() {
+function useAnchorScroll(anchorId: string) {
   const urlHash = useUrlHash()
   const scrolled = useRef(false)
 
   return useCallback(
     (node: HTMLDivElement | null) => {
       if (!node || scrolled.current) return
-      if (urlHash.replace(/^#/, '') !== ALERTS_AREA_ANCHOR) return
+      if (urlHash.replace(/^#/, '') !== anchorId) return
       scrolled.current = true
       node.scrollIntoView({ behavior: 'smooth', block: 'start' })
     },
-    [urlHash]
+    [urlHash, anchorId]
   )
 }
 
@@ -144,9 +149,15 @@ function ChannelCellView({
  * "manage" CTA at this card, and that link has to land on the matrix in every
  * state, including the degraded ones.
  */
-function AlertsCard({ children }: { children: ReactNode }) {
+function AlertsCard({
+  children,
+  anchorRef,
+}: {
+  children: ReactNode
+  anchorRef: (node: HTMLDivElement | null) => void
+}) {
   return (
-    <Card id={ALERTS_ANCHOR} className="scroll-mt-24">
+    <Card id={ALERTS_ANCHOR} ref={anchorRef} className="scroll-mt-24">
       <CardHeader>
         <CardTitle className="text-base">Alerts</CardTitle>
         <CardDescription>
@@ -175,7 +186,8 @@ function AlertsCard({ children }: { children: ReactNode }) {
  *
  */
 export function AlertSettings() {
-  const areaAnchorRef = useAlertsAreaAnchor()
+  const alertsAnchorRef = useAnchorScroll(ALERTS_ANCHOR)
+  const areaAnchorRef = useAnchorScroll(ALERTS_AREA_ANCHOR)
   const { data: profileData } = useProfile()
   const {
     data: preferences,
@@ -234,8 +246,11 @@ export function AlertSettings() {
       // which is also what PSY-1896's unsubscribe writes. Their DELIVERY
       // differs today, and saying so is the honest way to render one control
       // over two half-shipped things.
+      // "In-app" is the claim that has been observed end to end. PSY-1896's
+      // email lane is built and covered by integration tests, but no owner has
+      // watched a real message arrive, so it is not named as live here.
       description:
-        'Which shows count for an artist is that follow’s own scope, near me or everywhere. A venue sits in one place, so its alerts have no scope. Artist alerts are live; venue alerts are still being switched on.',
+        'Which shows count for an artist is that follow’s own scope, near me or everywhere. A venue sits in one place, so its alerts have no scope. In-app alerts for artists are live; venue alerts are still being switched on.',
       inApp: matrixToggle(
         matrix => matrix.shows.in_app,
         next => setAlertDefaults.mutate({ shows: { in_app: next } })
@@ -314,7 +329,7 @@ export function AlertSettings() {
 
   return (
     <div className="space-y-6">
-      <AlertsCard>
+      <AlertsCard anchorRef={alertsAnchorRef}>
           {/* A real table, not a grid of role="…" divs: the browser cannot
               get row/cell nesting wrong, and the row title becomes a genuine
               row header rather than a cell that happens to be first. */}
@@ -396,9 +411,9 @@ export function AlertSettings() {
 
           <div className="mt-4 space-y-1 border-t border-border pt-3.5">
             <p className="text-xs text-muted-foreground">
-              Email stays off until you switch it on, row by row. Show-alert
-              and reminder emails carry a one-click unsubscribe link that flips
-              the same box you see here.
+              Email stays off until you switch it on, row by row. Artist
+              show-alert and reminder emails carry a one-click unsubscribe link
+              that flips the same box you see here.
             </p>
             <p className="text-xs text-muted-foreground">
               {VENUE_ALERTS_PENDING_NOTE} {RELEASE_ALERTS_PENDING_NOTE}

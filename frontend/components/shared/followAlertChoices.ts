@@ -91,13 +91,21 @@ export const followAlertHasScopeAxis = (entityType: string): boolean =>
  * The pending-delivery disclosure for one follow type, or null when that
  * type's alerts genuinely deliver today.
  *
- * Keyed off the scope axis because the split happens to coincide: the type
- * that tours is the one PSY-1896 shipped delivery for. Kept as its own
- * function so that when venue delivery lands, this returns null and no caller
- * changes.
+ * Delivery status is its OWN fact, listed per type rather than inferred from
+ * the scope axis. Inferring it read as a coincidence that happened to hold
+ * today (the type that tours is the one PSY-1896 shipped delivery for) and
+ * would have silently granted "delivers" to any alert type added later.
+ *
+ * When venue delivery lands (PSY-1895), delete its entry here and every
+ * surface stops disclosing it. That is a deliberate edit, not something this
+ * function discovers on its own.
  */
+const PENDING_DELIVERY_NOTES: Record<string, string> = {
+  venues: VENUE_ALERTS_PENDING_NOTE,
+}
+
 export const followAlertPendingNote = (entityType: string): string | null =>
-  followAlertHasScopeAxis(entityType) ? null : VENUE_ALERTS_PENDING_NOTE
+  PENDING_DELIVERY_NOTES[entityType] ?? null
 
 /**
  * Whether the viewer has a home area, or `undefined` while that is still

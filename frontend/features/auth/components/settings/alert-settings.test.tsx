@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
@@ -400,11 +400,27 @@ describe('AlertSettings', () => {
     ).toBeInTheDocument()
   })
 
-  it('says artist show alerts are live rather than coming', () => {
+  // The claim is scoped to the channel that has been observed delivering.
+  // PSY-1896's email lane is built and integration-tested but has never sent a
+  // real message, so "live" may not stretch across the Email column.
+  it('claims delivery only for the artist in-app channel', () => {
     renderWithProviders(<AlertSettings />)
 
     expect(
-      screen.getByText(/Artist alerts are live; venue alerts are still being switched on/i)
+      screen.getByText(
+        /In-app alerts for artists are live; venue alerts are still being switched on/i
+      )
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/^Artist alerts are live/i)).not.toBeInTheDocument()
+  })
+
+  // Only the artist show-alert email exists, so the unsubscribe footnote may
+  // not generalize over show-alert emails that have no notifier.
+  it('scopes the unsubscribe footnote to the emails that exist', () => {
+    renderWithProviders(<AlertSettings />)
+
+    expect(
+      screen.getByText(/Artist show-alert and reminder emails carry a one-click unsubscribe/i)
     ).toBeInTheDocument()
   })
 
@@ -412,6 +428,54 @@ describe('AlertSettings', () => {
   it('anchors the matrix so an alert email can deep-link to it', () => {
     const { container } = renderWithProviders(<AlertSettings />)
     expect(container.querySelector('#alerts')).not.toBeNull()
+  })
+
+  // Both anchors sit inside a lazily-mounted TabsContent, so the browser has
+  // already given up on the fragment by the time the card exists. An `id`
+  // alone therefore proves nothing: the card has to scroll ITSELF into view
+  // when the node arrives. The area card had that; the matrix did not, which
+  // stranded PSY-1896's emailed reader two cards above what they were sent to.
+  describe('cold-load deep links', () => {
+    // jsdom does not implement scrollIntoView, so this is a stub rather than a
+    // spy. Restored after each case so the rest of the suite is unaffected.
+    const originalScrollIntoView = Element.prototype.scrollIntoView
+
+    const renderAtHash = (hash: string) => {
+      window.location.hash = hash
+      const scrollIntoView = vi.fn()
+      Element.prototype.scrollIntoView = scrollIntoView
+      const { container } = renderWithProviders(<AlertSettings />)
+      return { container, scrollIntoView }
+    }
+
+    afterEach(() => {
+      window.location.hash = ''
+      Element.prototype.scrollIntoView = originalScrollIntoView
+    })
+
+    it('scrolls the matrix into view for #alerts', () => {
+      const { container, scrollIntoView } = renderAtHash('#alerts')
+
+      expect(scrollIntoView).toHaveBeenCalled()
+      expect(scrollIntoView.mock.instances[0]).toBe(
+        container.querySelector('#alerts')
+      )
+    })
+
+    it('scrolls the area card into view for #alerts-area', () => {
+      const { container, scrollIntoView } = renderAtHash('#alerts-area')
+
+      expect(scrollIntoView).toHaveBeenCalled()
+      expect(scrollIntoView.mock.instances[0]).toBe(
+        container.querySelector('#alerts-area')
+      )
+    })
+
+    it('scrolls nothing when the settings tab is opened without a fragment', () => {
+      const { scrollIntoView } = renderAtHash('')
+
+      expect(scrollIntoView).not.toHaveBeenCalled()
+    })
   })
 
   it('anchors the area card so "set your area" links can land on it', () => {
