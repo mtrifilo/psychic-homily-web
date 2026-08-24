@@ -6,6 +6,30 @@ on:
   pull_request:
     branches: [main]
 
+# Least privilege for the GITHUB_TOKEN, declared HERE rather than left to the
+# repository setting. Without this block every job inherits whatever
+# Settings -> Actions -> Workflow permissions happens to say, and that is a
+# checkbox one click away from read/write that no PR reviews. Most jobs in this
+# workflow run third-party code with the token in the environment (`bun install`
+# --> lifecycle scripts, `bunx playwright`, `npm ci`, docker pulls), so the
+# scope they hold is the scope a compromised transitive dependency holds.
+#
+# `contents: read` is what every job here actually needs and no more:
+# actions/checkout clones with this token, and setup-go / setup-node /
+# setup-bun pass it to the GitHub releases API only to dodge anonymous rate
+# limits. The artifact and cache actions do NOT read this scope -- they
+# authenticate to the Actions service with the per-run runtime token -- so
+# upload-artifact, cache/restore, cache/save and same-run download-artifact
+# are unaffected by tightening it. (download-artifact only reaches for the
+# repo-scoped token when given `github-token` plus a foreign repository or
+# run-id; this workflow passes neither.)
+#
+# A job needing more declares it job-scoped, which REPLACES this block rather
+# than adding to it -- so such a job must restate `contents: read` if it also
+# checks out or calls a contents-scoped API. See notify-main-failure below.
+permissions:
+  contents: read
+
 jobs:
   migration-lint:
     name: Migration Lint
@@ -830,7 +854,17 @@ jobs:
       - e2e-report
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # A job-scoped block REPLACES the workflow-level one, so `contents: read`
+    # is restated here rather than inherited. It is not decoration: the script
+    # calls repos.getCommit for the author/subject line, which is a
+    # contents-scoped read. That call works today only because this repository
+    # is public (public content is readable by any valid token) and because it
+    # is wrapped in a try/catch that downgrades a failure to a warning -- so
+    # flipping the repository private would have silently dropped the
+    # "Triggered by" line from every filed issue with nothing going red.
+    # `issues: write` covers listForRepo (dedupe) + issues.create.
     permissions:
+      contents: read
       issues: write
     steps:
       - name: File or dedupe tracking issue
