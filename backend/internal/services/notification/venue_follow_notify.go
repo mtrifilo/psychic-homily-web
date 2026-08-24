@@ -2,6 +2,7 @@ package notification
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"sort"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/getsentry/sentry-go"
 	"github.com/lib/pq"
+	"gorm.io/gorm"
 
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
@@ -366,11 +368,20 @@ func (s *NotificationFilterService) loadVenueAlertBatch(key venueAlertGroupKey) 
 		Select("id, name, slug, timezone, state").
 		Where("id = ?", key.VenueID).
 		Take(&venue).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		// A vanished venue is an expected outcome, not an error to retry. In
+		// practice it is unreachable: venue_show_alert_batch's foreign key
+		// CASCADES, so a deleted venue takes its batches with it and this group
+		// could not have been selected. Kept as defence, and kept SILENT because
+		// there is nothing an operator would do about it.
+		return nil, nil
+	}
 	if err != nil {
-		// Not found is not an error worth retrying, and Take reports it as one.
-		// Distinguishing it from a real failure is not worth a second query: the
-		// caller treats both as "skip this batch", and a real failure is logged.
-		return nil, nil //nolint:nilerr // a vanished venue is an expected outcome
+		// Every other failure is real and propagates, so the caller logs it and
+		// leaves the batch undispatched for the next tick. Folding it into the
+		// branch above would make a database outage look identical to a deleted
+		// venue and lose the alert silently.
+		return nil, fmt.Errorf("venue %d for alert batch: %w", key.VenueID, err)
 	}
 
 	var shows []catalogm.Show
