@@ -67,7 +67,7 @@ import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorB
 import { useScenes, useSceneGraph } from '@/features/scenes/hooks/useScenes'
 import type { SceneGraphNode } from '@/features/scenes/types'
 import { useArtistGraphCard } from '@/features/artists/hooks/useArtistGraphCard'
-import { formatShowWeekday } from '@/lib/utils/formatters'
+import { formatShowDate } from '@/lib/utils/formatters'
 import { pickDefaultScene, pickSurpriseScene } from './homeSceneGraphScenes'
 import { useGeoDefaultScene } from '@/lib/hooks/common/useGeoDefaultScene'
 import { buildHomeSceneGraphMap } from './homeSceneGraphMap'
@@ -107,18 +107,32 @@ function SceneGraphSkeleton() {
   return <BaseGraphSkeleton className={PLACEHOLDER_HEIGHT_CLASS} />
 }
 
+/**
+ * Chip for a node's soonest upcoming show. Dated, not a bare weekday: the
+ * payload's `next_show` carries no window (it can be months or a year out),
+ * so "Fri" on its own reads as THIS Friday and claims an imminence nothing
+ * backs. Same formatter and same shape as the ArtistContextPanel's "Next
+ * show" line, which this chip's own click opens.
+ *
+ * Year deliberately omitted (`includeYear: false`), matching that panel: a
+ * month and day already drops the false "this week" reading, and the chip
+ * truncates at 180px, so spending characters on a year that is all but always
+ * the current one would cost the venue name on every row to disambiguate a
+ * booking almost no scene has.
+ */
 function ShowDateChip({ node }: { node: SceneGraphNode }) {
   if (!node.next_show) return null
-  const weekday = formatShowWeekday(
+  const showDate = formatShowDate(
     node.next_show.event_date,
     node.next_show.venue_state,
+    false,
     node.next_show.venue_timezone
   )
   const venueName = node.next_show.venue_name.trim()
 
   return (
     <span className="block max-w-[180px] truncate rounded border border-green-500 bg-background px-2 py-[3px] font-mono text-[10px] leading-none whitespace-nowrap text-foreground shadow-sm">
-      {weekday}{venueName ? ` · ${venueName}` : ''}
+      {showDate}{venueName ? ` · ${venueName}` : ''}
     </span>
   )
 }
@@ -141,7 +155,11 @@ function HomeGraphLegend({ types }: { types: readonly string[] }) {
           style={{ backgroundColor: UPCOMING_SHOW_DOT_COLOR }}
           aria-hidden="true"
         />
-        playing soon
+        {/* The dot's predicate is `upcoming_show_count > 0` (graphMarkers,
+            drawn by the shared ForceGraphView) — any approved future show, at
+            any distance. "Playing soon" named a window the marker does not
+            have; this key states the predicate instead. */}
+        upcoming shows
       </span>
       <span className="flex items-center gap-1.5">
         <span
@@ -398,9 +416,11 @@ function HomeSceneGraphSection() {
           aria-label below just as much as this paragraph.
 
           1. NO time window. The payload is the scene's artist RELATIONSHIP
-             graph, not a dated slice. "Playing soon" is a per-node accent (the
-             green dot and the show chip), never a filter, so any wording
-             implying "this week" or "this month" is unbacked.
+             graph, not a dated slice. The upcoming-show accent (the green dot
+             and the dated show chip) is per-node, never a filter, and it is
+             itself unbounded — `upcoming_show_count` and `next_show` can be a
+             year out — so no wording anywhere in this section may imply "this
+             week", "this month", or "soon".
           2. "N OF the most connected", not "THE N most connected". Neither
              ranking stage sorts on connectivity alone: the backend picks the
              roster by approved show count (scene.go ranked_roster), and
@@ -509,9 +529,12 @@ function HomeSceneGraphSection() {
                   // Count the CONNECTED nodes actually on the canvas, not the
                   // payload's full artist_count (which includes the isolates
                   // filtered out above) — the caption promises "lines connect
-                  // artists", so the label must not overstate. Always plural:
-                  // this branch requires >= MIN_CONNECTED_NODES (3).
-                  ariaLabel={`Knowledge graph of the ${scene.city} scene: ${connectedArtistCount} connected artists. ${graphEntitySelectGestureHint}`}
+                  // artists", so the label must not overstate. The count can be
+                  // 1 despite the >= MIN_CONNECTED_NODES (3) canvas gate: that
+                  // gate counts every connected node, label hubs included, while
+                  // this count is artists only, so a lone artist wired to two
+                  // label hubs clears the gate with one artist on canvas.
+                  ariaLabel={`Knowledge graph of the ${scene.city} scene: ${connectedArtistCount} connected ${connectedArtistCount === 1 ? 'artist' : 'artists'}. ${graphEntitySelectGestureHint}`}
                   onNodeClick={handleNodeClick}
                   onBackgroundClick={handleBackgroundClick}
                   // Pin the focus-dim to the selection (PSY-1478) —
@@ -550,8 +573,12 @@ function HomeSceneGraphSection() {
       {graphAvailable && settledGraphData && hasEnoughConnectedNodes && (
         <div className="space-y-3">
           <HomeGraphLegend types={edgeTypes} />
+          {/* "Connections plus upcoming shows" is buildHomeSceneGraphMap's
+              activity blend verbatim: it ranks on degree + upcoming_show_count
+              and cuts the ranking into the three label-size tiers (17/13/11).
+              Neither input is dated, so no wording here may imply recency. */}
           <p className="text-xs text-muted-foreground">
-            Name size = how active they are right now. Click any artist for
+            Name size = connections plus upcoming shows. Click any artist for
             context; violet-ring artists include a listen — no zooming required.
           </p>
         </div>

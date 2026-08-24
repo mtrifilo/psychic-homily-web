@@ -276,13 +276,33 @@ describe('HomeSceneGraph', () => {
     expect(graph).toHaveAttribute('data-force-labels', 'true')
     expect(graph).toHaveAttribute('data-accessible-node-controls', 'true')
     expect(graph).toHaveAttribute('data-label-sizes', '[17,13,11]')
-    expect(screen.getByText('Fri · Crescent Ballroom')).toBeInTheDocument()
+    // DATED, not a bare weekday: next_show carries no window, so "Fri" alone
+    // would claim an imminence the payload cannot back.
+    expect(screen.getByText('Fri, Jul 17 · Crescent Ballroom')).toBeInTheDocument()
+    // The green dot fires on upcoming_show_count > 0 at any distance, so the
+    // legend key states that predicate rather than promising "soon".
     expect(screen.getByLabelText('Graph legend')).toHaveTextContent(
-      'playing soon'
+      'upcoming shows'
+    )
+    expect(screen.getByLabelText('Graph legend')).not.toHaveTextContent(
+      /playing soon/i
     )
     expect(screen.getByLabelText('Graph legend')).toHaveTextContent(
       'playable audio'
     )
+  })
+
+  it('describes the label-size encoding as its actual inputs, not as recency', async () => {
+    // buildHomeSceneGraphMap tiers the label font size off degree +
+    // upcoming_show_count. Neither input is dated, so the payoff line may not
+    // say "right now" (or any other recency word).
+    render(<HomeSceneGraph />)
+    await screen.findByTestId('force-graph-view')
+    expect(
+      screen.getByText(/name size = connections plus upcoming shows/i)
+    ).toBeInTheDocument()
+    const section = document.querySelector('section')
+    expect(section?.outerHTML).not.toMatch(/right now|playing soon/i)
   })
 
   it('claims no time window anywhere in the section', async () => {
@@ -320,6 +340,59 @@ describe('HomeSceneGraph', () => {
       'aria-label',
       expect.stringContaining(
         'Knowledge graph of the Chicago scene: 3 connected artists'
+      )
+    )
+  })
+
+  it('says "1 connected artist" when label hubs make up the rest of the canvas', async () => {
+    // The >= 3 canvas gate counts every connected node, label hubs included,
+    // but the aria count is artists only — so one artist wired to two hubs
+    // clears the gate with a single artist on canvas. Guards the singular.
+    useSceneGraph.mockReturnValue({
+      data: {
+        ...GRAPH,
+        nodes: [
+          {
+            id: 1,
+            name: 'Alpha',
+            slug: 'alpha',
+            upcoming_show_count: 0,
+            cluster_id: 'other',
+            is_isolate: false,
+          },
+          {
+            id: 1001,
+            entity_type: 'label',
+            name: 'Merge',
+            slug: 'merge',
+            upcoming_show_count: 0,
+            cluster_id: 'other',
+            is_isolate: false,
+          },
+          {
+            id: 1002,
+            entity_type: 'label',
+            name: 'Rough Trade',
+            slug: 'rough-trade',
+            upcoming_show_count: 0,
+            cluster_id: 'other',
+            is_isolate: false,
+          },
+        ],
+        links: [
+          { source_id: 1001, target_id: 1, type: 'on_label' },
+          { source_id: 1002, target_id: 1, type: 'on_label' },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+    })
+    render(<HomeSceneGraph />)
+    const graph = await screen.findByTestId('force-graph-view')
+    expect(graph).toHaveAttribute(
+      'aria-label',
+      expect.stringContaining(
+        'Knowledge graph of the Chicago scene: 1 connected artist.'
       )
     )
   })
