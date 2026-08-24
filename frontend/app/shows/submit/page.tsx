@@ -4,45 +4,73 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import * as Sentry from '@sentry/nextjs'
-import {
-  Loader2,
-  Music,
-  AlertCircle,
-  CheckCircle2,
-  Mail,
-  Settings,
-  ArrowRight,
-} from 'lucide-react'
+import { Loader2, Music } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useSendVerificationEmail } from '@/features/auth'
+// Imported by module path, not through the `@/features/auth` barrel, so a suite
+// that mocks the barrel still runs the real countdown.
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
+  VERIFICATION_RESEND_COOLDOWN_SECONDS,
+  formatResendStatus,
+  isVerificationResendUnauthorized,
+  resendStatusAnnouncement,
+  useVerificationResendCooldown,
+  verificationResendRetryAfter,
+} from '@/features/auth/hooks/useVerificationResendCooldown'
+import { buildAuthHref } from '@/lib/auth-href'
+import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+
+/** Where a reader whose session died mid-gate is sent to get a new one. */
+const SIGN_IN_HREF = buildAuthHref('/shows/submit')
 import { AIFormFiller, ShowForm } from '@/features/shows'
 import type { ExtractedShowData } from '@/lib/types/extraction'
 
 /**
- * Gate shown to a signed-in but unverified user.
+ * Submission desk gate: shown to a signed-in but unverified user.
  *
  * The resend button is here, at the point of blockage, rather than only in
  * Settings (PSY-1871). Signup now emails the link, so the common case is "it
  * expired" or "I never got it", and sending the user two hops away to Settings
  * to fix that loses most of them.
+ *
+ * The framing is the desk, not spam hygiene: the earlier copy argued the
+ * platform's case ("real users", "spam-free") to someone who had already
+ * decided to contribute. Naming the consequence (submissions land straight on
+ * the shared calendar) explains the same requirement without the lecture.
  */
 function EmailVerificationRequired() {
   const sendVerificationEmail = useSendVerificationEmail()
+  const cooldown = useVerificationResendCooldown()
   const [emailSent, setEmailSent] = useState(false)
+  const [sendFailed, setSendFailed] = useState(false)
+  const [sessionExpired, setSessionExpired] = useState(false)
+  const status = formatResendStatus(emailSent, cooldown.secondsRemaining)
+  const announcement = resendStatusAnnouncement(emailSent, cooldown.isCoolingDown)
 
   const handleResend = async () => {
+    if (sendVerificationEmail.isPending || cooldown.isCoolingDown) {
+      return
+    }
+    setSendFailed(false)
     try {
       await sendVerificationEmail.mutateAsync()
       setEmailSent(true)
+      cooldown.start(VERIFICATION_RESEND_COOLDOWN_SECONDS)
     } catch (error) {
+      const retryAfter = verificationResendRetryAfter(error)
+      if (retryAfter !== null) {
+        // Throttled, not broken: park the control rather than raise an alert.
+        cooldown.start(retryAfter)
+        return
+      }
+      if (isVerificationResendUnauthorized(error)) {
+        // The session died while this gate sat open. Point at sign-in rather
+        // than a generic failure, and do not page on-call for an expiry.
+        setSessionExpired(true)
+        return
+      }
+      setSendFailed(true)
       Sentry.captureException(error, {
         level: 'error',
         tags: { service: 'shows_submit', error_type: 'verification_email' },
@@ -52,100 +80,79 @@ function EmailVerificationRequired() {
 
   return (
     <div className="min-h-[calc(100vh-64px)] px-4 py-8">
-      <div className="mx-auto max-w-lg">
-        <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/10">
-            <Mail className="h-6 w-6 text-amber-500" />
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight">
-            Email Verification Required
+      <div className="mx-auto max-w-xl">
+        <div className="flex flex-col items-start gap-4 border border-border bg-card px-6 py-8 sm:px-11 sm:py-10">
+          <p className="font-mono text-[11px] uppercase tracking-[0.66px] text-muted-foreground">
+            Submission desk · Verification needed
+          </p>
+          <h1 className="font-display text-[26px] font-bold text-foreground">
+            One step before you post.
           </h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Please verify your email to submit shows
+          {/* Two softenings from the mock. "Straight onto" overstated it:
+              lower-tier submissions land in the review queue first. And "we
+              sent you a link at signup" is only true for accounts created
+              after PSY-1871 shipped, which is not the backlog landing here. */}
+          <p className="text-sm leading-[22px] text-foreground">
+            Submissions go onto the shared calendar, so we confirm every
+            submitter&rsquo;s email once. If your link is buried or expired,
+            send yourself a fresh one.
+          </p>
+
+          <div className="flex w-full flex-col gap-2.5">
+            <Button
+              onClick={handleResend}
+              disabled={sendVerificationEmail.isPending || cooldown.isCoolingDown}
+              className="w-full"
+            >
+              {sendVerificationEmail.isPending ? (
+                <Loader2 className="animate-spin" />
+              ) : null}
+              Send verification email
+            </Button>
+            <Button asChild variant="outline" className="w-full">
+              <Link href="/profile?tab=settings">Manage email in Settings</Link>
+            </Button>
+          </div>
+
+          {/* Mounted unconditionally: assistive tech announces changes WITHIN a
+              live region already on the page, so a region inserted together
+              with its text is announced unreliably. The visible line ticks once
+              a second and is kept out of the region for the reason in
+              resendStatusAnnouncement. */}
+          <p className="sr-only" role="status">
+            {announcement ?? ''}
+          </p>
+
+          {status && (
+            <p
+              aria-hidden="true"
+              className="font-mono text-[11px] uppercase tracking-[0.44px] text-primary"
+            >
+              {status}
+            </p>
+          )}
+
+          {sessionExpired && (
+            <p role="alert" className="text-sm text-destructive">
+              Your session has expired.{' '}
+              <Link href={SIGN_IN_HREF} className="underline">
+                Sign in again
+              </Link>{' '}
+              to send the email.
+            </p>
+          )}
+
+          {sendFailed && (
+            <p role="alert" className="text-sm text-destructive">
+              We could not send that email just now. Please try again in a
+              moment.
+            </p>
+          )}
+
+          <p className="text-xs text-muted-foreground">
+            Verify, then come back here to post your show.
           </p>
         </div>
-
-        <Card className="border-amber-500/20 bg-amber-500/5">
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <AlertCircle className="h-5 w-5 text-amber-500" />
-              <CardTitle className="text-lg">Why verify your email?</CardTitle>
-            </div>
-            <CardDescription>
-              To maintain the quality of our community calendar, we require
-              email verification before you can submit shows.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Verifying your email helps us:
-            </p>
-            <ul className="text-sm text-muted-foreground list-disc list-inside space-y-1">
-              <li>Ensure show submissions come from real users</li>
-              <li>Contact you if there are questions about your submission</li>
-              <li>Keep the calendar accurate and spam-free</li>
-            </ul>
-
-            <div className="pt-4 space-y-3">
-              {/*
-                Deliberately not "we emailed you when you signed up": every
-                account created before this shipped never got one, and that
-                backlog is exactly the population landing on this gate. A send
-                can also be skipped or fail silently by design.
-              */}
-              <p className="text-sm text-muted-foreground">
-                Send yourself a verification link. If you already have one and
-                it has expired, this replaces it.
-              </p>
-
-              {emailSent && sendVerificationEmail.isSuccess ? (
-                <div className="flex items-center gap-2 text-sm text-success-foreground">
-                  <CheckCircle2 className="h-4 w-4 shrink-0" />
-                  <span>Verification email sent! Check your inbox.</span>
-                </div>
-              ) : (
-                <Button
-                  onClick={handleResend}
-                  disabled={sendVerificationEmail.isPending}
-                  className="w-full gap-2"
-                >
-                  {sendVerificationEmail.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Mail className="h-4 w-4" />
-                  )}
-                  {sendVerificationEmail.isPending
-                    ? 'Sending...'
-                    : 'Send verification email'}
-                </Button>
-              )}
-
-              {sendVerificationEmail.isError && (
-                <div
-                  role="alert"
-                  className="flex items-center gap-2 text-sm text-destructive"
-                >
-                  <AlertCircle className="h-4 w-4 shrink-0" />
-                  <span>
-                    {sendVerificationEmail.error?.message ||
-                      'Failed to send verification email. Please try again.'}
-                  </span>
-                </div>
-              )}
-
-              <Button asChild variant="outline" className="w-full gap-2">
-                <Link href="/profile?tab=settings">
-                  <Settings className="h-4 w-4" />
-                  Manage email in Settings
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
-              </Button>
-              <p className="text-xs text-center text-muted-foreground">
-                After verifying, come back here to submit your show
-              </p>
-            </div>
-          </CardContent>
-        </Card>
       </div>
     </div>
   )
