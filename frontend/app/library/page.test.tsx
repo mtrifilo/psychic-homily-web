@@ -628,6 +628,27 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       expect(screen.queryByRole('button', { name: /alerts for/i })).toBeNull()
     })
 
+    // Enabled with both channels off means the notifier skips this recipient,
+    // so the row cannot summarize itself as "near me" and the bar above it
+    // cannot promise what a new follow would start at. Both read the SAME
+    // resolved payload precisely so they cannot disagree.
+    it('reads paused on the row and the bar when no channel is left', () => {
+      setArtistPage(
+        artistRow({
+          entity_type: 'artist',
+          entity_id: 1,
+          shows: { enabled: true, in_app: false, email: false, scope: 'near_me' },
+        })
+      )
+      renderWithProviders(<LibraryPage />)
+
+      expect(
+        screen.getByRole('link', { name: /Show alerts for Alpha: paused/i })
+      ).toBeTruthy()
+      expect(screen.queryByText(/New follows start at/)).toBeNull()
+      expect(screen.queryByRole('button', { name: /alerts for Alpha/i })).toBeNull()
+    })
+
     it('writes the chosen scope through the follow-alerts mutation', async () => {
       const user = userEvent.setup()
       setArtistPage(

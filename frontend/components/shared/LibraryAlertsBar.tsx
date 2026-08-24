@@ -5,6 +5,8 @@ import { BracketLink } from './BracketLink'
 import { HomeMetroSelect, useHomeMetroLabel } from './HomeMetroField'
 import { useAlertPreferences } from '@/features/auth/hooks/useAlertPreferences'
 import {
+  ALERTS_HREF,
+  ALERTS_PAUSED_SUMMARY,
   CUSTOM_ALERTS_HREF,
   followAlertHasScopeAxis,
   followAlertPendingNote,
@@ -13,6 +15,17 @@ import {
 interface LibraryAlertsBarProps {
   /** PLURAL follow path segment for the tab this bar sits above. */
   entityType: string
+  /**
+   * Every loaded row on this tab is paused, so the tab's subscriptions are
+   * being silenced account-wide rather than one follow at a time.
+   *
+   * Passed DOWN from the page rather than derived from the account matrix
+   * here. The rows carry their own resolved settings, which is the same
+   * source each row's bracket reads, so the bar and the brackets cannot
+   * disagree — and it costs the Venues tab no request, which is why that tab
+   * deliberately fetches no account preferences at all.
+   */
+  alertsPaused?: boolean
 }
 
 /**
@@ -29,7 +42,10 @@ interface LibraryAlertsBarProps {
  * the shipped alert matrix pins channels only. Drawing pickable chips here
  * would be a control with nowhere to save to.
  */
-export function LibraryAlertsBar({ entityType }: LibraryAlertsBarProps) {
+export function LibraryAlertsBar({
+  entityType,
+  alertsPaused = false,
+}: LibraryAlertsBarProps) {
   // A venue sits in one place. Its follows have no scope axis at all, so the
   // starting-scope sentence and the home area would be explaining a
   // restriction this tab's follows do not have, and contradicting the venue
@@ -57,7 +73,34 @@ export function LibraryAlertsBar({ entityType }: LibraryAlertsBarProps) {
   return (
     <div className="mb-4 border border-border bg-card px-3.5 py-3">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[13px]">
-        {areaKnown && (
+        {/* Once every row is paused, the starting SCOPE is not the answer to
+            the question this bar exists to answer. It stays true as a fact
+            and reads as a delivery promise directly above a column of
+            brackets that all say otherwise, so the pause takes its place and
+            the way out of it is offered once here rather than per row. */}
+        {alertsPaused && (
+          <>
+            <span className="text-muted-foreground">
+              New-show alerts:{' '}
+              <span className="text-foreground">{ALERTS_PAUSED_SUMMARY}</span>
+            </span>
+            <BracketLink
+              label="turn a channel on"
+              ariaLabel="New-show alerts are paused. Turn a channel on in alert settings."
+              href={ALERTS_HREF}
+              className="font-mono text-[11px]"
+            />
+            <span className="text-muted-foreground/40" aria-hidden>
+              ·
+            </span>
+          </>
+        )}
+
+        {/* The starting scope is the half the pause replaces. The AREA half
+            below stays either way: it is what "near me" will mean when a
+            channel comes back, and this bar is the only place on the page it
+            can be changed. */}
+        {!alertsPaused && areaKnown && (
           <>
             <span className="text-muted-foreground">
               New follows start at:{' '}
@@ -69,7 +112,11 @@ export function LibraryAlertsBar({ entityType }: LibraryAlertsBarProps) {
             <span className="text-muted-foreground/40" aria-hidden>
               ·
             </span>
+          </>
+        )}
 
+        {areaKnown && (
+          <>
             {isEditingArea ? (
               <HomeMetroSelect
                 metro={homeMetro}

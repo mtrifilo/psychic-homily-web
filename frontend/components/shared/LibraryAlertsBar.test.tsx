@@ -144,4 +144,35 @@ describe('LibraryAlertsBar', () => {
       expect(screen.queryByRole('alert')).toBeNull()
     })
   })
+
+  // Every row on the tab is enabled and reaching nobody. A starting-scope
+  // sentence reads as a delivery promise directly above a column of brackets
+  // that all say paused, so the pause takes its place.
+  describe('when every row on the tab is paused', () => {
+    it('reports the pause instead of the starting scope', () => {
+      renderWithProviders(<LibraryAlertsBar entityType="artists" alertsPaused />)
+
+      expect(screen.getByText('paused')).toBeInTheDocument()
+      expect(screen.queryByText(/New follows start at/)).toBeNull()
+    })
+
+    it('offers the way out once, rather than on every row', () => {
+      renderWithProviders(<LibraryAlertsBar entityType="artists" alertsPaused />)
+
+      expect(
+        screen.getByRole('link', { name: /paused.*alert settings/i })
+      ).toHaveAttribute('href', '/profile?tab=settings#alerts')
+    })
+
+    // The area is what "near me" will mean once a channel comes back, and
+    // this bar is the only place on the page it can be changed.
+    it('keeps the area half, which the pause does not make meaningless', () => {
+      renderWithProviders(<LibraryAlertsBar entityType="artists" alertsPaused />)
+
+      expect(screen.getByText('Phoenix-Mesa-Chandler, AZ')).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: 'Change your area' })
+      ).toBeInTheDocument()
+    })
+  })
 })
