@@ -257,9 +257,9 @@ function NotificationRow({ entry, variant, onItemClick, onMarkRead, dimmed }: Ro
     // backend enriches it with the show's own URL, already relativized by the
     // query hook so the click stays client-side and its mark-read survives.
     // Falling back to /shows only if enrichment came back empty (deleted show).
-    // `||`, not `??`: enrichment sets these to the EMPTY STRING when the show is
-    // gone (a merged or deleted row), and `??` would take that as a value and
-    // render a link to nowhere.
+    // `||` rather than `??` so an empty string falls back too. The Go field is
+    // `omitempty`, so a missing show should arrive as undefined either way; this
+    // does not depend on that holding.
     const href = entry.alert_show_url || '/shows'
     const artist = entry.alert_artist_name || 'An artist you follow'
     return (

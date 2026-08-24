@@ -100,9 +100,9 @@ func TestResolveArtistAlertRecipients(t *testing.T) {
 			nil, openArea, 0,
 		)
 		if assert.Len(t, out, 1) {
-			assert.True(t, out[0].inApp)
-			assert.False(t, out[0].email, "email is an intentional opt-in on every alert type")
-			assert.Equal(t, contracts.FollowAlertScopeEverywhere, out[0].scope,
+			assert.NotNil(t, out[0].inApp)
+			assert.Nil(t, out[0].email, "email is an intentional opt-in on every alert type")
+			assert.Equal(t, contracts.FollowAlertScopeEverywhere, out[0].inApp.scope,
 				"near me degrades to everywhere without a home area")
 		}
 	})
@@ -137,25 +137,32 @@ func TestResolveArtistAlertRecipients(t *testing.T) {
 		assert.Empty(t, out)
 	})
 
-	t.Run("an email-enabled follow outranks a higher billing", func(t *testing.T) {
+	// The case that forced the per-lane model. Collapsing to a single winner
+	// drops whichever lane the loser owned, and here that is the in-app alert the
+	// user explicitly enabled for the headliner.
+	t.Run("each channel lane is claimed independently", func(t *testing.T) {
 		out := resolveArtistAlertRecipients(
 			[]artistFollowerRow{
-				{UserID: 1, ArtistID: 10, ArtistName: "Headliner", Position: 0},
+				{
+					UserID: 1, ArtistID: 10, ArtistName: "Headliner", Position: 0,
+					Settings: settings(`{"alerts":{"shows":{"in_app":true,"email":false}}}`),
+				},
 				{
 					UserID: 1, ArtistID: 20, ArtistName: "Opener", Position: 1,
-					Settings: settings(`{"alerts":{"shows":{"email":true}}}`),
+					Settings: settings(`{"alerts":{"shows":{"in_app":false,"email":true}}}`),
 				},
 			},
 			nil, openArea, 0,
 		)
-		if assert.Len(t, out, 1, "one user gets one alert however many of the bill they follow") {
-			assert.Equal(t, "Opener", out[0].artistName,
-				"dropping the email follow would discard an opt-in the user made")
-			assert.True(t, out[0].email)
+		if assert.Len(t, out, 1, "one user is still one recipient however much of the bill they follow") {
+			assert.Equal(t, "Headliner", out[0].inApp.artistName,
+				"the in-app lane must not be dropped because another follow won on email")
+			assert.Equal(t, "Opener", out[0].email.artistName,
+				"and the email must name a follow that actually has email switched on")
 		}
 	})
 
-	t.Run("otherwise the follow highest on the bill wins", func(t *testing.T) {
+	t.Run("the follow highest on the bill claims each lane", func(t *testing.T) {
 		// Deliberately supplied opener-first: the query has no ORDER BY, so the
 		// tie-break has to come from the sort inside the resolver.
 		out := resolveArtistAlertRecipients(
@@ -166,7 +173,7 @@ func TestResolveArtistAlertRecipients(t *testing.T) {
 			nil, openArea, 0,
 		)
 		if assert.Len(t, out, 1) {
-			assert.Equal(t, "Headliner", out[0].artistName)
+			assert.Equal(t, "Headliner", out[0].inApp.artistName)
 		}
 	})
 
@@ -187,7 +194,7 @@ func TestResolveArtistAlertRecipients(t *testing.T) {
 			phoenixArea, 0,
 		)
 		if assert.Len(t, out, 1) {
-			assert.Equal(t, contracts.FollowAlertScopeNearMe, out[0].scope)
+			assert.Equal(t, contracts.FollowAlertScopeNearMe, out[0].inApp.scope)
 		}
 	})
 
@@ -205,7 +212,7 @@ func TestResolveArtistAlertRecipients(t *testing.T) {
 			chicago, 0,
 		)
 		if assert.Len(t, out, 1) {
-			assert.Equal(t, "Everywhere", out[0].artistName)
+			assert.Equal(t, "Everywhere", out[0].inApp.artistName)
 		}
 	})
 
@@ -217,7 +224,7 @@ func TestResolveArtistAlertRecipients(t *testing.T) {
 			openArea, 0,
 		)
 		if assert.Len(t, out, 1) {
-			assert.True(t, out[0].email, "an account-level opt-in must reach follows that stored nothing")
+			assert.NotNil(t, out[0].email, "an account-level opt-in must reach follows that stored nothing")
 		}
 	})
 
@@ -232,7 +239,7 @@ func TestResolveArtistAlertRecipients(t *testing.T) {
 			openArea, 0,
 		)
 		if assert.Len(t, out, 1) {
-			assert.False(t, out[0].email)
+			assert.Nil(t, out[0].email)
 		}
 	})
 }
@@ -601,6 +608,70 @@ func (s *NotificationFilterSuite) TestArtistAlert_EmailOnlyRowIsNotABellEntry() 
 	unread, err := s.svc.GetUnreadCount(userID)
 	s.Require().NoError(err)
 	s.Equal(int64(0), unread, "a hidden row must not inflate the badge")
+
+	// Mark-all is the third read site, and the predicate's whole point is that
+	// all three agree. A count of 1 here would mean "Catch up" reported clearing
+	// a notification the user was never shown.
+	cleared, err := s.svc.MarkAllNotificationsRead(userID)
+	s.Require().NoError(err)
+	s.Equal(int64(0), cleared, "mark-all must clear exactly the rows the user could see")
+}
+
+// TestArtistAlert_EachChannelLaneIsDelivered is the end-to-end half of the
+// per-lane model: following the headliner for in-app and an opener for email
+// must produce BOTH, not whichever one a single winner happened to own.
+func (s *NotificationFilterSuite) TestArtistAlert_EachChannelLaneIsDelivered() {
+	capture := s.withCapturedEmail()
+
+	userID := s.createTestUser()
+	headliner := s.createTestArtist("Headliner")
+	opener := s.createTestArtist("Opener")
+	s.followArtistWithAlerts(userID, headliner, `{"alerts":{"shows":{"in_app":true,"email":false}}}`)
+	s.followArtistWithAlerts(userID, opener, `{"alerts":{"shows":{"in_app":false,"email":true}}}`)
+
+	venueID := s.createTestVenue("Valley Bar")
+	showID := s.createTestShow("Headliner and Opener", []uint{headliner, opener}, []uint{venueID})
+
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
+
+	s.Equal(int64(1), s.inAppAlerts(userID, showID),
+		"the in-app alert the user enabled for the headliner must not be dropped")
+	s.Equal(int64(1), s.artistAlertRows(userID, showID, notificationm.NotificationChannelEmail))
+	s.Require().Len(capture.sent, 1)
+	s.Contains(capture.sent[0].subject, "Opener",
+		"the email must name the follow that actually has email switched on")
+
+	// One bell entry, attributed to the headliner.
+	entries, err := s.svc.GetUserNotifications(userID, 20, 0)
+	s.Require().NoError(err)
+	s.Require().Len(entries, 1)
+	s.Equal("Headliner", entries[0].AlertArtistName)
+}
+
+// The daily email budget must count EMAILS, not rows. The filter and scene
+// writers stamp channel='email' on rows that were only ever in-app records, so
+// a shared whole-channel count would let a busy scene follow starve an opt-in
+// alert email, permanently: the in-app lane is already claimed, so no later pass
+// retries it.
+func (s *NotificationFilterSuite) TestArtistAlert_EmailBudgetIgnoresRowsThatWereNeverEmails() {
+	capture := s.withCapturedEmail()
+
+	userID := s.createTestUser()
+	artistID := s.createTestArtist("Oneida")
+	s.followArtistWithAlerts(userID, artistID, `{"alerts":{"shows":{"email":true}}}`)
+
+	// A day's worth of scene/filter rows: channel='email', no mail sent.
+	for i := 0; i < maxFilterEmailsPerDay+5; i++ {
+		s.Require().NoError(s.db.Exec(`
+			INSERT INTO notification_log (user_id, entity_type, entity_id, channel, sent_at)
+			VALUES (?, 'show', ?, 'email', now())`, userID, 900000+i).Error)
+	}
+
+	venueID := s.createTestVenue("Valley Bar")
+	showID := s.createTestShow("Oneida at Valley Bar", []uint{artistID}, []uint{venueID})
+
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
+	s.Len(capture.sent, 1, "rows that were never emails must not spend the email allowance")
 }
 
 // TestArtistAlert_InboxRowNamesTheArtistAndLinksTheShow covers the read-path

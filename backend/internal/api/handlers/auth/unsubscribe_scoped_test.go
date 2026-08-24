@@ -237,7 +237,10 @@ func TestUnsubscribeArtistShowAlerts_GET_ConfirmsWithoutMutating(t *testing.T) {
 	if !strings.Contains(body, "sig="+sig) {
 		t.Errorf("confirm page must carry the signature into its form action, body was: %s", body)
 	}
-	if !strings.Contains(body, "artist show-alert emails") {
+	// "show-alert emails", not "artist show-alert emails": the setter clears the
+	// single `shows` key in the account matrix, which covers venue show alerts
+	// too, so naming only artists would promise less than the button does.
+	if !strings.Contains(body, "show-alert emails") {
 		t.Errorf("confirm page must name the category, body was: %s", body)
 	}
 }

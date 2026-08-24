@@ -405,6 +405,42 @@ func (s *NotificationFilterService) MatchAndNotify(show *catalogm.Show) error {
 		return nil
 	}
 
+	// Re-read the canonical row, and fence the whole fanout on it.
+	//
+	// Callers do not agree on how complete a Show they hand over. The outbox
+	// poller passes the row it loaded; both admin approve handlers BUILD A
+	// PARTIAL LITERAL (id, title, event date, price, slug, city, state) with no
+	// Status and no SubmittedBy. Two facts every pass below depends on are
+	// therefore absent on half the call sites: whether the show is publicly
+	// visible, and who submitted it (which is what keeps the submitter from being
+	// notified about their own show).
+	//
+	// Reading them here rather than in each pass means the answer cannot differ
+	// between passes, and it means the visibility fence actually covers all three
+	// fanouts. Announcing a private, pending or rejected show would either leak a
+	// user's own list or advertise something moderation has not passed, and a
+	// guard that only one of three fanouts respects is not a guard.
+	//
+	// Neither of today's callers can reach this with an unapproved show, so this
+	// is defence in depth rather than a live bug: MatchAndNotify is exported, and
+	// the cost of a future caller getting it wrong is mail to strangers.
+	//
+	// A missing row means the show was deleted between the trigger and this
+	// goroutine, which is a reason to say nothing.
+	canonical, err := s.loadShowForAlert(show.ID)
+	if err != nil {
+		return err
+	}
+	if canonical == nil {
+		return nil
+	}
+	if canonical.Status != catalogm.ShowStatusApproved {
+		log.Printf("notification match: refusing to announce show %d with status %q",
+			canonical.ID, canonical.Status)
+		return nil
+	}
+	show = canonical
+
 	// Gather the show's related IDs for matching
 	showArtistIDs, showVenueIDs, artistLabelIDs, artistTagIDs, err := s.gatherShowRelations(show.ID)
 	if err != nil {
@@ -850,11 +886,16 @@ func (s *NotificationFilterService) sendEmail(to, subject, html, unsubscribeURL 
 // Notification log
 // ──────────────────────────────────────────────
 
-// GetUserNotifications returns the notification log for a user, paginated.
-// Show-filter rows are returned as-is. Comment-driven rows (entity_type =
-// comment_reply or comment_mention) are enriched in a single follow-up join
-// against the comments + users tables so the bell/inbox UI can render
-// "<commenter> replied: <excerpt>" with a working link target. PSY-595.
+// GetUserNotifications returns the user's INBOX rows, paginated.
+//
+// Not every notification_log row for the user: inboxVisibleRows filters out the
+// ones that are not bell entries (see it for which and why). A caller counting
+// rows here against a raw count of the table will disagree, on purpose.
+//
+// Show-filter and scene-follow rows are returned as-is. Three kinds are enriched
+// in batched follow-up passes so the bell/inbox can render a readable line with
+// a working link target: comment-driven rows (PSY-595), request-fulfillment rows
+// (PSY-890), and artist show-alert rows (PSY-1896).
 func (s *NotificationFilterService) GetUserNotifications(userID uint, limit, offset int) ([]contracts.NotificationLogEntry, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -971,7 +1012,10 @@ func inboxVisibleRows(alias string) string {
 			alias, entityType, notificationm.NotificationChannelEmail))
 	}
 	if len(clauses) == 0 {
-		return "TRUE"
+		// "1 = 1", not "TRUE": GORM only treats a bare string as raw SQL when it
+		// contains a space, a `?` or an `@`, so a single-token condition with no
+		// arguments is not the no-op it looks like.
+		return "1 = 1"
 	}
 	return strings.Join(clauses, " AND ")
 }

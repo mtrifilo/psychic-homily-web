@@ -89,7 +89,12 @@ func (h *UserPreferencesHandler) UnsubscribeArtistShowAlertsPageHandler(w http.R
 	h.handleScopedUnsubscribe(w, r, scopedUnsubscribeConfig{
 		scope:        engagement.UnsubscribeScopeArtistShowAlerts,
 		setPref:      func(uid uint) error { return h.userService.UnsubscribeArtistShowAlertEmails(uid) },
-		noun:         "artist show-alert emails",
+		// The noun says "show-alert emails", not "artist show-alert emails",
+		// because the setter is genuinely that wide: alert_defaults carries ONE
+		// `shows` key covering artist and venue show alerts alike, so the account
+		// write silences both and the per-follow sweep matches it. Naming only
+		// artists here would be the copy promising less than the button does.
+		noun:         "show-alert emails",
 		logSuffix:    "artist_show_alerts",
 		confirmOnGet: true,
 	})

@@ -44,7 +44,7 @@ export interface NotificationLogEntry {
   // Artist show-alert enrichment (PSY-1896): entity_id holds the show_id and
   // subject_entity_id the followed artist, so the row can say which band the
   // alert is about rather than only which show.
-  subject_entity_id?: number | null
+  subject_entity_id?: number
   alert_artist_name?: string
   alert_show_title?: string
   alert_show_url?: string

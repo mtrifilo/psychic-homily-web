@@ -85,12 +85,30 @@ func writeOneClickUnsubscribed(ctx context.Context, w http.ResponseWriter) {
 	respond.SafeEncode(ctx, w, map[string]bool{"unsubscribed": true})
 }
 
-// isOneClickPost returns true when the request is a POST with body
-// `List-Unsubscribe=One-Click` (RFC 8058 §3.1). We accept any POST as
-// "machine, return JSON" since mailbox providers send slightly different
-// request shapes; the HMAC in the URL is the actual authentication.
+// unsubscribeBrowserConfirmField is the hidden field the confirm page's form
+// carries, marking a POST as coming from a HUMAN in a browser rather than from a
+// mailbox provider's RFC 8058 one-click request.
+//
+// It exists because the two are otherwise indistinguishable: isOneClickPost
+// treats every POST as a machine and answers JSON, which was right while POST
+// was only ever reached by a provider. The confirm page (PSY-1896) is the first
+// thing to route a browser through POST, and without this marker the recipient
+// clicks "Yes, unsubscribe" and lands on a raw `{"unsubscribed":true}`.
+//
+// A marker on the request, not a User-Agent sniff: the form is ours, so we can
+// state the fact rather than guess it.
+const unsubscribeBrowserConfirmField = "ph_confirm"
+
+// isOneClickPost returns true when the request is a machine one-click POST
+// (RFC 8058 §3.1). Any POST counts, since mailbox providers send slightly
+// different request shapes and the HMAC in the URL is the actual
+// authentication — EXCEPT one carrying the browser-confirm marker, which is a
+// human who should get the HTML page.
 func isOneClickPost(r *http.Request) bool {
-	return r.Method == http.MethodPost
+	if r.Method != http.MethodPost {
+		return false
+	}
+	return r.PostFormValue(unsubscribeBrowserConfirmField) == ""
 }
 
 // writeUnsubscribeConfirmation renders the GET success page. Self-contained
@@ -226,10 +244,11 @@ const unsubscribeConfirmPromptTemplate = `<!DOCTYPE html>
             artists. Your in-app alerts are not affected.
         </p>
         <form method="POST" action="%[1]s" style="margin: 0;">
+            <input type="hidden" name="` + unsubscribeBrowserConfirmField + `" value="1">
             <button type="submit" style="display: inline-block; padding: 10px 20px; border: 0; border-radius: 8px; background: #f97316; color: #ffffff; font-size: 15px; font-weight: 600; cursor: pointer;">Yes, unsubscribe</button>
         </form>
-        <p style="margin: 20px 0 0;">
-            <a href="/settings" style="color: #555;">Manage all notification settings instead</a>
+        <p style="margin: 20px 0 0; color: #777; font-size: 14px;">
+            Prefer to keep them? Close this page and nothing changes.
         </p>
     </div>
 </body>

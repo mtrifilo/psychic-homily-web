@@ -239,6 +239,16 @@ func repointEntityRefs(
 // dropped row is the redundant half of a duplicate notification the user already
 // received, so nothing they can see is lost.
 func repointArtistShowAlertShows(tx *gorm.DB, winnerID, loserID uint) (moved, dropped int64, err error) {
+	// Self-merge would make the correlated EXISTS match every row against itself
+	// and the DELETE would wipe the show's alerts entirely. repointEntityRefs
+	// rejects this earlier in every current call path, so this guard is about not
+	// depending on call order: the check is free and the failure is destructive.
+	if winnerID == 0 || loserID == 0 || winnerID == loserID {
+		return 0, 0, fmt.Errorf(
+			"repoint artist show alerts: winner and loser must be two distinct shows (got %d, %d)",
+			winnerID, loserID)
+	}
+
 	del := tx.Exec(`
 		DELETE FROM notification_log l
 		WHERE l.entity_type = ?

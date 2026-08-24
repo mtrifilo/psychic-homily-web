@@ -89,16 +89,35 @@ type artistFollowerRow struct {
 	Settings   *json.RawMessage `gorm:"column:settings"`
 }
 
-// artistAlertRecipient is the single alert one user gets for one show, after
-// their qualifying follows have been collapsed to one.
-type artistAlertRecipient struct {
-	userID     uint
+// artistAlertLane is one channel's delivery: which followed artist the alert is
+// attributed to, and the scope that follow resolved to.
+type artistAlertLane struct {
 	artistID   uint
 	artistName string
 	scope      string
-	inApp      bool
-	email      bool
 }
+
+// artistAlertRecipient is what one user receives for one show: at most one
+// delivery per CHANNEL LANE, each attributed independently.
+//
+// Per lane rather than one winner for both, because a user's follows can
+// disagree about channels and collapsing them to a single winner drops one. The
+// case that forced this: following the headliner with in-app on and email off,
+// and an opener with in-app off and email on. A single winner picks one follow
+// and writes only its lane, so the user gets an email and NO bell entry despite
+// having explicitly enabled in-app alerts for the headliner.
+//
+// Attributing each lane separately also keeps the copy honest, which is what a
+// plain OR of the channels would have broken: the email names the artist whose
+// follow actually has email switched on, never a bandmate who does not.
+type artistAlertRecipient struct {
+	userID uint
+	inApp  *artistAlertLane
+	email  *artistAlertLane
+}
+
+// delivers reports whether this recipient has anything to receive.
+func (r artistAlertRecipient) delivers() bool { return r.inApp != nil || r.email != nil }
 
 // recipientAlertPrefs is a user's account-level alert row. Read in bulk for the
 // whole follower set: GetFollowAlertSettings would cost two queries per user.
@@ -117,41 +136,10 @@ func (s *NotificationFilterService) notifyArtistFollowers(show *catalogm.Show, s
 		return
 	}
 
-	// Re-read the canonical row rather than trusting the caller's.
-	//
-	// This is NOT belt and braces: MatchAndNotify's callers do not agree on how
-	// complete a Show they hand over. The outbox poller passes the row it loaded
-	// from the database, but both admin approve handlers BUILD A PARTIAL LITERAL
-	// (id, title, event date, price, slug, city, state) with no Status and no
-	// SubmittedBy. Reading Status off that literal would see the zero value on
-	// every admin approval and silence this feature on the entire human-moderated
-	// path; reading SubmittedBy would see nil and quietly disable self-exclusion,
-	// so the admin who entered a show would be alerted about it.
-	//
-	// Both facts are security-relevant and neither is optional, so this pass takes
-	// them from the row itself. One indexed primary-key read per show is a cheap
-	// price for not depending on which caller you came from.
-	//
-	// A missing row means the show was deleted between the trigger and this
-	// goroutine, which is a reason to say nothing.
-	canonical, err := s.loadShowForAlert(show.ID)
-	if err != nil {
-		log.Printf("artist-follow notify: %v", err)
-		return
-	}
-	if canonical == nil {
-		return
-	}
-
-	// The visibility fence. Announcing a private, pending or rejected show would
-	// either leak a user's own list or advertise something moderation has not
-	// passed, so it fails CLOSED against the authoritative status read above.
-	if canonical.Status != catalogm.ShowStatusApproved {
-		log.Printf("artist-follow notify: refusing to announce show %d with status %q",
-			canonical.ID, canonical.Status)
-		return
-	}
-	show = canonical
+	// show is the CANONICAL row: MatchAndNotify re-reads it and fences the whole
+	// fanout on its status before any pass runs, so Status and SubmittedBy are
+	// trustworthy here even though half the call sites hand over a partial
+	// literal. See the comment on that read.
 
 	followers, err := s.artistFollowersForShow(show.ID, showArtistIDs)
 	if err != nil {
@@ -232,10 +220,11 @@ func (s *NotificationFilterService) artistFollowersForShow(
 		SELECT b.user_id,
 		       b.entity_id AS artist_id,
 		       a.name      AS artist_name,
-		       -- position is nullable; an unpositioned artist sorts last rather
-		       -- than ahead of the headliner, which is where COALESCE to 0 would
-		       -- put it.
-		       COALESCE(sa.position, 2147483647) AS position,
+		       -- NOT NULL DEFAULT 0 in the schema, so this only ever reads the
+		       -- stored value. Worth knowing that an ingest path which never sets
+		       -- it puts the WHOLE bill at 0, which makes the lane tie-break in
+		       -- resolveArtistAlertRecipients fall through to artist id.
+		       sa.position AS position,
 		       b.settings
 		FROM user_bookmarks b
 		JOIN show_artists sa ON sa.artist_id = b.entity_id AND sa.show_id = ?
@@ -345,37 +334,44 @@ func (s *NotificationFilterService) resolveShowArea(showID uint) (showAreaMetros
 }
 
 // resolveArtistAlertRecipients collapses each user's qualifying follows into the
-// single alert they will receive.
+// at-most-one-per-lane alert they will receive.
 //
 // A user can follow several bands on one bill, and those follows can disagree
-// about scope and channels. Exactly one of them owns the notification, because
-// the alert names an artist and a user cannot be sent one email that truthfully
-// names two. The winner is chosen in this order:
+// about scope and channels. A follow QUALIFIES when its alerts are enabled, at
+// least one channel is on, and the show's area satisfies its scope. Among the
+// qualifying follows, each CHANNEL LANE is claimed independently by the first
+// follow (in bill order) that enables it.
 //
-//  1. Only follows that QUALIFY are considered: alerts enabled, at least one
-//     channel on, and the scope satisfied by this show's area.
-//  2. Among those, a follow with the EMAIL channel on wins. Email is an explicit
-//     per-follow opt-in, and dropping it because an alphabetically-earlier band
-//     also happens to be on the bill would silently discard something the user
-//     asked for. This mirrors pickDeliveryMatch, which prefers an email-enabled
-//     filter for the same reason.
-//  3. Otherwise the follow highest on the bill wins, so the sentence names the
-//     headliner rather than an opener when both are followed.
+// Per lane rather than one winner for both, and per lane rather than OR-ing the
+// channels together, because the two obvious shortcuts each break something:
 //
-// The winner's channels are used AS THEY ARE rather than OR-ed across the
-// qualifying follows. OR-ing would let a follow of the opener turn on an email
-// whose body says "you follow the headliner", which is a lie about why the
-// message arrived, and "why am I getting this" is the one sentence in an alert
-// email that has to be true.
+//   - One winner DROPS A LANE. Follow the headliner with in-app on and email
+//     off, and an opener with in-app off and email on: whichever follow wins
+//     writes only its own lane, and the user loses a channel they explicitly
+//     turned on.
+//   - OR-ing the channels onto one winner LIES. It would send an email whose
+//     body says "you follow <headliner>" on the strength of an opt-in the user
+//     made for the opener, and "why am I getting this" is the one sentence in an
+//     alert email that has to be true.
+//
+// Claiming each lane separately gives both properties: no enabled channel is
+// dropped, and each message names a follow that actually enables the channel it
+// arrived on.
 func resolveArtistAlertRecipients(
 	followers []artistFollowerRow,
 	prefs map[uint]recipientAlertPrefs,
 	area showAreaMetros,
 	submitter uint,
 ) []artistAlertRecipient {
-	// Deterministic order in, deterministic winner out. The follower query has
-	// no ORDER BY (the planner is free to return rows in any order), and rule 3
-	// is only meaningful if ties break the same way every run.
+	// Deterministic order in, deterministic attribution out. The follower query
+	// has no ORDER BY (the planner may return rows in any order), and "highest on
+	// the bill wins the lane" only means anything if ties break the same way on
+	// every run.
+	//
+	// NOTE on position: show_artists.position is NOT NULL DEFAULT 0, so an ingest
+	// path that never sets it puts the whole bill at 0 and this degenerates to
+	// lowest artist id. That is an arbitrary but STABLE choice, which is all this
+	// tie-break has to be.
 	ordered := make([]artistFollowerRow, len(followers))
 	copy(ordered, followers)
 	sort.SliceStable(ordered, func(i, j int) bool {
@@ -385,7 +381,7 @@ func resolveArtistAlertRecipients(
 		return ordered[i].ArtistID < ordered[j].ArtistID
 	})
 
-	winners := make(map[uint]artistAlertRecipient, len(ordered))
+	byUser := make(map[uint]*artistAlertRecipient, len(ordered))
 	order := make([]uint, 0, len(ordered))
 
 	for _, f := range ordered {
@@ -413,31 +409,32 @@ func resolveArtistAlertRecipients(
 			continue
 		}
 
-		candidate := artistAlertRecipient{
-			userID:     f.UserID,
-			artistID:   f.ArtistID,
-			artistName: f.ArtistName,
-			scope:      scope,
-			inApp:      pref.InApp,
-			email:      pref.Email,
+		recipient := byUser[f.UserID]
+		if recipient == nil {
+			recipient = &artistAlertRecipient{userID: f.UserID}
+			byUser[f.UserID] = recipient
+			order = append(order, f.UserID)
 		}
 
-		existing, seen := winners[f.UserID]
-		if !seen {
-			winners[f.UserID] = candidate
-			order = append(order, f.UserID)
-			continue
+		// Each lane is claimed by the FIRST qualifying follow that enables it.
+		// `ordered` is bill order, so that is the highest-billed such follow, and
+		// a lane one follow leaves off is still available to a later one. This is
+		// what stops a follow of the opener from silencing the in-app alert the
+		// user turned on for the headliner.
+		lane := &artistAlertLane{artistID: f.ArtistID, artistName: f.ArtistName, scope: scope}
+		if pref.InApp && recipient.inApp == nil {
+			recipient.inApp = lane
 		}
-		// Rule 2. Rule 3 needs no branch: `ordered` is bill order, so the first
-		// qualifying follow seen is already the highest one.
-		if candidate.email && !existing.email {
-			winners[f.UserID] = candidate
+		if pref.Email && recipient.email == nil {
+			recipient.email = lane
 		}
 	}
 
 	out := make([]artistAlertRecipient, 0, len(order))
 	for _, userID := range order {
-		out = append(out, winners[userID])
+		if r := byUser[userID]; r.delivers() {
+			out = append(out, *r)
+		}
 	}
 	return out
 }
@@ -490,35 +487,31 @@ func (s *NotificationFilterService) deliverArtistAlert(
 	show *catalogm.Show,
 	now time.Time,
 ) {
-	if r.inApp {
-		if _, err := s.claimArtistAlertRow(r, show.ID, notificationm.NotificationChannelInApp, now); err != nil {
+	if r.inApp != nil {
+		if _, err := s.claimArtistAlertRow(
+			r.userID, *r.inApp, show.ID, notificationm.NotificationChannelInApp, now,
+		); err != nil {
 			log.Printf("artist-follow notify: in-app row for user %d, show %d: %v", r.userID, show.ID, err)
 		}
 	}
 
-	if !r.email {
+	if r.email == nil {
 		return
 	}
 	if s.emailService == nil || !s.emailService.IsConfigured() {
 		return
 	}
 
-	// The daily budget is checked BEFORE the lane is claimed, and the order is
-	// load-bearing in both directions.
-	//
-	// Claiming first looks safer and is not. The claim is PERMANENT — the partial
-	// UNIQUE means a later attempt finds RowsAffected == 0 — so a row claimed and
-	// then refused by the budget is an email that can never be sent, for a user who
-	// may have in-app switched off and would therefore receive nothing at all. And
-	// the budget is SHARED with the filter and scene-follow senders, which count
-	// every channel='email' row in the last 24 hours: claims that never became mail
-	// would spend other notifications' allowance, so one bulk ingest could silence
-	// a user's filter emails for a day.
+	// The daily budget is checked BEFORE the lane is claimed. Claiming first
+	// looks safer and is not: the claim is PERMANENT — the partial UNIQUE means a
+	// later attempt finds RowsAffected == 0 — so a row claimed and then refused by
+	// the budget is an email that can never be sent, to a user who may have in-app
+	// switched off and would therefore receive nothing at all.
 	//
 	// Checking first costs the opposite risk, that the count is stale by the time
 	// the send happens. That is the same window every other sender here already
 	// accepts, and it errs toward delivering an email the user asked for.
-	if !s.withinDailyEmailBudget(r.userID) {
+	if !s.withinDailyAlertEmailBudget(r.userID) {
 		log.Printf("rate limit: skipping artist-alert email for user %d", r.userID)
 		return
 	}
@@ -527,7 +520,8 @@ func (s *NotificationFilterService) deliverArtistAlert(
 	// loses an email; claiming after would risk sending two, and a duplicate alert
 	// is the failure the recipient notices and the one that costs sending
 	// reputation.
-	claimed, err := s.claimArtistAlertRow(r, show.ID, notificationm.NotificationChannelEmail, now)
+	claimed, err := s.claimArtistAlertRow(
+		r.userID, *r.email, show.ID, notificationm.NotificationChannelEmail, now)
 	if err != nil {
 		log.Printf("artist-follow notify: email row for user %d, show %d: %v", r.userID, show.ID, err)
 		return
@@ -535,22 +529,35 @@ func (s *NotificationFilterService) deliverArtistAlert(
 	if !claimed {
 		return
 	}
-	s.sendArtistShowAlertEmail(r, show)
+	s.sendArtistShowAlertEmail(r.userID, *r.email, show)
 }
 
-// withinDailyEmailBudget reports whether the user has room in the shared
-// per-user daily email allowance.
+// withinDailyAlertEmailBudget reports whether the user has room in the daily
+// allowance for FOLLOW-DRIVEN ALERT emails.
 //
-// The comparison is `<` against the same maxFilterEmailsPerDay the filter and
-// scene-follow senders use, and it is evaluated at the same point in their
-// flow — before this alert's own row exists — so all three enforce ONE threshold
-// rather than three that differ by an off-by-one.
-func (s *NotificationFilterService) withinDailyEmailBudget(userID uint) bool {
+// It counts only the email-lane rows of the two-lane alert types, and that
+// narrowness is the point rather than an oversight.
+//
+// The obvious alternative — reusing the whole-channel count the filter and
+// scene senders do — looked like sharing one budget and is not, because that
+// count is over ROWS, not over emails. Both of those writers stamp
+// channel='email' unconditionally, including on rows that are a user's only
+// IN-APP record and for which no mail was ever sent. A user following a busy
+// scene with in-app-only delivery therefore accumulates a full day's "email"
+// allowance without receiving a single message, and an alert email they
+// explicitly opted into would be refused. Worse, it would be refused
+// PERMANENTLY: the in-app lane for that show is already claimed, so the next
+// outbox pass skips the user entirely and never retries.
+//
+// Counting this feature's own sent-email rows keeps the cap meaning what it
+// says. maxFilterEmailsPerDay is reused as the threshold so there is one number
+// to tune rather than two.
+func (s *NotificationFilterService) withinDailyAlertEmailBudget(userID uint) bool {
 	var emailCount int64
 	dayAgo := time.Now().UTC().Add(-24 * time.Hour)
 	if err := s.db.Model(&notificationm.NotificationLog{}).
-		Where("user_id = ? AND channel = ? AND sent_at > ?",
-			userID, notificationm.NotificationChannelEmail, dayAgo).
+		Where("user_id = ? AND channel = ? AND sent_at > ? AND entity_type IN ?",
+			userID, notificationm.NotificationChannelEmail, dayAgo, emailLaneAlertTypes).
 		Count(&emailCount).Error; err != nil {
 		// Fail CLOSED. An unreadable budget is not permission to send: the cap
 		// exists to bound outbound mail, and an unbounded burst is the failure it
@@ -564,14 +571,15 @@ func (s *NotificationFilterService) withinDailyEmailBudget(userID uint) bool {
 // claimArtistAlertRow inserts one lane's row, reporting whether THIS call
 // created it. A false with no error means someone already claimed the lane.
 func (s *NotificationFilterService) claimArtistAlertRow(
-	r artistAlertRecipient,
+	userID uint,
+	lane artistAlertLane,
 	showID uint,
 	channel string,
 	now time.Time,
 ) (bool, error) {
-	artistID := r.artistID
+	artistID := lane.artistID
 	row := notificationm.NotificationLog{
-		UserID: r.userID,
+		UserID: userID,
 		// No filter row backs a follow-driven alert. The read path uses this
 		// NULL plus the entity_type to pick the row's label.
 		FilterID:        nil,
@@ -589,29 +597,36 @@ func (s *NotificationFilterService) claimArtistAlertRow(
 }
 
 // sendArtistShowAlertEmail renders and sends the alert. The caller has already
-// checked the shared daily budget and claimed the email lane.
-func (s *NotificationFilterService) sendArtistShowAlertEmail(r artistAlertRecipient, show *catalogm.Show) {
+// checked the daily budget and claimed the email lane.
+//
+// lane is the EMAIL lane's attribution, so the artist this message names is one
+// whose follow actually has email switched on.
+func (s *NotificationFilterService) sendArtistShowAlertEmail(
+	userID uint,
+	lane artistAlertLane,
+	show *catalogm.Show,
+) {
 	var email string
-	if err := s.db.Table("users").Where("id = ?", r.userID).Pluck("email", &email).Error; err != nil || email == "" {
-		log.Printf("artist-follow notify: no email for user %d: %v", r.userID, err)
+	if err := s.db.Table("users").Where("id = ?", userID).Pluck("email", &email).Error; err != nil || email == "" {
+		log.Printf("artist-follow notify: no email for user %d: %v", userID, err)
 		return
 	}
 
 	c := s.showEmailContent(show)
 	unsubscribeURL := engagement.GenerateScopedUnsubscribeURL(
 		engagement.DeriveBackendURL(s.frontendURL),
-		r.userID,
+		userID,
 		engagement.UnsubscribeScopeArtistShowAlerts,
 		s.jwtSecret,
 	)
 	manageURL := fmt.Sprintf("%s/settings/notifications", s.frontendURL)
 
-	html := buildArtistShowAlertEmailHTML(r.artistName, r.scope, c, unsubscribeURL, manageURL)
+	html := buildArtistShowAlertEmailHTML(lane.artistName, lane.scope, c, unsubscribeURL, manageURL)
 	// The subject is a HEADER, and this is the first place a scraped third-party
 	// string reaches one. HTML escaping does nothing for headers: a CR or LF in an
 	// artist name is how a header is split and another one injected. The body
 	// builders escape their own inputs; this does not go through them.
-	subject := fmt.Sprintf("%s announced a show", sanitizeEmailHeaderValue(r.artistName))
+	subject := fmt.Sprintf("%s announced a show", sanitizeEmailHeaderValue(lane.artistName))
 
 	if err := s.sendEmail(email, subject, html, unsubscribeURL); err != nil {
 		sentry.WithScope(func(scope *sentry.Scope) {
@@ -619,7 +634,7 @@ func (s *NotificationFilterService) sendArtistShowAlertEmail(r artistAlertRecipi
 			scope.SetTag("email_type", "artist_show_alert")
 			sentry.CaptureException(err)
 		})
-		log.Printf("artist-follow notify: failed to send alert email to user %d: %v", r.userID, err)
+		log.Printf("artist-follow notify: failed to send alert email to user %d: %v", userID, err)
 	}
 }
 

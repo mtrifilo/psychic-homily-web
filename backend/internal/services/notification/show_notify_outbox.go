@@ -133,8 +133,14 @@ const (
 // wrote and sends nothing. Two claims are strictly sequential today: railway.toml
 // configures no replicas, and RunScheduledLoop runs one tick at a time.
 //
-// Two caveats, both of which matter the moment a second replica is configured (and
-// this poller's own doc advertises SKIP LOCKED as making that safe):
+// MatchAndNotify now runs THREE fanouts, and they do not agree about this.
+// Artist show alerts (PSY-1896) are the one that is genuinely concurrency-safe:
+// they claim each (user, show, channel) through a partial UNIQUE with ON
+// CONFLICT DO NOTHING, so a second replica loses the race at the database and
+// sends nothing. That is the shape the scene pass still needs. The two caveats
+// below are the remaining ones, and both matter the moment a second replica is
+// configured (and this poller's own doc advertises SKIP LOCKED as making that
+// safe):
 //
 //   - CONCURRENT calls are NOT idempotent for scene-follow delivery.
 //     notifySceneFollowers dedups with a Count-then-Create, and its log rows carry
@@ -144,7 +150,8 @@ const (
 //     Create violates the UNIQUE and no second email goes out.) Closing this needs
 //     a partial UNIQUE ... WHERE filter_id IS NULL plus ON CONFLICT DO NOTHING in
 //     scene_follow_notify.go — out of scope here, but it is the prerequisite for
-//     running more than one replica.
+//     running more than one replica. uq_notification_log_artist_show_alert is
+//     the same pattern applied to one discriminator, so it is the worked example.
 //   - Not idempotent for STATISTICS either: processUserMatches bumps each matching
 //     filter's match_count and last_matched_at before reaching the dedup check, so
 //     a re-processed job inflates counters users can see. Pre-existing behaviour
