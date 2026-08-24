@@ -153,4 +153,34 @@ describe('buildHomeSceneGraphMap — label hubs (PSY-1530)', () => {
       expect(map.nodes.map(n => n.id)).toContain(a.id)
     }
   })
+
+  // HomeSceneGraph publishes this blend as user-facing copy ("Name size =
+  // connections across the scene plus upcoming shows"), and nothing else fails
+  // when the blend changes — the copy just silently becomes false again, which
+  // is the exact regression class PSY-1904/PSY-1906 exist to close. So pin the
+  // two inputs and their equal weight here, at the site that owns them.
+  it('weights degree and upcoming shows equally, so the published copy stays true', () => {
+    // Degree-only would rank the hub-less pair first; upcoming-only would rank
+    // the booked isolate-ish node first. Only the SUM puts node 3 on top.
+    const nodes = [
+      node(1, { upcoming_show_count: 0 }), // degree 2 + 0 = 2
+      node(2, { upcoming_show_count: 0 }), // degree 2 + 0 = 2
+      node(3, { upcoming_show_count: 3 }), // degree 1 + 3 = 4
+      node(4, { upcoming_show_count: 0 }), // degree 1 + 0 = 1
+    ]
+    const map = buildHomeSceneGraphMap(nodes, [
+      link(1, 2),
+      link(1, 4),
+      link(2, 3),
+    ])
+    // Label tiers are assigned in activity-rank order, so the largest tier
+    // belongs to the highest blended score, not the highest degree.
+    const largest = [...map.labelStyles.entries()].filter(
+      ([, style]) => style.fontSize === 17,
+    )
+    expect(largest.map(([id]) => id)).toContain(3)
+    expect(map.labelStyles.get(3)!.fontSize).toBeGreaterThan(
+      map.labelStyles.get(4)!.fontSize,
+    )
+  })
 })

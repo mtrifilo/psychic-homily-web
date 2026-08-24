@@ -112,7 +112,7 @@ test.describe('Homepage', () => {
     // venue metros but not artist home metros, so an empty based-here
     // roster is a legitimate settled state here.)
     const graph = page.getByLabel(/knowledge graph of the .* scene/i)
-    const emptyGraph = page.getByText(/not enough connected artists/i)
+    const emptyGraph = page.getByText(/not enough connected names/i)
     await expect(graph.or(emptyGraph)).toBeVisible({ timeout: 15_000 })
     // Count copy is truthful only when a settled canvas roster exists; the
     // fallback deliberately carries no synthetic "0 artists" caption.

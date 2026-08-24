@@ -10,10 +10,13 @@
  * ForceGraphView), frozen after settle, with an activity-ranked map of names,
  * tiered labels, next-show chips, and a compact legend. Selecting a name opens
  * the ArtistContextPanel (PSY-1345) with playable audio first and "Open page →"
- * as the navigation path. Full-power
- * interactivity lives on the dedicated /graph page (the re-pointed
- * Observatory, PSY-1079…1086); until that ships the CTA links to the
- * scene page's graph section.
+ * as the navigation path. Full-power interactivity lives on the dedicated
+ * /graph page (the re-pointed Observatory, PSY-1079…1086), which HAS since
+ * shipped (app/graph/page.tsx; /explore permanently redirects to it). This
+ * section's CTA nonetheless still points at the scene page's graph section,
+ * `/scenes/{slug}#graph` — scene-scoped, matching what the canvas above it
+ * shows. Whether it should re-point at /graph is an open question, not a
+ * documented decision; do not read this note as one.
  *
  * Perf posture mirrors InlineGraph (PSY-868/PSY-837): the section
  * lazy-mounts via IntersectionObserver, all data fetching waits for
@@ -67,7 +70,7 @@ import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorB
 import { useScenes, useSceneGraph } from '@/features/scenes/hooks/useScenes'
 import type { SceneGraphNode } from '@/features/scenes/types'
 import { useArtistGraphCard } from '@/features/artists/hooks/useArtistGraphCard'
-import { formatShowWeekday } from '@/lib/utils/formatters'
+import { formatShowDate, formatShowMonthParts } from '@/lib/utils/formatters'
 import { pickDefaultScene, pickSurpriseScene } from './homeSceneGraphScenes'
 import { useGeoDefaultScene } from '@/lib/hooks/common/useGeoDefaultScene'
 import { buildHomeSceneGraphMap } from './homeSceneGraphMap'
@@ -75,12 +78,28 @@ import { buildHomeSceneGraphMap } from './homeSceneGraphMap'
 const GRAPH_HEIGHT_PX = 560
 
 /**
- * Fewer CONNECTED artists than this renders the "Not enough connected
+ * Fewer CONNECTED NODES than this renders the "Not enough connected
  * artists" card instead of a near-empty canvas. The threshold value (3)
  * matches the scene page's MIN_GRAPH_NODES (SceneGraph.tsx), but the
  * counted quantity differs: the scene page counts ALL nodes (its isolate
  * shelf keeps isolates on canvas), while the homepage counts connected
  * nodes only, because isolates are filtered out below.
+ *
+ * "Nodes", not "artists", and the distinction is load-bearing: label hubs
+ * are nodes too, so this gate can pass on a map holding as little as ONE
+ * artist. Anything downstream that counts artists rather than nodes — the
+ * caption, the canvas aria-label — must be singular-safe and must not treat
+ * 3 as its floor.
+ *
+ * The one-artist map is not merely theoretical, but it is also not as cheap
+ * as "one artist on two labels": the backend only mints a hub for a roster of
+ * `labelHubMinRoster` (3) in-payload artists, so any two hubs drag at least
+ * three artists in with them. It takes SATURATION — an artist on ~19 labels
+ * outranks everything (its degree is the hub count), pairs with the top hub,
+ * and the remaining hubs each admit as neighbors of an already-selected node
+ * until HOME_GRAPH_MAX_NODES (20) is reached, before any second artist is
+ * examined. The label-heavy scenes this teaser already accommodates (Austin:
+ * 300 of 302 edges from one label) are exactly where that shape lives.
  */
 const MIN_CONNECTED_NODES = 3
 
@@ -107,25 +126,90 @@ function SceneGraphSkeleton() {
   return <BaseGraphSkeleton className={PLACEHOLDER_HEIGHT_CLASS} />
 }
 
+/**
+ * Chip for a node's soonest upcoming show.
+ *
+ * DATED, not a bare weekday. `next_show` carries no window — the payload
+ * contract in features/scenes/types.ts says it can be a year out — so "Fri"
+ * on its own reads as THIS Friday and claims an imminence nothing backs.
+ *
+ * The YEAR rides along only when the show falls outside the current
+ * venue-local year. Dropping it unconditionally (which is what every table
+ * caller of formatShowDate does) would trade one false imminence for another:
+ * read in August 2026, a July-2027 booking rendered "Fri, Jul 17" looks five
+ * weeks PAST. Those callers sit under year-anchored headers that supply the
+ * year; this chip is a free-floating canvas overlay with no date context
+ * around it. Reading the clock here is safe: this subtree never renders on the
+ * server (useLazyGraphMount flips only inside an effect, and ForceGraphView is
+ * dynamic(ssr:false)), so there is no hydration boundary to disagree across.
+ *
+ * TWO LINES rather than one. The 180px cap is not a free parameter: the
+ * overlay layer reserves `nodeOverlayOutwardClearance={192}` (set below) and
+ * offsets the chip 12px into that gutter, so widening the chip would need the
+ * clearance widened with it. The venue name therefore wraps instead. A hover
+ * tooltip is not an alternative — ForceGraphView renders every overlay inside
+ * a `pointer-events-none` wrapper, which is also why selecting the NODE, not
+ * this chip, is what opens the panel. That panel's "Next show" line shares
+ * this formatter and this date-then-venue ordering, and additionally appends
+ * the venue city.
+ */
 function ShowDateChip({ node }: { node: SceneGraphNode }) {
-  if (!node.next_show) return null
-  const weekday = formatShowWeekday(
-    node.next_show.event_date,
-    node.next_show.venue_state,
-    node.next_show.venue_timezone
+  const show = node.next_show
+  if (!show) return null
+  const { year: showYear } = formatShowMonthParts(
+    show.event_date,
+    show.venue_state,
+    show.venue_timezone
   )
-  const venueName = node.next_show.venue_name.trim()
+  const { year: currentYear } = formatShowMonthParts(
+    new Date().toISOString(),
+    show.venue_state,
+    show.venue_timezone
+  )
+  const showDate = formatShowDate(
+    show.event_date,
+    show.venue_state,
+    showYear !== currentYear,
+    show.venue_timezone
+  )
+  const venueName = show.venue_name.trim()
 
   return (
-    <span className="block max-w-[180px] truncate rounded border border-green-500 bg-background px-2 py-[3px] font-mono text-[10px] leading-none whitespace-nowrap text-foreground shadow-sm">
-      {weekday}{venueName ? ` · ${venueName}` : ''}
+    // No `block` alongside `line-clamp-2`: both set `display`, they have equal
+    // specificity, and Tailwind emits `.line-clamp-2` first, so `block` would
+    // win and silently kill the clamp (`-webkit-line-clamp` only applies to
+    // `display:-webkit-box`). line-clamp already establishes a block-level box.
+    <span className="line-clamp-2 max-w-[180px] rounded border border-green-500 bg-background px-2 py-[3px] font-mono text-[10px] leading-tight text-foreground shadow-sm">
+      {showDate}{venueName ? ` · ${venueName}` : ''}
     </span>
   )
 }
 
-function HomeGraphLegend({ types }: { types: readonly string[] }) {
+/**
+ * Static mini-legend. Every key is gated on the marker being ON the canvas:
+ * the edge keys already derive from the rendered links, and the two node
+ * markers now do the same. A key with no marker behind it is the same class
+ * of unbacked claim as the copy around it — it tells the visitor to go find
+ * something that is not there. Same gating the ego graph's EgoTypeLegend
+ * applies to these two markers.
+ */
+function HomeGraphLegend({
+  types,
+  hasUpcomingShowDot,
+  hasPlayableRing,
+}: {
+  types: readonly string[]
+  hasUpcomingShowDot: boolean
+  hasPlayableRing: boolean
+}) {
   return (
+    // role="group" so the aria-label is actually exposed: a bare <div> is
+    // role=generic, and ARIA prohibits an accessible name there, so browsers
+    // drop it. Without a role the keys below reach a screen reader as loose,
+    // unframed text (every swatch is aria-hidden and cannot supply context),
+    // and the RTL getByLabelText assertion passes anyway — a false green.
     <div
+      role="group"
       className="flex flex-wrap items-center gap-x-[18px] gap-y-2 text-[11px] text-muted-foreground"
       aria-label="Graph legend"
     >
@@ -135,14 +219,32 @@ function HomeGraphLegend({ types }: { types: readonly string[] }) {
           {edgeTypeLabel(type).toLowerCase()}
         </span>
       ))}
+      {hasUpcomingShowDot && (
       <span className="flex items-center gap-1.5">
         <span
           className="size-[7px] rounded-full"
           style={{ backgroundColor: UPCOMING_SHOW_DOT_COLOR }}
           aria-hidden="true"
         />
-        playing soon
+        {/* The dot's predicate is `upcoming_show_count > 0` — any approved
+            future show, at any distance. "Playing soon" named a window the
+            marker does not have; this key states the predicate instead.
+
+            "HAS upcoming shows", not the bare "upcoming shows": the homepage
+            renders an <h2>Upcoming shows</h2> section immediately above this
+            one, and every swatch here is aria-hidden, so a bare key reaches a
+            screen reader as a second, subject-less copy of that heading. The
+            verb makes it read as a property of a NAME on the map.
+
+            The predicate itself is duplicated, so bounding the marker later
+            means editing all four sites: ForceGraphView (canvas draw + hover
+            tooltip) and ArtistGraph (its ego canvas draws the dot directly,
+            not through ForceGraphView, plus its own legend-visibility gate).
+            graphMarkers owns only the color and the geometry. */}
+        has upcoming shows
       </span>
+      )}
+      {hasPlayableRing && (
       <span className="flex items-center gap-1.5">
         <span
           className="size-[9px] rounded-full border-[1.5px]"
@@ -151,6 +253,7 @@ function HomeGraphLegend({ types }: { types: readonly string[] }) {
         />
         playable audio
       </span>
+      )}
     </div>
   )
 }
@@ -299,6 +402,17 @@ function HomeSceneGraphSection() {
     () => [...new Set(graphMap.links.map(link => link.type).filter(Boolean))],
     [graphMap.links]
   )
+  // Marker presence on THIS canvas, not on the payload: the node cap can drop
+  // every artist that carried a marker. The legend and the payoff line both
+  // read these, so a key and its sentence can never outlive the marker.
+  const hasUpcomingShowDot = useMemo(
+    () => connectedNodes.some(node => node.upcoming_show_count > 0),
+    [connectedNodes]
+  )
+  const hasPlayableRing = useMemo(
+    () => connectedNodes.some(node => node.has_playable_audio),
+    [connectedNodes]
+  )
 
   // A label hub is not an artist (PSY-1530): its panel is the shared
   // EntityContextPanel, and asking the artist-card endpoint for a hub's
@@ -328,10 +442,16 @@ function HomeSceneGraphSection() {
 
   // Artist-only count for the caption/aria: hubs are a second population, and
   // calling a label an artist would be a false claim.
+  //
+  // This count can be 1 even though the canvas only renders at all above
+  // MIN_CONNECTED_NODES (3): that gate counts every connected NODE, label hubs
+  // included. See the constant's own doc for the shape that produces it (hub
+  // saturation, not "one artist on two labels"). Readers must be singular-safe.
   const connectedArtistCount = useMemo(
     () => graphMap.nodes.filter(node => !isLabelHubNode(node)).length,
     [graphMap.nodes],
   )
+  const connectedArtistNoun = connectedArtistCount === 1 ? 'artist' : 'artists'
 
   const handleSurprise = useCallback(() => {
     const next = pickSurpriseScene(scenes, scene?.slug ?? null)
@@ -398,9 +518,11 @@ function HomeSceneGraphSection() {
           aria-label below just as much as this paragraph.
 
           1. NO time window. The payload is the scene's artist RELATIONSHIP
-             graph, not a dated slice. "Playing soon" is a per-node accent (the
-             green dot and the show chip), never a filter, so any wording
-             implying "this week" or "this month" is unbacked.
+             graph, not a dated slice. The upcoming-show accent (the green dot
+             and the dated show chip) is per-node, never a filter, and it is
+             itself unbounded — `upcoming_show_count` and `next_show` can be a
+             year out — so no wording anywhere in this section may imply "this
+             week", "this month", or "soon".
           2. "N OF the most connected", not "THE N most connected". Neither
              ranking stage sorts on connectivity alone: the backend picks the
              roster by approved show count (scene.go ranked_roster), and
@@ -431,9 +553,20 @@ function HomeSceneGraphSection() {
           <div
             className={`w-full rounded-lg border border-border/50 bg-muted/20 flex flex-col items-center justify-center text-center p-6 gap-3 ${PLACEHOLDER_HEIGHT_CLASS}`}
           >
+            {/* "Every show, artist, venue and label here is connected" was
+                three claims deep in unbacked. Shows and venues are not nodes
+                in this payload at all (SceneGraphNode is artists plus label
+                hubs; venues survive only as cluster ids), universal
+                connectivity is contradicted by `is_isolate` — a first-class
+                field this very component filters on, and whose absence the
+                sibling branch below announces as "Not enough connected
+                artists" — and this branch fetches no graph at all
+                (useSceneGraph is gated on `graphAvailable`). So the copy now
+                describes the graph the visitor would get, in the same
+                "ties like" example form the caption uses. */}
             <p className="text-sm text-muted-foreground max-w-xs">
-              Every show, artist, venue and label here is connected. The
-              interactive graph is best on a larger screen.
+              The {scene.city} scene graph links artists by ties like shared
+              bills and labels. It is best on a larger screen.
             </p>
             <Link
               href={sceneHref}
@@ -509,9 +642,9 @@ function HomeSceneGraphSection() {
                   // Count the CONNECTED nodes actually on the canvas, not the
                   // payload's full artist_count (which includes the isolates
                   // filtered out above) — the caption promises "lines connect
-                  // artists", so the label must not overstate. Always plural:
-                  // this branch requires >= MIN_CONNECTED_NODES (3).
-                  ariaLabel={`Knowledge graph of the ${scene.city} scene: ${connectedArtistCount} connected artists. ${graphEntitySelectGestureHint}`}
+                  // artists", so the label must not overstate. Pluralized off
+                  // the shared noun because the count can be 1 (see the memo).
+                  ariaLabel={`Knowledge graph of the ${scene.city} scene: ${connectedArtistCount} connected ${connectedArtistNoun}. ${graphEntitySelectGestureHint}`}
                   onNodeClick={handleNodeClick}
                   onBackgroundClick={handleBackgroundClick}
                   // Pin the focus-dim to the selection (PSY-1478) —
@@ -523,7 +656,11 @@ function HomeSceneGraphSection() {
               <div
                 className={`w-full rounded-lg border border-border/50 bg-muted/10 flex items-center justify-center text-sm text-muted-foreground ${PLACEHOLDER_HEIGHT_CLASS}`}
               >
-                Not enough connected artists in {scene.city} yet — try another
+                {/* "names", not "artists": the gate above counts
+                    connectedNodes, which includes label hubs. Saying
+                    "artists" here asserts a count this branch never took —
+                    the same node-vs-artist conflation the aria-label carried. */}
+                Not enough connected names in {scene.city} yet — try another
                 scene.
               </div>
             )
@@ -549,10 +686,37 @@ function HomeSceneGraphSection() {
           would be false there. */}
       {graphAvailable && settledGraphData && hasEnoughConnectedNodes && (
         <div className="space-y-3">
-          <HomeGraphLegend types={edgeTypes} />
+          <HomeGraphLegend
+            types={edgeTypes}
+            hasUpcomingShowDot={hasUpcomingShowDot}
+            hasPlayableRing={hasPlayableRing}
+          />
+          {/* Every word here is load-bearing against buildHomeSceneGraphMap.
+
+              "RANK BY", not "=". Size is a TERCILE of the activity ranking
+              (tierSize = ceil(n/3)), not the score itself, so two names with
+              an identical degree + upcoming_show_count can land in different
+              tiers when the cut falls between them. An equality claim would be
+              false on any tie; a ranking claim is exactly what the tiers are.
+
+              "ACROSS THE SCENE". `degrees` counts every link in the payload,
+              but only links whose BOTH endpoints survive the
+              HOME_GRAPH_MAX_NODES cap are drawn. A top-tier name whose
+              partners were all cut renders with fewer visible lines than a
+              smaller name below it, and the caption right above tells the
+              reader lines are the ties — so without this qualifier the
+              sentence invites counting lines and catching the map
+              contradicting itself.
+
+              Neither input is dated, so no wording here may imply recency. */}
           <p className="text-xs text-muted-foreground">
-            Name size = how active they are right now. Click any artist for
-            context; violet-ring artists include a listen — no zooming required.
+            Name size = rank by connections across the scene plus upcoming
+            shows. Click any artist for context
+            {/* Gated on the same predicate as the legend key: pointing at a
+                violet ring on a canvas that has none sends the visitor
+                looking for a marker that is not there. */}
+            {hasPlayableRing && '; violet-ring artists include a listen'} — no
+            zooming required.
           </p>
         </div>
       )}

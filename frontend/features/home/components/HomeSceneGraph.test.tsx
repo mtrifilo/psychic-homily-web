@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { HomeSceneGraph } from './HomeSceneGraph'
 import type { SceneListItem } from '@/features/scenes/types'
@@ -232,6 +232,11 @@ function setContainerWidth(px: number) {
 
 beforeEach(() => {
   vi.restoreAllMocks()
+  // Freeze the clock for the chip's year rule (it compares the show's
+  // venue-local year against NOW's). Only Date is faked — faking setTimeout
+  // would deadlock RTL's async utilities.
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-08-23T12:00:00Z'))
   push.mockReset()
   captureException.mockReset()
   window.IntersectionObserver =
@@ -251,6 +256,10 @@ beforeEach(() => {
     .mockReturnValue({ data: undefined, isError: false })
   useGeoDefaultScene.mockReset().mockReturnValue(null)
   setContainerWidth(1024)
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('HomeSceneGraph', () => {
@@ -276,13 +285,132 @@ describe('HomeSceneGraph', () => {
     expect(graph).toHaveAttribute('data-force-labels', 'true')
     expect(graph).toHaveAttribute('data-accessible-node-controls', 'true')
     expect(graph).toHaveAttribute('data-label-sizes', '[17,13,11]')
-    expect(screen.getByText('Fri · Crescent Ballroom')).toBeInTheDocument()
-    expect(screen.getByLabelText('Graph legend')).toHaveTextContent(
-      'playing soon'
+    // DATED, not a bare weekday: next_show carries no window, so "Fri" alone
+    // would claim an imminence the payload cannot back. The fixture show is in
+    // the frozen "now" year, so the year stays off.
+    expect(
+      screen.getByText('Fri, Jul 17 · Crescent Ballroom')
+    ).toBeInTheDocument()
+    // The green dot fires on upcoming_show_count > 0 at any distance, so the
+    // legend key states that predicate rather than promising "soon".
+    expect(screen.getByRole('group', { name: 'Graph legend' })).toHaveTextContent(
+      'has upcoming shows'
     )
-    expect(screen.getByLabelText('Graph legend')).toHaveTextContent(
-      'playable audio'
+    expect(screen.getByRole('group', { name: 'Graph legend' })).not.toHaveTextContent(
+      /playing soon/i
     )
+  })
+
+  it('dates the chip with a year only when the show falls outside the current year', async () => {
+    // Unconditionally dropping the year trades false imminence for false
+    // PASTNESS: read in Aug 2026, a Jul-2027 booking rendered "Fri, Jul 17"
+    // looks five weeks gone. next_show can be a year out (types.ts contract).
+    useSceneGraph.mockReturnValue({
+      data: {
+        ...GRAPH,
+        nodes: GRAPH.nodes.map(node =>
+          node.id === 1
+            ? {
+                ...node,
+                next_show: { ...node.next_show, event_date: '2027-07-17T20:00:00Z' },
+              }
+            : node
+        ),
+      },
+      isLoading: false,
+      isError: false,
+    })
+    render(<HomeSceneGraph />)
+    await screen.findByTestId('force-graph-view')
+    expect(
+      screen.getByText(/Jul 17, 2027 · Crescent Ballroom/)
+    ).toBeInTheDocument()
+  })
+
+  it('dates the chip in the VENUE timezone, not the state fallback', async () => {
+    // Pins that the chip still passes venue_timezone: the shared fixture's
+    // state and timezone agree, so dropping the argument there stays green.
+    // 03:30Z on Mar 15 is Mar 14 in Phoenix and Mar 14 (23:30) in New York —
+    // use a boundary where the two disagree.
+    useSceneGraph.mockReturnValue({
+      data: {
+        ...GRAPH,
+        nodes: GRAPH.nodes.map(node =>
+          node.id === 1
+            ? {
+                ...node,
+                next_show: {
+                  ...node.next_show,
+                  event_date: '2026-03-15T04:30:00Z',
+                  venue_state: 'NY',
+                  venue_timezone: 'America/Phoenix',
+                },
+              }
+            : node
+        ),
+      },
+      isLoading: false,
+      isError: false,
+    })
+    render(<HomeSceneGraph />)
+    await screen.findByTestId('force-graph-view')
+    // Phoenix (UTC-7) -> Mar 14. The NY state fallback would render Mar 15.
+    expect(screen.getByText(/Mar 14 · Crescent Ballroom/)).toBeInTheDocument()
+    expect(screen.queryByText(/Mar 15/)).toBeNull()
+  })
+
+  it('drops a marker legend key when no node on the canvas carries that marker', async () => {
+    // A key with no marker behind it points the visitor at something that is
+    // not on the canvas — the same class of unbacked claim as the copy.
+    // The shared fixture has one node with upcoming shows and none playable.
+    render(<HomeSceneGraph />)
+    await screen.findByTestId('force-graph-view')
+    const legend = screen.getByRole('group', { name: 'Graph legend' })
+    expect(legend).toHaveTextContent('has upcoming shows')
+    expect(legend).not.toHaveTextContent(/playable audio/i)
+    // The payoff line points at the same marker and rides the same gate.
+    expect(screen.queryByText(/violet-ring/i)).toBeNull()
+  })
+
+  it('restores the marker keys when the canvas does carry those markers', async () => {
+    useSceneGraph.mockReturnValue({
+      data: {
+        ...GRAPH,
+        nodes: GRAPH.nodes.map(node =>
+          node.id === 2 ? { ...node, has_playable_audio: true } : node
+        ),
+      },
+      isLoading: false,
+      isError: false,
+    })
+    render(<HomeSceneGraph />)
+    await screen.findByTestId('force-graph-view')
+    const legend = screen.getByRole('group', { name: 'Graph legend' })
+    expect(legend).toHaveTextContent('has upcoming shows')
+    expect(legend).toHaveTextContent('playable audio')
+    expect(
+      screen.getByText(/violet-ring artists include a listen/i)
+    ).toBeInTheDocument()
+  })
+
+  it('describes the label-size encoding as a rank over its actual inputs, not as recency', async () => {
+    // buildHomeSceneGraphMap tiers the label font size off a RANK of
+    // degree + upcoming_show_count. Neither input is dated, so the payoff line
+    // may not say "right now"; and size is a tercile of the rank, not the
+    // score, so it may not claim an equality either.
+    const { container } = render(<HomeSceneGraph />)
+    await screen.findByTestId('force-graph-view')
+    // "across the scene" is load-bearing: `degrees` counts every payload link,
+    // but only links with both endpoints inside the node cap are drawn, so an
+    // unqualified "connections" would invite counting the visible lines.
+    expect(
+      screen.getByText(
+        /name size = rank by connections across the scene plus upcoming shows/i
+      )
+    ).toBeInTheDocument()
+    const section = container.querySelector('section')
+    expect(section).not.toBeNull()
+    expect(section?.outerHTML).not.toMatch(/right now|playing soon/i)
   })
 
   it('claims no time window anywhere in the section', async () => {
@@ -320,6 +448,75 @@ describe('HomeSceneGraph', () => {
       'aria-label',
       expect.stringContaining(
         'Knowledge graph of the Chicago scene: 3 connected artists'
+      )
+    )
+  })
+
+  it('says "1 connected artist" when label hubs saturate the canvas', async () => {
+    // The >= 3 canvas gate counts every connected NODE, label hubs included,
+    // but the aria count is artists only. Reaching one artist takes hub
+    // SATURATION, not "one artist on two labels": the backend only mints a hub
+    // for a roster of 3+ in-payload artists (labelHubMinRoster), so two hubs
+    // would drag three artists in. Here one artist sits on 20 labels, each of
+    // which also carries three other artists — a payload the backend can
+    // actually emit. The hub-heavy artist's degree (20) outranks everything,
+    // it pairs with the top hub, and the remaining hubs admit one by one as
+    // neighbours of a selected node until HOME_GRAPH_MAX_NODES (20) is spent,
+    // before any second artist is examined.
+    const HUB_COUNT = 20
+    const star = { id: 1, name: 'Alpha', slug: 'alpha' }
+    const hubs = Array.from({ length: HUB_COUNT }, (_, i) => ({
+      id: 2_000_000 + i,
+      entity_type: 'label',
+      name: `Label ${String(i).padStart(2, '0')}`,
+      slug: `label-${i}`,
+      upcoming_show_count: 0,
+      cluster_id: 'other',
+      is_isolate: false,
+    }))
+    // Three filler artists per hub so every hub clears labelHubMinRoster.
+    const filler = hubs.flatMap((_, i) =>
+      [0, 1, 2].map(j => ({
+        id: 100 + i * 3 + j,
+        name: `Filler ${i}-${j}`,
+        slug: `filler-${i}-${j}`,
+        upcoming_show_count: 0,
+        cluster_id: 'other',
+        is_isolate: false,
+      }))
+    )
+    const links = hubs.flatMap((hub, i) => [
+      { source_id: hub.id, target_id: star.id, type: 'on_label' },
+      ...[0, 1, 2].map(j => ({
+        source_id: hub.id,
+        target_id: 100 + i * 3 + j,
+        type: 'on_label',
+      })),
+    ])
+    useSceneGraph.mockReturnValue({
+      data: {
+        ...GRAPH,
+        nodes: [
+          {
+            ...star,
+            upcoming_show_count: 0,
+            cluster_id: 'other',
+            is_isolate: false,
+          },
+          ...hubs,
+          ...filler,
+        ],
+        links,
+      },
+      isLoading: false,
+      isError: false,
+    })
+    render(<HomeSceneGraph />)
+    const graph = await screen.findByTestId('force-graph-view')
+    expect(graph).toHaveAttribute(
+      'aria-label',
+      expect.stringContaining(
+        'Knowledge graph of the Chicago scene: 1 connected artist.'
       )
     )
   })
@@ -396,7 +593,7 @@ describe('HomeSceneGraph', () => {
     })
     render(<HomeSceneGraph />)
     expect(
-      await screen.findByText(/not enough connected artists in chicago/i)
+      await screen.findByText(/not enough connected names in chicago/i)
     ).toBeInTheDocument()
     expect(screen.queryByTestId('force-graph-view')).toBeNull()
     // The legend/payoff caption only rides with the canvas.
@@ -507,7 +704,7 @@ describe('HomeSceneGraph', () => {
     render(<HomeSceneGraph />)
     await screen.findByRole('heading', { name: 'The Chicago scene graph' })
     expect(screen.queryByTestId('force-graph-view')).toBeNull()
-    expect(screen.queryByText(/not enough connected artists/i)).toBeNull()
+    expect(screen.queryByText(/not enough connected names/i)).toBeNull()
   })
 
   it('renders the error card (with a scene-page link) when the graph query fails with no settled data', async () => {
@@ -680,7 +877,7 @@ describe('HomeSceneGraph', () => {
     })
     render(<HomeSceneGraph />)
     expect(
-      await screen.findByText(/not enough connected artists in chicago/i)
+      await screen.findByText(/not enough connected names in chicago/i)
     ).toBeInTheDocument()
     expect(screen.queryByTestId('force-graph-view')).toBeNull()
   })

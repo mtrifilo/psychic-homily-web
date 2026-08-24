@@ -90,17 +90,6 @@ export function formatShowDate(
     : formatDateInTimezone(dateString, tz)
 }
 
-/** Format only the venue-local short weekday, e.g. "Fri". */
-export function formatShowWeekday(
-  dateString: string,
-  state?: string | null,
-  timezone?: string | null,
-): string {
-  return formatInTimezone(dateString, resolveShowTimezone(state, timezone), {
-    weekday: 'short',
-  })
-}
-
 /**
  * The venue-local month and year of a show, kept apart: `{ month: 'Sep', year:
  * '2025' }`.

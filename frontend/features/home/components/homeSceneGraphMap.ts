@@ -30,6 +30,13 @@ const LABEL_TIERS: readonly HomeGraphLabelStyle[] = [
  * blend: connections keep the map graph-shaped while current bookings lift
  * active artists. Every tie-break is explicit so cached scenes lay out from the
  * same ordered input on every visit.
+ *
+ * THE BLEND IS PUBLISHED AS USER-FACING COPY. HomeSceneGraph's payoff line
+ * reads "Name size = connections across the scene plus upcoming shows", which
+ * is this `activity` expression in words, and the label tiers below are what
+ * "name size" refers to. Changing either input, their weights, or the tier
+ * count makes that sentence false — edit the copy in the same change. The
+ * assertion in homeSceneGraphMap.test.ts is there to make that failure loud.
  */
 export function buildHomeSceneGraphMap(
   nodes: readonly SceneGraphNode[],
