@@ -11,6 +11,7 @@ import {
 import { useUpdateFollowAlerts } from '@/lib/hooks/common/useFollowAlerts'
 import {
   followAlertChoice,
+  followAlertHasScopeAxis,
   followAlertOptions,
   followAlertSummaryFor,
   followAlertUpdateFor,
@@ -59,6 +60,9 @@ export function FollowAlertsMenu({
 
   const current = followAlertChoice(alerts, { entityType, hasHomeMetro })
   const options = followAlertOptions({ entityType, hasHomeMetro })
+  // Release alerts and geographic scope happen to split the same way (a venue
+  // has neither), but they are separate facts; this names the one it means.
+  const hasReleaseAxis = followAlertHasScopeAxis(entityType)
 
   // The SERVER decides which follow types carry a subscription, and it says so
   // per row by populating `alerts` or leaving it out. Reading that beats
@@ -84,11 +88,28 @@ export function FollowAlertsMenu({
             // follow's RELEASE alerts, which are an account-level setting and
             // are untouched by every option here.
             ariaLabel={`Show alerts for ${entityName}: ${summary}`}
-            title={`New-show alerts for ${entityName}. Release alerts are set in Settings.`}
+            // The release sentence is ARTIST-ONLY. A venue follow has no
+            // release axis at all: the server omits `releases` from a venue's
+            // settings and 422s a PATCH that sends one. Pointing a venue
+            // follower at a Settings row that will never fire for them is the
+            // same cross-surface disagreement this control exists to end, and
+            // `FollowAlertsReveal` already forks its tooltip this way.
+            title={
+              hasReleaseAxis
+                ? `New-show alerts for ${entityName}. Release alerts are set in Settings.`
+                : `New-show alerts for ${entityName}.`
+            }
             // No `active`: this is a menu button, not a toggle. aria-pressed
             // would both contradict an "off" label and collide with the
             // aria-haspopup/aria-expanded the trigger already carries.
-            disabled={updateAlerts.isPending}
+            //
+            // aria-disabled, NOT disabled, and the reason is specific to a
+            // MENU trigger: Radix restores focus to it on close, and `focus()`
+            // on a disabled element is a no-op, so committing a choice by
+            // keyboard dropped focus to <body> and restarted the next Tab at
+            // the top of a list that can run 50 rows deep. The guard in
+            // onSelect is what actually blocks a second write.
+            aria-disabled={updateAlerts.isPending || undefined}
             className={cn('font-mono text-[11px]', className)}
           />
         </DropdownMenuTrigger>
@@ -100,13 +121,14 @@ export function FollowAlertsMenu({
             <DropdownMenuItem
               key={option.value}
               disabled={option.value === current}
-              onSelect={() =>
+              onSelect={() => {
+                if (updateAlerts.isPending) return
                 updateAlerts.mutate({
                   entityType,
                   entityId,
                   update: followAlertUpdateFor(option.value, { hasHomeMetro }),
                 })
-              }
+              }}
             >
               {option.label}
             </DropdownMenuItem>

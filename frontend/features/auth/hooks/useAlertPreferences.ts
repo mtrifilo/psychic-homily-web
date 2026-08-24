@@ -78,12 +78,21 @@ export const useAlertPreferences = (enabled = true) => {
  * remembered in three files — and the two surfaces over one field would
  * silently disagree until someone noticed.
  *
- * `undefined` means UNKNOWN: in flight, or failed. Callers must not render a
- * scope as though it were `false`; see `followAlertChoices`.
+ * `undefined` means UNKNOWN: in flight, or failed with nothing cached.
+ * Callers must not render a scope as though it were `false`; see
+ * `followAlertChoices`.
+ *
+ * Keyed on DATA PRESENCE, not on `isSuccess`. TanStack keeps `data` when a
+ * BACKGROUND refetch fails and only moves `status` to error, so a query that
+ * resolved fine and then hit one failed revalidation (a reconnect, or any
+ * remount past the 5-minute staleTime) would report UNKNOWN while the correct
+ * answer sat in the cache. That is the worst version of unknown: every Library
+ * row's bracket vanishes and both entity-page and Library surfaces claim they
+ * could not load something they demonstrably had.
  */
 export const useHomeMetroState = (enabled = true): HomeMetroState => {
   const query = useAlertPreferences(enabled)
-  return query.isSuccess ? Boolean(query.data?.home_metro) : undefined
+  return query.data ? Boolean(query.data.home_metro) : undefined
 }
 
 /**

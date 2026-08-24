@@ -23,6 +23,13 @@ const alertsFor = (
   shows: { enabled, in_app: true, email: false, scope },
 })
 
+/** A venue's resolved settings: no `scope`, and no `releases` axis at all. */
+const venueAlerts = (enabled = true): FollowAlertSettings => ({
+  entity_type: 'venue',
+  entity_id: 1,
+  shows: { enabled, in_app: true, email: false },
+})
+
 const renderMenu = (props: Partial<Parameters<typeof FollowAlertsMenu>[0]> = {}) =>
   renderWithProviders(
     <FollowAlertsMenu
@@ -131,11 +138,40 @@ describe('FollowAlertsMenu', () => {
     )
   })
 
-  it('parks the bracket while a write is in flight', () => {
+  // aria-disabled, NOT the disabled attribute, and for a reason specific to a
+  // MENU trigger: Radix restores focus here when the menu closes, and focus()
+  // on a disabled element is a no-op. Committing a choice by keyboard used to
+  // drop focus to <body>, restarting the next Tab at the top of a list that
+  // can run 50 rows deep. The chip group one file over states the same rule.
+  it('parks the bracket while a write is in flight without ejecting focus', () => {
     mockUpdateState = { isPending: true, isError: false }
     renderMenu()
+
+    const trigger = screen.getByRole('button', { name: /Show alerts for Alpha/ })
+    expect(trigger).toHaveAttribute('aria-disabled', 'true')
+    expect(trigger).not.toBeDisabled()
+
+    trigger.focus()
+    expect(trigger).toHaveFocus()
+  })
+
+  // A venue follow has no release axis at all: the server omits `releases`
+  // from a venue's settings and 422s a PATCH that sends one. Pointing a venue
+  // follower at a Settings row that can never fire for them is the
+  // cross-surface disagreement this control exists to end.
+  it('does not offer venue followers a release-alert setting they cannot have', () => {
+    renderMenu({ entityType: 'venues', alerts: venueAlerts() })
+
     expect(
       screen.getByRole('button', { name: /Show alerts for Alpha/ })
-    ).toBeDisabled()
+    ).toHaveAttribute('title', expect.not.stringContaining('Release alerts'))
+  })
+
+  it('still points artist followers at their release setting', () => {
+    renderMenu()
+
+    expect(
+      screen.getByRole('button', { name: /Show alerts for Alpha/ })
+    ).toHaveAttribute('title', expect.stringContaining('Release alerts are set in Settings'))
   })
 })

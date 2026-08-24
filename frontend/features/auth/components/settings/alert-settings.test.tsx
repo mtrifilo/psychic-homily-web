@@ -33,8 +33,15 @@ let mockProfileData: {
   }
 } = {}
 
+let mockProfileLoaded = true
+let mockProfileFailed = false
+
 vi.mock('../../hooks/useAuth', () => ({
-  useProfile: () => ({ data: mockProfileData }),
+  useProfile: () => ({
+    data: mockProfileData,
+    isSuccess: mockProfileLoaded,
+    isError: mockProfileFailed,
+  }),
 }))
 
 let mockPreferencesFailed = false
@@ -114,6 +121,43 @@ describe('AlertSettings', () => {
     mockPreferencesLoading = false
     mockPreferencesFailed = false
     mockProfileData = { user: { preferences: {} } }
+    mockProfileLoaded = true
+    mockProfileFailed = false
+  })
+
+  // The reminder and digest rows read the PROFILE, not the alerts endpoint,
+  // and they are the only in-product way to turn OFF a digest someone is
+  // already receiving. `?? false` over an unresolved profile therefore told a
+  // reader who came from an alert email "we are not emailing you" about three
+  // streams we are, over a live checkbox that pins the wrong value on a click.
+  describe('when the profile read has not resolved', () => {
+    beforeEach(() => {
+      mockProfileData = {}
+      mockProfileLoaded = false
+    })
+
+    it('draws no checkbox for the profile-backed rows while pending', () => {
+      renderWithProviders(<AlertSettings />)
+
+      expect(
+        screen.queryByRole('checkbox', { name: `Email: ${REMINDER_ROW}` })
+      ).toBeNull()
+      expect(
+        screen.getAllByText(new RegExp(`Email: ${SCENE_ROW} is still loading`, 'i'))
+      ).not.toHaveLength(0)
+    })
+
+    it('reports a failed profile read rather than showing every digest off', () => {
+      mockProfileFailed = true
+      renderWithProviders(<AlertSettings />)
+
+      expect(
+        screen.queryByRole('checkbox', { name: `Email: ${COLLECTION_ROW}` })
+      ).toBeNull()
+      expect(
+        screen.getAllByText(new RegExp(`Email: ${COLLECTION_ROW} could not be loaded`, 'i'))
+      ).not.toHaveLength(0)
+    })
   })
 
   // A failed read used to fall straight through to the table, painting the
@@ -511,12 +555,27 @@ describe('AlertSettings', () => {
   // and should cover all of them. Naming only two was precise and incomplete
   // at once, and the two weekly digests it omitted were MOVED into this card
   // by the same change.
-  it('promises one-click unsubscribe across every email this card sends', () => {
+  // The footnote has to survive two opposite failures: under-claiming (it
+  // once named only 2 of the 5 unsubscribe-bearing rows) and over-claiming
+  // (saying every unsubscribe "flips the same box you see here", which is
+  // false for the custom-alerts row, whose link pauses one filter and whose
+  // cell is deliberately not a box).
+  it('scopes the unsubscribe promise to what this card governs', () => {
     renderWithProviders(<AlertSettings />)
 
     expect(
       screen.getByText(
-        /Every email this card can send you carries a one-click unsubscribe link/i
+        /Every email governed by this card stays off until you switch it on, row by row, and carries a one-click unsubscribe link/i
+      )
+    ).toBeInTheDocument()
+  })
+
+  it('names the custom-alert exception rather than claiming one rule for all', () => {
+    renderWithProviders(<AlertSettings />)
+
+    expect(
+      screen.getByText(
+        /except for a custom alert, which switches off email for that one alert instead/i
       )
     ).toBeInTheDocument()
   })

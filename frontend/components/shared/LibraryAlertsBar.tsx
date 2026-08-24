@@ -39,7 +39,6 @@ export function LibraryAlertsBar({ entityType }: LibraryAlertsBarProps) {
 
   const {
     data: preferences,
-    isSuccess,
     isError,
     refetch,
   } = useAlertPreferences(hasScopeAxis)
@@ -48,8 +47,12 @@ export function LibraryAlertsBar({ entityType }: LibraryAlertsBarProps) {
   const areaLabel = useHomeMetroLabel(homeMetro)
 
   // Fails closed: the area half is omitted rather than guessed while the read
-  // is in flight or after it failed.
-  const areaKnown = hasScopeAxis && isSuccess
+  // is in flight. A cached payload still counts as known, because a failed
+  // BACKGROUND refetch leaves `data` intact and only flips status, and
+  // throwing away a good answer we already hold is a worse lie than showing
+  // it. Only a failure with nothing cached is worth reporting.
+  const areaKnown = hasScopeAxis && Boolean(preferences)
+  const readFailed = isError && !preferences
 
   return (
     <div className="mb-4 border border-border bg-card px-3.5 py-3">
@@ -99,7 +102,7 @@ export function LibraryAlertsBar({ entityType }: LibraryAlertsBarProps) {
             retry, and a user reasonably concludes their follows carry no alert
             subscription at all. Two controls over one field must not disagree
             about whether a failure is worth mentioning. */}
-        {isError && (
+        {readFailed && (
           <>
             <span className="text-muted-foreground" role="alert">
               Couldn&apos;t load your alert settings.

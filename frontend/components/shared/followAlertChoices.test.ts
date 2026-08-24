@@ -302,13 +302,15 @@ describe('followAlertSummaryFor', () => {
           { enabled: true },
         ]) {
           const choice = followAlertChoice(settings(shows), context)
-          // Unknown home area resolves neither, and the two must agree: a
-          // renderable choice with no option list (or vice versa) is exactly
-          // the half-known state that produced the wrong-chips bug.
-          if (!options || !choice) {
-            expect(Boolean(options) && Boolean(choice)).toBe(false)
-            continue
-          }
+          // Only the pairing is pinned: any choice returned ALONGSIDE an
+          // option list must be nameable in it. The two functions do NOT agree
+          // in every state (an artist with an unknown home area and a disabled
+          // subscription yields choice 'off' with no options), which is
+          // harmless only because both render surfaces guard on
+          // `!current || !options` together. The previous assertion here
+          // claimed to pin that agreement and was a tautology inside its own
+          // guard, so it could not have failed for any implementation.
+          if (!options || !choice) continue
           expect(followAlertSummaryFor(options, choice)).toBeDefined()
         }
       }

@@ -86,15 +86,19 @@ function useAnchorScroll(anchorId: string) {
 }
 
 /**
- * One channel cell. Three shapes, and the difference matters:
+ * One channel cell. Six shapes, and the differences all matter, because a
+ * checkbox is the only one of them that means "you can set this, and here is
+ * what it is set to". Rendering any of the other five as a disabled checkbox
+ * would say "off", which is a different and wrong claim:
  *
- *  - a live checkbox, for a channel this alert type can actually use;
- *  - "per filter", for a channel the account cannot set because each custom
- *    alert carries its own `notify_in_app` / `notify_email`;
- *  - a dash, for a channel this alert type does not have at all.
- *
- * Rendering either of the last two as a disabled checkbox would say "off",
- * which is a different and wrong claim.
+ *  - `toggle`         a live checkbox, for a channel this alert type can use;
+ *  - `per-filter`     the account cannot set it, because each custom alert
+ *                     carries its own `notify_email`;
+ *  - `always-on`      it fires for this alert type with no way to turn it off;
+ *  - `not-applicable` this alert type has no such channel at all;
+ *  - `unavailable`    the read that would say FAILED;
+ *  - `pending`        that read is still in flight, which is not the same
+ *                     thing and must not be reported as failure.
  */
 type ChannelCell =
   | { kind: 'toggle'; checked: boolean; pending: boolean; onChange: (next: boolean) => void }
@@ -257,11 +261,19 @@ function AlertsCard({
 export function AlertSettings() {
   const alertsAnchorRef = useAnchorScroll(ALERTS_ANCHOR)
   const areaAnchorRef = useAnchorScroll(ALERTS_AREA_ANCHOR)
-  const { data: profileData } = useProfile()
   const {
-    data: preferences,
-    isError: preferencesFailed,
-  } = useAlertPreferences()
+    data: profileData,
+    isSuccess: profileLoaded,
+    isError: profileFailed,
+  } = useProfile()
+  const { data: preferences, isError: preferencesErrored } =
+    useAlertPreferences()
+  // A failed BACKGROUND refetch keeps `data` and only flips status, so status
+  // alone made the two halves of this one card disagree about one response:
+  // the matrix kept rendering live checkboxes off the cached payload while the
+  // area card below announced it could not be loaded. Only a failure with
+  // nothing cached is a failure the user needs told about.
+  const preferencesFailed = preferencesErrored && !preferences
   const setAlertDefaults = useSetAlertDefaults()
   const setShowReminders = useSetShowReminders()
   const setCollectionDigest = useSetCollectionDigestPreference()
@@ -274,12 +286,7 @@ export function AlertSettings() {
   // someone we are, and every box would be live: one click then PINS a value
   // they never chose, from a state they were shown wrongly.
   const defaults = preferences?.alert_defaults
-  const showRemindersEnabled =
-    profileData?.user?.preferences?.show_reminders ?? false
-  const collectionDigestEnabled =
-    profileData?.user?.preferences?.notify_on_collection_digest ?? false
-  const sceneDigestEnabled =
-    profileData?.user?.preferences?.notify_on_scene_digest ?? false
+  const profilePreferences = profileData?.user?.preferences
 
   // One cell shape, spelled once. The two follow-alert rows share one mutation
   // (they are two axes of one PATCH endpoint) and therefore one pending flag;
@@ -305,6 +312,29 @@ export function AlertSettings() {
   ): ChannelCell => {
     if (defaults) return toggle(read(defaults), setAlertDefaults, write)
     return preferencesFailed ? { kind: 'unavailable' } : { kind: 'pending' }
+  }
+
+  /**
+   * A profile-backed cell, for the reminder and digest rows.
+   *
+   * Same tri-state as `matrixToggle`, and for a sharper reason. These three
+   * are, by this card's own reckoning, the only in-product way to turn OFF a
+   * digest someone is ALREADY receiving, and this card is now where PSY-1896's
+   * alert email sends a reader who wants less mail. `?? false` over an
+   * unresolved profile therefore told exactly that reader "we are not emailing
+   * you" about three streams we are, over a live checkbox that would pin the
+   * wrong value on one click. The rule was already written for the rows above;
+   * these rows arrived from another file and did not have it applied.
+   */
+  const profileToggle = (
+    read: (prefs: NonNullable<typeof profilePreferences>) => boolean | undefined,
+    mutation: { isPending: boolean },
+    write: (next: boolean) => void
+  ): ChannelCell => {
+    if (profileLoaded) {
+      return toggle(read(profilePreferences ?? {}) ?? false, mutation, write)
+    }
+    return profileFailed ? { kind: 'unavailable' } : { kind: 'pending' }
   }
 
   const rows: AlertRow[] = [
@@ -348,8 +378,10 @@ export function AlertSettings() {
       title: 'Day-before reminder for a show you saved',
       description: 'One email the day before, for shows in your library.',
       inApp: { kind: 'not-applicable' },
-      email: toggle(showRemindersEnabled, setShowReminders, next =>
-        setShowReminders.mutate(next)
+      email: profileToggle(
+        prefs => prefs.show_reminders,
+        setShowReminders,
+        next => setShowReminders.mutate(next)
       ),
     },
     {
@@ -358,8 +390,10 @@ export function AlertSettings() {
       description:
         'One email a week with this week’s shows and new bands for the scenes you follow. Stays opt-in.',
       inApp: { kind: 'not-applicable' },
-      email: toggle(sceneDigestEnabled, setSceneDigest, next =>
-        setSceneDigest.mutate(next)
+      email: profileToggle(
+        prefs => prefs.notify_on_scene_digest,
+        setSceneDigest,
+        next => setSceneDigest.mutate(next)
       ),
     },
     {
@@ -368,8 +402,10 @@ export function AlertSettings() {
       description:
         'One email a week summarizing items added to collections you subscribe to. Stays opt-in.',
       inApp: { kind: 'not-applicable' },
-      email: toggle(collectionDigestEnabled, setCollectionDigest, next =>
-        setCollectionDigest.mutate(next)
+      email: profileToggle(
+        prefs => prefs.notify_on_collection_digest,
+        setCollectionDigest,
+        next => setCollectionDigest.mutate(next)
       ),
     },
     {
@@ -486,9 +522,10 @@ export function AlertSettings() {
 
           <div className="mt-4 space-y-1 border-t border-border pt-3.5">
             <p className="text-xs text-muted-foreground">
-              Email stays off until you switch it on, row by row. Every email
-              this card can send you carries a one-click unsubscribe link, and
-              using it flips the same box you see here.
+              Every email governed by this card stays off until you switch it
+              on, row by row, and carries a one-click unsubscribe link.
+              Unsubscribing flips the matching box above, except for a custom
+              alert, which switches off email for that one alert instead.
             </p>
             <p className="text-xs text-muted-foreground">
               {VENUE_ALERTS_PENDING_NOTE} {RELEASE_ALERTS_PENDING_NOTE}
