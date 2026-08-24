@@ -11,13 +11,14 @@
  */
 
 import Link from 'next/link'
-import { MessageCircle, AtSign, Calendar, BellRing, CalendarPlus, ExternalLink, PackageCheck } from 'lucide-react'
+import { MessageCircle, AtSign, Calendar, BellRing, CalendarPlus, ExternalLink, PackageCheck, Building2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   formatTimeAgo,
   isArtistShowAlertNotification,
   isCommentNotification,
   isRequestNotification,
+  isVenueShowAlertNotification,
   NOTIFICATION_ENTITY_COMMENT_MENTION,
 } from '../types'
 import type { NotificationLogEntry } from '../types'
@@ -283,6 +284,60 @@ function NotificationRow({ entry, variant, onItemClick, onMarkRead, dimmed }: Ro
             {entry.alert_show_title && (
               <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
                 {entry.alert_show_title}
+              </p>
+            )}
+            <RowMeta entry={entry} onMarkRead={onMarkRead} />
+          </div>
+          {unread && (
+            <span
+              className="mt-2 h-2 w-2 shrink-0 rounded-full bg-primary"
+              aria-label="Unread"
+            />
+          )}
+        </Link>
+      </li>
+    )
+  }
+
+  if (isVenueShowAlertNotification(entry)) {
+    // Figma 1577:53. Coalesced: ONE row per venue per venue-local day, however
+    // many shows landed, and the row can GROW after it was delivered because
+    // the server resolves its show list at read time.
+    //
+    // Links to the VENUE, not to a show: entity_id is the venue id and the row
+    // stands for several shows, so there is no single date to open. Already
+    // relativized by the query hook so the click stays client-side and its
+    // mark-read survives. `||` rather than `??` so an empty string (a merged or
+    // deleted venue) falls back too.
+    const href = entry.alert_venue_url || '/venues'
+    const venue = entry.alert_venue_name || 'A venue you follow'
+    // The count comes from the server and is the FULL batch size, which is not
+    // always the number of shows named in the summary. Defaulting to 1 keeps
+    // the sentence grammatical if enrichment came back empty; the summary line
+    // simply does not render in that case.
+    const count = entry.alert_show_count || 1
+    const verb = count === 1 ? 'added a new show' : `added ${count} new shows`
+    return (
+      <li>
+        <Link
+          href={href}
+          onClick={() => onItemClick?.(entry)}
+          className={rowClasses}
+        >
+          <div
+            className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary"
+            aria-hidden
+          >
+            <Building2 className="h-3.5 w-3.5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm leading-snug">
+              <span className="font-medium">{venue}</span>{' '}
+              <span className="text-muted-foreground">{verb}</span>
+            </p>
+            {entry.alert_show_summary && (
+              <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+                {entry.alert_show_summary}
               </p>
             )}
             <RowMeta entry={entry} onMarkRead={onMarkRead} />

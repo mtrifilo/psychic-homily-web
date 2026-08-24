@@ -60,6 +60,13 @@ func (s *VenueMergeIntegrationSuite) SetupTest() {
 		"DELETE FROM entity_tags",
 		"DELETE FROM comments",
 		"DELETE FROM notification_filters",
+		// notification_log has a foreign key to users, so a stale alert row makes
+		// the users delete below fail rather than the test that left it behind.
+		"DELETE FROM notification_log",
+		// Cascades from the shows/venues deletes, but named explicitly for the
+		// same reason: ordering here is the fixture's contract, not an accident
+		// of somebody else's cascade.
+		"DELETE FROM venue_show_alert_batch",
 		"DELETE FROM show_artists",
 		"DELETE FROM show_venues",
 		"DELETE FROM shows",
@@ -816,6 +823,119 @@ func (s *VenueMergeIntegrationSuite) TestVenueEntityRefsCoverSchema() {
 		s.Truef(present[table],
 			"refsRepointedElsewhere lists %q, which no longer has an entity_type column", table)
 	}
+}
+
+// ──────────────────────────────────────────────
+// Coalesced venue show alerts (PSY-1895)
+// ──────────────────────────────────────────────
+//
+// Two references a venue merge has to move that neither drift guard above can
+// see, for opposite reasons. The notification_log rows key on their own
+// entity_type ('venue_show_alert'), so polymorphicEntityRefs — which matches
+// entity_type = 'venue' — walks straight past them even though their entity_id
+// IS a venue id. venue_show_alert_batch is the reverse: a real foreign key that
+// CASCADES, so its rows are destroyed rather than stranded, and the alert row
+// that survives renders its show list from a table that no longer has any.
+
+// seedVenueAlert writes one delivered venue alert for a user on a given day.
+func (s *VenueMergeIntegrationSuite) seedVenueAlert(userID, venueID uint, day, channel string) {
+	s.Require().NoError(s.db.Exec(`
+		INSERT INTO notification_log (user_id, entity_type, entity_id, channel, sent_at, alert_bucket)
+		VALUES (?, 'venue_show_alert', ?, ?, now(), ?::date)`,
+		userID, venueID, channel, day).Error)
+}
+
+func (s *VenueMergeIntegrationSuite) seedVenueAlertBatch(venueID, showID uint, day string) {
+	s.Require().NoError(s.db.Exec(`
+		INSERT INTO venue_show_alert_batch (venue_id, alert_day, show_id, created_at)
+		VALUES (?, ?::date, ?, now())`, venueID, day, showID).Error)
+}
+
+func (s *VenueMergeIntegrationSuite) venueAlertCount(venueID uint) int64 {
+	var n int64
+	s.Require().NoError(s.db.Table("notification_log").
+		Where("entity_type = 'venue_show_alert' AND entity_id = ?", venueID).Count(&n).Error)
+	return n
+}
+
+func (s *VenueMergeIntegrationSuite) venueAlertBatchCount(venueID uint) int64 {
+	var n int64
+	s.Require().NoError(s.db.Table("venue_show_alert_batch").
+		Where("venue_id = ?", venueID).Count(&n).Error)
+	return n
+}
+
+// TestMergeVenues_MovesVenueShowAlertRows: an alert about the losing venue must
+// follow it onto the canonical one, or the user's inbox row points at a deleted
+// venue and renders with no name and no link.
+func (s *VenueMergeIntegrationSuite) TestMergeVenues_MovesVenueShowAlertRows() {
+	canonical := s.createVenue("Canonical Room")
+	loser := s.createVenue("Dupe Room")
+	user := s.createUser("alerts-move")
+	show := s.createShow("A show", loser, time.Now().Add(48*time.Hour))
+
+	s.seedVenueAlert(user.ID, loser.ID, "2026-05-01", "in_app")
+	s.seedVenueAlertBatch(loser.ID, show.ID, "2026-05-01")
+
+	_, err := s.svc.MergeVenues(canonical.ID, loser.ID, user.ID)
+	s.Require().NoError(err)
+
+	s.Equal(int64(1), s.venueAlertCount(canonical.ID), "the alert must follow the venue it names")
+	s.Equal(int64(0), s.venueAlertCount(loser.ID))
+	s.Equal(int64(1), s.venueAlertBatchCount(canonical.ID),
+		"and the batch it renders from must follow too, or the row goes blank")
+}
+
+// TestMergeVenues_DropsConflictingVenueShowAlertRows: the index behind the
+// exactly-once guarantee is UNIQUE on (user_id, entity_id, alert_bucket,
+// channel) for this discriminator, so a user who follows BOTH halves of a
+// duplicate pair and was alerted about each on the same day cannot have the
+// loser's row moved on top of the winner's. Without the dedupe the whole merge
+// aborts on the constraint.
+//
+// A second day holding only the loser's row proves the dedupe drops exactly what
+// the index would have rejected and not one row more.
+func (s *VenueMergeIntegrationSuite) TestMergeVenues_DropsConflictingVenueShowAlertRows() {
+	canonical := s.createVenue("Canonical Room")
+	loser := s.createVenue("Dupe Room")
+	user := s.createUser("alerts-conflict")
+
+	s.seedVenueAlert(user.ID, canonical.ID, "2026-05-01", "in_app")
+	s.seedVenueAlert(user.ID, loser.ID, "2026-05-01", "in_app")
+	s.seedVenueAlert(user.ID, loser.ID, "2026-05-02", "in_app")
+
+	_, err := s.svc.MergeVenues(canonical.ID, loser.ID, user.ID)
+	s.Require().NoError(err)
+
+	var days []time.Time
+	s.Require().NoError(s.db.Table("notification_log").
+		Where("entity_type = 'venue_show_alert' AND entity_id = ?", canonical.ID).
+		Order("alert_bucket").Pluck("alert_bucket", &days).Error)
+	s.Require().Len(days, 2,
+		"the colliding day collapses to one row; the other day still moves")
+	s.Equal("2026-05-01", days[0].UTC().Format("2006-01-02"))
+	s.Equal("2026-05-02", days[1].UTC().Format("2006-01-02"))
+}
+
+// TestMergeVenues_DropsConflictingVenueAlertBatchRows is the same argument one
+// table over: the primary key is the whole natural key, so the same show
+// accrued at both venues on one day collapses rather than aborting the merge.
+// The same show on a DIFFERENT day still moves.
+func (s *VenueMergeIntegrationSuite) TestMergeVenues_DropsConflictingVenueAlertBatchRows() {
+	canonical := s.createVenue("Canonical Room")
+	loser := s.createVenue("Dupe Room")
+	user := s.createUser("batch-conflict")
+	show := s.createShow("One event listed twice", loser, time.Now().Add(48*time.Hour))
+
+	s.seedVenueAlertBatch(canonical.ID, show.ID, "2026-05-01")
+	s.seedVenueAlertBatch(loser.ID, show.ID, "2026-05-01")
+	s.seedVenueAlertBatch(loser.ID, show.ID, "2026-05-02")
+
+	_, err := s.svc.MergeVenues(canonical.ID, loser.ID, user.ID)
+	s.Require().NoError(err)
+
+	s.Equal(int64(2), s.venueAlertBatchCount(canonical.ID))
+	s.Equal(int64(0), s.venueAlertBatchCount(loser.ID))
 }
 
 // ──────────────────────────────────────────────
