@@ -266,10 +266,27 @@ func curatedShowArtistSetType(index int, value *string) (*string, error) {
 // parseShowEventDate parses a show payload's event_date. An RFC3339 value is
 // taken as-is; a date-only value (YYYY-MM-DD) is anchored at
 // utils.DateOnlyEventHour in the state's assumed IANA zone (utils.EventLocation,
-// which defaults unknown/empty states per its documented fallback) — the same
+// which defaults unknown/empty states per its documented fallback), the same
 // "date-only means that evening, venue-local" convention the ingest CLI and the
 // PSY-987 re-anchor logic use, so a date-only show doesn't render as the
 // previous day.
+//
+// KNOWN GAP, stated rather than left to be rediscovered (PSY-1873): the state
+// is the ONLY input here, and the state map answers America/Phoenix for every
+// venue outside the US. A date-only request approved for a Leeds venue
+// therefore lands at 20:00 Phoenix, hours and a calendar day off, exactly the
+// defect the CLI and web writers were moved off. Since CreateShow now dates the
+// SLUG from the venue's real zone, such a row is also slugged a day later than
+// the date the requester typed.
+//
+// Not closed here because this layer has no venue row and no database handle:
+// showAssociations carries a name/city/state the admin typed, and resolving it
+// to venues.timezone needs a *gorm.DB on EntityRequestHandler, which its
+// constructor does not take. The durable fix is the explicit date-only
+// precision signal on the show contract that utils.DateOnlyEventHour argues for
+// (PSY-1861), which would move this decision into the show service, where the
+// venue IS resolved. Until then a non-US show request needs an RFC3339
+// event_date, which this function honours verbatim.
 func parseShowEventDate(value, state string) (time.Time, error) {
 	trimmed := strings.TrimSpace(value)
 	if t, err := time.Parse(time.RFC3339, trimmed); err == nil {

@@ -174,6 +174,73 @@ describe('showToFormValues', () => {
     expect(result.time).toBe('20:00')
   })
 
+  it("reads the instant back in the venue's own timezone, not the state map", () => {
+    // PSY-1873: "England" is not in the US state map, so the editor used to
+    // open a Leeds show at 20:00 America/Phoenix on Oct 23 while the show page
+    // rendered 4:00 AM on Oct 24. Saving from that state rewrote the instant.
+    const show = makeShowResponse({
+      event_date: '2026-10-24T03:00:00Z',
+      city: 'Leeds',
+      state: 'England',
+      venues: [
+        {
+          id: 160,
+          slug: 'boom-leeds-leeds-england',
+          name: 'Boom Leeds',
+          city: 'Leeds',
+          state: 'England',
+          timezone: 'Europe/London',
+          verified: true,
+        },
+      ],
+    })
+    const result = showToFormValues(show)
+
+    expect(result.date).toBe('2026-10-24')
+    expect(result.time).toBe('04:00')
+  })
+
+  it('falls back to show.state for a show with no venue row', () => {
+    // The read side must apply the same `venue?.state ?? show.state` fallback
+    // the write path does, or opening a venue-less New York show and saving it
+    // unchanged shifts event_date by the Phoenix/Eastern offset. Reading only
+    // `venue?.state` would resolve America/Phoenix here.
+    const show = makeShowResponse({
+      event_date: '2026-01-16T01:00:00Z', // 20:00 America/New_York on Jan 15
+      city: 'Brooklyn',
+      state: 'NY',
+      venues: [],
+    })
+    const result = showToFormValues(show)
+
+    expect(result.date).toBe('2026-01-15')
+    expect(result.time).toBe('20:00')
+    // And the venue.state the form submits back with resolves the same zone.
+    expect(result.venue.state).toBe('NY')
+  })
+
+  it('falls back to the state map when the venue carries no timezone', () => {
+    // Unchanged behaviour for the pre-geocoding rows the fallback exists for.
+    const show = makeShowResponse({
+      event_date: '2026-03-15T03:00:00Z',
+      venues: [
+        {
+          id: 10,
+          slug: 'the-venue',
+          name: 'The Venue',
+          city: 'Phoenix',
+          state: 'AZ',
+          timezone: null,
+          verified: true,
+        },
+      ],
+    })
+    const result = showToFormValues(show)
+
+    expect(result.date).toBe('2026-03-14')
+    expect(result.time).toBe('20:00')
+  })
+
   it('returns empty cost when price is null', () => {
     const show = makeShowResponse({ price: null })
     expect(showToFormValues(show).cost).toBe('')

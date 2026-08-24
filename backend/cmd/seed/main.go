@@ -302,7 +302,10 @@ func createShowWithAssociations(db *gorm.DB, showData ShowData) error {
 	if len(showData.Venues) > 0 {
 		venueName = normalizeVenueName(showData.Venues[0])
 	}
-	showSlug := utils.GenerateShowSlug(eventDateUTC, headlinerName, venueName, showData.State)
+	// nil timezone: the seed corpus is US content keyed by state, and the venue
+	// rows it links to are created earlier in this same run without a geocoded
+	// zone, so the state map is the only authority available here.
+	showSlug := utils.GenerateShowSlug(eventDateUTC, headlinerName, venueName, nil, showData.State)
 
 	// Create the show
 	show := &catalogm.Show{

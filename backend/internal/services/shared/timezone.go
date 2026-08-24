@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"gorm.io/gorm"
+
+	catalogm "psychic-homily-backend/internal/models/catalog"
 )
 
 // ErrUnknownTimezone means the server's zone catalog does not carry the name.
@@ -143,6 +145,50 @@ func NormalizedGeocodedTimezoneOrNull(db *gorm.DB, tz *string, logCtx ...any) *s
 		slog.Error("could not validate geocoded timezone; keeping the derived value",
 			append([]any{"timezone", DerefOrEmpty(tz), "error", err}, logCtx...)...)
 		return tz
+	}
+}
+
+// VenueTimezoneByNameCity reads the IANA zone already stored on a venue,
+// looked up the way every name-keyed writer in this tree identifies a venue:
+// case-insensitively on (name, city), which is what the venues uniqueness index
+// is on.
+//
+// It exists because a WRITER that anchors a show's wall-clock time needs the
+// venue's real zone, and several writers hold only a venue NAME and CITY at the
+// moment they have to decide. The US state map they used instead answers
+// America/Phoenix for anything outside its 50-state list, which silently
+// mis-anchors every show at a non-US venue by the offset between Phoenix and
+// the venue's actual zone (PSY-1873).
+//
+// Three outcomes, deliberately distinct:
+//
+//   - a zone: use it, in preference to any state-derived guess.
+//   - nil, nil: no such venue yet, or the venue has no zone. The caller falls
+//     back to the state map, which is what it did before. This is the ordinary
+//     case for an import that creates the venue and the show in one pass.
+//   - nil, error: the QUERY failed. Not the same thing as "no zone", and the
+//     caller must not treat it as one: inside a transaction a failed statement
+//     poisons the rest of it, so a swallowed error surfaces as an unrelated
+//     "current transaction is aborted" several statements later.
+//
+// This is a READ of a value some other write path derived. It is not a
+// derivation, so it does not belong to the NormalizedGeocodedTimezoneOrNull
+// census above.
+func VenueTimezoneByNameCity(db *gorm.DB, name, city string) (*string, error) {
+	if db == nil {
+		return nil, nil
+	}
+	var venue catalogm.Venue
+	err := db.Select("timezone").
+		Where("LOWER(name) = LOWER(?) AND LOWER(city) = LOWER(?)", name, city).
+		First(&venue).Error
+	switch {
+	case err == nil:
+		return venue.Timezone, nil
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("look up timezone for venue %q in %q: %w", name, city, err)
 	}
 }
 

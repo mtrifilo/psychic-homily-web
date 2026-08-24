@@ -1,7 +1,6 @@
-import {
-  parseISOToDateAndTime,
-  getTimezoneForState,
-} from '@/lib/utils/timeUtils'
+import { parseISOToDateAndTime } from '@/lib/utils/timeUtils'
+import { resolveShowTimezone } from '@/lib/utils/formatters'
+import { showTimingInput } from '../utils'
 import type { SetType, ShowResponse, VenueResponse } from '../types'
 import type { ExtractedShowData } from '@/lib/types/extraction'
 
@@ -197,7 +196,21 @@ export const defaultFormValues: FormValues = {
  */
 export function showToFormValues(show: ShowResponse): FormValues {
   const venue = show.venues[0]
-  const venueTz = venue?.state ? getTimezoneForState(venue.state) : undefined
+  // Same resolver AND the same inputs the show PAGE renders with (PSY-1873).
+  // Reading the stored instant back through a different zone than it is
+  // displayed in would show the editor a date and time nobody else sees, and
+  // saving would then rewrite the instant to match that misreading. Before
+  // this, a show at a venue outside the US opened in the form at 20:00
+  // America/Phoenix while the page rendered 04:00 the next day.
+  //
+  // Going through showTimingInput rather than re-spelling its two fields is
+  // what keeps the form and the page from drifting: it carries the
+  // `venue?.state ?? show.state` fallback, which the write path below also
+  // applies (the venue.state form field is seeded the same way). Spelling only
+  // `venue?.state` here would read a venue-less show in Phoenix and write it
+  // back in its own state, shifting event_date on a no-op save.
+  const timing = showTimingInput(show)
+  const venueTz = resolveShowTimezone(timing.state, timing.timezone)
   const { date, time } = parseISOToDateAndTime(show.event_date, venueTz)
 
   return {

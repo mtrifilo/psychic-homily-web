@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"regexp"
 	"strconv"
@@ -261,8 +262,21 @@ func (s *DiscoveryService) importEvent(event *contracts.DiscoveredEvent, dryRun 
 		return fmt.Sprintf("ERROR: Unknown venue slug: %s", event.VenueSlug), "error"
 	}
 
-	// Parse event date using the venue's state for timezone context
-	eventDate, err := parseEventDate(event.Date, event.ShowTime, venueConfig.State)
+	// Resolve the zone the scrape's wall-clock times are expressed in, ONCE, so
+	// the anchored instant and the slug derived from it cannot disagree.
+	//
+	// VenueConfig carries only a state, and the state map answers
+	// America/Phoenix for anything outside the US. That is harmless while the
+	// registry is US-only, and it is a mis-anchored show by hours the day
+	// somebody adds a room that is not (PSY-1873). The venue row, which the
+	// geocoder has stamped with a real zone, is the authority; a venue this run
+	// has not created yet resolves to nil and keeps the state fallback.
+	venueTZ, err := shared.VenueTimezoneByNameCity(s.db, venueConfig.Name, venueConfig.City)
+	if err != nil {
+		return fmt.Sprintf("ERROR: Failed to resolve venue timezone for %s: %v", venueConfig.Name, err), "error"
+	}
+
+	eventDate, err := parseEventDate(event.Date, event.ShowTime, venueTZ, venueConfig.State)
 	if err != nil {
 		return fmt.Sprintf("ERROR: Failed to parse date for %s: %v", event.Title, err), "error"
 	}
@@ -297,7 +311,7 @@ func (s *DiscoveryService) importEvent(event *contracts.DiscoveredEvent, dryRun 
 	}
 
 	// Create the show
-	err = s.createShowFromEvent(event, eventDate, venueConfig, nil, initialStatus)
+	err = s.createShowFromEvent(event, eventDate, venueConfig, venueTZ, nil, initialStatus)
 	if err != nil {
 		return fmt.Sprintf("ERROR: Failed to create show: %v", err), "error"
 	}
@@ -311,7 +325,7 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 	City    string
 	State   string
 	Address string
-}, duplicateOfShowID *uint, initialStatus catalogm.ShowStatus) error {
+}, venueTZ *string, duplicateOfShowID *uint, initialStatus catalogm.ShowStatus) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		// Parse scraped_at timestamp
 		scrapedAt, err := time.Parse(time.RFC3339, event.ScrapedAt)
@@ -321,7 +335,7 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 
 		// Resolve the doors/music instants the source stated. Nil means the
 		// source said nothing readable, and the column stays empty.
-		doorsAt, musicAt := resolveShowTimes(event.Date, event.DoorsTime, event.ShowTime, venueConfig.State)
+		doorsAt, musicAt := resolveShowTimes(event.Date, event.DoorsTime, event.ShowTime, venueTZ, venueConfig.State)
 
 		// Build description from available info.
 		//
@@ -524,7 +538,10 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 		if len(artistEntries) > 0 {
 			headlinerName = artistEntries[0].Name
 		}
-		baseShowSlug := utils.GenerateShowSlug(show.EventDate, headlinerName, venueConfig.Name, venueConfig.State)
+		// The slug date is read in the venue's own zone (PSY-1873); venueConfig
+		// carries only a state, and the state map answers Phoenix for anything
+		// outside the US.
+		baseShowSlug := utils.GenerateShowSlug(show.EventDate, headlinerName, venueConfig.Name, venue.Timezone, venueConfig.State)
 		showSlug := utils.GenerateUniqueSlug(baseShowSlug, func(candidate string) bool {
 			var count int64
 			tx.Model(&catalogm.Show{}).Where("slug = ?", candidate).Count(&count)
@@ -739,18 +756,21 @@ func parseClockTime(raw string) (hour, minute int, ok bool) {
 
 // venueLocalInstant anchors a wall-clock time to a stated calendar date, read
 // in the venue's local zone, and returns the UTC instant it names.
-func venueLocalInstant(date time.Time, hour, minute int, state string) time.Time {
-	loc, err := time.LoadLocation(getTimezoneForState(state))
-	if err != nil {
-		loc = time.UTC
-	}
+//
+// venueTZ is the zone stamped on the venue row and wins where it is present;
+// state is the legacy fallback for a venue that has none. Resolution goes
+// through utils.EventLocation so this agrees with the readers by construction
+// rather than by two functions happening to make the same choices.
+func venueLocalInstant(date time.Time, hour, minute int, venueTZ *string, state string) time.Time {
+	loc := utils.EventLocation(venueTZ, state)
 	return time.Date(date.Year(), date.Month(), date.Day(), hour, minute, 0, 0, loc).UTC()
 }
 
 // parseEventDate parses the event date and optional show time into a time.Time (UTC).
-// The state parameter is used to interpret the time of day in the venue's local
-// timezone — for a stated show time, and for the date-only anchor below.
-func parseEventDate(dateStr string, showTime *string, state string) (time.Time, error) {
+// venueTZ and state resolve the zone the time of day is read in, both for a
+// stated show time and for the date-only anchor below. See venueLocalInstant
+// for the precedence.
+func parseEventDate(dateStr string, showTime *string, venueTZ *string, state string) (time.Time, error) {
 	date, dateOnly, err := parseCalendarDate(dateStr)
 	if err != nil {
 		return time.Time{}, err
@@ -758,7 +778,7 @@ func parseEventDate(dateStr string, showTime *string, state string) (time.Time, 
 
 	if showTime != nil {
 		if hour, minute, ok := parseClockTime(*showTime); ok {
-			return venueLocalInstant(date, hour, minute, state), nil
+			return venueLocalInstant(date, hour, minute, venueTZ, state), nil
 		}
 	}
 
@@ -777,7 +797,7 @@ func parseEventDate(dateStr string, showTime *string, state string) (time.Time, 
 	if !dateOnly {
 		return date.UTC(), nil
 	}
-	return venueLocalInstant(date, utils.DateOnlyEventHour, 0, state), nil
+	return venueLocalInstant(date, utils.DateOnlyEventHour, 0, venueTZ, state), nil
 }
 
 // resolveShowTimes maps a scraped event's free-text doors/show times onto the
@@ -805,7 +825,7 @@ func parseEventDate(dateStr string, showTime *string, state string) (time.Time, 
 // and the usual cause is a listing that crossed midnight and dropped the day
 // ("Doors 11:00 PM / Show 12:00 AM"). Recovering that intent would mean
 // inferring a day rollover the source never stated, so neither time is written.
-func resolveShowTimes(dateStr string, doorsTime, showTime *string, state string) (doorsAt, musicAt *time.Time) {
+func resolveShowTimes(dateStr string, doorsTime, showTime *string, venueTZ *string, state string) (doorsAt, musicAt *time.Time) {
 	date, _, err := parseCalendarDate(dateStr)
 	if err != nil {
 		return nil, nil
@@ -818,12 +838,12 @@ func resolveShowTimes(dateStr string, doorsTime, showTime *string, state string)
 	if !ok {
 		return nil, nil
 	}
-	music := venueLocalInstant(date, showHour, showMinute, state)
+	music := venueLocalInstant(date, showHour, showMinute, venueTZ, state)
 	musicAt = &music
 
 	if doorsTime != nil {
 		if hour, minute, ok := parseClockTime(*doorsTime); ok {
-			instant := venueLocalInstant(date, hour, minute, state)
+			instant := venueLocalInstant(date, hour, minute, venueTZ, state)
 			doorsAt = &instant
 		}
 	}
@@ -1069,10 +1089,16 @@ func (s *DiscoveryService) CheckEvents(events []contracts.CheckEventInput) (*con
 	// their artist names can be batched into the single fetch below alongside
 	// the source-key matches — keeping CheckEvents at O(1) artist queries.
 	fallbackByEventID := make(map[string]catalogm.Show)
-	// One zone lookup per distinct STATE rather than one per event:
+	// One zone lookup per distinct VENUE rather than one per event:
 	// time.LoadLocation re-reads the zoneinfo on every call, and this endpoint
-	// accepts up to 200 events that in practice span a handful of states. Mirrors
-	// the same cache in engagement.upcomingShowsForScene.
+	// accepts up to 200 events that in practice span a handful of venues.
+	// Mirrors the same cache in engagement.upcomingShowsForScene.
+	//
+	// Keyed on the venue slug, not the state, because the zone is resolved from
+	// the VENUE row now (PSY-1873): two venues can share a state and, outside
+	// the US, a state name says nothing at all. The window this builds has to
+	// be the same venue-local day the writer anchors into, or the lookup
+	// searches the wrong night.
 	zones := make(map[string]*time.Location)
 	for _, e := range events {
 		if matchedByEventID[e.ID] {
@@ -1103,10 +1129,20 @@ func (s *DiscoveryService) CheckEvents(events []contracts.CheckEventInput) (*con
 		// calendar date. A UTC midnight-to-midnight window therefore matched the
 		// wrong night: it missed every show on the date asked for and reported
 		// the PREVIOUS night's show under it.
-		loc, cached := zones[venueConfig.State]
+		loc, cached := zones[e.VenueSlug]
 		if !cached {
-			loc = utils.EventLocation(nil, venueConfig.State)
-			zones[venueConfig.State] = loc
+			// A lookup failure is not fatal here: this endpoint only decorates
+			// the scraper UI, so degrading to the state map costs a possibly
+			// wrong same-day hint, while failing the whole call costs the
+			// operator the entire status view.
+			venueTZ, err := shared.VenueTimezoneByNameCity(s.db, venueConfig.Name, venueConfig.City)
+			if err != nil {
+				slog.Warn("could not read the venue timezone for a same-day match; falling back to the state map",
+					"venue_slug", e.VenueSlug, "venue_name", venueConfig.Name, "error", err)
+				venueTZ = nil
+			}
+			loc = utils.EventLocation(venueTZ, venueConfig.State)
+			zones[e.VenueSlug] = loc
 		}
 		startOfDay, err := time.ParseInLocation("2006-01-02", e.Date, loc)
 		if err != nil {

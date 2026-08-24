@@ -139,6 +139,76 @@ func (suite *BackfillIntegrationTestSuite) TestBackfill_ReanchorsBerlinShowAndCa
 	suite.Equal(0, report.VenuesUpdated)
 }
 
+// PSY-1873: the production shape is NOT the Berlin case above. Those venues
+// were already geocoded (Boom Leeds carries Europe/London and a NON-EMPTY
+// state, "England") and the mis-zoned rows were written AFTER that, by an
+// ingest path that keyed on the state map anyway. This pins that the re-anchor
+// pass still recovers them, because the assumed zone is derived from the
+// venue's state (which the state map answers Phoenix for) rather than from the
+// zone the venue already has.
+//
+// Also covers the geocoder MISSING the venue: the pass then falls back to the
+// stored zone, which is the right answer and the likely one for a UK city.
+//
+// CHARACTERIZATION TEST. It exercises the PSY-987 backfill, which this change
+// does not touch, and it would pass unchanged on main. It is here because the
+// rollout depends on that repair path handling a shape the existing suite did
+// not cover, so a future edit to reanchorEventDate has something to break.
+//
+// October is deliberate: it is the ticket's actual reproduction, and it does
+// depend on Oct 23 2026 being BST (UTC+1), which holds under current tzdata
+// since BST ends Oct 25. The DST-free version of the same invariant is
+// TestGenerateShowSlug_VenueTimezoneAheadOfUTC, which uses Asia/Tokyo.
+func (suite *BackfillIntegrationTestSuite) TestBackfill_ReanchorsAlreadyGeocodedNonUSVenue() {
+	london := mustLoc(suite.T(), "Europe/London")
+	phoenix := mustLoc(suite.T(), "America/Phoenix")
+
+	// 20:00 Phoenix on Oct 23, which is 2026-10-24T03:00:00Z: the exact instant
+	// production holds for the Leeds show in the ticket.
+	stored := time.Date(2026, 10, 23, 20, 0, 0, 0, phoenix)
+
+	venueID, showID, artistID := suite.seedShow("Leeds", "England", stored)
+	zone := "Europe/London"
+	suite.Require().NoError(
+		suite.db.Model(&catalogm.Venue{}).Where("id = ?", venueID).
+			Update("timezone", zone).Error,
+	)
+
+	// Empty stub: the geocoder resolves nothing, so the pass must use the zone
+	// already on the venue row.
+	stub := stubGeocoder{byCity: map[string]geo.Result{}}
+
+	report, err := BackfillVenueTimezones(suite.db, stub, BackfillOptions{DryRun: false})
+	suite.Require().NoError(err)
+	suite.Equal(1, report.ShowsReanchored)
+	suite.Empty(report.Errors)
+
+	want := "2026-10-23T19:00:00Z" // 20:00 Europe/London (BST, UTC+1)
+
+	var show catalogm.Show
+	suite.Require().NoError(suite.db.First(&show, showID).Error)
+	suite.Equal(want, show.EventDate.UTC().Format(time.RFC3339))
+	suite.Equal(20, show.EventDate.In(london).Hour(), "must read 20:00 venue-local")
+	suite.Equal(23, show.EventDate.In(london).Day(), "must land on the slug's calendar day")
+
+	var sa catalogm.ShowArtist
+	suite.Require().NoError(
+		suite.db.Where("show_id = ? AND artist_id = ?", showID, artistID).First(&sa).Error,
+	)
+	suite.Require().NotNil(sa.EventDate)
+	suite.Equal(want, sa.EventDate.UTC().Format(time.RFC3339))
+
+	// The venue keeps its zone (nothing to geocode) and a re-run is a no-op.
+	var venue catalogm.Venue
+	suite.Require().NoError(suite.db.First(&venue, venueID).Error)
+	suite.Require().NotNil(venue.Timezone)
+	suite.Equal(zone, *venue.Timezone)
+
+	report, err = BackfillVenueTimezones(suite.db, stub, BackfillOptions{DryRun: false})
+	suite.Require().NoError(err)
+	suite.Equal(0, report.ShowsReanchored)
+}
+
 // A zone the server's catalog does not carry is NOT a geocoder miss: the
 // coordinates must still be written, and the report must distinguish the two.
 // See BackfillReport.VenuesTzRejected for why.

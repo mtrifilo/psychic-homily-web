@@ -188,6 +188,67 @@ describe("resolveVenues", () => {
     expect(result).toHaveLength(1);
     expect(result[0].status).toBe("new");
   });
+
+  // PSY-1873: the matched venue's geocoded zone is the whole reason a non-US
+  // show lands on the right instant, so it has to survive venue resolution.
+  test("carries the matched venue's timezone", async () => {
+    const client = createMockClient({
+      get: async (path: string) => {
+        if (path.includes("/venues/search")) {
+          return {
+            venues: [
+              {
+                id: 160,
+                name: "Boom Leeds",
+                slug: "boom-leeds-leeds-england",
+                city: "Leeds",
+                state: "England",
+                country: "United Kingdom",
+                timezone: "Europe/London",
+              },
+            ],
+          };
+        }
+        return {};
+      },
+    });
+
+    const result = await resolveVenues(client, [
+      { name: "Boom Leeds", city: "Leeds", state: "England" },
+    ]);
+    expect(result[0].status).toBe("existing");
+    expect(result[0].timezone).toBe("Europe/London");
+  });
+
+  test("leaves timezone undefined for a venue with none stored", async () => {
+    const client = createMockClient({
+      get: async (path: string) => {
+        if (path.includes("/venues/search")) {
+          return {
+            venues: [
+              { id: 29, name: "Berghain", slug: "berghain-berlin-de", city: "Berlin", state: "DE", timezone: null },
+            ],
+          };
+        }
+        return {};
+      },
+    });
+
+    const result = await resolveVenues(client, [
+      { name: "Berghain", city: "Berlin", state: "DE" },
+    ]);
+    expect(result[0].timezone).toBeUndefined();
+  });
+
+  test("leaves timezone undefined for a venue this run will create", async () => {
+    const client = createMockClient({ get: async () => ({ venues: [] }) });
+
+    const result = await resolveVenues(client, [
+      { name: "Brand New Room", city: "Leeds", state: "England" },
+    ]);
+    expect(result[0].status).toBe("new");
+    expect(result[0].timezone).toBeUndefined();
+  });
 });
 
 // -- buildShowPayload --------------------------------------------------------
@@ -220,6 +281,55 @@ describe("buildShowPayload", () => {
     const venues = payload.venues as Array<Record<string, unknown>>;
     expect(venues[0].id).toBe(10);
     expect(venues[0].name).toBeUndefined();
+  });
+
+  test("anchors a non-US date-only show in the venue's own timezone", () => {
+    // PSY-1873, end to end through the writer: the Leeds show that shipped as
+    // 2026-10-24T03:00:00Z (20:00 America/Phoenix) is now 20:00 Europe/London.
+    const plan: ShowPlan = {
+      input: {
+        event_date: "2026-10-23",
+        city: "Leeds",
+        state: "England",
+        artists: [{ name: "Din of Celestial Birds" }],
+        venues: [{ name: "Boom Leeds", city: "Leeds", state: "England" }],
+      },
+      artists: [{ id: 3411, name: "Din of Celestial Birds", status: "existing" }],
+      venues: [
+        {
+          id: 160,
+          name: "Boom Leeds",
+          state: "England",
+          timezone: "Europe/London",
+          status: "existing",
+        },
+      ],
+      valid: true,
+      errors: [],
+    };
+
+    expect(buildShowPayload(plan).event_date).toBe("2026-10-23T19:00:00Z");
+  });
+
+  test("falls back to the state map when the venue has no timezone", () => {
+    // Unchanged behaviour for a venue this run is about to create. Wrong for a
+    // non-US room, but it is the only information the writer has, and the
+    // backfill CLI re-anchors the row once the venue is geocoded.
+    const plan: ShowPlan = {
+      input: {
+        event_date: "2026-10-23",
+        city: "Leeds",
+        state: "England",
+        artists: [{ name: "Din of Celestial Birds" }],
+        venues: [{ name: "Brand New Room", city: "Leeds", state: "England" }],
+      },
+      artists: [{ id: 3411, name: "Din of Celestial Birds", status: "existing" }],
+      venues: [{ name: "Brand New Room", state: "England", status: "new" }],
+      valid: true,
+      errors: [],
+    };
+
+    expect(buildShowPayload(plan).event_date).toBe("2026-10-24T03:00:00Z");
   });
 
   test("builds payload with new artist name", () => {
@@ -940,5 +1050,56 @@ describe("normalizeDate", () => {
   test("California winter (PST, UTC-8): 8pm = 4am UTC next day", () => {
     // January = PST = UTC-8
     expect(normalizeDate("2026-01-15", "CA")).toBe("2026-01-16T04:00:00Z");
+  });
+
+  // -- non-US venues (PSY-1873) ---------------------------------------------
+
+  test("venue timezone anchors a Leeds date-only show at 20:00 local", () => {
+    // The production defect, exactly: without the venue's zone, "England" runs
+    // through the US state map and lands on 20:00 America/Phoenix, which is
+    // 03:00Z the NEXT day, rendered as "Sat, Oct 24, 4:00 AM" in Europe/London.
+    expect(normalizeDate("2026-10-23", "England")).toBe("2026-10-24T03:00:00Z");
+    expect(normalizeDate("2026-10-23", "England", "Europe/London")).toBe(
+      "2026-10-23T19:00:00Z",
+    );
+  });
+
+  test("venue timezone anchors a Berlin date-only show at 20:00 local", () => {
+    // CEST in August = UTC+2.
+    expect(normalizeDate("2026-08-14", "DE", "Europe/Berlin")).toBe(
+      "2026-08-14T18:00:00Z",
+    );
+  });
+
+  test("venue timezone applies to a stated wall-clock time too", () => {
+    expect(normalizeDate("2026-10-23T23:30", "England", "Europe/London")).toBe(
+      "2026-10-23T22:30:00Z",
+    );
+  });
+
+  test("venue timezone east of UTC does not roll the calendar day", () => {
+    // A Tokyo evening show is the same calendar day in UTC; the Phoenix
+    // fallback would place it a day earlier in local terms.
+    expect(normalizeDate("2026-10-23", "", "Asia/Tokyo")).toBe(
+      "2026-10-23T11:00:00Z",
+    );
+  });
+
+  test("a US venue's own timezone agrees with the state map", () => {
+    // The fix must not move any US row: both spellings resolve identically.
+    expect(normalizeDate("2026-04-15", "AZ", "America/Phoenix")).toBe(
+      normalizeDate("2026-04-15", "AZ"),
+    );
+  });
+
+  test("an unloadable venue timezone falls back to the state map", () => {
+    // A bad venues.timezone must not crash the writer or silently become UTC.
+    expect(normalizeDate("2026-04-15", "NY", "Mars/Olympus")).toBe(
+      "2026-04-16T00:00:00Z",
+    );
+  });
+
+  test("an empty venue timezone falls back to the state map", () => {
+    expect(normalizeDate("2026-04-15", "NY", "")).toBe("2026-04-16T00:00:00Z");
   });
 });

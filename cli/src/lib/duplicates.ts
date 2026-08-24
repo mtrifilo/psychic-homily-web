@@ -1,6 +1,6 @@
 import type { APIClient } from "./api";
 import type { EntityType } from "./types";
-import { getTimezoneForState, localTimeToUTC } from "./timezone";
+import { resolveVenueTimezone, localTimeToUTC } from "./timezone";
 
 export type MatchResult = "exact" | "fuzzy" | "none";
 export type ActionType = "create" | "update" | "skip";
@@ -423,6 +423,10 @@ async function searchVenues(
       zipcode?: string;
       capacity?: number;
       verified?: boolean;
+      // PSY-1873: the geocoded IANA zone. Not a dedup field. It is carried
+      // through so the show writer can anchor a date-only show in the venue's
+      // real zone instead of the US state map's Phoenix default.
+      timezone?: string | null;
       description?: string;
       social?: {
         website?: string;
@@ -448,6 +452,7 @@ async function searchVenues(
     zipcode: v.zipcode || "",
     capacity: v.capacity != null ? String(v.capacity) : "",
     verified: v.verified ?? false,
+    timezone: v.timezone ?? undefined,
     description: v.description || "",
     website: v.social?.website || "",
     bandcamp: v.social?.bandcamp || "",
@@ -786,18 +791,24 @@ function extractCalendarDate(dateStr: string): string {
  * the backend then rejects the re-insert with a confusing 422 SHOW_CREATE_FAILED.
  *
  * Deriving the window from venue-local 00:00..23:59 (converted to UTC) keeps the
- * dedup check aligned with how the show was actually stored. The default
- * (America/Phoenix) mirrors `normalizeDate`'s fallback.
+ * dedup check aligned with how the show was actually stored.
+ *
+ * The zone must be resolved the SAME way `normalizeDate` resolves it, or the
+ * window and the row it is looking for drift apart. That is why this takes the
+ * venue's timezone too (PSY-1873): once the writer anchors a Leeds show in
+ * Europe/London, a Phoenix-derived window is seven hours off and a re-ingest
+ * stops recognising its own rows. Both go through `resolveVenueTimezone`.
  */
 export function showDedupWindow(
   eventDate: string,
   state?: string,
+  timezone?: string,
 ): { fromDate: string; toDate: string } {
   const calendarDate = extractCalendarDate(eventDate);
-  const timezone = state ? getTimezoneForState(state) : "America/Phoenix";
+  const zone = resolveVenueTimezone(state, timezone);
   return {
-    fromDate: localTimeToUTC(calendarDate, "00:00", timezone),
-    toDate: localTimeToUTC(calendarDate, "23:59", timezone),
+    fromDate: localTimeToUTC(calendarDate, "00:00", zone),
+    toDate: localTimeToUTC(calendarDate, "23:59", zone),
   };
 }
 
@@ -806,8 +817,9 @@ export function showDedupWindow(
  * date with the same venue and at least one overlapping artist.
  *
  * Requires at least one resolved venue ID and one resolved artist ID/name to check.
- * `state` (the venue/show state) is used to align the query window with the
- * venue-timezone normalization applied when the show is created.
+ * `timezone` (the matched venue's IANA zone) and `state` (its fallback) align
+ * the query window with the venue-timezone normalization applied when the show
+ * is created. Pass the same pair the writer will.
  */
 export async function checkShowDuplicate(
   client: APIClient,
@@ -816,6 +828,7 @@ export async function checkShowDuplicate(
   resolvedArtistIds: number[],
   resolvedArtistNames: string[],
   state?: string,
+  timezone?: string,
 ): Promise<ShowDuplicateResult> {
   const noMatch: ShowDuplicateResult = { isDuplicate: false };
 
@@ -828,7 +841,7 @@ export async function checkShowDuplicate(
   try {
     // Query shows across the venue-local calendar day (converted to UTC) so the
     // window matches how event_date is stored. See showDedupWindow.
-    const { fromDate, toDate } = showDedupWindow(eventDate, state);
+    const { fromDate, toDate } = showDedupWindow(eventDate, state, timezone);
 
     const result = await client.get<ShowResponseForDedup[]>("/shows", {
       from_date: fromDate,

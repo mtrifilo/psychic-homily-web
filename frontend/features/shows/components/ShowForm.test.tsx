@@ -53,6 +53,8 @@ interface MockVenue {
   address: string | null
   city: string
   state: string
+  /** Geocoded IANA zone; drives event_date anchoring (PSY-1873). */
+  timezone?: string | null
   verified: boolean
 }
 
@@ -523,6 +525,57 @@ describe('ShowForm — successful submit', () => {
     await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1), {
       timeout: 2500,
     })
+  })
+
+  // PSY-1873: the selected venue's own IANA zone anchors event_date. Keying on
+  // the state alone ran "England" through the US state map, which answers
+  // America/Phoenix, so an 8pm Leeds show was submitted as 03:00Z the NEXT day
+  // and the show page, which renders in Europe/London, printed 4:00 AM.
+  //
+  // January deliberately: London is on GMT then, so the expected instant does
+  // not depend on any projected future DST rule.
+  it("anchors event_date in the selected venue's timezone, not the state map", async () => {
+    mockVenueSearch.venues = [
+      {
+        id: 160,
+        slug: 'boom-leeds-leeds-england',
+        name: 'Boom Leeds',
+        address: '5 Canal Pl',
+        city: 'Leeds',
+        state: 'England',
+        timezone: 'Europe/London',
+        verified: true,
+      },
+    ]
+    mockShowSubmit.mutate.mockImplementation((_vars, opts) => {
+      opts?.onSuccess?.({ status: 'approved' })
+    })
+
+    const user = userEvent.setup()
+    renderWithProviders(<ShowForm mode="create" redirectOnCreate={false} />)
+
+    await user.type(
+      screen.getByPlaceholderText('Enter artist name'),
+      'Din of Celestial Birds'
+    )
+    await user.type(screen.getByLabelText(/^Venue$/i), 'Boom')
+    const option = await screen.findByTestId('search-result-venue')
+    await user.pointer({ keys: '[MouseLeft>]', target: option })
+    await waitFor(() =>
+      expect((screen.getByLabelText(/^City$/i) as HTMLInputElement).value).toBe(
+        'Leeds'
+      )
+    )
+    fireSet(screen.getByLabelText(/^Date$/i) as HTMLInputElement, '2099-01-15')
+
+    await user.click(screen.getByRole('button', { name: /submit show/i }))
+    await waitFor(() => expect(mockShowSubmit.mutate).toHaveBeenCalledTimes(1))
+
+    const submission = mockShowSubmit.mutate.mock.calls[0][0] as {
+      event_date: string
+    }
+    // 20:00 GMT, not 20:00 Phoenix (which would be 2099-01-16T03:00:00Z).
+    expect(submission.event_date).toBe('2099-01-15T20:00:00Z')
   })
 
   it('routes private submissions to the Contribute console with its dialog trigger', async () => {

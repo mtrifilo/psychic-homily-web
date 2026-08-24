@@ -176,16 +176,20 @@ func (s *ShowService) CreateShow(req *contracts.CreateShowRequest) (*contracts.S
 		if len(artists) > 0 && headlinerName == "unknown" {
 			headlinerName = artists[0].Name
 		}
+		// The venue's own IANA zone is what the slug date is read in; the show's
+		// denormalized state is only the fallback for a venue that has none.
+		// Both come from the just-associated venue row (PSY-1873).
+		var venueTimezone *string
 		if len(venues) > 0 {
 			venueName = venues[0].Name
+			venueTimezone = venues[0].Timezone
 		}
 
-		// Use show state for timezone-aware slug date
 		showState := ""
 		if show.State != nil {
 			showState = *show.State
 		}
-		baseSlug := utils.GenerateShowSlug(show.EventDate, headlinerName, venueName, showState)
+		baseSlug := utils.GenerateShowSlug(show.EventDate, headlinerName, venueName, venueTimezone, showState)
 		slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 			var count int64
 			tx.Model(&catalogm.Show{}).Where("slug = ?", candidate).Count(&count)

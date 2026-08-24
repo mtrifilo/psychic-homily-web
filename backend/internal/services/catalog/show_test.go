@@ -305,6 +305,65 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_ExistingVenue() {
 	suite.Equal(int64(1), venueCount)
 }
 
+// PSY-1873: the slug carries the show's VENUE-LOCAL calendar date, and for a
+// venue outside the US only venues.timezone can supply it. The state map
+// answers America/Phoenix for "England" and dates the slug a day early.
+//
+// The instant here is the one production actually holds for show #1430 at Boom
+// Leeds. In Europe/London it reads 04:00 on Oct 24, which is what the show page
+// prints; the slug shipped as "2026-10-23-...", contradicting the page.
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_SlugUsesNonUSVenueTimezone() {
+	venue := suite.createTestVenue("Boom Leeds", "Leeds", "England", true)
+	london := "Europe/London"
+	suite.Require().NoError(
+		suite.db.Model(venue).Update("timezone", london).Error,
+	)
+	user := suite.createTestUser()
+
+	resp, err := suite.showService.CreateShow(&contracts.CreateShowRequest{
+		Title:     "Leeds Show",
+		EventDate: time.Date(2026, 10, 24, 3, 0, 0, 0, time.UTC),
+		City:      "Leeds",
+		State:     "England",
+		Venues: []contracts.CreateShowVenue{
+			{Name: "Boom Leeds", City: "Leeds", State: "England"},
+		},
+		Artists: []contracts.CreateShowArtist{
+			{Name: "Din of Celestial Birds", IsHeadliner: boolPtr(true)},
+		},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	})
+
+	suite.Require().NoError(err)
+	suite.Equal("2026-10-24-din-of-celestial-birds-at-boom-leeds", resp.Slug)
+}
+
+// A venue with no resolved zone keeps the state-map fallback, so no US row
+// moves and a pre-geocoding row behaves exactly as it did.
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_SlugFallsBackToStateWithoutVenueTimezone() {
+	suite.createTestVenue("Zoneless Hall", "Phoenix", "AZ", true)
+	user := suite.createTestUser()
+
+	resp, err := suite.showService.CreateShow(&contracts.CreateShowRequest{
+		Title:     "Phoenix Show",
+		EventDate: time.Date(2026, 10, 24, 3, 0, 0, 0, time.UTC),
+		City:      "Phoenix",
+		State:     "AZ",
+		Venues: []contracts.CreateShowVenue{
+			{Name: "Zoneless Hall", City: "Phoenix", State: "AZ"},
+		},
+		Artists: []contracts.CreateShowArtist{
+			{Name: "Desert Band", IsHeadliner: boolPtr(true)},
+		},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	})
+
+	suite.Require().NoError(err)
+	suite.Equal("2026-10-23-desert-band-at-zoneless-hall", resp.Slug)
+}
+
 func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_NewArtistAndVenue() {
 	user := suite.createTestUser()
 	req := &contracts.CreateShowRequest{

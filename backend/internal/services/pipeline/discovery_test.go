@@ -28,7 +28,7 @@ import (
 // old behaviour filed the show under the wrong calendar day and dropped it from
 // every upcoming bound 31 hours early (PSY-1780/PSY-1849/PSY-1861).
 func TestParseEventDate_ISODateOnly_AnchorsVenueLocalEvening(t *testing.T) {
-	result, err := parseEventDate("2026-01-25", nil, "AZ")
+	result, err := parseEventDate("2026-01-25", nil, nil, "AZ")
 	assert.NoError(t, err)
 	// 20:00 Phoenix (UTC-7, no DST) on the 25th = 03:00 UTC on the 26th.
 	assert.Equal(t, time.Date(2026, 1, 26, 3, 0, 0, 0, time.UTC), result)
@@ -46,13 +46,13 @@ func TestParseEventDate_ISODateOnly_AnchorsAcrossDST(t *testing.T) {
 	newYork, err := time.LoadLocation("America/New_York")
 	assert.NoError(t, err)
 
-	winter, err := parseEventDate("2026-01-25", nil, "NY")
+	winter, err := parseEventDate("2026-01-25", nil, nil, "NY")
 	assert.NoError(t, err)
 	// 20:00 EST (UTC-5) = 01:00 UTC next day.
 	assert.Equal(t, time.Date(2026, 1, 26, 1, 0, 0, 0, time.UTC), winter)
 	assert.Equal(t, "2026-01-25 20:00", winter.In(newYork).Format("2006-01-02 15:04"))
 
-	summer, err := parseEventDate("2026-08-15", nil, "NY")
+	summer, err := parseEventDate("2026-08-15", nil, nil, "NY")
 	assert.NoError(t, err)
 	// 20:00 EDT (UTC-4) is EXACTLY UTC midnight on the 16th. This is the case
 	// that makes a read-side repair impossible: a correctly anchored date-only
@@ -74,7 +74,7 @@ func TestParseEventDate_AnchorsAcrossDSTTransitionDays(t *testing.T) {
 	}
 	// US transitions in 2026: spring forward Mar 8, fall back Nov 1.
 	for _, date := range []string{"2026-03-07", "2026-03-08", "2026-03-09", "2026-10-31", "2026-11-01", "2026-11-02"} {
-		got, err := parseEventDate(date, nil, "NY")
+		got, err := parseEventDate(date, nil, nil, "NY")
 		assert.NoError(t, err)
 		assert.Equal(t, date+" 20:00", got.In(newYork).Format("2006-01-02 15:04"),
 			"date-only import of %s must anchor on that evening in New York", date)
@@ -85,19 +85,19 @@ func TestParseEventDate_AnchorsAcrossDSTTransitionDays(t *testing.T) {
 // default. The anchor must never be skipped for want of a zone, because the
 // fallback for "no zone" was the corrupt midnight value.
 func TestParseEventDate_UnknownState_AnchorsOnDefaultZone(t *testing.T) {
-	result, err := parseEventDate("2026-01-25", nil, "XX")
+	result, err := parseEventDate("2026-01-25", nil, nil, "XX")
 	assert.NoError(t, err)
 	assert.Equal(t, time.Date(2026, 1, 26, 3, 0, 0, 0, time.UTC), result)
 }
 
 func TestParseEventDate_ISOTimestamp(t *testing.T) {
-	result, err := parseEventDate("2026-01-25T19:00:00Z", nil, "AZ")
+	result, err := parseEventDate("2026-01-25T19:00:00Z", nil, nil, "AZ")
 	assert.NoError(t, err)
 	assert.Equal(t, time.Date(2026, 1, 25, 19, 0, 0, 0, time.UTC), result)
 }
 
 func TestParseEventDate_RFC3339(t *testing.T) {
-	result, err := parseEventDate("2026-01-25T19:00:00-07:00", nil, "AZ")
+	result, err := parseEventDate("2026-01-25T19:00:00-07:00", nil, nil, "AZ")
 	assert.NoError(t, err)
 	expected := time.Date(2026, 1, 26, 2, 0, 0, 0, time.UTC)
 	assert.Equal(t, expected, result)
@@ -105,7 +105,7 @@ func TestParseEventDate_RFC3339(t *testing.T) {
 
 func TestParseEventDate_WithShowTimePM_AZ(t *testing.T) {
 	showTime := "7:00 pm"
-	result, err := parseEventDate("2026-01-25", &showTime, "AZ")
+	result, err := parseEventDate("2026-01-25", &showTime, nil, "AZ")
 	assert.NoError(t, err)
 	// 7:00 PM Phoenix (UTC-7) = 2:00 AM UTC next day
 	assert.Equal(t, time.Date(2026, 1, 26, 2, 0, 0, 0, time.UTC), result)
@@ -113,7 +113,7 @@ func TestParseEventDate_WithShowTimePM_AZ(t *testing.T) {
 
 func TestParseEventDate_WithShowTimePM_NY(t *testing.T) {
 	showTime := "8:00 pm"
-	result, err := parseEventDate("2026-01-25", &showTime, "NY")
+	result, err := parseEventDate("2026-01-25", &showTime, nil, "NY")
 	assert.NoError(t, err)
 	// 8:00 PM New York (UTC-5 in January) = 1:00 AM UTC next day
 	assert.Equal(t, time.Date(2026, 1, 26, 1, 0, 0, 0, time.UTC), result)
@@ -121,7 +121,7 @@ func TestParseEventDate_WithShowTimePM_NY(t *testing.T) {
 
 func TestParseEventDate_WithShowTimeAM_AZ(t *testing.T) {
 	showTime := "11:00 am"
-	result, err := parseEventDate("2026-01-25", &showTime, "AZ")
+	result, err := parseEventDate("2026-01-25", &showTime, nil, "AZ")
 	assert.NoError(t, err)
 	// 11:00 AM Phoenix (UTC-7) = 6:00 PM UTC same day
 	assert.Equal(t, time.Date(2026, 1, 25, 18, 0, 0, 0, time.UTC), result)
@@ -129,7 +129,7 @@ func TestParseEventDate_WithShowTimeAM_AZ(t *testing.T) {
 
 func TestParseEventDate_12PM_AZ(t *testing.T) {
 	showTime := "12:00 pm"
-	result, err := parseEventDate("2026-01-25", &showTime, "AZ")
+	result, err := parseEventDate("2026-01-25", &showTime, nil, "AZ")
 	assert.NoError(t, err)
 	// 12:00 PM Phoenix (UTC-7) = 7:00 PM UTC same day
 	assert.Equal(t, time.Date(2026, 1, 25, 19, 0, 0, 0, time.UTC), result)
@@ -137,7 +137,7 @@ func TestParseEventDate_12PM_AZ(t *testing.T) {
 
 func TestParseEventDate_12AM_AZ(t *testing.T) {
 	showTime := "12:00 am"
-	result, err := parseEventDate("2026-01-25", &showTime, "AZ")
+	result, err := parseEventDate("2026-01-25", &showTime, nil, "AZ")
 	assert.NoError(t, err)
 	// 12:00 AM Phoenix (UTC-7) = 7:00 AM UTC same day
 	assert.Equal(t, time.Date(2026, 1, 25, 7, 0, 0, 0, time.UTC), result)
@@ -145,7 +145,7 @@ func TestParseEventDate_12AM_AZ(t *testing.T) {
 
 func TestParseEventDate_WithSpacesInTime(t *testing.T) {
 	showTime := " 7:00 PM "
-	result, err := parseEventDate("2026-01-25", &showTime, "AZ")
+	result, err := parseEventDate("2026-01-25", &showTime, nil, "AZ")
 	assert.NoError(t, err)
 	// 7:00 PM Phoenix (UTC-7) = 2:00 AM UTC next day
 	assert.Equal(t, time.Date(2026, 1, 26, 2, 0, 0, 0, time.UTC), result)
@@ -153,20 +153,20 @@ func TestParseEventDate_WithSpacesInTime(t *testing.T) {
 
 func TestParseEventDate_EmptyShowTime(t *testing.T) {
 	showTime := ""
-	result, err := parseEventDate("2026-01-25", &showTime, "AZ")
+	result, err := parseEventDate("2026-01-25", &showTime, nil, "AZ")
 	assert.NoError(t, err)
 	// Indistinguishable from no show time at all: anchored, not UTC midnight.
 	assert.Equal(t, time.Date(2026, 1, 26, 3, 0, 0, 0, time.UTC), result)
 }
 
 func TestParseEventDate_InvalidDate(t *testing.T) {
-	_, err := parseEventDate("not-a-date", nil, "AZ")
+	_, err := parseEventDate("not-a-date", nil, nil, "AZ")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unable to parse date")
 }
 
 func TestParseEventDate_NilShowTime(t *testing.T) {
-	result, err := parseEventDate("2026-01-25", nil, "AZ")
+	result, err := parseEventDate("2026-01-25", nil, nil, "AZ")
 	assert.NoError(t, err)
 	assert.Equal(t, time.Date(2026, 1, 26, 3, 0, 0, 0, time.UTC), result)
 }
@@ -176,18 +176,18 @@ func TestParseEventDate_NilShowTime(t *testing.T) {
 // rewriting scraped instants: without it, a feed publishing midnight-UTC
 // timestamps would be pushed a further 20 hours.
 func TestParseEventDate_FullTimestampIsNeverReanchored(t *testing.T) {
-	midnightUTC, err := parseEventDate("2026-01-25T00:00:00Z", nil, "AZ")
+	midnightUTC, err := parseEventDate("2026-01-25T00:00:00Z", nil, nil, "AZ")
 	assert.NoError(t, err)
 	assert.Equal(t, time.Date(2026, 1, 25, 0, 0, 0, 0, time.UTC), midnightUTC)
 
-	withOffset, err := parseEventDate("2026-01-25T20:00:00-07:00", nil, "AZ")
+	withOffset, err := parseEventDate("2026-01-25T20:00:00-07:00", nil, nil, "AZ")
 	assert.NoError(t, err)
 	assert.Equal(t, time.Date(2026, 1, 26, 3, 0, 0, 0, time.UTC), withOffset)
 }
 
 func TestParseEventDate_UnparseableTime(t *testing.T) {
 	showTime := "doors at 7"
-	result, err := parseEventDate("2026-01-25", &showTime, "AZ")
+	result, err := parseEventDate("2026-01-25", &showTime, nil, "AZ")
 	assert.NoError(t, err)
 	// An unparseable time is still ignored, but the date no longer falls through
 	// as bare UTC midnight — it takes the same venue-local evening anchor a
@@ -198,11 +198,70 @@ func TestParseEventDate_UnparseableTime(t *testing.T) {
 
 func TestParseEventDate_UnknownStateDefaultsToPhoenix(t *testing.T) {
 	showTime := "8:00 pm"
-	result, err := parseEventDate("2026-01-25", &showTime, "XX")
+	result, err := parseEventDate("2026-01-25", &showTime, nil, "XX")
 	assert.NoError(t, err)
 	// Unknown state defaults to America/Phoenix (UTC-7)
 	// 8:00 PM Phoenix = 3:00 AM UTC next day
 	assert.Equal(t, time.Date(2026, 1, 26, 3, 0, 0, 0, time.UTC), result)
+}
+
+// PSY-1873: the venue's own zone outranks the state map, which answers
+// America/Phoenix for every state name it does not carry. VenueConfig is
+// US-only today, so this is the guard that keeps the anchor and the slug (which
+// already reads the venue zone) from diverging the day a non-US room is added.
+func TestParseEventDate_VenueTimezoneOutranksStateMap(t *testing.T) {
+	london := "Europe/London"
+
+	// Date-only anchors at 20:00 venue-local. In GMT that is 20:00Z; the state
+	// map would have made it 20:00 Phoenix, i.e. 03:00Z the NEXT day.
+	dateOnly, err := parseEventDate("2026-01-23", nil, &london, "England")
+	assert.NoError(t, err)
+	assert.Equal(t, time.Date(2026, 1, 23, 20, 0, 0, 0, time.UTC), dateOnly)
+
+	stateOnly, err := parseEventDate("2026-01-23", nil, nil, "England")
+	assert.NoError(t, err)
+	assert.Equal(t, time.Date(2026, 1, 24, 3, 0, 0, 0, time.UTC), stateOnly)
+
+	// A stated wall-clock time reads in the same zone.
+	showTime := "9:00 pm"
+	stated, err := parseEventDate("2026-01-23", &showTime, &london, "England")
+	assert.NoError(t, err)
+	assert.Equal(t, time.Date(2026, 1, 23, 21, 0, 0, 0, time.UTC), stated)
+}
+
+// A US venue must not move: its stored zone and its state-map zone agree.
+func TestParseEventDate_VenueTimezoneMatchesStateForUSVenue(t *testing.T) {
+	phoenix := "America/Phoenix"
+	showTime := "8:00 pm"
+
+	withZone, err := parseEventDate("2026-01-25", &showTime, &phoenix, "AZ")
+	assert.NoError(t, err)
+	stateOnly, err := parseEventDate("2026-01-25", &showTime, nil, "AZ")
+	assert.NoError(t, err)
+	assert.Equal(t, stateOnly, withZone)
+}
+
+// A venue row carrying an unloadable zone falls through to the state map rather
+// than to UTC, matching utils.EventLocation's documented precedence.
+func TestParseEventDate_MalformedVenueTimezoneFallsBackToState(t *testing.T) {
+	bogus := "Mars/Olympus"
+	showTime := "8:00 pm"
+
+	result, err := parseEventDate("2026-01-25", &showTime, &bogus, "AZ")
+	assert.NoError(t, err)
+	assert.Equal(t, time.Date(2026, 1, 26, 3, 0, 0, 0, time.UTC), result)
+}
+
+// resolveShowTimes must anchor doors/music in the SAME zone parseEventDate
+// anchors event_date in, or a non-US show's stripe contradicts its own date.
+func TestResolveShowTimes_UsesVenueTimezone(t *testing.T) {
+	london := "Europe/London"
+	doorsAt, musicAt := resolveShowTimes("2026-01-23", strPtr("7:00 pm"), strPtr("8:00 pm"), &london, "England")
+
+	assert.NotNil(t, doorsAt)
+	assert.NotNil(t, musicAt)
+	assert.Equal(t, time.Date(2026, 1, 23, 19, 0, 0, 0, time.UTC), doorsAt.UTC())
+	assert.Equal(t, time.Date(2026, 1, 23, 20, 0, 0, 0, time.UTC), musicAt.UTC())
 }
 
 func TestParseEventDate_DSTAwareState(t *testing.T) {
@@ -210,12 +269,12 @@ func TestParseEventDate_DSTAwareState(t *testing.T) {
 	showTime := "8:00 pm"
 
 	// January (PST = UTC-8): 8:00 PM = 4:00 AM UTC next day
-	winter, err := parseEventDate("2026-01-25", &showTime, "CA")
+	winter, err := parseEventDate("2026-01-25", &showTime, nil, "CA")
 	assert.NoError(t, err)
 	assert.Equal(t, time.Date(2026, 1, 26, 4, 0, 0, 0, time.UTC), winter)
 
 	// July (PDT = UTC-7): 8:00 PM = 3:00 AM UTC next day
-	summer, err := parseEventDate("2026-07-15", &showTime, "CA")
+	summer, err := parseEventDate("2026-07-15", &showTime, nil, "CA")
 	assert.NoError(t, err)
 	assert.Equal(t, time.Date(2026, 7, 16, 3, 0, 0, 0, time.UTC), summer)
 }
@@ -299,7 +358,7 @@ func TestParseClockTime_SourceShapes(t *testing.T) {
 func strPtr(s string) *string { return &s }
 
 func TestResolveShowTimes_BothStated_AZ(t *testing.T) {
-	doorsAt, musicAt := resolveShowTimes("2026-01-25", strPtr("6:30 pm"), strPtr("7:00 pm"), "AZ")
+	doorsAt, musicAt := resolveShowTimes("2026-01-25", strPtr("6:30 pm"), strPtr("7:00 pm"), nil, "AZ")
 	// Phoenix is UTC-7 year round.
 	assert.Equal(t, time.Date(2026, 1, 26, 1, 30, 0, 0, time.UTC), *doorsAt)
 	assert.Equal(t, time.Date(2026, 1, 26, 2, 0, 0, 0, time.UTC), *musicAt)
@@ -310,10 +369,10 @@ func TestResolveShowTimes_MusicAtAgreesWithEventDate(t *testing.T) {
 	// name the same instant. Anchoring them separately is the drift risk this
 	// asserts against.
 	showTime := "8:00 pm"
-	eventDate, err := parseEventDate("2026-01-25", &showTime, "NY")
+	eventDate, err := parseEventDate("2026-01-25", &showTime, nil, "NY")
 	assert.NoError(t, err)
 
-	_, musicAt := resolveShowTimes("2026-01-25", nil, &showTime, "NY")
+	_, musicAt := resolveShowTimes("2026-01-25", nil, &showTime, nil, "NY")
 	assert.Equal(t, eventDate, *musicAt)
 }
 
@@ -322,13 +381,13 @@ func TestResolveShowTimes_DoorsOnlyWritesNothing(t *testing.T) {
 	// placeholder that renders as the previous day in every US venue zone, so a
 	// doors time anchored to the stated day would put the stripe and the date a
 	// calendar day apart. The show keeps its date-only rendering instead.
-	doorsAt, musicAt := resolveShowTimes("2026-06-15", strPtr("7:00 PM"), nil, "IL")
+	doorsAt, musicAt := resolveShowTimes("2026-06-15", strPtr("7:00 PM"), nil, nil, "IL")
 	assert.Nil(t, doorsAt)
 	assert.Nil(t, musicAt)
 }
 
 func TestResolveShowTimes_DoorsOnlyWithUnreadableShowTimeWritesNothing(t *testing.T) {
-	doorsAt, musicAt := resolveShowTimes("2026-06-15", strPtr("7:00 PM"), strPtr("TBD"), "IL")
+	doorsAt, musicAt := resolveShowTimes("2026-06-15", strPtr("7:00 PM"), strPtr("TBD"), nil, "IL")
 	assert.Nil(t, doorsAt)
 	assert.Nil(t, musicAt)
 }
@@ -336,32 +395,32 @@ func TestResolveShowTimes_DoorsOnlyWithUnreadableShowTimeWritesNothing(t *testin
 func TestResolveShowTimes_MusicOnly(t *testing.T) {
 	// Empty Bottle's and wix's widgets state a start time only. That is the
 	// anchor, so it writes on its own.
-	doorsAt, musicAt := resolveShowTimes("2026-06-15", nil, strPtr("8:00 PM"), "IL")
+	doorsAt, musicAt := resolveShowTimes("2026-06-15", nil, strPtr("8:00 PM"), nil, "IL")
 	assert.Nil(t, doorsAt)
 	assert.Equal(t, time.Date(2026, 6, 16, 1, 0, 0, 0, time.UTC), *musicAt)
 }
 
 func TestResolveShowTimes_NeitherStated(t *testing.T) {
-	doorsAt, musicAt := resolveShowTimes("2026-06-15", nil, nil, "AZ")
+	doorsAt, musicAt := resolveShowTimes("2026-06-15", nil, nil, nil, "AZ")
 	assert.Nil(t, doorsAt)
 	assert.Nil(t, musicAt)
 }
 
 func TestResolveShowTimes_UnreadableTimesAreAbsent(t *testing.T) {
 	// The site would rather show a date alone than a time it guessed at.
-	doorsAt, musicAt := resolveShowTimes("2026-06-15", strPtr("doors at 7"), strPtr("TBD"), "AZ")
+	doorsAt, musicAt := resolveShowTimes("2026-06-15", strPtr("doors at 7"), strPtr("TBD"), nil, "AZ")
 	assert.Nil(t, doorsAt)
 	assert.Nil(t, musicAt)
 }
 
 func TestResolveShowTimes_EmptyStringsAreAbsent(t *testing.T) {
-	doorsAt, musicAt := resolveShowTimes("2026-06-15", strPtr(""), strPtr(""), "AZ")
+	doorsAt, musicAt := resolveShowTimes("2026-06-15", strPtr(""), strPtr(""), nil, "AZ")
 	assert.Nil(t, doorsAt)
 	assert.Nil(t, musicAt)
 }
 
 func TestResolveShowTimes_UnreadableDoorsStillWritesTheShowTime(t *testing.T) {
-	doorsAt, musicAt := resolveShowTimes("2026-06-15", strPtr("doors at 7"), strPtr("8:00 PM"), "AZ")
+	doorsAt, musicAt := resolveShowTimes("2026-06-15", strPtr("doors at 7"), strPtr("8:00 PM"), nil, "AZ")
 	assert.Nil(t, doorsAt)
 	assert.Equal(t, time.Date(2026, 6, 16, 3, 0, 0, 0, time.UTC), *musicAt)
 }
@@ -371,7 +430,7 @@ func TestResolveShowTimes_ContradictoryPairWritesNeither(t *testing.T) {
 	// dropped the day. Anchoring both to the stated date puts the music 23
 	// hours before the doors, so neither is written rather than inferring the
 	// rollover the source never stated.
-	doorsAt, musicAt := resolveShowTimes("2026-06-15", strPtr("11:00 PM"), strPtr("12:00 AM"), "AZ")
+	doorsAt, musicAt := resolveShowTimes("2026-06-15", strPtr("11:00 PM"), strPtr("12:00 AM"), nil, "AZ")
 	assert.Nil(t, doorsAt)
 	assert.Nil(t, musicAt)
 }
@@ -379,7 +438,7 @@ func TestResolveShowTimes_ContradictoryPairWritesNeither(t *testing.T) {
 func TestResolveShowTimes_SimultaneousPairIsKept(t *testing.T) {
 	// Equal times are odd but not contradictory; only music strictly before
 	// doors is refused.
-	doorsAt, musicAt := resolveShowTimes("2026-06-15", strPtr("8:00 PM"), strPtr("8:00 PM"), "AZ")
+	doorsAt, musicAt := resolveShowTimes("2026-06-15", strPtr("8:00 PM"), strPtr("8:00 PM"), nil, "AZ")
 	assert.NotNil(t, doorsAt)
 	assert.Equal(t, *doorsAt, *musicAt)
 }
@@ -388,16 +447,16 @@ func TestResolveShowTimes_DSTAwareState(t *testing.T) {
 	showTime := strPtr("8:00 pm")
 
 	// January in California is PST, UTC-8.
-	_, winter := resolveShowTimes("2026-01-25", nil, showTime, "CA")
+	_, winter := resolveShowTimes("2026-01-25", nil, showTime, nil, "CA")
 	assert.Equal(t, time.Date(2026, 1, 26, 4, 0, 0, 0, time.UTC), *winter)
 
 	// July is PDT, UTC-7.
-	_, summer := resolveShowTimes("2026-07-15", nil, showTime, "CA")
+	_, summer := resolveShowTimes("2026-07-15", nil, showTime, nil, "CA")
 	assert.Equal(t, time.Date(2026, 7, 16, 3, 0, 0, 0, time.UTC), *summer)
 }
 
 func TestResolveShowTimes_UnparseableDateWritesNeither(t *testing.T) {
-	doorsAt, musicAt := resolveShowTimes("not-a-date", strPtr("7:00 PM"), strPtr("8:00 PM"), "AZ")
+	doorsAt, musicAt := resolveShowTimes("not-a-date", strPtr("7:00 PM"), strPtr("8:00 PM"), nil, "AZ")
 	assert.Nil(t, doorsAt)
 	assert.Nil(t, musicAt)
 }
@@ -406,7 +465,7 @@ func TestResolveShowTimes_AnchorsToTheStatedCalendarDate(t *testing.T) {
 	// The date string is the anchor, NOT the computed event_date, which is
 	// midnight UTC before a show time is applied and therefore the previous day
 	// in every US venue timezone.
-	doorsAt, musicAt := resolveShowTimes("2026-06-15", strPtr("7:00 PM"), strPtr("8:00 PM"), "AZ")
+	doorsAt, musicAt := resolveShowTimes("2026-06-15", strPtr("7:00 PM"), strPtr("8:00 PM"), nil, "AZ")
 	mst := time.FixedZone("MST", -7*3600)
 	for name, instant := range map[string]*time.Time{"doors": doorsAt, "music": musicAt} {
 		local := instant.In(mst)

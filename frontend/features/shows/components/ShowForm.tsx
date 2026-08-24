@@ -23,10 +23,8 @@ import {
   type ShowUpdate,
   type ShowUpdateResponse,
 } from '../hooks/useShowUpdate'
-import {
-  combineDateTimeToUTC,
-  getTimezoneForState,
-} from '@/lib/utils/timeUtils'
+import { combineDateTimeToUTC } from '@/lib/utils/timeUtils'
+import { resolveShowTimezone } from '@/lib/utils/formatters'
 import type { Venue } from '@/features/venues'
 import { useDismissTimer } from '@/lib/hooks/common'
 import type { ShowResponse, VenueResponse, OrphanedArtist } from '../types'
@@ -124,6 +122,12 @@ interface PrefilledVenue {
   city: string
   state: string
   address?: string | null
+  /**
+   * The venue's IANA zone, used to anchor the submitted event_date (PSY-1873).
+   * Optional so existing callers compile; omitting it puts the show back on the
+   * US state map, which is wrong for any venue outside the US.
+   */
+  timezone?: string | null
   verified?: boolean
 }
 
@@ -177,6 +181,7 @@ export function ShowForm({
           city: prefilledVenue.city,
           state: prefilledVenue.state,
           address: prefilledVenue.address ?? null,
+          timezone: prefilledVenue.timezone ?? null,
           verified: prefilledVenue.verified ?? false,
         }
       }
@@ -238,8 +243,17 @@ export function ShowForm({
   const form = useForm({
     defaultValues: initialFormValues,
     onSubmit: async ({ value }) => {
-      // Combine date and time into UTC timestamp using the venue's timezone
-      const venueTimezone = value.venue.state ? getTimezoneForState(value.venue.state) : undefined
+      // Combine date and time into a UTC instant, read in the zone the show
+      // will be RENDERED in. resolveShowTimezone prefers the selected venue's
+      // own IANA zone and only falls back to the US state map, which answers
+      // America/Phoenix for every non-US venue (PSY-1873): keying on the state
+      // alone wrote a Leeds 8pm show as 03:00Z and the show page then rendered
+      // it at 4:00 AM the next day. The same resolver reads the instant back in
+      // showToFormValues, so an edit round-trips instead of shifting the row.
+      const venueTimezone = resolveShowTimezone(
+        value.venue.state,
+        selectedVenue?.timezone
+      )
       const eventDate = combineDateTimeToUTC(value.date, value.time || '20:00', venueTimezone)
 
       const price = parseCost(value.cost)
@@ -337,7 +351,10 @@ export function ShowForm({
   // Handle venue selection to auto-fill city/state and track selected venue
   const handleVenueSelect = (venue: Venue | null) => {
     if (venue) {
-      // Store the full venue object for editability checks
+      // Store the full venue object for editability checks. `timezone` is
+      // carried for the event_date anchoring in onSubmit (PSY-1873), not for
+      // editability. Dropping it here is what sent a non-US venue's show
+      // through the US state map.
       setSelectedVenue({
         id: venue.id,
         slug: venue.slug,
@@ -345,6 +362,7 @@ export function ShowForm({
         address: venue.address,
         city: venue.city,
         state: venue.state,
+        timezone: venue.timezone,
         verified: venue.verified,
       })
       // Set each child field individually so that each field subscriber

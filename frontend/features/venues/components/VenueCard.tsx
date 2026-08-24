@@ -210,6 +210,7 @@ export function VenueCard({ venue }: VenueCardProps) {
                   city: venue.city,
                   state: venue.state,
                   address: venue.address,
+                  timezone: venue.timezone,
                   verified: venue.verified,
                 }}
                 onSuccess={() => {

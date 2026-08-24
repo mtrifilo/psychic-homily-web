@@ -478,7 +478,8 @@ func seedArchivePastShows(db *gorm.DB, venueID uint, roster []archiveAct) seedOu
 				).UTC()
 
 				headliner := archiveHeadliner(roster, seq)
-				slug := utils.GenerateShowSlug(eventDate, headliner.Name, exemplarArchiveVenueName, exemplarArchiveVenueState)
+				slug := utils.GenerateShowSlug(eventDate, headliner.Name, exemplarArchiveVenueName,
+					strptr(exemplarArchiveVenueTimezone), exemplarArchiveVenueState)
 
 				out = out.add(createArchiveShow(db, venueID, roster, eventDate, seq, slug, nil))
 			}
