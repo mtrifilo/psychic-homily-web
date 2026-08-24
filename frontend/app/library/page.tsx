@@ -755,10 +755,11 @@ function FollowingList({
   // re-asserting a list of types. On a Labels or Tags tab the context bar
   // would explain a control that is not there.
   const showsAlerts = following.some(entity => entity.alerts)
-  // Every subscription on this tab is enabled and reaching nobody, which only
-  // happens when the account's channels are off rather than one follow at a
-  // time. Read from the rows' own resolved settings, the same source each
-  // row's bracket reads, so the bar and the brackets cannot disagree. Rows
+  // Every subscription on this tab is enabled and reaching nobody, which in
+  // practice means the account's channels are off rather than each follow
+  // having been silenced one at a time. Read from the rows' own resolved
+  // settings, which already fold in any per-follow override and are the same
+  // source each row's bracket reads, so the two cannot disagree. Rows
   // without a subscription are not counted either way: a Labels row cannot
   // pause, and letting one veto the notice would hide it on a mixed tab.
   const alertsPaused =

@@ -16,8 +16,8 @@ interface LibraryAlertsBarProps {
   /** PLURAL follow path segment for the tab this bar sits above. */
   entityType: string
   /**
-   * Every loaded row on this tab is paused, so the tab's subscriptions are
-   * being silenced account-wide rather than one follow at a time.
+   * Every loaded row on this tab is paused, so this tab is being silenced
+   * wholesale rather than one follow at a time.
    *
    * Passed DOWN from the page rather than derived from the account matrix
    * here. The rows carry their own resolved settings, which is the same

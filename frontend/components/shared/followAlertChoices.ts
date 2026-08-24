@@ -229,15 +229,17 @@ export const followAlertHasChannel = (
  * Whether this follow's show alerts are ON but reaching nobody: PAUSED.
  *
  * A distinct third state, not a synonym for off. "Off" is a choice made on
- * THIS follow and its scope has been given up; paused is an account-wide
- * silence sitting on top of a follow whose scope is still stored and still
- * meant. Collapsing the two would have the surfaces write `enabled: false`
- * (or read back as if someone had), losing a preference the person never
- * changed the moment they switch a channel off.
+ * THIS follow and its scope has been given up; paused is a channel silence
+ * sitting on top of a follow whose scope is still stored and still meant.
+ * Collapsing the two would have the surfaces write `enabled: false` (or read
+ * back as if someone had), losing a preference the person never changed the
+ * moment they switch a channel off.
  *
  * Which is why every paused surface points at the alert matrix rather than
- * offering a fix of its own: the channel is the thing that is off, and it is
- * not a per-follow field.
+ * offering a fix of its own: what is off is a channel, and no control here
+ * writes one. (The API does accept a per-follow channel override, which is why
+ * the copy names where the ACCOUNT channels live without claiming the account
+ * is the cause. See `followAlertsPausedNote`.)
  */
 export const followAlertsPaused = (
   settings: Pick<FollowAlertSettings, 'shows'> | undefined
