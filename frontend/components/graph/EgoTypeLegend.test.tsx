@@ -23,25 +23,34 @@ describe('EgoTypeLegend (PSY-1453)', () => {
   // show, at any distance — so the key states that predicate rather than the
   // near-term window "playing soon" implied. Pinned on the component that
   // renders it, not only through ArtistGraph's concatenated-string assertion.
-  // The three exact-textContent tests above already pin marker-key ABSENCE,
-  // so only the present case needs its own case here.
+  // The two exact-textContent cases above already pin marker-key ABSENCE.
+  //
+  // Both marker cases below are also the MIXED ones (each flag set with the
+  // other defaulting false), which is what makes them worth a case each: with
+  // both flags set or both clear, collapsing the two gates into a single
+  // `showUpcomingDot || showPlayableRing` renders identically, and
+  // ArtistGraph.palette only ever renders both. Without these, a canvas
+  // carrying one marker could grow the other one's key.
   it('states the upcoming-show marker as a predicate, not a time window', () => {
     render(<EgoTypeLegend families={['bills']} showUpcomingDot />)
     expect(screen.getByTestId('ego-type-legend').textContent).toBe('billshas upcoming shows')
   })
 
-  // The MIXED case is the only one that discriminates: with both flags set or
-  // both clear, collapsing the two gates into one `showUpcomingDot ||
-  // showPlayableRing` reads identically, and every other spec (here and in
-  // ArtistGraph.palette) renders one of those two. Without this, a canvas
-  // carrying only violet rings could grow a bogus upcoming-show key.
   it('shows only the playable key when that is the only marker on the canvas', () => {
     render(<EgoTypeLegend families={['bills']} showPlayableRing />)
     expect(screen.getByTestId('ego-type-legend').textContent).toBe('billsplayable audio')
   })
 
-  it('frames the keys as a named group, since every swatch is aria-hidden', () => {
-    render(<EgoTypeLegend families={['bills']} showUpcomingDot />)
-    expect(screen.getByRole('group', { name: 'Graph legend' })).toBeInTheDocument()
+  // The keys carry the whole meaning: every swatch is decorative, so a reader
+  // that surfaced them would hear the color twice and the meaning never.
+  it('hides every swatch from assistive tech', () => {
+    const { container } = render(
+      <EgoTypeLegend families={['bills', null]} showUpcomingDot showPlayableRing />
+    )
+    const swatches = container.querySelectorAll('span > span')
+    expect(swatches.length).toBe(4)
+    for (const swatch of swatches) {
+      expect(swatch).toHaveAttribute('aria-hidden', 'true')
+    }
   })
 })

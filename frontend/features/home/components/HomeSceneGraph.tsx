@@ -231,15 +231,10 @@ function HomeGraphLegend({
           style={{ backgroundColor: UPCOMING_SHOW_DOT_COLOR }}
           aria-hidden="true"
         />
-        {/* Wording (and why it is not a time window) lives on the constant in
-            graphMarkers, which the ego legend renders too — this key and that
-            one must not describe one marker two ways.
-
-            The predicate itself is still duplicated, so bounding the marker
-            later means editing all four sites: ForceGraphView (canvas draw +
-            hover tooltip) and ArtistGraph (its ego canvas draws the dot
-            directly, not through ForceGraphView, plus its own
-            legend-visibility gate). */}
+        {/* Wording — and why it is a predicate rather than a time window, and
+            what bounding it would cost — lives on the constant in
+            graphMarkers, which the ego legend renders too, so this key and
+            that one cannot describe one marker two ways. */}
         {UPCOMING_SHOW_MARKER_LABEL}
       </span>
       )}

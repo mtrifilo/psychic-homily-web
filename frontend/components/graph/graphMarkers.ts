@@ -5,8 +5,10 @@
  * (show dot radius 3 @ offset 2 vs ForceGraphView's 2.5 @ 1.5).
  * Single-sourcing the colors, geometry, AND the draw calls here removes
  * that drift class: ArtistGraphVisualization and ForceGraphView both call
- * these helpers instead of hand-rolling arcs. (DOM legend swatches that
- * name these markers should read the color constants too.)
+ * these helpers instead of hand-rolling arcs. The two markers' LEGEND KEYS
+ * live here as well, for the same reason and after the same kind of drift —
+ * so a DOM legend naming a marker reads both its color and its wording from
+ * this module rather than restating either.
  *
  * Both markers are FUNCTIONAL indicators, not theme/cluster tokens, so the
  * colors are deliberately hardcoded (same posture as pre-extraction):
@@ -22,26 +24,38 @@
  */
 
 /**
- * Legend keys for the two markers, single-sourced so the surfaces that name
- * them cannot describe one marker two ways (they did: the home scene-graph
- * teaser said "has upcoming shows" while the ego legend still said "playing
- * soon" for a release cycle).
+ * Legend key for the green dot, single-sourced so the surfaces that NAME it
+ * cannot describe one marker two ways (they did: the home scene-graph teaser
+ * said "has upcoming shows" while the ego legend still said "playing soon"
+ * for a release cycle, with each surface's tests pinning its own copy).
  *
- * The upcoming-show key states the PREDICATE, not a window: the dot fires on
- * `upcoming_show_count > 0` — any approved future show, at any distance — so
- * "soon" promised a bound the data has no field for. Bounding it instead
- * would be a four-site cross-surface change (ForceGraphView's canvas draw and
- * hover tooltip, plus ArtistGraph's own canvas draw and legend gate); the
- * ruling was to reword.
+ * Only two surfaces name it — the home teaser legend and the ego legend. The
+ * markers are PAINTED on more than that (the ForceGraphView-hosted scene,
+ * venue, station and collection graphs, and the scene map, which draws the
+ * same dot from a backend flag rather than a count), and those surfaces
+ * explain it nowhere. This constant closes the drift class, not that gap.
  *
- * "HAS upcoming shows", not the bare "upcoming shows": both host pages render
- * an <h2>Upcoming shows</h2> of their own — immediately above the homepage
- * legend, and a sibling section on the artist page — and legend swatches are
- * aria-hidden, so a bare key reaches a screen reader as a second,
- * subject-less copy of that heading. The verb makes it read as a property of
- * a NAME on the canvas.
+ * The key states the PREDICATE, not a window: on the graph payloads the dot
+ * fires on `upcoming_show_count > 0` — any approved future show, at any
+ * distance — so "soon" promised a bound the data has no field for. Bounding
+ * it is a cross-surface behavior change touching every draw call, gate and
+ * tooltip that reads the flag, so the ruling was to reword instead; grep
+ * `upcoming_show_count` and this file's exports before attempting it, because
+ * the sites do not live in one place and a stale enumeration here would
+ * under-count them.
+ *
+ * "HAS upcoming shows", not the bare "upcoming shows": the surfaces that name
+ * it also render an <h2>Upcoming shows</h2> of their own (immediately above
+ * the home teaser legend; a sibling section on the artist page), and legend
+ * swatches are aria-hidden, so a bare key reaches a screen reader as a
+ * second, subject-less copy of that heading. The verb makes it read as a
+ * property of a NAME on the canvas. The ego legend also reaches the
+ * bill-composition section and /graph, which have no such heading — the verb
+ * is chosen for the worst case and reads correctly on all of them.
  */
 export const UPCOMING_SHOW_MARKER_LABEL = 'has upcoming shows'
+
+/** Legend key for the violet ring, single-sourced for the same reason. */
 export const PLAYABLE_MARKER_LABEL = 'playable audio'
 
 /** Upcoming-show indicator: green dot at the node's top-right edge. */

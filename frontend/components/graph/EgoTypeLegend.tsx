@@ -47,14 +47,14 @@ export const EgoTypeLegend = memo(function EgoTypeLegend({
   if (rows.length === 0 && !showUpcomingDot && !showPlayableRing) return null
 
   return (
-    // role=group + a name, not a bare div: ARIA prohibits naming role=generic,
-    // so on a bare div the keys reach a screen reader as loose text with
-    // nothing framing them as a legend (the sibling home-teaser legend carries
-    // the same pair for the same reason). Every swatch below is aria-hidden,
-    // so the group's name is the only framing the keys get.
+    // Deliberately unnamed for now. The sibling home-teaser legend carries
+    // role=group + an aria-label (ARIA prohibits naming role=generic, so a
+    // bare div drops the name), and this one wants the same framing — but that
+    // component has ONE mount site while this has four, two of which sit on
+    // the artist page at the same time, so a hardcoded name would announce two
+    // different legends identically. Naming these needs a per-host decision
+    // (and the EdgeLegend beside them is unnamed too): PSY-1922.
     <div
-      role="group"
-      aria-label="Graph legend"
       data-testid="ego-type-legend"
       className={cn(
         'flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border/50 px-3 py-2',
@@ -78,10 +78,12 @@ export const EgoTypeLegend = memo(function EgoTypeLegend({
 
           Known gap, deliberately NOT qualified in the key: on the ego canvas
           the dot is satellite-only (ArtistGraph skips the center), so an
-          undotted CENTER does not mean the page's own artist has nothing
-          booked. Qualifying the key here would re-open the two-wordings
-          problem the shared constant just closed, and the center's own
-          upcoming shows are listed in full elsewhere on the page. */}
+          undotted CENTER does not mean that artist has nothing booked.
+          Qualifying the key here would re-open the two-wordings problem the
+          shared constant just closed. On the artist page the center's own
+          upcoming shows are listed in full in a section of their own, so the
+          gap is covered there; on /graph nothing else on the surface corrects
+          it, which is the case to weigh if this is ever revisited. */}
       {showUpcomingDot && (
         <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
           <span
