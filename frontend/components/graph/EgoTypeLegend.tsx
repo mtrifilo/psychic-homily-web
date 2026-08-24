@@ -66,7 +66,18 @@ export const EgoTypeLegend = memo(function EgoTypeLegend({
             className="size-2 shrink-0 rounded-full"
             style={{ backgroundColor: UPCOMING_SHOW_DOT_COLOR }}
           />
-          playing soon
+          {/* The dot's predicate is `upcoming_show_count > 0` on a satellite
+              node — any approved future show, at any distance. "Playing soon"
+              named a window the marker does not have; this key states the
+              predicate instead, matching the home scene-graph teaser's legend
+              so one marker is not described two ways.
+
+              "HAS upcoming shows", not the bare "upcoming shows": the artist
+              page renders an <h2>Upcoming shows</h2> section around this graph
+              and every swatch here is aria-hidden, so a bare key reaches a
+              screen reader as a second, subject-less copy of that heading. The
+              verb makes it read as a property of a NAME on the canvas. */}
+          has upcoming shows
         </span>
       )}
       {showPlayableRing && (

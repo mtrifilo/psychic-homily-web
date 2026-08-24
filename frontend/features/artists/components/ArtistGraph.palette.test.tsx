@@ -233,6 +233,6 @@ describe('ArtistGraphVisualization — shared palette adoption (PSY-1453)', () =
     const legend = screen.getByTestId('ego-type-legend')
     // bills + radio families, the neutral bucket for the similar edge, then
     // the marker rows (a satellite has an upcoming show; nodes are playable).
-    expect(legend.textContent).toBe('billsradiootherplaying soonplayable audio')
+    expect(legend.textContent).toBe('billsradiootherhas upcoming showsplayable audio')
   })
 })
