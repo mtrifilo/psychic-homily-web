@@ -643,7 +643,7 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       renderWithProviders(<LibraryPage />)
 
       expect(
-        screen.getByRole('link', { name: /Show alerts for Alpha: paused/i })
+        screen.getByRole('link', { name: /New-show alerts for Alpha: paused/i })
       ).toBeTruthy()
       expect(screen.queryByText(/New follows start at/)).toBeNull()
       expect(screen.queryByRole('button', { name: /alerts for Alpha/i })).toBeNull()

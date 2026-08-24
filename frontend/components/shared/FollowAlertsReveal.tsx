@@ -21,12 +21,12 @@ import {
 import {
   ALERTS_AREA_HREF,
   ALERTS_HREF,
-  ALERTS_PAUSED_NOTE,
   ALERTS_PAUSED_SUMMARY,
   followAlertChoice,
   followAlertHasScopeAxis,
   followAlertOptions,
   followAlertsPaused,
+  followAlertsPausedNote,
   followAlertUpdateFor,
   isAlertCapableFollowType,
   RELEASE_ALERTS_PENDING_NOTE,
@@ -133,7 +133,7 @@ export function FollowAlertsReveal({
   // With both account channels off, this subscription is enabled and reaches
   // nobody: the notifier skips the recipient before it ever looks at scope. A
   // chip group with "Near me" lit is then a delivery promise with nothing
-  // behind it, and the fix is not on this control at all — the channel is an
+  // behind it, and the fix is not on this control at all: the channel is an
   // account setting. So say what is true and link where it is fixable.
   //
   // Scope chips are withheld rather than shown alongside: every one of them
@@ -143,17 +143,24 @@ export function FollowAlertsReveal({
   if (followAlertsPaused(alerts)) {
     return (
       <div className={cn('flex flex-wrap items-center gap-2 text-xs', className)}>
+        {/* "New-show alerts", not the "Alerts:" the chips use. The pause is
+            this axis only: an artist's RELEASE alerts are an account-level
+            setting with their own channels, and the day those deliver, a bare
+            "Alerts: paused" would be silencing something still flowing. */}
         <span className="text-muted-foreground">
-          Alerts:{' '}
+          New-show alerts:{' '}
           <span className="text-foreground">{ALERTS_PAUSED_SUMMARY}</span>
         </span>
         <BracketLink
           label="turn a channel on"
-          ariaLabel={`Alerts for ${entityName} are paused. Turn a channel on in alert settings.`}
+          ariaLabel={`New-show alerts for ${entityName} are paused. Turn a channel on in alert settings.`}
           href={ALERTS_HREF}
           className="font-mono text-[11px]"
         />
-        <InfoTooltip label="Why these alerts are paused" copy={ALERTS_PAUSED_NOTE} />
+        <InfoTooltip
+          label="Why these alerts are paused"
+          copy={followAlertsPausedNote(entityType)}
+        />
       </div>
     )
   }

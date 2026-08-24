@@ -22,7 +22,7 @@ interface LibraryAlertsBarProps {
    * Passed DOWN from the page rather than derived from the account matrix
    * here. The rows carry their own resolved settings, which is the same
    * source each row's bracket reads, so the bar and the brackets cannot
-   * disagree — and it costs the Venues tab no request, which is why that tab
+   * disagree, and it costs the Venues tab no request, which is why that tab
    * deliberately fetches no account preferences at all.
    */
   alertsPaused?: boolean

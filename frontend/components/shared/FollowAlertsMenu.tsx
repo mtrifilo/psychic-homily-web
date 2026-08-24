@@ -11,12 +11,12 @@ import {
 import { useUpdateFollowAlerts } from '@/lib/hooks/common/useFollowAlerts'
 import {
   ALERTS_HREF,
-  ALERTS_PAUSED_NOTE,
   ALERTS_PAUSED_SUMMARY,
   followAlertChoice,
   followAlertHasScopeAxis,
   followAlertOptions,
   followAlertsPaused,
+  followAlertsPausedNote,
   followAlertSummaryFor,
   followAlertUpdateFor,
   type HomeMetroState,
@@ -75,24 +75,31 @@ export function FollowAlertsMenu({
   // disabled one implying it could be switched on. The same guard covers the
   // still-unknown home area, so a near-me follow is never briefly labelled
   // "everywhere".
-  if (!current || !options) return null
-
   // The entity-page twin's rule, on a row: an enabled subscription with both
   // account channels off delivers nothing, so the bracket must not summarize
   // it as "near me". It becomes a LINK to the one place the channel can be
   // switched back on, rather than a menu whose every option writes a field
   // that changes nothing. The stored scope is untouched and resumes there.
+  //
+  // ABOVE the option guard, matching the twin, and the Library bar is why.
+  // That bar derives its own paused line from these same row payloads, which
+  // need no home area; `followAlertOptions` returns undefined until the area
+  // read resolves, and permanently if it fails. Guarding first would print
+  // "New-show alerts: paused" over a column of rows carrying no bracket at
+  // all, in the exact window the bar's contract promises they agree.
   if (followAlertsPaused(alerts)) {
     return (
       <BracketLink
         label={`alerts: ${ALERTS_PAUSED_SUMMARY}`}
-        ariaLabel={`Show alerts for ${entityName}: paused. Turn a channel on in alert settings.`}
-        title={ALERTS_PAUSED_NOTE}
+        ariaLabel={`New-show alerts for ${entityName}: paused. Turn a channel on in alert settings.`}
+        title={followAlertsPausedNote(entityType)}
         href={ALERTS_HREF}
         className={cn('font-mono text-[11px]', className)}
       />
     )
   }
+
+  if (!current || !options) return null
 
   const summary = followAlertSummaryFor(options, current)
 

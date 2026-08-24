@@ -250,15 +250,50 @@ export const followAlertsPaused = (
 export const ALERTS_PAUSED_SUMMARY = 'paused'
 
 /**
- * Why a follow reads paused, and what un-pauses it.
+ * States the EFFECT, and deliberately not the cause.
  *
- * One string because the entity page and the Library row must not explain the
- * same state two ways, and because the reassurance is load-bearing: without
+ * "…because they are off in your alert settings" was the tempting wording and
+ * it is not always true: `resolveFollowAlertPreference` lets a stored
+ * PER-FOLLOW channel override beat the account matrix, and the PATCH body
+ * accepts those fields. Nothing in this control writes them, so the account
+ * matrix is the overwhelmingly likely cause, but a follow paused by its own
+ * override would have been sent to a card whose boxes read ON, where nothing
+ * it could do would help. Naming where the account-wide channels live is a
+ * true statement either way.
+ */
+const ALERTS_PAUSED_BASE =
+  'New-show alerts are paused: neither in-app nor email is switched on for them, so nothing is delivered. Switching either back on resumes them, and the account-wide channels are in your alert settings.'
+
+/**
+ * The reassurance that only an artist follow has anything to be reassured
+ * about. A venue has no scope axis at all, so promising one back would invent
+ * a setting that follow never had.
+ */
+const ALERTS_PAUSED_SCOPE_KEPT =
+  'The scope you chose for this follow is saved, so it resumes as you left it.'
+
+/**
+ * Why a follow reads paused, what un-pauses it, and anything else still true
+ * of that follow type's alerts.
+ *
+ * Composed in one place because the entity page and the Library row must not
+ * explain the same state two ways. The reassurance is load-bearing: without
  * it, "paused" reads as "your setting was discarded" and the honest fix looks
  * like re-picking a scope that was never lost.
+ *
+ * The pending-delivery note rides along rather than being dropped. Pausing
+ * hides the control that used to carry that disclosure, and a venue follower
+ * told their alerts "resume when you switch a channel back on" would be
+ * hearing a promise venue delivery cannot keep yet.
  */
-export const ALERTS_PAUSED_NOTE =
-  'New-show alerts are paused: in-app and email are both switched off for them in your alert settings. Your scope for this follow is saved and resumes when you switch a channel back on.'
+export const followAlertsPausedNote = (entityType: string): string =>
+  [
+    ALERTS_PAUSED_BASE,
+    followAlertHasScopeAxis(entityType) ? ALERTS_PAUSED_SCOPE_KEPT : null,
+    followAlertPendingNote(entityType),
+  ]
+    .filter(Boolean)
+    .join(' ')
 
 /**
  * The `[ alerts: … ]` bracket text for a Library row.

@@ -4,6 +4,7 @@ import {
   followAlertOptions,
   followAlertPendingNote,
   followAlertsPaused,
+  followAlertsPausedNote,
   followAlertSummaryFor,
   followAlertUpdateFor,
   isAlertCapableFollowType,
@@ -358,6 +359,41 @@ describe('followAlertsPaused', () => {
   // reporting a pause there would flash "paused" over a live subscription.
   it('is false while the subscription is still unknown', () => {
     expect(followAlertsPaused(undefined)).toBe(false)
+  })
+})
+
+describe('followAlertsPausedNote', () => {
+  // The cause is NOT knowable from a resolved subscription: a stored
+  // per-follow channel override beats the account matrix server-side, so
+  // "because they are off in your alert settings" would send an
+  // override-paused follow to a card whose boxes read ON.
+  it('states the effect without blaming the account matrix for it', () => {
+    const note = followAlertsPausedNote('artists')
+    expect(note).toContain('nothing is delivered')
+    expect(note).not.toMatch(/because/i)
+    expect(note).not.toMatch(/switched off .* in your alert settings/i)
+  })
+
+  it('promises an artist its stored scope back', () => {
+    expect(followAlertsPausedNote('artists')).toContain('scope you chose')
+  })
+
+  // A venue has no scope axis at all, so a scope to resume is a setting that
+  // follow never had.
+  it('promises a venue no scope, because a venue has none', () => {
+    expect(followAlertsPausedNote('venues')).not.toContain('scope you chose')
+  })
+
+  // Pausing hides the control that used to carry the pending disclosure, and
+  // "they resume when you switch a channel back on" is a promise venue
+  // delivery cannot keep yet.
+  it('keeps the pending-delivery disclosure a paused surface would otherwise drop', () => {
+    expect(followAlertsPausedNote('venues')).toContain(
+      VENUE_ALERTS_PENDING_NOTE
+    )
+    expect(followAlertsPausedNote('artists')).not.toContain(
+      VENUE_ALERTS_PENDING_NOTE
+    )
   })
 })
 

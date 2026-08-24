@@ -199,13 +199,48 @@ describe('FollowAlertsMenu', () => {
       renderMenu({ alerts: pausedAlerts() })
 
       const bracket = screen.getByRole('link', {
-        name: /Show alerts for Alpha: paused/i,
+        name: /New-show alerts for Alpha: paused/i,
       })
       expect(bracket).toHaveAttribute('href', '/profile?tab=settings#alerts')
 
       await userEvent.click(bracket)
       expect(screen.queryByRole('menu')).toBeNull()
       expect(mockUpdate).not.toHaveBeenCalled()
+    })
+
+    // The bar above these rows derives its own paused line from these same
+    // payloads and needs no home area, while the option list is undefined
+    // until the area read resolves and permanently if it fails. Guarding on
+    // options first printed the bar's paused line over a column of rows with
+    // no bracket at all, in the exact window they promise to agree.
+    it('renders without waiting on the home area, which the pause does not need', () => {
+      renderMenu({ alerts: pausedAlerts(), hasHomeMetro: undefined })
+
+      expect(screen.getByText('alerts: paused')).toBeInTheDocument()
+    })
+
+    // A venue has no scope axis, so promising its scope back would invent a
+    // setting that follow never had. It does still have a delivery
+    // disclosure, and pausing must not be how that disclosure disappears.
+    it('tailors the explanation to a venue, scope promise and all', () => {
+      renderMenu({
+        entityType: 'venues',
+        alerts: {
+          entity_type: 'venue',
+          entity_id: 1,
+          shows: { enabled: true, in_app: false, email: false },
+        },
+      })
+
+      const bracket = screen.getByRole('link', { name: /paused/i })
+      expect(bracket).toHaveAttribute(
+        'title',
+        expect.not.stringContaining('scope you chose')
+      )
+      expect(bracket).toHaveAttribute(
+        'title',
+        expect.stringContaining('still being switched on')
+      )
     })
 
     // OFF is a choice made on this follow and keeps its menu; only the
