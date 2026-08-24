@@ -153,8 +153,21 @@ describe('FilterList', () => {
       screen.getByText(
         // PSY-1894 landed, so a show is "added", not "approved" (PSY-1892
         // decision 12 renames the surface and fixes the stale verb with it).
-        'Get told when a new show matching your criteria is added.'
+        /Get told when a new show matching your criteria is added\./
       )
+    ).toBeInTheDocument()
+  })
+
+  // PSY-1905 merged Follow and Notify me on artist and venue pages and left
+  // the filters the old button created untouched. This page is the only
+  // remaining place they can be edited, paused or deleted, so it has to name
+  // them: a pre-merge reader otherwise meets a list of entries they never
+  // built here, under a heading about criteria they wrote themselves.
+  it('says the Notify-me alerts live here too, with their own email switch', () => {
+    renderWithProviders(<FilterList />)
+
+    expect(
+      screen.getByText(/Anything you set up with .Notify me. is listed here too/i)
     ).toBeInTheDocument()
   })
 

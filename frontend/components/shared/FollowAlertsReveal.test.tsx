@@ -429,4 +429,74 @@ describe('FollowAlertsReveal', () => {
       expect(screen.queryByText(/near me/i)).toBeNull()
     })
   })
+
+  // Enabled, and reaching nobody: both account channels are off, so the
+  // notifier skips this recipient before it ever looks at scope. A lit
+  // "Near me" chip there is a delivery promise with nothing behind it.
+  describe('when both account channels are off', () => {
+    const paused = (scope: FollowAlertScope | undefined = 'near_me') => {
+      mockAlerts = {
+        entity_type: 'artist',
+        entity_id: 7,
+        shows: { enabled: true, in_app: false, email: false, scope },
+      }
+    }
+
+    it('reads paused rather than lighting a scope chip', () => {
+      paused()
+      renderArtist()
+
+      expect(screen.getByText('paused')).toBeInTheDocument()
+      expect(screen.queryByRole('radiogroup')).toBeNull()
+      expect(screen.queryByRole('radio', { name: 'Near me' })).toBeNull()
+    })
+
+    it('points at the alert matrix, which is where a channel lives', () => {
+      paused()
+      renderArtist()
+
+      expect(
+        screen.getByRole('link', { name: /paused.*alert settings/i })
+      ).toHaveAttribute('href', '/profile?tab=settings#alerts')
+    })
+
+    // The whole point of not writing anything on this path: the scope is
+    // still stored, so switching a channel back on restores near me rather
+    // than asking for it again.
+    it('writes nothing, so the stored scope survives the pause', () => {
+      paused()
+      renderArtist()
+
+      expect(mockUpdate).not.toHaveBeenCalled()
+    })
+
+    // A venue's subscription has no scope to preserve, but the delivery
+    // promise is identical, and two surfaces over one field must not disagree
+    // about whether it is being kept.
+    it('reads paused on a venue too', () => {
+      mockAlerts = {
+        entity_type: 'venue',
+        entity_id: 4,
+        shows: { enabled: true, in_app: false, email: false },
+      }
+      renderVenue()
+
+      expect(screen.getByText('paused')).toBeInTheDocument()
+      expect(screen.queryByRole('radio', { name: 'On' })).toBeNull()
+    })
+
+    // OFF is a choice made on this follow, and its control still works.
+    // Only the enabled-but-undeliverable state is a pause.
+    it('leaves a switched-off follow on the chips', () => {
+      mockAlerts = {
+        entity_type: 'artist',
+        entity_id: 7,
+        shows: { enabled: false, in_app: false, email: false, scope: 'near_me' },
+      }
+      renderArtist()
+
+      expect(screen.getByRole('radiogroup')).toBeInTheDocument()
+      expect(screen.queryByText('paused')).toBeNull()
+    })
+  })
 })

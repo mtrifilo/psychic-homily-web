@@ -560,14 +560,32 @@ describe('AlertSettings', () => {
   // (saying every unsubscribe "flips the same box you see here", which is
   // false for the custom-alerts row, whose link pauses one filter and whose
   // cell is deliberately not a box).
-  it('scopes the unsubscribe promise to what this card governs', () => {
+  // Scoped to the TABLE, not to "this card". The wider phrasing was read as a
+  // claim about every email the index sends, and scene follows falsify that:
+  // they email immediately on each new show with no opt-in anywhere and are
+  // not a row here. The claim now covers exactly the rows it can keep.
+  it('scopes the opt-in promise to the rows in the table', () => {
     renderWithProviders(<AlertSettings />)
 
     expect(
       screen.getByText(
-        /Every email governed by this card stays off until you switch it on, row by row, and carries a one-click unsubscribe link/i
+        /Every email in the table above stays off until you switch it on, row by row, and carries a one-click unsubscribe link/i
       )
     ).toBeInTheDocument()
+    expect(screen.queryByText(/governed by this card/i)).not.toBeInTheDocument()
+  })
+
+  // A settings card that lists what reaches you cannot omit the one stream
+  // that arrives without being switched on.
+  it('names the scene-follow email it does not govern, and where it is set', () => {
+    renderWithProviders(<AlertSettings />)
+
+    expect(
+      screen.getByText(/One email is not in the table/i)
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: /scenes you follow/i })
+    ).toHaveAttribute('href', '/library?tab=scenes')
   })
 
   it('names the custom-alert exception rather than claiming one rule for all', () => {

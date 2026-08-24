@@ -3,6 +3,7 @@ import {
   followAlertChoice,
   followAlertOptions,
   followAlertPendingNote,
+  followAlertsPaused,
   followAlertSummaryFor,
   followAlertUpdateFor,
   isAlertCapableFollowType,
@@ -315,5 +316,65 @@ describe('followAlertSummaryFor', () => {
         }
       }
     }
+  })
+})
+
+// PAUSED: enabled, and reaching nobody.
+//
+// Channels are an ACCOUNT setting, so switching both off silences every follow
+// at once while leaving each subscription enabled with its scope intact. These
+// cases mirror the notifier's own predicate, which skips the recipient on
+// `!pref.Enabled || (!pref.InApp && !pref.Email)`.
+describe('followAlertsPaused', () => {
+  it('is true for an enabled subscription with no channel behind it', () => {
+    expect(
+      followAlertsPaused(settings({ enabled: true, in_app: false, email: false }))
+    ).toBe(true)
+  })
+
+  it('is false while either channel can still carry it', () => {
+    expect(
+      followAlertsPaused(settings({ enabled: true, in_app: true, email: false }))
+    ).toBe(false)
+    expect(
+      followAlertsPaused(settings({ enabled: true, in_app: false, email: true }))
+    ).toBe(false)
+  })
+
+  // OFF is a choice made on this follow; PAUSED is an account-wide silence
+  // sitting on top of one. Showing "paused" over a subscription the user
+  // themselves switched off would send them to fix a channel that is not what
+  // is stopping it.
+  it('is false for a subscription the user switched off, channels or not', () => {
+    expect(
+      followAlertsPaused(settings({ enabled: false, in_app: false, email: false }))
+    ).toBe(false)
+    expect(
+      followAlertsPaused(settings({ enabled: false, in_app: true, email: true }))
+    ).toBe(false)
+  })
+
+  // UNKNOWN is not paused. The read is in flight on every cold render, and
+  // reporting a pause there would flash "paused" over a live subscription.
+  it('is false while the subscription is still unknown', () => {
+    expect(followAlertsPaused(undefined)).toBe(false)
+  })
+})
+
+// A paused follow's stored scope is what makes un-pausing restore rather than
+// re-ask, so nothing on the paused path may write it. This pins the read half
+// of that promise: the choice is still near_me underneath.
+describe('a paused subscription keeps its stored choice', () => {
+  it('still resolves to near_me, so re-enabling a channel restores it', () => {
+    const paused = settings({
+      enabled: true,
+      in_app: false,
+      email: false,
+      scope: 'near_me',
+    })
+    expect(followAlertsPaused(paused)).toBe(true)
+    expect(
+      followAlertChoice(paused, { entityType: 'artists', hasHomeMetro: true })
+    ).toBe('near_me')
   })
 })

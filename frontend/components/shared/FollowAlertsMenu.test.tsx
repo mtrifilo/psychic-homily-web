@@ -174,4 +174,52 @@ describe('FollowAlertsMenu', () => {
       screen.getByRole('button', { name: /Show alerts for Alpha/ })
     ).toHaveAttribute('title', expect.stringContaining('Release alerts are set in Settings'))
   })
+
+  // The entity-page twin's rule, on a row. Both account channels off means
+  // this subscription is enabled and reaching nobody, so summarizing it as
+  // "near me" is a delivery promise the notifier does not keep.
+  describe('when both account channels are off', () => {
+    const pausedAlerts = (): FollowAlertSettings => ({
+      entity_type: 'artist',
+      entity_id: 1,
+      shows: { enabled: true, in_app: false, email: false, scope: 'near_me' },
+    })
+
+    it('summarizes the row as paused, not as its stored scope', () => {
+      renderMenu({ alerts: pausedAlerts() })
+
+      expect(screen.getByText('alerts: paused')).toBeInTheDocument()
+      expect(screen.queryByText('alerts: near me')).toBeNull()
+    })
+
+    // A link, not a menu: every option in that menu writes a field that
+    // changes nothing until a channel comes back, and the channel is an
+    // account setting rather than anything this row owns.
+    it('links to the alert matrix instead of opening a menu', async () => {
+      renderMenu({ alerts: pausedAlerts() })
+
+      const bracket = screen.getByRole('link', {
+        name: /Show alerts for Alpha: paused/i,
+      })
+      expect(bracket).toHaveAttribute('href', '/profile?tab=settings#alerts')
+
+      await userEvent.click(bracket)
+      expect(screen.queryByRole('menu')).toBeNull()
+      expect(mockUpdate).not.toHaveBeenCalled()
+    })
+
+    // OFF is a choice made on this follow and keeps its menu; only the
+    // enabled-but-undeliverable state is a pause.
+    it('leaves a switched-off row on its menu', () => {
+      renderMenu({
+        alerts: {
+          entity_type: 'artist',
+          entity_id: 1,
+          shows: { enabled: false, in_app: false, email: false },
+        },
+      })
+
+      expect(screen.getByText('alerts: off')).toBeInTheDocument()
+    })
+  })
 })
