@@ -289,6 +289,12 @@ const ALERTS_PAUSED_SCOPE_KEPT =
  * hides the control that used to carry that disclosure, and a venue follower
  * told their alerts "resume when you switch a channel back on" would be
  * hearing a promise venue delivery cannot keep yet.
+ *
+ * The artist tooltip's RELEASE disclosure deliberately does NOT ride along.
+ * It is there because the chips could be misread as governing releases too,
+ * and a paused control has no chips to misread; nothing here says anything
+ * about releases, so there is no claim for it to correct. What travels is the
+ * disclosure about THIS axis, which is the one the copy makes promises about.
  */
 export const followAlertsPausedDetail = (entityType: string): string =>
   [

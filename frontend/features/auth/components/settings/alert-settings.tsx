@@ -521,20 +521,23 @@ export function AlertSettings() {
           )}
 
           <div className="mt-4 space-y-1 border-t border-border pt-3.5">
-            {/* The exception is now stated on BOTH counts, because a custom
-                alert breaks both halves. `QuickCreateFilter` inserts
-                `NotifyEmail: true` and the builder pre-checks the same
-                switch, so that email starts flowing without a box in this
-                table ever being switched on. Excepting it from the
-                unsubscribe rule while quietly including it in the
-                stays-off-until-you-switch-it-on rule left the sentence no
-                truer than the wider one it replaced. */}
+            {/* The custom-alerts row breaks EVERY clause here, so it is
+                excepted from every clause rather than from one of them.
+                `QuickCreateFilter` inserts `NotifyEmail: true` and the
+                builder pre-checks the same switch, so that email starts
+                flowing with no box in this table ever switched on; and its
+                unsubscribe calls `PauseFilter`, which clears `is_active` and
+                stops the alert outright rather than flipping a box here,
+                in-app included. Scoping the sentence to the table had left
+                its own counterexample sitting inside it. */}
             <p className="text-xs text-muted-foreground">
               Every email in the table above stays off until you switch it on,
-              row by row, and carries a one-click unsubscribe link.
-              Unsubscribing flips the matching box above. A custom alert is
-              the exception on both counts: it starts emailing as soon as you
-              build it, and its email is switched off on the alert itself.
+              row by row, and carries a one-click unsubscribe link that flips
+              the matching box above. A custom alert is the exception
+              throughout: it starts emailing as soon as you build it, its
+              email is switched off on the alert itself, and unsubscribing
+              from one of those emails pauses that whole alert rather than
+              flipping a box here.
             </p>
             {/* The sentence above used to claim "every email governed by this
                 card", which a reader takes as every email the index sends.

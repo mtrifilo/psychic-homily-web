@@ -593,12 +593,12 @@ describe('AlertSettings', () => {
   // `NotifyEmail: true` and the builder pre-checks the same switch, so that
   // email starts flowing without a box in this table ever being switched on:
   // scoping the sentence to the table left its own counterexample inside it.
-  it('excepts the custom alert from the opt-in rule as well as the unsubscribe one', () => {
+  it('excepts the custom alert from every clause it breaks, not just one', () => {
     renderWithProviders(<AlertSettings />)
 
     expect(
       screen.getByText(
-        /A custom alert is the exception on both counts: it starts emailing as soon as you build it, and its email is switched off on the alert itself/i
+        /A custom alert is the exception throughout: it starts emailing as soon as you build it, its email is switched off on the alert itself, and unsubscribing from one of those emails pauses that whole alert rather than flipping a box here/i
       )
     ).toBeInTheDocument()
   })
