@@ -1,12 +1,43 @@
 import * as Sentry from '@sentry/nextjs'
+import { toTelemetryPath } from './lib/rate-limit-telemetry'
 
 const isProduction = process.env.NODE_ENV === 'production'
+
+/**
+ * Strip query strings from the SDK's automatic HTTP breadcrumbs.
+ *
+ * `breadcrumbsIntegration` is on by default and records the FULL url of every
+ * fetch and XHR in the tab, which then rides along on every event we send. On
+ * this app that trail routinely contains feed tokens (`/feeds/phcal_...`),
+ * verification and magic-link tokens, and user-typed search and filter terms,
+ * none of which we have any reason to ship to a third party.
+ *
+ * `toTelemetryPath` is reused rather than reimplemented so there is ONE
+ * definition of "safe to send" (PSY-1912). It drops the query and fragment
+ * outright and reduces ids and token-shaped segments to placeholders.
+ *
+ * The cost is real and accepted: a breadcrumb no longer shows which page of a
+ * paginated call was requested. The endpoint family, method, and status code
+ * all survive, which is what an incident actually gets debugged from.
+ */
+function scrubBreadcrumbUrls(
+  breadcrumb: Sentry.Breadcrumb
+): Sentry.Breadcrumb {
+  const url = breadcrumb.data?.url
+  if (typeof url !== 'string') return breadcrumb
+  return {
+    ...breadcrumb,
+    data: { ...breadcrumb.data, url: toTelemetryPath(url) },
+  }
+}
 
 Sentry.init({
   dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
 
   // Environment for filtering in Sentry dashboard
   environment: process.env.NODE_ENV,
+
+  beforeBreadcrumb: scrubBreadcrumbUrls,
 
   // Adjust tracing sample rate for production
   // Disable tracing in development to reduce noise

@@ -137,10 +137,19 @@ describe('recordRateLimitHit', () => {
     })
 
     expect(breadcrumbs()).toHaveLength(1)
+    // `data` asserted explicitly, not just the message. Adversarial review
+    // pointed out that an `objectContaining` on category/message alone stays
+    // green while the breadcrumb ships the RAW url beside it, which is the
+    // exact leak this module exists to prevent.
     expect(breadcrumbs()[0][0]).toMatchObject({
       category: 'rate-limit',
       level: 'warning',
       message: '429 /artists/:id/releases',
+      data: {
+        endpoint: '/artists/:id/releases',
+        retryAfterSeconds: 60,
+        requestId: 'req-1',
+      },
     })
 
     expect(capturedMessages()).toHaveLength(1)
@@ -260,9 +269,69 @@ describe('reportRateLimitExhausted', () => {
     reportRateLimitExhausted({ queryFamily: 'artists/releases', attempts: 4 })
 
     expect(capturedMessages()).toHaveLength(2)
+  })
 
-    // A second exhaustion inside the window folds in.
+  it('lets a DIFFERENT query family report inside the same window', async () => {
+    const { reportRateLimitExhausted } = await loadTelemetry()
+
+    reportRateLimitExhausted({ queryFamily: 'artists/releases', attempts: 4 })
     reportRateLimitExhausted({ queryFamily: 'artists/graph', attempts: 4 })
+
+    // A single global cooldown collapsed these into one event and discarded
+    // the second family's identity, which is the one dimension the signal
+    // exists to report. Keyed per family, both are visible.
     expect(capturedMessages()).toHaveLength(2)
+    expect(capturedMessages().map(([, ctx]) => (ctx as {
+      extra: { queryFamily?: string }
+    }).extra.queryFamily)).toEqual(['artists/releases', 'artists/graph'])
+  })
+
+  it('still folds a repeat of the SAME family inside the window', async () => {
+    const { reportRateLimitExhausted } = await loadTelemetry()
+
+    reportRateLimitExhausted({ queryFamily: 'artists/graph', attempts: 4 })
+    reportRateLimitExhausted({ queryFamily: 'artists/graph', attempts: 4 })
+
+    expect(capturedMessages()).toHaveLength(1)
+  })
+
+  it('never lets a reporting failure escape into the caller', async () => {
+    const { reportRateLimitExhausted, recordRateLimitHit } =
+      await loadTelemetry()
+    vi.mocked(Sentry.captureMessage).mockImplementationOnce(() => {
+      throw new Error('sentry transport is down')
+    })
+
+    // These run on the error path, immediately before an ApiError is thrown.
+    // A throw here would replace that error with this one, and since it has no
+    // `.status` the retry policy would misread it as a network failure.
+    expect(() =>
+      reportRateLimitExhausted({ queryFamily: 'artists/graph', attempts: 4 })
+    ).not.toThrow()
+
+    vi.mocked(Sentry.addBreadcrumb).mockImplementationOnce(() => {
+      throw new Error('sentry is still down')
+    })
+    expect(() =>
+      recordRateLimitHit({ endpoint: '/artists/1/releases' })
+    ).not.toThrow()
+  })
+})
+
+describe('per-path sampler bounds', () => {
+  it('degrades to a shared bucket rather than growing without limit', async () => {
+    const { recordRateLimitHit } = await loadTelemetry()
+
+    // A path space we failed to anticipate must not be able to grow the
+    // sampler map forever in a long-lived tab or server process. Past the cap
+    // everything shares one bucket, which is the old global behaviour: a
+    // degradation, not a leak.
+    for (let i = 0; i < 200; i++) {
+      recordRateLimitHit({ endpoint: `/unanticipated/shape-${i}/x` })
+    }
+
+    // 64 distinct paths report, then the overflow bucket reports once.
+    expect(capturedMessages().length).toBeLessThanOrEqual(65)
+    expect(capturedMessages().length).toBeGreaterThan(1)
   })
 })

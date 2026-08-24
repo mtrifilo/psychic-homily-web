@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  LIMITER_WINDOW_MS,
   RATE_LIMIT_FALLBACK_BASE_MS,
   RATE_LIMIT_JITTER_RATIO,
   RATE_LIMIT_MAX_BASE_DELAY_MS,
@@ -125,17 +126,56 @@ describe('rateLimitDelay (the 429 branch of queryRetryDelay)', () => {
     }
   })
 
+  it('never returns a delay earlier than the base, at any jitter value', () => {
+    // The invariant the comments claim ("ADDITIVE ONLY, never negative") but
+    // that the fixed random: 0 / random: 1 cases alone do not establish.
+    // Arriving before the server said it would answer is a guaranteed second
+    // 429, so this is the one property that must hold across the range.
+    for (let r = 0; r <= 1; r += 0.05) {
+      const withHeader = rateLimitDelay(0, httpError(429, 5), () => r)
+      expect(withHeader).toBeGreaterThanOrEqual(5_000)
+
+      const withoutHeader = rateLimitDelay(1, httpError(429), () => r)
+      expect(withoutHeader).toBeGreaterThanOrEqual(
+        RATE_LIMIT_FALLBACK_BASE_MS * 2
+      )
+    }
+  })
+
+  it('spreads a page-sized burst rather than moving it', () => {
+    // Fifteen blocked reads with independent jitter must not land in a narrow
+    // window, or the retry recreates the spike that exhausted the budget. The
+    // spread has to be comparable to the base delay, not a token fraction.
+    const base = RATE_LIMIT_FALLBACK_BASE_MS
+    const delays = Array.from({ length: 15 }, (_, i) =>
+      rateLimitDelay(0, httpError(429), () => i / 15)
+    )
+    const spread = Math.max(...delays) - Math.min(...delays)
+
+    expect(spread).toBeGreaterThan(base * 0.8)
+  })
+
   it('keeps the total wait inside one limiter window', () => {
     // The guarantee the constants are chosen for: worst case across the whole
     // budget, with the constant Retry-After and maximum jitter on every
-    // attempt, is exactly one 60s window.
+    // attempt, is exactly one limiter window.
     const worstCase = Array.from(
       { length: RATE_LIMIT_MAX_RETRIES },
-      (_, attempt) =>
-        rateLimitDelay(attempt, httpError(429, 60), maxJitter)
+      (_, attempt) => rateLimitDelay(attempt, httpError(429, 60), maxJitter)
     ).reduce((total, delay) => total + delay, 0)
 
-    expect(worstCase).toBeLessThanOrEqual(60_000)
+    // The message carries the WHY, so a failure explains itself instead of
+    // reading as a bare "80000 is not <= 60000". The three constants are one
+    // arithmetic unit and this is the only thing that says so at runtime.
+    expect(
+      worstCase,
+      `RATE_LIMIT_MAX_RETRIES (${RATE_LIMIT_MAX_RETRIES}) x ` +
+        `RATE_LIMIT_MAX_BASE_DELAY_MS (${RATE_LIMIT_MAX_BASE_DELAY_MS}) x ` +
+        `(1 + RATE_LIMIT_JITTER_RATIO (${RATE_LIMIT_JITTER_RATIO})) must stay ` +
+        `within one ${LIMITER_WINDOW_MS}ms limiter window. Retrying past the ` +
+        `window means the budget has demonstrably not refilled, so further ` +
+        `attempts only add load. Retune the constants together, not singly.`
+    ).toBeLessThanOrEqual(LIMITER_WINDOW_MS)
   })
 })
 

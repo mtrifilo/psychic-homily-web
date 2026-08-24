@@ -57,16 +57,37 @@
  * every page of the site. No request or response bodies, no headers, and no
  * full URLs are attached, so the server `beforeSend` header scrub in
  * `sentry.server.config.ts` has nothing of ours left to filter.
+ *
+ * SCRUBBING THE SDK'S OWN BREADCRUMBS TOO. Scrubbing only what this module
+ * builds would have been theatre. Sentry's default `breadcrumbsIntegration`
+ * records the FULL fetch URL, query string included, for every request in the
+ * tab, and those breadcrumbs ride along on every event. So the careful route
+ * shaping here would have sat next to a raw `?token=...` in the same envelope.
+ * That predates this module, but this module is what makes it matter: it mints
+ * a regularly-firing event class whose trigger condition is "the user is
+ * generating lots of requests", which is exactly when the breadcrumb trail is
+ * richest. `toTelemetryPath` is therefore also wired into a global
+ * `beforeBreadcrumb` in `instrumentation-client.ts`.
+ *
+ * Still NOT covered, and worth knowing: `httpContextIntegration` attaches the
+ * current PAGE url, which on a filtered or searched route carries the user's
+ * terms. That one needs a client `beforeSend` and a decision about how much
+ * page context is worth keeping, so it is left alone rather than half-done.
  */
 
 import * as Sentry from '@sentry/nextjs'
+import { LIMITER_WINDOW_MS } from './query-retry-policy'
 
 /**
- * Minimum gap between promoted 429 events of the same kind. One limiter
- * window: long enough to collapse a whole page's burst into a single event,
- * short enough that a sustained problem keeps reporting.
+ * Minimum gap between promoted 429 events for the same route shape. One
+ * limiter window: long enough to collapse a whole page's burst into a single
+ * event per endpoint, short enough that a sustained problem keeps reporting.
+ *
+ * Imported rather than restated so this and the retry budget cannot drift: it
+ * is the same backend fact, and it was previously written as an independent
+ * `60_000` here.
  */
-export const RATE_LIMIT_REPORT_COOLDOWN_MS = 60_000
+export const RATE_LIMIT_REPORT_COOLDOWN_MS = LIMITER_WINDOW_MS
 
 /** Longest telemetry path we will emit, and the segment cap that feeds it. */
 const MAX_TELEMETRY_PATH_LENGTH = 120
@@ -158,11 +179,64 @@ export function toTelemetryPath(endpoint: string | undefined): string {
 const runtimeTag = (): 'browser' | 'server' =>
   typeof window === 'undefined' ? 'server' : 'browser'
 
+/**
+ * Run a reporting call so that a failure inside it can never propagate.
+ *
+ * Both entry points are invoked from error paths, where a thrown telemetry
+ * error would be mistaken for the application error it was reporting on.
+ * Swallowing is the right call here: there is nowhere useful to report a
+ * failure of the reporting system, and a lost 429 sample is not worth breaking
+ * a request over.
+ */
+function reportSafely(report: () => void): void {
+  try {
+    report()
+  } catch {
+    // Deliberately silent. See above.
+  }
+}
+
 /** Per-kind cooldown state for the sampler described in the module comment. */
 type Sampler = { lastReportAt: number; suppressed: number }
 
-const hitSampler: Sampler = { lastReportAt: 0, suppressed: 0 }
-const exhaustedSampler: Sampler = { lastReportAt: 0, suppressed: 0 }
+/**
+ * Samplers are keyed by ROUTE SHAPE, not shared across the whole process.
+ *
+ * A single global cooldown looked like it collapsed one page's burst, and in
+ * practice it collapsed the dimension the signal exists to measure: whichever
+ * endpoint 429'd first each minute claimed the only slot, and every other
+ * endpoint in that window was reduced to an anonymous increment. With 60s
+ * pollers in the app (notifications, radio) the winner was also biased toward
+ * whichever poller happened to fire, so the reported `endpoint` described the
+ * race rather than the amplification. Keying per path means each endpoint
+ * family reports once per window on its own merits.
+ */
+const MAX_SAMPLED_PATHS = 64
+
+/**
+ * Bounded so a pathological path space (an unscrubbed identifier shape we did
+ * not anticipate) cannot grow this map without limit in a long-lived tab or
+ * server process. Past the cap everything shares one overflow bucket, which
+ * degrades to the old global behaviour rather than to a leak.
+ */
+const OVERFLOW_PATH = ':overflow'
+
+function samplerFor(samplers: Map<string, Sampler>, path: string): Sampler {
+  const key = samplers.has(path)
+    ? path
+    : samplers.size >= MAX_SAMPLED_PATHS
+      ? OVERFLOW_PATH
+      : path
+  let sampler = samplers.get(key)
+  if (!sampler) {
+    sampler = { lastReportAt: 0, suppressed: 0 }
+    samplers.set(key, sampler)
+  }
+  return sampler
+}
+
+const hitSamplers = new Map<string, Sampler>()
+const exhaustedSamplers = new Map<string, Sampler>()
 
 /**
  * Decide whether this occurrence is promoted to an event. Returns the
@@ -208,6 +282,16 @@ export interface RateLimitHit {
  * a sampled `warning` event per the cooldown above.
  */
 export function recordRateLimitHit(hit: RateLimitHit): void {
+  // Fail-safe: this runs on the error path in `lib/api.ts`, immediately before
+  // the ApiError is thrown. If Sentry throws (transport, a serialization
+  // failure, a misconfigured client) that error would replace the ApiError the
+  // caller is waiting for, and since it carries no `.status`, the retry policy
+  // would read it as a network error and retry it on the 5xx curve. Telemetry
+  // must never be able to change the error the application sees.
+  reportSafely(() => recordRateLimitHitUnguarded(hit))
+}
+
+function recordRateLimitHitUnguarded(hit: RateLimitHit): void {
   const path = toTelemetryPath(hit.endpoint)
   const runtime = runtimeTag()
 
@@ -224,7 +308,10 @@ export function recordRateLimitHit(hit: RateLimitHit): void {
     },
   })
 
-  const suppressed = claimReportSlot(hitSampler, Date.now())
+  const suppressed = claimReportSlot(
+    samplerFor(hitSamplers, path),
+    Date.now()
+  )
   if (suppressed === null) return
 
   Sentry.captureMessage('Client rate limited (HTTP 429)', {
@@ -272,10 +359,22 @@ export interface RateLimitExhaustion extends RateLimitHit {
 export function reportRateLimitExhausted(
   exhaustion: RateLimitExhaustion
 ): void {
+  reportSafely(() => reportRateLimitExhaustedUnguarded(exhaustion))
+}
+
+function reportRateLimitExhaustedUnguarded(
+  exhaustion: RateLimitExhaustion
+): void {
   const path = exhaustion.endpoint
     ? toTelemetryPath(exhaustion.endpoint)
     : undefined
-  const suppressed = claimReportSlot(exhaustedSampler, Date.now())
+  // Keyed on the query family when there is no path, so two different families
+  // dying in the same minute both report instead of one silently inheriting
+  // the other's identity.
+  const suppressed = claimReportSlot(
+    samplerFor(exhaustedSamplers, path ?? exhaustion.queryFamily ?? 'unknown'),
+    Date.now()
+  )
   if (suppressed === null) return
 
   Sentry.captureMessage('Rate limit retries exhausted (HTTP 429)', {

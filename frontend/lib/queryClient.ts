@@ -110,6 +110,13 @@ function reportExhaustedRateLimit(
 ): void {
   if (typeof window === 'undefined') return
   if (!isRateLimitError(error)) return
+  // "Retries exhausted" has to mean a retry actually happened. A query that
+  // passes its own `retry` opts out of the shared policy entirely, and six do
+  // (`useContributorProfile` x3, `useCommentDeepLink`, and the two graph
+  // hooks), so without this they reach here on their FIRST 429 and report an
+  // error-level exhaustion having attempted nothing. `fetchFailureCount` is
+  // the total attempt count, so 1 means the original request and no more.
+  if (query.state.fetchFailureCount <= 1) return
 
   const apiError = error as ApiError
   reportRateLimitExhausted({

@@ -89,14 +89,27 @@ import type { ApiError } from './api'
 export const RATE_LIMIT_MAX_RETRIES = 3
 
 /**
+ * The backend limiter's window, and the single place this frontend states it.
+ *
+ * Every limiter that can 429 a read is configured `time.Minute`
+ * (`backend/internal/api/middleware/ratelimit.go`), and three separate things
+ * here are tuned to it: the total retry budget below, the telemetry sampler's
+ * cooldown, and the test that guards the budget arithmetic. They were three
+ * independent `60_000` literals encoding one backend fact, which is three
+ * places to miss if the window ever changes.
+ */
+export const LIMITER_WINDOW_MS = 60_000
+
+/**
  * Ceiling on the BASE delay for one 429 retry, before jitter.
  *
  * Chosen so that `RATE_LIMIT_MAX_RETRIES` attempts at the ceiling plus maximum
- * jitter still total no more than one 60s limiter window:
- * `3 * 16s * 1.25 = 60s` exactly. Raising either constant breaks that
- * arithmetic, which is the whole total-delay guarantee.
+ * jitter still total no more than one limiter window:
+ * `3 * 10s * (1 + 1.0) = 60s` exactly. The three constants are one arithmetic
+ * unit; changing any of them in isolation breaks the total-delay guarantee,
+ * and the test that pins it says so in its failure message.
  */
-export const RATE_LIMIT_MAX_BASE_DELAY_MS = 16_000
+export const RATE_LIMIT_MAX_BASE_DELAY_MS = 10_000
 
 /**
  * Base for exponential backoff when the response carried no usable
@@ -116,7 +129,16 @@ export const RATE_LIMIT_FALLBACK_BASE_MS = 2_000
  * Without it every blocked request on the page waits the same interval and
  * then retries in the same instant, recreating the spike that exhausted the
  * budget in the first place. Jitter is ADDITIVE ONLY, never negative, so it
- * can only ever push a retry later.
+ * can only ever push a retry later: the server has told us when it is willing
+ * to answer, and arriving early is a guaranteed second 429.
+ *
+ * FULL width, not a token 25%. The spread has to be comparable to the base
+ * delay to actually de-synchronize anything: at 25% the fifteen reads of one
+ * entity page would all retry inside a 500ms window off a 2s base, which
+ * moves the spike rather than flattening it. At 1.0 the same fifteen spread
+ * across a full 2s. This matters most on reconnect, where `refetchOnReconnect`
+ * synchronizes every client in the fleet to the same instant and a narrow
+ * spread keeps them synchronized through every subsequent retry.
  *
  * It is applied AFTER the clamp, not before. Clamping the jittered value
  * instead would squeeze the jitter back out precisely when it matters most:
@@ -124,7 +146,7 @@ export const RATE_LIMIT_FALLBACK_BASE_MS = 2_000
  * ceiling, every clamped result lands on the same number, and the whole page
  * retries in lockstep.
  */
-export const RATE_LIMIT_JITTER_RATIO = 0.25
+export const RATE_LIMIT_JITTER_RATIO = 1.0
 
 /** Status code that means "rate limited, try again later". */
 const HTTP_TOO_MANY_REQUESTS = 429
@@ -191,6 +213,22 @@ function rateLimitRetryDelay(
  * `isBrowser` is a parameter with a runtime-derived default for the same
  * reason `random` is above: it makes the server branch testable. React Query
  * passes two arguments, so the default is what runs in production.
+ *
+ * THIS IS A DEFAULT, AND A PER-QUERY `retry` REPLACES IT WHOLESALE. Six hooks
+ * pass their own (`useContributorProfile` x3, `useCommentDeepLink`, and the
+ * two graph hooks), and they lose not just the 429 handling but the
+ * 4xx-terminal rule and the server guard below with it: `retry: 1` on a hook
+ * that is ever server-prefetched with a live `queryFn` reintroduces exactly
+ * the render stall the guard exists to prevent. Compose with this function
+ * rather than replacing it when a query needs its own rule.
+ *
+ * IT ALSO KEYS ON STATUS ALONE, and cannot tell which layer sent the 429. The
+ * "probing early is free" reasoning above is a property of `go-chi/httprate`,
+ * not of 429 in general: a platform, edge, or WAF limiter may well count
+ * rejected requests, and some extend a block under continued traffic. Today
+ * every 429 this frontend can see comes from the Go backend's limiters. If
+ * that stops being true, revisit the schedule rather than assuming it carries
+ * over.
  *
  * WHY THE SERVER DOES NOT RETRY A 429. The same query client backs SSR
  * prefetch (`getQueryClient` mints a fresh client per request on the server),
