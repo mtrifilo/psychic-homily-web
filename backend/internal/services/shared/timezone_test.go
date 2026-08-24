@@ -255,30 +255,48 @@ func TestVenueTimezoneByNameCity(t *testing.T) {
 			t.Errorf("got (%q, %v), want (nil, nil)", derefForTest(got), err)
 		}
 	})
-}
 
-// A QUERY failure must surface rather than degrade to "no zone": inside a
-// transaction it also poisons the statements after it, so a swallowed error
-// reappears as an unrelated abort further along.
-func TestVenueTimezoneByNameCity_QueryFailureIsAnError(t *testing.T) {
-	db := testutil.SetupTestPostgres(t).DB
-	if err := db.Exec("ALTER TABLE venues RENAME TO venues_hidden").Error; err != nil {
-		t.Fatalf("rename venues: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = db.Exec("ALTER TABLE venues_hidden RENAME TO venues").Error
+	// A QUERY failure must surface rather than degrade to "no zone": inside a
+	// transaction it also poisons the statements after it, so a swallowed error
+	// reappears as an unrelated abort further along.
+	//
+	// Shares this test's database rather than standing up a second one.
+	// testutil.SetupTestPostgres starts a REAL container per call, and this
+	// package also holds wall-clock scheduling tests whose bounds are derived
+	// from elapsed time, so an extra container is load those tests can feel.
+	// Subtests run sequentially and the rename is undone here rather than in a
+	// t.Cleanup, so the table is back before anything else looks for it.
+	t.Run("a query failure is an error, not a missing zone", func(t *testing.T) {
+		if err := db.Exec("ALTER TABLE venues RENAME TO venues_hidden").Error; err != nil {
+			t.Fatalf("rename venues: %v", err)
+		}
+		got, err := VenueTimezoneByNameCity(db, "Boom Leeds", "Leeds")
+		if rerr := db.Exec("ALTER TABLE venues_hidden RENAME TO venues").Error; rerr != nil {
+			t.Fatalf("restore venues: %v", rerr)
+		}
+
+		if err == nil {
+			t.Fatalf("expected an error when the query fails, got zone %q", derefForTest(got))
+		}
+		if got != nil {
+			t.Errorf("a failed query must not return a zone, got %q", *got)
+		}
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			t.Error("a query failure must not be reported as record-not-found")
+		}
 	})
 
-	got, err := VenueTimezoneByNameCity(db, "Boom Leeds", "Leeds")
-	if err == nil {
-		t.Fatalf("expected an error when the query fails, got zone %q", derefForTest(got))
-	}
-	if got != nil {
-		t.Errorf("a failed query must not return a zone, got %q", *got)
-	}
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		t.Error("a query failure must not be reported as record-not-found")
-	}
+	// And the table really is back, so a later test in this package cannot
+	// inherit the rename if the restore above ever regresses.
+	t.Run("the venues table is restored afterwards", func(t *testing.T) {
+		got, err := VenueTimezoneByNameCity(db, "Boom Leeds", "Leeds")
+		if err != nil {
+			t.Fatalf("unexpected error after restore: %v", err)
+		}
+		if got == nil || *got != london {
+			t.Errorf("got %q, want %q", derefForTest(got), london)
+		}
+	})
 }
 
 func derefForTest(p *string) string {

@@ -525,7 +525,7 @@ func (s *DataSyncService) importVenue(venue *contracts.ExportedVenue, dryRun boo
 	return fmt.Sprintf("IMPORTED: Venue '%s' in %s (ID: %d)", venue.Name, venue.City, newVenue.ID), "imported"
 }
 
-// storedVenueTimezone reads the IANA zone already stored on the show's primary
+// venueTimezoneForShow reads the IANA zone already stored on the show's primary
 // venue, so utils.GenerateShowSlug can date the slug in the venue's real zone
 // rather than the US state map's Phoenix default (PSY-1873).
 //
@@ -536,18 +536,33 @@ func (s *DataSyncService) importVenue(venue *contracts.ExportedVenue, dryRun boo
 // A missing venue is not an error: an import that creates the venue and the
 // show in one pass still slugs from the state, and the venue's real zone
 // reaches the slug on the next re-import or via cmd/dedup-shows'
-// RecanonicaliseShowSlug. A failed QUERY is different and is logged rather than
-// silently read as "no zone" — inside the import transaction it also poisons
-// the statements after it, so the operator needs it named here rather than
-// discovering it as an unrelated abort downstream.
-func storedVenueTimezone(db *gorm.DB, venues []contracts.ExportedVenue) *string {
+// RecanonicaliseShowSlug.
+//
+// A failed QUERY is returned, not swallowed. Callers inside a transaction MUST
+// abort on it: the failed statement has already put Postgres into an aborted
+// transaction, so continuing only produces "current transaction is aborted" on
+// some later, innocent statement. venueTimezoneForShowBestEffort is the
+// non-transactional variant for callers that genuinely can degrade.
+func venueTimezoneForShow(db *gorm.DB, venues []contracts.ExportedVenue) (*string, error) {
 	if len(venues) == 0 {
-		return nil
+		return nil, nil
 	}
-	tz, err := shared.VenueTimezoneByNameCity(db, venues[0].Name, venues[0].City)
+	return shared.VenueTimezoneByNameCity(db, venues[0].Name, venues[0].City)
+}
+
+// venueTimezoneForShowBestEffort is venueTimezoneForShow for a caller running
+// OUTSIDE a transaction, where a lookup failure costs one slug's accuracy
+// rather than the correctness of everything after it. It logs and falls back to
+// the state map, which is what the slug used before this existed.
+func venueTimezoneForShowBestEffort(db *gorm.DB, venues []contracts.ExportedVenue) *string {
+	tz, err := venueTimezoneForShow(db, venues)
 	if err != nil {
+		name, city := "", ""
+		if len(venues) > 0 {
+			name, city = venues[0].Name, venues[0].City
+		}
 		slog.Error("could not read the venue timezone for a show slug; falling back to the state map",
-			"venue_name", venues[0].Name, "city", venues[0].City, "error", err)
+			"venue_name", name, "city", city, "error", err)
 		return nil
 	}
 	return tz
@@ -639,9 +654,16 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 			showState = show.Venues[0].State
 		}
 
-		// Generate show slug
+		// Generate show slug. The zone lookup runs on tx, so a failure has
+		// already aborted this transaction: every statement after it would fail
+		// with "current transaction is aborted" and the operator would be
+		// debugging the wrong one. Fail here, where the cause is named.
+		venueTZ, err := venueTimezoneForShow(tx, show.Venues)
+		if err != nil {
+			return err
+		}
 		baseShowSlug := utils.GenerateShowSlug(eventDate.UTC(), headlinerName, venueName,
-			storedVenueTimezone(tx, show.Venues), showState)
+			venueTZ, showState)
 		showSlug := utils.GenerateUniqueSlug(baseShowSlug, func(candidate string) bool {
 			var count int64
 			tx.Model(&catalogm.Show{}).Where("slug = ?", candidate).Count(&count)
@@ -797,7 +819,7 @@ func (s *DataSyncService) backfillShowSlugs(existingShow *catalogm.Show, show *c
 			showState = show.Venues[0].State
 		}
 		baseSlug := utils.GenerateShowSlug(eventDate.UTC(), headlinerName, venueName,
-			storedVenueTimezone(s.db, show.Venues), showState)
+			venueTimezoneForShowBestEffort(s.db, show.Venues), showState)
 		slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 			var count int64
 			s.db.Model(&catalogm.Show{}).Where("slug = ?", candidate).Count(&count)
