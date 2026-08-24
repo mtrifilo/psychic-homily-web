@@ -129,9 +129,21 @@ describe('AlertSettings', () => {
     it('says so instead of drawing invented settings', () => {
       renderWithProviders(<AlertSettings />)
 
-      expect(screen.getByRole('alert')).toHaveTextContent(
-        "Couldn't load your follow-alert settings"
-      )
+      // Two alerts now, not one: the matrix and the area card each read this
+      // endpoint and each has to own up separately, because the area card's
+      // silent version showed "No home area" to someone who has one.
+      expect(
+        screen.getAllByRole('alert').map(node => node.textContent).join(' ')
+      ).toMatch(/Couldn't load your follow-alert settings/)
+    })
+
+    it('does not assert a home area it could not read', () => {
+      renderWithProviders(<AlertSettings />)
+
+      expect(screen.queryByTestId('home-metro-select')).toBeNull()
+      expect(
+        screen.getAllByRole('alert').map(node => node.textContent).join(' ')
+      ).toMatch(/Couldn't load your area/)
     })
 
     it('offers no live control that could pin a value from unknown state', () => {
@@ -328,13 +340,16 @@ describe('AlertSettings', () => {
     }
   })
 
-  it('offers no account-level checkbox for custom alerts, whose channels are per filter', () => {
+  it('offers no account-level checkbox for custom alerts', () => {
     renderWithProviders(<AlertSettings />)
 
     expect(
       screen.queryByRole('checkbox', { name: /Custom alerts you built/ })
     ).not.toBeInTheDocument()
-    expect(screen.getAllByText('per filter').length).toBe(2)
+    // One "per filter", not two: only EMAIL is per filter. In-app fires
+    // regardless, so it reads "always".
+    expect(screen.getAllByText('per filter').length).toBe(1)
+    expect(screen.getByText('always')).toBeInTheDocument()
   })
 
   it('surfaces a failed write', () => {
@@ -351,10 +366,34 @@ describe('AlertSettings', () => {
     ['show-reminders', REMINDER_ROW, () => (mockShowRemindersState = { isPending: true, isError: false })],
     ['scene-digest', SCENE_ROW, () => (mockSceneDigestState = { isPending: true, isError: false })],
     ['collection-digest', COLLECTION_ROW, () => (mockCollectionDigestState = { isPending: true, isError: false })],
-  ])('disables the %s box while its own write is in flight', (_id, row, setPending) => {
+  ])('parks the %s box while its own write is in flight', (_id, row, setPending) => {
     setPending()
     renderWithProviders(<AlertSettings />)
-    expect(screen.getByRole('checkbox', { name: `Email: ${row}` })).toBeDisabled()
+    // aria-disabled, NOT the disabled attribute: a disabled element cannot
+    // hold focus, so parking a box during its own PATCH would drop a keyboard
+    // user to <body> and restart their next Tab from the top of the page.
+    // Same contract AlertChipRadioGroup states for the chips.
+    const box = screen.getByRole('checkbox', { name: `Email: ${row}` })
+    expect(box).toHaveAttribute('aria-disabled', 'true')
+    expect(box).not.toBeDisabled()
+  })
+
+  it('keeps a parked box focusable so the keyboard user is not ejected', async () => {
+    mockSceneDigestState = { isPending: true, isError: false }
+    renderWithProviders(<AlertSettings />)
+
+    const box = screen.getByRole('checkbox', { name: `Email: ${SCENE_ROW}` })
+    box.focus()
+    expect(box).toHaveFocus()
+  })
+
+  it('ignores a second write while one is already in flight', async () => {
+    const user = userEvent.setup()
+    mockSceneDigestState = { isPending: true, isError: false }
+    renderWithProviders(<AlertSettings />)
+
+    await user.click(screen.getByRole('checkbox', { name: `Email: ${SCENE_ROW}` }))
+    expect(mockSetSceneDigest).not.toHaveBeenCalled()
   })
 
   // Each of these rows owns its own mutation, so one saving must not park the
@@ -365,13 +404,13 @@ describe('AlertSettings', () => {
 
     expect(
       screen.getByRole('checkbox', { name: `Email: ${SCENE_ROW}` })
-    ).toBeDisabled()
+    ).toHaveAttribute('aria-disabled', 'true')
     expect(
       screen.getByRole('checkbox', { name: `Email: ${COLLECTION_ROW}` })
-    ).toBeEnabled()
+    ).not.toHaveAttribute('aria-disabled')
     expect(
       screen.getByRole('checkbox', { name: `Email: ${REMINDER_ROW}` })
-    ).toBeEnabled()
+    ).not.toHaveAttribute('aria-disabled')
   })
 
   it.each([
@@ -400,6 +439,59 @@ describe('AlertSettings', () => {
     ).toBeInTheDocument()
   })
 
+  // PENDING is not UNAVAILABLE. The first paint of the settings tab has no
+  // matrix yet, and announcing "could not be loaded" over four settings whose
+  // request is still in flight is a failure claim invented from a loading
+  // state, with no banner to explain it because nothing failed.
+  describe('while the preferences read is in flight', () => {
+    beforeEach(() => {
+      mockPreferences = undefined
+      mockPreferencesLoading = true
+      mockPreferencesFailed = false
+    })
+
+    it('says loading, not that the settings could not be loaded', () => {
+      renderWithProviders(<AlertSettings />)
+
+      expect(
+        screen.getAllByText(/In-app: An artist or venue you follow announces a show is still loading/i)
+      ).not.toHaveLength(0)
+      expect(screen.queryByText(/could not be loaded/i)).toBeNull()
+      expect(screen.queryByText(/^unknown$/i)).toBeNull()
+    })
+
+    it('claims no failure anywhere on the card', () => {
+      renderWithProviders(<AlertSettings />)
+
+      expect(screen.queryByRole('alert')).toBeNull()
+    })
+
+    // The area card obeys the same rule: "no home area" is a fact it does not
+    // have yet, and asserting it over an ENABLED select invites a click that
+    // overwrites a real stored metro.
+    it('does not assert the viewer has no home area', () => {
+      renderWithProviders(<AlertSettings />)
+
+      expect(screen.queryByTestId('home-metro-select')).toBeNull()
+      expect(screen.getByText(/Loading your area/i)).toBeInTheDocument()
+    })
+  })
+
+  // Custom alerts always reach the inbox: the matcher writes the notification
+  // row unconditionally and branches only on the email flag, and the builder's
+  // own in-app switch is labelled "coming soon". "Per filter" would send
+  // someone to a control that cannot turn this off.
+  it('does not claim the custom-alert in-app channel is per filter', () => {
+    renderWithProviders(<AlertSettings />)
+
+    expect(
+      screen.getByText(/In-app: Custom alerts you built is always on/i)
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/Email: Custom alerts you built is set on each custom alert/i)
+    ).toBeInTheDocument()
+  })
+
   // The claim is scoped to the channel that has been observed delivering.
   // PSY-1896's email lane is built and integration-tested but has never sent a
   // real message, so "live" may not stretch across the Email column.
@@ -414,13 +506,18 @@ describe('AlertSettings', () => {
     expect(screen.queryByText(/^Artist alerts are live/i)).not.toBeInTheDocument()
   })
 
-  // Only the artist show-alert email exists, so the unsubscribe footnote may
-  // not generalize over show-alert emails that have no notifier.
-  it('scopes the unsubscribe footnote to the emails that exist', () => {
+  // Every sender this card governs takes an unsubscribeURL (show reminder,
+  // filter match, both weekly digests, artist show alert), so the footnote can
+  // and should cover all of them. Naming only two was precise and incomplete
+  // at once, and the two weekly digests it omitted were MOVED into this card
+  // by the same change.
+  it('promises one-click unsubscribe across every email this card sends', () => {
     renderWithProviders(<AlertSettings />)
 
     expect(
-      screen.getByText(/Artist show-alert and reminder emails carry a one-click unsubscribe/i)
+      screen.getByText(
+        /Every email this card can send you carries a one-click unsubscribe link/i
+      )
     ).toBeInTheDocument()
   })
 

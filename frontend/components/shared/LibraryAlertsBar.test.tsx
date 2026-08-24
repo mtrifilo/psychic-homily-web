@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { LibraryAlertsBar } from './LibraryAlertsBar'
 
@@ -7,12 +8,19 @@ import { LibraryAlertsBar } from './LibraryAlertsBar'
 
 let mockPreferences: { home_metro: string | null } | undefined
 let mockIsSuccess = true
+let mockIsError = false
 const mockUseAlertPreferences = vi.fn()
+const mockRefetch = vi.fn()
 
 vi.mock('@/features/auth/hooks/useAlertPreferences', () => ({
   useAlertPreferences: (enabled?: boolean) => {
     mockUseAlertPreferences(enabled)
-    return { data: mockPreferences, isSuccess: mockIsSuccess }
+    return {
+      data: mockPreferences,
+      isSuccess: mockIsSuccess,
+      isError: mockIsError,
+      refetch: mockRefetch,
+    }
   },
 }))
 
@@ -26,7 +34,9 @@ describe('LibraryAlertsBar', () => {
   beforeEach(() => {
     mockPreferences = { home_metro: '38060' }
     mockIsSuccess = true
+    mockIsError = false
     mockUseAlertPreferences.mockReset()
+    mockRefetch.mockReset()
   })
 
   it('states the starting scope and the current area on a scoped tab', () => {
@@ -73,12 +83,65 @@ describe('LibraryAlertsBar', () => {
     expect(screen.queryByText(/Your area/)).toBeNull()
   })
 
-  it('always offers the custom alerts link and the pending-delivery note', () => {
+  it('always offers the custom alerts link', () => {
     renderWithProviders(<LibraryAlertsBar entityType="venues" />)
 
     expect(
       screen.getByRole('link', { name: 'custom alerts →' })
     ).toHaveAttribute('href', '/settings/notification-filters')
-    expect(screen.getByText(/still being switched on/i)).toBeInTheDocument()
+  })
+
+  // PSY-1896 made delivery a per-type fact rather than one shared state, and
+  // this bar is one of the two surfaces that has to honour it. Both arms are
+  // pinned: an unconditional note is exactly the regression to catch, and it
+  // would pass a presence-only test.
+  describe('pending-delivery disclosure', () => {
+    it('discloses it on the venues tab, where nothing delivers yet', () => {
+      renderWithProviders(<LibraryAlertsBar entityType="venues" />)
+
+      expect(screen.getByText(/still being switched on/i)).toBeInTheDocument()
+    })
+
+    it('stays silent on the artists tab, whose alerts already deliver', () => {
+      renderWithProviders(<LibraryAlertsBar entityType="artists" />)
+
+      expect(screen.queryByText(/still being switched on/i)).toBeNull()
+    })
+  })
+
+  // FAILED is not PENDING. On a failed read the bar loses its area half AND
+  // every row bracket disappears (an unknown home area makes each menu render
+  // null), so without a message the tab reads as "these follows carry no
+  // alerts at all".
+  describe('when the preferences read fails', () => {
+    beforeEach(() => {
+      mockPreferences = undefined
+      mockIsSuccess = false
+      mockIsError = true
+    })
+
+    it('says so rather than degrading silently', () => {
+      renderWithProviders(<LibraryAlertsBar entityType="artists" />)
+
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        "Couldn't load your alert settings"
+      )
+    })
+
+    it('offers a retry that refetches', async () => {
+      const user = userEvent.setup()
+      renderWithProviders(<LibraryAlertsBar entityType="artists" />)
+
+      await user.click(screen.getByRole('button', { name: 'retry' }))
+      expect(mockRefetch).toHaveBeenCalled()
+    })
+
+    // Pending is still silent: only a real failure gets a message.
+    it('stays silent while the read is merely in flight', () => {
+      mockIsError = false
+      renderWithProviders(<LibraryAlertsBar entityType="artists" />)
+
+      expect(screen.queryByRole('alert')).toBeNull()
+    })
   })
 })

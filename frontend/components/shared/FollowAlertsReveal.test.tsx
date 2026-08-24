@@ -29,6 +29,7 @@ vi.mock('@/lib/hooks/common/useFollow', () => ({
 // Captures the `enabled` argument so the optimistic-follow race is assertable.
 const followAlertsEnabled = vi.fn()
 let mockAlertsFailed = false
+let mockAlertsErrorStatus: number | undefined
 const mockRefetchAlerts = vi.fn()
 
 vi.mock('@/lib/hooks/common/useFollowAlerts', () => ({
@@ -37,10 +38,17 @@ vi.mock('@/lib/hooks/common/useFollowAlerts', () => ({
     return {
       data: enabled ? mockAlerts : undefined,
       isError: mockAlertsFailed,
+      error: mockAlertsFailed
+        ? { status: mockAlertsErrorStatus ?? 500 }
+        : undefined,
       refetch: mockRefetchAlerts,
     }
   },
   useUpdateFollowAlerts: () => ({ mutate: mockUpdate, ...mockUpdateState }),
+  // The real predicate, not a stub: the component and the retry policy have to
+  // agree on what a 404 means, and a stub here would let them drift.
+  isFollowAlertsNotFound: (error: unknown) =>
+    (error as { status?: number })?.status === 404,
 }))
 
 let mockIsMutating = 0
@@ -84,6 +92,15 @@ const renderArtist = () =>
     />
   )
 
+const renderVenue = () =>
+  renderWithProviders(
+    <FollowAlertsReveal
+      entityType="venues"
+      entityId={4}
+      entityName="Rebel Lounge"
+    />
+  )
+
 describe('FollowAlertsReveal', () => {
   beforeEach(() => {
     mockUpdate.mockReset()
@@ -95,6 +112,7 @@ describe('FollowAlertsReveal', () => {
     mockPreferencesResolved = true
     mockPreferencesFailed = false
     mockAlertsFailed = false
+    mockAlertsErrorStatus = undefined
     mockIsMutating = 0
     followAlertsEnabled.mockReset()
     mockRefetchAlerts.mockReset()
@@ -316,19 +334,99 @@ describe('FollowAlertsReveal', () => {
     )
   })
 
-  // Capability truth: the subscription is stored, but delivery is a separate
-  // unshipped piece of work and this control must not imply otherwise.
-  it('does not claim alerts are already being delivered', async () => {
-    const user = userEvent.setup()
-    renderArtist()
+  // A 404 on the alerts sub-resource means "not following", which is the one
+  // error the retry policy deliberately refuses to retry. Treating it as a
+  // load failure paints a message that can never clear.
+  describe('when the alerts read 404s', () => {
+    beforeEach(() => {
+      mockAlerts = undefined
+      mockAlertsFailed = true
+      mockAlertsErrorStatus = 404
+    })
 
-    // Assert the CLAIM, not just that a tooltip trigger exists: the previous
-    // shape stayed green through a rewrite to "alerts are flowing now".
-    await user.hover(
-      screen.getByRole('button', { name: 'What these alerts cover' })
-    )
-    expect(
+    // Real sequence: this tab's follow status is stale for its 2-minute
+    // window, so `is_following` still reads true after another tab unfollows.
+    it('renders nothing rather than an error it cannot retry away', () => {
+      const { container } = renderArtist()
+
+      expect(screen.queryByRole('alert')).toBeNull()
+      expect(screen.queryByRole('button', { name: 'retry' })).toBeNull()
+      expect(container).toBeEmptyDOMElement()
+    })
+
+    // Anything that is NOT a 404 still gets the message and the retry, which
+    // is the behaviour this must not regress.
+    it('still reports a genuine failure', () => {
+      mockAlertsErrorStatus = 500
+      renderArtist()
+
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        "Couldn't load your alert settings"
+      )
+    })
+  })
+
+  // Capability truth, and it is PER TYPE since PSY-1896: artist show alerts
+  // deliver, venue ones do not. Both tooltips have to be pinned to the right
+  // side of that line, and pinned to the CLAIM rather than to the existence of
+  // a tooltip button.
+  describe('capability truth in the tooltips', () => {
+    const openTooltip = async () => {
+      const user = userEvent.setup()
+      await user.hover(
+        screen.getByRole('button', { name: 'What these alerts cover' })
+      )
+    }
+
+    // The artist tooltip's only pending sentence is about RELEASES. A regex
+    // for "still being switched on" alone passes even if the artist copy is
+    // reverted to claiming artist SHOW alerts are unshipped, because the
+    // release note satisfies it. So assert the release subject explicitly, and
+    // assert the reverted claim is absent.
+    it('scopes the artist tooltip pending note to releases only', async () => {
+      renderArtist()
+      await openTooltip()
+
+      expect(
+        await screen.findAllByText(/Release alerts are still being switched on/i)
+      ).not.toHaveLength(0)
+      expect(
+        screen.queryByText(/Alerts from the artists and venues you follow/i)
+      ).toBeNull()
+      expect(
+        screen.queryByText(/shows a venue you follow adds are still being switched on/i)
+      ).toBeNull()
+    })
+
+    it('discloses pending delivery in the venue tooltip', async () => {
+      renderVenue()
+      await openTooltip()
+
+      expect(
+        await screen.findAllByText(
+          /Alerts for shows a venue you follow adds are still being switched on/i
+        )
+      ).not.toHaveLength(0)
+    })
+
+    // The venue tooltip used to open with "Turns alerts on or off", a
+    // present-tense capability claim, and then say two sentences later that
+    // those same alerts are not on yet. One tooltip, contradicting itself.
+    it('does not open the venue tooltip with a present-tense delivery claim', async () => {
+      renderVenue()
+      await openTooltip()
+
       await screen.findAllByText(/still being switched on/i)
-    ).not.toHaveLength(0)
+      expect(screen.queryByText(/^Turns alerts on or off/i)).toBeNull()
+    })
+
+    // A venue has no geography, so it must never be told about scope.
+    it('never mentions near me in the venue tooltip', async () => {
+      renderVenue()
+      await openTooltip()
+
+      await screen.findAllByText(/still being switched on/i)
+      expect(screen.queryByText(/near me/i)).toBeNull()
+    })
   })
 })

@@ -10,6 +10,7 @@ import {
   useFollowStatus,
 } from '@/lib/hooks/common/useFollow'
 import {
+  isFollowAlertsNotFound,
   useFollowAlerts,
   useUpdateFollowAlerts,
 } from '@/lib/hooks/common/useFollowAlerts'
@@ -36,7 +37,12 @@ import { cn } from '@/lib/utils'
 // account-level setting, which is why they get named here rather than implied.
 const ARTIST_TOOLTIP = `Chooses which of this artist's new shows you get alerted about. New releases are never geography-scoped, so this does not affect them. ${RELEASE_ALERTS_PENDING_NOTE}`
 
-const VENUE_TOOLTIP = `Turns alerts on or off for shows this venue adds. A venue sits in one place, so there is nothing to scope. ${VENUE_ALERTS_PENDING_NOTE}`
+// Future tense throughout, because the pending note that follows it says these
+// alerts are not flowing yet. "Turns alerts on or off" read as a present-tense
+// capability claim and then got contradicted two sentences later, inside one
+// tooltip. Delete the note (and restore the present tense) when PSY-1895 lands
+// venue delivery.
+const VENUE_TOOLTIP = `Sets whether you will be alerted about shows this venue adds. A venue sits in one place, so there is nothing to scope. ${VENUE_ALERTS_PENDING_NOTE}`
 
 interface FollowAlertsRevealProps {
   /** PLURAL follow path segment: "artists" or "venues". */
@@ -123,7 +129,16 @@ export function FollowAlertsReveal({
   // [Following] with no control, no message and no way back, so a user
   // reasonably concludes the follow did not subscribe. Say what happened
   // instead of vanishing.
-  const readFailed = alertsQuery.isError || preferencesQuery.isError
+  // A 404 is NOT a failure: it means the follow is gone. That happens for real
+  // whenever another tab unfollows, because this tab's follow status is stale
+  // for its 2-minute window, so `isFollowing` still reads true while the
+  // sub-resource has already stopped existing. Counting it as a failure paints
+  // a permanent error with a retry button the retry policy correctly refuses to
+  // act on, so the message can never clear. Fall through to rendering nothing,
+  // which is what "not following" already means here.
+  const readFailed =
+    (alertsQuery.isError && !isFollowAlertsNotFound(alertsQuery.error)) ||
+    preferencesQuery.isError
   if (!current || !options) {
     if (!readFailed) return null
     return (
@@ -148,7 +163,7 @@ export function FollowAlertsReveal({
     updateAlerts.mutate({
       entityType,
       entityId,
-      update: followAlertUpdateFor(choice),
+      update: followAlertUpdateFor(choice, { hasHomeMetro }),
     })
   }
 

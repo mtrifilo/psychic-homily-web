@@ -52,6 +52,15 @@ export function AlertChipRadioGroup<T extends string>({
   // becomes unreachable by keyboard entirely.
   const [focusIndex, setFocusIndex] = useState(Math.max(selectedIndex, 0))
 
+  // Clamped at RENDER, not just on write, because the option list can shrink
+  // underneath a stored index. An artist with a home area offers three chips;
+  // clearing that area (in this tab or another, via the shared account
+  // preferences cache) drops it to two. A focusIndex of 2 then matches no chip,
+  // every chip gets tabIndex={-1}, and the group falls out of the tab order
+  // entirely: the single tab stop this roving-tabindex contract promises stops
+  // existing. Deriving it keeps the invariant true for any option list.
+  const activeFocusIndex = Math.min(focusIndex, options.length - 1)
+
   const commit = (index: number) => {
     const option = options[index]
     if (!option || pending || option.value === value) return
@@ -121,7 +130,7 @@ export function AlertChipRadioGroup<T extends string>({
           type="button"
           role="radio"
           aria-checked={value === option.value}
-          tabIndex={index === focusIndex ? 0 : -1}
+          tabIndex={index === activeFocusIndex ? 0 : -1}
           // aria-disabled, NOT disabled: a disabled button cannot hold focus,
           // so parking the group during a write would eject the keyboard user
           // out of it. The guard in `commit` is what actually blocks the write.

@@ -31,6 +31,18 @@ import { useUrlHash } from '@/lib/hooks/common/useUrlHash'
 import { cn } from '@/lib/utils'
 
 /**
+ * Clears the sticky TopBar so a hash deep-link shows the card's heading rather
+ * than parking it under the bar. Same token the profile tab's field anchors
+ * use; a hardcoded `scroll-mt-24` guesses the bar's height instead of reading
+ * it, which now matters because an EMAIL links here.
+ */
+const ALERTS_SCROLL_MT = 'scroll-mt-[calc(var(--topbar-height)+1rem)]'
+
+const prefersReducedMotion = () =>
+  typeof window !== 'undefined' &&
+  window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+
+/**
  * A ref that scrolls its card into view when a link carrying that card's
  * fragment lands here.
  *
@@ -57,7 +69,17 @@ function useAnchorScroll(anchorId: string) {
       if (!node || scrolled.current) return
       if (urlHash.replace(/^#/, '') !== anchorId) return
       scrolled.current = true
-      node.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      // Moving the VIEWPORT is only half of following a link. Without focus, a
+      // keyboard or screen-reader user arriving from the alert email's "Manage
+      // alerts in Settings" gets the page scrolled to the matrix while focus
+      // stays at the document start, so their next Tab lands in the top nav
+      // rather than on the control they were sent to. The card is not
+      // otherwise focusable, hence the -1 tabindex.
+      node.scrollIntoView({
+        behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+        block: 'start',
+      })
+      node.focus({ preventScroll: true })
     },
     [urlHash, anchorId]
   )
@@ -77,11 +99,20 @@ function useAnchorScroll(anchorId: string) {
 type ChannelCell =
   | { kind: 'toggle'; checked: boolean; pending: boolean; onChange: (next: boolean) => void }
   | { kind: 'per-filter' }
+  // A channel that fires for this alert type with no way to turn it off. Not a
+  // checked checkbox, which would invite a click that silently does nothing.
+  | { kind: 'always-on' }
   | { kind: 'not-applicable' }
   // Only the two follow-alert rows can be unavailable, and only they: their
   // state comes from the account matrix. The reminder and digest rows read the
   // profile, so a failure over there must not reach them.
   | { kind: 'unavailable' }
+  // PENDING is not UNAVAILABLE. Collapsing them made every cold load of the
+  // settings tab announce "could not be loaded" over four settings whose
+  // request was still in flight, with no banner to explain it because nothing
+  // had actually failed. `FollowAlertsReveal` states this rule for the sibling
+  // control; the matrix has to keep it too.
+  | { kind: 'pending' }
 
 interface AlertRow {
   id: string
@@ -107,11 +138,34 @@ function ChannelCellView({
     )
   }
 
+  if (cell.kind === 'always-on') {
+    return (
+      <span className="font-mono text-[10px] uppercase tracking-[0.5px] text-muted-foreground">
+        <span aria-hidden>always</span>
+        <span className="sr-only">
+          {label} is always on for this alert and cannot be turned off
+        </span>
+      </span>
+    )
+  }
+
   if (cell.kind === 'per-filter') {
     return (
       <span className="font-mono text-[10px] uppercase tracking-[0.5px] text-muted-foreground">
         <span aria-hidden>per filter</span>
         <span className="sr-only">{label} is set on each custom alert</span>
+      </span>
+    )
+  }
+
+  if (cell.kind === 'pending') {
+    return (
+      <span className="inline-flex items-center justify-center">
+        <Loader2
+          className="h-3.5 w-3.5 animate-spin text-muted-foreground"
+          aria-hidden
+        />
+        <span className="sr-only">{label} is still loading</span>
       </span>
     )
   }
@@ -129,10 +183,19 @@ function ChannelCellView({
 
   return (
     <span className="inline-flex items-center gap-1.5">
+      {/* aria-disabled, NOT disabled, for the reason AlertChipRadioGroup spells
+          out: a disabled element cannot hold focus, so parking the box during
+          its own PATCH drops a keyboard user to <body> and their next Tab
+          restarts from the top of the page. The guard in onCheckedChange is
+          what actually blocks the second write. */}
       <Checkbox
         checked={cell.checked}
-        disabled={cell.pending}
-        onCheckedChange={next => cell.onChange(next === true)}
+        aria-disabled={cell.pending || undefined}
+        onCheckedChange={next => {
+          if (cell.pending) return
+          cell.onChange(next === true)
+        }}
+        className={cn(cell.pending && 'cursor-not-allowed opacity-60')}
         aria-label={label}
       />
       {cell.pending && (
@@ -143,11 +206,12 @@ function ChannelCellView({
 }
 
 /**
- * The Alerts card shell, shared by the matrix and its unavailable states.
+ * The Alerts card shell.
  *
  * Carries `#alerts` because PSY-1896's artist show-alert email links its
  * "manage" CTA at this card, and that link has to land on the matrix in every
- * state, including the degraded ones.
+ * state, including the degraded ones. Unavailability is per CELL, so the card
+ * itself renders the same shell either way.
  */
 function AlertsCard({
   children,
@@ -157,7 +221,12 @@ function AlertsCard({
   anchorRef: (node: HTMLDivElement | null) => void
 }) {
   return (
-    <Card id={ALERTS_ANCHOR} ref={anchorRef} className="scroll-mt-24">
+    <Card
+      id={ALERTS_ANCHOR}
+      ref={anchorRef}
+      tabIndex={-1}
+      className={cn(ALERTS_SCROLL_MT, 'focus:outline-none')}
+    >
       <CardHeader>
         <CardTitle className="text-base">Alerts</CardTitle>
         <CardDescription>
@@ -233,10 +302,10 @@ export function AlertSettings() {
   const matrixToggle = (
     read: (matrix: NonNullable<typeof defaults>) => boolean,
     write: (next: boolean) => void
-  ): ChannelCell =>
-    defaults
-      ? toggle(read(defaults), setAlertDefaults, write)
-      : { kind: 'unavailable' }
+  ): ChannelCell => {
+    if (defaults) return toggle(read(defaults), setAlertDefaults, write)
+    return preferencesFailed ? { kind: 'unavailable' } : { kind: 'pending' }
+  }
 
   const rows: AlertRow[] = [
     {
@@ -308,15 +377,21 @@ export function AlertSettings() {
       title: 'Custom alerts you built',
       description: (
         <>
-          Filters by tag, price cap or several cities at once. Channels stay
-          per filter, so they are set{' '}
+          Filters by tag, price cap or several cities at once. A match always
+          reaches your inbox here; whether it also emails you is set{' '}
           <Link href={CUSTOM_ALERTS_HREF} className="underline hover:text-foreground">
             on each alert
           </Link>
           .
         </>
       ),
-      inApp: { kind: 'per-filter' },
+      // In-app is NOT per filter, however the builder draws it. The matcher
+      // writes the notification row unconditionally and branches only on
+      // `NotifyEmail`, so a custom alert always lands in the inbox and the
+      // builder's own in-app switch is labelled "coming soon". Saying "per
+      // filter" here would send someone to a control that cannot turn this
+      // off. Email genuinely is per filter.
+      inApp: { kind: 'always-on' },
       email: { kind: 'per-filter' },
     },
   ]
@@ -411,9 +486,9 @@ export function AlertSettings() {
 
           <div className="mt-4 space-y-1 border-t border-border pt-3.5">
             <p className="text-xs text-muted-foreground">
-              Email stays off until you switch it on, row by row. Artist
-              show-alert and reminder emails carry a one-click unsubscribe link
-              that flips the same box you see here.
+              Email stays off until you switch it on, row by row. Every email
+              this card can send you carries a one-click unsubscribe link, and
+              using it flips the same box you see here.
             </p>
             <p className="text-xs text-muted-foreground">
               {VENUE_ALERTS_PENDING_NOTE} {RELEASE_ALERTS_PENDING_NOTE}
@@ -424,7 +499,8 @@ export function AlertSettings() {
       <Card
         id={ALERTS_AREA_ANCHOR}
         ref={areaAnchorRef}
-        className="scroll-mt-24"
+        tabIndex={-1}
+        className={cn(ALERTS_SCROLL_MT, 'focus:outline-none')}
       >
         <CardHeader>
           <CardTitle className="text-base">Your area</CardTitle>
@@ -435,7 +511,26 @@ export function AlertSettings() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
-          <HomeMetroSelect metro={preferences?.home_metro ?? null} />
+          {/* Same tri-state rule the matrix above obeys, for the same reason.
+              `?? null` collapsed UNKNOWN into "no home area", so on every load
+              before the read resolved (and permanently after it failed) this
+              card showed "No home area" selected to someone with a metro
+              stored, over an ENABLED select, and the sentence below then told
+              them their near-me follows had fallen back to everywhere. One
+              click from that state overwrites a real preference with a value
+              they were shown wrongly. */}
+          {preferencesFailed ? (
+            <p className="text-sm text-destructive" role="alert">
+              Couldn&apos;t load your area. Reload the page to try again.
+            </p>
+          ) : preferences ? (
+            <HomeMetroSelect metro={preferences.home_metro ?? null} />
+          ) : (
+            <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              Loading your area…
+            </span>
+          )}
           <p className="text-xs text-muted-foreground">
             With no area set, a follow&apos;s near-me scope has nothing to
             match, so those alerts fall back to everywhere rather than

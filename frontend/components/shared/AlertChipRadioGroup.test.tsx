@@ -158,4 +158,70 @@ describe('AlertChipRadioGroup', () => {
     await user.click(screen.getByRole('radio', { name: 'Off' }))
     expect(onChange).not.toHaveBeenCalled()
   })
+
+  // The roving-tabindex contract is "exactly one chip is a tab stop". The
+  // option list can shrink underneath a stored index: an artist with a home
+  // area offers three chips, and clearing that area (here or in another tab,
+  // through the shared account-preferences cache) drops it to two. A stale
+  // index of 2 then matched no chip, every chip got tabIndex={-1}, and the
+  // whole group fell out of the tab order until it remounted.
+  describe('when the option list shrinks under a stored focus index', () => {
+    const TWO_OPTIONS = [
+      { value: 'everywhere', label: 'Everywhere' },
+      { value: 'off', label: 'Off' },
+    ] as const
+
+    it('keeps exactly one tab stop', async () => {
+      const user = userEvent.setup()
+      const { rerender } = renderGroup()
+
+      // Arrow to the last chip of the three-option set, so focusIndex is 2.
+      await user.tab()
+      await user.keyboard('{ArrowRight}{ArrowRight}')
+      expect(screen.getByRole('radio', { name: 'Off' })).toHaveFocus()
+
+      rerender(
+        <AlertChipRadioGroup
+          ariaLabel="Alerts for Alpha"
+          label="Alerts:"
+          options={TWO_OPTIONS}
+          value="everywhere"
+          onChange={onChange}
+        />
+      )
+
+      const tabStops = screen
+        .getAllByRole('radio')
+        .filter(chip => chip.getAttribute('tabindex') === '0')
+      expect(tabStops).toHaveLength(1)
+    })
+
+    it('puts that tab stop on a chip that still exists and can hold focus', async () => {
+      const user = userEvent.setup()
+      const { rerender } = renderGroup()
+
+      await user.tab()
+      await user.keyboard('{ArrowRight}{ArrowRight}')
+
+      rerender(
+        <AlertChipRadioGroup
+          ariaLabel="Alerts for Alpha"
+          label="Alerts:"
+          options={TWO_OPTIONS}
+          value="everywhere"
+          onChange={onChange}
+        />
+      )
+
+      // The stale index (2) is clamped onto the new last chip rather than
+      // pointing past the end, and that chip is a real, focusable node.
+      const tabStop = screen
+        .getAllByRole('radio')
+        .find(chip => chip.getAttribute('tabindex') === '0')
+      expect(tabStop).toHaveAccessibleName('Off')
+
+      tabStop?.focus()
+      expect(tabStop).toHaveFocus()
+    })
+  })
 })

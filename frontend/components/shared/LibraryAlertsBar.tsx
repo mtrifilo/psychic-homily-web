@@ -37,7 +37,12 @@ export function LibraryAlertsBar({ entityType }: LibraryAlertsBarProps) {
   const hasScopeAxis = followAlertHasScopeAxis(entityType)
   const pendingNote = followAlertPendingNote(entityType)
 
-  const { data: preferences, isSuccess } = useAlertPreferences(hasScopeAxis)
+  const {
+    data: preferences,
+    isSuccess,
+    isError,
+    refetch,
+  } = useAlertPreferences(hasScopeAxis)
   const [isEditingArea, setIsEditingArea] = useState(false)
   const homeMetro = preferences?.home_metro ?? null
   const areaLabel = useHomeMetroLabel(homeMetro)
@@ -84,6 +89,26 @@ export function LibraryAlertsBar({ entityType }: LibraryAlertsBarProps) {
                 />
               </>
             )}
+          </>
+        )}
+
+        {/* FAILED is not PENDING, the rule the entity-page twin states and
+            obeys. Without this the tab degrades silently on a failed read: the
+            bar loses its area half AND every row's bracket disappears, because
+            an unknown home area makes each menu render null. No message, no
+            retry, and a user reasonably concludes their follows carry no alert
+            subscription at all. Two controls over one field must not disagree
+            about whether a failure is worth mentioning. */}
+        {isError && (
+          <>
+            <span className="text-muted-foreground" role="alert">
+              Couldn&apos;t load your alert settings.
+            </span>
+            <BracketLink
+              label="retry"
+              onClick={() => void refetch()}
+              className="font-mono text-[11px]"
+            />
           </>
         )}
 

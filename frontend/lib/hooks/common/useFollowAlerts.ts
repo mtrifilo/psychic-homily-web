@@ -17,8 +17,18 @@ import type {
   LibraryFollowingPage,
 } from '@/lib/types/follow'
 
-/** A 404 from the alerts sub-resource means "not following", not "broken". */
-const isNotFound = (error: unknown) => (error as ApiError)?.status === 404
+/**
+ * A 404 from the alerts sub-resource means "not following", not "broken".
+ *
+ * Exported because the retry policy is not the only place that has to honour
+ * it: a control deciding whether to SAY the read failed must draw the same
+ * line, or an unfollow in another tab renders a permanent error with a retry
+ * button that cannot ever succeed.
+ */
+export const isFollowAlertsNotFound = (error: unknown) =>
+  (error as ApiError)?.status === 404
+
+const isNotFound = isFollowAlertsNotFound
 
 /**
  * The alert subscription carried by a follow (PSY-1893).

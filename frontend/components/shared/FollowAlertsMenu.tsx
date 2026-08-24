@@ -104,7 +104,7 @@ export function FollowAlertsMenu({
                 updateAlerts.mutate({
                   entityType,
                   entityId,
-                  update: followAlertUpdateFor(option.value),
+                  update: followAlertUpdateFor(option.value, { hasHomeMetro }),
                 })
               }
             >

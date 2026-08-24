@@ -15,8 +15,12 @@
  * linked from the notification inbox, the command palette and the side nav,
  * and none of that is worth breaking for a change of words.
  *
- * `/settings/notifications` continues to redirect here so any bookmarks
- * or external links stay live (`app/settings/notifications/page.tsx`).
+ * `/settings/notifications` NO LONGER redirects here. PSY-1905 retargeted it
+ * at the account alert matrix in profile settings, because PSY-1896 made that
+ * path the "manage" CTA of every artist show-alert email and what that reader
+ * wants is the matrix, not this criteria builder. Reaching here is now via the
+ * side nav, the command palette, the notification inbox, or the matrix's own
+ * custom-alerts row (`app/settings/notifications/page.tsx`).
  */
 
 import { useAuthContext } from '@/lib/context/AuthContext'

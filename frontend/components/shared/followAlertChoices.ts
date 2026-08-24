@@ -104,8 +104,18 @@ const PENDING_DELIVERY_NOTES: Record<string, string> = {
   venues: VENUE_ALERTS_PENDING_NOTE,
 }
 
+/**
+ * `Object.hasOwn`, not a bare index. `entityType` is a plain string here, and
+ * every object literal inherits `__proto__`, `constructor` and `toString`, so a
+ * bare lookup can hand back an object or a function typed as `string`. Callers
+ * render this straight into JSX. No call site can reach those keys today (all
+ * three pass a closed literal set), which is exactly why an index would sit
+ * here unnoticed until one of them started forwarding a route segment.
+ */
 export const followAlertPendingNote = (entityType: string): string | null =>
-  PENDING_DELIVERY_NOTES[entityType] ?? null
+  Object.hasOwn(PENDING_DELIVERY_NOTES, entityType)
+    ? PENDING_DELIVERY_NOTES[entityType]!
+    : null
 
 /**
  * Whether the viewer has a home area, or `undefined` while that is still
@@ -165,9 +175,22 @@ export const followAlertChoice = (
     : 'everywhere'
 }
 
-/** The PATCH body for a choice. Only the axes the choice pins are sent. */
+/**
+ * The PATCH body for a choice. Only the axes the choice pins are sent.
+ *
+ * `hasHomeMetro` matters for exactly one case, and the read path is why. With
+ * no home area, "Near me" is not offered, so "Everywhere" is not a scope the
+ * user chose between: it is the only way to say ON, and `followAlertChoice`
+ * already RELABELS a stored near-me scope as everywhere in that state. Pinning
+ * `scope: 'everywhere'` from that click would overwrite the near-me preference
+ * the read path goes out of its way to preserve, silently and permanently:
+ * toggle a near-me follow off and back on while your area is unset, and setting
+ * an area later no longer restores near me. Sending only `enabled` keeps the
+ * promise `followAlertChoice`'s doc comment makes.
+ */
 export const followAlertUpdateFor = (
-  choice: FollowAlertChoice
+  choice: FollowAlertChoice,
+  { hasHomeMetro }: { hasHomeMetro?: HomeMetroState } = {}
 ): FollowAlertUpdate => {
   switch (choice) {
     case 'off':
@@ -177,7 +200,9 @@ export const followAlertUpdateFor = (
     case 'near_me':
       return { shows: { enabled: true, scope: 'near_me' } }
     case 'everywhere':
-      return { shows: { enabled: true, scope: 'everywhere' } }
+      return hasHomeMetro === false
+        ? { shows: { enabled: true } }
+        : { shows: { enabled: true, scope: 'everywhere' } }
   }
 }
 

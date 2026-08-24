@@ -2,9 +2,11 @@ import { describe, it, expect } from 'vitest'
 import {
   followAlertChoice,
   followAlertOptions,
+  followAlertPendingNote,
   followAlertSummaryFor,
   followAlertUpdateFor,
   isAlertCapableFollowType,
+  VENUE_ALERTS_PENDING_NOTE,
 } from './followAlertChoices'
 import type { FollowAlertSettings } from '@/lib/types/follow'
 
@@ -158,6 +160,37 @@ describe('followAlertChoice', () => {
   })
 })
 
+// PSY-1896 split delivery in two: artist show alerts deliver, venue ones do
+// not. This function is the whole mechanism behind that distinction on the
+// Library bar, so a regression here silently restores a claim the product
+// spent a commit removing.
+describe('followAlertPendingNote', () => {
+  it('discloses pending delivery for venues, whose alerts have no notifier', () => {
+    expect(followAlertPendingNote('venues')).toBe(VENUE_ALERTS_PENDING_NOTE)
+  })
+
+  // The regression this exists to catch: artist alerts DO deliver, so an
+  // "any day now" line above the Artists tab is the opposite kind of lie.
+  it('says nothing for artists, whose alerts already deliver', () => {
+    expect(followAlertPendingNote('artists')).toBeNull()
+  })
+
+  it('says nothing for follow types with no alert subscription at all', () => {
+    for (const entityType of ['labels', 'tags', 'festivals', 'scenes']) {
+      expect(followAlertPendingNote(entityType)).toBeNull()
+    }
+  })
+
+  // A bare object index would return Object.prototype here, which React then
+  // throws on rendering. No caller can reach these today; this pins the guard
+  // so that stays true if one ever forwards a route segment.
+  it('does not leak inherited object properties as a note', () => {
+    for (const key of ['__proto__', 'constructor', 'toString', 'hasOwnProperty']) {
+      expect(followAlertPendingNote(key)).toBeNull()
+    }
+  })
+})
+
 describe('followAlertUpdateFor', () => {
   // Each choice pins only the axes it decides. Sending a scope alongside an
   // "off" would store a preference the user never expressed.
@@ -182,6 +215,46 @@ describe('followAlertUpdateFor', () => {
     for (const choice of ['off', 'on', 'near_me', 'everywhere'] as const) {
       expect(followAlertUpdateFor(choice).releases).toBeUndefined()
     }
+  })
+
+  // With no home area, "Near me" is not offered, so "Everywhere" is not a
+  // choice BETWEEN scopes: it is the only way to say ON, and the read path
+  // already relabels a stored near-me as everywhere in that state. Pinning the
+  // scope from that click destroys a preference the user never revisited.
+  describe('when the viewer has no home area', () => {
+    const noArea = { hasHomeMetro: false }
+
+    it('turns alerts on without overwriting a stored near-me scope', () => {
+      expect(followAlertUpdateFor('everywhere', noArea)).toEqual({
+        shows: { enabled: true },
+      })
+    })
+
+    // The full round trip the bug produced: a near-me follow toggled off and
+    // back on used to come back as everywhere, permanently.
+    it('survives an off-then-on round trip with the scope intact', () => {
+      expect(followAlertUpdateFor('off', noArea).shows?.scope).toBeUndefined()
+      expect(
+        followAlertUpdateFor('everywhere', noArea).shows?.scope
+      ).toBeUndefined()
+    })
+  })
+
+  // With an area set, Everywhere IS a deliberate choice between two offered
+  // scopes, so it must still pin.
+  it('pins everywhere when the viewer has an area to choose against', () => {
+    expect(followAlertUpdateFor('everywhere', { hasHomeMetro: true })).toEqual({
+      shows: { enabled: true, scope: 'everywhere' },
+    })
+  })
+
+  // Unknown is not "no area": guessing either way here is what the tri-state
+  // exists to prevent, and the surfaces do not offer the control until it
+  // resolves anyway.
+  it('pins everywhere while the home area is still unknown', () => {
+    expect(
+      followAlertUpdateFor('everywhere', { hasHomeMetro: undefined })
+    ).toEqual({ shows: { enabled: true, scope: 'everywhere' } })
   })
 })
 
