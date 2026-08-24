@@ -21,6 +21,28 @@
  * node's circle radius, so the markers hug nodes of any size identically.
  */
 
+/**
+ * Legend keys for the two markers, single-sourced so the surfaces that name
+ * them cannot describe one marker two ways (they did: the home scene-graph
+ * teaser said "has upcoming shows" while the ego legend still said "playing
+ * soon" for a release cycle).
+ *
+ * The upcoming-show key states the PREDICATE, not a window: the dot fires on
+ * `upcoming_show_count > 0` — any approved future show, at any distance — so
+ * "soon" promised a bound the data has no field for. Bounding it instead
+ * would be a four-site cross-surface change (ForceGraphView's canvas draw and
+ * hover tooltip, plus ArtistGraph's own canvas draw and legend gate); the
+ * ruling was to reword.
+ *
+ * "HAS upcoming shows", not the bare "upcoming shows": both host pages render
+ * an <h2>Upcoming shows</h2> section near their graph and legend swatches are
+ * aria-hidden, so a bare key reaches a screen reader as a second,
+ * subject-less copy of that heading. The verb makes it read as a property of
+ * a NAME on the canvas.
+ */
+export const UPCOMING_SHOW_MARKER_LABEL = 'has upcoming shows'
+export const PLAYABLE_MARKER_LABEL = 'playable audio'
+
 /** Upcoming-show indicator: green dot at the node's top-right edge. */
 export const UPCOMING_SHOW_DOT_COLOR = '#22c55e'
 export const UPCOMING_SHOW_DOT_RADIUS = 2.5

@@ -17,7 +17,12 @@ import { memo } from 'react'
 
 import { cn } from '@/lib/utils'
 import { egoLegendRows, type EgoFillFamily } from './egoPalette'
-import { PLAYABLE_RING_COLOR, UPCOMING_SHOW_DOT_COLOR } from './graphMarkers'
+import {
+  PLAYABLE_MARKER_LABEL,
+  PLAYABLE_RING_COLOR,
+  UPCOMING_SHOW_DOT_COLOR,
+  UPCOMING_SHOW_MARKER_LABEL,
+} from './graphMarkers'
 
 export interface EgoTypeLegendProps {
   /** Fill families assigned to the rendered nodes (null = neutral). */
@@ -59,6 +64,10 @@ export const EgoTypeLegend = memo(function EgoTypeLegend({
           {row.label}
         </span>
       ))}
+      {/* Both marker keys come from graphMarkers, which owns the wording along
+          with the color and geometry — the home scene-graph teaser names the
+          same two markers, and prose agreement is what let this legend keep
+          "playing soon" after that one was corrected. */}
       {showUpcomingDot && (
         <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
           <span
@@ -66,18 +75,7 @@ export const EgoTypeLegend = memo(function EgoTypeLegend({
             className="size-2 shrink-0 rounded-full"
             style={{ backgroundColor: UPCOMING_SHOW_DOT_COLOR }}
           />
-          {/* The dot's predicate is `upcoming_show_count > 0` on a satellite
-              node — any approved future show, at any distance. "Playing soon"
-              named a window the marker does not have; this key states the
-              predicate instead, matching the home scene-graph teaser's legend
-              so one marker is not described two ways.
-
-              "HAS upcoming shows", not the bare "upcoming shows": the artist
-              page renders an <h2>Upcoming shows</h2> section around this graph
-              and every swatch here is aria-hidden, so a bare key reaches a
-              screen reader as a second, subject-less copy of that heading. The
-              verb makes it read as a property of a NAME on the canvas. */}
-          has upcoming shows
+          {UPCOMING_SHOW_MARKER_LABEL}
         </span>
       )}
       {showPlayableRing && (
@@ -87,7 +85,7 @@ export const EgoTypeLegend = memo(function EgoTypeLegend({
             className="size-2.5 shrink-0 rounded-full border-[1.5px]"
             style={{ borderColor: PLAYABLE_RING_COLOR }}
           />
-          playable audio
+          {PLAYABLE_MARKER_LABEL}
         </span>
       )}
     </div>
