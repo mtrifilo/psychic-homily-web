@@ -13,7 +13,10 @@ import {
   useFollowAlerts,
   useUpdateFollowAlerts,
 } from '@/lib/hooks/common/useFollowAlerts'
-import { useAlertPreferences } from '@/features/auth/hooks/useAlertPreferences'
+import {
+  useAlertPreferences,
+  useHomeMetroState,
+} from '@/features/auth/hooks/useAlertPreferences'
 import {
   ALERTS_AREA_HREF,
   followAlertChoice,
@@ -90,7 +93,8 @@ export function FollowAlertsReveal({
   // Only a scoped follow needs to know whether a home area exists. Fetching it
   // on a venue page would buy a value every code path below discards.
   const preferencesQuery = useAlertPreferences(wants && hasScopeAxis)
-  const { data: alerts } = useFollowAlerts(entityType, entityId, wants)
+  const alertsQuery = useFollowAlerts(entityType, entityId, wants)
+  const alerts = alertsQuery.data
   const updateAlerts = useUpdateFollowAlerts()
 
   // UNKNOWN until the preferences query has actually resolved. Treating a
@@ -99,20 +103,40 @@ export function FollowAlertsReveal({
   // set an area they already have, and then swaps the chips out from under
   // them. Worse, a click landing in that window on the chip that is about to
   // become current is swallowed by the equal-value guard, so their correction
-  // silently does nothing.
-  const hasHomeMetro: HomeMetroState = hasScopeAxis
-    ? preferencesQuery.isSuccess
-      ? Boolean(preferencesQuery.data?.home_metro)
-      : undefined
-    : false
+  // silently does nothing. A venue has no scope axis, so it never waits.
+  const homeMetroState = useHomeMetroState(wants && hasScopeAxis)
+  const hasHomeMetro: HomeMetroState = hasScopeAxis ? homeMetroState : false
 
   const current = followAlertChoice(alerts, { entityType, hasHomeMetro })
   const options = followAlertOptions({ entityType, hasHomeMetro })
 
-  // Nothing to reveal: not following yet, a follow type with no alert
-  // subscription, or the subscription or home area has not resolved.
-  if (!isAuthenticated || !supported || !isFollowing || !current || !options) {
-    return null
+  // Nothing to reveal: not following yet, or a follow type with no alert
+  // subscription.
+  if (!isAuthenticated || !supported || !isFollowing) return null
+
+  // FAILED is not PENDING. Rendering null for both would mean one 4xx (which
+  // the global retry policy does not retry at all) leaves a page reading
+  // [Following] with no control, no message and no way back, so a user
+  // reasonably concludes the follow did not subscribe. Say what happened
+  // instead of vanishing.
+  const readFailed = alertsQuery.isError || preferencesQuery.isError
+  if (!current || !options) {
+    if (!readFailed) return null
+    return (
+      <div className={cn('flex flex-wrap items-center gap-2 text-xs', className)}>
+        <span className="text-muted-foreground" role="alert">
+          Couldn&apos;t load your alert settings for {entityName}.
+        </span>
+        <BracketLink
+          label="retry"
+          onClick={() => {
+            void alertsQuery.refetch()
+            void preferencesQuery.refetch()
+          }}
+          className="font-mono text-[11px]"
+        />
+      </div>
+    )
   }
 
   const choose = (choice: FollowAlertChoice) => {

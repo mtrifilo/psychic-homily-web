@@ -11,10 +11,15 @@ let mockSetState = { isPending: false, isError: false }
 let mockScenesLoading = false
 let mockScenes: Array<{ metro: string; name: string }> = []
 
+let mockScenesFailed = false
+const mockRefetchScenes = vi.fn()
+
 vi.mock('@/features/charts/hooks/useCharts', () => ({
   useChartScenes: () => ({
-    data: { scenes: mockScenes },
+    data: mockScenesFailed ? undefined : { scenes: mockScenes },
     isLoading: mockScenesLoading,
+    isError: mockScenesFailed,
+    refetch: mockRefetchScenes,
   }),
 }))
 
@@ -56,6 +61,26 @@ describe('HomeMetroSelect', () => {
     mockSetState = { isPending: false, isError: false }
     mockScenesLoading = false
     mockScenes = SCENES
+    mockScenesFailed = false
+    mockRefetchScenes.mockReset()
+  })
+
+  // A failed fetch is not a fact about the catalog. Falling through to the
+  // empty-list copy would tell the user we track shows in no metro at all,
+  // which is a confident claim invented from a network error.
+  it('reports a failed metro fetch as a failure, not as an empty index', async () => {
+    const user = userEvent.setup()
+    mockScenes = []
+    mockScenesFailed = true
+    renderWithProviders(<HomeMetroSelect metro={null} />)
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      "Couldn't load the list of metros."
+    )
+    expect(screen.queryByText(/No metros are available/)).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'retry' }))
+    expect(mockRefetchScenes).toHaveBeenCalled()
   })
 
   // The list is derived from metros we track shows in, so it can legitimately

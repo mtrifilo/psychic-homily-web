@@ -89,6 +89,10 @@ vi.mock('@/features/auth/hooks/useAlertPreferences', () => ({
     // home area UNKNOWN rather than reading as "no home area".
     isSuccess: mockAlertPreferences !== null,
   }),
+  useHomeMetroState: () =>
+    mockAlertPreferences === null
+      ? undefined
+      : Boolean(mockAlertPreferences.home_metro),
   useSetHomeMetro: () => ({ mutate: vi.fn(), isPending: false, isError: false }),
 }))
 

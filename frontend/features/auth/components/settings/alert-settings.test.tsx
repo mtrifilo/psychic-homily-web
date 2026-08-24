@@ -130,25 +130,55 @@ describe('AlertSettings', () => {
       renderWithProviders(<AlertSettings />)
 
       expect(screen.getByRole('alert')).toHaveTextContent(
-        "Couldn't load your alert settings"
+        "Couldn't load your follow-alert settings"
       )
-      expect(screen.queryByRole('checkbox')).toBeNull()
     })
 
     it('offers no live control that could pin a value from unknown state', () => {
       renderWithProviders(<AlertSettings />)
-      expect(
-        screen.queryByRole('checkbox', { name: `Email: ${SHOWS_ROW}` })
-      ).toBeNull()
+
+      for (const row of [SHOWS_ROW, RELEASES_ROW]) {
+        expect(
+          screen.queryByRole('checkbox', { name: `In-app: ${row}` })
+        ).toBeNull()
+        expect(
+          screen.queryByRole('checkbox', { name: `Email: ${row}` })
+        ).toBeNull()
+      }
+    })
+
+    // The failure is scoped to the two rows that read the account matrix. The
+    // reminder and both digests read the profile, and they are the only
+    // in-product way to turn OFF a digest someone is already receiving: a new
+    // endpoint's bad day must not strand a shipped preference.
+    it('keeps the profile-backed rows usable', () => {
+      renderWithProviders(<AlertSettings />)
+
+      for (const row of [REMINDER_ROW, SCENE_ROW, COLLECTION_ROW]) {
+        expect(
+          screen.getByRole('checkbox', { name: `Email: ${row}` })
+        ).toBeEnabled()
+      }
+    })
+
+    // Same reason: the area card reads `home_metro`, not the matrix, and the
+    // "set your area" link from an entity page points straight at it.
+    it('keeps the area card and its anchor', () => {
+      const { container } = renderWithProviders(<AlertSettings />)
+
+      expect(screen.getByText('Your area')).toBeInTheDocument()
+      expect(container.querySelector('#alerts-area')).not.toBeNull()
     })
   })
 
-  it('shows a spinner, not invented defaults, while the read is in flight', () => {
+  it('draws no follow-alert checkbox while the read is in flight', () => {
     mockPreferences = undefined
     mockPreferencesLoading = true
     renderWithProviders(<AlertSettings />)
 
-    expect(screen.queryByRole('checkbox')).toBeNull()
+    expect(
+      screen.queryByRole('checkbox', { name: `Email: ${SHOWS_ROW}` })
+    ).toBeNull()
     expect(screen.queryByRole('alert')).toBeNull()
   })
 

@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 
 export interface AlertChipOption<T extends string> {
@@ -24,11 +24,11 @@ interface AlertChipRadioGroupProps<T extends string> {
 /**
  * The outlined-chip radio group used by every post-follow alert control.
  *
- * Extracted from two byte-identical copies (PSY-1905): the scene follow's
- * notify-mode toggle and the artist/venue follow's scope reveal. They are the
- * same control over the same idea, so a style or accessibility fix to one
- * should never have needed applying twice in two features with nothing linking
- * them.
+ * Generalized from the scene follow's notify-mode toggle (PSY-1905) so the new
+ * artist/venue scope reveal shares its markup and ARIA contract rather than
+ * shipping a second copy of both. Note the consequence for the shipped
+ * control: the scene toggle GAINED roving tabindex and arrow navigation here,
+ * which it did not have before.
  *
  * Deliberately presentational: it owns no query and no mutation, so the two
  * callers keep their own (genuinely different) storage and optimistic-update
@@ -47,18 +47,31 @@ export function AlertChipRadioGroup<T extends string>({
   className,
 }: AlertChipRadioGroupProps<T>) {
   const chipRefs = useRef<(HTMLButtonElement | null)[]>([])
+  const selectedIndex = options.findIndex(option => option.value === value)
+  // Focus has to land somewhere when nothing is selected yet, or the group
+  // becomes unreachable by keyboard entirely.
+  const [focusIndex, setFocusIndex] = useState(Math.max(selectedIndex, 0))
 
-  // A radiogroup is ONE tab stop whose members are reached with the arrow
-  // keys. Leaving every chip independently focusable announces "radio 1 of 3"
-  // and then refuses to navigate the way it just promised, which is worse than
-  // not claiming the role. Home/End included because the pattern specifies
-  // them and they are free once focus is already managed.
-  const moveTo = (index: number) => {
+  const commit = (index: number) => {
+    const option = options[index]
+    if (!option || pending || option.value === value) return
+    onChange(option.value)
+  }
+
+  // Arrows MOVE, they do not commit.
+  //
+  // Selection-following-focus is the tempting shape and it is wrong here,
+  // twice over. Every keystroke would fire a PATCH, and arrowing past a chip
+  // on the way to the one you want would STORE it: passing through
+  // "Everywhere" on an artist overwrites the near-me scope the read path goes
+  // out of its way to preserve. It also collides with `pending` below: a
+  // commit on arrow disables the group mid-keystroke, and a disabled button
+  // cannot hold focus, so the browser drops it to <body> and the next Tab
+  // restarts from the top of the document.
+  const moveFocus = (index: number) => {
     const next = (index + options.length) % options.length
-    const option = options[next]
-    if (!option) return
+    setFocusIndex(next)
     chipRefs.current[next]?.focus()
-    if (option.value !== value) onChange(option.value)
   }
 
   const handleKeyDown = (
@@ -69,30 +82,28 @@ export function AlertChipRadioGroup<T extends string>({
       case 'ArrowRight':
       case 'ArrowDown':
         event.preventDefault()
-        moveTo(index + 1)
+        moveFocus(index + 1)
         break
       case 'ArrowLeft':
       case 'ArrowUp':
         event.preventDefault()
-        moveTo(index - 1)
+        moveFocus(index - 1)
         break
       case 'Home':
         event.preventDefault()
-        moveTo(0)
+        moveFocus(0)
         break
       case 'End':
         event.preventDefault()
-        moveTo(options.length - 1)
+        moveFocus(options.length - 1)
+        break
+      case ' ':
+      case 'Enter':
+        event.preventDefault()
+        commit(index)
         break
     }
   }
-
-  // Focus has to land somewhere when nothing is selected yet, or the group
-  // becomes unreachable by keyboard entirely.
-  const focusedIndex = Math.max(
-    options.findIndex(option => option.value === value),
-    0
-  )
 
   return (
     <div
@@ -110,18 +121,20 @@ export function AlertChipRadioGroup<T extends string>({
           type="button"
           role="radio"
           aria-checked={value === option.value}
-          tabIndex={index === focusedIndex ? 0 : -1}
-          disabled={pending}
+          tabIndex={index === focusIndex ? 0 : -1}
+          // aria-disabled, NOT disabled: a disabled button cannot hold focus,
+          // so parking the group during a write would eject the keyboard user
+          // out of it. The guard in `commit` is what actually blocks the write.
+          aria-disabled={pending || undefined}
           onKeyDown={event => handleKeyDown(event, index)}
-          onClick={() => {
-            if (value !== option.value) onChange(option.value)
-          }}
+          onFocus={() => setFocusIndex(index)}
+          onClick={() => commit(index)}
           className={cn(
             'rounded-full border px-2 py-0.5 transition-colors',
             value === option.value
               ? 'border-primary text-foreground'
               : 'border-border text-muted-foreground hover:border-primary/60 hover:text-foreground',
-            pending && 'opacity-60'
+            pending && 'cursor-not-allowed opacity-60'
           )}
         >
           {option.label}

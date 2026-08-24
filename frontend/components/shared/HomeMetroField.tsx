@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react'
 import { Loader2 } from 'lucide-react'
+import { BracketLink } from './BracketLink'
 import {
   Select,
   SelectContent,
@@ -75,10 +76,29 @@ export function HomeMetroSelect({
   ariaLabel = 'Your area',
   onSaved,
 }: HomeMetroSelectProps) {
-  const { data, isLoading } = useChartScenes(HOME_METRO_WINDOW)
+  const { data, isLoading, isError, refetch } =
+    useChartScenes(HOME_METRO_WINDOW)
   const setHomeMetro = useSetHomeMetro()
 
   const scenes = data?.scenes ?? []
+
+  // A failed fetch is not a fact about the catalog. Falling through to the
+  // empty-list copy below would tell the user we track shows in no metro at
+  // all, which is a confident claim invented from a network error.
+  if (isError) {
+    return (
+      <div className={cn('flex flex-wrap items-center gap-2', className)}>
+        <span className="text-sm text-destructive" role="alert">
+          Couldn&apos;t load the list of metros.
+        </span>
+        <BracketLink
+          label="retry"
+          onClick={() => void refetch()}
+          className="font-mono text-[11px]"
+        />
+      </div>
+    )
+  }
 
   // The offered list is NARROWER than what the server accepts: it is metros
   // with past shows above a floor, while the backend validates against the

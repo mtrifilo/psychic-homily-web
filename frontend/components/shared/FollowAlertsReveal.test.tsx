@@ -28,11 +28,17 @@ vi.mock('@/lib/hooks/common/useFollow', () => ({
 
 // Captures the `enabled` argument so the optimistic-follow race is assertable.
 const followAlertsEnabled = vi.fn()
+let mockAlertsFailed = false
+const mockRefetchAlerts = vi.fn()
 
 vi.mock('@/lib/hooks/common/useFollowAlerts', () => ({
   useFollowAlerts: (_type: string, _id: number, enabled?: boolean) => {
     followAlertsEnabled(enabled)
-    return { data: enabled ? mockAlerts : undefined }
+    return {
+      data: enabled ? mockAlerts : undefined,
+      isError: mockAlertsFailed,
+      refetch: mockRefetchAlerts,
+    }
   },
   useUpdateFollowAlerts: () => ({ mutate: mockUpdate, ...mockUpdateState }),
 }))
@@ -46,12 +52,18 @@ vi.mock('@tanstack/react-query', async importOriginal => {
 })
 
 let mockPreferencesResolved = true
+let mockPreferencesFailed = false
+const mockRefetchPreferences = vi.fn()
 
 vi.mock('@/features/auth/hooks/useAlertPreferences', () => ({
   useAlertPreferences: () => ({
     data: mockPreferencesResolved ? { home_metro: mockHomeMetro } : undefined,
     isSuccess: mockPreferencesResolved,
+    isError: mockPreferencesFailed,
+    refetch: mockRefetchPreferences,
   }),
+  useHomeMetroState: () =>
+    mockPreferencesResolved ? Boolean(mockHomeMetro) : undefined,
 }))
 
 const artistAlerts = (
@@ -81,8 +93,55 @@ describe('FollowAlertsReveal', () => {
     mockAlerts = artistAlerts()
     mockHomeMetro = '38060'
     mockPreferencesResolved = true
+    mockPreferencesFailed = false
+    mockAlertsFailed = false
     mockIsMutating = 0
     followAlertsEnabled.mockReset()
+    mockRefetchAlerts.mockReset()
+    mockRefetchPreferences.mockReset()
+  })
+
+  // FAILED is not PENDING. Rendering null for both means one 4xx (which the
+  // global retry policy does not retry at all) leaves a page reading
+  // [Following] with no control, no message and no way back, so the user
+  // reasonably concludes the follow did not subscribe.
+  describe('when a read fails', () => {
+    it('says so instead of vanishing when the subscription read fails', () => {
+      mockAlerts = undefined
+      mockAlertsFailed = true
+      renderArtist()
+
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        "Couldn't load your alert settings for Just Mustard."
+      )
+    })
+
+    it('says so when the account preferences read fails', () => {
+      mockPreferencesResolved = false
+      mockPreferencesFailed = true
+      renderArtist()
+
+      expect(screen.getByRole('alert')).toBeInTheDocument()
+    })
+
+    it('offers a retry that refetches both reads', async () => {
+      const user = userEvent.setup()
+      mockAlerts = undefined
+      mockAlertsFailed = true
+      renderArtist()
+
+      await user.click(screen.getByRole('button', { name: 'retry' }))
+      expect(mockRefetchAlerts).toHaveBeenCalled()
+      expect(mockRefetchPreferences).toHaveBeenCalled()
+    })
+
+    // Still nothing while merely pending: an error message on every first
+    // paint would be its own kind of lie.
+    it('stays silent while the reads are merely pending', () => {
+      mockAlerts = undefined
+      const { container } = renderArtist()
+      expect(container).toBeEmptyDOMElement()
+    })
   })
 
   // Treating a pending read as "no home area" renders the two-chip set with
@@ -245,18 +304,31 @@ describe('FollowAlertsReveal', () => {
     )
   })
 
+  // Parked via aria-disabled, not the disabled attribute: a disabled button
+  // cannot hold focus, so parking the group mid-write would eject a keyboard
+  // user out of it entirely. See AlertChipRadioGroup.test.
   it('parks the chips while a write is in flight', () => {
     mockUpdateState = { isPending: true, isError: false }
     renderArtist()
-    expect(screen.getByRole('radio', { name: 'Everywhere' })).toBeDisabled()
+    expect(screen.getByRole('radio', { name: 'Everywhere' })).toHaveAttribute(
+      'aria-disabled',
+      'true'
+    )
   })
 
   // Capability truth: the subscription is stored, but delivery is a separate
   // unshipped piece of work and this control must not imply otherwise.
-  it('does not claim alerts are already being delivered', () => {
+  it('does not claim alerts are already being delivered', async () => {
+    const user = userEvent.setup()
     renderArtist()
-    expect(
+
+    // Assert the CLAIM, not just that a tooltip trigger exists: the previous
+    // shape stayed green through a rewrite to "alerts are flowing now".
+    await user.hover(
       screen.getByRole('button', { name: 'What these alerts cover' })
-    ).toBeInTheDocument()
+    )
+    expect(
+      await screen.findAllByText(/still being switched on/i)
+    ).not.toHaveLength(0)
   })
 })

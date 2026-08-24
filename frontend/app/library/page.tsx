@@ -27,8 +27,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { BracketLink, ReleaseSaveButton } from '@/components/shared'
 import { FollowAlertsMenu } from '@/components/shared/FollowAlertsMenu'
 import { LibraryAlertsBar } from '@/components/shared/LibraryAlertsBar'
-import type { HomeMetroState } from '@/components/shared/followAlertChoices'
-import { useAlertPreferences } from '@/features/auth/hooks/useAlertPreferences'
+import {
+  followAlertHasScopeAxis,
+  type HomeMetroState,
+} from '@/components/shared/followAlertChoices'
+import { useHomeMetroState } from '@/features/auth/hooks/useAlertPreferences'
 import { CalendarFeedSection } from '@/features/collections'
 import {
   LibraryTasteSidebar,
@@ -752,13 +755,13 @@ function FollowingList({
   // would explain a control that is not there.
   const showsAlerts = following.some(entity => entity.alerts)
   const pluralType = entityTypeInfo[type]?.plural ?? type
-  const preferencesQuery = useAlertPreferences(showsAlerts)
-  // UNKNOWN, not false, until the read resolves. Guessing "no home area" here
+  const hasScopeAxis = followAlertHasScopeAxis(pluralType)
+  // UNKNOWN, not false, until the read resolves: guessing "no home area" here
   // relabels a near-me follow's bracket as "everywhere" for a whole round
-  // trip, overstating the reach of a subscription the server scopes.
-  const hasHomeMetro = preferencesQuery.isSuccess
-    ? Boolean(preferencesQuery.data?.home_metro)
-    : undefined
+  // trip, overstating the reach of a subscription the server scopes. Gated on
+  // the scope axis too, so a Venues tab does not fetch an account preference
+  // that every code path on it discards.
+  const hasHomeMetro = useHomeMetroState(showsAlerts && hasScopeAxis)
 
   if (isLoading && !data) {
     return (

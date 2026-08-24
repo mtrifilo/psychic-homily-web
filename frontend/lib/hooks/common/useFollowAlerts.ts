@@ -84,7 +84,12 @@ export const useUpdateFollowAlerts = () => {
       update,
     }: {
       entityType: string
-      entityId: number | string
+      // NUMBER, deliberately narrower than the follow endpoints' `number |
+      // string`. Every alert-capable follow type is id-addressed (scenes, the
+      // one slug-addressed type, carry no alert subscription), and the Library
+      // cache patch below compares this strictly against a numeric row id: a
+      // string would match nothing and leave the row silently stale.
+      entityId: number
       update: FollowAlertUpdate
     }): Promise<FollowAlertSettings> =>
       apiRequest<FollowAlertSettings>(

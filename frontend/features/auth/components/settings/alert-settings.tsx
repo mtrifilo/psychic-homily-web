@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, type ReactNode } from 'react'
+import { useCallback, useRef, type ReactNode } from 'react'
 import Link from 'next/link'
 import { Loader2 } from 'lucide-react'
 import {
@@ -29,23 +29,31 @@ import { useUrlHash } from '@/lib/hooks/common/useUrlHash'
 import { cn } from '@/lib/utils'
 
 /**
- * Scroll the area card into view when a `[set your area]` link lands here.
+ * A ref that scrolls the area card into view when a `[set your area]` link
+ * lands here.
  *
- * The card owns this rather than the page: `#alerts-area` lives inside a Radix
- * TabsContent that mounts only after the client navigation commits, so nothing
- * with that id exists when the browser (or the page's own profile-tab hash
- * effect, which is a different component with its own allowlist) resolves the
- * fragment. Without it the link is a silent scroll to the top of a long page.
+ * A callback REF rather than an effect keyed on the hash. `#alerts-area` lives
+ * inside a Radix TabsContent that mounts only after the client navigation
+ * commits, and the card itself can mount later still, so on a cold load
+ * (bookmark, refresh, opened in a new tab) nothing with that id exists when
+ * the browser — or an effect that only re-runs on `hashchange` — resolves the
+ * fragment. Firing when the NODE arrives is the one signal that is always
+ * available at the right moment. `once` keeps a later re-render from yanking
+ * the page back after the user has scrolled away.
  */
-function useScrollToAlertsArea() {
+function useAlertsAreaAnchor() {
   const urlHash = useUrlHash()
+  const scrolled = useRef(false)
 
-  useEffect(() => {
-    if (urlHash.replace(/^#/, '') !== ALERTS_AREA_ANCHOR) return
-    const el = document.getElementById(ALERTS_AREA_ANCHOR)
-    if (!el) return
-    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }, [urlHash])
+  return useCallback(
+    (node: HTMLDivElement | null) => {
+      if (!node || scrolled.current) return
+      if (urlHash.replace(/^#/, '') !== ALERTS_AREA_ANCHOR) return
+      scrolled.current = true
+      node.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    },
+    [urlHash]
+  )
 }
 
 /**
@@ -63,6 +71,10 @@ type ChannelCell =
   | { kind: 'toggle'; checked: boolean; pending: boolean; onChange: (next: boolean) => void }
   | { kind: 'per-filter' }
   | { kind: 'not-applicable' }
+  // Only the two follow-alert rows can be unavailable, and only they: their
+  // state comes from the account matrix. The reminder and digest rows read the
+  // profile, so a failure over there must not reach them.
+  | { kind: 'unavailable' }
 
 interface AlertRow {
   id: string
@@ -93,6 +105,17 @@ function ChannelCellView({
       <span className="font-mono text-[10px] uppercase tracking-[0.5px] text-muted-foreground">
         <span aria-hidden>per filter</span>
         <span className="sr-only">{label} is set on each custom alert</span>
+      </span>
+    )
+  }
+
+  if (cell.kind === 'unavailable') {
+    return (
+      <span className="font-mono text-[10px] uppercase tracking-[0.5px] text-muted-foreground">
+        <span aria-hidden>unknown</span>
+        <span className="sr-only">
+          {label} could not be loaded, so it is not shown
+        </span>
       </span>
     )
   }
@@ -144,7 +167,7 @@ function AlertsCard({ children }: { children: ReactNode }) {
  *
  */
 export function AlertSettings() {
-  useScrollToAlertsArea()
+  const areaAnchorRef = useAlertsAreaAnchor()
   const { data: profileData } = useProfile()
   const {
     data: preferences,
@@ -169,26 +192,6 @@ export function AlertSettings() {
   const sceneDigestEnabled =
     profileData?.user?.preferences?.notify_on_scene_digest ?? false
 
-  // Until the resolved matrix is in hand there is nothing honest to draw, so
-  // say that rather than render live checkboxes over invented state.
-  if (!defaults) {
-    return (
-      <div className="space-y-6">
-        <AlertsCard>
-          {preferencesFailed ? (
-            <p className="py-4 text-sm text-destructive" role="alert">
-              Couldn&apos;t load your alert settings. Reload to try again.
-            </p>
-          ) : (
-            <div className="flex justify-center py-6">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
-          )}
-        </AlertsCard>
-      </div>
-    )
-  }
-
   // One cell shape, spelled once. The two follow-alert rows share one mutation
   // (they are two axes of one PATCH endpoint) and therefore one pending flag;
   // the reminder and digest rows each have their own.
@@ -198,17 +201,36 @@ export function AlertSettings() {
     onChange: (next: boolean) => void
   ): ChannelCell => ({ kind: 'toggle', checked, pending: mutation.isPending, onChange })
 
+  /**
+   * A follow-alert cell, which needs the resolved account matrix.
+   *
+   * Scoped to these two rows ON PURPOSE. Taking the whole card down when this
+   * one endpoint fails would also remove the reminder and both digest rows,
+   * which read the profile and are perfectly loadable — and those three are
+   * the only in-product way to turn OFF a digest email someone is already
+   * receiving. A new endpoint's bad day must not strand a shipped preference.
+   */
+  const matrixToggle = (
+    read: (matrix: NonNullable<typeof defaults>) => boolean,
+    write: (next: boolean) => void
+  ): ChannelCell =>
+    defaults
+      ? toggle(read(defaults), setAlertDefaults, write)
+      : { kind: 'unavailable' }
+
   const rows: AlertRow[] = [
     {
       id: 'shows',
       title: 'An artist or venue you follow announces a show',
       description:
         'Which shows count for an artist is that follow’s own scope, near me or everywhere. A venue sits in one place, so its alerts have no scope.',
-      inApp: toggle(defaults.shows.in_app, setAlertDefaults, next =>
-        setAlertDefaults.mutate({ shows: { in_app: next } })
+      inApp: matrixToggle(
+        matrix => matrix.shows.in_app,
+        next => setAlertDefaults.mutate({ shows: { in_app: next } })
       ),
-      email: toggle(defaults.shows.email, setAlertDefaults, next =>
-        setAlertDefaults.mutate({ shows: { email: next } })
+      email: matrixToggle(
+        matrix => matrix.shows.email,
+        next => setAlertDefaults.mutate({ shows: { email: next } })
       ),
     },
     {
@@ -216,11 +238,13 @@ export function AlertSettings() {
       title: 'An artist you follow puts out a release',
       description:
         'A record has no location, so this is never geography-scoped.',
-      inApp: toggle(defaults.releases.in_app, setAlertDefaults, next =>
-        setAlertDefaults.mutate({ releases: { in_app: next } })
+      inApp: matrixToggle(
+        matrix => matrix.releases.in_app,
+        next => setAlertDefaults.mutate({ releases: { in_app: next } })
       ),
-      email: toggle(defaults.releases.email, setAlertDefaults, next =>
-        setAlertDefaults.mutate({ releases: { email: next } })
+      email: matrixToggle(
+        matrix => matrix.releases.email,
+        next => setAlertDefaults.mutate({ releases: { email: next } })
       ),
     },
     {
@@ -341,6 +365,17 @@ export function AlertSettings() {
               </tbody>
             </table>
 
+          {/* Scoped to the two rows that actually need the account matrix.
+              The reminder and digest rows below read the profile and stay
+              usable, which matters: they are the only in-product way to turn
+              OFF a digest someone is already receiving. */}
+          {preferencesFailed && (
+            <p className="mt-3 text-sm text-destructive" role="alert">
+              Couldn&apos;t load your follow-alert settings. The rows marked
+              unknown are unavailable until this page reloads.
+            </p>
+          )}
+
           {mutationFailed && (
             <p className="mt-3 text-sm text-destructive" role="alert">
               Failed to update setting. Please try again.
@@ -359,7 +394,11 @@ export function AlertSettings() {
           </div>
       </AlertsCard>
 
-      <Card id={ALERTS_AREA_ANCHOR} className="scroll-mt-24">
+      <Card
+        id={ALERTS_AREA_ANCHOR}
+        ref={areaAnchorRef}
+        className="scroll-mt-24"
+      >
         <CardHeader>
           <CardTitle className="text-base">Your area</CardTitle>
           <CardDescription>

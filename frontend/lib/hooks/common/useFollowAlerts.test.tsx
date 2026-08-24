@@ -164,6 +164,106 @@ describe('useUpdateFollowAlerts', () => {
     )
   })
 
+  // The Library list is an INFINITE query, so invalidating it refetches every
+  // loaded page in sequence to change one field on one row. This patch is what
+  // replaces that, and it is the most fragile code here: it depends on the key
+  // shape, the singular/plural vocabulary and a strict id compare, and every
+  // one of those can break with no error and no test failure — the row just
+  // keeps showing the old bracket.
+  it('patches only the matching row, across every loaded page', async () => {
+    const libraryKey = queryKeys.follows.libraryFollowing('artist', 1)
+    const row = (entity_id: number, name: string) => ({
+      entity_type: 'artist',
+      entity_id,
+      name,
+      slug: name.toLowerCase(),
+      followed_at: '2026-07-01T00:00:00Z',
+      alerts: {
+        entity_type: 'artist',
+        entity_id,
+        shows: { enabled: true, in_app: true, email: false, scope: 'near_me' },
+      },
+    })
+    queryClient.setQueryData(libraryKey, {
+      pages: [
+        { following: [row(7, 'Alpha'), row(8, 'Beta')], limit: 50 },
+        { following: [row(9, 'Gamma')], limit: 50 },
+      ],
+      pageParams: [null, 'cursor'],
+    })
+
+    const merged: FollowAlertSettings = {
+      ...settings,
+      shows: { ...settings.shows, enabled: false },
+    }
+    mockApiRequest.mockResolvedValue(merged)
+
+    const { result } = renderHook(() => useUpdateFollowAlerts(), { wrapper })
+    result.current.mutate({
+      entityType: 'artists',
+      entityId: 7,
+      update: { shows: { enabled: false } },
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    const patched = queryClient.getQueryData<{
+      pages: { following: { entity_id: number; alerts: FollowAlertSettings }[] }[]
+    }>(libraryKey)
+    expect(patched?.pages[0]?.following[0]?.alerts).toEqual(merged)
+    // Its neighbours, and the second page, are untouched.
+    expect(patched?.pages[0]?.following[1]?.alerts.shows.enabled).toBe(true)
+    expect(patched?.pages[1]?.following[0]?.alerts.shows.enabled).toBe(true)
+  })
+
+  // The mutation takes the PLURAL route segment; the Library rows are keyed by
+  // the SINGULAR one. Getting that mapping wrong patches nothing, silently.
+  it('maps the plural route segment onto the singular Library key', async () => {
+    const libraryKey = queryKeys.follows.libraryFollowing('venue', 1)
+    queryClient.setQueryData(libraryKey, {
+      pages: [
+        {
+          following: [
+            {
+              entity_type: 'venue',
+              entity_id: 4,
+              name: 'Rebel Lounge',
+              slug: 'rebel-lounge',
+              followed_at: '2026-07-01T00:00:00Z',
+              alerts: {
+                entity_type: 'venue',
+                entity_id: 4,
+                shows: { enabled: true, in_app: true, email: false },
+              },
+            },
+          ],
+          limit: 50,
+        },
+      ],
+      pageParams: [null],
+    })
+
+    const merged: FollowAlertSettings = {
+      entity_type: 'venue',
+      entity_id: 4,
+      shows: { enabled: false, in_app: true, email: false },
+    }
+    mockApiRequest.mockResolvedValue(merged)
+
+    const { result } = renderHook(() => useUpdateFollowAlerts(), { wrapper })
+    result.current.mutate({
+      entityType: 'venues',
+      entityId: 4,
+      update: { shows: { enabled: false } },
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    const patched = queryClient.getQueryData<{
+      pages: { following: { alerts: FollowAlertSettings }[] }[]
+    }>(libraryKey)
+    expect(patched?.pages[0]?.following[0]?.alerts.shows.enabled).toBe(false)
+  })
+
   // The server read the merged state back; re-fetching would only re-derive it.
   it('seeds the cache from the response rather than re-fetching', async () => {
     const merged: FollowAlertSettings = {

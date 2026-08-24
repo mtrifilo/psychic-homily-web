@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import type { HomeMetroState } from '@/components/shared/followAlertChoices'
 
 /** One alert type's account-level channels, RESOLVED against the shipped defaults. */
 export interface AlertChannelDefaults {
@@ -66,6 +67,23 @@ export const useAlertPreferences = (enabled = true) => {
     enabled: enabled && isAuthenticated && viewerId !== undefined,
     staleTime: 5 * 60 * 1000,
   })
+}
+
+/**
+ * Whether the viewer has a home area, as a TRI-STATE.
+ *
+ * One definition of "known", in one place. The rule was previously spelled out
+ * at each of the three surfaces that need it, sharing only a type, so deciding
+ * that (say) a failed read should collapse to `false` would have had to be
+ * remembered in three files — and the two surfaces over one field would
+ * silently disagree until someone noticed.
+ *
+ * `undefined` means UNKNOWN: in flight, or failed. Callers must not render a
+ * scope as though it were `false`; see `followAlertChoices`.
+ */
+export const useHomeMetroState = (enabled = true): HomeMetroState => {
+  const query = useAlertPreferences(enabled)
+  return query.isSuccess ? Boolean(query.data?.home_metro) : undefined
 }
 
 /**
