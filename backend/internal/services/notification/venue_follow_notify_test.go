@@ -1,6 +1,7 @@
 package notification
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -97,6 +98,54 @@ func TestResolveVenueAlertRecipients(t *testing.T) {
 			wantUsers: []uint{alice},
 			wantInApp: true,
 			wantEmail: true,
+			wantShows: []uint{10, 11, 12},
+		},
+		{
+			// The degenerate-input cases below all have to land on the SAME
+			// answer as "no settings at all": in-app on, EMAIL OFF. Email is an
+			// intentional opt-in, so the failure that matters is a malformed
+			// document resolving to email:true and mailing someone who never
+			// asked. settings is a shared, forward-compatible JSONB document, so
+			// unparseable values are a real shape rather than a hypothetical.
+			name: "unparseable settings resolve to the shipped defaults, not to email",
+			followers: []venueFollowerRow{
+				{UserID: alice, Settings: venueSettings(`{ not json at all`)},
+			},
+			shows:     shows,
+			wantUsers: []uint{alice},
+			wantInApp: true,
+			wantEmail: false,
+			wantShows: []uint{10, 11, 12},
+		},
+		{
+			name: "an alerts value that is not an object resolves to the shipped defaults",
+			followers: []venueFollowerRow{
+				{UserID: alice, Settings: venueSettings(`{"alerts":"yes please"}`)},
+			},
+			shows:     shows,
+			wantUsers: []uint{alice},
+			wantInApp: true,
+			wantEmail: false,
+			wantShows: []uint{10, 11, 12},
+		},
+		{
+			name: "a shows value that is not an object resolves to the shipped defaults",
+			followers: []venueFollowerRow{
+				{UserID: alice, Settings: venueSettings(`{"alerts":{"shows":42}}`)},
+			},
+			shows:     shows,
+			wantUsers: []uint{alice},
+			wantInApp: true,
+			wantEmail: false,
+			wantShows: []uint{10, 11, 12},
+		},
+		{
+			name:      "a NULL settings column resolves to the shipped defaults",
+			followers: []venueFollowerRow{{UserID: alice, Settings: nil}},
+			shows:     shows,
+			wantUsers: []uint{alice},
+			wantInApp: true,
+			wantEmail: false,
 			wantShows: []uint{10, 11, 12},
 		},
 		{
@@ -226,18 +275,32 @@ func TestVenueAlertShowCountPhrase(t *testing.T) {
 	assert.Equal(t, "0 new shows", venueAlertShowCountPhrase(0))
 }
 
-// TestFormatAlertBucket covers the day/instant boundary. A DATE arrives from the
-// driver as a midnight; formatting it in any zone but UTC shifts it by a day.
+// TestFormatAlertBucket covers the day/instant boundary.
+//
+// A DATE carries calendar fields and no instant, so the bucket must be read off
+// the WALL CLOCK. The case that decides the implementation is a midnight carried
+// in a zone EAST of UTC: converting it (rather than formatting it) rolls the
+// value back to the previous day, and every enrichment lookup keyed on this
+// string would then miss its batch and render the row as "0 new shows".
+//
+// A western zone cannot distinguish the two implementations, which is why the
+// eastern case is the one that matters here.
 func TestFormatAlertBucket(t *testing.T) {
 	assert.Equal(t, "", formatAlertBucket(nil))
 
 	day := time.Date(2026, 8, 24, 0, 0, 0, 0, time.UTC)
 	assert.Equal(t, "2026-08-24", formatAlertBucket(&day))
 
-	// The same calendar day carried in a western zone must not read as the day
-	// before.
-	phx := time.Date(2026, 8, 24, 0, 0, 0, 0, time.UTC).In(utils.EventLocation(nil, "AZ"))
-	assert.Equal(t, "2026-08-24", formatAlertBucket(&phx))
+	sydney, err := time.LoadLocation("Australia/Sydney")
+	if err != nil {
+		t.Skipf("tzdata unavailable: %v", err)
+	}
+	east := time.Date(2026, 8, 24, 0, 0, 0, 0, sydney)
+	assert.Equal(t, "2026-08-24", formatAlertBucket(&east),
+		"a DATE must be read off the wall clock; converting it moves the day")
+
+	west := time.Date(2026, 8, 24, 0, 0, 0, 0, utils.EventLocation(nil, "AZ"))
+	assert.Equal(t, "2026-08-24", formatAlertBucket(&west))
 }
 
 // TestBuildVenueShowAlertEmailHTML covers the digest's content and its escaping.
@@ -457,10 +520,12 @@ func (s *NotificationFilterSuite) batchMembers(venueID uint, day string) int64 {
 	return n
 }
 
-// flushNow runs a flush with both bounds at zero, so every pending batch is
-// considered ready. Tests that care about the quiet window pass their own.
+// flushNow runs a flush with both scheduling bounds at zero, so every pending
+// batch is considered ready. Tests that care about the quiet window pass their
+// own. maxAge is zero, which disables poison-group retirement — a test that
+// wants that behaviour asks for it explicitly.
 func (s *NotificationFilterSuite) flushNow() int {
-	return s.svc.FlushVenueShowAlerts(50, 0, 0)
+	return s.svc.FlushVenueShowAlerts(context.Background(), 50, 0, 0, 0)
 }
 
 // announce runs the full trigger path for a show, exactly as the admin approve
@@ -504,6 +569,13 @@ func (s *NotificationFilterSuite) TestVenueAlert_NextDayIsASecondAlert() {
 
 	yesterdayShow := s.createTestShow("Yesterday's drop", nil, []uint{venueID})
 	yesterday := time.Now().In(utils.EventLocation(nil, "AZ")).AddDate(0, 0, -1).Format(alertDayLayout)
+	// The show is backdated alongside its accrual. Accrual always runs at or
+	// after the write that made the show visible, so a batch row older than the
+	// show it names is only possible in a fixture — and the delivery path
+	// deliberately refuses such a member, on the grounds that the content changed
+	// after we decided to announce it.
+	s.Require().NoError(s.db.Exec(
+		`UPDATE shows SET updated_at = now() - interval '2 days' WHERE id = ?`, yesterdayShow).Error)
 	s.Require().NoError(s.db.Exec(`
 		INSERT INTO venue_show_alert_batch (venue_id, alert_day, show_id, created_at)
 		VALUES (?, ?::date, ?, now() - interval '1 day')`, venueID, yesterday, yesterdayShow).Error)
@@ -665,12 +737,12 @@ func (s *NotificationFilterSuite) TestVenueAlert_QuietWindowHoldsUntilTheDropFin
 	s.announce(s.createTestShow("A show", nil, []uint{venueID}))
 
 	// A generous window and hold: the drop is seconds old, so nothing is ready.
-	s.Equal(0, s.svc.FlushVenueShowAlerts(50, time.Hour, time.Hour))
+	s.Equal(0, s.svc.FlushVenueShowAlerts(context.Background(), 50, time.Hour, time.Hour, 0))
 	s.Equal(int64(0), s.venueInAppAlerts(userID, venueID, day))
 
 	// The max hold retires it even though it never went quiet, which is what
 	// stops a trickling venue from starving its followers.
-	s.Equal(1, s.svc.FlushVenueShowAlerts(50, time.Hour, 0))
+	s.Equal(1, s.svc.FlushVenueShowAlerts(context.Background(), 50, time.Hour, 0, 0))
 	s.Equal(int64(1), s.venueInAppAlerts(userID, venueID, day))
 }
 
@@ -787,4 +859,212 @@ func (s *NotificationFilterSuite) TestVenueAlert_UnfollowedVenueAccruesNothing()
 	venueID := s.createTestVenue("Nobody Follows This")
 	s.announce(s.createTestShow("A show", nil, []uint{venueID}))
 	s.Equal(int64(0), s.batchMembers(venueID, venueLocalToday()))
+}
+
+// TestVenueAlert_ShowsAccruedDuringDeliveryAreNotRetired is the watermark.
+//
+// Delivery is slow (one synchronous provider request per email recipient) and
+// accrual keeps running throughout, so a flush that stamped the WHOLE group
+// afterwards would retire rows it never resolved. On the paths that write no
+// notification_log row at all this is not "the late show misses the email" — it
+// is an announcement nobody ever receives, because the group is never selected
+// again.
+//
+// Simulated by accruing a row dated AFTER the flush's watermark, which is what a
+// mid-delivery arrival looks like from the mark's point of view.
+func (s *NotificationFilterSuite) TestVenueAlert_ShowsAccruedDuringDeliveryAreNotRetired() {
+	userID := s.createTestUser()
+	venueID := s.createTestVenue("Valley Bar")
+	s.followVenueWithAlerts(userID, venueID, `{}`)
+	day := venueLocalToday()
+
+	s.announce(s.createTestShow("First", nil, []uint{venueID}))
+
+	lateShow := s.createTestShow("Arrived mid-delivery", nil, []uint{venueID})
+	s.Require().NoError(s.db.Exec(`
+		INSERT INTO venue_show_alert_batch (venue_id, alert_day, show_id, created_at)
+		VALUES (?, ?::date, ?, now() + interval '1 hour')`, venueID, day, lateShow).Error)
+
+	s.Equal(1, s.flushNow())
+
+	var undispatched int64
+	s.Require().NoError(s.db.Table("venue_show_alert_batch").
+		Where("venue_id = ? AND dispatched_at IS NULL", venueID).Count(&undispatched).Error)
+	s.Equal(int64(1), undispatched,
+		"a row accrued after the flush read the group must stay undispatched for the next tick")
+}
+
+// TestVenueAlert_ClaimFailureIsReportedNotSwallowed pins the disposition that a
+// failed in-app claim must REACH the caller.
+//
+// Before this it was logged and swallowed, deliverVenueAlertBatch returned nil
+// regardless, and the group was then stamped dispatched — so a transient write
+// failure lost that user's bell entry permanently, with no path that ever
+// reconsidered it. (The email lane's claim-before-send trade is a deliberate
+// one-way door; this was not.)
+//
+// The failure is induced through the day string, which is the one input to the
+// claim that can be made invalid: `::date` rejects it. Any write failure would
+// do — the property under test is the disposition, not the cause.
+func (s *NotificationFilterSuite) TestVenueAlert_ClaimFailureIsReportedNotSwallowed() {
+	userID := s.createTestUser()
+	venueID := s.createTestVenue("Valley Bar")
+
+	badKey := venueAlertGroupKey{VenueID: venueID, AlertDay: "not-a-date"}
+	_, err := s.svc.claimVenueAlertRow(
+		userID, badKey, notificationm.NotificationChannelInApp, time.Now().UTC())
+	s.Require().Error(err, "an unwritable claim must report an error")
+
+	batch := &venueAlertBatch{key: badKey, venueName: "Valley Bar", loc: time.UTC}
+	r := venueAlertRecipient{userID: userID, inApp: true, shows: venueAlertShows(1)}
+	s.Error(s.svc.deliverVenueAlert(r, batch, time.Now().UTC()),
+		"deliverVenueAlert must surface the claim failure so the group is retried")
+}
+
+// TestVenueAlert_PoisonBatchIsEventuallyAbandoned is the other half, and the
+// reason reporting the error cannot be the whole story: a group that keeps
+// failing sits at the HEAD of an oldest-first queue and re-occupies a slot on
+// every tick, so without a bound five of them stop venue alerts for every venue
+// on the platform.
+func (s *NotificationFilterSuite) TestVenueAlert_PoisonBatchIsEventuallyAbandoned() {
+	userID := s.createTestUser()
+	venueID := s.createTestVenue("Valley Bar")
+	s.followVenueWithAlerts(userID, venueID, `{}`)
+	day := venueLocalToday()
+
+	s.announce(s.createTestShow("A show", nil, []uint{venueID}))
+	key := venueAlertGroupKey{VenueID: venueID, AlertDay: day}
+
+	undispatched := func() int64 {
+		var n int64
+		s.Require().NoError(s.db.Table("venue_show_alert_batch").
+			Where("venue_id = ? AND dispatched_at IS NULL", venueID).Count(&n).Error)
+		return n
+	}
+
+	// A batch younger than the bound is left alone, however it failed.
+	s.svc.retireVenueAlertGroupIfTooOld(key, time.Hour, fmt.Errorf("boom"))
+	s.Equal(int64(1), undispatched(), "a young batch must keep being retried")
+
+	// A zero bound disables retirement entirely, which is what the tests that
+	// care about ordinary delivery rely on.
+	s.svc.retireVenueAlertGroupIfTooOld(key, 0, fmt.Errorf("boom"))
+	s.Equal(int64(1), undispatched())
+
+	// Past the bound it is abandoned, so it stops holding a slot.
+	s.svc.retireVenueAlertGroupIfTooOld(key, time.Nanosecond, fmt.Errorf("boom"))
+	s.Equal(int64(0), undispatched(),
+		"a group failing past max age must be abandoned rather than starving the queue")
+	s.Equal(int64(0), s.venueInAppAlerts(userID, venueID, day),
+		"abandoning is a silent non-delivery, not a delivery")
+}
+
+// TestVenueAlert_CanceledContextStopsTheTick pins the shutdown behaviour. A tick
+// is an unbounded number of sequential provider requests and Stop() blocks on
+// it, so a deploy landing mid-drain must be able to bail.
+func (s *NotificationFilterSuite) TestVenueAlert_CanceledContextStopsTheTick() {
+	userID := s.createTestUser()
+	venueID := s.createTestVenue("Valley Bar")
+	s.followVenueWithAlerts(userID, venueID, `{}`)
+	day := venueLocalToday()
+
+	s.announce(s.createTestShow("A show", nil, []uint{venueID}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	s.Equal(0, s.svc.FlushVenueShowAlerts(ctx, 50, 0, 0, 0))
+	s.Equal(int64(0), s.venueInAppAlerts(userID, venueID, day),
+		"a canceled tick must deliver nothing and leave the work for the next one")
+
+	// ...and the work is genuinely still there.
+	s.Equal(1, s.flushNow())
+	s.Equal(int64(1), s.venueInAppAlerts(userID, venueID, day))
+}
+
+// TestVenueAlert_PulledShowLeavesTheInboxRow covers the read path's half of the
+// announceability fence. Only DELETED shows leave the batch on their own, so
+// without a status predicate at read time a show withdrawn by moderation would
+// keep its title in every follower's inbox forever.
+func (s *NotificationFilterSuite) TestVenueAlert_PulledShowLeavesTheInboxRow() {
+	userID := s.createTestUser()
+	venueID := s.createTestVenue("Valley Bar")
+	s.followVenueWithAlerts(userID, venueID, `{}`)
+
+	keep := s.createTestShow("Still on", nil, []uint{venueID})
+	pulled := s.createTestShow("Withdrawn by moderation", nil, []uint{venueID})
+	s.announce(keep)
+	s.announce(pulled)
+	s.Equal(1, s.flushNow())
+
+	s.Require().NoError(s.db.Exec(
+		`UPDATE shows SET status = 'pending' WHERE id = ?`, pulled).Error)
+
+	entries, err := s.svc.GetUserNotifications(userID, 20, 0)
+	s.Require().NoError(err)
+	s.Require().Len(entries, 1)
+	s.Equal(1, entries[0].AlertShowCount, "a withdrawn show must drop out of the count")
+	s.NotContains(entries[0].AlertShowSummary, "Withdrawn by moderation",
+		"a non-public show's title must not keep rendering in the inbox")
+	s.Contains(entries[0].AlertShowSummary, "Still on")
+}
+
+// TestVenueAlert_MovedShowLeavesTheInboxRow is the same fence for the other way
+// a membership goes stale: an ordinary edit replaces a show's venues wholesale
+// and never touches the batch row.
+func (s *NotificationFilterSuite) TestVenueAlert_MovedShowLeavesTheInboxRow() {
+	userID := s.createTestUser()
+	venueID := s.createTestVenue("Valley Bar")
+	elsewhere := s.createTestVenue("Somewhere Else")
+	s.followVenueWithAlerts(userID, venueID, `{}`)
+
+	keep := s.createTestShow("Still here", nil, []uint{venueID})
+	moved := s.createTestShow("Moved venues", nil, []uint{venueID})
+	s.announce(keep)
+	s.announce(moved)
+	s.Equal(1, s.flushNow())
+
+	s.Require().NoError(s.db.Exec(
+		`UPDATE show_venues SET venue_id = ? WHERE show_id = ?`, elsewhere, moved).Error)
+
+	entries, err := s.svc.GetUserNotifications(userID, 20, 0)
+	s.Require().NoError(err)
+	s.Require().Len(entries, 1)
+	s.Equal(1, entries[0].AlertShowCount)
+	s.NotContains(entries[0].AlertShowSummary, "Moved venues")
+}
+
+// TestVenueAlert_InboxCountMatchesWhatWasDelivered pins the agreement between
+// the two surfaces one flush produces. The flush strips shows the reader was
+// already told about and sizes the EMAIL from what is left; the bell row has to
+// be sized the same way, or the same flush says "New show" in the mailbox and
+// "3 new shows" in the inbox.
+func (s *NotificationFilterSuite) TestVenueAlert_InboxCountMatchesWhatWasDelivered() {
+	capture := s.withCapturedEmail()
+	userID := s.createTestUser()
+	venueID := s.createTestVenue("Valley Bar")
+	artistID := s.createTestArtist("Oneida")
+	s.followVenueWithAlerts(userID, venueID, `{"alerts":{"shows":{"email":true}}}`)
+	s.followArtistWithAlerts(userID, artistID, `{"alerts":{"shows":{"scope":"everywhere"}}}`)
+
+	// Two of the three are claimed first by the more specific artist alert.
+	s.announce(s.createTestShow("Oneida one", []uint{artistID}, []uint{venueID}))
+	s.announce(s.createTestShow("Oneida two", []uint{artistID}, []uint{venueID}))
+	s.announce(s.createTestShow("Someone else", nil, []uint{venueID}))
+
+	s.Equal(1, s.flushNow())
+
+	s.Require().Len(capture.sent, 1)
+	s.Contains(capture.sent[0].subject, "New show at",
+		"the email is sized from the shows this reader has NOT already been told about")
+
+	entries, err := s.svc.GetUserNotifications(userID, 20, 0)
+	s.Require().NoError(err)
+	var venueRow *contracts.NotificationLogEntry
+	for i := range entries {
+		if entries[i].EntityType == notificationm.NotificationEntityVenueShowAlert {
+			venueRow = &entries[i]
+		}
+	}
+	s.Require().NotNil(venueRow)
+	s.Equal(1, venueRow.AlertShowCount, "and the bell row must agree with the email")
 }

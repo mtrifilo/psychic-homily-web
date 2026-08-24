@@ -319,6 +319,42 @@ func rescueSupportActs(tx *gorm.DB, canonicalID uint, result *contracts.MergeVen
 // show_artists and show_venues both cascade on show_id, so their rows go too —
 // which is exactly why rescueSupportActs has to run first.
 func deleteDuplicateShows(tx *gorm.DB) error {
+	// venue_show_alert_batch memberships have to move off the losing shows FIRST.
+	//
+	// This delete does NOT route through MergeDuplicateShow, so none of that
+	// function's re-points run for these shows — and venue_show_alert_batch's
+	// foreign key CASCADES, so the memberships are destroyed here rather than
+	// stranded. reassignVenueAlertRows runs later and would find nothing left to
+	// move, which is exactly the outcome venueFKTables claims this table was
+	// added to prevent: a delivered alert still saying "3 new shows" above a
+	// list that lost one.
+	//
+	// Same delete-then-move shape as repointVenueShowAlertBatchShows, against the
+	// same natural key. The drop is required because one event listed at both
+	// venues on the same day is the ordinary case for a real duplicate pair, and
+	// the winner will already hold that row.
+	if err := tx.Exec(`
+		DELETE FROM venue_show_alert_batch l
+		USING venue_merge_dup d
+		WHERE l.show_id = d.loser_show
+		  AND EXISTS (
+		        SELECT 1 FROM venue_show_alert_batch w
+		        WHERE w.show_id = d.winner_show
+		          AND w.venue_id = l.venue_id
+		          AND w.alert_day = l.alert_day
+		      )
+	`).Error; err != nil {
+		return fmt.Errorf("failed to drop conflicting venue alert batch rows: %w", err)
+	}
+	if err := tx.Exec(`
+		UPDATE venue_show_alert_batch l
+		   SET show_id = d.winner_show
+		  FROM venue_merge_dup d
+		 WHERE l.show_id = d.loser_show
+	`).Error; err != nil {
+		return fmt.Errorf("failed to move venue alert batch rows: %w", err)
+	}
+
 	if err := tx.Exec(`
 		DELETE FROM shows s
 		USING venue_merge_dup d

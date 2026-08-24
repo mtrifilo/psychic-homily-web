@@ -974,17 +974,25 @@ func (s *NotificationFilterService) GetUserNotifications(userID uint, limit, off
 	s.enrichCommentNotifications(entries)
 	s.enrichRequestNotifications(entries)
 	s.enrichArtistShowAlertNotifications(entries)
-	s.enrichVenueShowAlertNotifications(entries)
+	s.enrichVenueShowAlertNotifications(userID, entries)
 	return entries, nil
 }
 
 // formatAlertBucket renders a coalesced alert's day as YYYY-MM-DD, or "" when
 // the row has no bucket (every per-event writer).
+//
+// Formatted from the WALL CLOCK, with no zone conversion. A DATE carries
+// calendar fields and no instant, so converting it is not a normalization — it
+// is a reinterpretation that moves the day. The driver happens to decode DATE at
+// midnight UTC today, which makes .UTC() a no-op; the moment a connection
+// TimeZone east of UTC changed that, .UTC() would roll the value back to the
+// previous day, and every enrichment lookup keyed on this string would miss its
+// batch and render "0 new shows".
 func formatAlertBucket(bucket *time.Time) string {
 	if bucket == nil {
 		return ""
 	}
-	return bucket.UTC().Format(alertDayLayout)
+	return bucket.Format(alertDayLayout)
 }
 
 // ──────────────────────────────────────────────
@@ -1199,7 +1207,30 @@ const venueAlertSummaryLimit = 3
 // or deleted venue leaves the name and link blank, and a batch whose members
 // were all deleted leaves a count of zero. The notification still happened, and
 // a row that vanished from history would be a worse lie than a bare one.
-func (s *NotificationFilterService) enrichVenueShowAlertNotifications(entries []contracts.NotificationLogEntry) {
+//
+// # The member query re-applies the DELIVERY rules, and must
+//
+// Reading the batch live is what lets the row grow, but it also means this query
+// is the ONLY thing standing between a member and the reader. Three filters
+// therefore mirror what the flush already decided, and each closes a real hole:
+//
+//   - ANNOUNCEABILITY. Only deleted shows leave the batch (the foreign key
+//     cascades). A show that is later un-approved, rejected or cancelled stays,
+//     and without this predicate its title would keep rendering in every
+//     follower's inbox forever — a non-public show's title, shown to users, on a
+//     row moderation has already withdrawn.
+//   - VENUE MEMBERSHIP. An ordinary edit replaces a show's venues wholesale
+//     without touching the batch, so a show that has moved to another venue would
+//     otherwise still be listed under this one.
+//   - THE READER'S OWN DEDUP. The flush strips shows the user was already told
+//     about by a more specific alert and sizes the EMAIL from what is left. This
+//     count and this list have to be sized the same way, or the same flush
+//     produces an email saying "New show at X" beside a bell row saying "5 new
+//     shows" — four of which it deliberately chose not to re-tell them about.
+func (s *NotificationFilterService) enrichVenueShowAlertNotifications(
+	userID uint,
+	entries []contracts.NotificationLogEntry,
+) {
 	if len(entries) == 0 {
 		return
 	}
@@ -1260,9 +1291,25 @@ func (s *NotificationFilterService) enrichVenueShowAlertNotifications(entries []
 		       s.title, s.event_date
 		FROM venue_show_alert_batch b
 		JOIN shows s ON s.id = b.show_id
-		WHERE b.venue_id IN ? AND b.alert_day IN ?
+		-- The show must still be AT this venue: an ordinary edit replaces
+		-- show_venues wholesale and never touches the batch row.
+		JOIN show_venues sv ON sv.show_id = s.id AND sv.venue_id = b.venue_id
+		WHERE b.venue_id = ANY(?) AND b.alert_day = ANY(?::date[])
+		  -- The same fence the flush applied before announcing it. Only DELETED
+		  -- shows leave the batch on their own, so without this a show pulled by
+		  -- moderation keeps its title in every follower's inbox.
+		  AND s.status = ? AND s.is_cancelled = false
+		  -- ...and the reader's own dedup, so this count cannot disagree with the
+		  -- email the same flush sent.
+		  AND NOT EXISTS (
+		        SELECT 1 FROM notification_log nl
+		        WHERE nl.user_id = ?
+		          AND nl.entity_id = s.id
+		          AND `+notifiedAboutShow("nl")+`
+		      )
 		ORDER BY b.venue_id, b.alert_day, s.event_date ASC, s.id ASC
-	`, venueIDs, buckets).Scan(&members).Error; err != nil {
+	`, pq.Array(venueIDs), pq.Array(buckets), catalogm.ShowStatusApproved, userID,
+	).Scan(&members).Error; err != nil {
 		log.Printf("warning: failed to load venue alert batches for inbox enrichment: %v", err)
 		return
 	}

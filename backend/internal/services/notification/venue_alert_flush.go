@@ -50,6 +50,23 @@ const (
 	// bounds mail per RECIPIENT, not the number of recipients, so a popular venue
 	// is an unbounded number of sequential sends.
 	defaultVenueAlertFlushBatch = 5
+
+	// defaultVenueAlertMaxAge is the poison-pill bound: how long a batch may keep
+	// FAILING before it is abandoned unsent.
+	//
+	// This is not the same thing as maxHold, and the difference is what makes it
+	// necessary. maxHold bounds how long a HEALTHY batch waits for quiet; this
+	// bounds a batch whose delivery keeps erroring. Without it such a group is
+	// retried forever, and the selection query makes that actively harmful rather
+	// than merely wasteful: groups are taken oldest-first, so a permanently
+	// failing one is by definition at the head and re-occupies a slot every tick.
+	// Five of them and the loop stops delivering for every venue on the platform.
+	//
+	// Six hours is chosen so that an ordinary incident (a database restart, a
+	// deploy, a provider outage) still delivers on recovery, while a genuinely
+	// stuck group stops holding the queue open. Abandoning is logged per-group at
+	// warning level, because it is a silent user-visible loss otherwise.
+	defaultVenueAlertMaxAge = 6 * time.Hour
 )
 
 // VenueAlertFlushPoller delivers coalesced venue new-show alerts (PSY-1895).
@@ -89,6 +106,7 @@ type VenueAlertFlushPoller struct {
 	interval    time.Duration
 	quietWindow time.Duration
 	maxHold     time.Duration
+	maxAge      time.Duration
 	batch       int
 
 	stopCh chan struct{}
@@ -101,7 +119,7 @@ type VenueAlertFlushPoller struct {
 // service, and documents that the poller owns SCHEDULING and no delivery logic
 // of its own.
 type venueAlertFlusher interface {
-	FlushVenueShowAlerts(limit int, quietWindow, maxHold time.Duration) int
+	FlushVenueShowAlerts(ctx context.Context, limit int, quietWindow, maxHold, maxAge time.Duration) int
 }
 
 // NewVenueAlertFlushPoller constructs the poller. flusher is normally the
@@ -113,6 +131,7 @@ func NewVenueAlertFlushPoller(flusher venueAlertFlusher) *VenueAlertFlushPoller 
 		interval:    shared.EnvPositiveDuration("VENUE_ALERT_FLUSH_INTERVAL_SECONDS", time.Second, defaultVenueAlertFlushInterval),
 		quietWindow: shared.EnvPositiveDuration("VENUE_ALERT_QUIET_WINDOW_MINUTES", time.Minute, defaultVenueAlertQuietWindow),
 		maxHold:     shared.EnvPositiveDuration("VENUE_ALERT_MAX_HOLD_MINUTES", time.Minute, defaultVenueAlertMaxHold),
+		maxAge:      shared.EnvPositiveDuration("VENUE_ALERT_MAX_AGE_HOURS", time.Hour, defaultVenueAlertMaxAge),
 		batch:       shared.EnvPositiveInt("VENUE_ALERT_FLUSH_BATCH", defaultVenueAlertFlushBatch),
 		stopCh:      make(chan struct{}),
 		logger:      slog.Default(),
@@ -134,7 +153,7 @@ func (p *VenueAlertFlushPoller) Start(ctx context.Context) {
 	}()
 	p.logger.Info("venue alert flush poller started",
 		"interval", p.interval, "quiet_window", p.quietWindow,
-		"max_hold", p.maxHold, "batch", p.batch)
+		"max_hold", p.maxHold, "max_age", p.maxAge, "batch", p.batch)
 }
 
 // Stop gracefully stops the poller.
@@ -148,7 +167,7 @@ func (p *VenueAlertFlushPoller) Stop() {
 func (p *VenueAlertFlushPoller) RunNow(ctx context.Context) { p.processTick(ctx) }
 
 // processTick resolves one round of ready batches.
-func (p *VenueAlertFlushPoller) processTick(_ context.Context) {
+func (p *VenueAlertFlushPoller) processTick(ctx context.Context) {
 	// A missing flusher is a wiring bug, not work to retry. Nothing is claimed
 	// here, so there is no queue state to protect — just say so and skip.
 	if p.flusher == nil {
@@ -166,7 +185,7 @@ func (p *VenueAlertFlushPoller) processTick(_ context.Context) {
 		return
 	}
 
-	dispatched := p.flusher.FlushVenueShowAlerts(p.batch, p.quietWindow, p.maxHold)
+	dispatched := p.flusher.FlushVenueShowAlerts(ctx, p.batch, p.quietWindow, p.maxHold, p.maxAge)
 	if dispatched > 0 {
 		p.logger.Info("venue alert flush tick", "dispatched", dispatched)
 	}

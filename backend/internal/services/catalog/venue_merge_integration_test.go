@@ -917,6 +917,53 @@ func (s *VenueMergeIntegrationSuite) TestMergeVenues_DropsConflictingVenueShowAl
 	s.Equal("2026-05-02", days[1].UTC().Format("2006-01-02"))
 }
 
+// TestMergeVenues_DuplicateShowDeletionKeepsVenueAlertBatchRows covers the path
+// that neither drift guard can see.
+//
+// deleteDuplicateShows hard-deletes the losing venue's colliding shows with raw
+// SQL — it does NOT route through MergeDuplicateShow, so none of that function's
+// re-points run. venue_show_alert_batch.show_id CASCADES, so without an explicit
+// re-point the memberships are DESTROYED here rather than stranded, and the
+// later reassignVenueAlertRows finds nothing left to move. That is exactly the
+// outcome venueFKTables says this table was added to prevent: a delivered alert
+// still saying "N new shows" over a list that lost one.
+//
+// TestVenueForeignKeysAreAllHandled cannot catch it — it only asserts the
+// inventory list matches the FK catalogue — and the two tests above seed
+// non-duplicate shows, so this is the only coverage of that path.
+func (s *VenueMergeIntegrationSuite) TestMergeVenues_DuplicateShowDeletionKeepsVenueAlertBatchRows() {
+	canonical := s.createVenue("Canonical Room")
+	loser := s.createVenue("Dupe Room")
+	user := s.createUser("dup-show-batch")
+	artist := s.createArtist("Shared Band")
+	when := time.Now().Add(72 * time.Hour).Truncate(time.Second)
+
+	// The SAME event listed at both venues on the same date with the same artist,
+	// which is what makes the merge treat the loser's show as a duplicate.
+	winnerShow := s.createShow("One event", canonical, when, artist)
+	loserShow := s.createShow("One event", loser, when, artist)
+
+	// Only the LOSER's show was accrued into a batch.
+	s.seedVenueAlertBatch(loser.ID, loserShow.ID, "2026-05-01")
+
+	_, err := s.svc.MergeVenues(canonical.ID, loser.ID, user.ID)
+	s.Require().NoError(err)
+
+	s.Require().False(s.showExists(loserShow.ID), "the duplicate show should be gone")
+
+	var rows []struct {
+		VenueID uint `gorm:"column:venue_id"`
+		ShowID  uint `gorm:"column:show_id"`
+	}
+	s.Require().NoError(s.db.Table("venue_show_alert_batch").
+		Select("venue_id, show_id").Scan(&rows).Error)
+	s.Require().Len(rows, 1,
+		"the membership must survive the duplicate-show deletion, not cascade away")
+	s.Equal(canonical.ID, rows[0].VenueID)
+	s.Equal(winnerShow.ID, rows[0].ShowID,
+		"and it must name the surviving show")
+}
+
 // TestMergeVenues_DropsConflictingVenueAlertBatchRows is the same argument one
 // table over: the primary key is the whole natural key, so the same show
 // accrued at both venues on one day collapses rather than aborting the merge.

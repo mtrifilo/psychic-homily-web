@@ -107,6 +107,28 @@ ALTER TABLE notification_log
 --
 -- Partial on the discriminator so it constrains only these rows and can never
 -- reject a write on a pre-existing path.
+--
+-- LOCK NOTE, because the CHECK below is NOT the expensive statement here: this
+-- is a plain CREATE UNIQUE INDEX, not CONCURRENTLY (illegal inside the
+-- transaction golang-migrate wraps a multi-statement file in), so it takes a
+-- lock that blocks WRITES to notification_log for the duration of the build.
+-- Acceptable because the index is partial on a discriminator with zero rows at
+-- deploy time, so the build is trivial regardless of the table's size — and this
+-- is the same shape 20260824010000 already shipped. If notification_log ever
+-- grows to where even a partial build is slow, this statement is the one to
+-- split into its own CONCURRENTLY migration.
+
+-- Re-applying after a rollback is the one case that can find rows of this
+-- discriminator ALREADY PRESENT with a NULL bucket: the down migration keeps the
+-- rows (they are real inbox history) but drops the column. Those rows are
+-- unrenderable — the read path skips a venue alert with no bucket — and NOT
+-- VALID below would grandfather them in permanently, sitting outside the unique
+-- index. Clearing them is what makes a rollback and re-apply return to a state
+-- the constraint actually describes. A no-op on the first apply, which is the
+-- only case that exists in a forward-only deploy.
+DELETE FROM notification_log
+ WHERE entity_type = 'venue_show_alert' AND alert_bucket IS NULL;
+
 CREATE UNIQUE INDEX uq_notification_log_venue_show_alert
     ON notification_log (user_id, entity_id, alert_bucket, channel)
     WHERE entity_type = 'venue_show_alert';
@@ -123,10 +145,11 @@ CREATE UNIQUE INDEX uq_notification_log_venue_show_alert
 -- a racing Count-then-Create to work around it.
 --
 -- NOT VALID: the constraint is enforced on every INSERT and UPDATE from the
--- moment it lands, and skips the validation scan of the existing table. There
--- is nothing for that scan to find (no row has this entity_type yet), and
--- skipping it means this migration does not take a lock proportional to the
--- size of notification_log.
+-- moment it lands, and skips the validation scan of the existing table. There is
+-- nothing for that scan to find — the DELETE above guarantees it — so the scan
+-- would only cost a full pass over notification_log for a known-empty result.
+-- (This is about the CHECK's own scan only; the index build above is the
+-- statement that actually takes a write lock here.)
 ALTER TABLE notification_log
     ADD CONSTRAINT ck_notification_log_venue_alert_bucket
     CHECK (entity_type <> 'venue_show_alert' OR alert_bucket IS NOT NULL)

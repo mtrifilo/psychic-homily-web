@@ -768,12 +768,21 @@ Tuning knobs: `VENUE_ALERT_FLUSH_INTERVAL_SECONDS` (default `60`),
 without a new show before it is delivered; it MUST exceed the show-notify
 outbox's inter-tick gap or a drop is mailed half-finished),
 `VENUE_ALERT_MAX_HOLD_MINUTES` (default `30` — the bound that stops a trickling
-venue from never going quiet) and `VENUE_ALERT_FLUSH_BATCH` (default `5`).
+venue from never going quiet), `VENUE_ALERT_MAX_AGE_HOURS` (default `6`) and
+`VENUE_ALERT_FLUSH_BATCH` (default `5`).
 
-Both timing knobs are quality-of-message settings, not correctness ones. A batch
-flushed early mails the shows it has; later ones still reach the inbox row,
+The two timing knobs are quality-of-message settings, not correctness ones. A
+batch flushed early mails the shows it has; later ones still reach the inbox row,
 because exactly-once is held by `uq_notification_log_venue_show_alert` rather
 than by the schedule.
+
+`VENUE_ALERT_MAX_AGE_HOURS` is different in kind — it is the poison-pill bound.
+Batches are selected oldest-first, so a group whose delivery keeps FAILING sits
+at the head of that ordering and re-occupies a slot on every tick; five of them
+would stop venue alerts platform-wide. Past this age such a group is abandoned
+unsent and logged per-group at warning level (`ABANDONING venue N on YYYY-MM-DD`).
+That log line is a real user-visible loss — those followers were never told about
+that day's shows — so it is worth alerting on.
 
 The street-geocode sweep's cadence and per-run network budget are tunable:
 `STREET_GEOCODE_SWEEP_INTERVAL_HOURS` (default `24`),

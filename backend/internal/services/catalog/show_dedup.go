@@ -157,8 +157,21 @@ func showFKColumnListed(qualified string) bool {
 // A prohibition that lives only in a doc comment is one refactor away from being
 // violated by someone doing the obvious thing (adding the table to the inventory
 // loop). This makes it a runtime error instead.
+//
+// The two entries are here for DIFFERENT reasons, and both are "moveShowFKRows
+// must not touch this", which is what the list actually enforces:
+//
+//   - show_notify_queue.show_id must not be MOVED AT ALL. Its disposition is
+//     "drop"; re-pointing it would either abort on UNIQUE (show_id) or let a
+//     merge announce a show that predates the feature.
+//   - venue_show_alert_batch.show_id IS moved, just not by this helper. Its
+//     unique key is the whole natural key (venue_id, alert_day, show_id) and
+//     moveShowFKRows dedupes on exactly ONE partner column, so routing it
+//     through here would miss half the key and abort the merge on a unique
+//     violation. It moves through repointVenueShowAlertBatchShows instead.
 var showFKColumnsNeverRepointed = []string{
 	"show_notify_queue.show_id",
+	"venue_show_alert_batch.show_id",
 }
 
 // showFKColumnRepointBanned reports whether "table.column" is recorded as

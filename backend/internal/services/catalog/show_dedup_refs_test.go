@@ -593,6 +593,14 @@ func TestMoveShowFKRowsRejectsAnUndispositionedColumn(t *testing.T) {
 		t.Error("show_notify_queue.show_id is drop-only: re-pointing it would either abort the " +
 			"merge on UNIQUE (show_id) or let a merge announce a show that predates the feature")
 	}
+	// PSY-1895: this one IS moved, just not by this helper. Its unique key is the
+	// whole natural key (venue_id, alert_day, show_id) and moveShowFKRows dedupes
+	// on one partner column, so routing it through here would miss half the key
+	// and abort the merge on a unique violation.
+	if _, _, err := moveShowFKRows(unusableTx(), "venue_show_alert_batch", "show_id", "venue_id", 1, 2); err == nil {
+		t.Error("venue_show_alert_batch.show_id needs a two-column dedupe and must move " +
+			"through repointVenueShowAlertBatchShows, not moveShowFKRows")
+	}
 
 	// And the fence must not be so tight that the real call sites cannot pass it.
 	// Checked against the predicate rather than through moveShowFKRows, because
