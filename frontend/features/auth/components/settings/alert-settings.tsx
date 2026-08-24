@@ -529,15 +529,24 @@ export function AlertSettings() {
                 unsubscribe calls `PauseFilter`, which clears `is_active` and
                 stops the alert outright rather than flipping a box here,
                 in-app included. Scoping the sentence to the table had left
-                its own counterexample sitting inside it. */}
+                its own counterexample sitting inside it.
+
+                "One-click" was dropped from the claim on purpose. The
+                show-reminder email mints its unsubscribe URL at the FRONTEND
+                origin, where the route is a client page that runs its
+                mutation from an effect, so the RFC 8058 POST a mailbox
+                provider sends silently does nothing; the human-clicked link
+                still works. Every sibling stream targets the backend route
+                and honours both. Restore the stronger word when that lane is
+                fixed (PSY-1925). */}
             <p className="text-xs text-muted-foreground">
               Every email in the table above stays off until you switch it on,
-              row by row, and carries a one-click unsubscribe link that flips
-              the matching box above. A custom alert is the exception
-              throughout: it starts emailing as soon as you build it, its
-              email is switched off on the alert itself, and unsubscribing
-              from one of those emails pauses that whole alert rather than
-              flipping a box here.
+              row by row, and carries an unsubscribe link that flips the
+              matching box above. A custom alert is the exception throughout:
+              it starts emailing as soon as you build it, its email is
+              switched off on the alert itself, and unsubscribing from one of
+              those emails pauses that whole alert rather than flipping a box
+              here.
             </p>
             {/* The sentence above used to claim "every email governed by this
                 card", which a reader takes as every email the index sends.

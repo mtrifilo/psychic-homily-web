@@ -653,10 +653,10 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       renderWithProviders(<LibraryPage />)
 
       expect(
-        screen.getByRole('link', { name: /New-show alerts for Alpha: paused/i })
+        screen.getByRole('button', { name: 'Show alerts for Alpha: paused' })
       ).toBeTruthy()
       expect(screen.queryByText(/New follows start at/)).toBeNull()
-      expect(screen.queryByRole('button', { name: /alerts for Alpha/i })).toBeNull()
+      expect(screen.getByText('paused')).toBeInTheDocument()
     })
 
     // A follow the user switched off is not paused, and it must not drag the

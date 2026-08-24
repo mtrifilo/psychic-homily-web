@@ -442,13 +442,33 @@ describe('FollowAlertsReveal', () => {
       }
     }
 
-    it('reads paused rather than lighting a scope chip', () => {
+    it('says paused, and stops the chips claiming to be delivering', () => {
       paused()
       renderArtist()
 
       expect(screen.getByText('paused')).toBeInTheDocument()
-      expect(screen.queryByRole('radiogroup')).toBeNull()
-      expect(screen.queryByRole('radio', { name: 'Near me' })).toBeNull()
+      expect(
+        screen.getByRole('radiogroup', { name: 'Alerts for Just Mustard, paused' })
+      ).toBeInTheDocument()
+      expect(screen.getByText('While paused:')).toBeInTheDocument()
+      expect(screen.queryByText('Alerts:')).toBeNull()
+    })
+
+    // The chips STAY. Swapping them for a link unmounted the node focus
+    // returns to, dropping a keyboard user to <body> mid-commit, and it
+    // removed the only way to switch a paused follow off.
+    it('keeps the choice usable, including switching the follow off', async () => {
+      const user = userEvent.setup()
+      paused()
+      renderArtist()
+
+      await user.click(screen.getByRole('radio', { name: 'Off' }))
+
+      expect(mockUpdate).toHaveBeenCalledWith({
+        entityType: 'artists',
+        entityId: 7,
+        update: { shows: { enabled: false } },
+      })
     })
 
     it('points at the alert matrix, which is where a channel lives', () => {
@@ -460,10 +480,10 @@ describe('FollowAlertsReveal', () => {
       ).toHaveAttribute('href', '/profile?tab=settings#alerts')
     })
 
-    // The whole point of not writing anything on this path: the scope is
-    // still stored, so switching a channel back on restores near me rather
-    // than asking for it again.
-    it('writes nothing, so the stored scope survives the pause', () => {
+    // The whole point of not writing anything on its own: the scope is still
+    // stored, so switching a channel back on restores near me rather than
+    // asking for it again.
+    it('writes nothing on its own, so the stored scope survives the pause', () => {
       paused()
       renderArtist()
 
@@ -482,7 +502,7 @@ describe('FollowAlertsReveal', () => {
       renderVenue()
 
       expect(screen.getByText('paused')).toBeInTheDocument()
-      expect(screen.queryByRole('radio', { name: 'On' })).toBeNull()
+      expect(screen.getByRole('radio', { name: 'On' })).toBeInTheDocument()
     })
 
     // OFF is a choice made on this follow, and its control still works.

@@ -1,22 +1,24 @@
 'use client'
 
+import Link from 'next/link'
 import { BracketLink } from './BracketLink'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useUpdateFollowAlerts } from '@/lib/hooks/common/useFollowAlerts'
 import {
   ALERTS_HREF,
+  ALERTS_PAUSED_CHOICE_LABEL,
   ALERTS_PAUSED_SUMMARY,
   followAlertChoice,
   followAlertHasScopeAxis,
   followAlertOptions,
   followAlertsPaused,
-  followAlertsPausedDetail,
   followAlertsPausedNote,
   followAlertSummaryFor,
   followAlertUpdateFor,
@@ -76,41 +78,24 @@ export function FollowAlertsMenu({
   // disabled one implying it could be switched on. The same guard covers the
   // still-unknown home area, so a near-me follow is never briefly labelled
   // "everywhere".
-  // The entity-page twin's rule, on a row: an enabled subscription with both
-  // account channels off delivers nothing, so the bracket must not summarize
-  // it as "near me". It becomes a LINK to the one place the channel can be
-  // switched back on, rather than a menu whose every option writes a field
-  // that changes nothing. The stored scope is untouched and resumes there.
-  //
-  // ABOVE the option guard, matching the twin, and the Library bar is why.
-  // That bar derives its own paused line from these same row payloads, which
-  // need no home area; `followAlertOptions` returns undefined until the area
-  // read resolves, and permanently if it fails. Guarding first would print
-  // "New-show alerts: paused" over a column of rows carrying no bracket at
-  // all, in the exact window the bar's contract promises they agree.
-  if (followAlertsPaused(alerts)) {
-    return (
-      <BracketLink
-        label={`alerts: ${ALERTS_PAUSED_SUMMARY}`}
-        // The explanation goes in the ACCESSIBLE NAME, not only the title.
-        // `title` is a hover affordance: keyboard, touch and most
-        // screen-reader users never see it, and `BracketLink`'s anchor branch
-        // sets aria-label, which wins as the name anyway. Without this they
-        // get the word "paused" and never the reassurance that their scope
-        // survived, which is the half that stops "paused" reading as "your
-        // setting was discarded". The entity-page twin has a real tooltip; a
-        // row cannot carry one per row.
-        ariaLabel={`New-show alerts for ${entityName}: paused. ${followAlertsPausedDetail(entityType)}`}
-        title={followAlertsPausedNote(entityType)}
-        href={ALERTS_HREF}
-        className={cn('font-mono text-[11px]', className)}
-      />
-    )
-  }
-
   if (!current || !options) return null
 
-  const summary = followAlertSummaryFor(options, current)
+  // An enabled subscription with no channel behind it delivers nothing, so the
+  // bracket must not summarize it as "near me".
+  //
+  // The MENU STAYS. Swapping it for a plain link was the tempting shape and it
+  // broke two things at once. Radix restores focus to the trigger on close, so
+  // a trigger that unmounts mid-commit dropped focus to <body> and restarted
+  // the next Tab at the top of a list that can run 50 rows deep, which is the
+  // exact failure the aria-disabled note below exists to prevent. And it
+  // removed the only way to switch a paused follow OFF, leaving that reachable
+  // only by first un-pausing every follow on the account.
+  //
+  // So the trigger is the same node either way, and only what it says changes.
+  const paused = followAlertsPaused(alerts)
+  const summary = paused
+    ? ALERTS_PAUSED_SUMMARY
+    : followAlertSummaryFor(options, current)
 
   return (
     <>
@@ -124,6 +109,11 @@ export function FollowAlertsMenu({
             // mock's, but "alerts" alone would promise this also silences the
             // follow's RELEASE alerts, which are an account-level setting and
             // are untouched by every option here.
+            // A NAME, not a description. The paused explanation runs to a
+            // paragraph and belongs in the menu, where it is one node rather
+            // than one per row: an accessible name repeated verbatim down 50
+            // rows makes a links list unusable, and the row's own name would
+            // sit buried at character 21 of it.
             ariaLabel={`Show alerts for ${entityName}: ${summary}`}
             // The release sentence is ARTIST-ONLY. A venue follow has no
             // release axis at all: the server omits `releases` from a venue's
@@ -132,9 +122,11 @@ export function FollowAlertsMenu({
             // same cross-surface disagreement this control exists to end, and
             // `FollowAlertsReveal` already forks its tooltip this way.
             title={
-              hasReleaseAxis
-                ? `New-show alerts for ${entityName}. Release alerts are set in Settings.`
-                : `New-show alerts for ${entityName}.`
+              paused
+                ? followAlertsPausedNote(entityType)
+                : hasReleaseAxis
+                  ? `New-show alerts for ${entityName}. Release alerts are set in Settings.`
+                  : `New-show alerts for ${entityName}.`
             }
             // No `active`: this is a menu button, not a toggle. aria-pressed
             // would both contradict an "off" label and collide with the
@@ -150,9 +142,24 @@ export function FollowAlertsMenu({
             className={cn('font-mono text-[11px]', className)}
           />
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
+        <DropdownMenuContent align="end" className="max-w-xs">
+          {/* The explanation lives HERE, once, reachable by keyboard and
+              touch rather than by hover. `title` is a mouse affordance, and
+              putting a paragraph in the trigger's accessible name instead
+              would repeat it down every row of the tab. */}
+          {paused && (
+            <>
+              <DropdownMenuLabel className="whitespace-normal font-normal text-muted-foreground">
+                {followAlertsPausedNote(entityType)}
+              </DropdownMenuLabel>
+              <DropdownMenuItem asChild>
+                <Link href={ALERTS_HREF}>Turn a channel on</Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          )}
           <DropdownMenuLabel className="font-normal text-muted-foreground">
-            New shows
+            {paused ? ALERTS_PAUSED_CHOICE_LABEL : 'New shows'}
           </DropdownMenuLabel>
           {options.map(option => (
             <DropdownMenuItem

@@ -569,10 +569,20 @@ describe('AlertSettings', () => {
 
     expect(
       screen.getByText(
-        /Every email in the table above stays off until you switch it on, row by row, and carries a one-click unsubscribe link/i
+        /Every email in the table above stays off until you switch it on, row by row, and carries an unsubscribe link/i
       )
     ).toBeInTheDocument()
     expect(screen.queryByText(/governed by this card/i)).not.toBeInTheDocument()
+  })
+
+  // The show-reminder email mints its unsubscribe URL at the frontend origin,
+  // where the route is a client page that runs its mutation from an effect, so
+  // the RFC 8058 POST a mailbox provider sends silently does nothing. Claiming
+  // one-click for every row was therefore a promise one row does not keep.
+  it('does not claim one-click unsubscribe for rows that do not honour it', () => {
+    renderWithProviders(<AlertSettings />)
+
+    expect(screen.queryByText(/one-click unsubscribe/i)).not.toBeInTheDocument()
   })
 
   // A settings card that lists what reaches you cannot omit the one stream
@@ -598,7 +608,7 @@ describe('AlertSettings', () => {
 
     expect(
       screen.getByText(
-        /A custom alert is the exception throughout: it starts emailing as soon as you build it, its email is switched off on the alert itself, and unsubscribing from one of those emails pauses that whole alert rather than flipping a box here/i
+        /carries an unsubscribe link that flips the matching box above\. A custom alert is the exception throughout: it starts emailing as soon as you build it, its email is switched off on the alert itself, and unsubscribing from one of those emails pauses that whole alert rather than flipping a box here/i
       )
     ).toBeInTheDocument()
   })

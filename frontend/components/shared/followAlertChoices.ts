@@ -265,36 +265,45 @@ export const ALERTS_PAUSED_SUMMARY = 'paused'
  */
 const ALERTS_PAUSED_LEAD = 'New-show alerts are paused.'
 
+/**
+ * "Lifts the pause", NOT "resumes them".
+ *
+ * Resuming is a delivery claim, and a venue follow has no notifier behind it
+ * to resume. Lifting the pause is what switching a channel actually does, and
+ * it is true of every follow type; whether anything then flows is the
+ * pending-delivery note's business, appended below.
+ */
 const ALERTS_PAUSED_EFFECT =
-  'Neither in-app nor email is switched on for them, so nothing is delivered. Switching either back on resumes them, and the account-wide channels are in your alert settings.'
+  'Neither in-app nor email is switched on for them, so nothing is delivered. Switching either back on lifts the pause, and the account-wide channels are in your alert settings.'
 
 /**
  * The reassurance that only an artist follow has anything to be reassured
  * about. A venue has no scope axis at all, so promising one back would invent
  * a setting that follow never had.
+ *
+ * "The scope for this follow", not "the scope you chose": near me is the
+ * shipped default, so most of the follows reading this were never chosen.
  */
 const ALERTS_PAUSED_SCOPE_KEPT =
-  'The scope you chose for this follow is saved, so it resumes as you left it.'
+  'The scope for this follow is saved, so it is still what it was.'
 
 /**
- * Why a follow reads paused, what un-pauses it, and anything else still true
- * of that follow type's alerts.
+ * Why a follow reads paused, what lifts it, and anything else still true of
+ * that follow type's alerts.
  *
  * Composed in one place because the entity page and the Library row must not
  * explain the same state two ways. The reassurance is load-bearing: without
  * it, "paused" reads as "your setting was discarded" and the honest fix looks
  * like re-picking a scope that was never lost.
  *
- * The pending-delivery note rides along rather than being dropped. Pausing
- * hides the control that used to carry that disclosure, and a venue follower
- * told their alerts "resume when you switch a channel back on" would be
- * hearing a promise venue delivery cannot keep yet.
+ * The pending-delivery note rides along because a paused venue follower told
+ * only that a channel lifts the pause would reasonably expect alerts after
+ * that, and venue delivery does not exist yet.
  *
  * The artist tooltip's RELEASE disclosure deliberately does NOT ride along.
- * It is there because the chips could be misread as governing releases too,
- * and a paused control has no chips to misread; nothing here says anything
- * about releases, so there is no claim for it to correct. What travels is the
- * disclosure about THIS axis, which is the one the copy makes promises about.
+ * It is there because the scope chips could be misread as governing releases,
+ * and the pause makes no claim about releases at all, so there is nothing here
+ * for it to correct. What travels is the disclosure about THIS axis.
  */
 export const followAlertsPausedDetail = (entityType: string): string =>
   [
@@ -308,6 +317,21 @@ export const followAlertsPausedDetail = (entityType: string): string =>
 /** The same explanation, for a surface that has not already said "paused". */
 export const followAlertsPausedNote = (entityType: string): string =>
   `${ALERTS_PAUSED_LEAD} ${followAlertsPausedDetail(entityType)}`
+
+/**
+ * The lead-in for the choice control while it is paused.
+ *
+ * The control stays on screen while paused, for two reasons that both bite.
+ * Swapping it for a link UNMOUNTS the thing Radix restores focus to, so
+ * committing a choice by keyboard dropped focus to `<body>` and restarted the
+ * next Tab at the top of a list that can run 50 rows deep. And it removed the
+ * only way to switch a paused follow OFF, leaving that reachable solely by
+ * un-pausing every follow on the account first.
+ *
+ * So the chips stay, and this relabels what they mean: not what is being
+ * delivered, which is nothing, but what the setting is while it waits.
+ */
+export const ALERTS_PAUSED_CHOICE_LABEL = 'While paused:'
 
 /**
  * The `[ alerts: … ]` bracket text for a Library row.

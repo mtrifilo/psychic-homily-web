@@ -21,6 +21,7 @@ import {
 import {
   ALERTS_AREA_HREF,
   ALERTS_HREF,
+  ALERTS_PAUSED_CHOICE_LABEL,
   ALERTS_PAUSED_SUMMARY,
   followAlertChoice,
   followAlertHasScopeAxis,
@@ -128,43 +129,6 @@ export function FollowAlertsReveal({
   // subscription.
   if (!isAuthenticated || !supported || !isFollowing) return null
 
-  // PAUSED outranks the chips, because the chips would lie.
-  //
-  // With both account channels off, this subscription is enabled and reaches
-  // nobody: the notifier skips the recipient before it ever looks at scope. A
-  // chip group with "Near me" lit is then a delivery promise with nothing
-  // behind it, and the fix is not on this control at all: the channel is an
-  // account setting. So say what is true and link where it is fixable.
-  //
-  // Scope chips are withheld rather than shown alongside: every one of them
-  // writes a field that changes nothing until a channel comes back, and the
-  // stored scope is preserved precisely so it does not need re-picking. This
-  // needs no home area and no option list, hence its place above that guard.
-  if (followAlertsPaused(alerts)) {
-    return (
-      <div className={cn('flex flex-wrap items-center gap-2 text-xs', className)}>
-        {/* "New-show alerts", not the "Alerts:" the chips use. The pause is
-            this axis only: an artist's RELEASE alerts are an account-level
-            setting with their own channels, and the day those deliver, a bare
-            "Alerts: paused" would be silencing something still flowing. */}
-        <span className="text-muted-foreground">
-          New-show alerts:{' '}
-          <span className="text-foreground">{ALERTS_PAUSED_SUMMARY}</span>
-        </span>
-        <BracketLink
-          label="turn a channel on"
-          ariaLabel={`New-show alerts for ${entityName} are paused. Turn a channel on in alert settings.`}
-          href={ALERTS_HREF}
-          className="font-mono text-[11px]"
-        />
-        <InfoTooltip
-          label="Why these alerts are paused"
-          copy={followAlertsPausedNote(entityType)}
-        />
-      </div>
-    )
-  }
-
   // FAILED is not PENDING. Rendering null for both would mean one 4xx (which
   // the global retry policy does not retry at all) leaves a page reading
   // [Following] with no control, no message and no way back, so a user
@@ -208,16 +172,47 @@ export function FollowAlertsReveal({
     })
   }
 
+  // Enabled and reaching nobody: the notifier skips this recipient before it
+  // ever looks at scope, so a lit "Near me" chip is a delivery promise with
+  // nothing behind it. What changes is the FRAMING, not the control: the chips
+  // stop claiming what is being delivered and say what the setting is while it
+  // waits, and the way out sits next to them.
+  //
+  // Swapping the chips out for a link was tried and reverted. It unmounted the
+  // node focus returns to, dropping a keyboard user to <body> mid-commit, and
+  // it removed the only way to switch a paused follow off.
+  const paused = followAlertsPaused(alerts)
+
   return (
     <div className={cn('flex flex-wrap items-center gap-1 text-xs', className)}>
+      {paused && (
+        <span className="text-muted-foreground">
+          New-show alerts:{' '}
+          <span className="text-foreground">{ALERTS_PAUSED_SUMMARY}</span>
+        </span>
+      )}
+
       <AlertChipRadioGroup
-        ariaLabel={`Alerts for ${entityName}`}
-        label="Alerts:"
+        ariaLabel={
+          paused
+            ? `Alerts for ${entityName}, paused`
+            : `Alerts for ${entityName}`
+        }
+        label={paused ? ALERTS_PAUSED_CHOICE_LABEL : 'Alerts:'}
         options={options}
         value={current}
         onChange={choose}
         pending={updateAlerts.isPending}
       />
+
+      {paused && (
+        <BracketLink
+          label="turn a channel on"
+          ariaLabel={`New-show alerts for ${entityName} are paused. Turn a channel on in alert settings.`}
+          href={ALERTS_HREF}
+          className="font-mono text-[11px]"
+        />
+      )}
 
       {/* Near me is not offered until an area exists, so the way to get one
           has to sit right where it is missing. */}
@@ -230,8 +225,14 @@ export function FollowAlertsReveal({
       )}
 
       <InfoTooltip
-        label="What these alerts cover"
-        copy={isVenue ? VENUE_TOOLTIP : ARTIST_TOOLTIP}
+        label={paused ? 'Why these alerts are paused' : 'What these alerts cover'}
+        copy={
+          paused
+            ? followAlertsPausedNote(entityType)
+            : isVenue
+              ? VENUE_TOOLTIP
+              : ARTIST_TOOLTIP
+        }
       />
 
       {updateAlerts.isError && (

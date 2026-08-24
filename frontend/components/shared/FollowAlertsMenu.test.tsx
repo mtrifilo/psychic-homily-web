@@ -192,31 +192,70 @@ describe('FollowAlertsMenu', () => {
       expect(screen.queryByText('alerts: near me')).toBeNull()
     })
 
-    // A link, not a menu: every option in that menu writes a field that
-    // changes nothing until a channel comes back, and the channel is an
-    // account setting rather than anything this row owns.
-    it('links to the alert matrix instead of opening a menu', async () => {
+    // The TRIGGER STAYS A TRIGGER. Swapping it for a link unmounted the node
+    // Radix restores focus to, so committing a choice by keyboard dropped
+    // focus to <body>, and it removed the only way to switch a paused follow
+    // off. Only what the bracket says changes.
+    it('keeps its menu, so the row is still controllable while paused', async () => {
       renderMenu({ alerts: pausedAlerts() })
 
-      const bracket = screen.getByRole('link', {
-        name: /New-show alerts for Alpha: paused/i,
-      })
-      expect(bracket).toHaveAttribute('href', '/profile?tab=settings#alerts')
+      await userEvent.click(
+        screen.getByRole('button', { name: /Show alerts for Alpha: paused/i })
+      )
 
-      await userEvent.click(bracket)
-      expect(screen.queryByRole('menu')).toBeNull()
-      expect(mockUpdate).not.toHaveBeenCalled()
+      expect(screen.getByRole('menu')).toBeInTheDocument()
+      expect(screen.getByRole('menuitem', { name: 'Off' })).toBeInTheDocument()
     })
 
-    // The bar above these rows derives its own paused line from these same
-    // payloads and needs no home area, while the option list is undefined
-    // until the area read resolves and permanently if it fails. Guarding on
-    // options first printed the bar's paused line over a column of rows with
-    // no bracket at all, in the exact window they promise to agree.
-    it('renders without waiting on the home area, which the pause does not need', () => {
-      renderMenu({ alerts: pausedAlerts(), hasHomeMetro: undefined })
+    // Reachable and previously broken: with the account channels off, picking
+    // an ON option on a row that was switched off flips the row INTO paused.
+    // If that swapped the trigger out, focus went to <body>.
+    it('still writes the chosen option, which resolves back to paused', async () => {
+      renderMenu({
+        alerts: {
+          entity_type: 'artist',
+          entity_id: 1,
+          shows: { enabled: false, in_app: false, email: false },
+        },
+      })
 
-      expect(screen.getByText('alerts: paused')).toBeInTheDocument()
+      await userEvent.click(
+        screen.getByRole('button', { name: /Show alerts for Alpha: off/i })
+      )
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Near me' }))
+
+      expect(mockUpdate).toHaveBeenCalledWith({
+        entityType: 'artists',
+        entityId: 1,
+        update: { shows: { enabled: true, scope: 'near_me' } },
+      })
+    })
+
+    // The explanation is one node inside the menu, reachable by keyboard and
+    // touch, rather than a paragraph repeated as the accessible name of every
+    // row on the tab.
+    it('explains the pause inside the menu and offers the way out there', async () => {
+      renderMenu({ alerts: pausedAlerts() })
+
+      await userEvent.click(
+        screen.getByRole('button', { name: /Show alerts for Alpha: paused/i })
+      )
+
+      expect(screen.getByText(/New-show alerts are paused/i)).toBeInTheDocument()
+      expect(
+        screen.getByRole('menuitem', { name: 'Turn a channel on' })
+      ).toHaveAttribute('href', '/profile?tab=settings#alerts')
+    })
+
+    // A name, not a description: 50 rows announcing the same paragraph makes
+    // a links list unusable and buries each row's own name inside it.
+    it('keeps the accessible name short, with the prose in the menu', () => {
+      renderMenu({ alerts: pausedAlerts() })
+
+      const trigger = screen.getByRole('button', {
+        name: 'Show alerts for Alpha: paused',
+      })
+      expect(trigger).toBeInTheDocument()
     })
 
     // A venue has no scope axis, so promising its scope back would invent a
@@ -232,12 +271,12 @@ describe('FollowAlertsMenu', () => {
         },
       })
 
-      const bracket = screen.getByRole('link', { name: /paused/i })
-      expect(bracket).toHaveAttribute(
+      const trigger = screen.getByRole('button', { name: /paused/i })
+      expect(trigger).toHaveAttribute(
         'title',
-        expect.not.stringContaining('scope you chose')
+        expect.not.stringContaining('scope for this follow')
       )
-      expect(bracket).toHaveAttribute(
+      expect(trigger).toHaveAttribute(
         'title',
         expect.stringContaining('still being switched on')
       )

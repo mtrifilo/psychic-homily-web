@@ -374,14 +374,27 @@ describe('followAlertsPausedNote', () => {
     expect(note).not.toMatch(/switched off .* in your alert settings/i)
   })
 
-  it('promises an artist its stored scope back', () => {
-    expect(followAlertsPausedNote('artists')).toContain('scope you chose')
+  it('tells an artist its stored scope survived', () => {
+    expect(followAlertsPausedNote('artists')).toContain(
+      'The scope for this follow is saved'
+    )
   })
 
-  // A venue has no scope axis at all, so a scope to resume is a setting that
-  // follow never had.
+  // A venue has no scope axis at all, so a scope to come back to is a setting
+  // that follow never had.
   it('promises a venue no scope, because a venue has none', () => {
-    expect(followAlertsPausedNote('venues')).not.toContain('scope you chose')
+    expect(followAlertsPausedNote('venues')).not.toContain('scope for this follow')
+  })
+
+  // "Resumes them" is a DELIVERY claim, and a venue follow has no notifier to
+  // resume. Lifting the pause is what a channel actually does, and it is true
+  // of every follow type.
+  it('promises the pause lifted, never delivery resumed', () => {
+    for (const entityType of ['artists', 'venues']) {
+      const note = followAlertsPausedNote(entityType)
+      expect(note).toContain('lifts the pause')
+      expect(note).not.toContain('resumes them')
+    }
   })
 
   // Pausing hides the control that used to carry the pending disclosure, and

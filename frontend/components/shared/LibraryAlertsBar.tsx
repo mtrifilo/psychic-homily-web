@@ -40,11 +40,20 @@ export function LibraryAlertsBar({ entityType }: LibraryAlertsBarProps) {
   const hasScopeAxis = followAlertHasScopeAxis(entityType)
   const pendingNote = followAlertPendingNote(entityType)
 
+  // Fetched on EVERY tab this bar renders on, not only the scoped ones.
+  //
+  // `alert_defaults` carries one `shows` key covering artist and venue show
+  // alerts alike, so the pause is exactly as real on the Venues tab. Gating
+  // the read on the scope axis meant a Venues tab could show a column of
+  // paused brackets under a bar that never mentioned it, while the Artists tab
+  // one click away explained it and offered the way out. The query is shared
+  // with the entity pages and the settings card and has a five-minute
+  // staleTime, so this is a cache hit rather than a request.
   const {
     data: preferences,
     isError,
     refetch,
-  } = useAlertPreferences(hasScopeAxis)
+  } = useAlertPreferences()
   const [isEditingArea, setIsEditingArea] = useState(false)
   const homeMetro = preferences?.home_metro ?? null
   const areaLabel = useHomeMetroLabel(homeMetro)
@@ -68,12 +77,9 @@ export function LibraryAlertsBar({ entityType }: LibraryAlertsBarProps) {
   // sample is one page of a cursor-paginated list, so the answer changed on
   // Load more.
   //
-  // This costs no request. The bar already reads this query for the home area,
-  // and the Venues tab (which fetches neither) has no starting-scope sentence
-  // to correct in the first place.
-  const accountShowChannels = hasScopeAxis
-    ? preferences?.alert_defaults?.shows
-    : undefined
+  // Gated on the PREFERENCES read, not on the scope axis: one `shows` key
+  // covers both follow types, so a venue follow pauses on the same fact.
+  const accountShowChannels = preferences?.alert_defaults?.shows
   const newFollowsPaused =
     accountShowChannels !== undefined &&
     !followAlertHasChannel(accountShowChannels)
@@ -81,42 +87,43 @@ export function LibraryAlertsBar({ entityType }: LibraryAlertsBarProps) {
   return (
     <div className="mb-4 border border-border bg-card px-3.5 py-3">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[13px]">
-        {/* One slot, two answers to one question. With no channel on, the
-            scope a new follow starts at is not what a reader takes from
-            "New follows start at: Near me": they take a delivery promise,
-            directly above a column of brackets that say paused. So the
-            pause replaces it, and the way out is offered once here rather
-            than on every row.
+        {/* The pause is stated on every tab this bar renders on, because it
+            is true of every follow type here. The starting SCOPE is a scoped
+            tab's fact only, and it is the half the pause replaces: with no
+            channel on, a reader does not take "New follows start at: Near me"
+            as a statement about geography, they take it as a delivery
+            promise, directly above a column of brackets saying paused. */}
+        {newFollowsPaused ? (
+          <>
+            <span className="text-muted-foreground">
+              New-show alerts:{' '}
+              <span className="text-foreground">{ALERTS_PAUSED_SUMMARY}</span>
+            </span>
+            <BracketLink
+              label="turn a channel on"
+              ariaLabel="New-show alerts are paused. Turn a channel on in alert settings."
+              href={ALERTS_HREF}
+              className="font-mono text-[11px]"
+            />
+          </>
+        ) : (
+          areaKnown && (
+            <span className="text-muted-foreground">
+              New follows start at:{' '}
+              <span className="text-foreground">
+                {homeMetro ? 'Near me' : 'Everywhere'}
+              </span>
+            </span>
+          )
+        )}
 
-            The AREA half below stays either way: it is what "near me" will
-            mean when a channel comes back, and this bar is the only place on
-            the page it can be changed. */}
+        {/* The AREA half stays under a pause: it is what "near me" will mean
+            when a channel comes back, and this bar is the only place on the
+            page it can be changed. The separator leads it rather than
+            trailing the block above, so a tab with no area half (Venues)
+            cannot render an orphaned dot. */}
         {areaKnown && (
           <>
-            {newFollowsPaused ? (
-              <>
-                <span className="text-muted-foreground">
-                  New-show alerts:{' '}
-                  <span className="text-foreground">
-                    {ALERTS_PAUSED_SUMMARY}
-                  </span>
-                </span>
-                <BracketLink
-                  label="turn a channel on"
-                  ariaLabel="New-show alerts are paused. Turn a channel on in alert settings."
-                  href={ALERTS_HREF}
-                  className="font-mono text-[11px]"
-                />
-              </>
-            ) : (
-              <span className="text-muted-foreground">
-                New follows start at:{' '}
-                <span className="text-foreground">
-                  {homeMetro ? 'Near me' : 'Everywhere'}
-                </span>
-              </span>
-            )}
-
             <span className="text-muted-foreground/40" aria-hidden>
               ·
             </span>

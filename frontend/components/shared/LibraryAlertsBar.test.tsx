@@ -83,9 +83,20 @@ describe('LibraryAlertsBar', () => {
     expect(screen.queryByRole('button', { name: 'Change your area' })).toBeNull()
   })
 
-  it('does not fetch account preferences it cannot use on a venues tab', () => {
+  // The venues tab has no scope axis and so no area half, but `shows` is ONE
+  // account key covering both follow types, so its follows pause on the same
+  // fact and this tab has to be able to say so. The query is shared with the
+  // entity pages and the settings card, so reading it here is a cache hit.
+  it('reads the account matrix on a venues tab too, which pauses the same way', () => {
     renderWithProviders(<LibraryAlertsBar entityType="venues" />)
-    expect(mockUseAlertPreferences).toHaveBeenCalledWith(false)
+    expect(mockUseAlertPreferences).not.toHaveBeenCalledWith(false)
+  })
+
+  it('still omits the area half on a venues tab, which has no scope axis', () => {
+    renderWithProviders(<LibraryAlertsBar entityType="venues" />)
+
+    expect(screen.queryByText(/Your area/)).toBeNull()
+    expect(screen.queryByText(/New follows start at/)).toBeNull()
   })
 
   // Fails closed: a pending or failed read omits the area half rather than
@@ -220,18 +231,20 @@ describe('LibraryAlertsBar', () => {
       expect(screen.queryByText('paused')).toBeNull()
     })
 
-    // The Venues tab fetches no account preferences at all, so it has no
-    // starting-scope sentence to correct and must not invent one. Its rows
-    // still carry their own paused brackets.
-    it('says nothing on a tab that reads no account preferences', () => {
+    // The Venues tab has no starting-scope sentence to replace, but its rows
+    // pause on the same account key, so it reports the pause and offers the
+    // same way out rather than leaving a column of paused brackets unexplained
+    // while the Artists tab one click away explains them.
+    it('reports the pause on a venues tab, which has no scope sentence to replace', () => {
       noChannels()
       renderWithProviders(<LibraryAlertsBar entityType="venues" />)
 
-      expect(screen.queryByText('paused')).toBeNull()
-      expect(screen.queryByText(/New follows start at/)).toBeNull()
+      expect(screen.getByText('paused')).toBeInTheDocument()
       expect(
-        screen.getByText(/still being switched on/i)
+        screen.getByRole('link', { name: /paused.*alert settings/i })
       ).toBeInTheDocument()
+      expect(screen.queryByText(/New follows start at/)).toBeNull()
+      expect(screen.getByText(/still being switched on/i)).toBeInTheDocument()
     })
 
     // UNKNOWN is not "no channel". A pending read must not paint a pause over
