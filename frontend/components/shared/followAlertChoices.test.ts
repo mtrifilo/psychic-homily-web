@@ -25,7 +25,8 @@ describe('isAlertCapableFollowType', () => {
     expect(isAlertCapableFollowType('venues')).toBe(true)
   })
 
-  // These 422 on the alert endpoints, so offering the control would be a lie.
+  // The alert endpoints refuse all of these (422 for the alertless follow
+  // types, 400 for scenes), so offering the control would be a lie.
   it('rejects every follow type that has no alert subscription', () => {
     for (const type of ['labels', 'festivals', 'tags', 'scenes', 'radio-shows']) {
       expect(isAlertCapableFollowType(type)).toBe(false)
@@ -33,39 +34,48 @@ describe('isAlertCapableFollowType', () => {
   })
 })
 
+const valuesOf = (options: ReturnType<typeof followAlertOptions>) =>
+  options?.map(option => option.value)
+
 describe('followAlertOptions', () => {
   it('gives a venue only on and off, because a venue sits in one place', () => {
     expect(
-      followAlertOptions({ entityType: 'venues', hasHomeMetro: true }).map(
-        o => o.value
-      )
+      valuesOf(followAlertOptions({ entityType: 'venues', hasHomeMetro: true }))
     ).toEqual(['on', 'off'])
   })
 
   it('gives an artist a geographic scope when a home area exists', () => {
     expect(
-      followAlertOptions({ entityType: 'artists', hasHomeMetro: true }).map(
-        o => o.value
-      )
+      valuesOf(followAlertOptions({ entityType: 'artists', hasHomeMetro: true }))
     ).toEqual(['near_me', 'everywhere', 'off'])
   })
 
   // A scoped subscription with nothing to scope to would look configured and
   // deliver nothing, which is exactly the failure this withholding removes.
-  it('withholds near me until a home area exists', () => {
+  it('withholds near me when the viewer is KNOWN to have no home area', () => {
     expect(
-      followAlertOptions({ entityType: 'artists', hasHomeMetro: false }).map(
-        o => o.value
+      valuesOf(
+        followAlertOptions({ entityType: 'artists', hasHomeMetro: false })
       )
     ).toEqual(['everywhere', 'off'])
   })
 
-  it('offers a venue on/off regardless of the home area', () => {
+  // Unknown is not "no". Falling through to the no-area option set renders the
+  // wrong chips for a viewer who HAS an area, then swaps them out underneath a
+  // click that the equal-value guard would swallow.
+  it('offers nothing for a scoped follow while the home area is unknown', () => {
     expect(
-      followAlertOptions({ entityType: 'venues', hasHomeMetro: false }).map(
-        o => o.value
-      )
-    ).toEqual(['on', 'off'])
+      followAlertOptions({ entityType: 'artists', hasHomeMetro: undefined })
+    ).toBeUndefined()
+  })
+
+  // A venue has no scope axis, so it never has to wait on the home area.
+  it('offers a venue on/off regardless of the home area, unknown included', () => {
+    for (const hasHomeMetro of [true, false, undefined]) {
+      expect(
+        valuesOf(followAlertOptions({ entityType: 'venues', hasHomeMetro }))
+      ).toEqual(['on', 'off'])
+    }
   })
 })
 
@@ -115,6 +125,37 @@ describe('followAlertChoice', () => {
   it('treats a missing scope as everywhere', () => {
     expect(followAlertChoice(settings({}), artist)).toBe('everywhere')
   })
+
+  // The near-me-reads-as-everywhere relabel is only honest once the area is
+  // KNOWN absent. While it is unknown, saying "everywhere" overstates the
+  // reach of a subscription the server may well be scoping.
+  it('resolves nothing for a scoped follow while the home area is unknown', () => {
+    expect(
+      followAlertChoice(settings({ scope: 'near_me' }), {
+        entityType: 'artists',
+        hasHomeMetro: undefined,
+      })
+    ).toBeUndefined()
+  })
+
+  // "Off" is stored on the follow itself, so it needs no home area to be read.
+  it('still reads a disabled subscription as off while the area is unknown', () => {
+    expect(
+      followAlertChoice(settings({ enabled: false }), {
+        entityType: 'artists',
+        hasHomeMetro: undefined,
+      })
+    ).toBe('off')
+  })
+
+  it('resolves a venue follow without waiting on the home area', () => {
+    expect(
+      followAlertChoice(settings({ enabled: true }), {
+        entityType: 'venues',
+        hasHomeMetro: undefined,
+      })
+    ).toBe('on')
+  })
 })
 
 describe('followAlertUpdateFor', () => {
@@ -145,21 +186,21 @@ describe('followAlertUpdateFor', () => {
 })
 
 describe('followAlertSummaryFor', () => {
+  const artistOptions = followAlertOptions({
+    entityType: 'artists',
+    hasHomeMetro: true,
+  })!
+  const venueOptions = followAlertOptions({
+    entityType: 'venues',
+    hasHomeMetro: true,
+  })!
+
   it('renders the lower-case bracket text for each choice', () => {
-    const artistOptions = followAlertOptions({
-      entityType: 'artists',
-      hasHomeMetro: true,
-    })
     expect(followAlertSummaryFor(artistOptions, 'near_me')).toBe('near me')
     expect(followAlertSummaryFor(artistOptions, 'everywhere')).toBe(
       'everywhere'
     )
     expect(followAlertSummaryFor(artistOptions, 'off')).toBe('off')
-
-    const venueOptions = followAlertOptions({
-      entityType: 'venues',
-      hasHomeMetro: true,
-    })
     expect(followAlertSummaryFor(venueOptions, 'on')).toBe('on')
   })
 
@@ -170,7 +211,7 @@ describe('followAlertSummaryFor', () => {
     const noAreaOptions = followAlertOptions({
       entityType: 'artists',
       hasHomeMetro: false,
-    })
+    })!
     expect(followAlertSummaryFor(noAreaOptions, 'near_me')).toBeUndefined()
   })
 
@@ -178,7 +219,7 @@ describe('followAlertSummaryFor', () => {
   // in that same context, or a row would render a bracket with no text.
   it('names every choice the matching context can resolve to', () => {
     for (const entityType of ['artists', 'venues']) {
-      for (const hasHomeMetro of [true, false]) {
+      for (const hasHomeMetro of [true, false, undefined]) {
         const context = { entityType, hasHomeMetro }
         const options = followAlertOptions(context)
         for (const shows of [
@@ -187,7 +228,14 @@ describe('followAlertSummaryFor', () => {
           { enabled: true, scope: 'everywhere' as const },
           { enabled: true },
         ]) {
-          const choice = followAlertChoice(settings(shows), context)!
+          const choice = followAlertChoice(settings(shows), context)
+          // Unknown home area resolves neither, and the two must agree: a
+          // renderable choice with no option list (or vice versa) is exactly
+          // the half-known state that produced the wrong-chips bug.
+          if (!options || !choice) {
+            expect(Boolean(options) && Boolean(choice)).toBe(false)
+            continue
+          }
           expect(followAlertSummaryFor(options, choice)).toBeDefined()
         }
       }

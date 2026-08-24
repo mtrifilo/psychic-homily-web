@@ -1,6 +1,6 @@
 'use client'
 
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import Link from 'next/link'
 import { Loader2 } from 'lucide-react'
 import {
@@ -25,7 +25,28 @@ import {
   useAlertPreferences,
   useSetAlertDefaults,
 } from '../../hooks/useAlertPreferences'
+import { useUrlHash } from '@/lib/hooks/common/useUrlHash'
 import { cn } from '@/lib/utils'
+
+/**
+ * Scroll the area card into view when a `[set your area]` link lands here.
+ *
+ * The card owns this rather than the page: `#alerts-area` lives inside a Radix
+ * TabsContent that mounts only after the client navigation commits, so nothing
+ * with that id exists when the browser (or the page's own profile-tab hash
+ * effect, which is a different component with its own allowlist) resolves the
+ * fragment. Without it the link is a silent scroll to the top of a long page.
+ */
+function useScrollToAlertsArea() {
+  const urlHash = useUrlHash()
+
+  useEffect(() => {
+    if (urlHash.replace(/^#/, '') !== ALERTS_AREA_ANCHOR) return
+    const el = document.getElementById(ALERTS_AREA_ANCHOR)
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [urlHash])
+}
 
 /**
  * One channel cell. Three shapes, and the difference matters:
@@ -91,6 +112,22 @@ function ChannelCellView({
   )
 }
 
+/** The Alerts card shell, shared by the matrix and its unavailable states. */
+function AlertsCard({ children }: { children: ReactNode }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Alerts</CardTitle>
+        <CardDescription>
+          What the index tells you about, and where it reaches you. Which shows
+          count for an artist you follow is set on that follow, not here.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>{children}</CardContent>
+    </Card>
+  )
+}
+
 /**
  * The account alert matrix (PSY-1905), drawn to the PSY-1892 mock.
  *
@@ -107,13 +144,23 @@ function ChannelCellView({
  *
  */
 export function AlertSettings() {
+  useScrollToAlertsArea()
   const { data: profileData } = useProfile()
-  const { data: preferences, isLoading } = useAlertPreferences()
+  const {
+    data: preferences,
+    isError: preferencesFailed,
+  } = useAlertPreferences()
   const setAlertDefaults = useSetAlertDefaults()
   const setShowReminders = useSetShowReminders()
   const setCollectionDigest = useSetCollectionDigestPreference()
   const setSceneDigest = useSetSceneDigestPreference()
 
+  // No client-side fallback for the matrix. The shipped defaults have exactly
+  // one home, on the server, and the whole point of the endpoint returning a
+  // RESOLVED matrix is that the client never restates them. Painting `?? true`
+  // / `?? false` over a failed read would report "we are not emailing you" to
+  // someone we are, and every box would be live: one click then PINS a value
+  // they never chose, from a state they were shown wrongly.
   const defaults = preferences?.alert_defaults
   const showRemindersEnabled =
     profileData?.user?.preferences?.show_reminders ?? false
@@ -122,9 +169,29 @@ export function AlertSettings() {
   const sceneDigestEnabled =
     profileData?.user?.preferences?.notify_on_scene_digest ?? false
 
-  // One cell shape, spelled once. Each row supplies its own read, its own
-  // mutation and therefore its own pending flag, so a row saving does not park
-  // the controls of a row it has nothing to do with.
+  // Until the resolved matrix is in hand there is nothing honest to draw, so
+  // say that rather than render live checkboxes over invented state.
+  if (!defaults) {
+    return (
+      <div className="space-y-6">
+        <AlertsCard>
+          {preferencesFailed ? (
+            <p className="py-4 text-sm text-destructive" role="alert">
+              Couldn&apos;t load your alert settings. Reload to try again.
+            </p>
+          ) : (
+            <div className="flex justify-center py-6">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          )}
+        </AlertsCard>
+      </div>
+    )
+  }
+
+  // One cell shape, spelled once. The two follow-alert rows share one mutation
+  // (they are two axes of one PATCH endpoint) and therefore one pending flag;
+  // the reminder and digest rows each have their own.
   const toggle = (
     checked: boolean,
     mutation: { isPending: boolean },
@@ -137,10 +204,10 @@ export function AlertSettings() {
       title: 'An artist or venue you follow announces a show',
       description:
         'Which shows count for an artist is that follow’s own scope, near me or everywhere. A venue sits in one place, so its alerts have no scope.',
-      inApp: toggle(defaults?.shows.in_app ?? true, setAlertDefaults, next =>
+      inApp: toggle(defaults.shows.in_app, setAlertDefaults, next =>
         setAlertDefaults.mutate({ shows: { in_app: next } })
       ),
-      email: toggle(defaults?.shows.email ?? false, setAlertDefaults, next =>
+      email: toggle(defaults.shows.email, setAlertDefaults, next =>
         setAlertDefaults.mutate({ shows: { email: next } })
       ),
     },
@@ -149,10 +216,10 @@ export function AlertSettings() {
       title: 'An artist you follow puts out a release',
       description:
         'A record has no location, so this is never geography-scoped.',
-      inApp: toggle(defaults?.releases.in_app ?? true, setAlertDefaults, next =>
+      inApp: toggle(defaults.releases.in_app, setAlertDefaults, next =>
         setAlertDefaults.mutate({ releases: { in_app: next } })
       ),
-      email: toggle(defaults?.releases.email ?? false, setAlertDefaults, next =>
+      email: toggle(defaults.releases.email, setAlertDefaults, next =>
         setAlertDefaults.mutate({ releases: { email: next } })
       ),
     },
@@ -211,24 +278,10 @@ export function AlertSettings() {
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Alerts</CardTitle>
-          <CardDescription>
-            What the index tells you about, and where it reaches you. Which
-            shows count for an artist you follow is set on that follow, not
-            here.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {isLoading && !preferences ? (
-            <div className="flex justify-center py-6">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
-          ) : (
-            /* A real table, not a grid of role="…" divs: the browser cannot
-               get row/cell nesting wrong, and the row title becomes a genuine
-               row header rather than a cell that happens to be first. */
+      <AlertsCard>
+          {/* A real table, not a grid of role="…" divs: the browser cannot
+              get row/cell nesting wrong, and the row title becomes a genuine
+              row header rather than a cell that happens to be first. */}
             <table className="w-full table-fixed border-collapse">
               <caption className="sr-only">
                 Alert types and the channels each one reaches you on
@@ -287,7 +340,6 @@ export function AlertSettings() {
                 ))}
               </tbody>
             </table>
-          )}
 
           {mutationFailed && (
             <p className="mt-3 text-sm text-destructive" role="alert">
@@ -305,8 +357,7 @@ export function AlertSettings() {
               {FOLLOW_ALERTS_PENDING_NOTE}
             </p>
           </div>
-        </CardContent>
-      </Card>
+      </AlertsCard>
 
       <Card id={ALERTS_AREA_ANCHOR} className="scroll-mt-24">
         <CardHeader>

@@ -27,7 +27,7 @@ export type FollowAlertChoice = 'near_me' | 'everywhere' | 'off' | 'on'
  * Delete this constant, and its call sites, when delivery ships.
  */
 export const FOLLOW_ALERTS_PENDING_NOTE =
-  'New-show alerts are still being switched on. This sets what they will cover once they are.'
+  'Alerts from the artists and venues you follow, for both new shows and new releases, are still being switched on. These settings decide what they will cover once they are.'
 
 /**
  * Where a viewer with no home area goes to set one.
@@ -69,39 +69,67 @@ export const isAlertCapableFollowType = (entityType: string): boolean =>
   entityType === 'artists' || entityType === 'venues'
 
 /**
- * The choices offered for one follow.
+ * Whether this follow type's alerts have a geographic scope at all.
  *
- * A venue sits in one place, so its only axis is on or off. An artist tours,
- * so it gets a geographic scope — but "Near me" is withheld until a home area
- * exists, because a scoped subscription with nothing to scope to would look
- * configured and deliver nothing.
+ * A venue sits in one place. Anything that talks about "near me" has to ask
+ * this first, or it ends up explaining a restriction the user does not have.
+ */
+export const followAlertHasScopeAxis = (entityType: string): boolean =>
+  entityType !== 'venues'
+
+/**
+ * Whether the viewer has a home area, or `undefined` while that is still
+ * UNKNOWN (the preferences query in flight, or failed).
+ *
+ * Unknown has to be representable and distinct from `false`. Collapsing the
+ * two makes a loading page assert "you have no home area": it hides the Near
+ * me chip a viewer already qualifies for, relabels their near-me follows as
+ * "everywhere", and offers them a link to set an area they set months ago.
+ */
+export type HomeMetroState = boolean | undefined
+
+interface FollowAlertContext {
+  entityType: string
+  hasHomeMetro: HomeMetroState
+}
+
+/**
+ * The choices offered for one follow, or `undefined` while the home area is
+ * still unknown.
+ *
+ * A venue sits in one place, so its only axis is on or off and it never has to
+ * wait. An artist tours, so it gets a geographic scope, and "Near me" is
+ * withheld until an area exists: a scoped subscription with nothing to scope
+ * to would look configured and deliver nothing.
  */
 export const followAlertOptions = ({
   entityType,
   hasHomeMetro,
-}: {
-  entityType: string
-  hasHomeMetro: boolean
-}): FollowAlertOption[] => {
-  if (entityType === 'venues') return [ON, OFF]
+}: FollowAlertContext): FollowAlertOption[] | undefined => {
+  if (!followAlertHasScopeAxis(entityType)) return [ON, OFF]
+  if (hasHomeMetro === undefined) return undefined
   return hasHomeMetro ? [NEAR_ME, EVERYWHERE, OFF] : [EVERYWHERE, OFF]
 }
 
 /**
- * Which choice a resolved subscription currently represents.
+ * Which choice a resolved subscription currently represents, or `undefined`
+ * when either the subscription or the home area is still unknown.
  *
  * An artist follow whose stored scope is near-me while no home area exists
  * reads back as `everywhere`, matching what the server actually delivers: the
  * near-me fallback is applied at delivery time rather than baked into storage,
- * so the stored preference survives setting an area later.
+ * so the stored preference survives setting an area later. That relabelling is
+ * only honest once the area is KNOWN to be absent, which is why the unknown
+ * case returns undefined instead of falling through to it.
  */
 export const followAlertChoice = (
   settings: Pick<FollowAlertSettings, 'shows'> | undefined,
-  { entityType, hasHomeMetro }: { entityType: string; hasHomeMetro: boolean }
+  { entityType, hasHomeMetro }: FollowAlertContext
 ): FollowAlertChoice | undefined => {
   if (!settings) return undefined
   if (!settings.shows.enabled) return 'off'
-  if (entityType === 'venues') return 'on'
+  if (!followAlertHasScopeAxis(entityType)) return 'on'
+  if (hasHomeMetro === undefined) return undefined
   return settings.shows.scope === 'near_me' && hasHomeMetro
     ? 'near_me'
     : 'everywhere'

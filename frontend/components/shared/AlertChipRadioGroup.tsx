@@ -1,5 +1,6 @@
 'use client'
 
+import { useRef } from 'react'
 import { cn } from '@/lib/utils'
 
 export interface AlertChipOption<T extends string> {
@@ -45,6 +46,54 @@ export function AlertChipRadioGroup<T extends string>({
   pending = false,
   className,
 }: AlertChipRadioGroupProps<T>) {
+  const chipRefs = useRef<(HTMLButtonElement | null)[]>([])
+
+  // A radiogroup is ONE tab stop whose members are reached with the arrow
+  // keys. Leaving every chip independently focusable announces "radio 1 of 3"
+  // and then refuses to navigate the way it just promised, which is worse than
+  // not claiming the role. Home/End included because the pattern specifies
+  // them and they are free once focus is already managed.
+  const moveTo = (index: number) => {
+    const next = (index + options.length) % options.length
+    const option = options[next]
+    if (!option) return
+    chipRefs.current[next]?.focus()
+    if (option.value !== value) onChange(option.value)
+  }
+
+  const handleKeyDown = (
+    event: React.KeyboardEvent<HTMLButtonElement>,
+    index: number
+  ) => {
+    switch (event.key) {
+      case 'ArrowRight':
+      case 'ArrowDown':
+        event.preventDefault()
+        moveTo(index + 1)
+        break
+      case 'ArrowLeft':
+      case 'ArrowUp':
+        event.preventDefault()
+        moveTo(index - 1)
+        break
+      case 'Home':
+        event.preventDefault()
+        moveTo(0)
+        break
+      case 'End':
+        event.preventDefault()
+        moveTo(options.length - 1)
+        break
+    }
+  }
+
+  // Focus has to land somewhere when nothing is selected yet, or the group
+  // becomes unreachable by keyboard entirely.
+  const focusedIndex = Math.max(
+    options.findIndex(option => option.value === value),
+    0
+  )
+
   return (
     <div
       role="radiogroup"
@@ -52,13 +101,18 @@ export function AlertChipRadioGroup<T extends string>({
       className={cn('flex flex-wrap items-center gap-1', className)}
     >
       <span className="text-muted-foreground">{label}</span>
-      {options.map(option => (
+      {options.map((option, index) => (
         <button
           key={option.value}
+          ref={node => {
+            chipRefs.current[index] = node
+          }}
           type="button"
           role="radio"
           aria-checked={value === option.value}
+          tabIndex={index === focusedIndex ? 0 : -1}
           disabled={pending}
+          onKeyDown={event => handleKeyDown(event, index)}
           onClick={() => {
             if (value !== option.value) onChange(option.value)
           }}

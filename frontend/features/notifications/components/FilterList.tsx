@@ -56,9 +56,8 @@ export function FilterList() {
           <h3 className="text-sm font-medium mb-1">No custom alerts</h3>
           <p className="text-xs text-muted-foreground mb-4 max-w-sm mx-auto">
             Build one to be told when shows matching your interests are added:
-            filter by tag, price cap, or several cities at once. For a single
-            artist or venue, following it is enough. Label and tag pages still
-            carry a &quot;Notify me&quot; button for quick setup.
+            filter by tag, price cap, or several cities at once. Label and tag
+            pages carry a &quot;Notify me&quot; button for quick setup.
           </p>
           <Button
             variant="outline"

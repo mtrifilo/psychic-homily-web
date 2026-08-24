@@ -27,6 +27,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { BracketLink, ReleaseSaveButton } from '@/components/shared'
 import { FollowAlertsMenu } from '@/components/shared/FollowAlertsMenu'
 import { LibraryAlertsBar } from '@/components/shared/LibraryAlertsBar'
+import type { HomeMetroState } from '@/components/shared/followAlertChoices'
 import { useAlertPreferences } from '@/features/auth/hooks/useAlertPreferences'
 import { CalendarFeedSection } from '@/features/collections'
 import {
@@ -649,8 +650,12 @@ function FollowingEntityCard({
   hasHomeMetro,
 }: {
   entity: FollowingEntity
-  /** Decides whether the row's alerts menu offers "Near me". */
-  hasHomeMetro: boolean
+  /**
+   * Decides whether the row's alerts menu offers "Near me". `undefined` while
+   * the account preferences are still unknown, which is NOT the same as the
+   * viewer having no home area.
+   */
+  hasHomeMetro: HomeMetroState
 }) {
   const unfollow = useUnfollow()
   const info = entityTypeInfo[entity.entity_type]
@@ -746,8 +751,14 @@ function FollowingList({
   // re-asserting a list of types. On a Labels or Tags tab the context bar
   // would explain a control that is not there.
   const showsAlerts = following.some(entity => entity.alerts)
-  const { data: alertPreferences } = useAlertPreferences(showsAlerts)
-  const hasHomeMetro = Boolean(alertPreferences?.home_metro)
+  const pluralType = entityTypeInfo[type]?.plural ?? type
+  const preferencesQuery = useAlertPreferences(showsAlerts)
+  // UNKNOWN, not false, until the read resolves. Guessing "no home area" here
+  // relabels a near-me follow's bracket as "everywhere" for a whole round
+  // trip, overstating the reach of a subscription the server scopes.
+  const hasHomeMetro = preferencesQuery.isSuccess
+    ? Boolean(preferencesQuery.data?.home_metro)
+    : undefined
 
   if (isLoading && !data) {
     return (
@@ -784,7 +795,7 @@ function FollowingList({
           : 'transition-opacity duration-75'
       }
     >
-      {showsAlerts && <LibraryAlertsBar />}
+      {showsAlerts && <LibraryAlertsBar entityType={pluralType} />}
       <section className="w-full">
         {following.map(entity => (
           <FollowingEntityCard

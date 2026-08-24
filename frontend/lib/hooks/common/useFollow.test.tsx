@@ -733,6 +733,39 @@ describe('useUnfollow', () => {
     ).toEqual({ follower_count: 9, is_following: false })
   })
 
+  // PSY-1905: the alerts query is DISABLED the moment the follow is gone, and
+  // invalidating a disabled query marks it stale without refetching. The entry
+  // then survives an unfollow, so an unfollow-then-refollow (the ordinary
+  // misclick-and-undo) hands the fresh follow the dead one's settings: a
+  // default-on follow renders "Alerts: Off" until a refetch nobody triggers.
+  it('drops the follow alert cache on unfollow rather than staling it', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, gcTime: Infinity },
+        mutations: { retry: false },
+      },
+    })
+    const alertsKey = ['follows', 'alerts', 'artists', 1, 1]
+    queryClient.setQueryData(alertsKey, {
+      entity_type: 'artist',
+      entity_id: 1,
+      shows: { enabled: false, in_app: true, email: false },
+    })
+    mockApiRequest.mockResolvedValueOnce({ success: true })
+
+    const { result } = renderHook(() => useUnfollow(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+
+    await act(async () => {
+      result.current.mutate({ entityType: 'artists', entityId: 1 })
+    })
+
+    await waitFor(() =>
+      expect(queryClient.getQueryData(alertsKey)).toBeUndefined()
+    )
+  })
+
   it('handles unfollow errors', async () => {
     const error = new Error('Network error')
     Object.assign(error, { status: 500 })

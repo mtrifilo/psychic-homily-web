@@ -17,11 +17,13 @@ import { useAlertPreferences } from '@/features/auth/hooks/useAlertPreferences'
 import {
   ALERTS_AREA_HREF,
   followAlertChoice,
+  followAlertHasScopeAxis,
   followAlertOptions,
   followAlertUpdateFor,
   isAlertCapableFollowType,
   FOLLOW_ALERTS_PENDING_NOTE,
   type FollowAlertChoice,
+  type HomeMetroState,
 } from './followAlertChoices'
 import { cn } from '@/lib/utils'
 
@@ -83,22 +85,35 @@ export function FollowAlertsReveal({
     }) > 0
 
   const wants = supported && isFollowing && !isFollowSettling
+  const hasScopeAxis = followAlertHasScopeAxis(entityType)
 
-  // Only an artist follow has a geographic scope, so only an artist page needs
-  // to know whether a home area exists. Fetching it on a venue page would buy
-  // a value every code path below provably discards.
-  const { data: preferences } = useAlertPreferences(wants && !isVenue)
+  // Only a scoped follow needs to know whether a home area exists. Fetching it
+  // on a venue page would buy a value every code path below discards.
+  const preferencesQuery = useAlertPreferences(wants && hasScopeAxis)
   const { data: alerts } = useFollowAlerts(entityType, entityId, wants)
   const updateAlerts = useUpdateFollowAlerts()
 
-  const hasHomeMetro = Boolean(preferences?.home_metro)
+  // UNKNOWN until the preferences query has actually resolved. Treating a
+  // pending read as "no home area" renders the two-chip set with Everywhere
+  // selected for someone whose stored scope is near-me, offers them a link to
+  // set an area they already have, and then swaps the chips out from under
+  // them. Worse, a click landing in that window on the chip that is about to
+  // become current is swallowed by the equal-value guard, so their correction
+  // silently does nothing.
+  const hasHomeMetro: HomeMetroState = hasScopeAxis
+    ? preferencesQuery.isSuccess
+      ? Boolean(preferencesQuery.data?.home_metro)
+      : undefined
+    : false
+
   const current = followAlertChoice(alerts, { entityType, hasHomeMetro })
+  const options = followAlertOptions({ entityType, hasHomeMetro })
 
   // Nothing to reveal: not following yet, a follow type with no alert
-  // subscription, or the resolved subscription has not landed.
-  if (!isAuthenticated || !supported || !isFollowing || !current) return null
-
-  const options = followAlertOptions({ entityType, hasHomeMetro })
+  // subscription, or the subscription or home area has not resolved.
+  if (!isAuthenticated || !supported || !isFollowing || !current || !options) {
+    return null
+  }
 
   const choose = (choice: FollowAlertChoice) => {
     if (updateAlerts.isPending) return
@@ -122,7 +137,7 @@ export function FollowAlertsReveal({
 
       {/* Near me is not offered until an area exists, so the way to get one
           has to sit right where it is missing. */}
-      {!isVenue && !hasHomeMetro && (
+      {hasScopeAxis && hasHomeMetro === false && (
         <BracketLink
           label="set your area"
           href={ALERTS_AREA_HREF}

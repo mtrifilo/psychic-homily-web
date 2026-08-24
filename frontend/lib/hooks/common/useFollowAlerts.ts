@@ -10,11 +10,15 @@ import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { toSingularFollowType } from './useFollow'
+import type { ApiError } from '@/lib/api'
 import type {
   FollowAlertSettings,
   FollowAlertUpdate,
   LibraryFollowingPage,
 } from '@/lib/types/follow'
+
+/** A 404 from the alerts sub-resource means "not following", not "broken". */
+const isNotFound = (error: unknown) => (error as ApiError)?.status === 404
 
 /**
  * The alert subscription carried by a follow (PSY-1893).
@@ -26,7 +30,8 @@ import type {
  *
  * Entity type is the PLURAL path segment ("artists", "venues") that every
  * other follow endpoint takes. Follow types that carry no alert subscription
- * (label, festival, tag, scene, radio show) answer 422 and must not be passed.
+ * (label, festival, tag, radio show) answer 422 and must not be passed; scenes
+ * answer 400, being outside the follow-alert entity vocabulary entirely.
  */
 export const useFollowAlerts = (
   entityType: string,
@@ -50,10 +55,14 @@ export const useFollowAlerts = (
     // account-level writes stale the whole branch), so `staleTime: 0` would
     // only mean re-fetching on every remount and back-navigation.
     //
-    // Retry stays off because the expected failure is a 404 meaning "not
-    // following", which retrying cannot turn into a success.
     staleTime: 2 * 60 * 1000,
-    retry: false,
+    // A 404 here means "not following", which retrying cannot turn into a
+    // success. Everything else can: this query is only enabled once the follow
+    // is KNOWN to exist, so a 5xx or a dropped connection is anomalous rather
+    // than expected, and giving up on it silently removes the whole alerts
+    // control from a page that still says [Following].
+    retry: (failureCount, error) =>
+      !isNotFound(error) && failureCount < 2,
   })
 }
 

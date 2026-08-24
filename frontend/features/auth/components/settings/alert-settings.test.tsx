@@ -37,10 +37,13 @@ vi.mock('../../hooks/useAuth', () => ({
   useProfile: () => ({ data: mockProfileData }),
 }))
 
+let mockPreferencesFailed = false
+
 vi.mock('../../hooks/useAlertPreferences', () => ({
   useAlertPreferences: () => ({
     data: mockPreferences,
     isLoading: mockPreferencesLoading,
+    isError: mockPreferencesFailed,
   }),
   useSetAlertDefaults: () => ({
     mutate: mockSetAlertDefaults,
@@ -109,7 +112,44 @@ describe('AlertSettings', () => {
     mockSceneDigestState = { isPending: false, isError: false }
     mockPreferences = preferences()
     mockPreferencesLoading = false
+    mockPreferencesFailed = false
     mockProfileData = { user: { preferences: {} } }
+  })
+
+  // A failed read used to fall straight through to the table, painting the
+  // shipped defaults as the user's SAVED state: someone with show emails on
+  // was told they were off, over live checkboxes that would then pin the
+  // wrong value on one click.
+  describe('when the preferences read fails', () => {
+    beforeEach(() => {
+      mockPreferences = undefined
+      mockPreferencesFailed = true
+    })
+
+    it('says so instead of drawing invented settings', () => {
+      renderWithProviders(<AlertSettings />)
+
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        "Couldn't load your alert settings"
+      )
+      expect(screen.queryByRole('checkbox')).toBeNull()
+    })
+
+    it('offers no live control that could pin a value from unknown state', () => {
+      renderWithProviders(<AlertSettings />)
+      expect(
+        screen.queryByRole('checkbox', { name: `Email: ${SHOWS_ROW}` })
+      ).toBeNull()
+    })
+  })
+
+  it('shows a spinner, not invented defaults, while the read is in flight', () => {
+    mockPreferences = undefined
+    mockPreferencesLoading = true
+    renderWithProviders(<AlertSettings />)
+
+    expect(screen.queryByRole('checkbox')).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 
   it('renders the card and both channel columns', () => {
@@ -274,6 +314,46 @@ describe('AlertSettings', () => {
     expect(
       screen.getByRole('alert')
     ).toHaveTextContent('Failed to update setting. Please try again.')
+  })
+
+  // Coverage that moved here with the rows, from notification-settings.test.
+  it.each([
+    ['show-reminders', REMINDER_ROW, () => (mockShowRemindersState = { isPending: true, isError: false })],
+    ['scene-digest', SCENE_ROW, () => (mockSceneDigestState = { isPending: true, isError: false })],
+    ['collection-digest', COLLECTION_ROW, () => (mockCollectionDigestState = { isPending: true, isError: false })],
+  ])('disables the %s box while its own write is in flight', (_id, row, setPending) => {
+    setPending()
+    renderWithProviders(<AlertSettings />)
+    expect(screen.getByRole('checkbox', { name: `Email: ${row}` })).toBeDisabled()
+  })
+
+  // Each of these rows owns its own mutation, so one saving must not park the
+  // controls of a row it has nothing to do with.
+  it('leaves unrelated rows interactive while one row saves', () => {
+    mockSceneDigestState = { isPending: true, isError: false }
+    renderWithProviders(<AlertSettings />)
+
+    expect(
+      screen.getByRole('checkbox', { name: `Email: ${SCENE_ROW}` })
+    ).toBeDisabled()
+    expect(
+      screen.getByRole('checkbox', { name: `Email: ${COLLECTION_ROW}` })
+    ).toBeEnabled()
+    expect(
+      screen.getByRole('checkbox', { name: `Email: ${REMINDER_ROW}` })
+    ).toBeEnabled()
+  })
+
+  it.each([
+    ['show reminder', () => (mockShowRemindersState = { isPending: false, isError: true })],
+    ['scene digest', () => (mockSceneDigestState = { isPending: false, isError: true })],
+    ['collection digest', () => (mockCollectionDigestState = { isPending: false, isError: true })],
+  ])('surfaces a failed %s write', (_label, setError) => {
+    setError()
+    renderWithProviders(<AlertSettings />)
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Failed to update setting. Please try again.'
+    )
   })
 
   // Capability truth: delivery is a separate, unshipped piece of work, and

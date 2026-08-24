@@ -53,7 +53,11 @@ interface HomeMetroSelectProps {
   /** The currently stored CBSA code, or null when no home area is set. */
   metro: string | null | undefined
   className?: string
-  /** Accessible name — the visible label differs between the two call sites. */
+  /**
+   * Accessible name. Both call sites take the default today; the override
+   * exists for a caller whose surrounding copy already says "your area", where
+   * repeating it would be redundant to a screen reader.
+   */
   ariaLabel?: string
   onSaved?: () => void
 }

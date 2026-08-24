@@ -45,8 +45,13 @@ vi.mock('@tanstack/react-query', async importOriginal => {
   return { ...actual, useIsMutating: () => mockIsMutating }
 })
 
+let mockPreferencesResolved = true
+
 vi.mock('@/features/auth/hooks/useAlertPreferences', () => ({
-  useAlertPreferences: () => ({ data: { home_metro: mockHomeMetro } }),
+  useAlertPreferences: () => ({
+    data: mockPreferencesResolved ? { home_metro: mockHomeMetro } : undefined,
+    isSuccess: mockPreferencesResolved,
+  }),
 }))
 
 const artistAlerts = (
@@ -75,8 +80,41 @@ describe('FollowAlertsReveal', () => {
     mockIsFollowing = true
     mockAlerts = artistAlerts()
     mockHomeMetro = '38060'
+    mockPreferencesResolved = true
     mockIsMutating = 0
     followAlertsEnabled.mockReset()
+  })
+
+  // Treating a pending read as "no home area" renders the two-chip set with
+  // Everywhere selected for someone whose stored scope is near-me, offers them
+  // a link to set an area they already have, and then swaps the chips out from
+  // under them. A click landing in that window on the chip that is about to
+  // become current is swallowed by the equal-value guard, so their correction
+  // silently does nothing.
+  it('renders nothing for a scoped follow until the home area is known', () => {
+    mockPreferencesResolved = false
+    const { container } = renderArtist()
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('never offers to set an area while the area is still unknown', () => {
+    mockPreferencesResolved = false
+    renderArtist()
+    expect(screen.queryByRole('link', { name: 'set your area' })).toBeNull()
+  })
+
+  // A venue has no scope axis, so it must not be held up by a read it does
+  // not use.
+  it('renders a venue immediately, without waiting on the home area', () => {
+    mockPreferencesResolved = false
+    renderWithProviders(
+      <FollowAlertsReveal
+        entityType="venues"
+        entityId={4}
+        entityName="Rebel Lounge"
+      />
+    )
+    expect(screen.getByRole('radio', { name: 'On' })).toBeChecked()
   })
 
   // The follow flips optimistically, so `is_following` reads true before the

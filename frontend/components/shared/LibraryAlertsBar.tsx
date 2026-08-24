@@ -6,8 +6,14 @@ import { HomeMetroSelect, useHomeMetroLabel } from './HomeMetroField'
 import { useAlertPreferences } from '@/features/auth/hooks/useAlertPreferences'
 import {
   CUSTOM_ALERTS_HREF,
+  followAlertHasScopeAxis,
   FOLLOW_ALERTS_PENDING_NOTE,
 } from './followAlertChoices'
+
+interface LibraryAlertsBarProps {
+  /** PLURAL follow path segment for the tab this bar sits above. */
+  entityType: string
+}
 
 /**
  * The Library's alerts context bar (PSY-1905).
@@ -23,48 +29,60 @@ import {
  * the shipped alert matrix pins channels only. Drawing pickable chips here
  * would be a control with nowhere to save to.
  */
-export function LibraryAlertsBar() {
-  const { data: preferences, isLoading } = useAlertPreferences()
+export function LibraryAlertsBar({ entityType }: LibraryAlertsBarProps) {
+  // A venue sits in one place. Its follows have no scope axis at all, so the
+  // starting-scope sentence and the home area would be explaining a
+  // restriction this tab's follows do not have, and contradicting the venue
+  // control one page over that says exactly that.
+  const hasScopeAxis = followAlertHasScopeAxis(entityType)
+
+  const { data: preferences, isSuccess } = useAlertPreferences(hasScopeAxis)
   const [isEditingArea, setIsEditingArea] = useState(false)
   const homeMetro = preferences?.home_metro ?? null
   const areaLabel = useHomeMetroLabel(homeMetro)
 
-  if (isLoading || !preferences) return null
+  // Fails closed: the area half is omitted rather than guessed while the read
+  // is in flight or after it failed.
+  const areaKnown = hasScopeAxis && isSuccess
 
   return (
     <div className="mb-4 border border-border bg-card px-3.5 py-3">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[13px]">
-        <span className="text-muted-foreground">
-          New follows start at:{' '}
-          <span className="text-foreground">
-            {homeMetro ? 'Near me' : 'Everywhere'}
-          </span>
-        </span>
-
-        <span className="text-muted-foreground/40" aria-hidden>
-          ·
-        </span>
-
-        {isEditingArea ? (
-          <HomeMetroSelect
-            metro={homeMetro}
-            ariaLabel="Your area"
-            onSaved={() => setIsEditingArea(false)}
-          />
-        ) : (
+        {areaKnown && (
           <>
             <span className="text-muted-foreground">
-              Your area:{' '}
+              New follows start at:{' '}
               <span className="text-foreground">
-                {areaLabel ?? 'not set yet'}
+                {homeMetro ? 'Near me' : 'Everywhere'}
               </span>
             </span>
-            <BracketLink
-              label="change"
-              ariaLabel="Change your area"
-              onClick={() => setIsEditingArea(true)}
-              className="font-mono text-[11px]"
-            />
+
+            <span className="text-muted-foreground/40" aria-hidden>
+              ·
+            </span>
+
+            {isEditingArea ? (
+              <HomeMetroSelect
+                metro={homeMetro}
+                ariaLabel="Your area"
+                onSaved={() => setIsEditingArea(false)}
+              />
+            ) : (
+              <>
+                <span className="text-muted-foreground">
+                  Your area:{' '}
+                  <span className="text-foreground">
+                    {areaLabel ?? 'not set yet'}
+                  </span>
+                </span>
+                <BracketLink
+                  label="change"
+                  ariaLabel="Change your area"
+                  onClick={() => setIsEditingArea(true)}
+                  className="font-mono text-[11px]"
+                />
+              </>
+            )}
           </>
         )}
 

@@ -83,8 +83,11 @@ let mockAlertPreferences: {
 
 vi.mock('@/features/auth/hooks/useAlertPreferences', () => ({
   useAlertPreferences: () => ({
-    data: mockAlertPreferences,
+    data: mockAlertPreferences ?? undefined,
     isLoading: false,
+    // Resolved-or-not is load-bearing now: an unresolved read must leave the
+    // home area UNKNOWN rather than reading as "no home area".
+    isSuccess: mockAlertPreferences !== null,
   }),
   useSetHomeMetro: () => ({ mutate: vi.fn(), isPending: false, isError: false }),
 }))
@@ -592,7 +595,7 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       renderWithProviders(<LibraryPage />)
 
       expect(
-        screen.getByRole('button', { name: 'Alerts for Alpha: near me' })
+        screen.getByRole('button', { name: 'Show alerts for Alpha: near me' })
       ).toBeTruthy()
     })
 
@@ -610,7 +613,7 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       renderWithProviders(<LibraryPage />)
 
       expect(
-        screen.getByRole('button', { name: 'Alerts for Alpha: everywhere' })
+        screen.getByRole('button', { name: 'Show alerts for Alpha: everywhere' })
       ).toBeTruthy()
     })
 
@@ -635,7 +638,7 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       // Radix opens this menu on pointer-down, so it needs userEvent rather
       // than a bare click event (same as FilterCard's dropdown suite).
       await user.click(
-        screen.getByRole('button', { name: 'Alerts for Alpha: near me' })
+        screen.getByRole('button', { name: 'Show alerts for Alpha: near me' })
       )
       await user.click(screen.getByRole('menuitem', { name: 'Off' }))
 
@@ -646,6 +649,67 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
         entityId: 1,
         update: { shows: { enabled: false } },
       })
+    })
+
+    // A venue sits in one place. The bar's scope sentence and area control
+    // describe a restriction venue follows do not have, and contradict the
+    // venue reveal one page over that says exactly that.
+    it('omits the scope and area copy on the venues tab', () => {
+      mockSearchParams = new URLSearchParams('tab=venues')
+      mockUseLibraryFollowing.mockReturnValue({
+        data: {
+          pages: [
+            {
+              following: [
+                {
+                  entity_type: 'venue',
+                  entity_id: 2,
+                  name: 'Rebel Lounge',
+                  slug: 'rebel-lounge',
+                  followed_at: '2026-07-01T00:00:00Z',
+                  alerts: {
+                    entity_type: 'venue',
+                    entity_id: 2,
+                    shows: { enabled: true, in_app: true, email: false },
+                  },
+                },
+              ],
+              limit: 50,
+            },
+          ],
+        },
+        isLoading: false,
+        isFetching: false,
+        hasNextPage: false,
+        fetchNextPage: vi.fn(),
+        isFetchingNextPage: false,
+        isFetchNextPageError: false,
+        error: null,
+      })
+      renderWithProviders(<LibraryPage />)
+
+      expect(screen.queryByText(/New follows start at/)).toBeNull()
+      expect(screen.queryByText(/Your area/)).toBeNull()
+      // The row control is still there, on its own on/off axis.
+      expect(
+        screen.getByRole('button', { name: 'Show alerts for Rebel Lounge: on' })
+      ).toBeTruthy()
+    })
+
+    // Unknown is not "no area": labelling a near-me follow "everywhere" for a
+    // round trip overstates the reach of a subscription the server scopes.
+    it('renders no bracket while the account preferences are unresolved', () => {
+      mockAlertPreferences = null
+      setArtistPage(
+        artistRow({
+          entity_type: 'artist',
+          entity_id: 1,
+          shows: { enabled: true, in_app: true, email: false, scope: 'near_me' },
+        })
+      )
+      renderWithProviders(<LibraryPage />)
+
+      expect(screen.queryByRole('button', { name: /alerts for/i })).toBeNull()
     })
 
     it('shows the alerts context bar on a tab whose follows carry alerts', () => {

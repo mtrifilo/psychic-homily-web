@@ -606,9 +606,12 @@ export const queryKeys = {
  *
  *   - `savedShows.count` / `savedShows.countBatch`, `follows.entity`,
  *     `follows.batch`, `follows.libraryCounts`, `follows.libraryFollowing`,
- *     `follows.user`: already carry a viewer segment (`isAuthenticated` plus
- *     user id), so an auth change moves them to a different key and the
- *     previous viewer's entry can never be served in the new viewer's place.
+ *     `follows.user`, `follows.alerts`, `auth.alertPreferences`: already carry
+ *     a viewer segment (`isAuthenticated` plus user id), so an auth change
+ *     moves them to a different key and the previous viewer's entry can never
+ *     be served in the new viewer's place. The last two are per-user alert
+ *     state on `no-store` routes (PSY-1905), which is exactly the shape
+ *     someone would later assume was covered here — it is, by the segment.
  *   - `follows.followers` is the one follow key with NO viewer segment, and it
  *     is served by an optional-auth route. It is absent for a different
  *     reason: it has no consumer anywhere in the frontend, so it is dead key

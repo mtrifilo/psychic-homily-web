@@ -415,8 +415,9 @@ export const API_ENDPOINTS = {
       `${API_BASE_URL}/${entityType}/${entityId}/followers/list`,
     // PSY-1893: the alert subscription carried by the follow itself. GET reads
     // the resolved subscription, PATCH adjusts one axis. Both 404 when the
-    // viewer does not follow the entity, and 422 for follow types that carry
-    // no alert subscription (label, festival, tag, radio show, scene).
+    // viewer does not follow the entity, 422 for follow types that carry no
+    // alert subscription (label, festival, tag, radio show), and 400 for
+    // scenes, which are not in the follow-alert entity vocabulary at all.
     ALERTS: (entityType: string, entityId: number | string) =>
       `${API_BASE_URL}/${entityType}/${entityId}/follow/alerts`,
     BATCH: `${API_BASE_URL}/follows/batch`,

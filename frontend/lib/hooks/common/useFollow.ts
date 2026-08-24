@@ -110,7 +110,26 @@ const invalidateGlobalFollowCounts = (
  * the follow exists and starts 404ing again the moment it does not. Both
  * transitions have to reach the per-follow alerts query or the merged control
  * keeps rendering the state from before the toggle.
+ *
+ * REMOVE on unfollow rather than invalidate. An invalidation only marks a
+ * DISABLED query stale without refetching it, and the merged control disables
+ * this query the moment the follow is gone. The stale entry then survives, so
+ * an unfollow-then-refollow (the ordinary misclick-and-undo) hands the fresh
+ * follow the settings of the dead one: a follow whose server state is the
+ * default renders "Alerts: Off", and a user who reads that and navigates away
+ * never sees the correction.
  */
+const dropFollowAlerts = (
+  queryClient: ReturnType<typeof useQueryClient>,
+  entityType: string,
+  entityId: number | string,
+  userId?: string | number
+) => {
+  queryClient.removeQueries({
+    queryKey: queryKeys.follows.alerts(entityType, entityId, userId),
+  })
+}
+
 const invalidateFollowAlerts = (
   queryClient: ReturnType<typeof useQueryClient>,
   entityType: string,
@@ -542,7 +561,7 @@ export const useUnfollow = () => {
     onSettled: (_data, _error, { entityType, entityId }) => {
       const singularType = toSingularFollowType(entityType)
       invalidateGlobalFollowCounts(queryClient, entityType, entityId)
-      invalidateFollowAlerts(queryClient, entityType, entityId, user?.id)
+      dropFollowAlerts(queryClient, entityType, entityId, user?.id)
       void invalidateQueries.personalCharts()
       queryClient.invalidateQueries({
         queryKey: queryKeys.follows.libraryFollowing(singularType, user?.id),
