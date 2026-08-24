@@ -81,11 +81,11 @@ export default function NotificationInboxPage() {
             )}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Comment replies, mentions, and matches from your alert filters.
+            Comment replies, mentions, and matches from your custom alerts.
           </p>
         </div>
         <BracketLink
-          label="Manage filters"
+          label="Custom alerts"
           href="/settings/notification-filters"
           className="font-mono text-xs"
         />

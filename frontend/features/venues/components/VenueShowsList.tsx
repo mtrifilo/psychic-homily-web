@@ -5,7 +5,6 @@ import { Loader2, Plus } from 'lucide-react'
 import { formatCount, SectionHeader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { NotifyMeButton } from '@/features/notifications'
 import { ShowForm } from '@/features/shows'
 import { useVenueShows } from '../hooks/useVenues'
 import { VENUE_UPCOMING_SHOWS_LIMIT } from '../api'
@@ -109,15 +108,12 @@ export function VenueShowsList({
         ) : upcoming.error ? (
           <p className="py-3 text-sm text-destructive">Failed to load shows</p>
         ) : upcomingShows.length === 0 ? (
-          <div className="flex items-baseline gap-3 py-2 text-sm text-muted-foreground">
-            <span>No upcoming shows yet.</span>
-            <NotifyMeButton
-              entityType="venue"
-              entityId={venueId}
-              entityName={venueName}
-              variant="bracket"
-            />
-          </div>
+          // See ArtistShowsList: the [Notify me] bracket that sat here
+          // duplicated the header's Follow control, which now subscribes on
+          // its own (PSY-1893 / PSY-1905).
+          <p className="py-2 text-sm text-muted-foreground">
+            No upcoming shows yet.
+          </p>
         ) : (
           <>
             <VenueShowsTable

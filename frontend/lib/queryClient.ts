@@ -173,6 +173,11 @@ export const queryKeys = {
   auth: {
     profile: ['auth', 'profile'] as const,
     user: (id: string) => ['auth', 'user', id] as const,
+    // Home area + the resolved account alert matrix (PSY-1907). Keyed by
+    // viewer for the same reason every follow key is: a logout must not leave
+    // the next viewer reading the previous one's home metro.
+    alertPreferences: (userId?: string | number) =>
+      ['auth', 'alert-preferences', userId ?? null] as const,
   },
 
   // Show queries (defined in features/shows/api.ts)
@@ -466,8 +471,20 @@ export const queryKeys = {
       ['follows', 'library', 'counts', userId ?? null] as const,
     libraryFollowing: (entityType: string, userId?: string | number) =>
       ['follows', 'library', 'following', userId ?? null, entityType] as const,
+    /** Every Library following tab for one viewer. The rows carry resolved
+     *  alert subscriptions, so an account-level alert change stales them all. */
+    libraryFollowingRoot: (userId?: string | number) =>
+      ['follows', 'library', 'following', userId ?? null] as const,
     followers: (entityType: string, entityId: number) =>
       ['follows', 'followers', entityType, entityId] as const,
+    // The alert subscription carried by one follow (PSY-1893). Viewer-scoped
+    // like every sibling here: it is per-user state, and the endpoint is
+    // no-store precisely because a control flips it optimistically.
+    alerts: (
+      entityType: string,
+      entityId: number | string,
+      userId?: string | number
+    ) => ['follows', 'alerts', entityType, userId ?? null, entityId] as const,
     // Username-addressed user→user follow status (GET /users/{username}/followers).
     user: (username: string, userId?: string | number) =>
       ['follows', 'user', userId ?? null, username] as const,

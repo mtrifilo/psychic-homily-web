@@ -172,7 +172,7 @@ describe('FilterCard', () => {
       <FilterCard filter={makeFilter({ is_active: true })} onEdit={mockOnEdit} />
     )
 
-    const toggle = screen.getByRole('switch', { name: 'Pause filter' })
+    const toggle = screen.getByRole('switch', { name: 'Pause alert' })
     expect(toggle).toBeInTheDocument()
     expect(toggle).toHaveAttribute('data-state', 'checked')
   })
@@ -182,7 +182,7 @@ describe('FilterCard', () => {
       <FilterCard filter={makeFilter({ is_active: false })} onEdit={mockOnEdit} />
     )
 
-    const toggle = screen.getByRole('switch', { name: 'Activate filter' })
+    const toggle = screen.getByRole('switch', { name: 'Activate alert' })
     expect(toggle).toBeInTheDocument()
     expect(toggle).toHaveAttribute('data-state', 'unchecked')
   })
@@ -193,7 +193,7 @@ describe('FilterCard', () => {
       <FilterCard filter={makeFilter({ id: 7, is_active: true })} onEdit={mockOnEdit} />
     )
 
-    await user.click(screen.getByRole('switch', { name: 'Pause filter' }))
+    await user.click(screen.getByRole('switch', { name: 'Pause alert' }))
 
     expect(mockUpdateMutate).toHaveBeenCalledWith({
       id: 7,
@@ -207,7 +207,7 @@ describe('FilterCard', () => {
       <FilterCard filter={makeFilter({ id: 7, is_active: false })} onEdit={mockOnEdit} />
     )
 
-    await user.click(screen.getByRole('switch', { name: 'Activate filter' }))
+    await user.click(screen.getByRole('switch', { name: 'Activate alert' }))
 
     expect(mockUpdateMutate).toHaveBeenCalledWith({
       id: 7,
@@ -225,7 +225,7 @@ describe('FilterCard', () => {
     )
 
     await user.click(
-      screen.getByRole('button', { name: /edit filter phx punk shows/i })
+      screen.getByRole('button', { name: /edit alert phx punk shows/i })
     )
 
     expect(mockOnEdit).toHaveBeenCalledWith(filter)
@@ -239,7 +239,7 @@ describe('FilterCard', () => {
     )
 
     expect(
-      screen.queryByText('Delete this filter? This cannot be undone.')
+      screen.queryByText('Delete this alert? This cannot be undone.')
     ).not.toBeInTheDocument()
   })
 
@@ -260,7 +260,7 @@ describe('FilterCard', () => {
     await user.click(deleteMenuItem)
 
     expect(
-      screen.getByText('Delete this filter? This cannot be undone.')
+      screen.getByText('Delete this alert? This cannot be undone.')
     ).toBeInTheDocument()
   })
 
@@ -312,7 +312,7 @@ describe('FilterCard', () => {
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
 
     expect(
-      screen.queryByText('Delete this filter? This cannot be undone.')
+      screen.queryByText('Delete this alert? This cannot be undone.')
     ).not.toBeInTheDocument()
   })
 

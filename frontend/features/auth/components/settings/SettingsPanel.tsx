@@ -32,6 +32,7 @@ import { OAuthAccounts } from './oauth-accounts'
 import { PasskeyManagement } from './passkey-management'
 import { APITokenManagement } from './api-token-management'
 import { FavoriteCitiesSettings } from './favorite-cities'
+import { AlertSettings } from './alert-settings'
 import { NotificationSettings } from './notification-settings'
 import { ReplyPermissionSettings } from './reply-permission-settings'
 import { CalendarFeedSection, FollowsActivityFeedSection } from '@/features/collections'
@@ -41,11 +42,12 @@ import { useAutoDismissBanner } from '@/lib/hooks/common'
 const TOKEN_COPIED_DISMISS_MS = 2000
 
 /**
- * Settings tab — board J card order (PSY-1414 / PSY-1508):
- * Account → Favorite cities → Notifications → Calendar feed (PSY-1430) →
- * Follows activity feed (PSY-1505) → Default reply permission → Connected
- * accounts → Passkeys → Change password → API tokens → CLI authentication →
- * Export → Danger zone.
+ * Settings tab, board J card order (PSY-1414 / PSY-1508), with Alerts +
+ * Your area inserted by PSY-1905:
+ * Account → Favorite cities → Alerts → Your area → Account emails → Calendar
+ * feed (PSY-1430) → Follows activity feed (PSY-1505) → Default reply
+ * permission → Connected accounts → Passkeys → Change password → API tokens →
+ * CLI authentication → Export → Danger zone.
  */
 export function SettingsPanel() {
   const { user } = useAuthContext()
@@ -234,6 +236,11 @@ export function SettingsPanel() {
       </Card>
 
       <FavoriteCitiesSettings />
+
+      {/* Alerts + Your area (PSY-1905). Sits ahead of Account emails because
+          it is the card people come here for, and because the reminder and
+          digest rows that used to live in that card moved into this matrix. */}
+      <AlertSettings />
 
       <NotificationSettings />
 

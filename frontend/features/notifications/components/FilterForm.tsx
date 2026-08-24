@@ -418,12 +418,12 @@ export function FilterForm({ open, onOpenChange, filter }: FilterFormProps) {
       <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            {isEditing ? 'Edit Notification Filter' : 'New Notification Filter'}
+            {isEditing ? 'Edit custom alert' : 'New custom alert'}
           </DialogTitle>
           <DialogDescription>
             {isEditing
-              ? 'Update the criteria for this notification filter.'
-              : 'Create a filter to get notified when matching shows are approved. At least one criteria is required.'}
+              ? 'Update the criteria for this custom alert.'
+              : 'Build an alert to be told when matching shows are added. At least one criteria is required.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -431,7 +431,7 @@ export function FilterForm({ open, onOpenChange, filter }: FilterFormProps) {
           {/* Name */}
           <div className="space-y-2">
             <Label htmlFor="filter-name" className="text-sm font-medium">
-              Filter Name
+              Alert name
             </Label>
             <Input
               id="filter-name"
@@ -538,7 +538,7 @@ export function FilterForm({ open, onOpenChange, filter }: FilterFormProps) {
 
           {!hasCriteria && name.trim().length > 0 && (
             <p className="text-xs text-pending-foreground">
-              Add at least one criteria (artist, venue, label, tag, or price) to create this filter.
+              Add at least one criteria (artist, venue, label, tag, or price) to create this alert.
             </p>
           )}
         </div>
@@ -564,7 +564,7 @@ export function FilterForm({ open, onOpenChange, filter }: FilterFormProps) {
             ) : isEditing ? (
               'Save Changes'
             ) : (
-              'Create Filter'
+              'Create alert'
             )}
           </Button>
         </div>

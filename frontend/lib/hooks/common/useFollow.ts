@@ -20,6 +20,18 @@ import type {
 
 const LIBRARY_FOLLOWING_PAGE_SIZE = 50
 
+/**
+ * Shared key for the follow and unfollow mutations.
+ *
+ * Both hooks flip follow state OPTIMISTICALLY, so `is_following` reads true
+ * the instant the bracket is clicked, before the POST that makes it true has
+ * landed. Anything that keys off follow state to reach a follow SUB-resource
+ * has to wait for the write to settle, or it asks the server about a follow
+ * the server does not have yet and gets a 404 for its trouble. Callers gate on
+ * `useIsMutating({ mutationKey: followMutationKey })`.
+ */
+export const followMutationKey = ['follow-entity'] as const
+
 const toSingularFollowType = (entityType: string) =>
   ({
     artists: 'artist',
@@ -90,6 +102,23 @@ const invalidateGlobalFollowCounts = (
     predicate: query =>
       isEntityFollowQuery(query.queryKey, entityType, entityId) ||
       isBatchFollowQueryForEntity(query.queryKey, entityType, entityId),
+  })
+}
+
+/**
+ * The follow IS the alert subscription (PSY-1893), so its endpoint 404s until
+ * the follow exists and starts 404ing again the moment it does not. Both
+ * transitions have to reach the per-follow alerts query or the merged control
+ * keeps rendering the state from before the toggle.
+ */
+const invalidateFollowAlerts = (
+  queryClient: ReturnType<typeof useQueryClient>,
+  entityType: string,
+  entityId: number | string,
+  userId?: string | number
+) => {
+  queryClient.invalidateQueries({
+    queryKey: queryKeys.follows.alerts(entityType, entityId, userId),
   })
 }
 
@@ -183,6 +212,7 @@ export const useFollow = () => {
   const { user } = useAuthContext()
 
   return useMutation({
+    mutationKey: followMutationKey,
     mutationFn: async ({
       entityType,
       entityId,
@@ -297,6 +327,7 @@ export const useFollow = () => {
     onSettled: (_data, _error, { entityType, entityId }) => {
       const singularType = toSingularFollowType(entityType)
       invalidateGlobalFollowCounts(queryClient, entityType, entityId)
+      invalidateFollowAlerts(queryClient, entityType, entityId, user?.id)
       // Reconcile broad first_activity_at semantics without making the core
       // follow mutation wait on an optional /charts/me request.
       void invalidateQueries.personalCharts()
@@ -325,6 +356,7 @@ export const useUnfollow = () => {
   const { user } = useAuthContext()
 
   return useMutation({
+    mutationKey: followMutationKey,
     mutationFn: async ({
       entityType,
       entityId,
@@ -510,6 +542,7 @@ export const useUnfollow = () => {
     onSettled: (_data, _error, { entityType, entityId }) => {
       const singularType = toSingularFollowType(entityType)
       invalidateGlobalFollowCounts(queryClient, entityType, entityId)
+      invalidateFollowAlerts(queryClient, entityType, entityId, user?.id)
       void invalidateQueries.personalCharts()
       queryClient.invalidateQueries({
         queryKey: queryKeys.follows.libraryFollowing(singularType, user?.id),

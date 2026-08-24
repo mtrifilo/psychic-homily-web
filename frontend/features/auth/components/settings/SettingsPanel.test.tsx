@@ -88,6 +88,10 @@ vi.mock('./favorite-cities', () => ({
   ),
 }))
 
+vi.mock('./alert-settings', () => ({
+  AlertSettings: () => <div data-testid="alert-settings">AlertSettings</div>,
+}))
+
 vi.mock('./notification-settings', () => ({
   NotificationSettings: () => (
     <div data-testid="notification-settings">NotificationSettings</div>
@@ -670,6 +674,9 @@ describe('SettingsPanel', () => {
     const texts = [
       'Account',
       'favorite-cities',
+      // PSY-1905 inserted the Alerts matrix ahead of the account-email card,
+      // because the reminder and digest rows moved out of that card into it.
+      'alert-settings',
       'notification-settings',
       'calendar-feed-section',
       'follows-activity-feed-section',

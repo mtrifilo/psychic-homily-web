@@ -25,6 +25,10 @@ import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { BracketLink, ReleaseSaveButton } from '@/components/shared'
+import { FollowAlertsMenu } from '@/components/shared/FollowAlertsMenu'
+import { LibraryAlertsBar } from '@/components/shared/LibraryAlertsBar'
+import { isAlertCapableFollowType } from '@/components/shared/followAlertChoices'
+import { useAlertPreferences } from '@/features/auth/hooks/useAlertPreferences'
 import { CalendarFeedSection } from '@/features/collections'
 import {
   LibraryTasteSidebar,
@@ -641,7 +645,14 @@ const entityTypeInfo: Record<
   },
 }
 
-function FollowingEntityCard({ entity }: { entity: FollowingEntity }) {
+function FollowingEntityCard({
+  entity,
+  hasHomeMetro,
+}: {
+  entity: FollowingEntity
+  /** Decides whether the row's alerts menu offers "Near me". */
+  hasHomeMetro: boolean
+}) {
   const unfollow = useUnfollow()
   const info = entityTypeInfo[entity.entity_type]
 
@@ -674,6 +685,17 @@ function FollowingEntityCard({ entity }: { entity: FollowingEntity }) {
 
         <div className="flex shrink-0 items-center gap-2 font-mono text-[11px] text-muted-foreground">
           <span className="whitespace-nowrap">followed {formattedDate}</span>
+          {/* Renders only for follow types that carry a subscription, and only
+              from the copy the row was served with (PSY-1893). No request per row. */}
+          {info && (
+            <FollowAlertsMenu
+              entityType={info.plural}
+              entityId={entity.entity_id}
+              entityName={entity.name}
+              alerts={entity.alerts}
+              hasHomeMetro={hasHomeMetro}
+            />
+          )}
           <BracketLink
             label={unfollow.isPending ? 'unfollowing…' : 'unfollow'}
             ariaLabel={`${unfollow.isPending ? 'Unfollowing' : 'Unfollow'} ${entity.name}`}
@@ -718,6 +740,13 @@ function FollowingList({
     isFetchingNextPage,
     isFetchNextPageError,
   } = useLibraryFollowing(type)
+  const { data: alertPreferences } = useAlertPreferences()
+  const hasHomeMetro = Boolean(alertPreferences?.home_metro)
+  // Only the tabs whose follows carry an alert subscription get the context
+  // bar. On a Labels or Tags tab it would explain a control that is not there.
+  const showsAlerts = isAlertCapableFollowType(
+    entityTypeInfo[type]?.plural ?? ''
+  )
 
   const following = data?.pages.flatMap(page => page.following) ?? []
 
@@ -756,11 +785,13 @@ function FollowingList({
           : 'transition-opacity duration-75'
       }
     >
+      {showsAlerts && <LibraryAlertsBar />}
       <section className="w-full">
         {following.map(entity => (
           <FollowingEntityCard
             key={`${entity.entity_type}-${entity.entity_id}`}
             entity={entity}
+            hasHomeMetro={hasHomeMetro}
           />
         ))}
       </section>

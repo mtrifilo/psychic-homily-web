@@ -31,12 +31,62 @@ export interface BatchFollowResponse {
   follows: Record<string, BatchFollowEntry>
 }
 
+/**
+ * Geographic reach of an artist follow's new-show alerts (PSY-1893).
+ * `near_me` matches the viewer's home metro; `everywhere` ignores geography.
+ * Venue follows have no scope axis, because a venue sits in one place.
+ */
+export type FollowAlertScope = 'near_me' | 'everywhere'
+
+/**
+ * One alert type's RESOLVED settings for a follow: shipped defaults, then the
+ * account matrix, then the per-follow override, narrowest wins. The server
+ * resolves all three, so every field here is a concrete value rather than the
+ * tri-state that is stored.
+ */
+export interface FollowAlertPreference {
+  enabled: boolean
+  in_app: boolean
+  email: boolean
+  /** Artist show alerts only; absent for releases and for venue follows. */
+  scope?: string
+}
+
+/** GET /{entity_type}/{entity_id}/follow/alerts (PSY-1893). */
+export interface FollowAlertSettings {
+  entity_type: string
+  entity_id: number
+  shows: FollowAlertPreference
+  /** Artist follows only: a venue does not put out records. */
+  releases?: FollowAlertPreference
+}
+
+/** PATCH body: every axis optional, and an omitted axis is left untouched. */
+export interface FollowAlertPreferenceUpdate {
+  enabled?: boolean
+  in_app?: boolean
+  email?: boolean
+  scope?: FollowAlertScope
+}
+
+export interface FollowAlertUpdate {
+  shows?: FollowAlertPreferenceUpdate
+  releases?: FollowAlertPreferenceUpdate
+}
+
 export interface FollowingEntity {
   entity_type: string
   entity_id: number
   name: string
   slug: string
   followed_at: string
+  /**
+   * The follow's resolved alert subscription, served with the Library row so
+   * the per-row control renders without a request per row (PSY-1893). Absent
+   * for follow types that carry no alert subscription, and absent entirely on
+   * the older /me/following list, which shares this type.
+   */
+  alerts?: FollowAlertSettings
 }
 
 export interface FollowingListResponse {

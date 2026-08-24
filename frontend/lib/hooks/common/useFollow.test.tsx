@@ -61,6 +61,13 @@ vi.mock('@/lib/queryClient', () => ({
         userId ?? null,
         entityType,
       ],
+      // PSY-1893: the follow's own alert subscription, invalidated on both
+      // sides of the toggle because the endpoint 404s until the follow exists.
+      alerts: (
+        entityType: string,
+        entityId: number | string,
+        userId?: string | number
+      ) => ['follows', 'alerts', entityType, userId ?? null, entityId],
     },
   },
   createInvalidateQueries: () => ({

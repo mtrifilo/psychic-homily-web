@@ -231,9 +231,12 @@ export function accountNavItems(
 // the header note). On phones it stays reachable through the Account sheet →
 // Notifications → the filters link on that page (app/notifications/page.tsx).
 // Deliberately NOT in accountNavItems.
+// The route keeps its original path: renaming a URL breaks every bookmark and
+// in-flight link for a copy change (PSY-1905 decision 12 is about the words a
+// reader sees, not the address).
 const notificationFiltersItem: NavDestination = {
   href: '/settings/notification-filters',
-  label: 'Notification Filters',
+  label: 'Custom alerts',
   icon: Bell,
 }
 

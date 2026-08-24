@@ -38,6 +38,18 @@ export {
 export { useWebAuthnSupport } from './useWebAuthnSupport'
 
 export { useSetFavoriteCities } from './useFavoriteCities'
+export {
+  useAlertPreferences,
+  useSetHomeMetro,
+  useSetAlertDefaults,
+} from './useAlertPreferences'
+export type {
+  AlertPreferences,
+  AccountAlertDefaults,
+  AlertChannelDefaults,
+  AlertChannelDefaultsUpdate,
+  AlertDefaultsUpdate,
+} from './useAlertPreferences'
 export { useSetChartDefaults } from './useChartDefaults'
 export type { ChartDefaults } from './useChartDefaults'
 

@@ -53,7 +53,7 @@ import { EntityChartRankBadge } from '@/features/charts'
 import { EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner, AttributionLine, ReportEntityDialog, useSuggestEdit } from '@/features/contributions'
 import { AsHeardOn } from '@/features/radio'
 import { EntityCollections } from '@/features/collections'
-import { NotifyMeButton } from '@/features/notifications'
+import { FollowAlertsReveal } from '@/components/shared/FollowAlertsReveal'
 import { ArtistShowsList } from './ArtistShowsList'
 import { ArtistSimilarSidebar, ArtistGraphDialog } from './RelatedArtists'
 import { ArtistConnectionsSection } from './ArtistConnectionsSection'
@@ -1139,17 +1139,16 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
   ) : undefined
 
   // Gazelle-style bracketed action linkbox — no icon buttons. The stateful
-  // trio (Follow / Notify / Add to collection) render their own bracket
-  // variant; they each handle the unauthenticated → /auth redirect internally.
+  // pair (Follow / Add to collection) render their own bracket variant; they
+  // each handle the unauthenticated → /auth redirect internally.
+  //
+  // There is no separate Notify-me bracket: following an artist IS subscribing
+  // to its alerts (PSY-1893), so the scope reveal below replaces it rather
+  // than sitting beside it (PSY-1905).
   const headerActions = (
+    <div className="flex flex-col items-start gap-1.5">
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
       <FollowButton entityType="artists" entityId={artist.id} variant="bracket" />
-      <NotifyMeButton
-        entityType="artist"
-        entityId={artist.id}
-        entityName={artist.name}
-        variant="bracket"
-      />
       <AddToCollectionButton
         entityType="artist"
         entityId={artist.id}
@@ -1185,6 +1184,14 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
           onClick={() => setIsReportOpen(true)}
         />
       )}
+    </div>
+      {/* Renders nothing until the artist is followed: the scope question
+          only exists once the subscription does. */}
+      <FollowAlertsReveal
+        entityType="artists"
+        entityId={artist.id}
+        entityName={artist.name}
+      />
     </div>
   )
 

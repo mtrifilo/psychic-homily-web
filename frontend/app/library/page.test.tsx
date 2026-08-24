@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fireEvent, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { renderWithProviders, screen, within } from '@/test/utils'
 
 const mockReplace = vi.fn()
@@ -71,6 +72,35 @@ vi.mock('@/lib/hooks/common/useFollow', () => ({
   useLibraryFollowingCounts: () => mockUseLibraryFollowingCounts(),
   useLibraryFollowing: (type: string) => mockUseLibraryFollowing(type),
   useUnfollow: () => mockUseUnfollow(),
+}))
+
+// PSY-1905: the alerts context bar and the per-row alerts menu. Both read the
+// account preferences, so one mock covers the pair.
+const mockUpdateFollowAlerts = vi.fn()
+let mockAlertPreferences: {
+  home_metro: string | null
+} | null = { home_metro: '38060' }
+
+vi.mock('@/features/auth/hooks/useAlertPreferences', () => ({
+  useAlertPreferences: () => ({
+    data: mockAlertPreferences,
+    isLoading: false,
+  }),
+  useSetHomeMetro: () => ({ mutate: vi.fn(), isPending: false, isError: false }),
+}))
+
+vi.mock('@/lib/hooks/common/useFollowAlerts', () => ({
+  useUpdateFollowAlerts: () => ({
+    mutate: mockUpdateFollowAlerts,
+    isPending: false,
+    isError: false,
+  }),
+}))
+
+vi.mock('@/components/shared/HomeMetroField', () => ({
+  HomeMetroSelect: () => <div data-testid="home-metro-select" />,
+  useHomeMetroLabel: (metro: string | null | undefined) =>
+    metro ? 'Phoenix-Mesa-Chandler, AZ' : null,
 }))
 
 vi.mock('@/features/venues', () => ({
@@ -193,6 +223,7 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       value: mockScrollTo,
     })
     mockSearchParams = new URLSearchParams()
+    mockAlertPreferences = { home_metro: '38060' }
     setAuthenticated()
     setLoadedData()
     mockUseUnfollow.mockReturnValue({
@@ -500,6 +531,9 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       expect(
         within(rows[0]).getByRole('button', { name: 'Unfollow Chicago, IL' })
       ).toBeTruthy()
+      // A scene follow carries no alert subscription (the endpoints 422 for
+      // it), so its row gets no bracket rather than a disabled one implying
+      // the subscription could be switched on.
       expect(
         within(rows[0]).queryByRole('button', { name: /alerts/i })
       ).toBeNull()
@@ -514,6 +548,121 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       expect(within(rows[0]).getByRole('alert')).toHaveTextContent(
         "Couldn't unfollow Chicago, IL. Try again."
       )
+    })
+
+    // ----- PSY-1905: the per-follow alerts bracket and its context bar -----
+
+    const artistRow = (
+      alerts?: {
+        entity_type: string
+        entity_id: number
+        shows: { enabled: boolean; in_app: boolean; email: boolean; scope?: string }
+      }
+    ) => ({
+      entity_type: 'artist',
+      entity_id: 1,
+      name: 'Alpha',
+      slug: 'alpha',
+      followed_at: '2026-07-01T00:00:00Z',
+      ...(alerts ? { alerts } : {}),
+    })
+
+    const setArtistPage = (row: ReturnType<typeof artistRow>) => {
+      mockSearchParams = new URLSearchParams('tab=artists')
+      mockUseLibraryFollowing.mockReturnValue({
+        data: { pages: [{ following: [row], limit: 50 }] },
+        isLoading: false,
+        isFetching: false,
+        hasNextPage: false,
+        fetchNextPage: vi.fn(),
+        isFetchingNextPage: false,
+        isFetchNextPageError: false,
+        error: null,
+      })
+    }
+
+    it('summarizes each follow’s alert scope in its row bracket', () => {
+      setArtistPage(
+        artistRow({
+          entity_type: 'artist',
+          entity_id: 1,
+          shows: { enabled: true, in_app: true, email: false, scope: 'near_me' },
+        })
+      )
+      renderWithProviders(<LibraryPage />)
+
+      expect(
+        screen.getByRole('button', { name: 'Alerts for Alpha: near me' })
+      ).toBeTruthy()
+    })
+
+    // Near-me is only real with a home area behind it. With none set, the row
+    // must report what the server will actually do rather than the stored word.
+    it('reports everywhere when the stored scope is near me but no area is set', () => {
+      mockAlertPreferences = { home_metro: null }
+      setArtistPage(
+        artistRow({
+          entity_type: 'artist',
+          entity_id: 1,
+          shows: { enabled: true, in_app: true, email: false, scope: 'near_me' },
+        })
+      )
+      renderWithProviders(<LibraryPage />)
+
+      expect(
+        screen.getByRole('button', { name: 'Alerts for Alpha: everywhere' })
+      ).toBeTruthy()
+    })
+
+    it('renders no bracket for a follow the server sent no subscription for', () => {
+      setArtistPage(artistRow())
+      renderWithProviders(<LibraryPage />)
+
+      expect(screen.queryByRole('button', { name: /alerts for/i })).toBeNull()
+    })
+
+    it('writes the chosen scope through the follow-alerts mutation', async () => {
+      const user = userEvent.setup()
+      setArtistPage(
+        artistRow({
+          entity_type: 'artist',
+          entity_id: 1,
+          shows: { enabled: true, in_app: true, email: false, scope: 'near_me' },
+        })
+      )
+      renderWithProviders(<LibraryPage />)
+
+      // Radix opens this menu on pointer-down, so it needs userEvent rather
+      // than a bare click event (same as FilterCard's dropdown suite).
+      await user.click(
+        screen.getByRole('button', { name: 'Alerts for Alpha: near me' })
+      )
+      await user.click(screen.getByRole('menuitem', { name: 'Off' }))
+
+      // The PATCH pins only the axis the choice decides: sending a scope with
+      // an "off" would store a preference the user never expressed.
+      expect(mockUpdateFollowAlerts).toHaveBeenCalledWith({
+        entityType: 'artists',
+        entityId: 1,
+        update: { shows: { enabled: false } },
+      })
+    })
+
+    it('shows the alerts context bar on a tab whose follows carry alerts', () => {
+      setArtistPage(
+        artistRow({
+          entity_type: 'artist',
+          entity_id: 1,
+          shows: { enabled: true, in_app: true, email: false, scope: 'near_me' },
+        })
+      )
+      renderWithProviders(<LibraryPage />)
+
+      expect(screen.getByText(/New follows start at/)).toBeTruthy()
+      expect(screen.getByText('Phoenix-Mesa-Chandler, AZ')).toBeTruthy()
+      expect(
+        screen.getByRole('link', { name: 'custom alerts →' })
+      ).toHaveAttribute('href', '/settings/notification-filters')
     })
 
     it('loads the next bounded following page on demand', () => {
