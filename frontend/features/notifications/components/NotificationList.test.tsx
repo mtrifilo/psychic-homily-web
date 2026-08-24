@@ -83,6 +83,26 @@ function artistShowAlert(overrides: Partial<NotificationLogEntry> = {}): Notific
   }
 }
 
+function venueShowAlert(overrides: Partial<NotificationLogEntry> = {}): NotificationLogEntry {
+  return {
+    id: 7,
+    entity_type: 'venue_show_alert',
+    // A VENUE id, not a show id, and no subject_entity_id: the followed entity
+    // and the row's subject are the same venue.
+    entity_id: 500,
+    channel: 'in_app',
+    sent_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+    read_at: null,
+    alert_bucket: '2026-08-24',
+    alert_venue_name: 'Valley Bar',
+    alert_venue_url: 'https://example.com/venues/valley-bar',
+    alert_show_count: 3,
+    alert_show_summary:
+      'Sat Aug 29 Oneida · Fri Sep 5 Chat Pile · Sat Sep 6 Turnstile',
+    ...overrides,
+  }
+}
+
 describe('NotificationList', () => {
   it('renders empty state when no entries', () => {
     render(<NotificationList entries={[]} />)
@@ -242,6 +262,76 @@ describe('NotificationList', () => {
     const onMarkRead = vi.fn()
     render(
       <NotificationList entries={[artistShowAlert()]} onMarkRead={onMarkRead} />
+    )
+    await userEvent.click(screen.getByText('[mark read]'))
+    expect(onMarkRead).toHaveBeenCalledTimes(1)
+  })
+
+  // PSY-1895: the venue new-show alert row. Coalesced, so it counts shows and
+  // links the VENUE rather than any one date.
+  it('names the venue, counts the shows, and links the venue', () => {
+    render(<NotificationList entries={[venueShowAlert()]} />)
+    expect(screen.getByText('Valley Bar')).toBeInTheDocument()
+    expect(screen.getByText('added 3 new shows')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Sat Aug 29 Oneida · Fri Sep 5 Chat Pile · Sat Sep 6 Turnstile'
+      )
+    ).toBeInTheDocument()
+    expect(screen.getByRole('link')).toHaveAttribute(
+      'href',
+      'https://example.com/venues/valley-bar'
+    )
+  })
+
+  it('singularizes a venue alert covering one show', () => {
+    render(
+      <NotificationList
+        entries={[
+          venueShowAlert({
+            alert_show_count: 1,
+            alert_show_summary: 'Fri Sep 5 Chat Pile',
+          }),
+        ]}
+      />
+    )
+    expect(screen.getByText('added a new show')).toBeInTheDocument()
+  })
+
+  it('degrades a venue show alert whose enrichment came back empty', () => {
+    // A merged or deleted venue leaves the fields blank. The notification still
+    // happened, so the row stays usable rather than rendering a bare
+    // entity_type linked to nowhere — and the sentence stays grammatical even
+    // with no count.
+    render(
+      <NotificationList
+        entries={[
+          venueShowAlert({
+            alert_venue_name: undefined,
+            alert_venue_url: undefined,
+            alert_show_count: undefined,
+            alert_show_summary: undefined,
+          }),
+        ]}
+      />
+    )
+    expect(screen.getByText('A venue you follow')).toBeInTheDocument()
+    expect(screen.getByText('added a new show')).toBeInTheDocument()
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/venues')
+    expect(screen.queryByText('venue_show_alert')).not.toBeInTheDocument()
+  })
+
+  // The failure this guards is silent: entity_id on a venue alert is a VENUE
+  // id, so falling through to the artist branch would build /shows/<venue id>.
+  it('does not render a venue alert through the artist branch', () => {
+    render(<NotificationList entries={[venueShowAlert()]} />)
+    expect(screen.queryByText('announced a show')).not.toBeInTheDocument()
+  })
+
+  it('marks an unread venue show alert read from the row affordance', async () => {
+    const onMarkRead = vi.fn()
+    render(
+      <NotificationList entries={[venueShowAlert()]} onMarkRead={onMarkRead} />
     )
     await userEvent.click(screen.getByText('[mark read]'))
     expect(onMarkRead).toHaveBeenCalledTimes(1)

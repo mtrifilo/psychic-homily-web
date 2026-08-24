@@ -4,7 +4,9 @@ import {
   NOTIFICATION_ENTITY_COMMENT_MENTION,
   NOTIFICATION_ENTITY_REQUEST_FULFILLMENT_PROPOSED,
   NOTIFICATION_ENTITY_ARTIST_SHOW_ALERT,
+  NOTIFICATION_ENTITY_VENUE_SHOW_ALERT,
   isArtistShowAlertNotification,
+  isVenueShowAlertNotification,
   isCommentNotification,
   isRequestNotification,
   NOTIFY_ENTITY_TYPES,
@@ -59,6 +61,10 @@ describe('notification entity constants', () => {
     expect(NOTIFICATION_ENTITY_ARTIST_SHOW_ALERT).toBe('artist_show_alert')
   })
 
+  it('exposes the PSY-1895 venue show-alert row type', () => {
+    expect(NOTIFICATION_ENTITY_VENUE_SHOW_ALERT).toBe('venue_show_alert')
+  })
+
   it('lists the quick-create entity types', () => {
     expect(NOTIFY_ENTITY_TYPES).toEqual(['artist', 'venue', 'label', 'tag'])
   })
@@ -81,6 +87,34 @@ describe('isArtistShowAlertNotification', () => {
     const alert = logEntry({ entity_type: 'artist_show_alert' })
     expect(isCommentNotification(alert)).toBe(false)
     expect(isRequestNotification(alert)).toBe(false)
+  })
+})
+
+describe('isVenueShowAlertNotification', () => {
+  it('returns true for a venue_show_alert row', () => {
+    expect(
+      isVenueShowAlertNotification(logEntry({ entity_type: 'venue_show_alert' }))
+    ).toBe(true)
+  })
+
+  // The two alert types carry DIFFERENT id shapes: an artist alert's entity_id
+  // is a show id, a venue alert's is a venue id. A predicate that matched both
+  // would render one through the other's branch and build a link from the wrong
+  // kind of id.
+  it('is disjoint from the artist show-alert predicate', () => {
+    const venue = logEntry({ entity_type: 'venue_show_alert' })
+    const artist = logEntry({ entity_type: 'artist_show_alert' })
+    expect(isArtistShowAlertNotification(venue)).toBe(false)
+    expect(isVenueShowAlertNotification(artist)).toBe(false)
+  })
+
+  it('returns false for the generic show and venue rows', () => {
+    expect(isVenueShowAlertNotification(logEntry({ entity_type: 'show' }))).toBe(
+      false
+    )
+    expect(
+      isVenueShowAlertNotification(logEntry({ entity_type: 'venue' }))
+    ).toBe(false)
   })
 })
 
@@ -176,6 +210,28 @@ describe('normalizeNotificationDeepLinks', () => {
     expect(normalizeNotificationDeepLinks(sameOrigin).alert_show_url).toBe(
       '/shows/oneida-valley-bar'
     )
+  })
+
+  // PSY-1895: alert_venue_url is the venue alert's deep link and is absolute
+  // for the same reason, so it needs the same treatment. Missing it makes the
+  // row click a full navigation, which cancels the mark-read POST fired from
+  // the same click.
+  it('normalizes alert_venue_url', () => {
+    const sameOrigin = logEntry({
+      entity_type: 'venue_show_alert',
+      alert_venue_url: `${window.location.origin}/venues/valley-bar`,
+    })
+    expect(normalizeNotificationDeepLinks(sameOrigin).alert_venue_url).toBe(
+      '/venues/valley-bar'
+    )
+  })
+
+  it('returns the same entry when no venue alert link needs rewriting', () => {
+    const untouched = logEntry({
+      entity_type: 'venue_show_alert',
+      alert_venue_url: 'https://example.com/venues/valley-bar',
+    })
+    expect(normalizeNotificationDeepLinks(untouched)).toBe(untouched)
   })
 })
 
