@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { QueryClient, QueryObserver } from '@tanstack/react-query'
+import * as Sentry from '@sentry/nextjs'
 
 function createDeferred<T>() {
   let resolve: (value: T) => void = () => {}
@@ -244,7 +245,7 @@ describe('queryClient module', () => {
   })
 
   describe('retry logic', () => {
-    it('does not retry on 4xx errors', async () => {
+    it('does not retry on 4xx errors other than 429', async () => {
       const { getQueryClient } = await import('./queryClient')
       const client = getQueryClient()
 
@@ -301,6 +302,145 @@ describe('queryClient module', () => {
       expect(retryFn(1, networkError)).toBe(true)
       expect(retryFn(2, networkError)).toBe(true)
       expect(retryFn(3, networkError)).toBe(false)
+    })
+
+    // PSY-1912: 429 is the one 4xx that means "ask again later". The default
+    // policy used to lump it in with 400/403/404, so a transient rate limit
+    // rendered as a permanently dead page block.
+    it('retries a 429, unlike every other 4xx', async () => {
+      const { getQueryClient } = await import('./queryClient')
+      const defaults = getQueryClient().getDefaultOptions()
+      const retryFn = defaults.queries?.retry as (
+        failureCount: number,
+        error: Error & { status?: number }
+      ) => boolean
+
+      const error429 = Object.assign(new Error('Too Many Requests'), {
+        status: 429,
+      })
+
+      expect(retryFn(0, error429)).toBe(true)
+      expect(retryFn(2, error429)).toBe(true)
+      expect(retryFn(3, error429)).toBe(false)
+    })
+
+    it('wires a retryDelay so 429 waits are not the blind default curve', async () => {
+      const { getQueryClient } = await import('./queryClient')
+      const defaults = getQueryClient().getDefaultOptions()
+      const retryDelay = defaults.queries?.retryDelay as (
+        failureCount: number,
+        error: Error & { status?: number; retryAfter?: number }
+      ) => number
+
+      const error429 = Object.assign(new Error('Too Many Requests'), {
+        status: 429,
+      })
+
+      // React Query's own curve would put the first retry 1s out, well inside
+      // the limiter window. The rate-limit schedule is deliberately slower.
+      expect(retryDelay(0, error429)).toBeGreaterThanOrEqual(2_000)
+      // Non-429 timing is untouched.
+      expect(
+        retryDelay(0, Object.assign(new Error('boom'), { status: 500 }))
+      ).toBe(1_000)
+    })
+  })
+
+  // End-to-end through a real QueryClient carrying the shared defaults, so
+  // these cover the wiring as well as the policy: a predicate-only test would
+  // still pass if `retry` were never attached to the client.
+  describe('429 recovery through the shared client', () => {
+    const rateLimited = () =>
+      Object.assign(new Error('Too Many Requests'), { status: 429 })
+
+    beforeEach(() => {
+      vi.mocked(Sentry.captureMessage).mockClear()
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('recovers when a 429 is followed by a 200', async () => {
+      const { getQueryClient } = await import('./queryClient')
+      const client = getQueryClient()
+
+      const queryFn = vi
+        .fn<() => Promise<{ ok: boolean }>>()
+        .mockRejectedValueOnce(rateLimited())
+        .mockResolvedValue({ ok: true })
+
+      const result = client.fetchQuery({
+        queryKey: ['artists', 'releases', 'recovers'],
+        queryFn,
+      })
+
+      // One full limiter window covers the whole retry budget by design.
+      await vi.advanceTimersByTimeAsync(60_000)
+
+      await expect(result).resolves.toEqual({ ok: true })
+      expect(queryFn).toHaveBeenCalledTimes(2)
+      // A recovered 429 is not a user-visible failure, so nothing is reported
+      // as exhausted. Visibility for it comes from the fetch-boundary hit
+      // signal in lib/api.ts instead.
+      expect(Sentry.captureMessage).not.toHaveBeenCalledWith(
+        'Rate limit retries exhausted (HTTP 429)',
+        expect.anything()
+      )
+    })
+
+    it('surfaces the existing error state once a persistent 429 exhausts the budget', async () => {
+      const { getQueryClient } = await import('./queryClient')
+      const client = getQueryClient()
+      const queryKey = ['artists', 'releases', 'exhausts'] as const
+
+      const queryFn = vi
+        .fn<() => Promise<{ ok: boolean }>>()
+        .mockRejectedValue(rateLimited())
+
+      const result = client.fetchQuery({ queryKey, queryFn }).catch(e => e)
+
+      await vi.advanceTimersByTimeAsync(60_000)
+
+      const error = (await result) as { status?: number }
+      expect(error.status).toBe(429)
+      // Original request plus the three-retry budget.
+      expect(queryFn).toHaveBeenCalledTimes(4)
+      expect(client.getQueryState(queryKey)?.status).toBe('error')
+
+      // The user saw a broken block, so this one reports at error level.
+      expect(Sentry.captureMessage).toHaveBeenCalledWith(
+        'Rate limit retries exhausted (HTTP 429)',
+        expect.objectContaining({
+          level: 'error',
+          extra: expect.objectContaining({
+            queryFamily: 'artists/releases',
+            attempts: 4,
+          }),
+        })
+      )
+    })
+
+    it('does not retry or report a non-429 4xx', async () => {
+      const { getQueryClient } = await import('./queryClient')
+      const client = getQueryClient()
+
+      const queryFn = vi
+        .fn<() => Promise<unknown>>()
+        .mockRejectedValue(
+          Object.assign(new Error('Not Found'), { status: 404 })
+        )
+
+      const result = client
+        .fetchQuery({ queryKey: ['artists', 'detail', 'missing'], queryFn })
+        .catch(e => e)
+
+      await vi.advanceTimersByTimeAsync(60_000)
+
+      expect(((await result) as { status?: number }).status).toBe(404)
+      expect(queryFn).toHaveBeenCalledTimes(1)
+      expect(Sentry.captureMessage).not.toHaveBeenCalled()
     })
   })
 })

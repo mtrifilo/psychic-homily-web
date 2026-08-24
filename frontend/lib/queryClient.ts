@@ -19,6 +19,12 @@ import {
   MutationCache,
 } from '@tanstack/react-query'
 import { AuthError, AuthErrorCode } from './errors'
+import {
+  isRateLimitError,
+  queryRetryDelay,
+  shouldRetryQuery,
+} from './rate-limit-retry'
+import { reportRateLimitExhausted } from './rate-limit-telemetry'
 import { artistQueryKeys } from '@/features/artists/api'
 import { venueQueryKeys } from '@/features/venues/api'
 import { showQueryKeys } from '@/features/shows/api'
@@ -36,15 +42,18 @@ const defaultQueryOptions: DefaultOptions = {
     staleTime: 15 * 60 * 1000, // 15 minutes
     // Cache time: how long data stays in cache after last use
     gcTime: 30 * 60 * 1000, // 30 minutes (formerly cacheTime)
-    // Retry configuration
-    retry: (failureCount, error: Error & { status?: number }) => {
-      // Don't retry on 4xx errors (client errors)
-      if (error?.status && error.status >= 400 && error.status < 500) {
-        return false
-      }
-      // Retry up to 3 times for other errors
-      return failureCount < 3
-    },
+    // Retry configuration. The policy lives in ./rate-limit-retry because 429
+    // needs one of its own: it is the single 4xx that means "ask again later",
+    // and treating it as terminal alongside 400/403/404 turned a transient
+    // rate limit into a permanently dead page block. Every other status keeps
+    // its previous behaviour, and 429 stays terminal during SSR so a retry
+    // sleep can never stall a server render (see the module comment).
+    retry: shouldRetryQuery,
+    // Paired with the predicate above: a 429 waits out a jittered, clamped
+    // backoff instead of React Query's blind curve, which would otherwise
+    // retry three times inside the first seven seconds of a sixty-second
+    // limiter window and burn the whole budget for nothing.
+    retryDelay: queryRetryDelay,
     // Refetch on window focus (useful for development)
     refetchOnWindowFocus: process.env.NODE_ENV === 'development',
     // Refetch on reconnect
@@ -56,6 +65,26 @@ const defaultQueryOptions: DefaultOptions = {
     // retry. Individual mutations can opt into retry if needed.
     retry: 0,
   },
+}
+
+/**
+ * The leading, non-parameter part of a query key, as a stable family label for
+ * telemetry ("artists/releases", "collections/detail").
+ *
+ * Only the first two segments, and only primitives. Deeper segments and the
+ * params bag most key factories append carry search terms, filter values and
+ * user ids, none of which belong in an error report. Dropping non-primitives
+ * rather than serializing them is the point: a stringified params object is
+ * exactly the leak this avoids.
+ */
+function queryFamilyLabel(queryKey: readonly unknown[]): string {
+  return queryKey
+    .slice(0, 2)
+    .filter(
+      (segment): segment is string | number =>
+        typeof segment === 'string' || typeof segment === 'number'
+    )
+    .join('/')
 }
 
 // Helper to check if an error is a session expiry error
@@ -97,6 +126,33 @@ function makeQueryClient() {
   // Create caches with global error handlers
   const queryCache = new QueryCache({
     onError: (error, query) => {
+      // A query only reaches the error state once `retry` has given up, so a
+      // 429 arriving here is one that outlived the whole retry budget: the
+      // case the user sees as a dead block. This is the only place that
+      // distinction is observable. The fetch boundary in `lib/api.ts` sees
+      // every 429 but cannot know which ones went on to recover.
+      //
+      // Mutations are deliberately not paired with this. They never retry
+      // (see `defaultQueryOptions.mutations`), so "exhausted" would be a
+      // misnomer there, and the fetch-boundary hit signal already covers them.
+      if (isRateLimitError(error)) {
+        const apiError = error as Error & {
+          retryAfter?: number
+          requestId?: string
+        }
+        reportRateLimitExhausted({
+          queryFamily: queryFamilyLabel(query.queryKey),
+          // Already the TOTAL attempt count, not the retry count: the terminal
+          // `error` action increments `fetchFailureCount` on top of the
+          // per-retry `failed` actions, and it is dispatched before this
+          // handler runs. Verified against query-core's reducer, because the
+          // name reads like it should need a +1 and it does not.
+          attempts: query.state.fetchFailureCount,
+          retryAfter: apiError.retryAfter,
+          requestId: apiError.requestId,
+        })
+      }
+
       // When a session expires, invalidate the profile query to update auth state.
       // We intentionally DON'T call queryClient.clear() here — clearing causes all
       // active queries to refetch, each getting 401, each triggering this handler

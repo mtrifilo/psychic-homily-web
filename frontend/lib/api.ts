@@ -14,6 +14,7 @@
 import { authLogger } from './utils/authLogger'
 import { AuthError, AuthErrorCode } from './errors'
 import * as Sentry from '@sentry/nextjs'
+import { recordRateLimitHit } from './rate-limit-telemetry'
 import { artistEndpoints } from '@/features/artists/api'
 import { venueEndpoints } from '@/features/venues/api'
 import { showEndpoints } from '@/features/shows/api'
@@ -591,6 +592,14 @@ export const apiRequest = async <T = unknown>(
     // §7.1.3 also allows an HTTP-date form; we only parse the integer
     // delta-seconds variant since every backend rate-limit path emits
     // that form.
+    //
+    // In PRODUCTION this header is unreadable and `retryAfter` stays
+    // undefined: the browser calls the API cross-origin, `Retry-After` is not
+    // a CORS-safelisted response header, and the backend exposes no
+    // `Access-Control-Expose-Headers`. It populates in development, where the
+    // same-origin `/api` proxy re-emits it, and on the server, which CORS does
+    // not police. Every consumer therefore has to work without it; see
+    // ./rate-limit-retry for how the retry schedule copes.
     if (response.status === 429) {
       const retryAfterRaw = response.headers.get('Retry-After')
       if (retryAfterRaw) {
@@ -599,6 +608,17 @@ export const apiRequest = async <T = unknown>(
           apiError.retryAfter = seconds
         }
       }
+
+      // Reported here, at the only place that sees EVERY 429, whether or not
+      // the caller goes on to retry it successfully. A silently recovered rate
+      // limit still means the budget was exhausted, and that is precisely the
+      // signal the request-amplification work needs. Sampling and scrubbing
+      // are the telemetry module's job.
+      recordRateLimitHit({
+        endpoint: endpointPath,
+        retryAfter: apiError.retryAfter,
+        requestId: apiError.requestId,
+      })
     }
 
     throw apiError

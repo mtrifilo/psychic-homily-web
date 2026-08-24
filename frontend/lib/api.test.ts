@@ -419,6 +419,69 @@ describe('API Module', () => {
       }
     })
 
+    // PSY-1912: client 429s were invisible in Sentry, so a rate-limited page
+    // block looked exactly like one that loaded. Now that they are also
+    // retried silently, the fetch boundary is the only place that sees EVERY
+    // 429, including the ones that go on to recover.
+    it('reports every 429 to Sentry with the endpoint scrubbed', async () => {
+      const headers = new Headers()
+      headers.set('Retry-After', '60')
+
+      const mockResponse = {
+        ok: false,
+        status: 429,
+        statusText: 'Too Many Requests',
+        json: () => Promise.resolve({ detail: 'rate limited' }),
+        headers,
+      }
+      vi.mocked(fetch).mockResolvedValue(mockResponse as Response)
+
+      const { apiRequest } = await import('./api')
+
+      await expect(
+        apiRequest('/artists/4821/releases?limit=50&q=slayer')
+      ).rejects.toThrow()
+
+      expect(Sentry.addBreadcrumb).toHaveBeenCalledWith(
+        expect.objectContaining({
+          category: 'rate-limit',
+          message: '429 /artists/:id/releases',
+        })
+      )
+      expect(Sentry.captureMessage).toHaveBeenCalledWith(
+        'Client rate limited (HTTP 429)',
+        expect.objectContaining({
+          level: 'warning',
+          extra: expect.objectContaining({
+            endpoint: '/artists/:id/releases',
+            retryAfterSeconds: 60,
+          }),
+        })
+      )
+      // The query string carried a user-typed search term and never leaves.
+      expect(
+        JSON.stringify(vi.mocked(Sentry.captureMessage).mock.calls)
+      ).not.toContain('slayer')
+    })
+
+    it('does not report a non-429 error as a rate limit', async () => {
+      const mockResponse = {
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+        json: () => Promise.resolve({ detail: 'nope' }),
+        headers: new Headers(),
+      }
+      vi.mocked(fetch).mockResolvedValue(mockResponse as Response)
+
+      const { apiRequest } = await import('./api')
+
+      await expect(apiRequest('/artists/4821')).rejects.toThrow()
+
+      expect(Sentry.addBreadcrumb).not.toHaveBeenCalled()
+      expect(Sentry.captureMessage).not.toHaveBeenCalled()
+    })
+
     it('handles JSON parse errors in error response', async () => {
       const mockResponse = {
         ok: false,
