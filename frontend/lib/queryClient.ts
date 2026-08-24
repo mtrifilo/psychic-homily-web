@@ -19,11 +19,12 @@ import {
   MutationCache,
 } from '@tanstack/react-query'
 import { AuthError, AuthErrorCode } from './errors'
+import type { ApiError } from './api'
 import {
   isRateLimitError,
   queryRetryDelay,
   shouldRetryQuery,
-} from './rate-limit-retry'
+} from './query-retry-policy'
 import { reportRateLimitExhausted } from './rate-limit-telemetry'
 import { artistQueryKeys } from '@/features/artists/api'
 import { venueQueryKeys } from '@/features/venues/api'
@@ -42,17 +43,11 @@ const defaultQueryOptions: DefaultOptions = {
     staleTime: 15 * 60 * 1000, // 15 minutes
     // Cache time: how long data stays in cache after last use
     gcTime: 30 * 60 * 1000, // 30 minutes (formerly cacheTime)
-    // Retry configuration. The policy lives in ./rate-limit-retry because 429
-    // needs one of its own: it is the single 4xx that means "ask again later",
-    // and treating it as terminal alongside 400/403/404 turned a transient
-    // rate limit into a permanently dead page block. Every other status keeps
-    // its previous behaviour, and 429 stays terminal during SSR so a retry
-    // sleep can never stall a server render (see the module comment).
+    // Retry configuration, including the delay curve, lives in
+    // ./query-retry-policy. 429 is what forced it out of here: it is the one
+    // 4xx that means "ask again later", and treating it as terminal made a
+    // transient rate limit a permanently dead page block.
     retry: shouldRetryQuery,
-    // Paired with the predicate above: a 429 waits out a jittered, clamped
-    // backoff instead of React Query's blind curve, which would otherwise
-    // retry three times inside the first seven seconds of a sixty-second
-    // limiter window and burn the whole budget for nothing.
     retryDelay: queryRetryDelay,
     // Refetch on window focus (useful for development)
     refetchOnWindowFocus: process.env.NODE_ENV === 'development',
@@ -85,6 +80,49 @@ function queryFamilyLabel(queryKey: readonly unknown[]): string {
         typeof segment === 'string' || typeof segment === 'number'
     )
     .join('/')
+}
+
+/**
+ * Report a query that died on a 429 after exhausting its retry budget.
+ *
+ * A query only reaches the error state once `retry` has given up, so a 429
+ * arriving here is one that outlived the whole budget: the case the user sees
+ * as a dead block. This is the only place that distinction is observable. The
+ * fetch boundary in `lib/api.ts` sees every 429 but cannot know which ones
+ * went on to recover.
+ *
+ * Mutations are deliberately not paired with this. They never retry (see
+ * `defaultQueryOptions.mutations`), so "exhausted" would be a misnomer there,
+ * and the fetch-boundary hit signal already covers them.
+ *
+ * Browser only, for the same reason. On the server `shouldRetryQuery` makes a
+ * 429 terminal by design, so it would arrive here on its FIRST failure and
+ * report "retries exhausted" at `error` level having attempted none. That is
+ * the loudest signal in the system firing for the case the policy explicitly
+ * classifies as harmless (the browser refetches on mount). It would also be
+ * the common case if it fired at all: the public-read limiter keys on client
+ * IP, and every SSR render from one serverless instance shares an egress IP.
+ * The fetch-boundary warning still covers server 429s.
+ */
+function reportExhaustedRateLimit(
+  error: unknown,
+  query: { queryKey: readonly unknown[]; state: { fetchFailureCount: number } }
+): void {
+  if (typeof window === 'undefined') return
+  if (!isRateLimitError(error)) return
+
+  const apiError = error as ApiError
+  reportRateLimitExhausted({
+    queryFamily: queryFamilyLabel(query.queryKey),
+    // Already the TOTAL attempt count, not the retry count: the terminal
+    // `error` action increments `fetchFailureCount` on top of the per-retry
+    // `failed` actions, and it is dispatched before this handler runs.
+    // Verified against query-core's reducer, because the name reads like it
+    // should need a +1 and it does not.
+    attempts: query.state.fetchFailureCount,
+    retryAfter: apiError.retryAfter,
+    requestId: apiError.requestId,
+  })
 }
 
 // Helper to check if an error is a session expiry error
@@ -126,32 +164,7 @@ function makeQueryClient() {
   // Create caches with global error handlers
   const queryCache = new QueryCache({
     onError: (error, query) => {
-      // A query only reaches the error state once `retry` has given up, so a
-      // 429 arriving here is one that outlived the whole retry budget: the
-      // case the user sees as a dead block. This is the only place that
-      // distinction is observable. The fetch boundary in `lib/api.ts` sees
-      // every 429 but cannot know which ones went on to recover.
-      //
-      // Mutations are deliberately not paired with this. They never retry
-      // (see `defaultQueryOptions.mutations`), so "exhausted" would be a
-      // misnomer there, and the fetch-boundary hit signal already covers them.
-      if (isRateLimitError(error)) {
-        const apiError = error as Error & {
-          retryAfter?: number
-          requestId?: string
-        }
-        reportRateLimitExhausted({
-          queryFamily: queryFamilyLabel(query.queryKey),
-          // Already the TOTAL attempt count, not the retry count: the terminal
-          // `error` action increments `fetchFailureCount` on top of the
-          // per-retry `failed` actions, and it is dispatched before this
-          // handler runs. Verified against query-core's reducer, because the
-          // name reads like it should need a +1 and it does not.
-          attempts: query.state.fetchFailureCount,
-          retryAfter: apiError.retryAfter,
-          requestId: apiError.requestId,
-        })
-      }
+      reportExhaustedRateLimit(error, query)
 
       // When a session expires, invalidate the profile query to update auth state.
       // We intentionally DON'T call queryClient.clear() here — clearing causes all

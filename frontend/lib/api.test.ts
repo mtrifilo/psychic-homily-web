@@ -478,8 +478,16 @@ describe('API Module', () => {
 
       await expect(apiRequest('/artists/4821')).rejects.toThrow()
 
-      expect(Sentry.addBreadcrumb).not.toHaveBeenCalled()
-      expect(Sentry.captureMessage).not.toHaveBeenCalled()
+      // Scoped to the rate-limit signals rather than the whole Sentry
+      // surface: api.ts reports other things (auth 5xx, auth network
+      // failures) and adding to those must not fail this test.
+      expect(Sentry.addBreadcrumb).not.toHaveBeenCalledWith(
+        expect.objectContaining({ category: 'rate-limit' })
+      )
+      expect(Sentry.captureMessage).not.toHaveBeenCalledWith(
+        'Client rate limited (HTTP 429)',
+        expect.anything()
+      )
     })
 
     it('handles JSON parse errors in error response', async () => {

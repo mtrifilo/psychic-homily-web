@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import * as Sentry from '@sentry/nextjs'
+import { toTelemetryPath } from './rate-limit-telemetry'
 
 /**
  * The cooldown samplers are module-level state, so every test re-imports the
@@ -27,75 +28,101 @@ afterEach(() => {
 })
 
 describe('toTelemetryPath', () => {
-  it('drops the query string wholesale', async () => {
-    const { toTelemetryPath } = await loadTelemetry()
-    // The query string is where feed tokens, magic-link tokens and user search
-    // terms live, so it never survives.
-    expect(toTelemetryPath('/shows?token=s3cret&q=user+typed+this')).toBe(
-      '/shows'
-    )
-    expect(toTelemetryPath('/shows#fragment')).toBe('/shows')
+  // A pure function, so it is imported statically: the `loadTelemetry()`
+  // dance below exists only for the module-level samplers, and paying it here
+  // would imply state where there is none.
+  it.each([
+    {
+      input: '/shows?token=s3cret&q=user+typed+this',
+      expected: '/shows',
+      why: 'query strings carry feed tokens, magic-link tokens and search terms',
+    },
+    {
+      input: '/shows#fragment',
+      expected: '/shows',
+      why: 'fragments go with the query',
+    },
+    {
+      input: 'https://api.psychichomily.com/artists/1/graph',
+      expected: '/artists/:id/graph',
+      why: 'an absolute URL is reduced to its path',
+    },
+    {
+      input: '//api.psychichomily.com/artists/1/graph',
+      expected: '/artists/:id/graph',
+      why: 'a protocol-relative URL loses its host too',
+    },
+    {
+      input: '/artists/4821/releases',
+      expected: '/artists/:id/releases',
+      why: 'numeric ids',
+    },
+    {
+      input: '/calendar/3f2504e0-4f89-11d3-9a0c-0305e82c3301',
+      expected: '/calendar/:uuid',
+      why: 'uuids',
+    },
+    {
+      input: '/unsubscribe/AbCdEf0123456789AbCdEf0123',
+      expected: '/unsubscribe/:opaque',
+      why: 'a long non-slug segment is an identifier, not a name',
+    },
+    {
+      input: '/feeds/phcal_SECRETFEEDTOKEN9/saved-shows.ics',
+      expected: '/feeds/:token/saved-shows.ics',
+      why: 'a credential prefix is scrubbed at ANY length, so a future short-token scheme cannot ride through on the length threshold',
+    },
+    {
+      input: '/admin/phk_short',
+      expected: '/admin/:token',
+      why: 'the API-token prefix likewise',
+    },
+    {
+      input: '/x/eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r',
+      expected: '/x/:opaque',
+      why: 'a JWT has dots and would have survived a denylist tuned for hex',
+    },
+    {
+      input: '/x/v4uEcHqW-2Ls9Ez7tRk3Xb1PmQnAgYdF6CzJ',
+      expected: '/x/:opaque',
+      why: 'a base64url token has hyphens and would likewise have survived',
+    },
+    {
+      input: '/artists/sunn-o/releases',
+      expected: '/artists/sunn-o/releases',
+      why: 'human-readable slugs are the entire point of the signal',
+    },
+    {
+      input: '/collections/the-very-best-phoenix-doom-bands',
+      expected: '/collections/the-very-best-phoenix-doom-bands',
+      why: 'a LONG slug is still a slug, so length alone must not scrub it',
+    },
+    {
+      input: undefined,
+      expected: 'unknown',
+      why: 'a missing endpoint',
+    },
+    {
+      input: '',
+      expected: 'unknown',
+      why: 'an empty endpoint',
+    },
+    {
+      input: 'https://api.psychichomily.com',
+      expected: 'unknown',
+      why: 'an origin with no path',
+    },
+  ])('scrubs $input to $expected ($why)', ({ input, expected }) => {
+    expect(toTelemetryPath(input)).toBe(expected)
   })
 
-  it('reduces an absolute URL to its path', async () => {
-    const { toTelemetryPath } = await loadTelemetry()
-    expect(toTelemetryPath('https://api.psychichomily.com/artists/1/graph')).toBe(
-      '/artists/:id/graph'
+  it('caps segment count and total length', () => {
+    expect(toTelemetryPath('/a/b/c/d/e/f/g/h/i/j/k').endsWith('/...')).toBe(
+      true
     )
-  })
-
-  it('replaces numeric, uuid and opaque segments', async () => {
-    const { toTelemetryPath } = await loadTelemetry()
-    expect(toTelemetryPath('/artists/4821/releases')).toBe(
-      '/artists/:id/releases'
+    expect(toTelemetryPath(`/${'x-y'.repeat(200)}`).length).toBeLessThanOrEqual(
+      123
     )
-    expect(
-      toTelemetryPath('/calendar/3f2504e0-4f89-11d3-9a0c-0305e82c3301')
-    ).toBe('/calendar/:uuid')
-    expect(toTelemetryPath('/unsubscribe/AbCdEf0123456789AbCdEf0123')).toBe(
-      '/unsubscribe/:opaque'
-    )
-  })
-
-  it('scrubs a credential-prefixed segment at any length', async () => {
-    const { toTelemetryPath } = await loadTelemetry()
-    // Real feed tokens are `phcal_` plus 64 hex characters, long enough for the
-    // opaque-length rule to catch. The prefix rule is what keeps a SHORT token
-    // from riding through on a threshold tuned for slugs.
-    expect(toTelemetryPath('/feeds/phcal_SECRETFEEDTOKEN9/saved-shows.ics')).toBe(
-      '/feeds/:token/saved-shows.ics'
-    )
-    expect(toTelemetryPath(`/feeds/phcal_${'a'.repeat(64)}/x.ics`)).toBe(
-      '/feeds/:token/x.ics'
-    )
-    expect(toTelemetryPath('/admin/phk_shorttoken')).toBe('/admin/:token')
-  })
-
-  it('keeps human-readable slugs, which are the whole signal', async () => {
-    const { toTelemetryPath } = await loadTelemetry()
-    expect(toTelemetryPath('/artists/sunn-o/releases')).toBe(
-      '/artists/sunn-o/releases'
-    )
-    // A long but hyphenated segment is a slug, not a token.
-    expect(toTelemetryPath('/collections/the-very-best-phoenix-doom-bands')).toBe(
-      '/collections/the-very-best-phoenix-doom-bands'
-    )
-  })
-
-  it('caps segment count and total length', async () => {
-    const { toTelemetryPath } = await loadTelemetry()
-    const deep = toTelemetryPath('/a/b/c/d/e/f/g/h/i/j/k')
-    expect(deep.endsWith('/...')).toBe(true)
-
-    const long = toTelemetryPath(`/${'x-y'.repeat(200)}`)
-    expect(long.length).toBeLessThanOrEqual(123)
-  })
-
-  it('falls back to a placeholder for an unusable endpoint', async () => {
-    const { toTelemetryPath } = await loadTelemetry()
-    expect(toTelemetryPath(undefined)).toBe('unknown')
-    expect(toTelemetryPath('')).toBe('unknown')
-    expect(toTelemetryPath('https://api.psychichomily.com')).toBe('unknown')
   })
 })
 
@@ -166,6 +193,22 @@ describe('recordRateLimitHit', () => {
     expect(capturedMessages()[1][1]).toMatchObject({
       extra: { suppressedSinceLastReport: 11 },
     })
+  })
+
+  it('keeps reporting after the clock jumps backwards', async () => {
+    const { recordRateLimitHit } = await loadTelemetry()
+
+    recordRateLimitHit({ endpoint: '/artists/1/releases' })
+    expect(capturedMessages()).toHaveLength(1)
+
+    // NTP correction, sleep/resume, VM migration. A naive elapsed-time
+    // subtraction goes negative here, reads as "still cooling down", and
+    // silently suppresses every report until wall time catches back up: the
+    // one way this sampler could fail without a bound.
+    vi.setSystemTime(Date.now() - 5 * 60_000)
+    recordRateLimitHit({ endpoint: '/artists/2/releases' })
+
+    expect(capturedMessages()).toHaveLength(2)
   })
 
   it('flags a missing Retry-After, the production case', async () => {

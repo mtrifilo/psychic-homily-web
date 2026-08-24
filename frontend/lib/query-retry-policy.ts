@@ -1,5 +1,13 @@
 /**
- * Client-side retry policy for HTTP 429 (rate limited).
+ * The shared query client's retry policy: which failed queries are retried,
+ * and how long each waits.
+ *
+ * This module owns the policy for EVERY status, not only 429. Other 4xx are
+ * terminal and 5xx / network errors keep three attempts on React Query's own
+ * curve, unchanged from before. 429 is what forced the policy out of
+ * `queryClient.ts` into a module of its own, and is what the bulk of the
+ * commentary below is about, but a change to 5xx retry behaviour belongs here
+ * too.
  *
  * WHY THIS EXISTS
  *
@@ -21,8 +29,10 @@
  * WHAT THE BACKEND ACTUALLY TELLS US (measured, not assumed)
  *
  * The delay schedule below is shaped by four facts about the limiter, all
- * verified in `backend/internal/api/middleware/ratelimit.go` and in
- * `go-chi/httprate@v0.15.0`:
+ * verified against `backend/internal/api/middleware/ratelimit.go` and
+ * `go-chi/httprate` as of v0.15.0. Re-check them if either changes; the
+ * schedule is tuned to them and would be wrong, not merely suboptimal, if
+ * (3) in particular stopped holding:
  *
  *  1. `Retry-After` is a CONSTANT, not a computed reset time. The 429 handler
  *     hardcodes `"60"` (ratelimit.go `RateLimitExceededHandler`, and the twin
@@ -64,11 +74,17 @@ import type { ApiError } from './api'
  *
  * Three, matching the existing 5xx budget, so there is one retry count to
  * reason about rather than two. Combined with the per-attempt ceiling below
- * this bounds the worst-case added latency at 60s, one full limiter window,
- * with no cumulative-delay bookkeeping. A caller still being refused after a
- * whole window has rolled by is being limited at a sustained rate rather than
+ * this bounds the worst-case added SLEEP at 60s, one full limiter window, with
+ * no cumulative-delay bookkeeping. A caller still being refused after a whole
+ * window has rolled by is being limited at a sustained rate rather than
  * briefly clipped; further retries only add load, so that case surfaces the
  * error state, which is the honest answer.
+ *
+ * Sleep, not wall time: React Query re-checks focus and connectivity after
+ * each delay and PAUSES indefinitely if the tab is backgrounded or offline, so
+ * a hidden tab can sit on a spinner past the 60s. That is pre-existing library
+ * behaviour that the 5xx retries already have, not something introduced here,
+ * but the bound is on our schedule rather than on the clock.
  */
 export const RATE_LIMIT_MAX_RETRIES = 3
 
@@ -143,15 +159,21 @@ function retryAfterMs(error: MaybeApiError): number | undefined {
 /**
  * How long to wait before retrying a rate-limited request.
  *
- * `random` is injected so the jitter is assertable; React Query only ever
- * calls this with `(failureCount, error)`, so the default applies in
- * production.
+ * Not exported: `queryRetryDelay` is the only caller and the only entry point
+ * worth testing, since it is what React Query actually invokes.
  */
-export function rateLimitRetryDelay(
+function rateLimitRetryDelay(
   failureCount: number,
   error: MaybeApiError,
   random: () => number = Math.random
 ): number {
+  // When the header is readable it REPLACES the curve rather than capping it,
+  // so `failureCount` drops out and the three waits are flat. That is
+  // deliberate: the header is the server saying when it is willing to answer,
+  // and there is nothing to escalate away from. With today's constant 60s that
+  // means three evenly spaced probes at roughly 16s, 32s and 48s, a reasonable
+  // sweep of one window. Escalation only earns its keep on the header-less
+  // path, where we are guessing, and that is where the curve applies.
   const requested =
     retryAfterMs(error) ?? RATE_LIMIT_FALLBACK_BASE_MS * 2 ** failureCount
   const base = Math.min(requested, RATE_LIMIT_MAX_BASE_DELAY_MS)
@@ -172,12 +194,22 @@ export function rateLimitRetryDelay(
  *
  * WHY THE SERVER DOES NOT RETRY A 429. The same query client backs SSR
  * prefetch (`getQueryClient` mints a fresh client per request on the server),
- * and React Query's retry sleep is a real wait. A retried 429 there would
- * stall a server render for up to a full limiter window, turning a degraded
- * block into a dead page. Leaving it terminal on the server also loses
- * nothing: TanStack dehydrates only SUCCESSFUL queries, so a server-side 429
- * is simply absent from the hydration payload and the browser refetches on
- * mount, where this policy does apply.
+ * and React Query's retry sleep is a real wait, so a retried 429 there would
+ * stall a server render for up to a full limiter window and turn a degraded
+ * block into a dead page.
+ *
+ * This is a GUARD, not a fix for a live stall. Every server prefetch in the
+ * app today (`lib/query-hydration.ts`, `lib/auth-hydration.ts`, the entity
+ * pages) resolves its data first and passes a no-op `queryFn: () => data`, so
+ * the fetch happens outside React Query and this predicate never sees a 429 on
+ * the server. The guard exists so that the first prefetch written with a LIVE
+ * server `queryFn` does not silently inherit a policy that can park a render
+ * for a minute, which is not a failure anyone would connect back to here.
+ *
+ * Leaving it terminal on the server costs nothing either way: TanStack
+ * dehydrates only SUCCESSFUL queries, so a server-side 429 is simply absent
+ * from the hydration payload and the browser refetches on mount, where this
+ * policy does apply.
  */
 export function shouldRetryQuery(
   failureCount: number,
@@ -202,6 +234,10 @@ export function shouldRetryQuery(
  * rate limits follow the schedule above, and everything else keeps React
  * Query's own curve (`2 ** attempt * 1000`, capped at 30s) so 5xx and network
  * retry timing is unchanged by this module.
+ *
+ * `random` is injected so the jitter is assertable; React Query only ever
+ * calls this with `(failureCount, error)`, so the default applies in
+ * production.
  */
 export function queryRetryDelay(
   failureCount: number,

@@ -14,7 +14,7 @@
 import { authLogger } from './utils/authLogger'
 import { AuthError, AuthErrorCode } from './errors'
 import * as Sentry from '@sentry/nextjs'
-import { recordRateLimitHit } from './rate-limit-telemetry'
+import { recordRateLimitHit, toTelemetryPath } from './rate-limit-telemetry'
 import { artistEndpoints } from '@/features/artists/api'
 import { venueEndpoints } from '@/features/venues/api'
 import { showEndpoints } from '@/features/shows/api'
@@ -503,6 +503,10 @@ export const apiRequest = async <T = unknown>(
 
   const endpointPath = endpoint.replace(API_BASE_URL, '')
   const isAuthEndpoint = endpointPath.startsWith('/auth/')
+  // `endpointPath` still carries any query string, so it is NOT safe to hand
+  // to Sentry as-is. Everything reported below goes through this scrubbed form
+  // instead; `authLogger` keeps the raw path because it is console-only.
+  const telemetryPath = toTelemetryPath(endpointPath)
 
   authLogger.debug('API request', {
     endpoint: endpointPath,
@@ -518,7 +522,7 @@ export const apiRequest = async <T = unknown>(
       Sentry.captureException(networkError, {
         level: 'error',
         tags: { service: 'auth', error_type: 'network_failure' },
-        extra: { endpoint: endpointPath },
+        extra: { endpoint: telemetryPath },
       })
     }
     throw networkError
@@ -558,7 +562,7 @@ export const apiRequest = async <T = unknown>(
           status: response.status,
         },
         extra: {
-          endpoint: endpointPath,
+          endpoint: telemetryPath,
           errorCode: errorBody.error_code,
           requestId: requestId || errorBody.request_id,
         },
@@ -594,12 +598,8 @@ export const apiRequest = async <T = unknown>(
     // that form.
     //
     // In PRODUCTION this header is unreadable and `retryAfter` stays
-    // undefined: the browser calls the API cross-origin, `Retry-After` is not
-    // a CORS-safelisted response header, and the backend exposes no
-    // `Access-Control-Expose-Headers`. It populates in development, where the
-    // same-origin `/api` proxy re-emits it, and on the server, which CORS does
-    // not police. Every consumer therefore has to work without it; see
-    // ./rate-limit-retry for how the retry schedule copes.
+    // undefined, because CORS does not expose it. See fact (4) in
+    // ./query-retry-policy for the detail and for how the schedule copes.
     if (response.status === 429) {
       const retryAfterRaw = response.headers.get('Retry-After')
       if (retryAfterRaw) {
@@ -615,7 +615,7 @@ export const apiRequest = async <T = unknown>(
       // signal the request-amplification work needs. Sampling and scrubbing
       // are the telemetry module's job.
       recordRateLimitHit({
-        endpoint: endpointPath,
+        endpoint: telemetryPath,
         retryAfter: apiError.retryAfter,
         requestId: apiError.requestId,
       })

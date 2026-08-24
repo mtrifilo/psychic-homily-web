@@ -6,7 +6,7 @@
  * Rate-limited reads were completely invisible in Sentry. Nothing captured a
  * 429, so a page block dying on one looked exactly like a page block that
  * loaded fine, and the only evidence was a user reporting a broken section.
- * Now that 429s are retried silently (see `./rate-limit-retry`), the absence of
+ * Now that 429s are retried silently (see `./query-retry-policy`), the absence of
  * telemetry gets WORSE rather than better: a successful retry leaves no
  * user-visible trace at all. Without this module the retry would hide the
  * problem it works around, and the request-amplification and anonymous-ceiling
@@ -76,11 +76,25 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
- * Length at or above which an UNHYPHENATED segment is treated as an opaque
- * token rather than a slug. Real slugs on this site are hyphenated word
- * sequences; a 24-character run with no hyphen is a generated identifier.
+ * Length at or above which a segment must LOOK LIKE A SLUG to survive. Short
+ * segments are left alone; anything longer is either one of our slugs or an
+ * identifier we should not be shipping.
  */
 const OPAQUE_SEGMENT_MIN_LENGTH = 24
+
+/**
+ * What a slug looks like: lowercase alphanumerics in hyphen-separated runs,
+ * which is what `GenerateSlug` produces.
+ *
+ * Long segments are matched against this ALLOWLIST rather than against a
+ * denylist of token shapes, and that direction is the point. A denylist has to
+ * anticipate the next credential format, and the obvious candidates already
+ * defeat the one this replaced: it required a segment to have no hyphen and to
+ * be `[A-Za-z0-9_]` only, so a base64url token (hyphens) or a JWT (dots) rode
+ * through verbatim at any length. Failing closed costs at most a placeholder
+ * where a mixed-case or accented slug used to be readable.
+ */
+const SLUG_SHAPE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 /**
  * Credential prefixes the backend mints, scrubbed on sight regardless of
@@ -101,8 +115,7 @@ function scrubSegment(segment: string): string {
   }
   if (
     segment.length >= OPAQUE_SEGMENT_MIN_LENGTH &&
-    !segment.includes('-') &&
-    /^[A-Za-z0-9_]+$/.test(segment)
+    !SLUG_SHAPE.test(segment)
   ) {
     return ':opaque'
   }
@@ -121,8 +134,12 @@ export function toTelemetryPath(endpoint: string | undefined): string {
   // Drop query and fragment first: everything secret rides there.
   const pathOnly = endpoint.split(/[?#]/, 1)[0]
   // Strip an absolute prefix (scheme plus host) without URL parsing, which
-  // would throw on the relative paths this is usually given.
-  const withoutOrigin = pathOnly.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]*/i, '')
+  // would throw on the relative paths this is usually given. The scheme is
+  // optional so a protocol-relative `//host/path` loses its host too.
+  const withoutOrigin = pathOnly.replace(
+    /^(?:[a-z][a-z0-9+.-]*:)?\/\/[^/]*/i,
+    ''
+  )
   if (withoutOrigin === '') return 'unknown'
 
   const segments = withoutOrigin.split('/')
@@ -153,8 +170,19 @@ const exhaustedSampler: Sampler = { lastReportAt: 0, suppressed: 0 }
  * into the current window.
  */
 function claimReportSlot(sampler: Sampler, now: number): number | null {
+  // A clock that moved BACKWARDS (NTP correction, sleep/resume, VM migration,
+  // or a test installing fake timers) makes the elapsed subtraction negative,
+  // which reads as "still inside the cooldown" and would suppress every report
+  // until wall time caught back up. That is the one way this sampler can fail
+  // without a bound, so a rewind re-anchors and reports instead.
+  const rewound = now < sampler.lastReportAt
+  // The `!== 0` arm states "never reported yet" explicitly rather than relying
+  // on wall-clock arithmetic to imply it. A real `Date.now()` dwarfs the
+  // cooldown so the subtraction would also let the first occurrence through,
+  // but that is an accident of the epoch, not something to depend on.
   if (
     sampler.lastReportAt !== 0 &&
+    !rewound &&
     now - sampler.lastReportAt < RATE_LIMIT_REPORT_COOLDOWN_MS
   ) {
     sampler.suppressed += 1

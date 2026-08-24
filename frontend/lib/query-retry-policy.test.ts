@@ -6,9 +6,16 @@ import {
   RATE_LIMIT_MAX_RETRIES,
   isRateLimitError,
   queryRetryDelay,
-  rateLimitRetryDelay,
   shouldRetryQuery,
-} from './rate-limit-retry'
+} from './query-retry-policy'
+
+/**
+ * The rate-limit schedule is exercised through `queryRetryDelay` rather than
+ * through the inner helper, because `queryRetryDelay` is what React Query
+ * actually calls: testing it keeps the dispatch to the rate-limit branch
+ * covered too, and leaves the helper unexported.
+ */
+const rateLimitDelay = queryRetryDelay
 
 const httpError = (status: number, retryAfter?: number) =>
   Object.assign(new Error(`HTTP ${status}`), { status, retryAfter })
@@ -56,17 +63,12 @@ describe('shouldRetryQuery', () => {
     }
   )
 
-  it('keeps the three-retry budget for 5xx', () => {
-    const error = httpError(500)
+  it.each([
+    ['5xx', httpError(500)],
+    ['status-less network errors', new Error('Network error')],
+  ])('keeps the three-retry budget for %s', (_label, error) => {
     expect(shouldRetryQuery(0, error, true)).toBe(true)
     expect(shouldRetryQuery(1, error, true)).toBe(true)
-    expect(shouldRetryQuery(2, error, true)).toBe(true)
-    expect(shouldRetryQuery(3, error, true)).toBe(false)
-  })
-
-  it('keeps the three-retry budget for status-less network errors', () => {
-    const error = new Error('Network error')
-    expect(shouldRetryQuery(0, error, true)).toBe(true)
     expect(shouldRetryQuery(2, error, true)).toBe(true)
     expect(shouldRetryQuery(3, error, true)).toBe(false)
   })
@@ -76,17 +78,17 @@ describe('shouldRetryQuery', () => {
   })
 })
 
-describe('rateLimitRetryDelay', () => {
+describe('rateLimitDelay (the 429 branch of queryRetryDelay)', () => {
   it('follows Retry-After when the header was readable', () => {
     // 5s is under the ceiling, so it is honored as given.
-    expect(rateLimitRetryDelay(0, httpError(429, 5), noJitter)).toBe(5_000)
+    expect(rateLimitDelay(0, httpError(429, 5), noJitter)).toBe(5_000)
   })
 
   it('clamps the backend constant Retry-After to the per-attempt ceiling', () => {
     // The backend always says 60, which is a whole limiter window rather than a
     // computed reset. Obeying it literally would park a block on a spinner for
     // a minute.
-    expect(rateLimitRetryDelay(0, httpError(429, 60), noJitter)).toBe(
+    expect(rateLimitDelay(0, httpError(429, 60), noJitter)).toBe(
       RATE_LIMIT_MAX_BASE_DELAY_MS
     )
   })
@@ -95,7 +97,7 @@ describe('rateLimitRetryDelay', () => {
     // Regression guard. Clamping AFTER jitter instead would collapse every
     // saturated delay onto the same number and retry the whole page in
     // lockstep, recreating the burst that exhausted the budget.
-    const jittered = rateLimitRetryDelay(0, httpError(429, 60), maxJitter)
+    const jittered = rateLimitDelay(0, httpError(429, 60), maxJitter)
     expect(jittered).toBeGreaterThan(RATE_LIMIT_MAX_BASE_DELAY_MS)
     expect(jittered).toBe(
       RATE_LIMIT_MAX_BASE_DELAY_MS * (1 + RATE_LIMIT_JITTER_RATIO)
@@ -104,20 +106,20 @@ describe('rateLimitRetryDelay', () => {
 
   it('backs off exponentially when Retry-After is absent', () => {
     // The production path: CORS hides the header from the browser.
-    expect(rateLimitRetryDelay(0, httpError(429), noJitter)).toBe(
+    expect(rateLimitDelay(0, httpError(429), noJitter)).toBe(
       RATE_LIMIT_FALLBACK_BASE_MS
     )
-    expect(rateLimitRetryDelay(1, httpError(429), noJitter)).toBe(
+    expect(rateLimitDelay(1, httpError(429), noJitter)).toBe(
       RATE_LIMIT_FALLBACK_BASE_MS * 2
     )
-    expect(rateLimitRetryDelay(2, httpError(429), noJitter)).toBe(
+    expect(rateLimitDelay(2, httpError(429), noJitter)).toBe(
       RATE_LIMIT_FALLBACK_BASE_MS * 4
     )
   })
 
   it('ignores an unusable Retry-After and falls back to backoff', () => {
     for (const bad of [0, -5, Number.NaN, Number.POSITIVE_INFINITY]) {
-      expect(rateLimitRetryDelay(0, httpError(429, bad), noJitter)).toBe(
+      expect(rateLimitDelay(0, httpError(429, bad), noJitter)).toBe(
         RATE_LIMIT_FALLBACK_BASE_MS
       )
     }
@@ -130,7 +132,7 @@ describe('rateLimitRetryDelay', () => {
     const worstCase = Array.from(
       { length: RATE_LIMIT_MAX_RETRIES },
       (_, attempt) =>
-        rateLimitRetryDelay(attempt, httpError(429, 60), maxJitter)
+        rateLimitDelay(attempt, httpError(429, 60), maxJitter)
     ).reduce((total, delay) => total + delay, 0)
 
     expect(worstCase).toBeLessThanOrEqual(60_000)
@@ -138,10 +140,6 @@ describe('rateLimitRetryDelay', () => {
 })
 
 describe('queryRetryDelay', () => {
-  it('routes 429s through the rate-limit schedule', () => {
-    expect(queryRetryDelay(0, httpError(429, 5), noJitter)).toBe(5_000)
-  })
-
   it("leaves non-429 retry timing on React Query's own curve", () => {
     expect(queryRetryDelay(0, httpError(500))).toBe(1_000)
     expect(queryRetryDelay(1, httpError(500))).toBe(2_000)
