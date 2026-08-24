@@ -48,6 +48,53 @@ describe("showDedupWindow", () => {
       new Date("2026-07-17T07:00:00Z").getTime(),
     );
   });
+
+  // PSY-1873: the window and the writer must resolve the zone identically, or
+  // a re-ingest of a non-US venue stops recognising the rows it just created.
+  test("venue timezone window covers a Leeds show stored at 20:00 local", () => {
+    const { fromDate, toDate } = showDedupWindow(
+      "2026-10-23",
+      "England",
+      "Europe/London",
+    );
+    // normalizeDate("2026-10-23","England","Europe/London") = 2026-10-23T19:00Z
+    const stored = new Date("2026-10-23T19:00:00Z").getTime();
+    expect(stored).toBeGreaterThanOrEqual(new Date(fromDate).getTime());
+    expect(stored).toBeLessThanOrEqual(new Date(toDate).getTime());
+  });
+
+  test("the venue timezone window is the venue-local calendar day", () => {
+    // BST on 2026-10-23 is UTC+1, so the local day runs 23:00Z Oct 22 to
+    // 22:59Z Oct 23. The state map's Phoenix window is a different eight-hour
+    // slice of UTC, and a show early in the London day (say 01:00 local,
+    // 00:00Z) falls outside it. That is the drift this parameter removes.
+    const withZone = showDedupWindow("2026-10-23", "England", "Europe/London");
+    expect(withZone.fromDate).toBe("2026-10-22T23:00:00Z");
+    expect(withZone.toDate).toBe("2026-10-23T22:59:00Z");
+
+    const stateOnly = showDedupWindow("2026-10-23", "England");
+    expect(stateOnly.fromDate).not.toBe(withZone.fromDate);
+
+    const earlyLondonShow = new Date("2026-10-23T00:00:00Z").getTime();
+    expect(earlyLondonShow).toBeGreaterThanOrEqual(
+      new Date(withZone.fromDate).getTime(),
+    );
+    expect(earlyLondonShow).toBeLessThan(
+      new Date(stateOnly.fromDate).getTime(),
+    );
+  });
+
+  test("a US venue's own timezone gives the same window as its state", () => {
+    expect(showDedupWindow("2026-07-17", "CA", "America/Los_Angeles")).toEqual(
+      showDedupWindow("2026-07-17", "CA"),
+    );
+  });
+
+  test("an unloadable venue timezone falls back to the state map", () => {
+    expect(showDedupWindow("2026-07-17", "CA", "Mars/Olympus")).toEqual(
+      showDedupWindow("2026-07-17", "CA"),
+    );
+  });
 });
 
 describe("normalizeForComparison", () => {

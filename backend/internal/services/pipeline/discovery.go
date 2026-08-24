@@ -524,7 +524,10 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 		if len(artistEntries) > 0 {
 			headlinerName = artistEntries[0].Name
 		}
-		baseShowSlug := utils.GenerateShowSlug(show.EventDate, headlinerName, venueConfig.Name, venueConfig.State)
+		// The slug date is read in the venue's own zone (PSY-1873); venueConfig
+		// carries only a state, and the state map answers Phoenix for anything
+		// outside the US.
+		baseShowSlug := utils.GenerateShowSlug(show.EventDate, headlinerName, venueConfig.Name, venue.Timezone, venueConfig.State)
 		showSlug := utils.GenerateUniqueSlug(baseShowSlug, func(candidate string) bool {
 			var count int64
 			tx.Model(&catalogm.Show{}).Where("slug = ?", candidate).Count(&count)

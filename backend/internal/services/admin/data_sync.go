@@ -524,6 +524,32 @@ func (s *DataSyncService) importVenue(venue *contracts.ExportedVenue, dryRun boo
 	return fmt.Sprintf("IMPORTED: Venue '%s' in %s (ID: %d)", venue.Name, venue.City, newVenue.ID), "imported"
 }
 
+// storedVenueTimezone reads the IANA zone already stored on the show's primary
+// venue, so utils.GenerateShowSlug can date the slug in the venue's real zone
+// rather than the US state map's Phoenix default (PSY-1873).
+//
+// The export format carries no timezone (ExportedVenue is name/address/socials
+// only), and the zone is derived data the importer geocodes onto the venue row
+// itself, so the authority is the DB rather than the payload. Returns nil when
+// the venue is not in the database yet, which leaves the caller on the
+// state-map fallback it used before: an import that creates the venue and the
+// show in one pass still slugs from the state, and the venue's real zone
+// reaches the slug on the next re-import or via cmd/dedup-shows'
+// RecanonicaliseShowSlug.
+func storedVenueTimezone(db *gorm.DB, venues []contracts.ExportedVenue) *string {
+	if len(venues) == 0 {
+		return nil
+	}
+	var venue catalogm.Venue
+	err := db.Select("timezone").
+		Where("LOWER(name) = LOWER(?) AND LOWER(city) = LOWER(?)", venues[0].Name, venues[0].City).
+		First(&venue).Error
+	if err != nil {
+		return nil
+	}
+	return venue.Timezone
+}
+
 // importShow imports a single show with deduplication
 func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) (string, string) {
 	if show.Title == "" || show.EventDate == "" {
@@ -611,7 +637,8 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 		}
 
 		// Generate show slug
-		baseShowSlug := utils.GenerateShowSlug(eventDate.UTC(), headlinerName, venueName, showState)
+		baseShowSlug := utils.GenerateShowSlug(eventDate.UTC(), headlinerName, venueName,
+			storedVenueTimezone(tx, show.Venues), showState)
 		showSlug := utils.GenerateUniqueSlug(baseShowSlug, func(candidate string) bool {
 			var count int64
 			tx.Model(&catalogm.Show{}).Where("slug = ?", candidate).Count(&count)
@@ -766,7 +793,8 @@ func (s *DataSyncService) backfillShowSlugs(existingShow *catalogm.Show, show *c
 		} else if len(show.Venues) > 0 {
 			showState = show.Venues[0].State
 		}
-		baseSlug := utils.GenerateShowSlug(eventDate.UTC(), headlinerName, venueName, showState)
+		baseSlug := utils.GenerateShowSlug(eventDate.UTC(), headlinerName, venueName,
+			storedVenueTimezone(s.db, show.Venues), showState)
 		slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 			var count int64
 			s.db.Model(&catalogm.Show{}).Where("slug = ?", candidate).Count(&count)

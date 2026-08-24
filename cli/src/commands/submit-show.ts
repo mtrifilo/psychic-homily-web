@@ -2,12 +2,12 @@ import { APIClient } from "../lib/api";
 import type { EnvironmentConfig } from "../lib/types";
 import { validateShow } from "../lib/schemas";
 import { searchArtistsByName, searchVenuesByName, similarityScore, checkShowDuplicate } from "../lib/duplicates";
-import type { ShowDuplicateResult } from "../lib/duplicates";
+import type { EntitySearchResult, ShowDuplicateResult } from "../lib/duplicates";
 import { TagResolver, formatTagsPreview, formatFuzzyWarning } from "../lib/tags";
 import type { TagInput, ResolvedTag } from "../lib/tags";
 import * as display from "../lib/display";
 import { green, yellow, dim, gray } from "../lib/ansi";
-import { getTimezoneForState, localTimeToUTC } from "../lib/timezone";
+import { resolveVenueTimezone, localTimeToUTC } from "../lib/timezone";
 
 /**
  * Normalize a date string to an ISO 8601 UTC timestamp.
@@ -16,21 +16,27 @@ import { getTimezoneForState, localTimeToUTC } from "../lib/timezone";
  * When a date+time without timezone is provided, treats it as local time.
  * In both cases, converts from the venue's local timezone to UTC.
  *
- * @param date  - Date string (YYYY-MM-DD, YYYY-MM-DDTHH:MM, or full ISO 8601)
- * @param state - US state abbreviation for timezone lookup (e.g., "AZ", "CA")
+ * @param date     - Date string (YYYY-MM-DD, YYYY-MM-DDTHH:MM, or full ISO 8601)
+ * @param state    - Venue state, used only when no venue timezone is known
+ * @param timezone - The matched venue's IANA timezone. This is the authority:
+ *                   see resolveVenueTimezone (PSY-1873).
  */
-export function normalizeDate(date: string, state?: string): string {
-  const timezone = state ? getTimezoneForState(state) : "America/Phoenix";
+export function normalizeDate(
+  date: string,
+  state?: string,
+  timezone?: string,
+): string {
+  const zone = resolveVenueTimezone(state, timezone);
 
   // Date only: default to 20:00 local time
   if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    return localTimeToUTC(date, "20:00", timezone);
+    return localTimeToUTC(date, "20:00", zone);
   }
 
   // Date+time but no timezone suffix (Z or +/-offset): treat as local time
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(date)) {
     const [datePart, timePart] = date.split("T");
-    return localTimeToUTC(datePart, timePart, timezone);
+    return localTimeToUTC(datePart, timePart, zone);
   }
 
   // Already has timezone info — return as-is
@@ -79,6 +85,13 @@ interface ResolvedVenue {
   city?: string;
   state?: string;
   address?: string;
+  /**
+   * The matched venue's stored IANA timezone (PSY-1873). Present only for an
+   * "existing" match. A venue this run is about to CREATE has no geocoded zone
+   * yet, so its show falls back to the state map exactly as before. Never sent
+   * in the payload: it is a property of the venue row, not of the show.
+   */
+  timezone?: string;
   status: "existing" | "new";
   confidence?: number;
 }
@@ -170,9 +183,16 @@ export async function resolveVenues(
   for (const venue of venues) {
     try {
       const results = await searchVenuesByName(client, venue.name);
-      // Find best match by similarity score, require >= 0.7
+      // Find best match by similarity score, require >= 0.7.
+      // The annotation keeps EntitySearchResult's index signature, which a bare
+      // object spread would drop. `timezone` is only reachable through it.
       const best = results
-        .map((r) => ({ ...r, score: similarityScore(venue.name, r.name) }))
+        .map(
+          (r): EntitySearchResult & { score: number } => ({
+            ...r,
+            score: similarityScore(venue.name, r.name),
+          }),
+        )
         .filter((r) => r.score >= 0.7)
         .sort((a, b) => b.score - a.score)[0];
 
@@ -183,6 +203,8 @@ export async function resolveVenues(
           city: venue.city,
           state: venue.state,
           address: venue.address,
+          timezone:
+            typeof best.timezone === "string" ? best.timezone : undefined,
           status: "existing",
           confidence: best.score,
         });
@@ -211,13 +233,16 @@ export async function resolveVenues(
 
 /** Build the API request body for creating a show. */
 export function buildShowPayload(plan: ShowPlan): Record<string, unknown> {
-  // Determine venue state for timezone conversion.
-  // Prefer the first venue's state, fall back to the show-level state.
+  // Determine the zone the show's wall-clock time is expressed in.
+  // The matched venue's own IANA zone is the authority; the state (first
+  // venue's, else show-level) is the fallback for a venue we are about to
+  // create. See resolveVenueTimezone (PSY-1873).
   const venueState =
     plan.venues[0]?.state || plan.input.venues[0]?.state || plan.input.state;
+  const venueTimezone = plan.venues[0]?.timezone;
 
   const payload: Record<string, unknown> = {
-    event_date: normalizeDate(plan.input.event_date, venueState),
+    event_date: normalizeDate(plan.input.event_date, venueState, venueTimezone),
     city: plan.input.city,
     state: plan.input.state,
     artists: plan.artists.map((a) => {
@@ -286,6 +311,7 @@ export async function submitShows(
     // Match buildShowPayload's timezone source so the dedup window aligns with
     // how event_date will be stored (venue-local evening → UTC).
     const venueState = venues[0]?.state || show.venues[0]?.state || show.state;
+    const venueTimezone = venues[0]?.timezone;
 
     const duplicate = await checkShowDuplicate(
       client,
@@ -294,6 +320,7 @@ export async function submitShows(
       resolvedArtistIds,
       resolvedArtistNames,
       venueState,
+      venueTimezone,
     );
 
     plans.push({

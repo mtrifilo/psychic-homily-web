@@ -472,10 +472,11 @@ func TestArchiveNoiseMatchesGoldenValues(t *testing.T) {
 func TestArchiveVenueZoneMatchesTheSlugResolver(t *testing.T) {
 	// Two independent resolvers decide this fixture's dates:
 	// archiveVenueZone builds the timestamps, while utils.GenerateShowSlug
-	// resolves the zone from the STATE alone (it ignores the venue's
-	// explicit timezone). If they disagreed, a 20:00 show's slug date and
-	// its displayed venue-local date would differ, so the archive would be
-	// keyed on one day and rendered on another.
+	// resolves the zone from the venue's explicit timezone with the STATE map
+	// behind it (PSY-1873). This fixture passes both, so the check that they
+	// AGREE is what keeps the fallback honest: if they diverged, a 20:00
+	// show's slug date and its displayed venue-local date would differ, so the
+	// archive would be keyed on one day and rendered on another.
 	fromState := utils.GetTimezoneForState(exemplarArchiveVenueState)
 	if archiveVenueZone.String() != fromState {
 		t.Fatalf("archiveVenueZone is %s but GenerateShowSlug resolves %s for state %s",

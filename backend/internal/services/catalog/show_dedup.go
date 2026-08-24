@@ -828,8 +828,10 @@ func RecanonicaliseShowSlug(tx *gorm.DB, showID uint) (bool, error) {
 		headlinerName = artists[0].Name
 	}
 	venueName := "unknown"
+	var venueTimezone *string
 	if len(venues) > 0 {
 		venueName = venues[0].Name
+		venueTimezone = venues[0].Timezone
 	}
 
 	state := ""
@@ -837,7 +839,7 @@ func RecanonicaliseShowSlug(tx *gorm.DB, showID uint) (bool, error) {
 		state = *show.State
 	}
 
-	canonical := utils.GenerateShowSlug(show.EventDate, headlinerName, venueName, state)
+	canonical := utils.GenerateShowSlug(show.EventDate, headlinerName, venueName, venueTimezone, state)
 	current := ""
 	if show.Slug != nil {
 		current = *show.Slug

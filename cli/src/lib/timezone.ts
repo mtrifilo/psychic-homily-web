@@ -74,6 +74,43 @@ export function getTimezoneForState(state: string): string {
 }
 
 /**
+ * Resolve the IANA zone a show's wall-clock time should be read in.
+ *
+ * Precedence, and the reason it is stated in one place: a venue that is already
+ * in the database carries the zone the geocoder resolved for it, and that is the
+ * SAME value every read surface renders the show in. The state map is a guess
+ * for venues without one, and outside the US it is not even a guess: it hands
+ * back America/Phoenix for "England", "QC", or "" alike.
+ *
+ * PSY-1873: `ph submit-show` keyed on the state map alone, so a date-only show
+ * at a Leeds venue was written as 20:00 Phoenix (2026-10-24T03:00:00Z) and the
+ * show page, which reads venues.timezone, rendered it at 4:00 AM the next
+ * calendar day. 316 of the 349 shows at non-US venues in production carry that
+ * exact signature.
+ *
+ * Mirrors resolveShowTimezone in frontend/lib/utils/formatters.ts. An
+ * unloadable zone string falls through to the state map rather than crashing,
+ * because Intl.DateTimeFormat throws a RangeError on a bad zone.
+ */
+export function resolveVenueTimezone(
+  state?: string,
+  timezone?: string,
+): string {
+  if (timezone && isValidTimeZone(timezone)) return timezone;
+  return getTimezoneForState(state || "");
+}
+
+/** Whether an IANA zone name exists in this runtime's tz database. */
+function isValidTimeZone(name: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: name });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Convert a local date+time in a given timezone to a UTC ISO 8601 string.
  *
  * Uses the same Intl.DateTimeFormat offset-probing approach as the frontend's

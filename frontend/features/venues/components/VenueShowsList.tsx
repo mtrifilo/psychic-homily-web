@@ -160,6 +160,7 @@ export function VenueShowsList({
                 city: venueCity,
                 state: venueState,
                 address: venueAddress || undefined,
+                timezone: venueTimezone,
                 verified: venueVerified,
               }}
               onSuccess={() => {

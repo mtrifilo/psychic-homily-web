@@ -100,7 +100,7 @@ func TestGenerateVenueSlug(t *testing.T) {
 func TestGenerateShowSlug(t *testing.T) {
 	// 8pm Phoenix time = 3am UTC next day (UTC-7)
 	date := time.Date(2026, 1, 31, 3, 0, 0, 0, time.UTC)
-	slug := GenerateShowSlug(date, "The National", "Valley Bar", "AZ")
+	slug := GenerateShowSlug(date, "The National", "Valley Bar", nil, "AZ")
 	// Should use Phoenix local date (Jan 30), not UTC date (Jan 31)
 	assert.Equal(t, "2026-01-30-the-national-at-valley-bar", slug)
 }
@@ -108,7 +108,7 @@ func TestGenerateShowSlug(t *testing.T) {
 func TestGenerateShowSlug_DateFormatting(t *testing.T) {
 	// Verify single-digit month/day get zero-padded
 	date := time.Date(2026, 3, 5, 0, 0, 0, 0, time.UTC)
-	slug := GenerateShowSlug(date, "Turnstile", "Crescent Ballroom", "AZ")
+	slug := GenerateShowSlug(date, "Turnstile", "Crescent Ballroom", nil, "AZ")
 	// 3/5 00:00 UTC = 3/4 5pm Phoenix, so local date is March 4
 	assert.Equal(t, "2026-03-04-turnstile-at-crescent-ballroom", slug)
 }
@@ -116,7 +116,7 @@ func TestGenerateShowSlug_DateFormatting(t *testing.T) {
 func TestGenerateShowSlug_TimezoneConversion(t *testing.T) {
 	// A show at 7:30 PM Phoenix time on March 16 is stored as 2:30 AM UTC on March 17
 	date := time.Date(2026, 3, 17, 2, 30, 0, 0, time.UTC)
-	slug := GenerateShowSlug(date, "Radiohead", "Valley Bar", "AZ")
+	slug := GenerateShowSlug(date, "Radiohead", "Valley Bar", nil, "AZ")
 	// Slug should use the Phoenix local date (March 16), not UTC (March 17)
 	assert.Equal(t, "2026-03-16-radiohead-at-valley-bar", slug)
 }
@@ -124,14 +124,14 @@ func TestGenerateShowSlug_TimezoneConversion(t *testing.T) {
 func TestGenerateShowSlug_EasternTimezone(t *testing.T) {
 	// 11pm ET on Jan 15 = 4am UTC Jan 16 (UTC-5)
 	date := time.Date(2026, 1, 16, 4, 0, 0, 0, time.UTC)
-	slug := GenerateShowSlug(date, "The National", "Brooklyn Steel", "NY")
+	slug := GenerateShowSlug(date, "The National", "Brooklyn Steel", nil, "NY")
 	assert.Equal(t, "2026-01-15-the-national-at-brooklyn-steel", slug)
 }
 
 func TestGenerateShowSlug_EmptyState(t *testing.T) {
 	// Empty state defaults to America/Phoenix
 	date := time.Date(2026, 3, 17, 2, 30, 0, 0, time.UTC)
-	slug := GenerateShowSlug(date, "Radiohead", "Valley Bar", "")
+	slug := GenerateShowSlug(date, "Radiohead", "Valley Bar", nil, "")
 	assert.Equal(t, "2026-03-16-radiohead-at-valley-bar", slug)
 }
 
@@ -139,8 +139,57 @@ func TestGenerateShowSlug_SameDateNoShift(t *testing.T) {
 	// A show at 2pm Phoenix time on March 16 is stored as 9pm UTC on March 16
 	// No date shift expected
 	date := time.Date(2026, 3, 16, 21, 0, 0, 0, time.UTC)
-	slug := GenerateShowSlug(date, "Radiohead", "Valley Bar", "AZ")
+	slug := GenerateShowSlug(date, "Radiohead", "Valley Bar", nil, "AZ")
 	assert.Equal(t, "2026-03-16-radiohead-at-valley-bar", slug)
+}
+
+func TestGenerateShowSlug_VenueTimezoneWinsOverState(t *testing.T) {
+	// PSY-1873, the Leeds case exactly. A date-only show at Boom Leeds was
+	// stored as 2026-10-24T03:00:00Z (20:00 America/Phoenix, the state map's
+	// answer for "England") while the show page rendered it in Europe/London.
+	// Reading the slug date in the venue's own zone is what makes the slug
+	// agree with the page: 03:00Z is 04:00 on Oct 24 in London.
+	date := time.Date(2026, 10, 24, 3, 0, 0, 0, time.UTC)
+	london := "Europe/London"
+
+	assert.Equal(t, "2026-10-24-din-of-celestial-birds-at-boom-leeds",
+		GenerateShowSlug(date, "Din of Celestial Birds", "Boom Leeds", &london, "England"))
+
+	// Without the venue's zone the state map answers Phoenix and the slug
+	// disagrees with the rendered date by a day. This is the defect, pinned.
+	assert.Equal(t, "2026-10-23-din-of-celestial-birds-at-boom-leeds",
+		GenerateShowSlug(date, "Din of Celestial Birds", "Boom Leeds", nil, "England"))
+}
+
+func TestGenerateShowSlug_VenueTimezoneAheadOfUTC(t *testing.T) {
+	// A morning show in Tokyo: 10:00 JST on Oct 23 is 01:00Z the same day,
+	// which the Phoenix fallback reads as 18:00 on Oct 22, a day early.
+	date := time.Date(2026, 10, 23, 1, 0, 0, 0, time.UTC)
+	tokyo := "Asia/Tokyo"
+
+	assert.Equal(t, "2026-10-23-boris-at-earthdom",
+		GenerateShowSlug(date, "Boris", "Earthdom", &tokyo, ""))
+	assert.Equal(t, "2026-10-22-boris-at-earthdom",
+		GenerateShowSlug(date, "Boris", "Earthdom", nil, ""))
+}
+
+func TestGenerateShowSlug_MalformedVenueTimezoneFallsBackToState(t *testing.T) {
+	// EventLocation's contract: an unloadable zone string falls through to the
+	// state map rather than to UTC, so a bad venue row cannot shift a US show's
+	// slug off its venue-local date.
+	date := time.Date(2026, 3, 17, 2, 30, 0, 0, time.UTC)
+	bogus := "Mars/Olympus"
+	assert.Equal(t, "2026-03-16-radiohead-at-valley-bar",
+		GenerateShowSlug(date, "Radiohead", "Valley Bar", &bogus, "AZ"))
+}
+
+func TestGenerateShowSlug_EmptyVenueTimezoneFallsBackToState(t *testing.T) {
+	// A venue row whose timezone column is present but blank is "unknown", not
+	// "UTC". Same fallback as nil.
+	date := time.Date(2026, 1, 16, 4, 0, 0, 0, time.UTC)
+	blank := ""
+	assert.Equal(t, "2026-01-15-the-national-at-brooklyn-steel",
+		GenerateShowSlug(date, "The National", "Brooklyn Steel", &blank, "NY"))
 }
 
 // --- GenerateUniqueSlug ---

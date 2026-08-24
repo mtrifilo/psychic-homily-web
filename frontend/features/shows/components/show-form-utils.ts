@@ -1,7 +1,5 @@
-import {
-  parseISOToDateAndTime,
-  getTimezoneForState,
-} from '@/lib/utils/timeUtils'
+import { parseISOToDateAndTime } from '@/lib/utils/timeUtils'
+import { resolveShowTimezone } from '@/lib/utils/formatters'
 import type { SetType, ShowResponse, VenueResponse } from '../types'
 import type { ExtractedShowData } from '@/lib/types/extraction'
 
@@ -197,7 +195,12 @@ export const defaultFormValues: FormValues = {
  */
 export function showToFormValues(show: ShowResponse): FormValues {
   const venue = show.venues[0]
-  const venueTz = venue?.state ? getTimezoneForState(venue.state) : undefined
+  // Same resolver the show PAGE renders with (PSY-1873): reading the stored
+  // instant back through a different zone than it is displayed in would show
+  // the editor a date and time nobody else sees, and saving would then rewrite
+  // the instant to match that misreading. Before this, a Leeds show opened in
+  // the form at 20:00 America/Phoenix while the page rendered 4:00 AM.
+  const venueTz = resolveShowTimezone(venue?.state, venue?.timezone)
   const { date, time } = parseISOToDateAndTime(show.event_date, venueTz)
 
   return {
