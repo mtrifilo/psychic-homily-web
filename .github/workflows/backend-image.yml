@@ -68,6 +68,10 @@ jobs:
   backend-image:
     name: Backend Image Build
     runs-on: ubuntu-latest
+    # `contents: read` is restated here, not inherited: a job-scoped block
+    # REPLACES the workflow-level one rather than extending it, so deleting it
+    # as redundant would leave this job holding `issues: write` alone and strip
+    # the checkout below of its scope. See ci.yml's header for the full rule.
     permissions:
       contents: read
       # For the main-branch failure issue below. On pull_request events the
