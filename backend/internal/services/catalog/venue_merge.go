@@ -48,6 +48,12 @@ var venueFKTables = []string{
 	"show_artists",
 	"show_venues",
 	"venue_confirmations",
+	// venue_show_alert_batch (PSY-1895) cascades too, and losing it is quiet in
+	// a particular way: the alerts already delivered for the losing venue keep
+	// their inbox rows, but those rows render their show list from THIS table at
+	// read time, so the cascade would leave a user looking at "3 new shows" above
+	// an empty list. Re-pointed by repointVenueShowAlertBatchVenues.
+	"venue_show_alert_batch",
 }
 
 // PreviewMergeVenues reports what MergeVenues(canonicalID, mergeFromID) would
@@ -160,6 +166,9 @@ func (s *VenueService) mergeVenues(canonicalID, mergeFromID uint, preview bool) 
 			return err
 		}
 		if err := reassignEntityRefs(tx, canonicalID, mergeFromID, result); err != nil {
+			return err
+		}
+		if err := reassignVenueAlertRows(tx, canonicalID, mergeFromID, result); err != nil {
 			return err
 		}
 
@@ -310,6 +319,42 @@ func rescueSupportActs(tx *gorm.DB, canonicalID uint, result *contracts.MergeVen
 // show_artists and show_venues both cascade on show_id, so their rows go too —
 // which is exactly why rescueSupportActs has to run first.
 func deleteDuplicateShows(tx *gorm.DB) error {
+	// venue_show_alert_batch memberships have to move off the losing shows FIRST.
+	//
+	// This delete does NOT route through MergeDuplicateShow, so none of that
+	// function's re-points run for these shows — and venue_show_alert_batch's
+	// foreign key CASCADES, so the memberships are destroyed here rather than
+	// stranded. reassignVenueAlertRows runs later and would find nothing left to
+	// move, which is exactly the outcome venueFKTables claims this table was
+	// added to prevent: a delivered alert still saying "3 new shows" above a
+	// list that lost one.
+	//
+	// Same delete-then-move shape as repointVenueShowAlertBatchShows, against the
+	// same natural key. The drop is required because one event listed at both
+	// venues on the same day is the ordinary case for a real duplicate pair, and
+	// the winner will already hold that row.
+	if err := tx.Exec(`
+		DELETE FROM venue_show_alert_batch l
+		USING venue_merge_dup d
+		WHERE l.show_id = d.loser_show
+		  AND EXISTS (
+		        SELECT 1 FROM venue_show_alert_batch w
+		        WHERE w.show_id = d.winner_show
+		          AND w.venue_id = l.venue_id
+		          AND w.alert_day = l.alert_day
+		      )
+	`).Error; err != nil {
+		return fmt.Errorf("failed to drop conflicting venue alert batch rows: %w", err)
+	}
+	if err := tx.Exec(`
+		UPDATE venue_show_alert_batch l
+		   SET show_id = d.winner_show
+		  FROM venue_merge_dup d
+		 WHERE l.show_id = d.loser_show
+	`).Error; err != nil {
+		return fmt.Errorf("failed to move venue alert batch rows: %w", err)
+	}
+
 	if err := tx.Exec(`
 		DELETE FROM shows s
 		USING venue_merge_dup d
@@ -518,6 +563,48 @@ func reassignEntityRefs(tx *gorm.DB, canonicalID, mergeFromID uint, result *cont
 		result.EntityRefsMoved += count
 	}
 	logDroppedEntityRefs(mergeEntityVenue, canonicalID, mergeFromID, dropped)
+	return nil
+}
+
+// reassignVenueAlertRows moves the two venue-alert references the steps above
+// cannot see, and it has to run BEFORE the losing venue is deleted.
+//
+// Neither is reachable from the inventory loop, for different reasons:
+//
+//   - notification_log rows of entity_type 'venue_show_alert' hold a VENUE id in
+//     entity_id, but the loop keys on entity_type = 'venue', so its UPDATE
+//     matches none of them. Left behind they point at a deleted venue and the
+//     user's inbox row loses its name and link.
+//   - venue_show_alert_batch is a real foreign key, so it does not fail loudly
+//     either — it CASCADES. The alert rows survive and render their show list
+//     from that table at read time, so the cascade turns "3 new shows" into a
+//     heading above nothing.
+//
+// Both counts fold into EntityRefsMoved rather than adding fields to the
+// admin-facing result. They are entity references being moved, which is what
+// that counter has always meant, and a merge summary is not the place a second
+// pair of numbers earns its API surface. Drops are logged, matching every other
+// destructive step here.
+func reassignVenueAlertRows(tx *gorm.DB, canonicalID, mergeFromID uint, result *contracts.MergeVenueResult) error {
+	logMoved, logDropped, err := repointVenueShowAlertLogs(tx, canonicalID, mergeFromID)
+	if err != nil {
+		return err
+	}
+	result.EntityRefsMoved += logMoved
+	if logDropped > 0 {
+		logDroppedEntityRefs(mergeEntityVenue, canonicalID, mergeFromID,
+			map[string]int64{"notification_log (venue_show_alert)": logDropped})
+	}
+
+	batchMoved, batchDropped, err := repointVenueShowAlertBatchVenues(tx, canonicalID, mergeFromID)
+	if err != nil {
+		return err
+	}
+	result.EntityRefsMoved += batchMoved
+	if batchDropped > 0 {
+		logDroppedEntityRefs(mergeEntityVenue, canonicalID, mergeFromID,
+			map[string]int64{"venue_show_alert_batch": batchDropped})
+	}
 	return nil
 }
 

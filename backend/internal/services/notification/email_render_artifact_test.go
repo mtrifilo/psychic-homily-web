@@ -3,10 +3,12 @@ package notification
 import (
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/utils"
 )
 
 // TestRenderEmailArtifact writes the exact HTML a send would hand Resend to the
@@ -76,6 +78,50 @@ func TestRenderArtistShowAlertArtifact(t *testing.T) {
 		unsubURL,
 		"https://psychichomily.com/settings/notifications",
 	)
+	require.NoError(t, os.WriteFile(out, []byte(html), 0o600))
+	t.Logf("wrote %s", out)
+}
+
+// TestRenderVenueShowAlertArtifact does the same for the PSY-1895 venue
+// new-show digest, whose one un-inherited element is the multi-show list. A
+// hairline-separated table is exactly the kind of thing string assertions
+// cannot judge: whether the rules land, whether the mono date column stays
+// aligned, and whether the block reads as terminated rather than running into
+// the paragraph beneath it. Figma: node 1577:27.
+//
+//	RENDER_OUT=/tmp/venue-alert.html go test ./internal/services/notification/ \
+//	  -run TestRenderVenueShowAlertArtifact
+func TestRenderVenueShowAlertArtifact(t *testing.T) {
+	out := os.Getenv("RENDER_OUT")
+	if out == "" {
+		t.Skip("set RENDER_OUT to a file path to capture the rendered email")
+	}
+
+	batch := &venueAlertBatch{
+		key:       venueAlertGroupKey{VenueID: 3, AlertDay: "2026-08-24"},
+		venueName: "Valley Bar",
+		venueURL:  "https://psychichomily.com/venues/valley-bar",
+		loc:       utils.EventLocation(nil, "AZ"),
+	}
+	shows := []venueAlertShow{
+		{ID: 1, Title: "Oneida", ArtistText: "Oneida, Din of Celestial Birds",
+			EventDate: time.Date(2026, 8, 29, 20, 0, 0, 0, time.UTC)},
+		{ID: 2, Title: "Chat Pile", ArtistText: "Chat Pile, Agriculture",
+			EventDate: time.Date(2026, 9, 5, 20, 0, 0, 0, time.UTC)},
+		{ID: 3, Title: "Turnstile", ArtistText: "Turnstile, Mindforce, Zulu",
+			EventDate: time.Date(2026, 9, 12, 20, 0, 0, 0, time.UTC)},
+		// A bare listing, which is ordinary during ingest. It must still appear,
+		// or the headline's count disagrees with the list under it.
+		{ID: 4, Title: "TBA", EventDate: time.Date(2026, 9, 19, 20, 0, 0, 0, time.UTC)},
+	}
+
+	// A fabricated signature of the real length, so the footer's wrapping can be
+	// judged. It verifies against nothing.
+	unsubURL := "https://api.psychichomily.com/unsubscribe/artist-show-alerts" +
+		"?uid=421&sig=9f2c1ad35b7e40c8a6d1e93b0f47c25ad8e6b1349f0a7c25e83bd1470c96af52"
+
+	html := buildVenueShowAlertEmailHTML(
+		batch, shows, unsubURL, "https://psychichomily.com/settings/notifications")
 	require.NoError(t, os.WriteFile(out, []byte(html), 0o600))
 	t.Logf("wrote %s", out)
 }

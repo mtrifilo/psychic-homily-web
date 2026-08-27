@@ -105,6 +105,20 @@ import (
 //     logDroppedEntityRefs rather than only counted in the summary: an aggregate
 //     cannot tell an operator WHICH show went quiet.
 //
+//   - venue_show_alert_batch.show_id is MOVED, through its own function rather
+//     than through moveShowFKRows, because its unique key is the whole natural
+//     key (venue_id, alert_day, show_id) and the generic helper dedupes on ONE
+//     partner column. See repointVenueShowAlertBatchShows.
+//
+//     Moved and not dropped, which is the opposite of its neighbour above and
+//     the contrast worth holding on to: show_notify_queue's row MEANS "already
+//     considered for notification", so moving one can manufacture an
+//     announcement. This row means "this show was part of that venue-day's
+//     alert". Exactly-once for venue alerts is held by
+//     uq_notification_log_venue_show_alert instead, which no re-point here
+//     touches, so moving the membership can only correct which show an existing
+//     alert names.
+//
 // TestShowForeignKeysAreAllHandled fails if a migration adds another.
 var showFKColumns = []string{
 	"enrichment_queue.show_id",
@@ -113,6 +127,7 @@ var showFKColumns = []string{
 	"show_reports.show_id",
 	"show_venues.show_id",
 	"shows.duplicate_of_show_id",
+	"venue_show_alert_batch.show_id",
 }
 
 // showFKColumnListed reports whether "table.column" carries a recorded
@@ -142,8 +157,21 @@ func showFKColumnListed(qualified string) bool {
 // A prohibition that lives only in a doc comment is one refactor away from being
 // violated by someone doing the obvious thing (adding the table to the inventory
 // loop). This makes it a runtime error instead.
+//
+// The two entries are here for DIFFERENT reasons, and both are "moveShowFKRows
+// must not touch this", which is what the list actually enforces:
+//
+//   - show_notify_queue.show_id must not be MOVED AT ALL. Its disposition is
+//     "drop"; re-pointing it would either abort on UNIQUE (show_id) or let a
+//     merge announce a show that predates the feature.
+//   - venue_show_alert_batch.show_id IS moved, just not by this helper. Its
+//     unique key is the whole natural key (venue_id, alert_day, show_id) and
+//     moveShowFKRows dedupes on exactly ONE partner column, so routing it
+//     through here would miss half the key and abort the merge on a unique
+//     violation. It moves through repointVenueShowAlertBatchShows instead.
 var showFKColumnsNeverRepointed = []string{
 	"show_notify_queue.show_id",
+	"venue_show_alert_batch.show_id",
 }
 
 // showFKColumnRepointBanned reports whether "table.column" is recorded as
@@ -228,6 +256,12 @@ type ShowDedupSummary struct {
 	// those rows are a user's inbox history, and a merge silently stranding
 	// them shows up as notifications that lost their title and link.
 	AlertRowsMoved int64
+	// VenueAlertBatchMoved counts venue_show_alert_batch memberships re-pointed
+	// onto the winner (PSY-1895). Counted separately from AlertRowsMoved because
+	// they are a different kind of row: those are delivered notifications, these
+	// are the membership list a delivered notification RENDERS FROM. Stranding
+	// these does not lose an inbox row, it silently shortens one.
+	VenueAlertBatchMoved int64
 
 	// History tables, which move through a provenance decision rather than
 	// through the inventory loop. See refsRepointedElsewhere.
@@ -276,6 +310,7 @@ func (s *ShowDedupSummary) Add(other *ShowDedupSummary) {
 	s.DuplicateOfRepoint += other.DuplicateOfRepoint
 	s.NotifyJobsDropped += other.NotifyJobsDropped
 	s.AlertRowsMoved += other.AlertRowsMoved
+	s.VenueAlertBatchMoved += other.VenueAlertBatchMoved
 
 	s.PendingEditsMoved += other.PendingEditsMoved
 	s.PendingEditsSkipped += other.PendingEditsSkipped
@@ -613,6 +648,21 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 	if alertsDropped > 0 {
 		logDroppedEntityRefs(mergeEntityShow, winnerID, loserID,
 			map[string]int64{"notification_log (artist_show_alert)": alertsDropped})
+	}
+
+	// venue_show_alert_batch memberships (PSY-1895). A real foreign key, so
+	// unlike the rows above these would CASCADE away silently with the loser —
+	// the venue alert that named this show would quietly render one show shorter.
+	// Its own function rather than moveShowFKRows because the unique key needs
+	// two dedupe columns; see repointVenueShowAlertBatchShows.
+	batchMoved, batchDropped, err := repointVenueShowAlertBatchShows(tx, winnerID, loserID)
+	if err != nil {
+		return err
+	}
+	summary.VenueAlertBatchMoved += batchMoved
+	if batchDropped > 0 {
+		logDroppedEntityRefs(mergeEntityShow, winnerID, loserID,
+			map[string]int64{"venue_show_alert_batch": batchDropped})
 	}
 
 	// Delete the loser show. Nothing should be left to CASCADE: every foreign key

@@ -638,3 +638,74 @@ func (s *ShowDedupTestSuite) TestMergeShow_DropsConflictingArtistShowAlertRows()
 	s.Equal(int64(1), onWinner,
 		"the redundant half of a duplicate notification the user already saw is dropped, not stacked")
 }
+
+// PSY-1895: venue_show_alert_batch carries a REAL foreign key to shows.id, so
+// unlike the alert rows above it does not merely go stale when a show is merged
+// away — it CASCADES. The venue alert that named the losing show keeps its inbox
+// row and silently renders one show shorter.
+//
+// Moved rather than dropped, which is the opposite of show_notify_queue's
+// disposition in this same merge. That table's row means "already considered for
+// notification", so moving one can manufacture an announcement. This row means
+// "this show was part of that venue-day's alert", and exactly-once for venue
+// alerts is held by uq_notification_log_venue_show_alert, which no re-point here
+// touches.
+func (s *ShowDedupTestSuite) TestMergeShow_MovesVenueAlertBatchRows() {
+	a := s.seedArtist("Batch Band")
+	v := s.seedVenue("Batch Hall", "Phoenix", "AZ")
+	eventDate := time.Date(2026, 6, 1, 3, 0, 0, 0, time.UTC)
+
+	winner := s.seedShow("Winner", eventDate, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), a.ID, v.ID, "AZ")
+	loser := s.seedShow("Loser", eventDate, time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC), a.ID, v.ID, "AZ")
+
+	// Only the LOSER was accrued into the venue's batch.
+	s.Require().NoError(s.db.Exec(`
+		INSERT INTO venue_show_alert_batch (venue_id, alert_day, show_id, created_at)
+		VALUES (?, '2026-05-01'::date, ?, now())`, v.ID, loser).Error)
+
+	summary := &ShowDedupSummary{}
+	s.Require().NoError(s.db.Transaction(func(tx *gorm.DB) error {
+		return MergeDuplicateShow(tx, winner, loser, summary)
+	}))
+
+	var onWinner int64
+	s.Require().NoError(s.db.Table("venue_show_alert_batch").
+		Where("show_id = ?", winner).Count(&onWinner).Error)
+	s.Equal(int64(1), onWinner, "the membership must follow the show it names")
+	s.Equal(int64(1), summary.VenueAlertBatchMoved)
+}
+
+// The drop half. The primary key is the whole natural key (venue_id, alert_day,
+// show_id), so a venue-day that accrued BOTH shows before they were found to be
+// duplicates cannot take the loser's row; without the dedupe the merge aborts on
+// the constraint. The second day is the over-deletion half: the dedupe must drop
+// exactly what the key would have rejected and not one row more.
+func (s *ShowDedupTestSuite) TestMergeShow_DropsConflictingVenueAlertBatchRows() {
+	a := s.seedArtist("Batch Conflict Band")
+	v := s.seedVenue("Batch Conflict Hall", "Phoenix", "AZ")
+	eventDate := time.Date(2026, 6, 1, 3, 0, 0, 0, time.UTC)
+
+	winner := s.seedShow("Winner", eventDate, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), a.ID, v.ID, "AZ")
+	loser := s.seedShow("Loser", eventDate, time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC), a.ID, v.ID, "AZ")
+
+	for _, showID := range []uint{winner, loser} {
+		s.Require().NoError(s.db.Exec(`
+			INSERT INTO venue_show_alert_batch (venue_id, alert_day, show_id, created_at)
+			VALUES (?, '2026-05-01'::date, ?, now())`, v.ID, showID).Error)
+	}
+	s.Require().NoError(s.db.Exec(`
+		INSERT INTO venue_show_alert_batch (venue_id, alert_day, show_id, created_at)
+		VALUES (?, '2026-05-02'::date, ?, now())`, v.ID, loser).Error)
+
+	summary := &ShowDedupSummary{}
+	s.Require().NoError(s.db.Transaction(func(tx *gorm.DB) error {
+		return MergeDuplicateShow(tx, winner, loser, summary)
+	}))
+
+	var days []time.Time
+	s.Require().NoError(s.db.Table("venue_show_alert_batch").
+		Where("show_id = ?", winner).Order("alert_day").Pluck("alert_day", &days).Error)
+	s.Require().Len(days, 2, "the colliding day collapses to one row; the other day still moves")
+	s.Equal("2026-05-01", days[0].Format("2006-01-02"))
+	s.Equal("2026-05-02", days[1].Format("2006-01-02"))
+}

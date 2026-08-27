@@ -10,6 +10,7 @@ import (
 	"html"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/getsentry/sentry-go"
@@ -33,6 +34,19 @@ type NotificationFilterService struct {
 	emailService contracts.EmailServiceInterface
 	jwtSecret    string // for HMAC unsubscribe URLs
 	frontendURL  string
+
+	// venueAlertFailures records, per venue-day batch, when its flush FIRST
+	// started failing (PSY-1895). It is what lets the poison-pill bound measure
+	// how long a group has been broken rather than how old its rows are — see
+	// noteVenueAlertGroupFailure for why that distinction decides whether an
+	// outage recovery delivers a backlog or destroys it.
+	//
+	// Entries exist only while a group is failing and are removed on success or
+	// on retirement, so the map is bounded by the number of simultaneously-broken
+	// venue-days. Guarded because the flush poller and the request-path methods
+	// share one service instance.
+	venueAlertFailuresMu sync.Mutex
+	venueAlertFailures   map[venueAlertGroupKey]time.Time
 }
 
 // NewNotificationFilterService creates a new notification filter service.
@@ -487,6 +501,20 @@ func (s *NotificationFilterService) MatchAndNotify(show *catalogm.Show) error {
 	// notification per show, and "a band you follow announced a show" is a better
 	// use of that single slot than "something is on in your city" (PSY-1896).
 	s.notifyArtistFollowers(show, showArtistIDs)
+
+	// Venue follows ACCRUE here rather than notifying (PSY-1895). Venue alerts
+	// are coalesced to one per venue per venue-local day, so this call records an
+	// observation and the flush poller decides who hears about the day's set.
+	//
+	// Between the artist pass and the scene pass, which is where the per-show
+	// fanout would have sat, so the specific-to-general ordering is unchanged:
+	// filters, then the band you follow, then the room you follow, then your
+	// city. Sitting AFTER the artist pass also matters for a reason accrual
+	// itself does not care about — the flush's cross-system dedup reads the rows
+	// the earlier passes wrote, so running before them would leave it looking at
+	// an empty log and repeating what a more specific alert had just said.
+	s.accrueVenueShowAlerts(show, showVenueIDs)
+
 	s.notifySceneFollowers(show, showArtistIDs)
 
 	return nil
@@ -949,6 +977,10 @@ func (s *NotificationFilterService) GetUserNotifications(userID uint, limit, off
 			Channel:         l.Channel,
 			SentAt:          l.SentAt,
 			ReadAt:          l.ReadAt,
+			// Formatted in UTC, which is where a DATE column arrives from the
+			// driver — the value carries a calendar day and no instant, so any
+			// other zone would shift it by one.
+			AlertBucket: formatAlertBucket(l.AlertBucket),
 		}
 	}
 
@@ -956,7 +988,25 @@ func (s *NotificationFilterService) GetUserNotifications(userID uint, limit, off
 	s.enrichCommentNotifications(entries)
 	s.enrichRequestNotifications(entries)
 	s.enrichArtistShowAlertNotifications(entries)
+	s.enrichVenueShowAlertNotifications(userID, entries)
 	return entries, nil
+}
+
+// formatAlertBucket renders a coalesced alert's day as YYYY-MM-DD, or "" when
+// the row has no bucket (every per-event writer).
+//
+// Formatted from the WALL CLOCK, with no zone conversion. A DATE carries
+// calendar fields and no instant, so converting it is not a normalization — it
+// is a reinterpretation that moves the day. The driver happens to decode DATE at
+// midnight UTC today, which makes .UTC() a no-op; the moment a connection
+// TimeZone east of UTC changed that, .UTC() would roll the value back to the
+// previous day, and every enrichment lookup keyed on this string would miss its
+// batch and render "0 new shows".
+func formatAlertBucket(bucket *time.Time) string {
+	if bucket == nil {
+		return ""
+	}
+	return bucket.Format(alertDayLayout)
 }
 
 // ──────────────────────────────────────────────
@@ -981,6 +1031,7 @@ func (s *NotificationFilterService) GetUserNotifications(userID uint, limit, off
 // unread badge, which is the kind of bug nobody reports as a bug.
 var emailLaneAlertTypes = []string{
 	notificationm.NotificationEntityArtistShowAlert,
+	notificationm.NotificationEntityVenueShowAlert,
 }
 
 // showAlertEntityTypes are the entity types that mean "this user has been told
@@ -988,6 +1039,15 @@ var emailLaneAlertTypes = []string{
 //
 // NotificationEntityShow is deliberately NOT in this list: it needs a channel
 // qualifier the others do not (see notifiedAboutShow), so it is spelled there.
+//
+// NotificationEntityVenueShowAlert MUST NEVER BE ADDED HERE, and it is the one
+// entry that would look like it belongs. Its entity_id is a VENUE id, not a show
+// id, because a venue alert is coalesced over a whole day and has no single show
+// to point at. Listing it would make notifiedAboutShow compare venue ids against
+// show ids: venue 42 would read as "already told about show 42" and silence a
+// filter match, an artist alert or a scene alert for an unrelated event, for
+// every user who follows that venue. TestShowAlertEntityTypesExcludeVenueAlerts
+// is what stops the well-meaning edit.
 var showAlertEntityTypes = []string{
 	notificationm.NotificationEntityArtistShowAlert,
 }
@@ -1138,6 +1198,198 @@ func (s *NotificationFilterService) enrichArtistShowAlertNotifications(entries [
 		} else {
 			e.AlertShowURL = fmt.Sprintf("%s/shows/%d", s.frontendURL, e.EntityID)
 		}
+	}
+}
+
+// venueAlertSummaryLimit caps how many shows an inbox row names.
+//
+// A venue-day batch is unbounded — a season's calendar drop is one batch — and
+// an inbox row is one or two lines. The count is reported separately and in
+// full, so the row can say "and 12 more" rather than lying about the size.
+const venueAlertSummaryLimit = 3
+
+// enrichVenueShowAlertNotifications populates the venue name, link, show count
+// and show preview on venue_show_alert rows (PSY-1895).
+//
+// The shows are resolved from venue_show_alert_batch AT READ TIME rather than
+// stamped onto the row when it was created, and that is the deliberate half of
+// this design: a show announced later the same day joins the batch, so the row
+// a user is looking at grows to include it without a second notification ever
+// having been sent. A snapshot taken at write time could not do that.
+//
+// Degrades rather than disappearing, in each direction independently: a merged
+// or deleted venue leaves the name and link blank, and a batch whose members
+// were all deleted leaves a count of zero. The notification still happened, and
+// a row that vanished from history would be a worse lie than a bare one.
+//
+// # The member query re-applies the DELIVERY rules, and must
+//
+// Reading the batch live is what lets the row grow, but it also means this query
+// is the ONLY thing standing between a member and the reader. Three filters
+// therefore mirror what the flush already decided, and each closes a real hole:
+//
+//   - ANNOUNCEABILITY. Only deleted shows leave the batch (the foreign key
+//     cascades). A show that is later un-approved, rejected or cancelled stays,
+//     and without this predicate its title would keep rendering in every
+//     follower's inbox forever — a non-public show's title, shown to users, on a
+//     row moderation has already withdrawn.
+//   - VENUE MEMBERSHIP. An ordinary edit replaces a show's venues wholesale
+//     without touching the batch, so a show that has moved to another venue would
+//     otherwise still be listed under this one.
+//   - THE READER'S OWN DEDUP. The flush strips shows the user was already told
+//     about by a more specific alert and sizes the EMAIL from what is left. This
+//     count and this list have to be sized the same way, or the same flush
+//     produces an email saying "New show at X" beside a bell row saying "5 new
+//     shows" — four of which it deliberately chose not to re-tell them about.
+func (s *NotificationFilterService) enrichVenueShowAlertNotifications(
+	userID uint,
+	entries []contracts.NotificationLogEntry,
+) {
+	if len(entries) == 0 {
+		return
+	}
+
+	venueIDs := make([]uint, 0, len(entries))
+	buckets := make([]string, 0, len(entries))
+	seenVenue := make(map[uint]struct{}, len(entries))
+	seenBucket := make(map[string]struct{}, len(entries))
+	for _, e := range entries {
+		if e.EntityType != notificationm.NotificationEntityVenueShowAlert || e.AlertBucket == "" {
+			continue
+		}
+		if _, dup := seenVenue[e.EntityID]; !dup {
+			seenVenue[e.EntityID] = struct{}{}
+			venueIDs = append(venueIDs, e.EntityID)
+		}
+		if _, dup := seenBucket[e.AlertBucket]; !dup {
+			seenBucket[e.AlertBucket] = struct{}{}
+			buckets = append(buckets, e.AlertBucket)
+		}
+	}
+	if len(venueIDs) == 0 {
+		return
+	}
+
+	type venueRow struct {
+		ID       uint
+		Name     string
+		Slug     *string
+		Timezone *string
+		State    string
+	}
+	var venues []venueRow
+	if err := s.db.Table("venues").
+		Select("id, name, slug, timezone, state").
+		Where("id IN ?", venueIDs).
+		Scan(&venues).Error; err != nil {
+		log.Printf("warning: failed to load venues for inbox enrichment: %v", err)
+		return
+	}
+	venueByID := make(map[uint]venueRow, len(venues))
+	for _, v := range venues {
+		venueByID[v.ID] = v
+	}
+
+	// Queried as the CROSS PRODUCT of the page's venues and its buckets, then
+	// narrowed to the exact pairs in Go. A tuple IN-list would be tighter, but a
+	// page of notifications holds a handful of venue alerts, so the superset is
+	// a handful of extra rows against one readable query.
+	var members []struct {
+		VenueID   uint      `gorm:"column:venue_id"`
+		AlertDay  string    `gorm:"column:alert_day"`
+		Title     string    `gorm:"column:title"`
+		EventDate time.Time `gorm:"column:event_date"`
+	}
+	if err := s.db.Raw(`
+		SELECT b.venue_id, to_char(b.alert_day, 'YYYY-MM-DD') AS alert_day,
+		       s.title, s.event_date
+		FROM venue_show_alert_batch b
+		JOIN shows s ON s.id = b.show_id
+		-- The show must still be AT this venue: an ordinary edit replaces
+		-- show_venues wholesale and never touches the batch row.
+		JOIN show_venues sv ON sv.show_id = s.id AND sv.venue_id = b.venue_id
+		-- The reader's OWN alert row for this venue-day. It supplies the instant
+		-- the notification was delivered, which is what freezes the dedup below.
+		JOIN notification_log own
+		  ON own.user_id = ?
+		 AND own.entity_type = ?
+		 AND own.entity_id = b.venue_id
+		 AND own.alert_bucket = b.alert_day
+		 AND own.channel = ?
+		WHERE b.venue_id = ANY(?) AND b.alert_day = ANY(?::date[])
+		  -- The same fence the flush applied before announcing it. Only DELETED
+		  -- shows leave the batch on their own, so without this a show pulled by
+		  -- moderation keeps its title in every follower's inbox.
+		  AND s.status = ? AND s.is_cancelled = false
+		  -- ...and the reader's own dedup, so this count cannot disagree with the
+		  -- email the same flush sent.
+		  --
+		  -- Bounded by own.sent_at: only alerts that existed WHEN THIS ROW WAS
+		  -- DELIVERED count. Without that bound the dedup is re-evaluated on every
+		  -- read against a log that keeps growing, so a later artist alert about a
+		  -- show in this batch would retroactively shrink a notification the user
+		  -- already received — "5 new shows" decaying to "2", or to an empty row.
+		  -- This reproduces what the flush actually saw, which is the only version
+		  -- of the count that can be stable.
+		  AND NOT EXISTS (
+		        SELECT 1 FROM notification_log nl
+		        WHERE nl.user_id = own.user_id
+		          AND nl.entity_id = s.id
+		          AND nl.sent_at <= own.sent_at
+		          AND `+notifiedAboutShow("nl")+`
+		      )
+		ORDER BY b.venue_id, b.alert_day, s.event_date ASC, s.id ASC
+	`,
+		// Bind order follows the query text: the JOIN's three, then the WHERE.
+		userID,
+		notificationm.NotificationEntityVenueShowAlert,
+		notificationm.NotificationChannelInApp,
+		pq.Array(venueIDs),
+		pq.Array(buckets),
+		catalogm.ShowStatusApproved,
+	).Scan(&members).Error; err != nil {
+		log.Printf("warning: failed to load venue alert batches for inbox enrichment: %v", err)
+		return
+	}
+
+	type batchKey struct {
+		venueID uint
+		day     string
+	}
+	byBatch := make(map[batchKey][]string, len(venueIDs))
+	counts := make(map[batchKey]int, len(venueIDs))
+	for _, m := range members {
+		key := batchKey{venueID: m.VenueID, day: m.AlertDay}
+		counts[key]++
+		if len(byBatch[key]) >= venueAlertSummaryLimit {
+			continue
+		}
+		v := venueByID[m.VenueID]
+		// Dates render in the VENUE's zone, matching every other show surface:
+		// a Phoenix date shown in the reader's zone is the PSY-996 bug.
+		label := m.EventDate.In(utils.EventLocation(v.Timezone, v.State)).Format("Mon Jan 2")
+		byBatch[key] = append(byBatch[key], fmt.Sprintf("%s %s", label, m.Title))
+	}
+
+	for i := range entries {
+		e := &entries[i]
+		if e.EntityType != notificationm.NotificationEntityVenueShowAlert || e.AlertBucket == "" {
+			continue
+		}
+		key := batchKey{venueID: e.EntityID, day: e.AlertBucket}
+		e.AlertShowCount = counts[key]
+		summary := byBatch[key]
+		if extra := counts[key] - len(summary); extra > 0 {
+			summary = append(append([]string{}, summary...), fmt.Sprintf("and %d more", extra))
+		}
+		e.AlertShowSummary = strings.Join(summary, " · ")
+
+		v, found := venueByID[e.EntityID]
+		if !found {
+			continue
+		}
+		e.AlertVenueName = v.Name
+		e.AlertVenueURL = entityURL(s.frontendURL, "venues", v.Slug, v.ID)
 	}
 }
 

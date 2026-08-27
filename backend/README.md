@@ -722,6 +722,7 @@ no nondeterministic DB state changes from ambient background jobs. A new
 | `DISABLE_STREET_GEOCODE_SWEEP`    | Daily venue street-geocode reconciliation via Nominatim (PSY-1544) |
 | `DISABLE_SWEEP_HEALTH_CHECK`      | Overdue-sweep alerting — reports stopped background loops to Sentry (PSY-1612) |
 | `DISABLE_SHOW_NOTIFY_OUTBOX`      | Follower notifications for ingest-created shows (PSY-1894). **The kill switch for outbound show email** |
+| `DISABLE_VENUE_SHOW_ALERTS`       | Coalesced venue new-show alerts (PSY-1895), BOTH accrual and the flush poller |
 
 `DISABLE_SHOW_NOTIFY_OUTBOX` gates the ENQUEUE as well as the drain, so setting it
 stops rows being written rather than letting a backlog build for a burst on
@@ -745,6 +746,43 @@ Tuning knobs: `SHOW_NOTIFY_OUTBOX_INTERVAL_SECONDS` (default `60`),
 `SHOW_NOTIFY_OUTBOX_STALE_RECLAIM_MINUTES` (default `30`, and **not measured**:
 see the poller's `reclaimStale` doc), `SHOW_NOTIFY_OUTBOX_MAX_JOB_AGE_HOURS`
 (default `24`).
+
+#### Venue new-show alerts (PSY-1895)
+
+Venue follows alert on new shows, COALESCED to one alert per user per venue per
+venue-local calendar day. `DISABLE_VENUE_SHOW_ALERTS` gates BOTH halves — the
+accrual that runs inside `MatchAndNotify` and the flush poller that delivers —
+and both re-read it live, so it takes effect **without a restart**. Like the
+outbox flag it is read per PROCESS, so an ingest CLI run elsewhere needs it in
+that environment too.
+
+Rows already accrued when it was set will be flushed once it is cleared. That is
+safe (the flush re-resolves from scratch and the per-day claim is what stops a
+duplicate), but if you want a clean restart, clear the pending set first:
+`DELETE FROM venue_show_alert_batch WHERE dispatched_at IS NULL`. Do NOT delete
+dispatched rows: the inbox row for a delivered alert renders its show list from
+this table at read time, so deleting them blanks real notification history.
+
+Tuning knobs: `VENUE_ALERT_FLUSH_INTERVAL_SECONDS` (default `60`),
+`VENUE_ALERT_QUIET_WINDOW_MINUTES` (default `5` — how long a venue-day must go
+without a new show before it is delivered; it MUST exceed the show-notify
+outbox's inter-tick gap or a drop is mailed half-finished),
+`VENUE_ALERT_MAX_HOLD_MINUTES` (default `30` — the bound that stops a trickling
+venue from never going quiet), `VENUE_ALERT_MAX_AGE_HOURS` (default `6`) and
+`VENUE_ALERT_FLUSH_BATCH` (default `5`).
+
+The two timing knobs are quality-of-message settings, not correctness ones. A
+batch flushed early mails the shows it has; later ones still reach the inbox row,
+because exactly-once is held by `uq_notification_log_venue_show_alert` rather
+than by the schedule.
+
+`VENUE_ALERT_MAX_AGE_HOURS` is different in kind — it is the poison-pill bound.
+Batches are selected oldest-first, so a group whose delivery keeps FAILING sits
+at the head of that ordering and re-occupies a slot on every tick; five of them
+would stop venue alerts platform-wide. Past this age such a group is abandoned
+unsent, with one log line per group containing the string `ABANDONING venue N on
+YYYY-MM-DD`. That line is a real user-visible loss — those followers were never
+told about that day's shows — so it is worth alerting on by pattern.
 
 The street-geocode sweep's cadence and per-run network budget are tunable:
 `STREET_GEOCODE_SWEEP_INTERVAL_HOURS` (default `24`),

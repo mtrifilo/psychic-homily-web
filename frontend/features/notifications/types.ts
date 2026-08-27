@@ -48,6 +48,21 @@ export interface NotificationLogEntry {
   alert_artist_name?: string
   alert_show_title?: string
   alert_show_url?: string
+  // Venue show-alert enrichment (PSY-1895). Unlike the artist alert above,
+  // entity_id holds the VENUE id and subject_entity_id is absent: the row is
+  // COALESCED over every show announced at that venue on one venue-local day,
+  // so there is no single show for it to point at. `alert_bucket` is that day
+  // (YYYY-MM-DD) and is part of the row's identity, not a timestamp about it.
+  //
+  // `alert_show_count` is the batch's FULL size; `alert_show_summary` is a
+  // server-capped preview that ends in "and N more" when it is shorter. The
+  // server resolves both at read time, which is why a row can grow after it was
+  // delivered.
+  alert_bucket?: string
+  alert_venue_name?: string
+  alert_venue_url?: string
+  alert_show_count?: number
+  alert_show_summary?: string
 }
 
 /** GET /me/notifications response shape */
@@ -89,6 +104,19 @@ export const NOTIFICATION_ENTITY_REQUEST_FULFILLMENT_PROPOSED =
  */
 export const NOTIFICATION_ENTITY_ARTIST_SHOW_ALERT =
   'artist_show_alert' as const
+
+/**
+ * Backend notification_log entity_type for the PSY-1895 venue new-show alert.
+ * Must stay in sync with
+ * models/notification.NotificationEntityVenueShowAlert.
+ *
+ * Its own discriminator AND its own id shape. An artist alert points at a show;
+ * this points at the VENUE, because it is coalesced over every show announced
+ * there on one venue-local day. Rendering it through the artist branch would
+ * treat a venue id as a show id.
+ */
+export const NOTIFICATION_ENTITY_VENUE_SHOW_ALERT =
+  'venue_show_alert' as const
 
 /** isCommentNotification returns true for the PSY-595 comment row types. */
 export function isCommentNotification(entry: NotificationLogEntry): boolean {
@@ -137,14 +165,18 @@ export function normalizeNotificationDeepLinks(
   const alert_show_url = entry.alert_show_url
     ? toRelativeIfSameOrigin(entry.alert_show_url)
     : entry.alert_show_url
+  const alert_venue_url = entry.alert_venue_url
+    ? toRelativeIfSameOrigin(entry.alert_venue_url)
+    : entry.alert_venue_url
   if (
     comment_url === entry.comment_url &&
     request_url === entry.request_url &&
-    alert_show_url === entry.alert_show_url
+    alert_show_url === entry.alert_show_url &&
+    alert_venue_url === entry.alert_venue_url
   ) {
     return entry
   }
-  return { ...entry, comment_url, request_url, alert_show_url }
+  return { ...entry, comment_url, request_url, alert_show_url, alert_venue_url }
 }
 
 export function isRequestNotification(entry: NotificationLogEntry): boolean {
@@ -159,6 +191,16 @@ export function isArtistShowAlertNotification(
   entry: NotificationLogEntry
 ): boolean {
   return entry.entity_type === NOTIFICATION_ENTITY_ARTIST_SHOW_ALERT
+}
+
+/**
+ * isVenueShowAlertNotification returns true for the PSY-1895 row created when a
+ * venue the user follows announces new shows.
+ */
+export function isVenueShowAlertNotification(
+  entry: NotificationLogEntry
+): boolean {
+  return entry.entity_type === NOTIFICATION_ENTITY_VENUE_SHOW_ALERT
 }
 
 /** Notification filter ownership (PSY-1467). Must stay in sync with

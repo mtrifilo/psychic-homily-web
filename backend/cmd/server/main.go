@@ -27,6 +27,7 @@ import (
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/logger"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	notificationm "psychic-homily-backend/internal/models/notification"
 	"psychic-homily-backend/internal/observability"
 	"psychic-homily-backend/internal/services"
 	"psychic-homily-backend/internal/services/catalog"
@@ -333,6 +334,7 @@ func main() {
 		imageEnrichSweepCancel       context.CancelFunc
 		imageEnrichOutboxCancel      context.CancelFunc
 		showNotifyOutboxCancel       context.CancelFunc
+		venueAlertFlushCancel        context.CancelFunc
 		artistLocationSweepCancel    context.CancelFunc
 		artistDiscographySweepCancel context.CancelFunc
 		artistLinksSweepCancel       context.CancelFunc
@@ -462,6 +464,31 @@ func main() {
 	} else {
 		log.Printf("show notify outbox disabled (%s=1); ingest-created shows will not notify followers",
 			catalogm.ShowNotifyOutboxDisableFlag)
+	}
+
+	// Start the venue-alert flush poller (PSY-1895: delivers the coalesced
+	// venue new-show alert once a venue-day's batch has gone quiet). Accrual
+	// runs inline in MatchAndNotify; without this loop the rows accumulate and
+	// nobody is ever told.
+	//
+	// ON by default with a DISABLE_* flag, matching the show-notify outbox: venue
+	// followers being told about new shows IS the feature, so an opt-in default
+	// would ship it dormant. The flag gates ACCRUAL too, so turning it off stops
+	// rows being written rather than letting them pile up for a burst when it is
+	// turned back on. Read per PROCESS — an ingest CLI run elsewhere needs the
+	// flag in its own environment to stop accruing.
+	//
+	// Starting this on a deploy cannot alert anyone about the existing
+	// catalogue: venue_show_alert_batch ships empty and only accrual writes to
+	// it, so the poller has nothing to find until a show becomes visible at a
+	// venue somebody already follows.
+	if notification.VenueShowAlertsEnabled() {
+		var venueAlertFlushCtx context.Context
+		venueAlertFlushCtx, venueAlertFlushCancel = context.WithCancel(context.Background())
+		sc.VenueAlertFlush.Start(venueAlertFlushCtx)
+	} else {
+		log.Printf("venue show alerts disabled (%s=1); venue followers will not be told about new shows",
+			notificationm.VenueShowAlertsDisableFlag)
 	}
 
 	// Start artist-location sweep (PSY-1250: Phase-A background job filling missing
@@ -652,6 +679,10 @@ func main() {
 	if showNotifyOutboxCancel != nil {
 		showNotifyOutboxCancel()
 		sc.ShowNotifyOutbox.Stop()
+	}
+	if venueAlertFlushCancel != nil {
+		venueAlertFlushCancel()
+		sc.VenueAlertFlush.Stop()
 	}
 	if artistLocationSweepCancel != nil {
 		artistLocationSweepCancel()

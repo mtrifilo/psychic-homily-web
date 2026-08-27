@@ -227,6 +227,14 @@ function startBackend(): ChildProcess {
       // assertion can see. Exactly the nondeterministic DB state this block exists
       // to prevent.
       DISABLE_SHOW_NOTIFY_OUTBOX: '1',
+      // PSY-1895. Default-ON, and the same nondeterminism argument applies one
+      // step further along: accrual rides MatchAndNotify, so a test that makes a
+      // show visible at a followed venue leaves a venue_show_alert_batch row
+      // that the flush poller turns into a notification_log row a later
+      // assertion can see. Its own flag rather than riding the one above,
+      // because the two halves are separately gated services and a shared flag
+      // would make turning one off silently turn off the other.
+      DISABLE_VENUE_SHOW_ALERTS: '1',
       // PSY-432: enable the /admin/test-fixtures/reset endpoint. Guarded by
       // a default-deny ENVIRONMENT check on the backend — the server
       // refuses to boot if ENABLE_TEST_FIXTURES=1 and ENVIRONMENT is not

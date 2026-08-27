@@ -168,6 +168,11 @@ func (s *NotificationFilterSuite) TearDownTest() {
 	// Clean up test data between tests
 	s.db.Exec("DELETE FROM notification_log")
 	s.db.Exec("DELETE FROM notification_filters")
+	// Cascades from the shows/venues deletes below, but named explicitly: a
+	// batch membership surviving into the next test would silently change what
+	// its flush finds, and "cleaned by someone else's cascade" is not a property
+	// worth depending on.
+	s.db.Exec("DELETE FROM venue_show_alert_batch")
 	s.db.Exec("DELETE FROM user_bookmarks")
 	s.db.Exec("DELETE FROM scenes")
 	s.db.Exec("DELETE FROM show_artists")

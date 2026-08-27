@@ -13958,8 +13958,14 @@ export interface components {
         };
         NotificationLogEntry: {
             alert_artist_name?: string;
+            alert_bucket?: string;
+            /** Format: int64 */
+            alert_show_count?: number;
+            alert_show_summary?: string;
             alert_show_title?: string;
             alert_show_url?: string;
+            alert_venue_name?: string;
+            alert_venue_url?: string;
             channel: string;
             /** Format: int64 */
             comment_entity_id?: number;

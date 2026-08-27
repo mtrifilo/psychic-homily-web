@@ -242,6 +242,10 @@ func (s *NotificationFilterService) artistFollowersForShow(
 // alertPrefsForUsers reads the account alert row for every follower in one
 // query. A user with no row is absent from the map, which resolves to the
 // shipped defaults and no home area — exactly what a NULL row means.
+// Its whole job over alertPrefsForUserIDs is the DE-DUPLICATION: an artist
+// follower list legitimately repeats a user (three bands on one bill), and a
+// venue one cannot. Having it collapse the ids and delegate keeps one copy of
+// the query rather than two that drift.
 func (s *NotificationFilterService) alertPrefsForUsers(
 	followers []artistFollowerRow,
 ) (map[uint]recipientAlertPrefs, error) {
@@ -254,21 +258,7 @@ func (s *NotificationFilterService) alertPrefsForUsers(
 		seen[f.UserID] = struct{}{}
 		ids = append(ids, f.UserID)
 	}
-
-	var rows []recipientAlertPrefs
-	err := s.db.Table("user_preferences").
-		Select("user_id, home_metro, alert_defaults").
-		Where("user_id IN ?", ids).
-		Scan(&rows).Error
-	if err != nil {
-		return nil, fmt.Errorf("alert preferences for %d users: %w", len(ids), err)
-	}
-
-	byUser := make(map[uint]recipientAlertPrefs, len(rows))
-	for _, r := range rows {
-		byUser[r.UserID] = r
-	}
-	return byUser, nil
+	return s.alertPrefsForUserIDs(ids)
 }
 
 // showAreaMetros is the show's area for near-me matching: the set of CBSA codes
