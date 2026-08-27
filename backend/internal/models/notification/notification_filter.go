@@ -91,10 +91,15 @@ type NotificationLog struct {
 	// the driver reads the value back at midnight UTC regardless of the zone the
 	// day was computed in. Compare and write it as a day, never as an instant.
 	//
-	// NULL for every per-event writer. A database CHECK forbids NULL on
-	// venue_show_alert rows specifically, because a NULL there would make the
-	// unique index inert (NULLs compare distinct) and re-send the alert on every
-	// flush.
+	// Two writers use it, with different widths: venue show alerts bucket by
+	// venue-local DAY, and artist release digests (PSY-1897) by the Monday of an
+	// ISO week in UTC. Both store a calendar day here; only the stride differs.
+	//
+	// NULL for every per-event writer. A database CHECK per coalesced
+	// discriminator forbids NULL on its own rows, because a NULL there would make
+	// that discriminator's unique index inert (NULLs compare distinct) and
+	// re-send the alert on every flush. A new coalesced type needs its OWN CHECK:
+	// the existing ones name their entity_type explicitly and cover nothing else.
 	AlertBucket *time.Time `gorm:"column:alert_bucket" json:"alert_bucket,omitempty"`
 }
 
@@ -168,6 +173,35 @@ const (
 	// service, or the shared "already told about this show" predicate would
 	// compare a venue id against a show id and silence unrelated notifications.
 	NotificationEntityVenueShowAlert = "venue_show_alert"
+
+	// NotificationEntityArtistReleaseDigest marks a notification_log row created
+	// because artists the user follows put out new records (PSY-1897).
+	//
+	// Its ids line up with NEITHER show sibling, and that is the single most
+	// important thing to know about this discriminator:
+	//
+	//	artist_show_alert:      entity_id = SHOW id,  subject_entity_id = artist id
+	//	venue_show_alert:       entity_id = VENUE id, subject_entity_id = NULL
+	//	artist_release_digest:  entity_id = USER id,  subject_entity_id = NULL
+	//
+	// A release digest is coalesced over the reader's WHOLE FOLLOW SET for one
+	// week — six bands, nine records, one row — so there is no artist and no
+	// release for entity_id to name without lying about the rest. The user id is
+	// the one value that is true of the row; the week lives in alert_bucket, and
+	// the releases are looked up from artist_release_alert_batch at read time
+	// (which is what lets a release accrued later in the week join a row that has
+	// already been delivered). subject_entity_id is NULL because there is no
+	// single followed subject either.
+	//
+	// Two consequences at query sites, both of which fail silently if missed:
+	//
+	//   - This entity_id is NOT a show id. It must never join
+	//     showAlertEntityTypes, or the shared "already told about this show"
+	//     predicate would read user 42 as show 42.
+	//   - This entity_id is NOT an artist id, and subject_entity_id is not one
+	//     either. It must never join artistSubjectAlertTypes in
+	//     services/catalog, or an artist merge would rewrite a reader's user id.
+	NotificationEntityArtistReleaseDigest = "artist_release_digest"
 
 	// NotificationEntityRequestFulfillmentProposed marks a notification_log row
 	// created when someone proposes a fulfillment for a community request (the

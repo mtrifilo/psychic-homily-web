@@ -100,6 +100,33 @@ func (h *UserPreferencesHandler) UnsubscribeArtistShowAlertsPageHandler(w http.R
 	})
 }
 
+// UnsubscribeArtistReleaseAlertsPageHandler serves
+// /unsubscribe/artist-release-alerts (PSY-1897).
+//
+// Its own route rather than a second label on the show-alert one: the setter
+// behind it writes the `releases` key in alert_defaults, which the show-alert
+// setter does not touch and must not. Sharing a route would mean one link
+// silencing whichever stream the handler happened to be wired to.
+//
+// confirmOnGet for the same reason its show sibling has it: the setter rewrites
+// every artist follow carrying an explicit email override, and a corporate mail
+// scanner following links without a human would silently destroy per-follow
+// opt-ins the user chose. The RFC 8058 POST that mailbox providers actually use
+// is unaffected and stays one click.
+func (h *UserPreferencesHandler) UnsubscribeArtistReleaseAlertsPageHandler(w http.ResponseWriter, r *http.Request) {
+	h.handleScopedUnsubscribe(w, r, scopedUnsubscribeConfig{
+		scope:   engagement.UnsubscribeScopeArtistReleaseAlerts,
+		setPref: func(uid uint) error { return h.userService.UnsubscribeArtistReleaseAlertEmails(uid) },
+		// "release-alert emails", and unlike the show-alert noun this one is not
+		// wider than it looks: alert_defaults keeps releases in their own key, so
+		// this button stops exactly the stream it names and leaves show alerts
+		// arriving.
+		noun:         "release-alert emails",
+		logSuffix:    "artist_release_alerts",
+		confirmOnGet: true,
+	})
+}
+
 // handleScopedUnsubscribe is the shared GET/POST body for the scoped
 // unsubscribe handlers. Mirrors UnsubscribeCollectionDigestPageHandler but
 // parameterized by scope + preference setter.

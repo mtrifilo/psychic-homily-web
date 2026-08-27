@@ -49,6 +49,14 @@ type NotificationFilterService struct {
 	// share one service instance.
 	venueAlertFailuresMu sync.Mutex
 	venueAlertFailures   map[venueAlertGroupKey]time.Time
+
+	// releaseDigestFailures is the same bound for the weekly release roundup
+	// (PSY-1897), keyed on the week bucket. Kept as a separate map rather than a
+	// shared one because the two loops retire independently: a broken venue-day
+	// must not consume the release loop's patience, and the keys are different
+	// shapes anyway.
+	releaseDigestFailuresMu sync.Mutex
+	releaseDigestFailures   map[string]time.Time
 }
 
 // NewNotificationFilterService creates a new notification filter service.
@@ -1109,6 +1117,7 @@ func (s *NotificationFilterService) GetUserNotifications(viewer contracts.ShowVi
 	s.enrichRequestNotifications(entries)
 	s.enrichArtistShowAlertNotifications(entries, viewer)
 	s.enrichVenueShowAlertNotifications(userID, entries)
+	s.enrichArtistReleaseDigestNotifications(userID, entries)
 	return entries, nil
 }
 
@@ -1152,6 +1161,7 @@ func formatAlertBucket(bucket *time.Time) string {
 var emailLaneAlertTypes = []string{
 	notificationm.NotificationEntityArtistShowAlert,
 	notificationm.NotificationEntityVenueShowAlert,
+	notificationm.NotificationEntityArtistReleaseDigest,
 }
 
 // showAlertEntityTypes are the entity types that mean "this user has been told
@@ -1168,6 +1178,13 @@ var emailLaneAlertTypes = []string{
 // filter match, an artist alert or a scene alert for an unrelated event, for
 // every user who follows that venue. TestShowAlertEntityTypesExcludeVenueAlerts
 // is what stops the well-meaning edit.
+//
+// NotificationEntityArtistReleaseDigest must never be added either, and its
+// failure mode is worse: its entity_id is a USER id, so listing it would make
+// user 42 read as "already told about show 42" — a suppression that follows one
+// reader around every show fanout rather than one venue's followers. It also has
+// nothing to contribute to a show predicate; a release roundup tells nobody
+// about a show.
 var showAlertEntityTypes = []string{
 	notificationm.NotificationEntityArtistShowAlert,
 }

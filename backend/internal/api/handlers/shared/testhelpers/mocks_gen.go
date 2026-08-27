@@ -4201,57 +4201,58 @@ func (m *MockTagService) PruneDownvotedTags() (int64, error) {
 // ============================================================================
 
 type MockUserService struct {
-	ListUsersFn                         func(int, int, contracts.AdminUserFilters) ([]*contracts.AdminUserResponse, int64, error)
-	FindOrCreateUserWithConsentFn       func(goth.User, string, *contracts.OAuthSignupConsent) (*authm.User, error)
-	FindOrCreateUserFromOAuthIdentityFn func(contracts.OAuthIdentity, *contracts.OAuthSignupConsent, *string) (*authm.User, error)
-	LinkOAuthAccountToUserFn            func(uint, *time.Time, goth.User, string) (*authm.User, error)
-	AuthenticateUserWithPasswordFn      func(string, string) (*authm.User, error)
-	CreateUserWithPasswordWithLegalFn   func(string, string, string, string, contracts.LegalAcceptance) (*authm.User, error)
-	GetUserByIDFn                       func(uint) (*authm.User, error)
-	GetUserByEmailFn                    func(string) (*authm.User, error)
-	GetUserByUsernameFn                 func(string) (*authm.User, error)
-	GetUserByUsernameIncludingClosedFn  func(string) (*authm.User, error)
-	UpdateUserFn                        func(uint, map[string]any) (*authm.User, error)
-	HashPasswordFn                      func(string) (string, error)
-	VerifyPasswordFn                    func(string, string) error
-	IsAccountLockedFn                   func(*authm.User) bool
-	GetLockTimeRemainingFn              func(*authm.User) time.Duration
-	IncrementFailedAttemptsFn           func(uint) error
-	ResetFailedAttemptsFn               func(uint) error
-	UpdatePasswordFn                    func(uint, string, string) error
-	SetPasswordFn                       func(uint, string, *time.Time) error
-	SetEmailVerifiedFn                  func(uint, bool) error
-	GetDeletionSummaryFn                func(uint) (*contracts.DeletionSummary, error)
-	SoftDeleteAccountFn                 func(uint, *string) error
-	ExportUserDataFn                    func(uint) (*contracts.UserDataExport, error)
-	ExportUserDataJSONFn                func(uint) ([]byte, error)
-	GetOAuthAccountsFn                  func(uint) ([]authm.OAuthAccount, error)
-	GetUserByEmailIncludingDeletedFn    func(string) (*authm.User, error)
-	IsAccountRecoverableFn              func(*authm.User) bool
-	GetDaysUntilPermanentDeletionFn     func(*authm.User) int
-	RestoreAccountFn                    func(uint) error
-	GetExpiredDeletedAccountsFn         func() ([]authm.User, error)
-	PermanentlyDeleteUserFn             func(uint) error
-	CanUnlinkOAuthAccountFn             func(uint, string) (bool, string, error)
-	UnlinkOAuthAccountFn                func(uint, string) error
-	GetFavoriteCitiesFn                 func(uint) ([]authm.FavoriteCity, error)
-	SetFavoriteCitiesFn                 func(uint, []authm.FavoriteCity) error
-	SetChartDefaultsFn                  func(uint, *authm.ChartDefaults) error
-	SetHomeLayoutFn                     func(uint, *authm.HomeLayout) (*authm.HomeLayout, error)
-	ClearHomeLayoutFn                   func(uint) error
-	DismissFirstSaveHintFn              func(uint) (time.Time, error)
-	SetShowRemindersFn                  func(uint, bool) error
-	SetDefaultReplyPermissionFn         func(uint, string) error
-	SetNotifyOnCommentSubscriptionFn    func(uint, bool) error
-	SetNotifyOnMentionFn                func(uint, bool) error
-	SetNotifyOnCollectionDigestFn       func(uint, bool) error
-	SetNotifyOnSceneDigestFn            func(uint, bool) error
-	SetNotifyOnTierNotificationsFn      func(uint, bool) error
-	SetNotifyOnEditNotificationsFn      func(uint, bool) error
-	GetAlertPreferencesFn               func(uint) (*authm.AlertPreferences, error)
-	SetHomeMetroFn                      func(uint, *string) error
-	SetAccountAlertDefaultsFn           func(uint, authm.AccountAlertDefaultsUpdate) error
-	UnsubscribeArtistShowAlertEmailsFn  func(uint) error
+	ListUsersFn                           func(int, int, contracts.AdminUserFilters) ([]*contracts.AdminUserResponse, int64, error)
+	FindOrCreateUserWithConsentFn         func(goth.User, string, *contracts.OAuthSignupConsent) (*authm.User, error)
+	FindOrCreateUserFromOAuthIdentityFn   func(contracts.OAuthIdentity, *contracts.OAuthSignupConsent, *string) (*authm.User, error)
+	LinkOAuthAccountToUserFn              func(uint, *time.Time, goth.User, string) (*authm.User, error)
+	AuthenticateUserWithPasswordFn        func(string, string) (*authm.User, error)
+	CreateUserWithPasswordWithLegalFn     func(string, string, string, string, contracts.LegalAcceptance) (*authm.User, error)
+	GetUserByIDFn                         func(uint) (*authm.User, error)
+	GetUserByEmailFn                      func(string) (*authm.User, error)
+	GetUserByUsernameFn                   func(string) (*authm.User, error)
+	GetUserByUsernameIncludingClosedFn    func(string) (*authm.User, error)
+	UpdateUserFn                          func(uint, map[string]any) (*authm.User, error)
+	HashPasswordFn                        func(string) (string, error)
+	VerifyPasswordFn                      func(string, string) error
+	IsAccountLockedFn                     func(*authm.User) bool
+	GetLockTimeRemainingFn                func(*authm.User) time.Duration
+	IncrementFailedAttemptsFn             func(uint) error
+	ResetFailedAttemptsFn                 func(uint) error
+	UpdatePasswordFn                      func(uint, string, string) error
+	SetPasswordFn                         func(uint, string, *time.Time) error
+	SetEmailVerifiedFn                    func(uint, bool) error
+	GetDeletionSummaryFn                  func(uint) (*contracts.DeletionSummary, error)
+	SoftDeleteAccountFn                   func(uint, *string) error
+	ExportUserDataFn                      func(uint) (*contracts.UserDataExport, error)
+	ExportUserDataJSONFn                  func(uint) ([]byte, error)
+	GetOAuthAccountsFn                    func(uint) ([]authm.OAuthAccount, error)
+	GetUserByEmailIncludingDeletedFn      func(string) (*authm.User, error)
+	IsAccountRecoverableFn                func(*authm.User) bool
+	GetDaysUntilPermanentDeletionFn       func(*authm.User) int
+	RestoreAccountFn                      func(uint) error
+	GetExpiredDeletedAccountsFn           func() ([]authm.User, error)
+	PermanentlyDeleteUserFn               func(uint) error
+	CanUnlinkOAuthAccountFn               func(uint, string) (bool, string, error)
+	UnlinkOAuthAccountFn                  func(uint, string) error
+	GetFavoriteCitiesFn                   func(uint) ([]authm.FavoriteCity, error)
+	SetFavoriteCitiesFn                   func(uint, []authm.FavoriteCity) error
+	SetChartDefaultsFn                    func(uint, *authm.ChartDefaults) error
+	SetHomeLayoutFn                       func(uint, *authm.HomeLayout) (*authm.HomeLayout, error)
+	ClearHomeLayoutFn                     func(uint) error
+	DismissFirstSaveHintFn                func(uint) (time.Time, error)
+	SetShowRemindersFn                    func(uint, bool) error
+	SetDefaultReplyPermissionFn           func(uint, string) error
+	SetNotifyOnCommentSubscriptionFn      func(uint, bool) error
+	SetNotifyOnMentionFn                  func(uint, bool) error
+	SetNotifyOnCollectionDigestFn         func(uint, bool) error
+	SetNotifyOnSceneDigestFn              func(uint, bool) error
+	SetNotifyOnTierNotificationsFn        func(uint, bool) error
+	SetNotifyOnEditNotificationsFn        func(uint, bool) error
+	GetAlertPreferencesFn                 func(uint) (*authm.AlertPreferences, error)
+	SetHomeMetroFn                        func(uint, *string) error
+	SetAccountAlertDefaultsFn             func(uint, authm.AccountAlertDefaultsUpdate) error
+	UnsubscribeArtistShowAlertEmailsFn    func(uint) error
+	UnsubscribeArtistReleaseAlertEmailsFn func(uint) error
 }
 
 func (m *MockUserService) ListUsers(limit int, offset int, filters contracts.AdminUserFilters) ([]*contracts.AdminUserResponse, int64, error) {
@@ -4557,6 +4558,12 @@ func (m *MockUserService) SetAccountAlertDefaults(userID uint, update authm.Acco
 func (m *MockUserService) UnsubscribeArtistShowAlertEmails(userID uint) error {
 	if m.UnsubscribeArtistShowAlertEmailsFn != nil {
 		return m.UnsubscribeArtistShowAlertEmailsFn(userID)
+	}
+	return nil
+}
+func (m *MockUserService) UnsubscribeArtistReleaseAlertEmails(userID uint) error {
+	if m.UnsubscribeArtistReleaseAlertEmailsFn != nil {
+		return m.UnsubscribeArtistReleaseAlertEmailsFn(userID)
 	}
 	return nil
 }

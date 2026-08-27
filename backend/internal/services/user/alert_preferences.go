@@ -209,6 +209,54 @@ func (s *UserService) UnsubscribeArtistShowAlertEmails(userID uint) error {
 	return nil
 }
 
+// UnsubscribeArtistReleaseAlertEmails stops the weekly new-release roundup
+// EMAILS for a user, and is what the RFC 8058 one-click link behind that email
+// calls (PSY-1897).
+//
+// The same two-write shape as UnsubscribeArtistShowAlertEmails, for the same
+// reason — the preference is resolved from two layers and either one alone can
+// keep the mail flowing — and with the same failure ordering: the account write
+// lands first, so a crash before the override sweep leaves the majority of
+// follows already silenced and the endpoint reports an error rather than
+// reporting success with the account default still on.
+//
+// Two things it does NOT share with its show sibling, both deliberate:
+//
+//   - It writes the `releases` key, not `shows`. They are separate keys in
+//     alert_defaults with separate resolvers, so this cannot be folded into the
+//     other setter without one unsubscribe silencing a stream the reader did not
+//     refuse. That separation is also why release alerts have their own
+//     unsubscribe scope.
+//   - It sweeps ARTIST follows only. followAlertsSupportsReleases is true for
+//     artists and false for everything else, so a venue follow has no `releases`
+//     preference to clear and DisableFollowAlertEmailChannel would reject the
+//     combination. Sweeping it anyway would be a write that can only fail.
+//
+// The IN-APP roundup is untouched: the user refused an email, not the product.
+func (s *UserService) UnsubscribeArtistReleaseAlertEmails(userID uint) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	off := false
+	if err := s.SetAccountAlertDefaults(userID, authm.AccountAlertDefaultsUpdate{
+		Releases: &authm.AlertChannelDefaultsUpdate{Email: &off},
+	}); err != nil {
+		return fmt.Errorf("failed to clear account release-alert email default: %w", err)
+	}
+
+	// FollowService is a thin handle over the same *gorm.DB, so constructing one
+	// here costs nothing and keeps the user_bookmarks JSONB merge in the package
+	// that owns it. See UnsubscribeArtistShowAlertEmails.
+	follows := engagement.NewFollowService(s.db)
+	if err := follows.DisableFollowAlertEmailChannel(
+		userID, string(engagementm.BookmarkEntityArtist), contracts.FollowAlertTypeReleases,
+	); err != nil {
+		return fmt.Errorf("failed to clear per-follow release-alert email overrides: %w", err)
+	}
+	return nil
+}
+
 // ensureUserPreferencesRow creates the user's preferences row if it has none,
 // leaving every column at its DDL default. DO NOTHING rather than DO UPDATE:
 // this call must never change a value, only guarantee that a row exists for a
