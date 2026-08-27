@@ -2,11 +2,17 @@
 
 import { useEffect, useRef } from 'react'
 import Link from 'next/link'
-import { Loader2 } from 'lucide-react'
-import { useSendVerificationEmail } from '@/features/auth'
+// Imported by module path, not through the `@/features/auth` barrel, so a suite
+// that mocks the barrel still runs the real resend control.
+import {
+  VerificationResend,
+  VerificationResendAlerts,
+  VerificationResendButton,
+  VerificationResendStatus,
+} from '@/features/auth/components/verification-resend'
+import { buildAuthHref } from '@/lib/auth-href'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import type { ApiError } from '@/lib/api'
 
 /**
  * Post-signup interstitial: signup already sent a verification link (PSY-1871),
@@ -17,10 +23,9 @@ import type { ApiError } from '@/lib/api'
  * never travels through a URL, and so a reload cannot strand anyone on a page
  * with no context.
  *
- * Deliberately local to `app/auth`. PSY-1901 adds a resend control to the
- * verify-email landing; the two are the same three lines of logic but sit on
- * surfaces whose copy is still moving, so they stay separate until one of them
- * settles.
+ * The resend button is the shared `<VerificationResend>` control (PSY-1911).
+ * This surface used to carry its own handler and its own 429 wording, which is
+ * exactly the drift that control exists to remove.
  */
 
 /** Matches the verification token TTL in backend `jwt.go: CreateVerificationToken`. */
@@ -31,29 +36,6 @@ const BROWSE_HREF = '/shows'
 
 /** The account-email fold, which is a tab on the profile page, not `/settings`. */
 const ACCOUNT_SETTINGS_HREF = '/profile?tab=settings'
-
-/**
- * Turns a failed resend into something actionable. A raw 429 body reads as
- * "the button is broken"; `Retry-After` is the only part of it a user can act
- * on, so it becomes the message.
- */
-function resendFailureMessage(error: unknown): string {
-  const apiError = error as ApiError | null
-
-  if (apiError?.status === 429) {
-    const seconds = apiError.retryAfter
-    if (typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0) {
-      return `That is a lot of resends. Try again in ${seconds}s.`
-    }
-    return 'That is a lot of resends. Try again in a minute.'
-  }
-
-  if (error instanceof Error && error.message) {
-    return error.message
-  }
-
-  return 'Could not send the email. Try again in a moment.'
-}
 
 interface CheckInboxInterstitialProps {
   /** The address the account was created under. */
@@ -69,7 +51,6 @@ export function CheckInboxInterstitial({
   email,
   returnTo,
 }: CheckInboxInterstitialProps) {
-  const resend = useSendVerificationEmail()
   const headingRef = useRef<HTMLHeadingElement>(null)
 
   // This surface replaces the signup card in place rather than navigating, so
@@ -127,42 +108,22 @@ export function CheckInboxInterstitial({
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <Button asChild>
-          <Link href={primaryHref}>{primaryLabel}</Link>
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => resend.mutate()}
-          disabled={resend.isPending}
-        >
-          {resend.isPending ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Sending...
-            </>
-          ) : (
-            'Resend email'
-          )}
-        </Button>
-      </div>
+      <VerificationResend
+        service="auth_signup"
+        signInHref={buildAuthHref(primaryHref)}
+      >
+        <div className="flex flex-wrap items-center gap-3">
+          <Button asChild>
+            <Link href={primaryHref}>{primaryLabel}</Link>
+          </Button>
+          <VerificationResendButton variant="outline">
+            Resend email
+          </VerificationResendButton>
+        </div>
 
-      {/*
-        The failure branch announces itself through `role="alert"`, so the
-        success branch needs a live region too. Without one a screen-reader
-        user gets silence on the happy path and only hears about the sad one.
-      */}
-      {resend.isSuccess && (
-        <p role="status" className="text-sm text-success-foreground">
-          Sent again. Give it a minute to arrive.
-        </p>
-      )}
-      {resend.isError && (
-        <p role="alert" className="text-sm text-destructive">
-          {resendFailureMessage(resend.error)}
-        </p>
-      )}
+        <VerificationResendStatus className="font-mono text-[11px] uppercase tracking-[0.55px] text-primary" />
+        <VerificationResendAlerts />
+      </VerificationResend>
 
       <p className="text-xs text-muted-foreground">
         Wrong address? Check it in{' '}

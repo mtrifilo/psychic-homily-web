@@ -6,27 +6,31 @@ import {
   isVerificationResendUnauthorized,
   resendStatusAnnouncement,
   useVerificationResendCooldown,
-  verificationResendRetryAfter,
+  verificationResendThrottle,
 } from './useVerificationResendCooldown'
 
-describe('verificationResendRetryAfter', () => {
-  it('reads the wait off a throttled response', () => {
-    expect(
-      verificationResendRetryAfter({ status: 429, retryAfter: 42 })
-    ).toBe(42)
+describe('verificationResendThrottle', () => {
+  it('reads the wait off a throttled response and trusts it', () => {
+    expect(verificationResendThrottle({ status: 429, retryAfter: 42 })).toEqual({
+      seconds: 42,
+      precision: 'exact',
+    })
   })
 
-  it('falls back to the standard cooldown when 429 carries no Retry-After', () => {
-    expect(verificationResendRetryAfter({ status: 429 })).toBe(
-      VERIFICATION_RESEND_COOLDOWN_SECONDS
-    )
+  // The live path in production: CORS does not expose Retry-After, so every
+  // throttled resend a real user hits lands here (PSY-1924).
+  it('falls back to the standard cooldown, marked approximate, with no Retry-After', () => {
+    expect(verificationResendThrottle({ status: 429 })).toEqual({
+      seconds: VERIFICATION_RESEND_COOLDOWN_SECONDS,
+      precision: 'approximate',
+    })
   })
 
   it('treats anything that is not a throttle as a real failure', () => {
-    expect(verificationResendRetryAfter({ status: 500 })).toBeNull()
-    expect(verificationResendRetryAfter(new Error('boom'))).toBeNull()
-    expect(verificationResendRetryAfter(null)).toBeNull()
-    expect(verificationResendRetryAfter('429')).toBeNull()
+    expect(verificationResendThrottle({ status: 500 })).toBeNull()
+    expect(verificationResendThrottle(new Error('boom'))).toBeNull()
+    expect(verificationResendThrottle(null)).toBeNull()
+    expect(verificationResendThrottle('429')).toBeNull()
   })
 })
 
@@ -45,15 +49,54 @@ describe('isVerificationResendUnauthorized', () => {
 
 describe('formatResendStatus', () => {
   it('says nothing before anything has happened', () => {
-    expect(formatResendStatus(false, 0)).toBeNull()
+    expect(
+      formatResendStatus({ sent: false, secondsRemaining: 0, precision: 'exact' })
+    ).toBeNull()
   })
 
   it('reports the confirmation and the wait independently', () => {
-    expect(formatResendStatus(true, 60)).toBe(
-      'Sent · Check your inbox · Resend available in 60s'
-    )
-    expect(formatResendStatus(true, 0)).toBe('Sent · Check your inbox')
-    expect(formatResendStatus(false, 30)).toBe('Resend available in 30s')
+    expect(
+      formatResendStatus({ sent: true, secondsRemaining: 60, precision: 'exact' })
+    ).toBe('Sent · Check your inbox · Resend available in 60s')
+    expect(
+      formatResendStatus({ sent: true, secondsRemaining: 0, precision: 'exact' })
+    ).toBe('Sent · Check your inbox')
+    expect(
+      formatResendStatus({ sent: false, secondsRemaining: 30, precision: 'exact' })
+    ).toBe('Resend available in 30s')
+  })
+
+  // The honesty rule. An approximate wait is a local assumption, so quoting a
+  // second count off it would be a precise-looking lie that ticks down
+  // convincingly for a whole minute.
+  it('quotes no second count for an approximate wait', () => {
+    const status = formatResendStatus({
+      sent: false,
+      secondsRemaining: 60,
+      precision: 'approximate',
+    })
+
+    expect(status).toBe('Resend available in about a minute')
+    expect(status).not.toMatch(/\d/)
+  })
+
+  it('uses the settings-row phrasing at compact density', () => {
+    expect(
+      formatResendStatus({
+        sent: true,
+        secondsRemaining: 45,
+        precision: 'exact',
+        density: 'compact',
+      })
+    ).toBe('Sent · Again in 45s')
+    expect(
+      formatResendStatus({
+        sent: false,
+        secondsRemaining: 60,
+        precision: 'approximate',
+        density: 'compact',
+      })
+    ).toBe('Again in about a minute')
   })
 })
 
@@ -105,6 +148,21 @@ describe('useVerificationResendCooldown', () => {
 
     expect(result.current.secondsRemaining).toBe(0)
     expect(result.current.isCoolingDown).toBe(false)
+    expect(result.current.precision).toBe('exact')
+  })
+
+  // The button is parked for the same span either way; only the copy differs,
+  // so an approximate wait must still report real seconds internally.
+  it('carries the precision the wait was started with', () => {
+    const { result } = renderHook(() => useVerificationResendCooldown())
+
+    act(() => result.current.start(60, 'approximate'))
+    expect(result.current.precision).toBe('approximate')
+    expect(result.current.isCoolingDown).toBe(true)
+    expect(result.current.secondsRemaining).toBe(60)
+
+    act(() => result.current.start(30))
+    expect(result.current.precision).toBe('exact')
   })
 
   it('counts down and releases the control when the wait runs out', () => {

@@ -3,20 +3,16 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import * as Sentry from '@sentry/nextjs'
 import { Loader2, Music } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { useSendVerificationEmail } from '@/features/auth'
 // Imported by module path, not through the `@/features/auth` barrel, so a suite
-// that mocks the barrel still runs the real countdown.
+// that mocks the barrel still runs the real resend control.
 import {
-  VERIFICATION_RESEND_COOLDOWN_SECONDS,
-  formatResendStatus,
-  isVerificationResendUnauthorized,
-  resendStatusAnnouncement,
-  useVerificationResendCooldown,
-  verificationResendRetryAfter,
-} from '@/features/auth/hooks/useVerificationResendCooldown'
+  VerificationResend,
+  VerificationResendAlerts,
+  VerificationResendButton,
+  VerificationResendStatus,
+} from '@/features/auth/components/verification-resend'
 import { buildAuthHref } from '@/lib/auth-href'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -40,44 +36,6 @@ import type { ExtractedShowData } from '@/lib/types/extraction'
  * the shared calendar) explains the same requirement without the lecture.
  */
 function EmailVerificationRequired() {
-  const sendVerificationEmail = useSendVerificationEmail()
-  const cooldown = useVerificationResendCooldown()
-  const [emailSent, setEmailSent] = useState(false)
-  const [sendFailed, setSendFailed] = useState(false)
-  const [sessionExpired, setSessionExpired] = useState(false)
-  const status = formatResendStatus(emailSent, cooldown.secondsRemaining)
-  const announcement = resendStatusAnnouncement(emailSent, cooldown.isCoolingDown)
-
-  const handleResend = async () => {
-    if (sendVerificationEmail.isPending || cooldown.isCoolingDown) {
-      return
-    }
-    setSendFailed(false)
-    try {
-      await sendVerificationEmail.mutateAsync()
-      setEmailSent(true)
-      cooldown.start(VERIFICATION_RESEND_COOLDOWN_SECONDS)
-    } catch (error) {
-      const retryAfter = verificationResendRetryAfter(error)
-      if (retryAfter !== null) {
-        // Throttled, not broken: park the control rather than raise an alert.
-        cooldown.start(retryAfter)
-        return
-      }
-      if (isVerificationResendUnauthorized(error)) {
-        // The session died while this gate sat open. Point at sign-in rather
-        // than a generic failure, and do not page on-call for an expiry.
-        setSessionExpired(true)
-        return
-      }
-      setSendFailed(true)
-      Sentry.captureException(error, {
-        level: 'error',
-        tags: { service: 'shows_submit', error_type: 'verification_email' },
-      })
-    }
-  }
-
   return (
     <div className="min-h-[calc(100vh-64px)] px-4 py-8">
       <div className="mx-auto max-w-xl">
@@ -98,56 +56,21 @@ function EmailVerificationRequired() {
             send yourself a fresh one.
           </p>
 
-          <div className="flex w-full flex-col gap-2.5">
-            <Button
-              onClick={handleResend}
-              disabled={sendVerificationEmail.isPending || cooldown.isCoolingDown}
-              className="w-full"
-            >
-              {sendVerificationEmail.isPending ? (
-                <Loader2 className="animate-spin" />
-              ) : null}
-              Send verification email
-            </Button>
-            <Button asChild variant="outline" className="w-full">
-              <Link href="/profile?tab=settings">Manage email in Settings</Link>
-            </Button>
-          </div>
+          <VerificationResend service="shows_submit" signInHref={SIGN_IN_HREF}>
+            <div className="flex w-full flex-col gap-2.5">
+              <VerificationResendButton className="w-full">
+                Send verification email
+              </VerificationResendButton>
+              <Button asChild variant="outline" className="w-full">
+                <Link href="/profile?tab=settings">
+                  Manage email in Settings
+                </Link>
+              </Button>
+            </div>
 
-          {/* Mounted unconditionally: assistive tech announces changes WITHIN a
-              live region already on the page, so a region inserted together
-              with its text is announced unreliably. The visible line ticks once
-              a second and is kept out of the region for the reason in
-              resendStatusAnnouncement. */}
-          <p className="sr-only" role="status">
-            {announcement ?? ''}
-          </p>
-
-          {status && (
-            <p
-              aria-hidden="true"
-              className="font-mono text-[11px] uppercase tracking-[0.44px] text-primary"
-            >
-              {status}
-            </p>
-          )}
-
-          {sessionExpired && (
-            <p role="alert" className="text-sm text-destructive">
-              Your session has expired.{' '}
-              <Link href={SIGN_IN_HREF} className="underline">
-                Sign in again
-              </Link>{' '}
-              to send the email.
-            </p>
-          )}
-
-          {sendFailed && (
-            <p role="alert" className="text-sm text-destructive">
-              We could not send that email just now. Please try again in a
-              moment.
-            </p>
-          )}
+            <VerificationResendStatus className="font-mono text-[11px] uppercase tracking-[0.44px] text-primary" />
+            <VerificationResendAlerts />
+          </VerificationResend>
 
           <p className="text-xs text-muted-foreground">
             Verify, then come back here to post your show.
