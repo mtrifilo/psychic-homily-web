@@ -22,17 +22,39 @@ on:
 # Settings -> Actions -> Workflow permissions happens to say, and that is a
 # checkbox one click away from read/write that no PR reviews. Most jobs here
 # run third-party code (`bun install` lifecycle scripts, `bunx playwright`,
-# `npm ci`, docker pulls) beside a checkout. The token is NOT in the step
-# environment; the reach is that actions/checkout defaults to
-# `persist-credentials: true`, which writes it into .git/config as an
-# http.extraheader any later step in the job can read. Same effect either way:
-# the scope a job holds is the scope a compromised transitive dependency holds.
+# `npm ci`, docker pulls). The token is not placed in a `run:` step's
+# environment by default, but it reaches third-party code by TWO routes, and
+# closing only one of them is a half measure:
+#   * actions/checkout defaults to `persist-credentials: true`, which writes
+#     it into .git/config as an http.extraheader every later step in the job
+#     can read; and
+#   * any action declaring a `github-token` / `token` input defaulting to
+#     `${{ github.token }}` receives it in-process as an INPUT_* variable.
+#     setup-go, setup-node, setup-bun and golangci-lint-action all do.
+# Either way, the scope a job holds is the scope a compromised transitive
+# dependency holds.
 #
-# This block REMOVES scopes as well as pinning one. The repository default is
-# currently `read`, which means read on EVERY scope, so naming `contents` drops
-# actions, checks, deployments, statuses, pull-requests and the rest to none
-# for every job that does not declare its own. Nothing here consumes one of
-# those, which is what makes that safe.
+# What this block REVOKES today is one scope, and being precise about that
+# matters more than sounding impressive. The repository setting is currently
+# GitHub's RESTRICTED default (Settings -> Actions -> Workflow permissions,
+# the radio labelled "Read repository contents and packages permissions").
+# That grants contents, packages and metadata at read, and leaves every OTHER
+# scope -- actions, checks, deployments, statuses, pull-requests -- at none
+# ALREADY. So naming `contents` here drops exactly `packages: read`. Nothing
+# in this repository pulls from ghcr.io or any GitHub Packages registry (every
+# image comes from Docker Hub; verified by grep), which is what makes that
+# safe. A job that ever does must declare `packages: read` in its own block.
+#
+# Corollary for anyone adding a job, and the reason this matters more than the
+# revocation does: the default hands you contents and packages and NOTHING
+# else, so any API call outside those needs its own `permissions:` block
+# whether or not this line exists. lighthouse-explore.yml's `deployments:
+# read` is the live proof.
+#
+# The value of this block is therefore the PIN, not the revocation. Flipping
+# that setting to "Read and write permissions" is one click nobody reviews,
+# and would otherwise hand every job below write on issues, pull-requests,
+# actions and the rest.
 #
 # `contents: read` is a deliberate FLOOR rather than a measured minimum, and
 # two honest caveats both argue for keeping it rather than against:
@@ -44,7 +66,9 @@ on:
 #     and oven-sh/bun -- OTHER public repos -- and only want a valid token to
 #     dodge the anonymous rate limit, which no scope on THIS repo grants or
 #     denies. Same for golangci-lint-action fetching its release asset.
-#     actions/checkout is the only consumer this scope actually governs.
+#     actions/checkout is the only consumer this scope governs among the jobs
+#     that INHERIT this block. notify-main-failure declares its own and
+#     consumes contents through repos.getCommit with no checkout at all.
 #
 # The artifact and cache actions do not read this scope at all: they
 # authenticate to the Actions service with the per-run ACTIONS_RUNTIME_TOKEN.
@@ -477,6 +501,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: [frontend-unit-shards]
     if: ${{ always() }}
+    # No checkout, no install, no API call -- one `run:` that echoes a needs
+    # result. `{}` rather than inheriting `contents: read`, because a job with
+    # nothing to clone has nothing to grant, and this is the cheapest place in
+    # the file to show what the empty block looks like.
+    permissions: {}
     steps:
       - name: Report shard results
         run: |
@@ -902,10 +931,13 @@ jobs:
     # "Triggered by" line from every filed issue with nothing going red.
     # Granting it explicitly is what makes the call independent of visibility.
     # `issues: write` covers listForRepo (dedupe) + issues.create, and is the
-    # finest grain GitHub offers for filing an issue. Note this job's shape is
-    # part of why that is tolerable: one github-script step, no checkout and no
-    # dependency install, so the write scope is never exposed to a transitive
-    # dependency. Adding a checkout or an install step here changes that.
+    # finest grain GitHub offers for filing an issue. This job's SHAPE is what
+    # keeps that tolerable: its only token consumer is first-party
+    # actions/github-script running the repo-controlled inline script below,
+    # with no checkout and no dependency install, so no project dependency
+    # ever sees the write scope. Adding a checkout or an install step here
+    # changes that -- see backend-image.yml, which was split for exactly this
+    # reason.
     permissions:
       contents: read
       issues: write

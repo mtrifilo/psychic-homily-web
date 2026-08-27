@@ -61,6 +61,17 @@ concurrency:
   group: backend-image-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Workflow-level DEFAULT for the GITHUB_TOKEN, not a floor: both jobs below
+# declare their own blocks, and a job-scoped block REPLACES this one rather
+# than extending it, so this line governs only jobs added later. See ci.yml's
+# header for the full rule.
+#
+# No `packages:` scope, and that is a checked fact rather than an oversight:
+# this workflow authenticates to DOCKER HUB with secrets.DOCKERHUB_USERNAME /
+# DOCKERHUB_TOKEN, and builds with `push: false`, so nothing is published
+# anywhere. Nothing in this repository references ghcr.io. If this ever starts
+# publishing to GitHub Packages, `packages: write` goes in the BUILD JOB's
+# block below (next to its `contents: read`), not up here.
 permissions:
   contents: read
 
@@ -68,16 +79,20 @@ jobs:
   backend-image:
     name: Backend Image Build
     runs-on: ubuntu-latest
-    # `contents: read` is restated here, not inherited: a job-scoped block
-    # REPLACES the workflow-level one rather than extending it, so deleting it
-    # as redundant would leave this job holding `issues: write` alone and strip
-    # the checkout below of its scope. See ci.yml's header for the full rule.
+    # `contents: read` and nothing else. The `issues: write` this block used to
+    # carry moved to the notify-image-failure job below (PSY-1909), so no write
+    # scope is live in a job that checks out and runs third-party actions.
+    #
+    # Keep this block even though it looks identical to the workflow-level one:
+    # a job-scoped block REPLACES that one rather than extending it, so if a
+    # scope is ever added here, `contents: read` has to stay written down
+    # alongside it. Deleting the block today would NOT go red -- this
+    # repository is public, so actions/checkout clones fine with a scopeless
+    # token -- which is exactly why it is worth a comment: the break would
+    # first surface the day the repository is flipped private, on a workflow
+    # nobody is watching. See ci.yml's header for the full rule.
     permissions:
       contents: read
-      # For the main-branch failure issue below. On pull_request events the
-      # token is read-only regardless, so this grant is only live on the push
-      # leg -- which is the only leg that files anything.
-      issues: write
     # Measured at 77s cold on this workflow's first run. The ceiling is a hung
     # registry pull, not slow compilation, so 10 minutes is already a wide
     # margin -- and a job that has genuinely wedged should free its runner
@@ -135,14 +150,40 @@ jobs:
           # cache, hit on every layer, and cost seconds.
           cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max,scope=backend-image' || '' }}
 
-      # A red square in the Actions tab is not a backstop -- nobody is
-      # subscribed to it. ci.yml's notify-main-failure job cannot cover this
-      # workflow (it can only aggregate `needs:` within its own workflow), so
-      # this files into the same `main-ci-failure` triage queue, using only the
-      # built-in GITHUB_TOKEN. Deduped on the commit SHA so a rerun storm does
-      # not spam.
+  # A red square in the Actions tab is not a backstop -- nobody is subscribed
+  # to it. ci.yml's notify-main-failure job cannot cover this workflow (it can
+  # only aggregate `needs:` within its own workflow), so this files into the
+  # same `main-ci-failure` triage queue, using only the built-in GITHUB_TOKEN.
+  # Deduped on the commit SHA so a rerun storm does not spam.
+  #
+  # PSY-1909 made this its OWN job rather than a final step of the build.
+  # As a step it forced `issues: write` onto the whole build job, which does
+  # `actions/checkout` (persisting the token into .git/config by default) and
+  # then runs three third-party docker/* actions floating on mutable major
+  # tags. That put a write scope within reach of any of them, on every run.
+  # Splitting costs one extra runner on a rare path and buys a notifier shaped
+  # like ci.yml's notify-main-failure: no checkout, no dependency install, one
+  # first-party github-script step running a repo-controlled inline script.
+  #
+  # It also makes the "only live on the push leg" claim true BY CONSTRUCTION.
+  # The previous comment asserted the token was read-only on pull_request
+  # events regardless -- that is true only for FORK PRs and Dependabot. Every
+  # PR in this repository is a same-repo branch, so the declared permissions
+  # applied in full and the old grant was live on every PR run.
+  notify-image-failure:
+    name: Notify on image build failure
+    needs: [backend-image]
+    if: ${{ !cancelled() && needs.backend-image.result == 'failure' && github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # No checkout here, so no `contents` scope is needed: the script reads
+    # everything it reports off the `context` object. A job-scoped block
+    # REPLACES the workflow-level one, so `contents: read` is absent by intent
+    # rather than by omission.
+    permissions:
+      issues: write
+    steps:
       - name: File a tracking issue on main-branch failure
-        if: ${{ failure() && github.event_name == 'push' }}
         uses: actions/github-script@v7
         with:
           script: |
