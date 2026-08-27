@@ -52,7 +52,12 @@ import {
 import { useArtistPanelSelection } from '@/components/graph/useArtistPanelSelection'
 import { EdgeSwatch } from '@/components/graph/EdgeLegend'
 import { edgeTypeLabel, orderEdgeTypes } from '@/components/graph/edgeGrammar'
-import { PLAYABLE_RING_COLOR, UPCOMING_SHOW_DOT_COLOR } from '@/components/graph/graphMarkers'
+import {
+  PLAYABLE_MARKER_LABEL,
+  PLAYABLE_RING_COLOR,
+  UPCOMING_SHOW_DOT_COLOR,
+  UPCOMING_SHOW_MARKER_LABEL,
+} from '@/components/graph/graphMarkers'
 import {
   useContainerWidth,
   GRAPH_BREAKPOINT_PX,
@@ -226,22 +231,11 @@ function HomeGraphLegend({
           style={{ backgroundColor: UPCOMING_SHOW_DOT_COLOR }}
           aria-hidden="true"
         />
-        {/* The dot's predicate is `upcoming_show_count > 0` — any approved
-            future show, at any distance. "Playing soon" named a window the
-            marker does not have; this key states the predicate instead.
-
-            "HAS upcoming shows", not the bare "upcoming shows": the homepage
-            renders an <h2>Upcoming shows</h2> section immediately above this
-            one, and every swatch here is aria-hidden, so a bare key reaches a
-            screen reader as a second, subject-less copy of that heading. The
-            verb makes it read as a property of a NAME on the map.
-
-            The predicate itself is duplicated, so bounding the marker later
-            means editing all four sites: ForceGraphView (canvas draw + hover
-            tooltip) and ArtistGraph (its ego canvas draws the dot directly,
-            not through ForceGraphView, plus its own legend-visibility gate).
-            graphMarkers owns only the color and the geometry. */}
-        has upcoming shows
+        {/* Wording — and why it is a predicate rather than a time window, and
+            what bounding it would cost — lives on the constant in
+            graphMarkers, which the ego legend renders too, so this key and
+            that one cannot describe one marker two ways. */}
+        {UPCOMING_SHOW_MARKER_LABEL}
       </span>
       )}
       {hasPlayableRing && (
@@ -251,7 +245,7 @@ function HomeGraphLegend({
           style={{ borderColor: PLAYABLE_RING_COLOR }}
           aria-hidden="true"
         />
-        playable audio
+        {PLAYABLE_MARKER_LABEL}
       </span>
       )}
     </div>

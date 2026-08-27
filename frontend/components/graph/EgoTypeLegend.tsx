@@ -17,7 +17,12 @@ import { memo } from 'react'
 
 import { cn } from '@/lib/utils'
 import { egoLegendRows, type EgoFillFamily } from './egoPalette'
-import { PLAYABLE_RING_COLOR, UPCOMING_SHOW_DOT_COLOR } from './graphMarkers'
+import {
+  PLAYABLE_MARKER_LABEL,
+  PLAYABLE_RING_COLOR,
+  UPCOMING_SHOW_DOT_COLOR,
+  UPCOMING_SHOW_MARKER_LABEL,
+} from './graphMarkers'
 
 export interface EgoTypeLegendProps {
   /** Fill families assigned to the rendered nodes (null = neutral). */
@@ -42,6 +47,13 @@ export const EgoTypeLegend = memo(function EgoTypeLegend({
   if (rows.length === 0 && !showUpcomingDot && !showPlayableRing) return null
 
   return (
+    // Deliberately unnamed for now. The sibling home-teaser legend carries
+    // role=group + an aria-label (ARIA prohibits naming role=generic, so a
+    // bare div drops the name), and this one wants the same framing — but that
+    // component has ONE mount site while this has four, two of which sit on
+    // the artist page at the same time, so a hardcoded name would announce two
+    // different legends identically. Naming these needs a per-host decision
+    // (and the EdgeLegend beside them is unnamed too): PSY-1922.
     <div
       data-testid="ego-type-legend"
       className={cn(
@@ -59,6 +71,19 @@ export const EgoTypeLegend = memo(function EgoTypeLegend({
           {row.label}
         </span>
       ))}
+      {/* Both marker keys come from graphMarkers, which owns the wording along
+          with the color and geometry — the home scene-graph teaser names the
+          same two markers, and prose agreement is what let this legend keep
+          "playing soon" after that one was corrected.
+
+          Known gap, deliberately NOT qualified in the key: on the ego canvas
+          the dot is satellite-only (ArtistGraph skips the center), so an
+          undotted CENTER does not mean that artist has nothing booked.
+          Qualifying the key here would re-open the two-wordings problem the
+          shared constant just closed. On the artist page the center's own
+          upcoming shows are listed in full in a section of their own, so the
+          gap is covered there; on /graph nothing else on the surface corrects
+          it, which is the case to weigh if this is ever revisited. */}
       {showUpcomingDot && (
         <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
           <span
@@ -66,7 +91,7 @@ export const EgoTypeLegend = memo(function EgoTypeLegend({
             className="size-2 shrink-0 rounded-full"
             style={{ backgroundColor: UPCOMING_SHOW_DOT_COLOR }}
           />
-          playing soon
+          {UPCOMING_SHOW_MARKER_LABEL}
         </span>
       )}
       {showPlayableRing && (
@@ -76,7 +101,7 @@ export const EgoTypeLegend = memo(function EgoTypeLegend({
             className="size-2.5 shrink-0 rounded-full border-[1.5px]"
             style={{ borderColor: PLAYABLE_RING_COLOR }}
           />
-          playable audio
+          {PLAYABLE_MARKER_LABEL}
         </span>
       )}
     </div>
