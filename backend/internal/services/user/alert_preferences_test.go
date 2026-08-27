@@ -325,6 +325,7 @@ func (suite *AlertPreferencesIntegrationTestSuite) TestUnsubscribeArtistShowAler
 	user := suite.createUser("alerts-unsub@example.com")
 	artistID := suite.seedArtist("Unsub Band")
 	venueID := suite.seedVenue("Unsub Hall")
+	sceneID := suite.seedScene("unsub-phoenix-az")
 
 	// The user opted in at BOTH layers: account-wide, and again on one follow.
 	// Either one left standing keeps the mail flowing. Releases email is switched
@@ -338,16 +339,21 @@ func (suite *AlertPreferencesIntegrationTestSuite) TestUnsubscribeArtistShowAler
 	follows := engagement.NewFollowService(suite.db)
 	suite.Require().NoError(follows.Follow(user.ID, "artist", artistID))
 	suite.Require().NoError(follows.Follow(user.ID, "venue", venueID))
-	_, err := follows.SetFollowAlertSettings(user.ID, "artist", artistID,
-		contracts.FollowAlertUpdate{
-			Shows: &contracts.FollowAlertPreferenceUpdate{Email: boolPtrLocal(true)},
-		})
-	suite.Require().NoError(err)
-	_, err = follows.SetFollowAlertSettings(user.ID, "venue", venueID,
-		contracts.FollowAlertUpdate{
-			Shows: &contracts.FollowAlertPreferenceUpdate{Email: boolPtrLocal(true)},
-		})
-	suite.Require().NoError(err)
+	suite.Require().NoError(follows.Follow(user.ID, "scene", sceneID))
+	for _, target := range []struct {
+		entityType string
+		entityID   uint
+	}{
+		{"artist", artistID},
+		{"venue", venueID},
+		{"scene", sceneID},
+	} {
+		_, err := follows.SetFollowAlertSettings(user.ID, target.entityType, target.entityID,
+			contracts.FollowAlertUpdate{
+				Shows: &contracts.FollowAlertPreferenceUpdate{Email: boolPtrLocal(true)},
+			})
+		suite.Require().NoError(err)
+	}
 
 	suite.Require().NoError(suite.userService.UnsubscribeArtistShowAlertEmails(user.ID))
 
@@ -365,11 +371,26 @@ func (suite *AlertPreferencesIntegrationTestSuite) TestUnsubscribeArtistShowAler
 	suite.True(artistAlerts.Shows.InApp)
 
 	// The account write is not narrower than the `shows` key, which covers venue
-	// show alerts too, so the sweep has to reach venue follows or the two halves
-	// of this unsubscribe disagree about what was silenced.
+	// and scene show alerts too, so the sweep has to reach those follows or the
+	// two halves of this unsubscribe disagree about what was silenced.
 	venueAlerts, err := follows.GetFollowAlertSettings(user.ID, "venue", venueID)
 	suite.Require().NoError(err)
 	suite.False(venueAlerts.Shows.Email)
+
+	sceneAlerts, err := follows.GetFollowAlertSettings(user.ID, "scene", sceneID)
+	suite.Require().NoError(err)
+	suite.False(sceneAlerts.Shows.Email)
+	suite.True(sceneAlerts.Shows.InApp,
+		"a scene's bell row is its dedup marker and cannot be switched off here")
+}
+
+func (suite *AlertPreferencesIntegrationTestSuite) seedScene(slug string) uint {
+	var sceneID uint
+	suite.Require().NoError(suite.db.Raw(`
+		INSERT INTO scenes (metro, city, state, slug)
+		VALUES (NULL, 'Phoenix', 'AZ', ?)
+		RETURNING id`, slug).Scan(&sceneID).Error)
+	return sceneID
 }
 
 func (suite *AlertPreferencesIntegrationTestSuite) seedArtist(name string) uint {
