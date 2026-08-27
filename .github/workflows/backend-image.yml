@@ -36,7 +36,7 @@
 # than trusting this line, which was stale before PSY-1909:
 #
 #   gh api repos/mtrifilo/psychic-homily-web/branches/main/protection \
-#     --jq '.required_status_checks.contexts'
+#     --jq '{contexts: .required_status_checks.contexts, admins: .enforce_admins.enabled}'
 #
 #   >>> While it is required, do NOT add a `paths:` filter to this workflow.
 #   >>> A filtered run reports NOTHING (not "skipped") on PRs that miss the
@@ -49,11 +49,11 @@ on:
     branches: [main]
   # Post-merge too. Two PRs can each be green alone and break the image together
   # (a Dockerfile change on one, a lockfile change on the other), and while this
-  # check is required, a PR run can still be merged past with an admin override
-  # (enforce_admins is false). This leg catches both, and the
-  # notify-image-failure job below is what makes it a backstop rather than a
-  # red square nobody is subscribed to -- with the caveat recorded on that
-  # job's `if:`: a run that concludes `cancelled` files nothing.
+  # check is required, a PR run can still be merged past while admins are
+  # exempt. This leg catches both, and the notify-image-failure job below is
+  # what makes it a backstop rather than a red square nobody is subscribed to
+  # -- with the caveat recorded on that job's `if:`, that only a 'failure'
+  # result pages.
   push:
     branches: [main]
 
@@ -160,8 +160,9 @@ jobs:
     # Same trigger the notify step had before it became a job: this change
     # moves where the scope lives, not when anyone is paged.
     #
-    # KNOWN DEFECT, inherited and not fixed here: a run concluding `cancelled`
-    # skips this job. Same defect as ci.yml's notifier; see the note there.
+    # KNOWN GAP, not fixed here: this fires only on result == 'failure'. A
+    # build killed by the 10-minute job cap concludes 'cancelled', so a wedged
+    # image build on main files nothing.
     if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.backend-image.result == 'failure' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5

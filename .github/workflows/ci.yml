@@ -286,7 +286,7 @@ jobs:
 
       # `only-new-issues` is unset. Enabling it makes this action call
       # pulls.get, which needs `pull-requests: read`; the action swallows a
-      # permission failure and lints the whole tree while staying green. Add a
+      # permission failure and lints the whole tree instead of the diff. Add a
       # job-scoped block with contents: read AND pull-requests: read if you
       # enable it.
       - name: Run gated linters
@@ -914,11 +914,11 @@ jobs:
               'E2E Tests (sharded)': process.env.RES_E2E_TESTS,
               'E2E Merged Report': process.env.RES_E2E_REPORT,
             }
-            // 'cancelled' reaches here only for a partially-cancelled matrix
-            // whose run still concluded `failure` (a sibling job failed). A
-            // run that concludes `cancelled` skips this job entirely -- see
-            // the KNOWN DEFECT note on the if: above. Name it either way: a
-            // killed shard must be attributable from the issue.
+            // 'cancelled' reaches here only when the run still concluded
+            // 'failure' (a sibling job failed) while another job was
+            // cap-killed. A run that concludes 'cancelled' skips this job
+            // entirely -- see the KNOWN DEFECT note on the if: above. Name it
+            // either way: a killed job must be attributable from the issue.
             const failed = Object.entries(results)
               .filter(([_, r]) => r === 'failure' || r === 'cancelled')
               .map(([name, r]) => r === 'cancelled' ? `${name} (cancelled: job timeout)` : name)
