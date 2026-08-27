@@ -866,45 +866,6 @@ func (s *NotificationFilterService) showEmailContent(show *catalogm.Show) showEm
 	}
 }
 
-// sendSceneFollowEmail mirrors sendFilterEmail for a scene follow (PSY-1341):
-// same per-user daily rate limit, scene name in place of the filter name, and
-// the manage page in place of a filter-scoped one-click unsubscribe (scene
-// follows have no filter row to sign; the weekly-digest ticket owns richer
-// unsubscribe scoping).
-func (s *NotificationFilterService) sendSceneFollowEmail(userID uint, sceneName string, show *catalogm.Show) {
-	var emailCount int64
-	dayAgo := time.Now().UTC().Add(-24 * time.Hour)
-	s.db.Model(&notificationm.NotificationLog{}).
-		Where("user_id = ? AND channel = ? AND sent_at > ?", userID, "email", dayAgo).
-		Count(&emailCount)
-	if emailCount >= int64(maxFilterEmailsPerDay) {
-		log.Printf("rate limit: skipping scene-follow email for user %d (sent %d today)", userID, emailCount)
-		return
-	}
-
-	var email string
-	if err := s.db.Table("users").Where("id = ?", userID).Pluck("email", &email).Error; err != nil || email == "" {
-		log.Printf("failed to get email for user %d: %v", userID, err)
-		return
-	}
-
-	c := s.showEmailContent(show)
-	manageURL := fmt.Sprintf("%s/following?tab=scene", s.frontendURL)
-	html := buildFilterEmailHTML(
-		fmt.Sprintf("%s scene", sceneName),
-		show.Title, c.date, c.venueText, c.artistText, c.priceText, c.showURL, manageURL,
-	)
-	subject := fmt.Sprintf("New show in %s", sceneName)
-	if err := s.sendEmail(email, subject, html, manageURL); err != nil {
-		sentry.WithScope(func(scope *sentry.Scope) {
-			scope.SetTag("service", "notification_filter")
-			scope.SetTag("email_type", "scene_follow")
-			sentry.CaptureException(err)
-		})
-		log.Printf("failed to send scene-follow email to %s: %v", email, err)
-	}
-}
-
 // sendEmail sends an email via the email service.
 func (s *NotificationFilterService) sendEmail(to, subject, html, unsubscribeURL string) error {
 	return s.emailService.SendFilterNotificationEmail(to, subject, html, unsubscribeURL)
