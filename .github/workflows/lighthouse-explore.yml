@@ -70,14 +70,10 @@ on:
 # PSY-1909: workflow-level DEFAULT for the GITHUB_TOKEN so it is not inherited
 # from the repository's Workflow-permissions setting.
 #
-# A default, not a floor, and the distinction matters here. The one job below
-# declares its own block, and a job-scoped block REPLACES this one rather than
-# extending it, so that job's own scopes -- which are BROADER than this line,
-# not narrower -- are what it actually runs with. (Deliberately not restating
-# the count: a count is the one thing guaranteed to rot on the next edit.)
-# This line therefore changes nothing about today's run. It governs only jobs
-# added later, which now start read-only instead of silently picking up
-# whatever that setting says. See ci.yml's header for the full rationale.
+# Workflow-level default for the GITHUB_TOKEN. Any job declaring its own
+# `permissions:` REPLACES this rather than extending it; a job declaring none
+# inherits exactly this. The job below declares its own, so this line governs
+# only jobs added later. See ci.yml's header for the rule.
 permissions:
   contents: read
 
@@ -95,26 +91,11 @@ jobs:
     # calls below. No write permissions required — Lighthouse uploads
     # to temporary-public-storage, not a self-hosted LHCI server.
     #
-    # `contents: read` is for actions/checkout. PSY-1909 REMOVED a third
-    # scope, `pull-requests: read`, after auditing every token consumer in this
-    # job: the script below takes the head SHA off `context.payload` rather
-    # than from an API call, and its only two REST calls are listDeployments /
-    # listDeploymentStatuses. That AUDIT is the evidence.
-    #
-    # A green run is NOT evidence here, and it is worth saying so because the
-    # `paths:` filter above includes this file, so the change that dropped the
-    # scope did run this job. It still proves nothing: this repository is
-    # public, so every call above succeeds with a scopeless token, and a
-    # missing READ scope stays invisible until the repository is flipped
-    # private. (Third-party actions can also swallow a 403 and stay green --
-    # see the only-new-issues note on ci.yml's backend-lint job.)
-    #
-    # Do NOT "restore" it by handing this job's token to the third-party
-    # action: treosh/lighthouse-ci-action declares no token input, and the
-    # runner does not export GITHUB_TOKEN, so it holds no token at all and no
-    # upgrade of it can consume this block. `pull-requests: read` would only be
-    # needed if a step here is BOTH given a token AND calls the pulls API.
-    # Adding those two together is the decision to review, not the scope alone.
+    # `contents: read` for actions/checkout. `pull-requests: read` was removed
+    # by PSY-1909: the script below reads the head SHA from `context.payload`,
+    # and its only REST calls are listDeployments / listDeploymentStatuses.
+    # It would be needed again only if a step here is both handed a token and
+    # calls the pulls API.
     permissions:
       contents: read
       deployments: read
