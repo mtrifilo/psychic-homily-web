@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { QueryClient, QueryObserver } from '@tanstack/react-query'
+import * as Sentry from '@sentry/nextjs'
 
 function createDeferred<T>() {
   let resolve: (value: T) => void = () => {}
@@ -244,7 +245,7 @@ describe('queryClient module', () => {
   })
 
   describe('retry logic', () => {
-    it('does not retry on 4xx errors', async () => {
+    it('does not retry on 4xx errors other than 429', async () => {
       const { getQueryClient } = await import('./queryClient')
       const client = getQueryClient()
 
@@ -301,6 +302,169 @@ describe('queryClient module', () => {
       expect(retryFn(1, networkError)).toBe(true)
       expect(retryFn(2, networkError)).toBe(true)
       expect(retryFn(3, networkError)).toBe(false)
+    })
+
+    // PSY-1912. The POLICY itself is covered in query-retry-policy.test.ts;
+    // what has to be asserted here is only that the client actually uses it,
+    // since a policy nobody wired up would leave 429s terminal exactly as
+    // before. Identity checks rather than behavioural re-testing, so this
+    // cannot drift into a second, weaker copy of those assertions.
+    it('wires the shared retry policy onto the client', async () => {
+      const { getQueryClient } = await import('./queryClient')
+      const { shouldRetryQuery, queryRetryDelay } = await import(
+        './query-retry-policy'
+      )
+
+      const defaults = getQueryClient().getDefaultOptions()
+
+      expect(defaults.queries?.retry).toBe(shouldRetryQuery)
+      expect(defaults.queries?.retryDelay).toBe(queryRetryDelay)
+    })
+  })
+
+  // End-to-end through a real QueryClient carrying the shared defaults, so
+  // these cover the wiring as well as the policy: a predicate-only test would
+  // still pass if `retry` were never attached to the client.
+  describe('429 recovery through the shared client', () => {
+    const rateLimited = () =>
+      Object.assign(new Error('Too Many Requests'), { status: 429 })
+
+    beforeEach(() => {
+      vi.mocked(Sentry.captureMessage).mockClear()
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('recovers when a 429 is followed by a 200', async () => {
+      const { getQueryClient } = await import('./queryClient')
+      const client = getQueryClient()
+
+      const queryFn = vi
+        .fn<() => Promise<{ ok: boolean }>>()
+        .mockRejectedValueOnce(rateLimited())
+        .mockResolvedValue({ ok: true })
+
+      const result = client.fetchQuery({
+        queryKey: ['artists', 'releases', 'recovers'],
+        queryFn,
+      })
+
+      // One full limiter window covers the whole retry budget by design.
+      await vi.advanceTimersByTimeAsync(60_000)
+
+      await expect(result).resolves.toEqual({ ok: true })
+      expect(queryFn).toHaveBeenCalledTimes(2)
+      // A recovered 429 is not a user-visible failure, so nothing is reported
+      // as exhausted. Visibility for it comes from the fetch-boundary hit
+      // signal in lib/api.ts instead.
+      expect(Sentry.captureMessage).not.toHaveBeenCalledWith(
+        'Rate limit retries exhausted (HTTP 429)',
+        expect.anything()
+      )
+    })
+
+    it('surfaces the existing error state once a persistent 429 exhausts the budget', async () => {
+      const { getQueryClient } = await import('./queryClient')
+      const client = getQueryClient()
+      const queryKey = ['artists', 'releases', 'exhausts'] as const
+
+      const queryFn = vi
+        .fn<() => Promise<{ ok: boolean }>>()
+        .mockRejectedValue(rateLimited())
+
+      const result = client.fetchQuery({ queryKey, queryFn }).catch(e => e)
+
+      await vi.advanceTimersByTimeAsync(60_000)
+
+      const error = (await result) as { status?: number }
+      expect(error.status).toBe(429)
+      // Original request plus the three-retry budget.
+      expect(queryFn).toHaveBeenCalledTimes(4)
+      expect(client.getQueryState(queryKey)?.status).toBe('error')
+
+      // The user saw a broken block, so this one reports at error level.
+      expect(Sentry.captureMessage).toHaveBeenCalledWith(
+        'Rate limit retries exhausted (HTTP 429)',
+        expect.objectContaining({
+          level: 'error',
+          extra: expect.objectContaining({
+            queryFamily: 'artists/releases',
+            attempts: 4,
+          }),
+        })
+      )
+    })
+
+    // A server-side 429 is terminal by design, so it reaches the cache's
+    // onError on its FIRST failure. Without the browser gate it would report
+    // "retries exhausted" at error level having attempted none: the loudest
+    // signal in the system firing for the case the policy calls harmless,
+    // and the common case at that, since every SSR render from one instance
+    // shares an egress IP against an IP-keyed limiter.
+    it('does not report an exhausted rate limit outside the browser', async () => {
+      const { reportRateLimitExhausted } = await import(
+        './rate-limit-telemetry'
+      )
+      const windowSpy = vi
+        .spyOn(globalThis, 'window', 'get')
+        .mockReturnValue(undefined as unknown as Window & typeof globalThis)
+
+      try {
+        const { getQueryClient } = await import('./queryClient')
+        const client = getQueryClient()
+        const queryFn = vi
+          .fn<() => Promise<unknown>>()
+          .mockRejectedValue(rateLimited())
+
+        const result = client
+          .fetchQuery({ queryKey: ['artists', 'releases', 'ssr'], queryFn })
+          .catch(e => e)
+        await vi.advanceTimersByTimeAsync(60_000)
+        await result
+
+        // Terminal on the server: one attempt, no retries.
+        expect(queryFn).toHaveBeenCalledTimes(1)
+        expect(Sentry.captureMessage).not.toHaveBeenCalledWith(
+          'Rate limit retries exhausted (HTTP 429)',
+          expect.anything()
+        )
+      } finally {
+        windowSpy.mockRestore()
+      }
+
+      // The reporter itself is unchanged; it is the query-cache caller that
+      // declines to invoke it on the server.
+      expect(typeof reportRateLimitExhausted).toBe('function')
+    })
+
+    it('does not retry or report a non-429 4xx', async () => {
+      const { getQueryClient } = await import('./queryClient')
+      const client = getQueryClient()
+
+      const queryFn = vi
+        .fn<() => Promise<unknown>>()
+        .mockRejectedValue(
+          Object.assign(new Error('Not Found'), { status: 404 })
+        )
+
+      const result = client
+        .fetchQuery({ queryKey: ['artists', 'detail', 'missing'], queryFn })
+        .catch(e => e)
+
+      await vi.advanceTimersByTimeAsync(60_000)
+
+      expect(((await result) as { status?: number }).status).toBe(404)
+      expect(queryFn).toHaveBeenCalledTimes(1)
+      // Scoped to the rate-limit message rather than the whole Sentry
+      // surface, so unrelated reporting added later cannot fail this test for
+      // the wrong reason.
+      expect(Sentry.captureMessage).not.toHaveBeenCalledWith(
+        'Rate limit retries exhausted (HTTP 429)',
+        expect.anything()
+      )
     })
   })
 })
