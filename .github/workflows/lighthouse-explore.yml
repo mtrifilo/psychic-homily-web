@@ -94,17 +94,17 @@ jobs:
     # calls below. No write permissions required — Lighthouse uploads
     # to temporary-public-storage, not a self-hosted LHCI server.
     #
-    # PSY-1909 audited these and left them as-is. `contents: read` is for
-    # actions/checkout. `pull-requests: read` has NO known consumer: the script
-    # below takes the head SHA off context.payload rather than from an API
-    # call, and its only two REST calls are deployments-scoped. It is retained
-    # rather than trimmed because treosh/lighthouse-ci-action is third party
-    # and this workflow is path-filtered, so a wrong call would not surface on
-    # most PRs. Drop it in a change that actually exercises this job.
+    # `contents: read` is for actions/checkout. PSY-1909 REMOVED a third
+    # scope, `pull-requests: read`, which had no consumer: the script below
+    # takes the head SHA off `context.payload`, not from an API call, and its
+    # only two REST calls are listDeployments / listDeploymentStatuses.
+    # That removal is self-verifying rather than reasoned: the `paths:` filter
+    # above includes this very file, so the change that dropped the scope ran
+    # this job. Restore it only if a treosh/lighthouse-ci-action upgrade
+    # starts calling the pulls API.
     permissions:
       contents: read
       deployments: read
-      pull-requests: read
     steps:
       - uses: actions/checkout@v4
 
