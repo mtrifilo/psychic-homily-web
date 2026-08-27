@@ -32,10 +32,8 @@
 # file list cannot express -- a Go source change that builds under `go test` but
 # breaks the image.
 #
-# "Backend Image Build" IS a required status check on main (verified
-# 2026-08-26). This comment previously asserted the opposite, describing the
-# state before the check was promoted. Do not trust either version of that
-# line -- re-derive it:
+# "Backend Image Build" is a required status check on main. Re-derive rather
+# than trusting this line, which was stale before PSY-1909:
 #
 #   gh api repos/mtrifilo/psychic-homily-web/branches/main/protection \
 #     --jq '.required_status_checks.contexts'
@@ -70,12 +68,9 @@ concurrency:
 # its own `permissions:` REPLACES this rather than extending it; a job that
 # declares none inherits exactly this. See ci.yml's header for the full rule.
 #
-# No `packages:` scope, and that is a checked fact rather than an oversight:
-# this workflow authenticates to DOCKER HUB with secrets.DOCKERHUB_USERNAME /
-# DOCKERHUB_TOKEN, and builds with `push: false`, so nothing is published
-# anywhere. Nothing in this repository references ghcr.io. If this ever starts
-# publishing to GitHub Packages, `packages: write` goes in the BUILD JOB's
-# block below (next to its `contents: read`), not up here.
+# No `packages:` scope: this workflow logs in to Docker Hub with
+# secrets.DOCKERHUB_* and builds with `push: false`. Publishing to GitHub
+# Packages would need `packages: write` in the build job's own block.
 permissions:
   contents: read
 
@@ -83,16 +78,11 @@ jobs:
   backend-image:
     name: Backend Image Build
     runs-on: ubuntu-latest
-    # `contents: read` and nothing else. The `issues: write` this block used to
-    # carry moved to the notify-image-failure job below (PSY-1909), so no write
-    # scope is live in a job that checks out and runs third-party actions.
-    #
-    # This block is now identical to the workflow-level one, so deleting it
-    # would be a no-op TODAY -- the job would simply inherit the same
-    # `contents: read`. Keep it anyway, because a job-scoped block REPLACES the
-    # workflow-level one rather than extending it: the moment any scope is
-    # added here, `contents: read` has to already be written down alongside it
-    # or the checkout below silently loses its grant. See ci.yml's header.
+    # `contents: read` for the checkout. The `issues: write` this block used to
+    # carry moved to notify-image-failure below, so no write scope is live in
+    # a job that checks out and runs third-party actions. If a scope is ever
+    # added here, keep `contents: read` listed alongside it: a job-scoped
+    # block replaces the workflow-level one.
     permissions:
       contents: read
     # Measured at 77s cold on this workflow's first run. The ceiling is a hung
@@ -158,69 +148,30 @@ jobs:
   # same `main-ci-failure` triage queue, using only the built-in GITHUB_TOKEN.
   # Deduped on the commit SHA so a rerun storm does not spam.
   #
-  # KNOWN SHARP EDGE, not introduced here but now worth naming since the two
-  # notifiers are explicit twins: ci.yml's notify-main-failure dedupes against
-  # the SAME label and the same SHA substring. On a commit that breaks both the
-  # image and CI, whichever job files first suppresses the other -- and this
-  # one is far faster, so the richer "Main CI failed" issue is the one that
-  # gets swallowed. Give the two notifiers distinct labels or title-scoped
-  # dedupe predicates to fix it.
+  # KNOWN SHARP EDGE, pre-existing: ci.yml's notify-main-failure dedupes on the
+  # same label and SHA, so on a commit that breaks both, whichever files first
+  # suppresses the other.
   #
-  # PSY-1909 made this its OWN job rather than a final step of the build.
-  # As a step it forced `issues: write` onto the whole build job, which does
-  # `actions/checkout` (persisting the token into .git/config by default) and
-  # then runs three third-party docker/* actions floating on mutable major
-  # tags. That put a write scope within reach of any of them, on every run.
-  # Splitting costs one extra runner on a rare path and buys a notifier with no
-  # checkout, no dependency install, and one first-party github-script step
-  # running a repo-controlled inline script.
-  #
-  # It also makes the "only live on the push leg" claim true BY CONSTRUCTION.
-  # The previous comment asserted the token was read-only on pull_request
-  # events regardless. That holds only for FORK PRs and for Dependabot (see the
-  # Docker Hub login step above, which documents the Dependabot case), not for
-  # the same-repo branches this repository's PRs have so far always been -- on
-  # those the declared permissions applied in full and the old grant was live.
-  # That is an observation about history, not an invariant: the repository is
-  # public, so a fork PR is always possible and would get a read-only token.
+  # This is its own job rather than a step of the build so that `issues: write`
+  # is not held by a job that checks out and runs third-party actions.
   notify-image-failure:
     name: Notify on image build failure
     needs: [backend-image]
-    # Deliberately the SAME trigger the notify step had before it became a job.
-    # This change moves where the `issues: write` scope lives; it does not
-    # change when anyone gets paged. `!cancelled()` keeps a human cancelling
-    # the run from filing a spurious issue.
+    # Same trigger the notify step had before it became a job: this change
+    # moves where the scope lives, not when anyone is paged.
     #
-    # KNOWN DEFECT, inherited and NOT fixed here: a run whose conclusion is
-    # `cancelled` skips this job, so a build that never reports a result pages
-    # nobody. Measured on ci.yml's twin notifier, which uses the same shape:
-    # runs 32224865384, 32224821219 and 32224846260 each concluded `cancelled`
-    # with killed E2E shards, each shows "Notify on main CI failure: skipped",
-    # and no `main-ci-failure` issue exists for any of those three commits.
-    # (Those shards were killed by GitHub's platform job cap, which was the
-    # only cap they had at the time; whether a `timeout-minutes` kill produces
-    # the same run conclusion is NOT established by those runs.)
-    #
-    # Fixing it means changing when BOTH notifiers page, and widening this one
-    # alone would make it file on human cancels, where the shared `main-ci-
-    # failure` dedupe below would then suppress ci.yml's richer issue for the
-    # same SHA. That is a behavior change with its own blast radius, so it
-    # belongs in its own ticket rather than riding a permissions change.
+    # KNOWN DEFECT, inherited and not fixed here: a run concluding `cancelled`
+    # skips this job. Same defect as ci.yml's notifier; see the note there.
     if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.backend-image.result == 'failure' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # `issues: write` alone is the complete set, and the reason is that no call
-    # below is contents-scoped -- the script reads everything it reports off
-    # the `context` object. It is NOT "because there is no checkout": ci.yml's
-    # notify-main-failure has no checkout either and still needs
-    # `contents: read`, because it calls repos.getCommit. If you enrich this
-    # issue body with commit metadata, add `contents: read` here at the same
-    # time; on this public repo the omission would appear to work and would
-    # break only when the repository is flipped private.
+    # `issues: write` alone: no call below is contents-scoped, since the script
+    # reads only the `context` object. Adding a contents-scoped call (e.g.
+    # repos.getCommit, as ci.yml's notifier does) means adding `contents: read`
+    # here too.
     #
-    # NOT exercised by the PR that introduced it: this job needs a failing
-    # image build on main. Verify on the first post-merge failure, or force one
-    # deliberately.
+    # Needs a failing main build to run, so the PR that added it did not
+    # exercise it.
     permissions:
       issues: write
     steps:

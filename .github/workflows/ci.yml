@@ -6,88 +6,16 @@ on:
   pull_request:
     branches: [main]
 
-# PSY-1909: least privilege for the GITHUB_TOKEN, declared HERE rather than
-# left to the repository setting.
+# Least privilege for the GITHUB_TOKEN, pinned in code so it does not depend
+# on the repository's Workflow-permissions setting.
 #
-# THE RULE THAT BITES, first because it is the one you need when editing: a
-# job-scoped `permissions:` block REPLACES this one, it does not extend it. A
-# job that declares `issues: write` gets `issues: write` and NOTHING else, not
-# the `contents: read` below. So a job needing an extra scope must restate
-# every scope it still uses. notify-main-failure is exactly that case. Getting
-# it wrong does not fail YAML validation -- it surfaces at runtime as an HTTP
-# 403 "Resource not accessible by integration" from whichever call lost its
-# scope.
+# The rule to know before editing: a job-scoped `permissions:` block REPLACES
+# this one, it does not extend it. A job needing an extra scope must restate
+# every scope it still uses, or the call that lost one fails at runtime with
+# HTTP 403 "Resource not accessible by integration".
 #
-# Why declare it at all. Without this block every job inherits whatever
-# Settings -> Actions -> Workflow permissions happens to say, and that is a
-# checkbox one click away from read/write that no PR reviews. Most jobs here
-# run third-party code (`bun install` lifecycle scripts, `bunx playwright`,
-# `npm ci`, docker pulls). The token is not placed in a `run:` step's
-# environment by default, but it reaches third-party code by TWO routes, and
-# closing only one of them is a half measure:
-#   * actions/checkout defaults to `persist-credentials: true`, which writes
-#     it into .git/config as an http.extraheader every later step in the job
-#     can read; and
-#   * any action declaring a `github-token` / `token` input defaulting to
-#     `${{ github.token }}` receives it in-process as an INPUT_* variable.
-#     setup-go, setup-node, setup-bun and golangci-lint-action all do.
-# Either way, the scope a job holds is the scope a compromised transitive
-# dependency holds.
-#
-# What this block REVOKES today is one scope, and being precise about that
-# matters more than sounding impressive. The repository setting is currently
-# GitHub's RESTRICTED default (Settings -> Actions -> Workflow permissions,
-# the radio labelled "Read repository contents and packages permissions").
-# That grants contents, packages and metadata at read, and leaves every OTHER
-# scope -- actions, checks, deployments, statuses, pull-requests -- at none
-# ALREADY. So naming `contents` here drops exactly `packages: read`. Nothing
-# in this repository pulls from ghcr.io or any GitHub Packages registry (every
-# image comes from Docker Hub; verified by grep), which is what makes that
-# safe. A job that ever does must declare `packages: read` in its own block.
-#
-# Corollary for anyone adding a job, and the reason this matters more than the
-# revocation does: the default hands you contents and packages and NOTHING
-# else, so any API call outside those needs its own `permissions:` block
-# whether or not this line exists. lighthouse-explore.yml's `deployments:
-# read` is the live proof.
-#
-# The value of this block is therefore the PIN, not the revocation. Flipping
-# that setting to "Read and write permissions" is one click nobody reviews,
-# and would otherwise hand every job below write on issues, pull-requests,
-# actions and the rest.
-#
-# `contents: read` here is a conservative BASELINE rather than a measured
-# minimum. Deliberately not called a "floor": it does not guarantee any job a
-# minimum, since a job block replaces it, and frontend-unit-tests below runs
-# `permissions: {}`, which is strictly less. Two honest caveats both argue for
-# keeping the baseline rather than against it:
-#   * This repository is public, so actions/checkout would clone under
-#     `permissions: {}` too. The grant is what keeps that true if the
-#     repository is ever flipped private.
-#   * The setup-go / setup-node / setup-bun token pass-through is NOT what
-#     justifies it. Those calls read actions/go-versions, actions/node-versions
-#     and oven-sh/bun -- OTHER public repos -- and only want a valid token to
-#     dodge the anonymous rate limit, which no scope on THIS repo grants or
-#     denies. Same for golangci-lint-action fetching its release asset.
-#     Among the jobs that INHERIT this block the consumers are
-#     actions/checkout AND migration-lint's bare `git fetch origin` step, which
-#     rides the credential checkout persists into .git/config. On this public
-#     repo that fetch would also succeed anonymously, so
-#     `persist-credentials: false` looks free TODAY and stops being free the
-#     moment the repository is private -- the same trap as every other read
-#     scope in this file. Separately, notify-main-failure declares its own
-#     block and consumes contents through repos.getCommit with no checkout.
-#
-# The artifact and cache actions do not read this scope at all: they
-# authenticate to the Actions service with the per-run ACTIONS_RUNTIME_TOKEN.
-# That covers upload-artifact, cache/restore and cache/save as pinned below,
-# and equally the implicit caches inside setup-go / setup-node and buildx's
-# `type=gha` cache over in backend-image.yml. download-artifact is the one to
-# watch: it switches off the runtime token and onto the REST path as soon as it
-# is handed a `github-token` at ALL -- its `repository` and `run-id` inputs
-# default to the current run, so a foreign target is not what arms it -- and
-# that path needs `actions: read`, which is none here. e2e-report passes no
-# `github-token`, so it stays on the runtime token.
+# Scope-by-scope audit, what this does and does not revoke, and the doc
+# references: see the PSY-1909 pull request.
 permissions:
   contents: read
 
@@ -356,16 +284,11 @@ jobs:
           go-version: '1.24'
           cache-dependency-path: backend/go.sum
 
-      # `only-new-issues` is deliberately NOT set. Turning it on makes this
-      # action call pulls.get for the PR diff (src/patch.ts), which is a
-      # `pull-requests: read` call that the workflow-level block above does not
-      # grant. That is invisible TODAY, because this repository is public and
-      # public PR data reads fine with a scopeless token. It breaks the day the
-      # repo goes private, and it breaks SILENTLY: the action catches the error
-      # and returns an empty patch ("don't fail the action, but analyze without
-      # patch"), so the job stays green with the feature off. If you flip it,
-      # add a job-scoped block with contents: read AND pull-requests: read at
-      # the same time.
+      # `only-new-issues` is unset. Enabling it makes this action call
+      # pulls.get, which needs `pull-requests: read`; the action swallows a
+      # permission failure and lints the whole tree while staying green. Add a
+      # job-scoped block with contents: read AND pull-requests: read if you
+      # enable it.
       - name: Run gated linters
         uses: golangci/golangci-lint-action@v7
         with:
@@ -512,10 +435,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [frontend-unit-shards]
     if: ${{ always() }}
-    # No checkout, no install, no API call -- one `run:` that echoes a needs
-    # result. `{}` rather than inheriting `contents: read`, because a job with
-    # nothing to clone has nothing to grant. Safe on a required check: the
-    # check-run is minted by the Actions service, not by this job's token.
+    # No checkout, no install, no API call, so no scope. Safe on a required
+    # check: the check-run comes from the Actions service, not this token.
     permissions: {}
     steps:
       - name: Report shard results
@@ -670,11 +591,8 @@ jobs:
 
   e2e-tests:
     name: E2E Tests (shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
-    # Inherits the workflow-level `contents: read`. Token consumers here are
-    # checkout, the setup-* actions, and the cache/artifact actions (which use
-    # the Actions runtime token, not this scope). PSY-1909 note: this job is
-    # push-to-main only, so the PR that pinned these scopes did NOT exercise
-    # it. Verify on the first post-merge main run.
+    # Inherits `contents: read`. Push-to-main only, so the PR that pinned
+    # these scopes did not exercise it; verify on the first post-merge run.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     # Push-to-main runs unwatched; without a job cap a stalled step pinned
@@ -788,10 +706,9 @@ jobs:
 
   e2e-report:
     name: E2E Merged Report
-    # Inherits `contents: read`. Its download-artifact passes no `github-token`
-    # so it stays on the Actions runtime token (see the header). PSY-1909 note:
-    # push-to-main only, so the PR that pinned these scopes did NOT exercise
-    # it. Verify on the first post-merge main run.
+    # Inherits `contents: read`; its download-artifact passes no
+    # `github-token`, so it uses the Actions runtime token. Push-to-main only,
+    # so the PR that pinned these scopes did not exercise it.
     # Run after all shards finish, even if some failed — we still want the
     # merged report artifact for triage.
     if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
@@ -922,19 +839,10 @@ jobs:
     # e2e-report skips only under the same `!cancelled()` guard this job
     # carries, so the two skip together. Scoped to main-branch pushes.
     #
-    # KNOWN DEFECT (PSY-1909 measured it; deliberately NOT fixed there,
-    # because changing when this pages is a behavior change with its own
-    # blast radius). This comment used to claim that a job killed by its own
-    # timeout does not set the run-level cancelled() flag, so such jobs still
-    # page via the `!= 'success'` clauses. That is FALSE. `!cancelled()` reads
-    # the RUN conclusion, and a run in which jobs end `cancelled` and none
-    # `failure` concludes `cancelled`, so this job is SKIPPED and nobody is
-    # paged. Runs 32224865384, 32224821219 and 32224846260 each concluded
-    # `cancelled` with killed E2E shards, each shows this job as `skipped`,
-    # and no `main-ci-failure` issue exists for any of those three commits.
-    # (Those shards were killed by GitHub's platform maximum, the only cap
-    # they had then. Any cause of `cancelled` produces the same skip.)
-    # Re-derive with:
+    # KNOWN DEFECT, not fixed here: when the RUN concludes `cancelled` this
+    # job is skipped, so nobody is paged. Verified on runs 32224865384,
+    # 32224821219 and 32224846260 (no `main-ci-failure` issue for any of
+    # those commits). Re-derive:
     #   gh run list --workflow=ci.yml --branch=main --status=cancelled
     if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.migration-lint.result == 'failure' || needs.migration-reversibility.result == 'failure' || needs.backend-tests.result == 'failure' || needs.backend-lint.result == 'failure' || needs.mocks-gen-check.result == 'failure' || needs.api-types-check.result == 'failure' || needs.frontend-unit-tests.result == 'failure' || needs.frontend-lint.result == 'failure' || needs.e2e-tests.result != 'success' || needs.e2e-report.result != 'success') }}
     needs:
@@ -950,30 +858,13 @@ jobs:
       - e2e-report
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # Do NOT delete the `contents: read` below as redundant with the
-    # workflow-level block. A job-scoped block REPLACES that one, so before
-    # this line was added the token here held `issues: write` and nothing else
-    # -- no contents scope at all -- while the script below calls
-    # repos.getCommit for the author and subject line, which is a
-    # contents-scoped read. That survived only because this repository is
-    # public (any valid token can read public content) and because the call
-    # sits in a try/catch that downgrades failure to a core.warning, so
-    # flipping the repository private would have silently dropped the
-    # "Triggered by" line from every filed issue with nothing going red.
-    # Granting it explicitly is what makes the call independent of visibility.
-    # `issues: write` covers listForRepo (dedupe) + issues.create, and is the
-    # finest grain GitHub offers for filing an issue. This job's SHAPE is what
-    # keeps that tolerable: its only token consumer is first-party
-    # actions/github-script running the repo-controlled inline script below,
-    # with no checkout and no dependency install, so no project dependency
-    # ever sees the write scope. Adding a checkout or an install step here
-    # changes that -- see backend-image.yml, which was split for exactly this
-    # reason.
+    # `contents: read` is for repos.getCommit; `issues: write` for
+    # issues.listForRepo + issues.create. Both must be listed because a
+    # job-scoped block replaces the workflow-level one -- do not delete
+    # `contents: read` as redundant.
     #
-    # NOT exercised by the PR that changed it: this job runs only on a failing
-    # main-branch build. The `contents: read` added here is strictly additive
-    # to what the job held before, so it cannot remove a scope, but the first
-    # post-merge main failure is the real verification.
+    # Push-to-main only, and only on a failure, so the PR that added
+    # `contents: read` here did not exercise it.
     permissions:
       contents: read
       issues: write
