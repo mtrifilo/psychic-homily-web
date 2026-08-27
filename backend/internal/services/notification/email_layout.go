@@ -145,6 +145,30 @@ func emailHeadline(text string) string {
 `, emailSansStack, emailForeground, htmlEscape(text), emailRowGap, emailBackground)
 }
 
+// emailSectionLabel renders a small mono label that names the block beneath it
+// (PSY-1897, Figma 1584:2).
+//
+// It exists because a message can now be about several SUBJECTS at once, not
+// just several items. The venue digest lists shows that all share a venue, so
+// one headline plus one list says everything; a release roundup spans artists,
+// and the reader's actual question — "which of my bands put something out" — is
+// answered by the grouping before they read a single title.
+//
+// Styled from the masthead kicker rather than as a small headline, deliberately:
+// it is a signpost, not a second statement of what happened, and borrowing the
+// kicker's mono/tracked/muted treatment keeps the message's one bold voice
+// belonging to emailHeadline.
+//
+// The bottom padding is 8px rather than emailRowGap because this block is
+// ATTACHED to what follows it. A label floating a full rhythm above its list
+// would read as belonging to the paragraph above instead.
+func emailSectionLabel(text string) string {
+	return fmt.Sprintf(`<tr>
+<td style="padding:8px 0 8px 0; font-family:%[1]s; font-size:11px; font-weight:400; letter-spacing:0.06em; line-height:16px; color:%[2]s; background-color:%[4]s;">%[3]s</td>
+</tr>
+`, emailMonoStack, emailMutedForeground, htmlEscape(strings.ToUpper(text)), emailBackground)
+}
+
 // emailParagraph renders a block of body prose.
 func emailParagraph(text string) string {
 	return fmt.Sprintf(`<tr>
@@ -271,6 +295,19 @@ type emailListRow struct {
 	// Detail is the optional second line under the title, e.g. a bill. An empty
 	// Detail renders no line rather than an empty one.
 	Detail string
+	// Href, when set, makes the Title a link to this destination (PSY-1897).
+	//
+	// A STRUCTURED parameter rather than letting callers pass markup, for the same
+	// reason emailFineprintWithLinks takes one: every field in this struct is
+	// escaped by the renderer, so a caller-built <a> would arrive as visible angle
+	// brackets, and loosening the escaping to allow it would loosen it for the
+	// scraped third-party text these rows usually carry.
+	//
+	// Empty leaves the title as plain text, byte for byte what it was before this
+	// field existed — which is what keeps the venue digest (PSY-1895), whose rows
+	// share one destination and use the CTA button for it, unchanged.
+	// TestEmailListRowsWithoutHrefIsUnchanged pins that.
+	Href string
 }
 
 // emailListRows renders a hairline-separated TABLE of entries: the block a
@@ -312,11 +349,23 @@ func emailListRows(rows []emailListRow) string {
 				emailSansStack, emailMutedForeground, htmlEscape(row.Detail))
 		}
 
+		// The title is wrapped in an anchor only when the caller supplied a
+		// destination. The anchor carries its own color and text-decoration:
+		// several clients (Gmail on iOS especially) restyle bare links to a blue
+		// underline that would break the type ramp, and an inline declaration is
+		// the only place they honour.
+		title := htmlEscape(row.Title)
+		if row.Href != "" {
+			title = fmt.Sprintf(
+				`<a href="%s" style="color:%s; text-decoration:none;">%s</a>`,
+				htmlEscape(row.Href), emailForeground, title)
+		}
+
 		fmt.Fprintf(&b, `<tr>
 <td width="110" valign="top" style="width:110px; padding:12px 16px 12px 0; border-top:1px solid %[1]s; border-bottom:%[6]s solid %[1]s; font-family:%[2]s; font-size:13px; line-height:20px; color:%[3]s; background-color:%[7]s; white-space:nowrap;">%[4]s</td>
 <td valign="top" style="padding:12px 0 12px 0; border-top:1px solid %[1]s; border-bottom:%[6]s solid %[1]s; background-color:%[7]s;"><div style="font-family:%[8]s; font-size:14px; font-weight:600; line-height:20px; color:%[3]s;">%[5]s</div>%[9]s</td>
 </tr>
-`, emailBorder, emailMonoStack, emailForeground, htmlEscape(row.Label), htmlEscape(row.Title),
+`, emailBorder, emailMonoStack, emailForeground, htmlEscape(row.Label), title,
 			bottom, emailBackground, emailSansStack, detail)
 	}
 

@@ -49,6 +49,13 @@ func createReleaseTx(tx *gorm.DB, req *contracts.CreateReleaseRequest, apply fun
 	}
 
 	// Create artist_releases entries
+	//
+	// The credited ids are collected as we go, for the release-alert accrual
+	// below. De-duplicated because artist_releases is keyed on
+	// (artist_id, release_id, ROLE), so one artist credited as both main and
+	// producer is two rows here and must still be one accrual.
+	creditedArtistIDs := make([]uint, 0, len(req.Artists))
+	seenArtist := make(map[uint]struct{}, len(req.Artists))
 	for i, artistEntry := range req.Artists {
 		role := artistEntry.Role
 		if role == "" {
@@ -62,6 +69,10 @@ func createReleaseTx(tx *gorm.DB, req *contracts.CreateReleaseRequest, apply fun
 		}
 		if err := tx.Create(ar).Error; err != nil {
 			return nil, fmt.Errorf("failed to create artist-release link: %w", err)
+		}
+		if _, dup := seenArtist[ar.ArtistID]; !dup && ar.ArtistID != 0 {
+			seenArtist[ar.ArtistID] = struct{}{}
+			creditedArtistIDs = append(creditedArtistIDs, ar.ArtistID)
 		}
 	}
 
@@ -89,6 +100,18 @@ func createReleaseTx(tx *gorm.DB, req *contracts.CreateReleaseRequest, apply fun
 	// Same tx as the release create (atomic), best-effort (never fails the create —
 	// see enqueueImageEnrich).
 	enqueueImageEnrich(tx, catalogm.ImageEnrichEntityRelease, release.ID)
+
+	// PSY-1897: record this release in each followed, credited artist's weekly
+	// roundup. Runs AFTER the artist_releases writes, because it is the credited
+	// set that decides whether anyone is subscribed; runs on the same tx, in a
+	// SAVEPOINT, so it can never fail the create (see enqueueArtistReleaseAlerts).
+	//
+	// This is the ONE hook for the whole feature. A release has no visibility
+	// transition to trigger on — insert is publication — so the accrual is placed
+	// at the single create funnel that every API, CLI and importer write passes
+	// through. Adding a second release-creating path without an accrual call here
+	// is how this feature silently stops covering it.
+	enqueueArtistReleaseAlerts(tx, release, creditedArtistIDs)
 
 	return release, nil
 }
