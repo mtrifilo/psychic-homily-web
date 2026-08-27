@@ -167,8 +167,9 @@ describe('VerifyEmailPage', () => {
     expect(mockApiRequest).not.toHaveBeenCalled()
   })
 
-  // The dead-link card carries its own copy of the resend handler, so the
-  // throttle and session branches are pinned here too and not only on the gate.
+  // The dead-link card runs the shared resend control (PSY-1911); the throttle
+  // and session branches are pinned here too so a regression on this surface
+  // does not hide behind the gate's copy of the same assertions.
   it('renders a throttled fresh-link request as a cooldown', async () => {
     mockApiRequest.mockImplementation(async (path: string) => {
       if (path.includes('/auth/verify-email/send')) {
@@ -201,6 +202,8 @@ describe('VerifyEmailPage', () => {
     ).toBeDisabled()
   })
 
+  // The way forward is now the inline link the shared control renders on every
+  // surface, rather than this card's own button swap (PSY-1911).
   it('offers sign-in when the session died while the card sat open', async () => {
     mockApiRequest.mockImplementation(async (path: string) => {
       if (path.includes('/auth/verify-email/send')) {
@@ -226,9 +229,10 @@ describe('VerifyEmailPage', () => {
         'Your session has expired.'
       )
     })
-    expect(
-      screen.getByRole('link', { name: /Sign in to send a fresh link/i })
-    ).toHaveAttribute('href', '/auth?returnTo=%2Fprofile%3Ftab%3Dsettings')
+    expect(screen.getByRole('link', { name: 'Sign in again' })).toHaveAttribute(
+      'href',
+      '/auth?returnTo=%2Fprofile%3Ftab%3Dsettings'
+    )
     expect(
       screen.queryByText(/We could not send that email just now/)
     ).not.toBeInTheDocument()

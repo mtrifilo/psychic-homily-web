@@ -1,43 +1,36 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
-import type { ApiError } from '@/lib/api'
+import { apiRequest } from '@/lib/api'
 import { CheckInboxInterstitial } from './_components/check-inbox-interstitial'
 
 // --- Mocks ---
+//
+// The REAL resend control and useSendVerificationEmail hook run here, against a
+// mocked apiRequest. Mocking the hook would freeze its state at render time, so
+// pending/success/error would be presets rather than consequences of the click,
+// and these tests would still pass with the click handler deleted.
 
-const mockResendMutate = vi.fn()
-let mockResendState: {
-  isPending: boolean
-  isSuccess: boolean
-  isError: boolean
-  error: Error | null
-} = { isPending: false, isSuccess: false, isError: false, error: null }
-
-vi.mock('@/features/auth', () => ({
-  useSendVerificationEmail: () => ({
-    mutate: mockResendMutate,
-    ...mockResendState,
-  }),
+vi.mock('@/lib/api', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/lib/api')>()),
+  apiRequest: vi.fn(),
 }))
 
-function rateLimitError(retryAfter?: number): ApiError {
-  const error: ApiError = new Error('rate limit exceeded')
-  error.status = 429
-  error.retryAfter = retryAfter
-  return error
+const mockApiRequest = vi.mocked(apiRequest)
+
+const resendButton = () => screen.getByRole('button', { name: 'Resend email' })
+
+function rateLimitError(retryAfter?: number): Error {
+  return Object.assign(new Error('Rate limit exceeded.'), {
+    status: 429,
+    retryAfter,
+  })
 }
 
 describe('CheckInboxInterstitial', () => {
   beforeEach(() => {
-    mockResendMutate.mockReset()
-    mockResendState = {
-      isPending: false,
-      isSuccess: false,
-      isError: false,
-      error: null,
-    }
+    vi.clearAllMocks()
   })
 
   it('names the address the link was sent to and how long it lasts', () => {
@@ -108,96 +101,98 @@ describe('CheckInboxInterstitial', () => {
     })
   })
 
+  // PSY-1911: this surface used to carry its own handler and its own 429
+  // wording. It now runs the shared control, so these pin the shared voice
+  // reaching this surface rather than a second copy of the logic.
   describe('resend', () => {
-    it('fires the resend mutation', async () => {
+    it('sends the verification email and parks the control on a cooldown', async () => {
+      mockApiRequest.mockResolvedValueOnce({ success: true })
       const user = userEvent.setup()
       renderWithProviders(
         <CheckInboxInterstitial email="listener@example.com" returnTo="/" />
       )
 
-      await user.click(screen.getByRole('button', { name: 'Resend email' }))
+      await user.click(resendButton())
 
-      expect(mockResendMutate).toHaveBeenCalledTimes(1)
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        expect.stringContaining('/auth/verify-email/send'),
+        expect.objectContaining({ method: 'POST' })
+      )
+      await waitFor(() => {
+        expect(
+          screen.getByText('Sent · Check your inbox · Resend available in 60s')
+        ).toBeInTheDocument()
+      })
+      expect(resendButton()).toBeDisabled()
+      expect(screen.getByRole('status')).toHaveTextContent(
+        'Verification email sent. Check your inbox.'
+      )
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     })
 
-    it('confirms a successful resend', () => {
-      mockResendState = {
-        isPending: false,
-        isSuccess: true,
-        isError: false,
-        error: null,
-      }
+    // A 429 is the expected outcome of an impatient second click, so it is a
+    // wait everywhere, never the red alert this surface used to show.
+    it('renders a throttled resend as a cooldown rather than an error', async () => {
+      mockApiRequest.mockRejectedValueOnce(rateLimitError(45))
+      const user = userEvent.setup()
       renderWithProviders(
         <CheckInboxInterstitial email="listener@example.com" returnTo="/" />
       )
 
-      // Announced, not just rendered: the failure branch is a live region, so
-      // the success branch has to be one too.
-      expect(screen.getByRole('status')).toHaveTextContent('Sent again.')
+      await user.click(resendButton())
+
+      await waitFor(() => {
+        expect(screen.getByText('Resend available in 45s')).toBeInTheDocument()
+      })
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(screen.queryByText(/Rate limit exceeded/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/lot of resends/)).not.toBeInTheDocument()
+      expect(resendButton()).toBeDisabled()
     })
 
-    it('disables the button while a resend is in flight', () => {
-      mockResendState = {
-        isPending: true,
-        isSuccess: false,
-        isError: false,
-        error: null,
-      }
+    // The production path: CORS hides Retry-After, so the app does not know the
+    // wait and must not quote a second count off its own assumption.
+    it('states the wait approximately when the 429 carries no Retry-After', async () => {
+      mockApiRequest.mockRejectedValueOnce(rateLimitError())
+      const user = userEvent.setup()
       renderWithProviders(
         <CheckInboxInterstitial email="listener@example.com" returnTo="/" />
       )
 
-      expect(screen.getByRole('button', { name: /Sending/ })).toBeDisabled()
+      await user.click(resendButton())
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('Resend available in about a minute')
+        ).toBeInTheDocument()
+      })
+      expect(screen.queryByText(/\d+s/)).not.toBeInTheDocument()
+      expect(resendButton()).toBeDisabled()
     })
 
-    // The resend endpoint is rate-limited per IP (PSY-1871). Retry-After is the
-    // only part of a 429 the user can act on, so it has to reach the copy.
-    it('turns a 429 into the wait the Retry-After header asked for', () => {
-      mockResendState = {
-        isPending: false,
-        isSuccess: false,
-        isError: true,
-        error: rateLimitError(45),
-      }
+    it('shows generic copy on a server failure instead of the backend message', async () => {
+      mockApiRequest.mockRejectedValueOnce(
+        Object.assign(new Error('Email service is not configured'), {
+          status: 500,
+        })
+      )
+      const user = userEvent.setup()
       renderWithProviders(
         <CheckInboxInterstitial email="listener@example.com" returnTo="/" />
       )
 
-      expect(screen.getByRole('alert')).toHaveTextContent(
-        'That is a lot of resends. Try again in 45s.'
-      )
-    })
+      await user.click(resendButton())
 
-    it('falls back to a generic wait when the 429 carries no Retry-After', () => {
-      mockResendState = {
-        isPending: false,
-        isSuccess: false,
-        isError: true,
-        error: rateLimitError(),
-      }
-      renderWithProviders(
-        <CheckInboxInterstitial email="listener@example.com" returnTo="/" />
-      )
-
-      expect(screen.getByRole('alert')).toHaveTextContent(
-        'That is a lot of resends. Try again in a minute.'
-      )
-    })
-
-    it('surfaces a non-rate-limit failure message', () => {
-      mockResendState = {
-        isPending: false,
-        isSuccess: false,
-        isError: true,
-        error: new Error('Failed to send verification email'),
-      }
-      renderWithProviders(
-        <CheckInboxInterstitial email="listener@example.com" returnTo="/" />
-      )
-
-      expect(screen.getByRole('alert')).toHaveTextContent(
-        'Failed to send verification email'
-      )
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toHaveTextContent(
+          'We could not send that email just now. Please try again in a moment.'
+        )
+      })
+      expect(
+        screen.queryByText(/Email service is not configured/)
+      ).not.toBeInTheDocument()
+      // No cooldown was started, so a genuine failure stays retryable.
+      expect(resendButton()).toBeEnabled()
     })
   })
 
