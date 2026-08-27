@@ -54,12 +54,25 @@ import (
 const followAlertsKey = "alerts"
 
 // followAlertEntityTypes lists the follow targets that carry an alert
-// subscription today. Scenes keep their own scene_notify_mode (PSY-1341); tag
-// follows are display-only (PSY-1903 owns that gap); labels, festivals and
-// radio shows have no alert trigger.
+// subscription today. Tag follows are display-only (PSY-1903 owns that gap);
+// labels, festivals and radio shows have no alert trigger.
+//
+// Scenes joined the list in PSY-1926. Their new-show fanout was the one stream
+// that emailed on the strength of nothing but "is email configured at all",
+// which is the exact posture PSY-1892 decision 4 forbids. Routing it through
+// this chain is what makes a scene follow's email an intentional opt-in like
+// every sibling, with no per-stream copy of the layering to drift.
+//
+// A scene follow keeps scene_notify_mode alongside the alerts object, and the
+// two answer different questions: the MODE decides which of the scene's shows
+// qualify (every show, only your followed bands, or none), and the alerts
+// object decides whether and how a qualifying show is delivered. The scene UI
+// writes the mode; the account alert matrix and the sweep behind the
+// unsubscribe link write the channels.
 var followAlertEntityTypes = map[string]bool{
 	string(engagementm.BookmarkEntityArtist): true,
 	string(engagementm.BookmarkEntityVenue):  true,
+	string(engagementm.BookmarkEntityScene):  true,
 }
 
 // storedFollowAlertPreference is one alert type's stored overrides. Pointers,
@@ -104,6 +117,9 @@ func defaultFollowAlertPreference(entityType, alertType string, account authm.Ac
 		Enabled: true,
 		InApp:   channels.InApp,
 		Email:   channels.Email,
+	}
+	if !followAlertHasInAppAxis(entityType) {
+		pref.InApp = true
 	}
 	if followAlertHasScopeAxis(entityType, alertType) {
 		pref.Scope = contracts.FollowAlertScopeNearMe
@@ -292,6 +308,24 @@ func followAlertsSupportsReleases(entityType string) bool {
 	return entityType == string(engagementm.BookmarkEntityArtist)
 }
 
+// followAlertHasInAppAxis is the ONE predicate for "can this follow type's
+// in-app channel be switched off". Read it, never infer the axis from a
+// resolved value, for the same reason the scope axis has its own predicate.
+//
+// Scene follows cannot. Their fanout writes a SINGLE notification_log row per
+// (user, show) which is at once the bell entry AND the cross-system dedup
+// marker that notifiedAboutShow reads, so suppressing it to honour an in-app
+// switch would also erase the record that the user had been told, and the next
+// pass over that show would notify them again. Reporting the channel as
+// always-on is the honest reading of what the delivery path can do; offering a
+// switch the notifier ignores would be a control that silently does nothing.
+//
+// Turning scene notifications off entirely is scene_notify_mode's job, and it
+// works: an "off" follow is skipped before any row is written.
+func followAlertHasInAppAxis(entityType string) bool {
+	return entityType != string(engagementm.BookmarkEntityScene)
+}
+
 // followAlertHasScopeAxis is the ONE predicate for "does this alert type on
 // this entity type have an area scope". Read it, never infer the axis from
 // whether a default scope happens to be non-empty: a default that legitimately
@@ -357,7 +391,11 @@ func resolveFollowAlertPreference(
 	if stored.Enabled != nil {
 		pref.Enabled = *stored.Enabled
 	}
-	if stored.InApp != nil {
+	// A stored in-app value on a follow type with no in-app axis is ignored
+	// rather than surfaced, the same rule the scope axis follows below: the
+	// write path rejects it, so any such value is stale data, and honouring it
+	// would report a channel the delivery path cannot switch off.
+	if stored.InApp != nil && followAlertHasInAppAxis(entityType) {
 		pref.InApp = *stored.InApp
 	}
 	if stored.Email != nil {
@@ -525,7 +563,18 @@ func validateFollowAlertUpdate(entityType string, update contracts.FollowAlertUp
 		contracts.FollowAlertTypeShows:    update.Shows,
 		contracts.FollowAlertTypeReleases: update.Releases,
 	} {
-		if pref == nil || pref.Scope == nil {
+		if pref == nil {
+			continue
+		}
+		// Rejected rather than stored-and-ignored: a write that appears to
+		// succeed and changes nothing is the worst shape a control can have,
+		// and on a delivery channel it is the shape that makes a user believe
+		// they silenced something they did not.
+		if pref.InApp != nil && !followAlertHasInAppAxis(entityType) {
+			return apperrors.ErrFollowInvalidAlertSettings(
+				fmt.Sprintf("%s alerts are always delivered in-app", entityType))
+		}
+		if pref.Scope == nil {
 			continue
 		}
 		if !followAlertHasScopeAxis(entityType, alertType) {

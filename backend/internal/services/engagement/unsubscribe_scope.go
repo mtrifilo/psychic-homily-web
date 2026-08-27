@@ -19,8 +19,21 @@ const (
 	UnsubscribeScopeCollectionDigest  = "collection-digest"
 	UnsubscribeScopeSceneDigest       = "scene-digest"
 
-	// UnsubscribeScopeArtistShowAlerts opts a recipient out of the emails sent
-	// when an artist they follow announces a show (PSY-1896).
+	// UnsubscribeScopeArtistShowAlerts opts a recipient out of NEW-SHOW ALERT
+	// EMAILS across every follow type that sends them: artists (PSY-1896),
+	// venues (PSY-1895) and scenes (PSY-1926).
+	//
+	// The name is narrower than the scope, and the value is frozen: it is part
+	// of the signed payload, so re-spelling it would 404 every link already
+	// sitting in a recipient's inbox. Read it as "show alerts".
+	//
+	// One scope for all three because they are one MUTATION, not merely one
+	// stream: alert_defaults carries a single `shows` key covering all of them,
+	// and UserService.UnsubscribeArtistShowAlertEmails clears that key and
+	// sweeps the per-follow overrides of all three follow types. A second scope
+	// would mint a second URL performing an identical write, which is not extra
+	// precision: it is two names for one action, and the day one of them drifts
+	// is the day an unsubscribe stops unsubscribing.
 	//
 	// Signed on the USER, not on one follow, and that is deliberate. A per-follow
 	// link would be the tighter mirror of the per-filter scheme, but "unsubscribe"

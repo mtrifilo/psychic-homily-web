@@ -145,9 +145,15 @@ func (s *UserService) SetAccountAlertDefaults(userID uint, update authm.AccountA
 	})
 }
 
-// UnsubscribeArtistShowAlertEmails stops the artist new-show alert EMAILS for a
-// user, and is what the RFC 8058 one-click link behind those emails calls
-// (PSY-1896).
+// UnsubscribeArtistShowAlertEmails stops the new-show alert EMAILS for a user
+// across every follow type that sends them (artist, venue and scene), and is
+// what the RFC 8058 one-click link behind those emails calls (PSY-1896,
+// PSY-1895, PSY-1926).
+//
+// The name is narrower than the behaviour and is kept in step with
+// engagement.UnsubscribeScopeArtistShowAlerts, whose string value is frozen by
+// the links already in recipients' inboxes. One method because it is one
+// mutation: a second entry point for the same write is how the two drift.
 //
 // It takes two writes because the preference is resolved from two layers and
 // either one alone can keep the mail flowing:
@@ -190,14 +196,20 @@ func (s *UserService) UnsubscribeArtistShowAlertEmails(userID uint) error {
 	// dependencies, this becomes a constructor argument.
 	follows := engagement.NewFollowService(s.db)
 
-	// BOTH follow types that carry show alerts, because the account write above
-	// is not narrower than that: alert_defaults has ONE `shows` key covering
-	// artist and venue show alerts alike. Sweeping only artist follows would
-	// leave the two halves of this unsubscribe disagreeing about what it
+	// EVERY follow type that carries show alerts, because the account write
+	// above is not narrower than that: alert_defaults has ONE `shows` key
+	// covering artist, venue and scene show alerts alike. Sweeping a subset
+	// would leave the two halves of this unsubscribe disagreeing about what it
 	// silenced, and the half that disagreed would be the one that keeps sending.
+	//
+	// Scenes joined the list in PSY-1926, when their fanout stopped emailing
+	// unconditionally and started resolving the same chain. A scene follow that
+	// carries no override is already silenced by the account write; this reaches
+	// the ones that pinned email on.
 	for _, entityType := range []string{
 		string(engagementm.BookmarkEntityArtist),
 		string(engagementm.BookmarkEntityVenue),
+		string(engagementm.BookmarkEntityScene),
 	} {
 		if err := follows.DisableFollowAlertEmailChannel(
 			userID, entityType, contracts.FollowAlertTypeShows,
