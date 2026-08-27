@@ -80,10 +80,9 @@ concurrency:
   group: sitemap-freshness
   cancel-in-progress: false
 
-# Workflow-level default for the GITHUB_TOKEN. The single job below declares no
-# block of its own, so it inherits exactly this. If one is ever added there,
-# note that a job-scoped block REPLACES this rather than extending it -- see
-# ci.yml's header for the full rule.
+# Workflow-level DEFAULT for the GITHUB_TOKEN, not a floor. Any job declaring
+# its own `permissions:` REPLACES this rather than extending it; a job that
+# declares none inherits exactly this. See ci.yml's header for the full rule.
 permissions:
   contents: read
 
