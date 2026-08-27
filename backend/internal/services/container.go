@@ -119,7 +119,11 @@ type ServiceContainer struct {
 	// has gone quiet. Accrual happens inside MatchAndNotify; this is the half
 	// that resolves followers and sends.
 	VenueAlertFlush *notification.VenueAlertFlushPoller
-	AutoPromotion   *adminsvc.AutoPromotionService
+	// PSY-1897: delivers the weekly per-user artist new-release roundup once a
+	// week bucket has closed. Accrual happens inside the release create funnel in
+	// services/catalog; this is the half that resolves followers and sends.
+	ReleaseDigestFlush *notification.ReleaseDigestFlushPoller
+	AutoPromotion      *adminsvc.AutoPromotionService
 	// PSY-350: weekly collection-subscription digest emails (opt-IN).
 	CollectionDigest *engagement.CollectionDigestService
 	// PSY-1342: weekly followed-scenes digest emails (opt-IN).

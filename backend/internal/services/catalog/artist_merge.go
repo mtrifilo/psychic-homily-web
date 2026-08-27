@@ -79,9 +79,19 @@ import (
 //     artist_a_id < artist_b_id CHECK and fold the two rows' counters, which is
 //     a recomputation dressed as a merge step.
 //
+//   - artist_release_alert_batch — re-pointed by reassignArtistFKRefs, with a
+//     collision delete first (PSY-1897). It CASCADES, so leaving it out would
+//     silently destroy the losing artist's accrued release observations, and the
+//     visible damage would be an already-delivered weekly roundup whose inbox row
+//     stopped naming half its records. It also must NOT simply be moved: the pair
+//     (artist_id, release_id) is the primary key, and a release credited to BOTH
+//     artists — the ordinary case for a merge, since a duplicate artist is a
+//     duplicate discography — would violate it and abort the whole merge.
+//
 // TestArtistForeignKeysAreAllHandled fails if a migration adds another.
 var artistFKColumns = []string{
 	"artist_aliases.artist_id",
+	"artist_release_alert_batch.artist_id",
 	"artist_communities.label_artist_id",
 	"artist_labels.artist_id",
 	"artist_link_suggestions.artist_id",
@@ -343,6 +353,40 @@ func reassignArtistFKRefs(tx *gorm.DB, canonicalID, mergeFromID uint) error {
 		canonicalID, mergeFromID,
 	).Error; err != nil {
 		return fmt.Errorf("failed to move radio_plays rows: %w", err)
+	}
+
+	// artist_release_alert_batch (PSY-1897). ON DELETE CASCADE, so an unhandled
+	// table would lose the losing artist's accrued release observations without a
+	// sound — and the visible damage arrives later, as an already-delivered weekly
+	// roundup whose inbox row silently stops naming half its records (the row
+	// resolves its list from this table live, which is what lets it grow).
+	//
+	// The collision delete is MANDATORY, not defensive. (artist_id, release_id) is
+	// the primary key, and a duplicate artist is by definition a duplicate
+	// discography — the two artists sharing a release is the ordinary case here,
+	// not the edge one. A bare UPDATE would trip the key and abort the whole merge.
+	//
+	// The CANONICAL artist's row wins, and the loser's is dropped rather than
+	// merged. Nothing is lost that a reader can see: both rows stand for the same
+	// record in the same week, and after the merge they would render as one line
+	// naming one artist either way. The surviving row keeps the canonical artist's
+	// alert_week and dispatched_at, so a week already delivered stays delivered
+	// rather than re-opening.
+	if err := tx.Exec(`
+		DELETE FROM artist_release_alert_batch l
+		WHERE l.artist_id = ?
+		  AND EXISTS (
+		        SELECT 1 FROM artist_release_alert_batch w
+		        WHERE w.artist_id = ? AND w.release_id = l.release_id
+		      )
+	`, mergeFromID, canonicalID).Error; err != nil {
+		return fmt.Errorf("failed to drop conflicting artist_release_alert_batch rows: %w", err)
+	}
+	if err := tx.Exec(
+		"UPDATE artist_release_alert_batch SET artist_id = ? WHERE artist_id = ?",
+		canonicalID, mergeFromID,
+	).Error; err != nil {
+		return fmt.Errorf("failed to move artist_release_alert_batch rows: %w", err)
 	}
 
 	if err := tx.Exec(
