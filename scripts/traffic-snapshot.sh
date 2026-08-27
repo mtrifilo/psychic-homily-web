@@ -11,11 +11,15 @@
 # into one reproducible command so the capture actually gets done on schedule.
 #
 # Run it monthly, BEFORE the retention window rolls past the month you care
-# about. The generated markdown is the durable record; commit it.
+# about. The generated markdown (in gitignored docs/research/) is the durable
+# record.
 #
-# OUT OF SCOPE: Google Search Console. PSY-1836 established that no API
-# credential exists for GSC, so impressions and query data cannot be captured
-# here. Search Console numbers stay a manual, in-console read.
+# The monthly capture is a PAIR: run scripts/gsc-snapshot.sh over the same
+# window for the Search Console side (impressions, queries, CTR, position) —
+# Vercel sees only the clicks that became visits. (PSY-1928; supersedes the
+# PSY-1836-era note that no GSC credential existed.) Paired runs must pass
+# explicit --since/--until to BOTH scripts: the default windows differ (this
+# script ends at today, gsc-snapshot.sh at today-2 for GSC data lag).
 #
 # Usage:
 #   scripts/traffic-snapshot.sh [--out DIR] [--days N] [--since DATE] [--until DATE]
@@ -513,9 +517,11 @@ source ~/.zshrc   # provides VERCEL_API_KEY
 scripts/traffic-snapshot.sh --since ${SINCE} --until ${UNTIL}
 \`\`\`
 
-Google Search Console data is NOT included: PSY-1836 established that no API
-credential exists, so impressions and queries have to be read manually in the
-Search Console UI.
+Google Search Console data (impressions, queries, CTR, position) is NOT in
+this file: capture it with \`scripts/gsc-snapshot.sh\` over the SAME window —
+pass explicit \`--since\`/\`--until\` to both scripts, because their default
+windows differ (this script ends at today; gsc-snapshot.sh at today-2 for
+GSC data lag).
 EOF
 } >"$DOC_PATH"
 
