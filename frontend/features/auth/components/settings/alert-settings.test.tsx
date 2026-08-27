@@ -101,7 +101,7 @@ const preferences = (
   ...overrides,
 })
 
-const SHOWS_ROW = 'An artist or venue you follow announces a show'
+const SHOWS_ROW = 'An artist, venue or scene you follow announces a show'
 const RELEASES_ROW = 'An artist you follow puts out a release'
 const REMINDER_ROW = 'Day-before reminder for a show you saved'
 const SCENE_ROW = 'Weekly digest for scenes you follow'
@@ -498,7 +498,7 @@ describe('AlertSettings', () => {
       renderWithProviders(<AlertSettings />)
 
       expect(
-        screen.getAllByText(/In-app: An artist or venue you follow announces a show is still loading/i)
+        screen.getAllByText(new RegExp(`In-app: ${SHOWS_ROW} is still loading`, 'i'))
       ).not.toHaveLength(0)
       expect(screen.queryByText(/could not be loaded/i)).toBeNull()
       expect(screen.queryByText(/^unknown$/i)).toBeNull()
@@ -585,17 +585,34 @@ describe('AlertSettings', () => {
     expect(screen.queryByText(/one-click unsubscribe/i)).not.toBeInTheDocument()
   })
 
-  // A settings card that lists what reaches you cannot omit the one stream
-  // that arrives without being switched on.
-  it('names the scene-follow email it does not govern, and where it is set', () => {
+  // PSY-1926 closed the gap this card used to have to disclose. Scene emails
+  // are governed by the shows row now, so the exception paragraph is gone and
+  // the footnote's promise is unconditional again. Pinned in BOTH directions:
+  // the exception must not come back, and the row it was folded into must
+  // actually name scenes, or the card has quietly stopped listing a stream it
+  // sends.
+  it('folds scene emails into the shows row instead of excepting them', () => {
+    renderWithProviders(<AlertSettings />)
+
+    expect(screen.getByText(SHOWS_ROW)).toBeInTheDocument()
+    expect(
+      screen.queryByText(/One email is not in the table/i)
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: /scenes you follow/i })
+    ).not.toBeInTheDocument()
+  })
+
+  // The email box is the one that reaches scenes. The in-app box does not: a
+  // scene's bell row is also the cross-system dedup marker, so it cannot be
+  // switched off. The row has to say so, or the reader takes the two boxes as
+  // symmetric.
+  it('says a scene keeps its in-app alerts whatever the in-app box says', () => {
     renderWithProviders(<AlertSettings />)
 
     expect(
-      screen.getByText(/One email is not in the table/i)
+      screen.getByText(/its in-app alerts stay on whatever this row says/i)
     ).toBeInTheDocument()
-    expect(
-      screen.getByRole('link', { name: /scenes you follow/i })
-    ).toHaveAttribute('href', '/library?tab=scenes')
   })
 
   // The custom-alerts row breaks BOTH halves of the footnote, and only the
