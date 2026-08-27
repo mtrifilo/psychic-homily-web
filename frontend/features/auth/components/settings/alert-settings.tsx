@@ -346,11 +346,19 @@ export function AlertSettings() {
   const rows: AlertRow[] = [
     {
       id: 'shows',
-      title: 'An artist or venue you follow announces a show',
-      // One row because the account matrix has ONE `shows` key covering both,
-      // which is also what PSY-1896's unsubscribe writes. Their DELIVERY
-      // differs today, and saying so is the honest way to render one control
-      // over two half-shipped things.
+      title: 'An artist, venue or scene you follow announces a show',
+      // One row because the account matrix has ONE `shows` key covering all
+      // three, which is also what the shared unsubscribe writes. Their DELIVERY
+      // differs, and saying so is the honest way to render one control over
+      // things at different stages.
+      // Scenes joined the row in PSY-1926. Their emails used to bypass this
+      // card entirely, which is why the footnote beneath the table used to
+      // carry an exception naming them; the exception went when the gate
+      // landed, because the promise now holds for them too.
+      // The EMAIL box governs scenes; the in-app box does not. A scene's bell
+      // row is also the cross-system dedup marker, so it cannot be switched off
+      // without letting the same show be announced twice. Saying that in one
+      // clause is cheaper than a reader discovering it.
       // "In-app" is the claim that has been observed end to end. PSY-1896's
       // email lane is built and covered by integration tests, but no owner has
       // watched a real message arrive, so it is not named as live here.
@@ -359,19 +367,23 @@ export function AlertSettings() {
       // every artist and venue follow that never overrode a channel, so those
       // surfaces all start reading "paused" from this one act. A card that
       // sends people here to fix it cannot be the one surface that never
-      // mentions the state, in either direction.
+      // mentions the state, in either direction. The sentence names artists
+      // and venues only, because a scene's in-app alerts survive it.
       description: (
         <>
           Which shows count for an artist is that follow&rsquo;s own scope, near
           me or everywhere. A venue sits in one place, so its alerts have no
-          scope. In-app alerts for artists are live; venue alerts are still
-          being switched on.
+          scope. A scene&rsquo;s is set on the scene itself, either every show
+          or only the bands you follow, and its in-app alerts stay on whatever
+          this row says. In-app alerts for artists are live; venue alerts are
+          still being switched on.
           {showAlertsPaused && (
             <>
               {' '}
               <span className="text-foreground">
                 With both off, new-show alerts for every artist and venue you
-                follow are paused. Each follow&rsquo;s scope is saved.
+                follow are paused, and no scene emails you. Each follow&rsquo;s
+                scope is saved.
               </span>
             </>
           )}
@@ -575,28 +587,16 @@ export function AlertSettings() {
               those emails pauses that whole alert rather than flipping a box
               here.
             </p>
-            {/* The sentence above used to claim "every email governed by this
-                card", which a reader takes as every email the index sends.
-                Scene follows break it and are not in the table: following a
-                scene starts an immediate per-show email with no opt-in
-                anywhere (the notifier's only gate is whether email is
-                configured at all), and the one control over it is the mode
-                toggle on the scene itself. A settings card that lists what
-                reaches you cannot leave out the one stream that arrives
-                without being switched on. */}
-            <p className="text-xs text-muted-foreground">
-              One email is not in the table: following a scene starts sending
-              an immediate email for each new show added there. That one is set
-              per scene, on the scene&apos;s own page, from the list of{' '}
-              <Link
-                href="/library?tab=scenes"
-                className="underline hover:text-foreground"
-              >
-                scenes you follow
-              </Link>
-              . The weekly scene digest above is a separate email and stays
-              opt-in.
-            </p>
+            {/* The scene-follow exception that used to sit here is GONE, and
+                deleting it was the point of PSY-1926 rather than a tidy-up.
+                It read "One email is not in the table: following a scene starts
+                sending an immediate email for each new show added there", which
+                was true and was a live violation of the locked posture that
+                every email alert is off until the user turns it on. The scene
+                stream now resolves the same account matrix as its siblings and
+                is the shows row above, so the promise is unconditional again.
+                Do not reintroduce an exception here without the gate coming
+                back off with it. */}
             <p className="text-xs text-muted-foreground">
               {VENUE_ALERTS_PENDING_NOTE} {RELEASE_ALERTS_PENDING_NOTE}
             </p>
