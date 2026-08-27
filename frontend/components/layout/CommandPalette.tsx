@@ -158,9 +158,11 @@ const routes: RouteItem[] = [
     requireAuth: true,
   },
   {
-    label: 'Notification Filters',
+    label: 'Custom alerts',
     href: '/settings/notification-filters',
-    keywords: ['notification filters', 'notify', 'filters', 'alerts', 'subscribe', 'show alerts'],
+    // Keeps the retired vocabulary as keywords: someone who learned the old
+    // name still needs to find the page by typing it.
+    keywords: ['custom alerts', 'notification filters', 'notify', 'filters', 'alerts', 'subscribe', 'show alerts'],
     requireAuth: true,
   },
   {

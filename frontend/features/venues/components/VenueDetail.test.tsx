@@ -136,9 +136,12 @@ vi.mock('@/components/shared', () => ({
   ),
 }))
 
-vi.mock('@/features/notifications', () => ({
-  NotifyMeButton: ({ entityName }: { entityType: string; entityId: number; entityName: string }) => (
-    <button data-testid="notify-me-button">Notify {entityName}</button>
+// PSY-1905: the post-follow alerts reveal replaces the standalone Notify-me
+// control here. Stubbed for the same reason the follow button is: this suite
+// covers the page's composition, not the control's own behaviour.
+vi.mock('@/components/shared/FollowAlertsReveal', () => ({
+  FollowAlertsReveal: ({ entityName }: { entityName: string }) => (
+    <div data-testid="follow-alerts-reveal">Alerts for {entityName}</div>
   ),
 }))
 
@@ -370,10 +373,12 @@ describe('VenueDetail', () => {
       expect(screen.getByTestId('follow-button')).toBeInTheDocument()
     })
 
-    it('renders notify me button', () => {
+    // PSY-1905: following a venue IS subscribing, so the standalone Notify-me
+    // control is gone and the alerts reveal takes its place.
+    it('renders the alerts reveal instead of a Notify-me button', () => {
       render(<VenueDetail venueId="1" />)
-      expect(screen.getByTestId('notify-me-button')).toBeInTheDocument()
-      expect(screen.getByText('Notify The Rebel Lounge')).toBeInTheDocument()
+      expect(screen.getByTestId('follow-alerts-reveal')).toBeInTheDocument()
+      expect(screen.queryByTestId('notify-me-button')).not.toBeInTheDocument()
     })
 
     it('renders revision history', () => {

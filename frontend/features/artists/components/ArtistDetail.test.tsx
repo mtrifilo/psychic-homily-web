@@ -99,10 +99,12 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
 }))
 
-// Mock NotifyMeButton to avoid deep notification hooks dependency
-vi.mock('@/features/notifications', () => ({
-  NotifyMeButton: ({ entityName }: { entityType: string; entityId: number; entityName: string; variant?: string }) => (
-    <button data-testid="notify-me-button">Notify {entityName}</button>
+// The post-follow scope reveal (PSY-1905) reaches auth context, follow state
+// and two preference queries. Stub it: this suite is about the page's header
+// composition, and the reveal's own behaviour is covered by its unit test.
+vi.mock('@/components/shared/FollowAlertsReveal', () => ({
+  FollowAlertsReveal: ({ entityName }: { entityName: string }) => (
+    <div data-testid="follow-alerts-reveal">Alerts for {entityName}</div>
   ),
 }))
 
@@ -412,15 +414,23 @@ describe('ArtistDetail', () => {
     it('renders the header action linkbox as bracket links', () => {
       renderWithProviders(<ArtistDetail artistId="test-artist" />)
       const headerActions = screen.getByTestId('header-actions')
-      // Stateful trio + the always-on [Graph] link.
+      // Stateful pair + the always-on [Graph] link.
       expect(headerActions).toHaveTextContent('Follow')
-      expect(headerActions).toHaveTextContent('Notify')
       expect(headerActions).toHaveTextContent('Add to collection')
       // [Graph] is a button that opens the page-level Dialog (PSY-645).
       // The legacy href="#graph" auto-open still works via the parent's
       // useUrlHash → graphDialogOpen plumbing, but the link itself no
       // longer renders as an anchor.
       expect(screen.getByTestId('bracket-Graph').tagName).toBe('BUTTON')
+    })
+
+    // PSY-1905: following an artist IS subscribing, so the standalone
+    // [Notify me] bracket is gone and the scope reveal takes its place.
+    it('offers the alerts reveal and no standalone Notify-me control', () => {
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      const headerActions = screen.getByTestId('header-actions')
+      expect(headerActions).not.toHaveTextContent('Notify')
+      expect(screen.getByTestId('follow-alerts-reveal')).toBeInTheDocument()
     })
 
     it('offers a share affordance pointing at the artist canonical path', () => {

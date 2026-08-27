@@ -123,12 +123,6 @@ vi.mock('@/lib/context/AuthContext', () => ({
   }),
 }))
 
-vi.mock('@/features/notifications', () => ({
-  NotifyMeButton: ({ entityName }: { entityName: string }) => (
-    <button data-testid="notify-me-button">Notify me about {entityName}</button>
-  ),
-}))
-
 // `@/components/shared` is deliberately NOT mocked: Pagination, YearStrip and
 // DenseTable are the behaviour under test here, not incidental chrome.
 
@@ -313,13 +307,16 @@ describe('VenueShowsList — upcoming section', () => {
     expect(screen.getByText(/Failed to load shows/i)).toBeInTheDocument()
   })
 
-  it('renders an inline [Notify me] affordance when there are no upcoming shows', () => {
+  // PSY-1905: see the ArtistShowsList twin. The [Notify me] bracket that sat
+  // beside this sentence duplicated the header's Follow control.
+  it('states the empty case without a second subscribe control', () => {
     setUpcoming({ shows: [] })
     renderList({ venueName: 'Rebel Lounge' })
     expect(screen.getByText(/No upcoming shows yet/i)).toBeInTheDocument()
-    expect(screen.getByTestId('notify-me-button')).toHaveTextContent(
-      'Rebel Lounge'
-    )
+    expect(screen.queryByTestId('notify-me-button')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /notify/i })
+    ).not.toBeInTheDocument()
   })
 
   it('renders upcoming shows as a table with the total beside the heading', () => {

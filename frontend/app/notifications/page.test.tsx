@@ -93,6 +93,45 @@ describe('NotificationInboxPage', () => {
     expect(screen.getByText('4 unread')).toBeInTheDocument()
   })
 
+  // The subhead is an INVENTORY of what lands here, so it goes stale whenever
+  // a new alert type starts delivering into this inbox. PSY-1896 did exactly
+  // that for artist show alerts, and the line still listed only custom-alert
+  // matches. Untested copy is how that survived.
+  describe('the subhead inventory', () => {
+    beforeEach(() => mockData([commentEntry()], 0))
+
+    it('names the follow-driven alerts that reach this inbox', () => {
+      render(<NotificationInboxPage />)
+
+      expect(
+        screen.getByText(
+          /Comment replies, mentions, shows from artists and scenes you follow, and matches from your custom alerts/i
+        )
+      ).toBeInTheDocument()
+    })
+
+    it('no longer lists custom alerts as the only source of show matches', () => {
+      render(<NotificationInboxPage />)
+
+      expect(
+        screen.queryByText(
+          /^Comment replies, mentions, and matches from your custom alerts\.$/i
+        )
+      ).toBeNull()
+    })
+  })
+
+  // Decision 12's rename, on the surface that links to the manager.
+  it('labels the manager link with the renamed vocabulary', () => {
+    mockData([commentEntry()], 0)
+    render(<NotificationInboxPage />)
+
+    expect(
+      screen.getByRole('link', { name: 'Custom alerts' })
+    ).toHaveAttribute('href', '/settings/notification-filters')
+    expect(screen.queryByText('Manage filters')).toBeNull()
+  })
+
   it('defaults to the unread view: unread rows first, read rows under EARLIER, dimmed', () => {
     const readRow = commentEntry({
       id: 2,

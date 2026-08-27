@@ -82,6 +82,12 @@ export const API_ENDPOINTS = {
     SCENE_DIGEST: `${API_BASE_URL}/auth/preferences/scene-digest`,
     // PSY-756 / PSY-807: opt-OUT toggles for tier-change + edit-review emails.
     TIER_EDIT_NOTIFICATIONS: `${API_BASE_URL}/auth/preferences/tier-edit-notifications`,
+    // PSY-1907: home area + the account-level alert matrix every follow
+    // inherits from. ALERT_PREFERENCES is the single read for both; the two
+    // writes each return the same resolved shape.
+    ALERT_PREFERENCES: `${API_BASE_URL}/auth/preferences/alerts`,
+    HOME_METRO: `${API_BASE_URL}/auth/preferences/home-metro`,
+    ALERT_DEFAULTS: `${API_BASE_URL}/auth/preferences/alert-defaults`,
   },
 
   // Feature module endpoints (defined in features/*/api.ts, re-exported here)
@@ -408,6 +414,13 @@ export const API_ENDPOINTS = {
       `${API_BASE_URL}/${entityType}/${entityId}/followers`,
     FOLLOWERS_LIST: (entityType: string, entityId: number) =>
       `${API_BASE_URL}/${entityType}/${entityId}/followers/list`,
+    // PSY-1893: the alert subscription carried by the follow itself. GET reads
+    // the resolved subscription, PATCH adjusts one axis. Both 404 when the
+    // viewer does not follow the entity, 422 for follow types that carry no
+    // alert subscription (label, festival, tag, radio show), and 400 for
+    // scenes, which are not in the follow-alert entity vocabulary at all.
+    ALERTS: (entityType: string, entityId: number | string) =>
+      `${API_BASE_URL}/${entityType}/${entityId}/follow/alerts`,
     BATCH: `${API_BASE_URL}/follows/batch`,
     MY_FOLLOWING: `${API_BASE_URL}/me/following`,
     LIBRARY_FOLLOWING: `${API_BASE_URL}/me/library/following`,

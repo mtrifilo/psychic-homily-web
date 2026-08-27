@@ -80,12 +80,16 @@ export default function NotificationInboxPage() {
               </span>
             )}
           </h1>
+          {/* Names what actually lands here. PSY-1896 put artist show alerts
+              in this inbox, so an inventory that lists only custom alerts now
+              omits the follow-driven alert type that works. */}
           <p className="mt-1 text-sm text-muted-foreground">
-            Comment replies, mentions, and matches from your alert filters.
+            Comment replies, mentions, shows from artists and scenes you follow,
+            and matches from your custom alerts.
           </p>
         </div>
         <BracketLink
-          label="Manage filters"
+          label="Custom alerts"
           href="/settings/notification-filters"
           className="font-mono text-xs"
         />

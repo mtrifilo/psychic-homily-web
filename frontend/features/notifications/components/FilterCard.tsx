@@ -49,7 +49,7 @@ export function FilterCard({ filter, onEdit }: FilterCardProps) {
             checked={filter.is_active}
             onCheckedChange={handleToggleActive}
             disabled={isMutating}
-            aria-label={filter.is_active ? 'Pause filter' : 'Activate filter'}
+            aria-label={filter.is_active ? 'Pause alert' : 'Activate alert'}
           />
         </div>
 
@@ -87,7 +87,7 @@ export function FilterCard({ filter, onEdit }: FilterCardProps) {
             size="sm"
             onClick={() => onEdit(filter)}
             className="h-8 w-8 p-0"
-            aria-label={`Edit filter ${filter.name}`}
+            aria-label={`Edit alert ${filter.name}`}
           >
             <Pencil className="h-3.5 w-3.5" />
           </Button>
@@ -124,7 +124,7 @@ export function FilterCard({ filter, onEdit }: FilterCardProps) {
       {showDeleteConfirm && (
         <div className="mt-3 pt-3 border-t border-border/50 flex items-center justify-between">
           <p className="text-xs text-muted-foreground">
-            Delete this filter? This cannot be undone.
+            Delete this alert? This cannot be undone.
           </p>
           <div className="flex items-center gap-2">
             <Button

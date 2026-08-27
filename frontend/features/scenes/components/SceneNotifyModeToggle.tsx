@@ -6,13 +6,15 @@ import { queryKeys } from '@/lib/queryClient'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useFollowStatus } from '@/lib/hooks/common/useFollow'
 import { InfoTooltip } from '@/components/shared/InfoTooltip'
-import { cn } from '@/lib/utils'
+import { AlertChipRadioGroup } from '@/components/shared/AlertChipRadioGroup'
 
 const MODES = [
   { value: 'off', label: 'Off' },
   { value: 'followed_bands_only', label: 'Bands I follow' },
   { value: 'all', label: 'All shows' },
 ] as const
+
+type SceneNotifyMode = (typeof MODES)[number]['value']
 
 /**
  * Scene-follow immediate new-show alert mode (PSY-1341; `off` added in
@@ -64,37 +66,22 @@ export function SceneNotifyModeToggle({ slug }: { slug: string }) {
   })
 
   if (!data?.is_following) return null
-  const current = data.notify_mode || 'all'
+  const current = (data.notify_mode || 'all') as SceneNotifyMode
 
   return (
     <div className="flex flex-wrap items-center gap-1 text-xs">
-      <div
-        role="radiogroup"
-        aria-label="New-show alerts"
-        className="flex flex-wrap items-center gap-1"
-      >
-        <span className="text-muted-foreground">Alerts:</span>
-        {MODES.map(m => (
-          <button
-            key={m.value}
-            type="button"
-            role="radio"
-            aria-checked={current === m.value}
-            disabled={setMode.isPending}
-            onClick={() => {
-              if (current !== m.value) setMode.mutate(m.value)
-            }}
-            className={cn(
-              'rounded-full border px-2 py-0.5 transition-colors',
-              current === m.value
-                ? 'border-primary text-foreground'
-                : 'border-border text-muted-foreground hover:border-primary/60 hover:text-foreground'
-            )}
-          >
-            {m.label}
-          </button>
-        ))}
-      </div>
+      {/* Shared with the artist/venue follow's scope reveal (PSY-1905). The
+          two were byte-identical copies of the same control; the markup and
+          the ARIA contract now live in one place, while each keeps its own
+          storage and optimistic-update path, which genuinely differ. */}
+      <AlertChipRadioGroup
+        ariaLabel="New-show alerts"
+        label="Alerts:"
+        options={MODES}
+        value={current}
+        onChange={mode => setMode.mutate(mode)}
+        pending={setMode.isPending}
+      />
       <InfoTooltip
         label="What do these alerts control?"
         copy="Controls immediate alerts when a new show is added to this scene. It doesn't change the separate weekly Scene digest email."

@@ -106,12 +106,12 @@ describe('FilterForm', () => {
 
   // ── Create mode ──
 
-  it('renders "New Notification Filter" title in create mode', () => {
+  it('renders "New custom alert" title in create mode', () => {
     renderWithProviders(
       <FilterForm open={true} onOpenChange={mockOnOpenChange} />
     )
 
-    expect(screen.getByText('New Notification Filter')).toBeInTheDocument()
+    expect(screen.getByText('New custom alert')).toBeInTheDocument()
   })
 
   it('renders description text in create mode', () => {
@@ -120,7 +120,7 @@ describe('FilterForm', () => {
     )
 
     expect(
-      screen.getByText(/Create a filter to get notified when matching shows/)
+      screen.getByText(/Build an alert to be told when matching shows are added/)
     ).toBeInTheDocument()
   })
 
@@ -130,7 +130,7 @@ describe('FilterForm', () => {
     )
 
     expect(
-      screen.getByRole('button', { name: 'Create Filter' })
+      screen.getByRole('button', { name: 'Create alert' })
     ).toBeInTheDocument()
   })
 
@@ -155,7 +155,7 @@ describe('FilterForm', () => {
 
   // ── Edit mode ──
 
-  it('renders "Edit Notification Filter" title in edit mode', () => {
+  it('renders "Edit custom alert" title in edit mode', () => {
     renderWithProviders(
       <FilterForm
         open={true}
@@ -165,7 +165,7 @@ describe('FilterForm', () => {
     )
 
     expect(
-      screen.getByText('Edit Notification Filter')
+      screen.getByText('Edit custom alert')
     ).toBeInTheDocument()
   })
 
@@ -192,7 +192,7 @@ describe('FilterForm', () => {
       />
     )
 
-    const nameInput = screen.getByLabelText('Filter Name') as HTMLInputElement
+    const nameInput = screen.getByLabelText('Alert name') as HTMLInputElement
     expect(nameInput.value).toBe('My Filter')
   })
 
@@ -244,7 +244,7 @@ describe('FilterForm', () => {
       <FilterForm open={true} onOpenChange={mockOnOpenChange} />
     )
 
-    expect(screen.getByLabelText('Filter Name')).toBeInTheDocument()
+    expect(screen.getByLabelText('Alert name')).toBeInTheDocument()
     expect(screen.getByText('Artists')).toBeInTheDocument()
     expect(screen.getByText('Venues')).toBeInTheDocument()
     expect(screen.getByText('Labels')).toBeInTheDocument()
@@ -263,7 +263,7 @@ describe('FilterForm', () => {
     )
 
     expect(
-      screen.getByRole('button', { name: 'Create Filter' })
+      screen.getByRole('button', { name: 'Create alert' })
     ).toBeDisabled()
   })
 
@@ -273,11 +273,11 @@ describe('FilterForm', () => {
       <FilterForm open={true} onOpenChange={mockOnOpenChange} />
     )
 
-    const nameInput = screen.getByLabelText('Filter Name')
+    const nameInput = screen.getByLabelText('Alert name')
     await user.type(nameInput, 'My Filter')
 
     expect(
-      screen.getByRole('button', { name: 'Create Filter' })
+      screen.getByRole('button', { name: 'Create alert' })
     ).toBeDisabled()
   })
 
@@ -287,7 +287,7 @@ describe('FilterForm', () => {
       <FilterForm open={true} onOpenChange={mockOnOpenChange} />
     )
 
-    const nameInput = screen.getByLabelText('Filter Name')
+    const nameInput = screen.getByLabelText('Alert name')
     await user.type(nameInput, 'My Filter')
 
     expect(
@@ -301,12 +301,12 @@ describe('FilterForm', () => {
       <FilterForm open={true} onOpenChange={mockOnOpenChange} />
     )
 
-    await user.type(screen.getByLabelText('Filter Name'), 'Free Shows')
+    await user.type(screen.getByLabelText('Alert name'), 'Free Shows')
     await user.type(screen.getByLabelText('Max Price'), '0')
 
     await waitFor(() => {
       expect(
-        screen.getByRole('button', { name: 'Create Filter' })
+        screen.getByRole('button', { name: 'Create alert' })
       ).not.toBeDisabled()
     })
   })
@@ -319,10 +319,10 @@ describe('FilterForm', () => {
       <FilterForm open={true} onOpenChange={mockOnOpenChange} />
     )
 
-    await user.type(screen.getByLabelText('Filter Name'), 'Free Shows')
+    await user.type(screen.getByLabelText('Alert name'), 'Free Shows')
     await user.type(screen.getByLabelText('Max Price'), '0')
 
-    await user.click(screen.getByRole('button', { name: 'Create Filter' }))
+    await user.click(screen.getByRole('button', { name: 'Create alert' }))
 
     expect(mockCreateMutate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -347,7 +347,7 @@ describe('FilterForm', () => {
     )
 
     // Change the name
-    const nameInput = screen.getByLabelText('Filter Name') as HTMLInputElement
+    const nameInput = screen.getByLabelText('Alert name') as HTMLInputElement
     await user.clear(nameInput)
     await user.type(nameInput, 'New Name')
 
@@ -370,7 +370,7 @@ describe('FilterForm', () => {
     )
 
     expect(
-      screen.queryByText('New Notification Filter')
+      screen.queryByText('New custom alert')
     ).not.toBeInTheDocument()
   })
 

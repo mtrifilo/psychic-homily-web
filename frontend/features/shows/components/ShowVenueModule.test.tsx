@@ -21,24 +21,6 @@ vi.mock('@/components/shared/FollowButton', () => ({
   ),
 }))
 
-vi.mock('@/features/notifications', () => ({
-  NotifyMeButton: ({
-    entityType,
-    entityName,
-  }: {
-    entityType: string
-    entityName: string
-  }) => (
-    <button
-      data-testid="notify-me"
-      data-entity-type={entityType}
-      data-entity-name={entityName}
-    >
-      [Notify me]
-    </button>
-  ),
-}))
-
 import { ShowVenueModule } from './ShowVenueModule'
 import { venueFactSegments } from './showVenueFacts'
 
@@ -263,18 +245,14 @@ describe('ShowVenueModule', () => {
     ).not.toBeInTheDocument()
   })
 
-  // The follow ROUTE segment is plural; the notify VOCABULARY is singular.
-  // Getting the follow one wrong 400s every click — the exact bug this pins.
-  it('follows through the plural route segment and notifies through the singular vocabulary', () => {
+  // The follow ROUTE segment is plural. Getting it wrong 400s every click,
+  // which is the exact bug this pins.
+  it('follows through the plural route segment', () => {
     render(<ShowVenueModule show={makeShow()} />)
 
     expect(screen.getByTestId('follow-venue')).toHaveAttribute(
       'data-entity-type',
       'venues'
-    )
-    expect(screen.getByTestId('notify-me')).toHaveAttribute(
-      'data-entity-type',
-      'venue'
     )
   })
 
@@ -285,12 +263,15 @@ describe('ShowVenueModule', () => {
     )
   })
 
-  it('points notify-me at the venue by name', () => {
+  // PSY-1905: this module used to pair [Follow venue] with [Notify me], two
+  // brackets that did different things. Following a venue now subscribes on
+  // its own, so the second bracket is gone and must not come back.
+  it('offers one subscribe bracket, not a Follow/Notify pair', () => {
     render(<ShowVenueModule show={makeShow()} />)
-    expect(screen.getByTestId('notify-me')).toHaveAttribute(
-      'data-entity-name',
-      'Salt Shed'
-    )
+    expect(screen.queryByTestId('notify-me')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /notify/i })
+    ).not.toBeInTheDocument()
   })
 
   it('renders the more-at link only when the venue has a slug', () => {

@@ -122,7 +122,7 @@ describe('FilterList', () => {
     renderWithProviders(<FilterList />)
 
     expect(
-      screen.getByText('Failed to load notification filters. Please try again.')
+      screen.getByText('Failed to load your custom alerts. Please try again.')
     ).toBeInTheDocument()
   })
 
@@ -137,9 +137,9 @@ describe('FilterList', () => {
 
     renderWithProviders(<FilterList />)
 
-    expect(screen.getByText('No notification filters')).toBeInTheDocument()
+    expect(screen.getByText('No custom alerts')).toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: /Create your first filter/ })
+      screen.getByRole('button', { name: /Create your first alert/ })
     ).toBeInTheDocument()
   })
 
@@ -148,19 +148,34 @@ describe('FilterList', () => {
   it('renders page title and description', () => {
     renderWithProviders(<FilterList />)
 
-    expect(screen.getByText('Notification Filters')).toBeInTheDocument()
+    expect(screen.getByText('Custom alerts')).toBeInTheDocument()
     expect(
       screen.getByText(
-        'Get notified when new shows matching your criteria are approved.'
+        // PSY-1894 landed, so a show is "added", not "approved" (PSY-1892
+        // decision 12 renames the surface and fixes the stale verb with it).
+        /Get told when a new show matching your criteria is added\./
       )
     ).toBeInTheDocument()
   })
 
-  it('renders "New Filter" button', () => {
+  // PSY-1905 merged Follow and Notify me on artist and venue pages and left
+  // the filters the old button created untouched. This page is the only
+  // remaining place they can be edited, paused or deleted, so it has to name
+  // them: a pre-merge reader otherwise meets a list of entries they never
+  // built here, under a heading about criteria they wrote themselves.
+  it('says the Notify-me alerts live here too, with their own email switch', () => {
     renderWithProviders(<FilterList />)
 
     expect(
-      screen.getByRole('button', { name: /New Filter/ })
+      screen.getByText(/Anything you set up with .Notify me. is listed here too/i)
+    ).toBeInTheDocument()
+  })
+
+  it('renders "New alert" button', () => {
+    renderWithProviders(<FilterList />)
+
+    expect(
+      screen.getByRole('button', { name: /New alert/ })
     ).toBeInTheDocument()
   })
 
@@ -193,16 +208,16 @@ describe('FilterList', () => {
 
     renderWithProviders(<FilterList />)
 
-    expect(screen.queryByText('No notification filters')).not.toBeInTheDocument()
+    expect(screen.queryByText('No custom alerts')).not.toBeInTheDocument()
   })
 
   // ── Create form dialog ──
 
-  it('opens create form when "New Filter" button is clicked', async () => {
+  it('opens create form when "New alert" button is clicked', async () => {
     const user = userEvent.setup()
     renderWithProviders(<FilterList />)
 
-    await user.click(screen.getByRole('button', { name: /New Filter/ }))
+    await user.click(screen.getByRole('button', { name: /New alert/ }))
 
     expect(screen.getByTestId('create-form')).toBeInTheDocument()
   })
@@ -218,7 +233,7 @@ describe('FilterList', () => {
     renderWithProviders(<FilterList />)
 
     await user.click(
-      screen.getByRole('button', { name: /Create your first filter/ })
+      screen.getByRole('button', { name: /Create your first alert/ })
     )
 
     expect(screen.getByTestId('create-form')).toBeInTheDocument()

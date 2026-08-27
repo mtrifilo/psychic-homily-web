@@ -58,6 +58,23 @@ const EVICTED: ReadonlyArray<readonly [string, () => Promise<object>, readonly s
     () => import('@/features/releases/components'),
     ['ReleaseDetail'],
   ],
+  [
+    // PSY-1905's merged Follow control. `components/shared` IS root-layout
+    // reachable, and this chain is the worst case the guard exists for:
+    // LibraryAlertsBar -> HomeMetroField -> @/features/charts/hooks/useCharts.
+    // Barrel-exporting any of them would ship the charts hooks into the one
+    // client chunk every route loads. Their own files carry a comment saying
+    // so, and a comment does not fail a build.
+    '@/components/shared',
+    () => import('@/components/shared'),
+    [
+      'FollowAlertsReveal',
+      'FollowAlertsMenu',
+      'LibraryAlertsBar',
+      'HomeMetroSelect',
+      'AlertChipRadioGroup',
+    ],
+  ],
 ]
 
 describe('shared-chunk barrel guard (PSY-1772)', () => {

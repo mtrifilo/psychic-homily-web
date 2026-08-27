@@ -35,13 +35,8 @@ vi.mock('@/components/shared/FollowButton', () => ({
   ),
 }))
 
-vi.mock('@/features/notifications', () => ({
-  NotifyMeButton: ({ entityName }: { entityName: string }) => (
-    <button data-testid="notify-me" data-entity-name={entityName}>
-      [Notify me]
-    </button>
-  ),
-}))
+// See ShowDetail.test: the `@/features/notifications` mock here served only
+// ShowVenueModule's retired [Notify me] bracket (PSY-1905).
 
 vi.mock('@/components/shared', async importOriginal => ({
   ...(await importOriginal<typeof import('@/components/shared')>()),

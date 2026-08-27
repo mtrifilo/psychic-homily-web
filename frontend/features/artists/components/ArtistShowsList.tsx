@@ -2,7 +2,6 @@
 
 import { Loader2 } from 'lucide-react'
 import { formatCount, SectionHeader } from '@/components/shared'
-import { NotifyMeButton } from '@/features/notifications'
 import { useArtistShows } from '../hooks/useArtists'
 import { ARTIST_UPCOMING_SHOWS_LIMIT } from '../api'
 import { ArtistPastShows } from './ArtistPastShows'
@@ -99,15 +98,13 @@ export function ArtistShowsList({
         ) : upcoming.error ? (
           <p className="py-3 text-sm text-destructive">Failed to load shows</p>
         ) : upcomingShows.length === 0 ? (
-          <div className="flex items-baseline gap-3 py-2 text-sm text-muted-foreground">
-            <span>No upcoming shows yet.</span>
-            <NotifyMeButton
-              entityType="artist"
-              entityId={artistId}
-              entityName={artistName}
-              variant="bracket"
-            />
-          </div>
+          // The nudge that used to sit here was a second [Notify me] bracket
+          // duplicating the header's Follow control. Following now subscribes
+          // (PSY-1893), so the header bracket is the whole affordance and a
+          // copy of it down here is the redundancy PSY-1905 removes.
+          <p className="py-2 text-sm text-muted-foreground">
+            No upcoming shows yet.
+          </p>
         ) : (
           <>
             <ArtistShowsTable

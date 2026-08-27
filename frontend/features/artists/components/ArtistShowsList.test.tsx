@@ -93,12 +93,6 @@ vi.mock('nuqs', async importOriginal => ({
     key === 'year' ? [queryYear, vi.fn()] : [queryPage, vi.fn()],
 }))
 
-vi.mock('@/features/notifications', () => ({
-  NotifyMeButton: ({ entityName }: { entityName: string }) => (
-    <button data-testid="notify-me-button">Notify me about {entityName}</button>
-  ),
-}))
-
 // `@/components/shared` is deliberately NOT mocked: Pagination, YearStrip and
 // DenseTable are the behaviour under test here, not incidental chrome.
 
@@ -227,13 +221,16 @@ describe('ArtistShowsList — upcoming section', () => {
     expect(screen.getByText(/Failed to load shows/i)).toBeInTheDocument()
   })
 
-  it('renders an inline [Notify me] affordance when there are no upcoming shows', () => {
+  // PSY-1905: the [Notify me] bracket that used to sit beside this sentence
+  // duplicated the header's Follow control, which now subscribes on its own.
+  it('states the empty case without a second subscribe control', () => {
     setUpcoming({ shows: [] })
     renderList({ artistName: 'Just Mustard' })
     expect(screen.getByText(/No upcoming shows yet/i)).toBeInTheDocument()
-    expect(screen.getByTestId('notify-me-button')).toHaveTextContent(
-      'Just Mustard'
-    )
+    expect(screen.queryByTestId('notify-me-button')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /notify/i })
+    ).not.toBeInTheDocument()
   })
 
   it('renders upcoming shows as a table with the total beside the heading', () => {

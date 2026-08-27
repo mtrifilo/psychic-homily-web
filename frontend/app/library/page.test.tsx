@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fireEvent, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { renderWithProviders, screen, within } from '@/test/utils'
 
 const mockReplace = vi.fn()
@@ -71,6 +72,46 @@ vi.mock('@/lib/hooks/common/useFollow', () => ({
   useLibraryFollowingCounts: () => mockUseLibraryFollowingCounts(),
   useLibraryFollowing: (type: string) => mockUseLibraryFollowing(type),
   useUnfollow: () => mockUseUnfollow(),
+}))
+
+// PSY-1905: the alerts context bar and the per-row alerts menu. Both read the
+// account preferences, so one mock covers the pair.
+const mockUpdateFollowAlerts = vi.fn()
+let mockAlertPreferences: {
+  home_metro: string | null
+  alert_defaults?: {
+    shows: { in_app: boolean; email: boolean }
+    releases: { in_app: boolean; email: boolean }
+  }
+} | null = { home_metro: '38060' }
+
+vi.mock('@/features/auth/hooks/useAlertPreferences', () => ({
+  useAlertPreferences: () => ({
+    data: mockAlertPreferences ?? undefined,
+    isLoading: false,
+    // Resolved-or-not is load-bearing now: an unresolved read must leave the
+    // home area UNKNOWN rather than reading as "no home area".
+    isSuccess: mockAlertPreferences !== null,
+  }),
+  useHomeMetroState: () =>
+    mockAlertPreferences === null
+      ? undefined
+      : Boolean(mockAlertPreferences.home_metro),
+  useSetHomeMetro: () => ({ mutate: vi.fn(), isPending: false, isError: false }),
+}))
+
+vi.mock('@/lib/hooks/common/useFollowAlerts', () => ({
+  useUpdateFollowAlerts: () => ({
+    mutate: mockUpdateFollowAlerts,
+    isPending: false,
+    isError: false,
+  }),
+}))
+
+vi.mock('@/components/shared/HomeMetroField', () => ({
+  HomeMetroSelect: () => <div data-testid="home-metro-select" />,
+  useHomeMetroLabel: (metro: string | null | undefined) =>
+    metro ? 'Phoenix-Mesa-Chandler, AZ' : null,
 }))
 
 vi.mock('@/features/venues', () => ({
@@ -193,6 +234,7 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       value: mockScrollTo,
     })
     mockSearchParams = new URLSearchParams()
+    mockAlertPreferences = { home_metro: '38060' }
     setAuthenticated()
     setLoadedData()
     mockUseUnfollow.mockReturnValue({
@@ -500,6 +542,9 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       expect(
         within(rows[0]).getByRole('button', { name: 'Unfollow Chicago, IL' })
       ).toBeTruthy()
+      // A scene follow carries no alert subscription (the endpoints 422 for
+      // it), so its row gets no bracket rather than a disabled one implying
+      // the subscription could be switched on.
       expect(
         within(rows[0]).queryByRole('button', { name: /alerts/i })
       ).toBeNull()
@@ -514,6 +559,261 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       expect(within(rows[0]).getByRole('alert')).toHaveTextContent(
         "Couldn't unfollow Chicago, IL. Try again."
       )
+    })
+
+    // ----- PSY-1905: the per-follow alerts bracket and its context bar -----
+
+    const artistRow = (
+      alerts?: {
+        entity_type: string
+        entity_id: number
+        shows: { enabled: boolean; in_app: boolean; email: boolean; scope?: string }
+      }
+    ) => ({
+      entity_type: 'artist',
+      entity_id: 1,
+      name: 'Alpha',
+      slug: 'alpha',
+      followed_at: '2026-07-01T00:00:00Z',
+      ...(alerts ? { alerts } : {}),
+    })
+
+    const setArtistPage = (row: ReturnType<typeof artistRow>) => {
+      mockSearchParams = new URLSearchParams('tab=artists')
+      mockUseLibraryFollowing.mockReturnValue({
+        data: { pages: [{ following: [row], limit: 50 }] },
+        isLoading: false,
+        isFetching: false,
+        hasNextPage: false,
+        fetchNextPage: vi.fn(),
+        isFetchingNextPage: false,
+        isFetchNextPageError: false,
+        error: null,
+      })
+    }
+
+    it('summarizes each follow’s alert scope in its row bracket', () => {
+      setArtistPage(
+        artistRow({
+          entity_type: 'artist',
+          entity_id: 1,
+          shows: { enabled: true, in_app: true, email: false, scope: 'near_me' },
+        })
+      )
+      renderWithProviders(<LibraryPage />)
+
+      expect(
+        screen.getByRole('button', { name: 'Show alerts for Alpha: near me' })
+      ).toBeTruthy()
+    })
+
+    // Near-me is only real with a home area behind it. With none set, the row
+    // must report what the server will actually do rather than the stored word.
+    it('reports everywhere when the stored scope is near me but no area is set', () => {
+      mockAlertPreferences = { home_metro: null }
+      setArtistPage(
+        artistRow({
+          entity_type: 'artist',
+          entity_id: 1,
+          shows: { enabled: true, in_app: true, email: false, scope: 'near_me' },
+        })
+      )
+      renderWithProviders(<LibraryPage />)
+
+      expect(
+        screen.getByRole('button', { name: 'Show alerts for Alpha: everywhere' })
+      ).toBeTruthy()
+    })
+
+    it('renders no bracket for a follow the server sent no subscription for', () => {
+      setArtistPage(artistRow())
+      renderWithProviders(<LibraryPage />)
+
+      expect(screen.queryByRole('button', { name: /alerts for/i })).toBeNull()
+    })
+
+    // Enabled with both channels off means the notifier skips this recipient,
+    // so the row cannot summarize itself as "near me". The bar states the
+    // ACCOUNT half of the same fact, which is what a new follow inherits.
+    it('reads paused on the row and the bar when no channel is left', () => {
+      mockAlertPreferences = {
+        home_metro: '38060',
+        alert_defaults: {
+          shows: { in_app: false, email: false },
+          releases: { in_app: true, email: false },
+        },
+      }
+      setArtistPage(
+        artistRow({
+          entity_type: 'artist',
+          entity_id: 1,
+          shows: { enabled: true, in_app: false, email: false, scope: 'near_me' },
+        })
+      )
+      renderWithProviders(<LibraryPage />)
+
+      expect(
+        screen.getByRole('button', { name: 'Show alerts for Alpha: paused' })
+      ).toBeTruthy()
+      expect(screen.getByText('paused')).toBeInTheDocument()
+      expect(screen.queryByText('Near me')).toBeNull()
+    })
+
+    // A follow the user switched off is not paused, and it must not drag the
+    // rest of the tab with it. The bar answers from the account matrix, so a
+    // mixed tab, and a partial page of a cursor-paginated list, cannot move
+    // its answer at all.
+    it('keeps the pause with one switched-off follow in the same tab', () => {
+      mockAlertPreferences = {
+        home_metro: '38060',
+        alert_defaults: {
+          shows: { in_app: false, email: false },
+          releases: { in_app: true, email: false },
+        },
+      }
+      mockSearchParams = new URLSearchParams('tab=artists')
+      mockUseLibraryFollowing.mockReturnValue({
+        data: {
+          pages: [
+            {
+              following: [
+                artistRow({
+                  entity_type: 'artist',
+                  entity_id: 1,
+                  shows: { enabled: true, in_app: false, email: false },
+                }),
+                {
+                  ...artistRow({
+                    entity_type: 'artist',
+                    entity_id: 2,
+                    shows: { enabled: false, in_app: false, email: false },
+                  }),
+                  entity_id: 2,
+                  name: 'Beta',
+                  slug: 'beta',
+                },
+              ],
+              limit: 50,
+            },
+          ],
+        },
+        isLoading: false,
+        isFetching: false,
+        hasNextPage: false,
+        fetchNextPage: vi.fn(),
+        isFetchingNextPage: false,
+        isFetchNextPageError: false,
+        error: null,
+      })
+      renderWithProviders(<LibraryPage />)
+
+      expect(screen.getByText('paused')).toBeInTheDocument()
+      expect(screen.queryByText('Near me')).toBeNull()
+    })
+
+    it('writes the chosen scope through the follow-alerts mutation', async () => {
+      const user = userEvent.setup()
+      setArtistPage(
+        artistRow({
+          entity_type: 'artist',
+          entity_id: 1,
+          shows: { enabled: true, in_app: true, email: false, scope: 'near_me' },
+        })
+      )
+      renderWithProviders(<LibraryPage />)
+
+      // Radix opens this menu on pointer-down, so it needs userEvent rather
+      // than a bare click event (same as FilterCard's dropdown suite).
+      await user.click(
+        screen.getByRole('button', { name: 'Show alerts for Alpha: near me' })
+      )
+      await user.click(screen.getByRole('menuitem', { name: 'Off' }))
+
+      // The PATCH pins only the axis the choice decides: sending a scope with
+      // an "off" would store a preference the user never expressed.
+      expect(mockUpdateFollowAlerts).toHaveBeenCalledWith({
+        entityType: 'artists',
+        entityId: 1,
+        update: { shows: { enabled: false } },
+      })
+    })
+
+    // A venue sits in one place. The bar's scope sentence and area control
+    // describe a restriction venue follows do not have, and contradict the
+    // venue reveal one page over that says exactly that.
+    it('omits the scope and area copy on the venues tab', () => {
+      mockSearchParams = new URLSearchParams('tab=venues')
+      mockUseLibraryFollowing.mockReturnValue({
+        data: {
+          pages: [
+            {
+              following: [
+                {
+                  entity_type: 'venue',
+                  entity_id: 2,
+                  name: 'Rebel Lounge',
+                  slug: 'rebel-lounge',
+                  followed_at: '2026-07-01T00:00:00Z',
+                  alerts: {
+                    entity_type: 'venue',
+                    entity_id: 2,
+                    shows: { enabled: true, in_app: true, email: false },
+                  },
+                },
+              ],
+              limit: 50,
+            },
+          ],
+        },
+        isLoading: false,
+        isFetching: false,
+        hasNextPage: false,
+        fetchNextPage: vi.fn(),
+        isFetchingNextPage: false,
+        isFetchNextPageError: false,
+        error: null,
+      })
+      renderWithProviders(<LibraryPage />)
+
+      expect(screen.queryByText(/New follows start at/)).toBeNull()
+      expect(screen.queryByText(/Your area/)).toBeNull()
+      // The row control is still there, on its own on/off axis.
+      expect(
+        screen.getByRole('button', { name: 'Show alerts for Rebel Lounge: on' })
+      ).toBeTruthy()
+    })
+
+    // Unknown is not "no area": labelling a near-me follow "everywhere" for a
+    // round trip overstates the reach of a subscription the server scopes.
+    it('renders no bracket while the account preferences are unresolved', () => {
+      mockAlertPreferences = null
+      setArtistPage(
+        artistRow({
+          entity_type: 'artist',
+          entity_id: 1,
+          shows: { enabled: true, in_app: true, email: false, scope: 'near_me' },
+        })
+      )
+      renderWithProviders(<LibraryPage />)
+
+      expect(screen.queryByRole('button', { name: /alerts for/i })).toBeNull()
+    })
+
+    it('shows the alerts context bar on a tab whose follows carry alerts', () => {
+      setArtistPage(
+        artistRow({
+          entity_type: 'artist',
+          entity_id: 1,
+          shows: { enabled: true, in_app: true, email: false, scope: 'near_me' },
+        })
+      )
+      renderWithProviders(<LibraryPage />)
+
+      expect(screen.getByText(/New follows start at/)).toBeTruthy()
+      expect(screen.getByText('Phoenix-Mesa-Chandler, AZ')).toBeTruthy()
+      expect(
+        screen.getByRole('link', { name: 'custom alerts →' })
+      ).toHaveAttribute('href', '/settings/notification-filters')
     })
 
     it('loads the next bounded following page on demand', () => {

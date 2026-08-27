@@ -176,13 +176,10 @@ vi.mock('@/components/shared/FollowButton', () => ({
   ),
 }))
 
-vi.mock('@/features/notifications', () => ({
-  NotifyMeButton: ({ entityName }: { entityName: string }) => (
-    <button data-testid="notify-me" data-entity-name={entityName}>
-      [Notify me]
-    </button>
-  ),
-}))
+// The `@/features/notifications` mock that stood here existed only for
+// ShowVenueModule's [Notify me] bracket, which PSY-1905 retired. Left in place
+// it would shadow the real barrel the moment this tree imports anything else
+// from it, turning a working component into a silently broken test.
 
 vi.mock('@/features/charts', () => ({
   EntityChartRankBadge: () => null,

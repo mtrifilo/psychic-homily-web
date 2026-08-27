@@ -3,7 +3,6 @@
 import Link from 'next/link'
 import { FollowButton } from '@/components/shared/FollowButton'
 import { BracketLink } from '@/components/shared/BracketLink'
-import { NotifyMeButton } from '@/features/notifications'
 import { formatLocation, LOCATION_UNKNOWN } from '@/lib/formatLocation'
 import { googleMapsSearchUrl } from '@/lib/maps'
 import { MiddotSegments } from './MiddotSegments'
@@ -115,20 +114,18 @@ export function ShowVenueModule({ show }: ShowVenueModuleProps) {
             ariaLabel={`Directions to ${venue.name} (opens Google Maps in a new tab)`}
           />
         )}
-        {/* Follow routes are PLURAL path segments ("venues"); the notify
-            vocabulary is SINGULAR ("venue"). Adjacent on purpose so the next
-            editor sees both spellings are deliberate. */}
+        {/* One bracket, not two. This module used to pair [Follow venue] with
+            [Notify me], which did different things: the first wrote a bookmark
+            row that delivered nothing, the second created the filter that
+            actually subscribed. Following a venue now IS subscribing
+            (PSY-1893), so the second bracket is gone (PSY-1905). The alert
+            on/off axis lives on the venue's own page, not in a show's sidebar
+            module. */}
         <FollowButton
           entityType="venues"
           entityId={venue.id}
           variant="bracket"
           bracketLabel="Follow venue"
-        />
-        <NotifyMeButton
-          entityType="venue"
-          entityId={venue.id}
-          entityName={venue.name}
-          variant="bracket"
         />
         {venue.slug && (
           <Link

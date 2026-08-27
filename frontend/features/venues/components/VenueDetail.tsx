@@ -16,7 +16,7 @@ import { EntityCollections } from '@/features/collections'
 import { EntityChartRankBadge } from '@/features/charts'
 import { CommentThread } from '@/features/comments'
 import { EntityTagList } from '@/features/tags'
-import { NotifyMeButton } from '@/features/notifications'
+import { FollowAlertsReveal } from '@/components/shared/FollowAlertsReveal'
 import { VenueLocationCard } from './VenueLocationCard'
 import { VenueShowsList } from './VenueShowsList'
 import { VenueBillNetwork, VENUE_SHOWS_ANCHOR } from './VenueBillNetwork'
@@ -223,7 +223,9 @@ export function VenueDetail({ venueId, initialPastYears }: VenueDetailProps) {
                 <>
                   <FollowButton entityType="venues" entityId={venue.id} />
                   <AddToCollectionButton entityType="venue" entityId={venue.id} entityName={venue.name} />
-                  <NotifyMeButton entityType="venue" entityId={venue.id} entityName={venue.name} />
+                  {/* No Notify-me control: following a venue IS subscribing to
+                      its alerts (PSY-1893). The on/off axis is revealed after
+                      the follow, below this row (PSY-1905). */}
                   {isAuthenticated && (
                     <>
                       <Button
@@ -258,6 +260,14 @@ export function VenueDetail({ venueId, initialPastYears }: VenueDetailProps) {
                   )}
                 </>
               }
+            />
+
+            {/* Renders nothing until the venue is followed. */}
+            <FollowAlertsReveal
+              entityType="venues"
+              entityId={venue.id}
+              entityName={venue.name}
+              className="mt-2"
             />
 
             {venue.social?.website && (
