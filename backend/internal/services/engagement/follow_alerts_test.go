@@ -321,7 +321,9 @@ func TestMergeFollowAlertSettings_RefusesUnparseableDocument(t *testing.T) {
 func TestFollowAlertSettings_InvalidEntityTypeRejectedBeforeDB(t *testing.T) {
 	svc := &FollowService{db: &gorm.DB{}}
 
-	for _, entityType := range []string{"label", "festival", "tag", "scene", "radio_show", "user", "banana"} {
+	// "scene" is deliberately absent: PSY-1926 registered it, so that its
+	// new-show emails resolve the same opt-in chain as artists and venues.
+	for _, entityType := range []string{"label", "festival", "tag", "radio_show", "user", "banana"} {
 		t.Run(entityType, func(t *testing.T) {
 			_, err := svc.GetFollowAlertSettings(1, entityType, 1)
 			assert.ErrorContains(t, err, "invalid entity type for follow")
@@ -383,6 +385,121 @@ func TestValidateFollowAlertUpdate(t *testing.T) {
 			Shows: &contracts.FollowAlertPreferenceUpdate{Email: boolPtr(true)},
 		}))
 	})
+
+	// A scene's in-app delivery cannot be switched off (see
+	// followAlertHasInAppAxis), so the write is REJECTED rather than stored and
+	// ignored. A write that appears to succeed and silences nothing is the one
+	// shape a delivery control must never have.
+	t.Run("scene rejects in-app", func(t *testing.T) {
+		err := validateFollowAlertUpdate("scene", contracts.FollowAlertUpdate{
+			Shows: &contracts.FollowAlertPreferenceUpdate{InApp: boolPtr(false)},
+		})
+		assertAlertSettingsError(t, err, "scene alerts are always delivered in-app")
+	})
+
+	t.Run("scene rejects scope", func(t *testing.T) {
+		err := validateFollowAlertUpdate("scene", contracts.FollowAlertUpdate{
+			Shows: &contracts.FollowAlertPreferenceUpdate{Scope: &nearMe},
+		})
+		assertAlertSettingsError(t, err, "scene shows alerts have no scope axis")
+	})
+
+	t.Run("scene rejects releases", func(t *testing.T) {
+		err := validateFollowAlertUpdate("scene", contracts.FollowAlertUpdate{
+			Releases: &contracts.FollowAlertPreferenceUpdate{Email: boolPtr(true)},
+		})
+		assertAlertSettingsError(t, err, "scene follows have no release alerts")
+	})
+
+	// The axis a scene DOES carry, and the whole point of registering it.
+	t.Run("scene email update accepted", func(t *testing.T) {
+		assert.NoError(t, validateFollowAlertUpdate("scene", contracts.FollowAlertUpdate{
+			Shows: &contracts.FollowAlertPreferenceUpdate{Email: boolPtr(true)},
+		}))
+	})
+}
+
+// The in-app axis must be read from its predicate for the same reason the scope
+// axis is: inferring it from a resolved value would make a follow type that
+// legitimately resolves to in-app ON look switchable.
+func TestFollowAlertHasInAppAxis(t *testing.T) {
+	assert.True(t, followAlertHasInAppAxis("artist"))
+	assert.True(t, followAlertHasInAppAxis("venue"))
+	assert.False(t, followAlertHasInAppAxis("scene"))
+}
+
+// Scene follows are the reason PSY-1926 exists: their new-show email must
+// resolve OFF for a follow that stored nothing, whatever the notifier used to
+// do. This is also the "existing rows align to off" claim, expressed as the
+// only thing that has to be true for it: absent means inherit, and what it
+// inherits is off.
+func TestResolveFollowAlerts_SceneEmailIsOffUntilOptedIn(t *testing.T) {
+	resolved := resolveFollowAlerts("scene", 7, nil, shippedAlertDefaults())
+
+	assert.False(t, resolved.Shows.Email, "a scene follow with no override must not be emailed")
+	assert.True(t, resolved.Shows.Enabled)
+	assert.True(t, resolved.Shows.InApp, "scene in-app delivery is always on")
+	assert.Empty(t, resolved.Shows.Scope, "a scene has no area scope")
+	assert.Nil(t, resolved.Releases, "a scene puts out no records")
+}
+
+// The account matrix is the opt-in, and it reaches a follow that overrode
+// nothing. That is what makes the settings card's email box a real control over
+// this stream rather than a claim about a neighbouring one.
+func TestResolveFollowAlerts_SceneEmailFollowsTheAccountMatrix(t *testing.T) {
+	account := authm.AccountAlertDefaults{
+		Shows: authm.AlertChannelDefaults{InApp: true, Email: true},
+	}
+
+	resolved := resolveFollowAlerts("scene", 7, nil, account)
+
+	assert.True(t, resolved.Shows.Email)
+}
+
+// A per-follow override sits BELOW the account default, so one scene can be
+// silenced (or switched on) without touching the rest.
+func TestResolveFollowAlerts_SceneEmailOverrideBeatsTheAccount(t *testing.T) {
+	on := json.RawMessage(`{"alerts":{"shows":{"email":true}}}`)
+	assert.True(t, resolveFollowAlerts("scene", 7, &on, shippedAlertDefaults()).Shows.Email)
+
+	off := json.RawMessage(`{"alerts":{"shows":{"email":false}}}`)
+	account := authm.AccountAlertDefaults{
+		Shows: authm.AlertChannelDefaults{InApp: true, Email: true},
+	}
+	assert.False(t, resolveFollowAlerts("scene", 7, &off, account).Shows.Email)
+}
+
+// A stored in-app value on a scene is stale data the write path rejects, so
+// honouring it would report a channel the delivery path cannot switch off. It
+// must read as on regardless, in BOTH directions of the account default.
+func TestResolveFollowAlerts_SceneIgnoresStoredInApp(t *testing.T) {
+	stored := json.RawMessage(`{"alerts":{"shows":{"in_app":false}}}`)
+	assert.True(t, resolveFollowAlerts("scene", 7, &stored, shippedAlertDefaults()).Shows.InApp)
+
+	accountOff := authm.AccountAlertDefaults{
+		Shows: authm.AlertChannelDefaults{InApp: false, Email: false},
+	}
+	assert.True(t, resolveFollowAlerts("scene", 7, nil, accountOff).Shows.InApp)
+}
+
+// The scene follow's settings document is SHARED: scene_notify_mode has lived
+// in it since PSY-1341, and the unsubscribe sweep writes the alerts object
+// beside it. Losing the mode to an alerts write would silently promote an
+// "off" or "followed bands only" scene back to every show.
+func TestMergeFollowAlertSettings_ScenePreservesNotifyMode(t *testing.T) {
+	settings := json.RawMessage(`{"scene_notify_mode":"followed_bands_only"}`)
+
+	merged, err := mergeFollowAlertSettings(&settings, contracts.FollowAlertUpdate{
+		Shows: &contracts.FollowAlertPreferenceUpdate{Email: boolPtr(false)},
+	})
+	assert.NoError(t, err)
+
+	var doc map[string]json.RawMessage
+	assert.NoError(t, json.Unmarshal(merged, &doc))
+	assert.JSONEq(t, `"followed_bands_only"`, string(doc["scene_notify_mode"]))
+
+	raw := json.RawMessage(merged)
+	assert.False(t, resolveFollowAlerts("scene", 7, &raw, shippedAlertDefaults()).Shows.Email)
 }
 
 // The scope axis must be read from its predicate, never inferred from whether

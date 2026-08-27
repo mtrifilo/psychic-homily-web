@@ -471,8 +471,17 @@ func TestVenueAndArtistAlertEmailsShareOneUnsubscribeScope(t *testing.T) {
 		showEmailContentParts{date: "today"},
 		shared, "https://example.com/m")
 
+	// PSY-1926 joined the scene alert to the same scope on the same reasoning,
+	// and it is the one that had no working unsubscribe at all: its link
+	// pointed at a frontend page that redirects, so the RFC 8058 POST could
+	// not be honoured.
+	sceneHTML := buildSceneShowAlertEmailHTML("Phoenix, AZ",
+		showEmailContentParts{date: "today"},
+		shared, "https://example.com/m")
+
 	assert.Contains(t, venueHTML, "unsubscribe/artist-show-alerts")
 	assert.Contains(t, artistHTML, "unsubscribe/artist-show-alerts")
+	assert.Contains(t, sceneHTML, "unsubscribe/artist-show-alerts")
 
 	// And the signature verifies under that scope, so the link the recipient
 	// clicks actually works rather than 403ing at the door.

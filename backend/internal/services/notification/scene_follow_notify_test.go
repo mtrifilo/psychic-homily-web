@@ -4,6 +4,7 @@ import (
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	notificationm "psychic-homily-backend/internal/models/notification"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/engagement"
 )
 
 // Scene-follow fan-out tests (PSY-1341) — run inside NotificationFilterSuite
@@ -35,6 +36,29 @@ func (s *NotificationFilterSuite) seedSceneFollow(userID uint, mode string) uint
 			userID, sceneID, mode).Error)
 	}
 	return sceneID
+}
+
+// seedSceneFollowWithSettings is seedSceneFollow with a caller-supplied
+// settings document, which is what a follow that has been configured carries.
+// The document is shared: scene_notify_mode and the alerts object live side by
+// side in it.
+func (s *NotificationFilterSuite) seedSceneFollowWithSettings(userID uint, settingsJSON string) uint {
+	sceneID := s.seedSceneFollow(userID, "")
+	s.Require().NoError(s.db.Exec(`
+		UPDATE user_bookmarks SET settings = ?::jsonb
+		WHERE user_id = ? AND entity_type = 'scene' AND entity_id = ? AND action = 'follow'`,
+		settingsJSON, userID, sceneID).Error)
+	return sceneID
+}
+
+// setAccountShowEmail writes the ACCOUNT-level opt-in, which is the control the
+// settings card's email box drives and the one an unsubscribe clears.
+func (s *NotificationFilterSuite) setAccountShowEmail(userID uint, on bool) {
+	s.Require().NoError(s.db.Exec(`
+		INSERT INTO user_preferences (user_id, alert_defaults)
+		VALUES (?, jsonb_build_object('shows', jsonb_build_object('email', ?::boolean)))
+		ON CONFLICT (user_id) DO UPDATE SET alert_defaults = EXCLUDED.alert_defaults`,
+		userID, on).Error)
 }
 
 func (s *NotificationFilterSuite) followArtist(userID, artistID uint) {
@@ -240,4 +264,142 @@ func (s *NotificationFilterSuite) TestSceneFollow_FallbackRowMatchesMetroStamped
 
 	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
 	s.Equal(int64(1), s.sceneLogCount(userID, showID))
+}
+
+// =============================================================================
+// EMAIL OPT-IN (PSY-1926)
+// =============================================================================
+
+// The violation this ticket exists to fix, stated as a test: a fresh scene
+// follow gets the in-app row and NO mail. Before PSY-1926 the only gate on the
+// email was whether a provider was configured, which this suite always is.
+//
+// It is also the "existing rows align to off" claim in executable form. The
+// follow here stores nothing but a mode, which is exactly the shape every
+// scene follow in production carries, and nothing had to be migrated for it to
+// resolve to off.
+func (s *NotificationFilterSuite) TestSceneAlert_EmailIsOffUntilOptedIn() {
+	capture := s.withCapturedEmail()
+
+	userID := s.createTestUser()
+	s.seedSceneFollow(userID, "")
+
+	artistID := s.createTestArtist("Unasked Band")
+	venueID := s.createTestVenue("The Rebel Lounge")
+	showID := s.createTestShow("Unasked Show", []uint{artistID}, []uint{venueID})
+
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
+
+	s.Equal(int64(1), s.sceneLogCount(userID, showID),
+		"in-app delivery is unchanged: the bell row is still written")
+	s.Empty(capture.sent, "email is an intentional opt-in on every alert type")
+}
+
+// The ACCOUNT matrix is the opt-in a user actually has today (the settings
+// card's email box), and it must reach a follow that overrode nothing.
+func (s *NotificationFilterSuite) TestSceneAlert_AccountOptInSendsWithWorkingUnsubscribe() {
+	capture := s.withCapturedEmail()
+
+	userID := s.createTestUser()
+	s.seedSceneFollow(userID, "")
+	s.setAccountShowEmail(userID, true)
+
+	artistID := s.createTestArtist("Asked Band")
+	venueID := s.createTestVenue("The Rebel Lounge")
+	showID := s.createTestShow("Asked Show", []uint{artistID}, []uint{venueID})
+
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
+
+	s.Equal(int64(1), s.sceneLogCount(userID, showID))
+	s.Require().Len(capture.sent, 1)
+	sent := capture.sent[0]
+	s.Contains(sent.subject, "New show in Phoenix, AZ")
+
+	// The RFC 8058 requirement: the header value points at the BACKEND route
+	// that serves the one-click POST, not at a frontend page that redirects.
+	s.Contains(sent.unsubscribeURL, "/unsubscribe/"+engagement.UnsubscribeScopeArtistShowAlerts)
+	s.NotContains(sent.unsubscribeURL, "/following",
+		"the old target redirected to the library and could not honour the POST")
+	// Same endpoint in the header (raw, per RFC 2369) and in the body (HTML
+	// attribute-escaped). A recipient and a mailbox provider get one way out.
+	s.Contains(sent.html, `href="`+htmlEscape(sent.unsubscribeURL)+`"`,
+		"the header URL and the in-body link must be the same endpoint")
+	// The filter template's copy does not belong on this message: the reader
+	// authored no query and has no filter to pause.
+	s.NotContains(sent.html, "Pause this filter")
+	s.NotContains(sent.html, "New show matching")
+}
+
+// A per-follow override sits BELOW the account default, which is why the
+// unsubscribe has to sweep the follows as well as write the account row.
+func (s *NotificationFilterSuite) TestSceneAlert_PerFollowOverrideBeatsTheAccount() {
+	capture := s.withCapturedEmail()
+
+	optedIn := s.createTestUser()
+	s.seedSceneFollowWithSettings(optedIn, `{"alerts":{"shows":{"email":true}}}`)
+
+	silenced := s.createTestUser()
+	s.seedSceneFollowWithSettings(silenced, `{"alerts":{"shows":{"email":false}}}`)
+	s.setAccountShowEmail(silenced, true)
+
+	artistID := s.createTestArtist("Override Band")
+	venueID := s.createTestVenue("The Rebel Lounge")
+	showID := s.createTestShow("Override Show", []uint{artistID}, []uint{venueID})
+
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
+
+	s.Equal(int64(1), s.sceneLogCount(optedIn, showID))
+	s.Equal(int64(1), s.sceneLogCount(silenced, showID))
+	s.Require().Len(capture.sent, 1,
+		"only the follow that opted in is mailed")
+}
+
+// The mode is the WHICH-SHOWS axis and still outranks the channels: an "off"
+// follow is no place to read an email opt-in from, so a user who silenced the
+// scene cannot be mailed by switching a channel on somewhere else.
+func (s *NotificationFilterSuite) TestSceneAlert_OffModeIsNotAnEmailOptIn() {
+	capture := s.withCapturedEmail()
+
+	userID := s.createTestUser()
+	s.seedSceneFollowWithSettings(userID,
+		`{"scene_notify_mode":"off","alerts":{"shows":{"email":true}}}`)
+
+	artistID := s.createTestArtist("Silent Band")
+	venueID := s.createTestVenue("The Rebel Lounge")
+	showID := s.createTestShow("Silent Show", []uint{artistID}, []uint{venueID})
+
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
+
+	s.Equal(int64(0), s.sceneLogCount(userID, showID))
+	s.Empty(capture.sent)
+}
+
+// Clearing the account default with both halves of the shipped unsubscribe is
+// what the emailed link does, and the next show must then be silent. This is
+// the acceptance criterion the broken link could never meet.
+func (s *NotificationFilterSuite) TestSceneAlert_UnsubscribeStopsTheNextShow() {
+	capture := s.withCapturedEmail()
+
+	userID := s.createTestUser()
+	s.seedSceneFollowWithSettings(userID, `{"alerts":{"shows":{"email":true}}}`)
+	s.setAccountShowEmail(userID, true)
+
+	artistID := s.createTestArtist("Leaving Band")
+	venueID := s.createTestVenue("The Rebel Lounge")
+	firstShow := s.createTestShow("Before Unsubscribe", []uint{artistID}, []uint{venueID})
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(firstShow)))
+	s.Require().Len(capture.sent, 1)
+
+	// Both halves, in the order the unsubscribe endpoint performs them: the
+	// account default, then the per-follow override that sits below it.
+	s.setAccountShowEmail(userID, false)
+	s.Require().NoError(engagement.NewFollowService(s.db).DisableFollowAlertEmailChannel(
+		userID, "scene", contracts.FollowAlertTypeShows))
+
+	secondShow := s.createTestShow("After Unsubscribe", []uint{artistID}, []uint{venueID})
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(secondShow)))
+
+	s.Equal(int64(1), s.sceneLogCount(userID, secondShow),
+		"an email opt-out is not a request to stop being notified in the product")
+	s.Len(capture.sent, 1, "the unsubscribe has to stop the stream, not slow it")
 }
