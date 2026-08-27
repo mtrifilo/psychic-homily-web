@@ -32,15 +32,19 @@
 # file list cannot express -- a Go source change that builds under `go test` but
 # breaks the image.
 #
-# It is currently NOT in branch protection's required set (Backend Tests,
-# Frontend Unit Tests, E2E Smoke (PR), Frontend Lint), so today it reports and
-# goes red without blocking. Because there is no path filter, adding "Backend
-# Image Build" to that set is a safe, code-free change whenever the gate should
-# start blocking merges.
+# "Backend Image Build" IS in branch protection's required set. Verified
+# 2026-08-26 (PSY-1909): the required contexts on main are Backend Tests,
+# Frontend Unit Tests, E2E Smoke (PR), Frontend Lint and Backend Image Build.
+# This comment previously said it was NOT required, describing the state before
+# it was added; the promotion this paragraph called "a safe, code-free change"
+# has since happened.
 #
-#   >>> If you ever reintroduce a `paths:` filter here, you MUST first remove
-#   >>> this check from branch protection. Required plus path-filtered is the
-#   >>> never-reports/blocks-forever combination this repo does not tolerate.
+#   >>> That makes the warning below LIVE, not hypothetical. Do NOT add a
+#   >>> `paths:` filter to this workflow. It is a required check, so a filtered
+#   >>> run would report NOTHING on every PR that misses the filter, and a
+#   >>> required check that never reports blocks the PR forever (PSY-1720).
+#   >>> Remove it from branch protection FIRST if a filter is ever genuinely
+#   >>> needed.
 name: Backend Image
 
 on:
@@ -48,9 +52,9 @@ on:
     branches: [main]
   # Post-merge too. Two PRs can each be green alone and break the image together
   # (a Dockerfile change on one, a lockfile change on the other), and while this
-  # check is not required a red PR run can also simply be merged past. This leg
-  # catches both, and the notify step below is what makes it a backstop rather
-  # than a red square nobody is subscribed to.
+  # check is required, a PR run can still be merged past with an admin
+  # override. This leg catches both, and the notify-image-failure job below is
+  # what makes it a backstop rather than a red square nobody is subscribed to.
   push:
     branches: [main]
 
@@ -83,14 +87,12 @@ jobs:
     # carry moved to the notify-image-failure job below (PSY-1909), so no write
     # scope is live in a job that checks out and runs third-party actions.
     #
-    # Keep this block even though it looks identical to the workflow-level one:
-    # a job-scoped block REPLACES that one rather than extending it, so if a
-    # scope is ever added here, `contents: read` has to stay written down
-    # alongside it. Deleting the block today would NOT go red -- this
-    # repository is public, so actions/checkout clones fine with a scopeless
-    # token -- which is exactly why it is worth a comment: the break would
-    # first surface the day the repository is flipped private, on a workflow
-    # nobody is watching. See ci.yml's header for the full rule.
+    # This block is now identical to the workflow-level one, so deleting it
+    # would be a no-op TODAY -- the job would simply inherit the same
+    # `contents: read`. Keep it anyway, because a job-scoped block REPLACES the
+    # workflow-level one rather than extending it: the moment any scope is
+    # added here, `contents: read` has to already be written down alongside it
+    # or the checkout below silently loses its grant. See ci.yml's header.
     permissions:
       contents: read
     # Measured at 77s cold on this workflow's first run. The ceiling is a hung
@@ -156,39 +158,87 @@ jobs:
   # same `main-ci-failure` triage queue, using only the built-in GITHUB_TOKEN.
   # Deduped on the commit SHA so a rerun storm does not spam.
   #
+  # KNOWN SHARP EDGE, not introduced here but now worth naming since the two
+  # notifiers are explicit twins: ci.yml's notify-main-failure dedupes against
+  # the SAME label and the same SHA substring. On a commit that breaks both the
+  # image and CI, whichever job files first suppresses the other -- and this
+  # one is far faster, so the richer "Main CI failed" issue is the one that
+  # gets swallowed. Give the two notifiers distinct labels or title-scoped
+  # dedupe predicates to fix it.
+  #
   # PSY-1909 made this its OWN job rather than a final step of the build.
   # As a step it forced `issues: write` onto the whole build job, which does
   # `actions/checkout` (persisting the token into .git/config by default) and
   # then runs three third-party docker/* actions floating on mutable major
   # tags. That put a write scope within reach of any of them, on every run.
-  # Splitting costs one extra runner on a rare path and buys a notifier shaped
-  # like ci.yml's notify-main-failure: no checkout, no dependency install, one
-  # first-party github-script step running a repo-controlled inline script.
+  # Splitting costs one extra runner on a rare path and buys a notifier with no
+  # checkout, no dependency install, and one first-party github-script step
+  # running a repo-controlled inline script.
   #
   # It also makes the "only live on the push leg" claim true BY CONSTRUCTION.
   # The previous comment asserted the token was read-only on pull_request
-  # events regardless -- that is true only for FORK PRs and Dependabot. Every
-  # PR in this repository is a same-repo branch, so the declared permissions
-  # applied in full and the old grant was live on every PR run.
+  # events regardless. That holds only for FORK PRs and for Dependabot (see the
+  # Docker Hub login step above, which documents the Dependabot case), not for
+  # the same-repo branches this repository's PRs have so far always been -- on
+  # those the declared permissions applied in full and the old grant was live.
+  # That is an observation about history, not an invariant: the repository is
+  # public, so a fork PR is always possible and would get a read-only token.
   notify-image-failure:
     name: Notify on image build failure
     needs: [backend-image]
-    if: ${{ !cancelled() && needs.backend-image.result == 'failure' && github.event_name == 'push' }}
+    # `always()`, with BOTH 'failure' and 'cancelled' named.
+    #
+    # Deliberately NOT `!cancelled() && result == 'failure'`. That is the shape
+    # ci.yml's notify-main-failure uses, and it does not work: a job killed by
+    # its own `timeout-minutes` makes the RUN conclusion `cancelled`, so
+    # `!cancelled()` is false and the notifier is skipped. This is measured,
+    # not theorised -- runs 32224865384, 32224821219 and 32224846260 each had
+    # timeout-cancelled E2E shards on main, each skipped the notifier, and no
+    # `main-ci-failure` issue exists for any of those three commits.
+    #
+    # A hung registry pull is precisely what the build job's 10-minute cap
+    # produces, so `cancelled` is the case this notifier most needs to catch.
+    # The cost is that a human cancelling a main-branch run also files one
+    # issue. For a backstop nobody else is subscribed to, that is the right
+    # trade.
+    #
+    # ci.yml's notifier has the same defect and is NOT fixed here: changing
+    # when it pages is a behavior change that belongs in its own ticket.
+    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.backend-image.result == 'failure' || needs.backend-image.result == 'cancelled') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # No checkout here, so no `contents` scope is needed: the script reads
-    # everything it reports off the `context` object. A job-scoped block
-    # REPLACES the workflow-level one, so `contents: read` is absent by intent
-    # rather than by omission.
+    # `issues: write` alone is the complete set, and the reason is that no call
+    # below is contents-scoped -- the script reads everything it reports off
+    # the `context` object. It is NOT "because there is no checkout": ci.yml's
+    # notify-main-failure has no checkout either and still needs
+    # `contents: read`, because it calls repos.getCommit. If you enrich this
+    # issue body with commit metadata, add `contents: read` here at the same
+    # time; on this public repo the omission would appear to work and would
+    # break only when the repository is flipped private.
+    #
+    # NOT exercised by the PR that introduced it: this job needs a failing
+    # image build on main. Verify on the first post-merge failure, or force one
+    # deliberately.
     permissions:
       issues: write
     steps:
       - name: File a tracking issue on main-branch failure
         uses: actions/github-script@v7
+        # Through `env:` rather than spliced into the script body, matching
+        # ci.yml's notify-main-failure. The value is a closed enum from GitHub
+        # so nothing here is injectable, but the convention is worth keeping.
+        env:
+          BUILD_RESULT: ${{ needs.backend-image.result }}
         with:
           script: |
             const shortSha = context.sha.substring(0, 7)
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            // 'cancelled' almost always means the build job hit its own
+            // timeout-minutes (a hung registry pull); a human cancelling the
+            // whole run reaches here too, and is the accepted false positive
+            // documented on this job's `if:`. Name it either way, or triage
+            // reads "failed" for a job that never finished.
+            const timedOut = process.env.BUILD_RESULT === 'cancelled'
 
             const { data: existing } = await github.rest.issues.listForRepo({
               owner: context.repo.owner,
@@ -205,9 +255,13 @@ jobs:
             const { data: created } = await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: `Backend image build failed on main (${shortSha})`,
+              title: timedOut
+                ? `Backend image build timed out on main (${shortSha})`
+                : `Backend image build failed on main (${shortSha})`,
               body: [
-                'The backend runtime image no longer builds from `main`.',
+                timedOut
+                  ? 'The backend image build was KILLED BY ITS OWN TIMEOUT on `main` (job cap: 10 minutes), so it never reported a result. The usual cause is a hung registry pull rather than a broken Dockerfile.'
+                  : 'The backend runtime image no longer builds from `main`.',
                 '',
                 'Railway builds this same Dockerfile, so the next backend deploy will fail until this is fixed.',
                 '',

@@ -56,8 +56,11 @@ on:
 # and would otherwise hand every job below write on issues, pull-requests,
 # actions and the rest.
 #
-# `contents: read` is a deliberate FLOOR rather than a measured minimum, and
-# two honest caveats both argue for keeping it rather than against:
+# `contents: read` here is a conservative BASELINE rather than a measured
+# minimum. Deliberately not called a "floor": it does not guarantee any job a
+# minimum, since a job block replaces it, and frontend-unit-tests below runs
+# `permissions: {}`, which is strictly less. Two honest caveats both argue for
+# keeping the baseline rather than against it:
 #   * This repository is public, so actions/checkout would clone under
 #     `permissions: {}` too. The grant is what keeps that true if the
 #     repository is ever flipped private.
@@ -66,9 +69,12 @@ on:
 #     and oven-sh/bun -- OTHER public repos -- and only want a valid token to
 #     dodge the anonymous rate limit, which no scope on THIS repo grants or
 #     denies. Same for golangci-lint-action fetching its release asset.
-#     actions/checkout is the only consumer this scope governs among the jobs
-#     that INHERIT this block. notify-main-failure declares its own and
-#     consumes contents through repos.getCommit with no checkout at all.
+#     Among the jobs that INHERIT this block the consumers are
+#     actions/checkout AND migration-lint's bare `git fetch origin` step, which
+#     rides the credential checkout persists into .git/config -- so
+#     `persist-credentials: false` is NOT a free hardening there. Separately,
+#     notify-main-failure declares its own block and consumes contents through
+#     repos.getCommit with no checkout at all.
 #
 # The artifact and cache actions do not read this scope at all: they
 # authenticate to the Actions service with the per-run ACTIONS_RUNTIME_TOKEN.
@@ -938,6 +944,11 @@ jobs:
     # ever sees the write scope. Adding a checkout or an install step here
     # changes that -- see backend-image.yml, which was split for exactly this
     # reason.
+    #
+    # NOT exercised by the PR that changed it: this job runs only on a failing
+    # main-branch build. The `contents: read` added here is strictly additive
+    # to what the job held before, so it cannot remove a scope, but the first
+    # post-merge main failure is the real verification.
     permissions:
       contents: read
       issues: write

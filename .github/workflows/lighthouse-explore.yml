@@ -72,11 +72,12 @@ on:
 #
 # A default, not a floor, and the distinction matters here. The one job below
 # declares its own block, and a job-scoped block REPLACES this one rather than
-# extending it, so that job's three scopes -- which are BROADER than this line,
-# not narrower -- are what it actually runs with. This line therefore changes
-# nothing about today's run. It governs only jobs added later, which now start
-# read-only instead of silently picking up whatever that setting says.
-# See ci.yml's header for the full rationale.
+# extending it, so that job's own scopes -- which are BROADER than this line,
+# not narrower -- are what it actually runs with. (Deliberately not restating
+# the count: a count is the one thing guaranteed to rot on the next edit.)
+# This line therefore changes nothing about today's run. It governs only jobs
+# added later, which now start read-only instead of silently picking up
+# whatever that setting says. See ci.yml's header for the full rationale.
 permissions:
   contents: read
 
@@ -95,13 +96,21 @@ jobs:
     # to temporary-public-storage, not a self-hosted LHCI server.
     #
     # `contents: read` is for actions/checkout. PSY-1909 REMOVED a third
-    # scope, `pull-requests: read`, which had no consumer: the script below
-    # takes the head SHA off `context.payload`, not from an API call, and its
-    # only two REST calls are listDeployments / listDeploymentStatuses.
-    # That removal is self-verifying rather than reasoned: the `paths:` filter
-    # above includes this very file, so the change that dropped the scope ran
-    # this job. Restore it only if a treosh/lighthouse-ci-action upgrade
-    # starts calling the pulls API.
+    # scope, `pull-requests: read`, after auditing every token consumer in this
+    # job: the script below takes the head SHA off `context.payload` rather
+    # than from an API call, and its only two REST calls are listDeployments /
+    # listDeploymentStatuses. That AUDIT is the evidence.
+    #
+    # A green run is NOT evidence here, and it is worth saying so because the
+    # `paths:` filter above includes this file, so the change that dropped the
+    # scope did run this job. It still proves nothing: this repository is
+    # public, so every call above succeeds with a scopeless token, and a
+    # missing READ scope stays invisible until the repository is flipped
+    # private. (Third-party actions can also swallow a 403 and stay green --
+    # see the only-new-issues note on ci.yml's backend-lint job.)
+    #
+    # Restore it only if a treosh/lighthouse-ci-action upgrade starts calling
+    # the pulls API.
     permissions:
       contents: read
       deployments: read
