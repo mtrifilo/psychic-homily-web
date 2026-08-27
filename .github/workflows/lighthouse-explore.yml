@@ -67,12 +67,16 @@ on:
       # If a regression in those areas materializes on /explore later,
       # widen the filter rather than fix it after the fact.
 
-# Workflow-level floor for the GITHUB_TOKEN so it is not inherited from the
-# repository's Workflow-permissions setting. The one job below already declares
-# its own (narrower, and job-scoped blocks replace rather than extend this
-# one), so this changes nothing about today's run -- it is here so a job added
-# later starts read-only instead of silently picking up whatever that setting
-# says.
+# PSY-1909: workflow-level DEFAULT for the GITHUB_TOKEN so it is not inherited
+# from the repository's Workflow-permissions setting.
+#
+# A default, not a floor, and the distinction matters here. The one job below
+# declares its own block, and a job-scoped block REPLACES this one rather than
+# extending it, so that job's three scopes -- which are BROADER than this line,
+# not narrower -- are what it actually runs with. This line therefore changes
+# nothing about today's run. It governs only jobs added later, which now start
+# read-only instead of silently picking up whatever that setting says.
+# See ci.yml's header for the full rationale.
 permissions:
   contents: read
 
@@ -89,6 +93,14 @@ jobs:
     # `deployments: read` covers the Vercel-preview-discovery API
     # calls below. No write permissions required — Lighthouse uploads
     # to temporary-public-storage, not a self-hosted LHCI server.
+    #
+    # PSY-1909 audited these and left them as-is. `contents: read` is for
+    # actions/checkout. `pull-requests: read` has NO known consumer: the script
+    # below takes the head SHA off context.payload rather than from an API
+    # call, and its only two REST calls are deployments-scoped. It is retained
+    # rather than trimmed because treosh/lighthouse-ci-action is third party
+    # and this workflow is path-filtered, so a wrong call would not surface on
+    # most PRs. Drop it in a change that actually exercises this job.
     permissions:
       contents: read
       deployments: read

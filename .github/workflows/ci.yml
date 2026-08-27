@@ -6,27 +6,56 @@ on:
   pull_request:
     branches: [main]
 
-# Least privilege for the GITHUB_TOKEN, declared HERE rather than left to the
-# repository setting. Without this block every job inherits whatever
+# PSY-1909: least privilege for the GITHUB_TOKEN, declared HERE rather than
+# left to the repository setting.
+#
+# THE RULE THAT BITES, first because it is the one you need when editing: a
+# job-scoped `permissions:` block REPLACES this one, it does not extend it. A
+# job that declares `issues: write` gets `issues: write` and NOTHING else, not
+# the `contents: read` below. So a job needing an extra scope must restate
+# every scope it still uses. notify-main-failure is exactly that case. Getting
+# it wrong does not fail YAML validation -- it surfaces at runtime as an HTTP
+# 403 "Resource not accessible by integration" from whichever call lost its
+# scope.
+#
+# Why declare it at all. Without this block every job inherits whatever
 # Settings -> Actions -> Workflow permissions happens to say, and that is a
-# checkbox one click away from read/write that no PR reviews. Most jobs in this
-# workflow run third-party code with the token in the environment (`bun install`
-# --> lifecycle scripts, `bunx playwright`, `npm ci`, docker pulls), so the
-# scope they hold is the scope a compromised transitive dependency holds.
+# checkbox one click away from read/write that no PR reviews. Most jobs here
+# run third-party code (`bun install` lifecycle scripts, `bunx playwright`,
+# `npm ci`, docker pulls) beside a checkout. The token is NOT in the step
+# environment; the reach is that actions/checkout defaults to
+# `persist-credentials: true`, which writes it into .git/config as an
+# http.extraheader any later step in the job can read. Same effect either way:
+# the scope a job holds is the scope a compromised transitive dependency holds.
 #
-# `contents: read` is what every job here actually needs and no more:
-# actions/checkout clones with this token, and setup-go / setup-node /
-# setup-bun pass it to the GitHub releases API only to dodge anonymous rate
-# limits. The artifact and cache actions do NOT read this scope -- they
-# authenticate to the Actions service with the per-run runtime token -- so
-# upload-artifact, cache/restore, cache/save and same-run download-artifact
-# are unaffected by tightening it. (download-artifact only reaches for the
-# repo-scoped token when given `github-token` plus a foreign repository or
-# run-id; this workflow passes neither.)
+# This block REMOVES scopes as well as pinning one. The repository default is
+# currently `read`, which means read on EVERY scope, so naming `contents` drops
+# actions, checks, deployments, statuses, pull-requests and the rest to none
+# for every job that does not declare its own. Nothing here consumes one of
+# those, which is what makes that safe.
 #
-# A job needing more declares it job-scoped, which REPLACES this block rather
-# than adding to it -- so such a job must restate `contents: read` if it also
-# checks out or calls a contents-scoped API. See notify-main-failure below.
+# `contents: read` is a deliberate FLOOR rather than a measured minimum, and
+# two honest caveats both argue for keeping it rather than against:
+#   * This repository is public, so actions/checkout would clone under
+#     `permissions: {}` too. The grant is what keeps that true if the
+#     repository is ever flipped private.
+#   * The setup-go / setup-node / setup-bun token pass-through is NOT what
+#     justifies it. Those calls read actions/go-versions, actions/node-versions
+#     and oven-sh/bun -- OTHER public repos -- and only want a valid token to
+#     dodge the anonymous rate limit, which no scope on THIS repo grants or
+#     denies. Same for golangci-lint-action fetching its release asset.
+#     actions/checkout is the only consumer this scope actually governs.
+#
+# The artifact and cache actions do not read this scope at all: they
+# authenticate to the Actions service with the per-run ACTIONS_RUNTIME_TOKEN.
+# That covers upload-artifact, cache/restore and cache/save as pinned below,
+# and equally the implicit caches inside setup-go / setup-node and buildx's
+# `type=gha` cache over in backend-image.yml. download-artifact is the one to
+# watch: it switches off the runtime token and onto the REST path as soon as it
+# is handed a `github-token` at ALL -- its `repository` and `run-id` inputs
+# default to the current run, so a foreign target is not what arms it -- and
+# that path needs `actions: read`, which is none here. e2e-report passes no
+# `github-token`, so it stays on the runtime token.
 permissions:
   contents: read
 
@@ -295,6 +324,13 @@ jobs:
           go-version: '1.24'
           cache-dependency-path: backend/go.sum
 
+      # `only-new-issues` is deliberately NOT set, and that is now load-bearing
+      # rather than incidental. Turning it on makes this action call pulls.get
+      # for the PR diff, which needs `pull-requests: read` -- a scope the
+      # workflow-level block above does not grant -- and the action SWALLOWS
+      # that failure and lints the whole tree instead, so the job stays green
+      # with the feature silently off. If you ever flip it, give this job its
+      # own `permissions:` block with contents: read AND pull-requests: read.
       - name: Run gated linters
         uses: golangci/golangci-lint-action@v7
         with:
@@ -854,15 +890,22 @@ jobs:
       - e2e-report
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # A job-scoped block REPLACES the workflow-level one, so `contents: read`
-    # is restated here rather than inherited. It is not decoration: the script
-    # calls repos.getCommit for the author/subject line, which is a
-    # contents-scoped read. That call works today only because this repository
-    # is public (public content is readable by any valid token) and because it
-    # is wrapped in a try/catch that downgrades a failure to a warning -- so
+    # Do NOT delete the `contents: read` below as redundant with the
+    # workflow-level block. A job-scoped block REPLACES that one, so before
+    # this line was added the token here held `issues: write` and nothing else
+    # -- no contents scope at all -- while the script below calls
+    # repos.getCommit for the author and subject line, which is a
+    # contents-scoped read. That survived only because this repository is
+    # public (any valid token can read public content) and because the call
+    # sits in a try/catch that downgrades failure to a core.warning, so
     # flipping the repository private would have silently dropped the
     # "Triggered by" line from every filed issue with nothing going red.
-    # `issues: write` covers listForRepo (dedupe) + issues.create.
+    # Granting it explicitly is what makes the call independent of visibility.
+    # `issues: write` covers listForRepo (dedupe) + issues.create, and is the
+    # finest grain GitHub offers for filing an issue. Note this job's shape is
+    # part of why that is tolerable: one github-script step, no checkout and no
+    # dependency install, so the write scope is never exposed to a transitive
+    # dependency. Adding a checkout or an install step here changes that.
     permissions:
       contents: read
       issues: write
