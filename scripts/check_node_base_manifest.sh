@@ -21,8 +21,9 @@
 # Requires network access to the registry, plus docker buildx and jq. That
 # network dependency is exactly why this is NOT part of the always-run pin gate:
 # a Docker Hub outage must not block PRs that never touched the image. It runs
-# in the Backend Image Build workflow, which is path-filtered to the PRs where a
-# digest can actually have changed.
+# in the Backend Image Build workflow, which is deliberately NOT path-filtered
+# (it is a required check, and a required check that never reports blocks the
+# PR forever -- see that workflow's header).
 #
 # The pinned reference comes from scripts/check_node_base_pin.sh --print-ref, so
 # there is exactly one parser of the Dockerfile and this check inherits its

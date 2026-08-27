@@ -109,8 +109,12 @@ jobs:
     # private. (Third-party actions can also swallow a 403 and stay green --
     # see the only-new-issues note on ci.yml's backend-lint job.)
     #
-    # Restore it only if a treosh/lighthouse-ci-action upgrade starts calling
-    # the pulls API.
+    # Do NOT "restore" it by handing this job's token to the third-party
+    # action: treosh/lighthouse-ci-action declares no token input, and the
+    # runner does not export GITHUB_TOKEN, so it holds no token at all and no
+    # upgrade of it can consume this block. `pull-requests: read` would only be
+    # needed if a step here is BOTH given a token AND calls the pulls API.
+    # Adding those two together is the decision to review, not the scope alone.
     permissions:
       contents: read
       deployments: read

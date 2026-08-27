@@ -71,10 +71,12 @@ on:
 #     denies. Same for golangci-lint-action fetching its release asset.
 #     Among the jobs that INHERIT this block the consumers are
 #     actions/checkout AND migration-lint's bare `git fetch origin` step, which
-#     rides the credential checkout persists into .git/config -- so
-#     `persist-credentials: false` is NOT a free hardening there. Separately,
-#     notify-main-failure declares its own block and consumes contents through
-#     repos.getCommit with no checkout at all.
+#     rides the credential checkout persists into .git/config. On this public
+#     repo that fetch would also succeed anonymously, so
+#     `persist-credentials: false` looks free TODAY and stops being free the
+#     moment the repository is private -- the same trap as every other read
+#     scope in this file. Separately, notify-main-failure declares its own
+#     block and consumes contents through repos.getCommit with no checkout.
 #
 # The artifact and cache actions do not read this scope at all: they
 # authenticate to the Actions service with the per-run ACTIONS_RUNTIME_TOKEN.
@@ -354,13 +356,16 @@ jobs:
           go-version: '1.24'
           cache-dependency-path: backend/go.sum
 
-      # `only-new-issues` is deliberately NOT set, and that is now load-bearing
-      # rather than incidental. Turning it on makes this action call pulls.get
-      # for the PR diff, which needs `pull-requests: read` -- a scope the
-      # workflow-level block above does not grant -- and the action SWALLOWS
-      # that failure and lints the whole tree instead, so the job stays green
-      # with the feature silently off. If you ever flip it, give this job its
-      # own `permissions:` block with contents: read AND pull-requests: read.
+      # `only-new-issues` is deliberately NOT set. Turning it on makes this
+      # action call pulls.get for the PR diff (src/patch.ts), which is a
+      # `pull-requests: read` call that the workflow-level block above does not
+      # grant. That is invisible TODAY, because this repository is public and
+      # public PR data reads fine with a scopeless token. It breaks the day the
+      # repo goes private, and it breaks SILENTLY: the action catches the error
+      # and returns an empty patch ("don't fail the action, but analyze without
+      # patch"), so the job stays green with the feature off. If you flip it,
+      # add a job-scoped block with contents: read AND pull-requests: read at
+      # the same time.
       - name: Run gated linters
         uses: golangci/golangci-lint-action@v7
         with:
@@ -509,8 +514,8 @@ jobs:
     if: ${{ always() }}
     # No checkout, no install, no API call -- one `run:` that echoes a needs
     # result. `{}` rather than inheriting `contents: read`, because a job with
-    # nothing to clone has nothing to grant, and this is the cheapest place in
-    # the file to show what the empty block looks like.
+    # nothing to clone has nothing to grant. Safe on a required check: the
+    # check-run is minted by the Actions service, not by this job's token.
     permissions: {}
     steps:
       - name: Report shard results
@@ -665,6 +670,11 @@ jobs:
 
   e2e-tests:
     name: E2E Tests (shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
+    # Inherits the workflow-level `contents: read`. Token consumers here are
+    # checkout, the setup-* actions, and the cache/artifact actions (which use
+    # the Actions runtime token, not this scope). PSY-1909 note: this job is
+    # push-to-main only, so the PR that pinned these scopes did NOT exercise
+    # it. Verify on the first post-merge main run.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     # Push-to-main runs unwatched; without a job cap a stalled step pinned
@@ -778,6 +788,10 @@ jobs:
 
   e2e-report:
     name: E2E Merged Report
+    # Inherits `contents: read`. Its download-artifact passes no `github-token`
+    # so it stays on the Actions runtime token (see the header). PSY-1909 note:
+    # push-to-main only, so the PR that pinned these scopes did NOT exercise
+    # it. Verify on the first post-merge main run.
     # Run after all shards finish, even if some failed — we still want the
     # merged report artifact for triage.
     if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
@@ -903,14 +917,25 @@ jobs:
     name: Notify on main CI failure
     # `!cancelled()` (not `always()`): still runs when upstream `needs:`
     # failed — the whole point — but a human cancelling the RUN no longer
-    # files a spurious issue. A job killed by its own `timeout-minutes` does
-    # NOT set the RUN-level cancelled() flag this job-level `if:` reads, so
-    # timeout-cancelled e2e jobs still page via the `!= 'success'` clauses
-    # (which also sidestep any assumption about how a 4-leg matrix
-    # aggregates one cancelled shard). 'skipped' is not a reachable false
-    # positive: e2e-tests has no needs and shares this job's push+main gate,
-    # and e2e-report skips only under the same `!cancelled()` guard this
-    # job carries, so the two skip together. Scoped to main-branch pushes.
+    # files a spurious issue. 'skipped' is not a reachable false positive:
+    # e2e-tests has no needs and shares this job's push+main gate, and
+    # e2e-report skips only under the same `!cancelled()` guard this job
+    # carries, so the two skip together. Scoped to main-branch pushes.
+    #
+    # KNOWN DEFECT (PSY-1909 measured it; deliberately NOT fixed there,
+    # because changing when this pages is a behavior change with its own
+    # blast radius). This comment used to claim that a job killed by its own
+    # timeout does not set the run-level cancelled() flag, so such jobs still
+    # page via the `!= 'success'` clauses. That is FALSE. `!cancelled()` reads
+    # the RUN conclusion, and a run in which jobs end `cancelled` and none
+    # `failure` concludes `cancelled`, so this job is SKIPPED and nobody is
+    # paged. Runs 32224865384, 32224821219 and 32224846260 each concluded
+    # `cancelled` with killed E2E shards, each shows this job as `skipped`,
+    # and no `main-ci-failure` issue exists for any of those three commits.
+    # (Those shards were killed by GitHub's platform maximum, the only cap
+    # they had then. Any cause of `cancelled` produces the same skip.)
+    # Re-derive with:
+    #   gh run list --workflow=ci.yml --branch=main --status=cancelled
     if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.migration-lint.result == 'failure' || needs.migration-reversibility.result == 'failure' || needs.backend-tests.result == 'failure' || needs.backend-lint.result == 'failure' || needs.mocks-gen-check.result == 'failure' || needs.api-types-check.result == 'failure' || needs.frontend-unit-tests.result == 'failure' || needs.frontend-lint.result == 'failure' || needs.e2e-tests.result != 'success' || needs.e2e-report.result != 'success') }}
     needs:
       - migration-lint
@@ -998,9 +1023,11 @@ jobs:
               'E2E Tests (sharded)': process.env.RES_E2E_TESTS,
               'E2E Merged Report': process.env.RES_E2E_REPORT,
             }
-            // 'cancelled' here means a job-level timeout kill (run-level
-            // cancellation never reaches this job — see the if: above), so
-            // name it: a timed-out shard must be attributable from the issue.
+            // 'cancelled' reaches here only for a partially-cancelled matrix
+            // whose run still concluded `failure` (a sibling job failed). A
+            // run that concludes `cancelled` skips this job entirely -- see
+            // the KNOWN DEFECT note on the if: above. Name it either way: a
+            // killed shard must be attributable from the issue.
             const failed = Object.entries(results)
               .filter(([_, r]) => r === 'failure' || r === 'cancelled')
               .map(([name, r]) => r === 'cancelled' ? `${name} (cancelled: job timeout)` : name)
