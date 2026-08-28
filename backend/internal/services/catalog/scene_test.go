@@ -717,8 +717,13 @@ func (suite *SceneServiceIntegrationTestSuite) TestSceneSurfaces_AllCarryArtistP
 	// the suite happens to run — not something this test should be sensitive to.
 	anchor := time.Now().UTC().AddDate(0, 0, 3)
 	suite.createApprovedShow("Anchor Show", venues[0].ID, artists[0].ID, user.ID, anchor)
-	anchorYear, anchorWeek := anchor.ISOWeek()
-	anchorWeekKey := fmt.Sprintf("%d-W%02d", anchorYear, anchorWeek)
+	// Derive the week key in the SCENE's timezone, from the service's own
+	// resolver, for the same reason the day key below is read back from the
+	// week's buckets: GetSceneWeek buckets scene-locally, so a UTC-formatted key
+	// names the wrong week whenever the anchor instant has already crossed into
+	// Monday UTC but is still Sunday in the scene (Phoenix is UTC-7 year round).
+	sceneLoc := suite.sceneService.sceneLocation(suite.sceneService.scopeFor("Phoenix", "AZ"), "AZ")
+	anchorWeekKey := ISOWeekKey(anchor.In(sceneLoc))
 
 	assertPaired := func(surface string, shows []contracts.SceneShowSummary) {
 		// Guard against a vacuous pass: a surface that returns nothing, or bills
