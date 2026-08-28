@@ -149,6 +149,21 @@ describe('handleBasemapError', () => {
     expect(options.extra.errorMessage).toContain('<url>')
   })
 
+  it('caps the message it ships', async () => {
+    const { handleBasemapError, captureMessage } = await freshSession()
+    const long = Object.assign(new Error('y'.repeat(500)), {
+      status: 500,
+      url: TILE_URL,
+    })
+
+    handleBasemapError(sourceErrorEvent(PH_BASEMAP_SOURCE_ID, long))
+
+    const options = captureMessage.mock.calls[0][1] as {
+      extra: { errorMessage: string }
+    }
+    expect(options.extra.errorMessage.length).toBeLessThanOrEqual(203)
+  })
+
   it('still reports when MapLibre attaches no HTTP fields', async () => {
     const { handleBasemapError, captureMessage } = await freshSession()
 

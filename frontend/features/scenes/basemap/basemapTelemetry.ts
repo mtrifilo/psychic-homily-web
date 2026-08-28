@@ -78,6 +78,20 @@ import { PH_BASEMAP_SOURCE_ID, PH_BASEMAP_TILE_HOST } from './phBasemap'
 const reportedSources = new Set<string>()
 
 /**
+ * Length budget for the one free-text field on the event. `stripUrls` removes
+ * URLs but deliberately does not truncate (it also runs over every console
+ * breadcrumb in the app), so the cap is applied here, where the field is.
+ */
+const MAX_MESSAGE_LENGTH = 200
+
+function scrubbedMessage(message: string): string {
+  const stripped = stripUrls(message)
+  return stripped.length > MAX_MESSAGE_LENGTH
+    ? `${stripped.slice(0, MAX_MESSAGE_LENGTH)}...`
+    : stripped
+}
+
+/**
  * MapLibre types the error event's payload as `{ message: string }` and merges
  * the owning source's id into the event on its way up to the map. Neither the
  * id nor AJAXError's HTTP fields are in the published types, so they are read
@@ -153,7 +167,7 @@ function reportBasemapSourceFailure(event: ErrorEvent): void {
     },
     extra: {
       tilePath: url ? toTelemetryPath(url) : undefined,
-      errorMessage: message ? stripUrls(message) : undefined,
+      errorMessage: message ? scrubbedMessage(message) : undefined,
     },
   })
 

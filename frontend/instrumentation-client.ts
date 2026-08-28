@@ -19,6 +19,10 @@ const isProduction = process.env.NODE_ENV === 'production'
  * The cost is real and accepted: a breadcrumb no longer shows which page of a
  * paginated call was requested. The endpoint family, method, and status code
  * all survive, which is what an incident actually gets debugged from.
+ *
+ * MESSAGES get the same rule (PSY-1568) — see the note in the body. That half
+ * only replaces URLs; it deliberately does not shorten anything, so scrubbing
+ * cannot quietly truncate unrelated console output.
  */
 function scrubBreadcrumbUrls(
   breadcrumb: Sentry.Breadcrumb

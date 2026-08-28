@@ -154,8 +154,10 @@ describe('stripUrls', () => {
     expect(stripUrls('style load failed')).toBe('style load failed')
   })
 
-  it('caps the length of a long message', () => {
-    expect(stripUrls('x'.repeat(500)).length).toBeLessThanOrEqual(203)
+  it('does not truncate — length capping belongs to the caller', () => {
+    // It runs over every console breadcrumb in the app; folding a cap in here
+    // would silently shorten unrelated debugging output.
+    expect(stripUrls('x'.repeat(500))).toHaveLength(500)
   })
 })
 

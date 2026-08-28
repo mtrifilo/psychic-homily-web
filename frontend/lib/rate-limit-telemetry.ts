@@ -176,9 +176,6 @@ export function toTelemetryPath(endpoint: string | undefined): string {
     : shaped
 }
 
-/** Longest scrubbed message we will emit. */
-const MAX_MESSAGE_LENGTH = 200
-
 /**
  * Replace whole URLs inside a free-text message with `<url>`.
  *
@@ -190,12 +187,19 @@ const MAX_MESSAGE_LENGTH = 200
  *
  * Lives here, next to `toTelemetryPath`, so there stays exactly ONE definition
  * of "safe to send" rather than a second copy drifting in a feature module.
+ *
+ * STRIPS ONLY — it does not truncate. Length capping is the caller's business:
+ * this runs over every console breadcrumb in the app, and folding a cap in
+ * here would silently shorten unrelated debugging output as a side effect of
+ * a URL scrub. Callers with a field budget apply their own.
+ *
+ * Known limits, both accepted: a scheme without `//` (`mailto:`) and a
+ * protocol-relative `//host/path` are not matched. Widening the pattern to
+ * catch them would start eating ordinary prose and code fragments, and
+ * neither shape carries a URL in the messages this actually sees.
  */
 export function stripUrls(message: string): string {
-  const stripped = message.replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, '<url>')
-  return stripped.length > MAX_MESSAGE_LENGTH
-    ? `${stripped.slice(0, MAX_MESSAGE_LENGTH)}...`
-    : stripped
+  return message.replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, '<url>')
 }
 
 const runtimeTag = (): 'browser' | 'server' =>
