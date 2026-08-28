@@ -76,4 +76,16 @@ func setupFieldNoteRoutes(rc RouteContext) {
 
 	// Protected: create field note
 	huma.Post(rc.Protected, "/shows/{show_id}/field-notes", fieldNoteHandler.CreateFieldNoteHandler)
+
+	// PSY-1590: the venue rollup — the notes written about shows held at a
+	// venue. Registered on rc.API rather than the optional-auth group above
+	// because it is a pure anonymous public read: nothing in the payload is
+	// per-viewer, so it matches its `/venues/{venue_id}/…` siblings in
+	// venues.go and shares the ordinary public-read rate-limit budget.
+	//
+	// The parameter MUST stay named `venue_id` — chi routes on path SHAPE, so a
+	// differently-named parameter at this position would not create a second
+	// route, it would silently rename the parameter for whichever registration
+	// lost (see the calendar.ics note in venues.go).
+	huma.Get(rc.API, "/venues/{venue_id}/field-notes", fieldNoteHandler.ListVenueFieldNotesHandler)
 }

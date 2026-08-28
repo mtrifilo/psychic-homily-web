@@ -49,6 +49,15 @@ describe('fieldNoteEndpoints', () => {
       `${API_BASE_URL}/shows/11/field-notes`
     )
   })
+
+  // PSY-1590. The rollup hangs off a VENUE even though the rows it returns are
+  // show-scoped, so the id in this path is a venue id and reads as a show id at
+  // a glance — worth pinning.
+  it('builds the venue rollup endpoint from a venue id', () => {
+    expect(fieldNoteEndpoints.LIST_FOR_VENUE(7)).toBe(
+      `${API_BASE_URL}/venues/7/field-notes`
+    )
+  })
 })
 
 describe('commentQueryKeys', () => {
@@ -76,5 +85,28 @@ describe('fieldNoteQueryKeys', () => {
 
   it('scopes the show key by the numeric show id', () => {
     expect(fieldNoteQueryKeys.show(11)).toEqual(['field-notes', 11])
+  })
+
+  // PSY-1590/PSY-1698: the venue key carries the LIMIT as well as the id, so a
+  // surface asking for a page of notes cannot be answered by the Atlas
+  // teaser's one-note entry (or vice versa) depending on which landed first.
+  it('scopes the venue key by both the venue id and the page size', () => {
+    expect(fieldNoteQueryKeys.venue(7, 1)).toEqual([
+      'field-notes',
+      'venue',
+      7,
+      1,
+    ])
+    expect(fieldNoteQueryKeys.venue(7, 25)).not.toEqual(
+      fieldNoteQueryKeys.venue(7, 1)
+    )
+  })
+
+  // The venue key must not collide with a show key that happens to share the
+  // number — different questions, different entities.
+  it('does not collide with the show key for the same numeric id', () => {
+    expect(fieldNoteQueryKeys.venue(11, 1)).not.toEqual(
+      fieldNoteQueryKeys.show(11)
+    )
   })
 })

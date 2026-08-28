@@ -12,6 +12,7 @@ import { CommentEditHistory } from './CommentEditHistory'
 import { CommentVoteControls } from './CommentVoteControls'
 import { FieldNoteForm } from './FieldNoteForm'
 import { MutationErrorBanner } from './MutationErrorBanner'
+import { isSetlistSpoiler } from '../teaser'
 import { ReportEntityDialog } from '@/features/contributions'
 import {
   useReplyToComment,
@@ -97,7 +98,10 @@ export function FieldNoteCard({
   const threadReplies = hasInlineReplies ? replies : (threadData?.replies ?? [])
 
   const sd = comment.structured_data
-  const isSpoiler = sd?.setlist_spoiler === true
+  // Shared with the teaser pick (PSY-1590), which must refuse to quote exactly
+  // the notes this card gates. Two copies of the predicate would drift, and the
+  // drift would surface as a note quoted un-gated somewhere else.
+  const isSpoiler = isSetlistSpoiler(comment)
 
   // Find artist name from show_artist_id
   const artistName = sd?.show_artist_id

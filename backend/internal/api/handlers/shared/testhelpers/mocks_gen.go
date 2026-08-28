@@ -1998,6 +1998,7 @@ type MockFieldNoteService struct {
 	CreateFieldNoteFn        func(uint, *contracts.CreateFieldNoteRequest) (*contracts.CommentResponse, error)
 	ListFieldNotesForShowFn  func(uint, int, int) (*contracts.CommentListResponse, error)
 	ListFieldNotesByAuthorFn func(uint, int, int) ([]*contracts.AuthoredFieldNote, int64, error)
+	ListFieldNotesForVenueFn func(uint, int, int) (*contracts.VenueFieldNoteListResponse, error)
 }
 
 func (m *MockFieldNoteService) CreateFieldNote(userID uint, req *contracts.CreateFieldNoteRequest) (*contracts.CommentResponse, error) {
@@ -2017,6 +2018,12 @@ func (m *MockFieldNoteService) ListFieldNotesByAuthor(userID uint, limit int, of
 		return m.ListFieldNotesByAuthorFn(userID, limit, offset)
 	}
 	return nil, 0, nil
+}
+func (m *MockFieldNoteService) ListFieldNotesForVenue(venueID uint, limit int, offset int) (*contracts.VenueFieldNoteListResponse, error) {
+	if m.ListFieldNotesForVenueFn != nil {
+		return m.ListFieldNotesForVenueFn(venueID, limit, offset)
+	}
+	return nil, nil
 }
 
 // ============================================================================

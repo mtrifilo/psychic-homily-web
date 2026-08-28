@@ -703,6 +703,10 @@ export const queryKeys = {
  *     are also optional-auth but read no viewer.
  *   - `field-notes`: `GET /shows/{id}/field-notes` reads no viewer at all, so
  *     the `user_vote` its comment-shaped rows can carry is never populated.
+ *     Same for its venue sibling `GET /venues/{venue_id}/field-notes`
+ *     (`['field-notes','venue',id,limit]`, PSY-1590), which is registered with
+ *     no auth middleware at all — deliberately, so nothing per-viewer can
+ *     enter a response that anonymous callers share.
  *   - `admin.*`, `contributor.own*`, `collections.my`, personal `charts`,
  *     `passkeys`, `mySubmissions`, `calendar`, `savedShows.list`: signed-in
  *     only, with no anonymous variant to be confused with. Logout drops them

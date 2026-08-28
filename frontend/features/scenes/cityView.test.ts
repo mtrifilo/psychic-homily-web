@@ -26,6 +26,7 @@ import {
   venuesSpanMetro,
   venuePinPosition,
   venueProvenanceSegments,
+  venueFieldNoteAttribution,
   mergeVenueConfirmation,
 } from './cityView'
 
@@ -910,5 +911,84 @@ describe('mergeVenueConfirmation', () => {
       '2026-07-20T00:00:00Z',
     )
     expect(merged?.sources).toEqual(['community'])
+  })
+})
+
+// ── Field note attribution (PSY-1590) ─────────────────────────────────────
+
+describe('venueFieldNoteAttribution', () => {
+  it('names the show and the month it happened', () => {
+    expect(
+      venueFieldNoteAttribution(
+        'Doom Night',
+        [],
+        '2024-06-15T04:00:00Z',
+        'TX',
+        'America/Chicago',
+      ),
+    ).toBe('Doom Night, Jun 2024')
+  })
+
+  // The case that dominates real data: most shows carry no title of their own,
+  // so the bill is what names the night. Dropping these would have hidden the
+  // teaser on the majority of venues.
+  it('falls back to the bill when the show has no title', () => {
+    expect(
+      venueFieldNoteAttribution(
+        '',
+        ['Neckbeard', 'Gel'],
+        '2024-06-15T04:00:00Z',
+        'TX',
+        'America/Chicago',
+      ),
+    ).toBe('Neckbeard, Gel, Jun 2024')
+  })
+
+  it('caps a long bill the way the panel rows do', () => {
+    expect(
+      venueFieldNoteAttribution(
+        '',
+        ['A', 'B', 'C', 'D', 'E'],
+        '2024-06-15T04:00:00Z',
+        'TX',
+        null,
+      ),
+    ).toBe('A, B, C +2 more, Jun 2024')
+  })
+
+  // Never returns '' — a note is never dropped for want of a name.
+  it('still names an untitled show with no bill at all', () => {
+    expect(
+      venueFieldNoteAttribution('', [], '2024-06-15T04:00:00Z', 'TX', null),
+    ).toBe('Untitled Show, Jun 2024')
+    expect(
+      venueFieldNoteAttribution(null, null, '2024-06-15T04:00:00Z', 'TX', null),
+    ).toBe('Untitled Show, Jun 2024')
+  })
+
+  it('reads the month in the VENUE timezone, not the viewer\u2019s', () => {
+    // 2024-07-01T03:00:00Z is 10pm on JUN 30 in Austin. The panel describes the
+    // venue's calendar, so this is a June note however the reader's clock is
+    // set — the same rule formatPanelShowDate follows.
+    const instant = '2024-07-01T03:00:00Z'
+    expect(
+      venueFieldNoteAttribution('Late One', [], instant, 'TX', 'America/Chicago'),
+    ).toBe('Late One, Jun 2024')
+    expect(
+      venueFieldNoteAttribution('Late One', [], instant, 'NY', 'Europe/Berlin'),
+    ).toBe('Late One, Jul 2024')
+  })
+
+  it('degrades to the name when the date is unreadable', () => {
+    // Only the age hint is lost. Never "Invalid Date".
+    expect(
+      venueFieldNoteAttribution('Doom Night', [], 'nonsense', 'TX', null),
+    ).toBe('Doom Night')
+    expect(venueFieldNoteAttribution('Doom Night', [], null, 'TX', null)).toBe(
+      'Doom Night',
+    )
+    expect(venueFieldNoteAttribution('Doom Night', [], '', 'TX', null)).toBe(
+      'Doom Night',
+    )
   })
 })

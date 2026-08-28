@@ -11,6 +11,13 @@ import { useAuthContext } from '@/lib/context/AuthContext'
 // shared component (and their AuthContext/router dependencies) for one button,
 // and it is the path the Atlas suites already mock.
 import { FollowButton } from '@/components/shared/FollowButton'
+// Deep imports for the same reason as FollowButton above: the teaser needs one
+// byline renderer and one hook, not every shared component or the whole
+// comments feature barrel (which drags in the field-note editor and its
+// markdown pipeline for a three-line quote).
+import { UserAttribution } from '@/components/shared/UserAttribution'
+import { useVenueFieldNotes } from '@/features/comments/hooks'
+import { pickFieldNoteForTeaser } from '@/features/comments/teaser'
 import { dedupVenueShows } from '@/features/shows'
 import {
   formatVenueConfirmError,
@@ -30,6 +37,7 @@ import {
   venuePanelIdentityLine,
   venuePanelShowCount,
   venueProvenanceSegments,
+  venueFieldNoteAttribution,
   mergeVenueConfirmation,
 } from '../cityView'
 
@@ -377,14 +385,7 @@ export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
             </>
           )}
 
-          {/* The mock's FIELD NOTES teaser is absent on purpose. Field notes
-              are SHOW-scoped by construction — `CreateFieldNote` writes
-              entity_type='show', and the generic comment endpoint exposes no
-              `kind`, so a venue-scoped field note cannot exist. A read surface
-              for rows nothing can write would be a permanently empty section
-              dressed as a feature. Whether a venue teaser should roll up the
-              notes from shows AT the venue is a product decision, not one to
-              guess at here. */}
+          <FieldNotesTeaser venue={venue} />
         </div>
 
         <footer className="border-t border-border px-4 py-2.5">
@@ -397,6 +398,112 @@ export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
         </footer>
       </section>
     </DismissableLayer>
+  )
+}
+
+/**
+ * The mock's FIELD NOTES teaser (PSY-1590) — one quoted note about a night in
+ * this room, attributed to the night it was written about.
+ *
+ * It is a ROLLUP, and that shapes everything below. Field notes are SHOW-scoped
+ * by construction: `CreateFieldNote` writes entity_type='show', so a
+ * venue-scoped field note cannot exist and this section can never be written
+ * to directly. What it shows is the best-ranked note somebody wrote about a
+ * show held here, which is only an honest thing to display while the show it
+ * came from is named beside it — hence the hard requirement below that an
+ * unattributable note render nothing at all rather than a bare quote. A quote
+ * with the night stripped off reads as a standing verdict on the venue, and no
+ * field note ever made that claim.
+ *
+ * Ordering is the backend's: most-upvoted first (Wilson score), no staleness
+ * cutoff. The named month is what lets the reader judge the note's age.
+ *
+ * It quotes the first note `pickFieldNoteForTeaser` deems quotable HERE,
+ * not simply the top-ranked one. The gap between those matters most for
+ * setlist spoilers: FieldNoteCard hides a flagged note behind a click-to-reveal
+ * gate, this panel has nowhere to put one, and sorting by score means an
+ * upvoted spoiler is exactly the note that would otherwise surface.
+ *
+ * There is deliberately NO "N notes →" affordance, only a plain count. The
+ * mock's arrow needs a destination — a venue-scoped notes list — and none
+ * exists; inventing one would ship a link to nowhere (locked decision,
+ * 2026-08-27).
+ */
+function FieldNotesTeaser({ venue }: { venue: VenueWithShowCount }) {
+  const { data } = useVenueFieldNotes(venue.id)
+
+  const total = data?.total ?? 0
+  // Not `notes[0]`, and the pick hands back the prose with the note so this
+  // component holds no second copy of the "non-empty body" invariant and does
+  // not flatten the body twice.
+  const picked = pickFieldNoteForTeaser(data?.notes)
+
+  // Two ways to have nothing worth showing, one outcome: no section at all,
+  // never an empty box under a heading.
+  //
+  //   - the venue has no notes (much the commonest case), or the request is
+  //     still in flight or failed. A teaser is supplementary to the panel's
+  //     actual job, which is the show list; a spinner or an error line here
+  //     would be noise beside content that loaded fine, and the panel already
+  //     reports its own failure for the shows themselves.
+  //   - nothing on the page is quotable (see the pick).
+  //
+  // An untitled show is NOT one of them — see the attribution.
+  if (!picked) return null
+
+  const { note, text } = picked
+  const attribution = venueFieldNoteAttribution(
+    note.show_title,
+    note.show_artists,
+    note.show_date,
+    venue.state,
+    venue.timezone,
+  )
+
+  return (
+    <section
+      data-testid="venue-panel-field-notes"
+      aria-label={`Field notes from shows at ${venue.name}`}
+      className="border-t border-border/60 px-4 pb-4 pt-3"
+    >
+      {/* Parallel to the "Upcoming — 11 shows" heading above it, and the count
+          is PLAIN TEXT, not a link. See the component's note. */}
+      <h3 className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
+        Field notes — {total} {total === 1 ? 'note' : 'notes'}
+      </h3>
+
+      {/* Plain text, not the backend's rendered `body_html`: no reason to open
+          an HTML injection surface on the Atlas — which has no route-level
+          error boundary — for three clamped lines. `fieldNoteTeaserText`
+          is what keeps the Markdown SOURCE from showing its own asterisks.
+
+          Marked as a quotation by the rule and the italics rather than by
+          quote GLYPHS. A pair of quote marks cannot survive `line-clamp`: the
+          closing one is inside the clamped box, so any note longer than three
+          lines would render an opening quote, an ellipsis, and no partner.
+
+          No `block` utility beside `line-clamp-3`: the two are both `display`
+          rules and the later one silently wins, which kills the clamp. */}
+      <blockquote className="mt-1.5 line-clamp-3 border-l-2 border-border pl-2.5 text-sm italic leading-snug text-foreground">
+        {text}
+      </blockquote>
+
+      <p className="mt-1 font-mono text-[11px] leading-4 text-muted-foreground">
+        <UserAttribution
+          name={note.author_name}
+          username={note.author_username}
+          // Plain text, no profile link. The locked decision ships this teaser
+          // with no link affordance at all, and one byline link would make the
+          // unlinked show name beside it read as the broken half.
+          linkable={false}
+          testId="venue-panel-field-note-author"
+        />
+        {' — '}
+        <span data-testid="venue-panel-field-note-attribution">
+          {attribution}
+        </span>
+      </p>
+    </section>
   )
 }
 

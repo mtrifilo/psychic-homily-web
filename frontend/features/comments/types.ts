@@ -86,6 +86,43 @@ export interface FieldNoteStructuredData {
   setlist_spoiler: boolean
 }
 
+/**
+ * A field note surfaced on a VENUE read surface (PSY-1590).
+ *
+ * Field notes are show-scoped by construction, so a venue never owns notes of
+ * its own — this is a rollup of the notes written about shows held there. The
+ * show fields are NOT decoration: they are what lets the reader see which
+ * night the note is about. A surface that renders the body without them turns
+ * "someone said this about one gig here" into a venue-level impression the
+ * data does not support.
+ *
+ * `show_title` is EMPTY FOR MOST SHOWS and is NOT a "missing show" signal —
+ * the backend inner-joins `shows`, so every note here has a live show behind
+ * it. Name the show with `showDisplayTitle(show_title, show_artists)`, the
+ * app-wide title-or-bill convention; treating an empty title as unattributable
+ * would drop most of the content this rollup exists to surface.
+ */
+export interface VenueFieldNote extends Comment {
+  show_title: string
+  /** The show's bill in running order — what names the show when it has no title. */
+  show_artists: string[]
+  show_slug?: string
+  /** The show's event date, ISO 8601. The "Jun 2024" half of the attribution. */
+  show_date: string
+}
+
+export interface VenueFieldNoteListResponse {
+  /**
+   * Nullable because the generated OpenAPI type is: Go marshals an empty
+   * slice as `[]`, but a caller must not assume that. Normalize at the use
+   * site rather than trusting the wire.
+   */
+  notes: VenueFieldNote[] | null
+  /** Every visible note at the venue, not just this page. */
+  total: number
+  has_more: boolean
+}
+
 export interface CreateFieldNoteInput {
   body: string
   show_artist_id?: number

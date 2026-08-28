@@ -15,7 +15,8 @@ import type {
   VenueWithShowCount,
 } from '@/features/venues/types'
 import { LOCATION_UNKNOWN, formatLocation } from '@/lib/formatLocation'
-import { resolveShowTimezone } from '@/lib/utils/formatters'
+import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
+import { formatShowMonth, resolveShowTimezone } from '@/lib/utils/formatters'
 import type { PlaceableScene, VenuePin } from './components/globeTypes'
 import { GENRE_FAMILIES, type GenreFamily } from './genreFamilies'
 
@@ -749,6 +750,47 @@ export function formatPanelShowDate(
     })
     .replace(',', '')
     .toUpperCase()
+}
+
+/**
+ * The show half of the panel's field-note attribution line, e.g.
+ * "Doom Night, Jun 2024" (PSY-1590).
+ *
+ * This is the load-bearing half of the teaser, not a caption. Field notes are
+ * SHOW-scoped: the venue panel is borrowing a note somebody wrote about one
+ * night in this room. Naming that night is what keeps the quote honest —
+ * without it the same words read as a standing verdict on the venue, which is
+ * a claim no field note ever made. The month + year is what lets a reader
+ * judge the note's age for themselves, which is why the teaser needs no
+ * staleness cutoff (locked decision, 2026-08-27: most-upvoted first, any age).
+ *
+ * The show is named by the app-wide title-or-bill convention, NOT by its title
+ * alone: most shows carry no title, so `showDisplayTitle` is what turns them
+ * into "Neckbeard, Gel" and, failing even that, "Untitled Show". This function
+ * therefore ALWAYS names something — a note is never dropped for want of a
+ * title, which would have discarded most of the rollup's own content.
+ *
+ * Falls back to the name alone when the date is unreadable, so a bad timestamp
+ * costs the age hint rather than the attribution.
+ */
+export function venueFieldNoteAttribution(
+  showTitle: string | null | undefined,
+  showArtists: readonly (string | null | undefined)[] | null | undefined,
+  showDate: string | null | undefined,
+  state: string | null | undefined,
+  timezone: string | null | undefined,
+): string {
+  const name = showDisplayTitle(showTitle, showArtists, { cap: 3 })
+  if (!showDate) return name
+  // formatShowMonth would render "Invalid Date" for an unparseable input, so
+  // the guard stays here rather than inside the shared formatter.
+  if (Number.isNaN(new Date(showDate).getTime())) return name
+  // The month is read in the VENUE's zone via the app-wide formatter (the same
+  // resolveShowTimezone chain formatPanelShowDate uses): a late show falls in a
+  // different month for a reader abroad, and the panel describes the venue's
+  // calendar, not the reader's. Reusing formatShowMonth rather than inlining a
+  // fourth toLocaleString keeps this surface on any future month-format change.
+  return `${name}, ${formatShowMonth(showDate, state, timezone)}`
 }
 
 /**

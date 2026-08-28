@@ -2,6 +2,7 @@ package engagement
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
+	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 	servicesshared "psychic-homily-backend/internal/services/shared"
@@ -27,6 +29,9 @@ type FieldNoteWriter interface {
 // FieldNoteReader defines the read operations for field notes.
 type FieldNoteReader interface {
 	ListFieldNotesForShow(showID uint, limit, offset int) (*contracts.CommentListResponse, error)
+	// ListFieldNotesForVenue rolls up the notes written about shows held at a
+	// venue (PSY-1590) — venues own no field notes of their own.
+	ListFieldNotesForVenue(venueID uint, limit, offset int) (*contracts.VenueFieldNoteListResponse, error)
 }
 
 // FieldNoteHandler handles field note API requests.
@@ -167,4 +172,81 @@ func (h *FieldNoteHandler) ListFieldNotesHandler(ctx context.Context, req *ListF
 	}
 
 	return &ListFieldNotesResponse{Body: result}, nil
+}
+
+// ============================================================================
+// List Venue Field Notes (public)
+// ============================================================================
+
+// ListVenueFieldNotesRequest represents the Huma request for the venue rollup.
+//
+// VenueID is NUMERIC ONLY, unlike the id-or-slug `/venues/{venue_id}/shows`
+// family. This handler lives in the engagement package and resolving a slug
+// would mean wiring the catalog venue service into it purely for a lookup its
+// only caller (the Atlas venue panel, which holds the numeric id already) never
+// needs. `/venues/{venue_id}/confirm` narrows the same way for its own reason.
+// The path PARAMETER still has to be named `venue_id` to match its siblings:
+// chi keys its routing tree on path shape, not parameter name, so a `{slug}`
+// here would silently rename the parameter for whichever registration lost.
+type ListVenueFieldNotesRequest struct {
+	VenueID string `path:"venue_id" doc:"Venue ID (numeric only)" example:"42"`
+	Limit   int    `query:"limit" required:"false" minimum:"1" maximum:"100" doc:"Page size (default 25, max 100)" example:"1"`
+	Offset  int    `query:"offset" required:"false" minimum:"0" maximum:"10000" doc:"Pagination offset (max 10000)" example:"0"`
+}
+
+// maxVenueFieldNoteOffset bounds the one knob on this anonymous route that a
+// caller could otherwise drive without limit: the count/page queries evaluate
+// the joins, the JSONB predicate and the sort before an offset discards rows,
+// so an absurd offset is pure attacker-driven cost. Clamped (not rejected) to
+// match how the limit bound behaves; real note counts per venue sit orders of
+// magnitude below this.
+const maxVenueFieldNoteOffset = 10000
+
+// ListVenueFieldNotesResponse represents the response for the venue rollup.
+type ListVenueFieldNotesResponse struct {
+	Body *contracts.VenueFieldNoteListResponse
+}
+
+// ListVenueFieldNotesHandler handles GET /venues/{venue_id}/field-notes.
+//
+// The notes are rolled up from the shows held at the venue — see
+// contracts.VenueFieldNote for why a venue-scoped field note cannot exist.
+func (h *FieldNoteHandler) ListVenueFieldNotesHandler(ctx context.Context, req *ListVenueFieldNotesRequest) (*ListVenueFieldNotesResponse, error) {
+	venueID, err := strconv.ParseUint(req.VenueID, 10, 32)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid venue ID")
+	}
+
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 25
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	offset := req.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > maxVenueFieldNoteOffset {
+		offset = maxVenueFieldNoteOffset
+	}
+
+	result, err := h.reader.ListFieldNotesForVenue(uint(venueID), limit, offset)
+	if err != nil {
+		var venueErr *apperrors.VenueError
+		if errors.As(err, &venueErr) && venueErr.Code == apperrors.CodeVenueNotFound {
+			// Match the sibling /venues/{venue_id} reads: an unknown or
+			// merged-away venue is a 404, never an empty 200 a stale Atlas
+			// pin would mistake for "no notes yet".
+			return nil, huma.Error404NotFound("Venue not found")
+		}
+		requestID := logger.GetRequestID(ctx)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to fetch venue field notes (request_id: %s)", requestID),
+		)
+	}
+
+	return &ListVenueFieldNotesResponse{Body: result}, nil
 }

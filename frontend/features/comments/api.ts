@@ -44,6 +44,15 @@ export const fieldNoteEndpoints = {
     `${API_BASE_URL}/shows/${showId}/field-notes`,
   CREATE: (showId: number) =>
     `${API_BASE_URL}/shows/${showId}/field-notes`,
+  // PSY-1590: the venue ROLLUP — the notes written about shows held at a
+  // venue. Venues own no field notes of their own (`CreateFieldNote` writes
+  // entity_type='show'), so there is no CREATE twin here and there never will
+  // be; this is a read of show-scoped rows from a different direction.
+  //
+  // Numeric id only, like CONFIRM and unlike the id-or-slug venue reads — the
+  // backend refuses a slug at this path (see ListVenueFieldNotesRequest).
+  LIST_FOR_VENUE: (venueId: number) =>
+    `${API_BASE_URL}/venues/${venueId}/field-notes`,
 } as const
 
 // ============================================================================
@@ -65,4 +74,31 @@ export const fieldNoteQueryKeys = {
   all: ['field-notes'] as const,
   show: (showId: number) =>
     ['field-notes', showId] as const,
+  // Keyed on the limit as well as the venue (PSY-1698's rule): the Atlas
+  // teaser asks for ONE note, and a future surface asking for a page of them
+  // is a different question that must not be answered by whichever request
+  // happened to land first.
+  venue: (venueId: number, limit: number) =>
+    ['field-notes', 'venue', venueId, limit] as const,
 } as const
+
+/**
+ * Notes fetched for the Atlas venue panel's teaser (PSY-1590).
+ *
+ * The teaser quotes ONE note, so this is a candidate pool rather than a page
+ * size. `pickFieldNoteForTeaser` skips notes it must not quote — setlist
+ * spoilers, and bodies that flatten to nothing — and fetching only the single
+ * best-ranked note would let one such note hide a section the venue has
+ * perfectly good notes for.
+ *
+ * An untitled show is explicitly NOT a skip: most shows carry no title, and
+ * the caller names them from the bill. Re-adding that skip would re-hide the
+ * teaser on the majority of venues.
+ *
+ * Five is a deliberate small number: it is enough that a run of skips is
+ * unlikely to exhaust it, and small enough that the panel is not paying for
+ * rows it will never render. The count shown beside the quote comes from the
+ * response's `total`, which spans the whole venue, so this bound never
+ * influences what the reader is told.
+ */
+export const VENUE_FIELD_NOTE_TEASER_LIMIT = 5

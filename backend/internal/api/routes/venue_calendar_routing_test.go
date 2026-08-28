@@ -35,6 +35,26 @@ func TestVenueCalendarFeedRouteIsRegisteredOnce(t *testing.T) {
 	}
 }
 
+// PSY-1590: the venue field-note rollup. Asserted separately from
+// TestVenueSubRoutesShareOneParameterName below because that test iterates
+// whatever it FINDS — a route that vanished entirely would pass it vacuously,
+// and this one is registered in comments.go, a file nothing else in the venue
+// group would make you open.
+func TestVenueFieldNotesRouteIsRegisteredOnce(t *testing.T) {
+	routes := chiRoutes(t, newTestRouter(t))
+
+	got := matching(routes, http.MethodGet, "/venues/{}/field-notes")
+	if len(got) != 1 {
+		t.Fatalf("GET /venues/{}/field-notes: %d registered routes %v, want exactly 1",
+			len(got), got)
+	}
+	if got[0] != "/venues/{venue_id}/field-notes" {
+		t.Errorf("rollup route resolved to %q, want %q — the parameter must match its "+
+			"venue siblings or chi silently renames one of them",
+			got[0], "/venues/{venue_id}/field-notes")
+	}
+}
+
 // Every venue sub-resource must agree on the parameter name at the same
 // position. A single disagreeing registration is what breaks the whole group.
 func TestVenueSubRoutesShareOneParameterName(t *testing.T) {
@@ -48,6 +68,12 @@ func TestVenueSubRoutesShareOneParameterName(t *testing.T) {
 		"/venues/{}/genres",
 		"/venues/{}/bill-network",
 		"/venues/{}/calendar.ics",
+		// PSY-1590. Registered in comments.go rather than venues.go — it is a
+		// field-note read that happens to hang off a venue — which is exactly
+		// the case this guard exists for: the file that owns the shape and the
+		// file that adds to it are different, so nothing but the built router
+		// can catch a disagreeing parameter name.
+		"/venues/{}/field-notes",
 	} {
 		for _, pattern := range matching(routes, http.MethodGet, shape) {
 			if pattern != "/venues/{venue_id}"+shape[len("/venues/{}"):] {

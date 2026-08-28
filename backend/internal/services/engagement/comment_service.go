@@ -1158,6 +1158,209 @@ func (s *CommentService) ListFieldNotesByAuthor(userID uint, limit, offset int) 
 	return notes, total, nil
 }
 
+// ListFieldNotesForVenue rolls up the field notes written about shows held at a
+// venue, best-first (PSY-1590).
+//
+// This is a ROLLUP, not a venue-owned list. Field notes are show-scoped by
+// construction (CreateFieldNote writes entity_type='show'), so a venue-scoped
+// field note cannot exist; what a venue surface can honestly show is the notes
+// written about nights in that room. The join is therefore
+// comments → shows → show_venues, and each row carries its show's title, slug
+// and event date so the caller can attribute the note to the specific night
+// rather than presenting it as a venue-level impression.
+//
+// Ordering is score DESC — the same Wilson score `ListCommentsForEntity`'s
+// "best" sort reads — then newest, so the leading note is the most-upvoted one
+// regardless of age. There is deliberately NO staleness cutoff: the show date
+// travels with the note, so a reader judges its age for themselves.
+//
+// Three gates, all load-bearing. Only visible notes are listed (hidden /
+// pending-review notes must not leak onto a public surface); only notes on
+// APPROVED shows, since a pending, private or rejected show would otherwise
+// leak its title through a public venue read; and never setlist spoilers,
+// which no venue-level surface can render behind the reveal gate their
+// authors asked for. See the query for why the spoiler gate belongs here
+// rather than in the caller.
+func (s *CommentService) ListFieldNotesForVenue(venueID uint, limit, offset int) (*contracts.VenueFieldNoteListResponse, error) {
+	if s.db == nil {
+		return nil, errors.New("database not initialized")
+	}
+
+	// 25 to match the handler's own default, so a non-HTTP caller passing 0
+	// gets the documented page size rather than a quietly different one.
+	if limit <= 0 {
+		limit = 25
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	// `shows` is joined for the status gate, `show_venues` for the venue
+	// filter. show_venues' primary key is (show_id, venue_id), so filtering to
+	// ONE venue can never fan a note out into duplicate rows even though a show
+	// may be held at several venues.
+	baseQuery := func() *gorm.DB {
+		return s.db.Model(&engagementm.Comment{}).
+			Joins("JOIN shows ON shows.id = comments.entity_id").
+			Joins("JOIN show_venues ON show_venues.show_id = shows.id").
+			Where("show_venues.venue_id = ?", venueID).
+			Where("comments.entity_type = ? AND comments.kind = ? AND comments.visibility = ?",
+				engagementm.CommentEntityShow,
+				engagementm.CommentKindFieldNote,
+				engagementm.CommentVisibilityVisible).
+			Where("shows.status = ?", catalogm.ShowStatusApproved).
+			// Setlist spoilers never leave the server on THIS route, and that
+			// is a different call from the show-scoped endpoint's.
+			//
+			// There, the body is needed: FieldNoteCard renders it behind a
+			// click-to-reveal gate, so the data has a legitimate consumer.
+			// Here it has none — every caller of a venue rollup is a passive
+			// summary with nowhere to put a reveal affordance — so shipping
+			// the body would transmit content its author asked to be gated,
+			// to anonymous callers, in a venue-wide bulk feed, for nothing.
+			//
+			// Filtering in the SHARED base query is deliberate: it keeps the
+			// exclusion out of `total` as well as the page, so the count
+			// describes what a caller can actually show, and it means the
+			// ranking never spends its page on rows the caller must discard.
+			// A client-side skip alone left a venue whose top rows were all
+			// spoilers rendering no section at all while quotable notes sat
+			// just below the page.
+			//
+			// COALESCE because `structured_data` is nullable; the key itself
+			// is written on every field note (contracts.FieldNoteStructuredData
+			// marshals `setlist_spoiler` with no omitempty).
+			Where("COALESCE(comments.structured_data->>'setlist_spoiler', 'false') <> 'true'")
+	}
+
+	var total int64
+	if err := baseQuery().Count(&total).Error; err != nil {
+		return nil, fmt.Errorf("failed to count venue field notes: %w", err)
+	}
+	if total == 0 {
+		// An empty rollup and an unknown venue must not look alike: every
+		// sibling /venues/{id} read 404s on a venue that does not exist (or
+		// was hard-deleted by a merge), and a stale pin resolving to a silent
+		// section-less panel is indistinguishable from "no notes yet". The
+		// existence probe lives only on this branch — a venue with notes
+		// exists by construction of the join.
+		var venueCount int64
+		if err := s.db.Table("venues").Where("id = ?", venueID).Count(&venueCount).Error; err != nil {
+			return nil, fmt.Errorf("failed to check venue existence: %w", err)
+		}
+		if venueCount == 0 {
+			return nil, apperrors.ErrVenueNotFound(venueID)
+		}
+		// An empty rollup is the common case, not an error: most venues have
+		// no notes yet. Return the empty slice (never nil) so the caller
+		// renders "no section" rather than having to distinguish the two.
+		return &contracts.VenueFieldNoteListResponse{
+			Notes: []*contracts.VenueFieldNote{},
+		}, nil
+	}
+
+	// `comments.*` is explicit because of the joins: an unqualified `*` would
+	// pull the joined shows/show_venues columns into the same result row, where
+	// `shows.id` and `shows.created_at` would overwrite the comment's own.
+	var comments []engagementm.Comment
+	if err := baseQuery().
+		Select("comments.*").
+		Preload("User").
+		Order("comments.score DESC, comments.created_at DESC, comments.id DESC").
+		Limit(limit).
+		Offset(offset).
+		Find(&comments).Error; err != nil {
+		return nil, fmt.Errorf("failed to fetch venue field notes: %w", err)
+	}
+
+	// Batch-enrich the shows for this page — one round-trip, not an N+1. Same
+	// move as ListFieldNotesByAuthor, plus the event date the attribution line
+	// needs.
+	showIDs := make([]uint, 0, len(comments))
+	seenShows := make(map[uint]bool, len(comments))
+	for i := range comments {
+		id := comments[i].EntityID
+		if !seenShows[id] {
+			seenShows[id] = true
+			showIDs = append(showIDs, id)
+		}
+	}
+	type showRow struct {
+		ID        uint
+		Title     string
+		Slug      *string
+		EventDate time.Time
+	}
+	showsByID := make(map[uint]showRow, len(showIDs))
+	if len(showIDs) > 0 {
+		var rows []showRow
+		if err := s.db.Table("shows").
+			Select("id, title, slug, event_date").
+			Where("id IN ?", showIDs).
+			Scan(&rows).Error; err != nil {
+			return nil, fmt.Errorf("failed to enrich venue field note shows: %w", err)
+		}
+		for _, r := range rows {
+			showsByID[r.ID] = r
+		}
+	}
+
+	// The bill, in running order. Not optional decoration: most shows carry no
+	// title of their own, so for the majority of notes the bill is the ONLY
+	// thing that can name the night the note is about.
+	//
+	// Uses the shared resolver rather than a local join. That is not just
+	// de-duplication — `show_artists.position` is NOT NULL DEFAULT 0 and ingest
+	// paths routinely leave a whole bill at 0, so a query without a tie-break
+	// returns tied rows in planner order. Since the display name is capped at
+	// three names plus "+N more", that would let the SAME note name different
+	// bands between two loads. The shared helper carries the `artists.id`
+	// tie-break added for exactly this hazard (PSY-1325).
+	billByShowID := make(map[uint][]string, len(showIDs))
+	if len(showIDs) > 0 {
+		resolved, err := shared.BatchResolveShowArtistNames(s.db, showIDs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to enrich venue field note bills: %w", err)
+		}
+		billByShowID = resolved
+	}
+
+	notes := make([]*contracts.VenueFieldNote, 0, len(comments))
+	for i := range comments {
+		row, ok := showsByID[comments[i].EntityID]
+		if !ok {
+			// The show vanished between the page query and this enrichment —
+			// reachable when a concurrent venue merge hard-deletes the loser's
+			// shows. A note that can no longer name its night has nothing
+			// honest to render (the zero EventDate would format as a real
+			// month in year 1), so drop the row. Total may momentarily
+			// overcount by the dropped rows; the next read self-corrects.
+			continue
+		}
+		note := &contracts.VenueFieldNote{CommentResponse: *commentToResponse(&comments[i])}
+		note.ShowTitle = row.Title
+		note.ShowDate = row.EventDate
+		if row.Slug != nil {
+			note.ShowSlug = *row.Slug
+		}
+		// Never nil: the field is non-omitempty, and a null array on the wire
+		// would make every consumer write its own `?? []` before it could
+		// compose a display name.
+		bill := billByShowID[comments[i].EntityID]
+		if bill == nil {
+			bill = []string{}
+		}
+		note.ShowArtists = bill
+		notes = append(notes, note)
+	}
+
+	return &contracts.VenueFieldNoteListResponse{
+		Notes:   notes,
+		Total:   total,
+		HasMore: int64(offset+limit) < total,
+	}, nil
+}
+
 // ============================================================================
 // Admin moderation methods
 // ============================================================================
