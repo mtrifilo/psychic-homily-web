@@ -313,17 +313,50 @@ export interface CityVenueFilters {
   thisWeekOnly: boolean
   /** Genre-family key from the "All genres" chip, or null for all. */
   genreFamily: string | null
+  /**
+   * "All-ages shows" chip: only venues carrying the canonical `all-ages` tag
+   * (PSY-1573).
+   *
+   * The name says `Only` for the same reason `thisWeekOnly` does — it narrows
+   * the list — but read `VenueWithShowCount.hosts_all_ages` before wording
+   * anything from it. The tag means "hosts all-ages shows AT LEAST SOMETIMES",
+   * so this narrows to rooms someone has vouched for, NOT to rooms where every
+   * show is all-ages. An excluded venue is untagged, not 21+.
+   */
+  allAgesOnly: boolean
 }
 
 export const NO_CITY_VENUE_FILTERS: CityVenueFilters = {
   thisWeekOnly: false,
   genreFamily: null,
+  allAgesOnly: false,
 }
 
 /**
  * The venues that survive the rail's filter chips. ONE function, because the
  * rail rows and the map pins must narrow together — they render the same
  * array, so they cannot disagree.
+ *
+ * # Why all three chips narrow CLIENT-side, including all-ages
+ *
+ * `GET /venues` can filter by tag server-side (`tags=all-ages`, via
+ * ApplyTagFilter), and for the all-ages chip alone that would be strictly more
+ * correct: this function can only see the one busiest-first page the rail
+ * fetched, so a tagged room below CITY_VENUE_FETCH_LIMIT is invisible to it.
+ * That bias runs the wrong way here — a quiet DIY space is both the likeliest
+ * room to fall below the cap and the likeliest to be all-ages.
+ *
+ * It is still client-side, for now, because the alternative changes the chip's
+ * BEHAVIOUR relative to its siblings: a refetch on every toggle, a loading
+ * state the other two chips don't have, and a second request whose cap and
+ * ordering interact with this one. `thisWeekOnly` and `genreFamily` have the
+ * same page-scoped blindness today and nobody has asked them to be exact.
+ *
+ * So the cap is DISCLOSED rather than hidden: `listTruncated` reaches both the
+ * header's "showing the N busiest of M" line and `emptyRailReason`, which says
+ * how far it actually looked instead of generalising to the metro. Moving all
+ * three chips to server-side narrowing together is the real fix, and it is a
+ * bigger change than wiring one chip.
  */
 export function filterCityVenues(
   venues: readonly VenueWithShowCount[],
@@ -334,8 +367,102 @@ export function filterCityVenues(
     if (filters.genreFamily && v.dominant_genre !== filters.genreFamily) {
       return false
     }
+    if (filters.allAgesOnly && !v.hosts_all_ages) return false
     return true
   })
+}
+
+/**
+ * Whether ANY venue in this city carries the all-ages tag.
+ *
+ * Read over the UNFILTERED list, and it exists to keep the rail's empty state
+ * honest (PSY-1573). "No venues match these filters" would be a claim about
+ * this city's rooms; when the tag is simply uncarried here — the default, since
+ * coverage is near-zero — the true statement is about the DATA, and the rail
+ * must say that one instead. Distinguishing the two needs the whole city, which
+ * `filterCityVenues` has already thrown away by the time the rail renders.
+ */
+export function cityHasAllAgesVenue(
+  venues: readonly Pick<VenueWithShowCount, 'hosts_all_ages'>[],
+): boolean {
+  return venues.some((v) => v.hosts_all_ages === true)
+}
+
+/**
+ * Whether the all-ages tag was actually ANSWERED for this list.
+ *
+ * `hosts_all_ages` is three-valued on the wire: true, false ("nobody has
+ * tagged this room"), and ABSENT ("not determined") — which is what the backend
+ * sends when the tag lookup failed, and what any response without the rail
+ * opt-in carries. Absent must never be read as false, because the rail turns
+ * false into the sentence "no venue here is tagged", and saying that off a
+ * query that never ran is the exact false claim this feature is built to avoid.
+ *
+ * Read over the rail's own list, where every row comes from one response, so
+ * one undetermined row means the whole answer is undetermined.
+ */
+export function cityAllAgesTagDetermined(
+  venues: readonly Pick<VenueWithShowCount, 'hosts_all_ages'>[],
+): boolean {
+  return venues.every((v) => v.hosts_all_ages !== undefined)
+}
+
+/** Why the rail has no rows to show. Exactly one of these is true. */
+export type EmptyRailReason =
+  | 'fetch-failed'
+  | 'city-empty'
+  | 'all-ages-unseeded'
+  | 'all-ages-unseeded-in-view'
+  | 'all-ages-undetermined'
+  | 'filters'
+
+/**
+ * Which empty-state sentence the rail owes the reader, as ONE value rather than
+ * a handful of booleans a caller could combine into a contradiction.
+ *
+ * The distinctions all exist because "no venues match these filters" is a claim
+ * about a CITY, and it is the wrong claim whenever the real answer is about our
+ * data. The all-ages tag ships with near-zero coverage, so that wrong reading
+ * would be the common one.
+ *
+ * - `fetch-failed` wins outright. A request that never landed leaves the same
+ *   zero rows a genuinely empty city does, and "No venues listed here yet" is
+ *   then a flat lie about the place — the worst sentence in the set, since a
+ *   traveler has no way to tell it from the truth. Public reads here really do
+ *   fail (the anonymous per-IP limiter 429s them, invisibly to Sentry), so this
+ *   is a live path, not a hypothetical.
+ * - `city-empty` next: nothing was fetched, so no filter is to blame.
+ * - `all-ages-undetermined` comes next, because a failed lookup makes every
+ *   row read as untagged and `filterCityVenues` therefore drops ALL of them:
+ *   the rail and the map both go blank on a question we never got to ask.
+ *   Falling through to `filters` there would be true of the filter and still
+ *   leave a blank map looking like a broken feature, so this says outright
+ *   that the check did not happen.
+ * - `all-ages-unseeded` needs the tag to be both DETERMINED and absent across
+ *   the whole city.
+ * - `all-ages-unseeded-in-view` is the same finding over a TRUNCATED list. The
+ *   rail fetched one busiest-first page, and a tagged DIY room ranked below the
+ *   cap is exactly the room this chip is for, so the sentence has to admit how
+ *   far it actually looked instead of generalising to the metro.
+ * - `filters` is the honest fallback: true whatever the cause.
+ *
+ * Note it does NOT test the other chips. It doesn't need to: `!hasAllAges`
+ * proves the all-ages chip ALONE would have emptied the list, whatever else is
+ * switched on, so naming the tag stays accurate in combination.
+ */
+export function emptyRailReason(input: {
+  fetchFailed: boolean
+  cityEmpty: boolean
+  allAgesOnly: boolean
+  hasAllAgesVenue: boolean
+  tagDetermined: boolean
+  listTruncated: boolean
+}): EmptyRailReason {
+  if (input.fetchFailed) return 'fetch-failed'
+  if (input.cityEmpty) return 'city-empty'
+  if (input.allAgesOnly && !input.tagDetermined) return 'all-ages-undetermined'
+  if (!input.allAgesOnly || input.hasAllAgesVenue) return 'filters'
+  return input.listTruncated ? 'all-ages-unseeded-in-view' : 'all-ages-unseeded'
 }
 
 /**

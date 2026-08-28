@@ -34,6 +34,22 @@ const (
 	TagEntityCollection = "collection"
 )
 
+// TagSlugAllAges is the canonical slug for "this venue hosts all-ages shows".
+//
+// SEMANTICS (user decision, PSY-1573): the tag says the room hosts all-ages
+// shows AT LEAST SOMETIMES. It does NOT claim every show there is all-ages,
+// and it is NOT the venue's house-default age rule — that is the free-text
+// venues.age_policy column (PSY-1682), which a per-show age_requirement
+// overrides. A 21+ house that books the occasional all-ages matinee carries
+// this tag and an "21+" age_policy at the same time, and both are true. Copy
+// rendered from this tag must never promise more than "sometimes".
+//
+// Slug REUSED, not minted: cmd/seed's archive venue exemplar already applies
+// {"All Ages", "all-ages", other}. Tags are free-form (no vocabulary table
+// constrains the slug set), so this constant is the only thing making one
+// spelling canonical — apply it rather than re-typing the literal.
+const TagSlugAllAges = "all-ages"
+
 // TagEntityTypes is the set of valid entity types for tagging.
 var TagEntityTypes = []string{
 	TagEntityArtist,

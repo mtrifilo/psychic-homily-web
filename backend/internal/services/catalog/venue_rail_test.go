@@ -264,3 +264,135 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_Unver
 	suite.Nil(got.StreetLatitude, "a stale geocode must not be served as a street pin")
 	suite.Nil(got.StreetLongitude)
 }
+
+// createOtherTag inserts a category='other' tag and returns its ID. The
+// all-ages tag is not a genre, so it cannot reuse createGenreTag.
+func (suite *VenueServiceIntegrationTestSuite) createOtherTag(name, slug string) uint {
+	sqlDB, err := suite.db.DB()
+	suite.Require().NoError(err)
+	var tagID uint
+	err = sqlDB.QueryRow(`
+		INSERT INTO tags (name, slug, category, is_official, usage_count, created_at, updated_at)
+		VALUES ($1, $2, 'other', true, 0, NOW(), NOW())
+		RETURNING id
+	`, name, slug).Scan(&tagID)
+	suite.Require().NoError(err)
+	return tagID
+}
+
+func (suite *VenueServiceIntegrationTestSuite) tagVenue(venueID, tagID, userID uint) {
+	sqlDB, err := suite.db.DB()
+	suite.Require().NoError(err)
+	_, err = sqlDB.Exec(`
+		INSERT INTO entity_tags (entity_type, entity_id, tag_id, added_by_user_id, created_at)
+		VALUES ('venue', $1, $2, $3, NOW())
+	`, venueID, tagID, userID)
+	suite.Require().NoError(err)
+}
+
+// TestGetVenuesWithShowCounts_HostsAllAges pins the "All-ages shows" chip's
+// data (PSY-1573): the flag follows the canonical tag and nothing else.
+//
+// The untagged venue is the half that matters. Its false is "nobody has said",
+// not "this room is 21+" — the tag has near-zero coverage — which is why the
+// rail's empty state has to name the tag rather than report a fact about the
+// city.
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_HostsAllAges() {
+	user := suite.createTestUser()
+	tagged := suite.createTestVenue("Rail All Ages Room", "Austin", "TX", true)
+	suite.createTestVenue("Rail Untagged Room", "Austin", "TX", true)
+
+	suite.tagVenue(tagged.ID, suite.createOtherTag("All Ages", catalogm.TagSlugAllAges), user.ID)
+
+	// A second, unrelated `other` tag on the SAME venue proves the lookup keys
+	// on the slug rather than on the category.
+	suite.tagVenue(tagged.ID, suite.createOtherTag("Full Bar", "rail-full-bar"), user.ID)
+
+	venues, _, err := suite.venueService.GetVenuesWithShowCounts(
+		contracts.VenueListFilters{City: "Austin", State: "TX", IncludeRailFields: true}, 50, 0)
+	suite.Require().NoError(err)
+
+	taggedFlag := suite.findVenueResponse(venues, "Rail All Ages Room").HostsAllAges
+	suite.Require().NotNil(taggedFlag, "a determined lookup must not report nil")
+	suite.True(*taggedFlag, "a venue carrying the canonical all-ages tag must report it")
+
+	untaggedFlag := suite.findVenueResponse(venues, "Rail Untagged Room").HostsAllAges
+	suite.Require().NotNil(untaggedFlag,
+		"untagged is a DETERMINED answer and must be false, not nil")
+	suite.False(*untaggedFlag, "an untagged venue reports false, meaning nobody has said")
+}
+
+// TestGetVenuesWithShowCounts_HostsAllAgesCaseInsensitiveSlug pins the slug
+// comparison to the one ApplyTagFilter uses (LOWER(tags.slug)). These are the
+// two read paths over the same tag, and a case-sensitive one here would let
+// the rail chip and GET /venues?tags=all-ages disagree about a venue.
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_HostsAllAgesCaseInsensitiveSlug() {
+	user := suite.createTestUser()
+	venue := suite.createTestVenue("Rail Mixed Case Room", "Austin", "TX", true)
+
+	sqlDB, err := suite.db.DB()
+	suite.Require().NoError(err)
+	var tagID uint
+	suite.Require().NoError(sqlDB.QueryRow(`
+		INSERT INTO tags (name, slug, category, is_official, usage_count, created_at, updated_at)
+		VALUES ('All Ages', 'All-Ages', 'other', true, 0, NOW(), NOW())
+		RETURNING id
+	`).Scan(&tagID))
+	suite.tagVenue(venue.ID, tagID, user.ID)
+
+	venues, _, err := suite.venueService.GetVenuesWithShowCounts(
+		contracts.VenueListFilters{City: "Austin", State: "TX", IncludeRailFields: true}, 50, 0)
+	suite.Require().NoError(err)
+
+	got := suite.findVenueResponse(venues, "Rail Mixed Case Room").HostsAllAges
+	suite.Require().NotNil(got)
+	suite.True(*got, "a mixed-case slug must match, as it does for ApplyTagFilter")
+}
+
+// TestGetVenuesWithShowCounts_HostsAllAgesIgnoresAgePolicy keeps the tag and
+// the venues.age_policy column apart (PSY-1682 vs PSY-1573). The column is the
+// HOUSE DEFAULT; the tag is "hosts all-ages shows sometimes". Deriving the flag
+// from the column would both invent tags for rooms nobody vouched for and hide
+// the 21+ room that books an all-ages matinee — the case the chip exists for.
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_HostsAllAgesIgnoresAgePolicy() {
+	user := suite.createTestUser()
+	byPolicy := suite.createTestVenue("Rail Policy Only Room", "Austin", "TX", true)
+	suite.Require().NoError(suite.db.Model(&catalogm.Venue{}).Where("id = ?", byPolicy.ID).
+		Update("age_policy", "all ages").Error)
+
+	byTag := suite.createTestVenue("Rail Tagged 21plus Room", "Austin", "TX", true)
+	suite.Require().NoError(suite.db.Model(&catalogm.Venue{}).Where("id = ?", byTag.ID).
+		Update("age_policy", "21+").Error)
+	suite.tagVenue(byTag.ID, suite.createOtherTag("All Ages", catalogm.TagSlugAllAges), user.ID)
+
+	venues, _, err := suite.venueService.GetVenuesWithShowCounts(
+		contracts.VenueListFilters{City: "Austin", State: "TX", IncludeRailFields: true}, 50, 0)
+	suite.Require().NoError(err)
+
+	byPolicyGot := suite.findVenueResponse(venues, "Rail Policy Only Room").HostsAllAges
+	suite.Require().NotNil(byPolicyGot)
+	suite.False(*byPolicyGot,
+		`age_policy "all ages" is a house default, not the community tag`)
+
+	byTagGot := suite.findVenueResponse(venues, "Rail Tagged 21plus Room").HostsAllAges
+	suite.Require().NotNil(byTagGot)
+	suite.True(*byTagGot,
+		"a 21+ house that books all-ages shows is exactly what the tag is for")
+}
+
+// TestGetVenuesWithShowCounts_HostsAllAgesIsOptIn: the flag rides
+// IncludeRailFields with the rest of the rail payload, so the venue browse
+// page does not pay for a scan it renders nothing from.
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_HostsAllAgesIsOptIn() {
+	user := suite.createTestUser()
+	venue := suite.createTestVenue("Rail All Ages Opt In", "Austin", "TX", true)
+	suite.tagVenue(venue.ID, suite.createOtherTag("All Ages", catalogm.TagSlugAllAges), user.ID)
+
+	venues, _, err := suite.venueService.GetVenuesWithShowCounts(
+		contracts.VenueListFilters{City: "Austin", State: "TX"}, 50, 0)
+	suite.Require().NoError(err)
+
+	suite.Nil(suite.findVenueResponse(venues, "Rail All Ages Opt In").HostsAllAges,
+		"without the rail opt-in the answer is NOT DETERMINED, and must be nil "+
+			"rather than a false that reads as 'this venue is not tagged'")
+}

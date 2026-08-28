@@ -148,6 +148,27 @@ export interface VenueWithShowCount extends Venue {
   next_show_artists?: string[]
   /** Dominant genre-family key, matching `GENRE_FAMILIES`. */
   dominant_genre?: string
+  /**
+   * The venue carries the canonical `all-ages` tag: it hosts all-ages shows AT
+   * LEAST SOMETIMES (PSY-1573). Drives the rail's "All-ages shows" chip.
+   *
+   * THREE-VALUED, and `undefined` is not a synonym for `false`:
+   * - `true` — someone has vouched that the room hosts all-ages shows.
+   * - `false` — UNTAGGED. Nobody has said either way. NOT a claim that the room
+   *   is 21+, and never to be rendered as an age claim about the room.
+   * - `undefined` — NOT DETERMINED. The response did not ask for the rail
+   *   fields, or the backend's tag lookup failed. Must degrade to "we don't
+   *   know", never to an absence: the rail turns a known-false into the
+   *   sentence "no venue here is tagged", and saying that off a query that
+   *   never ran is the false claim this feature exists to avoid. See
+   *   `cityAllAgesTagDetermined`.
+   *
+   * Distinct from `age_policy`, which is the HOUSE DEFAULT. A 21+ `age_policy`
+   * alongside a true `hosts_all_ages` is a coherent room (a 21+ house booking
+   * an all-ages matinee), not a contradiction — and is the case the chip exists
+   * to surface.
+   */
+  hosts_all_ages?: boolean
 }
 
 /**

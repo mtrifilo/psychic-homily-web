@@ -9,14 +9,21 @@ import {
   cityContributionCounts,
   cityContributionSegments,
   cityDataUpdatedAt,
+  cityAllAgesTagDetermined,
   cityGenreFamilies,
+  cityHasAllAgesVenue,
   cityRailStats,
+  emptyRailReason,
+  type EmptyRailReason,
   formatNextShowDate,
   nextShowBill,
   venueLocalityLabel,
   venuesSpanMetro,
   type CityVenueFilters,
 } from '../cityView'
+
+/** Ties the all-ages chip to its "at least sometimes" caveat via aria-describedby. */
+const ALL_AGES_CAVEAT_ID = 'atlas-rail-all-ages-caveat'
 
 const GENRE_LABEL_BY_KEY: ReadonlyMap<string, string> = new Map(
   // Lowercased: the rail's meta line is running mono text ("… · punk &
@@ -46,6 +53,15 @@ interface VenueRailProps {
    */
   totalVenueCount?: number
   loading?: boolean
+  /**
+   * The venue request failed and retries are exhausted. Distinct from
+   * `loading` and from an empty city: a request that never landed leaves the
+   * same zero rows a genuinely empty city does, and "No venues listed here
+   * yet" is then a flat lie about the place. Public reads here really do fail
+   * (the anonymous per-IP limiter 429s them), so the rail has to be able to
+   * say so.
+   */
+  fetchFailed?: boolean
   filters: CityVenueFilters
   onFiltersChange: (filters: CityVenueFilters) => void
   selectedVenueId: number | null
@@ -75,6 +91,7 @@ export function VenueRail({
   localArtistCount,
   totalVenueCount,
   loading = false,
+  fetchFailed = false,
   filters,
   onFiltersChange,
   selectedVenueId,
@@ -91,6 +108,28 @@ export function VenueRail({
   const contributionSegments = useMemo(
     () => cityContributionSegments(cityContributionCounts(allVenues)),
     [allVenues],
+  )
+  // The fetch cap bit, so `allVenues` is one busiest-first page rather than the
+  // whole metro. Three things read it: the "showing the N busiest of M" line,
+  // the empty state (which must not generalise from a partial city), and the
+  // active-filter caveat below.
+  const listTruncated =
+    totalVenueCount !== undefined && totalVenueCount > allVenues.length
+
+  // All over the UNFILTERED list on purpose: together they separate "no venue
+  // here carries the tag" from "your filters excluded everything" from "the tag
+  // lookup never answered". emptyRailReason owns the precedence between them.
+  const emptyReason = useMemo(
+    () =>
+      emptyRailReason({
+        fetchFailed,
+        cityEmpty: allVenues.length === 0,
+        allAgesOnly: filters.allAgesOnly,
+        hasAllAgesVenue: cityHasAllAgesVenue(allVenues),
+        tagDetermined: cityAllAgesTagDetermined(allVenues),
+        listTruncated,
+      }),
+    [allVenues, fetchFailed, filters.allAgesOnly, listTruncated],
   )
 
   const activeGenreLabel = filters.genreFamily
@@ -140,7 +179,7 @@ export function VenueRail({
         {/* The list is one page deep. A city with more venues than the cap
             would otherwise read as if it had exactly the cap — say so instead.
             The API sorts busiest-first, so "busiest" is accurate. */}
-        {totalVenueCount !== undefined && totalVenueCount > allVenues.length && (
+        {listTruncated && (
           <p className="mt-1 font-mono text-[11px] leading-4 text-muted-foreground">
             showing the {allVenues.length} busiest of {totalVenueCount}
           </p>
@@ -189,19 +228,69 @@ export function VenueRail({
             </span>
           </span>
 
-          {/* Disabled placeholders, exactly as the mock draws them. The
-              tag-vs-column question for "All ages" is settled: it is the
-              free-text `venues.age_policy` column. The chip stays disabled
-              because the rail has no filter wired to it yet, not because the
-              data is missing. "Record stores" is a later chapter of the
-              travel-mode project. */}
-          <FilterChip disabled title="Age filter isn’t available yet">
-            All ages
+          {/* "All-ages shows", not the mock's "All ages" (user decision,
+              PSY-1573). The tag-vs-column question is settled the other way
+              from what this comment used to say: the filter reads the canonical
+              `all-ages` TAG, not the free-text `venues.age_policy` column.
+              age_policy is the HOUSE DEFAULT, and the traveler's question is
+              "can I get in to something here", which a 21+ room booking an
+              all-ages matinee answers yes to and its column answers no to.
+
+              Hence the copy. The tag means the room hosts all-ages shows AT
+              LEAST SOMETIMES, so the chip names the shows rather than the room:
+              a bare "All ages" beside a venue name reads as a promise about
+              every night there, which nobody has made. */}
+          <FilterChip
+            active={filters.allAgesOnly}
+            title="Venues that host all-ages shows at least sometimes"
+            /* The caveat below is the chip's DESCRIPTION, not decoration.
+               `title` alone leaves a screen-reader user with just the label
+               "All-ages shows" (most SRs drop title on an already-labelled
+               control), so the same sentence sighted users get is wired here
+               and rendered unconditionally — a description has to exist before
+               activation, not appear after it. */
+            describedById={ALL_AGES_CAVEAT_ID}
+            onClick={() =>
+              onFiltersChange({ ...filters, allAgesOnly: !filters.allAgesOnly })
+            }
+          >
+            All-ages shows
           </FilterChip>
+          {/* Still a disabled placeholder, exactly as the mock draws it —
+              record stores are a later chapter of the travel-mode project, and
+              the Atlas has no non-venue places on it at all yet. */}
           <FilterChip disabled title="Record stores aren’t on the Atlas yet">
             Record stores
           </FilterChip>
         </div>
+
+        {/* The caveat has to be VISIBLE while the filter is on, not parked in
+            the chip's `title`. A tooltip never opens on touch — the Atlas
+            travel-mode audience's likeliest device — and most screen readers
+            skip `title` on a control that already has a text label. Without
+            this line, a phone user narrowing the list would see nothing but
+            "All-ages shows" above it, which reads as a promise about every
+            night at every room listed.
+
+            ALWAYS RENDERED, and merely hidden while the chip is off: it is the
+            chip's aria-describedby target, and a description that only exists
+            after activation is not a description. Visually it still appears
+            only when the filter is on, so the chip row stays quiet by default.
+
+            Copy agreed with the user directly (2026-08-27), NOT taken from the
+            Figma mock — the mock draws neither this line nor the "All-ages
+            shows" label, so do not "restore" either to match board 01. */}
+        <p
+          id={ALL_AGES_CAVEAT_ID}
+          className={
+            filters.allAgesOnly
+              ? 'mt-2 font-mono text-[11px] leading-4 text-muted-foreground'
+              : 'sr-only'
+          }
+        >
+          rooms that host all-ages shows at least sometimes. check the
+          individual show.
+        </p>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -210,11 +299,7 @@ export function VenueRail({
             Loading venues…
           </p>
         ) : venues.length === 0 ? (
-          <p className="px-4 py-6 text-sm text-muted-foreground">
-            {allVenues.length === 0
-              ? 'No venues listed here yet.'
-              : 'No venues match these filters.'}
-          </p>
+          <EmptyRail reason={emptyReason} shownCount={allVenues.length} />
         ) : (
           <ul>
             {venues.map((venue) => (
@@ -268,6 +353,78 @@ export function VenueRail({
   )
 }
 
+/**
+ * What the rail says when it has no rows to show.
+ *
+ * Five facts, five sentences, chosen by ONE discriminated value rather than a
+ * set of booleans this component could combine into a contradiction. A filter
+ * that matches nothing has to say WHY, or a working feature reads as a broken
+ * one — and "no venues match these filters" is a claim about a CITY, which is
+ * the wrong claim when the real answer is about our data. The all-ages tag has
+ * near-zero coverage in production (PSY-1573 seeds no production data; the dev
+ * seed tags exactly one venue, the archive exemplar), so that wrong reading
+ * would be the common one. emptyRailReason owns the precedence.
+ *
+ * None of these invite the reader to go add the tag. There is nowhere to do it:
+ * VenueDetail mounts EntityTagList but not the AddTagDialog + "[Add tag]"
+ * affordance that ArtistDetail and its peers pair with it, and EntityTagList
+ * renders nothing at all for an untagged entity. Pointing at a control that
+ * does not exist would make this empty state the dishonest thing it was written
+ * to replace. Mounting that affordance on venues needs its own ticket, which is
+ * not yet filed.
+ */
+function EmptyRail({
+  reason,
+  shownCount,
+}: {
+  reason: EmptyRailReason
+  shownCount: number
+}) {
+  if (reason === 'fetch-failed') {
+    return (
+      <p className="px-4 py-6 text-sm text-muted-foreground">
+        Couldn’t load venues here. Try again in a moment.
+      </p>
+    )
+  }
+  if (reason === 'city-empty') {
+    return (
+      <p className="px-4 py-6 text-sm text-muted-foreground">
+        No venues listed here yet.
+      </p>
+    )
+  }
+  if (reason === 'all-ages-undetermined') {
+    return (
+      <p className="px-4 py-6 text-sm text-muted-foreground">
+        Couldn’t check which venues host all-ages shows just now. Clear the
+        filter to see the full list.
+      </p>
+    )
+  }
+  if (reason === 'all-ages-unseeded' || reason === 'all-ages-unseeded-in-view') {
+    return (
+      <div className="px-4 py-6 text-sm text-muted-foreground">
+        {/* Says "not yet recorded", never "there are none". The venues exist;
+            the tag is what's missing, so the absence is a gap in our data.
+            The truncated variant additionally admits how far it looked, rather
+            than generalising one busiest-first page to a whole metro. */}
+        <p>
+          {reason === 'all-ages-unseeded-in-view'
+            ? `No venue among the ${shownCount} busiest here is tagged for all-ages shows yet.`
+            : 'No venue here is tagged for all-ages shows yet.'}
+        </p>
+        <p className="mt-2">It doesn’t mean the city has none.</p>
+      </div>
+    )
+  }
+  return (
+    <p className="px-4 py-6 text-sm text-muted-foreground">
+      No venues match these filters.
+    </p>
+  )
+}
+
 function chipClass(active: boolean, disabled = false): string {
   const base =
     'inline-flex items-center rounded-sm px-2 py-0.5 font-mono text-[11px] leading-4 transition-colors'
@@ -281,12 +438,19 @@ function FilterChip({
   active = false,
   disabled = false,
   title,
+  describedById,
   onClick,
 }: {
   children: React.ReactNode
   active?: boolean
   disabled?: boolean
   title?: string
+  /**
+   * Id of an element describing this chip, wired as `aria-describedby`.
+   * `title` does NOT reach most screen readers on a control that already has a
+   * text label, so any caveat a chip's label depends on belongs here too.
+   */
+  describedById?: string
   onClick?: () => void
 }) {
   return (
@@ -294,6 +458,7 @@ function FilterChip({
       type="button"
       disabled={disabled}
       title={title}
+      aria-describedby={describedById}
       aria-pressed={disabled ? undefined : active}
       onClick={onClick}
       className={`${chipClass(active, disabled)} ${

@@ -17954,6 +17954,8 @@ export interface components {
             description?: string;
             dominant_genre?: string;
             geocode_precision?: string;
+            /** @description True when the venue carries the canonical all-ages tag, meaning it hosts all-ages shows AT LEAST SOMETIMES. False means UNTAGGED, not 21+, and is not an age claim about the room. Absent means NOT DETERMINED: the field is only populated when include_rail=true, and is omitted if the tag lookup failed. This is not the venue's house-default age rule, which is age_policy. */
+            hosts_all_ages?: boolean;
             /** Format: int64 */
             id: number;
             image_url: string | null;
@@ -34797,7 +34799,7 @@ export interface operations {
                  * @example all
                  */
                 tag_match?: "all" | "any";
-                /** @description Include the Atlas city-view rail fields: next_show_date/title/artists, shows_this_week, dominant_genre */
+                /** @description Include the Atlas city-view rail fields: next_show_date/title/artists, shows_this_week, dominant_genre, hosts_all_ages */
                 include_rail?: boolean;
                 /** @description Widen the city+state filter to the whole US Census CBSA metro, matching how Atlas scenes are keyed (Tempe lists under Phoenix). Requires both city and state; ignored when 'cities' is set. */
                 metro_rollup?: boolean;

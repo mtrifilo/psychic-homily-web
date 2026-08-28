@@ -228,6 +228,7 @@ export function AtlasGlobe() {
     data: cityVenueData,
     isFetching: venuesFetching,
     isPlaceholderData,
+    isError: venuesFailed,
   } = useVenues({
     city: cityScene?.city,
     state: cityScene?.state,
@@ -501,8 +502,18 @@ export function AtlasGlobe() {
             venues={filteredVenues}
             allVenues={cityVenues}
             localArtistCount={sceneDetail?.stats.artist_count}
-            totalVenueCount={cityVenueData?.total}
+            /* Same placeholder guard `cityVenues` uses above, and for the same
+               reason: across a city hand-off React Query serves the PREVIOUS
+               city's data, so an unguarded total pairs the old city's 140 with
+               the new city's zero rows and prints "showing the 0 busiest of
+               140" under the new city's name. */
+            totalVenueCount={isPlaceholderData ? undefined : cityVenueData?.total}
             loading={venuesLoading}
+            /* A failed fetch leaves the same zero rows an empty city does, and
+               the rail must not print "No venues listed here yet" over a 429.
+               Suppressed while a retry is still in flight, so a transient blip
+               never flashes an error the next attempt disproves. */
+            fetchFailed={venuesFailed && !venuesLoading}
             filters={filters}
             onFiltersChange={setFilters}
             selectedVenueId={selectedVenueId}

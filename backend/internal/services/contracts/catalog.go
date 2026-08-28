@@ -751,6 +751,24 @@ type VenueWithShowCountResponse struct {
 	// inside a fixed recent window, past and upcoming alike. venueDominantGenres
 	// owns the window and the reasons for it.
 	DominantGenre string `json:"dominant_genre,omitempty"`
+	// HostsAllAges reports that this venue carries the canonical all-ages tag
+	// (catalogm.TagSlugAllAges) — it hosts all-ages shows AT LEAST SOMETIMES.
+	// Drives the rail's "All-ages shows" chip (PSY-1573).
+	//
+	// THREE-VALUED, and the pointer is the whole point. false means UNTAGGED
+	// (nobody has said, NOT 21+); NIL means NOT DETERMINED, which is what the
+	// caller gets both without IncludeRailFields and when the tag lookup itself
+	// failed. Those two are different questions and a plain bool answers them
+	// with the same confident "no": a client would read "no venue here is
+	// tagged" off a query that never ran, or off a browse response that never
+	// asked. Coverage is near-zero, so that wrong reading would be the COMMON
+	// one. Nil must degrade to "we don't know", never to a claim.
+	//
+	// It is also NOT the house-default age rule; that is AgePolicy on the
+	// embedded venue. A 21+ AgePolicy alongside a true HostsAllAges is a
+	// coherent room (a 21+ house booking an all-ages matinee), not a
+	// contradiction, and is the case the chip exists to surface.
+	HostsAllAges *bool `json:"hosts_all_ages,omitempty" doc:"True when the venue carries the canonical all-ages tag, meaning it hosts all-ages shows AT LEAST SOMETIMES. False means UNTAGGED, not 21+, and is not an age claim about the room. Absent means NOT DETERMINED: the field is only populated when include_rail=true, and is omitted if the tag lookup failed. This is not the venue's house-default age rule, which is age_policy."`
 }
 
 // VenueListingEntry is a venue reduced to the two fields a link needs: the slug
@@ -838,9 +856,9 @@ type VenueListFilters struct {
 	// (default) the venues must have every tag in TagSlugs (AND).
 	TagMatchAny bool
 	// IncludeRailFields opts in to the Atlas city-view payload
-	// (VenueWithShowCountResponse's next-show / next-7-days / dominant-genre
-	// fields). OFF by default and deliberately explicit: filling it costs
-	// three extra batched aggregations, and the venue browse page — the
+	// (VenueWithShowCountResponse's next-show / next-7-days / dominant-genre /
+	// all-ages fields). OFF by default and deliberately explicit: filling it
+	// costs four extra batched aggregations, and the venue browse page — the
 	// endpoint's other caller — renders none of those fields.
 	IncludeRailFields bool
 	// MetroRollup widens a City+State filter from that literal city to the
