@@ -4,11 +4,13 @@
 #
 # WHY THIS EXISTS
 # ---------------
-# Vercel serves only a bounded trailing window of Web Analytics data. Anything
-# older than that window is unrecoverable: there is no export, no archive, and
-# no support path to get it back. A month that nobody captured is a month that
-# never happened. This script turns what used to be a hand-run curl sequence
-# into one reproducible command so the capture actually gets done on schedule.
+# Vercel serves only a bounded trailing window of Web Analytics data —
+# ~12 months on the current Pro plan, but the plan tier has changed under
+# this project before, so re-probe before relying on the limit. Anything
+# older than the window is gone: no export, no archive, no support path.
+# A month that nobody captured within the window is a month that never
+# happened. This script turns what used to be a hand-run curl sequence into
+# one reproducible command so the capture actually gets done on schedule.
 #
 # Run it monthly, BEFORE the retention window rolls past the month you care
 # about. The generated markdown (in gitignored docs/research/) is the durable
@@ -18,13 +20,13 @@
 #
 # The monthly capture is a PAIR: run scripts/gsc-snapshot.sh over the same
 # window for the Search Console side (impressions, queries, CTR, position) —
-# Vercel sees only the clicks that became visits. Paired runs must pass
-# explicit --since/--until to BOTH scripts, ending the shared window at
-# today-3: the default windows differ (this script ends at today,
-# gsc-snapshot.sh at today-3 for GSC data lag).
+# Vercel sees only the clicks that became visits. Both scripts default their
+# window end to today-3 (GSC data lags 2-3 days), so bare same-day paired
+# runs cover the same window and produce name-linked files; explicit
+# --since/--until on both is still preferred for reproducibility.
 #
 # Usage:
-#   scripts/traffic-snapshot.sh [--out DIR] [--days N] [--since DATE] [--until DATE]
+#   scripts/traffic-snapshot.sh [--out DIR] [--days N] [--since DATE] [--until DATE] [--force]
 #
 #   --out DIR      Directory to write the snapshot into. Default: docs/research
 #                  relative to the repo root. NOTE: docs/ is gitignored and is
@@ -32,7 +34,11 @@
 #                  running anywhere other than the main checkout.
 #   --days N       Length of the trailing window in days. Default: 28.
 #   --since DATE   Explicit window start (YYYY-MM-DD). Overrides --days.
-#   --until DATE   Explicit window end (YYYY-MM-DD), inclusive. Default: today.
+#   --until DATE   Explicit window end (YYYY-MM-DD), inclusive. Default: three
+#                  days before today (UTC), matching gsc-snapshot.sh so bare
+#                  paired runs cover the same window. (Vercel itself serves
+#                  data through today; pass --until explicitly for a
+#                  right-up-to-now unpaired read.)
 #   --force        Overwrite an existing snapshot for this window (refused by
 #                  default).
 #
@@ -70,7 +76,7 @@ usage() {
 Capture a durable traffic snapshot from the Vercel Web Analytics REST API.
 
 Usage:
-  scripts/traffic-snapshot.sh [--out DIR] [--days N] [--since DATE] [--until DATE]
+  scripts/traffic-snapshot.sh [--out DIR] [--days N] [--since DATE] [--until DATE] [--force]
 
   --out DIR      Directory to write the snapshot into. Default: docs/research
                  relative to the repo root. docs/ is gitignored and absent from
@@ -78,7 +84,9 @@ Usage:
                  checkout.
   --days N       Length of the trailing window in days. Default: 28.
   --since DATE   Explicit window start (YYYY-MM-DD). Overrides --days.
-  --until DATE   Explicit window end (YYYY-MM-DD), inclusive. Default: today.
+  --until DATE   Explicit window end (YYYY-MM-DD), inclusive. Default: three
+                 days before today (UTC), matching gsc-snapshot.sh so bare
+                 paired runs cover the same window.
   --force        Overwrite an existing snapshot for this window. Refused by
                  default, because the generated doc carries hand-written
                  analysis.
@@ -153,12 +161,24 @@ command -v python3 >/dev/null 2>&1 || die "python3 is required"
 
 [ -n "${VERCEL_API_KEY:-}" ] || die "VERCEL_API_KEY is not set (try: source ~/.zshrc)"
 
+# Pin the API base to Vercel's host over HTTPS: the bearer token is attached
+# to every request, so a stray override (typo, inherited env) would otherwise
+# ship the credential in cleartext or to an arbitrary host — silently, since
+# the script would just report an HTTP error.
+case "$API_BASE" in
+  https://api.vercel.com/*) ;;
+  *) die "VERCEL_ANALYTICS_API must be an https://api.vercel.com endpoint (got: ${API_BASE})" ;;
+esac
+
 case "$WINDOW_DAYS" in
   ''|*[!0-9]*) die "--days must be a positive integer, got '$WINDOW_DAYS'" ;;
 esac
 [ "$WINDOW_DAYS" -gt 0 ] || die "--days must be greater than zero"
 
-[ -n "$UNTIL" ] || UNTIL="$(date -u +%Y-%m-%d)"
+# Default matches gsc-snapshot.sh (GSC data lags 2-3 days), so bare same-day
+# paired runs land on the same window and the same filename stem. Vercel
+# itself serves data through today; override --until for an unpaired read.
+[ -n "$UNTIL" ] || UNTIL="$(shift_date "$(date -u +%Y-%m-%d)" -3)"
 require_iso_date "$UNTIL" "--until"
 
 if [ -n "$SINCE" ]; then
@@ -240,7 +260,8 @@ api_get() {
 
   url="${API_BASE}/${endpoint}?teamId=${TEAM_ID}&projectId=${PROJECT_ID}&${query}"
 
-  set -- -sS --max-time 60 -o "$out_file" -w '%{http_code}' -K -
+  set -- -sS --max-time 60 -o "$out_file" -w '%{http_code}' \
+    --proto '=https' --proto-redir '=https' -K -
   if [ -n "$filter" ]; then
     set -- "$@" -G --data-urlencode "filter=${filter}"
   fi
@@ -529,10 +550,9 @@ scripts/traffic-snapshot.sh --since ${SINCE} --until ${UNTIL}
 Google Search Console data (impressions, queries, CTR, position) is NOT in
 this file: capture it with
 \`scripts/gsc-snapshot.sh --since ${SINCE} --until ${UNTIL}\`, which writes
-\`gsc-snapshot-${SINCE}_${UNTIL}.md\` alongside this file. Pass explicit
-dates to both scripts — their defaults differ (this script ends at today;
-gsc-snapshot.sh at today-3 for GSC data lag), and the shared window should
-end at today-3 so the GSC side is fully served.
+\`gsc-snapshot-${SINCE}_${UNTIL}.md\` alongside this file. Both scripts
+default their window end to today-3 (GSC data lag), so bare same-day paired
+runs align; explicit dates are still preferred for reproducibility.
 EOF
 } >"$DOC_PATH"
 

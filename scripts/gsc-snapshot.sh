@@ -10,16 +10,15 @@
 # that side of the funnel into a markdown record next to the Vercel snapshot.
 #
 # The monthly capture is a PAIR: run traffic-snapshot.sh and this script over
-# the same window. Unlike Vercel's rolling retention window, the Search
-# Analytics API serves roughly 16 months of history, so a missed month is
-# recoverable here — the pairing discipline exists for comparability, not
-# data-loss urgency.
+# the same window. Retention differs by side — the Search Analytics API
+# serves ~16 months of history, Vercel ~12 months on the current Pro plan —
+# so a missed month is recoverable on both sides for a while, but capture on
+# schedule anyway: the pairing discipline exists for comparability.
 #
-# PAIRED RUNS MUST PASS EXPLICIT --since/--until TO BOTH SCRIPTS, and the
-# shared window should END AT TODAY-3 so this side is fully served. The two
-# DEFAULT windows differ — traffic-snapshot.sh ends at today, this script at
-# today-3 (GSC data lag) — so bare paired runs silently cover offset windows,
-# and each doc's header looks self-consistent.
+# Both scripts default their window end to today-3 (GSC data lags 2-3 days),
+# so bare same-day paired runs cover the same window and produce name-linked
+# files. Explicit --since/--until on both is still preferred: it makes the
+# capture reproducible and immune to a date rollover between the two runs.
 #
 # OUT OF SCOPE: the Index Coverage report (indexed / not-indexed counts by
 # reason) has no bulk public API — only the per-URL, quota-limited URL
@@ -28,7 +27,7 @@
 # what to record.
 #
 # Usage:
-#   scripts/gsc-snapshot.sh [--out DIR] [--days N] [--since DATE] [--until DATE]
+#   scripts/gsc-snapshot.sh [--out DIR] [--days N] [--since DATE] [--until DATE] [--force]
 #
 #   --out DIR      Directory to write the snapshot into. Default: docs/research
 #                  relative to the repo root. NOTE: docs/ is gitignored and is
@@ -72,9 +71,10 @@ API_BASE="${GSC_API:-https://searchconsole.googleapis.com/webmasters/v3}"
 QUERY_FETCH_LIMIT=25000
 PAGE_FETCH_LIMIT=25000
 QUERY_TABLE_LIMIT=25
-PAGE_LIMIT=25
+PAGE_TABLE_LIMIT=25
 ZERO_CLICK_LIMIT=20
 ZERO_CLICK_MIN_IMPRESSIONS=5
+ZERO_CLICK_MAX_POSITION=11
 
 WINDOW_DAYS=28
 SINCE=""
@@ -94,7 +94,7 @@ usage() {
 Capture a durable search-demand snapshot from the Google Search Console API.
 
 Usage:
-  scripts/gsc-snapshot.sh [--out DIR] [--days N] [--since DATE] [--until DATE]
+  scripts/gsc-snapshot.sh [--out DIR] [--days N] [--since DATE] [--until DATE] [--force]
 
   --out DIR      Directory to write the snapshot into. Default: docs/research
                  relative to the repo root. docs/ is gitignored and absent from
@@ -103,10 +103,10 @@ Usage:
   --days N       Length of the trailing window in days. Default: 28.
   --since DATE   Explicit window start (YYYY-MM-DD). Overrides --days.
   --until DATE   Explicit window end (YYYY-MM-DD), inclusive. Default: three
-                 days before today (UTC), because GSC data lags 2-3 days. NOTE
-                 this differs from traffic-snapshot.sh's default (today):
-                 paired runs must pass explicit --since/--until to both
-                 scripts.
+                 days before today (UTC), because GSC data lags 2-3 days —
+                 matching traffic-snapshot.sh's default, so bare paired runs
+                 cover the same window. Explicit dates on both are still
+                 preferred for reproducibility.
   --force        Overwrite an existing snapshot for this window. Refused by
                  default, because the generated doc carries hand-written
                  analysis.
@@ -189,12 +189,15 @@ if [ -z "$GCLOUD" ] && [ -x /opt/homebrew/share/google-cloud-sdk/bin/gcloud ]; t
 fi
 [ -n "$GCLOUD" ] || die "gcloud CLI not found. Install: brew install --cask google-cloud-sdk"
 
-# Refuse a non-HTTPS API base: the bearer token is attached to every request,
-# so a stray http:// override (typo, inherited env) would ship the credential
-# in cleartext — silently, since the script would just report an HTTP error.
+# Pin the API base to Google's own hosts over HTTPS: the bearer token is
+# attached to every request, so a stray override (typo, inherited env in an
+# agent-dispatch repo) would otherwise ship the credential in cleartext or to
+# an arbitrary host — silently, since the script would just report an HTTP
+# error. This deliberately sacrifices mock-server overrides; unit-test the jq
+# and shell fragments instead.
 case "$API_BASE" in
-  https://*) ;;
-  *) die "GSC_API must start with https:// (got: ${API_BASE})" ;;
+  https://searchconsole.googleapis.com/*|https://www.googleapis.com/*) ;;
+  *) die "GSC_API must be an https:// googleapis.com endpoint (got: ${API_BASE})" ;;
 esac
 
 case "$WINDOW_DAYS" in
@@ -246,9 +249,9 @@ CAPTURED_ON="$(date -u +%Y-%m-%d)"
 # overwriting a DIFFERENT window's snapshot and its hand-written analysis.
 DOC_NAME="gsc-snapshot-${SINCE}_${UNTIL}.md"
 
-# Checked twice on purpose. Here so a mistaken re-run fails immediately instead
-# of after six API calls, and again just before the move, which is the only
-# check that actually closes the race.
+# Early check so a mistaken re-run fails immediately instead of after seven
+# API calls; the publication step's `mv -n` is what actually closes the
+# overwrite race.
 if [ -e "$OUT_DIR/$DOC_NAME" ] && [ "$FORCE" -ne 1 ]; then
   die "$OUT_DIR/$DOC_NAME already exists; move it or pass --force to overwrite"
 fi
@@ -266,18 +269,28 @@ trap cleanup EXIT
 # single auth touchpoint; every failure mode lands here, so the error message
 # carries the exact re-auth command instead of a pointer to documentation.
 #
-# SCOPE NOTE: the login command below grants BOTH cloud-platform (broad —
-# full GCP authority for the signed-in account, not just Search Console) and
-# webmasters.readonly. cloud-platform is what let the x-goog-user-project
-# quota check pass during 2026-08-26 verification; whether webmasters.readonly
-# alone would suffice has NOT been verified. The command also OVERWRITES the
-# machine-wide ADC file every Google client library reads. To drop the broad
-# credential between monthly runs: gcloud auth application-default revoke.
+# SCOPE NOTE: the 2026-08-26 verification granted BOTH cloud-platform (broad
+# — full GCP authority for the signed-in account, not just Search Console)
+# and webmasters.readonly, and that combination is known to pass the
+# x-goog-user-project quota check. Whether webmasters.readonly ALONE would
+# suffice has NOT been verified, so the auth guidance below suggests the
+# narrow scope first and the broad one only as a fallback — whichever works,
+# record the outcome here and close this open question. The login command
+# OVERWRITES the machine-wide ADC file every Google client library reads; the
+# success path prints the revoke command for dropping the credential between
+# monthly runs.
+print_auth_help() {
+  printf 'gsc-snapshot: (re)authenticate with (narrow read-only scope — try this first):\n' >&2
+  printf 'gsc-snapshot:   gcloud auth application-default login --scopes=https://www.googleapis.com/auth/webmasters.readonly\n' >&2
+  printf 'gsc-snapshot: if the API then 403s on the quota project, fall back to the broad variant:\n' >&2
+  printf 'gsc-snapshot:   gcloud auth application-default login --scopes=https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/webmasters.readonly\n' >&2
+  printf 'gsc-snapshot: the ADC is per-machine/per-user, not repo-local — worktrees inherit it; a new machine needs this one-time login.\n' >&2
+}
+
 if ! TOKEN="$("$GCLOUD" auth application-default print-access-token 2>"$WORK_DIR/token-err")"; then
   printf 'gsc-snapshot: could not mint an access token from the Application Default Credential.\n' >&2
   sed 's/^/gsc-snapshot:   /' "$WORK_DIR/token-err" >&2
-  printf 'gsc-snapshot: (re)authenticate with:\n' >&2
-  printf 'gsc-snapshot:   gcloud auth application-default login --scopes=https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/webmasters.readonly\n' >&2
+  print_auth_help
   exit 1
 fi
 
@@ -317,8 +330,7 @@ api_call() {
       || echo "unparseable response body")"
     if [ "$status" = "401" ] || [ "$status" = "403" ]; then
       printf 'gsc-snapshot: %s returned HTTP %s: %s\n' "$path" "$status" "$message" >&2
-      printf 'gsc-snapshot: if the credential expired, re-authenticate with:\n' >&2
-      printf 'gsc-snapshot:   gcloud auth application-default login --scopes=https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/webmasters.readonly\n' >&2
+      print_auth_help
       exit 1
     fi
     die "${path} returned HTTP ${status}: ${message}"
@@ -363,16 +375,20 @@ api_call     "$WORK_DIR/sitemaps.json" GET "sites/${SITE_ENC}/sitemaps"
 row_count() { jq -r '(.rows // []) | length' "$1"; }
 
 # A response exactly at the requested cap means the tail was cut — and because
-# rows arrive clicks-descending, the cut lands on the zero/low-click tail the
-# zero-click section depends on. Warn on stderr and stamp the doc.
+# rows arrive clicks-descending with an alphabetical tie-break, the retained
+# tail is an ARBITRARY ALPHABETICAL SLICE of the zero/low-click block, not a
+# ranking of it. Warn on stderr, stamp the doc, and record which fetches were
+# capped so downstream sections can refuse to rank a biased sample.
 TRUNCATION_NOTE=""
+CAPPED_FETCHES=""
 check_cap() {
   # $1 = file, $2 = human label, $3 = the row limit that was requested
   local n
   n="$(row_count "$1")"
   if [ "$n" -ge "$3" ]; then
-    echo "gsc-snapshot: WARNING: the $2 fetch hit the API's $3-row cap; its low-click tail (including zero-click rows) is MISSING from this capture" >&2
-    TRUNCATION_NOTE="${TRUNCATION_NOTE}> **⚠ The $2 fetch hit the API's $3-row per-request cap.** Its lowest-click tail — where zero-click rows live — is missing. Treat the affected tables as incomplete.
+    echo "gsc-snapshot: WARNING: the $2 fetch hit the API's $3-row cap; the retained low-click tail is an arbitrary alphabetical slice, not a ranking" >&2
+    CAPPED_FETCHES="${CAPPED_FETCHES} $2"
+    TRUNCATION_NOTE="${TRUNCATION_NOTE}> **⚠ The $2 fetch hit the API's $3-row per-request cap.** The rows kept below the clicked block are an arbitrary alphabetical slice — wrong rows, not just fewer rows. Treat the affected tables as biased samples.
 "
   fi
 }
@@ -381,7 +397,14 @@ check_cap "$WORK_DIR/query-page.json" "query+page" "$QUERY_FETCH_LIMIT"
 check_cap "$WORK_DIR/pages.json"      "page"       "$PAGE_FETCH_LIMIT"
 
 QUERY_ROW_COUNT="$(row_count "$WORK_DIR/queries.json")"
+QUERY_PAGE_ROW_COUNT="$(row_count "$WORK_DIR/query-page.json")"
 PAGE_ROW_COUNT="$(row_count "$WORK_DIR/pages.json")"
+
+# Displayed-row counts for the section headings: "top 25 of 12 fetched" reads
+# as a defect, so show the smaller number when the fetch is under the cap.
+min() { if [ "$1" -lt "$2" ]; then echo "$1"; else echo "$2"; fi; }
+QUERY_SHOWN="$(min "$QUERY_TABLE_LIMIT" "$QUERY_ROW_COUNT")"
+PAGE_SHOWN="$(min "$PAGE_TABLE_LIMIT" "$PAGE_ROW_COUNT")"
 
 # --- Rendering --------------------------------------------------------------
 
@@ -407,14 +430,19 @@ PAGE_ROW_COUNT="$(row_count "$WORK_DIR/pages.json")"
 # copies of this formula would drift on the next format fix.
 JQ_DEFS='
   def esc: tostring
-    | gsub("[[:cntrl:]]"; " ")
+    | gsub("[[:cntrl:]\u2028\u2029]"; " ")
+    | gsub("\\\\"; "\\\\\\\\")
     | gsub("\\|"; "\\|");
   def code: esc | . as $s
     | ([ $s | match("`+"; "g").string | length ] | (max // 0) + 1) as $n
     | ("`" * $n) as $fence
     | (if $n > 1 then " " else "" end) as $pad
     | $fence + $pad + $s + $pad + $fence;
-  def metrics(r): "\(r.clicks) | \(r.impressions) | \((r.ctr * 10000 | round) / 100)% | \((r.position * 10 | round) / 10)";
+  def metrics(r):
+    if r.clicks == 0 and r.impressions == 0
+    then "0 | 0 | — | —"
+    else "\(r.clicks) | \(r.impressions) | \((r.ctr * 10000 | round) / 100)% | \((r.position * 10 | round) / 10)"
+    end;
 '
 
 render_metric_table() {
@@ -448,35 +476,31 @@ TOTAL_POSITION="$(jq -re '(.rows // []) | (((.[0].position // 0) * 10 | round) /
   || die "could not read the position total from the API response"
 
 # The Search Analytics API does not echo the window it resolved (unlike the
-# Vercel API), so the honest coverage signal is the last date that actually
-# returned data. A LAST_DATA_DAY short of the requested end means the lag
-# window was longer than the default assumption. Zero-filled rows
-# (0 clicks / 0 impressions / position 0 — an unattainable rank) are
-# placeholders the API emits for empty days, not data; counting them would
-# make a zero-filled lag tail read as full coverage.
-LAST_DATA_DAY="$(jq -re '
-  (.rows // []) | map(select(.clicks > 0 or .impressions > 0) | .keys[0]) | max // "none"
-' "$WORK_DIR/daily.json")" \
+# Vercel API), so coverage must be derived from the daily series itself. Row
+# PRESENCE is the served-ness signal: the API OMITS unserved tail days
+# (observed live: a 28-day request returned 26 rows, the two lag days simply
+# absent) and EMITS zero rows for served days with no recorded activity (the
+# pre-ramp week renders as genuine zeros). Do NOT filter on metric values
+# here — a quiet backfilled month is all-zero rows and still fully served,
+# and filtering would make the doc falsely claim the API served nothing.
+LAST_SERVED_DAY="$(jq -re '(.rows // []) | map(.keys[0]) | max // "none"' "$WORK_DIR/daily.json")" \
   || die "could not read the daily series"
+SERVED_ROWS="$(row_count "$WORK_DIR/daily.json")"
+ACTIVE_DAYS="$(jq -re '(.rows // []) | map(select(.clicks > 0 or .impressions > 0)) | length' "$WORK_DIR/daily.json")" \
+  || die "could not count active days in the daily series"
 
 # Reconcile the served range against the requested one IN the doc, next to the
 # totals, rather than leaving the reader to notice a short daily series. The
 # first real capture shipped a 28-day header over 25 served days and its
 # hand-written analysis quoted the totals as 28-day figures — this line exists
 # so that cannot happen silently again. ISO dates compare lexicographically.
-COVERAGE_LINE=""
-if [ "$LAST_DATA_DAY" = "none" ]; then
-  COVERAGE_LINE="**Coverage: the API served NO data for any day in this window.**"
-  echo "gsc-snapshot: WARNING: no day in ${SINCE} → ${UNTIL} returned any data" >&2
-elif [ "$LAST_DATA_DAY" \< "$UNTIL" ]; then
-  DAYS_COVERED="$(python3 -c '
-import datetime, sys
-a = datetime.date.fromisoformat(sys.argv[1])
-b = datetime.date.fromisoformat(sys.argv[2])
-print((b - a).days + 1)
-' "$SINCE" "$LAST_DATA_DAY")"
-  COVERAGE_LINE="**Coverage: data ends ${LAST_DATA_DAY} — ${DAYS_COVERED} of the ${WINDOW_DAYS} requested days.** Totals and tables cover the served range only; do not quote them as ${WINDOW_DAYS}-day figures."
-  echo "gsc-snapshot: WARNING: data ends ${LAST_DATA_DAY}, short of the requested ${UNTIL} (${DAYS_COVERED}/${WINDOW_DAYS} days served)" >&2
+COVERAGE_LINE="Coverage: ${SERVED_ROWS} of the ${WINDOW_DAYS} requested days were served; ${ACTIVE_DAYS} of those show activity."
+if [ "$LAST_SERVED_DAY" = "none" ]; then
+  COVERAGE_LINE="**Coverage: the API returned no daily rows for this window.**"
+  echo "gsc-snapshot: WARNING: no daily rows returned for ${SINCE} → ${UNTIL}" >&2
+elif [ "$SERVED_ROWS" -lt "$WINDOW_DAYS" ] || [ "$LAST_SERVED_DAY" \< "$UNTIL" ]; then
+  COVERAGE_LINE="**Coverage: ${SERVED_ROWS} of the ${WINDOW_DAYS} requested days were served (series ends ${LAST_SERVED_DAY}); ${ACTIVE_DAYS} served days show activity.** Unserved days are the GSC lag tail — totals cover served days only; do not quote them as ${WINDOW_DAYS}-day figures."
+  echo "gsc-snapshot: WARNING: ${SERVED_ROWS}/${WINDOW_DAYS} days served; series ends ${LAST_SERVED_DAY} (requested ${UNTIL})" >&2
 fi
 
 # Page URLs come back absolute; strip the property's own origin for
@@ -488,7 +512,9 @@ if [ "${SITE#sc-domain:}" != "$SITE" ]; then
   ESCAPED="$(printf '%s' "${SITE#sc-domain:}" | sed 's/[][\.*^$()+?{|]/\\&/g')"
   STRIP_RE="^https?://([a-z0-9-]+\\.)*${ESCAPED}"
 else
-  ESCAPED="$(printf '%s' "$SITE" | sed 's/[][\.*^$()+?{|]/\\&/g')"
+  # url-prefix siteUrl values carry a trailing slash; strip it before escaping
+  # so page paths keep their leading "/" after the sub().
+  ESCAPED="$(printf '%s' "${SITE%/}" | sed 's/[][\.*^$()+?{|]/\\&/g')"
   STRIP_RE="^${ESCAPED}"
 fi
 export STRIP_RE
@@ -499,20 +525,37 @@ TBL_DAILY="$(render_metric_table "$WORK_DIR/daily.json" '(.keys[0] | esc)')" \
 TBL_QUERIES="$(render_metric_table "$WORK_DIR/queries.json" '(.keys[0] | code)' "$QUERY_TABLE_LIMIT" ranked)" \
   || die "failed to render the top-queries table"
 
-TBL_PAGES="$(render_metric_table "$WORK_DIR/pages.json" '(.keys[0] | sub($ENV.STRIP_RE; ""; "i") | code)' "$PAGE_LIMIT" ranked)" \
+TBL_PAGES="$(render_metric_table "$WORK_DIR/pages.json" '(.keys[0] | sub($ENV.STRIP_RE; ""; "i") | code)' "$PAGE_TABLE_LIMIT" ranked)" \
   || die "failed to render the top-pages table"
 
 # Zero-click demand: (query, page) pairs with impressions, no clicks, and an
-# average position under 11. The query+page granularity names the URL whose
-# title/snippet needs the work — a query ranking with two URLs appears twice.
-# Membership is complete only below the API row cap (see check_cap above).
-TBL_ZERO_CLICK="$(jq -r --argjson min "$ZERO_CLICK_MIN_IMPRESSIONS" --argjson limit "$ZERO_CLICK_LIMIT" "$JQ_DEFS"'
-  [(.rows // [])[] | select(.clicks == 0 and .position < 11 and .impressions >= $min)]
-  | sort_by(-.impressions)
-  | if length == 0 then "| _none above the impression threshold_ | | | |"
-    else (.[:$limit][] | "| \(.keys[0] | code) | \(.keys[1] | sub($ENV.STRIP_RE; ""; "i") | code) | \(.impressions) | \((.position * 10 | round) / 10) |")
-    end
-' "$WORK_DIR/query-page.json")" || die "failed to render the zero-click table"
+# average position under the page-one threshold. The query+page granularity
+# names the URL whose title/snippet needs the work — a query ranking with two
+# URLs appears twice. If the query+page fetch was capped, an impressions
+# ranking of the retained rows would be an alphabet artifact (the cap cuts
+# the clicks-descending tail mid-alphabet), so refuse to render one at all.
+case "$CAPPED_FETCHES" in
+  *" query+page"*)
+    ZERO_CLICK_QUALIFYING="unknown"
+    TBL_ZERO_CLICK="| _unavailable: the query+page fetch hit the API row cap, so an impressions ranking of zero-click rows would be an alphabet artifact — see the cap warning above_ | | | |"
+    ;;
+  *)
+    ZERO_CLICK_QUALIFYING="$(jq -re --argjson min "$ZERO_CLICK_MIN_IMPRESSIONS" --argjson maxpos "$ZERO_CLICK_MAX_POSITION" '
+      [(.rows // [])[] | select(.clicks == 0 and .position < $maxpos and .impressions >= $min)] | length
+    ' "$WORK_DIR/query-page.json")" || die "failed to count zero-click rows"
+    TBL_ZERO_CLICK="$(jq -r --argjson min "$ZERO_CLICK_MIN_IMPRESSIONS" --argjson maxpos "$ZERO_CLICK_MAX_POSITION" --argjson limit "$ZERO_CLICK_LIMIT" "$JQ_DEFS"'
+      [(.rows // [])[] | select(.clicks == 0 and .position < $maxpos and .impressions >= $min)]
+      | sort_by(-.impressions)
+      | if length == 0 then "| _none above the impression threshold_ | | | |"
+        else (.[:$limit][] | "| \(.keys[0] | code) | \(.keys[1] | sub($ENV.STRIP_RE; ""; "i") | code) | \(.impressions) | \((.position * 10 | round) / 10) |")
+        end
+    ' "$WORK_DIR/query-page.json")" || die "failed to render the zero-click table"
+    ;;
+esac
+ZERO_CLICK_SHOWN="$ZERO_CLICK_QUALIFYING"
+if [ "$ZERO_CLICK_QUALIFYING" != "unknown" ] && [ "$ZERO_CLICK_QUALIFYING" -gt "$ZERO_CLICK_LIMIT" ]; then
+  ZERO_CLICK_SHOWN="$ZERO_CLICK_LIMIT"
+fi
 
 TBL_SITEMAPS="$(jq -r "$JQ_DEFS"'
   if ((.sitemap // []) | length) == 0 then "| _no sitemaps submitted_ | | | | |"
@@ -536,10 +579,11 @@ Source: Google Search Console Search Analytics API, captured by
 
 ## Read this before quoting any number
 
-1. **GSC data lags 2-3 days.** The script defaults the window end to three
-   days before capture for this reason. Last date with data in this capture:
-   **${LAST_DATA_DAY}** — the Coverage line under the totals reconciles the
-   served range against the requested window.
+1. **GSC data lags 2-3 days, and the API omits unserved days rather than
+   padding them.** A day MISSING from the daily series was not yet served
+   (the lag tail); a day PRESENT with zeros (rendered \`0 | 0 | — | —\`) was
+   served and genuinely had no recorded activity. The Coverage line under
+   the totals reconciles the served range against the requested window.
 2. **The API does not echo the window it resolved.** Unlike the Vercel API
    there is no effective-window line to reconcile against; the daily series is
    the coverage check.
@@ -547,7 +591,7 @@ Source: Google Search Console Search Analytics API, captured by
    query and #40 for another shows a mid-range average that matches neither.
    Judge specific queries in the query table, not the headline average.
 4. **Zero-click rows are candidate demand, not confirmed page-one rankings.**
-   The filter (avg position < 11, ≥${ZERO_CLICK_MIN_IMPRESSIONS} impressions, 0 clicks) uses the
+   The filter (avg position < ${ZERO_CLICK_MAX_POSITION}, ≥${ZERO_CLICK_MIN_IMPRESSIONS} impressions, 0 clicks) uses the
    averaged position from trap 3: a row near the boundary can mix page-one
    and page-two impressions, where ranking — not snippet appeal — may be the
    real lever. The title/snippet-appeal read holds well below the boundary.
@@ -574,7 +618,7 @@ ${COVERAGE_LINE}
 | --- | ---: | ---: | ---: | ---: |
 ${TBL_DAILY}
 
-## Top queries (by clicks, then impressions — ${QUERY_TABLE_LIMIT} of ${QUERY_ROW_COUNT} fetched rows)
+## Top queries (by clicks, then impressions — ${QUERY_SHOWN} of ${QUERY_ROW_COUNT} fetched rows)
 
 Rows tied on both clicks and impressions at the cut are omitted arbitrarily;
 the row count above says how much tail exists beyond this table.
@@ -583,7 +627,7 @@ the row count above says how much tail exists beyond this table.
 | --- | ---: | ---: | ---: | ---: |
 ${TBL_QUERIES}
 
-## Zero-click queries (avg position < 11, ≥${ZERO_CLICK_MIN_IMPRESSIONS} impressions, top ${ZERO_CLICK_LIMIT} by impressions)
+## Zero-click queries (avg position < ${ZERO_CLICK_MAX_POSITION}, ≥${ZERO_CLICK_MIN_IMPRESSIONS} impressions — top ${ZERO_CLICK_SHOWN} of ${ZERO_CLICK_QUALIFYING} qualifying pairs, by impressions; ${QUERY_PAGE_ROW_COUNT} (query, page) rows fetched)
 
 Granularity is (query, page) — the Page column names the URL whose
 title/snippet the impressions landed on, so a query ranking with two URLs
@@ -594,7 +638,7 @@ problem.
 | --- | --- | ---: | ---: |
 ${TBL_ZERO_CLICK}
 
-## Top pages (by clicks, then impressions — ${PAGE_LIMIT} of ${PAGE_ROW_COUNT} fetched rows)
+## Top pages (by clicks, then impressions — ${PAGE_SHOWN} of ${PAGE_ROW_COUNT} fetched rows)
 
 Rows tied on both clicks and impressions at the cut are omitted arbitrarily;
 the row count above says how much tail exists beyond this table.
@@ -624,23 +668,31 @@ _queries are worth a title/snippet pass, and anything odd in sitemap health._
 scripts/gsc-snapshot.sh --since ${SINCE} --until ${UNTIL}
 \`\`\`
 
-Credential: gcloud Application Default Credential (scopes: cloud-platform +
-webmasters.readonly — see the scope note in the script for why both and the
-tradeoff; quota project \`${QUOTA_PROJECT}\`). Index coverage is a manual UI
-read — see trap 6 above.
+Vercel side of this window: \`traffic-snapshot-${SINCE}_${UNTIL}.md\` —
+\`scripts/traffic-snapshot.sh --since ${SINCE} --until ${UNTIL}\`.
+
+Credential: gcloud Application Default Credential (see the scope note in the
+script — the verified setup granted cloud-platform + webmasters.readonly;
+quota project \`${QUOTA_PROJECT}\`). Index coverage is a manual UI read —
+see trap 6 above.
 EOF
 } >"$DOC_PATH"
 
 mkdir -p "$OUT_DIR" || die "could not create output directory: $OUT_DIR"
 
 # The generated doc carries a hand-written Interpretation section. Silently
-# overwriting it would destroy analysis that cannot be regenerated, which is the
-# opposite of what a script whose whole purpose is durability should do.
-if [ -e "$OUT_DIR/$DOC_NAME" ] && [ "$FORCE" -ne 1 ]; then
-  die "$OUT_DIR/$DOC_NAME already exists; move it or pass --force to overwrite"
+# overwriting it would destroy analysis that cannot be regenerated, which is
+# the opposite of what a script whose whole purpose is durability should do.
+# `mv -n` never overwrites, so a destination that appeared mid-run (the
+# check-then-move race the early existence test only narrows) leaves the
+# staged source behind — detected and fatal — instead of clobbering.
+if [ "$FORCE" -ne 1 ]; then
+  mv -n "$DOC_PATH" "$OUT_DIR/$DOC_NAME" || die "could not write snapshot to $OUT_DIR"
+  [ -e "$DOC_PATH" ] && die "$OUT_DIR/$DOC_NAME appeared during the run; refusing to overwrite it"
+else
+  mv "$DOC_PATH" "$OUT_DIR/$DOC_NAME" || die "could not write snapshot to $OUT_DIR"
 fi
 
-mv "$DOC_PATH" "$OUT_DIR/$DOC_NAME" || die "could not write snapshot to $OUT_DIR"
-
 echo "gsc-snapshot: wrote ${OUT_DIR}/${DOC_NAME}" >&2
+echo "gsc-snapshot: to drop the ADC credential until the next run: gcloud auth application-default revoke" >&2
 echo "${OUT_DIR}/${DOC_NAME}"
