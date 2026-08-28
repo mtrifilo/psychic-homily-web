@@ -1,5 +1,5 @@
 import * as Sentry from '@sentry/nextjs'
-import { stripUrls, toTelemetryPath } from './lib/rate-limit-telemetry'
+import { toTelemetryPath } from './lib/rate-limit-telemetry'
 
 const isProduction = process.env.NODE_ENV === 'production'
 
@@ -19,33 +19,15 @@ const isProduction = process.env.NODE_ENV === 'production'
  * The cost is real and accepted: a breadcrumb no longer shows which page of a
  * paginated call was requested. The endpoint family, method, and status code
  * all survive, which is what an incident actually gets debugged from.
- *
- * MESSAGES get the same rule (PSY-1568) — see the note in the body. That half
- * only replaces URLs; it deliberately does not shorten anything, so scrubbing
- * cannot quietly truncate unrelated console output.
  */
 function scrubBreadcrumbUrls(
   breadcrumb: Sentry.Breadcrumb
 ): Sentry.Breadcrumb {
-  // Console breadcrumbs carry their URL inside the MESSAGE, not in `data.url`
-  // — `consoleIntegration` records `String(arg)` for each argument. So a
-  // third-party error logged to the console (MapLibre's AJAXError embeds the
-  // full tile request URL in its message) shipped its URL verbatim while the
-  // careful shaping below sat next to it doing nothing. Same rule, applied to
-  // the other place a URL can hide.
-  const scrubbed: Sentry.Breadcrumb =
-    typeof breadcrumb.message === 'string'
-      ? { ...breadcrumb, message: stripUrls(breadcrumb.message) }
-      : breadcrumb
-
-  // Both scrubs apply, never one or the other: a breadcrumb is free to carry a
-  // message AND a url, and an early return on the first would silently leave
-  // the second unscrubbed.
-  const url = scrubbed.data?.url
-  if (typeof url !== 'string') return scrubbed
+  const url = breadcrumb.data?.url
+  if (typeof url !== 'string') return breadcrumb
   return {
-    ...scrubbed,
-    data: { ...scrubbed.data, url: toTelemetryPath(url) },
+    ...breadcrumb,
+    data: { ...breadcrumb.data, url: toTelemetryPath(url) },
   }
 }
 

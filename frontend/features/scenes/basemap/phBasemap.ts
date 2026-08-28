@@ -40,21 +40,29 @@ const RASTER_CUTOFF_MARGIN = 0.1
 export const PH_BASEMAP_MIN_ZOOM = 5
 
 /**
- * The style's one vector source id, and the host serving it.
+ * The style's one vector source id, and the host the style is CONFIGURED
+ * against.
  *
  * Both are stated here rather than derived from the JSON at runtime: a
  * derivation would have to cope with a reshaped style by throwing (taking the
  * whole Atlas down for a telemetry label) or by silently returning a
  * placeholder. Instead phDarkBasemap.test.ts asserts the JSON still matches,
- * so a regenerated style that renames the source or moves hosts fails a test
- * rather than quietly aiming the failure signal at a source that no longer
- * exists.
+ * so a regenerated style that renames the source fails a test rather than
+ * quietly aiming the failure signal at a source that no longer exists.
+ *
+ * STYLE host, not tile host, and the distinction matters. The source is a
+ * TileJSON endpoint (`.../planet`); the tile URLs come from whatever that
+ * endpoint returns at RUNTIME and are not in this repo, so no test can pin
+ * them. basemapTelemetry uses this only as a best-effort fallback for the
+ * `basemap_host` tag when the error carries no URL of its own — if OpenFreeMap
+ * ever serves tiles from a different CDN host, that fallback would name the
+ * configured host rather than the one that actually failed.
  *
  * Consumed by basemapTelemetry.ts, which reports a failure of THIS source and
  * ignores every other MapLibre error (PSY-1568).
  */
 export const PH_BASEMAP_SOURCE_ID = 'openmaptiles'
-export const PH_BASEMAP_TILE_HOST = 'tiles.openfreemap.org'
+export const PH_BASEMAP_STYLE_HOST = 'tiles.openfreemap.org'
 
 export interface BasemapFragment {
   glyphs: string

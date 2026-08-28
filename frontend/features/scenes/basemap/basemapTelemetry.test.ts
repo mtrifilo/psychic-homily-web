@@ -20,10 +20,13 @@ import { PH_BASEMAP_SOURCE_ID } from './phBasemap'
 // point of the design — so a "fresh session" in a test is a fresh module
 // registry, not a reset function. Importing dynamically after
 // `vi.resetModules()` exercises the real guard rather than a test-only seam.
-// The two imports are awaited IN SEQUENCE, not with Promise.all: concurrent
-// dynamic imports straight after a reset race the vite module runner, and the
-// test can end up holding a different mock instance than the one the module
-// under test bound to (silently zero recorded calls).
+// The two imports are awaited IN SEQUENCE. Observed with `Promise.all`: the
+// second and later `freshSession()` calls in a file saw zero captures, because
+// the concurrent import resolved the basemapTelemetry module from cache rather
+// than re-instantiating it — so `reportedSources` still held the previous
+// test's entry and every call returned early at the throttle. The mock
+// instance is NOT the variable here (vitest keeps factory mocks across
+// `resetModules`, see the note further down); the module under test is.
 async function freshSession() {
   vi.resetModules()
   const telemetry = await import('./basemapTelemetry')
@@ -142,10 +145,12 @@ describe('handleBasemapError', () => {
     // The raw AJAXError message embeds the full URL; only the stripped form
     // may ship.
     expect(options.extra.errorMessage).not.toContain(TILE_URL)
-    // toTelemetryPath placeholders the purely-numeric segments; `6101.pbf`
-    // survives because it is not one. Both are public tile coordinates — the
-    // load-bearing part is that the origin and any query string are gone.
-    expect(options.extra.tilePath).toBe('/planet/:id/:id/6101.pbf')
+    // Asserts the PROPERTY this test is about — origin and query gone — not
+    // toTelemetryPath's exact segment rules, which have their own 33 tests in
+    // lib/rate-limit-telemetry.test.ts and should be free to change without
+    // breaking a basemap test.
+    expect(options.extra.tilePath).not.toContain('tiles.openfreemap.org')
+    expect(options.extra.tilePath.startsWith('/')).toBe(true)
     expect(options.extra.errorMessage).toContain('<url>')
   })
 
@@ -182,6 +187,25 @@ describe('handleBasemapError', () => {
     expect(options.extra.tilePath).toBeUndefined()
   })
 
+  it('keys the throttle and the tag on the id that passed the filter', async () => {
+    const { handleBasemapError, captureMessage } = await freshSession()
+
+    handleBasemapError(
+      sourceErrorEvent(PH_BASEMAP_SOURCE_ID, ajaxError(503, TILE_URL))
+    )
+
+    // Both the throttle key and the `basemap_source` tag must come from the
+    // event's own sourceId, never from the module constant. Keying on the
+    // constant makes the Set a boolean in disguise: the moment the GIBS
+    // follow-up widens the filter, the first source to fail would stamp the
+    // other one's slot and silence it for the session, and the event would be
+    // labelled with the wrong provider during an incident.
+    const options = captureMessage.mock.calls[0][1] as {
+      tags: { basemap_source: string }
+    }
+    expect(options.tags.basemap_source).toBe(PH_BASEMAP_SOURCE_ID)
+  })
+
   it('ignores errors from other sources and from the map itself', async () => {
     const { handleBasemapError, captureMessage } = await freshSession()
 
@@ -205,6 +229,41 @@ describe('handleBasemapError', () => {
     expect(console.error).toHaveBeenCalledWith(error)
   })
 
+  it('never hands the raw error to console.error in production', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    try {
+      const { handleBasemapError } = await freshSession()
+
+      handleBasemapError(
+        sourceErrorEvent(PH_BASEMAP_SOURCE_ID, ajaxError(503, TILE_URL))
+      )
+
+      // This is the load-bearing privacy property, and it is NOT about the
+      // console. Sentry's console breadcrumb keeps the raw `data.arguments`
+      // alongside its joined message, and normalizeEvent expands an Error
+      // argument into its own properties -- so passing the AJAXError object
+      // here would ship `.url` and the unscrubbed `.message` on the very
+      // event captured a line later, whatever the breadcrumb message said.
+      const logged = vi.mocked(console.error).mock.calls[0]
+      expect(logged).toHaveLength(1)
+      expect(typeof logged[0]).toBe('string')
+      expect(logged[0]).not.toContain('https://')
+      expect(logged[0]).toContain('<url>')
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('logs the raw error in development, where the stack is read', async () => {
+    const { handleBasemapError } = await freshSession()
+    const error = ajaxError(503, TILE_URL)
+
+    handleBasemapError(sourceErrorEvent(PH_BASEMAP_SOURCE_ID, error))
+
+    // No breadcrumb is being shipped in dev, and the object carries the stack.
+    expect(console.error).toHaveBeenCalledWith(error)
+  })
+
   it('never throws out of the handler when reporting fails', async () => {
     const { handleBasemapError, captureMessage } = await freshSession()
     captureMessage.mockImplementationOnce(() => {
@@ -218,6 +277,45 @@ describe('handleBasemapError', () => {
         sourceErrorEvent(PH_BASEMAP_SOURCE_ID, ajaxError(503, TILE_URL))
       )
     ).not.toThrow()
+  })
+
+  it('stays quiet when the browser knows it is offline', async () => {
+    const { handleBasemapError, captureMessage } = await freshSession()
+    const onLine = vi
+      .spyOn(navigator, 'onLine', 'get')
+      .mockReturnValue(false)
+
+    handleBasemapError(
+      sourceErrorEvent(PH_BASEMAP_SOURCE_ID, ajaxError(0, TILE_URL))
+    )
+    expect(captureMessage).not.toHaveBeenCalled()
+
+    // ...and the slot is NOT spent, so a real outage once connectivity is back
+    // still reports. Otherwise one tunnel would silence the whole session.
+    onLine.mockReturnValue(true)
+    handleBasemapError(
+      sourceErrorEvent(PH_BASEMAP_SOURCE_ID, ajaxError(503, TILE_URL))
+    )
+    expect(captureMessage).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps a URL embedded in a braced or quoted token from eating the rest', async () => {
+    const { handleBasemapError, captureMessage } = await freshSession()
+    const jsonish = Object.assign(
+      new Error(`{"url":"${TILE_URL}","status":503,"note":"keep me"}`),
+      { status: 503, url: TILE_URL }
+    )
+
+    handleBasemapError(sourceErrorEvent(PH_BASEMAP_SOURCE_ID, jsonish))
+
+    const options = captureMessage.mock.calls[0][1] as {
+      extra: { errorMessage: string }
+    }
+    // A terminator of "anything up to whitespace" would have collapsed this to
+    // `{"url":"<url>`, destroying the status and note alongside the URL.
+    expect(options.extra.errorMessage).not.toContain('https://')
+    expect(options.extra.errorMessage).toContain('keep me')
+    expect(options.extra.errorMessage).toContain('503')
   })
 
   it('does not burn the one report slot on a send that threw', async () => {
