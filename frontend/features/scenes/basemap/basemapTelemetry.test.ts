@@ -46,13 +46,17 @@ function sourceErrorEvent(
   return { type: 'error', error, ...(sourceId ? { sourceId } : {}) } as unknown as ErrorEvent
 }
 
-/** MapLibre's AJAXError shape: an Error carrying the HTTP status and the URL. */
+/**
+ * MapLibre's AJAXError shape: an Error carrying the HTTP status and the URL.
+ * Deliberately does NOT set `name` — MapLibre's AJAXError never does either,
+ * and a fixture that invents one would let the module claim triage value it
+ * does not have in production.
+ */
 function ajaxError(status: number, url: string): Error {
   return Object.assign(new Error(`AJAXError: Server Error (${status}): ${url}`), {
     status,
     statusText: 'Server Error',
     url,
-    name: 'AJAXError',
   })
 }
 
@@ -135,6 +139,9 @@ describe('handleBasemapError', () => {
     const options = captureMessage.mock.calls[0][1] as {
       extra: { tilePath: string; errorMessage: string }
     }
+    // The raw AJAXError message embeds the full URL; only the stripped form
+    // may ship.
+    expect(options.extra.errorMessage).not.toContain(TILE_URL)
     // toTelemetryPath placeholders the purely-numeric segments; `6101.pbf`
     // survives because it is not one. Both are public tile coordinates — the
     // load-bearing part is that the origin and any query string are gone.
@@ -150,7 +157,7 @@ describe('handleBasemapError', () => {
     )
 
     const options = captureMessage.mock.calls[0][1] as {
-      tags: { basemap_status: string; basemap_host: string }
+      tags: { basemap_status: string | number; basemap_host: string }
       extra: { tilePath: string | undefined }
     }
     // No status and no URL: the event degrades to the configured host and an
@@ -196,5 +203,31 @@ describe('handleBasemapError', () => {
         sourceErrorEvent(PH_BASEMAP_SOURCE_ID, ajaxError(503, TILE_URL))
       )
     ).not.toThrow()
+  })
+
+  it('does not burn the one report slot on a send that threw', async () => {
+    const { handleBasemapError, captureMessage } = await freshSession()
+    captureMessage.mockImplementationOnce(() => {
+      throw new Error('sentry transport down')
+    })
+
+    // A failed send must not count as "reported". Stamping the throttle before
+    // the capture would let one transport hiccup silence the source for the
+    // whole session, so the outage would never surface -- exactly the silent
+    // degradation this module exists to catch.
+    handleBasemapError(
+      sourceErrorEvent(PH_BASEMAP_SOURCE_ID, ajaxError(503, TILE_URL))
+    )
+    handleBasemapError(
+      sourceErrorEvent(PH_BASEMAP_SOURCE_ID, ajaxError(503, TILE_URL))
+    )
+
+    expect(captureMessage).toHaveBeenCalledTimes(2)
+
+    // ...and once one lands, the throttle engages as normal.
+    handleBasemapError(
+      sourceErrorEvent(PH_BASEMAP_SOURCE_ID, ajaxError(503, TILE_URL))
+    )
+    expect(captureMessage).toHaveBeenCalledTimes(2)
   })
 })

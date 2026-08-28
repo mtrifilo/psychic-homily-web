@@ -54,12 +54,20 @@
  * `captureMessage` string — stable Sentry grouping, no URL in the title — and
  * the diagnosis is carried by structured fields: HTTP status, host, and the
  * tile path reduced by the same `toTelemetryPath` the rest of the app uses.
- * Any message that does ship has URLs stripped outright.
+ * Any message that does ship has URLs stripped by the shared `stripUrls`.
+ *
+ * The console line below needed the same treatment from the other direction.
+ * It logs the RAW error on purpose (that is MapLibre's own default, and local
+ * debugging wants the URL), but Sentry's console breadcrumb then carried that
+ * URL into the very event captured a line later — a leak this module would
+ * have minted rather than inherited. The fix lives in the layer that owns
+ * breadcrumb scrubbing (`instrumentation-client.ts`), which now strips URLs
+ * from breadcrumb MESSAGES as well as `data.url`.
  */
 
 import * as Sentry from '@sentry/nextjs'
 import type { ErrorEvent } from 'maplibre-gl'
-import { toTelemetryPath } from '@/lib/rate-limit-telemetry'
+import { stripUrls, toTelemetryPath } from '@/lib/rate-limit-telemetry'
 import { PH_BASEMAP_SOURCE_ID, PH_BASEMAP_TILE_HOST } from './phBasemap'
 
 /**
@@ -69,9 +77,6 @@ import { PH_BASEMAP_SOURCE_ID, PH_BASEMAP_TILE_HOST } from './phBasemap'
  */
 const reportedSources = new Set<string>()
 
-/** Longest error message we will ship, after URL stripping. */
-const MAX_MESSAGE_LENGTH = 200
-
 /**
  * MapLibre types the error event's payload as `{ message: string }` and merges
  * the owning source's id into the event on its way up to the map. Neither the
@@ -80,7 +85,10 @@ const MAX_MESSAGE_LENGTH = 200
  * less detailed event, never throw inside an error handler.
  */
 type SourceErrorEvent = ErrorEvent & { sourceId?: unknown }
-type AjaxErrorFields = { status?: unknown; url?: unknown; name?: unknown }
+// No `name`: MapLibre's AJAXError never sets one, and `ensureError` wraps
+// non-Errors in a plain Error, so it is always the constant 'Error' in
+// production — a field that reads as diagnostic and carries nothing.
+type AjaxErrorFields = { status?: unknown; url?: unknown }
 
 function readString(value: unknown): string | undefined {
   return typeof value === 'string' && value !== '' ? value : undefined
@@ -96,19 +104,6 @@ function hostOf(url: string | undefined): string {
     // raw string (which is exactly what must not leave the process).
     return PH_BASEMAP_TILE_HOST
   }
-}
-
-/**
- * Strip whole URLs out of a message before it is sent. Total and blunt on
- * purpose: it cannot be defeated by a URL shape nobody anticipated, and the
- * structured fields alongside it carry the routing information a stripped URL
- * would have given.
- */
-function stripUrls(message: string): string {
-  const stripped = message.replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, '<url>')
-  return stripped.length > MAX_MESSAGE_LENGTH
-    ? `${stripped.slice(0, MAX_MESSAGE_LENGTH)}...`
-    : stripped
 }
 
 /**
@@ -136,7 +131,6 @@ function reportBasemapSourceFailure(event: ErrorEvent): void {
   const sourceId = (event as SourceErrorEvent).sourceId
   if (sourceId !== PH_BASEMAP_SOURCE_ID) return
   if (reportedSources.has(PH_BASEMAP_SOURCE_ID)) return
-  reportedSources.add(PH_BASEMAP_SOURCE_ID)
 
   const error = event.error as (AjaxErrorFields & { message?: unknown }) | null
   const status = typeof error?.status === 'number' ? error.status : undefined
@@ -150,14 +144,23 @@ function reportBasemapSourceFailure(event: ErrorEvent): void {
       error_type: 'basemap_source_failed',
       // Low-cardinality and searchable: "which source, on which host, failing
       // how" is the whole triage question for a third-party tile outage.
+      // `basemap_status` is 0 for a network-level failure (DNS, blocked,
+      // offline) and an HTTP status otherwise, so it also separates the
+      // AJAX cases from a style or worker error, which report 'none'.
       basemap_source: PH_BASEMAP_SOURCE_ID,
       basemap_host: hostOf(url),
       basemap_status: status ?? 'none',
     },
     extra: {
       tilePath: url ? toTelemetryPath(url) : undefined,
-      errorName: readString(error?.name),
       errorMessage: message ? stripUrls(message) : undefined,
     },
   })
+
+  // Stamped only AFTER a capture that did not throw. Stamping first would let
+  // ONE failed send (transport down, an ad blocker patching fetch, a
+  // serialization error) silence the source for the rest of the session — the
+  // handler swallows the throw, so the outage would go unreported forever,
+  // which is precisely the silent degradation this module exists to catch.
+  reportedSources.add(PH_BASEMAP_SOURCE_ID)
 }

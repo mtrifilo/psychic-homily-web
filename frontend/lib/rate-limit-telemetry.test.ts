@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import * as Sentry from '@sentry/nextjs'
-import { toTelemetryPath } from './rate-limit-telemetry'
+import { stripUrls, toTelemetryPath } from './rate-limit-telemetry'
 
 /**
  * The cooldown samplers are module-level state, so every test re-imports the
@@ -123,6 +123,39 @@ describe('toTelemetryPath', () => {
     expect(toTelemetryPath(`/${'x-y'.repeat(200)}`).length).toBeLessThanOrEqual(
       123
     )
+  })
+})
+
+describe('stripUrls', () => {
+  it('replaces a URL embedded in prose, query string and all', () => {
+    // The shape that motivated it: MapLibre's AJAXError message (PSY-1568).
+    expect(
+      stripUrls(
+        'AJAXError: Not Found (404): https://tiles.openfreemap.org/planet/14/1.pbf?k=secret'
+      )
+    ).toBe('AJAXError: Not Found (404): <url>')
+  })
+
+  it('strips every URL in the message, not just the first', () => {
+    expect(stripUrls('from http://a.test/1 to https://b.test/2 done')).toBe(
+      'from <url> to <url> done'
+    )
+  })
+
+  it('strips non-http schemes too', () => {
+    // The point of matching any scheme: a denylist of "http and https" would
+    // let ws://, blob: and the next scheme through verbatim.
+    expect(stripUrls('socket wss://a.test/feed?token=abc')).toBe(
+      'socket <url>'
+    )
+  })
+
+  it('leaves URL-free messages alone', () => {
+    expect(stripUrls('style load failed')).toBe('style load failed')
+  })
+
+  it('caps the length of a long message', () => {
+    expect(stripUrls('x'.repeat(500)).length).toBeLessThanOrEqual(203)
   })
 })
 
