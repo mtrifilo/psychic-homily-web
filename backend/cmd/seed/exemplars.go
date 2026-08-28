@@ -200,14 +200,15 @@ func seedExemplarVenue(db *gorm.DB, userID uint) uint {
 	applyTags(db, catalogm.TagEntityVenue, venue.ID, userID, []tagSpec{
 		{"Blues", "blues", catalogm.TagCategoryGenre},
 		{"Roots", "roots", catalogm.TagCategoryGenre},
-		// NOT the canonical all-ages tag, despite reading like one.
-		// catalogm.TagSlugAllAges is "all-ages" (the archive exemplar carries
-		// it) and the Atlas rail's "All-ages shows" chip matches that slug, so
-		// this venue does NOT appear under the chip. Kept only because PSY-1573
-		// was scoped to decide the slug and wire the chip, not to choose which
-		// rooms carry the tag; whoever does the tagging pass should collapse
-		// this spelling into the constant. Never introduce a third spelling.
-		{"All Ages Sometimes", "all-ages-sometimes", catalogm.TagCategoryOther},
+		// A full-bar room that still books the occasional all-ages show, which
+		// is exactly what the canonical tag asserts: the venue hosts all-ages
+		// shows AT LEAST SOMETIMES. It is not the house age default (that is
+		// venues.age_policy), so "Full Bar" below and this tag are both true at
+		// once. Applied through the constant rather than a re-typed literal or
+		// a "sometimes"-qualified spelling of its own — the Atlas rail's
+		// "All-ages shows" chip matches on exactly this slug, and a second
+		// spelling is invisible to it.
+		{"All Ages", catalogm.TagSlugAllAges, catalogm.TagCategoryOther},
 		{"Phoenix", "phoenix", catalogm.TagCategoryLocale},
 		{"Full Bar", "full-bar", catalogm.TagCategoryOther},
 		{"Historic Venue", "historic-venue", catalogm.TagCategoryOther},
