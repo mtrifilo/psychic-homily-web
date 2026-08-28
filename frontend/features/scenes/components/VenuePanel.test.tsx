@@ -675,7 +675,7 @@ describe('VenuePanel field notes teaser', () => {
 
     const section = screen.getByTestId('venue-panel-field-notes')
     expect(section).toHaveTextContent(
-      '“Loudest set I have heard in that room all year.”',
+      'Loudest set I have heard in that room all year.',
     )
     // The whole point of the rollup: the reader can see WHICH night this was
     // about, so the quote never reads as a verdict on the venue.
@@ -736,6 +736,52 @@ describe('VenuePanel field notes teaser', () => {
     withNotes([note({ show_title: '' })], 4)
     renderPanel()
     expect(screen.queryByTestId('venue-panel-field-notes')).toBeNull()
+  })
+
+  it('falls through an orphaned note to the next quotable one', () => {
+    // One orphan must not cost the venue its whole section.
+    withNotes([note({ id: 1, show_title: '' }), note({ id: 2 })], 2)
+    renderPanel()
+    expect(
+      screen.getByTestId('venue-panel-field-note-attribution'),
+    ).toHaveTextContent('Doom Night, Jun 2024')
+  })
+
+  // Setlist spoilers: FieldNoteCard gates these behind click-to-reveal, and
+  // the teaser has nowhere to put that gate. Because the rollup sorts by
+  // score, an upvoted spoiler is exactly the note that would surface.
+  it('never quotes a setlist-spoiler note, even ranked first', () => {
+    withNotes(
+      [
+        note({
+          id: 1,
+          body: 'they closed with the unreleased one',
+          structured_data: { setlist_spoiler: true },
+        }),
+        note({ id: 2, body: 'no spoilers in this one' }),
+      ],
+      2,
+    )
+    renderPanel()
+
+    const section = screen.getByTestId('venue-panel-field-notes')
+    expect(section).toHaveTextContent('no spoilers in this one')
+    expect(section).not.toHaveTextContent('they closed with the unreleased one')
+  })
+
+  it('renders no section when every note is a spoiler', () => {
+    withNotes([note({ structured_data: { setlist_spoiler: true } })], 1)
+    renderPanel()
+    expect(screen.queryByTestId('venue-panel-field-notes')).toBeNull()
+  })
+
+  it('quotes the note as prose, not as raw Markdown source', () => {
+    // `body` is Markdown SOURCE; the teaser must not show its asterisks.
+    withNotes([note({ body: '**Loudest** set of the *year*' })], 1)
+    renderPanel()
+    expect(screen.getByTestId('venue-panel-field-notes')).toHaveTextContent(
+      'Loudest set of the year',
+    )
   })
 
   it('still attributes a note whose show date is unreadable', () => {

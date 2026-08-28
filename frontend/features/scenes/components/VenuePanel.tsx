@@ -37,6 +37,8 @@ import {
   venuePanelShowCount,
   venueProvenanceSegments,
   venueFieldNoteAttribution,
+  venueFieldNoteTeaserText,
+  pickVenueFieldNoteForTeaser,
   mergeVenueConfirmation,
 } from '../cityView'
 
@@ -417,6 +419,12 @@ export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
  * Ordering is the backend's: most-upvoted first (Wilson score), no staleness
  * cutoff. The named month is what lets the reader judge the note's age.
  *
+ * It quotes the first note `pickVenueFieldNoteForTeaser` deems quotable HERE,
+ * not simply the top-ranked one. The gap between those matters most for
+ * setlist spoilers: FieldNoteCard hides a flagged note behind a click-to-reveal
+ * gate, this panel has nowhere to put one, and sorting by score means an
+ * upvoted spoiler is exactly the note that would otherwise surface.
+ *
  * There is deliberately NO "N notes →" affordance, only a plain count. The
  * mock's arrow needs a destination — a venue-scoped notes list — and none
  * exists; inventing one would ship a link to nowhere (locked decision,
@@ -425,8 +433,10 @@ export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
 function FieldNotesTeaser({ venue }: { venue: VenueWithShowCount }) {
   const { data } = useVenueFieldNotes(venue.id)
 
-  const note = data?.notes?.[0]
   const total = data?.total ?? 0
+  // Not `notes[0]`: the pick skips notes the teaser must not quote — setlist
+  // spoilers above all — and scans the page rather than giving up on the first.
+  const note = pickVenueFieldNoteForTeaser(data?.notes)
   const attribution = venueFieldNoteAttribution(
     note?.show_title,
     note?.show_date,
@@ -434,19 +444,18 @@ function FieldNotesTeaser({ venue }: { venue: VenueWithShowCount }) {
     venue.timezone,
   )
 
-  // Three ways to have nothing worth showing, one outcome: no section at all,
-  // never an empty box under a heading.
+  // Several ways to have nothing worth showing, one outcome: no section at
+  // all, never an empty box under a heading.
   //
   //   - the venue has no notes (much the commonest case),
   //   - the request is still in flight or failed. A teaser is supplementary to
   //     the panel's actual job, which is the show list; a spinner or an error
   //     line here would be noise beside content that loaded fine, and the
-  //     panel already reports its own failure for the shows themselves.
-  //   - the one note we have cannot be tied to a night (its show row is gone),
-  //     which is the case the doc comment above is about.
+  //     panel already reports its own failure for the shows themselves,
+  //   - nothing on the page is quotable here (see the pick).
   if (!note || !attribution) return null
 
-  const body = note.body.trim()
+  const body = venueFieldNoteTeaserText(note.body ?? '')
   if (!body) return null
 
   return (
@@ -461,16 +470,20 @@ function FieldNotesTeaser({ venue }: { venue: VenueWithShowCount }) {
         Field notes — {total} {total === 1 ? 'note' : 'notes'}
       </h3>
 
-      {/* The note's PLAIN body, not its rendered `body_html`. A teaser is a
-          fragment of a note rather than the note itself: block-level markdown
-          would fight the line clamp, and there is no reason to open an HTML
-          injection surface on the Atlas — which has no route-level error
-          boundary — for three lines of quoted prose.
+      {/* Plain text, not the backend's rendered `body_html`: no reason to open
+          an HTML injection surface on the Atlas — which has no route-level
+          error boundary — for three clamped lines. `venueFieldNoteTeaserText`
+          is what keeps the Markdown SOURCE from showing its own asterisks.
+
+          Marked as a quotation by the rule and the italics rather than by
+          quote GLYPHS. A pair of quote marks cannot survive `line-clamp`: the
+          closing one is inside the clamped box, so any note longer than three
+          lines would render an opening quote, an ellipsis, and no partner.
 
           No `block` utility beside `line-clamp-3`: the two are both `display`
           rules and the later one silently wins, which kills the clamp. */}
-      <blockquote className="mt-1.5 line-clamp-3 text-sm italic leading-snug text-foreground">
-        “{body}”
+      <blockquote className="mt-1.5 line-clamp-3 border-l-2 border-border pl-2.5 text-sm italic leading-snug text-foreground">
+        {body}
       </blockquote>
 
       <p className="mt-1 font-mono text-[11px] leading-4 text-muted-foreground">

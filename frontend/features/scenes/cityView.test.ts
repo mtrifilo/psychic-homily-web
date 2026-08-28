@@ -23,8 +23,11 @@ import {
   venuePinPosition,
   venueProvenanceSegments,
   venueFieldNoteAttribution,
+  venueFieldNoteTeaserText,
+  pickVenueFieldNoteForTeaser,
   mergeVenueConfirmation,
 } from './cityView'
+import type { VenueFieldNote } from '@/features/comments/types'
 
 function scene(overrides: Partial<PlaceableScene> = {}): PlaceableScene {
   return {
@@ -795,5 +798,112 @@ describe('venueFieldNoteAttribution', () => {
     expect(venueFieldNoteAttribution('Doom Night', '', 'TX', null)).toBe(
       'Doom Night',
     )
+  })
+})
+
+describe('venueFieldNoteTeaserText', () => {
+  it('strips inline emphasis, code and strikethrough', () => {
+    expect(venueFieldNoteTeaserText('**Loudest** set of the *year*')).toBe(
+      'Loudest set of the year',
+    )
+    expect(venueFieldNoteTeaserText('__bold__ and _italic_ and `code`')).toBe(
+      'bold and italic and code',
+    )
+    expect(venueFieldNoteTeaserText('~~not~~ great')).toBe('not great')
+  })
+
+  it('keeps link and image TEXT and drops the target', () => {
+    // A raw URL in a clamped quote is noise, and the teaser renders no links.
+    expect(
+      venueFieldNoteTeaserText('see the [setlist](https://example.com/x)'),
+    ).toBe('see the setlist')
+    expect(
+      venueFieldNoteTeaserText('![the room](https://example.com/i.jpg) packed'),
+    ).toBe('the room packed')
+  })
+
+  it('strips line-leading block markers', () => {
+    expect(venueFieldNoteTeaserText('## Encore')).toBe('Encore')
+    expect(venueFieldNoteTeaserText('> quoted line')).toBe('quoted line')
+    expect(venueFieldNoteTeaserText('- first\n- second')).toBe('first second')
+    expect(venueFieldNoteTeaserText('1. first\n2. second')).toBe('first second')
+  })
+
+  it('collapses paragraph breaks into single spaces', () => {
+    // The teaser is one clamped run of text, so the two sentences must not run
+    // together into "endedthen".
+    expect(venueFieldNoteTeaserText('ended\n\nthen encored')).toBe(
+      'ended then encored',
+    )
+  })
+
+  it('returns empty for a body that is only markup or whitespace', () => {
+    expect(venueFieldNoteTeaserText('   \n\n  ')).toBe('')
+    expect(venueFieldNoteTeaserText('##   ')).toBe('')
+  })
+})
+
+describe('pickVenueFieldNoteForTeaser', () => {
+  function note(overrides: Partial<VenueFieldNote> = {}): VenueFieldNote {
+    return {
+      id: 1,
+      body: 'a real note',
+      show_title: 'Doom Night',
+      show_date: '2024-06-15T04:00:00Z',
+      ...overrides,
+    } as VenueFieldNote
+  }
+
+  it('takes the first note, the list already arriving best-first', () => {
+    const first = note({ id: 1, body: 'best' })
+    const second = note({ id: 2, body: 'second best' })
+    expect(pickVenueFieldNoteForTeaser([first, second])?.id).toBe(1)
+  })
+
+  // The regression this function exists for. FieldNoteCard hides a flagged
+  // note behind a click-to-reveal gate; the teaser has nowhere to put one, and
+  // the rollup sorts by score, so an UPVOTED spoiler is exactly the note that
+  // would otherwise be quoted verbatim on a passive map panel.
+  it('never quotes a setlist-spoiler note, even when it ranks first', () => {
+    const spoiler = note({ id: 1, structured_data: { setlist_spoiler: true } })
+    const safe = note({ id: 2, body: 'no spoilers here' })
+    expect(pickVenueFieldNoteForTeaser([spoiler, safe])?.id).toBe(2)
+    expect(pickVenueFieldNoteForTeaser([spoiler])).toBeNull()
+  })
+
+  it('treats a missing or false spoiler flag as quotable', () => {
+    expect(
+      pickVenueFieldNoteForTeaser([
+        note({ structured_data: { setlist_spoiler: false } }),
+      ]),
+    ).not.toBeNull()
+    expect(
+      pickVenueFieldNoteForTeaser([note({ structured_data: null })]),
+    ).not.toBeNull()
+  })
+
+  // One orphan must not hide a section the venue has good notes for.
+  it('skips a note whose show can no longer be named', () => {
+    const orphan = note({ id: 1, show_title: '' })
+    const named = note({ id: 2 })
+    expect(pickVenueFieldNoteForTeaser([orphan, named])?.id).toBe(2)
+  })
+
+  it('skips a note whose body is only markup or whitespace', () => {
+    const empty = note({ id: 1, body: '   ' })
+    const real = note({ id: 2 })
+    expect(pickVenueFieldNoteForTeaser([empty, real])?.id).toBe(2)
+  })
+
+  it('returns null for an absent, empty or wholly unquotable page', () => {
+    expect(pickVenueFieldNoteForTeaser(null)).toBeNull()
+    expect(pickVenueFieldNoteForTeaser(undefined)).toBeNull()
+    expect(pickVenueFieldNoteForTeaser([])).toBeNull()
+    expect(
+      pickVenueFieldNoteForTeaser([
+        note({ structured_data: { setlist_spoiler: true } }),
+        note({ show_title: '' }),
+      ]),
+    ).toBeNull()
   })
 })

@@ -15,6 +15,7 @@ import type {
   VenueWithShowCount,
 } from '@/features/venues/types'
 import { LOCATION_UNKNOWN, formatLocation } from '@/lib/formatLocation'
+import type { VenueFieldNote } from '@/features/comments/types'
 import { resolveShowTimezone } from '@/lib/utils/formatters'
 import type { PlaceableScene, VenuePin } from './components/globeTypes'
 import { GENRE_FAMILIES, type GenreFamily } from './genreFamilies'
@@ -663,6 +664,83 @@ export function venueFieldNoteAttribution(
     year: 'numeric',
   })
   return `${title}, ${month}`
+}
+
+/**
+ * Flatten a field note's Markdown SOURCE into one line of readable prose for
+ * the panel's teaser (PSY-1590).
+ *
+ * The teaser quotes `body`, not the backend's rendered `body_html`: dropping
+ * sanitized HTML into the Atlas — which has no route-level error boundary — to
+ * show three clamped lines is not a trade worth making. But `body` is Markdown
+ * source, so a note written as `**Loudest set** of the year` would otherwise
+ * render its asterisks. This strips the inline syntax rather than honouring it;
+ * a teaser is a fragment of a note, and the full note renders properly, with
+ * its formatting, on the show page.
+ *
+ * Best-effort by design, and deliberately NOT a general Markdown parser: the
+ * failure mode of a missed construct is a stray character in a quote, which is
+ * far cheaper than the dependency or the HTML surface a real renderer costs.
+ */
+export function venueFieldNoteTeaserText(body: string): string {
+  return (
+    body
+      // Images before links — `![alt](src)` is a link pattern with a prefix,
+      // so the link rule would otherwise eat it and leave the `!`.
+      .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+      // Emphasis, strikethrough, inline code. Longest markers first so `**`
+      // is consumed before the single-character `*` rule sees it.
+      .replace(/\*\*([^*]+)\*\*/g, '$1')
+      .replace(/__([^_]+)__/g, '$1')
+      .replace(/~~([^~]+)~~/g, '$1')
+      .replace(/\*([^*]+)\*/g, '$1')
+      .replace(/_([^_]+)_/g, '$1')
+      .replace(/`([^`]+)`/g, '$1')
+      // Line-leading block markers: headings, quotes, bullets, ordered items.
+      .replace(/^[ \t]*#{1,6}[ \t]+/gm, '')
+      .replace(/^[ \t]*>[ \t]?/gm, '')
+      .replace(/^[ \t]*[-*+][ \t]+/gm, '')
+      .replace(/^[ \t]*\d+\.[ \t]+/gm, '')
+      // The teaser is a single clamped run of text, so paragraph breaks become
+      // spaces rather than vanishing and running two sentences together.
+      .replace(/\s+/g, ' ')
+      .trim()
+  )
+}
+
+/**
+ * Choose which note the venue panel's teaser quotes (PSY-1590).
+ *
+ * The list arrives best-first from the backend, so this is a filter for
+ * "displayable here", not a re-ranking. Two notes are skipped, and both
+ * skips are correctness rather than taste:
+ *
+ *   - **Setlist spoilers.** A note whose author ticked `setlist_spoiler`
+ *     renders everywhere else behind FieldNoteCard's "click to reveal" gate.
+ *     The teaser is a fixed quote with nowhere to put that gate, and the
+ *     rollup sorts by score — so an upvoted spoiler note is precisely the one
+ *     that would surface. Quoting it would leak, on a passive map panel, the
+ *     thing its author explicitly asked to be hidden.
+ *   - **Notes whose show cannot be named**, which cannot be attributed to a
+ *     night; see {@link venueFieldNoteAttribution}.
+ *
+ * Scanning the page rather than only inspecting the first note is what keeps
+ * one spoiler or one orphaned note from hiding a section the venue has
+ * perfectly good notes for. Returns null when the page holds nothing
+ * displayable, and the caller then renders no section at all.
+ */
+export function pickVenueFieldNoteForTeaser(
+  notes: readonly VenueFieldNote[] | null | undefined,
+): VenueFieldNote | null {
+  if (!notes) return null
+  for (const note of notes) {
+    if (note.structured_data?.setlist_spoiler === true) continue
+    if (!note.show_title?.trim()) continue
+    if (!venueFieldNoteTeaserText(note.body ?? '')) continue
+    return note
+  }
+  return null
 }
 
 /**

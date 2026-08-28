@@ -409,6 +409,13 @@ func TestListVenueFieldNotes_Success(t *testing.T) {
 	}
 }
 
+// Only the "unset" and "in-range" rows describe the real HTTP contract. The
+// negative and oversized rows can never arrive over the wire: the huma-native
+// `minimum:"1" maximum:"100"` tags on ListVenueFieldNotesRequest.Limit reject
+// them with a 422 before the handler runs, and these cases reach the clamps
+// only because a handler test calls the function directly. They pin the
+// defensive clamps (which mirror the sibling show handler) rather than any
+// client-visible behaviour — do not read them as "the API accepts limit=500".
 func TestListVenueFieldNotes_DefaultAndCappedLimit(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
@@ -416,8 +423,8 @@ func TestListVenueFieldNotes_DefaultAndCappedLimit(t *testing.T) {
 		expected int
 	}{
 		{"unset defaults to 25", 0, 25},
-		{"negative defaults to 25", -5, 25},
-		{"oversized caps at 100", 500, 100},
+		{"negative defaults to 25 (unreachable over HTTP)", -5, 25},
+		{"oversized caps at 100 (unreachable over HTTP)", 500, 100},
 		{"in-range passes through", 3, 3},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

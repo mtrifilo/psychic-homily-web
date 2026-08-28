@@ -85,8 +85,16 @@ export const fieldNoteQueryKeys = {
 /**
  * Notes fetched for the Atlas venue panel's teaser (PSY-1590).
  *
- * One: the teaser quotes the single best-ranked note. The count beside it
- * comes from the response's `total`, which spans the whole venue, so asking
- * for more rows than are rendered would buy nothing.
+ * The teaser quotes ONE note, so this is a candidate pool rather than a page
+ * size. `pickVenueFieldNoteForTeaser` skips notes it must not quote — setlist
+ * spoilers, and notes whose show can no longer be named — and fetching only
+ * the single best-ranked note would let one such note hide a section the venue
+ * has perfectly good notes for.
+ *
+ * Five is a deliberate small number: it is enough that a run of skips is
+ * unlikely to exhaust it, and small enough that the panel is not paying for
+ * rows it will never render. The count shown beside the quote comes from the
+ * response's `total`, which spans the whole venue, so this bound never
+ * influences what the reader is told.
  */
-export const VENUE_FIELD_NOTE_TEASER_LIMIT = 1
+export const VENUE_FIELD_NOTE_TEASER_LIMIT = 5
