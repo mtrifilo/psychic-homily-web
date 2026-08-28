@@ -1238,6 +1238,19 @@ func (s *CommentService) ListFieldNotesForVenue(venueID uint, limit, offset int)
 		return nil, fmt.Errorf("failed to count venue field notes: %w", err)
 	}
 	if total == 0 {
+		// An empty rollup and an unknown venue must not look alike: every
+		// sibling /venues/{id} read 404s on a venue that does not exist (or
+		// was hard-deleted by a merge), and a stale pin resolving to a silent
+		// section-less panel is indistinguishable from "no notes yet". The
+		// existence probe lives only on this branch — a venue with notes
+		// exists by construction of the join.
+		var venueCount int64
+		if err := s.db.Table("venues").Where("id = ?", venueID).Count(&venueCount).Error; err != nil {
+			return nil, fmt.Errorf("failed to check venue existence: %w", err)
+		}
+		if venueCount == 0 {
+			return nil, apperrors.ErrVenueNotFound(venueID)
+		}
 		// An empty rollup is the common case, not an error: most venues have
 		// no notes yet. Return the empty slice (never nil) so the caller
 		// renders "no section" rather than having to distinguish the two.
@@ -1312,15 +1325,23 @@ func (s *CommentService) ListFieldNotesForVenue(venueID uint, limit, offset int)
 		billByShowID = resolved
 	}
 
-	notes := make([]*contracts.VenueFieldNote, len(comments))
+	notes := make([]*contracts.VenueFieldNote, 0, len(comments))
 	for i := range comments {
+		row, ok := showsByID[comments[i].EntityID]
+		if !ok {
+			// The show vanished between the page query and this enrichment —
+			// reachable when a concurrent venue merge hard-deletes the loser's
+			// shows. A note that can no longer name its night has nothing
+			// honest to render (the zero EventDate would format as a real
+			// month in year 1), so drop the row. Total may momentarily
+			// overcount by the dropped rows; the next read self-corrects.
+			continue
+		}
 		note := &contracts.VenueFieldNote{CommentResponse: *commentToResponse(&comments[i])}
-		if row, ok := showsByID[comments[i].EntityID]; ok {
-			note.ShowTitle = row.Title
-			note.ShowDate = row.EventDate
-			if row.Slug != nil {
-				note.ShowSlug = *row.Slug
-			}
+		note.ShowTitle = row.Title
+		note.ShowDate = row.EventDate
+		if row.Slug != nil {
+			note.ShowSlug = *row.Slug
 		}
 		// Never nil: the field is non-omitempty, and a null array on the wire
 		// would make every consumer write its own `?? []` before it could
@@ -1330,7 +1351,7 @@ func (s *CommentService) ListFieldNotesForVenue(venueID uint, limit, offset int)
 			bill = []string{}
 		}
 		note.ShowArtists = bill
-		notes[i] = note
+		notes = append(notes, note)
 	}
 
 	return &contracts.VenueFieldNoteListResponse{

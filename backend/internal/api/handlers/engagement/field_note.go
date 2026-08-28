@@ -2,6 +2,7 @@ package engagement
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
+	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 	servicesshared "psychic-homily-backend/internal/services/shared"
@@ -189,8 +191,16 @@ func (h *FieldNoteHandler) ListFieldNotesHandler(ctx context.Context, req *ListF
 type ListVenueFieldNotesRequest struct {
 	VenueID string `path:"venue_id" doc:"Venue ID (numeric only)" example:"42"`
 	Limit   int    `query:"limit" required:"false" minimum:"1" maximum:"100" doc:"Page size (default 25, max 100)" example:"1"`
-	Offset  int    `query:"offset" required:"false" minimum:"0" doc:"Pagination offset" example:"0"`
+	Offset  int    `query:"offset" required:"false" minimum:"0" maximum:"10000" doc:"Pagination offset (max 10000)" example:"0"`
 }
+
+// maxVenueFieldNoteOffset bounds the one knob on this anonymous route that a
+// caller could otherwise drive without limit: the count/page queries evaluate
+// the joins, the JSONB predicate and the sort before an offset discards rows,
+// so an absurd offset is pure attacker-driven cost. Clamped (not rejected) to
+// match how the limit bound behaves; real note counts per venue sit orders of
+// magnitude below this.
+const maxVenueFieldNoteOffset = 10000
 
 // ListVenueFieldNotesResponse represents the response for the venue rollup.
 type ListVenueFieldNotesResponse struct {
@@ -219,9 +229,19 @@ func (h *FieldNoteHandler) ListVenueFieldNotesHandler(ctx context.Context, req *
 	if offset < 0 {
 		offset = 0
 	}
+	if offset > maxVenueFieldNoteOffset {
+		offset = maxVenueFieldNoteOffset
+	}
 
 	result, err := h.reader.ListFieldNotesForVenue(uint(venueID), limit, offset)
 	if err != nil {
+		var venueErr *apperrors.VenueError
+		if errors.As(err, &venueErr) && venueErr.Code == apperrors.CodeVenueNotFound {
+			// Match the sibling /venues/{venue_id} reads: an unknown or
+			// merged-away venue is a 404, never an empty 200 a stale Atlas
+			// pin would mistake for "no notes yet".
+			return nil, huma.Error404NotFound("Venue not found")
+		}
 		requestID := logger.GetRequestID(ctx)
 		return nil, huma.Error500InternalServerError(
 			fmt.Sprintf("Failed to fetch venue field notes (request_id: %s)", requestID),

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
+	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	engagementm "psychic-homily-backend/internal/models/engagement"
@@ -2374,6 +2375,21 @@ func (suite *CommentServiceIntegrationTestSuite) TestListFieldNotesForVenue_Empt
 	suite.NotNil(result.Notes)
 	suite.Empty(result.Notes)
 	suite.False(result.HasMore)
+}
+
+// An unknown (or merged-away) venue must not look like a quiet one: every
+// sibling /venues/{id} read 404s, and a stale Atlas pin resolving to an empty
+// 200 would render a section-less panel indistinguishable from "no notes yet".
+func (suite *CommentServiceIntegrationTestSuite) TestListFieldNotesForVenue_UnknownVenueIsNotFound() {
+	// Any id far above the suite's serial fixtures, but inside int4 — the
+	// venues PK is int4, so an out-of-range id would fail at bind time and
+	// never exercise the not-found path.
+	_, err := suite.commentService.ListFieldNotesForVenue(999999, 25, 0)
+	suite.Require().Error(err)
+
+	var venueErr *apperrors.VenueError
+	suite.Require().ErrorAs(err, &venueErr)
+	suite.Equal(apperrors.CodeVenueNotFound, venueErr.Code)
 }
 
 // Total counts every note at the venue, not just the page — the teaser quotes

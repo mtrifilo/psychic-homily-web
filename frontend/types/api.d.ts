@@ -35272,7 +35272,7 @@ export interface operations {
                  */
                 limit?: number;
                 /**
-                 * @description Pagination offset
+                 * @description Pagination offset (max 10000)
                  * @example 0
                  */
                 offset?: number;
