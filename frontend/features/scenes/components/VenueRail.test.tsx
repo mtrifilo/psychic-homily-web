@@ -282,6 +282,60 @@ describe('VenueRail', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('will not generalise from a truncated page of venues', () => {
+    // `allVenues` is ONE busiest-first page. The tagged room could be below the
+    // cut, so "no venue here is tagged" is not a claim this evidence supports.
+    renderRail({
+      venues: [],
+      allVenues: [venue({ id: 1, hosts_all_ages: undefined })],
+      totalVenueCount: 140,
+      filters: { ...NO_CITY_VENUE_FILTERS, allAgesOnly: true },
+    })
+    expect(
+      screen.queryByText(/tagged for all-ages shows yet/),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByText('No venues match these filters.'),
+    ).toBeInTheDocument()
+  })
+
+  it('promises no affordance the app does not have', () => {
+    // VenueDetail mounts EntityTagList but not the AddTagDialog + "[Add tag]"
+    // control its peers pair with it, so there is nowhere to go add the tag.
+    renderRail({
+      venues: [],
+      allVenues: [venue({ id: 1, hosts_all_ages: undefined })],
+      filters: { ...NO_CITY_VENUE_FILTERS, allAgesOnly: true },
+    })
+    expect(screen.queryByText(/someone marks a venue/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/people who know the room/)).not.toBeInTheDocument()
+  })
+
+  it('shows the sometimes caveat on screen, not only in a tooltip', () => {
+    // `title` never opens on touch and is skipped by most screen readers on a
+    // control that already has a label — so on the likeliest device the bare
+    // chip label would be the only thing a reader sees.
+    const { rerender } = renderRail()
+    expect(screen.queryByText(/at least sometimes/)).not.toBeInTheDocument()
+
+    rerender(
+      <VenueRail
+        cityLabel="Austin, TX"
+        principalCity="Austin"
+        venues={[venue({ hosts_all_ages: true })]}
+        allVenues={[venue({ hosts_all_ages: true })]}
+        filters={{ ...NO_CITY_VENUE_FILTERS, allAgesOnly: true }}
+        onFiltersChange={vi.fn()}
+        selectedVenueId={null}
+        onVenueSelect={vi.fn()}
+        onBackToGlobe={vi.fn()}
+      />,
+    )
+    expect(
+      screen.getByText(/host all-ages shows at least sometimes/),
+    ).toBeInTheDocument()
+  })
+
   it('says the city is empty before it blames any filter', () => {
     renderRail({
       venues: [],

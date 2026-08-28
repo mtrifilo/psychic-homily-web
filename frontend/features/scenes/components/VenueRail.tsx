@@ -100,6 +100,11 @@ export function VenueRail({
     () => cityHasAllAgesVenue(allVenues),
     [allVenues],
   )
+  // The fetch cap bit, so `allVenues` is one busiest-first page rather than the
+  // whole metro. Two things read it: the "showing the N busiest of M" line, and
+  // the empty state, which must not generalise from a partial city.
+  const listTruncated =
+    totalVenueCount !== undefined && totalVenueCount > allVenues.length
 
   const activeGenreLabel = filters.genreFamily
     ? (GENRE_LABEL_BY_KEY.get(filters.genreFamily) ?? 'All genres')
@@ -148,7 +153,7 @@ export function VenueRail({
         {/* The list is one page deep. A city with more venues than the cap
             would otherwise read as if it had exactly the cap — say so instead.
             The API sorts busiest-first, so "busiest" is accurate. */}
-        {totalVenueCount !== undefined && totalVenueCount > allVenues.length && (
+        {listTruncated && (
           <p className="mt-1 font-mono text-[11px] leading-4 text-muted-foreground">
             showing the {allVenues.length} busiest of {totalVenueCount}
           </p>
@@ -225,6 +230,21 @@ export function VenueRail({
             Record stores
           </FilterChip>
         </div>
+
+        {/* The caveat has to be VISIBLE while the filter is on, not parked in
+            the chip's `title`. A tooltip never opens on touch — the Atlas
+            travel-mode audience's likeliest device — and most screen readers
+            skip `title` on a control that already has a text label. Without
+            this line, a phone user narrowing the list would see nothing but
+            "All-ages shows" above it, which reads as a promise about every
+            night at every room listed. Rendered only when active, so the chip
+            row stays quiet in the default state. */}
+        {filters.allAgesOnly && (
+          <p className="mt-2 font-mono text-[11px] leading-4 text-muted-foreground">
+            rooms that host all-ages shows at least sometimes — check the
+            individual show
+          </p>
+        )}
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -238,9 +258,19 @@ export function VenueRail({
             /* The all-ages message is claimed ONLY when the tag is what came up
                empty — no venue here carries it — rather than whenever the chip
                happens to be on. With another chip also active, "nothing here is
-               tagged" would be a guess at which filter did the excluding. This
-               test is exact, so it is never a guess. */
-            allAgesUnseeded={filters.allAgesOnly && !hasAllAgesVenue}
+               tagged" would be a guess at which filter did the excluding.
+
+               `listTruncated` is the other half of the same discipline, and the
+               sharper trap. `hasAllAgesVenue` can only see the ONE PAGE the
+               rail fetched, which the API orders busiest-first: in a metro
+               capped by CITY_VENUE_FETCH_LIMIT, the tagged room could easily be
+               a quiet DIY space below the cut. Asserting "no venue here is
+               tagged" on that evidence would be exactly the false claim about a
+               city this message exists to avoid — so a truncated list falls
+               back to the filter-shaped wording, which stays true either way. */
+            allAgesUnseeded={
+              filters.allAgesOnly && !hasAllAgesVenue && !listTruncated
+            }
           />
         ) : (
           <ul>
@@ -326,12 +356,17 @@ function EmptyRail({
       <div className="px-4 py-6 text-sm text-muted-foreground">
         <p>No venue here is tagged for all-ages shows yet.</p>
         {/* Says "not yet recorded", never "there are none". The venues exist;
-            the tag is what's missing, and it is community-contributed — so the
-            absence is a gap in our data, not a fact about the city. */}
-        <p className="mt-2">
-          The tag is added by people who know the room, so this stays empty
-          until someone marks a venue here. It doesn’t mean the city has none.
-        </p>
+            the tag is what's missing, so the absence is a gap in our data, not
+            a fact about the city.
+
+            Deliberately does NOT invite the reader to go add the tag. There is
+            nowhere to do it: VenueDetail mounts EntityTagList but not the
+            AddTagDialog + "[Add tag]" affordance that ArtistDetail and its
+            peers pair with it, and EntityTagList renders nothing at all for an
+            untagged entity. Pointing at a control that does not exist would
+            make this empty state the dishonest thing it was written to
+            replace. Mounting that affordance on venues is its own ticket. */}
+        <p className="mt-2">It doesn’t mean the city has none.</p>
       </div>
     )
   }
