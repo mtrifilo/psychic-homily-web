@@ -755,18 +755,20 @@ type VenueWithShowCountResponse struct {
 	// (catalogm.TagSlugAllAges) — it hosts all-ages shows AT LEAST SOMETIMES.
 	// Drives the rail's "All-ages shows" chip (PSY-1573).
 	//
-	// FALSE MEANS UNTAGGED, NOT 21+. Nobody has said either way, and coverage
-	// is near-zero until the tag is seeded, so a client must never render this
-	// as an age claim about the room — the only honest use is narrowing a list
-	// and saying plainly when the narrowing finds nothing. It is also NOT the
-	// house-default age rule; that is AgePolicy on the embedded venue, and a
-	// 21+ AgePolicy alongside a true HostsAllAges is a coherent room, not a
-	// contradiction.
+	// THREE-VALUED, and the pointer is the whole point. false means UNTAGGED
+	// (nobody has said, NOT 21+); NIL means NOT DETERMINED, which is what the
+	// caller gets both without IncludeRailFields and when the tag lookup itself
+	// failed. Those two are different questions and a plain bool answers them
+	// with the same confident "no": a client would read "no venue here is
+	// tagged" off a query that never ran, or off a browse response that never
+	// asked. Coverage is near-zero, so that wrong reading would be the COMMON
+	// one. Nil must degrade to "we don't know", never to a claim.
 	//
-	// No omitempty, deliberately: a rail row's absent boolean and its false
-	// boolean would be indistinguishable on the wire, and the field is only
-	// ever populated under IncludeRailFields anyway.
-	HostsAllAges bool `json:"hosts_all_ages"`
+	// It is also NOT the house-default age rule; that is AgePolicy on the
+	// embedded venue. A 21+ AgePolicy alongside a true HostsAllAges is a
+	// coherent room (a 21+ house booking an all-ages matinee), not a
+	// contradiction, and is the case the chip exists to surface.
+	HostsAllAges *bool `json:"hosts_all_ages,omitempty" doc:"True when the venue carries the canonical all-ages tag, meaning it hosts all-ages shows AT LEAST SOMETIMES. False means UNTAGGED, not 21+, and is not an age claim about the room. Absent means NOT DETERMINED: the field is only populated when include_rail=true, and is omitted if the tag lookup failed. This is not the venue's house-default age rule, which is age_policy."`
 }
 
 // VenueListingEntry is a venue reduced to the two fields a link needs: the slug

@@ -312,10 +312,41 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_Hosts
 		contracts.VenueListFilters{City: "Austin", State: "TX", IncludeRailFields: true}, 50, 0)
 	suite.Require().NoError(err)
 
-	suite.True(suite.findVenueResponse(venues, "Rail All Ages Room").HostsAllAges,
-		"a venue carrying the canonical all-ages tag must report it")
-	suite.False(suite.findVenueResponse(venues, "Rail Untagged Room").HostsAllAges,
-		"an untagged venue reports false, which the client must read as unknown")
+	taggedFlag := suite.findVenueResponse(venues, "Rail All Ages Room").HostsAllAges
+	suite.Require().NotNil(taggedFlag, "a determined lookup must not report nil")
+	suite.True(*taggedFlag, "a venue carrying the canonical all-ages tag must report it")
+
+	untaggedFlag := suite.findVenueResponse(venues, "Rail Untagged Room").HostsAllAges
+	suite.Require().NotNil(untaggedFlag,
+		"untagged is a DETERMINED answer and must be false, not nil")
+	suite.False(*untaggedFlag, "an untagged venue reports false, meaning nobody has said")
+}
+
+// TestGetVenuesWithShowCounts_HostsAllAgesCaseInsensitiveSlug pins the slug
+// comparison to the one ApplyTagFilter uses (LOWER(tags.slug)). These are the
+// two read paths over the same tag, and a case-sensitive one here would let
+// the rail chip and GET /venues?tags=all-ages disagree about a venue.
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_HostsAllAgesCaseInsensitiveSlug() {
+	user := suite.createTestUser()
+	venue := suite.createTestVenue("Rail Mixed Case Room", "Austin", "TX", true)
+
+	sqlDB, err := suite.db.DB()
+	suite.Require().NoError(err)
+	var tagID uint
+	suite.Require().NoError(sqlDB.QueryRow(`
+		INSERT INTO tags (name, slug, category, is_official, usage_count, created_at, updated_at)
+		VALUES ('All Ages', 'All-Ages', 'other', true, 0, NOW(), NOW())
+		RETURNING id
+	`).Scan(&tagID))
+	suite.tagVenue(venue.ID, tagID, user.ID)
+
+	venues, _, err := suite.venueService.GetVenuesWithShowCounts(
+		contracts.VenueListFilters{City: "Austin", State: "TX", IncludeRailFields: true}, 50, 0)
+	suite.Require().NoError(err)
+
+	got := suite.findVenueResponse(venues, "Rail Mixed Case Room").HostsAllAges
+	suite.Require().NotNil(got)
+	suite.True(*got, "a mixed-case slug must match, as it does for ApplyTagFilter")
 }
 
 // TestGetVenuesWithShowCounts_HostsAllAgesIgnoresAgePolicy keeps the tag and
@@ -338,9 +369,14 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_Hosts
 		contracts.VenueListFilters{City: "Austin", State: "TX", IncludeRailFields: true}, 50, 0)
 	suite.Require().NoError(err)
 
-	suite.False(suite.findVenueResponse(venues, "Rail Policy Only Room").HostsAllAges,
+	byPolicyGot := suite.findVenueResponse(venues, "Rail Policy Only Room").HostsAllAges
+	suite.Require().NotNil(byPolicyGot)
+	suite.False(*byPolicyGot,
 		`age_policy "all ages" is a house default, not the community tag`)
-	suite.True(suite.findVenueResponse(venues, "Rail Tagged 21plus Room").HostsAllAges,
+
+	byTagGot := suite.findVenueResponse(venues, "Rail Tagged 21plus Room").HostsAllAges
+	suite.Require().NotNil(byTagGot)
+	suite.True(*byTagGot,
 		"a 21+ house that books all-ages shows is exactly what the tag is for")
 }
 
@@ -356,6 +392,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_Hosts
 		contracts.VenueListFilters{City: "Austin", State: "TX"}, 50, 0)
 	suite.Require().NoError(err)
 
-	suite.False(suite.findVenueResponse(venues, "Rail All Ages Opt In").HostsAllAges,
-		"the all-ages flag must not be filled without the rail opt-in")
+	suite.Nil(suite.findVenueResponse(venues, "Rail All Ages Opt In").HostsAllAges,
+		"without the rail opt-in the answer is NOT DETERMINED, and must be nil "+
+			"rather than a false that reads as 'this venue is not tagged'")
 }

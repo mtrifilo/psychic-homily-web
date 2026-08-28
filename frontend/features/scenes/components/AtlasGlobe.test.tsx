@@ -345,6 +345,9 @@ describe('AtlasGlobe', () => {
         upcoming_show_count: 14,
         shows_this_week: 3,
         shows_calendar_week: 3,
+        // Only this room carries the all-ages tag, so the chip has something
+        // to keep AND something to drop (PSY-1573).
+        hosts_all_ages: true,
         updated_at: '2026-07-25T00:00:00Z',
       },
       {
@@ -358,6 +361,7 @@ describe('AtlasGlobe', () => {
         upcoming_show_count: 4,
         shows_this_week: 0,
         shows_calendar_week: 0,
+        hosts_all_ages: false,
         updated_at: '2026-07-24T00:00:00Z',
       },
     ]
@@ -767,6 +771,24 @@ describe('AtlasGlobe', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Next 7 days' }))
 
       // One rail row, one pin — the same array feeds both.
+      expect(screen.getAllByRole('button', { name: /Empty Bottle/ })).toHaveLength(1)
+      expect(screen.queryByRole('button', { name: /Hideout/ })).not.toBeInTheDocument()
+      expect(lastCanvasProps.venues?.map((v) => v.name)).toEqual(['Empty Bottle'])
+    })
+
+    it('narrows the pins with the rail for the all-ages chip too', async () => {
+      // PSY-1573's acceptance criterion names the PINS explicitly, and the
+      // sibling test above only covers "Next 7 days". Asserted end to end
+      // rather than inferred from the shared code path, so a future all-ages
+      // short-circuit that sourced pins from the unfiltered list would fail.
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      settleCamera(-87.63, 41.88, 13)
+
+      expect(lastCanvasProps.venues).toHaveLength(2)
+
+      fireEvent.click(screen.getByRole('button', { name: 'All-ages shows' }))
+
       expect(screen.getAllByRole('button', { name: /Empty Bottle/ })).toHaveLength(1)
       expect(screen.queryByRole('button', { name: /Hideout/ })).not.toBeInTheDocument()
       expect(lastCanvasProps.venues?.map((v) => v.name)).toEqual(['Empty Bottle'])

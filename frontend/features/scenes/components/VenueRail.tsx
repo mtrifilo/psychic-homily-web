@@ -9,9 +9,12 @@ import {
   cityContributionCounts,
   cityContributionSegments,
   cityDataUpdatedAt,
+  cityAllAgesTagDetermined,
   cityGenreFamilies,
   cityHasAllAgesVenue,
   cityRailStats,
+  emptyRailReason,
+  type EmptyRailReason,
   formatNextShowDate,
   nextShowBill,
   venueLocalityLabel,
@@ -93,18 +96,27 @@ export function VenueRail({
     () => cityContributionSegments(cityContributionCounts(allVenues)),
     [allVenues],
   )
-  // Over the UNFILTERED list on purpose — it is what separates "no venue here
-  // carries the tag" from "your filters happened to exclude everything". See
-  // cityHasAllAgesVenue and EmptyRail.
-  const hasAllAgesVenue = useMemo(
-    () => cityHasAllAgesVenue(allVenues),
-    [allVenues],
-  )
   // The fetch cap bit, so `allVenues` is one busiest-first page rather than the
-  // whole metro. Two things read it: the "showing the N busiest of M" line, and
-  // the empty state, which must not generalise from a partial city.
+  // whole metro. Three things read it: the "showing the N busiest of M" line,
+  // the empty state (which must not generalise from a partial city), and the
+  // active-filter caveat below.
   const listTruncated =
     totalVenueCount !== undefined && totalVenueCount > allVenues.length
+
+  // All over the UNFILTERED list on purpose: together they separate "no venue
+  // here carries the tag" from "your filters excluded everything" from "the tag
+  // lookup never answered". emptyRailReason owns the precedence between them.
+  const emptyReason = useMemo(
+    () =>
+      emptyRailReason({
+        cityEmpty: allVenues.length === 0,
+        allAgesOnly: filters.allAgesOnly,
+        hasAllAgesVenue: cityHasAllAgesVenue(allVenues),
+        tagDetermined: cityAllAgesTagDetermined(allVenues),
+        listTruncated,
+      }),
+    [allVenues, filters.allAgesOnly, listTruncated],
+  )
 
   const activeGenreLabel = filters.genreFamily
     ? (GENRE_LABEL_BY_KEY.get(filters.genreFamily) ?? 'All genres')
@@ -253,25 +265,7 @@ export function VenueRail({
             Loading venues…
           </p>
         ) : venues.length === 0 ? (
-          <EmptyRail
-            cityEmpty={allVenues.length === 0}
-            /* The all-ages message is claimed ONLY when the tag is what came up
-               empty — no venue here carries it — rather than whenever the chip
-               happens to be on. With another chip also active, "nothing here is
-               tagged" would be a guess at which filter did the excluding.
-
-               `listTruncated` is the other half of the same discipline, and the
-               sharper trap. `hasAllAgesVenue` can only see the ONE PAGE the
-               rail fetched, which the API orders busiest-first: in a metro
-               capped by CITY_VENUE_FETCH_LIMIT, the tagged room could easily be
-               a quiet DIY space below the cut. Asserting "no venue here is
-               tagged" on that evidence would be exactly the false claim about a
-               city this message exists to avoid — so a truncated list falls
-               back to the filter-shaped wording, which stays true either way. */
-            allAgesUnseeded={
-              filters.allAgesOnly && !hasAllAgesVenue && !listTruncated
-            }
-          />
+          <EmptyRail reason={emptyReason} shownCount={allVenues.length} />
         ) : (
           <ul>
             {venues.map((venue) => (
@@ -328,44 +322,48 @@ export function VenueRail({
 /**
  * What the rail says when it has no rows to show.
  *
- * Three different facts, three different sentences — because a filter that
- * matches nothing has to say WHY, or a working feature reads as a broken one.
- * "No venues match these filters" is a claim about this city's rooms, and it is
- * the WRONG claim when the real answer is that nobody has tagged them yet: the
- * all-ages tag ships with near-zero coverage (PSY-1573 deliberately seeds no
- * data), so the honest default state of that chip is this empty state, and it
- * has to point at the gap rather than let a reader conclude a city has no
- * all-ages rooms.
+ * Four facts, four sentences, chosen by ONE discriminated value rather than a
+ * set of booleans this component could combine into a contradiction. A filter
+ * that matches nothing has to say WHY, or a working feature reads as a broken
+ * one — and "no venues match these filters" is a claim about a CITY, which is
+ * the wrong claim when the real answer is about our data. The all-ages tag
+ * ships with near-zero coverage (PSY-1573 deliberately seeds none), so that
+ * wrong reading would be the common one. emptyRailReason owns the precedence.
+ *
+ * None of these invite the reader to go add the tag. There is nowhere to do it:
+ * VenueDetail mounts EntityTagList but not the AddTagDialog + "[Add tag]"
+ * affordance that ArtistDetail and its peers pair with it, and EntityTagList
+ * renders nothing at all for an untagged entity. Pointing at a control that
+ * does not exist would make this empty state the dishonest thing it was written
+ * to replace. Mounting that affordance on venues needs its own ticket, which is
+ * not yet filed.
  */
 function EmptyRail({
-  cityEmpty,
-  allAgesUnseeded,
+  reason,
+  shownCount,
 }: {
-  cityEmpty: boolean
-  allAgesUnseeded: boolean
+  reason: EmptyRailReason
+  shownCount: number
 }) {
-  if (cityEmpty) {
+  if (reason === 'city-empty') {
     return (
       <p className="px-4 py-6 text-sm text-muted-foreground">
         No venues listed here yet.
       </p>
     )
   }
-  if (allAgesUnseeded) {
+  if (reason === 'all-ages-unseeded' || reason === 'all-ages-unseeded-in-view') {
     return (
       <div className="px-4 py-6 text-sm text-muted-foreground">
-        <p>No venue here is tagged for all-ages shows yet.</p>
         {/* Says "not yet recorded", never "there are none". The venues exist;
-            the tag is what's missing, so the absence is a gap in our data, not
-            a fact about the city.
-
-            Deliberately does NOT invite the reader to go add the tag. There is
-            nowhere to do it: VenueDetail mounts EntityTagList but not the
-            AddTagDialog + "[Add tag]" affordance that ArtistDetail and its
-            peers pair with it, and EntityTagList renders nothing at all for an
-            untagged entity. Pointing at a control that does not exist would
-            make this empty state the dishonest thing it was written to
-            replace. Mounting that affordance on venues is its own ticket. */}
+            the tag is what's missing, so the absence is a gap in our data.
+            The truncated variant additionally admits how far it looked, rather
+            than generalising one busiest-first page to a whole metro. */}
+        <p>
+          {reason === 'all-ages-unseeded-in-view'
+            ? `No venue among the ${shownCount} busiest here is tagged for all-ages shows yet.`
+            : 'No venue here is tagged for all-ages shows yet.'}
+        </p>
         <p className="mt-2">It doesn’t mean the city has none.</p>
       </div>
     )

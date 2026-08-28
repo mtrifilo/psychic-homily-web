@@ -17954,7 +17954,8 @@ export interface components {
             description?: string;
             dominant_genre?: string;
             geocode_precision?: string;
-            hosts_all_ages: boolean;
+            /** @description True when the venue carries the canonical all-ages tag, meaning it hosts all-ages shows AT LEAST SOMETIMES. False means UNTAGGED, not 21+, and is not an age claim about the room. Absent means NOT DETERMINED: the field is only populated when include_rail=true, and is omitted if the tag lookup failed. This is not the venue's house-default age rule, which is age_policy. */
+            hosts_all_ages?: boolean;
             /** Format: int64 */
             id: number;
             image_url: string | null;

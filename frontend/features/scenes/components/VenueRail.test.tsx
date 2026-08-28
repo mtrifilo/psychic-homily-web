@@ -254,7 +254,7 @@ describe('VenueRail', () => {
     // a reader conclude the city has no all-ages rooms, which we never claimed.
     renderRail({
       venues: [],
-      allVenues: [venue({ id: 1, hosts_all_ages: undefined })],
+      allVenues: [venue({ id: 1, hosts_all_ages: false })],
       filters: { ...NO_CITY_VENUE_FILTERS, allAgesOnly: true },
     })
     expect(
@@ -282,13 +282,32 @@ describe('VenueRail', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('will not generalise from a truncated page of venues', () => {
-    // `allVenues` is ONE busiest-first page. The tagged room could be below the
-    // cut, so "no venue here is tagged" is not a claim this evidence supports.
+  it('admits how far it looked instead of generalising from a truncated page', () => {
+    // `allVenues` is ONE busiest-first page, and a tagged DIY room below the
+    // cut is exactly the room this chip is for. The sentence has to name the
+    // cap rather than make a claim about the whole metro.
+    renderRail({
+      venues: [],
+      allVenues: [venue({ id: 1, hosts_all_ages: false })],
+      totalVenueCount: 140,
+      filters: { ...NO_CITY_VENUE_FILTERS, allAgesOnly: true },
+    })
+    expect(
+      screen.getByText(/No venue among the 1 busiest here is tagged/),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/doesn’t mean the city has none/)).toBeInTheDocument()
+    expect(
+      screen.queryByText('No venues match these filters.'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('claims nothing about the tag when the lookup never answered', () => {
+    // `hosts_all_ages` absent means NOT DETERMINED (rail fields not requested,
+    // or the backend's tag query failed). Saying "no venue here is tagged" off
+    // that would assert an absence on the strength of a query that never ran.
     renderRail({
       venues: [],
       allVenues: [venue({ id: 1, hosts_all_ages: undefined })],
-      totalVenueCount: 140,
       filters: { ...NO_CITY_VENUE_FILTERS, allAgesOnly: true },
     })
     expect(
@@ -302,13 +321,23 @@ describe('VenueRail', () => {
   it('promises no affordance the app does not have', () => {
     // VenueDetail mounts EntityTagList but not the AddTagDialog + "[Add tag]"
     // control its peers pair with it, so there is nowhere to go add the tag.
-    renderRail({
+    //
+    // Asserts on RENDERED CONTROLS, not on the absence of particular phrases:
+    // a phrase-absence test passes no matter what call-to-action someone adds
+    // later, which is the opposite of what a regression guard is for.
+    const { container } = renderRail({
       venues: [],
-      allVenues: [venue({ id: 1, hosts_all_ages: undefined })],
+      allVenues: [venue({ id: 1, hosts_all_ages: false })],
       filters: { ...NO_CITY_VENUE_FILTERS, allAgesOnly: true },
     })
-    expect(screen.queryByText(/someone marks a venue/)).not.toBeInTheDocument()
-    expect(screen.queryByText(/people who know the room/)).not.toBeInTheDocument()
+    const emptyState = container.querySelector('.min-h-0.flex-1')
+    expect(emptyState).not.toBeNull()
+    expect(
+      within(emptyState as HTMLElement).queryByRole('link'),
+    ).not.toBeInTheDocument()
+    expect(
+      within(emptyState as HTMLElement).queryByRole('button'),
+    ).not.toBeInTheDocument()
   })
 
   it('shows the sometimes caveat on screen, not only in a tooltip', () => {

@@ -212,6 +212,10 @@ func (s *VenueService) venueDominantGenres(venueIDs []uint, now time.Time) (map[
 // said", never "this room is 21+". The rail's empty state has to carry that
 // distinction; the boolean on the wire cannot.
 func (s *VenueService) venueHostsAllAges(venueIDs []uint) (map[uint]bool, error) {
+	// LOWER(t.slug), not a bare `t.slug =`, so this agrees with ApplyTagFilter's
+	// `LOWER(tags.slug) IN ?`. Those are the two read paths over the same tag —
+	// this one and `GET /venues?tags=all-ages` — and a case-sensitive comparison
+	// here would let them disagree about the same venue.
 	var taggedIDs []uint
 	err := s.db.Raw(`
 		SELECT et.entity_id
@@ -219,7 +223,7 @@ func (s *VenueService) venueHostsAllAges(venueIDs []uint) (map[uint]bool, error)
 		JOIN tags t ON t.id = et.tag_id
 		WHERE et.entity_type = ?
 		  AND et.entity_id IN ?
-		  AND t.slug = ?
+		  AND LOWER(t.slug) = ?
 	`, catalogm.TagEntityVenue, venueIDs, catalogm.TagSlugAllAges).Scan(&taggedIDs).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to look up all-ages venue tags: %w", err)
@@ -272,20 +276,24 @@ func (s *VenueService) enrichVenueRailFields(responses []*contracts.VenueWithSho
 		slog.Default().Error("venue genre aggregation failed; rail renders untinted", "error", err)
 		genres = nil
 	}
-	allAges, err := s.venueHostsAllAges(venueIDs)
-	if err != nil {
-		// Best effort like the rest, and the failure mode is the safe one: every
-		// venue reads as untagged, so the chip finds nothing and the rail says
-		// so. The opposite default would claim rooms host all-ages shows on the
-		// strength of a failed query.
-		slog.Default().Error("venue all-ages tag lookup failed; rail treats every venue as untagged", "error", err)
-		allAges = nil
+	allAges, allAgesErr := s.venueHostsAllAges(venueIDs)
+	if allAgesErr != nil {
+		// Best effort like the rest, but NOT interchangeable with them: a
+		// missing genre tints a row, while a missing all-ages answer would be
+		// read as "no venue here is tagged", which is a claim about the data.
+		// So this failure leaves HostsAllAges NIL rather than false, and the
+		// client degrades to "we don't know" instead of asserting an absence
+		// off a query that never ran.
+		slog.Default().Error("venue all-ages tag lookup failed; rail reports the tag as undetermined", "error", allAgesErr)
 	}
 
 	for _, r := range responses {
 		r.ShowsThisWeek = weekCounts[r.ID]
 		r.DominantGenre = genres[r.ID]
-		r.HostsAllAges = allAges[r.ID]
+		if allAgesErr == nil {
+			tagged := allAges[r.ID]
+			r.HostsAllAges = &tagged
+		}
 		if next, ok := nextShows[r.ID]; ok {
 			r.NextShowDate = venueLocalDate(next.Date, r.Timezone)
 			r.NextShowTitle = next.Title

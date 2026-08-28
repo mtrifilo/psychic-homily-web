@@ -9,9 +9,11 @@ import {
   cityContributionCounts,
   cityContributionSegments,
   cityDataUpdatedAt,
+  cityAllAgesTagDetermined,
   cityGenreFamilies,
   cityHasAllAgesVenue,
   cityRailStats,
+  emptyRailReason,
   filterCityVenues,
   NO_CITY_VENUE_FILTERS,
   formatNextShowDate,
@@ -378,6 +380,83 @@ describe('cityHasAllAgesVenue', () => {
 
   it('is false for an empty list', () => {
     expect(cityHasAllAgesVenue([])).toBe(false)
+  })
+})
+
+describe('cityAllAgesTagDetermined', () => {
+  it('is true when every row carries an answer', () => {
+    expect(
+      cityAllAgesTagDetermined([
+        venue({ id: 1, hosts_all_ages: false }),
+        venue({ id: 2, hosts_all_ages: true }),
+      ]),
+    ).toBe(true)
+  })
+
+  it('is false when any row is undetermined', () => {
+    // One absent field means the response did not answer the question, so the
+    // whole list's answer is unknown.
+    expect(
+      cityAllAgesTagDetermined([
+        venue({ id: 1, hosts_all_ages: false }),
+        venue({ id: 2, hosts_all_ages: undefined }),
+      ]),
+    ).toBe(false)
+  })
+})
+
+describe('emptyRailReason', () => {
+  const base = {
+    cityEmpty: false,
+    allAgesOnly: false,
+    hasAllAgesVenue: false,
+    tagDetermined: true,
+    listTruncated: false,
+  }
+
+  it('blames nothing but the city when nothing was fetched', () => {
+    // Wins over every other signal: no filter can be responsible for a list
+    // that had no rows to begin with.
+    expect(
+      emptyRailReason({ ...base, cityEmpty: true, allAgesOnly: true }),
+    ).toBe('city-empty')
+  })
+
+  it('names the tag when it is determined and uncarried here', () => {
+    expect(emptyRailReason({ ...base, allAgesOnly: true })).toBe(
+      'all-ages-unseeded',
+    )
+  })
+
+  it('names the cap instead when the list is one truncated page', () => {
+    expect(
+      emptyRailReason({ ...base, allAgesOnly: true, listTruncated: true }),
+    ).toBe('all-ages-unseeded-in-view')
+  })
+
+  it('claims nothing about the tag when the lookup is undetermined', () => {
+    expect(
+      emptyRailReason({ ...base, allAgesOnly: true, tagDetermined: false }),
+    ).toBe('filters')
+  })
+
+  it('claims nothing about the tag when the city does carry it', () => {
+    // Some other chip did the excluding.
+    expect(
+      emptyRailReason({ ...base, allAgesOnly: true, hasAllAgesVenue: true }),
+    ).toBe('filters')
+  })
+
+  it('claims nothing about the tag when its chip is off', () => {
+    expect(emptyRailReason(base)).toBe('filters')
+  })
+
+  it('still names the tag when other chips are also on', () => {
+    // Deliberate: !hasAllAgesVenue proves the all-ages chip ALONE would have
+    // emptied the list, so naming the tag stays accurate in combination.
+    expect(emptyRailReason({ ...base, allAgesOnly: true })).toBe(
+      'all-ages-unseeded',
+    )
   })
 })
 
