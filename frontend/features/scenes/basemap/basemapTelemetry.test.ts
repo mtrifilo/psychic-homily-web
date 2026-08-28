@@ -135,22 +135,20 @@ describe('handleBasemapError', () => {
     )
 
     // AJAXError puts the whole URL in its message; the event must not carry it
-    // anywhere, however deeply nested.
-    expect(JSON.stringify(captureMessage.mock.calls[0])).not.toContain(
-      'https://'
-    )
+    // anywhere, however deeply nested. Asserted on the HOST, not on
+    // `'https://'`: a scrub that replaces the scheme but stops early at a
+    // query-legal character leaves the credential-bearing tail behind, and a
+    // scheme assertion goes green on exactly that leak.
+    const serialized = JSON.stringify(captureMessage.mock.calls[0])
+    // The bare hostname survives as a deliberate tag; the URL must not. Both
+    // halves are checked: the scheme (so nothing ships a whole URL) AND the
+    // path (so a scrub that stopped early cannot go green on the tail alone).
+    expect(serialized).not.toContain('://')
+    expect(serialized).not.toContain('/planet/')
     const options = captureMessage.mock.calls[0][1] as {
-      extra: { tilePath: string; errorMessage: string }
+      extra: { errorMessage: string }
     }
-    // The raw AJAXError message embeds the full URL; only the stripped form
-    // may ship.
     expect(options.extra.errorMessage).not.toContain(TILE_URL)
-    // Asserts the PROPERTY this test is about — origin and query gone — not
-    // toTelemetryPath's exact segment rules, which have their own 33 tests in
-    // lib/rate-limit-telemetry.test.ts and should be free to change without
-    // breaking a basemap test.
-    expect(options.extra.tilePath).not.toContain('tiles.openfreemap.org')
-    expect(options.extra.tilePath.startsWith('/')).toBe(true)
     expect(options.extra.errorMessage).toContain('<url>')
   })
 
@@ -187,23 +185,25 @@ describe('handleBasemapError', () => {
     expect(options.extra.tilePath).toBeUndefined()
   })
 
-  it('keys the throttle and the tag on the id that passed the filter', async () => {
+  it('tags the event with the basemap source id', async () => {
     const { handleBasemapError, captureMessage } = await freshSession()
 
     handleBasemapError(
       sourceErrorEvent(PH_BASEMAP_SOURCE_ID, ajaxError(503, TILE_URL))
     )
 
-    // Both the throttle key and the `basemap_source` tag must come from the
-    // event's own sourceId, never from the module constant. Keying on the
-    // constant makes the Set a boolean in disguise: the moment the GIBS
-    // follow-up widens the filter, the first source to fail would stamp the
-    // other one's slot and silence it for the session, and the event would be
-    // labelled with the wrong provider during an incident.
     const options = captureMessage.mock.calls[0][1] as {
       tags: { basemap_source: string }
     }
     expect(options.tags.basemap_source).toBe(PH_BASEMAP_SOURCE_ID)
+
+    // NOT covered, and deliberately not pretended otherwise: that the throttle
+    // and the tag read the EVENT's sourceId rather than the module constant.
+    // Past the filter the two are provably equal, so no test here can tell
+    // them apart -- the property only becomes observable once a second source
+    // is in scope. Whoever adds the GIBS raster must extract the accepted-id
+    // set and add a test that two sources get two independent throttle slots;
+    // keying on the constant would let the first failure silence the other.
   })
 
   it('ignores errors from other sources and from the map itself', async () => {
@@ -229,8 +229,8 @@ describe('handleBasemapError', () => {
     expect(console.error).toHaveBeenCalledWith(error)
   })
 
-  it('never hands the raw error to console.error in production', async () => {
-    vi.stubEnv('NODE_ENV', 'production')
+  it('never hands the raw error to console.error when Sentry is collecting', async () => {
+    vi.stubEnv('NEXT_PUBLIC_SENTRY_DSN', 'https://k@sentry.example.test/1')
     try {
       const { handleBasemapError } = await freshSession()
 
@@ -247,21 +247,40 @@ describe('handleBasemapError', () => {
       const logged = vi.mocked(console.error).mock.calls[0]
       expect(logged).toHaveLength(1)
       expect(typeof logged[0]).toBe('string')
-      expect(logged[0]).not.toContain('https://')
+      expect(logged[0]).not.toContain('tiles.openfreemap.org')
       expect(logged[0]).toContain('<url>')
     } finally {
       vi.unstubAllEnvs()
     }
   })
 
-  it('logs the raw error in development, where the stack is read', async () => {
+  it('logs the raw error when no DSN is set, where the stack is read', async () => {
     const { handleBasemapError } = await freshSession()
     const error = ajaxError(503, TILE_URL)
 
     handleBasemapError(sourceErrorEvent(PH_BASEMAP_SOURCE_ID, error))
 
-    // No breadcrumb is being shipped in dev, and the object carries the stack.
+    // No DSN means no breadcrumb ships, and the object carries the stack.
     expect(console.error).toHaveBeenCalledWith(error)
+  })
+
+  it('falls back to the error itself when the message is empty', async () => {
+    vi.stubEnv('NEXT_PUBLIC_SENTRY_DSN', 'https://k@sentry.example.test/1')
+    try {
+      const { handleBasemapError } = await freshSession()
+      // MapLibre's XHR path rejects with `new Error(xhr.statusText)`, and
+      // statusText is '' on a network error. A nullish-only fallback would
+      // log a blank line, having already discarded the type and stack.
+      const blank = Object.assign(new Error(''), { status: 0 })
+
+      handleBasemapError(sourceErrorEvent(PH_BASEMAP_SOURCE_ID, blank))
+
+      const logged = vi.mocked(console.error).mock.calls[0][0] as string
+      expect(logged).not.toBe('')
+      expect(logged).toContain('Error')
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it('never throws out of the handler when reporting fails', async () => {
@@ -297,6 +316,42 @@ describe('handleBasemapError', () => {
       sourceErrorEvent(PH_BASEMAP_SOURCE_ID, ajaxError(503, TILE_URL))
     )
     expect(captureMessage).toHaveBeenCalledTimes(1)
+
+    // Restored explicitly: the config sets no `restoreMocks`, and the global
+    // afterEach only clears call history, so a getter spy left installed here
+    // would leak a mocked navigator into every test that follows.
+    onLine.mockRestore()
+  })
+
+  it('scrubs a whole URL whose query contains commas, brackets or semicolons', async () => {
+    const { handleBasemapError, captureMessage } = await freshSession()
+    // Every one of these characters is LEGAL in a query string. A terminator
+    // set that treats them as the end of the URL leaves the tail — including
+    // anything credential-shaped — in the shipped message.
+    const nasty =
+      'https://tiles.example.com/x?BBOX=1,2,3,4&filter[]=a;jsessionid=SECRET123'
+    const error = Object.assign(
+      new Error(`AJAXError: Not Found (404): ${nasty}`),
+      { status: 404, url: nasty }
+    )
+
+    handleBasemapError(sourceErrorEvent(PH_BASEMAP_SOURCE_ID, error))
+
+    const serialized = JSON.stringify(captureMessage.mock.calls[0])
+    // The bare HOSTNAME is a deliberate tag (low cardinality, and the whole
+    // triage question) -- what must never ship is the path and query.
+    expect(serialized).not.toContain('SECRET123')
+    expect(serialized).not.toContain('jsessionid')
+    expect(serialized).not.toContain('BBOX')
+    expect(serialized).not.toContain('filter')
+    expect(serialized).not.toContain('://')
+
+    const options = captureMessage.mock.calls[0][1] as {
+      extra: { errorMessage: string }
+    }
+    expect(options.extra.errorMessage).toBe(
+      'AJAXError: Not Found (404): <url>'
+    )
   })
 
   it('keeps a URL embedded in a braced or quoted token from eating the rest', async () => {
