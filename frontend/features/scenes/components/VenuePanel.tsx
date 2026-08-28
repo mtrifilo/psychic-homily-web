@@ -418,7 +418,7 @@ export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
  * Ordering is the backend's: most-upvoted first (Wilson score), no staleness
  * cutoff. The named month is what lets the reader judge the note's age.
  *
- * It quotes the first note `pickVenueFieldNoteForTeaser` deems quotable HERE,
+ * It quotes the first note `pickFieldNoteForTeaser` deems quotable HERE,
  * not simply the top-ranked one. The gap between those matters most for
  * setlist spoilers: FieldNoteCard hides a flagged note behind a click-to-reveal
  * gate, this panel has nowhere to put one, and sorting by score means an
@@ -474,7 +474,7 @@ function FieldNotesTeaser({ venue }: { venue: VenueWithShowCount }) {
 
       {/* Plain text, not the backend's rendered `body_html`: no reason to open
           an HTML injection surface on the Atlas — which has no route-level
-          error boundary — for three clamped lines. `venueFieldNoteTeaserText`
+          error boundary — for three clamped lines. `fieldNoteTeaserText`
           is what keeps the Markdown SOURCE from showing its own asterisks.
 
           Marked as a quotation by the rule and the italics rather than by

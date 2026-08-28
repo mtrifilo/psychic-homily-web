@@ -1186,8 +1186,10 @@ func (s *CommentService) ListFieldNotesForVenue(venueID uint, limit, offset int)
 		return nil, errors.New("database not initialized")
 	}
 
+	// 25 to match the handler's own default, so a non-HTTP caller passing 0
+	// gets the documented page size rather than a quietly different one.
 	if limit <= 0 {
-		limit = 20
+		limit = 25
 	}
 	if offset < 0 {
 		offset = 0
@@ -1290,27 +1292,24 @@ func (s *CommentService) ListFieldNotesForVenue(venueID uint, limit, offset int)
 		}
 	}
 
-	// The bill, in running order. This is not optional decoration either: most
-	// shows carry no title of their own, so for the majority of notes the bill
-	// is the ONLY thing that can name the night the note is about.
+	// The bill, in running order. Not optional decoration: most shows carry no
+	// title of their own, so for the majority of notes the bill is the ONLY
+	// thing that can name the night the note is about.
+	//
+	// Uses the shared resolver rather than a local join. That is not just
+	// de-duplication — `show_artists.position` is NOT NULL DEFAULT 0 and ingest
+	// paths routinely leave a whole bill at 0, so a query without a tie-break
+	// returns tied rows in planner order. Since the display name is capped at
+	// three names plus "+N more", that would let the SAME note name different
+	// bands between two loads. The shared helper carries the `artists.id`
+	// tie-break added for exactly this hazard (PSY-1325).
 	billByShowID := make(map[uint][]string, len(showIDs))
 	if len(showIDs) > 0 {
-		type billRow struct {
-			ShowID uint
-			Name   string
-		}
-		var rows []billRow
-		if err := s.db.Table("show_artists").
-			Select("show_artists.show_id, artists.name").
-			Joins("JOIN artists ON artists.id = show_artists.artist_id").
-			Where("show_artists.show_id IN ?", showIDs).
-			Order("show_artists.show_id, show_artists.position").
-			Scan(&rows).Error; err != nil {
+		resolved, err := shared.BatchResolveShowArtistNames(s.db, showIDs)
+		if err != nil {
 			return nil, fmt.Errorf("failed to enrich venue field note bills: %w", err)
 		}
-		for _, r := range rows {
-			billByShowID[r.ShowID] = append(billByShowID[r.ShowID], r.Name)
-		}
+		billByShowID = resolved
 	}
 
 	notes := make([]*contracts.VenueFieldNote, len(comments))

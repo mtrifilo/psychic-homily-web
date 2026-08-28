@@ -84,6 +84,37 @@ describe('fieldNoteTeaserText', () => {
     expect(fieldNoteTeaserText('<script>alert(1)</script>')).toBe('alert(1)')
   })
 
+  // Angle brackets as COMPARISONS, which is ordinary prose. An unanchored
+  // `/<[^>]*>/` deletes everything between them and publicly misquotes a named
+  // author — and disagrees with the canonical renderer, since goldmark does
+  // not treat `< 3` as HTML either.
+  it('does not eat prose between comparison operators', () => {
+    expect(
+      fieldNoteTeaserText('2 < 3 but the set > everything else was loud'),
+    ).toBe('2 < 3 but the set > everything else was loud')
+    expect(
+      fieldNoteTeaserText('crowd was < 20 people and the vibe > any big room'),
+    ).toBe('crowd was < 20 people and the vibe > any big room')
+    expect(fieldNoteTeaserText('set at 9 <-> 11')).toBe('set at 9 <-> 11')
+  })
+
+  it('leaves intraword double underscores alone', () => {
+    expect(fieldNoteTeaserText('the set was snake__case__weird')).toBe(
+      'the set was snake__case__weird',
+    )
+    expect(fieldNoteTeaserText('DOOM__2024__tour was the shirt')).toBe(
+      'DOOM__2024__tour was the shirt',
+    )
+  })
+
+  it('keeps a link whose target contains parentheses intact', () => {
+    expect(
+      fieldNoteTeaserText(
+        'see [Doom (music)](https://en.wikipedia.org/wiki/Doom_(music)) for context',
+      ),
+    ).toBe('see Doom (music) for context')
+  })
+
   it('returns empty for a body that is only markup or whitespace', () => {
     expect(fieldNoteTeaserText('   \n\n  ')).toBe('')
     expect(fieldNoteTeaserText('##   ')).toBe('')

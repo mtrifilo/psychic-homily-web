@@ -2162,6 +2162,41 @@ func (suite *CommentServiceIntegrationTestSuite) TestListFieldNotesForVenue_Carr
 	suite.Equal([]string{"Neckbeard", "Gel"}, result.Notes[0].ShowArtists)
 }
 
+// `show_artists.position` is NOT NULL DEFAULT 0 and ingest paths routinely
+// leave a whole bill at 0, so a bill query without a tie-break returns tied
+// rows in planner order. The display name is capped at three names plus
+// "+N more", so that would let the SAME note name different bands between two
+// loads. The shared resolver's `artists.id` tie-break is what pins it.
+func (suite *CommentServiceIntegrationTestSuite) TestListFieldNotesForVenue_BillOrderIsStableAcrossTiedPositions() {
+	user := suite.createTestUser()
+	venueID := suite.createTestVenue("Tied Room")
+	showID := suite.createTestShowAt("", venueID,
+		time.Date(2024, 10, 10, 3, 0, 0, 0, time.UTC), catalogm.ShowStatusApproved)
+
+	// Every row at the column default, which is the ingest-path shape.
+	first := suite.createTestArtist("Aardvark")
+	second := suite.createTestArtist("Zebra")
+	for _, artistID := range []uint{second, first} {
+		suite.Require().NoError(suite.db.Create(&catalogm.ShowArtist{
+			ShowID: showID, ArtistID: artistID, Position: 0,
+		}).Error)
+	}
+
+	suite.insertFieldNote(user.ID, showID, "tied bill", 0.5, engagementm.CommentVisibilityVisible)
+
+	// Same answer every time, not merely once.
+	var seen [][]string
+	for i := 0; i < 3; i++ {
+		result, err := suite.commentService.ListFieldNotesForVenue(venueID, 25, 0)
+		suite.Require().NoError(err)
+		suite.Require().Len(result.Notes, 1)
+		seen = append(seen, result.Notes[0].ShowArtists)
+	}
+	suite.Equal(seen[0], seen[1])
+	suite.Equal(seen[0], seen[2])
+	suite.Len(seen[0], 2)
+}
+
 // Never nil on the wire: a null array would make every consumer write its own
 // `?? []` before it could compose a display name.
 func (suite *CommentServiceIntegrationTestSuite) TestListFieldNotesForVenue_BillIsEmptySliceNotNull() {

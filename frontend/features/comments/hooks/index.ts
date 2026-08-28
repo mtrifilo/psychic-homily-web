@@ -477,14 +477,18 @@ export function useVenueFieldNotes(
         `${fieldNoteEndpoints.LIST_FOR_VENUE(venueId)}?limit=${limit}`,
       ),
     enabled: (options?.enabled ?? true) && venueId > 0,
-    // The Atlas panel remounts on every pin click, so without this a user
-    // hopping venues around a dense metro spends a second anonymous read per
-    // hop on top of the panel's show fetch — against the shared per-IP
-    // public-read budget, where the 429 lands on whichever request loses the
-    // race (very possibly the SHOW list, which fails visibly). The rollup is
-    // not per-viewer and moves on the order of days, so re-opening a venue in
-    // the same session has nothing to re-ask.
-    staleTime: 10 * 60 * 1000,
+    // No staleTime override on purpose. The app-wide default in
+    // lib/queryClient.ts is already 15 minutes (gcTime 30), which is LONGER
+    // than anything worth setting here — an override would have to shorten the
+    // window to say anything at all, which is the opposite of what a
+    // rate-limit-sensitive read wants. Revisiting a venue inside a session is
+    // therefore already free.
+    //
+    // Worth being clear about what caching cannot buy: the panel remounts per
+    // pin click, and each venue is a distinct query key, so hopping N venues
+    // costs N reads against the shared anonymous per-IP budget no matter what
+    // this value is. If that ever bites, the fix is a note count on the venue
+    // payload the rail already loads, gating this fetch on `> 0`.
   })
 }
 

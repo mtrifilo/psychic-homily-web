@@ -86,10 +86,14 @@ export const fieldNoteQueryKeys = {
  * Notes fetched for the Atlas venue panel's teaser (PSY-1590).
  *
  * The teaser quotes ONE note, so this is a candidate pool rather than a page
- * size. `pickVenueFieldNoteForTeaser` skips notes it must not quote — setlist
- * spoilers, and notes whose show can no longer be named — and fetching only
- * the single best-ranked note would let one such note hide a section the venue
- * has perfectly good notes for.
+ * size. `pickFieldNoteForTeaser` skips notes it must not quote — setlist
+ * spoilers, and bodies that flatten to nothing — and fetching only the single
+ * best-ranked note would let one such note hide a section the venue has
+ * perfectly good notes for.
+ *
+ * An untitled show is explicitly NOT a skip: most shows carry no title, and
+ * the caller names them from the bill. Re-adding that skip would re-hide the
+ * teaser on the majority of venues.
  *
  * Five is a deliberate small number: it is enough that a run of skips is
  * unlikely to exhaust it, and small enough that the panel is not paying for

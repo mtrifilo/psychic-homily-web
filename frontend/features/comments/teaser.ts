@@ -51,15 +51,31 @@ export function fieldNoteTeaserText(body: string): string {
       // `body_html`, never `body` — so literal HTML would otherwise render its
       // angle brackets. Not an XSS fix (React escapes the text child either
       // way); it stops a passive panel from displaying `<b>loudest</b>`.
-      .replace(/<[^>]*>/g, ' ')
+      //
+      // Anchored to real TAG syntax — `<` plus a letter — rather than "any two
+      // angle brackets". A bare `/<[^>]*>/` deletes everything between them
+      // wherever they fall, so "2 < 3 but the set > everything else" loses its
+      // middle clause and a named author is publicly misquoted. Worse, it
+      // disagrees with the canonical renderer: goldmark does not treat `< 3` as
+      // HTML, so FieldNoteCard would show the whole sentence while this showed
+      // a mutilated one.
+      .replace(/<\/?[a-zA-Z][^\s>]*(?:\s[^>]*)?>/g, ' ')
       // Images before links: `![alt](src)` is a link pattern with a prefix, so
       // the link rule would otherwise eat it and leave a bare `!`.
-      .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
-      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-      // Paired double markers are unambiguous — no boundary needed.
+      // The target allows ONE level of balanced parens, because Wikipedia-style
+      // URLs carry them — `[Doom (music)](…/Doom_(music))` would otherwise stop
+      // at the inner `)` and leave a stray bracket in the quote.
+      .replace(/!\[([^\]]*)\]\((?:[^()]|\([^()]*\))*\)/g, '$1')
+      .replace(/\[([^\]]*)\]\((?:[^()]|\([^()]*\))*\)/g, '$1')
+      // `**` may stay unanchored: `*` is not intraword-legal as emphasis in
+      // CommonMark, so a paired `**` inside a word is still emphasis.
       .replace(/\*\*([^*]+)\*\*/g, '$1')
-      .replace(/__([^_]+)__/g, '$1')
       .replace(/~~([^~]+)~~/g, '$1')
+      // `__` DOES need the anchor, for the same reason the single `_` below
+      // does: CommonMark never treats intraword `__` as emphasis, so an
+      // unanchored rule turns `snake__case__weird` into `snakecaseweird` —
+      // deleting characters from somebody's verbatim words.
+      .replace(/(^|[\s([{])__(?!\s)([^_]*[^\s_])__(?=[\s)\]}.,!?;:]|$)/g, '$1$2')
       // Single markers only when they open and close at a word boundary, so
       // intraword underscores and free-standing bullet asterisks survive.
       .replace(/(^|[\s([{])\*(?!\s)([^*]*[^\s*])\*(?=[\s)\]}.,!?;:]|$)/g, '$1$2')
