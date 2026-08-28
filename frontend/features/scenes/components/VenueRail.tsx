@@ -22,6 +22,9 @@ import {
   type CityVenueFilters,
 } from '../cityView'
 
+/** Ties the all-ages chip to its "at least sometimes" caveat via aria-describedby. */
+const ALL_AGES_CAVEAT_ID = 'atlas-rail-all-ages-caveat'
+
 const GENRE_LABEL_BY_KEY: ReadonlyMap<string, string> = new Map(
   // Lowercased: the rail's meta line is running mono text ("… · punk &
   // hardcore"), not a legend entry, so the legend's title case would shout.
@@ -50,6 +53,15 @@ interface VenueRailProps {
    */
   totalVenueCount?: number
   loading?: boolean
+  /**
+   * The venue request failed and retries are exhausted. Distinct from
+   * `loading` and from an empty city: a request that never landed leaves the
+   * same zero rows a genuinely empty city does, and "No venues listed here
+   * yet" is then a flat lie about the place. Public reads here really do fail
+   * (the anonymous per-IP limiter 429s them), so the rail has to be able to
+   * say so.
+   */
+  fetchFailed?: boolean
   filters: CityVenueFilters
   onFiltersChange: (filters: CityVenueFilters) => void
   selectedVenueId: number | null
@@ -79,6 +91,7 @@ export function VenueRail({
   localArtistCount,
   totalVenueCount,
   loading = false,
+  fetchFailed = false,
   filters,
   onFiltersChange,
   selectedVenueId,
@@ -109,13 +122,14 @@ export function VenueRail({
   const emptyReason = useMemo(
     () =>
       emptyRailReason({
+        fetchFailed,
         cityEmpty: allVenues.length === 0,
         allAgesOnly: filters.allAgesOnly,
         hasAllAgesVenue: cityHasAllAgesVenue(allVenues),
         tagDetermined: cityAllAgesTagDetermined(allVenues),
         listTruncated,
       }),
-    [allVenues, filters.allAgesOnly, listTruncated],
+    [allVenues, fetchFailed, filters.allAgesOnly, listTruncated],
   )
 
   const activeGenreLabel = filters.genreFamily
@@ -229,6 +243,13 @@ export function VenueRail({
           <FilterChip
             active={filters.allAgesOnly}
             title="Venues that host all-ages shows at least sometimes"
+            /* The caveat below is the chip's DESCRIPTION, not decoration.
+               `title` alone leaves a screen-reader user with just the label
+               "All-ages shows" (most SRs drop title on an already-labelled
+               control), so the same sentence sighted users get is wired here
+               and rendered unconditionally — a description has to exist before
+               activation, not appear after it. */
+            describedById={ALL_AGES_CAVEAT_ID}
             onClick={() =>
               onFiltersChange({ ...filters, allAgesOnly: !filters.allAgesOnly })
             }
@@ -249,14 +270,27 @@ export function VenueRail({
             skip `title` on a control that already has a text label. Without
             this line, a phone user narrowing the list would see nothing but
             "All-ages shows" above it, which reads as a promise about every
-            night at every room listed. Rendered only when active, so the chip
-            row stays quiet in the default state. */}
-        {filters.allAgesOnly && (
-          <p className="mt-2 font-mono text-[11px] leading-4 text-muted-foreground">
-            rooms that host all-ages shows at least sometimes. check the
-            individual show.
-          </p>
-        )}
+            night at every room listed.
+
+            ALWAYS RENDERED, and merely hidden while the chip is off: it is the
+            chip's aria-describedby target, and a description that only exists
+            after activation is not a description. Visually it still appears
+            only when the filter is on, so the chip row stays quiet by default.
+
+            Copy agreed with the user directly (2026-08-27), NOT taken from the
+            Figma mock — the mock draws neither this line nor the "All-ages
+            shows" label, so do not "restore" either to match board 01. */}
+        <p
+          id={ALL_AGES_CAVEAT_ID}
+          className={
+            filters.allAgesOnly
+              ? 'mt-2 font-mono text-[11px] leading-4 text-muted-foreground'
+              : 'sr-only'
+          }
+        >
+          rooms that host all-ages shows at least sometimes. check the
+          individual show.
+        </p>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -322,13 +356,14 @@ export function VenueRail({
 /**
  * What the rail says when it has no rows to show.
  *
- * Four facts, four sentences, chosen by ONE discriminated value rather than a
+ * Five facts, five sentences, chosen by ONE discriminated value rather than a
  * set of booleans this component could combine into a contradiction. A filter
  * that matches nothing has to say WHY, or a working feature reads as a broken
  * one — and "no venues match these filters" is a claim about a CITY, which is
- * the wrong claim when the real answer is about our data. The all-ages tag
- * ships with near-zero coverage (PSY-1573 deliberately seeds none), so that
- * wrong reading would be the common one. emptyRailReason owns the precedence.
+ * the wrong claim when the real answer is about our data. The all-ages tag has
+ * near-zero coverage in production (PSY-1573 seeds no production data; the dev
+ * seed tags exactly one venue, the archive exemplar), so that wrong reading
+ * would be the common one. emptyRailReason owns the precedence.
  *
  * None of these invite the reader to go add the tag. There is nowhere to do it:
  * VenueDetail mounts EntityTagList but not the AddTagDialog + "[Add tag]"
@@ -345,10 +380,25 @@ function EmptyRail({
   reason: EmptyRailReason
   shownCount: number
 }) {
+  if (reason === 'fetch-failed') {
+    return (
+      <p className="px-4 py-6 text-sm text-muted-foreground">
+        Couldn’t load venues here. Try again in a moment.
+      </p>
+    )
+  }
   if (reason === 'city-empty') {
     return (
       <p className="px-4 py-6 text-sm text-muted-foreground">
         No venues listed here yet.
+      </p>
+    )
+  }
+  if (reason === 'all-ages-undetermined') {
+    return (
+      <p className="px-4 py-6 text-sm text-muted-foreground">
+        Couldn’t check which venues host all-ages shows just now. Clear the
+        filter to see the full list.
       </p>
     )
   }
@@ -388,12 +438,19 @@ function FilterChip({
   active = false,
   disabled = false,
   title,
+  describedById,
   onClick,
 }: {
   children: React.ReactNode
   active?: boolean
   disabled?: boolean
   title?: string
+  /**
+   * Id of an element describing this chip, wired as `aria-describedby`.
+   * `title` does NOT reach most screen readers on a control that already has a
+   * text label, so any caveat a chip's label depends on belongs here too.
+   */
+  describedById?: string
   onClick?: () => void
 }) {
   return (
@@ -401,6 +458,7 @@ function FilterChip({
       type="button"
       disabled={disabled}
       title={title}
+      aria-describedby={describedById}
       aria-pressed={disabled ? undefined : active}
       onClick={onClick}
       className={`${chipClass(active, disabled)} ${

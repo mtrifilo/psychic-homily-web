@@ -409,9 +409,11 @@ export function cityAllAgesTagDetermined(
 
 /** Why the rail has no rows to show. Exactly one of these is true. */
 export type EmptyRailReason =
+  | 'fetch-failed'
   | 'city-empty'
   | 'all-ages-unseeded'
   | 'all-ages-unseeded-in-view'
+  | 'all-ages-undetermined'
   | 'filters'
 
 /**
@@ -423,10 +425,21 @@ export type EmptyRailReason =
  * data. The all-ages tag ships with near-zero coverage, so that wrong reading
  * would be the common one.
  *
- * - `city-empty` wins first: nothing was fetched, so no filter is to blame.
+ * - `fetch-failed` wins outright. A request that never landed leaves the same
+ *   zero rows a genuinely empty city does, and "No venues listed here yet" is
+ *   then a flat lie about the place — the worst sentence in the set, since a
+ *   traveler has no way to tell it from the truth. Public reads here really do
+ *   fail (the anonymous per-IP limiter 429s them, invisibly to Sentry), so this
+ *   is a live path, not a hypothetical.
+ * - `city-empty` next: nothing was fetched, so no filter is to blame.
+ * - `all-ages-undetermined` comes next, because a failed lookup makes every
+ *   row read as untagged and `filterCityVenues` therefore drops ALL of them:
+ *   the rail and the map both go blank on a question we never got to ask.
+ *   Falling through to `filters` there would be true of the filter and still
+ *   leave a blank map looking like a broken feature, so this says outright
+ *   that the check did not happen.
  * - `all-ages-unseeded` needs the tag to be both DETERMINED and absent across
- *   the whole city. Undetermined (a failed lookup) falls through to `filters`,
- *   which claims nothing about the data.
+ *   the whole city.
  * - `all-ages-unseeded-in-view` is the same finding over a TRUNCATED list. The
  *   rail fetched one busiest-first page, and a tagged DIY room ranked below the
  *   cap is exactly the room this chip is for, so the sentence has to admit how
@@ -438,16 +451,17 @@ export type EmptyRailReason =
  * switched on, so naming the tag stays accurate in combination.
  */
 export function emptyRailReason(input: {
+  fetchFailed: boolean
   cityEmpty: boolean
   allAgesOnly: boolean
   hasAllAgesVenue: boolean
   tagDetermined: boolean
   listTruncated: boolean
 }): EmptyRailReason {
+  if (input.fetchFailed) return 'fetch-failed'
   if (input.cityEmpty) return 'city-empty'
-  if (!input.allAgesOnly || input.hasAllAgesVenue || !input.tagDetermined) {
-    return 'filters'
-  }
+  if (input.allAgesOnly && !input.tagDetermined) return 'all-ages-undetermined'
+  if (!input.allAgesOnly || input.hasAllAgesVenue) return 'filters'
   return input.listTruncated ? 'all-ages-unseeded-in-view' : 'all-ages-unseeded'
 }
 

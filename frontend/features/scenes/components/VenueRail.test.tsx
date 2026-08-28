@@ -301,10 +301,12 @@ describe('VenueRail', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('claims nothing about the tag when the lookup never answered', () => {
+  it('says the check failed rather than blaming the filters, when the tag never answered', () => {
     // `hosts_all_ages` absent means NOT DETERMINED (rail fields not requested,
-    // or the backend's tag query failed). Saying "no venue here is tagged" off
-    // that would assert an absence on the strength of a query that never ran.
+    // or the backend's tag query failed). Every row is then dropped, so the
+    // rail AND the map go blank; "no venues match these filters" would leave
+    // that looking like a broken feature, and "no venue here is tagged" would
+    // assert an absence on the strength of a query that never ran.
     renderRail({
       venues: [],
       allVenues: [venue({ id: 1, hosts_all_ages: undefined })],
@@ -314,8 +316,36 @@ describe('VenueRail', () => {
       screen.queryByText(/tagged for all-ages shows yet/),
     ).not.toBeInTheDocument()
     expect(
-      screen.getByText('No venues match these filters.'),
+      screen.queryByText('No venues match these filters.'),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByText(/Couldn’t check which venues host all-ages shows/),
     ).toBeInTheDocument()
+  })
+
+  it('says the request failed rather than calling the city empty', () => {
+    // A 429 or a dropped request leaves the same zero rows an empty city does.
+    renderRail({ venues: [], allVenues: [], fetchFailed: true })
+    expect(
+      screen.getByText(/Couldn’t load venues here/),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('No venues listed here yet.'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('describes the all-ages chip to assistive tech, not only in a tooltip', () => {
+    // `title` is dropped by most screen readers on an already-labelled
+    // control, so the caveat is also the chip's aria-describedby target — and
+    // it must exist BEFORE activation, hence rendered even while the chip is
+    // off.
+    renderRail()
+    const chip = screen.getByRole('button', { name: 'All-ages shows' })
+    const describedBy = chip.getAttribute('aria-describedby')
+    expect(describedBy).toBeTruthy()
+    expect(
+      document.getElementById(describedBy as string)?.textContent,
+    ).toMatch(/at least sometimes/)
   })
 
   it('promises no affordance the app does not have', () => {
@@ -345,7 +375,10 @@ describe('VenueRail', () => {
     // control that already has a label — so on the likeliest device the bare
     // chip label would be the only thing a reader sees.
     const { rerender } = renderRail()
-    expect(screen.queryByText(/at least sometimes/)).not.toBeInTheDocument()
+    // Present for assistive tech even when the chip is off (it is the chip's
+    // aria-describedby target), but visually hidden so the chip row stays
+    // quiet in the default state.
+    expect(screen.getByText(/at least sometimes/)).toHaveClass('sr-only')
 
     rerender(
       <VenueRail
@@ -362,7 +395,7 @@ describe('VenueRail', () => {
     )
     expect(
       screen.getByText(/host all-ages shows at least sometimes/),
-    ).toBeInTheDocument()
+    ).not.toHaveClass('sr-only')
   })
 
   it('says the city is empty before it blames any filter', () => {

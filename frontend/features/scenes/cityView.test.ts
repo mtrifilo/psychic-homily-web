@@ -407,6 +407,7 @@ describe('cityAllAgesTagDetermined', () => {
 
 describe('emptyRailReason', () => {
   const base = {
+    fetchFailed: false,
     cityEmpty: false,
     allAgesOnly: false,
     hasAllAgesVenue: false,
@@ -414,8 +415,22 @@ describe('emptyRailReason', () => {
     listTruncated: false,
   }
 
+  it('reports a failed request ahead of everything else', () => {
+    // A request that never landed leaves the same zero rows an empty city
+    // does, and "no venues listed here yet" would then be a flat lie about the
+    // place — the worst sentence in the set.
+    expect(
+      emptyRailReason({
+        ...base,
+        fetchFailed: true,
+        cityEmpty: true,
+        allAgesOnly: true,
+      }),
+    ).toBe('fetch-failed')
+  })
+
   it('blames nothing but the city when nothing was fetched', () => {
-    // Wins over every other signal: no filter can be responsible for a list
+    // Wins over every filter signal: no filter can be responsible for a list
     // that had no rows to begin with.
     expect(
       emptyRailReason({ ...base, cityEmpty: true, allAgesOnly: true }),
@@ -434,10 +449,18 @@ describe('emptyRailReason', () => {
     ).toBe('all-ages-unseeded-in-view')
   })
 
-  it('claims nothing about the tag when the lookup is undetermined', () => {
+  it('says the check did not happen when the lookup is undetermined', () => {
+    // Not 'filters': an undetermined tag makes filterCityVenues drop EVERY
+    // row, so the rail and the map both go blank on a question we never got to
+    // ask. Blaming the user's filters there leaves a broken-looking view.
     expect(
       emptyRailReason({ ...base, allAgesOnly: true, tagDetermined: false }),
-    ).toBe('filters')
+    ).toBe('all-ages-undetermined')
+  })
+
+  it('ignores an undetermined tag when its chip is off', () => {
+    // Nothing was filtered on it, so it cannot be the explanation.
+    expect(emptyRailReason({ ...base, tagDetermined: false })).toBe('filters')
   })
 
   it('claims nothing about the tag when the city does carry it', () => {
