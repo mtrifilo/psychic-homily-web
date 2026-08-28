@@ -4,6 +4,7 @@ import path from 'node:path'
 import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec'
 import type { StyleSpecification } from 'maplibre-gl'
 import phDarkBasemap from './ph-dark-basemap.json'
+import { NIGHT_EARTH_SOURCE_ID } from './nightEarthRaster'
 import {
   PH_BASEMAP_MIN_ZOOM,
   PH_BASEMAP_SOURCE_ID,
@@ -46,7 +47,11 @@ const AVAILABLE_FONTS = new Set([
 // Layer ids GlobeCanvas appends after the basemap fragment — a collision
 // would make the merged style invalid and abort the load.
 const GLOBE_CANVAS_LAYER_IDS = ['earth', 'scene-rings', 'scene-dots']
-const GLOBE_CANVAS_SOURCE_IDS = ['nightEarth', 'scenes', 'scene-rings']
+const GLOBE_CANVAS_SOURCE_IDS = [
+  NIGHT_EARTH_SOURCE_ID,
+  'scenes',
+  'scene-rings',
+]
 
 function collectRemoteUrls(s: StyleSpecification): string[] {
   const urls: string[] = []
