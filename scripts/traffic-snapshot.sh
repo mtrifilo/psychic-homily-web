@@ -173,6 +173,9 @@ esac
 case "$WINDOW_DAYS" in
   ''|*[!0-9]*) die "--days must be a positive integer, got '$WINDOW_DAYS'" ;;
 esac
+# Normalize before any $(( )) sees it: a leading zero ("08") would otherwise
+# be read as octal — an arithmetic error, or a silently smaller window.
+WINDOW_DAYS=$((10#$WINDOW_DAYS))
 [ "$WINDOW_DAYS" -gt 0 ] || die "--days must be greater than zero"
 
 # Default matches gsc-snapshot.sh (GSC data lags 2-3 days), so bare same-day
@@ -230,9 +233,9 @@ CAPTURED_ON="$(date -u +%Y-%m-%d)"
 # from before this change keep their capture-date names; they are historical.
 DOC_NAME="traffic-snapshot-${SINCE}_${UNTIL}.md"
 
-# Checked twice on purpose. Here so a mistaken re-run fails immediately instead
-# of after nine API calls, and again just before the move, which is the only
-# check that actually closes the race.
+# Early check so a mistaken re-run fails immediately instead of after nine
+# API calls; the publication step's `mv -n` is what actually closes the
+# overwrite race.
 if [ -e "$OUT_DIR/$DOC_NAME" ] && [ "$FORCE" -ne 1 ]; then
   die "$OUT_DIR/$DOC_NAME already exists; move it or pass --force to overwrite"
 fi
@@ -404,6 +407,10 @@ DOC_PATH="$WORK_DIR/$DOC_NAME"
 
 **Window:** ${SINCE} → ${UNTIL} (${WINDOW_DAYS} days, inclusive).
 Source: Vercel Web Analytics REST API, captured by \`scripts/traffic-snapshot.sh\`.
+The default window ends three days before capture to align with the paired
+GSC capture's data lag — Vercel itself serves data through the capture date,
+so a gap before "captured" above is deliberate, not a failed run (pass an
+explicit \`--until\` for an unpaired right-up-to-now read).
 
 Vercel serves only a bounded trailing window of analytics data, so this file is
 the durable record. Re-run the script monthly, before the window rolls past the
@@ -559,13 +566,17 @@ EOF
 mkdir -p "$OUT_DIR" || die "could not create output directory: $OUT_DIR"
 
 # The generated doc carries a hand-written Interpretation section. Silently
-# overwriting it would destroy analysis that cannot be regenerated, which is the
-# opposite of what a script whose whole purpose is durability should do.
-if [ -e "$OUT_DIR/$DOC_NAME" ] && [ "$FORCE" -ne 1 ]; then
-  die "$OUT_DIR/$DOC_NAME already exists; move it or pass --force to overwrite"
+# overwriting it would destroy analysis that cannot be regenerated, which is
+# the opposite of what a script whose whole purpose is durability should do.
+# `mv -n` never overwrites, so a destination that appeared mid-run (the
+# check-then-move race the early existence test only narrows) leaves the
+# staged source behind — detected and fatal — instead of clobbering.
+if [ "$FORCE" -ne 1 ]; then
+  mv -n "$DOC_PATH" "$OUT_DIR/$DOC_NAME" || die "could not write snapshot to $OUT_DIR"
+  [ -e "$DOC_PATH" ] && die "$OUT_DIR/$DOC_NAME appeared during the run; refusing to overwrite it"
+else
+  mv "$DOC_PATH" "$OUT_DIR/$DOC_NAME" || die "could not write snapshot to $OUT_DIR"
 fi
-
-mv "$DOC_PATH" "$OUT_DIR/$DOC_NAME" || die "could not write snapshot to $OUT_DIR"
 
 echo "traffic-snapshot: wrote ${OUT_DIR}/${DOC_NAME}" >&2
 echo "${OUT_DIR}/${DOC_NAME}"
