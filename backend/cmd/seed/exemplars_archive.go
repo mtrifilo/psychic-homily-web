@@ -335,7 +335,11 @@ func seedExemplarArchiveVenue(db *gorm.DB, userID uint) uint {
 		{"Punk", "punk", catalogm.TagCategoryGenre},
 		{"Experimental", "experimental", catalogm.TagCategoryGenre},
 		{"Phoenix", "phoenix", catalogm.TagCategoryLocale},
-		{"All Ages", "all-ages", catalogm.TagCategoryOther},
+		// Through the constant, not the literal: this venue is the reason
+		// TagSlugAllAges reads "all-ages" rather than something newly minted,
+		// and the Atlas rail's chip matches on exactly that slug. A rename that
+		// touched only one of the two would silently empty the chip.
+		{"All Ages", catalogm.TagSlugAllAges, catalogm.TagCategoryOther},
 		{"Deep Archive", "deep-archive", catalogm.TagCategoryOther},
 	})
 

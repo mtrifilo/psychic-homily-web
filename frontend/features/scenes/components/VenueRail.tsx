@@ -241,8 +241,8 @@ export function VenueRail({
             row stays quiet in the default state. */}
         {filters.allAgesOnly && (
           <p className="mt-2 font-mono text-[11px] leading-4 text-muted-foreground">
-            rooms that host all-ages shows at least sometimes — check the
-            individual show
+            rooms that host all-ages shows at least sometimes. check the
+            individual show.
           </p>
         )}
       </header>
