@@ -4,6 +4,7 @@ import {
   NIGHT_EARTH_TILES,
   NIGHT_EARTH_TILE_HOST,
 } from './nightEarthRaster'
+import { PH_BASEMAP_SOURCE_ID } from './phBasemap'
 
 /**
  * The host constant is written out rather than parsed from the template (no
@@ -19,8 +20,7 @@ describe('night-earth raster constants', () => {
     expect(new URL(NIGHT_EARTH_TILES).hostname).toBe(NIGHT_EARTH_TILE_HOST)
   })
 
-  it('keeps the source id distinct from the vector source', async () => {
-    const { PH_BASEMAP_SOURCE_ID } = await import('./phBasemap')
+  it('keeps the source id distinct from the vector source', () => {
     // Two sources sharing an id would collapse basemapTelemetry's per-source
     // throttle back into one slot — the first failure would silence the other.
     expect(NIGHT_EARTH_SOURCE_ID).not.toBe(PH_BASEMAP_SOURCE_ID)
