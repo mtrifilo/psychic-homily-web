@@ -299,7 +299,13 @@ describe.each(TILE_SOURCES)(
   }
 )
 
-describe('handleBasemapError across sources', () => {
+/**
+ * The rest: properties that are either ABOUT the cross-source behaviour, or
+ * about the scrub and console paths, which are source-independent by
+ * construction (they never read the sourceId) and so are exercised once
+ * against the vector source rather than duplicated per source.
+ */
+describe('handleBasemapError, cross-source and scrubbing', () => {
   it('gives each tile source its own report slot', async () => {
     const { handleBasemapError, captureMessage } = await freshSession()
 

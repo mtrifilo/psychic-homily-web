@@ -66,6 +66,13 @@
  * outage, by roughly however many in-app navigations affected users make.
  * Count distinct users or events, not sessions.
  *
+ * The raster undercounts for a second, different reason: its layer is capped
+ * at the crossfade end, so past street zoom MapLibre fetches no GIBS tile at
+ * all. A session that deep-links straight to a city and never pulls back to
+ * the globe cannot report a GIBS failure — there is nothing broken to see at
+ * that zoom either, but it does mean a GIBS event count is a floor on affected
+ * sessions, not a measure of them.
+ *
  * SCOPE: THE TWO TILE-HOSTING SOURCES
  *
  * Only errors carrying one of the two basemap tile sources' `sourceId` report:
@@ -122,8 +129,13 @@ import { PH_BASEMAP_SOURCE_ID, PH_BASEMAP_STYLE_HOST } from './phBasemap'
  *
  * A map, not two ifs: the host fallback has to be picked per source, and a
  * single lookup makes it impossible to widen the filter without also deciding
- * what host the new source degrades to. Adding a third tile host means adding
- * one entry here and nothing else.
+ * what host the new source degrades to. A third tile host is one entry here
+ * and no other change in this module.
+ *
+ * A Map rather than a plain object, deliberately: this is keyed by a string
+ * that arrives from MapLibre, and an object lookup would answer truthily for
+ * `constructor`, `toString` and friends — reporting a "basemap failure" for a
+ * source that does not exist, with an inherited function as its host.
  */
 const REPORTED_SOURCE_HOSTS = new Map<string, string>([
   [PH_BASEMAP_SOURCE_ID, PH_BASEMAP_STYLE_HOST],
