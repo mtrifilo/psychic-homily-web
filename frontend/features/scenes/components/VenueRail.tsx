@@ -10,6 +10,7 @@ import {
   cityContributionSegments,
   cityDataUpdatedAt,
   cityGenreFamilies,
+  cityHasAllAgesVenue,
   cityRailStats,
   formatNextShowDate,
   nextShowBill,
@@ -90,6 +91,13 @@ export function VenueRail({
   )
   const contributionSegments = useMemo(
     () => cityContributionSegments(cityContributionCounts(allVenues)),
+    [allVenues],
+  )
+  // Over the UNFILTERED list on purpose — it is what separates "no venue here
+  // carries the tag" from "your filters happened to exclude everything". See
+  // cityHasAllAgesVenue and EmptyRail.
+  const hasAllAgesVenue = useMemo(
+    () => cityHasAllAgesVenue(allVenues),
     [allVenues],
   )
 
@@ -189,15 +197,30 @@ export function VenueRail({
             </span>
           </span>
 
-          {/* Disabled placeholders, exactly as the mock draws them. The
-              tag-vs-column question for "All ages" is settled: it is the
-              free-text `venues.age_policy` column. The chip stays disabled
-              because the rail has no filter wired to it yet, not because the
-              data is missing. "Record stores" is a later chapter of the
-              travel-mode project. */}
-          <FilterChip disabled title="Age filter isn’t available yet">
-            All ages
+          {/* "All-ages shows", not the mock's "All ages" (user decision,
+              PSY-1573). The tag-vs-column question is settled the other way
+              from what this comment used to say: the filter reads the canonical
+              `all-ages` TAG, not the free-text `venues.age_policy` column.
+              age_policy is the HOUSE DEFAULT, and the traveler's question is
+              "can I get in to something here", which a 21+ room booking an
+              all-ages matinee answers yes to and its column answers no to.
+
+              Hence the copy. The tag means the room hosts all-ages shows AT
+              LEAST SOMETIMES, so the chip names the shows rather than the room:
+              a bare "All ages" beside a venue name reads as a promise about
+              every night there, which nobody has made. */}
+          <FilterChip
+            active={filters.allAgesOnly}
+            title="Venues that host all-ages shows at least sometimes"
+            onClick={() =>
+              onFiltersChange({ ...filters, allAgesOnly: !filters.allAgesOnly })
+            }
+          >
+            All-ages shows
           </FilterChip>
+          {/* Still a disabled placeholder, exactly as the mock draws it —
+              record stores are a later chapter of the travel-mode project, and
+              the Atlas has no non-venue places on it at all yet. */}
           <FilterChip disabled title="Record stores aren’t on the Atlas yet">
             Record stores
           </FilterChip>
@@ -210,11 +233,15 @@ export function VenueRail({
             Loading venues…
           </p>
         ) : venues.length === 0 ? (
-          <p className="px-4 py-6 text-sm text-muted-foreground">
-            {allVenues.length === 0
-              ? 'No venues listed here yet.'
-              : 'No venues match these filters.'}
-          </p>
+          <EmptyRail
+            cityEmpty={allVenues.length === 0}
+            /* The all-ages message is claimed ONLY when the tag is what came up
+               empty — no venue here carries it — rather than whenever the chip
+               happens to be on. With another chip also active, "nothing here is
+               tagged" would be a guess at which filter did the excluding. This
+               test is exact, so it is never a guess. */
+            allAgesUnseeded={filters.allAgesOnly && !hasAllAgesVenue}
+          />
         ) : (
           <ul>
             {venues.map((venue) => (
@@ -265,6 +292,53 @@ export function VenueRail({
         </p>
       </footer>
     </aside>
+  )
+}
+
+/**
+ * What the rail says when it has no rows to show.
+ *
+ * Three different facts, three different sentences — because a filter that
+ * matches nothing has to say WHY, or a working feature reads as a broken one.
+ * "No venues match these filters" is a claim about this city's rooms, and it is
+ * the WRONG claim when the real answer is that nobody has tagged them yet: the
+ * all-ages tag ships with near-zero coverage (PSY-1573 deliberately seeds no
+ * data), so the honest default state of that chip is this empty state, and it
+ * has to point at the gap rather than let a reader conclude a city has no
+ * all-ages rooms.
+ */
+function EmptyRail({
+  cityEmpty,
+  allAgesUnseeded,
+}: {
+  cityEmpty: boolean
+  allAgesUnseeded: boolean
+}) {
+  if (cityEmpty) {
+    return (
+      <p className="px-4 py-6 text-sm text-muted-foreground">
+        No venues listed here yet.
+      </p>
+    )
+  }
+  if (allAgesUnseeded) {
+    return (
+      <div className="px-4 py-6 text-sm text-muted-foreground">
+        <p>No venue here is tagged for all-ages shows yet.</p>
+        {/* Says "not yet recorded", never "there are none". The venues exist;
+            the tag is what's missing, and it is community-contributed — so the
+            absence is a gap in our data, not a fact about the city. */}
+        <p className="mt-2">
+          The tag is added by people who know the room, so this stays empty
+          until someone marks a venue here. It doesn’t mean the city has none.
+        </p>
+      </div>
+    )
+  }
+  return (
+    <p className="px-4 py-6 text-sm text-muted-foreground">
+      No venues match these filters.
+    </p>
   )
 }
 

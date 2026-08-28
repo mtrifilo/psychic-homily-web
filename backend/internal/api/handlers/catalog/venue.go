@@ -71,7 +71,7 @@ type ListVenuesRequest struct {
 	TagMatch string `query:"tag_match" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`
 	// Opt-in because filling these fields costs three extra batched
 	// aggregations per page. Only the Atlas city-view rail renders them.
-	IncludeRail bool `query:"include_rail" doc:"Include the Atlas city-view rail fields: next_show_date/title/artists, shows_this_week, dominant_genre"`
+	IncludeRail bool `query:"include_rail" doc:"Include the Atlas city-view rail fields: next_show_date/title/artists, shows_this_week, dominant_genre, hosts_all_ages"`
 	// Opt-in for the same reason include_rail is: it changes which venues the
 	// browse page's city filter returns, and that filter means the literal
 	// city there. Only the Atlas city rail wants the metro reading.

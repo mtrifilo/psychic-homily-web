@@ -12,9 +12,10 @@ import (
 // Atlas city-view rail enrichment for GET /venues.
 //
 // The rail renders one dense row per venue — name, upcoming count, and a meta
-// line "NEXT <date> · <bill> · <genre family>". Everything here exists to fill
-// that meta line for a PAGE of venues in a fixed number of queries: three
-// batched scans keyed by the page's venue IDs, never one query per venue.
+// line "NEXT <date> · <bill> · <genre family>" — plus the header's filter
+// chips. Everything here exists to fill that row for a PAGE of venues in a
+// fixed number of queries: four batched scans keyed by the page's venue IDs,
+// never one query per venue.
 //
 // Every aggregation is BEST EFFORT. The rail's reason to exist is the venue
 // list; a missing meta line degrades a row, a failed list degrades the page.
@@ -196,6 +197,41 @@ func (s *VenueService) venueDominantGenres(venueIDs []uint, now time.Time) (map[
 	return out, nil
 }
 
+// venueHostsAllAges returns the subset of the given venue IDs that carry the
+// canonical all-ages tag (catalogm.TagSlugAllAges) — the data behind the rail's
+// "All-ages shows" chip (PSY-1573).
+//
+// Read off entity_tags rather than a venues column, by user decision: this is a
+// crowd-maintained claim about a room, which is what the tag system is for, and
+// it needed no migration. Deliberately NOT derived from venues.age_policy — see
+// TagSlugAllAges — because the column is the HOUSE DEFAULT and the tag is
+// "sometimes", so a 21+ room that books all-ages matinees is invisible to the
+// column and visible here. That is the whole point of the chip.
+//
+// A venue absent from the returned set is UNTAGGED, which means "nobody has
+// said", never "this room is 21+". The rail's empty state has to carry that
+// distinction; the boolean on the wire cannot.
+func (s *VenueService) venueHostsAllAges(venueIDs []uint) (map[uint]bool, error) {
+	var taggedIDs []uint
+	err := s.db.Raw(`
+		SELECT et.entity_id
+		FROM entity_tags et
+		JOIN tags t ON t.id = et.tag_id
+		WHERE et.entity_type = ?
+		  AND et.entity_id IN ?
+		  AND t.slug = ?
+	`, catalogm.TagEntityVenue, venueIDs, catalogm.TagSlugAllAges).Scan(&taggedIDs).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to look up all-ages venue tags: %w", err)
+	}
+
+	out := make(map[uint]bool, len(taggedIDs))
+	for _, id := range taggedIDs {
+		out[id] = true
+	}
+	return out, nil
+}
+
 // venueLocalDate renders an instant as the ISO calendar date a person standing
 // at the venue would call it. A show at 9pm Friday in Austin is stored as a
 // Saturday-morning UTC timestamp; rendering it in UTC would put "NEXT Sat" on a
@@ -236,10 +272,20 @@ func (s *VenueService) enrichVenueRailFields(responses []*contracts.VenueWithSho
 		slog.Default().Error("venue genre aggregation failed; rail renders untinted", "error", err)
 		genres = nil
 	}
+	allAges, err := s.venueHostsAllAges(venueIDs)
+	if err != nil {
+		// Best effort like the rest, and the failure mode is the safe one: every
+		// venue reads as untagged, so the chip finds nothing and the rail says
+		// so. The opposite default would claim rooms host all-ages shows on the
+		// strength of a failed query.
+		slog.Default().Error("venue all-ages tag lookup failed; rail treats every venue as untagged", "error", err)
+		allAges = nil
+	}
 
 	for _, r := range responses {
 		r.ShowsThisWeek = weekCounts[r.ID]
 		r.DominantGenre = genres[r.ID]
+		r.HostsAllAges = allAges[r.ID]
 		if next, ok := nextShows[r.ID]; ok {
 			r.NextShowDate = venueLocalDate(next.Date, r.Timezone)
 			r.NextShowTitle = next.Title

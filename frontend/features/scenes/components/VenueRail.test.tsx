@@ -169,13 +169,13 @@ describe('VenueRail', () => {
     renderRail({ onFiltersChange })
     fireEvent.click(screen.getByRole('button', { name: 'Next 7 days' }))
     expect(onFiltersChange).toHaveBeenCalledWith({
+      ...NO_CITY_VENUE_FILTERS,
       thisWeekOnly: true,
-      genreFamily: null,
     })
   })
 
   it('reflects an active Next 7 days filter as pressed', () => {
-    renderRail({ filters: { thisWeekOnly: true, genreFamily: null } })
+    renderRail({ filters: { ...NO_CITY_VENUE_FILTERS, thisWeekOnly: true } })
     expect(screen.getByRole('button', { name: 'Next 7 days' })).toHaveAttribute(
       'aria-pressed',
       'true',
@@ -202,15 +202,93 @@ describe('VenueRail', () => {
       target: { value: 'punk_hardcore' },
     })
     expect(onFiltersChange).toHaveBeenCalledWith({
-      thisWeekOnly: false,
+      ...NO_CITY_VENUE_FILTERS,
       genreFamily: 'punk_hardcore',
     })
   })
 
-  it('ships the undecided chips disabled rather than guessing at a filter', () => {
+  it('reports an all-ages pick without disturbing the other chips', () => {
+    const onFiltersChange = vi.fn()
+    renderRail({
+      onFiltersChange,
+      filters: { ...NO_CITY_VENUE_FILTERS, thisWeekOnly: true },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'All-ages shows' }))
+    expect(onFiltersChange).toHaveBeenCalledWith({
+      ...NO_CITY_VENUE_FILTERS,
+      thisWeekOnly: true,
+      allAgesOnly: true,
+    })
+  })
+
+  it('marks the all-ages chip pressed while it is on', () => {
+    renderRail({ filters: { ...NO_CITY_VENUE_FILTERS, allAgesOnly: true } })
+    expect(
+      screen.getByRole('button', { name: 'All-ages shows' }),
+    ).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('names the shows rather than the room, so the chip promises no more than the tag does', () => {
+    // The tag means "hosts all-ages shows AT LEAST SOMETIMES" (PSY-1573). A
+    // bare "All ages" beside a venue name reads as a claim about every night
+    // there, which nobody has made.
     renderRail()
-    expect(screen.getByRole('button', { name: 'All ages' })).toBeDisabled()
+    expect(
+      screen.queryByRole('button', { name: 'All ages' }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'All-ages shows' })).toHaveAttribute(
+      'title',
+      'Venues that host all-ages shows at least sometimes',
+    )
+  })
+
+  it('keeps the record-stores chip disabled rather than guessing at a filter', () => {
+    renderRail()
+    expect(screen.getByRole('button', { name: 'All-ages shows' })).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Record stores' })).toBeDisabled()
+  })
+
+  it('blames the missing tag, not the city, when nothing here is tagged', () => {
+    // The honest empty state (PSY-1573). Coverage is near-zero, so this IS the
+    // default state of the chip — and "No venues match these filters" would let
+    // a reader conclude the city has no all-ages rooms, which we never claimed.
+    renderRail({
+      venues: [],
+      allVenues: [venue({ id: 1, hosts_all_ages: undefined })],
+      filters: { ...NO_CITY_VENUE_FILTERS, allAgesOnly: true },
+    })
+    expect(
+      screen.getByText(/No venue here is tagged for all-ages shows yet/),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/doesn’t mean the city has none/)).toBeInTheDocument()
+    expect(
+      screen.queryByText('No venues match these filters.'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('falls back to the generic empty state when the tag is not what came up empty', () => {
+    // The city HAS a tagged venue, so an empty list here is some other chip's
+    // doing. Claiming "nothing is tagged" would be a guess, and a false one.
+    renderRail({
+      venues: [],
+      allVenues: [venue({ id: 1, hosts_all_ages: true, shows_this_week: 0 })],
+      filters: { ...NO_CITY_VENUE_FILTERS, allAgesOnly: true, thisWeekOnly: true },
+    })
+    expect(
+      screen.getByText('No venues match these filters.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(/tagged for all-ages shows yet/),
+    ).not.toBeInTheDocument()
+  })
+
+  it('says the city is empty before it blames any filter', () => {
+    renderRail({
+      venues: [],
+      allVenues: [],
+      filters: { ...NO_CITY_VENUE_FILTERS, allAgesOnly: true },
+    })
+    expect(screen.getByText('No venues listed here yet.')).toBeInTheDocument()
   })
 
   it('offers no list-level confirm affordance', () => {

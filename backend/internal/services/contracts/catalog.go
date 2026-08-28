@@ -751,6 +751,22 @@ type VenueWithShowCountResponse struct {
 	// inside a fixed recent window, past and upcoming alike. venueDominantGenres
 	// owns the window and the reasons for it.
 	DominantGenre string `json:"dominant_genre,omitempty"`
+	// HostsAllAges reports that this venue carries the canonical all-ages tag
+	// (catalogm.TagSlugAllAges) — it hosts all-ages shows AT LEAST SOMETIMES.
+	// Drives the rail's "All-ages shows" chip (PSY-1573).
+	//
+	// FALSE MEANS UNTAGGED, NOT 21+. Nobody has said either way, and coverage
+	// is near-zero until the tag is seeded, so a client must never render this
+	// as an age claim about the room — the only honest use is narrowing a list
+	// and saying plainly when the narrowing finds nothing. It is also NOT the
+	// house-default age rule; that is AgePolicy on the embedded venue, and a
+	// 21+ AgePolicy alongside a true HostsAllAges is a coherent room, not a
+	// contradiction.
+	//
+	// No omitempty, deliberately: a rail row's absent boolean and its false
+	// boolean would be indistinguishable on the wire, and the field is only
+	// ever populated under IncludeRailFields anyway.
+	HostsAllAges bool `json:"hosts_all_ages"`
 }
 
 // VenueListingEntry is a venue reduced to the two fields a link needs: the slug
@@ -838,9 +854,9 @@ type VenueListFilters struct {
 	// (default) the venues must have every tag in TagSlugs (AND).
 	TagMatchAny bool
 	// IncludeRailFields opts in to the Atlas city-view payload
-	// (VenueWithShowCountResponse's next-show / next-7-days / dominant-genre
-	// fields). OFF by default and deliberately explicit: filling it costs
-	// three extra batched aggregations, and the venue browse page — the
+	// (VenueWithShowCountResponse's next-show / next-7-days / dominant-genre /
+	// all-ages fields). OFF by default and deliberately explicit: filling it
+	// costs four extra batched aggregations, and the venue browse page — the
 	// endpoint's other caller — renders none of those fields.
 	IncludeRailFields bool
 	// MetroRollup widens a City+State filter from that literal city to the

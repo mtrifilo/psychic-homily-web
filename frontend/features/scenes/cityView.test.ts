@@ -10,8 +10,10 @@ import {
   cityContributionSegments,
   cityDataUpdatedAt,
   cityGenreFamilies,
+  cityHasAllAgesVenue,
   cityRailStats,
   filterCityVenues,
+  NO_CITY_VENUE_FILTERS,
   formatNextShowDate,
   formatPanelShowDate,
   nextShowBill,
@@ -270,40 +272,112 @@ describe('filterCityVenues', () => {
   const all = [mohawk, hotelVegas, untinted]
 
   it('passes everything through with no filters', () => {
-    expect(
-      filterCityVenues(all, { thisWeekOnly: false, genreFamily: null }),
-    ).toEqual(all)
+    expect(filterCityVenues(all, NO_CITY_VENUE_FILTERS)).toEqual(all)
   })
 
   it('drops venues with nothing booked in the next 7 days', () => {
     expect(
-      filterCityVenues(all, { thisWeekOnly: true, genreFamily: null }),
+      filterCityVenues(all, { ...NO_CITY_VENUE_FILTERS, thisWeekOnly: true }),
     ).toEqual([mohawk, untinted])
   })
 
   it('narrows to one genre family', () => {
     expect(
-      filterCityVenues(all, { thisWeekOnly: false, genreFamily: 'rock_indie' }),
+      filterCityVenues(all, {
+        ...NO_CITY_VENUE_FILTERS,
+        genreFamily: 'rock_indie',
+      }),
     ).toEqual([hotelVegas])
   })
 
   it('excludes untinted venues from any genre-family filter', () => {
     expect(
-      filterCityVenues(all, { thisWeekOnly: false, genreFamily: 'punk_hardcore' }),
+      filterCityVenues(all, {
+        ...NO_CITY_VENUE_FILTERS,
+        genreFamily: 'punk_hardcore',
+      }),
     ).toEqual([mohawk])
   })
 
   it('applies both filters together', () => {
     expect(
-      filterCityVenues(all, { thisWeekOnly: true, genreFamily: 'rock_indie' }),
+      filterCityVenues(all, {
+        ...NO_CITY_VENUE_FILTERS,
+        thisWeekOnly: true,
+        genreFamily: 'rock_indie',
+      }),
     ).toEqual([])
   })
 
   it('treats a missing shows_this_week as zero', () => {
     const noField = venue({ id: 4, shows_this_week: undefined })
     expect(
-      filterCityVenues([noField], { thisWeekOnly: true, genreFamily: null }),
+      filterCityVenues([noField], {
+        ...NO_CITY_VENUE_FILTERS,
+        thisWeekOnly: true,
+      }),
     ).toEqual([])
+  })
+
+  it('narrows to venues tagged for all-ages shows', () => {
+    const tagged = venue({ id: 5, name: 'Rebel Lounge', hosts_all_ages: true })
+    expect(
+      filterCityVenues([...all, tagged], {
+        ...NO_CITY_VENUE_FILTERS,
+        allAgesOnly: true,
+      }),
+    ).toEqual([tagged])
+  })
+
+  it('treats a missing hosts_all_ages as untagged, not as all-ages', () => {
+    // The tag has near-zero coverage, so "we don't know" is the common case.
+    // Passing an unknown venue through would fill the chip with rooms nobody
+    // has vouched for — the exact overpromise the tag's semantics forbid.
+    const unknown = venue({ id: 6, hosts_all_ages: undefined })
+    expect(
+      filterCityVenues([unknown], {
+        ...NO_CITY_VENUE_FILTERS,
+        allAgesOnly: true,
+      }),
+    ).toEqual([])
+  })
+
+  it('applies the all-ages narrowing alongside the other chips', () => {
+    const quiet = venue({ id: 7, shows_this_week: 0, hosts_all_ages: true })
+    const busy = venue({ id: 8, shows_this_week: 2, hosts_all_ages: true })
+    expect(
+      filterCityVenues([quiet, busy], {
+        ...NO_CITY_VENUE_FILTERS,
+        thisWeekOnly: true,
+        allAgesOnly: true,
+      }),
+    ).toEqual([busy])
+  })
+})
+
+describe('cityHasAllAgesVenue', () => {
+  it('is true when any venue carries the tag', () => {
+    expect(
+      cityHasAllAgesVenue([
+        venue({ id: 1 }),
+        venue({ id: 2, hosts_all_ages: true }),
+      ]),
+    ).toBe(true)
+  })
+
+  it('is false when the city is simply untagged', () => {
+    // The distinction the rail's empty state turns on: nothing here says these
+    // rooms are 21+, only that nobody has tagged them.
+    expect(
+      cityHasAllAgesVenue([
+        venue({ id: 1, hosts_all_ages: false }),
+        venue({ id: 2, hosts_all_ages: undefined }),
+      ]),
+    ).toBe(false)
+  })
+
+  it('is false for an empty list', () => {
+    expect(cityHasAllAgesVenue([])).toBe(false)
   })
 })
 

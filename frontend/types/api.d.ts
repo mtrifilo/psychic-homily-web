@@ -17954,6 +17954,7 @@ export interface components {
             description?: string;
             dominant_genre?: string;
             geocode_precision?: string;
+            hosts_all_ages: boolean;
             /** Format: int64 */
             id: number;
             image_url: string | null;
@@ -34797,7 +34798,7 @@ export interface operations {
                  * @example all
                  */
                 tag_match?: "all" | "any";
-                /** @description Include the Atlas city-view rail fields: next_show_date/title/artists, shows_this_week, dominant_genre */
+                /** @description Include the Atlas city-view rail fields: next_show_date/title/artists, shows_this_week, dominant_genre, hosts_all_ages */
                 include_rail?: boolean;
                 /** @description Widen the city+state filter to the whole US Census CBSA metro, matching how Atlas scenes are keyed (Tempe lists under Phoenix). Requires both city and state; ignored when 'cities' is set. */
                 metro_rollup?: boolean;

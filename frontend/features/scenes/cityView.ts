@@ -313,11 +313,23 @@ export interface CityVenueFilters {
   thisWeekOnly: boolean
   /** Genre-family key from the "All genres" chip, or null for all. */
   genreFamily: string | null
+  /**
+   * "All-ages shows" chip: only venues carrying the canonical `all-ages` tag
+   * (PSY-1573).
+   *
+   * The name says `Only` for the same reason `thisWeekOnly` does — it narrows
+   * the list — but read `VenueWithShowCount.hosts_all_ages` before wording
+   * anything from it. The tag means "hosts all-ages shows AT LEAST SOMETIMES",
+   * so this narrows to rooms someone has vouched for, NOT to rooms where every
+   * show is all-ages. An excluded venue is untagged, not 21+.
+   */
+  allAgesOnly: boolean
 }
 
 export const NO_CITY_VENUE_FILTERS: CityVenueFilters = {
   thisWeekOnly: false,
   genreFamily: null,
+  allAgesOnly: false,
 }
 
 /**
@@ -334,8 +346,25 @@ export function filterCityVenues(
     if (filters.genreFamily && v.dominant_genre !== filters.genreFamily) {
       return false
     }
+    if (filters.allAgesOnly && !v.hosts_all_ages) return false
     return true
   })
+}
+
+/**
+ * Whether ANY venue in this city carries the all-ages tag.
+ *
+ * Read over the UNFILTERED list, and it exists to keep the rail's empty state
+ * honest (PSY-1573). "No venues match these filters" would be a claim about
+ * this city's rooms; when the tag is simply uncarried here — the default, since
+ * coverage is near-zero — the true statement is about the DATA, and the rail
+ * must say that one instead. Distinguishing the two needs the whole city, which
+ * `filterCityVenues` has already thrown away by the time the rail renders.
+ */
+export function cityHasAllAgesVenue(
+  venues: readonly Pick<VenueWithShowCount, 'hosts_all_ages'>[],
+): boolean {
+  return venues.some((v) => v.hosts_all_ages === true)
 }
 
 /**
