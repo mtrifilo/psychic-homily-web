@@ -12,14 +12,16 @@
 #
 # Run it monthly, BEFORE the retention window rolls past the month you care
 # about. The generated markdown (in gitignored docs/research/) is the durable
-# record.
+# record — and it lives ONLY on this machine: docs/ is deliberately
+# gitignored and no off-machine copy exists as of 2026-08, so preservation
+# beyond this machine is an open question, not a solved one.
 #
 # The monthly capture is a PAIR: run scripts/gsc-snapshot.sh over the same
 # window for the Search Console side (impressions, queries, CTR, position) —
-# Vercel sees only the clicks that became visits. (PSY-1928; supersedes the
-# PSY-1836-era note that no GSC credential existed.) Paired runs must pass
-# explicit --since/--until to BOTH scripts: the default windows differ (this
-# script ends at today, gsc-snapshot.sh at today-2 for GSC data lag).
+# Vercel sees only the clicks that became visits. Paired runs must pass
+# explicit --since/--until to BOTH scripts, ending the shared window at
+# today-3: the default windows differ (this script ends at today,
+# gsc-snapshot.sh at today-3 for GSC data lag).
 #
 # Usage:
 #   scripts/traffic-snapshot.sh [--out DIR] [--days N] [--since DATE] [--until DATE]
@@ -31,7 +33,8 @@
 #   --days N       Length of the trailing window in days. Default: 28.
 #   --since DATE   Explicit window start (YYYY-MM-DD). Overrides --days.
 #   --until DATE   Explicit window end (YYYY-MM-DD), inclusive. Default: today.
-#   --force        Overwrite an existing snapshot for today (refused by default).
+#   --force        Overwrite an existing snapshot for this window (refused by
+#                  default).
 #
 # Requires: bash, curl, jq, python3, and VERCEL_API_KEY in the environment
 # (`source ~/.zshrc`).
@@ -76,8 +79,9 @@ Usage:
   --days N       Length of the trailing window in days. Default: 28.
   --since DATE   Explicit window start (YYYY-MM-DD). Overrides --days.
   --until DATE   Explicit window end (YYYY-MM-DD), inclusive. Default: today.
-  --force        Overwrite an existing snapshot for today. Refused by default,
-                 because the generated doc carries hand-written analysis.
+  --force        Overwrite an existing snapshot for this window. Refused by
+                 default, because the generated doc carries hand-written
+                 analysis.
 
 Requires VERCEL_API_KEY in the environment (source ~/.zshrc), plus curl, jq,
 and python3.
@@ -199,7 +203,12 @@ fi
 DIM_UNTIL="$(shift_date "$UNTIL" 1)"
 
 CAPTURED_ON="$(date -u +%Y-%m-%d)"
-DOC_NAME="traffic-snapshot-${CAPTURED_ON}.md"
+# Keyed on the WINDOW, not the capture date, matching gsc-snapshot.sh: the
+# paired artifacts link by name, several same-day runs over different windows
+# (e.g. a monthly 28-day plus a quarterly 90-day) cannot collide, and --force
+# can no longer destroy a DIFFERENT window's hand-annotated snapshot. Files
+# from before this change keep their capture-date names; they are historical.
+DOC_NAME="traffic-snapshot-${SINCE}_${UNTIL}.md"
 
 # Checked twice on purpose. Here so a mistaken re-run fails immediately instead
 # of after nine API calls, and again just before the move, which is the only
@@ -518,10 +527,12 @@ scripts/traffic-snapshot.sh --since ${SINCE} --until ${UNTIL}
 \`\`\`
 
 Google Search Console data (impressions, queries, CTR, position) is NOT in
-this file: capture it with \`scripts/gsc-snapshot.sh\` over the SAME window —
-pass explicit \`--since\`/\`--until\` to both scripts, because their default
-windows differ (this script ends at today; gsc-snapshot.sh at today-2 for
-GSC data lag).
+this file: capture it with
+\`scripts/gsc-snapshot.sh --since ${SINCE} --until ${UNTIL}\`, which writes
+\`gsc-snapshot-${SINCE}_${UNTIL}.md\` alongside this file. Pass explicit
+dates to both scripts — their defaults differ (this script ends at today;
+gsc-snapshot.sh at today-3 for GSC data lag), and the shared window should
+end at today-3 so the GSC side is fully served.
 EOF
 } >"$DOC_PATH"
 
