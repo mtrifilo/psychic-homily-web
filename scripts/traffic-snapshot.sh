@@ -4,21 +4,29 @@
 #
 # WHY THIS EXISTS
 # ---------------
-# Vercel serves only a bounded trailing window of Web Analytics data. Anything
-# older than that window is unrecoverable: there is no export, no archive, and
-# no support path to get it back. A month that nobody captured is a month that
-# never happened. This script turns what used to be a hand-run curl sequence
-# into one reproducible command so the capture actually gets done on schedule.
+# Vercel serves only a bounded trailing window of Web Analytics data —
+# ~12 months on the current Pro plan, but the plan tier has changed under
+# this project before, so re-probe before relying on the limit. Anything
+# older than the window is gone: no export, no archive, no support path.
+# A month that nobody captured within the window is a month that never
+# happened. This script turns what used to be a hand-run curl sequence into
+# one reproducible command so the capture actually gets done on schedule.
 #
 # Run it monthly, BEFORE the retention window rolls past the month you care
-# about. The generated markdown is the durable record; commit it.
+# about. The generated markdown (in gitignored docs/research/) is the durable
+# record — and it lives ONLY on this machine: docs/ is deliberately
+# gitignored and no off-machine copy exists as of 2026-08, so preservation
+# beyond this machine is an open question, not a solved one.
 #
-# OUT OF SCOPE: Google Search Console. PSY-1836 established that no API
-# credential exists for GSC, so impressions and query data cannot be captured
-# here. Search Console numbers stay a manual, in-console read.
+# The monthly capture is a PAIR: run scripts/gsc-snapshot.sh over the same
+# window for the Search Console side (impressions, queries, CTR, position) —
+# Vercel sees only the clicks that became visits. Both scripts default their
+# window end to today-3 (GSC data lags 2-3 days), so bare same-day paired
+# runs cover the same window and produce name-linked files; explicit
+# --since/--until on both is still preferred for reproducibility.
 #
 # Usage:
-#   scripts/traffic-snapshot.sh [--out DIR] [--days N] [--since DATE] [--until DATE]
+#   scripts/traffic-snapshot.sh [--out DIR] [--days N] [--since DATE] [--until DATE] [--force]
 #
 #   --out DIR      Directory to write the snapshot into. Default: docs/research
 #                  relative to the repo root. NOTE: docs/ is gitignored and is
@@ -26,8 +34,13 @@
 #                  running anywhere other than the main checkout.
 #   --days N       Length of the trailing window in days. Default: 28.
 #   --since DATE   Explicit window start (YYYY-MM-DD). Overrides --days.
-#   --until DATE   Explicit window end (YYYY-MM-DD), inclusive. Default: today.
-#   --force        Overwrite an existing snapshot for today (refused by default).
+#   --until DATE   Explicit window end (YYYY-MM-DD), inclusive. Default: three
+#                  days before today (UTC), matching gsc-snapshot.sh so bare
+#                  paired runs cover the same window. (Vercel itself serves
+#                  data through today; pass --until explicitly for a
+#                  right-up-to-now unpaired read.)
+#   --force        Overwrite an existing snapshot for this window (refused by
+#                  default).
 #
 # Requires: bash, curl, jq, python3, and VERCEL_API_KEY in the environment
 # (`source ~/.zshrc`).
@@ -63,7 +76,7 @@ usage() {
 Capture a durable traffic snapshot from the Vercel Web Analytics REST API.
 
 Usage:
-  scripts/traffic-snapshot.sh [--out DIR] [--days N] [--since DATE] [--until DATE]
+  scripts/traffic-snapshot.sh [--out DIR] [--days N] [--since DATE] [--until DATE] [--force]
 
   --out DIR      Directory to write the snapshot into. Default: docs/research
                  relative to the repo root. docs/ is gitignored and absent from
@@ -71,9 +84,12 @@ Usage:
                  checkout.
   --days N       Length of the trailing window in days. Default: 28.
   --since DATE   Explicit window start (YYYY-MM-DD). Overrides --days.
-  --until DATE   Explicit window end (YYYY-MM-DD), inclusive. Default: today.
-  --force        Overwrite an existing snapshot for today. Refused by default,
-                 because the generated doc carries hand-written analysis.
+  --until DATE   Explicit window end (YYYY-MM-DD), inclusive. Default: three
+                 days before today (UTC), matching gsc-snapshot.sh so bare
+                 paired runs cover the same window.
+  --force        Overwrite an existing snapshot for this window. Refused by
+                 default, because the generated doc carries hand-written
+                 analysis.
 
 Requires VERCEL_API_KEY in the environment (source ~/.zshrc), plus curl, jq,
 and python3.
@@ -145,12 +161,27 @@ command -v python3 >/dev/null 2>&1 || die "python3 is required"
 
 [ -n "${VERCEL_API_KEY:-}" ] || die "VERCEL_API_KEY is not set (try: source ~/.zshrc)"
 
+# Pin the API base to Vercel's host over HTTPS: the bearer token is attached
+# to every request, so a stray override (typo, inherited env) would otherwise
+# ship the credential in cleartext or to an arbitrary host — silently, since
+# the script would just report an HTTP error.
+case "$API_BASE" in
+  https://api.vercel.com/*) ;;
+  *) die "VERCEL_ANALYTICS_API must be an https://api.vercel.com endpoint (got: ${API_BASE})" ;;
+esac
+
 case "$WINDOW_DAYS" in
   ''|*[!0-9]*) die "--days must be a positive integer, got '$WINDOW_DAYS'" ;;
 esac
+# Normalize before any $(( )) sees it: a leading zero ("08") would otherwise
+# be read as octal — an arithmetic error, or a silently smaller window.
+WINDOW_DAYS=$((10#$WINDOW_DAYS))
 [ "$WINDOW_DAYS" -gt 0 ] || die "--days must be greater than zero"
 
-[ -n "$UNTIL" ] || UNTIL="$(date -u +%Y-%m-%d)"
+# Default matches gsc-snapshot.sh (GSC data lags 2-3 days), so bare same-day
+# paired runs land on the same window and the same filename stem. Vercel
+# itself serves data through today; override --until for an unpaired read.
+[ -n "$UNTIL" ] || UNTIL="$(shift_date "$(date -u +%Y-%m-%d)" -3)"
 require_iso_date "$UNTIL" "--until"
 
 if [ -n "$SINCE" ]; then
@@ -195,11 +226,16 @@ fi
 DIM_UNTIL="$(shift_date "$UNTIL" 1)"
 
 CAPTURED_ON="$(date -u +%Y-%m-%d)"
-DOC_NAME="traffic-snapshot-${CAPTURED_ON}.md"
+# Keyed on the WINDOW, not the capture date, matching gsc-snapshot.sh: the
+# paired artifacts link by name, several same-day runs over different windows
+# (e.g. a monthly 28-day plus a quarterly 90-day) cannot collide, and --force
+# can no longer destroy a DIFFERENT window's hand-annotated snapshot. Files
+# from before this change keep their capture-date names; they are historical.
+DOC_NAME="traffic-snapshot-${SINCE}_${UNTIL}.md"
 
-# Checked twice on purpose. Here so a mistaken re-run fails immediately instead
-# of after nine API calls, and again just before the move, which is the only
-# check that actually closes the race.
+# Early check so a mistaken re-run fails immediately instead of after nine
+# API calls; the publication step's `mv -n` is what actually closes the
+# overwrite race.
 if [ -e "$OUT_DIR/$DOC_NAME" ] && [ "$FORCE" -ne 1 ]; then
   die "$OUT_DIR/$DOC_NAME already exists; move it or pass --force to overwrite"
 fi
@@ -227,7 +263,8 @@ api_get() {
 
   url="${API_BASE}/${endpoint}?teamId=${TEAM_ID}&projectId=${PROJECT_ID}&${query}"
 
-  set -- -sS --max-time 60 -o "$out_file" -w '%{http_code}' -K -
+  set -- -sS --max-time 60 -o "$out_file" -w '%{http_code}' \
+    --proto '=https' --proto-redir '=https' -K -
   if [ -n "$filter" ]; then
     set -- "$@" -G --data-urlencode "filter=${filter}"
   fi
@@ -370,6 +407,10 @@ DOC_PATH="$WORK_DIR/$DOC_NAME"
 
 **Window:** ${SINCE} → ${UNTIL} (${WINDOW_DAYS} days, inclusive).
 Source: Vercel Web Analytics REST API, captured by \`scripts/traffic-snapshot.sh\`.
+The default window ends three days before capture to align with the paired
+GSC capture's data lag — Vercel itself serves data through the capture date,
+so a gap before "captured" above is deliberate, not a failed run (pass an
+explicit \`--until\` for an unpaired right-up-to-now read).
 
 Vercel serves only a bounded trailing window of analytics data, so this file is
 the durable record. Re-run the script monthly, before the window rolls past the
@@ -513,22 +554,29 @@ source ~/.zshrc   # provides VERCEL_API_KEY
 scripts/traffic-snapshot.sh --since ${SINCE} --until ${UNTIL}
 \`\`\`
 
-Google Search Console data is NOT included: PSY-1836 established that no API
-credential exists, so impressions and queries have to be read manually in the
-Search Console UI.
+Google Search Console data (impressions, queries, CTR, position) is NOT in
+this file: capture it with
+\`scripts/gsc-snapshot.sh --since ${SINCE} --until ${UNTIL}\`, which writes
+\`gsc-snapshot-${SINCE}_${UNTIL}.md\` alongside this file. Both scripts
+default their window end to today-3 (GSC data lag), so bare same-day paired
+runs align; explicit dates are still preferred for reproducibility.
 EOF
 } >"$DOC_PATH"
 
 mkdir -p "$OUT_DIR" || die "could not create output directory: $OUT_DIR"
 
 # The generated doc carries a hand-written Interpretation section. Silently
-# overwriting it would destroy analysis that cannot be regenerated, which is the
-# opposite of what a script whose whole purpose is durability should do.
-if [ -e "$OUT_DIR/$DOC_NAME" ] && [ "$FORCE" -ne 1 ]; then
-  die "$OUT_DIR/$DOC_NAME already exists; move it or pass --force to overwrite"
+# overwriting it would destroy analysis that cannot be regenerated, which is
+# the opposite of what a script whose whole purpose is durability should do.
+# `mv -n` never overwrites, so a destination that appeared mid-run (the
+# check-then-move race the early existence test only narrows) leaves the
+# staged source behind — detected and fatal — instead of clobbering.
+if [ "$FORCE" -ne 1 ]; then
+  mv -n "$DOC_PATH" "$OUT_DIR/$DOC_NAME" || die "could not write snapshot to $OUT_DIR"
+  [ -e "$DOC_PATH" ] && die "$OUT_DIR/$DOC_NAME appeared during the run; refusing to overwrite it"
+else
+  mv "$DOC_PATH" "$OUT_DIR/$DOC_NAME" || die "could not write snapshot to $OUT_DIR"
 fi
-
-mv "$DOC_PATH" "$OUT_DIR/$DOC_NAME" || die "could not write snapshot to $OUT_DIR"
 
 echo "traffic-snapshot: wrote ${OUT_DIR}/${DOC_NAME}" >&2
 echo "${OUT_DIR}/${DOC_NAME}"
