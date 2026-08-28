@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import * as maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { useGraphPalette } from '@/components/graph/graphPalette'
+import { handleBasemapError } from '../basemap/basemapTelemetry'
 import { PH_BASEMAP_MIN_ZOOM, phBasemapFragment } from '../basemap/phBasemap'
 import type {
   CameraSettle,
@@ -778,6 +779,14 @@ export default function GlobeCanvas({
         ],
       },
     })
+    // Basemap failure signal (PSY-1568), registered FIRST so the style's own
+    // TileJSON fetch — the earliest thing that can fail — is already covered.
+    // The handler restores MapLibre's default console.error (attaching any
+    // listener suppresses it) and reports an OpenFreeMap vector-source failure
+    // to Sentry once per session; basemapTelemetry.ts owns the filtering and
+    // the throttle. Removed with the map in cleanup, like every listener here.
+    map.on('error', handleBasemapError)
+
     // See the constructor options: bearing/pitch must stay locked at 0 on
     // every input path (savedCamera deliberately persists only center/zoom).
     map.touchZoomRotate.disableRotation()
