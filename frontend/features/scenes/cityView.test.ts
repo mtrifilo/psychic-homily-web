@@ -22,6 +22,7 @@ import {
   venuesSpanMetro,
   venuePinPosition,
   venueProvenanceSegments,
+  venueFieldNoteAttribution,
   mergeVenueConfirmation,
 } from './cityView'
 
@@ -734,5 +735,65 @@ describe('mergeVenueConfirmation', () => {
       '2026-07-20T00:00:00Z',
     )
     expect(merged?.sources).toEqual(['community'])
+  })
+})
+
+// ── Field note attribution (PSY-1590) ─────────────────────────────────────
+
+describe('venueFieldNoteAttribution', () => {
+  it('names the show and the month it happened', () => {
+    expect(
+      venueFieldNoteAttribution(
+        'Doom Night',
+        '2024-06-15T04:00:00Z',
+        'TX',
+        'America/Chicago',
+      ),
+    ).toBe('Doom Night, Jun 2024')
+  })
+
+  it('reads the month in the VENUE timezone, not the viewer’s', () => {
+    // 2024-07-01T03:00:00Z is 10pm on JUN 30 in Austin. The panel is
+    // describing the venue's calendar, so this note is a June note however
+    // the reader's clock is set — the same rule formatPanelShowDate follows.
+    const instant = '2024-07-01T03:00:00Z'
+    expect(
+      venueFieldNoteAttribution('Late One', instant, 'TX', 'America/Chicago'),
+    ).toBe('Late One, Jun 2024')
+    expect(
+      venueFieldNoteAttribution('Late One', instant, 'NY', 'Europe/Berlin'),
+    ).toBe('Late One, Jul 2024')
+  })
+
+  it('returns nothing when the show cannot be named', () => {
+    // The caller renders NO teaser in this case. An unattributed quote in a
+    // venue panel reads as a standing verdict on the room, which is a claim
+    // no show-scoped field note ever made.
+    expect(
+      venueFieldNoteAttribution('', '2024-06-15T04:00:00Z', 'TX', null),
+    ).toBe('')
+    expect(
+      venueFieldNoteAttribution('   ', '2024-06-15T04:00:00Z', 'TX', null),
+    ).toBe('')
+    expect(
+      venueFieldNoteAttribution(null, '2024-06-15T04:00:00Z', 'TX', null),
+    ).toBe('')
+    expect(
+      venueFieldNoteAttribution(undefined, '2024-06-15T04:00:00Z', 'TX', null),
+    ).toBe('')
+  })
+
+  it('degrades to the show name when the date is unreadable', () => {
+    // The title alone still ties the note to a night; only the age hint is
+    // lost, so the note is kept rather than dropped. Never "Invalid Date".
+    expect(venueFieldNoteAttribution('Doom Night', 'nonsense', 'TX', null)).toBe(
+      'Doom Night',
+    )
+    expect(venueFieldNoteAttribution('Doom Night', null, 'TX', null)).toBe(
+      'Doom Night',
+    )
+    expect(venueFieldNoteAttribution('Doom Night', '', 'TX', null)).toBe(
+      'Doom Night',
+    )
   })
 })

@@ -44,6 +44,15 @@ export const fieldNoteEndpoints = {
     `${API_BASE_URL}/shows/${showId}/field-notes`,
   CREATE: (showId: number) =>
     `${API_BASE_URL}/shows/${showId}/field-notes`,
+  // PSY-1590: the venue ROLLUP — the notes written about shows held at a
+  // venue. Venues own no field notes of their own (`CreateFieldNote` writes
+  // entity_type='show'), so there is no CREATE twin here and there never will
+  // be; this is a read of show-scoped rows from a different direction.
+  //
+  // Numeric id only, like CONFIRM and unlike the id-or-slug venue reads — the
+  // backend refuses a slug at this path (see ListVenueFieldNotesRequest).
+  LIST_FOR_VENUE: (venueId: number) =>
+    `${API_BASE_URL}/venues/${venueId}/field-notes`,
 } as const
 
 // ============================================================================
@@ -65,4 +74,19 @@ export const fieldNoteQueryKeys = {
   all: ['field-notes'] as const,
   show: (showId: number) =>
     ['field-notes', showId] as const,
+  // Keyed on the limit as well as the venue (PSY-1698's rule): the Atlas
+  // teaser asks for ONE note, and a future surface asking for a page of them
+  // is a different question that must not be answered by whichever request
+  // happened to land first.
+  venue: (venueId: number, limit: number) =>
+    ['field-notes', 'venue', venueId, limit] as const,
 } as const
+
+/**
+ * Notes fetched for the Atlas venue panel's teaser (PSY-1590).
+ *
+ * One: the teaser quotes the single best-ranked note. The count beside it
+ * comes from the response's `total`, which spans the whole venue, so asking
+ * for more rows than are rendered would buy nothing.
+ */
+export const VENUE_FIELD_NOTE_TEASER_LIMIT = 1

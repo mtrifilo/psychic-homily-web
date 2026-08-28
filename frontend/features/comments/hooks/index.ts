@@ -9,6 +9,7 @@ import {
   commentPreferencesEndpoints,
   fieldNoteEndpoints,
   fieldNoteQueryKeys,
+  VENUE_FIELD_NOTE_TEASER_LIMIT,
 } from '../api'
 import type {
   Comment,
@@ -17,6 +18,7 @@ import type {
   CreateFieldNoteInput,
   FieldNoteStructuredData,
   ReplyPermission,
+  VenueFieldNoteListResponse,
 } from '../types'
 
 // ============================================================================
@@ -451,6 +453,30 @@ export function useFieldNotes(showId: number, options?: { enabled?: boolean }) {
     queryFn: () =>
       apiRequest<CommentListResponse>(fieldNoteEndpoints.LIST(showId)),
     enabled: (options?.enabled ?? true) && showId > 0,
+  })
+}
+
+/**
+ * The venue rollup (PSY-1590): the field notes written about shows held at a
+ * venue, best-first.
+ *
+ * There is no create twin and there never will be — see
+ * `fieldNoteEndpoints.LIST_FOR_VENUE`. `useCreateFieldNote` therefore does NOT
+ * invalidate this key: a note is always written against a show, and the writer
+ * is never standing in the Atlas venue panel when they write it.
+ */
+export function useVenueFieldNotes(
+  venueId: number,
+  options?: { enabled?: boolean; limit?: number },
+) {
+  const limit = options?.limit ?? VENUE_FIELD_NOTE_TEASER_LIMIT
+  return useQuery<VenueFieldNoteListResponse>({
+    queryKey: fieldNoteQueryKeys.venue(venueId, limit),
+    queryFn: () =>
+      apiRequest<VenueFieldNoteListResponse>(
+        `${fieldNoteEndpoints.LIST_FOR_VENUE(venueId)}?limit=${limit}`,
+      ),
+    enabled: (options?.enabled ?? true) && venueId > 0,
   })
 }
 

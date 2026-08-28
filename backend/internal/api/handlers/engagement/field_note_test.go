@@ -348,3 +348,131 @@ func TestListFieldNotes_ServerError(t *testing.T) {
 	})
 	testhelpers.AssertHumaError(t, err, 500)
 }
+
+// ============================================================================
+// Tests: ListVenueFieldNotes (PSY-1590 venue rollup)
+// ============================================================================
+
+func makeVenueFieldNote(id uint, showID uint, title string) *contracts.VenueFieldNote {
+	return &contracts.VenueFieldNote{
+		CommentResponse: *makeFieldNoteResponse(id, showID, 10),
+		ShowTitle:       title,
+		ShowSlug:        "a-show-slug",
+		ShowDate:        time.Date(2024, 6, 14, 3, 0, 0, 0, time.UTC),
+	}
+}
+
+// The venue rollup is numeric-id only by design (see ListVenueFieldNotesRequest).
+func TestListVenueFieldNotes_InvalidVenueID(t *testing.T) {
+	h := testFieldNoteHandler()
+	_, err := h.ListVenueFieldNotesHandler(context.Background(), &ListVenueFieldNotesRequest{
+		VenueID: "the-rebel-lounge",
+	})
+	testhelpers.AssertHumaError(t, err, 400)
+}
+
+func TestListVenueFieldNotes_Success(t *testing.T) {
+	mock := &testhelpers.MockFieldNoteService{
+		ListFieldNotesForVenueFn: func(venueID uint, limit, offset int) (*contracts.VenueFieldNoteListResponse, error) {
+			if venueID != 42 {
+				t.Errorf("expected venueID=42, got %d", venueID)
+			}
+			return &contracts.VenueFieldNoteListResponse{
+				Notes:   []*contracts.VenueFieldNote{makeVenueFieldNote(1, 7, "Doom Night")},
+				Total:   3,
+				HasMore: true,
+			}, nil
+		},
+	}
+	h := NewFieldNoteHandler(mock, mock, nil)
+	resp, err := h.ListVenueFieldNotesHandler(context.Background(), &ListVenueFieldNotesRequest{
+		VenueID: "42",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Total spans the whole venue, not the page — the teaser states it beside a
+	// single quoted note.
+	if resp.Body.Total != 3 {
+		t.Errorf("expected total=3, got %d", resp.Body.Total)
+	}
+	if len(resp.Body.Notes) != 1 {
+		t.Fatalf("expected 1 note, got %d", len(resp.Body.Notes))
+	}
+	// The show identity has to survive the handler: without it the teaser
+	// cannot say which night the note is about.
+	if resp.Body.Notes[0].ShowTitle != "Doom Night" {
+		t.Errorf("expected show title to survive, got %q", resp.Body.Notes[0].ShowTitle)
+	}
+	if resp.Body.Notes[0].ShowDate.IsZero() {
+		t.Error("expected show date to survive the handler")
+	}
+}
+
+func TestListVenueFieldNotes_DefaultAndCappedLimit(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		limit    int
+		expected int
+	}{
+		{"unset defaults to 25", 0, 25},
+		{"negative defaults to 25", -5, 25},
+		{"oversized caps at 100", 500, 100},
+		{"in-range passes through", 3, 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mock := &testhelpers.MockFieldNoteService{
+				ListFieldNotesForVenueFn: func(venueID uint, limit, offset int) (*contracts.VenueFieldNoteListResponse, error) {
+					if limit != tc.expected {
+						t.Errorf("expected limit=%d, got %d", tc.expected, limit)
+					}
+					return &contracts.VenueFieldNoteListResponse{
+						Notes: []*contracts.VenueFieldNote{},
+					}, nil
+				},
+			}
+			h := NewFieldNoteHandler(mock, mock, nil)
+			if _, err := h.ListVenueFieldNotesHandler(context.Background(), &ListVenueFieldNotesRequest{
+				VenueID: "42",
+				Limit:   tc.limit,
+			}); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+// A venue with no notes is the COMMON case, not an error — the panel renders no
+// section at all rather than an empty box.
+func TestListVenueFieldNotes_EmptyIsNotAnError(t *testing.T) {
+	mock := &testhelpers.MockFieldNoteService{
+		ListFieldNotesForVenueFn: func(venueID uint, limit, offset int) (*contracts.VenueFieldNoteListResponse, error) {
+			return &contracts.VenueFieldNoteListResponse{
+				Notes: []*contracts.VenueFieldNote{},
+			}, nil
+		},
+	}
+	h := NewFieldNoteHandler(mock, mock, nil)
+	resp, err := h.ListVenueFieldNotesHandler(context.Background(), &ListVenueFieldNotesRequest{
+		VenueID: "42",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Total != 0 || len(resp.Body.Notes) != 0 {
+		t.Errorf("expected an empty rollup, got total=%d notes=%d", resp.Body.Total, len(resp.Body.Notes))
+	}
+}
+
+func TestListVenueFieldNotes_ServerError(t *testing.T) {
+	mock := &testhelpers.MockFieldNoteService{
+		ListFieldNotesForVenueFn: func(venueID uint, limit, offset int) (*contracts.VenueFieldNoteListResponse, error) {
+			return nil, fmt.Errorf("database error")
+		},
+	}
+	h := NewFieldNoteHandler(mock, mock, nil)
+	_, err := h.ListVenueFieldNotesHandler(context.Background(), &ListVenueFieldNotesRequest{
+		VenueID: "42",
+	})
+	testhelpers.AssertHumaError(t, err, 500)
+}

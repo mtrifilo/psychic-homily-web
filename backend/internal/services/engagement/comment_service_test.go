@@ -359,6 +359,10 @@ func (suite *CommentServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM comment_votes")
 	_, _ = sqlDB.Exec("DELETE FROM comment_edits")
 	_, _ = sqlDB.Exec("DELETE FROM comments")
+	// Before `shows`: the join row references both sides, and these statements
+	// ignore their errors, so a child left standing would silently keep the
+	// parent rows alive and leak them into the next test's venue rollup.
+	_, _ = sqlDB.Exec("DELETE FROM show_venues")
 	_, _ = sqlDB.Exec("DELETE FROM shows")
 	_, _ = sqlDB.Exec("DELETE FROM releases")
 	_, _ = sqlDB.Exec("DELETE FROM festivals")
@@ -2046,4 +2050,221 @@ func (suite *CommentServiceIntegrationTestSuite) TestCreateComment_InvalidExplic
 	})
 	suite.Require().Error(err)
 	suite.Contains(err.Error(), "invalid reply_permission")
+}
+
+// =============================================================================
+// ListFieldNotesForVenue — the venue rollup (PSY-1590)
+// =============================================================================
+
+// createTestShowAt creates a show with an explicit status and event date and
+// links it to a venue, which is what makes it visible to the venue rollup.
+func (suite *CommentServiceIntegrationTestSuite) createTestShowAt(
+	title string,
+	venueID uint,
+	eventDate time.Time,
+	status catalogm.ShowStatus,
+) uint {
+	slug := fmt.Sprintf("%s-%d", title, time.Now().UnixNano())
+	show := &catalogm.Show{
+		Title:     title,
+		Slug:      &slug,
+		EventDate: eventDate,
+		Status:    status,
+	}
+	suite.Require().NoError(suite.db.Create(show).Error)
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{
+		ShowID:  show.ID,
+		VenueID: venueID,
+	}).Error)
+	return show.ID
+}
+
+// insertFieldNote writes a field note directly, bypassing the CreateFieldNote
+// gates (past-show, artist-on-bill, rate limit) that this read-side rollup does
+// not care about, and setting the Wilson score the rollup orders by.
+func (suite *CommentServiceIntegrationTestSuite) insertFieldNote(
+	userID uint,
+	showID uint,
+	body string,
+	score float64,
+	visibility engagementm.CommentVisibility,
+) *engagementm.Comment {
+	note := &engagementm.Comment{
+		EntityType:      engagementm.CommentEntityShow,
+		EntityID:        showID,
+		Kind:            engagementm.CommentKindFieldNote,
+		UserID:          userID,
+		Body:            body,
+		BodyHTML:        "<p>" + body + "</p>",
+		Visibility:      visibility,
+		ReplyPermission: engagementm.ReplyPermissionAnyone,
+		Score:           score,
+	}
+	suite.Require().NoError(suite.db.Create(note).Error)
+	return note
+}
+
+// The core of the ticket: a venue owns no field notes, so the rollup must reach
+// through the shows held there — and carry back which night each note is about.
+func (suite *CommentServiceIntegrationTestSuite) TestListFieldNotesForVenue_RollsUpNotesFromShows() {
+	user := suite.createTestUser()
+	venueID := suite.createTestVenue("Rollup Room")
+	showDate := time.Date(2024, 6, 14, 3, 0, 0, 0, time.UTC)
+	showID := suite.createTestShowAt("Doom Night", venueID, showDate, catalogm.ShowStatusApproved)
+
+	suite.insertFieldNote(user.ID, showID, "Loudest set of the year", 0.9, engagementm.CommentVisibilityVisible)
+
+	result, err := suite.commentService.ListFieldNotesForVenue(venueID, 25, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), result.Total)
+	suite.Require().Len(result.Notes, 1)
+
+	note := result.Notes[0]
+	suite.Equal("Loudest set of the year", note.Body)
+	suite.Equal(string(engagementm.CommentKindFieldNote), note.Kind)
+	// The show identity is what lets the teaser say "a note about THIS night",
+	// which is the whole reason a venue-level rollup is honest at all.
+	suite.Equal("Doom Night", note.ShowTitle)
+	suite.NotEmpty(note.ShowSlug)
+	suite.True(showDate.Equal(note.ShowDate), "want show date %v, got %v", showDate, note.ShowDate)
+	// EntityID is still the show — the rollup does not rewrite the note's own
+	// scope, it only reads it from a different direction.
+	suite.Equal(showID, note.EntityID)
+	suite.NotEmpty(note.AuthorName)
+}
+
+// Ordering is most-upvoted first with no staleness cutoff (locked decision):
+// the best note leads even when it is the oldest one at the venue.
+func (suite *CommentServiceIntegrationTestSuite) TestListFieldNotesForVenue_BestFirstRegardlessOfAge() {
+	user := suite.createTestUser()
+	venueID := suite.createTestVenue("Ordering Room")
+	oldShow := suite.createTestShowAt("Old Night", venueID,
+		time.Date(2019, 3, 2, 3, 0, 0, 0, time.UTC), catalogm.ShowStatusApproved)
+	newShow := suite.createTestShowAt("Recent Night", venueID,
+		time.Date(2026, 3, 2, 3, 0, 0, 0, time.UTC), catalogm.ShowStatusApproved)
+
+	suite.insertFieldNote(user.ID, oldShow, "best note, oldest show", 0.95, engagementm.CommentVisibilityVisible)
+	suite.insertFieldNote(user.ID, newShow, "newer but unloved", 0.10, engagementm.CommentVisibilityVisible)
+
+	result, err := suite.commentService.ListFieldNotesForVenue(venueID, 25, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(result.Notes, 2)
+	suite.Equal("best note, oldest show", result.Notes[0].Body)
+	suite.Equal("Old Night", result.Notes[0].ShowTitle)
+	suite.Equal("newer but unloved", result.Notes[1].Body)
+}
+
+// A venue-scoped read must not become a back door onto rows the show-scoped
+// endpoints already refuse to serve.
+func (suite *CommentServiceIntegrationTestSuite) TestListFieldNotesForVenue_ExcludesHiddenAndUnapproved() {
+	user := suite.createTestUser()
+	venueID := suite.createTestVenue("Gated Room")
+	date := time.Date(2024, 1, 5, 3, 0, 0, 0, time.UTC)
+
+	approved := suite.createTestShowAt("Approved Night", venueID, date, catalogm.ShowStatusApproved)
+	pending := suite.createTestShowAt("Pending Night", venueID, date, catalogm.ShowStatusPending)
+
+	suite.insertFieldNote(user.ID, approved, "visible note", 0.5, engagementm.CommentVisibilityVisible)
+	suite.insertFieldNote(user.ID, approved, "hidden note", 0.99, engagementm.CommentVisibilityHiddenByMod)
+	// A pending show's TITLE would leak through the attribution line even if
+	// the note body were innocuous, so the whole row is excluded.
+	suite.insertFieldNote(user.ID, pending, "note on a pending show", 0.99, engagementm.CommentVisibilityVisible)
+
+	result, err := suite.commentService.ListFieldNotesForVenue(venueID, 25, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), result.Total)
+	suite.Require().Len(result.Notes, 1)
+	suite.Equal("visible note", result.Notes[0].Body)
+}
+
+// Regular comments on a show are a different surface entirely — PSY-588 is the
+// precedent for how easily they leak when `kind` is left to the default.
+func (suite *CommentServiceIntegrationTestSuite) TestListFieldNotesForVenue_ExcludesRegularComments() {
+	user := suite.createTestUser()
+	venueID := suite.createTestVenue("Kind Room")
+	showID := suite.createTestShowAt("Kind Night", venueID,
+		time.Date(2024, 2, 2, 3, 0, 0, 0, time.UTC), catalogm.ShowStatusApproved)
+
+	suite.insertComment(user.ID, "show", showID, "just a discussion comment", nil, nil, 0)
+	suite.insertFieldNote(user.ID, showID, "an actual field note", 0.4, engagementm.CommentVisibilityVisible)
+
+	result, err := suite.commentService.ListFieldNotesForVenue(venueID, 25, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), result.Total)
+	suite.Require().Len(result.Notes, 1)
+	suite.Equal("an actual field note", result.Notes[0].Body)
+}
+
+// A note about a show at ANOTHER room is not a note about this room.
+func (suite *CommentServiceIntegrationTestSuite) TestListFieldNotesForVenue_ScopedToTheVenue() {
+	user := suite.createTestUser()
+	venueID := suite.createTestVenue("Mine")
+	otherVenueID := suite.createTestVenue("Theirs")
+	date := time.Date(2024, 4, 4, 3, 0, 0, 0, time.UTC)
+
+	mine := suite.createTestShowAt("My Night", venueID, date, catalogm.ShowStatusApproved)
+	theirs := suite.createTestShowAt("Their Night", otherVenueID, date, catalogm.ShowStatusApproved)
+
+	suite.insertFieldNote(user.ID, mine, "note at my room", 0.5, engagementm.CommentVisibilityVisible)
+	suite.insertFieldNote(user.ID, theirs, "note at their room", 0.9, engagementm.CommentVisibilityVisible)
+
+	result, err := suite.commentService.ListFieldNotesForVenue(venueID, 25, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), result.Total)
+	suite.Require().Len(result.Notes, 1)
+	suite.Equal("note at my room", result.Notes[0].Body)
+}
+
+// A show can be held at several venues; the venue filter must not fan one note
+// out into a duplicate row per venue link.
+func (suite *CommentServiceIntegrationTestSuite) TestListFieldNotesForVenue_NoDuplicateForMultiVenueShow() {
+	user := suite.createTestUser()
+	venueID := suite.createTestVenue("Primary")
+	secondVenueID := suite.createTestVenue("Secondary")
+	showID := suite.createTestShowAt("Two-Room Night", venueID,
+		time.Date(2024, 5, 5, 3, 0, 0, 0, time.UTC), catalogm.ShowStatusApproved)
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{
+		ShowID:  showID,
+		VenueID: secondVenueID,
+	}).Error)
+
+	suite.insertFieldNote(user.ID, showID, "one note, two rooms", 0.5, engagementm.CommentVisibilityVisible)
+
+	result, err := suite.commentService.ListFieldNotesForVenue(venueID, 25, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), result.Total)
+	suite.Require().Len(result.Notes, 1)
+}
+
+// The common case. An empty rollup is not an error, and the slice is never nil
+// so the caller can render "no section" instead of an empty box.
+func (suite *CommentServiceIntegrationTestSuite) TestListFieldNotesForVenue_EmptyIsGraceful() {
+	venueID := suite.createTestVenue("Quiet Room")
+
+	result, err := suite.commentService.ListFieldNotesForVenue(venueID, 25, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(0), result.Total)
+	suite.NotNil(result.Notes)
+	suite.Empty(result.Notes)
+	suite.False(result.HasMore)
+}
+
+// Total counts every note at the venue, not just the page — the teaser quotes
+// one note and states the count beside it.
+func (suite *CommentServiceIntegrationTestSuite) TestListFieldNotesForVenue_TotalSpansAllPages() {
+	user := suite.createTestUser()
+	venueID := suite.createTestVenue("Paged Room")
+	showID := suite.createTestShowAt("Paged Night", venueID,
+		time.Date(2024, 7, 7, 3, 0, 0, 0, time.UTC), catalogm.ShowStatusApproved)
+
+	suite.insertFieldNote(user.ID, showID, "first", 0.9, engagementm.CommentVisibilityVisible)
+	suite.insertFieldNote(user.ID, showID, "second", 0.5, engagementm.CommentVisibilityVisible)
+	suite.insertFieldNote(user.ID, showID, "third", 0.1, engagementm.CommentVisibilityVisible)
+
+	result, err := suite.commentService.ListFieldNotesForVenue(venueID, 1, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(3), result.Total)
+	suite.Require().Len(result.Notes, 1)
+	suite.Equal("first", result.Notes[0].Body)
+	suite.True(result.HasMore)
 }

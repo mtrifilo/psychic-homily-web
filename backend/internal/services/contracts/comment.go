@@ -128,6 +128,51 @@ type AuthoredFieldNote struct {
 	ShowSlug  string `json:"show_slug,omitempty"`
 }
 
+// VenueFieldNote is a show field note surfaced on a VENUE read surface
+// (PSY-1590).
+//
+// Field notes are show-scoped by construction — CreateFieldNote writes
+// entity_type='show' — so a venue never owns notes of its own. What a venue
+// surface can honestly show is a ROLLUP: the notes people wrote about shows
+// held in that room. The show's title, slug and date therefore ride along on
+// every row and are NOT optional decoration: they are the whole difference
+// between "someone said this about a night at this venue" and a venue-level
+// impression the data cannot support. A caller that drops them misattributes
+// the note.
+//
+// Sibling of AuthoredFieldNote (the contributor-profile rollup), kept separate
+// rather than widening that one. The profile answers "what has this person
+// written" and reads fine without a date; this answers "what did people say
+// about nights here" and is misleading without one.
+//
+// ShowSlug is carried even though today's only consumer (the Atlas venue
+// panel teaser) renders the attribution as plain text: it is the show's
+// addressable identity, it comes free from the same enrichment query as the
+// title, and its absence is what would force a backend round-trip the day a
+// surface does want to link the night it names.
+type VenueFieldNote struct {
+	CommentResponse
+	// ShowTitle is the title of the show the note was written about. Empty
+	// when the show row is gone — the note still renders, unattributed to a
+	// title, rather than being dropped.
+	ShowTitle string `json:"show_title" doc:"Title of the show the note was written about; empty when the show row is gone"`
+	ShowSlug  string `json:"show_slug,omitempty" required:"false" doc:"Slug of the show the note was written about; empty when the show has none"`
+	// ShowDate is the show's event date — the "Jun 2024" half of the
+	// attribution line. Zero when the show row is gone.
+	ShowDate time.Time `json:"show_date" doc:"Event date of the show the note was written about"`
+}
+
+// VenueFieldNoteListResponse is the paginated venue field-note rollup.
+//
+// `Total` counts every visible field note across all approved shows at the
+// venue, not just the page — the teaser surfaces it as a plain note count
+// beside a single quoted note.
+type VenueFieldNoteListResponse struct {
+	Notes   []*VenueFieldNote `json:"notes" doc:"Notes ordered best-first (Wilson score DESC), then newest"`
+	Total   int64             `json:"total" doc:"Total visible field notes across all approved shows at this venue"`
+	HasMore bool              `json:"has_more" doc:"Whether more notes exist beyond this page"`
+}
+
 // ──────────────────────────────────────────────
 // Comment service interface
 // ──────────────────────────────────────────────
@@ -148,6 +193,10 @@ type FieldNoteServiceInterface interface {
 	CreateFieldNote(userID uint, req *CreateFieldNoteRequest) (*CommentResponse, error)
 	ListFieldNotesForShow(showID uint, limit, offset int) (*CommentListResponse, error)
 	ListFieldNotesByAuthor(userID uint, limit, offset int) ([]*AuthoredFieldNote, int64, error)
+	// ListFieldNotesForVenue rolls up the field notes written about shows held
+	// at a venue (PSY-1590). Venues own no notes of their own; see
+	// VenueFieldNote.
+	ListFieldNotesForVenue(venueID uint, limit, offset int) (*VenueFieldNoteListResponse, error)
 }
 
 // ──────────────────────────────────────────────

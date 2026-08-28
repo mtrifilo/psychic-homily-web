@@ -7,6 +7,7 @@ export {
   commentPreferencesEndpoints,
   fieldNoteEndpoints,
   fieldNoteQueryKeys,
+  VENUE_FIELD_NOTE_TEASER_LIMIT,
 } from './api'
 
 // Types
@@ -17,6 +18,8 @@ export type {
   FieldNoteStructuredData,
   CreateFieldNoteInput,
   ReplyPermission,
+  VenueFieldNote,
+  VenueFieldNoteListResponse,
 } from './types'
 export {
   REPLY_PERMISSION_VALUES,
@@ -37,6 +40,7 @@ export {
   useVoteComment,
   useUnvoteComment,
   useFieldNotes,
+  useVenueFieldNotes,
   useCreateFieldNote,
 } from './hooks'
 

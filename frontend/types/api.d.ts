@@ -6889,6 +6889,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/venues/{venue_id}/field-notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get venues by venue ID field notes */
+        get: operations["get-venues-by-venue-id-field-notes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/venues/{venue_id}/genres": {
         parameters: {
             query?: never;
@@ -17837,6 +17854,72 @@ export interface components {
             updated_at: string;
             verified: boolean;
             zipcode: string | null;
+        };
+        VenueFieldNote: {
+            author_name: string;
+            author_username: string | null;
+            body: string;
+            body_html: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: int64 */
+            depth: number;
+            /** Format: int64 */
+            downs: number;
+            /** Format: int64 */
+            edit_count: number;
+            /** Format: int64 */
+            entity_id: number;
+            entity_type: string;
+            /** Format: int64 */
+            id: number;
+            is_edited: boolean;
+            kind: string;
+            /** Format: int64 */
+            parent_id?: number;
+            /** Format: int64 */
+            reply_count: number;
+            reply_permission: string;
+            /** Format: int64 */
+            root_id?: number;
+            /** Format: double */
+            score: number;
+            /**
+             * Format: date-time
+             * @description Event date of the show the note was written about
+             */
+            show_date: string;
+            /** @description Slug of the show the note was written about; empty when the show has none */
+            show_slug?: string;
+            /** @description Title of the show the note was written about; empty when the show row is gone */
+            show_title: string;
+            structured_data?: unknown;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: int64 */
+            ups: number;
+            /** Format: int64 */
+            user_id: number;
+            /** Format: int64 */
+            user_vote?: number;
+            visibility: string;
+        };
+        VenueFieldNoteListResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/VenueFieldNoteListResponse.json
+             */
+            readonly $schema?: string;
+            /** @description Whether more notes exist beyond this page */
+            has_more: boolean;
+            /** @description Notes ordered best-first (Wilson score DESC), then newest */
+            notes: components["schemas"]["VenueFieldNote"][] | null;
+            /**
+             * Format: int64
+             * @description Total visible field notes across all approved shows at this venue
+             */
+            total: number;
         };
         VenueGenreResponse: {
             /**
@@ -35165,6 +35248,52 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VenueConfirmationResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-venues-by-venue-id-field-notes": {
+        parameters: {
+            query?: {
+                /**
+                 * @description Page size (default 25, max 100)
+                 * @example 1
+                 */
+                limit?: number;
+                /**
+                 * @description Pagination offset
+                 * @example 0
+                 */
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                /**
+                 * @description Venue ID (numeric only)
+                 * @example 42
+                 */
+                venue_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VenueFieldNoteListResponse"];
                 };
             };
             /** @description Error */

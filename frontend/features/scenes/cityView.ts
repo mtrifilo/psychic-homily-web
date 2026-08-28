@@ -625,6 +625,47 @@ export function formatPanelShowDate(
 }
 
 /**
+ * The show half of the panel's field-note attribution line, e.g.
+ * "Doom Night, Jun 2024" (PSY-1590).
+ *
+ * This is the load-bearing half of the teaser, not a caption. Field notes are
+ * SHOW-scoped: the venue panel is borrowing a note somebody wrote about one
+ * night in this room. Naming that night is what keeps the quote honest —
+ * without it the same words read as a standing verdict on the venue, which is
+ * a claim no field note ever made. The month + year is what lets a reader
+ * judge the note's age for themselves, which is why the teaser needs no
+ * staleness cutoff (locked decision, 2026-08-27: most-upvoted first, any age).
+ *
+ * Returns '' when the show cannot be named at all — an orphaned note whose
+ * show row is gone. The caller must render NOTHING in that case rather than
+ * falling back to an unattributed quote, for the reason above. A named show
+ * with an unreadable date still attributes fine, so that degrades to the title
+ * alone instead of being dropped.
+ *
+ * The month is read in the VENUE's zone, the same chain `formatPanelShowDate`
+ * uses: a late show can fall in a different month for a reader abroad, and the
+ * panel is describing the venue's calendar, not the reader's.
+ */
+export function venueFieldNoteAttribution(
+  showTitle: string | null | undefined,
+  showDate: string | null | undefined,
+  state: string | null | undefined,
+  timezone: string | null | undefined,
+): string {
+  const title = showTitle?.trim()
+  if (!title) return ''
+  if (!showDate) return title
+  const parsed = new Date(showDate)
+  if (Number.isNaN(parsed.getTime())) return title
+  const month = parsed.toLocaleString('en-US', {
+    timeZone: resolveShowTimezone(state, timezone),
+    month: 'short',
+    year: 'numeric',
+  })
+  return `${title}, ${month}`
+}
+
+/**
  * The panel's mono identity line, e.g. "1502 E 6th St · cap ~250 · Austin, TX".
  *
  * PRIVACY GATE (PSY-1536): `address` is one of the fields the API redacts for

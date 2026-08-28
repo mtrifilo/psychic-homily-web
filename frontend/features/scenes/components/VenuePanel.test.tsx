@@ -40,6 +40,15 @@ vi.mock('@/features/venues/hooks', () => ({
     error ? (error as { rendered?: string }).rendered ?? 'Confirm failed' : null,
 }))
 
+// The field-note rollup (PSY-1590). Mocked at the module boundary like the
+// shows hook — it is a useQuery underneath, and there is no QueryClient here.
+const mockUseVenueFieldNotes = vi.fn<
+  (venueId: number) => Record<string, unknown>
+>(() => ({ data: undefined }))
+vi.mock('@/features/comments/hooks', () => ({
+  useVenueFieldNotes: (venueId: number) => mockUseVenueFieldNotes(venueId),
+}))
+
 const mockPush = vi.fn()
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush }),
@@ -114,6 +123,9 @@ beforeEach(() => {
   })
   mockConfirmMutate.mockReset()
   mockPush.mockReset()
+  // Default: a venue nobody has written a note about, which is the common case
+  // and the one the panel must render as NO section rather than an empty box.
+  mockUseVenueFieldNotes.mockReturnValue({ data: undefined })
   mockIsAuthenticated = true
   mockUseVenueConfirm.mockReturnValue({
     mutate: mockConfirmMutate,
@@ -614,5 +626,131 @@ describe('VenuePanel', () => {
     expect(
       screen.getByRole('link', { name: 'Open venue page →' }),
     ).toHaveAttribute('href', '/venues/hotel-vegas-austin-tx')
+  })
+})
+
+// ── Field notes teaser (PSY-1590) ─────────────────────────────────────────
+describe('VenuePanel field notes teaser', () => {
+  function note(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 900,
+      entity_type: 'show',
+      entity_id: 101,
+      kind: 'field_note',
+      user_id: 5,
+      author_name: 'Renata',
+      author_username: 'renata',
+      body: 'Loudest set I have heard in that room all year.',
+      body_html: '<p>Loudest set I have heard in that room all year.</p>',
+      parent_id: null,
+      root_id: null,
+      depth: 0,
+      ups: 9,
+      downs: 0,
+      score: 0.91,
+      visibility: 'visible',
+      reply_permission: 'anyone',
+      edit_count: 0,
+      is_edited: false,
+      created_at: '2024-06-15T04:00:00Z',
+      updated_at: '2024-06-15T04:00:00Z',
+      show_title: 'Doom Night',
+      show_slug: 'doom-night',
+      // 11pm Jun 14 in Austin, so the venue-local month is June — a reader in
+      // UTC would otherwise see the 15th.
+      show_date: '2024-06-15T04:00:00Z',
+      ...overrides,
+    }
+  }
+
+  function withNotes(notes: unknown[], total = notes.length) {
+    mockUseVenueFieldNotes.mockReturnValue({
+      data: { notes, total, has_more: total > notes.length },
+    })
+  }
+
+  it('quotes the note and attributes it to the show it came from', () => {
+    withNotes([note()], 3)
+    renderPanel()
+
+    const section = screen.getByTestId('venue-panel-field-notes')
+    expect(section).toHaveTextContent(
+      '“Loudest set I have heard in that room all year.”',
+    )
+    // The whole point of the rollup: the reader can see WHICH night this was
+    // about, so the quote never reads as a verdict on the venue.
+    expect(
+      screen.getByTestId('venue-panel-field-note-attribution'),
+    ).toHaveTextContent('Doom Night, Jun 2024')
+    expect(
+      screen.getByTestId('venue-panel-field-note-author'),
+    ).toHaveTextContent('Renata')
+  })
+
+  it('states the venue-wide note count as plain text, never a link', () => {
+    withNotes([note()], 3)
+    renderPanel()
+
+    const section = screen.getByTestId('venue-panel-field-notes')
+    // The count spans the venue, not the single note fetched for the quote.
+    expect(section).toHaveTextContent('3 notes')
+    // Locked decision: no "N notes →" affordance until a real destination
+    // exists. The only link in the panel is the footer's venue link.
+    expect(section.querySelector('a')).toBeNull()
+  })
+
+  it('singularizes a lone note', () => {
+    withNotes([note()], 1)
+    renderPanel()
+    expect(screen.getByTestId('venue-panel-field-notes')).toHaveTextContent(
+      '1 note',
+    )
+  })
+
+  it('renders no section at all for a venue with no notes', () => {
+    withNotes([], 0)
+    renderPanel()
+    expect(screen.queryByTestId('venue-panel-field-notes')).toBeNull()
+  })
+
+  it('renders no section while the rollup is unresolved or failed', () => {
+    // A teaser is supplementary to the show list; a spinner or error line
+    // beside content that loaded fine would be noise.
+    mockUseVenueFieldNotes.mockReturnValue({ data: undefined })
+    renderPanel()
+    expect(screen.queryByTestId('venue-panel-field-notes')).toBeNull()
+  })
+
+  it('tolerates a null notes array on the wire', () => {
+    mockUseVenueFieldNotes.mockReturnValue({
+      data: { notes: null, total: 0, has_more: false },
+    })
+    renderPanel()
+    expect(screen.queryByTestId('venue-panel-field-notes')).toBeNull()
+  })
+
+  it('drops a note whose show can no longer be named', () => {
+    // An orphaned note has no night to attribute to, and an unattributed
+    // quote in a venue panel reads as a venue-level impression — exactly the
+    // claim the rollup must never make. Better no section than a bare quote.
+    withNotes([note({ show_title: '' })], 4)
+    renderPanel()
+    expect(screen.queryByTestId('venue-panel-field-notes')).toBeNull()
+  })
+
+  it('still attributes a note whose show date is unreadable', () => {
+    // The title alone attributes the note to a night; only the age hint is
+    // lost, so this degrades rather than dropping the note.
+    withNotes([note({ show_date: 'not-a-date' })], 1)
+    renderPanel()
+    expect(
+      screen.getByTestId('venue-panel-field-note-attribution'),
+    ).toHaveTextContent('Doom Night')
+  })
+
+  it('asks the rollup for this venue', () => {
+    withNotes([note()], 1)
+    renderPanel()
+    expect(mockUseVenueFieldNotes).toHaveBeenCalledWith(7)
   })
 })
