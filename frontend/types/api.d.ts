@@ -17884,6 +17884,8 @@ export interface components {
             root_id?: number;
             /** Format: double */
             score: number;
+            /** @description The show's bill in running order; the fallback display name when show_title is empty */
+            show_artists: string[] | null;
             /**
              * Format: date-time
              * @description Event date of the show the note was written about
@@ -17891,7 +17893,7 @@ export interface components {
             show_date: string;
             /** @description Slug of the show the note was written about; empty when the show has none */
             show_slug?: string;
-            /** @description Title of the show the note was written about; empty when the show row is gone */
+            /** @description The show's OWN title, empty for most shows — compose the display name with the bill in show_artists */
             show_title: string;
             structured_data?: unknown;
             /** Format: date-time */

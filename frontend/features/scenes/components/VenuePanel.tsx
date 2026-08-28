@@ -17,6 +17,7 @@ import { FollowButton } from '@/components/shared/FollowButton'
 // markdown pipeline for a three-line quote).
 import { UserAttribution } from '@/components/shared/UserAttribution'
 import { useVenueFieldNotes } from '@/features/comments/hooks'
+import { pickFieldNoteForTeaser } from '@/features/comments/teaser'
 import { dedupVenueShows } from '@/features/shows'
 import {
   formatVenueConfirmError,
@@ -37,8 +38,6 @@ import {
   venuePanelShowCount,
   venueProvenanceSegments,
   venueFieldNoteAttribution,
-  venueFieldNoteTeaserText,
-  pickVenueFieldNoteForTeaser,
   mergeVenueConfirmation,
 } from '../cityView'
 
@@ -434,29 +433,32 @@ function FieldNotesTeaser({ venue }: { venue: VenueWithShowCount }) {
   const { data } = useVenueFieldNotes(venue.id)
 
   const total = data?.total ?? 0
-  // Not `notes[0]`: the pick skips notes the teaser must not quote — setlist
-  // spoilers above all — and scans the page rather than giving up on the first.
-  const note = pickVenueFieldNoteForTeaser(data?.notes)
+  // Not `notes[0]`, and the pick hands back the prose with the note so this
+  // component holds no second copy of the "non-empty body" invariant and does
+  // not flatten the body twice.
+  const picked = pickFieldNoteForTeaser(data?.notes)
+
+  // Two ways to have nothing worth showing, one outcome: no section at all,
+  // never an empty box under a heading.
+  //
+  //   - the venue has no notes (much the commonest case), or the request is
+  //     still in flight or failed. A teaser is supplementary to the panel's
+  //     actual job, which is the show list; a spinner or an error line here
+  //     would be noise beside content that loaded fine, and the panel already
+  //     reports its own failure for the shows themselves.
+  //   - nothing on the page is quotable (see the pick).
+  //
+  // An untitled show is NOT one of them — see the attribution.
+  if (!picked) return null
+
+  const { note, text } = picked
   const attribution = venueFieldNoteAttribution(
-    note?.show_title,
-    note?.show_date,
+    note.show_title,
+    note.show_artists,
+    note.show_date,
     venue.state,
     venue.timezone,
   )
-
-  // Several ways to have nothing worth showing, one outcome: no section at
-  // all, never an empty box under a heading.
-  //
-  //   - the venue has no notes (much the commonest case),
-  //   - the request is still in flight or failed. A teaser is supplementary to
-  //     the panel's actual job, which is the show list; a spinner or an error
-  //     line here would be noise beside content that loaded fine, and the
-  //     panel already reports its own failure for the shows themselves,
-  //   - nothing on the page is quotable here (see the pick).
-  if (!note || !attribution) return null
-
-  const body = venueFieldNoteTeaserText(note.body ?? '')
-  if (!body) return null
 
   return (
     <section
@@ -483,7 +485,7 @@ function FieldNotesTeaser({ venue }: { venue: VenueWithShowCount }) {
           No `block` utility beside `line-clamp-3`: the two are both `display`
           rules and the later one silently wins, which kills the clamp. */}
       <blockquote className="mt-1.5 line-clamp-3 border-l-2 border-border pl-2.5 text-sm italic leading-snug text-foreground">
-        {body}
+        {text}
       </blockquote>
 
       <p className="mt-1 font-mono text-[11px] leading-4 text-muted-foreground">

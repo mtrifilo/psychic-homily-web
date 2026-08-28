@@ -477,6 +477,14 @@ export function useVenueFieldNotes(
         `${fieldNoteEndpoints.LIST_FOR_VENUE(venueId)}?limit=${limit}`,
       ),
     enabled: (options?.enabled ?? true) && venueId > 0,
+    // The Atlas panel remounts on every pin click, so without this a user
+    // hopping venues around a dense metro spends a second anonymous read per
+    // hop on top of the panel's show fetch — against the shared per-IP
+    // public-read budget, where the 429 lands on whichever request loses the
+    // race (very possibly the SHOW list, which fails visibly). The rollup is
+    // not per-viewer and moves on the order of days, so re-opening a venue in
+    // the same session has nothing to re-ask.
+    staleTime: 10 * 60 * 1000,
   })
 }
 

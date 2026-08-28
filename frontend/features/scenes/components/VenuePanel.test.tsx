@@ -43,10 +43,11 @@ vi.mock('@/features/venues/hooks', () => ({
 // The field-note rollup (PSY-1590). Mocked at the module boundary like the
 // shows hook — it is a useQuery underneath, and there is no QueryClient here.
 const mockUseVenueFieldNotes = vi.fn<
-  (venueId: number) => Record<string, unknown>
+  (venueId: number, options?: unknown) => Record<string, unknown>
 >(() => ({ data: undefined }))
 vi.mock('@/features/comments/hooks', () => ({
-  useVenueFieldNotes: (venueId: number) => mockUseVenueFieldNotes(venueId),
+  useVenueFieldNotes: (venueId: number, options?: unknown) =>
+    mockUseVenueFieldNotes(venueId, options),
 }))
 
 const mockPush = vi.fn()
@@ -655,6 +656,7 @@ describe('VenuePanel field notes teaser', () => {
       created_at: '2024-06-15T04:00:00Z',
       updated_at: '2024-06-15T04:00:00Z',
       show_title: 'Doom Night',
+      show_artists: ['Neckbeard', 'Gel'],
       show_slug: 'doom-night',
       // 11pm Jun 14 in Austin, so the venue-local month is June — a reader in
       // UTC would otherwise see the 15th.
@@ -729,22 +731,23 @@ describe('VenuePanel field notes teaser', () => {
     expect(screen.queryByTestId('venue-panel-field-notes')).toBeNull()
   })
 
-  it('drops a note whose show can no longer be named', () => {
-    // An orphaned note has no night to attribute to, and an unattributed
-    // quote in a venue panel reads as a venue-level impression — exactly the
-    // claim the rollup must never make. Better no section than a bare quote.
-    withNotes([note({ show_title: '' })], 4)
-    renderPanel()
-    expect(screen.queryByTestId('venue-panel-field-notes')).toBeNull()
-  })
-
-  it('falls through an orphaned note to the next quotable one', () => {
-    // One orphan must not cost the venue its whole section.
-    withNotes([note({ id: 1, show_title: '' }), note({ id: 2 })], 2)
+  // Most shows carry no title of their own, so this is the COMMON case, not an
+  // edge one: naming it from the bill is what keeps the teaser visible on the
+  // majority of real venues.
+  it('names an untitled show from its bill rather than dropping the note', () => {
+    withNotes([note({ show_title: '', show_artists: ['Neckbeard', 'Gel'] })], 4)
     renderPanel()
     expect(
       screen.getByTestId('venue-panel-field-note-attribution'),
-    ).toHaveTextContent('Doom Night, Jun 2024')
+    ).toHaveTextContent('Neckbeard, Gel, Jun 2024')
+  })
+
+  it('still names a show with neither title nor bill', () => {
+    withNotes([note({ show_title: '', show_artists: [] })], 1)
+    renderPanel()
+    expect(
+      screen.getByTestId('venue-panel-field-note-attribution'),
+    ).toHaveTextContent('Untitled Show, Jun 2024')
   })
 
   // Setlist spoilers: FieldNoteCard gates these behind click-to-reveal, and
@@ -797,6 +800,6 @@ describe('VenuePanel field notes teaser', () => {
   it('asks the rollup for this venue', () => {
     withNotes([note()], 1)
     renderPanel()
-    expect(mockUseVenueFieldNotes).toHaveBeenCalledWith(7)
+    expect(mockUseVenueFieldNotes).toHaveBeenCalledWith(7, undefined)
   })
 })

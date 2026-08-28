@@ -96,11 +96,16 @@ export interface FieldNoteStructuredData {
  * "someone said this about one gig here" into a venue-level impression the
  * data does not support.
  *
- * `show_title` can be empty (the show row is gone); render the note without a
- * title in that case rather than dropping it.
+ * `show_title` is EMPTY FOR MOST SHOWS and is NOT a "missing show" signal —
+ * the backend inner-joins `shows`, so every note here has a live show behind
+ * it. Name the show with `showDisplayTitle(show_title, show_artists)`, the
+ * app-wide title-or-bill convention; treating an empty title as unattributable
+ * would drop most of the content this rollup exists to surface.
  */
 export interface VenueFieldNote extends Comment {
   show_title: string
+  /** The show's bill in running order — what names the show when it has no title. */
+  show_artists: string[]
   show_slug?: string
   /** The show's event date, ISO 8601. The "Jun 2024" half of the attribution. */
   show_date: string

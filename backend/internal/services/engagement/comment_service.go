@@ -1174,10 +1174,13 @@ func (s *CommentService) ListFieldNotesByAuthor(userID uint, limit, offset int) 
 // regardless of age. There is deliberately NO staleness cutoff: the show date
 // travels with the note, so a reader judges its age for themselves.
 //
-// Two visibility gates, and both are load-bearing. Only visible notes are
-// listed (hidden / pending-review notes must not leak onto a public surface),
-// and only notes on APPROVED shows — a pending, private or rejected show would
-// otherwise leak its title through a public venue read.
+// Three gates, all load-bearing. Only visible notes are listed (hidden /
+// pending-review notes must not leak onto a public surface); only notes on
+// APPROVED shows, since a pending, private or rejected show would otherwise
+// leak its title through a public venue read; and never setlist spoilers,
+// which no venue-level surface can render behind the reveal gate their
+// authors asked for. See the query for why the spoiler gate belongs here
+// rather than in the caller.
 func (s *CommentService) ListFieldNotesForVenue(venueID uint, limit, offset int) (*contracts.VenueFieldNoteListResponse, error) {
 	if s.db == nil {
 		return nil, errors.New("database not initialized")
@@ -1203,7 +1206,29 @@ func (s *CommentService) ListFieldNotesForVenue(venueID uint, limit, offset int)
 				engagementm.CommentEntityShow,
 				engagementm.CommentKindFieldNote,
 				engagementm.CommentVisibilityVisible).
-			Where("shows.status = ?", catalogm.ShowStatusApproved)
+			Where("shows.status = ?", catalogm.ShowStatusApproved).
+			// Setlist spoilers never leave the server on THIS route, and that
+			// is a different call from the show-scoped endpoint's.
+			//
+			// There, the body is needed: FieldNoteCard renders it behind a
+			// click-to-reveal gate, so the data has a legitimate consumer.
+			// Here it has none — every caller of a venue rollup is a passive
+			// summary with nowhere to put a reveal affordance — so shipping
+			// the body would transmit content its author asked to be gated,
+			// to anonymous callers, in a venue-wide bulk feed, for nothing.
+			//
+			// Filtering in the SHARED base query is deliberate: it keeps the
+			// exclusion out of `total` as well as the page, so the count
+			// describes what a caller can actually show, and it means the
+			// ranking never spends its page on rows the caller must discard.
+			// A client-side skip alone left a venue whose top rows were all
+			// spoilers rendering no section at all while quotable notes sat
+			// just below the page.
+			//
+			// COALESCE because `structured_data` is nullable; the key itself
+			// is written on every field note (contracts.FieldNoteStructuredData
+			// marshals `setlist_spoiler` with no omitempty).
+			Where("COALESCE(comments.structured_data->>'setlist_spoiler', 'false') <> 'true'")
 	}
 
 	var total int64
@@ -1265,6 +1290,29 @@ func (s *CommentService) ListFieldNotesForVenue(venueID uint, limit, offset int)
 		}
 	}
 
+	// The bill, in running order. This is not optional decoration either: most
+	// shows carry no title of their own, so for the majority of notes the bill
+	// is the ONLY thing that can name the night the note is about.
+	billByShowID := make(map[uint][]string, len(showIDs))
+	if len(showIDs) > 0 {
+		type billRow struct {
+			ShowID uint
+			Name   string
+		}
+		var rows []billRow
+		if err := s.db.Table("show_artists").
+			Select("show_artists.show_id, artists.name").
+			Joins("JOIN artists ON artists.id = show_artists.artist_id").
+			Where("show_artists.show_id IN ?", showIDs).
+			Order("show_artists.show_id, show_artists.position").
+			Scan(&rows).Error; err != nil {
+			return nil, fmt.Errorf("failed to enrich venue field note bills: %w", err)
+		}
+		for _, r := range rows {
+			billByShowID[r.ShowID] = append(billByShowID[r.ShowID], r.Name)
+		}
+	}
+
 	notes := make([]*contracts.VenueFieldNote, len(comments))
 	for i := range comments {
 		note := &contracts.VenueFieldNote{CommentResponse: *commentToResponse(&comments[i])}
@@ -1275,6 +1323,14 @@ func (s *CommentService) ListFieldNotesForVenue(venueID uint, limit, offset int)
 				note.ShowSlug = *row.Slug
 			}
 		}
+		// Never nil: the field is non-omitempty, and a null array on the wire
+		// would make every consumer write its own `?? []` before it could
+		// compose a display name.
+		bill := billByShowID[comments[i].EntityID]
+		if bill == nil {
+			bill = []string{}
+		}
+		note.ShowArtists = bill
 		notes[i] = note
 	}
 

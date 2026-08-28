@@ -2133,6 +2133,52 @@ func (suite *CommentServiceIntegrationTestSuite) TestListFieldNotesForVenue_Roll
 	suite.NotEmpty(note.AuthorName)
 }
 
+// Most shows carry NO title of their own, so the bill is the only thing that
+// can name the night for the majority of notes. Serving it is what stops the
+// teaser from vanishing on most real venues.
+func (suite *CommentServiceIntegrationTestSuite) TestListFieldNotesForVenue_CarriesTheBillForUntitledShows() {
+	user := suite.createTestUser()
+	venueID := suite.createTestVenue("Untitled Room")
+	headliner := suite.createTestArtist("Neckbeard")
+	support := suite.createTestArtist("Gel")
+
+	showID := suite.createTestShowAt("", venueID,
+		time.Date(2024, 8, 8, 3, 0, 0, 0, time.UTC), catalogm.ShowStatusApproved)
+	// Position decides running order, and the rollup must preserve it.
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowArtist{
+		ShowID: showID, ArtistID: headliner, Position: 0,
+	}).Error)
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowArtist{
+		ShowID: showID, ArtistID: support, Position: 1,
+	}).Error)
+
+	suite.insertFieldNote(user.ID, showID, "no title, still a night", 0.5, engagementm.CommentVisibilityVisible)
+
+	result, err := suite.commentService.ListFieldNotesForVenue(venueID, 25, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(result.Notes, 1)
+	// The note is NOT dropped for want of a title.
+	suite.Empty(result.Notes[0].ShowTitle)
+	suite.Equal([]string{"Neckbeard", "Gel"}, result.Notes[0].ShowArtists)
+}
+
+// Never nil on the wire: a null array would make every consumer write its own
+// `?? []` before it could compose a display name.
+func (suite *CommentServiceIntegrationTestSuite) TestListFieldNotesForVenue_BillIsEmptySliceNotNull() {
+	user := suite.createTestUser()
+	venueID := suite.createTestVenue("Billless Room")
+	showID := suite.createTestShowAt("Solo Night", venueID,
+		time.Date(2024, 9, 9, 3, 0, 0, 0, time.UTC), catalogm.ShowStatusApproved)
+
+	suite.insertFieldNote(user.ID, showID, "nobody on the bill row", 0.5, engagementm.CommentVisibilityVisible)
+
+	result, err := suite.commentService.ListFieldNotesForVenue(venueID, 25, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(result.Notes, 1)
+	suite.NotNil(result.Notes[0].ShowArtists)
+	suite.Empty(result.Notes[0].ShowArtists)
+}
+
 // Ordering is most-upvoted first with no staleness cutoff (locked decision):
 // the best note leads even when it is the oldest one at the venue.
 func (suite *CommentServiceIntegrationTestSuite) TestListFieldNotesForVenue_BestFirstRegardlessOfAge() {
@@ -2175,6 +2221,52 @@ func (suite *CommentServiceIntegrationTestSuite) TestListFieldNotesForVenue_Excl
 	suite.Equal(int64(1), result.Total)
 	suite.Require().Len(result.Notes, 1)
 	suite.Equal("visible note", result.Notes[0].Body)
+}
+
+// Setlist spoilers must not leave the server on this route: no venue-level
+// surface can render the click-to-reveal gate their authors asked for, so the
+// body would be shipped to anonymous callers for nothing. Gating in the shared
+// base query (rather than in the caller) is what also keeps `total` honest and
+// stops the ranking spending its page on rows the caller must discard.
+func (suite *CommentServiceIntegrationTestSuite) TestListFieldNotesForVenue_ExcludesSetlistSpoilers() {
+	user := suite.createTestUser()
+	venueID := suite.createTestVenue("Spoiler Room")
+	showID := suite.createTestShowAt("Spoiler Night", venueID,
+		time.Date(2024, 3, 3, 3, 0, 0, 0, time.UTC), catalogm.ShowStatusApproved)
+
+	// The spoiler outranks the safe note, which is the case that matters: the
+	// rollup sorts by score, so a well-received spoiler is exactly what a
+	// naive top-1 read would surface.
+	spoiler := suite.insertFieldNote(user.ID, showID, "they closed with the unreleased one", 0.99, engagementm.CommentVisibilityVisible)
+	suite.Require().NoError(suite.db.Model(spoiler).
+		UpdateColumn("structured_data", []byte(`{"setlist_spoiler":true}`)).Error)
+	suite.insertFieldNote(user.ID, showID, "no spoilers here", 0.10, engagementm.CommentVisibilityVisible)
+
+	result, err := suite.commentService.ListFieldNotesForVenue(venueID, 25, 0)
+	suite.Require().NoError(err)
+	// Total counts what the caller can show, not what exists.
+	suite.Equal(int64(1), result.Total)
+	suite.Require().Len(result.Notes, 1)
+	suite.Equal("no spoilers here", result.Notes[0].Body)
+}
+
+// A note with no structured_data at all (or an explicit false) is ordinary and
+// must survive the spoiler gate — COALESCE, not a bare comparison.
+func (suite *CommentServiceIntegrationTestSuite) TestListFieldNotesForVenue_NullStructuredDataIsNotASpoiler() {
+	user := suite.createTestUser()
+	venueID := suite.createTestVenue("Plain Room")
+	showID := suite.createTestShowAt("Plain Night", venueID,
+		time.Date(2024, 3, 4, 3, 0, 0, 0, time.UTC), catalogm.ShowStatusApproved)
+
+	// insertFieldNote writes no structured_data, so the column is NULL.
+	suite.insertFieldNote(user.ID, showID, "null structured data", 0.5, engagementm.CommentVisibilityVisible)
+	explicit := suite.insertFieldNote(user.ID, showID, "explicitly not a spoiler", 0.4, engagementm.CommentVisibilityVisible)
+	suite.Require().NoError(suite.db.Model(explicit).
+		UpdateColumn("structured_data", []byte(`{"setlist_spoiler":false}`)).Error)
+
+	result, err := suite.commentService.ListFieldNotesForVenue(venueID, 25, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), result.Total)
 }
 
 // Regular comments on a show are a different surface entirely — PSY-588 is the

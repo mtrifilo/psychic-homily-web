@@ -152,13 +152,23 @@ type AuthoredFieldNote struct {
 // surface does want to link the night it names.
 type VenueFieldNote struct {
 	CommentResponse
-	// ShowTitle is the title of the show the note was written about. Empty
-	// when the show row is gone — the note still renders, unattributed to a
-	// title, rather than being dropped.
-	ShowTitle string `json:"show_title" doc:"Title of the show the note was written about; empty when the show row is gone"`
-	ShowSlug  string `json:"show_slug,omitempty" required:"false" doc:"Slug of the show the note was written about; empty when the show has none"`
+	// ShowTitle is the show's OWN title, and it is EMPTY FOR MOST SHOWS: the
+	// title column is optional on submission and this app composes show
+	// display names from the bill everywhere else (see ShowArtists).
+	//
+	// It is NOT a signal that the show is missing. The rollup INNER JOINs
+	// `shows`, so every note it returns has a live, approved show behind it —
+	// an orphaned note cannot come out of this query at all. A caller that
+	// reads an empty title as "unattributable" and drops the note therefore
+	// discards most of its own content.
+	ShowTitle string `json:"show_title" doc:"The show's OWN title, empty for most shows — compose the display name with the bill in show_artists"`
+	// ShowArtists is the show's bill in running order, which is what names a
+	// show when ShowTitle is empty. Same title-or-bill convention every other
+	// show-display surface in the app follows.
+	ShowArtists []string `json:"show_artists" doc:"The show's bill in running order; the fallback display name when show_title is empty"`
+	ShowSlug    string   `json:"show_slug,omitempty" required:"false" doc:"Slug of the show the note was written about; empty when the show has none"`
 	// ShowDate is the show's event date — the "Jun 2024" half of the
-	// attribution line. Zero when the show row is gone.
+	// attribution line.
 	ShowDate time.Time `json:"show_date" doc:"Event date of the show the note was written about"`
 }
 

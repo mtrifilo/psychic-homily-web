@@ -15,8 +15,8 @@ import type {
   VenueWithShowCount,
 } from '@/features/venues/types'
 import { LOCATION_UNKNOWN, formatLocation } from '@/lib/formatLocation'
-import type { VenueFieldNote } from '@/features/comments/types'
-import { resolveShowTimezone } from '@/lib/utils/formatters'
+import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
+import { formatShowMonth, resolveShowTimezone } from '@/lib/utils/formatters'
 import type { PlaceableScene, VenuePin } from './components/globeTypes'
 import { GENRE_FAMILIES, type GenreFamily } from './genreFamilies'
 
@@ -637,110 +637,33 @@ export function formatPanelShowDate(
  * judge the note's age for themselves, which is why the teaser needs no
  * staleness cutoff (locked decision, 2026-08-27: most-upvoted first, any age).
  *
- * Returns '' when the show cannot be named at all — an orphaned note whose
- * show row is gone. The caller must render NOTHING in that case rather than
- * falling back to an unattributed quote, for the reason above. A named show
- * with an unreadable date still attributes fine, so that degrades to the title
- * alone instead of being dropped.
+ * The show is named by the app-wide title-or-bill convention, NOT by its title
+ * alone: most shows carry no title, so `showDisplayTitle` is what turns them
+ * into "Neckbeard, Gel" and, failing even that, "Untitled Show". This function
+ * therefore ALWAYS names something — a note is never dropped for want of a
+ * title, which would have discarded most of the rollup's own content.
  *
- * The month is read in the VENUE's zone, the same chain `formatPanelShowDate`
- * uses: a late show can fall in a different month for a reader abroad, and the
- * panel is describing the venue's calendar, not the reader's.
+ * Falls back to the name alone when the date is unreadable, so a bad timestamp
+ * costs the age hint rather than the attribution.
  */
 export function venueFieldNoteAttribution(
   showTitle: string | null | undefined,
+  showArtists: readonly (string | null | undefined)[] | null | undefined,
   showDate: string | null | undefined,
   state: string | null | undefined,
   timezone: string | null | undefined,
 ): string {
-  const title = showTitle?.trim()
-  if (!title) return ''
-  if (!showDate) return title
-  const parsed = new Date(showDate)
-  if (Number.isNaN(parsed.getTime())) return title
-  const month = parsed.toLocaleString('en-US', {
-    timeZone: resolveShowTimezone(state, timezone),
-    month: 'short',
-    year: 'numeric',
-  })
-  return `${title}, ${month}`
-}
-
-/**
- * Flatten a field note's Markdown SOURCE into one line of readable prose for
- * the panel's teaser (PSY-1590).
- *
- * The teaser quotes `body`, not the backend's rendered `body_html`: dropping
- * sanitized HTML into the Atlas — which has no route-level error boundary — to
- * show three clamped lines is not a trade worth making. But `body` is Markdown
- * source, so a note written as `**Loudest set** of the year` would otherwise
- * render its asterisks. This strips the inline syntax rather than honouring it;
- * a teaser is a fragment of a note, and the full note renders properly, with
- * its formatting, on the show page.
- *
- * Best-effort by design, and deliberately NOT a general Markdown parser: the
- * failure mode of a missed construct is a stray character in a quote, which is
- * far cheaper than the dependency or the HTML surface a real renderer costs.
- */
-export function venueFieldNoteTeaserText(body: string): string {
-  return (
-    body
-      // Images before links — `![alt](src)` is a link pattern with a prefix,
-      // so the link rule would otherwise eat it and leave the `!`.
-      .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
-      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-      // Emphasis, strikethrough, inline code. Longest markers first so `**`
-      // is consumed before the single-character `*` rule sees it.
-      .replace(/\*\*([^*]+)\*\*/g, '$1')
-      .replace(/__([^_]+)__/g, '$1')
-      .replace(/~~([^~]+)~~/g, '$1')
-      .replace(/\*([^*]+)\*/g, '$1')
-      .replace(/_([^_]+)_/g, '$1')
-      .replace(/`([^`]+)`/g, '$1')
-      // Line-leading block markers: headings, quotes, bullets, ordered items.
-      .replace(/^[ \t]*#{1,6}[ \t]+/gm, '')
-      .replace(/^[ \t]*>[ \t]?/gm, '')
-      .replace(/^[ \t]*[-*+][ \t]+/gm, '')
-      .replace(/^[ \t]*\d+\.[ \t]+/gm, '')
-      // The teaser is a single clamped run of text, so paragraph breaks become
-      // spaces rather than vanishing and running two sentences together.
-      .replace(/\s+/g, ' ')
-      .trim()
-  )
-}
-
-/**
- * Choose which note the venue panel's teaser quotes (PSY-1590).
- *
- * The list arrives best-first from the backend, so this is a filter for
- * "displayable here", not a re-ranking. Two notes are skipped, and both
- * skips are correctness rather than taste:
- *
- *   - **Setlist spoilers.** A note whose author ticked `setlist_spoiler`
- *     renders everywhere else behind FieldNoteCard's "click to reveal" gate.
- *     The teaser is a fixed quote with nowhere to put that gate, and the
- *     rollup sorts by score — so an upvoted spoiler note is precisely the one
- *     that would surface. Quoting it would leak, on a passive map panel, the
- *     thing its author explicitly asked to be hidden.
- *   - **Notes whose show cannot be named**, which cannot be attributed to a
- *     night; see {@link venueFieldNoteAttribution}.
- *
- * Scanning the page rather than only inspecting the first note is what keeps
- * one spoiler or one orphaned note from hiding a section the venue has
- * perfectly good notes for. Returns null when the page holds nothing
- * displayable, and the caller then renders no section at all.
- */
-export function pickVenueFieldNoteForTeaser(
-  notes: readonly VenueFieldNote[] | null | undefined,
-): VenueFieldNote | null {
-  if (!notes) return null
-  for (const note of notes) {
-    if (note.structured_data?.setlist_spoiler === true) continue
-    if (!note.show_title?.trim()) continue
-    if (!venueFieldNoteTeaserText(note.body ?? '')) continue
-    return note
-  }
-  return null
+  const name = showDisplayTitle(showTitle, showArtists, { cap: 3 })
+  if (!showDate) return name
+  // formatShowMonth would render "Invalid Date" for an unparseable input, so
+  // the guard stays here rather than inside the shared formatter.
+  if (Number.isNaN(new Date(showDate).getTime())) return name
+  // The month is read in the VENUE's zone via the app-wide formatter (the same
+  // resolveShowTimezone chain formatPanelShowDate uses): a late show falls in a
+  // different month for a reader abroad, and the panel describes the venue's
+  // calendar, not the reader's. Reusing formatShowMonth rather than inlining a
+  // fourth toLocaleString keeps this surface on any future month-format change.
+  return `${name}, ${formatShowMonth(showDate, state, timezone)}`
 }
 
 /**
