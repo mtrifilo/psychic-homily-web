@@ -39,6 +39,23 @@ const RASTER_CUTOFF_MARGIN = 0.1
  */
 export const PH_BASEMAP_MIN_ZOOM = 5
 
+/**
+ * The style's one vector source id, and the host serving it.
+ *
+ * Both are stated here rather than derived from the JSON at runtime: a
+ * derivation would have to cope with a reshaped style by throwing (taking the
+ * whole Atlas down for a telemetry label) or by silently returning a
+ * placeholder. Instead phDarkBasemap.test.ts asserts the JSON still matches,
+ * so a regenerated style that renames the source or moves hosts fails a test
+ * rather than quietly aiming the failure signal at a source that no longer
+ * exists.
+ *
+ * Consumed by basemapTelemetry.ts, which reports a failure of THIS source and
+ * ignores every other MapLibre error (PSY-1568).
+ */
+export const PH_BASEMAP_SOURCE_ID = 'openmaptiles'
+export const PH_BASEMAP_TILE_HOST = 'tiles.openfreemap.org'
+
 export interface BasemapFragment {
   glyphs: string
   sources: Record<string, SourceSpecification>

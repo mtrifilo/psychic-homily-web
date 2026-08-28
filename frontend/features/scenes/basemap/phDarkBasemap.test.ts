@@ -4,7 +4,12 @@ import path from 'node:path'
 import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec'
 import type { StyleSpecification } from 'maplibre-gl'
 import phDarkBasemap from './ph-dark-basemap.json'
-import { PH_BASEMAP_MIN_ZOOM, phBasemapFragment } from './phBasemap'
+import {
+  PH_BASEMAP_MIN_ZOOM,
+  PH_BASEMAP_SOURCE_ID,
+  PH_BASEMAP_TILE_HOST,
+  phBasemapFragment,
+} from './phBasemap'
 
 /**
  * Guards for the PH dark basemap style (PSY-1543).
@@ -85,6 +90,17 @@ describe('ph-dark-basemap.json', () => {
       expect(connectSrc, `CSP connect-src is missing https://${host}`).toContain(
         `https://${host}`,
       )
+    }
+  })
+
+  it('matches the source id and host the failure signal filters on (PSY-1568)', () => {
+    // basemapTelemetry reports a failure of THIS source and ignores every
+    // other MapLibre error. A regenerated style that renames the source or
+    // moves hosts would leave that filter matching nothing — the exact silent
+    // degradation the signal exists to catch — so it fails here instead.
+    expect(Object.keys(style.sources)).toEqual([PH_BASEMAP_SOURCE_ID])
+    for (const url of collectRemoteUrls(style)) {
+      expect(new URL(url).hostname).toBe(PH_BASEMAP_TILE_HOST)
     }
   })
 
