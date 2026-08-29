@@ -15458,6 +15458,8 @@ export interface components {
             status: string;
             /** Format: int64 */
             submitted_by?: number;
+            submitted_by_name?: string;
+            submitted_by_username?: string;
             ticket_url?: string;
             title: string;
             /** Format: date-time */
@@ -16448,6 +16450,8 @@ export interface components {
             status: string;
             /** Format: int64 */
             submitted_by?: number;
+            submitted_by_name?: string;
+            submitted_by_username?: string;
             ticket_url?: string;
             title: string;
             /** Format: date-time */
@@ -17485,6 +17489,8 @@ export interface components {
             status: string;
             /** Format: int64 */
             submitted_by?: number;
+            submitted_by_name?: string;
+            submitted_by_username?: string;
             ticket_url?: string;
             title: string;
             /** Format: date-time */

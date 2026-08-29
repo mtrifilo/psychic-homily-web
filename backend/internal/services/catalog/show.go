@@ -20,6 +20,7 @@ import (
 
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
+	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
@@ -378,6 +379,7 @@ func (s *ShowService) GetShow(showID uint) (*contracts.ShowResponse, error) {
 
 	resp := s.buildShowResponse(&show)
 	s.attachBillLabels(resp)
+	s.attachSubmitterAttribution(resp)
 	return resp, nil
 }
 
@@ -398,6 +400,7 @@ func (s *ShowService) GetShowBySlug(slug string) (*contracts.ShowResponse, error
 
 	resp := s.buildShowResponse(&show)
 	s.attachBillLabels(resp)
+	s.attachSubmitterAttribution(resp)
 	return resp, nil
 }
 
@@ -2205,6 +2208,76 @@ func (s *ShowService) attachBillLabels(resp *contracts.ShowResponse) {
 		}
 		resp.Artists[i].Labels = &labels
 	}
+}
+
+// attachSubmitterAttribution fills in SubmittedByName / SubmittedByUsername on
+// an already-built show response, in one query.
+//
+// Sits beside attachBillLabels for the same reason and on the same terms: it is
+// a DETAIL-read decoration, called only by GetShow and GetShowBySlug. Folding it
+// into the response builders would put a per-row query back on the list paths
+// (GetUpcomingShows serves up to 200 shows per request) for a field only the
+// show page's provenance byline reads (PSY-1680: buildShowResponse is a hot
+// loop). List payloads keep exactly the shape they had.
+//
+// It inherits attachBillLabels' one unpaid cost, and does not widen it: the
+// non-page callers that resolve a show through GetShow (the per-show .ics feed,
+// the update/delete ownership pre-checks, the admin batch-approve loop) each pay
+// one query here for a field they never read, on top of the two that function
+// already costs them. One more query per single-show request is the same trade
+// made there, for the same reason.
+//
+// The resolution chain is shared.ResolveUserName / ResolveUserUsername — the
+// same pair the revisions endpoint's byline already renders from, so the two
+// halves of "added by X · updated by Y" cannot name the same person
+// differently. The Select must keep listing every chain column: the resolver
+// reads display_name, username, first/last and email, and a missing column
+// scans as nil and silently disables that branch.
+//
+// Two distinct absences, deliberately collapsed to one wire signal (the key is
+// dropped):
+//   - No submitter to resolve. A scraped listing never had one, and a
+//     hard-deleted account no longer does: shows.submitted_by is `REFERENCES
+//     users(id) ON DELETE SET NULL` (migration 000005), so dropping an account
+//     nulls the column rather than leaving a dangling id.
+//   - The lookup failed. Degrading to omission rather than to "Anonymous" keeps
+//     the byline honest — it renders "added Jul 12" and claims nothing about who.
+//
+// Because of that FK, the not-found branch below is DEFENSIVE, not a live path:
+// it covers a future migration that weakens the constraint, not today's data.
+// The query-error case it shares is the one that actually happens.
+//
+// An account that EXISTS but resolves to no name is NOT one of those: it gets
+// the chain's terminal "Anonymous", exactly as the revisions byline already
+// shows it. Matching that endpoint's policy is the point, including what it
+// does NOT do — it applies no is_active / deleted_at filter, so neither does
+// this. A deactivated contributor keeps their credit on both lines or loses it
+// on both, never one each way.
+//
+// Nothing here decides WHO may see the byline; the route does. A show the
+// caller may not see is 404'd before the response is serialized
+// (GetShowHandler's non-approved gate, PSY-1715), so this only ever decorates a
+// show already cleared for that viewer.
+func (s *ShowService) attachSubmitterAttribution(resp *contracts.ShowResponse) {
+	if resp == nil || resp.SubmittedBy == nil {
+		return
+	}
+
+	var user authm.User
+	if err := s.db.Select("id, username, display_name, first_name, last_name, email").
+		First(&user, *resp.SubmittedBy).Error; err != nil {
+		// Logged, never fatal: a byline is not worth failing a page read over.
+		// Both arms are genuinely unexpected here — a query error, or the
+		// ErrRecordNotFound the FK above is supposed to make impossible — so
+		// this is a WARN rather than routine noise.
+		log.Printf("WARN attachSubmitterAttribution: show_id=%d user_id=%d: %v",
+			resp.ID, *resp.SubmittedBy, err)
+		return
+	}
+
+	name := shared.ResolveUserName(&user)
+	resp.SubmittedByName = &name
+	resp.SubmittedByUsername = shared.ResolveUserUsername(&user)
 }
 
 // fetchBillsForShows resolves the ordered bill of every show in showIDs, keyed

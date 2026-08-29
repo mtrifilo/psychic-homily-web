@@ -838,6 +838,227 @@ func (suite *ShowServiceIntegrationTestSuite) TestFetchLabelsForArtists_ReturnsE
 	suite.Nil(byArtist)
 }
 
+// =============================================================================
+// Submitter attribution on the detail reads (PSY-1866)
+//
+// The show page's provenance byline credits the submitter by NAME. Before this,
+// ShowResponse carried only the numeric submitted_by, which no frontend surface
+// can turn into a display name, so the byline rendered "added Jul 12" and
+// stopped. These pin the decoration to the detail reads and keep it off the
+// list paths.
+// =============================================================================
+
+// setUserIdentity stamps the resolver-chain columns on a user row. Test helper:
+// createTestUser makes a first/last-only account, and most of these cases turn
+// on which chain tier the row lands in.
+func (suite *ShowServiceIntegrationTestSuite) setUserIdentity(userID uint, updates map[string]interface{}) {
+	suite.Require().NoError(
+		suite.db.Model(&authm.User{}).Where("id = ?", userID).Updates(updates).Error,
+	)
+}
+
+// showSubmittedBy creates an approved show whose submitter is the given user,
+// and returns the created response. Test helper.
+func (suite *ShowServiceIntegrationTestSuite) showSubmittedBy(user *authm.User) *contracts.ShowResponse {
+	return suite.createTestShow(func(req *contracts.CreateShowRequest) {
+		req.SubmittedByUserID = &user.ID
+	})
+}
+
+// The whole point of the ticket: a username-bearing submitter reaches the wire
+// as a name AND a profile slug, so the byline can render a link.
+func (suite *ShowServiceIntegrationTestSuite) TestGetShow_CarriesResolvedSubmitterAttribution() {
+	user := suite.createTestUser()
+	suite.setUserIdentity(user.ID, map[string]interface{}{"username": "mtrifilo"})
+	created := suite.showSubmittedBy(user)
+
+	resp, err := suite.showService.GetShow(created.ID)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.SubmittedByName)
+	suite.Equal("mtrifilo", *resp.SubmittedByName)
+	suite.Require().NotNil(resp.SubmittedByUsername)
+	suite.Equal("mtrifilo", *resp.SubmittedByUsername)
+}
+
+// GetShow and GetShowBySlug are separate bodies and can drift apart, and the
+// show PAGE fetches by slug — so the slug read is the one that actually feeds
+// the byline. Same guard the bill-labels test makes for the same reason.
+func (suite *ShowServiceIntegrationTestSuite) TestGetShowBySlug_CarriesResolvedSubmitterAttribution() {
+	user := suite.createTestUser()
+	suite.setUserIdentity(user.ID, map[string]interface{}{"username": "mtrifilo"})
+	created := suite.showSubmittedBy(user)
+
+	resp, err := suite.showService.GetShowBySlug(created.Slug)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.SubmittedByName)
+	suite.Equal("mtrifilo", *resp.SubmittedByName)
+	suite.Require().NotNil(resp.SubmittedByUsername)
+	suite.Equal("mtrifilo", *resp.SubmittedByUsername)
+}
+
+// display_name wins the chain (PSY-1063) and is NOT a URL slug: an account with
+// both must be credited by the chosen display name while the link still points
+// at the username. Also the column that silently disables itself if the Select
+// stops listing it.
+func (suite *ShowServiceIntegrationTestSuite) TestGetShow_SubmitterDisplayNameOutranksUsername() {
+	user := suite.createTestUser()
+	suite.setUserIdentity(user.ID, map[string]interface{}{
+		"username":     "mtrifilo",
+		"display_name": "Matt T",
+	})
+	created := suite.showSubmittedBy(user)
+
+	resp, err := suite.showService.GetShow(created.ID)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.SubmittedByName)
+	suite.Equal("Matt T", *resp.SubmittedByName)
+	suite.Require().NotNil(resp.SubmittedByUsername)
+	suite.Equal("mtrifilo", *resp.SubmittedByUsername, "the link target stays the slug, not the display name")
+}
+
+// No username means no profile to link to. The name still renders; the username
+// must be nil so the client emits plain text rather than a dead /users/ href.
+func (suite *ShowServiceIntegrationTestSuite) TestGetShow_SubmitterWithoutUsernameIsNamedButUnlinked() {
+	user := suite.createTestUser() // first/last only, no username
+	created := suite.showSubmittedBy(user)
+
+	resp, err := suite.showService.GetShow(created.ID)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.SubmittedByName)
+	suite.Equal("Test User", *resp.SubmittedByName, "falls to the first+last tier")
+	suite.Nil(resp.SubmittedByUsername)
+
+	encoded, err := json.Marshal(resp)
+	suite.Require().NoError(err)
+	suite.NotContains(string(encoded), `"submitted_by_username"`,
+		"an unlinkable submitter drops the key rather than sending null")
+}
+
+// Mirrors the revisions byline's policy EXACTLY, including what it does not do:
+// it applies no is_active / deleted_at filter, so a deactivated contributor
+// keeps their credit here too. Both halves of "added by X · updated by Y" must
+// agree about who a person is; crediting on one line and not the other is the
+// drift this pins.
+func (suite *ShowServiceIntegrationTestSuite) TestGetShow_DeactivatedSubmitterKeepsCredit() {
+	user := suite.createTestUser()
+	suite.setUserIdentity(user.ID, map[string]interface{}{"username": "retired"})
+	created := suite.showSubmittedBy(user)
+	suite.setUserIdentity(user.ID, map[string]interface{}{
+		"is_active":  false,
+		"deleted_at": time.Now(),
+	})
+
+	resp, err := suite.showService.GetShow(created.ID)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.SubmittedByName)
+	suite.Equal("retired", *resp.SubmittedByName)
+}
+
+// A scraped listing has nobody to credit. Absent keys, not "Anonymous": the
+// byline must read "added Jul 12" and make no claim about a submitter.
+func (suite *ShowServiceIntegrationTestSuite) TestGetShow_NoSubmitterOmitsAttribution() {
+	created := suite.createTestShow()
+	suite.Require().NoError(suite.db.Model(&catalogm.Show{}).
+		Where("id = ?", created.ID).
+		Update("submitted_by", nil).Error)
+
+	resp, err := suite.showService.GetShow(created.ID)
+
+	suite.Require().NoError(err)
+	suite.Nil(resp.SubmittedByName)
+	suite.Nil(resp.SubmittedByUsername)
+
+	encoded, err := json.Marshal(resp)
+	suite.Require().NoError(err)
+	suite.NotContains(string(encoded), `"submitted_by_name"`)
+	suite.NotContains(string(encoded), `"submitted_by_username"`)
+}
+
+// A failed lookup must omit the credit, not degrade to "Anonymous". "added
+// Jul 12 by Anonymous" asserts something about a person; the absent key asserts
+// nothing, which is the only honest reading of a lookup that did not happen.
+func (suite *ShowServiceIntegrationTestSuite) TestAttachSubmitterAttribution_OmitsKeysWhenLookupFails() {
+	user := suite.createTestUser()
+	suite.setUserIdentity(user.ID, map[string]interface{}{"username": "mtrifilo"})
+	created := suite.showSubmittedBy(user)
+
+	// A cancelled context fails the query without disturbing the shared pool.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	brokenService := NewShowService(suite.db.WithContext(ctx))
+
+	resp, err := suite.showService.GetShow(created.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.SubmittedByName, "precondition: healthy lookup populates")
+
+	// Re-run the attach against the broken handle.
+	resp.SubmittedByName = nil
+	resp.SubmittedByUsername = nil
+	brokenService.attachSubmitterAttribution(resp)
+
+	suite.Nil(resp.SubmittedByName)
+	suite.Nil(resp.SubmittedByUsername)
+}
+
+// A HARD-deleted account reaches this code as the no-submitter case, not as a
+// dangling id: shows.submitted_by is `REFERENCES users(id) ON DELETE SET NULL`
+// (migration 000005), so the row nulls itself when the account goes. Pinned
+// because it is what makes the resolver's not-found branch defensive rather than
+// load-bearing — if a later migration swapped this for ON DELETE RESTRICT or
+// dropped the FK, that branch would become the live path for real traffic.
+//
+// Contrast TestGetShow_DeactivatedSubmitterKeepsCredit: a SOFT-deleted account
+// keeps its row, so it keeps its credit. Only the hard delete erases the link.
+func (suite *ShowServiceIntegrationTestSuite) TestGetShow_HardDeletedSubmitterNullsTheLinkAndDropsCredit() {
+	user := suite.createTestUser()
+	suite.setUserIdentity(user.ID, map[string]interface{}{"username": "vanishing"})
+	created := suite.showSubmittedBy(user)
+
+	before, err := suite.showService.GetShow(created.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(before.SubmittedByName, "precondition: credited while the account exists")
+
+	suite.Require().NoError(suite.db.Delete(&authm.User{}, user.ID).Error)
+
+	resp, err := suite.showService.GetShow(created.ID)
+
+	suite.Require().NoError(err, "a vanished submitter must not fail the read")
+	suite.Nil(resp.SubmittedBy, "the FK nulls the column rather than dangling")
+	suite.Nil(resp.SubmittedByName)
+	suite.Nil(resp.SubmittedByUsername)
+}
+
+// The N+1 guard, and the acceptance criterion "list payloads unchanged". This
+// is a DETAIL-read decoration; the list paths must not resolve a submitter per
+// row, and must omit the keys rather than send nulls that change the shape.
+func (suite *ShowServiceIntegrationTestSuite) TestGetShows_OmitsSubmitterAttribution() {
+	user := suite.createTestUser()
+	suite.setUserIdentity(user.ID, map[string]interface{}{"username": "mtrifilo"})
+	suite.showSubmittedBy(user)
+
+	resp, _, err := suite.showService.GetShows(
+		map[string]interface{}{},
+		contracts.ShowsQuery{Limit: 50},
+	)
+
+	suite.Require().NoError(err)
+	suite.Require().NotEmpty(resp)
+	for _, show := range resp {
+		suite.Nil(show.SubmittedByName, "list rows must not resolve a submitter name")
+		suite.Nil(show.SubmittedByUsername)
+
+		encoded, err := json.Marshal(show)
+		suite.Require().NoError(err)
+		suite.NotContains(string(encoded), `"submitted_by_name"`)
+		suite.NotContains(string(encoded), `"submitted_by_username"`)
+	}
+}
+
 // Guards the N+1: the list endpoints must not run a per-show label join, and
 // while they skip it they must omit the key rather than claim every artist is
 // unsigned. This pins the per-show join, NOT the wire shape. If someone later

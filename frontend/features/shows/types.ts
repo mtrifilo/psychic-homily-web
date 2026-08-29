@@ -132,6 +132,19 @@ export interface ShowResponse {
   image_url?: string | null
   status: ShowStatus
   submitted_by?: number
+  /**
+   * Resolved display identity of `submitted_by`, so the provenance byline can
+   * credit the submitter without a second round trip (PSY-1866).
+   *
+   * DETAIL READS ONLY (`GET /shows/{id|slug}`). List payloads omit both keys,
+   * so absence means "not looked up, or this show has no submitter" — never
+   * "the submitter has no name". `submitted_by_username` is the
+   * `/users/:username` slug and is absent when the account has none, which
+   * must render as unlinked text; `UserAttribution` already gates on exactly
+   * that.
+   */
+  submitted_by_name?: string | null
+  submitted_by_username?: string | null
   rejection_reason?: string | null
   rejection_category?: string | null
   venues: VenueResponse[]
