@@ -259,6 +259,19 @@ func TestSuppressPositionInferenceWhenHeadlinerNamed(t *testing.T) {
 		assert.False(t, *out[0].IsHeadliner)
 	})
 
+	// validateShowArtistSetTypes rejects this bill before the helper runs on the
+	// update path, so this pins the predicate's standalone correctness: reading
+	// an out-of-vocabulary value as "stated" would skip the act, let rule 3
+	// promote it, and reintroduce the second headliner.
+	t.Run("out-of-vocabulary set_type is silence, matching resolveArtistRole", func(t *testing.T) {
+		out := suppressPositionInferenceWhenHeadlinerNamed([]contracts.CreateShowArtist{
+			{Name: "Earth", SetType: strPtr("co-headliner")},
+			{Name: "Boris", SetType: strPtr(contracts.SetTypeHeadliner)},
+		})
+		require.NotNil(t, out[0].IsHeadliner)
+		assert.False(t, *out[0].IsHeadliner)
+	})
+
 	t.Run("does not mutate the caller's slice", func(t *testing.T) {
 		in := []contracts.CreateShowArtist{
 			{Name: "Earth"},

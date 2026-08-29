@@ -2004,13 +2004,20 @@ func resolveArtistRole(a contracts.CreateShowArtist, position int) (setType stri
 	return contracts.SetTypeDefault, false
 }
 
-// statesBillRole reports whether the caller said anything at all about this
-// act's slot, by either spelling. Whitespace-only set_type reads as absent
-// everywhere else (curatedSetType), so it reads as silence here too; anything
-// non-empty has already passed validateShowArtistSetTypes and is therefore a
-// vocabulary member.
+// statesBillRole reports whether this act carries a signal resolveArtistRole
+// will actually act on -- that is, whether its rule 1 or rule 2 applies, leaving
+// the act out of reach of the rule 3 position fallback.
+//
+// The set_type test is IsValidSetType, not merely non-empty, so that an absent,
+// whitespace-only, or out-of-vocabulary value all read as silence here exactly
+// as they do in resolveArtistRole. On the update path validateShowArtistSetTypes
+// has already rejected the out-of-vocabulary case, but agreeing with resolution
+// rather than relying on that ordering keeps this predicate correct on its own:
+// a bill like [{Earth, set_type:"garbage"}, {Boris, headliner}] would otherwise
+// count Earth as "stated", skip it, and let rule 3 promote it to a second
+// headliner -- the very defect this file is closing.
 func statesBillRole(a contracts.CreateShowArtist) bool {
-	return curatedSetType(a) != "" || a.IsHeadliner != nil
+	return contracts.IsValidSetType(curatedSetType(a)) || a.IsHeadliner != nil
 }
 
 // claimsHeadlineSlot reports whether this act's OWN stated signal puts it in the
