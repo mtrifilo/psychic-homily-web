@@ -138,9 +138,30 @@ describe('ShowProvenanceLine', () => {
       expect(text).not.toMatch(/added Jul 12 by/)
     })
 
+    // The backend fails closed for a contributor who set `contributions:
+    // hidden`, and for an account whose only resolvable name would come from
+    // its email local-part. Both arrive as an absent name, and both must render
+    // as NO credit — never a placeholder, and never a leaked fragment.
+    it('renders no credit when the backend withheld the name for privacy', () => {
+      renderLine(
+        makeShow({
+          submitted_by: 42,
+          submitted_by_name: null,
+          submitted_by_username: null,
+        })
+      )
+
+      const text =
+        screen.getByTestId('show-provenance-line').textContent ?? ''
+      expect(text).toMatch(/added Jul 12/)
+      expect(text).not.toMatch(/added Jul 12 by/)
+      expect(screen.queryByText('Anonymous')).toBeNull()
+      expect(text).not.toMatch(/@/)
+    })
+
     // Gated on the NAME, not the username: a username with no name is a shape
-    // the backend cannot produce (the resolver bottoms out at "Anonymous"), and
-    // rendering "by Anonymous" off a stray username would invent a claim.
+    // the backend cannot produce, and rendering a placeholder off a stray
+    // username would invent a claim.
     it('omits the credit when only a username arrives', () => {
       renderLine(makeShow({ submitted_by_username: 'mtrifilo' }))
 

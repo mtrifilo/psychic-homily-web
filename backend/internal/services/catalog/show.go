@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -2226,9 +2227,7 @@ func (s *ShowService) attachBillLabels(resp *contracts.ShowResponse) {
 // they never read. Same trade that function already makes, for the same reason.
 //
 // The resolution chain is shared.ResolveUserName / ResolveUserUsername, the
-// canonical pair (PSY-612 / PSY-598). The Select must keep listing every chain
-// column: the resolver reads display_name, username, first/last and email, and
-// a missing column scans as nil and silently disables that branch (PSY-1063).
+// canonical pair (PSY-612 / PSY-598), narrowed by the privacy gates below.
 //
 // This does NOT yet match the "updated by" half of the same byline. The
 // revisions endpoint resolves through its own local copy of the chain
@@ -2240,8 +2239,7 @@ func (s *ShowService) attachBillLabels(resp *contracts.ShowResponse) {
 // and is its own ticket. Do not "fix" the mismatch by copying the stale chain
 // here; that spreads the bug instead of shrinking it.
 //
-// Two distinct absences, deliberately collapsed to one wire signal (the key is
-// dropped):
+// Absences that drop the credit before the privacy gates even run:
 //   - No submitter to resolve. A scraped listing never had one, and a
 //     hard-deleted account no longer does: shows.submitted_by is `REFERENCES
 //     users(id) ON DELETE SET NULL` (migration 000005), so dropping an account
@@ -2253,12 +2251,44 @@ func (s *ShowService) attachBillLabels(resp *contracts.ShowResponse) {
 // it covers a future migration that weakens the constraint, not today's data.
 // The query-error case it shares is the one that actually happens.
 //
-// An account that EXISTS but resolves to no name is NOT one of those: it gets
-// the chain's terminal "Anonymous", exactly as the revisions byline already
-// shows it. Matching that endpoint's policy is the point, including what it
-// does NOT do — it applies no is_active / deleted_at filter, so neither does
-// this. A deactivated contributor keeps their credit on both lines or loses it
-// on both, never one each way.
+// PRIVACY. This byline is a public contribution-attribution surface, and it is
+// a WIDER one than the revisions byline beside it: a revision credit needs an
+// edit to exist, this one appears on every user-submitted show. So it enforces
+// the privacy model the rest of the app enforces, rather than the one the
+// revisions endpoint happens to have.
+//
+// Three fail-closed gates, in order. Each drops the credit rather than
+// substituting a placeholder — "added Jul 12" claims nothing about who, which
+// is the honest reading of "we may not say".
+//
+//  1. privacy_settings.contributions = "hidden" omits the credit entirely.
+//     This is a real user-facing setting, already honoured by the contributor
+//     leaderboard (services/user/leaderboard.go), the activity heatmap and the
+//     profile's contribution stats. The revisions endpoint does NOT honour it —
+//     its applyPrivacyRedaction masks edit CONTENT (field values, summary) and
+//     never the author's identity. That is a gap in revisions, not a policy to
+//     copy. User decision 2026-08-29: fail closed here.
+//  2. No public name tier omits the credit. The canonical chain's last resort
+//     derives a name from the local-part of the account's email, and an email
+//     fragment is not something a public byline may publish. A name is rendered
+//     only when it came from display_name, username, or first/last — the tiers a
+//     person chose as a public identity. This also swallows the chain's terminal
+//     "Anonymous", which carried no information worth a byline anyway.
+//  3. profile_visibility = "private" keeps the NAME but drops the username, so
+//     the credit renders as plain text. The profile route 404s a private profile
+//     (community/contributor_profile.go), so linking would be a dead link. The
+//     name still shows: only gate 1 suppresses the person.
+//
+// Deliberately NOT viewer-dependent (v1): the same public rule applies to
+// everyone, submitter included. Threading viewer identity into the detail reads
+// is a real API change, and the leaderboard's own gate is likewise viewerless.
+//
+// The Select deliberately does NOT load `email`, departing from the
+// load-every-chain-column rule on shared.ResolveUserName. That rule exists so a
+// missing column cannot silently disable a tier; here disabling the email tier
+// is the POINT, and not loading the column means an email cannot reach a
+// response even if gate 2 were later removed. Structural, not incidental — keep
+// it that way. Every OTHER chain column must stay listed.
 //
 // Nothing here decides WHO may see the byline; the route does. A show the
 // caller may not see is 404'd before the response is serialized
@@ -2270,7 +2300,7 @@ func (s *ShowService) attachSubmitterAttribution(resp *contracts.ShowResponse) {
 	}
 
 	var user authm.User
-	if err := s.db.Select("id, username, display_name, first_name, last_name, email").
+	if err := s.db.Select("id, username, display_name, first_name, last_name, privacy_settings, profile_visibility").
 		First(&user, *resp.SubmittedBy).Error; err != nil {
 		// Logged, never fatal: a byline is not worth failing a page read over.
 		// Both arms are genuinely unexpected here — a query error, or the
@@ -2281,8 +2311,39 @@ func (s *ShowService) attachSubmitterAttribution(resp *contracts.ShowResponse) {
 		return
 	}
 
+	// Gate 1. An unmarshalable blob falls back to the DEFAULTS, which have
+	// Contributions visible — so this arm is not fail-closed by itself. It
+	// matches how every other reader of this column behaves, and a divergent
+	// local rule would be the surprise. Narrow in practice: the column is jsonb,
+	// so Postgres rejects malformed JSON at write time and only a well-formed
+	// blob of the wrong SHAPE can land here.
+	privacy := contracts.DefaultPrivacySettings()
+	if user.PrivacySettings != nil {
+		_ = json.Unmarshal(*user.PrivacySettings, &privacy)
+	}
+	if privacy.Contributions == contracts.PrivacyHidden {
+		return
+	}
+
+	// Gate 2. Checked on the SOURCE columns, not by inspecting the resolved
+	// string: the chain returns a bare local-part for an email-derived name, so
+	// there is nothing in the output to pattern-match on. Because these are the
+	// first three tiers, a true here guarantees ResolveUserName returns one of
+	// them and never reaches the email or "Anonymous" branches.
+	hasPublicName := (user.DisplayName != nil && *user.DisplayName != "") ||
+		(user.Username != nil && *user.Username != "") ||
+		(user.FirstName != nil && *user.FirstName != "")
+	if !hasPublicName {
+		return
+	}
+
 	name := shared.ResolveUserName(&user)
 	resp.SubmittedByName = &name
+
+	// Gate 3.
+	if user.ProfileVisibility == "private" {
+		return
+	}
 	resp.SubmittedByUsername = shared.ResolveUserUsername(&user)
 }
 

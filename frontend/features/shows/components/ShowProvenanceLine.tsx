@@ -110,10 +110,14 @@ export function ShowProvenanceLine({
   }
   if (added) {
     // The credit is a SEPARATE guard from the date: a listing with no resolved
-    // submitter (scraped, or an account whose row is gone) still gets its
-    // "added" date, just without a "by". Gated on the NAME rather than on the
-    // username, because an account with no profile slug is still a person to
-    // credit — UserAttribution renders it as plain text.
+    // submitter still gets its "added" date, just without a "by". That covers
+    // a scraped show, an account whose row is gone, and the backend's privacy
+    // gates (a contributor who hid their contributions, or one whose only
+    // resolvable name would be an email fragment) — all arrive here identically
+    // as an absent name, and all must render as no credit rather than as a
+    // placeholder. Gated on the NAME rather than the username, because an
+    // account with no linkable profile is still a person to credit;
+    // UserAttribution renders that as plain text.
     push(
       'added',
       show.submitted_by_name ? (

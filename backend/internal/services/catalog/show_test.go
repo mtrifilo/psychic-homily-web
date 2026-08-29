@@ -1033,6 +1033,167 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShow_HardDeletedSubmitterNu
 	suite.Nil(resp.SubmittedByUsername)
 }
 
+// =============================================================================
+// Privacy gates on the submitter credit (PSY-1866)
+//
+// This byline is a public contribution-attribution surface, and a wider one
+// than the revisions byline beside it: a revision credit needs an edit to
+// exist, this one appears on every user-submitted show. User decision
+// 2026-08-29 is to fail closed on the app's own privacy model rather than to
+// copy the revisions endpoint, which honours none of it (its
+// applyPrivacyRedaction masks edit CONTENT, never author identity).
+// =============================================================================
+
+// Gate 1. The setting the contributor leaderboard, the activity heatmap and the
+// profile's contribution stats already honour. Omission, not "Anonymous": the
+// byline must claim nothing about who rather than claim a placeholder.
+func (suite *ShowServiceIntegrationTestSuite) TestGetShow_ContributionsHiddenOmitsCredit() {
+	user := suite.createTestUser()
+	suite.setUserIdentity(user.ID, map[string]interface{}{
+		"username":         "shy",
+		"privacy_settings": `{"contributions":"hidden"}`,
+	})
+	created := suite.showSubmittedBy(user)
+
+	resp, err := suite.showService.GetShow(created.ID)
+
+	suite.Require().NoError(err)
+	suite.Nil(resp.SubmittedByName, "a contributor who hid contributions must not be named")
+	suite.Nil(resp.SubmittedByUsername)
+
+	encoded, err := json.Marshal(resp)
+	suite.Require().NoError(err)
+	suite.NotContains(string(encoded), "shy", "the username must not survive anywhere in the payload")
+}
+
+// The gate must key on "hidden" specifically, not on "the setting was touched".
+func (suite *ShowServiceIntegrationTestSuite) TestGetShow_ContributionsVisibleKeepsCredit() {
+	user := suite.createTestUser()
+	suite.setUserIdentity(user.ID, map[string]interface{}{
+		"username":         "loud",
+		"privacy_settings": `{"contributions":"visible"}`,
+	})
+	created := suite.showSubmittedBy(user)
+
+	resp, err := suite.showService.GetShow(created.ID)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.SubmittedByName)
+	suite.Equal("loud", *resp.SubmittedByName)
+}
+
+// Gate 2. The canonical chain's last resort derives a name from the local-part
+// of the account's email. A public byline may not publish an email fragment, so
+// an account with no chosen public identity loses the credit entirely.
+func (suite *ShowServiceIntegrationTestSuite) TestGetShow_EmailOnlySubmitterOmitsCredit() {
+	user := suite.createTestUser()
+	suite.setUserIdentity(user.ID, map[string]interface{}{
+		"display_name": nil,
+		"username":     nil,
+		"first_name":   nil,
+		"last_name":    nil,
+		"email":        "secret.person@example.com",
+	})
+	created := suite.showSubmittedBy(user)
+
+	resp, err := suite.showService.GetShow(created.ID)
+
+	suite.Require().NoError(err)
+	suite.Nil(resp.SubmittedByName, "an email-derived name must never reach the byline")
+	suite.Nil(resp.SubmittedByUsername)
+
+	encoded, err := json.Marshal(resp)
+	suite.Require().NoError(err)
+	suite.NotContains(string(encoded), "secret.person", "no local-part may leak")
+	suite.NotContains(string(encoded), "example.com")
+}
+
+// The chain's terminal "Anonymous" carries no information worth a byline, and
+// falls out of the same gate rather than needing a rule of its own.
+func (suite *ShowServiceIntegrationTestSuite) TestGetShow_NamelessSubmitterOmitsCreditRatherThanSayingAnonymous() {
+	user := suite.createTestUser()
+	suite.setUserIdentity(user.ID, map[string]interface{}{
+		"display_name": nil,
+		"username":     nil,
+		"first_name":   nil,
+		"last_name":    nil,
+		"email":        nil,
+	})
+	created := suite.showSubmittedBy(user)
+
+	resp, err := suite.showService.GetShow(created.ID)
+
+	suite.Require().NoError(err)
+	suite.Nil(resp.SubmittedByName)
+	suite.Nil(resp.SubmittedByUsername)
+
+	encoded, err := json.Marshal(resp)
+	suite.Require().NoError(err)
+	suite.NotContains(string(encoded), "Anonymous")
+}
+
+// Gate 3. A private profile 404s, so linking to it would be a dead link — but
+// the person is still credited. Only gate 1 suppresses the name.
+func (suite *ShowServiceIntegrationTestSuite) TestGetShow_PrivateProfileIsNamedButUnlinked() {
+	user := suite.createTestUser()
+	suite.setUserIdentity(user.ID, map[string]interface{}{
+		"username":           "recluse",
+		"profile_visibility": "private",
+	})
+	created := suite.showSubmittedBy(user)
+
+	resp, err := suite.showService.GetShow(created.ID)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.SubmittedByName)
+	suite.Equal("recluse", *resp.SubmittedByName, "a private profile is still credited")
+	suite.Nil(resp.SubmittedByUsername, "but must not be linked — the profile route 404s")
+}
+
+// The two gates are independent: hiding contributions wins over a public
+// profile, so a public-profile account that hid contributions still loses the
+// credit outright.
+func (suite *ShowServiceIntegrationTestSuite) TestGetShow_HiddenContributionsBeatsPublicProfile() {
+	user := suite.createTestUser()
+	suite.setUserIdentity(user.ID, map[string]interface{}{
+		"username":           "conflicted",
+		"profile_visibility": "public",
+		"privacy_settings":   `{"contributions":"hidden"}`,
+	})
+	created := suite.showSubmittedBy(user)
+
+	resp, err := suite.showService.GetShow(created.ID)
+
+	suite.Require().NoError(err)
+	suite.Nil(resp.SubmittedByName)
+	suite.Nil(resp.SubmittedByUsername)
+}
+
+// An unmarshalable privacy blob falls back to DefaultPrivacySettings, matching
+// every other reader of this column. That default has Contributions visible, so
+// this is deliberately not fail-closed on its own — a divergent local rule would
+// be the surprise. Pinned so the fallback is a decision, not an accident.
+//
+// The blob is WELL-FORMED JSON of the wrong shape, not truncated text: the
+// column is jsonb, so Postgres rejects syntactically invalid JSON at write time
+// (SQLSTATE 22P02) and a truncated blob can never reach a reader. A type
+// mismatch inside valid JSON is the only unmarshal failure this code can
+// actually meet.
+func (suite *ShowServiceIntegrationTestSuite) TestGetShow_UnmarshalablePrivacyBlobFallsBackToDefaults() {
+	user := suite.createTestUser()
+	suite.setUserIdentity(user.ID, map[string]interface{}{
+		"username":         "garbled",
+		"privacy_settings": `{"contributions":123}`, // valid JSON, wrong type
+	})
+	created := suite.showSubmittedBy(user)
+
+	resp, err := suite.showService.GetShow(created.ID)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.SubmittedByName)
+	suite.Equal("garbled", *resp.SubmittedByName)
+}
+
 // The N+1 guard, and the acceptance criterion "list payloads unchanged". This
 // is a DETAIL-read decoration; the list paths must not resolve a submitter per
 // row, and must omit the keys rather than send nulls that change the shape.
