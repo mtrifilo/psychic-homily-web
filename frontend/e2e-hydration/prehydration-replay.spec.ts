@@ -344,9 +344,13 @@ test.describe('pre-hydration clicks on a mutation control', () => {
     // code of its own, so if BracketLink stopped providing it this test fails
     // and nothing else would.
     //
-    // Not [Follow]: its bracket renders *disabled* until the follow-status
-    // query resolves, so it only becomes clickable after hydration and is
-    // already protected by that loading state on this page.
+    // Not [Follow]: this test logs in, and for a SIGNED-IN viewer that bracket
+    // renders *disabled* until the follow-status query resolves, so it only
+    // becomes clickable after hydration and is already protected by that
+    // loading state on this page. (Since PSY-1867 the qualifier is real: a
+    // settled-anonymous viewer skips the query and DOES get an enabled bracket
+    // in server HTML, which replay then covers. Exercising that here would need
+    // an anonymous arm this harness does not have.)
     await login(page)
     await throttle(page)
     await page.goto(`/artists/${ARTIST_SLUG}`, { waitUntil: 'commit' })

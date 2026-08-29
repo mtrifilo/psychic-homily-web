@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createWrapper } from '@/test/utils'
@@ -7,7 +7,13 @@ import { createWrapper } from '@/test/utils'
 const mockPush = vi.fn()
 const mockFollowMutate = vi.fn()
 const mockUnfollowMutate = vi.fn()
-let mockIsAuthenticated = true
+// Single source of truth for the mocked auth state, mirroring the real
+// AuthContext's invariant that `isAuthenticated` is DERIVED from `authStatus`.
+// Driving both from one variable is what keeps these tests from asserting
+// against a viewer that cannot exist (e.g. authenticated-but-anonymous), while
+// still letting a test reproduce the one combination that matters here:
+// 'pending', where a signed-in viewer legitimately reads isAuthenticated=false.
+let mockAuthStatus: 'pending' | 'authenticated' | 'anonymous' = 'authenticated'
 let mockFollowStatusData:
   | { follower_count: number; is_following: boolean }
   | undefined
@@ -20,8 +26,9 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => ({
-    isAuthenticated: mockIsAuthenticated,
-    user: mockIsAuthenticated ? { id: 42 } : null,
+    authStatus: mockAuthStatus,
+    isAuthenticated: mockAuthStatus === 'authenticated',
+    user: mockAuthStatus === 'authenticated' ? { id: 42 } : null,
   }),
 }))
 
@@ -50,7 +57,7 @@ vi.mock('@/lib/api', async () => {
 const useMockedFollowHooks = vi.hoisted(() => ({ value: true }))
 // Records the last useFollowStatus invocation so tests can assert the
 // component's fetch-gating (the bracket variant must pass enabled=false for
-// anonymous viewers).
+// SETTLED-anonymous viewers, and enabled=true while auth is still pending).
 const followStatusCall = vi.hoisted(() => ({
   last: undefined as undefined | { entityType: string; enabled: boolean },
 }))
@@ -88,7 +95,7 @@ describe('FollowButton', () => {
     window.history.replaceState({}, '', '/')
     vi.clearAllMocks()
     useMockedFollowHooks.value = true
-    mockIsAuthenticated = true
+    mockAuthStatus = 'authenticated'
     mockFollowStatusData = { follower_count: 10, is_following: false }
     mockStatusLoading = false
   })
@@ -149,7 +156,7 @@ describe('FollowButton', () => {
 
   it('redirects to /auth when not authenticated', async () => {
     const user = userEvent.setup()
-    mockIsAuthenticated = false
+    mockAuthStatus = 'anonymous'
     window.history.replaceState({}, '', '/?window=all_time')
 
     render(<FollowButton entityType="artists" entityId={1} />, {
@@ -244,7 +251,7 @@ describe('FollowButton — bracket variant (PSY-641)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useMockedFollowHooks.value = true
-    mockIsAuthenticated = true
+    mockAuthStatus = 'authenticated'
     mockFollowStatusData = { follower_count: 10, is_following: false }
     mockStatusLoading = false
   })
@@ -323,20 +330,120 @@ describe('FollowButton — bracket variant (PSY-641)', () => {
     ).toBeInTheDocument()
   })
 
-  // The status fetch runs for EVERY bracket viewer, anonymous included. An
-  // anonymous-skip was probed and rejected (see the comment in the
-  // component): `isAuthenticated` is false for a signed-in viewer until the
-  // profile round-trip lands, so any skip predicate misreads that window as
-  // "anonymous" and ships an enabled bracket whose replayed pre-hydration
-  // click bounces a signed-in user to /auth. This pin keeps the fetch gate
-  // from being "optimized" without a settled-auth signal.
-  it('keeps the status fetch enabled even for anonymous viewers', () => {
-    mockIsAuthenticated = false
+  // ── Anonymous fetch skip + the window it must not touch (PSY-1867) ──
+  //
+  // The pin below is the PSY-1686 pin, kept at its INTENT rather than its
+  // original literal. What PSY-1686 proved unsafe was a skip predicated on
+  // `isAuthenticated`/`isLoading`: both read false for a signed-in viewer
+  // whose profile has not landed, so the skip fires in that window and ships
+  // an enabled bracket whose replayed pre-hydration click bounces an
+  // already-logged-in user to /auth. The naive skip is still forbidden, and
+  // this test still fails if it is reintroduced — because the naive predicate
+  // cannot tell 'pending' from 'anonymous', and here they must differ.
+
+  it('keeps the status fetch enabled, and the bracket DISABLED, while auth is unsettled', () => {
+    // The exact trap window: signed in, profile still in flight, so
+    // `isAuthenticated` reads false. A skip gated on that would fire here.
+    mockAuthStatus = 'pending'
+    mockStatusLoading = true
+    mockFollowStatusData = undefined
+
     render(
       <FollowButton entityType="venues" entityId={1} variant="bracket" />,
       { wrapper: createWrapper() }
     )
+
     expect(followStatusCall.last?.enabled).toBe(true)
+    expect(screen.getByRole('button', { name: 'Follow' })).toBeDisabled()
+  })
+
+  // The disabled render above is the whole pre-hydration safety argument: a
+  // replay is skipped when its target is disabled (consumePendingReplay), and
+  // BracketLink pins the `pointer-events-none` that stops the click landing in
+  // the first place. What this asserts is the half that lives HERE — that the
+  // pending window reaches neither the /auth redirect nor a mutation.
+  it('does not send a signed-in-but-pending viewer to /auth when the bracket is clicked', () => {
+    mockAuthStatus = 'pending'
+    mockStatusLoading = true
+    mockFollowStatusData = undefined
+
+    render(
+      <FollowButton entityType="venues" entityId={1} variant="bracket" />,
+      { wrapper: createWrapper() }
+    )
+
+    const bracket = screen.getByRole('button', { name: 'Follow' })
+    expect(bracket).toBeDisabled()
+    // fireEvent, not userEvent: userEvent refuses to click a control with
+    // `pointer-events: none`, which would make this pass for the wrong reason.
+    // A raw dispatch is also what `consumePendingReplay` does, so this is the
+    // closer analogue of a replayed click.
+    fireEvent.click(bracket)
+
+    expect(mockPush).not.toHaveBeenCalled()
+    expect(mockFollowMutate).not.toHaveBeenCalled()
+  })
+
+  it('skips the status fetch for a SETTLED anonymous viewer', () => {
+    mockAuthStatus = 'anonymous'
+
+    render(
+      <FollowButton entityType="venues" entityId={1} variant="bracket" />,
+      { wrapper: createWrapper() }
+    )
+
+    expect(followStatusCall.last?.enabled).toBe(false)
+  })
+
+  it('renders an ENABLED bracket for a settled anonymous viewer that routes to /auth', async () => {
+    const user = userEvent.setup()
+    mockAuthStatus = 'anonymous'
+    window.history.replaceState({}, '', '/')
+
+    render(
+      <FollowButton entityType="venues" entityId={1} variant="bracket" />,
+      { wrapper: createWrapper() }
+    )
+
+    const bracket = screen.getByRole('button', { name: 'Follow' })
+    expect(bracket).toBeEnabled()
+
+    await user.click(bracket)
+    expect(mockPush).toHaveBeenCalledWith(
+      '/auth?returnTo=%2Fartists%2Ftest-artist'
+    )
+    expect(mockFollowMutate).not.toHaveBeenCalled()
+  })
+
+  // The skip is bracket-only, and deliberately so: the BUTTON variants paint
+  // the follower count, which is public and which an anonymous viewer sees.
+  // Widening the skip to them would silently blank that count.
+  it('still fetches for a settled anonymous viewer on the button variant', () => {
+    mockAuthStatus = 'anonymous'
+
+    render(<FollowButton entityType="venues" entityId={1} />, {
+      wrapper: createWrapper(),
+    })
+
+    expect(followStatusCall.last?.enabled).toBe(true)
+    expect(screen.getByText('10')).toBeInTheDocument()
+  })
+
+  it('still skips the fetch when followData is supplied, for every auth state', () => {
+    mockAuthStatus = 'authenticated'
+
+    render(
+      <FollowButton
+        entityType="venues"
+        entityId={1}
+        variant="bracket"
+        followData={{ follower_count: 3, is_following: true }}
+      />,
+      { wrapper: createWrapper() }
+    )
+
+    expect(followStatusCall.last?.enabled).toBe(false)
+    expect(screen.getByRole('button', { name: 'Following' })).toBeEnabled()
   })
 })
 
@@ -393,7 +500,7 @@ describe('FollowButton — optimistic update + rollback (real hooks)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useMockedFollowHooks.value = false
-    mockIsAuthenticated = true
+    mockAuthStatus = 'authenticated'
     mockApiRequest.mockReset()
   })
 

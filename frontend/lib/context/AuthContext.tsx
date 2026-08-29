@@ -33,9 +33,30 @@ interface User {
   nav_mode?: NavMode
 }
 
+/**
+ * Whether the viewer's identity is KNOWN yet, and what it turned out to be.
+ *
+ * `isAuthenticated` cannot answer "is this viewer anonymous?" on its own: it
+ * is false in two situations that call for opposite behavior — the viewer
+ * really is anonymous, and the viewer is signed in but their profile has not
+ * arrived yet. `isLoading` does not separate them either, because it is false
+ * BEFORE the profile query starts fetching, so the earliest renders read as a
+ * settled anonymous viewer.
+ *
+ * Rendering a spinner off that ambiguity is harmless. Changing behavior off it
+ * is not: PSY-1686 skipped a request for "anonymous" viewers, which shipped an
+ * enabled control during the signed-in-but-pending window and bounced logged-in
+ * users to /auth. Anything that acts on "this viewer is anonymous" must gate on
+ * `authStatus === 'anonymous'`, which is only reached once the profile query has
+ * actually resolved to "no user".
+ */
+export type AuthStatus = 'pending' | 'authenticated' | 'anonymous'
+
 interface AuthState {
   user: User | null
   isAuthenticated: boolean
+  /** Settled-auth signal. See {@link AuthStatus} before gating behavior on it. */
+  authStatus: AuthStatus
   isLoading: boolean
   error: string | null
 }
@@ -60,8 +81,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
   )
   const [errorOverride, setErrorOverride] = useState<string | null>(null)
 
-  // Use the useProfile hook to get authentication status
-  const { data: profileData, isLoading, error: profileError } = useProfile()
+  // Use the useProfile hook to get authentication status.
+  //
+  // `isPending` rather than `isLoading` is what makes `authStatus` a SETTLED
+  // signal: `isLoading` is `isPending && isFetching`, so it reads false in the
+  // window between mount and the fetch actually starting. `isPending` is true
+  // from the first render until the query resolves to data or an error, which
+  // is exactly "we do not know who this viewer is yet".
+  const {
+    data: profileData,
+    isPending: isProfilePending,
+    isLoading,
+    error: profileError,
+  } = useProfile()
   const logoutMutation = useLogout()
 
   // Derive user from profile data or override
@@ -102,6 +134,24 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return null
   }, [profileData, userOverride])
 
+  // Derive the settled-auth signal. Order is load-bearing:
+  //
+  // 1. A user we already hold is an answer, whatever the query is doing — the
+  //    login/signup override lands before the profile refetch it triggers, and
+  //    a background refetch of a cached profile must not re-open the window.
+  // 2. A logout in flight is a TRANSITION, not an answer. The mutation clears
+  //    the query cache, so the gap between "override cleared" and "profile
+  //    query pending again" would otherwise read as a settled anonymous viewer
+  //    a beat early. Both unresolved cases collapse to 'pending', which is the
+  //    conservative direction: consumers keep their disabled/loading posture.
+  // 3. Only a profile query that has actually resolved without a user yields
+  //    'anonymous'.
+  const authStatus: AuthStatus = useMemo(() => {
+    if (user) return 'authenticated'
+    if (isProfilePending || logoutMutation.isPending) return 'pending'
+    return 'anonymous'
+  }, [user, isProfilePending, logoutMutation.isPending])
+
   // Derive error from profile error or override
   const error = useMemo(() => {
     if (errorOverride !== null) {
@@ -141,7 +191,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const value: AuthContextType = useMemo(
     () => ({
       user,
-      isAuthenticated: Boolean(user),
+      // Derived from `authStatus` rather than re-tested from `user`, so the
+      // two can never disagree about the same viewer.
+      isAuthenticated: authStatus === 'authenticated',
+      authStatus,
       isLoading: isLoading || logoutMutation.isPending,
       error,
       setUser,
@@ -151,6 +204,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }),
     [
       user,
+      authStatus,
       isLoading,
       logoutMutation.isPending,
       error,

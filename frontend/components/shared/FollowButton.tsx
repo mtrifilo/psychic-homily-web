@@ -53,25 +53,38 @@ export function FollowButton({
 }: FollowButtonProps) {
   const router = useRouter()
   const pathname = usePathname()
-  const { isAuthenticated } = useAuthContext()
+  const { isAuthenticated, authStatus } = useAuthContext()
   const [isHovering, setIsHovering] = useState(false)
 
-  // Fetch follow status only if not provided via props.
+  // Skip the status request for a bracket shown to an anonymous viewer: the
+  // bracket paints no follower count, and an anonymous viewer's `is_following`
+  // is false by definition, so the whole response is discarded.
   //
-  // A tempting optimization was probed here and REJECTED: skipping this
-  // fetch for anonymous bracket viewers (the bracket shows no count, and an
-  // anonymous viewer's is_following is false by definition). It cannot be
-  // gated safely with what this context exposes — `isAuthenticated` is
-  // false for a LOGGED-IN viewer until the profile round-trip lands, and
-  // `isLoading` is false before that fetch even starts, so every available
-  // predicate misreads "signed in, profile pending" as "anonymous". Acting
-  // on that misreading renders an enabled bracket whose replayed
-  // pre-hydration click bounces a signed-in user to /auth. Revisit only
-  // with a settled-auth signal (tracked separately).
+  // The gate is `authStatus === 'anonymous'` and NOT `!isAuthenticated`, and
+  // that difference is the entire point. PSY-1686 tried the latter and reverted
+  // it: `isAuthenticated` is false for a SIGNED-IN viewer until their profile
+  // round-trip lands, and `isLoading` is false before that fetch even starts, so
+  // both misread "signed in, profile pending" as "anonymous". The cost of the
+  // misread is not a wasted request — it is an ENABLED bracket in that window,
+  // whose replayed pre-hydration click bounces an already-logged-in user to
+  // /auth. `authStatus` only reports 'anonymous' once the profile query has
+  // resolved to "no user"; while it is 'pending' this stays enabled and the
+  // bracket stays disabled, which is PSY-1615's posture unchanged.
+  //
+  // Known gap, inherited rather than introduced: if the SSR profile prefetch
+  // fails (backend 5xx), `prefetchAuthProfile` seeds the anonymous sentinel for
+  // a signed-in viewer, so `authStatus` settles 'anonymous' wrongly until
+  // staleTime elapses. That viewer is already treated as logged out by every
+  // other auth-gated control on the page; this makes the bracket agree with them
+  // rather than fetch a status it would then contradict.
+  const skipAnonymousStatusFetch =
+    variant === 'bracket' && authStatus === 'anonymous'
+
+  // Fetch follow status only if not provided via props.
   const { data: fetchedData, isLoading: statusLoading } = useFollowStatus(
     entityType,
     entityId,
-    !followData
+    !followData && !skipAnonymousStatusFetch
   )
 
   const follow = useFollow()
@@ -91,19 +104,24 @@ export function FollowButton({
   // page (production build) showed the BRACKET variant ships from the
   // `statusLoading` branch below — rendered `disabled`, hence
   // `pointer-events-none`. No click can land on it during the pre-hydration
-  // window, so nothing is buffered and replay never applies: on entity pages
-  // that variant is protected by its own loading state, not by this primitive.
+  // window, so nothing is buffered and replay never applies: for a SIGNED-IN
+  // viewer that variant is protected by its own loading state, not by this
+  // primitive.
+  //
+  // "Signed-in" is now a real qualifier, not a redundant one. Since PSY-1867 a
+  // SETTLED-ANONYMOUS viewer skips the status query, so their bracket ships
+  // ENABLED in server HTML and IS covered by replay (BracketLink carries
+  // `replayOnHydrate`). That is the intended outcome: replaying their click
+  // reaches `handleClick`, which sends an anonymous viewer to
+  // /auth?returnTo=… — exactly what clicking Follow should do for them, and
+  // now it survives the hydration window instead of being dropped. The
+  // dangerous version of this render is the one PSY-1686 shipped, where the
+  // same enabled bracket was handed to a signed-in viewer whose profile had
+  // not landed; `authStatus` is what separates the two.
   //
   // The Button variants below do opt in, and are genuinely covered wherever a
   // caller passes `followData` (the charts pages), because that skips the
   // loading branch and renders an enabled control at first paint.
-  //
-  // Making the bracket render enabled at first paint would move it under replay
-  // too — `handleClick` already guards on `isDisabled` — but that changes what
-  // the control shows before its status is known, so it is deliberately left
-  // out of PSY-1615's scope. (See also the rejected anonymous-skip above: an
-  // enabled first-paint bracket is exactly the render that turns the
-  // profile-pending window into a wrong /auth redirect.)
 
   const handleClick = (e: React.MouseEvent) => {
     e.preventDefault()

@@ -37,8 +37,12 @@ describe('AuthContext', () => {
     mockMutateAsync = vi.fn()
 
     // Default mock implementations
+    // `isPending` is stated explicitly rather than left undefined: it is what
+    // `authStatus` derives from, so an absent value would make every test in
+    // this file depend on undefined being falsy.
     mockUseProfile.mockReturnValue({
       data: null,
+      isPending: false,
       isLoading: false,
       error: null,
     })
@@ -501,6 +505,156 @@ describe('AuthContext', () => {
 
       // Logout still clears state even on failure
       expect(mockMutateAsync).toHaveBeenCalled()
+    })
+  })
+
+  // ── authStatus: the settled-auth signal (PSY-1867) ──────────────────
+  //
+  // The point of this tri-state is that consumers can tell "we do not know who
+  // this viewer is yet" apart from "this viewer is nobody". `isAuthenticated`
+  // and `isLoading` both collapse those two, which is what made the PSY-1686
+  // anonymous-skip unsafe. Each case below pins one leg of that separation.
+  describe('authStatus', () => {
+    it('is "pending" while the profile query has not resolved', () => {
+      mockUseProfile.mockReturnValue({
+        data: undefined,
+        isPending: true,
+        // Deliberately false: this is the exact shape that misled PSY-1686 —
+        // the query is mounted but has not started fetching, so `isLoading`
+        // (isPending && isFetching) reads false while the answer is unknown.
+        isLoading: false,
+        error: null,
+      })
+
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      expect(result.current.authStatus).toBe('pending')
+      expect(result.current.isAuthenticated).toBe(false)
+    })
+
+    it('is "authenticated" once the profile resolves with a user', () => {
+      mockUseProfile.mockReturnValue({
+        data: {
+          success: true,
+          user: {
+            id: 'user-123',
+            email: 'test@example.com',
+            email_verified: true,
+          },
+        },
+        isPending: false,
+        isLoading: false,
+        error: null,
+      })
+
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      expect(result.current.authStatus).toBe('authenticated')
+      expect(result.current.isAuthenticated).toBe(true)
+    })
+
+    it('is "anonymous" only once the profile resolves without a user', () => {
+      mockUseProfile.mockReturnValue({
+        data: { success: false, message: 'Authentication required' },
+        isPending: false,
+        isLoading: false,
+        error: null,
+      })
+
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      expect(result.current.authStatus).toBe('anonymous')
+    })
+
+    it('is "anonymous" when the profile query resolves to an error', () => {
+      mockUseProfile.mockReturnValue({
+        data: undefined,
+        isPending: false,
+        isLoading: false,
+        error: new Error('401'),
+      })
+
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      expect(result.current.authStatus).toBe('anonymous')
+    })
+
+    it('stays "authenticated" through a background refetch of a cached profile', () => {
+      // A stale-time refetch re-enters fetching with data already in hand.
+      // Reporting 'pending' here would re-disable settled controls on every
+      // window focus.
+      mockUseProfile.mockReturnValue({
+        data: { success: true, user: { id: 'user-123', email: 'a@b.c' } },
+        isPending: false,
+        isLoading: false,
+        isFetching: true,
+        error: null,
+      })
+
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      expect(result.current.authStatus).toBe('authenticated')
+    })
+
+    it('is "pending", never "anonymous", while a logout is in flight', () => {
+      // The logout mutation clears the query cache mid-flight. Without the
+      // logoutMutation clause the gap would read as a settled anonymous
+      // viewer a beat early, flipping dependent UI twice.
+      mockUseProfile.mockReturnValue({
+        data: undefined,
+        isPending: false,
+        isLoading: false,
+        error: null,
+      })
+      mockUseLogout.mockReturnValue({
+        mutateAsync: mockMutateAsync,
+        isPending: true,
+      })
+
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      expect(result.current.authStatus).toBe('pending')
+    })
+
+    it('is "authenticated" from a login override before the profile refetch lands', () => {
+      // Login sets the user override, then refetches the profile. The override
+      // is already an answer; re-opening the pending window would disable
+      // controls the viewer just earned.
+      mockUseProfile.mockReturnValue({
+        data: undefined,
+        isPending: true,
+        isLoading: true,
+        error: null,
+      })
+
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      expect(result.current.authStatus).toBe('pending')
+
+      act(() => {
+        result.current.setUser({
+          id: 'user-123',
+          email: 'test@example.com',
+          email_verified: true,
+        })
+      })
+
+      expect(result.current.authStatus).toBe('authenticated')
+      expect(result.current.isAuthenticated).toBe(true)
     })
   })
 
