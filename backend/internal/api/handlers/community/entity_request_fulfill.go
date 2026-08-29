@@ -189,10 +189,13 @@ func buildShowAssociations(venue *ShowVenueInput, artists []ShowArtistInput) (*s
 // silently corrupting the single fact PSY-1705 exists to record.
 //
 // The rule this encodes: a stated bill is a complete statement, so first-in-list
-// is not a second opinion. ConfirmShowImport encodes the same rule for markdown
-// imports ("first-in-file is not a second opinion"), and the direct show-CREATE
-// handler is immune for a different reason: initializeArtist pins the flag false
-// on every act before Resolve runs, unconditionally. The show UPDATE handler had
+// is not a second opinion. ConfirmShowImport reaches the same outcome for
+// markdown exports, which always state a label, but NOT by the same mechanism:
+// it pins the flag false on every frontmatter entry unconditionally, so an
+// unlabelled import file gets a bill with no headliner row at all. The direct
+// show-CREATE handler is immune for that same blunter reason: initializeArtist,
+// called at the top of CreateShowRequestBody.Resolve, pins the flag false on
+// every act before the show service ever sees the bill. The show UPDATE handler had
 // the same exposure (it forwards a nil IsHeadliner through replaceShowArtists ->
 // associateArtists -> resolveArtistRole) and was fixed separately, in the show
 // service rather than the handler, by
@@ -208,8 +211,8 @@ func buildShowAssociations(venue *ShowVenueInput, artists []ShowArtistInput) (*s
 // so a bill stated only through the legacy flag -- [{Earth}, {Boris,
 // is_headliner:true}] -- never reaches this function and still writes two
 // set_type='headliner' rows. That is the same corruption PSY-1860 fixed next
-// door, and the ShowArtistInput.is_headliner doc tag already promises the
-// behavior the code does not implement. Needs its own ticket and test.
+// door. The ShowArtistInput doc tags disclose the gap rather than promising the
+// fix, so what remains is the code change and its test.
 //
 // Scoped deliberately narrower than initializeArtist: acts that state their own
 // set_type or is_headliner are left untouched, and a bill where NOBODY states

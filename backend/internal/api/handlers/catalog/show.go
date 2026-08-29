@@ -77,7 +77,7 @@ type Artist struct {
 	ID          *uint   `json:"id,omitempty"`
 	Name        *string `json:"name,omitempty"`
 	IsHeadliner *bool   `json:"is_headliner,omitempty" doc:"Legacy headliner flag. Ignored when set_type is present, which is authoritative. On POST /shows a missing flag is defaulted to false, so bill position is never read as a role. On PUT /shows/{show_id} an act that states neither field is read as the headliner only when it is first on the bill AND no other act names a headliner."`
-	SetType     *string `json:"set_type,omitempty" enum:"headliner,direct_support,opener,special_guest,dj,performer" doc:"Curated bill role. Authoritative over is_headliner when present. Omit when the slot is not known; the show then stores 'performer', which means 'on the bill, slot unknown' and must not be rendered as a role. On PUT /shows/{show_id}, once any act names the headliner (by this field or by is_headliner), the acts that stated nothing store 'performer' rather than being inferred from list position."`
+	SetType     *string `json:"set_type,omitempty" enum:"headliner,direct_support,opener,special_guest,dj,performer" doc:"Curated bill role. Authoritative over is_headliner when present. Omit when the slot is not known; the show then stores 'performer', meaning 'on the bill, slot unknown', which must not be rendered as a role. One exception on PUT /shows/{show_id}: an act that omits BOTH this and is_headliner is stored 'headliner' when it is first on a bill where no act names a headliner. Once any act does name one (by either field), the acts that stated nothing store 'performer' rather than being inferred from list position."`
 
 	InstagramHandle *string `json:"instagram_handle,omitempty"`
 }

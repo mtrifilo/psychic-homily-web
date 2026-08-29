@@ -295,26 +295,87 @@ func TestSuppressPositionInferenceWhenHeadlinerNamed(t *testing.T) {
 		out := suppressPositionInferenceWhenHeadlinerNamed(in)
 		assert.Equal(t, in, out)
 	})
+
+	// The documented NON-guarantee, pinned so it cannot be inverted in silence.
+	// Two acts that each state 'headliner' are the caller's own bill, not an
+	// inference, and nothing on this path validates headliner COUNT. A future
+	// count check or a trigger widened past the anySilent guard would change
+	// this, and should have to change this test to do it.
+	t.Run("two stated headliners are left alone -- this is not a count guard", func(t *testing.T) {
+		in := []contracts.CreateShowArtist{
+			{Name: "Earth", SetType: strPtr(contracts.SetTypeHeadliner)},
+			{Name: "Boris", SetType: strPtr(contracts.SetTypeHeadliner)},
+		}
+		out := suppressPositionInferenceWhenHeadlinerNamed(in)
+		assert.Equal(t, in, out)
+		for i, a := range out {
+			setType, isHeadliner := resolveArtistRole(a, i)
+			assert.Equal(t, contracts.SetTypeHeadliner, setType, "artist %d", i)
+			assert.True(t, isHeadliner, "artist %d", i)
+		}
+	})
 }
 
-// claimsHeadlineSlot must agree with resolveArtistRole's own verdict on every
-// act that states a role, or the trigger would arm on a bill whose "headliner"
-// is not the row associateArtists actually writes.
-func TestClaimsHeadlineSlotAgreesWithResolveArtistRole(t *testing.T) {
-	inputs := []contracts.CreateShowArtist{
-		{Name: "a", SetType: strPtr(contracts.SetTypeHeadliner)},
-		{Name: "b", SetType: strPtr(contracts.SetTypeOpener)},
-		{Name: "c", SetType: strPtr(contracts.SetTypePerformer)},
-		{Name: "d", SetType: strPtr(contracts.SetTypeDJ), IsHeadliner: boolPtr(true)},
-		{Name: "e", IsHeadliner: boolPtr(true)},
-		{Name: "f", IsHeadliner: boolPtr(false)},
-		{Name: "g", SetType: strPtr(contracts.SetTypeHeadliner), IsHeadliner: boolPtr(false)},
+// statesBillRole is the OTHER half of the trigger and is hand-maintained, so it
+// gets the guard claimsHeadlineSlot no longer needs (that one is now derived).
+//
+// Its contract is exactly "rule 1 or rule 2 applies", i.e. this act is out of
+// reach of the rule 3 position fallback -- which is observable as
+// resolveArtistRole returning the SAME verdict at position 0 as at any later
+// position. If it ever drifts to true for an act that still falls to rule 3, the
+// helper would skip that act, rule 3 would promote it, and the PSY-1860 defect
+// would be back.
+func TestStatesBillRoleMeansPositionIndependent(t *testing.T) {
+	cases := []struct {
+		artist contracts.CreateShowArtist
+		stated bool
+	}{
+		{contracts.CreateShowArtist{Name: "curated headliner", SetType: strPtr(contracts.SetTypeHeadliner)}, true},
+		{contracts.CreateShowArtist{Name: "curated opener", SetType: strPtr(contracts.SetTypeOpener)}, true},
+		{contracts.CreateShowArtist{Name: "curated performer", SetType: strPtr(contracts.SetTypePerformer)}, true},
+		{contracts.CreateShowArtist{Name: "flag true", IsHeadliner: boolPtr(true)}, true},
+		{contracts.CreateShowArtist{Name: "flag false", IsHeadliner: boolPtr(false)}, true},
+		{contracts.CreateShowArtist{Name: "silent"}, false},
+		{contracts.CreateShowArtist{Name: "blank set_type"}, false},
+		{contracts.CreateShowArtist{Name: "whitespace set_type", SetType: strPtr("   ")}, false},
+		{contracts.CreateShowArtist{Name: "garbage set_type", SetType: strPtr("co-headliner")}, false},
 	}
-	for _, in := range inputs {
-		require.True(t, statesBillRole(in), "%s should count as stating a role", in.Name)
-		// Position 1 keeps rule 3 out of it; these acts all resolve by rule 1 or 2.
-		_, isHeadliner := resolveArtistRole(in, 1)
-		assert.Equal(t, isHeadliner, claimsHeadlineSlot(in), "artist %s", in.Name)
+	for _, tc := range cases {
+		t.Run(tc.artist.Name, func(t *testing.T) {
+			assert.Equal(t, tc.stated, statesBillRole(tc.artist))
+
+			firstType, firstHeadliner := resolveArtistRole(tc.artist, 0)
+			laterType, laterHeadliner := resolveArtistRole(tc.artist, anyPositionPastFirst)
+			positionIndependent := firstType == laterType && firstHeadliner == laterHeadliner
+			assert.Equal(t, tc.stated, positionIndependent,
+				"statesBillRole must mean exactly 'rule 3 cannot reach this act'")
+		})
+	}
+}
+
+// claimsHeadlineSlot is derived from resolveArtistRole, so this is a
+// characterization test: it states, in one place, which shapes the trigger reads
+// as naming a headliner.
+func TestClaimsHeadlineSlot(t *testing.T) {
+	cases := []struct {
+		artist contracts.CreateShowArtist
+		claims bool
+	}{
+		{contracts.CreateShowArtist{Name: "a", SetType: strPtr(contracts.SetTypeHeadliner)}, true},
+		{contracts.CreateShowArtist{Name: "b", SetType: strPtr(contracts.SetTypeOpener)}, false},
+		{contracts.CreateShowArtist{Name: "c", SetType: strPtr(contracts.SetTypePerformer)}, false},
+		// Rule 1 outranks rule 2: a curated non-headliner beats the flag.
+		{contracts.CreateShowArtist{Name: "d", SetType: strPtr(contracts.SetTypeDJ), IsHeadliner: boolPtr(true)}, false},
+		{contracts.CreateShowArtist{Name: "e", IsHeadliner: boolPtr(true)}, true},
+		{contracts.CreateShowArtist{Name: "f", IsHeadliner: boolPtr(false)}, false},
+		{contracts.CreateShowArtist{Name: "g", SetType: strPtr(contracts.SetTypeHeadliner), IsHeadliner: boolPtr(false)}, true},
+		// States nothing, so it claims nothing -- rule 3 is not consulted here.
+		{contracts.CreateShowArtist{Name: "h"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.artist.Name, func(t *testing.T) {
+			assert.Equal(t, tc.claims, claimsHeadlineSlot(tc.artist))
+		})
 	}
 }
 

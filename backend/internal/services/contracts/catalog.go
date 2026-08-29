@@ -34,6 +34,13 @@ type CreateShowVenue struct {
 // IsHeadliner is also used for duplicate prevention (headliners can't perform
 // at the same venue on the same date), which is why the headliner slot -- and
 // only the headliner slot -- may still be inferred from bill position.
+//
+// That positional inference is per-ACT, so it is not the whole story on a bill:
+// the show UPDATE path applies a bill-level rule on top, disarming it for the
+// acts a caller left silent once some other act names the headliner. In-process
+// callers building an update bill should read
+// catalog.suppressPositionInferenceWhenHeadlinerNamed before relying on the
+// paragraph above.
 type CreateShowArtist struct {
 	ID              *uint   `json:"id"`
 	Name            string  `json:"name"`

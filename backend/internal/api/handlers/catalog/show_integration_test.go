@@ -672,16 +672,16 @@ func (s *ShowHandlerIntegrationSuite) TestUpdateShow_RejectsURLShapedInstagramHa
 // about -- giving the show TWO set_type='headliner' rows, with the undesignated
 // one winning every `ORDER BY position ASC LIMIT 1` headliner read.
 //
-// Asserted through the HTTP handler rather than the service alone because the
-// nil travels through the handler's own artist mapping: this pins that the
-// mapping keeps forwarding a nil is_headliner verbatim, which is the input the
-// service rule is built to read.
+// Asserted through the HTTP handler rather than the service alone to cover the
+// endpoint the ticket actually names, end to end: the handler's artist mapping,
+// the service rule, and the stored rows.
 //
-// Its pair below (TestUpdateShow_UndescribedBillStillInfersPositionZero) is what
-// actually catches the tempting "default the flag like create does" edit in this
-// handler: such an edit leaves THIS test green (every act would then state a
-// role, so the service simply skips suppression and still writes one headliner)
-// while silently killing position inference on undescribed bills.
+// It does NOT by itself guard the handler mapping. Its pair below
+// (TestUpdateShow_UndescribedBillStillInfersPositionZero) is what catches the
+// tempting "default the flag like create does" edit here: such an edit leaves
+// THIS test green (every act would then state a role, so the service skips
+// suppression and still writes one headliner) while silently killing position
+// inference on undescribed bills. The two are only a guard together.
 func (s *ShowHandlerIntegrationSuite) TestUpdateShow_StatedBillDoesNotInferASecondHeadliner() {
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Stated Bill Show")

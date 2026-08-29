@@ -2023,18 +2023,23 @@ func statesBillRole(a contracts.CreateShowArtist) bool {
 	return contracts.IsValidSetType(curatedSetType(a)) || a.IsHeadliner != nil
 }
 
+// anyPositionPastFirst is a bill position that rule 3 never fires on, so asking
+// resolveArtistRole about an act AT this position answers "what did this act's
+// own signal say", with the positional fallback held out.
+const anyPositionPastFirst = 1
+
 // claimsHeadlineSlot reports whether this act's OWN stated signal puts it in the
-// headline slot, mirroring rules 1 and 2 of resolveArtistRole exactly (curated
-// set_type outranks the legacy flag). Position is deliberately not consulted: an
-// act that states nothing makes no claim, which is what rule 3 is a fallback for.
+// headline slot. Deliberately DERIVED from resolveArtistRole rather than
+// restating its precedence (curated set_type outranks the legacy flag): the
+// trigger has to agree with the function that actually writes the row, and a
+// second hand-maintained copy of that ladder is how the two would drift apart
+// the next time a rule is added.
+//
+// An act that states nothing resolves to (performer, false) at this position, so
+// it correctly makes no claim -- which is exactly what rule 3 is a fallback for.
 func claimsHeadlineSlot(a contracts.CreateShowArtist) bool {
-	if value := curatedSetType(a); contracts.IsValidSetType(value) {
-		return value == contracts.SetTypeHeadliner
-	}
-	if a.IsHeadliner != nil {
-		return *a.IsHeadliner
-	}
-	return false
+	_, isHeadliner := resolveArtistRole(a, anyPositionPastFirst)
+	return isHeadliner
 }
 
 // suppressPositionInferenceWhenHeadlinerNamed returns the replacement bill to
@@ -2043,19 +2048,15 @@ func claimsHeadlineSlot(a contracts.CreateShowArtist) bool {
 // bill has named itself the headliner. A bill on which nobody claims the headline
 // slot is returned untouched, so rule 3 still reads position 0 as the headliner.
 //
-// The defect this closes (PSY-1860): an update REPLACES the bill, and the
-// handler forwards a nil is_headliner straight through, so
+// The defect this closes (PSY-1860): an update REPLACES the bill and the handler
+// forwards a nil is_headliner straight through, so
 // {"artists":[{"name":"Earth"},{"name":"Boris","set_type":"headliner"}]} wrote
-// TWO rows with set_type='headliner'. Every reader that resolves the one
-// headliner of a show takes `set_type='headliner' ORDER BY position ASC LIMIT 1`
-// (tag_service.enrichShows, explore.go, show_dedup.go), so the act NOBODY
-// designated won the tie and the curated one was discarded -- silently, on the
-// single fact the caller was editing.
-//
-// Blast radius, so nobody sizes an incident off the paragraph above: no shipped
-// client can reach it. The product's show form (show-form-utils.ts) derives both
-// set_type and is_headliner for every act, so every bill it sends is fully
-// stated, and no CLI issues a show PUT. This is a fix for direct API callers.
+// TWO rows with set_type='headliner'. Readers that resolve THE one headliner of
+// a show break that tie on lowest position, so the act NOBODY designated won it
+// and the curated one was discarded -- silently, on the single fact the caller
+// was editing. headline_slot.go is the map of which readers resolve a headliner
+// which way; deliberately not re-inventoried here, because a copy of that list
+// rots without anything in CI noticing.
 //
 // An UNSTATED second headliner can only arise when one act claims the slot and a
 // silent act is inferred into it, so this trigger closes that exactly. It does
@@ -2092,17 +2093,16 @@ func claimsHeadlineSlot(a contracts.CreateShowArtist) bool {
 //     headliner_count/opener_count.
 //
 // Suppressing there would make the shape PSY-1704 calls a defect ROUTINE on this
-// endpoint. It is reachable here today, but only when a caller says so
+// endpoint. It is already reachable here, but only when a caller says so
 // explicitly (is_headliner:false or set_type:'performer' on the top act); the
-// widened trigger would additionally produce it for every caller who simply left
-// an act silent. So that case is left exactly as it behaves now, and the
+// widened trigger would additionally produce it for every caller who merely left
+// an act silent. So that case is left exactly as it behaves today, and the
 // disagreement stays open for a ticket that can weigh it across every write path
-// at once instead of moving one of them alone. Those paths are this one,
-// handlers/community.buildShowAssociations, ConfirmShowImport,
-// handlers/catalog.initializeArtist, and pipeline/discovery.go -- which hand-rolls
-// its own `idx == 0 && !statedSomeSlot` promotion and still has the PSY-1860
-// defect in its own spelling. Fixing that one is a separate ticket: it does not
-// route through resolveArtistRole at all.
+// at once instead of moving one alone. Several other paths decide this same
+// question with their own hand-rolled position rule, including one that still
+// has the PSY-1860 defect in its own spelling and does not route through
+// resolveArtistRole at all; that survey belongs in the ticket, not in a comment
+// that cannot be kept honest.
 //
 // This is also why it does not copy handlers/catalog.initializeArtist, which
 // pins the flag false on every act unconditionally: that destroys the "caller

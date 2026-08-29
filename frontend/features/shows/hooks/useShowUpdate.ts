@@ -27,10 +27,19 @@ export interface ShowUpdateVenue {
 export interface ShowUpdateArtist {
   id?: number
   name?: string
+  /**
+   * Legacy headliner flag, ignored when set_type is present. Leaving BOTH this
+   * and set_type undefined hands the slot to the server's bill-level rule: the
+   * act is stored as the headliner only when it is first on a bill where no act
+   * names one. Once any act names a headliner, the silent acts store
+   * 'performer'. Send both fields per act (as toArtistPayloads does) to state
+   * the bill outright and keep the update independent of list order.
+   */
   is_headliner?: boolean
   /**
    * Curated bill role. Authoritative on the server when present: is_headliner
-   * is derived from it. Omit to leave the slot uncurated.
+   * is derived from it. Omit to leave the slot uncurated, subject to the
+   * bill-level rule described on is_headliner.
    */
   set_type?: SetType
   instagram_handle?: string

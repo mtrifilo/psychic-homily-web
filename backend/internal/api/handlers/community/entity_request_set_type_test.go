@@ -88,7 +88,10 @@ func TestBuildShowAssociations_SetType(t *testing.T) {
 		}
 	})
 
-	t.Run("stating a role anywhere suppresses the position-0 headliner guess", func(t *testing.T) {
+	// Named for set_type specifically: the legacy is_headliner flag does NOT arm
+	// this suppression (billIsCurated never reads it), which is a known gap
+	// recorded on suppressPositionInference and reported as a follow-up.
+	t.Run("stating a set_type anywhere suppresses the position-0 headliner guess", func(t *testing.T) {
 		// The regression this guards: resolveArtistRole reads position 0 as the
 		// headliner for an act with no signal at all. An admin who marks the
 		// SECOND act headliner and leaves the first alone would otherwise get two
