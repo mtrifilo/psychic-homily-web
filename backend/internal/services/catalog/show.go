@@ -2311,12 +2311,13 @@ func (s *ShowService) attachSubmitterAttribution(resp *contracts.ShowResponse) {
 		return
 	}
 
-	// Gate 1. An unmarshalable blob falls back to the DEFAULTS, which have
-	// Contributions visible — so this arm is not fail-closed by itself. It
-	// matches how every other reader of this column behaves, and a divergent
-	// local rule would be the surprise. Narrow in practice: the column is jsonb,
-	// so Postgres rejects malformed JSON at write time and only a well-formed
-	// blob of the wrong SHAPE can land here.
+	// Gate 1. Falling back to the DEFAULTS, which have Contributions visible,
+	// is not fail-closed by itself — but it matches how every other reader of
+	// this column behaves, and a divergent local rule would be the surprise.
+	// Both ways in are near-unreachable by the schema, which is what makes that
+	// safe: the column is NOT NULL with a default, so the nil branch is purely
+	// defensive, and it is jsonb, so Postgres rejects malformed JSON at write
+	// time and only a well-formed blob of the wrong SHAPE can fail to unmarshal.
 	privacy := contracts.DefaultPrivacySettings()
 	if user.PrivacySettings != nil {
 		_ = json.Unmarshal(*user.PrivacySettings, &privacy)

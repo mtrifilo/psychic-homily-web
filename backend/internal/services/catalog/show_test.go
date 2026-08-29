@@ -1132,6 +1132,24 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShow_NamelessSubmitterOmits
 	suite.NotContains(string(encoded), "Anonymous")
 }
 
+// users.privacy_settings is NOT NULL with a column default, so the nil-blob
+// branch in attachSubmitterAttribution is DEFENSIVE and not a live path — no
+// account can reach it, including accounts predating the column. Pinned because
+// that is exactly what makes "unset falls back to visible" safe to leave
+// non-fail-closed: there is no unset. If a migration ever drops this
+// constraint, the fallback becomes reachable and needs re-deciding.
+//
+// The leaderboard's `privacy_settings IS NULL OR ...` clause is defensive for
+// the same reason; the two agree.
+func (suite *ShowServiceIntegrationTestSuite) TestUsersPrivacySettingsIsNotNullable() {
+	err := suite.db.Model(&authm.User{}).
+		Where("id = ?", suite.createTestUser().ID).
+		Update("privacy_settings", nil).Error
+
+	suite.Require().Error(err, "the schema must keep forbidding a null privacy blob")
+	suite.Contains(err.Error(), "not-null constraint")
+}
+
 // Gate 3. A private profile 404s, so linking to it would be a dead link — but
 // the person is still credited. Only gate 1 suppresses the name.
 func (suite *ShowServiceIntegrationTestSuite) TestGetShow_PrivateProfileIsNamedButUnlinked() {
