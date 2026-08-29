@@ -19,7 +19,7 @@ import (
 
 func TestRepointEditHistory_RejectsUndecidedProvenance(t *testing.T) {
 	_, _, err := repointEditHistory(
-		unusableTx(), pendingEditsHistory, mergeEntityShow, 1, 2, editHistoryUndecided)
+		unusableTx(), pendingEditsHistory, entityTypeShow, 1, 2, editHistoryUndecided)
 	if err == nil {
 		t.Fatal("the zero provenance must be rejected — it is 'nobody decided', not 'no stamp'")
 	}
@@ -27,7 +27,7 @@ func TestRepointEditHistory_RejectsUndecidedProvenance(t *testing.T) {
 
 func TestRepointEditHistory_RejectsUnknownProvenance(t *testing.T) {
 	_, _, err := repointEditHistory(
-		unusableTx(), pendingEditsHistory, mergeEntityShow, 1, 2, editHistoryProvenance(99))
+		unusableTx(), pendingEditsHistory, entityTypeShow, 1, 2, editHistoryProvenance(99))
 	if err == nil {
 		t.Fatal("a provenance outside the declared set must be rejected")
 	}
@@ -35,7 +35,7 @@ func TestRepointEditHistory_RejectsUnknownProvenance(t *testing.T) {
 
 func TestRepointEditHistory_RejectsUnknownEntityType(t *testing.T) {
 	_, _, err := repointEditHistory(
-		unusableTx(), pendingEditsHistory, mergeEntityType("venues"), 1, 2, editHistoryCarriesNoRedaction)
+		unusableTx(), pendingEditsHistory, polymorphicEntityType("venues"), 1, 2, editHistoryCarriesNoRedaction)
 	if err == nil {
 		t.Fatal("a mistyped entity type must be rejected — it would match no rows and look like success")
 	}
@@ -43,7 +43,7 @@ func TestRepointEditHistory_RejectsUnknownEntityType(t *testing.T) {
 
 func TestRepointEditHistory_RejectsUnknownTable(t *testing.T) {
 	_, _, err := repointEditHistory(
-		unusableTx(), editHistoryTable{}, mergeEntityVenue, 1, 2, editHistoryCarriesNoRedaction)
+		unusableTx(), editHistoryTable{}, entityTypeVenue, 1, 2, editHistoryCarriesNoRedaction)
 	if err == nil {
 		t.Fatal("an empty table descriptor must be rejected rather than interpolated into SQL")
 	}
@@ -54,7 +54,7 @@ func TestRepointEditHistory_RejectsUnknownTable(t *testing.T) {
 // surviving entity's entire edit history.
 func TestRepointEditHistory_RejectsSelfMerge(t *testing.T) {
 	_, _, err := repointEditHistory(
-		unusableTx(), pendingEditsHistory, mergeEntityVenue, 7, 7, editHistoryCarriesNoRedaction)
+		unusableTx(), pendingEditsHistory, entityTypeVenue, 7, 7, editHistoryCarriesNoRedaction)
 	if err == nil {
 		t.Fatal("re-pointing an entity onto itself must be rejected")
 	}
@@ -62,11 +62,11 @@ func TestRepointEditHistory_RejectsSelfMerge(t *testing.T) {
 
 func TestRepointEditHistory_RejectsZeroIDs(t *testing.T) {
 	if _, _, err := repointEditHistory(
-		unusableTx(), pendingEditsHistory, mergeEntityVenue, 0, 2, editHistoryCarriesNoRedaction); err == nil {
+		unusableTx(), pendingEditsHistory, entityTypeVenue, 0, 2, editHistoryCarriesNoRedaction); err == nil {
 		t.Fatal("a zero canonical id must be rejected")
 	}
 	if _, _, err := repointEditHistory(
-		unusableTx(), pendingEditsHistory, mergeEntityVenue, 1, 0, editHistoryCarriesNoRedaction); err == nil {
+		unusableTx(), pendingEditsHistory, entityTypeVenue, 1, 0, editHistoryCarriesNoRedaction); err == nil {
 		t.Fatal("a zero merge-from id must be rejected")
 	}
 }

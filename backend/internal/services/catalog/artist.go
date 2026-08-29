@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
@@ -483,40 +484,57 @@ func (s *ArtistService) UpdateArtist(artistID uint, req *contracts.UpdateArtistR
 	return s.GetArtist(artistID)
 }
 
-// DeleteArtist deletes an artist
+// DeleteArtist deletes an artist and everything that pointed at it.
+//
+// The reference sweep is not an extra: the polymorphic (entity_type, entity_id)
+// tables carry no foreign key, so before PSY-1868 this method left every one of
+// them naming an artist id that no longer existed. Which tables that covers, and
+// what each one gets, is recorded in entityRefDeleteDispositions rather than
+// here — see entity_ref_delete.go, and the seeding sweep in
+// artist_delete_refs_test.go that fails by name when a new table has no answer.
 func (s *ArtistService) DeleteArtist(artistID uint) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
 	}
 
-	// Check if artist exists
-	var artist catalogm.Artist
-	err := s.db.First(&artist, artistID).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return apperrors.ErrArtistNotFound(artistID)
+	// One transaction, because a sweep that commits without the delete strips a
+	// LIVE artist of its bookmarks, tags and crate memberships.
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		// The row lock serializes against a concurrent write that would otherwise
+		// pass its own existence check, wait here, and then insert a reference
+		// onto an artist this transaction is about to delete. Same reasoning as
+		// DeleteRelease's lock and lockMergeArtists'.
+		var artist catalogm.Artist
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&artist, artistID).Error
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return apperrors.ErrArtistNotFound(artistID)
+			}
+			return fmt.Errorf("failed to get artist: %w", err)
 		}
-		return fmt.Errorf("failed to get artist: %w", err)
-	}
 
-	// Check if artist is associated with any shows
-	var count int64
-	err = s.db.Model(&catalogm.ShowArtist{}).Where("artist_id = ?", artistID).Count(&count).Error
-	if err != nil {
-		return fmt.Errorf("failed to check artist associations: %w", err)
-	}
+		// Check if artist is associated with any shows
+		var count int64
+		err = tx.Model(&catalogm.ShowArtist{}).Where("artist_id = ?", artistID).Count(&count).Error
+		if err != nil {
+			return fmt.Errorf("failed to check artist associations: %w", err)
+		}
 
-	if count > 0 {
-		return apperrors.ErrArtistHasShows(artistID, count)
-	}
+		if count > 0 {
+			return apperrors.ErrArtistHasShows(artistID, count)
+		}
 
-	// Delete the artist
-	err = s.db.Delete(&artist).Error
-	if err != nil {
-		return fmt.Errorf("failed to delete artist: %w", err)
-	}
+		if err := sweepEntityRefsForDelete(tx, entityTypeArtist, artistID); err != nil {
+			return err
+		}
 
-	return nil
+		// Delete the artist
+		if err := tx.Delete(&artist).Error; err != nil {
+			return fmt.Errorf("failed to delete artist: %w", err)
+		}
+
+		return nil
+	})
 }
 
 // SearchArtists performs autocomplete search on artist names and aliases.
@@ -1668,7 +1686,7 @@ func (s *ArtistService) MergeArtists(canonicalID, mergeFromID uint) (*contracts.
 		// is published in full, so there is none to carry — see
 		// noRedactionCarryover for when that stops being true.
 		if _, err := repointRevisions(
-			tx, mergeEntityArtist, canonicalID, mergeFromID, noRedactionCarryover,
+			tx, entityTypeArtist, canonicalID, mergeFromID, noRedactionCarryover,
 		); err != nil {
 			return err
 		}
@@ -1685,7 +1703,7 @@ func (s *ArtistService) MergeArtists(canonicalID, mergeFromID uint) (*contracts.
 		// through a lookup that errors rather than silently reporting 0 if the
 		// inventory ever stops carrying them.
 		refsMoved, refsDropped, err := repointEntityRefs(
-			tx, polymorphicEntityRefs, mergeEntityArtist, canonicalID, mergeFromID)
+			tx, polymorphicEntityRefs, entityTypeArtist, canonicalID, mergeFromID)
 		if err != nil {
 			return err
 		}
@@ -1695,7 +1713,7 @@ func (s *ArtistService) MergeArtists(canonicalID, mergeFromID uint) (*contracts.
 		if result.CollectionItemsMoved, err = movedCount(refsMoved, "collection_items"); err != nil {
 			return err
 		}
-		logDroppedEntityRefs(mergeEntityArtist, canonicalID, mergeFromID, refsDropped)
+		logDroppedEntityRefs(entityTypeArtist, canonicalID, mergeFromID, refsDropped)
 
 		// 9b. notification_log.subject_entity_id, the SECOND entity reference in
 		// that table (PSY-1896). It names the followed artist an alert is about,

@@ -10,7 +10,6 @@ import (
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
-	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
@@ -316,15 +315,14 @@ func (s *ReleaseService) DeleteRelease(releaseID uint) error {
 			return err
 		}
 
-		// Polymorphic bookmarks have no FK to releases. Remove every action for
-		// this entity inside the same transaction so saved-release totals and
-		// public counts cannot retain a dangling row after deletion.
-		if err := tx.Where(
-			"entity_type = ? AND entity_id = ?",
-			engagementm.BookmarkEntityRelease,
-			releaseID,
-		).Delete(&engagementm.UserBookmark{}).Error; err != nil {
-			return fmt.Errorf("failed to delete release bookmarks: %w", err)
+		// Polymorphic references have no FK to releases, so nothing cascades them.
+		// This used to sweep user_bookmarks alone, which was correct as far as it
+		// went and is exactly how the rest of the inventory was found to be
+		// unswept (PSY-1868): crate items, tags, comments and the enrichment queue
+		// all carry release ids too. The full per-table record is in
+		// entityRefDeleteDispositions.
+		if err := sweepEntityRefsForDelete(tx, entityTypeRelease, releaseID); err != nil {
+			return err
 		}
 
 		// Delete the release (cascades handle junction cleanup via FK)

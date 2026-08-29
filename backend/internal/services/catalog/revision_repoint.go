@@ -24,26 +24,56 @@ import (
 // TestNoRevisionRepointOutsideTheHelper, which fails on an entity_id write
 // against revisions anywhere else in the backend.
 
-// mergeEntityType is the polymorphic entity_type value a merge re-points. The
-// same three values key every history table a merge touches, so repointRevisions
-// and repointEditHistory share one vocabulary instead of two that can drift.
+// polymorphicEntityType is the value stored in a polymorphic reference table's
+// entity_type column. One vocabulary is shared by every operation that has to
+// find an entity's references — the merges that re-point them and the deletes
+// that sweep them (PSY-1868) — instead of two lists that can drift.
 //
 // Named rather than spelled at each call site because the failure mode of a
-// typo is silent: 'venues' matches no rows, the UPDATE succeeds, and the
-// loser's history stays pointed at an entity that is deleted moments later.
-type mergeEntityType string
+// typo is silent: 'venues' matches no rows, the statement succeeds, and the
+// rows stay pointed at an entity that is deleted moments later.
+type polymorphicEntityType string
 
 const (
-	mergeEntityVenue  mergeEntityType = "venue"
-	mergeEntityArtist mergeEntityType = "artist"
-	mergeEntityShow   mergeEntityType = "show"
+	entityTypeVenue    polymorphicEntityType = "venue"
+	entityTypeArtist   polymorphicEntityType = "artist"
+	entityTypeShow     polymorphicEntityType = "show"
+	entityTypeRelease  polymorphicEntityType = "release"
+	entityTypeLabel    polymorphicEntityType = "label"
+	entityTypeFestival polymorphicEntityType = "festival"
 )
 
-// valid reports whether the type is one of the three the merges handle. Guards
-// against a call site conjuring a string through the type conversion.
-func (e mergeEntityType) valid() bool {
+// allPolymorphicEntityTypes is every catalog entity that can appear in an
+// entity_type column, in the order a reader would list them. Iterated by the
+// delete-path guards so a seventh type cannot be added without them noticing.
+var allPolymorphicEntityTypes = []polymorphicEntityType{
+	entityTypeVenue, entityTypeArtist, entityTypeShow,
+	entityTypeRelease, entityTypeLabel, entityTypeFestival,
+}
+
+// valid reports whether the type is one of the six the catalog writes into an
+// entity_type column. Guards against a call site conjuring a string through the
+// type conversion.
+func (e polymorphicEntityType) valid() bool {
+	for _, known := range allPolymorphicEntityTypes {
+		if e == known {
+			return true
+		}
+	}
+	return false
+}
+
+// mergeable reports whether a MERGE exists for this entity type, which is a
+// strictly narrower question than valid().
+//
+// Three of the six can be merged; the other three have a delete path and no
+// merge. The re-point helpers gate on this rather than on valid() so that
+// widening the vocabulary for the delete sweep did not quietly widen the fence
+// that keeps a merge from being invoked for an entity type no merge supports —
+// where every re-point would match zero rows and report success.
+func (e polymorphicEntityType) mergeable() bool {
 	switch e {
-	case mergeEntityVenue, mergeEntityArtist, mergeEntityShow:
+	case entityTypeVenue, entityTypeArtist, entityTypeShow:
 		return true
 	default:
 		return false
@@ -143,12 +173,12 @@ func (p revisionProvenance) String() string {
 // Returns the number of revisions re-pointed, for the caller's merge summary.
 func repointRevisions(
 	tx *gorm.DB,
-	entity mergeEntityType,
+	entity polymorphicEntityType,
 	canonicalID, mergeFromID uint,
 	provenance revisionProvenance,
 ) (int64, error) {
-	if !entity.valid() {
-		return 0, fmt.Errorf("repoint revisions: unknown entity type %q", string(entity))
+	if !entity.mergeable() {
+		return 0, fmt.Errorf("repoint revisions: %q has no merge path", string(entity))
 	}
 	if canonicalID == 0 || mergeFromID == 0 {
 		return 0, fmt.Errorf("repoint revisions: canonical and merge-from ids are required")
@@ -165,14 +195,14 @@ func repointRevisions(
 	setClause := "entity_id = ?"
 	switch provenance {
 	case stampFromUnverifiedVenue:
-		if entity != mergeEntityVenue {
+		if entity != entityTypeVenue {
 			return 0, fmt.Errorf(
 				"repoint revisions: %s is venue-only, but entity type is %q",
 				provenance, string(entity))
 		}
 		setClause += ", from_unverified_venue = TRUE"
 	case stampFromGatedShow:
-		if entity != mergeEntityShow {
+		if entity != entityTypeShow {
 			return 0, fmt.Errorf(
 				"repoint revisions: %s is show-only, but entity type is %q",
 				provenance, string(entity))

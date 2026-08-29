@@ -154,15 +154,15 @@ func (p editHistoryProvenance) String() string {
 func repointEditHistory(
 	tx *gorm.DB,
 	table editHistoryTable,
-	entity mergeEntityType,
+	entity polymorphicEntityType,
 	canonicalID, mergeFromID uint,
 	provenance editHistoryProvenance,
 ) (moved, dropped int64, err error) {
 	if table.name == "" {
 		return 0, 0, fmt.Errorf("repoint edit history: table is required")
 	}
-	if !entity.valid() {
-		return 0, 0, fmt.Errorf("repoint edit history: unknown entity type %q", string(entity))
+	if !entity.mergeable() {
+		return 0, 0, fmt.Errorf("repoint edit history: %q has no merge path", string(entity))
 	}
 	if canonicalID == 0 || mergeFromID == 0 {
 		return 0, 0, fmt.Errorf("repoint edit history: canonical and merge-from ids are required")

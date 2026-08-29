@@ -24,17 +24,17 @@ func oneRef() []entityRef {
 }
 
 func TestRepointEntityRefs_RejectsUnknownEntityType(t *testing.T) {
-	_, _, err := repointEntityRefs(unusableTx(), oneRef(), mergeEntityType("artists"), 1, 2)
+	_, _, err := repointEntityRefs(unusableTx(), oneRef(), polymorphicEntityType("artists"), 1, 2)
 	if err == nil {
 		t.Fatal("a mistyped entity type must be rejected — it would match no rows and look like success")
 	}
 }
 
 func TestRepointEntityRefs_RejectsZeroIDs(t *testing.T) {
-	if _, _, err := repointEntityRefs(unusableTx(), oneRef(), mergeEntityArtist, 0, 2); err == nil {
+	if _, _, err := repointEntityRefs(unusableTx(), oneRef(), entityTypeArtist, 0, 2); err == nil {
 		t.Fatal("a zero canonical id must be rejected")
 	}
-	if _, _, err := repointEntityRefs(unusableTx(), oneRef(), mergeEntityArtist, 1, 0); err == nil {
+	if _, _, err := repointEntityRefs(unusableTx(), oneRef(), entityTypeArtist, 1, 0); err == nil {
 		t.Fatal("a zero merge-from id must be rejected")
 	}
 }
@@ -43,7 +43,7 @@ func TestRepointEntityRefs_RejectsZeroIDs(t *testing.T) {
 // the EXISTS correlation would match every row against itself and delete the
 // SURVIVING entity's bookmarks, crate items and tag votes.
 func TestRepointEntityRefs_RejectsSelfMerge(t *testing.T) {
-	_, _, err := repointEntityRefs(unusableTx(), oneRef(), mergeEntityArtist, 7, 7)
+	_, _, err := repointEntityRefs(unusableTx(), oneRef(), entityTypeArtist, 7, 7)
 	if err == nil {
 		t.Fatal("re-pointing an entity onto itself must be rejected")
 	}
@@ -51,11 +51,11 @@ func TestRepointEntityRefs_RejectsSelfMerge(t *testing.T) {
 
 func TestRepointEntityRefs_RejectsIncompleteRef(t *testing.T) {
 	if _, _, err := repointEntityRefs(
-		unusableTx(), []entityRef{{idCol: "entity_id"}}, mergeEntityArtist, 1, 2); err == nil {
+		unusableTx(), []entityRef{{idCol: "entity_id"}}, entityTypeArtist, 1, 2); err == nil {
 		t.Fatal("a ref with no table must be rejected rather than interpolated into SQL")
 	}
 	if _, _, err := repointEntityRefs(
-		unusableTx(), []entityRef{{table: "entity_tags"}}, mergeEntityArtist, 1, 2); err == nil {
+		unusableTx(), []entityRef{{table: "entity_tags"}}, entityTypeArtist, 1, 2); err == nil {
 		t.Fatal("a ref with no id column must be rejected rather than interpolated into SQL")
 	}
 }
@@ -70,7 +70,7 @@ func TestRepointEntityRefs_RejectsIncompleteRef(t *testing.T) {
 func TestRepointEntityRefs_RejectsProvenanceGatedTables(t *testing.T) {
 	for _, table := range []string{"revisions", "pending_entity_edits", "entity_edit_audit_logs"} {
 		refs := []entityRef{{table: table, idCol: "entity_id"}}
-		if _, _, err := repointEntityRefs(unusableTx(), refs, mergeEntityArtist, 1, 2); err == nil {
+		if _, _, err := repointEntityRefs(unusableTx(), refs, entityTypeArtist, 1, 2); err == nil {
 			t.Errorf("%s must be rejected here: it may only move through the helper that "+
 				"requires a provenance decision", table)
 		}

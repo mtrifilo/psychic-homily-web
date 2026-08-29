@@ -508,7 +508,7 @@ func reassignVenueRevisions(tx *gorm.DB, canonicalID uint, mergeFrom *catalogm.V
 		provenance = noRedactionCarryover
 	}
 
-	moved, err := repointRevisions(tx, mergeEntityVenue, canonicalID, mergeFrom.ID, provenance)
+	moved, err := repointRevisions(tx, entityTypeVenue, canonicalID, mergeFrom.ID, provenance)
 	if err != nil {
 		return err
 	}
@@ -536,7 +536,7 @@ func reassignVenueRevisions(tx *gorm.DB, canonicalID uint, mergeFrom *catalogm.V
 func reassignVenueEditHistory(tx *gorm.DB, canonicalID, mergeFromID uint, result *contracts.MergeVenueResult) error {
 	for _, table := range []editHistoryTable{pendingEditsHistory, entityEditAuditHistory} {
 		moved, _, err := repointEditHistory(
-			tx, table, mergeEntityVenue, canonicalID, mergeFromID, editHistoryCarriesNoRedaction)
+			tx, table, entityTypeVenue, canonicalID, mergeFromID, editHistoryCarriesNoRedaction)
 		if err != nil {
 			return err
 		}
@@ -555,14 +555,14 @@ func reassignVenueEditHistory(tx *gorm.DB, canonicalID, mergeFromID uint, result
 // field for it.
 func reassignEntityRefs(tx *gorm.DB, canonicalID, mergeFromID uint, result *contracts.MergeVenueResult) error {
 	moved, dropped, err := repointEntityRefs(
-		tx, polymorphicEntityRefs, mergeEntityVenue, canonicalID, mergeFromID)
+		tx, polymorphicEntityRefs, entityTypeVenue, canonicalID, mergeFromID)
 	if err != nil {
 		return err
 	}
 	for _, count := range moved {
 		result.EntityRefsMoved += count
 	}
-	logDroppedEntityRefs(mergeEntityVenue, canonicalID, mergeFromID, dropped)
+	logDroppedEntityRefs(entityTypeVenue, canonicalID, mergeFromID, dropped)
 	return nil
 }
 
@@ -592,7 +592,7 @@ func reassignVenueAlertRows(tx *gorm.DB, canonicalID, mergeFromID uint, result *
 	}
 	result.EntityRefsMoved += logMoved
 	if logDropped > 0 {
-		logDroppedEntityRefs(mergeEntityVenue, canonicalID, mergeFromID,
+		logDroppedEntityRefs(entityTypeVenue, canonicalID, mergeFromID,
 			map[string]int64{"notification_log (venue_show_alert)": logDropped})
 	}
 
@@ -602,7 +602,7 @@ func reassignVenueAlertRows(tx *gorm.DB, canonicalID, mergeFromID uint, result *
 	}
 	result.EntityRefsMoved += batchMoved
 	if batchDropped > 0 {
-		logDroppedEntityRefs(mergeEntityVenue, canonicalID, mergeFromID,
+		logDroppedEntityRefs(entityTypeVenue, canonicalID, mergeFromID,
 			map[string]int64{"venue_show_alert_batch": batchDropped})
 	}
 	return nil

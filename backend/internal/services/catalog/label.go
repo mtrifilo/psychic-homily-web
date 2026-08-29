@@ -400,29 +400,38 @@ func (s *LabelService) UpdateLabel(labelID uint, req *contracts.UpdateLabelReque
 	return s.GetLabel(labelID)
 }
 
-// DeleteLabel deletes a label
+// DeleteLabel deletes a label and everything that pointed at it.
+//
+// Junction rows go by FK cascade; the polymorphic references have no FK to
+// cascade, which is what the sweep is for. Like venues, labels can hold a
+// source_configs row, so this is the second delete path where a stale reference
+// keeps a scraper running. See entityRefDeleteDispositions.
 func (s *LabelService) DeleteLabel(labelID uint) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
 	}
 
-	// Check if label exists
-	var label catalogm.Label
-	err := s.db.First(&label, labelID).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return apperrors.ErrLabelNotFound(labelID)
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		var label catalogm.Label
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&label, labelID).Error
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return apperrors.ErrLabelNotFound(labelID)
+			}
+			return fmt.Errorf("failed to get label: %w", err)
 		}
-		return fmt.Errorf("failed to get label: %w", err)
-	}
 
-	// Delete the label (cascades handle junction cleanup via FK)
-	err = s.db.Delete(&label).Error
-	if err != nil {
-		return fmt.Errorf("failed to delete label: %w", err)
-	}
+		if err := sweepEntityRefsForDelete(tx, entityTypeLabel, labelID); err != nil {
+			return err
+		}
 
-	return nil
+		// Delete the label (cascades handle junction cleanup via FK)
+		if err := tx.Delete(&label).Error; err != nil {
+			return fmt.Errorf("failed to delete label: %w", err)
+		}
+
+		return nil
+	})
 }
 
 // GetLabelRoster retrieves all artists on a label
