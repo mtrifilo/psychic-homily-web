@@ -8168,10 +8168,11 @@ export interface components {
             /** Format: int64 */
             id?: number;
             instagram_handle?: string;
+            /** @description Legacy headliner flag. Ignored when set_type is present, which is authoritative. On POST /shows a missing flag is defaulted to false, so bill position is never read as a role. On PUT /shows/{show_id} an act that states neither field is read as the headliner only when it is first on the bill AND no other act names a headliner. */
             is_headliner?: boolean;
             name?: string;
             /**
-             * @description Curated bill role. Authoritative over is_headliner when present. Omit when the slot is not known; the show then stores 'performer', which means 'on the bill, slot unknown' and must not be rendered as a role.
+             * @description Curated bill role. Authoritative over is_headliner when present. Omit when the slot is not known; the show then stores 'performer', which means 'on the bill, slot unknown' and must not be rendered as a role. On PUT /shows/{show_id}, once any act names the headliner (by this field or by is_headliner), the acts that stated nothing store 'performer' rather than being inferred from list position.
              * @enum {string}
              */
             set_type?: "headliner" | "direct_support" | "opener" | "special_guest" | "dj" | "performer";

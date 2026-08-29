@@ -196,12 +196,20 @@ func buildShowAssociations(venue *ShowVenueInput, artists []ShowArtistInput) (*s
 // the same exposure (it forwards a nil IsHeadliner through replaceShowArtists ->
 // associateArtists -> resolveArtistRole) and was fixed separately, in the show
 // service rather than the handler, by
-// catalog.suppressPositionInferenceWhenHeadlinerNamed (PSY-1860). That one fires
-// only when some act NAMES itself the headliner, not on any stated role, because
-// suppressing on a described bill where nobody claims the top would mint the
-// shape PSY-1704 calls a write-path defect; see its doc comment for the open
-// disagreement between the two rules. The product's own show form was unaffected
-// either way because it derives an explicit is_headliner per act.
+// catalog.suppressPositionInferenceWhenHeadlinerNamed (PSY-1860). That one arms
+// only when some act NAMES itself the headliner, rather than on any stated role,
+// because suppressing on a described bill where nobody claims the top would make
+// the shape PSY-1704 calls a write-path defect routine; see its doc comment for
+// the open disagreement between the two rules. The product's own show form was
+// unaffected either way because it derives an explicit is_headliner per act.
+//
+// KNOWN GAP on THIS endpoint, not fixed by that ticket: buildShowAssociations
+// arms billIsCurated from a stated set_type ALONE and never reads IsHeadliner,
+// so a bill stated only through the legacy flag -- [{Earth}, {Boris,
+// is_headliner:true}] -- never reaches this function and still writes two
+// set_type='headliner' rows. That is the same corruption PSY-1860 fixed next
+// door, and the ShowArtistInput.is_headliner doc tag already promises the
+// behavior the code does not implement. Needs its own ticket and test.
 //
 // Scoped deliberately narrower than initializeArtist: acts that state their own
 // set_type or is_headliner are left untouched, and a bill where NOBODY states

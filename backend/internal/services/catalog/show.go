@@ -651,10 +651,11 @@ func (s *ShowService) UpdateShowWithRelations(
 		return nil, nil, err
 	}
 
-	// Runs AFTER validation, which is what lets the suppression rule trust that
-	// a non-empty set_type is a real stated role rather than a value about to be
-	// rejected. See the helper for why naming a headliner silences the
-	// position-0 inference for the acts the caller left silent.
+	// Placed after validation so it only ever transforms a vocabulary-checked
+	// bill, but it does NOT depend on that order: statesBillRole tests
+	// IsValidSetType, so an out-of-vocabulary value reads as silence either way.
+	// The load-bearing ordering constraint here is validation staying BEFORE the
+	// transaction, because replaceShowArtists tears the old bill down first.
 	artists = suppressPositionInferenceWhenHeadlinerNamed(artists)
 
 	updates := showUpdatesToMap(req)
@@ -1987,7 +1988,9 @@ func validateShowArtistSetTypes(artists []contracts.CreateShowArtist) error {
 // Rule 3 is a fallback for an act nobody placed, and callers are responsible for
 // not letting it fire alongside a headliner somebody DID name: see
 // suppressPositionInferenceWhenHeadlinerNamed, which disarms it for the update
-// path so one bill cannot end up with two headliner rows.
+// path so one bill cannot end up with an UNSTATED second headliner row. Two acts
+// that each state 'headliner' still resolve to two headliner rows; nothing here
+// validates headliner count.
 func resolveArtistRole(a contracts.CreateShowArtist, position int) (setType string, isHeadliner bool) {
 	if value := curatedSetType(a); contracts.IsValidSetType(value) {
 		return value, value == contracts.SetTypeHeadliner
@@ -2047,9 +2050,21 @@ func claimsHeadlineSlot(a contracts.CreateShowArtist) bool {
 // headliner of a show takes `set_type='headliner' ORDER BY position ASC LIMIT 1`
 // (tag_service.enrichShows, explore.go, show_dedup.go), so the act NOBODY
 // designated won the tie and the curated one was discarded -- silently, on the
-// single fact the caller was editing. Because a second headliner row can only
-// arise when one act claims the slot and a silent act is inferred into it, this
-// trigger closes the defect exactly, with nothing left over.
+// single fact the caller was editing.
+//
+// Blast radius, so nobody sizes an incident off the paragraph above: no shipped
+// client can reach it. The product's show form (show-form-utils.ts) derives both
+// set_type and is_headliner for every act, so every bill it sends is fully
+// stated, and no CLI issues a show PUT. This is a fix for direct API callers.
+//
+// An UNSTATED second headliner can only arise when one act claims the slot and a
+// silent act is inferred into it, so this trigger closes that exactly. It does
+// NOT make two headliner rows unreachable: a caller that states 'headliner' on
+// two acts still gets two rows, here and on create. That bill is the caller's
+// own statement rather than an inference, nothing on this path validates
+// headliner COUNT, and headlineSlotSQL deliberately reads a curated bill's
+// headline slot as every row curated 'headliner'. Do not read this helper as a
+// one-headliner-per-show guarantee.
 //
 // Both spellings of the claim count, set_type='headliner' and the legacy
 // is_headliner=true flag. On this endpoint the flag is longstanding rather than
@@ -2058,11 +2073,13 @@ func claimsHeadlineSlot(a contracts.CreateShowArtist) bool {
 // so reading it as silence would leave half the defect live.
 //
 // DELIBERATELY NARROWER than community.suppressPositionInference (PSY-1705),
-// which fires as soon as any act states ANY role. That wider trigger would also
-// change bills that are described but on which nobody claims the top -- e.g.
-// [{Earth}, {Boris, set_type:"opener"}] -- writing the silent top act as
-// 'performer'. Two locked decisions disagree about what that bill should mean,
-// and this ticket is not the place to settle it:
+// whose caller arms it as soon as any act states a set_type (buildShowAssociations
+// sets billIsCurated from setType alone; it does NOT read the legacy flag, which
+// is a live gap on that endpoint, not something this helper inherits). That wider
+// arming would also change bills that are described but on which nobody claims
+// the top -- e.g. [{Earth}, {Boris, set_type:"opener"}] -- writing the silent top
+// act as 'performer'. Two locked decisions disagree about what that bill should
+// mean, and this ticket is not the place to settle it:
 //
 //   - PSY-1705 says a stated bill is a complete statement, so first-in-list is
 //     not a second opinion and the show should stop ASSERTING a headliner nobody
@@ -2074,10 +2091,18 @@ func claimsHeadlineSlot(a contracts.CreateShowArtist) bool {
 //     making it eligible for Openers to Watch and flipping its
 //     headliner_count/opener_count.
 //
-// Suppressing there would newly mint exactly the shape PSY-1704 calls a defect,
-// on an endpoint where nothing today produces it. So that case is left exactly
-// as it behaves now, and the disagreement stays open for a ticket that can weigh
-// it across all four write paths at once instead of moving one of them alone.
+// Suppressing there would make the shape PSY-1704 calls a defect ROUTINE on this
+// endpoint. It is reachable here today, but only when a caller says so
+// explicitly (is_headliner:false or set_type:'performer' on the top act); the
+// widened trigger would additionally produce it for every caller who simply left
+// an act silent. So that case is left exactly as it behaves now, and the
+// disagreement stays open for a ticket that can weigh it across every write path
+// at once instead of moving one of them alone. Those paths are this one,
+// handlers/community.buildShowAssociations, ConfirmShowImport,
+// handlers/catalog.initializeArtist, and pipeline/discovery.go -- which hand-rolls
+// its own `idx == 0 && !statedSomeSlot` promotion and still has the PSY-1860
+// defect in its own spelling. Fixing that one is a separate ticket: it does not
+// route through resolveArtistRole at all.
 //
 // This is also why it does not copy handlers/catalog.initializeArtist, which
 // pins the flag false on every act unconditionally: that destroys the "caller

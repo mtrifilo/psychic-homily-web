@@ -673,9 +673,15 @@ func (s *ShowHandlerIntegrationSuite) TestUpdateShow_RejectsURLShapedInstagramHa
 // one winning every `ORDER BY position ASC LIMIT 1` headliner read.
 //
 // Asserted through the HTTP handler rather than the service alone because the
-// nil is forwarded by the handler's own artist mapping: a future "default the
-// flag like create does" edit there would reintroduce the defect in a shape the
-// service test cannot see.
+// nil travels through the handler's own artist mapping: this pins that the
+// mapping keeps forwarding a nil is_headliner verbatim, which is the input the
+// service rule is built to read.
+//
+// Its pair below (TestUpdateShow_UndescribedBillStillInfersPositionZero) is what
+// actually catches the tempting "default the flag like create does" edit in this
+// handler: such an edit leaves THIS test green (every act would then state a
+// role, so the service simply skips suppression and still writes one headliner)
+// while silently killing position inference on undescribed bills.
 func (s *ShowHandlerIntegrationSuite) TestUpdateShow_StatedBillDoesNotInferASecondHeadliner() {
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Stated Bill Show")
@@ -700,6 +706,36 @@ func (s *ShowHandlerIntegrationSuite) TestUpdateShow_StatedBillDoesNotInferASeco
 		Where("show_id = ? AND set_type = ?", show.ID, "headliner").
 		Count(&headlinerRows).Error)
 	s.EqualValues(1, headlinerRows, "an update must write exactly the headliner the caller stated")
+}
+
+// The guard against relocating the PSY-1860 fix into this handler. Defaulting a
+// nil is_headliner here the way create's initializeArtist does would make every
+// act "stated", so the service's suppression never arms, its helper goes dead on
+// its only call site, and a bill nobody described would be written with NO
+// headliner row at all instead of reading position 0.
+func (s *ShowHandlerIntegrationSuite) TestUpdateShow_UndescribedBillStillInfersPositionZero() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Undescribed Bill Show")
+
+	ctx := testhelpers.CtxWithUser(user)
+	req := &UpdateShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
+	req.Body.Artists = []Artist{
+		// Neither act states set_type or is_headliner.
+		{Name: testhelpers.StringPtr("Undescribed Top")},
+		{Name: testhelpers.StringPtr("Undescribed Support")},
+	}
+
+	resp, err := s.handler.UpdateShowHandler(ctx, req)
+	s.Require().NoError(err)
+	s.Require().Len(resp.Body.Artists, 2)
+	s.True(*resp.Body.Artists[0].IsHeadliner, "an undescribed bill must still read position 0 as the headliner")
+	s.False(*resp.Body.Artists[1].IsHeadliner)
+
+	var headlinerRows int64
+	s.Require().NoError(s.deps.DB.Model(&catalogm.ShowArtist{}).
+		Where("show_id = ? AND set_type = ?", show.ID, "headliner").
+		Count(&headlinerRows).Error)
+	s.EqualValues(1, headlinerRows, "an undescribed bill must not lose its headline slot")
 }
 
 // --- GetMySubmissionsHandler ---
