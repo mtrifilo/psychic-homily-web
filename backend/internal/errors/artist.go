@@ -69,14 +69,19 @@ func ErrArtistHasShows(artistID uint, count int64) *ArtistError {
 // ErrArtistHasOtherUsersEngagement creates the refusal a non-admin gets for an
 // artist that is not inert.
 //
-// The message names the KINDS of engagement rather than the tables that held it:
-// the caller's next move is the same either way (ask an admin), and the table
-// list goes to the log where an operator can act on it.
+// The message names the SHAPE of the engagement rather than the tables that held
+// it: the caller's next move is the same either way (ask an admin), and the
+// table list goes to the log where an operator can act on it.
+//
+// It stays general on purpose. The gate refuses on seven tables, and the ones a
+// short list would leave out are real (a comment subscription, a read cursor on
+// the artist's thread, a tag vote), so naming three of them would tell some
+// callers a reason that is not their reason.
 func ErrArtistHasOtherUsersEngagement(artistID uint) *ArtistError {
 	return &ArtistError{
 		Code: CodeArtistHasOtherUsersEngagement,
-		Message: "Cannot delete artist: other people have followed, tagged or saved it. " +
-			"Ask an admin to delete it.",
+		Message: "Cannot delete artist: other people have engaged with it, by saving, " +
+			"tagging or following its comments. Ask an admin to delete it.",
 		ArtistID: artistID,
 	}
 }
