@@ -400,7 +400,8 @@ func (s *LabelService) UpdateLabel(labelID uint, req *contracts.UpdateLabelReque
 	return s.GetLabel(labelID)
 }
 
-// DeleteLabel deletes a label and everything that pointed at it.
+// DeleteLabel deletes a label and sweeps the polymorphic references that
+// nothing else would clean up.
 //
 // Junction rows go by FK cascade; the polymorphic references have no FK to
 // cascade, which is what the sweep is for. Like venues, labels can hold a

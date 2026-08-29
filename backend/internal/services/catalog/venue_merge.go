@@ -355,6 +355,22 @@ func deleteDuplicateShows(tx *gorm.DB) error {
 		return fmt.Errorf("failed to move venue alert batch rows: %w", err)
 	}
 
+	// KNOWN GAP, recorded rather than implied (PSY-1868).
+	//
+	// This is the one remaining catalog-entity delete that sweeps no polymorphic
+	// references. The six Delete* service methods all call
+	// sweepEntityRefsForDelete now; this set-based delete does not, so every
+	// entity_type='show' row for a losing show is stranded exactly as an artist
+	// delete used to strand its own — bookmarks, crate items, tags (and their
+	// share of tags.usage_count), comments, reports and history.
+	//
+	// It is deliberately NOT fixed here, because a sweep is the wrong repair. A
+	// losing show in this set has a WINNER (venue_merge_dup.winner_show), so its
+	// references should be RE-POINTED the way MergeDuplicateShow re-points them,
+	// not deleted. That is the PSY-1834 / PSY-1869 merge-side treatment, it needs
+	// this path routed through MergeDuplicateShow or given the same per-table
+	// provenance decisions, and it belongs in a ticket of its own rather than
+	// smuggled into a delete-path change.
 	if err := tx.Exec(`
 		DELETE FROM shows s
 		USING venue_merge_dup d

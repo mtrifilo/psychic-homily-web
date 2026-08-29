@@ -75,6 +75,13 @@ func (s *ArtistDeleteRefsSuite) SetupTest() {
 		"DELETE FROM entity_tags",
 		"DELETE FROM tags",
 		"DELETE FROM user_bookmarks",
+		// artist_relationship_votes carries a composite FK to artist_relationships,
+		// and artist_relationships is the ONE foreign key to artists with no
+		// ON DELETE clause. A row either table keeps makes the artists delete below
+		// fail rather than the test that left it behind, which is exactly what
+		// TestDeleteArtist_RollsBackTheSweepWhenTheDeleteIsRefused seeds on purpose.
+		"DELETE FROM artist_relationship_votes",
+		"DELETE FROM artist_relationships",
 		"DELETE FROM show_artists",
 		"DELETE FROM show_venues",
 		"DELETE FROM shows",
@@ -124,8 +131,10 @@ func (s *ArtistDeleteRefsSuite) seedFixtures() artistRefFixtures {
 	f := artistRefFixtures{user: s.seedUser("sweep@test.com")}
 	unique := time.Now().UnixNano()
 
-	row := s.db.Raw(`INSERT INTO tags (name, slug) VALUES ('sweep', ?) RETURNING id`,
-		fmt.Sprintf("sweep-%d", unique)).Row()
+	// tags carries idx_tags_name_lower, UNIQUE on lower(name), so the NAME has to
+	// be unique per call and not only the slug: this helper runs once per subtest.
+	row := s.db.Raw(`INSERT INTO tags (name, slug) VALUES (?, ?) RETURNING id`,
+		fmt.Sprintf("sweep-%d", unique), fmt.Sprintf("sweep-%d", unique)).Row()
 	s.Require().NoError(row.Scan(&f.tagID))
 
 	row = s.db.Raw(`INSERT INTO collections (title, slug, creator_id) VALUES ('Sweep', ?, ?) RETURNING id`,
@@ -303,18 +312,6 @@ func (s *ArtistDeleteRefsSuite) assertDisposition(table, idCol string, artistID 
 				"actor (contributor stats, trust tiers, the admin trail), which the deleted "+
 				"artist does not gate", table)
 
-	case clearRefEntityColumn:
-		s.Zerof(s.countRefRows(table, idCol, artistID),
-			"%s must no longer name the deleted artist", table)
-		// #nosec G201 -- table and column come from the hardcoded inventory.
-		var kept int64
-		s.Require().NoError(s.db.Raw(fmt.Sprintf(
-			"SELECT COUNT(*) FROM %s WHERE entity_type = 'artist' AND %s IS NULL", table, idCol),
-		).Scan(&kept).Error)
-		s.Equalf(int64(1), kept,
-			"%s is dispositioned clearRefEntityColumn: the row belongs to the user who wrote "+
-				"it and must survive with only the pointer cleared", table)
-
 	default:
 		s.Failf("undecided disposition", "%s is recorded as %s", table, disposition)
 	}
@@ -366,9 +363,9 @@ func (s *ArtistDeleteRefsSuite) assertCheckForbidsArtist(table string) {
 // so the sweep's bare `DELETE FROM entity_tags` would leave it permanently
 // overstated.
 //
-// That is not cosmetic: PruneLowQualityTags reclaims on `usage_count = 0`, so an
-// overstated counter makes a tag whose last real use was deleted immortal, and
-// ListTags orders by it.
+// That is not cosmetic: GetLowQualityTagQueue selects candidates on
+// `usage_count = 0`, so an overstated counter keeps a tag whose last real use was
+// deleted out of the moderation queue entirely, and the tag listings order by it.
 func (s *ArtistDeleteRefsSuite) TestDeleteArtist_ReleasesTheTagUsageCountItHeld() {
 	keptArtist := s.seedArtist("Kept")
 	doomed := s.seedArtist("Doomed")
@@ -531,6 +528,195 @@ func (s *ArtistDeleteRefsSuite) TestDeleteArtist_RollsBackTheSweepWhenTheDeleteI
 	s.Require().NoError(s.db.Raw(`SELECT COUNT(*) FROM artists WHERE id = ?`, artist.ID).
 		Scan(&stillThere).Error)
 	s.Equal(int64(1), stillThere, "the artist must survive its own failed delete")
+}
+
+// ──────────────────────────────────────────────
+// The other five delete paths
+// ──────────────────────────────────────────────
+
+// Every Delete* method must sweep, and must sweep for ITS OWN entity type.
+//
+// Artist has the exhaustive seeding sweep above; the other five had the sweep
+// wired and nothing exercising it, which is the shape where a copy-pasted
+// `entityTypeArtist` in DeleteLabel ships silently: the sweep runs, deletes
+// nothing, every test passes, and every label delete strands its references.
+//
+// So each path gets one row of a dropped table and one of a kept table, stamped
+// with that entity's OWN type, plus a decoy row of the same table stamped with a
+// DIFFERENT entity type and the same id. The decoy is what makes the wrong
+// constant fail: without it, sweeping the wrong entity_type is indistinguishable
+// from sweeping the right one when only one entity exists.
+func (s *ArtistDeleteRefsSuite) TestEveryDeletePathSweepsItsOwnEntityType() {
+	for _, tc := range []struct {
+		entity polymorphicEntityType
+		// seedAndDelete creates the entity, returns its id and a func that deletes
+		// it through the real service method.
+		seedAndDelete func(f artistRefFixtures) (uint, func() error)
+	}{
+		{
+			entity: entityTypeVenue,
+			seedAndDelete: func(artistRefFixtures) (uint, func() error) {
+				v := &catalogm.Venue{Name: fmt.Sprintf("Sweep Venue %d", time.Now().UnixNano())}
+				s.Require().NoError(s.db.Create(v).Error)
+				svc := &VenueService{db: s.db}
+				return v.ID, func() error { return svc.DeleteVenue(v.ID) }
+			},
+		},
+		{
+			entity: entityTypeLabel,
+			seedAndDelete: func(artistRefFixtures) (uint, func() error) {
+				slug := fmt.Sprintf("sweep-label-%d", time.Now().UnixNano())
+				l := &catalogm.Label{Name: "Sweep Label", Slug: &slug}
+				s.Require().NoError(s.db.Create(l).Error)
+				svc := &LabelService{db: s.db}
+				return l.ID, func() error { return svc.DeleteLabel(l.ID) }
+			},
+		},
+		{
+			entity: entityTypeFestival,
+			seedAndDelete: func(artistRefFixtures) (uint, func() error) {
+				unique := time.Now().UnixNano()
+				fest := &catalogm.Festival{
+					Name:        "Sweep Fest",
+					Slug:        fmt.Sprintf("sweep-fest-%d", unique),
+					SeriesSlug:  fmt.Sprintf("sweep-fest-series-%d", unique),
+					EditionYear: 2026,
+					// DATE columns: the zero value is "" and Postgres rejects it.
+					StartDate: "2026-09-01",
+					EndDate:   "2026-09-03",
+				}
+				s.Require().NoError(s.db.Create(fest).Error)
+				svc := &FestivalService{db: s.db}
+				return fest.ID, func() error { return svc.DeleteFestival(fest.ID) }
+			},
+		},
+		{
+			entity: entityTypeRelease,
+			seedAndDelete: func(artistRefFixtures) (uint, func() error) {
+				slug := fmt.Sprintf("sweep-release-%d", time.Now().UnixNano())
+				r := &catalogm.Release{Title: "Sweep Release", Slug: &slug}
+				s.Require().NoError(s.db.Create(r).Error)
+				svc := &ReleaseService{db: s.db}
+				return r.ID, func() error { return svc.DeleteRelease(r.ID) }
+			},
+		},
+		{
+			entity: entityTypeShow,
+			seedAndDelete: func(artistRefFixtures) (uint, func() error) {
+				sh := &catalogm.Show{EventDate: time.Date(2026, 9, 2, 3, 0, 0, 0, time.UTC)}
+				s.Require().NoError(s.db.Create(sh).Error)
+				svc := &ShowService{db: s.db}
+				return sh.ID, func() error { return svc.DeleteShow(sh.ID) }
+			},
+		},
+	} {
+		s.Run(string(tc.entity), func() {
+			f := s.seedFixtures()
+			id, deleteIt := tc.seedAndDelete(f)
+
+			// A dropped table and a kept table for this entity type.
+			s.Require().NoError(s.db.Exec(
+				`INSERT INTO user_bookmarks (user_id, entity_type, entity_id, action)
+				 VALUES (?, ?, ?, 'follow')`, f.user.ID, string(tc.entity), id).Error)
+			s.Require().NoError(s.db.Exec(
+				`INSERT INTO audit_logs (action, entity_type, entity_id) VALUES ('update', ?, ?)`,
+				string(tc.entity), id).Error)
+
+			// The decoy: same table, same id, a DIFFERENT entity type. A sweep run
+			// with the wrong constant would take this and leave the real one.
+			decoyType := "scene"
+			s.Require().NoError(s.db.Exec(
+				`INSERT INTO user_bookmarks (user_id, entity_type, entity_id, action)
+				 VALUES (?, ?, ?, 'follow')`, f.user.ID, decoyType, id).Error)
+
+			s.Require().NoError(deleteIt())
+
+			var swept int64
+			s.Require().NoError(s.db.Raw(
+				`SELECT COUNT(*) FROM user_bookmarks WHERE entity_type = ? AND entity_id = ?`,
+				string(tc.entity), id).Scan(&swept).Error)
+			s.Zerof(swept, "the %s delete path did not sweep its own user_bookmarks rows", tc.entity)
+
+			// Scoped to THIS subtest's user: the subtests share one SetupTest, and
+			// ids restart per table, so a bare (entity_type, entity_id) count would
+			// also match the decoys left by earlier subtests with the same id.
+			var decoy int64
+			s.Require().NoError(s.db.Raw(
+				`SELECT COUNT(*) FROM user_bookmarks
+				  WHERE user_id = ? AND entity_type = ? AND entity_id = ?`,
+				f.user.ID, decoyType, id).Scan(&decoy).Error)
+			s.Equalf(int64(1), decoy,
+				"the %s delete path swept rows belonging to another entity type", tc.entity)
+
+			var kept int64
+			s.Require().NoError(s.db.Raw(
+				`SELECT COUNT(*) FROM audit_logs WHERE entity_type = ? AND entity_id = ?`,
+				string(tc.entity), id).Scan(&kept).Error)
+			s.Equalf(int64(1), kept,
+				"the %s delete path destroyed an audit_logs row that is dispositioned to stay",
+				tc.entity)
+		})
+	}
+}
+
+// source_configs is the table the venue and label delete comments call the most
+// consequential reason for the sweep — a scraper registration whose entity is
+// gone — and it is the one table the artist sweep can never exercise, because
+// its CHECK admits only venue and label.
+func (s *ArtistDeleteRefsSuite) TestVenueAndLabelDeletesSweepSourceConfigs() {
+	venue := &catalogm.Venue{Name: fmt.Sprintf("Scraped Venue %d", time.Now().UnixNano())}
+	s.Require().NoError(s.db.Create(venue).Error)
+	slug := fmt.Sprintf("scraped-label-%d", time.Now().UnixNano())
+	label := &catalogm.Label{Name: "Scraped Label", Slug: &slug}
+	s.Require().NoError(s.db.Create(label).Error)
+
+	insert := `INSERT INTO source_configs (entity_type, entity_id, source_url) VALUES (?, ?, ?)`
+	s.Require().NoError(s.db.Exec(insert, "venue", venue.ID, "https://example.test/venue").Error)
+	s.Require().NoError(s.db.Exec(insert, "label", label.ID, "https://example.test/label").Error)
+
+	s.Require().NoError((&VenueService{db: s.db}).DeleteVenue(venue.ID))
+	s.Require().NoError((&LabelService{db: s.db}).DeleteLabel(label.ID))
+
+	var left int64
+	s.Require().NoError(s.db.Raw(`SELECT COUNT(*) FROM source_configs`).Scan(&left).Error)
+	s.Zero(left, "a scraper registration must not outlive the venue or label it points at")
+}
+
+// The alert rows whose entity_id is NOT the entity their name suggests: an
+// artist_show_alert holds a SHOW id and a venue_show_alert holds a VENUE id, so
+// these are swept by the show and venue delete paths respectively. The
+// inventory's own entity_type predicate cannot see either.
+func (s *ArtistDeleteRefsSuite) TestShowAndVenueDeletesSweepAlertRowsKeyedOnTheirOwnType() {
+	f := s.seedFixtures()
+
+	show := &catalogm.Show{EventDate: time.Date(2026, 9, 3, 3, 0, 0, 0, time.UTC)}
+	s.Require().NoError(s.db.Create(show).Error)
+	venue := &catalogm.Venue{Name: fmt.Sprintf("Alerted Venue %d", time.Now().UnixNano())}
+	s.Require().NoError(s.db.Create(venue).Error)
+
+	s.Require().NoError(s.db.Exec(`
+		INSERT INTO notification_log (user_id, entity_type, entity_id, channel)
+		VALUES (?, ?, ?, 'email')`,
+		f.user.ID, notificationm.NotificationEntityArtistShowAlert, show.ID).Error)
+	s.Require().NoError(s.db.Exec(`
+		INSERT INTO notification_log (user_id, entity_type, entity_id, alert_bucket, channel)
+		VALUES (?, ?, ?, ?, 'email')`,
+		f.user.ID, notificationm.NotificationEntityVenueShowAlert, venue.ID,
+		time.Date(2026, 9, 3, 0, 0, 0, 0, time.UTC)).Error)
+
+	s.Require().NoError((&ShowService{db: s.db}).DeleteShow(show.ID))
+	s.Require().NoError((&VenueService{db: s.db}).DeleteVenue(venue.ID))
+
+	var showAlerts, venueAlerts int64
+	s.Require().NoError(s.db.Raw(
+		`SELECT COUNT(*) FROM notification_log WHERE entity_type = ? AND entity_id = ?`,
+		notificationm.NotificationEntityArtistShowAlert, show.ID).Scan(&showAlerts).Error)
+	s.Zero(showAlerts, "an artist show alert names a SHOW in entity_id and must go with it")
+
+	s.Require().NoError(s.db.Raw(
+		`SELECT COUNT(*) FROM notification_log WHERE entity_type = ? AND entity_id = ?`,
+		notificationm.NotificationEntityVenueShowAlert, venue.ID).Scan(&venueAlerts).Error)
+	s.Zero(venueAlerts, "a venue show alert names a VENUE in entity_id and must go with it")
 }
 
 // Deleting one artist must not touch another's references. The sweep's

@@ -585,7 +585,8 @@ func (s *VenueService) UpdateVenue(venueID uint, req *contracts.UpdateVenueReque
 	return s.GetVenue(venueID)
 }
 
-// DeleteVenue deletes a venue and everything that pointed at it.
+// DeleteVenue deletes a venue and sweeps the polymorphic references that
+// nothing else would clean up.
 //
 // The reference sweep matters more here than anywhere else in this family:
 // source_configs is venue/label only, so a venue deleted without it leaves a

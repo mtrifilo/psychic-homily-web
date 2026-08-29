@@ -44,8 +44,11 @@ const (
 )
 
 // allPolymorphicEntityTypes is every catalog entity that can appear in an
-// entity_type column, in the order a reader would list them. Iterated by the
-// delete-path guards so a seventh type cannot be added without them noticing.
+// entity_type column, in the order a reader would list them.
+//
+// TestEveryEntityTypeHasADeletePath pins these six BY NAME rather than by
+// iterating this slice, so adding a seventh fails a test instead of passing
+// vacuously through a loop over the very list that was just extended.
 var allPolymorphicEntityTypes = []polymorphicEntityType{
 	entityTypeVenue, entityTypeArtist, entityTypeShow,
 	entityTypeRelease, entityTypeLabel, entityTypeFestival,

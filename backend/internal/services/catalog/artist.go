@@ -484,7 +484,8 @@ func (s *ArtistService) UpdateArtist(artistID uint, req *contracts.UpdateArtistR
 	return s.GetArtist(artistID)
 }
 
-// DeleteArtist deletes an artist and everything that pointed at it.
+// DeleteArtist deletes an artist and sweeps the polymorphic references that
+// nothing else would clean up.
 //
 // The reference sweep is not an extra: the polymorphic (entity_type, entity_id)
 // tables carry no foreign key, so before PSY-1868 this method left every one of

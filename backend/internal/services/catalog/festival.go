@@ -446,7 +446,8 @@ func (s *FestivalService) UpdateFestival(festivalID uint, req *contracts.UpdateF
 	return s.GetFestival(festivalID)
 }
 
-// DeleteFestival deletes a festival and everything that pointed at it.
+// DeleteFestival deletes a festival and sweeps the polymorphic references that
+// nothing else would clean up.
 //
 // Junction rows go by FK cascade; the polymorphic references have no FK to
 // cascade. See entityRefDeleteDispositions for the per-table record.

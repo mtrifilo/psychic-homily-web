@@ -17,8 +17,9 @@ import (
 // PSY-1834 closed that gap for the artist MERGE and PSY-1869 for the show merge.
 // Deletion was the second unguarded source and had none of it: every Delete*
 // method in this package was a bare `db.Delete(&entity)` after an existence
-// check, with at most one hand-picked table swept beside it. The 2026-08-19
-// production audit found orphaned audit_logs rows attributable to no merge.
+// check, with at most one hand-picked table swept beside it. PSY-1868 reports a
+// production audit finding orphaned audit_logs rows attributable to no merge,
+// with deletion as the leading suspect.
 //
 // A delete cannot re-point anything — there is no surviving entity — so each
 // table needs a DIFFERENT kind of answer than the merges give it, and the answer
@@ -28,6 +29,28 @@ import (
 // picking a default. TestEveryInventoriedRefHasADeleteDisposition and the seeding
 // sweep in artist_delete_refs_test.go are what keep that list from falling behind
 // the inventory.
+//
+// WHAT THIS FILE DOES NOT COVER. The merges enumerate THREE classes of reference
+// (see artist_merge.go); this sweep handles the polymorphic class plus the two
+// notification_log columns the inventory cannot see. The other two classes are
+// left to the database and are called out here so the omission is recorded
+// rather than implied:
+//
+//   - Real foreign keys to the entity. Ten of them CASCADE and a few SET NULL,
+//     so the database does clean up, but silently: radio_plays.artist_id is
+//     ON DELETE SET NULL, which leaves a play still marked match_state='matched'
+//     with no artist, and scopePlaysForArtistRematch will never revisit it.
+//     A merge rescues those rows (reassignArtistFKRefs); a delete cannot, since
+//     there is nothing to rescue them onto. They also never appear in
+//     logDeletedEntityRefs, so that log is a record of what the SWEEP removed,
+//     not of everything the deletion took.
+//   - Bare id columns with no foreign key and no discriminator. Chiefly
+//     notification_filters.artist_ids / venue_ids / label_ids (bigint[]). The
+//     merges rewrite these with array_replace; a delete would have to
+//     array_remove, and removing the last id leaves an EMPTY array whose
+//     matching semantics are a product question rather than a cleanup, so it is
+//     deliberately not guessed at here. A dead id in a filter matches nothing,
+//     which is inert; an empty filter might match everything, which is not.
 
 // refDeleteDisposition is what happens to one reference table's rows when the
 // entity they point at is deleted outright.
@@ -70,16 +93,28 @@ const (
 	// a soft-delete column — so "leave the row" is the reversible choice and
 	// "delete it" is not.
 	keepRefRowsAsTombstone
-
-	// clearRefEntityColumn keeps the row and NULLs the column that named the
-	// entity.
-	//
-	// Only legal for a NULLABLE pointer column whose NULL already means something
-	// true — both of the current entries are fulfillment pointers on a user's
-	// request, where NULL means "no catalog row exists for this request", which is
-	// exactly the state a delete restores.
-	clearRefEntityColumn
 )
+
+// There is deliberately no third disposition that NULLs the entity column.
+//
+// It was written and removed. `requests.requested_entity_id` is nullable and
+// looked like the obvious candidate: NULL means "no entity stands behind this
+// request", which is true after a delete. But NULLing it alone manufactures a
+// state no other code path produces. RejectFulfillment
+// (services/community/request.go) clears that column as one of THREE writes,
+// alongside status back to 'pending' and fulfiller_id to NULL; writing only the
+// pointer leaves a row that still says fulfilled, with a fulfiller and a
+// fulfilled_at, and no entity. ListRequests filters on status, so that row is
+// invisible in the open bucket, can never be re-fulfilled, and still counts as
+// fulfilled in the analytics the clearing was supposed to protect.
+//
+// The column is also dual purpose: CreateRequest sets it on a PENDING request as
+// an optional link to a related entity, so the same statement would strip a
+// requester's own link rather than a stale fulfillment pointer.
+//
+// Re-opening a fulfilled request is a workflow decision, not an orphan fix, so
+// `requests` is kept untouched instead. The dangling id is inert: ResolveEntityRef
+// returns (nil, nil) for a row that is gone, and the UI simply omits the link.
 
 // String makes a rejected disposition readable in the error rather than printing
 // an integer the reader has to count out against this file.
@@ -89,8 +124,6 @@ func (d refDeleteDisposition) String() string {
 		return "dropRefRows"
 	case keepRefRowsAsTombstone:
 		return "keepRefRowsAsTombstone"
-	case clearRefEntityColumn:
-		return "clearRefEntityColumn"
 	case deleteDispositionUndecided:
 		return "deleteDispositionUndecided"
 	default:
@@ -140,22 +173,42 @@ var entityRefDeleteDispositions = map[string]refDeleteDisposition{
 	// other four types.)
 	"source_configs": dropRefRows,
 	// A delivered-notification record, which is a user's inbox. Left behind it is
-	// an inbox row linking to an entity that 404s. Its other job — proving an
-	// alert was already sent, so it is not sent twice — is moot once there is
+	// a bell entry linking to an entity that 404s, and its other job (proving an
+	// alert was already sent, so it is not sent twice) is moot once there is
 	// nothing left to alert about.
+	//
+	// Be precise about what the generic pass actually reaches here, because the
+	// answer is "nothing, today". This table's entity_type holds its OWN
+	// discriminators, never a bare catalog entity name: 'show',
+	// 'artist_show_alert', 'venue_show_alert', 'request_fulfillment_proposed' and
+	// the comment-reply value (models/notification/notification_filter.go). So
+	// `entity_type = 'artist'` matches no row, and the rows that really do name a
+	// deleted entity are swept by deleteAlertRowsNamingEntity instead. The entry
+	// stays in the inventory because the inventory is deliberately exhaustive over
+	// TABLES rather than per entity type (see source_configs), and because the day
+	// a writer does stamp a bare entity name here, the disposition is already
+	// recorded.
 	"notification_log": dropRefRows,
 
 	// ── Kept as tombstones: a record of something a person did, read on an axis
 	// the deleted entity does not gate. ──
 
 	// The admin action trail. GetAuditLogs (services/admin/audit_log.go) is a
-	// global, time-ordered, filterable list — not an entity lookup — and
-	// contributor activity reads it by actor. These rows are the record of what
-	// was done TO the entity, including by whoever deleted it, so deleting them
-	// with the entity erases the only account of the deletion's context. The
-	// orphaned audit_logs rows the 2026-08-19 audit found are therefore the
-	// INTENDED state; what was missing was that nine other tables were orphaned
-	// alongside them with nothing recording which was which.
+	// global, time-ordered, filterable list with no entity_id filter at all, and
+	// contributor stats read it by actor, so these rows stay readable and
+	// meaningful after the entity is gone. They record who created the entity, who
+	// edited it and who merged it; dropping them with the entity would erase that
+	// from the trail of every actor involved.
+	//
+	// The orphaned audit_logs rows the 2026-08-19 audit found are therefore the
+	// INTENDED state, and what was missing was that nine other tables were
+	// orphaned alongside them with nothing recording which was which.
+	//
+	// NOT claimed: that the trail records the deletion itself. It does not.
+	// DeleteArtistHandler writes no audit row (it logs to slog only), unlike the
+	// create, alias and merge handlers next to it. So a deletion is attributable
+	// to nobody in this table, which is a gap in the audit trail rather than
+	// something this sweep introduces or can fix.
 	"audit_logs": keepRefRowsAsTombstone,
 	// User-authored prose. Unreachable from the deleted entity, but reachable by
 	// AUTHOR (ListFieldNotesByAuthor) and in the global moderation queue
@@ -194,22 +247,12 @@ var entityRefDeleteDispositions = map[string]refDeleteDisposition{
 	// dereferences it — so the row is left exactly as it is.
 	"entity_requests": keepRefRowsAsTombstone,
 
-	// ── Cleared: the row survives, the pointer does not. ──
-
-	// A fulfilled request on the community wishlist. The row belongs to the
-	// REQUESTER — it carries their title, description and the votes it drew — so
-	// dropping it would destroy a user's post and skew the request-fulfillment
-	// chart in admin analytics. Only the fulfillment pointer is stale, and that
-	// column is nullable with a meaning already in use: RejectFulfillment
-	// (services/community/request.go) NULLs this same column to say "no entity
-	// stands behind this request", which is exactly true after the delete.
-	// ResolveEntityRef already degrades a missing row to "no link", so this is a
-	// tidy-up rather than a repair.
-	//
-	// The difference from entity_requests is not cosmetic: NULL here restores a
-	// wishlist item to "unfulfilled", which is honest, while NULL there manufactures
-	// a work item that an admin would act on.
-	"requests": clearRefEntityColumn,
+	// A post on the community wishlist, carrying the requester's title,
+	// description and the votes it drew, plus counters in the leaderboard's
+	// `requests` dimension and the admin fulfillment-rate chart. Dropping it would
+	// destroy a user's post; clearing its pointer was tried and rejected for the
+	// reasons recorded above the disposition constants.
+	"requests": keepRefRowsAsTombstone,
 }
 
 // refsRepointedElsewhereIDCol is the entity-id column for the three tables that
@@ -220,6 +263,20 @@ var entityRefDeleteDispositions = map[string]refDeleteDisposition{
 // loop below so that a table joining that list with a different column name
 // cannot be swept against the wrong column in silence.
 const refsRepointedElsewhereIDCol = "entity_id"
+
+// COST, measured rather than assumed. Three of the nine dropped tables have no
+// index supporting (entity_type, entity_id), so their DELETE is a sequential
+// scan: notification_log (indexes lead with user_id; subject_entity_id has no
+// index at all), tag_votes (PK leads with tag_id) and comment_last_read (PK
+// leads with user_id). The other six are covered.
+//
+// Left as-is deliberately. Adding three indexes is a migration, and a migration
+// merged out of order is how stage died on 2026-08-02; it also belongs with a
+// measurement of these tables' real size rather than with a correctness fix. It
+// is recorded here instead of discovered later, and it matters more than it
+// looks: DELETE /artists/{id} is reachable by any authenticated user, so this is
+// scan work an unprivileged caller can trigger, unlike the merges that issue the
+// same statement shape from admin-only paths.
 
 // deleteEntityRefs carries out every recorded disposition for one entity that is
 // about to be deleted, and reports what it did per table.
@@ -283,7 +340,12 @@ func deleteEntityRefs(
 // into the statement by interpolation, and a fence on the table only would let a
 // listed table be swept against any column name a caller supplied. Same shape,
 // and the same reason, as the show merge's showFKColumns.
-func entityRefIDColumns() map[string]string {
+// Built once at init rather than per call: applyRefDeleteDisposition runs once
+// per inventoried table, so rebuilding it inside would rebuild a 17-entry map 17
+// times for every delete.
+var entityRefIDColumns = buildEntityRefIDColumns()
+
+func buildEntityRefIDColumns() map[string]string {
 	out := make(map[string]string, len(polymorphicEntityRefs)+len(refsRepointedElsewhere))
 	for _, ref := range polymorphicEntityRefs {
 		out[ref.table] = ref.idCol
@@ -311,7 +373,7 @@ func applyRefDeleteDisposition(
 			"delete entity refs: %s is in the entity-ref inventory but has no recorded delete "+
 				"disposition; add one to entityRefDeleteDispositions", table)
 	}
-	if want, ok := entityRefIDColumns()[table]; !ok || want != idCol {
+	if want, ok := entityRefIDColumns[table]; !ok || want != idCol {
 		return 0, fmt.Errorf(
 			"delete entity refs: %s's entity id column is %q in the inventory, not %q",
 			table, want, idCol)
@@ -331,21 +393,10 @@ func applyRefDeleteDisposition(
 		}
 		return r.RowsAffected, nil
 
-	case clearRefEntityColumn:
-		// #nosec G201 -- see above.
-		sql := fmt.Sprintf(
-			"UPDATE %[1]s SET %[2]s = NULL WHERE entity_type = ? AND %[2]s = ?", table, idCol)
-		r := tx.Exec(sql, string(entity), entityID)
-		if r.Error != nil {
-			return 0, fmt.Errorf("failed to clear %s entity reference: %w", table, r.Error)
-		}
-		return r.RowsAffected, nil
-
 	default:
 		return 0, fmt.Errorf(
 			"delete entity refs: %s has disposition %s, which is not a decision; "+
-				"record dropRefRows, keepRefRowsAsTombstone or clearRefEntityColumn",
-			table, disposition)
+				"record dropRefRows or keepRefRowsAsTombstone", table, disposition)
 	}
 }
 
@@ -459,10 +510,18 @@ func sweepEntityRefsForDelete(tx *gorm.DB, entity polymorphicEntityType, entityI
 // increments it and RemoveTagFromEntity decrements it (services/catalog/
 // tag_service.go), and nothing recomputes it. So the generic
 // `DELETE FROM entity_tags` in the sweep leaves the counter permanently
-// overstated by however many tags the deleted entity carried — and that counter
-// is not decorative. It orders ListTags, feeds the tag hierarchy, and is the
-// whole predicate of PruneLowQualityTags (usage_count = 0), which would stop
-// reclaiming a tag whose last real use has been deleted.
+// overstated by however many tags the deleted entity carried.
+//
+// That counter is not decorative. GetLowQualityTagQueue
+// (services/catalog/tag_low_quality.go) selects candidates on `usage_count = 0`
+// and on `usage_count < N AND created_at < cutoff`, and stamps the
+// "orphaned" / "aging unused" reasons from the same value, so an overstated
+// counter keeps a tag whose last real use was deleted out of the moderation
+// queue entirely. It also orders the tag hierarchy listing
+// (tag_hierarchy.go) and the ListTags sort.
+//
+// Note this is a REVIEW queue an admin acts on, not an automatic reclaim;
+// nothing in the repo deletes a tag on usage_count alone.
 //
 // GREATEST(...,0) mirrors RemoveTagFromEntity's `usage_count > 0` floor: the
 // counter is already known to drift (nothing recomputes it), and a delete is not
@@ -482,6 +541,24 @@ func releaseTagUsageCounts(tx *gorm.DB, entity polymorphicEntityType, entityID u
 		return fmt.Errorf(
 			"release tag usage counts: entity_tags is dispositioned %s, so releasing its "+
 				"usage_count would decrement a counter for rows that are staying", d)
+	}
+
+	// Lock the tag rows in ascending id order BEFORE updating them.
+	//
+	// The UPDATE below joins a HashAggregate, so the order it takes row locks in
+	// is up to the planner. Two concurrent deletes of two entities sharing two or
+	// more tags could take those locks in opposite orders and deadlock, which
+	// Postgres resolves by aborting one of them: no corruption, but an
+	// intermittent 500 on a user-facing endpoint. Ordering the lock acquisition
+	// here removes the cycle, and it is the same ascending-id discipline
+	// lockMergeArtists uses for the same reason.
+	if err := tx.Exec(`
+		SELECT 1 FROM tags
+		 WHERE id IN (SELECT tag_id FROM entity_tags WHERE entity_type = ? AND entity_id = ?)
+		 ORDER BY id
+		   FOR UPDATE
+	`, string(entity), entityID).Error; err != nil {
+		return fmt.Errorf("failed to lock tags for usage-count release: %w", err)
 	}
 
 	if err := tx.Exec(`
@@ -532,12 +609,15 @@ func logDeletedEntityRefs(
 		)
 	}
 	if alertRows > 0 {
+		// Labelled distinctly rather than as a second bare "notification_log"
+		// line, so the two records for one delete are separable by their table
+		// field alone. Matches how show_dedup.go and venue_merge.go already label
+		// their discriminator-keyed rows on the merge side.
 		slog.Default().Info("entity delete swept references",
 			"entity_type", string(entity),
 			"entity_id", entityID,
-			"table", "notification_log",
+			"table", "notification_log (alert discriminators)",
 			"rows_affected", alertRows,
-			"note", "alert rows keyed on their own discriminator",
 		)
 	}
 }

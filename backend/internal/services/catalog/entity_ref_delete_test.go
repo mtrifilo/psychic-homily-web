@@ -75,6 +75,7 @@ func TestRecordedDeleteDispositionsAreTheOnesReviewed(t *testing.T) {
 		"pending_entity_edits",
 		"entity_edit_audit_logs",
 		"entity_requests",
+		"requests",
 	} {
 		if got := entityRefDeleteDispositions[table]; got != keepRefRowsAsTombstone {
 			t.Errorf("%s is recorded as %s, but its rows are read on an axis the deleted entity "+
@@ -152,7 +153,7 @@ func TestApplyRefDeleteDispositionRejectsAWrongIDColumn(t *testing.T) {
 // Checked against the derived map rather than through the helper, because an
 // accepted pair goes on to execute and a zero *gorm.DB panics there.
 func TestEveryInventoriedTableHasAnIDColumn(t *testing.T) {
-	columns := entityRefIDColumns()
+	columns := entityRefIDColumns
 	for table := range entityRefTables() {
 		if columns[table] == "" {
 			t.Errorf("%s has no entity id column in the derived map, so every sweep of it "+
@@ -166,7 +167,7 @@ func TestEveryInventoriedTableHasAnIDColumn(t *testing.T) {
 // map, because "the decision is recorded" and "the decision is honoured" are
 // different claims and only the second one protects contributor history.
 func TestKeptTablesIssueNoStatement(t *testing.T) {
-	columns := entityRefIDColumns()
+	columns := entityRefIDColumns
 	for table, disposition := range entityRefDeleteDispositions {
 		if disposition != keepRefRowsAsTombstone {
 			continue
@@ -244,34 +245,40 @@ func TestMergeableIsNarrowerThanValid(t *testing.T) {
 	}
 }
 
-// clearRefEntityColumn is only legal where NULL is a value the column already
-// carries and the readers already understand. Nulling a NOT NULL column would
-// abort every delete; nulling a nullable column whose NULL drives a work queue
-// is worse, because it succeeds — see entity_requests' entry, where NULL would
-// resurrect a fulfilled request into the admin rescue queue.
+// Every entity type in the vocabulary must have a delete path that sweeps it.
 //
-// So the two entries are pinned by name. Adding a third is meant to be a
-// deliberate act that fails here first.
-func TestOnlyTheFulfillmentPointerIsCleared(t *testing.T) {
-	cleared := map[string]bool{}
-	for table, disposition := range entityRefDeleteDispositions {
-		if disposition == clearRefEntityColumn {
-			cleared[table] = true
-		}
+// Pinned BY NAME on purpose. The obvious version of this test iterates
+// allPolymorphicEntityTypes and asserts something about each, which passes
+// vacuously the moment a seventh type is appended: the loop simply grows and
+// agrees with itself. The point of the guard is to make ADDING a type fail until
+// somebody wires its delete, so the six are written out here and the count is
+// asserted.
+func TestEveryEntityTypeHasADeletePath(t *testing.T) {
+	// Keep in step with the Delete* methods in this package: DeleteVenue,
+	// DeleteArtist, DeleteShow, DeleteRelease, DeleteLabel, DeleteFestival.
+	wired := []polymorphicEntityType{
+		entityTypeVenue, entityTypeArtist, entityTypeShow,
+		entityTypeRelease, entityTypeLabel, entityTypeFestival,
 	}
 
-	if !cleared["requests"] {
-		t.Error("requests.requested_entity_id is a fulfillment pointer whose NULL means " +
-			"'unfulfilled'; clearing it is the whole reason this disposition exists")
+	if len(allPolymorphicEntityTypes) != len(wired) {
+		t.Fatalf("the vocabulary holds %d entity types but %d have a delete path wired. "+
+			"A new type needs sweepEntityRefsForDelete called from its Delete* method, and "+
+			"its name added here.", len(allPolymorphicEntityTypes), len(wired))
 	}
-	if cleared["entity_requests"] {
-		t.Error("entity_requests.created_entity_id must NOT be cleared: " +
-			"(approved AND created_entity_id IS NULL) is the admin rescue queue's predicate, " +
-			"so nulling it manufactures a work item and invites a duplicate entity")
+
+	known := map[polymorphicEntityType]bool{}
+	for _, entity := range allPolymorphicEntityTypes {
+		known[entity] = true
 	}
-	if len(cleared) != 1 {
-		t.Errorf("cleared = %v, want exactly [requests]. A nullable column is not on its own "+
-			"a reason to clear one: check what reads its NULL first.", cleared)
+	for _, entity := range wired {
+		if !known[entity] {
+			t.Errorf("%s has a delete path but is not in allPolymorphicEntityTypes, so "+
+				"sweepEntityRefsForDelete will reject it at runtime", entity)
+		}
+		if !entity.valid() {
+			t.Errorf("%s must be accepted by valid(), or its sweep is refused", entity)
+		}
 	}
 }
 
