@@ -145,18 +145,12 @@ func (h *EntityRequestHandler) AdminFulfillEntityRequestHandler(ctx context.Cont
 	// lands.
 	var showAssoc *showAssociations
 	if existing.EntityType == communitym.EntityRequestShow {
-		// Validate the STORED bill whether or not the body carries one: the
-		// re-validation inside fulfillEntity would otherwise be the first place a
-		// broken stored bill surfaced, and a rescue that fails there is a second
-		// failed recovery on a row that is already an orphan.
-		if existing.Payload != nil {
-			if verr := validateShowPayloadBill(existing.EntityType, *existing.Payload); verr != nil {
-				return nil, verr
-			}
-		}
-		bill, billField := resolveShowBill(req.Body.ShowArtists, existing)
+		// The row is passed as eligible unconditionally: a rescuable row is
+		// approved-but-unfulfilled by definition (checked directly above), which
+		// is exactly where an auto-approved show carrying a contributor's bill
+		// lands. The decide path's PENDING gate has no counterpart here.
 		var aerr error
-		showAssoc, aerr = buildShowAssociations(req.Body.ShowVenue, bill, billField)
+		showAssoc, aerr = prepareShowFulfillment(existing, req.Body.ShowVenue, req.Body.ShowArtists)
 		if aerr != nil {
 			return nil, aerr
 		}

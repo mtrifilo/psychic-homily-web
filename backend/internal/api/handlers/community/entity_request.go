@@ -119,17 +119,17 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 		return nil, huma.Error422UnprocessableEntity("Invalid payload for " + entityType + ": " + err.Error())
 	}
 
-	// PSY-1858: a show payload may carry the bill the contributor knew. Its
-	// roles are checked against the curated set_type vocabulary HERE, at submit,
-	// for the same reason the admin path checks them pre-claim: a role rejected
-	// at fulfillment is rejected after the row has been claimed, and no endpoint
-	// can edit a queued payload to repair it. The check is not inside
-	// ValidateEntityRequestPayload only because the vocabulary lives in a
-	// package that imports the payload models. See validateShowPayloadBillRoles.
-	// (The bill's structure was already checked by ValidateEntityRequestPayload
-	// above.) Ordered ahead of the image-URL guard because it is a pure
-	// in-memory check and that one can resolve DNS.
-	if err := validateShowPayloadBillRoles(entityType, req.Body.Payload); err != nil {
+	// PSY-1858: a show payload may carry the bill the contributor knew. Its roles
+	// are checked against the curated set_type vocabulary HERE, at submit, for
+	// the same reason the admin paths check them pre-claim: a role rejected at
+	// fulfillment is rejected after the row has been claimed, and no endpoint can
+	// edit a queued payload to repair it. The check is not inside
+	// ValidateEntityRequestPayload only because the vocabulary lives in a package
+	// that imports the payload models; see validateShowPayloadBill, which is the
+	// same call all three trust boundaries make. Its structure half is a no-op
+	// here, having just run above. Ordered ahead of the image-URL guard because
+	// it is a pure in-memory check and that one can resolve DNS.
+	if err := validateShowPayloadBill(entityType, req.Body.Payload); err != nil {
 		return nil, err
 	}
 
@@ -503,34 +503,34 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 		// honest answer is its 409 (invalid state); a 422 about a bill the admin
 		// never typed would report the wrong problem entirely and read as though
 		// re-sending the request with a bill could fix it.
-		pendingRow := existing != nil && existing.DecisionState == communitym.EntityRequestStatePending
-		var prefillFrom *communitym.EntityRequest
-		if pendingRow {
-			prefillFrom = existing
+		// eligible is the row when every pre-claim check below may act on it, and
+		// nil otherwise. Decide claims only PENDING rows, so for anything else the
+		// honest answer is its 409 (invalid state); a 422 about a payload the
+		// admin never sent would report the wrong problem entirely and read as
+		// though re-sending the request could fix it. The prefill is scoped by the
+		// same value, which is the whole reason it is one variable.
+		var eligible *communitym.EntityRequest
+		if existing != nil && existing.DecisionState == communitym.EntityRequestStatePending {
+			eligible = existing
 		}
 
-		bill, billField := resolveShowBill(req.Body.ShowArtists, prefillFrom)
+		// PSY-1858: one shared pre-claim sequence with the rescue endpoint
+		// (validate the stored bill, resolve body-vs-payload, build), so the two
+		// admin paths cannot answer the same request differently.
 		var aerr error
-		showAssoc, aerr = buildShowAssociations(req.Body.ShowVenue, bill, billField)
+		showAssoc, aerr = prepareShowFulfillment(eligible, req.Body.ShowVenue, req.Body.ShowArtists)
 		if aerr != nil {
 			return nil, aerr
 		}
 
-		if pendingRow {
-			if showAssoc == nil && existing.EntityType == communitym.EntityRequestShow {
+		if eligible != nil {
+			if showAssoc == nil && eligible.EntityType == communitym.EntityRequestShow {
 				return nil, huma.Error422UnprocessableEntity("Approving a show requires show_venue and show_artists")
 			}
-			if existing.Payload != nil {
-				// PSY-1858: the STORED bill is validated whether or not the admin
-				// also typed one. The body supersedes it for fulfillment, but
-				// fulfillEntity still re-validates the whole stored payload, and
-				// that runs post-claim, and a broken stored bill found there is an
-				// orphan. Ordered ahead of the image-URL guard because it is a
-				// pure in-memory check and that one can resolve DNS.
-				if verr := validateShowPayloadBill(existing.EntityType, *existing.Payload); verr != nil {
-					return nil, verr
-				}
-				if verr := validatePayloadImageURL(ctx, existing.EntityType, *existing.Payload); verr != nil {
+			// Last of the pre-claim checks because it is the only one that can
+			// resolve DNS; the in-memory refusals above should not wait on it.
+			if eligible.Payload != nil {
+				if verr := validatePayloadImageURL(ctx, eligible.EntityType, *eligible.Payload); verr != nil {
 					return nil, verr
 				}
 			}

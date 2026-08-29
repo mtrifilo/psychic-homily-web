@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
@@ -21,24 +22,6 @@ import (
 // does not re-type the acts out of the source excerpt. The bill is PREFILL: the
 // admin's submitted body stays authoritative, and nothing is ever fulfilled
 // from the payload alone (the payload has no venue, and an admin still decides).
-
-// showPayloadWithBill marshals a fulfillable show payload carrying a bill.
-func showPayloadWithBill(t *testing.T, title string, artists ...communitym.ShowRequestArtist) json.RawMessage {
-	t.Helper()
-	city := "Phoenix"
-	state := "AZ"
-	raw, err := communitym.MarshalPayload(communitym.ShowRequestPayload{
-		Title:     title,
-		EventDate: "2026-09-12T21:00:00-07:00",
-		City:      &city,
-		State:     &state,
-		Artists:   artists,
-	})
-	require.NoError(t, err)
-	return raw
-}
-
-func setTypePtr(v string) *string { return &v }
 
 // billNames flattens a created bill to (name, role) pairs, with "-" for an act
 // that stated no role, so assertions read as the bill does.
@@ -75,9 +58,9 @@ func TestCreateEntityRequest_ShowBillInvalidRole422AtSubmit(t *testing.T) {
 
 	req := &CreateEntityRequestRequest{}
 	req.Body.EntityType = "show"
-	req.Body.Payload = showPayloadWithBill(t, "Boris",
+	req.Body.Payload = showRequestPayload(t, "Boris",
 		communitym.ShowRequestArtist{Name: "Boris"},
-		communitym.ShowRequestArtist{Name: "Earth", SetType: setTypePtr("support")},
+		communitym.ShowRequestArtist{Name: "Earth", SetType: shared.PtrString("support")},
 	)
 
 	_, err := h.CreateEntityRequestHandler(erUserCtx(), req)
@@ -102,8 +85,8 @@ func TestCreateEntityRequest_ShowBillBlankRoleRejected(t *testing.T) {
 		)
 		req := &CreateEntityRequestRequest{}
 		req.Body.EntityType = "show"
-		req.Body.Payload = showPayloadWithBill(t, "Boris",
-			communitym.ShowRequestArtist{Name: "Boris", SetType: setTypePtr(blank)})
+		req.Body.Payload = showRequestPayload(t, "Boris",
+			communitym.ShowRequestArtist{Name: "Boris", SetType: shared.PtrString(blank)})
 
 		_, err := h.CreateEntityRequestHandler(erUserCtx(), req)
 		testhelpers.AssertHumaError(t, err, 422)
@@ -129,8 +112,8 @@ func TestCreateEntityRequest_ShowBillAcceptsEveryVocabularyRole(t *testing.T) {
 		)
 		req := &CreateEntityRequestRequest{}
 		req.Body.EntityType = "show"
-		req.Body.Payload = showPayloadWithBill(t, "Boris",
-			communitym.ShowRequestArtist{Name: "Boris", SetType: setTypePtr(role)})
+		req.Body.Payload = showRequestPayload(t, "Boris",
+			communitym.ShowRequestArtist{Name: "Boris", SetType: shared.PtrString(role)})
 
 		_, err := h.CreateEntityRequestHandler(erUserCtx(), req)
 		require.NoError(t, err, "role %q must be submittable", role)
@@ -157,7 +140,7 @@ func TestCreateEntityRequest_ShowBillOverCapRejected(t *testing.T) {
 	}
 	req := &CreateEntityRequestRequest{}
 	req.Body.EntityType = "show"
-	req.Body.Payload = showPayloadWithBill(t, "Too Many Acts", acts...)
+	req.Body.Payload = showRequestPayload(t, "Too Many Acts", acts...)
 
 	_, err := h.CreateEntityRequestHandler(erUserCtx(), req)
 	testhelpers.AssertHumaError(t, err, 422)
@@ -180,7 +163,7 @@ func TestCreateEntityRequest_ShowBillDuplicateActRejected(t *testing.T) {
 		)
 		req := &CreateEntityRequestRequest{}
 		req.Body.EntityType = "show"
-		req.Body.Payload = showPayloadWithBill(t, "Boris",
+		req.Body.Payload = showRequestPayload(t, "Boris",
 			communitym.ShowRequestArtist{Name: "Boris"},
 			communitym.ShowRequestArtist{Name: dupe},
 		)
@@ -260,8 +243,8 @@ func TestCreateEntityRequest_AutoApproveShowWithPayloadBillStillDefers(t *testin
 
 	req := &CreateEntityRequestRequest{}
 	req.Body.EntityType = "show"
-	req.Body.Payload = showPayloadWithBill(t, "Auto Approved",
-		communitym.ShowRequestArtist{Name: "Boris", SetType: setTypePtr(contracts.SetTypeHeadliner)},
+	req.Body.Payload = showRequestPayload(t, "Auto Approved",
+		communitym.ShowRequestArtist{Name: "Boris", SetType: shared.PtrString(contracts.SetTypeHeadliner)},
 	)
 
 	resp, err := h.CreateEntityRequestHandler(erAdminCtx(), req)
@@ -276,12 +259,12 @@ func TestCreateEntityRequest_AutoApproveShowWithPayloadBillStillDefers(t *testin
 
 func TestResolveShowBill(t *testing.T) {
 	payloadBill := []communitym.ShowRequestArtist{
-		{Name: "Boris", SetType: setTypePtr(contracts.SetTypeHeadliner)},
+		{Name: "Boris", SetType: shared.PtrString(contracts.SetTypeHeadliner)},
 		{Name: "Earth"},
 	}
 
 	showReq := func() *communitym.EntityRequest {
-		raw := showPayloadWithBill(t, "Boris with Earth", payloadBill...)
+		raw := showRequestPayload(t, "Boris with Earth", payloadBill...)
 		r := pendingRequest(1, communitym.EntityRequestShow)
 		r.Payload = &raw
 		return r
@@ -329,7 +312,7 @@ func TestResolveShowBill(t *testing.T) {
 	})
 
 	t.Run("no bill anywhere stays no bill", func(t *testing.T) {
-		raw := showPayloadWithBill(t, "No Bill Known")
+		raw := showRequestPayload(t, "No Bill Known")
 		r := pendingRequest(1, communitym.EntityRequestShow)
 		r.Payload = &raw
 		got, _ := resolveShowBill(nil, r)
@@ -337,7 +320,7 @@ func TestResolveShowBill(t *testing.T) {
 	})
 
 	t.Run("a non-show request never prefills", func(t *testing.T) {
-		raw := showPayloadWithBill(t, "Boris", payloadBill...)
+		raw := showRequestPayload(t, "Boris", payloadBill...)
 		r := pendingRequest(1, communitym.EntityRequestArtist)
 		r.Payload = &raw
 		got, _ := resolveShowBill(nil, r)
@@ -398,9 +381,9 @@ func decideHandler(t *testing.T, pending *communitym.EntityRequest, got **contra
 // carry) and nothing else, and the contributor's bill rides through with its
 // roles intact.
 func TestAdminDecide_ApproveShow_PayloadBillPrefills(t *testing.T) {
-	raw := showPayloadWithBill(t, "Boris with Earth",
-		communitym.ShowRequestArtist{Name: "Boris", SetType: setTypePtr(contracts.SetTypeHeadliner)},
-		communitym.ShowRequestArtist{Name: "Earth", SetType: setTypePtr(contracts.SetTypeDirectSupport)},
+	raw := showRequestPayload(t, "Boris with Earth",
+		communitym.ShowRequestArtist{Name: "Boris", SetType: shared.PtrString(contracts.SetTypeHeadliner)},
+		communitym.ShowRequestArtist{Name: "Earth", SetType: shared.PtrString(contracts.SetTypeDirectSupport)},
 		communitym.ShowRequestArtist{Name: "Local Act"},
 	)
 	pending := pendingRequest(70, communitym.EntityRequestShow)
@@ -429,9 +412,9 @@ func TestAdminDecide_ApproveShow_PayloadBillPrefills(t *testing.T) {
 // The disagreement rule, end to end through the endpoint: the admin's bill is
 // the bill, and the payload's extra acts are not resurrected.
 func TestAdminDecide_ApproveShow_BodyBillBeatsPayloadBill(t *testing.T) {
-	raw := showPayloadWithBill(t, "Contributor's Bill",
-		communitym.ShowRequestArtist{Name: "Boris", SetType: setTypePtr(contracts.SetTypeHeadliner)},
-		communitym.ShowRequestArtist{Name: "Hallucinated Act", SetType: setTypePtr(contracts.SetTypeDJ)},
+	raw := showRequestPayload(t, "Contributor's Bill",
+		communitym.ShowRequestArtist{Name: "Boris", SetType: shared.PtrString(contracts.SetTypeHeadliner)},
+		communitym.ShowRequestArtist{Name: "Hallucinated Act", SetType: shared.PtrString(contracts.SetTypeDJ)},
 	)
 	pending := pendingRequest(71, communitym.EntityRequestShow)
 	pending.Payload = &raw
@@ -454,7 +437,7 @@ func TestAdminDecide_ApproveShow_BodyBillBeatsPayloadBill(t *testing.T) {
 // The venue is still the admin's to supply. A payload bill does not make a show
 // fulfillable on its own -- PSY-1037's confirmation posture is unchanged.
 func TestAdminDecide_ApproveShow_PayloadBillStillNeedsVenue(t *testing.T) {
-	raw := showPayloadWithBill(t, "Boris",
+	raw := showRequestPayload(t, "Boris",
 		communitym.ShowRequestArtist{Name: "Boris"})
 	pending := pendingRequest(72, communitym.EntityRequestShow)
 	pending.Payload = &raw
@@ -475,7 +458,7 @@ func TestAdminDecide_ApproveShow_PayloadBillStillNeedsVenue(t *testing.T) {
 // A show request with no bill anywhere behaves exactly as it did before this
 // existed: the approve is refused, pre-claim.
 func TestAdminDecide_ApproveShow_NoBillAnywhereStill422(t *testing.T) {
-	raw := showPayloadWithBill(t, "No Bill Known")
+	raw := showRequestPayload(t, "No Bill Known")
 	pending := pendingRequest(73, communitym.EntityRequestShow)
 	pending.Payload = &raw
 
@@ -525,8 +508,8 @@ func TestAdminDecide_ApproveShow_StoredBadRole422BeforeClaim(t *testing.T) {
 // requires both show_venue and show_artists" -- a message implying the call
 // could be fixed by adding a venue, on a row that can never be decided again.
 func TestAdminDecide_ApproveShow_AlreadyDecidedRowWithPayloadBillIs409(t *testing.T) {
-	raw := showPayloadWithBill(t, "Already Approved",
-		communitym.ShowRequestArtist{Name: "Boris", SetType: setTypePtr(contracts.SetTypeHeadliner)},
+	raw := showRequestPayload(t, "Already Approved",
+		communitym.ShowRequestArtist{Name: "Boris", SetType: shared.PtrString(contracts.SetTypeHeadliner)},
 	)
 	decided := approvedUnfulfilledRequest(79, communitym.EntityRequestShow)
 	decided.Payload = &raw
@@ -558,7 +541,7 @@ func TestAdminDecide_ApproveShow_AlreadyDecidedRowWithPayloadBillIs409(t *testin
 // payload does not refill it and the approve is refused pre-claim. Only an
 // absent show_artists is a gap the payload may fill.
 func TestAdminDecide_ApproveShow_EmptyBodyBillDoesNotPrefill(t *testing.T) {
-	raw := showPayloadWithBill(t, "Contributor's Bill",
+	raw := showRequestPayload(t, "Contributor's Bill",
 		communitym.ShowRequestArtist{Name: "Boris"},
 	)
 	pending := pendingRequest(80, communitym.EntityRequestShow)
@@ -584,7 +567,7 @@ func TestAdminDecide_ApproveShow_EmptyBodyBillDoesNotPrefill(t *testing.T) {
 // suppression fires only once some act states a role, exactly as for an
 // admin-typed bill (PSY-1705).
 func TestAdminDecide_ApproveShow_UndescribedPayloadBillKeepsPositionInference(t *testing.T) {
-	raw := showPayloadWithBill(t, "Nobody Stated A Role",
+	raw := showRequestPayload(t, "Nobody Stated A Role",
 		communitym.ShowRequestArtist{Name: "Boris"},
 		communitym.ShowRequestArtist{Name: "Earth"},
 	)
@@ -664,8 +647,8 @@ func TestAdminDecide_ApproveShow_StoredOverCapBill422BeforeClaim(t *testing.T) {
 // supply associations), so it is the path a contributor's own bill most often
 // reaches. It shares resolveShowBill, so it behaves identically.
 func TestAdminFulfill_Show_PayloadBillPrefills(t *testing.T) {
-	raw := showPayloadWithBill(t, "Deferred Show",
-		communitym.ShowRequestArtist{Name: "Boris", SetType: setTypePtr(contracts.SetTypeSpecialGuest)},
+	raw := showRequestPayload(t, "Deferred Show",
+		communitym.ShowRequestArtist{Name: "Boris", SetType: shared.PtrString(contracts.SetTypeSpecialGuest)},
 		communitym.ShowRequestArtist{Name: "Earth"},
 	)
 	orphan := approvedUnfulfilledRequest(76, communitym.EntityRequestShow)
@@ -697,7 +680,7 @@ func TestAdminFulfill_Show_PayloadBillPrefills(t *testing.T) {
 
 // Body wins on the rescue path too.
 func TestAdminFulfill_Show_BodyBillBeatsPayloadBill(t *testing.T) {
-	raw := showPayloadWithBill(t, "Deferred Show",
+	raw := showRequestPayload(t, "Deferred Show",
 		communitym.ShowRequestArtist{Name: "Boris"},
 		communitym.ShowRequestArtist{Name: "Wrong Act"},
 	)
@@ -768,24 +751,13 @@ func TestAdminFulfill_NonShow_IgnoresBillPrefill(t *testing.T) {
 // only difference is where the bill came from. Reusing it also keeps one
 // Postgres setup instead of two.
 
-// showOrphanWithBill is showOrphan's counterpart for a request whose payload
-// already carries the bill.
-func (s *EntityRequestSetTypeIntegrationSuite) showOrphanWithBill(title string, artists ...communitym.ShowRequestArtist) *communitym.EntityRequest {
-	requester := testhelpers.CreateTestUser(s.deps.DB)
-	payload := showPayloadWithBill(s.T(), title, artists...)
-	orphan := approvedUnfulfilledRequest(1, communitym.EntityRequestShow)
-	orphan.Payload = &payload
-	orphan.RequesterID = requester.ID
-	return orphan
-}
-
 // The acceptance criterion end to end: the contributor's roles persist, an act
 // that stated none lands on 'performer' (never 'opener'), and the admin typed
 // only the venue.
 func (s *EntityRequestSetTypeIntegrationSuite) TestFulfillShow_PayloadBillPersistsCuratedRoles() {
-	orphan := s.showOrphanWithBill("Contributor Bill",
-		communitym.ShowRequestArtist{Name: "Boris", SetType: setTypePtr(contracts.SetTypeHeadliner)},
-		communitym.ShowRequestArtist{Name: "Earth", SetType: setTypePtr(contracts.SetTypeDirectSupport)},
+	orphan := s.showOrphan("Contributor Bill",
+		communitym.ShowRequestArtist{Name: "Boris", SetType: shared.PtrString(contracts.SetTypeHeadliner)},
+		communitym.ShowRequestArtist{Name: "Earth", SetType: shared.PtrString(contracts.SetTypeDirectSupport)},
 		communitym.ShowRequestArtist{Name: "Unstated Act"},
 	)
 	h := s.rescueHandler(orphan)
@@ -817,9 +789,9 @@ func (s *EntityRequestSetTypeIntegrationSuite) TestFulfillShow_PayloadBillPersis
 // only headliner: the suppression is a property of the resolved bill, not of
 // where the bill was typed.
 func (s *EntityRequestSetTypeIntegrationSuite) TestFulfillShow_PayloadBillSuppressesPositionInference() {
-	orphan := s.showOrphanWithBill("Headliner Billed Second",
+	orphan := s.showOrphan("Headliner Billed Second",
 		communitym.ShowRequestArtist{Name: "Earth"},
-		communitym.ShowRequestArtist{Name: "Boris", SetType: setTypePtr(contracts.SetTypeHeadliner)},
+		communitym.ShowRequestArtist{Name: "Boris", SetType: shared.PtrString(contracts.SetTypeHeadliner)},
 	)
 	h := s.rescueHandler(orphan)
 
@@ -840,9 +812,9 @@ func (s *EntityRequestSetTypeIntegrationSuite) TestFulfillShow_PayloadBillSuppre
 // gets written, and an act the admin dropped is not resurrected from the
 // payload, so a hallucinated act on an AI-extracted bill stays deletable.
 func (s *EntityRequestSetTypeIntegrationSuite) TestFulfillShow_BodyBillReplacesPayloadBill() {
-	orphan := s.showOrphanWithBill("Corrected Bill",
-		communitym.ShowRequestArtist{Name: "Boris", SetType: setTypePtr(contracts.SetTypeHeadliner)},
-		communitym.ShowRequestArtist{Name: "Hallucinated Act", SetType: setTypePtr(contracts.SetTypeDJ)},
+	orphan := s.showOrphan("Corrected Bill",
+		communitym.ShowRequestArtist{Name: "Boris", SetType: shared.PtrString(contracts.SetTypeHeadliner)},
+		communitym.ShowRequestArtist{Name: "Hallucinated Act", SetType: shared.PtrString(contracts.SetTypeDJ)},
 	)
 	h := s.rescueHandler(orphan)
 

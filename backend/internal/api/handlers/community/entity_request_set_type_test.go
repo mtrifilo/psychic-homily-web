@@ -180,8 +180,10 @@ func TestBuildShowAssociations_SetType(t *testing.T) {
 	})
 }
 
-// showRequestPayload marshals a minimal fulfillable show payload.
-func showRequestPayload(t *testing.T, title string) json.RawMessage {
+// showRequestPayload marshals a minimal fulfillable show payload, optionally
+// carrying the contributor's own bill (PSY-1858). Variadic so the PSY-1705
+// call sites, which predate the bill, read exactly as they did.
+func showRequestPayload(t *testing.T, title string, artists ...communitym.ShowRequestArtist) json.RawMessage {
 	t.Helper()
 	city := "Phoenix"
 	state := "AZ"
@@ -190,6 +192,7 @@ func showRequestPayload(t *testing.T, title string) json.RawMessage {
 		EventDate: "2026-09-12T21:00:00-07:00",
 		City:      &city,
 		State:     &state,
+		Artists:   artists,
 	})
 	if err != nil {
 		t.Fatalf("marshal show payload: %v", err)
@@ -426,10 +429,11 @@ func (s *EntityRequestSetTypeIntegrationSuite) rescueHandler(orphan *communitym.
 }
 
 // showOrphan is an approved-but-unfulfilled show request owned by a real user
-// (CreateShow stamps submitted_by, which is a FK to users).
-func (s *EntityRequestSetTypeIntegrationSuite) showOrphan(title string) *communitym.EntityRequest {
+// (CreateShow stamps submitted_by, which is a FK to users). Variadic artists
+// give the row a contributor's own bill (PSY-1858).
+func (s *EntityRequestSetTypeIntegrationSuite) showOrphan(title string, artists ...communitym.ShowRequestArtist) *communitym.EntityRequest {
 	requester := testhelpers.CreateTestUser(s.deps.DB)
-	payload := showRequestPayload(s.T(), title)
+	payload := showRequestPayload(s.T(), title, artists...)
 	orphan := approvedUnfulfilledRequest(1, communitym.EntityRequestShow)
 	orphan.Payload = &payload
 	orphan.RequesterID = requester.ID

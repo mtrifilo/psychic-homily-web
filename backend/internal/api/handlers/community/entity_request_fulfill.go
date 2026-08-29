@@ -45,62 +45,52 @@ func validatePayloadImageURL(ctx context.Context, entityType string, raw json.Ra
 	return shared.ValidateImageURL(ctx, imageURL)
 }
 
-// billFieldBody / billFieldPayload name the input a bill 422 is about, so the
-// message points at something its reader can actually edit (PSY-1858). An admin
-// who sent no show_artists must not be told their show_artists is malformed.
+// billSource records where a resolved bill came from, and is the label a 422
+// about that bill uses (PSY-1858). An admin who sent no show_artists must not
+// be told their show_artists is malformed. A named type rather than a bare
+// string so a third label cannot be invented at a call site.
+type billSource string
+
 const (
-	billFieldBody    = "show_artists"
-	billFieldPayload = "payload artists"
+	billFieldBody    billSource = "show_artists"
+	billFieldPayload billSource = "payload artists"
 )
 
-// validateShowPayloadBillRoles checks each role on a show payload's bill
-// against the curated set_type vocabulary (PSY-1858), at the queue-create trust
-// boundary.
+// validateShowPayloadBill validates a show payload's stored bill (PSY-1858) in
+// two halves: its STRUCTURE (count, per-act name, no act named twice) via the
+// model validator, then its ROLES against the curated set_type vocabulary.
 //
-// It lives here rather than in ValidateEntityRequestPayload because the
-// vocabulary lives in services/contracts, which imports the models package.
-// See validateShowPayloadBill for the full note. The payload model checks the
-// bill's structure (count, names, duplicates); this closes the one rule it
-// cannot reach, against the same contracts.IsValidSetType the admin path uses,
-// so a contributor can never submit a role an admin approve would later reject.
+// One function for all three trust boundaries (queue-create, and pre-claim on
+// decide and on rescue) so no caller has to know which half applies where. At
+// queue-create the structure half is a no-op re-run, since
+// ValidateEntityRequestPayload has just checked it; that is cheaper than a
+// second near-identical helper for a caller to pick wrong.
 //
-// Rejecting at submit is the whole point: a typo'd role caught here is a 422 on
-// a request that was never filed, while the same typo caught at fulfillment is
-// caught after the decide call has claimed the row: an approved-but-unfulfilled
-// orphan that only the rescue endpoint can clear.
+// The role half cannot live in ValidateEntityRequestPayload at all: the
+// vocabulary lives in services/contracts, which imports the models package, so
+// importing it back is a cycle. Duplicating the vocabulary there instead would
+// be drift that stays invisible until an admin approve rejects a role a
+// contributor was allowed to submit, so the membership check runs one layer up,
+// here, against the single authoritative contracts.IsValidSetType.
 //
-// Non-show types carry no bill and return nil. A payload that fails to decode
-// also returns nil: the caller runs ValidateEntityRequestPayload first, which
-// reports decode failures with a better message than this could.
-func validateShowPayloadBillRoles(entityType string, raw json.RawMessage) error {
-	artists, err := communitym.ShowPayloadArtists(entityType, raw)
-	if err != nil {
-		return nil
-	}
-	return showPayloadBillRoleError(artists)
-}
-
-// validateShowPayloadBill runs BOTH halves of a STORED bill's validation:
-// structure (count, per-act name, no act named twice) via the model validator,
-// then role vocabulary. It is the pre-claim guard on the decide and rescue
-// paths, and it runs whether or not the admin also typed a bill (PSY-1858).
+// Rejecting EARLY is the whole point, at both ends. A typo'd role caught at
+// submit is a 422 on a request that was never filed. The same typo caught at
+// fulfillment is caught after the decide call has claimed the row, leaving an
+// approved-but-unfulfilled orphan only the rescue endpoint can clear, so the
+// admin paths re-run this pre-claim, whether or not the admin also typed a bill
+// of their own (the body supersedes the payload for FULFILLMENT, but
+// fulfillEntity re-validates the whole stored payload regardless).
 //
-// Running it unconditionally is the point. The body's bill supersedes the
-// payload's for FULFILLMENT, but fulfillEntity still re-validates the whole
-// stored payload, and on the decide path that runs AFTER the row is claimed. A
-// structurally broken stored bill discovered there is an approved-but-unfulfilled
-// orphan that no decide call can re-process. Checked here it is a clean 422 on a
-// row that is still pending.
+// A row this rejects is not repairable by its contributor (no endpoint can edit
+// a queued payload, PSY-1948); the admin's route is the rescue endpoint's void.
+// That is the same dead end the row already had, reached earlier and with a
+// readable message instead of an orphan.
 //
-// Such a row is not repairable by its contributor (no endpoint can edit a queued
-// payload, PSY-1948); the admin's route is the rescue endpoint's void. That is
-// the same dead end the row already had, reached earlier and with a readable
-// message instead of an orphan.
-//
-// A payload that fails to decode returns nil for the same reason
-// validateShowPayloadBillRoles does: the decode failure has a better message
-// elsewhere, and inventing a second error channel here would only give one
-// corrupt row two different 422s.
+// Non-show types carry no bill and return nil. A payload that fails to DECODE
+// also returns nil: every caller has already run, or will run,
+// ValidateEntityRequestPayload, which reports the corruption with a better
+// message, and a second error channel here would only give one corrupt row two
+// different 422s.
 func validateShowPayloadBill(entityType string, raw json.RawMessage) error {
 	artists, err := communitym.ShowPayloadArtists(entityType, raw)
 	if err != nil {
@@ -109,12 +99,6 @@ func validateShowPayloadBill(entityType string, raw json.RawMessage) error {
 	if verr := communitym.ValidateShowPayloadArtists(artists); verr != nil {
 		return huma.Error422UnprocessableEntity(verr.Error())
 	}
-	return showPayloadBillRoleError(artists)
-}
-
-// showPayloadBillRoleError is the role-vocabulary half, shared by the
-// queue-create and pre-claim callers so both produce one message shape.
-func showPayloadBillRoleError(artists []communitym.ShowRequestArtist) error {
 	for i := range artists {
 		if _, serr := curatedShowArtistSetType(billFieldPayload, i, artists[i].SetType); serr != nil {
 			return serr
@@ -198,7 +182,15 @@ type showAssociations struct {
 // billField names where the bill came from (billFieldBody / billFieldPayload,
 // PSY-1858), so a 422 about a bill the admin never typed does not blame their
 // show_artists. resolveShowBill decides which it is.
-func buildShowAssociations(venue *ShowVenueInput, artists []ShowArtistInput, billField string) (*showAssociations, error) {
+//
+// The per-act rules here restate the ones ValidateShowPayloadArtists applies to
+// a stored bill, deliberately: this is the ONLY validation an admin-typed bill
+// gets, since the model validator never sees one. For a prefilled bill it is
+// therefore a second, redundant pass, and billFieldPayload is the floor beneath
+// prepareShowFulfillment's earlier check rather than the usual reporter. Keeping
+// the label honest costs one parameter and means the two can never disagree
+// about whose input is at fault.
+func buildShowAssociations(venue *ShowVenueInput, artists []ShowArtistInput, billField billSource) (*showAssociations, error) {
 	if venue == nil && len(artists) == 0 {
 		return nil, nil
 	}
@@ -322,11 +314,10 @@ func buildShowAssociations(venue *ShowVenueInput, artists []ShowArtistInput, bil
 // one: a payload bill that states one role does not get a second,
 // position-inferred headliner.
 //
-// The caller decides whether the request is even ELIGIBLE to prefill: the decide
-// path passes nil for a row that is not pending, so an already-decided row gets
-// Decide's 409 rather than a 422 about a bill nobody typed. See
-// AdminDecideEntityRequestHandler.
-func resolveShowBill(bodyArtists []ShowArtistInput, req *communitym.EntityRequest) ([]ShowArtistInput, string) {
+// Whether the request is ELIGIBLE to prefill at all is prepareShowFulfillment's
+// question, not this one's: a nil req here means "not eligible", and the two
+// endpoints answer that differently.
+func resolveShowBill(bodyArtists []ShowArtistInput, req *communitym.EntityRequest) ([]ShowArtistInput, billSource) {
 	// nil, not len == 0: an explicit "show_artists": [] is a STATED bill of zero
 	// acts, which prefills nothing and 422s as an unfulfillable bill, exactly as
 	// it did before any of this existed.
@@ -334,6 +325,46 @@ func resolveShowBill(bodyArtists []ShowArtistInput, req *communitym.EntityReques
 		return bodyArtists, billFieldBody
 	}
 	return payloadShowBill(req), billFieldPayload
+}
+
+// prepareShowFulfillment is the pre-claim show-admission sequence, in one place
+// because BOTH admin endpoints run it and the two drifted apart the moment they
+// each assembled it by hand (PSY-1858). It runs, in this order:
+//
+//  1. validate the STORED bill, structure and roles, whether or not the body
+//     carries one of its own. fulfillEntity re-validates the whole stored
+//     payload later, and on the decide path "later" is after the row has been
+//     claimed, where a rejection is an orphan instead of a 422.
+//  2. resolve which bill wins: the body outright, else the payload as prefill.
+//  3. validate + convert it, naming its source in any 422.
+//
+// Step 1 before step 3 is what gives one broken stored bill ONE message: were
+// the build first, the same bill would report ValidateShowPayloadArtists' words
+// when the admin typed a bill of their own and buildShowAssociations' words when
+// it got prefilled.
+//
+// eligible is the request when it may prefill, and nil when it may not. Decide
+// passes nil for a row that is not PENDING, because Decide claims only pending
+// rows and the honest answer for anything else is its 409; rescue always passes
+// the row, since a rescuable row is approved-but-unfulfilled by definition.
+// Passing nil skips step 1 too, and correctly: a row this call cannot act on
+// should not be reporting complaints about its payload.
+//
+// Returns (nil, nil) when neither a venue nor a bill exists anywhere, which is
+// every non-show decide and a show approve that will defer. Each caller phrases
+// its own "a show needs these" refusal, since the two verbs differ.
+func prepareShowFulfillment(
+	eligible *communitym.EntityRequest,
+	venue *ShowVenueInput,
+	bodyArtists []ShowArtistInput,
+) (*showAssociations, error) {
+	if eligible != nil && eligible.Payload != nil {
+		if verr := validateShowPayloadBill(eligible.EntityType, *eligible.Payload); verr != nil {
+			return nil, verr
+		}
+	}
+	bill, source := resolveShowBill(bodyArtists, eligible)
+	return buildShowAssociations(venue, bill, source)
 }
 
 // payloadShowBill converts a stored show payload's bill into the admin-shaped
@@ -462,7 +493,7 @@ func suppressPositionInference(artists []contracts.CreateShowArtist) {
 // field names the list being validated in the error message (billFieldBody for
 // an admin body, billFieldPayload for a contributor's stored bill), so a 422
 // points at the thing its reader can actually edit.
-func curatedShowArtistSetType(field string, index int, value *string) (*string, error) {
+func curatedShowArtistSetType(field billSource, index int, value *string) (*string, error) {
 	if value == nil {
 		return nil, nil
 	}

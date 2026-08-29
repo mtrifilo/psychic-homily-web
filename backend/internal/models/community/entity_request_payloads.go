@@ -451,12 +451,15 @@ func ValidateShowPayloadArtists(artists []ShowRequestArtist) error {
 	}
 	names := make([]string, 0, len(artists))
 	for i, a := range artists {
-		name := strings.TrimSpace(a.Name)
-		if name == "" {
-			return fmt.Errorf("show payload: artists[%d].name is required", i)
+		field := fmt.Sprintf("artists[%d].name", i)
+		if err := requireField(EntityRequestShow, field, a.Name); err != nil {
+			return err
 		}
-		if len(name) > MaxShowRequestArtistNameLen {
-			return fmt.Errorf("show payload: artists[%d].name must be %d characters or fewer", i, MaxShowRequestArtistNameLen)
+		// Length is measured on the TRIMMED name, which is what reaches the
+		// column, so trailing whitespace cannot push a legal name over.
+		name := strings.TrimSpace(a.Name)
+		if err := optionalMaxLen(EntityRequestShow, field, &name, MaxShowRequestArtistNameLen); err != nil {
+			return err
 		}
 		names = append(names, name)
 	}
