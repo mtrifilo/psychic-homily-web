@@ -47,11 +47,15 @@ type AdminFulfillEntityRequestRequest struct {
 		Note   *string `json:"note,omitempty" required:"false" doc:"Optional note (recorded as the decision note when voiding)"`
 		// PSY-1037 reuse: required when fulfilling a SHOW request (its payload
 		// lacks the venue + artist associations CreateShow needs); ignored for
-		// every other type and for void. PSY-1858: show_artists may be omitted
-		// when the request's payload already carries a bill, which then prefills
-		// it; a body bill supersedes the payload's outright.
+		// every other type and for void.
 		ShowVenue   *ShowVenueInput   `json:"show_venue,omitempty" required:"false" doc:"Venue for fulfilling a show request (required when fulfilling a show)"`
-		ShowArtists []ShowArtistInput `json:"show_artists,omitempty" required:"false" doc:"Artists for fulfilling a show request. Required when fulfilling a show unless the request payload carries its own artists, which are then used. A bill sent here replaces the payload's entirely: acts are not merged, so an act omitted here is dropped."`
+		ShowArtists []ShowArtistInput `json:"show_artists,omitempty" required:"false" doc:"Artists for fulfilling a show request (required when fulfilling a show, unless use_payload_artists adopts the bill the request payload carries)"`
+		// UsePayloadArtists mirrors the decide endpoint's flag (PSY-1858). It
+		// matters MORE here: this is where a trusted tier's auto-approved show
+		// lands, so it is the path where a bill can reach fulfillment having
+		// never been seen by an admin. Requiring the flag is what makes that
+		// impossible without one saying so.
+		UsePayloadArtists bool `json:"use_payload_artists,omitempty" required:"false" doc:"Fulfill a show using the artists stored on the request's own payload. Mutually exclusive with show_artists: send one or the other, never both. Omitting both is still a 422, so a bill is never adopted by default."`
 	}
 }
 
@@ -135,21 +139,21 @@ func (h *EntityRequestHandler) AdminFulfillEntityRequestHandler(ctx context.Cont
 	// get a misleading show-specific 422 for the wrong entity type. For
 	// non-show types the fields are simply ignored, as the request doc states.
 	//
-	// PSY-1858: a bill the body omits is prefilled from the stored payload, on
-	// the same terms as the decide path (resolveShowBill). The venue is still
-	// the admin's to supply (the payload has no venue field), so a show rescue
-	// with no show_venue is a 422 however complete the payload's bill is. No
-	// state gate here, unlike the decide path: a rescuable row is
-	// approved-but-unfulfilled BY DEFINITION (checked directly above), and that
-	// row shape is exactly where an auto-approved show with a contributor's bill
-	// lands.
+	// PSY-1858: the stored payload's bill can be fulfilled here, but only when
+	// the admin adopts it with use_payload_artists, on the same terms as the
+	// decide path (resolveShowBill). The venue is still the admin's to supply
+	// (the payload has no venue field), so a show rescue with no show_venue is a
+	// 422 however complete the adopted bill is. No state gate here, unlike the
+	// decide path: a rescuable row is approved-but-unfulfilled BY DEFINITION
+	// (checked directly above), and that row shape is exactly where an
+	// auto-approved show with a contributor's bill lands.
 	//
-	// That last point cuts both ways and is worth stating plainly: a trusted
-	// tier's auto-approved show was never reviewed by an admin at ANY point, so
-	// a rescue that omits show_artists fulfills a bill no admin has affirmed.
-	// The venue requirement is the only human step, and it is a check on the
-	// venue, not on the bill. See PSY-1955, which owns the moderation form that
-	// is supposed to put the bill in front of a human before it gets here.
+	// That last point is why the flag matters most on THIS endpoint. A trusted
+	// tier's auto-approved show was never reviewed by an admin at any point, so
+	// without an explicit adoption a rescue could fulfil a bill nobody had ever
+	// looked at. The venue requirement would not have caught it: it is a check
+	// on the venue, not on the bill. PSY-1955 owns putting the bill in front of a
+	// human; this endpoint's job is to refuse until someone says they want it.
 	var showAssoc *showAssociations
 	if existing.EntityType == communitym.EntityRequestShow {
 		// The row is passed as eligible unconditionally: a rescuable row is
@@ -157,7 +161,7 @@ func (h *EntityRequestHandler) AdminFulfillEntityRequestHandler(ctx context.Cont
 		// is exactly where an auto-approved show carrying a contributor's bill
 		// lands. The decide path's PENDING gate has no counterpart here.
 		var aerr error
-		showAssoc, aerr = admitShowBill(existing, req.Body.ShowVenue, req.Body.ShowArtists)
+		showAssoc, aerr = admitShowBill(existing, req.Body.ShowVenue, req.Body.ShowArtists, req.Body.UsePayloadArtists)
 		if aerr != nil {
 			return nil, aerr
 		}

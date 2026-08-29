@@ -165,13 +165,12 @@ export function useDecideEntityRequest() {
           decision,
           ...(note ? { note } : {}),
           ...(show_venue ? { show_venue } : {}),
-          // Lossless on purpose (PSY-1858): an empty array must reach the server
-          // as an empty array. The backend reads an ABSENT show_artists as "use
-          // the bill on the request payload" and an explicit [] as "the admin
-          // removed every act", so collapsing [] into absent would resurrect a
-          // bill the admin had just emptied. Both spellings are a 422 today; the
-          // difference bites once the form prefills from payload.artists
-          // (PSY-1955).
+          // Lossless on purpose (PSY-1858): an empty array reaches the server as
+          // an empty array. Both spellings are a 422, so this changes nothing
+          // today, but "the admin emptied the bill" and "this client never set a
+          // bill" are different statements and the transport should not merge
+          // them. Adopting the contributor's stored bill is use_payload_artists,
+          // never an omitted key.
           ...(show_artists !== undefined ? { show_artists } : {}),
         }),
       })
@@ -221,13 +220,12 @@ export function useRescueEntityRequest() {
           action,
           ...(note ? { note } : {}),
           ...(show_venue ? { show_venue } : {}),
-          // Lossless on purpose (PSY-1858): an empty array must reach the server
-          // as an empty array. The backend reads an ABSENT show_artists as "use
-          // the bill on the request payload" and an explicit [] as "the admin
-          // removed every act", so collapsing [] into absent would resurrect a
-          // bill the admin had just emptied. Both spellings are a 422 today; the
-          // difference bites once the form prefills from payload.artists
-          // (PSY-1955).
+          // Lossless on purpose (PSY-1858): an empty array reaches the server as
+          // an empty array. Both spellings are a 422, so this changes nothing
+          // today, but "the admin emptied the bill" and "this client never set a
+          // bill" are different statements and the transport should not merge
+          // them. Adopting the contributor's stored bill is use_payload_artists,
+          // never an omitted key.
           ...(show_artists !== undefined ? { show_artists } : {}),
         }),
       })

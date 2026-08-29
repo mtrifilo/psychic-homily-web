@@ -302,8 +302,9 @@ func TestResolveShowBill(t *testing.T) {
 		return r
 	}
 
-	t.Run("no body bill: the payload prefills", func(t *testing.T) {
-		got, field := resolveShowBill(nil, showReq())
+	t.Run("the flag adopts the payload's bill", func(t *testing.T) {
+		got, field, err := resolveShowBill(nil, showReq(), true)
+		require.NoError(t, err)
 		require.Len(t, got, 2)
 		assert.Equal(t, "Boris", got[0].Name)
 		require.NotNil(t, got[0].SetType)
@@ -315,12 +316,24 @@ func TestResolveShowBill(t *testing.T) {
 			"a 422 about this bill must name the payload, not a show_artists the admin never sent")
 	})
 
-	t.Run("a body bill wins OUTRIGHT and acts are never merged", func(t *testing.T) {
-		// The rule and its reason: the admin's form was PREFILLED from this same
-		// payload, so an act in the payload and not in the body is an act the
-		// admin REMOVED. Resurrecting it would make a hallucinated act on an
-		// AI-extracted bill undeletable.
-		got, field := resolveShowBill([]ShowArtistInput{{Name: "Sunn O)))"}}, showReq())
+	t.Run("WITHOUT the flag the payload's bill is never adopted", func(t *testing.T) {
+		// The heart of the fail-closed rule. An omitted show_artists cannot carry
+		// intent: it looks identical coming from a client that predates the
+		// field. So it yields no bill, which the caller turns into the same 422
+		// it was before any of this existed.
+		got, field, err := resolveShowBill(nil, showReq(), false)
+		require.NoError(t, err)
+		assert.Empty(t, got, "a bill must never be adopted by default")
+		assert.Equal(t, billSourceBody, field,
+			"the missing input is the admin's show_artists, not the contributor's payload")
+	})
+
+	t.Run("a body bill is used as-is and acts are never merged", func(t *testing.T) {
+		// The admin's form is prefilled from this same payload, so an act in the
+		// payload and not in the body is an act the admin REMOVED. Resurrecting
+		// it would make a hallucinated act on an AI-extracted bill undeletable.
+		got, field, err := resolveShowBill([]ShowArtistInput{{Name: "Sunn O)))"}}, showReq(), false)
+		require.NoError(t, err)
 		require.Len(t, got, 1, "the payload's acts must not be appended to the body's")
 		assert.Equal(t, "Sunn O)))", got[0].Name)
 		assert.Equal(t, billSourceBody, field)
@@ -329,53 +342,72 @@ func TestResolveShowBill(t *testing.T) {
 	t.Run("a role is never borrowed from the payload for a body act", func(t *testing.T) {
 		// Same act, named in both, curated only in the payload: the body's
 		// silence is a statement, not a gap to fill.
-		got, _ := resolveShowBill([]ShowArtistInput{{Name: "Boris"}}, showReq())
+		got, _, err := resolveShowBill([]ShowArtistInput{{Name: "Boris"}}, showReq(), false)
+		require.NoError(t, err)
 		require.Len(t, got, 1)
 		assert.Nil(t, got[0].SetType, "the body left this act uncurated, so it stays uncurated")
 	})
 
-	t.Run("an explicit empty body bill is a STATED bill and prefills nothing", func(t *testing.T) {
-		// "show_artists": [] decodes to an empty non-nil slice. By the deletion
-		// rule it is an admin who removed every act, so the payload must not
-		// refill it: only an ABSENT key is a gap.
-		got, field := resolveShowBill([]ShowArtistInput{}, showReq())
-		assert.Empty(t, got, "an empty body bill must not be refilled from the payload")
+	t.Run("body bill AND flag together is a 422, not a precedence puzzle", func(t *testing.T) {
+		// They say contradictory things. Refusing costs one retry; picking a
+		// winner would fulfil a bill the admin may not have meant.
+		_, _, err := resolveShowBill([]ShowArtistInput{{Name: "Sunn O)))"}}, showReq(), true)
+		testhelpers.AssertHumaError(t, err, 422)
+		assert.Contains(t, err.Error(), "mutually exclusive")
+	})
+
+	t.Run("an empty body bill conflicts with the flag exactly as a full one does", func(t *testing.T) {
+		// "show_artists": [] decodes to an empty non-nil slice, which is still a
+		// STATED bill. It must not be read as "no bill given, so adopt".
+		_, _, err := resolveShowBill([]ShowArtistInput{}, showReq(), true)
+		testhelpers.AssertHumaError(t, err, 422)
+	})
+
+	t.Run("an empty body bill on its own is a stated bill of zero acts", func(t *testing.T) {
+		got, field, err := resolveShowBill([]ShowArtistInput{}, showReq(), false)
+		require.NoError(t, err)
+		assert.Empty(t, got)
 		assert.Equal(t, billSourceBody, field)
 	})
 
-	t.Run("no bill anywhere stays no bill", func(t *testing.T) {
+	t.Run("the flag against a payload with no bill names the payload", func(t *testing.T) {
+		// Not "a show requires show_venue and show_artists": that would tell an
+		// admin who deliberately omitted show_artists to go fill it in.
 		raw := showRequestPayload(t, "No Bill Known")
 		r := pendingRequest(1, communitym.EntityRequestShow)
 		r.Payload = &raw
-		got, _ := resolveShowBill(nil, r)
-		assert.Empty(t, got)
+		_, _, err := resolveShowBill(nil, r, true)
+		testhelpers.AssertHumaError(t, err, 422)
+		assert.Contains(t, err.Error(), "payload carries no artists")
 	})
 
-	t.Run("a non-show request never prefills", func(t *testing.T) {
+	t.Run("a non-show request has no bill to adopt", func(t *testing.T) {
 		raw := showRequestPayload(t, "Boris", payloadBill...)
 		r := pendingRequest(1, communitym.EntityRequestArtist)
 		r.Payload = &raw
-		got, _ := resolveShowBill(nil, r)
-		assert.Empty(t, got,
-			"an artist request has no bill, whatever its payload happens to hold")
+		_, _, err := resolveShowBill(nil, r, true)
+		testhelpers.AssertHumaError(t, err, 422)
 	})
 
-	t.Run("a missing or corrupt row never prefills", func(t *testing.T) {
-		// nil is also how the decide path says "this row is not eligible to
-		// prefill" for an already-decided row.
-		got, _ := resolveShowBill(nil, nil)
+	t.Run("an ineligible row yields no bill rather than an error", func(t *testing.T) {
+		// nil is how the decide path says "this row is not eligible to adopt"
+		// (it is not pending). It must NOT become a complaint about the payload,
+		// or an already-decided row would answer a 422 where Decide owes a 409.
+		got, _, err := resolveShowBill(nil, nil, true)
+		require.NoError(t, err)
 		assert.Empty(t, got)
+	})
 
+	t.Run("a payload-less or corrupt row never yields a bill", func(t *testing.T) {
 		noPayload := &communitym.EntityRequest{ID: 1, EntityType: communitym.EntityRequestShow}
-		got, _ = resolveShowBill(nil, noPayload)
-		assert.Empty(t, got)
+		_, _, err := resolveShowBill(nil, noPayload, true)
+		testhelpers.AssertHumaError(t, err, 422)
 
 		corrupt := json.RawMessage(`{"title":`)
 		bad := pendingRequest(1, communitym.EntityRequestShow)
 		bad.Payload = &corrupt
-		got, _ = resolveShowBill(nil, bad)
-		assert.Empty(t, got,
-			"a payload that does not decode prefills nothing; fulfillment reports the corruption")
+		_, _, err = resolveShowBill(nil, bad, true)
+		testhelpers.AssertHumaError(t, err, 422)
 	})
 }
 
@@ -412,7 +444,7 @@ func decideHandler(t *testing.T, pending *communitym.EntityRequest, got **contra
 // The headline behavior: the admin supplies the venue (which the payload cannot
 // carry) and nothing else, and the contributor's bill rides through with its
 // roles intact.
-func TestAdminDecide_ApproveShow_PayloadBillPrefills(t *testing.T) {
+func TestAdminDecide_ApproveShow_AdoptedPayloadBillCarriesItsRoles(t *testing.T) {
 	raw := showRequestPayload(t, "Boris with Earth",
 		communitym.ShowRequestArtist{Name: "Boris", SetType: shared.PtrString(contracts.SetTypeHeadliner)},
 		communitym.ShowRequestArtist{Name: "Earth", SetType: shared.PtrString(contracts.SetTypeDirectSupport)},
@@ -426,6 +458,7 @@ func TestAdminDecide_ApproveShow_PayloadBillPrefills(t *testing.T) {
 
 	req := &AdminDecideEntityRequestRequest{ID: "70"}
 	req.Body.Decision = "approved"
+	req.Body.UsePayloadArtists = true
 	req.Body.ShowVenue = &ShowVenueInput{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
 
 	_, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
@@ -523,6 +556,7 @@ func TestAdminDecide_ApproveShow_StoredBadRole422BeforeClaim(t *testing.T) {
 
 	req := &AdminDecideEntityRequestRequest{ID: "74"}
 	req.Body.Decision = "approved"
+	req.Body.UsePayloadArtists = true
 	req.Body.ShowVenue = &ShowVenueInput{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
 
 	_, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
@@ -572,7 +606,7 @@ func TestAdminDecide_ApproveShow_AlreadyDecidedRowWithPayloadBillIs409(t *testin
 // An explicit empty bill on the body is a STATED bill of zero acts, so the
 // payload does not refill it and the approve is refused pre-claim. Only an
 // absent show_artists is a gap the payload may fill.
-func TestAdminDecide_ApproveShow_EmptyBodyBillDoesNotPrefill(t *testing.T) {
+func TestAdminDecide_ApproveShow_EmptyBodyBillIsStillAStatedBill(t *testing.T) {
 	raw := showRequestPayload(t, "Contributor's Bill",
 		communitym.ShowRequestArtist{Name: "Boris"},
 	)
@@ -592,6 +626,159 @@ func TestAdminDecide_ApproveShow_EmptyBodyBillDoesNotPrefill(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 422)
 	assert.False(t, decideCalled, "an emptied bill must not claim the row")
 	assert.Nil(t, got)
+}
+
+// THE FAIL-CLOSED RULE, end to end and on both endpoints: a request whose
+// payload carries a perfectly good bill is still refused when the admin does not
+// adopt it. This is the behavior an omitted show_artists had before PSY-1858 and
+// must keep having, so no approve can create artists out of contributor text
+// nobody affirmed.
+func TestAdminAdoption_WithoutTheFlagAPayloadBillIsNeverFulfilled(t *testing.T) {
+	bill := []communitym.ShowRequestArtist{
+		{Name: "Boris", SetType: shared.PtrString(contracts.SetTypeHeadliner)},
+		{Name: "Earth"},
+	}
+	venue := &ShowVenueInput{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
+
+	t.Run("decide", func(t *testing.T) {
+		raw := showRequestPayload(t, "Unadopted", bill...)
+		pending := pendingRequest(90, communitym.EntityRequestShow)
+		pending.Payload = &raw
+
+		decideCalled := false
+		var got *contracts.CreateShowRequest
+		h := decideHandler(t, pending, &got, &decideCalled)
+
+		req := &AdminDecideEntityRequestRequest{ID: "90"}
+		req.Body.Decision = "approved"
+		req.Body.ShowVenue = venue
+
+		_, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
+		testhelpers.AssertHumaError(t, err, 422)
+		assert.False(t, decideCalled, "an unadopted bill must not claim the row")
+		assert.Nil(t, got, "no show may be created from a bill no admin asked for")
+	})
+
+	t.Run("rescue", func(t *testing.T) {
+		// Matters more here: this is where a trusted tier's auto-approved show
+		// lands, so the row may never have been reviewed by anyone at all.
+		raw := showRequestPayload(t, "Unadopted", bill...)
+		orphan := approvedUnfulfilledRequest(91, communitym.EntityRequestShow)
+		orphan.Payload = &raw
+
+		created := false
+		h := rescueHandlerFor(t, orphan, &created)
+
+		req := &AdminFulfillEntityRequestRequest{ID: "91"}
+		req.Body.ShowVenue = venue
+
+		_, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)
+		testhelpers.AssertHumaError(t, err, 422)
+		assert.False(t, created)
+	})
+}
+
+// Sending both inputs is refused rather than resolved by precedence: they state
+// contradictory intents, and guessing would fulfil a bill the admin may not have
+// meant. Asserted on both endpoints because both accept both fields.
+func TestAdminAdoption_BodyBillAndFlagTogetherIs422(t *testing.T) {
+	raw := showRequestPayload(t, "Both", communitym.ShowRequestArtist{Name: "Boris"})
+	venue := &ShowVenueInput{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
+
+	t.Run("decide", func(t *testing.T) {
+		pending := pendingRequest(92, communitym.EntityRequestShow)
+		pending.Payload = &raw
+
+		decideCalled := false
+		var got *contracts.CreateShowRequest
+		h := decideHandler(t, pending, &got, &decideCalled)
+
+		req := &AdminDecideEntityRequestRequest{ID: "92"}
+		req.Body.Decision = "approved"
+		req.Body.ShowVenue = venue
+		req.Body.ShowArtists = []ShowArtistInput{{Name: "Sunn O)))"}}
+		req.Body.UsePayloadArtists = true
+
+		_, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
+		testhelpers.AssertHumaError(t, err, 422)
+		assert.Contains(t, err.Error(), "mutually exclusive")
+		assert.False(t, decideCalled)
+		assert.Nil(t, got)
+	})
+
+	t.Run("rescue", func(t *testing.T) {
+		orphan := approvedUnfulfilledRequest(93, communitym.EntityRequestShow)
+		orphan.Payload = &raw
+
+		created := false
+		h := rescueHandlerFor(t, orphan, &created)
+
+		req := &AdminFulfillEntityRequestRequest{ID: "93"}
+		req.Body.ShowVenue = venue
+		req.Body.ShowArtists = []ShowArtistInput{{Name: "Sunn O)))"}}
+		req.Body.UsePayloadArtists = true
+
+		_, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)
+		testhelpers.AssertHumaError(t, err, 422)
+		assert.Contains(t, err.Error(), "mutually exclusive")
+		assert.False(t, created)
+	})
+}
+
+// Adopting a bill that is not there names the payload, not the admin's own
+// show_artists. Telling an admin who deliberately omitted show_artists to go
+// fill it in would be advice against the thing they just asked for.
+func TestAdminAdoption_FlagWithNoStoredBillNamesThePayload(t *testing.T) {
+	raw := showRequestPayload(t, "No Bill Known")
+	pending := pendingRequest(94, communitym.EntityRequestShow)
+	pending.Payload = &raw
+
+	decideCalled := false
+	var got *contracts.CreateShowRequest
+	h := decideHandler(t, pending, &got, &decideCalled)
+
+	req := &AdminDecideEntityRequestRequest{ID: "94"}
+	req.Body.Decision = "approved"
+	req.Body.ShowVenue = &ShowVenueInput{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
+	req.Body.UsePayloadArtists = true
+
+	_, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 422)
+	assert.Contains(t, err.Error(), "payload carries no artists")
+	assert.False(t, decideCalled)
+	assert.Nil(t, got)
+}
+
+// The flag does not weaken the PENDING gate: an already-decided row still gets
+// Decide's 409, not a 422 about a payload the admin asked to adopt.
+func TestAdminDecide_ApproveShow_AlreadyDecidedRowWithFlagIs409(t *testing.T) {
+	raw := showRequestPayload(t, "Already Approved",
+		communitym.ShowRequestArtist{Name: "Boris"})
+	decided := approvedUnfulfilledRequest(95, communitym.EntityRequestShow)
+	decided.Payload = &raw
+
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return decided, nil },
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+				return nil, apperrors.ErrEntityRequestInvalidState(requestID, string(communitym.EntityRequestStateApproved))
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateShowFn: func(req *contracts.CreateShowRequest) (*contracts.ShowResponse, error) {
+				t.Fatal("an already-decided row must never be fulfilled")
+				return nil, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	req := &AdminDecideEntityRequestRequest{ID: "95"}
+	req.Body.Decision = "approved"
+	req.Body.UsePayloadArtists = true
+
+	_, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 409)
 }
 
 // A names-only PAYLOAD bill never gets the position-0 headliner guess. The
@@ -615,6 +802,7 @@ func TestAdminDecide_ApproveShow_NamesOnlyPayloadBillInfersNoHeadliner(t *testin
 
 	req := &AdminDecideEntityRequestRequest{ID: "81"}
 	req.Body.Decision = "approved"
+	req.Body.UsePayloadArtists = true
 	req.Body.ShowVenue = &ShowVenueInput{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
 
 	_, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
@@ -687,6 +875,7 @@ func TestAdminDecide_ApproveShow_StoredOverCapBill422BeforeClaim(t *testing.T) {
 
 	req := &AdminDecideEntityRequestRequest{ID: "75"}
 	req.Body.Decision = "approved"
+	req.Body.UsePayloadArtists = true
 	req.Body.ShowVenue = &ShowVenueInput{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
 
 	_, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
@@ -701,7 +890,7 @@ func TestAdminDecide_ApproveShow_StoredOverCapBill422BeforeClaim(t *testing.T) {
 // The rescue path is where an auto-approved show lands (its create could never
 // supply associations), so it is the path a contributor's own bill most often
 // reaches. It shares resolveShowBill, so it behaves identically.
-func TestAdminFulfill_Show_PayloadBillPrefills(t *testing.T) {
+func TestAdminFulfill_Show_AdoptedPayloadBillCarriesItsRoles(t *testing.T) {
 	raw := showRequestPayload(t, "Deferred Show",
 		communitym.ShowRequestArtist{Name: "Boris", SetType: shared.PtrString(contracts.SetTypeSpecialGuest)},
 		communitym.ShowRequestArtist{Name: "Earth"},
@@ -725,6 +914,7 @@ func TestAdminFulfill_Show_PayloadBillPrefills(t *testing.T) {
 	)
 
 	req := &AdminFulfillEntityRequestRequest{ID: "76"}
+	req.Body.UsePayloadArtists = true
 	req.Body.ShowVenue = &ShowVenueInput{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
 
 	_, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)
@@ -874,6 +1064,7 @@ func TestAdminFulfill_Show_MissingVenueDoesNotSayApproving(t *testing.T) {
 	h := rescueHandlerFor(t, orphan, &created)
 
 	req := &AdminFulfillEntityRequestRequest{ID: "87"}
+	req.Body.UsePayloadArtists = true
 
 	_, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)
 	testhelpers.AssertHumaError(t, err, 422)
@@ -923,7 +1114,7 @@ func TestAdminFulfill_NonShow_IgnoresBillPrefill(t *testing.T) {
 // The acceptance criterion end to end: the contributor's roles persist, an act
 // that stated none lands on 'performer' (never 'opener'), and the admin typed
 // only the venue.
-func (s *EntityRequestSetTypeIntegrationSuite) TestFulfillShow_PayloadBillPersistsCuratedRoles() {
+func (s *EntityRequestSetTypeIntegrationSuite) TestFulfillShow_AdoptedBillPersistsCuratedRoles() {
 	orphan := s.showOrphan("Contributor Bill",
 		communitym.ShowRequestArtist{Name: "Boris", SetType: shared.PtrString(contracts.SetTypeHeadliner)},
 		communitym.ShowRequestArtist{Name: "Earth", SetType: shared.PtrString(contracts.SetTypeDirectSupport)},
@@ -932,6 +1123,7 @@ func (s *EntityRequestSetTypeIntegrationSuite) TestFulfillShow_PayloadBillPersis
 	h := s.rescueHandler(orphan)
 
 	req := &AdminFulfillEntityRequestRequest{ID: "1"}
+	req.Body.UsePayloadArtists = true
 	req.Body.ShowVenue = &ShowVenueInput{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
 
 	resp, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)
@@ -961,7 +1153,7 @@ func (s *EntityRequestSetTypeIntegrationSuite) TestFulfillShow_PayloadBillPersis
 //
 // This is the acceptance criterion "an act with no stated role resolves to
 // performer" holding for every act, not for every act except the first.
-func (s *EntityRequestSetTypeIntegrationSuite) TestFulfillShow_NamesOnlyPayloadBillHasNoHeadliner() {
+func (s *EntityRequestSetTypeIntegrationSuite) TestFulfillShow_AdoptedNamesOnlyBillHasNoHeadliner() {
 	orphan := s.showOrphan("Names Only",
 		communitym.ShowRequestArtist{Name: "Boris"},
 		communitym.ShowRequestArtist{Name: "Earth"},
@@ -969,6 +1161,7 @@ func (s *EntityRequestSetTypeIntegrationSuite) TestFulfillShow_NamesOnlyPayloadB
 	h := s.rescueHandler(orphan)
 
 	req := &AdminFulfillEntityRequestRequest{ID: "1"}
+	req.Body.UsePayloadArtists = true
 	req.Body.ShowVenue = &ShowVenueInput{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
 
 	resp, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)
@@ -991,7 +1184,7 @@ func (s *EntityRequestSetTypeIntegrationSuite) TestFulfillShow_NamesOnlyPayloadB
 // A headliner stated anywhere but position 0 on a PAYLOAD bill is still the
 // only headliner: the suppression is a property of the resolved bill, not of
 // where the bill was typed.
-func (s *EntityRequestSetTypeIntegrationSuite) TestFulfillShow_PayloadBillSuppressesPositionInference() {
+func (s *EntityRequestSetTypeIntegrationSuite) TestFulfillShow_AdoptedBillSuppressesPositionInference() {
 	orphan := s.showOrphan("Headliner Billed Second",
 		communitym.ShowRequestArtist{Name: "Earth"},
 		communitym.ShowRequestArtist{Name: "Boris", SetType: shared.PtrString(contracts.SetTypeHeadliner)},
@@ -999,6 +1192,7 @@ func (s *EntityRequestSetTypeIntegrationSuite) TestFulfillShow_PayloadBillSuppre
 	h := s.rescueHandler(orphan)
 
 	req := &AdminFulfillEntityRequestRequest{ID: "1"}
+	req.Body.UsePayloadArtists = true
 	req.Body.ShowVenue = &ShowVenueInput{Name: "Crescent Ballroom", City: "Phoenix", State: "AZ"}
 
 	resp, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)

@@ -7609,10 +7609,12 @@ export interface components {
             decision: string;
             /** @description Optional decision note (shown to the requester) */
             note?: string | null;
-            /** @description Artists for fulfilling a show request. Required when approving a show unless the request payload carries its own artists, which are then used. A bill sent here replaces the payload's entirely: acts are not merged, so an act omitted here is dropped. */
+            /** @description Artists for fulfilling a show request (required when approving a show, unless use_payload_artists adopts the bill the request payload carries) */
             show_artists?: components["schemas"]["ShowArtistInput"][] | null;
             /** @description Venue for fulfilling a show request (required when approving a show) */
             show_venue?: components["schemas"]["ShowVenueInput"];
+            /** @description Approve a show using the artists stored on the request's own payload. Mutually exclusive with show_artists: send one or the other, never both. Omitting both is still a 422, so a bill is never adopted by default. */
+            use_payload_artists?: boolean;
         };
         AdminDecideEntityRequestResponseBody: {
             /**
@@ -7665,10 +7667,12 @@ export interface components {
             action?: string;
             /** @description Optional note (recorded as the decision note when voiding) */
             note?: string;
-            /** @description Artists for fulfilling a show request. Required when fulfilling a show unless the request payload carries its own artists, which are then used. A bill sent here replaces the payload's entirely: acts are not merged, so an act omitted here is dropped. */
+            /** @description Artists for fulfilling a show request (required when fulfilling a show, unless use_payload_artists adopts the bill the request payload carries) */
             show_artists?: components["schemas"]["ShowArtistInput"][] | null;
             /** @description Venue for fulfilling a show request (required when fulfilling a show) */
             show_venue?: components["schemas"]["ShowVenueInput"];
+            /** @description Fulfill a show using the artists stored on the request's own payload. Mutually exclusive with show_artists: send one or the other, never both. Omitting both is still a 422, so a bill is never adopted by default. */
+            use_payload_artists?: boolean;
         };
         AdminFulfillEntityRequestResponseBody: {
             /**

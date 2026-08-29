@@ -76,7 +76,7 @@ const (
 //
 // NOT re-run pre-claim on the admin paths, deliberately. buildShowAssociations
 // validates the roles of whichever bill actually wins, with this same function
-// and the same message, so a prefilled bill is still covered. Re-running it over
+// and the same message, so an adopted bill is still covered. Re-running it over
 // the STORED bill there would instead reject an approve whose body carried a
 // perfectly good bill of its own, over a stored role that is never read: the
 // body supersedes the payload, and fulfillEntity's re-validation checks the
@@ -292,74 +292,80 @@ func showBillArtists(artists []ShowArtistInput) []communitym.ShowRequestArtist {
 	return out
 }
 
-// resolveShowBill picks which of the two possible bills gets fulfilled: the one
-// the admin submitted, or the one the contributor stored on the request payload
-// (PSY-1858). It returns the bill and the request field it came from, so a 422
-// about that bill names an input its reader can act on.
+// resolveShowBill picks which bill gets fulfilled: the one the admin submitted,
+// or the one the contributor stored on the request payload (PSY-1858). It
+// returns the bill and the field it came from, so a 422 about that bill names an
+// input its reader can act on.
 //
-// The rule, in one line: the BODY is authoritative, and the payload prefills
-// only a bill the body does not state at all.
+// THE RULE, in three lines:
+//   - show_artists present  -> that bill, whatever the payload holds.
+//   - use_payload_artists   -> the payload's bill, adopted wholesale.
+//   - neither               -> no bill, which is a 422. Nothing is adopted by
+//     default.
 //
-// "Does not state at all" means the key is absent (or null). An explicit
-// "show_artists": [] is a STATED bill, of zero acts, and prefills nothing: by
-// the deletion rule below, an empty array is an admin who removed every act,
-// and a bill with no acts is not fulfillable, so it 422s exactly as it did
-// before any of this existed.
+// Sending BOTH is a 422, not a precedence puzzle. The two say contradictory
+// things ("fulfil what the contributor recorded" and "fulfil what I typed"), and
+// the stricter answer is the safe one: refusing costs one retry, while silently
+// picking a winner would fulfil a bill the admin may not have meant. This is
+// also why the flag is not merely advisory, and why "body wins" survives
+// unchanged in the only case where both could be meant at once.
 //
-// The payload bill exists so the moderation form can be PREFILLED with what the
-// contributor recorded, which is a data-entry saving, not a new authority.
-// PSY-1037's posture is untouched: nothing is ever fulfilled from the payload
-// alone. The admin still confirms the request, and still supplies the venue,
-// which the payload has no field for, so an approve that omits show_venue is
-// still a 422 no matter how complete the payload's bill is.
+// WHY A FLAG, and not an omitted show_artists (superseded design, recorded so
+// the change is not undone by someone reading only the ticket): an omitted key
+// is indistinguishable from a client that never knew about the field, so it
+// cannot carry intent. Reading it as adoption made an approve FAIL OPEN: on the
+// pre-PSY-1858 code an approve without a bill was a hard 422, and it would have
+// become a success that created up to 50 catalog artists from contributor or
+// AI-extracted text, with the venue requirement as the only human step, and that
+// checks the venue, not the bill. Worse on the rescue endpoint, where a trusted
+// tier's auto-approved row may never have been reviewed by anyone. The flag
+// makes adoption an act, so the queue stays fail-closed: PSY-1037's posture is
+// that a human affirms the request, and this keeps it.
 //
-// Acts are NOT merged per-act, and a role is NOT borrowed from the payload for
-// an act the body left uncurated. The reason is DELETION. Once the moderation
-// form seeds itself from this payload, an act present in the payload and missing
-// from the body is an act the admin deliberately REMOVED. Union semantics would
-// resurrect it, and nothing an admin could do would then drop a hallucinated act
-// off an AI-extracted bill, precisely the failure the human-confirmation posture
-// exists to prevent. A body that states one act where the payload had five is a
-// correction, not an addition.
+// The flag adopts, it does not merge. Acts are not combined per-act and a role
+// is never borrowed from the payload for an act the body left uncurated, because
+// once the moderation form seeds from this payload an act present in the payload
+// and missing from the body is one the admin deliberately REMOVED. Union
+// semantics would resurrect it, and nothing an admin could do would then drop a
+// hallucinated act off an AI-extracted bill.
 //
-// STATED PRECISELY, because the rule is chosen for a form that does not exist
-// yet: the moderation form does NOT seed from payload.artists today, and its
-// submit is gated on at least one filled act, so the prefill branch is currently
-// reachable only by an API client that omits the key. The semantics are fixed
-// now so the form can be built against them rather than the reverse.
+// The admin still supplies the venue, which the payload has no field for, so an
+// approve that omits show_venue is a 422 however complete the adopted bill is.
 //
-// THE OPEN RISK, because it is the one a future reader must not have to
-// rediscover: an approve that omits show_artists fulfills a bill NO ADMIN HAS
-// AFFIRMED. The venue requirement is the only human step and it checks the
-// venue, not the bill; the moderation card renders payload.artists as a raw JSON
-// blob today. On the rescue path the row may never have been reviewed at all,
-// since that is where a trusted tier's auto-approved show lands. Whether an
-// omitted key is a strong enough signal of intent, or whether the prefill should
-// require an explicit opt-in, is a product decision recorded on PSY-1858 and
-// owned by PSY-1955.
-//
-// The converse also matters: because the body wins WHOLE, an admin who wants
-// the contributor's bill sends it back (the prefilled form does exactly that),
-// and one who wants a different bill sends that. Neither outcome depends on
-// what the payload happens to contain.
-//
-// The returned inputs still flow through buildShowAssociations, so a payload
+// The returned inputs still flow through buildShowAssociations, so an adopted
 // bill is validated (names, cap, roles, duplicates) and
-// position-inference-suppressed on exactly the same terms as an admin-typed
-// one: a payload bill that states one role does not get a second,
-// position-inferred headliner.
+// position-inference-suppressed on exactly the same terms as an admin-typed one.
 //
-// Whether the request is ELIGIBLE to prefill at all is admitShowBill's
-// question, not this one's: a nil req here means "not eligible", and the two
-// endpoints answer that differently.
-func resolveShowBill(bodyArtists []ShowArtistInput, req *communitym.EntityRequest) ([]ShowArtistInput, billSource) {
+// Whether the request is ELIGIBLE to adopt at all is admitShowBill's question,
+// not this one's: a nil req means "not eligible", and the two endpoints answer
+// that differently. Adoption asked for against a nil req yields no bill rather
+// than an error, so a row that cannot be acted on reports why it cannot be acted
+// on (Decide's 409) instead of complaining about its payload.
+func resolveShowBill(bodyArtists []ShowArtistInput, req *communitym.EntityRequest, adoptPayloadBill bool) ([]ShowArtistInput, billSource, error) {
 	// nil, not len == 0: an explicit "show_artists": [] is a STATED bill of zero
-	// acts, which prefills nothing and 422s as an unfulfillable bill, exactly as
-	// it did before any of this existed.
-	if bodyArtists != nil {
-		return bodyArtists, billSourceBody
+	// acts. It conflicts with the flag exactly as a populated one does, and on
+	// its own it is an unfulfillable bill rather than a request to adopt.
+	if adoptPayloadBill && bodyArtists != nil {
+		return nil, billSourceBody, huma.Error422UnprocessableEntity(
+			"show_artists and use_payload_artists are mutually exclusive: send the bill to fulfil, or set the flag to adopt the one on the request's payload, not both")
 	}
-	return payloadShowBill(req), billSourcePayload
+	if bodyArtists != nil {
+		return bodyArtists, billSourceBody, nil
+	}
+	if !adoptPayloadBill {
+		// No bill anywhere. Named as the BODY's field: show_artists is what this
+		// caller would have to fill in, and the payload is not their input.
+		return nil, billSourceBody, nil
+	}
+	bill := payloadShowBill(req)
+	if len(bill) == 0 && req != nil {
+		// Honest about which input is empty. Falling through to "a show requires
+		// show_venue and show_artists" would tell an admin who DID ask for the
+		// payload's bill to go find a field they deliberately left out.
+		return nil, billSourcePayload, huma.Error422UnprocessableEntity(
+			"use_payload_artists was set, but this request's payload carries no artists")
+	}
+	return bill, billSourcePayload, nil
 }
 
 // admitShowBill is the pre-claim admission check for THE BILL, and only the
@@ -377,7 +383,8 @@ func resolveShowBill(bodyArtists []ShowArtistInput, req *communitym.EntityReques
 //  1. validate the STORED bill's structure, whether or not the body carries a
 //     bill of its own, because fulfillEntity re-validates it after the claim,
 //     where a rejection is an orphan instead of a 422.
-//  2. resolve which bill wins: the body outright, else the payload as prefill.
+//  2. resolve which bill is being fulfilled: the body's, or the payload's when
+//     the admin adopted it with use_payload_artists. Never both, never neither.
 //  3. validate + convert whichever won, naming its source in any 422.
 //
 // Step 1 is deliberately STRUCTURE only. Roles are checked in step 3, against
@@ -387,7 +394,7 @@ func resolveShowBill(bodyArtists []ShowArtistInput, req *communitym.EntityReques
 // the claim, so there is no post-claim failure to pre-empt, and the rejection
 // would turn a rescuable row into a void-only one.
 //
-// eligible is the request when it may prefill, and nil when it may not. Decide
+// eligible is the request whose bill may be adopted, and nil when it may not be. Decide
 // passes nil for a row that is not PENDING, because Decide claims only pending
 // rows and the honest answer for anything else is its 409; rescue always passes
 // the row, since a rescuable row is approved-but-unfulfilled by definition.
@@ -401,25 +408,29 @@ func admitShowBill(
 	eligible *communitym.EntityRequest,
 	venue *ShowVenueInput,
 	bodyArtists []ShowArtistInput,
+	adoptPayloadBill bool,
 ) (*showAssociations, error) {
 	if eligible != nil && eligible.Payload != nil {
 		if verr := validateStoredShowBill(eligible.EntityType, *eligible.Payload); verr != nil {
 			return nil, verr
 		}
 	}
-	bill, source := resolveShowBill(bodyArtists, eligible)
+	bill, source, berr := resolveShowBill(bodyArtists, eligible, adoptPayloadBill)
+	if berr != nil {
+		return nil, berr
+	}
 	return buildShowAssociations(venue, bill, source)
 }
 
 // payloadShowBill converts a stored show payload's bill into the admin-shaped
-// bill inputs, for prefill (PSY-1858). Nil for a non-show request, a request
+// bill inputs, for adoption (PSY-1858). Nil for a non-show request, a request
 // with no payload, or a payload that does not decode.
 //
 // A decode failure is deliberately silent rather than an error: the paths that
 // call this then fall through to "no bill", which surfaces as whichever
 // venue-and-bill-required refusal the caller phrases, and fulfillment
 // re-validates the stored payload anyway and reports the decode failure with a
-// far better message than a prefill helper could. Inventing a second error
+// far better message than a conversion helper could. Inventing a second error
 // channel here would only give the same corrupt row two different 422s
 // depending on whether the admin also typed a bill.
 //

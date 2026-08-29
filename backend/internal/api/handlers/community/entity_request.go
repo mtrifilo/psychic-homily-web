@@ -409,11 +409,14 @@ type AdminDecideEntityRequestRequest struct {
 		Note     *string `json:"note" required:"false" doc:"Optional decision note (shown to the requester)"`
 		// PSY-1037: required when approving a show request (its payload lacks
 		// the venue + artist associations CreateShow needs); ignored for every
-		// other entity type and for rejections. PSY-1858: show_artists may be
-		// omitted when the request's payload already carries a bill, which then
-		// prefills it; a body bill supersedes the payload's outright.
+		// other entity type and for rejections.
 		ShowVenue   *ShowVenueInput   `json:"show_venue,omitempty" required:"false" doc:"Venue for fulfilling a show request (required when approving a show)"`
-		ShowArtists []ShowArtistInput `json:"show_artists,omitempty" required:"false" doc:"Artists for fulfilling a show request. Required when approving a show unless the request payload carries its own artists, which are then used. A bill sent here replaces the payload's entirely: acts are not merged, so an act omitted here is dropped."`
+		ShowArtists []ShowArtistInput `json:"show_artists,omitempty" required:"false" doc:"Artists for fulfilling a show request (required when approving a show, unless use_payload_artists adopts the bill the request payload carries)"`
+		// UsePayloadArtists is the admin's affirmative adoption of the bill the
+		// CONTRIBUTOR recorded (PSY-1858). See resolveShowBill for the rule and
+		// why the flag exists rather than an omitted show_artists meaning the
+		// same thing.
+		UsePayloadArtists bool `json:"use_payload_artists,omitempty" required:"false" doc:"Approve a show using the artists stored on the request's own payload. Mutually exclusive with show_artists: send one or the other, never both. Omitting both is still a 422, so a bill is never adopted by default."`
 	}
 }
 
@@ -489,8 +492,8 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 	// is still pending.
 	//
 	// PSY-1858 is why the read now happens BEFORE the association build rather
-	// than after it: a bill the admin body omits is prefilled from the stored
-	// payload, so the conversion needs the row in hand. Nothing else moved. A
+	// than after it: an adopted bill is read off the stored payload, so the
+	// conversion needs the row in hand. Nothing else moved. A
 	// read that ERRORS still reports ahead of any complaint about the body, and a
 	// read that finds nothing (GetRequest answers (nil, nil) for a missing row)
 	// still falls through to Decide, which is what turns it into the 404.
@@ -512,7 +515,7 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 		// otherwise. Decide claims only PENDING rows, so for anything else the
 		// honest answer is its 409 (invalid state); a 422 about a stored payload
 		// the admin never sent would report the wrong problem entirely and read as
-		// though re-sending the request with a bill could fix it. The prefill is
+		// though re-sending the request with a bill could fix it. Adoption is
 		// scoped by the same value, which is the whole reason it is one variable.
 		//
 		// This does NOT make an already-decided row immune to every 422: the
@@ -529,7 +532,7 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 		// (validate the stored bill, resolve body-vs-payload, build), so the two
 		// admin paths cannot answer the same bill differently.
 		var aerr error
-		showAssoc, aerr = admitShowBill(eligible, req.Body.ShowVenue, req.Body.ShowArtists)
+		showAssoc, aerr = admitShowBill(eligible, req.Body.ShowVenue, req.Body.ShowArtists, req.Body.UsePayloadArtists)
 		if aerr != nil {
 			return nil, aerr
 		}
