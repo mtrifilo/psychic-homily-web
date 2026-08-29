@@ -607,9 +607,14 @@ describe('AuthContext', () => {
     })
 
     it('is "pending", never "anonymous", while a logout is in flight', () => {
-      // The logout mutation clears the query cache mid-flight. Without the
-      // logoutMutation clause the gap would read as a settled anonymous
-      // viewer a beat early, flipping dependent UI twice.
+      // Pins the logoutMutation clause IN ISOLATION, with no cached profile to
+      // fall back on, which is deliberately not the shape an ordinary logout
+      // produces. There, `user` survives on the cached profile until
+      // `queryClient.clear()`, after which `isProfilePending` covers the gap by
+      // itself; see the numbered note beside `authStatus` in AuthContext.tsx.
+      // What this asserts is the invariant that survives either ordering: an
+      // in-flight logout never reads as a SETTLED anonymous viewer, so nothing
+      // gated on 'anonymous' can act a beat early and flip twice.
       mockUseProfile.mockReturnValue({
         data: undefined,
         isPending: false,

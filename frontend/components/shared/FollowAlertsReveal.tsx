@@ -77,7 +77,23 @@ export function FollowAlertsReveal({
   className,
 }: FollowAlertsRevealProps) {
   const { isAuthenticated } = useAuthContext()
-  const { data: followStatus } = useFollowStatus(entityType, entityId)
+  // Gated on the same fact that turns an anonymous viewer away at the
+  // `!isAuthenticated` guard below, so nothing this reads is ever used by one.
+  //
+  // Leaving it ungated is not free, because this observer and the sibling
+  // `<FollowButton>`'s address the SAME query key (entity type, entity id, and
+  // a viewer id that is `undefined` for both when nobody is signed in). PSY-1867
+  // disables the button's copy for exactly that viewer; a live observer here
+  // refills the key anyway, so the request the skip saves is merely moved. Worse,
+  // every observer of a query reads the same `fetchStatus`, so this one's fetch
+  // makes the button's DISABLED observer report `isLoading`, and its bracket,
+  // which had shipped enabled in the server HTML, greys itself out for the
+  // length of the round trip and then flips back.
+  const { data: followStatus } = useFollowStatus(
+    entityType,
+    entityId,
+    isAuthenticated
+  )
   const isFollowing = followStatus?.is_following ?? false
   const supported = isAlertCapableFollowType(entityType)
   const isVenue = entityType === 'venues'

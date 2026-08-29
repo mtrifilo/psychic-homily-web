@@ -139,10 +139,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // 1. A user we already hold is an answer, whatever the query is doing — the
   //    login/signup override lands before the profile refetch it triggers, and
   //    a background refetch of a cached profile must not re-open the window.
-  // 2. A logout in flight is a TRANSITION, not an answer. The mutation clears
-  //    the query cache, so the gap between "override cleared" and "profile
-  //    query pending again" would otherwise read as a settled anonymous viewer
-  //    a beat early. Both unresolved cases collapse to 'pending', which is the
+  // 2. A logout in flight is a TRANSITION, not an answer, so it may resolve
+  //    DOWN to 'pending' but never up to a settled 'anonymous'. Be precise
+  //    about what this clause does and does not do: in the ordinary logout it
+  //    is NOT the thing holding the line. `logout()` clears only the OVERRIDE,
+  //    so `user` falls back to the still-cached profile and clause 1 answers
+  //    'authenticated' until `useLogout`'s onSuccess reaches
+  //    `queryClient.clear()`, at which point `isProfilePending` covers the gap
+  //    on its own. The clause is insurance against that ordering changing: it
+  //    makes "a logout is running" sufficient by itself to hold the pending
+  //    posture, rather than something merely implied by two other facts.
+  //    Either way both unresolved cases collapse to 'pending', which is the
   //    conservative direction: consumers keep their disabled/loading posture.
   // 3. Only a profile query that has actually resolved without a user yields
   //    'anonymous'.

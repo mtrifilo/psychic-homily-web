@@ -77,6 +77,16 @@ export function FollowButton({
   // staleTime elapses. That viewer is already treated as logged out by every
   // other auth-gated control on the page; this makes the bracket agree with them
   // rather than fetch a status it would then contradict.
+  // Co-owned, not local: this skip only holds if no SIBLING observer keeps the
+  // same query key alive for the same viewer. `useFollowStatus` keys on
+  // (entityType, entityId, viewerId), and viewerId is `undefined` for every
+  // anonymous viewer, so a second component beside this one asking for the same
+  // entity refills the key, which both spends the request and, because all
+  // observers of a query share one `fetchStatus`, drives THIS disabled observer
+  // to report `isLoading` and grey the bracket out mid-hydration.
+  // `<FollowAlertsReveal>` sits next to the bracket on artist and venue pages
+  // and is gated for that reason; anything new that lands in that row needs the
+  // same treatment.
   const skipAnonymousStatusFetch =
     variant === 'bracket' && authStatus === 'anonymous'
 
