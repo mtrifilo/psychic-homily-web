@@ -8168,10 +8168,11 @@ export interface components {
             /** Format: int64 */
             id?: number;
             instagram_handle?: string;
+            /** @description Legacy headliner flag. Ignored when set_type is present, which is authoritative. On POST /shows a missing flag is defaulted to false, so bill position is never read as a role. On PUT /shows/{show_id} an act that states neither field is read as the headliner only when it is first on the bill AND no other act names a headliner. */
             is_headliner?: boolean;
             name?: string;
             /**
-             * @description Curated bill role. Authoritative over is_headliner when present. Omit when the slot is not known; the show then stores 'performer', which means 'on the bill, slot unknown' and must not be rendered as a role.
+             * @description Curated bill role. Authoritative over is_headliner when present. Omit when the slot is not known; the show then stores 'performer', meaning 'on the bill, slot unknown', which must not be rendered as a role. One exception on PUT /shows/{show_id}: an act that omits BOTH this and is_headliner is stored 'headliner' when it is first on a bill where no act names a headliner. Once any act does name one (by either field), the acts that stated nothing store 'performer' rather than being inferred from list position.
              * @enum {string}
              */
             set_type?: "headliner" | "direct_support" | "opener" | "special_guest" | "dj" | "performer";
@@ -16329,12 +16330,12 @@ export interface components {
              * @description Existing artist ID (optional)
              */
             id?: number;
-            /** @description Headliner flag. Ignored when set_type is present, which is authoritative. On a bill where no entry states either field, the first entry is read as the headliner. */
+            /** @description Headliner flag. Ignored when set_type is present, which is authoritative. On a bill where no entry states either field, the first entry is read as the headliner. Stating this flag alone does NOT stop that inference (known gap): only a stated set_type settles the bill. */
             is_headliner?: boolean;
             /** @description Artist name (required) */
             name: string;
             /**
-             * @description Curated bill role, authoritative over is_headliner. Omit the key when the slot is not known: the act then stores 'performer', meaning 'on the bill, slot unknown', which must not be rendered as a role. Do NOT send an empty string; only an absent key means unknown. Stating a role on any entry settles the whole bill, so no other entry is then inferred from list position.
+             * @description Curated bill role, authoritative over is_headliner. Omit the key when the slot is not known: the act then stores 'performer', meaning 'on the bill, slot unknown', which must not be rendered as a role. Do NOT send an empty string; only an absent key means unknown. Stating this field on any entry settles the whole bill, so no other entry is then inferred from list position; stating is_headliner alone does not.
              * @enum {string}
              */
             set_type?: "headliner" | "direct_support" | "opener" | "special_guest" | "dj" | "performer";

@@ -60,16 +60,25 @@ func NewShowHandler(
 // Artist represents an artist in a show request.
 //
 // set_type is the curated bill role and is authoritative when present:
-// is_headliner is derived from it, so a client may send set_type alone.
-// Omitting set_type keeps the legacy is_headliner-only behavior. The enum is
-// enforced by the generated OpenAPI schema on both the create and the update
+// is_headliner is derived from it, so a client may send set_type alone. The enum
+// is enforced by the generated OpenAPI schema on both the create and the update
 // body, which is why neither Resolve nor the update handler re-checks it; the
 // show service backstops in-process callers that bypass the schema.
+//
+// This struct is shared by POST /shows and PUT /shows/{show_id}, and the two
+// endpoints read an act that states NEITHER field differently. Create runs
+// Resolve, whose initializeArtist defaults is_headliner to false on every act,
+// so bill position is never read as a role there. Update has no Resolve, so the
+// show service's rule 3 can read position 0 as the headliner -- unless some act
+// names a headliner, in which case the silent acts store 'performer'
+// (catalog.suppressPositionInferenceWhenHeadlinerNamed, PSY-1860). The doc tags
+// below publish that difference; keep them in step with the service.
 type Artist struct {
-	ID              *uint   `json:"id,omitempty"`
-	Name            *string `json:"name,omitempty"`
-	IsHeadliner     *bool   `json:"is_headliner,omitempty"`
-	SetType         *string `json:"set_type,omitempty" enum:"headliner,direct_support,opener,special_guest,dj,performer" doc:"Curated bill role. Authoritative over is_headliner when present. Omit when the slot is not known; the show then stores 'performer', which means 'on the bill, slot unknown' and must not be rendered as a role."`
+	ID          *uint   `json:"id,omitempty"`
+	Name        *string `json:"name,omitempty"`
+	IsHeadliner *bool   `json:"is_headliner,omitempty" doc:"Legacy headliner flag. Ignored when set_type is present, which is authoritative. On POST /shows a missing flag is defaulted to false, so bill position is never read as a role. On PUT /shows/{show_id} an act that states neither field is read as the headliner only when it is first on the bill AND no other act names a headliner."`
+	SetType     *string `json:"set_type,omitempty" enum:"headliner,direct_support,opener,special_guest,dj,performer" doc:"Curated bill role. Authoritative over is_headliner when present. Omit when the slot is not known; the show then stores 'performer', meaning 'on the bill, slot unknown', which must not be rendered as a role. One exception on PUT /shows/{show_id}: an act that omits BOTH this and is_headliner is stored 'headliner' when it is first on a bill where no act names a headliner. Once any act does name one (by either field), the acts that stated nothing store 'performer' rather than being inferred from list position."`
+
 	InstagramHandle *string `json:"instagram_handle,omitempty"`
 }
 

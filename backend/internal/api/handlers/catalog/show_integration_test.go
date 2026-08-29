@@ -666,6 +666,78 @@ func (s *ShowHandlerIntegrationSuite) TestUpdateShow_RejectsURLShapedInstagramHa
 	s.Equal(int64(0), count)
 }
 
+// PSY-1860 at the endpoint the ticket names. UpdateShow has no Resolve, so
+// initializeArtist never runs and a nil is_headliner reaches resolveArtistRole,
+// whose position-0 fallback used to promote the act the caller said nothing
+// about -- giving the show TWO set_type='headliner' rows, with the undesignated
+// one winning every `ORDER BY position ASC LIMIT 1` headliner read.
+//
+// Asserted through the HTTP handler rather than the service alone to cover the
+// endpoint the ticket actually names, end to end: the handler's artist mapping,
+// the service rule, and the stored rows.
+//
+// It does NOT by itself guard the handler mapping. Its pair below
+// (TestUpdateShow_UndescribedBillStillInfersPositionZero) is what catches the
+// tempting "default the flag like create does" edit here: such an edit leaves
+// THIS test green (every act would then state a role, so the service skips
+// suppression and still writes one headliner) while silently killing position
+// inference on undescribed bills. The two are only a guard together.
+func (s *ShowHandlerIntegrationSuite) TestUpdateShow_StatedBillDoesNotInferASecondHeadliner() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Stated Bill Show")
+
+	ctx := testhelpers.CtxWithUser(user)
+	headliner := "headliner"
+	req := &UpdateShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
+	req.Body.Artists = []Artist{
+		// States nothing at all.
+		{Name: testhelpers.StringPtr("Earth")},
+		{Name: testhelpers.StringPtr("Boris"), SetType: &headliner},
+	}
+
+	resp, err := s.handler.UpdateShowHandler(ctx, req)
+	s.Require().NoError(err)
+	s.Require().Len(resp.Body.Artists, 2)
+	s.False(*resp.Body.Artists[0].IsHeadliner, "the act nobody designated must not be promoted")
+	s.True(*resp.Body.Artists[1].IsHeadliner)
+
+	var headlinerRows int64
+	s.Require().NoError(s.deps.DB.Model(&catalogm.ShowArtist{}).
+		Where("show_id = ? AND set_type = ?", show.ID, "headliner").
+		Count(&headlinerRows).Error)
+	s.EqualValues(1, headlinerRows, "an update must write exactly the headliner the caller stated")
+}
+
+// The guard against relocating the PSY-1860 fix into this handler. Defaulting a
+// nil is_headliner here the way create's initializeArtist does would make every
+// act "stated", so the service's suppression never arms, its helper goes dead on
+// its only call site, and a bill nobody described would be written with NO
+// headliner row at all instead of reading position 0.
+func (s *ShowHandlerIntegrationSuite) TestUpdateShow_UndescribedBillStillInfersPositionZero() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Undescribed Bill Show")
+
+	ctx := testhelpers.CtxWithUser(user)
+	req := &UpdateShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
+	req.Body.Artists = []Artist{
+		// Neither act states set_type or is_headliner.
+		{Name: testhelpers.StringPtr("Undescribed Top")},
+		{Name: testhelpers.StringPtr("Undescribed Support")},
+	}
+
+	resp, err := s.handler.UpdateShowHandler(ctx, req)
+	s.Require().NoError(err)
+	s.Require().Len(resp.Body.Artists, 2)
+	s.True(*resp.Body.Artists[0].IsHeadliner, "an undescribed bill must still read position 0 as the headliner")
+	s.False(*resp.Body.Artists[1].IsHeadliner)
+
+	var headlinerRows int64
+	s.Require().NoError(s.deps.DB.Model(&catalogm.ShowArtist{}).
+		Where("show_id = ? AND set_type = ?", show.ID, "headliner").
+		Count(&headlinerRows).Error)
+	s.EqualValues(1, headlinerRows, "an undescribed bill must not lose its headline slot")
+}
+
 // --- GetMySubmissionsHandler ---
 
 func (s *ShowHandlerIntegrationSuite) TestGetMySubmissions_Success() {

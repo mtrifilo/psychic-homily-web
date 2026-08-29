@@ -357,17 +357,24 @@ type ShowVenueInput struct {
 // the headliner flag from it).
 //
 // The one place bill ORDER still has a say: on a bill where no entry states
-// either field, the first act is read as the headliner. As soon as any entry
-// states a role, buildShowAssociations suppresses that inference for the whole
-// bill (see suppressPositionInference), because a stated bill is a complete
-// statement and first-in-list is not a second opinion. So "omit set_type" means
-// 'performer' on a curated bill, and only an entirely undescribed bill falls
-// back to position.
+// EITHER field, the first act is read as the headliner. Only a stated set_type
+// arms the suppression, though -- as soon as any entry states one,
+// buildShowAssociations suppresses that inference for the whole bill (see
+// suppressPositionInference), because a stated bill is a complete statement and
+// first-in-list is not a second opinion. So "omit set_type" means 'performer' on
+// a curated bill.
+//
+// KNOWN GAP, described here rather than promised away: only set_type arms that
+// suppression. billIsCurated never reads is_headliner, so a bill stated purely
+// through the legacy flag -- [{Earth}, {Boris, is_headliner:true}] -- still has
+// Earth inferred into the headline slot and writes TWO set_type='headliner' rows.
+// That is the PSY-1860 defect in this endpoint's own spelling; PSY-1860 fixed it
+// next door on PUT /shows/{show_id} and this one is reported as a follow-up.
 type ShowArtistInput struct {
 	ID          *uint   `json:"id,omitempty" required:"false" doc:"Existing artist ID (optional)"`
 	Name        string  `json:"name" doc:"Artist name (required)"`
-	IsHeadliner *bool   `json:"is_headliner,omitempty" required:"false" doc:"Headliner flag. Ignored when set_type is present, which is authoritative. On a bill where no entry states either field, the first entry is read as the headliner."`
-	SetType     *string `json:"set_type,omitempty" required:"false" enum:"headliner,direct_support,opener,special_guest,dj,performer" doc:"Curated bill role, authoritative over is_headliner. Omit the key when the slot is not known: the act then stores 'performer', meaning 'on the bill, slot unknown', which must not be rendered as a role. Do NOT send an empty string; only an absent key means unknown. Stating a role on any entry settles the whole bill, so no other entry is then inferred from list position."`
+	IsHeadliner *bool   `json:"is_headliner,omitempty" required:"false" doc:"Headliner flag. Ignored when set_type is present, which is authoritative. On a bill where no entry states either field, the first entry is read as the headliner. Stating this flag alone does NOT stop that inference (known gap): only a stated set_type settles the bill."`
+	SetType     *string `json:"set_type,omitempty" required:"false" enum:"headliner,direct_support,opener,special_guest,dj,performer" doc:"Curated bill role, authoritative over is_headliner. Omit the key when the slot is not known: the act then stores 'performer', meaning 'on the bill, slot unknown', which must not be rendered as a role. Do NOT send an empty string; only an absent key means unknown. Stating this field on any entry settles the whole bill, so no other entry is then inferred from list position; stating is_headliner alone does not."`
 }
 
 // AdminDecideEntityRequestRequest is the Huma request for
