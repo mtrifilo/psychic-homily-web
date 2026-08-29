@@ -112,12 +112,19 @@ type ShowRequestPayload struct {
 	// DEPLOY ORDERING, because UnmarshalPayload runs DisallowUnknownFields:
 	// adding this field is backward compatible (every row already queued has no
 	// "artists" key, and a missing key is not an unknown one), but it is NOT
-	// forward compatible. A row written WITH a bill and then read by a binary
-	// that predates this field fails to decode, and on the approve path that
-	// failure lands post-claim, stranding the row. Nothing writes a bill until a
-	// producer ships, so the constraint binds at the FIRST PRODUCER, not here:
-	// once one exists, rolling the backend back past this commit is a one-way
-	// door for any row it wrote.
+	// forward compatible. A row written WITH a bill is undecodable by a binary
+	// that predates this field, so on that binary the row cannot be approved.
+	//
+	// BLOCKED, NOT BROKEN, which is the distinction that matters at 3am: the old
+	// binary's decide path rejects PRE-claim (its own PSY-1675 image-URL guard
+	// decodes the payload before Decide runs), its rescue path rejects before
+	// ClaimRescueFulfillment, and its create path never stores one. No row is
+	// stranded and no half-write happens; rolling forward again recovers every
+	// affected row untouched. The cost of a rollback is that bill-carrying rows
+	// sit unapprovable until it is undone.
+	//
+	// Nothing writes a bill until a producer ships, so this binds at the FIRST
+	// PRODUCER, not here.
 	Artists []ShowRequestArtist `json:"artists,omitempty"`
 }
 
@@ -136,7 +143,7 @@ func (ShowRequestPayload) entityRequestType() string { return EntityRequestShow 
 // vocabulary the admin path accepts (contracts.SetTypeVocabulary). An absent
 // key means "on the bill, slot unknown", which resolves to 'performer' at
 // fulfillment, never 'opener'. The vocabulary itself is checked at the API
-// boundary rather than here; see validateShowPayloadBill for why.
+// boundary rather than here; see validateShowPayloadBillRoles for why.
 type ShowRequestArtist struct {
 	Name    string  `json:"name"`
 	SetType *string `json:"set_type,omitempty"`
@@ -426,16 +433,35 @@ func PayloadImageURL(entityType string, raw json.RawMessage) (*string, error) {
 	}
 }
 
-// ValidateShowPayloadArtists checks the STRUCTURE of a contributor-supplied
-// bill (PSY-1858): the entry count, each act's name, and that no act is named
-// twice.
+// ShowPayloadBillField labels a contributor's stored bill in a 422 (PSY-1858).
+// Exported so the API layer, which validates the same bill at its own trust
+// boundaries, names it identically: one defect must not answer to two different
+// field names depending on which boundary caught it.
+const ShowPayloadBillField = "show payload: artists"
+
+// ValidateShowBill checks the structural rules EVERY show bill obeys, whoever
+// typed it (PSY-1858): the entry count, each act's name, and that no act is
+// named twice. Names are expected already trimmed, which is what reaches the
+// column, so trailing whitespace can neither push a legal name over the cap nor
+// hide a duplicate.
 //
-// Called at queue-create as part of ValidateEntityRequestPayload, and EXPORTED
-// so the API layer can run it again PRE-CLAIM on the decide and rescue paths.
-// That second run is the load-bearing one. fulfillEntity re-validates the whole
-// stored payload, but on the decide path that runs after the row has been
-// claimed, so a structurally broken stored bill discovered there is an orphan no
-// decide call can re-process.
+// field labels the input in the message: ShowPayloadBillField for a
+// contributor's stored bill, "show_artists" for the bill an admin submits to
+// the approve endpoint.
+//
+// ONE implementation for both, because these are not two rules that happen to
+// agree. They are one rule about what the catalog can store, applied at two
+// trust boundaries. Kept as twins, a rule added to fix a data-quality problem on
+// one side would leave the other creating exactly the rows it was added to stop,
+// and nothing would fail.
+//
+// Why "no act twice" is here and not left to the database: the show service
+// find-or-creates artists on a case-insensitive name match, and show_artists is
+// keyed PRIMARY KEY (show_id, artist_id), so a bill naming "Boris" and "boris"
+// resolves to ONE artist and violates that key at INSERT. On the decide path
+// that INSERT happens after the row is claimed, so a duplicate caught any later
+// than pre-claim is an approved-but-unfulfilled orphan, and one that survives a
+// retry: the rescue endpoint re-reads the same bill and fails the same way.
 //
 // What it deliberately does NOT check is set_type's membership in the curated
 // vocabulary. That vocabulary lives in services/contracts, which imports THIS
@@ -443,49 +469,51 @@ func PayloadImageURL(entityType string, raw json.RawMessage) (*string, error) {
 // vocabulary here, which is drift that would stay invisible until an admin
 // approve rejected a role a contributor was allowed to submit, the membership
 // check runs one layer up, at the API trust boundary, against the single
-// authoritative list. See validateShowPayloadBill in
-// internal/api/handlers/community, which pairs the two into one call.
-func ValidateShowPayloadArtists(artists []ShowRequestArtist) error {
-	if len(artists) > MaxShowRequestArtists {
-		return fmt.Errorf("show payload: artists is capped at %d entries", MaxShowRequestArtists)
+// authoritative list.
+func ValidateShowBill(field string, names []string) error {
+	if len(names) > MaxShowRequestArtists {
+		return fmt.Errorf("%s is capped at %d entries", field, MaxShowRequestArtists)
 	}
-	names := make([]string, 0, len(artists))
-	for i, a := range artists {
-		field := fmt.Sprintf("artists[%d].name", i)
-		if err := requireField(EntityRequestShow, field, a.Name); err != nil {
-			return err
+	for i, name := range names {
+		if name == "" {
+			return fmt.Errorf("%s[%d].name is required", field, i)
 		}
-		// Length is measured on the TRIMMED name, which is what reaches the
-		// column, so trailing whitespace cannot push a legal name over.
-		name := strings.TrimSpace(a.Name)
-		if err := optionalMaxLen(EntityRequestShow, field, &name, MaxShowRequestArtistNameLen); err != nil {
-			return err
+		if len(name) > MaxShowRequestArtistNameLen {
+			return fmt.Errorf("%s[%d].name must be %d characters or fewer", field, i, MaxShowRequestArtistNameLen)
 		}
-		names = append(names, name)
 	}
-	if dupe, ok := FirstDuplicateArtistName(names); ok {
-		return fmt.Errorf("show payload: artists names an act twice (%q)", dupe)
+	if dupe, ok := firstDuplicateName(names); ok {
+		return fmt.Errorf("%s names an act twice (%q)", field, dupe)
 	}
 	return nil
 }
 
-// FirstDuplicateArtistName reports the first name that repeats on a bill,
-// comparing case-insensitively.
+// ValidateShowPayloadArtists adapts a stored payload's bill onto ValidateShowBill.
 //
-// It is the one implementation of "no act twice", shared by the payload
-// validator and the admin bill builder, because the rule is not cosmetic: the
-// show service find-or-creates artists on a case-insensitive name match, and
-// show_artists is keyed PRIMARY KEY (show_id, artist_id). A bill naming "Boris"
-// and "boris" therefore resolves to ONE artist and violates that key at INSERT.
-// On the decide path that INSERT happens after the row is claimed, so a
-// duplicate caught anywhere later than pre-claim is an approved-but-unfulfilled
-// orphan, and one that survives a retry: the rescue endpoint re-reads the same
-// bill and fails the same way.
-//
-// Names are expected pre-trimmed; callers trim as part of their own per-act
-// checks, and trimming is itself part of the collision ("Boris " and "Boris"
-// are the same act).
-func FirstDuplicateArtistName(names []string) (string, bool) {
+// Called at queue-create as part of ValidateEntityRequestPayload, and EXPORTED
+// so the API layer can run it again PRE-CLAIM on the decide and rescue paths.
+// That second run is the load-bearing one. fulfillEntity re-validates the whole
+// stored payload, but on the decide path that runs after the row has been
+// claimed, so a structurally broken stored bill discovered there is an orphan no
+// decide call can re-process.
+func ValidateShowPayloadArtists(artists []ShowRequestArtist) error {
+	return ValidateShowBill(ShowPayloadBillField, TrimmedBillNames(artists))
+}
+
+// TrimmedBillNames projects a bill onto the trimmed names ValidateShowBill
+// compares, so a caller cannot accidentally validate untrimmed input.
+func TrimmedBillNames(artists []ShowRequestArtist) []string {
+	names := make([]string, len(artists))
+	for i := range artists {
+		names[i] = strings.TrimSpace(artists[i].Name)
+	}
+	return names
+}
+
+// firstDuplicateName reports the first name that repeats, compared
+// case-insensitively to match the show service's find-or-create, which resolves
+// artists on LOWER(name) in Postgres.
+func firstDuplicateName(names []string) (string, bool) {
 	seen := make(map[string]struct{}, len(names))
 	for _, name := range names {
 		key := strings.ToLower(name)
@@ -503,7 +531,8 @@ func FirstDuplicateArtistName(names []string) (string, bool) {
 // It exists for the same reason PayloadImageURL does: a caller outside this
 // package needs one field out of the payload without this package taking on
 // that caller's dependencies. Here the dependency is the set_type vocabulary in
-// services/contracts, which imports this package. See validateShowPayloadBill.
+// services/contracts, which imports this package. See
+// validateShowPayloadBillRoles.
 //
 // A non-show type is (nil, nil) rather than an error: unlike PayloadImageURL,
 // which fails closed so a new entity_type cannot silently skip the SSRF guard,

@@ -52,57 +52,74 @@ func validatePayloadImageURL(ctx context.Context, entityType string, raw json.Ra
 type billSource string
 
 const (
-	billFieldBody    billSource = "show_artists"
-	billFieldPayload billSource = "payload artists"
+	billSourceBody billSource = "show_artists"
+	// The payload label is defined in the models package and borrowed here, so
+	// the same defect answers to the same field name whichever boundary catches
+	// it: the model validator's message and this one are the same string.
+	billSourcePayload billSource = communitym.ShowPayloadBillField
 )
 
-// validateShowPayloadBill validates a show payload's stored bill (PSY-1858) in
-// two halves: its STRUCTURE (count, per-act name, no act named twice) via the
-// model validator, then its ROLES against the curated set_type vocabulary.
+// validateShowPayloadBillRoles checks a show payload's bill against the curated
+// set_type vocabulary (PSY-1858). It is the QUEUE-CREATE boundary's check, and
+// only that one.
 //
-// One function for all three trust boundaries (queue-create, and pre-claim on
-// decide and on rescue) so no caller has to know which half applies where. At
-// queue-create the structure half is a no-op re-run, since
-// ValidateEntityRequestPayload has just checked it; that is cheaper than a
-// second near-identical helper for a caller to pick wrong.
+// The vocabulary cannot be checked inside ValidateEntityRequestPayload: it lives
+// in services/contracts, which imports the models package, so importing it back
+// is a cycle. Duplicating the vocabulary there would be drift that stays
+// invisible until an admin approve rejected a role a contributor was allowed to
+// submit, so the membership check runs one layer up, here, against the single
+// authoritative contracts.IsValidSetType.
 //
-// The role half cannot live in ValidateEntityRequestPayload at all: the
-// vocabulary lives in services/contracts, which imports the models package, so
-// importing it back is a cycle. Duplicating the vocabulary there instead would
-// be drift that stays invisible until an admin approve rejects a role a
-// contributor was allowed to submit, so the membership check runs one layer up,
-// here, against the single authoritative contracts.IsValidSetType.
+// Rejecting at submit is the whole point: a typo'd role caught here is a 422 on
+// a request that was never filed, and no endpoint can edit a queued payload to
+// repair one that got through (PSY-1948).
 //
-// Rejecting EARLY is the whole point, at both ends. A typo'd role caught at
-// submit is a 422 on a request that was never filed. The same typo caught at
-// fulfillment is caught after the decide call has claimed the row, leaving an
-// approved-but-unfulfilled orphan only the rescue endpoint can clear, so the
-// admin paths re-run this pre-claim, whether or not the admin also typed a bill
-// of their own (the body supersedes the payload for FULFILLMENT, but
-// fulfillEntity re-validates the whole stored payload regardless).
-//
-// A row this rejects is not repairable by its contributor (no endpoint can edit
-// a queued payload, PSY-1948); the admin's route is the rescue endpoint's void.
-// That is the same dead end the row already had, reached earlier and with a
-// readable message instead of an orphan.
+// NOT re-run pre-claim on the admin paths, deliberately. buildShowAssociations
+// validates the roles of whichever bill actually wins, with this same function
+// and the same message, so a prefilled bill is still covered. Re-running it over
+// the STORED bill there would instead reject an approve whose body carried a
+// perfectly good bill of its own, over a stored role that is never read: the
+// body supersedes the payload, and fulfillEntity's re-validation checks the
+// bill's structure but NOT its roles, so there is no post-claim failure to
+// pre-empt. That would turn a rescuable row into a void-only one.
 //
 // Non-show types carry no bill and return nil. A payload that fails to DECODE
-// also returns nil: every caller has already run, or will run,
-// ValidateEntityRequestPayload, which reports the corruption with a better
-// message, and a second error channel here would only give one corrupt row two
-// different 422s.
-func validateShowPayloadBill(entityType string, raw json.RawMessage) error {
+// also returns nil: ValidateEntityRequestPayload reports the corruption with a
+// better message, and a second error channel here would only give one corrupt
+// row two different 422s.
+func validateShowPayloadBillRoles(entityType string, raw json.RawMessage) error {
+	artists, err := communitym.ShowPayloadArtists(entityType, raw)
+	if err != nil {
+		return nil
+	}
+	for i := range artists {
+		if _, serr := curatedShowArtistSetType(billSourcePayload, i, artists[i].SetType); serr != nil {
+			return serr
+		}
+	}
+	return nil
+}
+
+// validateStoredShowBill checks the STRUCTURE of a stored bill (count, per-act
+// name, no act named twice) at the admin paths' PRE-CLAIM boundary, whether or
+// not the admin also typed a bill of their own (PSY-1858).
+//
+// Unconditional because this half, unlike the role half above, IS re-validated
+// after the claim: fulfillEntity re-runs ValidateEntityRequestPayload over the
+// whole stored payload, and on the decide path that runs once the row is already
+// approved. A structurally broken stored bill discovered there is an
+// approved-but-unfulfilled orphan no decide call can re-process. Checked here it
+// is a clean 422 on a row that is still pending: the same dead end the row
+// already had, reached earlier and with a readable message.
+//
+// Decode failures and non-show types return nil, as above.
+func validateStoredShowBill(entityType string, raw json.RawMessage) error {
 	artists, err := communitym.ShowPayloadArtists(entityType, raw)
 	if err != nil {
 		return nil
 	}
 	if verr := communitym.ValidateShowPayloadArtists(artists); verr != nil {
 		return huma.Error422UnprocessableEntity(verr.Error())
-	}
-	for i := range artists {
-		if _, serr := curatedShowArtistSetType(billFieldPayload, i, artists[i].SetType); serr != nil {
-			return serr
-		}
 	}
 	return nil
 }
@@ -179,33 +196,34 @@ type showAssociations struct {
 // is present but malformed — surfaced BEFORE the row is claimed, so bad input
 // never produces an approved-but-unfulfilled row.
 //
-// billField names where the bill came from (billFieldBody / billFieldPayload,
+// billField names where the bill came from (billSourceBody / billSourcePayload,
 // PSY-1858), so a 422 about a bill the admin never typed does not blame their
 // show_artists. resolveShowBill decides which it is.
 //
-// The per-act rules here restate the ones ValidateShowPayloadArtists applies to
-// a stored bill, deliberately: this is the ONLY validation an admin-typed bill
-// gets, since the model validator never sees one. For a prefilled bill it is
-// therefore a second, redundant pass, and billFieldPayload is the floor beneath
-// prepareShowFulfillment's earlier check rather than the usual reporter. Keeping
-// the label honest costs one parameter and means the two can never disagree
-// about whose input is at fault.
+// The per-act structural rules are NOT restated here: they are delegated to
+// communitym.ValidateShowBill, the one implementation the stored-bill validator
+// also uses. This is the only validation an admin-typed bill ever gets (the
+// model validator never sees a ShowArtistInput), so a rule added on the payload
+// side and not here would leave admin-typed bills creating exactly the rows it
+// was added to stop.
 func buildShowAssociations(venue *ShowVenueInput, artists []ShowArtistInput, billField billSource) (*showAssociations, error) {
 	if venue == nil && len(artists) == 0 {
 		return nil, nil
 	}
 	if venue == nil || len(artists) == 0 {
-		// Deliberately names both fields whatever billField says: exactly one of
-		// the two is missing, and the admin supplies BOTH of them, since the
-		// payload has no venue and a payload bill only ever fills in for a
-		// show_artists the admin omitted.
-		return nil, huma.Error422UnprocessableEntity("Approving a show requires both show_venue and show_artists")
+		// No verb: this same function answers an approve (decide) and a fulfill
+		// (rescue), and a payload bill made this branch newly reachable from the
+		// rescue endpoint, where "Approving" named a call the admin never made.
+		// Each caller phrases its own refusal for the none-supplied case below.
+		return nil, huma.Error422UnprocessableEntity("show_venue and show_artists must be supplied together")
 	}
-	// Sanity cap on the bill size — guards a buggy script/automation from
-	// driving an unbounded number of artist find-or-creates in one CreateShow
-	// transaction. 50 comfortably covers a festival bill.
-	if len(artists) > maxShowArtistInputs {
-		return nil, huma.Error422UnprocessableEntity(fmt.Sprintf("%s is capped at %d entries", billField, maxShowArtistInputs))
+	// Names are validated as a whole bill, BEFORE any conversion work: the cap
+	// exists to stop a runaway script from driving an unbounded number of artist
+	// find-or-creates through one CreateShow transaction, so it should reject
+	// before the loop, not inside it.
+	names := communitym.TrimmedBillNames(showBillArtists(artists))
+	if verr := communitym.ValidateShowBill(string(billField), names); verr != nil {
+		return nil, huma.Error422UnprocessableEntity(verr.Error())
 	}
 	if strings.TrimSpace(venue.Name) == "" || strings.TrimSpace(venue.City) == "" || strings.TrimSpace(venue.State) == "" {
 		return nil, huma.Error422UnprocessableEntity("show_venue requires name, city, and state")
@@ -222,22 +240,21 @@ func buildShowAssociations(venue *ShowVenueInput, artists []ShowArtistInput, bil
 	if len(v.Name) > 255 || len(v.City) > 255 || len(v.State) > 10 || len(v.Address) > 500 {
 		return nil, huma.Error422UnprocessableEntity("show_venue field too long (name/city ≤255, state ≤10, address ≤500)")
 	}
+	// Name is required even when an ID is supplied (enforced by ValidateShowBill
+	// above): the show service's duplicate-headliner pre-check matches on artist
+	// NAME, so an ID-only entry would silently bypass it (the DB unique index
+	// still backstops, but with a generic error instead of the readable conflict
+	// message).
+	//
+	// KNOWN GAP, stated rather than left to be rediscovered: the duplicate check
+	// is name-based, so two entries pinning the same artist ID under different
+	// names still collide on PRIMARY KEY (show_id, artist_id) post-claim. Only
+	// the admin form sends IDs and it sends each artist once, so that half stays
+	// as exposed as it has always been; the contributor-reachable half, which is
+	// name-only by construction, is closed.
 	out := &showAssociations{venue: v}
 	billIsCurated := false
-	names := make([]string, 0, len(artists))
 	for i, a := range artists {
-		name := strings.TrimSpace(a.Name)
-		// Name is required even when an ID is supplied: the show service's
-		// duplicate-headliner pre-check matches on artist NAME, so an ID-only
-		// entry would silently bypass it (the DB unique index still backstops,
-		// but with a generic error instead of the readable conflict message).
-		if name == "" {
-			return nil, huma.Error422UnprocessableEntity(fmt.Sprintf("Each %s entry requires a name", billField))
-		}
-		if len(name) > communitym.MaxShowRequestArtistNameLen {
-			return nil, huma.Error422UnprocessableEntity(fmt.Sprintf(
-				"%s name must be %d characters or fewer", billField, communitym.MaxShowRequestArtistNameLen))
-		}
 		setType, serr := curatedShowArtistSetType(billField, i, a.SetType)
 		if serr != nil {
 			return nil, serr
@@ -245,32 +262,41 @@ func buildShowAssociations(venue *ShowVenueInput, artists []ShowArtistInput, bil
 		if setType != nil {
 			billIsCurated = true
 		}
-		names = append(names, name)
 		out.artists = append(out.artists, contracts.CreateShowArtist{
 			ID:          a.ID,
-			Name:        name,
+			Name:        names[i],
 			IsHeadliner: a.IsHeadliner,
 			SetType:     setType,
 		})
 	}
-	// One act, named twice, is a 422 here and an INSERT failure anywhere later:
-	// artists are find-or-created on a case-insensitive name match and
-	// show_artists is PRIMARY KEY (show_id, artist_id), so "Boris" and "boris"
-	// on one bill resolve to ONE artist and collide. On the decide path that
-	// collision lands after the row is claimed, stranding it, and it survives a
-	// retry because the rescue endpoint re-reads the same bill (PSY-1858).
+	// A PAYLOAD bill never gets the position-0 headliner guess, whether or not
+	// any act states a role (PSY-1858). For an admin-typed bill the guess is a
+	// last resort on a bill nobody described, and it is unreachable in practice
+	// because the moderation form sends an explicit is_headliner per act. A
+	// contributor's bill is the first input where list ORDER reaches
+	// resolveArtistRole, and order is exactly the signal PSY-1673 removed: it is
+	// whatever the contributor typed, or whatever an extractor happened to emit.
+	// Inferring from it would assert a headliner nobody chose, silently, on the
+	// one field PSY-1705 exists to record. A bill that names no headliner is the
+	// honest answer and stays safe: readers COALESCE down to position order.
 	//
-	// Name-based, so it does not catch two entries pinning the same artist ID
-	// under different names. Only the admin form sends IDs, it sends each artist
-	// once, and that case still fails safely (post-claim, as it always has); the
-	// contributor-reachable half is the one this closes.
-	if dupe, ok := communitym.FirstDuplicateArtistName(names); ok {
-		return nil, huma.Error422UnprocessableEntity(fmt.Sprintf("%s names an act twice (%q)", billField, dupe))
-	}
-	if billIsCurated {
+	// This is also what makes the ticket's "an act with no stated role resolves
+	// to performer" hold at the column for a names-only bill, rather than for
+	// every act except the first.
+	if billIsCurated || billField == billSourcePayload {
 		suppressPositionInference(out.artists)
 	}
 	return out, nil
+}
+
+// showBillArtists projects the admin-shaped bill inputs onto the model's bill
+// shape, so the one structural validator can be handed either.
+func showBillArtists(artists []ShowArtistInput) []communitym.ShowRequestArtist {
+	out := make([]communitym.ShowRequestArtist, len(artists))
+	for i := range artists {
+		out[i] = communitym.ShowRequestArtist{Name: artists[i].Name, SetType: artists[i].SetType}
+	}
+	return out
 }
 
 // resolveShowBill picks which of the two possible bills gets fulfilled: the one
@@ -295,13 +321,21 @@ func buildShowAssociations(venue *ShowVenueInput, artists []ShowArtistInput, bil
 // still a 422 no matter how complete the payload's bill is.
 //
 // Acts are NOT merged per-act, and a role is NOT borrowed from the payload for
-// an act the body left uncurated. The reason is DELETION. The form the admin
-// submitted was seeded from this same payload, so an act present in the payload
-// and missing from the body is an act the admin deliberately REMOVED. Union
-// semantics would resurrect it, and nothing an admin could do would then drop a
-// hallucinated act off an AI-extracted bill, precisely the failure the
-// human-confirmation posture exists to prevent. A body that states one act
-// where the payload had five is a correction, not an addition.
+// an act the body left uncurated. The reason is DELETION. Once the moderation
+// form seeds itself from this payload, an act present in the payload and missing
+// from the body is an act the admin deliberately REMOVED. Union semantics would
+// resurrect it, and nothing an admin could do would then drop a hallucinated act
+// off an AI-extracted bill, precisely the failure the human-confirmation posture
+// exists to prevent. A body that states one act where the payload had five is a
+// correction, not an addition.
+//
+// STATED PRECISELY, because the rule is chosen for a form that does not exist
+// yet: the moderation form does NOT seed from payload.artists today, and always
+// sends show_artists, so the prefill branch is currently reachable only by an
+// API client that omits the key. The semantics are fixed now so the form can be
+// built against them rather than the reverse. Until it is, an approve that omits
+// show_artists fulfills a bill no human has seen in the UI, which is why the
+// admin must still supply the venue by hand and why nothing auto-approves.
 //
 // The converse also matters: because the body wins WHOLE, an admin who wants
 // the contributor's bill sends it back (the prefilled form does exactly that),
@@ -314,7 +348,7 @@ func buildShowAssociations(venue *ShowVenueInput, artists []ShowArtistInput, bil
 // one: a payload bill that states one role does not get a second,
 // position-inferred headliner.
 //
-// Whether the request is ELIGIBLE to prefill at all is prepareShowFulfillment's
+// Whether the request is ELIGIBLE to prefill at all is admitShowBill's
 // question, not this one's: a nil req here means "not eligible", and the two
 // endpoints answer that differently.
 func resolveShowBill(bodyArtists []ShowArtistInput, req *communitym.EntityRequest) ([]ShowArtistInput, billSource) {
@@ -322,26 +356,27 @@ func resolveShowBill(bodyArtists []ShowArtistInput, req *communitym.EntityReques
 	// acts, which prefills nothing and 422s as an unfulfillable bill, exactly as
 	// it did before any of this existed.
 	if bodyArtists != nil {
-		return bodyArtists, billFieldBody
+		return bodyArtists, billSourceBody
 	}
-	return payloadShowBill(req), billFieldPayload
+	return payloadShowBill(req), billSourcePayload
 }
 
-// prepareShowFulfillment is the pre-claim show-admission sequence, in one place
-// because BOTH admin endpoints run it and the two drifted apart the moment they
-// each assembled it by hand (PSY-1858). It runs, in this order:
+// admitShowBill is the pre-claim admission check both admin endpoints run
+// before anything is claimed or created, in one place because they drifted apart
+// the moment they each assembled it by hand (PSY-1858). It runs, in this order:
 //
-//  1. validate the STORED bill, structure and roles, whether or not the body
-//     carries one of its own. fulfillEntity re-validates the whole stored
-//     payload later, and on the decide path "later" is after the row has been
-//     claimed, where a rejection is an orphan instead of a 422.
+//  1. validate the STORED bill's structure, whether or not the body carries a
+//     bill of its own, because fulfillEntity re-validates it after the claim,
+//     where a rejection is an orphan instead of a 422.
 //  2. resolve which bill wins: the body outright, else the payload as prefill.
-//  3. validate + convert it, naming its source in any 422.
+//  3. validate + convert whichever won, naming its source in any 422.
 //
-// Step 1 before step 3 is what gives one broken stored bill ONE message: were
-// the build first, the same bill would report ValidateShowPayloadArtists' words
-// when the admin typed a bill of their own and buildShowAssociations' words when
-// it got prefilled.
+// Step 1 is deliberately STRUCTURE only. Roles are checked in step 3, against
+// the bill that actually gets fulfilled. Checking the stored bill's roles here
+// too would reject an approve whose body carried a perfectly good bill, over a
+// stored role nothing reads: unlike structure, roles are NOT re-validated after
+// the claim, so there is no post-claim failure to pre-empt, and the rejection
+// would turn a rescuable row into a void-only one.
 //
 // eligible is the request when it may prefill, and nil when it may not. Decide
 // passes nil for a row that is not PENDING, because Decide claims only pending
@@ -353,13 +388,13 @@ func resolveShowBill(bodyArtists []ShowArtistInput, req *communitym.EntityReques
 // Returns (nil, nil) when neither a venue nor a bill exists anywhere, which is
 // every non-show decide and a show approve that will defer. Each caller phrases
 // its own "a show needs these" refusal, since the two verbs differ.
-func prepareShowFulfillment(
+func admitShowBill(
 	eligible *communitym.EntityRequest,
 	venue *ShowVenueInput,
 	bodyArtists []ShowArtistInput,
 ) (*showAssociations, error) {
 	if eligible != nil && eligible.Payload != nil {
-		if verr := validateShowPayloadBill(eligible.EntityType, *eligible.Payload); verr != nil {
+		if verr := validateStoredShowBill(eligible.EntityType, *eligible.Payload); verr != nil {
 			return nil, verr
 		}
 	}
@@ -479,8 +514,13 @@ func suppressPositionInference(artists []contracts.CreateShowArtist) {
 // exact defect the PSY-1673 vocabulary removed; see suppressPositionInference
 // for the one place bill order still has any say.
 //
-// Over HTTP the schema enum rejects a bad role before this runs, so this is the
-// floor beneath it for in-process callers. It is NOT redundant with the show
+// For an ADMIN-typed bill the schema enum rejects a bad role over HTTP before
+// this runs, so for billSourceBody this is the floor beneath it, catching
+// in-process callers. For billSourcePayload there is no floor and no ceiling:
+// the request payload is json.RawMessage, so no schema constrains it and this
+// function is the ONLY vocabulary check that bill ever gets (PSY-1858).
+//
+// It is NOT redundant with the show
 // service's validateShowArtistSetTypes, though: that one runs inside
 // fulfillment, which on the decide path is after the row has been claimed, so
 // rejecting there would turn a typo into an approved-but-unfulfilled row that
@@ -490,8 +530,8 @@ func suppressPositionInference(artists []contracts.CreateShowArtist) {
 // decide and rescue endpoints both run buildShowAssociations pre-claim,
 // alongside the venue/name/image_url checks that live there for the same reason.
 //
-// field names the list being validated in the error message (billFieldBody for
-// an admin body, billFieldPayload for a contributor's stored bill), so a 422
+// field names the list being validated in the error message (billSourceBody for
+// an admin body, billSourcePayload for a contributor's stored bill), so a 422
 // points at the thing its reader can actually edit.
 func curatedShowArtistSetType(field billSource, index int, value *string) (*string, error) {
 	if value == nil {

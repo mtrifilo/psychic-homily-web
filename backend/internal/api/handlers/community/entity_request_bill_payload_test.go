@@ -65,7 +65,7 @@ func TestCreateEntityRequest_ShowBillInvalidRole422AtSubmit(t *testing.T) {
 
 	_, err := h.CreateEntityRequestHandler(erUserCtx(), req)
 	testhelpers.AssertHumaErrorWithDetail(t, err, 422,
-		`payload artists[1].set_type "support" is not a valid set type (allowed: `+
+		communitym.ShowPayloadBillField+`[1].set_type "support" is not a valid set type (allowed: `+
 			contracts.SetTypeVocabularyCSV()+`)`)
 }
 
@@ -182,22 +182,31 @@ func TestBuildShowAssociations_DuplicateActRejected(t *testing.T) {
 	_, err := buildShowAssociations(validVenue, []ShowArtistInput{
 		{Name: "Boris"},
 		{Name: "boris"},
-	}, billFieldBody)
+	}, billSourceBody)
 	testhelpers.AssertHumaErrorWithDetail(t, err, 422, `show_artists names an act twice ("boris")`)
 
 	// A payload-sourced duplicate names the payload, not a show_artists the
-	// admin never sent.
+	// admin never sent, and it names it with the SAME label the model validator
+	// uses, so one defect never answers to two field names.
 	_, err = buildShowAssociations(validVenue, []ShowArtistInput{
 		{Name: "Boris"},
 		{Name: "Boris "},
-	}, billFieldPayload)
-	testhelpers.AssertHumaErrorWithDetail(t, err, 422, `payload artists names an act twice ("Boris")`)
+	}, billSourcePayload)
+	testhelpers.AssertHumaErrorWithDetail(t, err, 422,
+		communitym.ShowPayloadBillField+` names an act twice ("Boris")`)
+
+	stored := communitym.ValidateShowPayloadArtists([]communitym.ShowRequestArtist{
+		{Name: "Boris"}, {Name: "Boris "},
+	})
+	require.Error(t, stored)
+	assert.Equal(t, communitym.ShowPayloadBillField+` names an act twice ("Boris")`, stored.Error(),
+		"the stored-bill validator and the bill builder must word the same defect identically")
 }
 
-// The property the shared cap constant exists for, asserted as behavior rather
-// than as a constant compared with itself: a bill of exactly the size the QUEUE
-// accepts is still approvable. If the approve path ever re-stated a smaller
-// number, this fails.
+// The property the shared cap constant exists for: a bill of exactly the size
+// the QUEUE accepts is still approvable, and one act more is not. It has teeth
+// against the approve path re-stating a smaller number, which is the drift the
+// aliasing prevents; it says nothing about the cap's value.
 func TestBuildShowAssociations_AcceptsAFullQueueSizedBill(t *testing.T) {
 	validVenue := &ShowVenueInput{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
 
@@ -206,11 +215,11 @@ func TestBuildShowAssociations_AcceptsAFullQueueSizedBill(t *testing.T) {
 		acts = append(acts, ShowArtistInput{Name: fmt.Sprintf("Act %d", i)})
 	}
 
-	assoc, err := buildShowAssociations(validVenue, acts, billFieldBody)
+	assoc, err := buildShowAssociations(validVenue, acts, billSourceBody)
 	require.NoError(t, err, "the largest submittable bill must still be approvable")
 	assert.Len(t, assoc.artists, communitym.MaxShowRequestArtists)
 
-	_, err = buildShowAssociations(validVenue, append(acts, ShowArtistInput{Name: "One Too Many"}), billFieldBody)
+	_, err = buildShowAssociations(validVenue, append(acts, ShowArtistInput{Name: "One Too Many"}), billSourceBody)
 	testhelpers.AssertHumaError(t, err, 422)
 }
 
@@ -279,7 +288,7 @@ func TestResolveShowBill(t *testing.T) {
 		assert.Nil(t, got[1].SetType, "an act with no stated role stays uncurated")
 		assert.Nil(t, got[0].ID, "the payload carries no artist ids")
 		assert.Nil(t, got[0].IsHeadliner, "the payload states roles, not flags")
-		assert.Equal(t, billFieldPayload, field,
+		assert.Equal(t, billSourcePayload, field,
 			"a 422 about this bill must name the payload, not a show_artists the admin never sent")
 	})
 
@@ -291,7 +300,7 @@ func TestResolveShowBill(t *testing.T) {
 		got, field := resolveShowBill([]ShowArtistInput{{Name: "Sunn O)))"}}, showReq())
 		require.Len(t, got, 1, "the payload's acts must not be appended to the body's")
 		assert.Equal(t, "Sunn O)))", got[0].Name)
-		assert.Equal(t, billFieldBody, field)
+		assert.Equal(t, billSourceBody, field)
 	})
 
 	t.Run("a role is never borrowed from the payload for a body act", func(t *testing.T) {
@@ -308,7 +317,7 @@ func TestResolveShowBill(t *testing.T) {
 		// refill it: only an ABSENT key is a gap.
 		got, field := resolveShowBill([]ShowArtistInput{}, showReq())
 		assert.Empty(t, got, "an empty body bill must not be refilled from the payload")
-		assert.Equal(t, billFieldBody, field)
+		assert.Equal(t, billSourceBody, field)
 	})
 
 	t.Run("no bill anywhere stays no bill", func(t *testing.T) {
@@ -562,11 +571,15 @@ func TestAdminDecide_ApproveShow_EmptyBodyBillDoesNotPrefill(t *testing.T) {
 	assert.Nil(t, got)
 }
 
-// A payload bill on which NOBODY states a role is left entirely alone: no act is
-// pinned, so the show service's position-0 fallback still applies. The
-// suppression fires only once some act states a role, exactly as for an
-// admin-typed bill (PSY-1705).
-func TestAdminDecide_ApproveShow_UndescribedPayloadBillKeepsPositionInference(t *testing.T) {
+// A names-only PAYLOAD bill never gets the position-0 headliner guess. The
+// ticket's rule is "an act with no stated role resolves to performer", and a
+// contributor's list ORDER is not a role: it is whatever they typed, or whatever
+// an extractor emitted. Inferring from it would assert a headliner nobody chose.
+//
+// This is the one place the payload bill deliberately differs from an
+// admin-typed one, where an entirely undescribed bill still falls back to
+// position 0 (PSY-1705). See buildShowAssociations.
+func TestAdminDecide_ApproveShow_NamesOnlyPayloadBillInfersNoHeadliner(t *testing.T) {
 	raw := showRequestPayload(t, "Nobody Stated A Role",
 		communitym.ShowRequestArtist{Name: "Boris"},
 		communitym.ShowRequestArtist{Name: "Earth"},
@@ -585,8 +598,27 @@ func TestAdminDecide_ApproveShow_UndescribedPayloadBillKeepsPositionInference(t 
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	for i, a := range got.Artists {
+		require.NotNil(t, a.IsHeadliner, "artists[%d] must be pinned, not left to bill order", i)
+		assert.False(t, *a.IsHeadliner,
+			"artists[%d] stated no role, so it must not be inferred as the headliner", i)
+	}
+}
+
+// The admin path's own behavior is UNCHANGED by that rule: an entirely
+// undescribed bill an admin typed is still left alone, so no caller predating
+// set_type on this endpoint sees a different outcome (PSY-1705). The asymmetry
+// is deliberate and this is the pair that pins it.
+func TestBuildShowAssociations_UndescribedBodyBillStillDefersToPosition(t *testing.T) {
+	validVenue := &ShowVenueInput{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
+
+	assoc, err := buildShowAssociations(validVenue, []ShowArtistInput{
+		{Name: "Boris"},
+		{Name: "Earth"},
+	}, billSourceBody)
+	require.NoError(t, err)
+	for i, a := range assoc.artists {
 		assert.Nil(t, a.IsHeadliner,
-			"artists[%d].IsHeadliner must stay nil on an undescribed bill, so the change is additive", i)
+			"artists[%d].IsHeadliner must stay nil on an admin's undescribed bill", i)
 	}
 }
 
@@ -713,6 +745,120 @@ func TestAdminFulfill_Show_BodyBillBeatsPayloadBill(t *testing.T) {
 	assert.Equal(t, []string{"Boris/dj"}, billNames(got.Artists))
 }
 
+// rescueHandlerFor wires a rescue handler over one approved-but-unfulfilled row,
+// recording whether the catalog create was reached.
+func rescueHandlerFor(t *testing.T, orphan *communitym.EntityRequest, created *bool) *EntityRequestHandler {
+	t.Helper()
+	return NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			GetRequestFn:             func(requestID uint) (*communitym.EntityRequest, error) { return orphan, nil },
+			ClaimRescueFulfillmentFn: func(requestID, createdEntityID uint) (bool, error) { return true, nil },
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateShowFn: func(req *contracts.CreateShowRequest) (*contracts.ShowResponse, error) {
+				*created = true
+				return &contracts.ShowResponse{ID: 904}, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+}
+
+// The rescue path runs the same pre-claim stored-bill check as decide, with no
+// PENDING gate (a rescuable row is approved-but-unfulfilled by definition), so a
+// structurally broken stored bill is refused BEFORE the catalog create rather
+// than failing inside it and leaving a second orphan behind.
+func TestAdminFulfill_Show_StoredStructuralDefects422BeforeCreate(t *testing.T) {
+	cases := map[string]string{
+		"duplicate acts": `[{"name":"Boris"},{"name":"boris"}]`,
+		"blank name":     `[{"name":"Boris"},{"name":"   "}]`,
+	}
+	for name, bill := range cases {
+		t.Run(name, func(t *testing.T) {
+			raw := json.RawMessage(`{"title":"Legacy Row","event_date":"2026-09-12T21:00:00-07:00","artists":` + bill + `}`)
+			orphan := approvedUnfulfilledRequest(84, communitym.EntityRequestShow)
+			orphan.Payload = &raw
+
+			created := false
+			h := rescueHandlerFor(t, orphan, &created)
+
+			req := &AdminFulfillEntityRequestRequest{ID: "84"}
+			req.Body.ShowVenue = &ShowVenueInput{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
+
+			_, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)
+			testhelpers.AssertHumaError(t, err, 422)
+			assert.False(t, created, "a broken stored bill must not reach the catalog create")
+		})
+	}
+}
+
+// A stored ROLE the vocabulary no longer accepts must NOT block a rescue whose
+// body carries a good bill of its own. The body supersedes the payload, and
+// fulfillEntity's re-validation checks structure but not roles, so there is no
+// post-claim failure to pre-empt: refusing here would turn a rescuable row into
+// a void-only one, discarding the contributor's request and their attribution.
+func TestAdminFulfill_Show_StoredBadRoleDoesNotBlockAnAdminsOwnBill(t *testing.T) {
+	raw := json.RawMessage(`{"title":"Legacy Row","event_date":"2026-09-12T21:00:00-07:00",` +
+		`"artists":[{"name":"Boris","set_type":"co-headliner"}]}`)
+	orphan := approvedUnfulfilledRequest(85, communitym.EntityRequestShow)
+	orphan.Payload = &raw
+
+	created := false
+	h := rescueHandlerFor(t, orphan, &created)
+
+	req := &AdminFulfillEntityRequestRequest{ID: "85"}
+	req.Body.ShowVenue = &ShowVenueInput{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
+	req.Body.ShowArtists = []ShowArtistInput{{Name: "Boris"}}
+
+	_, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)
+	require.NoError(t, err, "the admin's own bill is what gets fulfilled; the stored role is never read")
+	assert.True(t, created)
+}
+
+// The same rule on the decide path: a stored role nothing reads must not refuse
+// an approve that carries its own bill.
+func TestAdminDecide_ApproveShow_StoredBadRoleDoesNotBlockAnAdminsOwnBill(t *testing.T) {
+	raw := json.RawMessage(`{"title":"Legacy Row","event_date":"2026-09-12T21:00:00-07:00",` +
+		`"artists":[{"name":"Boris","set_type":"co-headliner"}]}`)
+	pending := pendingRequest(86, communitym.EntityRequestShow)
+	pending.Payload = &raw
+
+	decideCalled := false
+	var got *contracts.CreateShowRequest
+	h := decideHandler(t, pending, &got, &decideCalled)
+
+	req := &AdminDecideEntityRequestRequest{ID: "86"}
+	req.Body.Decision = "approved"
+	req.Body.ShowVenue = &ShowVenueInput{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
+	req.Body.ShowArtists = []ShowArtistInput{{Name: "Boris"}}
+
+	_, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
+	require.NoError(t, err)
+	assert.True(t, decideCalled)
+	require.NotNil(t, got)
+	assert.Equal(t, []string{"Boris/-"}, billNames(got.Artists))
+}
+
+// The rescue endpoint's refusals speak in its OWN verb. A payload bill made the
+// venue-missing branch newly reachable here, where the shared builder used to
+// answer "Approving a show ..." for a call that approves nothing.
+func TestAdminFulfill_Show_MissingVenueDoesNotSayApproving(t *testing.T) {
+	raw := showRequestPayload(t, "Deferred Show", communitym.ShowRequestArtist{Name: "Boris"})
+	orphan := approvedUnfulfilledRequest(87, communitym.EntityRequestShow)
+	orphan.Payload = &raw
+
+	created := false
+	h := rescueHandlerFor(t, orphan, &created)
+
+	req := &AdminFulfillEntityRequestRequest{ID: "87"}
+
+	_, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 422)
+	assert.False(t, created)
+	assert.NotContains(t, strings.ToLower(err.Error()), "approving",
+		"a fulfill must not be told to check an approve it never made")
+}
+
 // A non-show rescue is untouched by any of this: nothing looks for a bill, and
 // a stray show_artists on the body is still ignored rather than misread.
 func TestAdminFulfill_NonShow_IgnoresBillPrefill(t *testing.T) {
@@ -783,6 +929,40 @@ func (s *EntityRequestSetTypeIntegrationSuite) TestFulfillShow_PayloadBillPersis
 		Where("show_id = ? AND set_type = ?", *resp.Body.CreatedEntityID, contracts.SetTypeHeadliner).
 		Count(&headliners).Error)
 	s.EqualValues(1, headliners, "a curated payload bill must not gain a position-inferred headliner")
+}
+
+// The names-only case, proved at the COLUMN rather than at the contract struct:
+// a bill on which the contributor stated no roles at all lands every act on
+// 'performer', with NO headliner row. Bill order is not a role, so nothing
+// infers one from it.
+//
+// This is the acceptance criterion "an act with no stated role resolves to
+// performer" holding for every act, not for every act except the first.
+func (s *EntityRequestSetTypeIntegrationSuite) TestFulfillShow_NamesOnlyPayloadBillHasNoHeadliner() {
+	orphan := s.showOrphan("Names Only",
+		communitym.ShowRequestArtist{Name: "Boris"},
+		communitym.ShowRequestArtist{Name: "Earth"},
+	)
+	h := s.rescueHandler(orphan)
+
+	req := &AdminFulfillEntityRequestRequest{ID: "1"}
+	req.Body.ShowVenue = &ShowVenueInput{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
+
+	resp, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)
+	s.Require().NoError(err)
+	s.Require().NotNil(resp.Body.CreatedEntityID)
+
+	got := s.setTypesByPosition(*resp.Body.CreatedEntityID)
+	s.Equal(contracts.SetTypePerformer, got[0],
+		"the first act stated no role, so it must not become the headliner by position")
+	s.Equal(contracts.SetTypePerformer, got[1])
+
+	var headliners int64
+	s.Require().NoError(s.deps.DB.
+		Table("show_artists").
+		Where("show_id = ? AND set_type = ?", *resp.Body.CreatedEntityID, contracts.SetTypeHeadliner).
+		Count(&headliners).Error)
+	s.Zero(headliners, "a bill nobody described must not assert a headliner nobody chose")
 }
 
 // A headliner stated anywhere but position 0 on a PAYLOAD bill is still the

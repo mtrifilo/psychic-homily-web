@@ -150,7 +150,7 @@ func (h *EntityRequestHandler) AdminFulfillEntityRequestHandler(ctx context.Cont
 		// is exactly where an auto-approved show carrying a contributor's bill
 		// lands. The decide path's PENDING gate has no counterpart here.
 		var aerr error
-		showAssoc, aerr = prepareShowFulfillment(existing, req.Body.ShowVenue, req.Body.ShowArtists)
+		showAssoc, aerr = admitShowBill(existing, req.Body.ShowVenue, req.Body.ShowArtists)
 		if aerr != nil {
 			return nil, aerr
 		}

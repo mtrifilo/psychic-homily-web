@@ -61,7 +61,12 @@ func NewEntityRequestHandler(
 type CreateEntityRequestRequest struct {
 	Body struct {
 		EntityType    string                                `json:"entity_type" doc:"Entity type to request (artist, venue, label, release, show, festival)"`
-		Payload       json.RawMessage                       `json:"payload" doc:"Typed creation payload for the entity_type"`
+		// The payload is json.RawMessage, so NOTHING about its shape reaches the
+		// generated OpenAPI document: the doc string is the only contract a
+		// producer author sees. The show bill's two rules are stated here for
+		// that reason (PSY-1858): a producer that defaults set_type instead of
+		// omitting it gets a show with no headliner at all, silently.
+		Payload json.RawMessage `json:"payload" doc:"Typed creation payload for the entity_type. A show payload may carry the bill as artists: [{name, set_type?}], name only, no id, at most 50 acts. OMIT set_type for an act whose slot is unknown; do not default it to 'performer', which states a role and is not the same as saying nothing. When set_type is present it must be one of: headliner, direct_support, opener, special_guest, dj, performer."`
 		SourceContext string                                `json:"source_context" required:"false" doc:"How the request originated (ai_extraction, paste_mode, manual); defaults to manual"`
 		SourceDetail  *communitym.EntityRequestSourceDetail `json:"source_detail" required:"false" doc:"Optional origin context (source URL + excerpt), chiefly for AI extraction; shown in the admin moderation queue"`
 		Confirmed     bool                                  `json:"confirmed" required:"false" doc:"FE-side confirm step (only relevant to trusted_contributor tier)"`
@@ -125,11 +130,11 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 	// fulfillment is rejected after the row has been claimed, and no endpoint can
 	// edit a queued payload to repair it. The check is not inside
 	// ValidateEntityRequestPayload only because the vocabulary lives in a package
-	// that imports the payload models; see validateShowPayloadBill, which is the
-	// same call all three trust boundaries make. Its structure half is a no-op
-	// here, having just run above. Ordered ahead of the image-URL guard because
-	// it is a pure in-memory check and that one can resolve DNS.
-	if err := validateShowPayloadBill(entityType, req.Body.Payload); err != nil {
+	// that imports the payload models; see validateShowPayloadBillRoles. The
+	// bill's STRUCTURE was already checked by ValidateEntityRequestPayload above.
+	// Ordered ahead of the image-URL guard because it is a pure in-memory check
+	// and that one can resolve DNS.
+	if err := validateShowPayloadBillRoles(entityType, req.Body.Payload); err != nil {
 		return nil, err
 	}
 
@@ -468,8 +473,8 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 	// claim. Decide only operates on pending rows, so a post-claim failure
 	// would leave an approved-but-unfulfilled row no decide call can ever
 	// re-process. Costs one PK read, only on the approve path. Every check that
-	// reads the stored row is scoped to PENDING rows so an already-decided row
-	// still gets Decide's 409 (invalid state), never a misleading 422.
+	// reads the stored row is scoped to PENDING rows, so nothing the row contains
+	// can pre-empt Decide's 409 (invalid state) on an already-decided one.
 	//
 	// PSY-1675 rides on the same pre-claim read for the same reason: a stored
 	// image_url pointing at an internal address must not be fulfilled, and a
@@ -481,9 +486,10 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 	//
 	// PSY-1858 is why the read now happens BEFORE the association build rather
 	// than after it: a bill the admin body omits is prefilled from the stored
-	// payload, so the conversion needs the row in hand. The only visible
-	// consequence is error precedence: an approve naming a row that cannot be
-	// loaded now reports that, ahead of any complaint about the body.
+	// payload, so the conversion needs the row in hand. Nothing else moved. A
+	// read that ERRORS still reports ahead of any complaint about the body, and a
+	// read that finds nothing (GetRequest answers (nil, nil) for a missing row)
+	// still falls through to Decide, which is what turns it into the 404.
 	var showAssoc *showAssociations
 	if newState == communitym.EntityRequestStateApproved {
 		existing, gerr := h.entityRequestService.GetRequest(uint(requestID))
@@ -498,27 +504,28 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 			return nil, huma.Error500InternalServerError("Failed to load request")
 		}
 
-		// Every pre-claim check below is scoped to a PENDING row, the prefill
-		// included. Decide claims only pending rows, so for anything else the
-		// honest answer is its 409 (invalid state); a 422 about a bill the admin
-		// never typed would report the wrong problem entirely and read as though
-		// re-sending the request with a bill could fix it.
-		// eligible is the row when every pre-claim check below may act on it, and
-		// nil otherwise. Decide claims only PENDING rows, so for anything else the
-		// honest answer is its 409 (invalid state); a 422 about a payload the
-		// admin never sent would report the wrong problem entirely and read as
-		// though re-sending the request could fix it. The prefill is scoped by the
-		// same value, which is the whole reason it is one variable.
+		// eligible is the row when the checks that READ IT may act on it, and nil
+		// otherwise. Decide claims only PENDING rows, so for anything else the
+		// honest answer is its 409 (invalid state); a 422 about a stored payload
+		// the admin never sent would report the wrong problem entirely and read as
+		// though re-sending the request with a bill could fix it. The prefill is
+		// scoped by the same value, which is the whole reason it is one variable.
+		//
+		// This does NOT make an already-decided row immune to every 422: the
+		// admin's own body is still shape-checked first, exactly as it was before
+		// any of this, so an approve supplying a venue and no bill is refused on
+		// its own merits whatever state the row is in. What the gate buys is that
+		// nothing the STORED row contains can produce that refusal.
 		var eligible *communitym.EntityRequest
 		if existing != nil && existing.DecisionState == communitym.EntityRequestStatePending {
 			eligible = existing
 		}
 
-		// PSY-1858: one shared pre-claim sequence with the rescue endpoint
+		// PSY-1858: one shared pre-claim admission check with the rescue endpoint
 		// (validate the stored bill, resolve body-vs-payload, build), so the two
-		// admin paths cannot answer the same request differently.
+		// admin paths cannot answer the same bill differently.
 		var aerr error
-		showAssoc, aerr = prepareShowFulfillment(eligible, req.Body.ShowVenue, req.Body.ShowArtists)
+		showAssoc, aerr = admitShowBill(eligible, req.Body.ShowVenue, req.Body.ShowArtists)
 		if aerr != nil {
 			return nil, aerr
 		}
