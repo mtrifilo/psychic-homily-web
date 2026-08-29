@@ -67,7 +67,7 @@ describe('EpisodeArchiveTable', () => {
     // the [mp3] link announces the SAME viewer-local date the cell shows
     expect(
       screen.getByRole('link', {
-        name: 'Listen to the Jun 9 2026 archive (opens in a new tab)',
+        name: /^Listen to the Jun 9 2026 archive\b/,
       })
     ).toBeInTheDocument()
     // the deep-link stays keyed on the station-dated air_date
@@ -128,10 +128,10 @@ describe('EpisodeArchiveTable', () => {
         episodes={[makeEpisode({ archive_url: 'https://example.com/ep.mp3' })]}
       />
     )
-    // PSY-1865: a BracketLink `external` now, so the row's date context stays
-    // in ariaLabel and the new-tab announcement is appended by the component.
+    // Every row's bracket reads "mp3", so the date is what disambiguates them.
+    // Assert only that half; the bracket primitive's suite owns the suffix.
     const mp3 = screen.getByRole('link', {
-      name: 'Listen to the Jun 2 2026 archive (opens in a new tab)',
+      name: /^Listen to the Jun 2 2026 archive\b/,
     })
     expect(mp3).toHaveAttribute('href', 'https://example.com/ep.mp3')
     expect(mp3).toHaveAttribute('target', '_blank')
@@ -159,7 +159,10 @@ describe('EpisodeArchiveTable', () => {
       />
     )
     expect(screen.getByText('live')).toBeInTheDocument()
-    expect(screen.queryByText('[ mp3 ]')).not.toBeInTheDocument()
+    // Queried by ROLE, not text: an unusable archive_url renders BracketLink's
+    // disabled BUTTON fallback, which a link-only query would miss entirely.
+    expect(screen.queryByRole('link', { name: /mp3/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /mp3/ })).not.toBeInTheDocument()
   })
 
   // PSY-1128 regression: an episode whose air window has ENDED is NOT live, even
@@ -204,7 +207,8 @@ describe('EpisodeArchiveTable', () => {
       />
     )
     expect(screen.getByText('upcoming')).toBeInTheDocument()
-    expect(screen.queryByText('[ mp3 ]')).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /mp3/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /mp3/ })).not.toBeInTheDocument()
     expect(screen.queryByText('live')).not.toBeInTheDocument()
     // date + title render as plain text, not links to the not-yet-aired page
     expect(screen.queryByRole('link')).not.toBeInTheDocument()

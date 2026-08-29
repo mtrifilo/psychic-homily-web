@@ -193,10 +193,8 @@ describe('BracketLink', () => {
       )
     })
 
-    // PSY-1865: the announcement is the component's, so no call site writes
-    // (or forgets) it. Before this, four call sites hand-wrote the string and
-    // ImageAttribution announced it over a same-tab <Link> — behavior and
-    // claim had no single place to disagree in.
+    // The announcement belongs to the component so that no call site can write
+    // it, forget it, or let it drift from the target it describes.
     it('appends the new-tab announcement to a caller ariaLabel rather than replacing it', () => {
       render(
         <BracketLink
@@ -213,12 +211,38 @@ describe('BracketLink', () => {
       ).toBeInTheDocument()
     })
 
-    it('announces the new tab exactly once', () => {
-      render(<BracketLink label="Buy Tickets ↗" href="https://tix.test" external />)
+    // The failure this guards is a caller writing the announcement by hand —
+    // the exact habit the consolidation replaced, so the one most likely to
+    // come back. Passing no ariaLabel here would make the assertion
+    // arithmetically true and pin nothing.
+    it('announces the new tab exactly once when a caller hand-writes it too', () => {
+      render(
+        <BracketLink
+          label="Buy Tickets ↗"
+          href="https://tix.test"
+          external
+          ariaLabel="Buy tickets (opens in a new tab)"
+        />
+      )
       const name = screen
         .getByRole('link')
         .getAttribute('aria-label') as string
       expect(name.match(/opens in a new tab/g)).toHaveLength(1)
+      expect(name).toBe('Buy tickets (opens in a new tab)')
+    })
+
+    it('falls back to the visible label when ariaLabel is blank', () => {
+      render(
+        <BracketLink
+          label="Buy Tickets ↗"
+          href="https://tix.test"
+          external
+          ariaLabel="   "
+        />
+      )
+      expect(
+        screen.getByRole('link', { name: 'Buy Tickets ↗ (opens in a new tab)' })
+      ).toBeInTheDocument()
     })
 
     it('leaves internal links in the same tab, with no new-tab announcement', () => {
@@ -229,7 +253,7 @@ describe('BracketLink', () => {
     })
 
     // The disabled fallback opens nothing, so announcing a new tab there would
-    // be the same class of lie PSY-1865 removed.
+    // be the same mismatch between claim and behavior this design removes.
     it('still falls back to a disabled button when disabled, without announcing a new tab', () => {
       render(
         <BracketLink label="Directions ↗" href="https://maps.example" external disabled />

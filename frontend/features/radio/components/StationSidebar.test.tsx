@@ -81,19 +81,22 @@ beforeEach(() => {
   mockUseNewReleaseRadar.mockReturnValue({ data: undefined })
 })
 
-// PSY-1865: this box used to own a private `ExternalBracketLink` — a
-// hand-rolled anchor that duplicated BracketLink's markup and, being separate,
-// never picked up the shared primitive's announcement or its http(s) floor.
+// These links go through the shared bracket primitive rather than a local
+// anchor, so they inherit its announcement and its http(s) floor. A private
+// copy of that markup would silently miss both.
 describe('StationSidebar — STATION info box outbound links', () => {
   it('renders the website link as an outbound bracket announced once', () => {
     render(<StationSidebar station={makeStation({ website: 'https://wfmu.org' })} />)
 
-    const site = screen.getByRole('link', {
-      name: 'wfmu.org ↗ (opens in a new tab)',
-    })
+    const site = screen.getByRole('link', { name: /^wfmu\.org/ })
     expect(site).toHaveAttribute('href', 'https://wfmu.org')
     expect(site).toHaveAttribute('target', '_blank')
     expect(site).toHaveAttribute('rel', 'noopener noreferrer')
+    // The suffix itself is BracketLink's contract; assert only that it is
+    // present exactly once, not its wording.
+    expect(
+      site.getAttribute('aria-label')?.match(/opens in a new tab/g)
+    ).toHaveLength(1)
   })
 
   it('renders donation and social links as outbound brackets too', () => {
@@ -107,17 +110,20 @@ describe('StationSidebar — STATION info box outbound links', () => {
     )
 
     expect(
-      screen.getByRole('link', { name: 'donate (opens in a new tab)' })
+      screen.getByRole('link', { name: /^donate\b/ })
     ).toHaveAttribute('target', '_blank')
     expect(
-      screen.getByRole('link', { name: 'bluesky ↗ (opens in a new tab)' })
+      screen.getByRole('link', { name: /^bluesky/ })
     ).toHaveAttribute('href', 'https://bsky.app/profile/wfmu')
   })
 
-  // Inherited from BracketLink's `external` scheme floor. The old hand-rolled
-  // anchor rendered whatever the admin-entered column held; a non-http
-  // donation_url now degrades to the disabled fallback instead of shipping a
-  // live javascript:/data: href into the sidebar.
+  // Inherited from the bracket primitive's `external` scheme floor: these
+  // columns are admin-entered free text, so a non-http value degrades to the
+  // disabled fallback here rather than shipping a live javascript:/data: href.
+  //
+  // Scoped to THIS box on purpose — the same columns are rendered as raw
+  // anchors elsewhere on the station page, so this asserts nothing about the
+  // field in general.
   it('degrades a non-http donation url to a disabled control, never an anchor', () => {
     render(
       <StationSidebar station={makeStation({ donation_url: 'javascript:alert(1)' })} />

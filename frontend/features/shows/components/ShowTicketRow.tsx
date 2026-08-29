@@ -59,7 +59,16 @@ export function ShowTicketRow({ show, lifecycle }: ShowTicketRowProps) {
 
       <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
         {buyHref && (
-          <BracketLink label="Buy Tickets ↗" href={buyHref} external />
+          // Keeps the pre-existing announced name: the ↗ is a VISUAL outbound
+          // marker, and letting it into the accessible name has a screen
+          // reader read "north east arrow" right before the suffix says the
+          // same thing in words. Only the new-tab claim moved to BracketLink.
+          <BracketLink
+            label="Buy Tickets ↗"
+            href={buyHref}
+            external
+            ariaLabel="Buy tickets"
+          />
         )}
         <ShowAddToCalendar show={show} />
         {/* SaveButton's bracket branch defaults to the header-linkbox

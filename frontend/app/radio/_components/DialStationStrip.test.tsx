@@ -287,10 +287,11 @@ describe('DialStationStrip', () => {
     ).toHaveAttribute('href', '/radio/wfmu-drummer/honky-tonk')
     expect(screen.getByText(/w\/ Becky/)).toBeInTheDocument()
 
-    // PSY-1865: now a BracketLink `external` (was a hand-rolled anchor), so the
-    // brackets are aria-hidden and the new-tab announcement is appended.
+    // Named per channel: this row repeats down the dial, so a bare "listen"
+    // would announce identically for every stream. The bracket primitive's own
+    // suite owns the new-tab suffix, so match only the disambiguating half.
     const listen = screen.getByRole('link', {
-      name: 'listen (opens in a new tab)',
+      name: /^Listen to Give the Drummer Radio\b/,
     })
     expect(listen).toHaveAttribute('href', 'https://wfmu.org/drummer')
     expect(listen).toHaveAttribute('target', '_blank')

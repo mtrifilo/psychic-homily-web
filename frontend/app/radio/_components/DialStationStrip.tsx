@@ -363,6 +363,10 @@ function DialChannelRow({
           href={channelDetail.website}
           external
           className="font-mono text-xs text-primary hover:text-primary/80"
+          // Names the channel: this row repeats per channel and again per
+          // station, so a bare "listen" would announce identically down the
+          // whole dial with nothing to tell the streams apart.
+          ariaLabel={`Listen to ${channel.name}`}
         />
       )}
     </li>

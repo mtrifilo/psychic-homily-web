@@ -5,6 +5,38 @@ import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 
+const NEW_TAB_ANNOUNCEMENT = 'opens in a new tab'
+
+/**
+ * Appends the outbound announcement to an accessible name, idempotently.
+ *
+ * The idempotence is the point, not politeness: the whole reason this moved
+ * into the component is that hand-written copies of this phrase drifted from
+ * the `target` they described. A caller that writes it anyway (the habit this
+ * replaced, and the obvious thing to reach for) would otherwise ship a name
+ * that says it twice, which reads as a stutter to a screen reader and is
+ * invisible in a visual diff. Absorbing the duplicate keeps the bad habit from
+ * having a bad OUTCOME while the JSDoc discourages the habit itself.
+ *
+ * Callers resolve the base name first (see `resolveName`), so this never has
+ * to guess what an empty string meant.
+ */
+function announceNewTab(name: string): string {
+  if (name.toLowerCase().includes(NEW_TAB_ANNOUNCEMENT)) return name
+  return `${name} (${NEW_TAB_ANNOUNCEMENT})`
+}
+
+/**
+ * The accessible name before any outbound suffix: an explicit `ariaLabel`,
+ * else the visible label. A blank/whitespace `ariaLabel` is treated as absent
+ * rather than honored — an empty accessible name is never what a caller
+ * building one by interpolation (`${room.name} website`) intended, and an
+ * unnamed control is worse than a redundant one.
+ */
+function resolveName(ariaLabel: string | undefined, label: string): string {
+  return ariaLabel?.trim() || label
+}
+
 export interface BracketLinkProps
   extends Omit<
     React.ButtonHTMLAttributes<HTMLButtonElement>,
@@ -25,18 +57,29 @@ export interface BracketLinkProps
    * `href` points OUTSIDE the app: renders a plain anchor with
    * `target="_blank" rel="noopener noreferrer"` instead of a Next `<Link>`,
    * and appends "(opens in a new tab)" to the accessible name.
-   * Callers put the outbound marker in the label themselves ("Directions ↗")
-   * so the glyph stays part of the announced name, but must NOT hand-write the
-   * new-tab announcement — this component owns it. Ignored without `href`.
+   *
+   * Callers put the outbound marker in the visible label themselves
+   * ("Directions ↗") so the glyph is not this component's business. The
+   * new-tab announcement IS: do not hand-write it into `ariaLabel`, or the
+   * claim and the `target` it describes can drift apart again. A caller string
+   * that already carries the phrase is used as-is rather than doubled.
+   *
+   * Only `http(s)` hrefs are honored — anything else renders the disabled
+   * fallback instead of a live anchor (see the scheme floor below). Marking a
+   * RELATIVE href `external` therefore yields a dead control, not a link.
+   *
+   * Ignored without `href`.
    */
   external?: boolean
   /** Visual variant. `danger` is red for destructive actions like [Remove] / [Delete] / [X]. */
   variant?: 'default' | 'danger'
   /**
    * ARIA label override (defaults to the visible label). Use it for CONTEXT the
-   * label leaves out ("Crescent Ballroom website" for a bare `[site ↗]` in a
-   * list), never for the outbound announcement — with `external`, the
-   * "(opens in a new tab)" suffix is appended to whatever this resolves to.
+   * visible label leaves out — the room name behind a bare `[site ↗]` repeated
+   * down a list, the date behind a column of `[mp3]`. Without it, every row in
+   * such a list announces the same name.
+   *
+   * Never write the outbound announcement here; `external` appends it.
    */
   ariaLabel?: string
 }
@@ -61,6 +104,11 @@ export interface BracketLinkProps
  *   <BracketLink label="Following" active onClick={handleUnfollow} />
  *   <BracketLink label="View history" href={`/artists/${slug}/history`} />
  *   <BracketLink label="X" variant="danger" onClick={handleRemove} title="Remove" />
+ *   <BracketLink label="site ↗" href={room.website} external ariaLabel={`${room.name} website`} />
+ *
+ * That last line is the whole outbound split: the glyph rides in `label`, the
+ * disambiguating context rides in `ariaLabel`, and "(opens in a new tab)" is
+ * appended by this component — callers never write it.
  */
 export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
   function BracketLink(
@@ -144,23 +192,20 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
       // cannot silently skip the external ones — both render as an <a> and
       // the omission would be invisible in review. Spread BEFORE the literal
       // target/rel so the bag can never override the hygiene attributes.
-      // The outbound announcement is COMPONENT-owned (PSY-1865): one owner, no
-      // drift. Before this, four call sites hand-wrote "(opens in a new tab)"
-      // into their own aria strings and a fifth (ImageAttribution) announced it
-      // while rendering a same-tab <Link> — the claim and the behavior had no
-      // single place to disagree in. Appending it HERE, next to the literal
-      // target="_blank" below, makes the two impossible to separate.
+      // The outbound announcement is COMPONENT-owned: one owner, no drift.
+      // Appending it HERE, next to the literal target="_blank" below, is what
+      // keeps the claim and the behavior it describes from being edited apart.
       //
       // Deliberately NOT applied to the disabled-button fallback further down:
       // that branch opens nothing, so announcing a new tab would be the same
-      // class of lie this fixes.
+      // class of lie this exists to prevent.
       const anchorProps = {
         onClick: onClick as React.MouseEventHandler | undefined,
         className: classes,
         title,
         'aria-label': external
-          ? `${ariaLabel ?? label} (opens in a new tab)`
-          : (ariaLabel ?? label),
+          ? announceNewTab(resolveName(ariaLabel, label))
+          : resolveName(ariaLabel, label),
       }
       if (external) {
         return (
@@ -190,7 +235,7 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
         disabled={effectiveDisabled}
         className={classes}
         title={title}
-        aria-label={ariaLabel ?? label}
+        aria-label={resolveName(ariaLabel, label)}
         aria-pressed={active || undefined}
         {...rest}
       >

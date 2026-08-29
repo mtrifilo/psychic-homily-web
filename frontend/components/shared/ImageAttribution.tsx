@@ -48,9 +48,16 @@ export function ImageAttribution({
 
   const wrapClass = `text-xs text-muted-foreground ${className ?? ''}`
   const link = sourceUrl ? (
-    // `external`: these are provider linkbacks (Spotify, Discogs, Commons),
-    // always off-site. BracketLink appends "(opens in a new tab)" itself.
-    <BracketLink label={`${name} ↗`} href={sourceUrl} external />
+    // `external`: a provider linkback always leaves the app. BracketLink owns
+    // both the target/rel hygiene and the "(opens in a new tab)" suffix, and
+    // its http(s) floor is what keeps a bad stored URL from becoming a live
+    // anchor here. `ariaLabel` keeps the ↗ visual-only, as it was before.
+    <BracketLink
+      label={`${name} ↗`}
+      href={sourceUrl}
+      external
+      ariaLabel={name}
+    />
   ) : (
     <span>{name}</span>
   )
