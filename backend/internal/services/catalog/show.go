@@ -2341,7 +2341,10 @@ func (s *ShowService) attachSubmitterAttribution(resp *contracts.ShowResponse) {
 	name := shared.ResolveUserName(&user)
 	resp.SubmittedByName = &name
 
-	// Gate 3.
+	// Gate 3. NOTE this return is not like the two above: the name is already
+	// assigned and STAYS. A private profile loses only its link, because
+	// /users/{username} 404s for it — the person is still credited, as plain
+	// text. Do not move this above the assignment.
 	if user.ProfileVisibility == "private" {
 		return
 	}
