@@ -357,12 +357,21 @@ func deleteDuplicateShows(tx *gorm.DB) error {
 
 	// KNOWN GAP, recorded rather than implied (PSY-1868).
 	//
-	// This is the one remaining catalog-entity delete that sweeps no polymorphic
-	// references. The six Delete* service methods all call
-	// sweepEntityRefsForDelete now; this set-based delete does not, so every
+	// PSY-1868 wired sweepEntityRefsForDelete into the six delete methods for the
+	// six INVENTORIED catalog entity types (venue, artist, show, release, label,
+	// festival). This set-based delete is not one of them, so every
 	// entity_type='show' row for a losing show is stranded exactly as an artist
 	// delete used to strand its own — bookmarks, crate items, tags (and their
 	// share of tags.usage_count), comments, reports and history.
+	//
+	// It is NOT the only remaining stranding delete in this package, and saying so
+	// is the point of writing this down. RadioService.DeleteShow and
+	// RadioService.DeleteStation (radio.go) and TagService.DeleteTag plus the bulk
+	// delete in tag_low_quality.go are all still bare deletes, and 'radio_show',
+	// 'tag' and 'scene' are live user_bookmarks.entity_type values with no foreign
+	// key behind them. Those are outside the six-type vocabulary this sweep
+	// speaks, so each needs its own reference surface verified before it can be
+	// wired up; none of them is covered by any guard added here.
 	//
 	// It is deliberately NOT fixed here, because a sweep is the wrong repair. A
 	// losing show in this set has a WINNER (venue_merge_dup.winner_show), so its

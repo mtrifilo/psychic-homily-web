@@ -1415,10 +1415,10 @@ func (s *ShowService) DeleteShow(showID uint) error {
 	}
 
 	return s.db.Transaction(func(tx *gorm.DB) error {
-		// The row lock serializes against a concurrent write that would otherwise
-		// pass its own existence check, wait here, and then attach a reference to
-		// a show this transaction is about to delete. The other five delete paths
-		// take the same lock for the same reason.
+		// The row lock serializes this delete against the show merge and against
+		// another concurrent delete of the same show. It does not close the
+		// reference-writer race; see DeleteArtist for why, and for what closing it
+		// would take.
 		var show catalogm.Show
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&show, showID).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {

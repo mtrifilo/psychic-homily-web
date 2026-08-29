@@ -407,44 +407,70 @@ func (s *ArtistDeleteRefsSuite) TestDeleteArtist_TagUsageCountFloorsAtZero() {
 	s.Equal(0, after, "usage_count must floor at zero rather than going negative")
 }
 
-// notification_log carries an artist id the inventory loop CANNOT see: an
-// artist show-alert row keys entity_type on its own discriminator
-// ('artist_show_alert', with a SHOW in entity_id) and names the artist in
-// subject_entity_id, a column the inventory has no concept of.
+// An artist delete must NOT touch alert rows that merely name it as their
+// SUBJECT, and this is the one assertion in the file that pins an absence.
 //
-// Left behind, a user's inbox keeps an alert about a band that is no longer in
-// the catalog. This is the delete-side twin of repointAlertSubjectEntity, and it
-// is the shape a coverage guard over entity_type columns can never catch.
-func (s *ArtistDeleteRefsSuite) TestDeleteArtist_SweepsAlertRowsNamingItAsSubject() {
+// An earlier revision of PSY-1868 deleted them, reasoning that "the alert is
+// about a band that no longer exists". That was wrong twice over, and an
+// adversarial reviewer caught it:
+//
+//   - The row is keyed on the SHOW. uq_notification_log_artist_show_alert is
+//     (user_id, entity_id, channel), and claimArtistAlertRow uses that row's
+//     existence as its ON CONFLICT DO NOTHING exactly-once guard. Deleting it
+//     re-arms a duplicate EMAIL the next time the show's outbox row is
+//     reprocessed.
+//   - subject_entity_id is only the label, chosen as the first qualifying follow
+//     in bill order, so one row can stand for a user's follow of several artists
+//     on the same bill. Deleting it removes a bell entry for a show that still
+//     exists and that the user still follows another act on.
+func (s *ArtistDeleteRefsSuite) TestDeleteArtist_LeavesAlertRowsThatOnlyNameItAsSubject() {
 	artist := s.seedArtist("Alerted")
-	other := s.seedArtist("Untouched")
 	f := s.seedFixtures()
 
-	// entity_id here is a SHOW id, deliberately unrelated to either artist: the
-	// point is that the row is found through subject_entity_id or not at all.
-	const showID = 4242
+	show := &catalogm.Show{EventDate: time.Date(2026, 9, 4, 3, 0, 0, 0, time.UTC)}
+	s.Require().NoError(s.db.Create(show).Error)
+
 	s.Require().NoError(s.db.Exec(`
 		INSERT INTO notification_log (user_id, entity_type, entity_id, subject_entity_id, channel)
 		VALUES (?, ?, ?, ?, 'email')`,
-		f.user.ID, notificationm.NotificationEntityArtistShowAlert, showID, artist.ID).Error)
-	s.Require().NoError(s.db.Exec(`
-		INSERT INTO notification_log (user_id, entity_type, entity_id, subject_entity_id, channel)
-		VALUES (?, ?, ?, ?, 'email')`,
-		f.user.ID, notificationm.NotificationEntityArtistShowAlert, showID+1, other.ID).Error)
+		f.user.ID, notificationm.NotificationEntityArtistShowAlert, show.ID, artist.ID).Error)
 
 	s.Require().NoError(s.svc.DeleteArtist(artist.ID))
 
-	var stranded int64
+	var surviving int64
 	s.Require().NoError(s.db.Raw(
-		`SELECT COUNT(*) FROM notification_log WHERE subject_entity_id = ?`, artist.ID).
-		Scan(&stranded).Error)
-	s.Zero(stranded, "an alert naming the deleted artist as its subject must go with it")
+		`SELECT COUNT(*) FROM notification_log WHERE entity_type = ? AND entity_id = ?`,
+		notificationm.NotificationEntityArtistShowAlert, show.ID).Scan(&surviving).Error)
+	s.Equal(int64(1), surviving,
+		"the alert is keyed on a show that still exists and is the exactly-once guard for its "+
+			"email; deleting an artist that was merely its label must not remove it")
+}
 
-	var untouched int64
+// The one entity type for which the generic notification_log entry is NOT a
+// no-op: entity_type='show' is written with a SHOW id by the show-filter matcher
+// and the scene-follow fanout, so a show delete really does drop those inbox
+// rows through the inventory loop.
+//
+// Pinned because the disposition comment for notification_log originally claimed
+// the generic pass reached nothing at all, which was wrong for exactly this case
+// and which no test would have caught.
+func (s *ArtistDeleteRefsSuite) TestDeleteShowSweepsItsPlainNotificationLogRows() {
+	f := s.seedFixtures()
+	show := &catalogm.Show{EventDate: time.Date(2026, 9, 5, 3, 0, 0, 0, time.UTC)}
+	s.Require().NoError(s.db.Create(show).Error)
+
+	s.Require().NoError(s.db.Exec(`
+		INSERT INTO notification_log (user_id, entity_type, entity_id, channel)
+		VALUES (?, ?, ?, 'email')`,
+		f.user.ID, notificationm.NotificationEntityShow, show.ID).Error)
+
+	s.Require().NoError((&ShowService{db: s.db}).DeleteShow(show.ID))
+
+	var left int64
 	s.Require().NoError(s.db.Raw(
-		`SELECT COUNT(*) FROM notification_log WHERE subject_entity_id = ?`, other.ID).
-		Scan(&untouched).Error)
-	s.Equal(int64(1), untouched, "another artist's alert must not be swept")
+		`SELECT COUNT(*) FROM notification_log WHERE entity_type = ? AND entity_id = ?`,
+		notificationm.NotificationEntityShow, show.ID).Scan(&left).Error)
+	s.Zero(left, "a filter-match or scene-follow inbox row must go with its show")
 }
 
 // The sweep and the delete are one unit. A refused delete must leave every

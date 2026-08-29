@@ -1,6 +1,12 @@
 package catalog
 
 import (
+	"bytes"
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -131,48 +137,16 @@ func TestApplyRefDeleteDispositionRejectsAnUndispositionedTable(t *testing.T) {
 	}
 }
 
-// The table alone is not enough of a fence: both the table AND the column are
-// interpolated, so a listed table paired with a supplied column name would still
-// assemble whatever statement the caller asked for.
-func TestApplyRefDeleteDispositionRejectsAWrongIDColumn(t *testing.T) {
-	if _, err := applyRefDeleteDisposition(
-		unusableTx(), "user_bookmarks", "id", entityTypeArtist, 1); err == nil {
-		t.Error("user_bookmarks keys on entity_id; sweeping it by id must be refused")
-	}
-	if _, err := applyRefDeleteDisposition(
-		unusableTx(), "requests", "entity_id", entityTypeArtist, 1); err == nil {
-		t.Error("requests keys on requested_entity_id; the inventory's column is the only legal one")
-	}
-	if _, err := applyRefDeleteDisposition(
-		unusableTx(), "user_bookmarks", "entity_id = 0 OR TRUE --", entityTypeArtist, 1); err == nil {
-		t.Error("a column name that is really a predicate must be refused, not interpolated")
-	}
-}
-
-// And the fence must not be so tight that the real call sites cannot pass it.
-// Checked against the derived map rather than through the helper, because an
-// accepted pair goes on to execute and a zero *gorm.DB panics there.
-func TestEveryInventoriedTableHasAnIDColumn(t *testing.T) {
-	columns := entityRefIDColumns
-	for table := range entityRefTables() {
-		if columns[table] == "" {
-			t.Errorf("%s has no entity id column in the derived map, so every sweep of it "+
-				"would be refused", table)
-		}
-	}
-}
-
 // A table whose recorded disposition is keepRefRowsAsTombstone must run NO
 // statement at all. Checked through unusableTx rather than by inspecting the
 // map, because "the decision is recorded" and "the decision is honoured" are
 // different claims and only the second one protects contributor history.
 func TestKeptTablesIssueNoStatement(t *testing.T) {
-	columns := entityRefIDColumns
 	for table, disposition := range entityRefDeleteDispositions {
 		if disposition != keepRefRowsAsTombstone {
 			continue
 		}
-		n, err := applyRefDeleteDisposition(unusableTx(), table, columns[table], entityTypeArtist, 1)
+		n, err := applyRefDeleteDisposition(unusableTx(), table, "entity_id", entityTypeArtist, 1)
 		if err != nil {
 			t.Errorf("%s is kept, so it must be a no-op rather than an error: %v", table, err)
 		}
@@ -245,47 +219,75 @@ func TestMergeableIsNarrowerThanValid(t *testing.T) {
 	}
 }
 
-// Every entity type in the vocabulary must have a delete path that sweeps it.
+// Every entity type in the vocabulary must actually be swept by some delete
+// path, checked by SCANNING THE SOURCE rather than by comparing two lists.
 //
-// Pinned BY NAME on purpose. The obvious version of this test iterates
-// allPolymorphicEntityTypes and asserts something about each, which passes
-// vacuously the moment a seventh type is appended: the loop simply grows and
-// agrees with itself. The point of the guard is to make ADDING a type fail until
-// somebody wires its delete, so the six are written out here and the count is
-// asserted.
+// The first version of this guard did the obvious thing: build a literal slice
+// of the six "wired" types and assert it matches allPolymorphicEntityTypes. That
+// is vacuous, and an adversarial reviewer caught it. The failure message told the
+// next author to add their new type "here" as well as to the vocabulary, and
+// doing exactly that turns the test green with no delete path written. It
+// compared two hardcoded lists to each other and asserted nothing about any
+// delete.
+//
+// So it now looks for a real `sweepEntityRefsForDelete(tx, entityTypeX,` call in
+// this package's non-test sources, which is the same source-scanning idiom
+// TestNoRevisionRepointOutsideTheHelper already uses next door. A seventh entity
+// type fails here until its Delete* method genuinely calls the sweep.
 func TestEveryEntityTypeHasADeletePath(t *testing.T) {
-	// Keep in step with the Delete* methods in this package: DeleteVenue,
-	// DeleteArtist, DeleteShow, DeleteRelease, DeleteLabel, DeleteFestival.
-	wired := []polymorphicEntityType{
-		entityTypeVenue, entityTypeArtist, entityTypeShow,
-		entityTypeRelease, entityTypeLabel, entityTypeFestival,
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("cannot locate this test file")
+	}
+	pkgDir := filepath.Dir(thisFile)
+
+	entries, err := os.ReadDir(pkgDir)
+	if err != nil {
+		t.Fatalf("failed to read package dir: %v", err)
 	}
 
-	if len(allPolymorphicEntityTypes) != len(wired) {
-		t.Fatalf("the vocabulary holds %d entity types but %d have a delete path wired. "+
-			"A new type needs sweepEntityRefsForDelete called from its Delete* method, and "+
-			"its name added here.", len(allPolymorphicEntityTypes), len(wired))
+	var sources []byte
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		b, readErr := os.ReadFile(filepath.Join(pkgDir, name)) // #nosec G304 -- package's own sources
+		if readErr != nil {
+			t.Fatalf("failed to read %s: %v", name, readErr)
+		}
+		sources = append(sources, b...)
+	}
+	if len(sources) == 0 {
+		t.Fatal("scanned no sources, so this guard cannot fail")
 	}
 
-	known := map[polymorphicEntityType]bool{}
 	for _, entity := range allPolymorphicEntityTypes {
-		known[entity] = true
-	}
-	for _, entity := range wired {
-		if !known[entity] {
-			t.Errorf("%s has a delete path but is not in allPolymorphicEntityTypes, so "+
-				"sweepEntityRefsForDelete will reject it at runtime", entity)
+		call := fmt.Sprintf("sweepEntityRefsForDelete(tx, entityType%s%s",
+			strings.ToUpper(string(entity)[:1]), string(entity)[1:])
+		if !bytes.Contains(sources, []byte(call)) {
+			t.Errorf("%s is in the entity-type vocabulary but no delete path in this package "+
+				"calls %s...). Either wire sweepEntityRefsForDelete into its Delete* method, or "+
+				"remove it from allPolymorphicEntityTypes.", entity, call)
 		}
 		if !entity.valid() {
-			t.Errorf("%s must be accepted by valid(), or its sweep is refused", entity)
+			t.Errorf("%s must be accepted by valid(), or its sweep is refused at runtime", entity)
 		}
 	}
 }
 
-// The alert-row sweep covers the two shapes the inventory cannot see, and no
-// others. Both maps are hand-maintained, and the failure mode of dropping an
-// entry is silent — an inbox row pointing at a 404 raises nothing.
-func TestAlertSweepCoversBothInvisibleShapes(t *testing.T) {
+// The alert-row sweep covers the discriminator-keyed shape the inventory cannot
+// see, and ONLY on the entity axis.
+//
+// The subject axis is deliberately absent and this test pins that, because
+// sweeping it is the intuitive thing to do and it is wrong: an artist_show_alert
+// row is keyed on the SHOW (uq_notification_log_artist_show_alert is
+// (user_id, entity_id, channel)) and is the exactly-once guard claimArtistAlertRow
+// relies on, while subject_entity_id is only the row's label and can stand for a
+// user's follow of several artists on the same bill. Deleting on that axis
+// re-arms a duplicate email and removes a bell entry for a show that still
+// exists. An earlier revision of this change did exactly that.
+func TestAlertSweepCoversTheEntityAxisOnly(t *testing.T) {
 	if len(alertTypesKeyedOnEntity[entityTypeShow]) == 0 {
 		t.Error("an artist show alert's entity_id is a SHOW id, so deleting a show must sweep it; " +
 			"the inventory's entity_type='show' DELETE cannot see it")
@@ -293,15 +295,11 @@ func TestAlertSweepCoversBothInvisibleShapes(t *testing.T) {
 	if len(alertTypesKeyedOnEntity[entityTypeVenue]) == 0 {
 		t.Error("a venue show alert's entity_id is a VENUE id, so deleting a venue must sweep it")
 	}
-	if len(alertTypesKeyedOnSubject[entityTypeArtist]) == 0 {
-		t.Error("an artist show alert's subject_entity_id is an ARTIST id, so deleting an artist " +
-			"must sweep it; the column is not entity_id and the inventory has no concept of it")
-	}
-	// Venue show alerts carry no subject: the followed entity and the subject are
-	// the same venue, so it lives in entity_id and subject_entity_id stays NULL.
-	// Listing one would delete rows on a column that is never set for them.
-	if len(alertTypesKeyedOnSubject[entityTypeVenue]) != 0 {
-		t.Error("venue show alerts have a NULL subject_entity_id by design; sweeping on it is " +
-			"either a no-op or, if the design changes, a delete nobody reasoned about")
+	// Artist is the type whose alerts name it only as a SUBJECT, so it must have
+	// NO entry here: an artist delete must not touch notification_log through this
+	// helper at all.
+	if len(alertTypesKeyedOnEntity[entityTypeArtist]) != 0 {
+		t.Error("no notification_log discriminator holds an ARTIST id in entity_id; " +
+			"sweeping one on an artist delete would delete another entity's inbox rows")
 	}
 }

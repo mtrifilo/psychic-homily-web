@@ -177,17 +177,19 @@ var entityRefDeleteDispositions = map[string]refDeleteDisposition{
 	// alert was already sent, so it is not sent twice) is moot once there is
 	// nothing left to alert about.
 	//
-	// Be precise about what the generic pass actually reaches here, because the
-	// answer is "nothing, today". This table's entity_type holds its OWN
-	// discriminators, never a bare catalog entity name: 'show',
-	// 'artist_show_alert', 'venue_show_alert', 'request_fulfillment_proposed' and
-	// the comment-reply value (models/notification/notification_filter.go). So
-	// `entity_type = 'artist'` matches no row, and the rows that really do name a
-	// deleted entity are swept by deleteAlertRowsNamingEntity instead. The entry
-	// stays in the inventory because the inventory is deliberately exhaustive over
-	// TABLES rather than per entity type (see source_configs), and because the day
-	// a writer does stamp a bare entity name here, the disposition is already
-	// recorded.
+	// Be precise about what the generic pass reaches here, because it differs by
+	// entity type and only one of the six is interesting.
+	//
+	// This table's entity_type holds its own discriminators
+	// (models/notification/notification_filter.go), and exactly one of them is
+	// also a catalog entity name: 'show'. The show-filter matcher and the
+	// scene-follow fanout both write entity_type='show' with a SHOW id in
+	// entity_id, so a show delete really does drop those inbox rows through this
+	// entry. For artist, venue, release, label and festival the generic pass
+	// matches nothing, because no writer stamps those names here.
+	//
+	// The discriminator-keyed remainder ('artist_show_alert', 'venue_show_alert')
+	// is invisible to this entry and is handled by deleteAlertRowsNamingEntity.
 	"notification_log": dropRefRows,
 
 	// ── Kept as tombstones: a record of something a person did, read on an axis
@@ -264,11 +266,19 @@ var entityRefDeleteDispositions = map[string]refDeleteDisposition{
 // cannot be swept against the wrong column in silence.
 const refsRepointedElsewhereIDCol = "entity_id"
 
-// COST, measured rather than assumed. Three of the nine dropped tables have no
+// COST, measured rather than assumed. FOUR of the nine dropped tables have no
 // index supporting (entity_type, entity_id), so their DELETE is a sequential
-// scan: notification_log (indexes lead with user_id; subject_entity_id has no
-// index at all), tag_votes (PK leads with tag_id) and comment_last_read (PK
-// leads with user_id). The other six are covered.
+// scan:
+//
+//   - notification_log — every index leads with user_id.
+//   - tag_votes — the PK leads with tag_id.
+//   - comment_last_read — the PK leads with user_id.
+//   - image_enrich_queue — its (entity_type, entity_id) UNIQUE is PARTIAL over
+//     status IN ('pending','processing'), and the sweep's DELETE carries no
+//     status predicate, so the planner cannot use it. Easy to miscount as
+//     covered, which is why it is spelled out.
+//
+// The other five are covered, source_configs included (a full UNIQUE).
 //
 // Left as-is deliberately. Adding three indexes is a migration, and a migration
 // merged out of order is how stage died on 2026-08-02; it also belongs with a
@@ -287,8 +297,10 @@ const refsRepointedElsewhereIDCol = "entity_id"
 // this function exists to fix.
 //
 // Returns rows affected per table for every table in the inventory, including
-// zero for the ones deliberately left alone, so a caller can log the whole
-// disposition rather than only the destructive half.
+// zero for the ones deliberately left alone. The zeros are there so the map is
+// exhaustive over the inventory and a caller can tell "kept, so no rows" apart
+// from "table not in the inventory at all"; logDeletedEntityRefs deliberately
+// prints only the non-zero half.
 func deleteEntityRefs(
 	tx *gorm.DB,
 	entity polymorphicEntityType,
@@ -303,9 +315,24 @@ func deleteEntityRefs(
 
 	affected := make(map[string]int64, len(polymorphicEntityRefs)+len(refsRepointedElsewhere))
 
-	for _, ref := range polymorphicEntityRefs {
+	// entity_tags is held back to the END of the loop, and the tag counter is
+	// released immediately before it, so the two run as an adjacent pair.
+	//
+	// Order matters for contention, not correctness. releaseTagUsageCounts takes
+	// FOR UPDATE on the tag rows, and Postgres holds row locks until COMMIT, so
+	// running it first would hold locks on the site's most-used tags across every
+	// remaining statement in the sweep — several of which are sequential scans
+	// (see the COST note above). AddTagToEntity and RemoveTagFromEntity then queue
+	// behind an unrelated entity's deletion for EVERY entity carrying those tags.
+	// Doing it last shrinks that window to two adjacent statements.
+	var tagRef *entityRef
+	for i, ref := range polymorphicEntityRefs {
 		if ref.table == "" || ref.idCol == "" {
 			return nil, fmt.Errorf("delete entity refs: table and id column are required")
+		}
+		if ref.table == "entity_tags" {
+			tagRef = &polymorphicEntityRefs[i]
+			continue
 		}
 		n, err := applyRefDeleteDisposition(tx, ref.table, ref.idCol, entity, entityID)
 		if err != nil {
@@ -330,37 +357,39 @@ func deleteEntityRefs(
 		affected[table] = n
 	}
 
+	// Last, as a pair: give back the denormalized counter, then drop the rows it
+	// was counting. entity_tags must still be in the inventory for the loop above
+	// to have found it, so a rename cannot silently skip the counter release.
+	if tagRef == nil {
+		return nil, fmt.Errorf(
+			"delete entity refs: entity_tags is not in the inventory, so its " +
+				"tags.usage_count release would be skipped")
+	}
+	if err := releaseTagUsageCounts(tx, entity, entityID); err != nil {
+		return nil, err
+	}
+	n, err := applyRefDeleteDisposition(tx, tagRef.table, tagRef.idCol, entity, entityID)
+	if err != nil {
+		return nil, err
+	}
+	affected[tagRef.table] = n
+
 	return affected, nil
-}
-
-// entityRefIDColumns is the entity-id column each inventoried table uses, built
-// from the inventory itself so the two cannot disagree.
-//
-// It exists to pin the table/column PAIR rather than the table alone. Both go
-// into the statement by interpolation, and a fence on the table only would let a
-// listed table be swept against any column name a caller supplied. Same shape,
-// and the same reason, as the show merge's showFKColumns.
-// Built once at init rather than per call: applyRefDeleteDisposition runs once
-// per inventoried table, so rebuilding it inside would rebuild a 17-entry map 17
-// times for every delete.
-var entityRefIDColumns = buildEntityRefIDColumns()
-
-func buildEntityRefIDColumns() map[string]string {
-	out := make(map[string]string, len(polymorphicEntityRefs)+len(refsRepointedElsewhere))
-	for _, ref := range polymorphicEntityRefs {
-		out[ref.table] = ref.idCol
-	}
-	for _, table := range refsRepointedElsewhere {
-		out[table] = refsRepointedElsewhereIDCol
-	}
-	return out
 }
 
 // applyRefDeleteDisposition runs one table's recorded decision.
 //
-// The table and column are interpolated into SQL, so the two lookups below are
-// not only completeness checks: together they pin the pair to the hardcoded
-// inventory rather than to "every call site happens to pass a literal today".
+// The table and the column are interpolated into SQL. What keeps that safe is
+// the call graph rather than a runtime check: this function is unexported, has a
+// single caller, and that caller passes `table` and `idCol` straight out of the
+// hardcoded inventory. Nothing caller-controlled reaches the statement.
+//
+// An earlier version also validated the table/column PAIR against a map derived
+// from that same inventory. It was removed rather than kept: the map was built
+// by iterating exactly what the caller iterates, so the check compared a value
+// against itself and could never fire. A guard that cannot fail is worse than no
+// guard, because it stops the next reader from looking. The disposition lookup
+// below DOES fail for an unknown table, and that one earns its place.
 func applyRefDeleteDisposition(
 	tx *gorm.DB,
 	table, idCol string,
@@ -372,11 +401,6 @@ func applyRefDeleteDisposition(
 		return 0, fmt.Errorf(
 			"delete entity refs: %s is in the entity-ref inventory but has no recorded delete "+
 				"disposition; add one to entityRefDeleteDispositions", table)
-	}
-	if want, ok := entityRefIDColumns[table]; !ok || want != idCol {
-		return 0, fmt.Errorf(
-			"delete entity refs: %s's entity id column is %q in the inventory, not %q",
-			table, want, idCol)
 	}
 
 	switch disposition {
@@ -411,14 +435,12 @@ func applyRefDeleteDisposition(
 //     entity in entity_id. An 'artist_show_alert' row's entity_id is a SHOW id
 //     and a 'venue_show_alert' row's is a VENUE id, so the loop's
 //     `entity_type = 'show' | 'venue'` DELETE matches none of them.
-//   - subject_entity_id is a second entity reference whose column is not
-//     entity_id and whose type is implied by the row's discriminator, so the
-//     inventory has no concept of it at all.
 //
-// Every row found here is DROPPED, matching notification_log's disposition
-// above: an inbox row is only worth keeping while the thing it announces still
-// exists, and "a show by an artist that is no longer in the catalog" is not an
-// announcement anyone can act on.
+// A row found here is dropped because the entity in its entity_id IS the one
+// going away, so the row announces something that no longer exists.
+//
+// It deliberately sweeps the entity axis ONLY. subject_entity_id is not swept,
+// and that is the whole subtlety of this function: see alertTypesKeyedOnSubject.
 func deleteAlertRowsNamingEntity(tx *gorm.DB, entity polymorphicEntityType, entityID uint) (int64, error) {
 	if !entity.valid() {
 		return 0, fmt.Errorf("delete alert rows: unknown entity type %q", string(entity))
@@ -427,32 +449,17 @@ func deleteAlertRowsNamingEntity(tx *gorm.DB, entity polymorphicEntityType, enti
 		return 0, fmt.Errorf("delete alert rows: entity id is required")
 	}
 
-	var total int64
-
-	// Alert rows whose entity_id holds this kind of entity.
-	if types := alertTypesKeyedOnEntity[entity]; len(types) > 0 {
-		r := tx.Exec(
-			"DELETE FROM notification_log WHERE entity_type IN ? AND entity_id = ?", types, entityID)
-		if r.Error != nil {
-			return 0, fmt.Errorf("failed to delete alert rows naming the entity: %w", r.Error)
-		}
-		total += r.RowsAffected
+	types := alertTypesKeyedOnEntity[entity]
+	if len(types) == 0 {
+		return 0, nil
 	}
 
-	// Alert rows whose SUBJECT is this kind of entity. The row's own entity_id
-	// still points at a live show, but the alert is about a band that no longer
-	// exists, so the row goes with it rather than losing its name.
-	if types := alertTypesKeyedOnSubject[entity]; len(types) > 0 {
-		r := tx.Exec(
-			"DELETE FROM notification_log WHERE entity_type IN ? AND subject_entity_id = ?",
-			types, entityID)
-		if r.Error != nil {
-			return 0, fmt.Errorf("failed to delete alert rows naming the subject: %w", r.Error)
-		}
-		total += r.RowsAffected
+	r := tx.Exec(
+		"DELETE FROM notification_log WHERE entity_type IN ? AND entity_id = ?", types, entityID)
+	if r.Error != nil {
+		return 0, fmt.Errorf("failed to delete alert rows naming the entity: %w", r.Error)
 	}
-
-	return total, nil
+	return r.RowsAffected, nil
 }
 
 // alertTypesKeyedOnEntity maps an entity type to the notification_log
@@ -467,16 +474,31 @@ var alertTypesKeyedOnEntity = map[polymorphicEntityType][]string{
 	entityTypeVenue: {notificationm.NotificationEntityVenueShowAlert},
 }
 
-// alertTypesKeyedOnSubject maps an entity type to the discriminators whose
-// subject_entity_id holds that kind of id.
+// There is deliberately NO sweep on notification_log.subject_entity_id, and this
+// is the one place a delete must NOT copy what the merge path does.
 //
-// Venue show alerts are deliberately absent and not by oversight: their subject
-// and their followed entity are the same venue, so the venue lives in entity_id
-// and subject_entity_id stays NULL. artistSubjectAlertTypes is the merge path's
-// list of the same thing, reused so the two cannot disagree.
-var alertTypesKeyedOnSubject = map[polymorphicEntityType][]string{
-	entityTypeArtist: artistSubjectAlertTypes,
-}
+// A merge re-points that column (repointAlertSubjectEntity) because the row
+// survives either way. A delete has no id to re-point to, and the obvious move
+// — delete the rows whose subject is the departing artist — is actively wrong on
+// two counts:
+//
+//   - The row is keyed on the SHOW, not the artist. Its unique index is
+//     uq_notification_log_artist_show_alert (user_id, entity_id, channel), and
+//     claimArtistAlertRow (services/notification/artist_follow_notify.go) relies
+//     on that row's existence via ON CONFLICT DO NOTHING as the exactly-once
+//     guard. Deleting it re-arms a duplicate EMAIL for a show the user was
+//     already mailed about, the next time that show's outbox row is reprocessed.
+//   - subject_entity_id is only the row's LABEL: which followed artist the alert
+//     is attributed to. resolveArtistAlertRecipients picks the first qualifying
+//     follow in bill order, so one row can stand for a user's follow of several
+//     artists on the same bill. Deleting it because ONE of them was deleted
+//     takes away a bell entry for a show that still exists and that the user
+//     still follows another act on.
+//
+// So the stale subject id is left in place. It is a label pointing at a deleted
+// artist, and the read path already degrades a missing entity to a generic name
+// rather than failing, which is a far smaller harm than a duplicate email plus a
+// vanished inbox row.
 
 // sweepEntityRefsForDelete is the one call every Delete* method makes: it runs
 // the recorded dispositions plus the alert rows the inventory cannot see, and
@@ -487,10 +509,8 @@ var alertTypesKeyedOnSubject = map[polymorphicEntityType][]string{
 // DeleteShow and DeleteRelease ended up sweeping user_bookmarks and nothing
 // else.
 func sweepEntityRefsForDelete(tx *gorm.DB, entity polymorphicEntityType, entityID uint) error {
-	// Strictly before the sweep: it counts rows the sweep is about to remove.
-	if err := releaseTagUsageCounts(tx, entity, entityID); err != nil {
-		return err
-	}
+	// releaseTagUsageCounts is called from inside deleteEntityRefs, immediately
+	// before the entity_tags delete, rather than here: see the ordering note there.
 	affected, err := deleteEntityRefs(tx, entity, entityID)
 	if err != nil {
 		return err
@@ -508,9 +528,10 @@ func sweepEntityRefsForDelete(tx *gorm.DB, entity polymorphicEntityType, entityI
 //
 // tags.usage_count is DENORMALIZED and hand-maintained: AddTagToEntity
 // increments it and RemoveTagFromEntity decrements it (services/catalog/
-// tag_service.go), and nothing recomputes it. So the generic
-// `DELETE FROM entity_tags` in the sweep leaves the counter permanently
-// overstated by however many tags the deleted entity carried.
+// tag_service.go), and nothing recomputes it except MergeTags, which recounts
+// only its merge target. So the generic `DELETE FROM entity_tags` in the sweep
+// leaves the counter permanently overstated by however many tags the deleted
+// entity carried.
 //
 // That counter is not decorative. GetLowQualityTagQueue
 // (services/catalog/tag_low_quality.go) selects candidates on `usage_count = 0`

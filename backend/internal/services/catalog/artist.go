@@ -501,10 +501,19 @@ func (s *ArtistService) DeleteArtist(artistID uint) error {
 	// One transaction, because a sweep that commits without the delete strips a
 	// LIVE artist of its bookmarks, tags and crate memberships.
 	return s.db.Transaction(func(tx *gorm.DB) error {
-		// The row lock serializes against a concurrent write that would otherwise
-		// pass its own existence check, wait here, and then insert a reference
-		// onto an artist this transaction is about to delete. Same reasoning as
-		// DeleteRelease's lock and lockMergeArtists'.
+		// The row lock serializes this delete against the MERGES (lockMergeArtists
+		// takes the same lock) and against another concurrent delete of the same
+		// artist.
+		//
+		// It does NOT close the reference-writer race, and it is worth being exact
+		// about that rather than implying a guarantee: FollowService.Follow,
+		// CreateBookmark and AddTagToEntity take no lock and never read the artist
+		// row, so a follow or a tag committed after the sweep still strands the
+		// row this ticket exists to remove. Closing that would mean teaching each
+		// writer to take a SHARE lock on the entity the way SaveRelease already
+		// does, which is a change to the write paths rather than to this one.
+		// The window is small and the residue is one dangling row, which is the
+		// same state the whole endpoint was in before PSY-1868.
 		var artist catalogm.Artist
 		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&artist, artistID).Error
 		if err != nil {

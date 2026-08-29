@@ -1205,6 +1205,20 @@ func (h *ShowHandler) DeleteShowHandler(ctx context.Context, req *DeleteShowRequ
 	// Delete show using service
 	err = h.showService.DeleteShow(uint(showID))
 	if err != nil {
+		// The show was here for the authorization read above and is gone now, so
+		// another delete won this race. Report it as 404, matching the read a few
+		// lines up, rather than as the 422 "delete failed" that every other error
+		// gets: nothing went wrong, the caller's goal is simply already achieved.
+		// PSY-1868 made this reachable by giving DeleteShow an existence check.
+		var notFound *apperrors.ShowError
+		if errors.As(err, &notFound) && notFound.Code == apperrors.CodeShowNotFound {
+			logger.FromContext(ctx).Info("show_delete_lost_race",
+				"show_id", showID,
+				"request_id", requestID,
+			)
+			return nil, huma.Error404NotFound(notFound.Message)
+		}
+
 		showErr := apperrors.ErrShowDeleteFailed(uint(showID), err)
 		logger.FromContext(ctx).Error("show_delete_failed",
 			"show_id", showID,
