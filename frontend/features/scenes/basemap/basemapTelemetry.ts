@@ -1,15 +1,20 @@
 /**
- * Sentry visibility for a failing Atlas street basemap (PSY-1568).
+ * Sentry visibility for a failing Atlas basemap tile source (PSY-1568, widened
+ * to the NASA GIBS raster in PSY-1936).
  *
  * WHY THIS EXISTS
  *
- * The street basemap is served by OpenFreeMap's public instance: best effort,
- * no SLA, no contract with us. When it errors, MapLibre ISOLATES the failure —
- * the Black Marble raster, the scene dots, the rings and the DOM labels all
- * keep working — and street zoom degrades to the style's flat near-black
- * background. That degraded state is indistinguishable from deliberate design,
- * so nobody notices, and nothing reported it: MapLibre's only default for an
- * unhandled `error` event is a `console.error` in the user's own tab.
+ * Both halves of the Atlas basemap come from third-party public instances:
+ * best effort, no SLA, no contract with us. OpenFreeMap serves the street
+ * vector tiles; NASA GIBS serves the Black Marble night-lights raster that IS
+ * the globe. When either errors, MapLibre ISOLATES the failure — the scene
+ * dots, the rings and the DOM labels all keep working — and the failing half
+ * degrades to the style's flat near-black background: a dark rectangle at
+ * street zoom, an unlit sphere at globe zoom. Both degraded states are
+ * indistinguishable from deliberate design (the whole Atlas palette is
+ * near-black), so nobody notices, and nothing reported it: MapLibre's only
+ * default for an unhandled `error` event is a `console.error` in the user's
+ * own tab.
  *
  * WHAT THIS DOES AND DOES NOT CATCH
  *
@@ -27,13 +32,16 @@
  *   NOT CAUGHT — a blanket tile 404 while the TileJSON still serves 200.
  *   MapLibre swallows 404 inside its tile loader without firing an event (it
  *   treats it as the normal "no data at this tile" answer), so a pyramid that
- *   404s everywhere is silent here.
+ *   404s everywhere is silent here. The raster source shares this gap: GIBS
+ *   answering 404 across the pyramid leaves an unlit globe and no event.
  *
- * Both gaps need a WATCHDOG (a timer that asks "are we past street zoom with
- * still no tiles painted?") rather than an error listener, and a watchdog
+ * Both gaps need a WATCHDOG (a timer that asks "is this source's layer visible
+ * with still no tiles painted?") rather than an error listener, and a watchdog
  * needs a timeout threshold nobody has chosen yet. Deliberately left as a
  * follow-up rather than guessed at — but stated here so the next reader does
- * not mistake this module for full coverage.
+ * not mistake this module for full coverage. Widening the filter to the raster
+ * source does not narrow these gaps; it only means a raster STALL or blanket
+ * 404 is now the only silent GIBS failure rather than one of several.
  *
  * ONE SIGNAL PER SESSION PER SOURCE
  *
@@ -58,12 +66,22 @@
  * outage, by roughly however many in-app navigations affected users make.
  * Count distinct users or events, not sessions.
  *
- * SCOPE: THE VECTOR SOURCE ONLY
+ * The raster undercounts for a second, different reason: its layer is capped
+ * at the crossfade end, so past street zoom MapLibre fetches no GIBS tile at
+ * all. A session that deep-links straight to a city and never pulls back to
+ * the globe cannot report a GIBS failure — there is nothing broken to see at
+ * that zoom either, but it does mean a GIBS event count is a floor on affected
+ * sessions, not a measure of them.
  *
- * Only errors carrying the basemap's `sourceId` report. Deliberately NOT
- * covered: the NASA GIBS raster (`nightEarth`), a separate host with a
- * separate failure mode — a follow-up, not a silent inclusion; and every other
- * MapLibre error, which has nothing to do with tile hosting.
+ * SCOPE: THE TWO TILE-HOSTING SOURCES
+ *
+ * Only errors carrying one of the two basemap tile sources' `sourceId` report:
+ * the OpenFreeMap vector source and the NASA GIBS raster. Everything else is
+ * ignored — the GeoJSON sources (`scenes`, `scene-rings`, `venues`) are fed
+ * from local data and have no host to be down, and a map-level error carries no
+ * `sourceId` at all. Each source is tagged with its own `basemap_source` and
+ * throttled in its own slot, so a total GIBS outage and a total OpenFreeMap
+ * outage are two distinct issues in Sentry rather than one ambiguous one.
  *
  * Glyphs are a THIRD gap, and not a filtered one. A failed glyph range never
  * reaches this handler at all: `GlyphManager` catches the fetch rejection,
@@ -97,13 +115,40 @@
 
 import * as Sentry from '@sentry/nextjs'
 import type { ErrorEvent } from 'maplibre-gl'
+import {
+  NIGHT_EARTH_SOURCE_ID,
+  NIGHT_EARTH_TILE_HOST,
+} from './nightEarthRaster'
 import { PH_BASEMAP_SOURCE_ID, PH_BASEMAP_STYLE_HOST } from './phBasemap'
 
 /**
+ * The tile sources this module reports, each mapped to the host it is
+ * CONFIGURED against — the `basemap_host` fallback for an error that arrives
+ * without a URL of its own (a style/worker error, or an AJAXError whose `url`
+ * MapLibre did not attach).
+ *
+ * A map, not two ifs: the host fallback has to be picked per source, and a
+ * single lookup makes it impossible to widen the filter without also deciding
+ * what host the new source degrades to. A third tile host is one entry here
+ * and no other change in this module.
+ *
+ * A Map rather than a plain object, deliberately: this is keyed by a string
+ * that arrives from MapLibre, and an object lookup would answer truthily for
+ * `constructor`, `toString` and friends — reporting a "basemap failure" for a
+ * source that does not exist, with an inherited function as its host.
+ */
+const REPORTED_SOURCE_HOSTS = new Map<string, string>([
+  [PH_BASEMAP_SOURCE_ID, PH_BASEMAP_STYLE_HOST],
+  [NIGHT_EARTH_SOURCE_ID, NIGHT_EARTH_TILE_HOST],
+])
+
+/**
  * Source ids already reported this page session, keyed by the id that actually
- * passed the filter (never by the constant). That is what makes the collection
- * a real per-source throttle: when the GIBS follow-up widens the filter, each
- * source gets its own slot instead of the first failure silencing the other.
+ * passed the filter (never by a constant). That is what makes the collection a
+ * real per-source throttle: each source gets its own slot, so a GIBS failure
+ * early in the session cannot silence the OpenFreeMap signal (or the reverse)
+ * — the two hosts fail independently and a single-slot guard would report
+ * whichever lost the race and hide the other.
  */
 const reportedSources = new Set<string>()
 
@@ -158,15 +203,16 @@ function scrubbedMessage(message: string): string {
     : stripped
 }
 
-function hostOf(url: string | undefined): string {
-  if (!url) return PH_BASEMAP_STYLE_HOST
+function hostOf(url: string | undefined, configuredHost: string): string {
+  if (!url) return configuredHost
   try {
     return new URL(url).hostname
   } catch {
     // A relative or malformed URL tells us nothing about the host; fall back
-    // to the host the style is configured against rather than shipping the
-    // raw string (which is exactly what must not leave the process).
-    return PH_BASEMAP_STYLE_HOST
+    // to the host the failing source is configured against rather than
+    // shipping the raw string (which is exactly what must not leave the
+    // process).
+    return configuredHost
   }
 }
 
@@ -204,7 +250,9 @@ export function handleBasemapError(event: ErrorEvent): void {
 
 function reportBasemapSourceFailure(event: ErrorEvent): void {
   const sourceId = readString((event as SourceErrorEvent).sourceId)
-  if (sourceId !== PH_BASEMAP_SOURCE_ID) return
+  if (sourceId === undefined) return
+  const configuredHost = REPORTED_SOURCE_HOSTS.get(sourceId)
+  if (configuredHost === undefined) return
   if (reportedSources.has(sourceId)) return
 
   // A browser that KNOWS it is offline tells us nothing about the provider.
@@ -227,13 +275,17 @@ function reportBasemapSourceFailure(event: ErrorEvent): void {
       error_type: 'basemap_source_failed',
       // Low-cardinality and searchable: "which source, on which host, failing
       // how" is the whole triage question for a third-party tile outage.
+      // `basemap_source` is what separates the two halves of the basemap —
+      // 'openmaptiles' (streets are gone) from 'nightEarth' (the globe is
+      // unlit) — which are different user-visible failures on different
+      // providers and should never group into one issue.
       // `basemap_status` is 0 for a network-level failure (DNS, blocked, or a
       // client connection that dropped without `navigator.onLine` catching
       // it) and an HTTP status otherwise, so it also separates the AJAX cases
       // from a style or worker error, which report 'none'. Triage a spike of
       // status 0 as "could be either end" rather than a confirmed outage.
       basemap_source: sourceId,
-      basemap_host: hostOf(url),
+      basemap_host: hostOf(url, configuredHost),
       basemap_status: status ?? 'none',
     },
     extra: {

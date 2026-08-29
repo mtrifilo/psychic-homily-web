@@ -7,6 +7,10 @@ import * as maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { useGraphPalette } from '@/components/graph/graphPalette'
 import { handleBasemapError } from '../basemap/basemapTelemetry'
+import {
+  NIGHT_EARTH_SOURCE_ID,
+  NIGHT_EARTH_TILES,
+} from '../basemap/nightEarthRaster'
 import { PH_BASEMAP_MIN_ZOOM, phBasemapFragment } from '../basemap/phBasemap'
 import type {
   CameraSettle,
@@ -104,13 +108,6 @@ interface GlobeCanvasProps {
    */
   onCameraSettle?: (camera: CameraSettle) => void
 }
-
-// NASA GIBS Black Marble (VIIRS 2016 composite) — the night-earth raster the
-// PSY-1537 spike verified. Note the {z}/{y}/{x} order (WMTS row-before-column)
-// and .png. Public-domain NASA imagery; the host is allowlisted in the CSP
-// connect-src (MapLibre fetches tiles via fetch(), not <img>).
-const NIGHT_EARTH_TILES =
-  'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Black_Marble/default/2016-01-01/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png'
 
 // Camera altitude a fly-to lands at (legacy globe-altitude units — see
 // zoomForAltitude) — closer than the initial continental POV (1.6–1.8) so
@@ -642,7 +639,7 @@ export default function GlobeCanvas({
         // CSS starfield and halo behind the canvas show through.
         sources: {
           ...basemap.sources,
-          nightEarth: {
+          [NIGHT_EARTH_SOURCE_ID]: {
             type: 'raster',
             tiles: [NIGHT_EARTH_TILES],
             tileSize: 256,
@@ -672,7 +669,7 @@ export default function GlobeCanvas({
           {
             id: 'earth',
             type: 'raster',
-            source: 'nightEarth',
+            source: NIGHT_EARTH_SOURCE_ID,
             // Both halves of the crossfade come from phBasemapFragment, so
             // this ramp is the background ramp's mirror BY CONSTRUCTION —
             // retuning the handoff means editing the two constants above and
@@ -779,12 +776,14 @@ export default function GlobeCanvas({
         ],
       },
     })
-    // Basemap failure signal (PSY-1568), registered FIRST so the style's own
-    // TileJSON fetch — the earliest thing that can fail — is already covered.
-    // The handler restores MapLibre's default console.error (attaching any
-    // listener suppresses it) and reports an OpenFreeMap vector-source failure
-    // to Sentry once per session; basemapTelemetry.ts owns the filtering and
-    // the throttle. Removed with the map in cleanup, like every listener here.
+    // Basemap failure signal (PSY-1568, PSY-1936), registered FIRST so the
+    // style's own TileJSON fetch — the earliest thing that can fail — is
+    // already covered. The handler restores MapLibre's default console.error
+    // (attaching any listener suppresses it) and reports a failure of either
+    // tile source — the OpenFreeMap vector tiles or the GIBS raster — to
+    // Sentry once per session per source; basemapTelemetry.ts owns the
+    // filtering and the throttle. Removed with the map in cleanup, like every
+    // listener here.
     map.on('error', handleBasemapError)
 
     // See the constructor options: bearing/pitch must stay locked at 0 on

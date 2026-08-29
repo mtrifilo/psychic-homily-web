@@ -1,16 +1,22 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import type { ErrorEvent } from 'maplibre-gl'
+import { NIGHT_EARTH_SOURCE_ID } from './nightEarthRaster'
 import { PH_BASEMAP_SOURCE_ID } from './phBasemap'
 
 /**
- * Guards for the Atlas basemap failure signal (PSY-1568).
+ * Guards for the Atlas basemap failure signal (PSY-1568, widened to the GIBS
+ * raster in PSY-1936).
  *
  * The two properties worth pinning are the ones that fail silently in
  * production: the THROTTLE (an outage is one error per tile per pan, so a
  * regression here turns one incident into hundreds of events and burns the
  * Sentry quota) and the FILTER (reporting unrelated MapLibre errors through
- * this path would make the signal unactionable, and reporting the GIBS raster
- * would quietly expand a scope that was deliberately deferred).
+ * this path would make the signal unactionable).
+ *
+ * Everything that is not source-specific runs against BOTH tile sources rather
+ * than being asserted once and assumed: the scope widened once already, and a
+ * suite that only exercises the vector source would go green on a module that
+ * had quietly stopped handling the raster.
  *
  * `@sentry/nextjs` is globally mocked in test/setup.ts, so `captureMessage` is
  * already a spy here.
@@ -64,155 +70,286 @@ function ajaxError(status: number, url: string): Error {
 }
 
 const TILE_URL = 'https://tiles.openfreemap.org/planet/14/4207/6101.pbf'
+const GIBS_TILE_URL =
+  'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Black_Marble/default/2016-01-01/GoogleMapsCompatible_Level8/4/6/3.png'
+
+/**
+ * The two reported sources, each with the host it is configured against and a
+ * representative tile URL.
+ *
+ * The hosts are LITERALS, not the module's own constants. Importing them would
+ * make the tag assertions tautological — the point is that the event names the
+ * host a human would recognise in Sentry, so a rename that silently repointed
+ * the fallback has to fail here.
+ */
+const TILE_SOURCES = [
+  {
+    label: 'the OpenFreeMap vector source',
+    sourceId: PH_BASEMAP_SOURCE_ID,
+    host: 'tiles.openfreemap.org',
+    tileUrl: TILE_URL,
+  },
+  {
+    label: 'the NASA GIBS raster',
+    sourceId: NIGHT_EARTH_SOURCE_ID,
+    host: 'gibs.earthdata.nasa.gov',
+    tileUrl: GIBS_TILE_URL,
+  },
+] as const
 
 beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => {})
 })
 
-describe('handleBasemapError', () => {
-  it('reports the OpenFreeMap vector source once and stays quiet after that', async () => {
-    const { handleBasemapError, captureMessage } = await freshSession()
+describe.each(TILE_SOURCES)(
+  'handleBasemapError for $label',
+  ({ sourceId, host, tileUrl }) => {
+    it('reports once and stays quiet after that', async () => {
+      const { handleBasemapError, captureMessage } = await freshSession()
 
-    handleBasemapError(
-      sourceErrorEvent(PH_BASEMAP_SOURCE_ID, ajaxError(503, TILE_URL))
-    )
-    handleBasemapError(
-      sourceErrorEvent(PH_BASEMAP_SOURCE_ID, ajaxError(503, TILE_URL))
-    )
-    handleBasemapError(
-      sourceErrorEvent(PH_BASEMAP_SOURCE_ID, ajaxError(429, TILE_URL))
-    )
+      handleBasemapError(sourceErrorEvent(sourceId, ajaxError(503, tileUrl)))
+      handleBasemapError(sourceErrorEvent(sourceId, ajaxError(503, tileUrl)))
+      handleBasemapError(sourceErrorEvent(sourceId, ajaxError(429, tileUrl)))
 
-    expect(captureMessage).toHaveBeenCalledTimes(1)
-  })
-
-  it('reports again in a new session', async () => {
-    const first = await freshSession()
-    first.handleBasemapError(
-      sourceErrorEvent(PH_BASEMAP_SOURCE_ID, ajaxError(503, TILE_URL))
-    )
-    expect(first.captureMessage).toHaveBeenCalledTimes(1)
-
-    // `vi.resetModules()` resets the MODULE registry, not the mock's recorded
-    // calls — the same spy instance is handed back — so the history is cleared
-    // by hand to keep the next assertion about the second session alone.
-    first.captureMessage.mockClear()
-
-    const second = await freshSession()
-    second.handleBasemapError(
-      sourceErrorEvent(PH_BASEMAP_SOURCE_ID, ajaxError(503, TILE_URL))
-    )
-    expect(second.captureMessage).toHaveBeenCalledTimes(1)
-  })
-
-  it('attaches the source, host and status as searchable tags', async () => {
-    const { handleBasemapError, captureMessage } = await freshSession()
-
-    handleBasemapError(
-      sourceErrorEvent(PH_BASEMAP_SOURCE_ID, ajaxError(503, TILE_URL))
-    )
-
-    expect(captureMessage).toHaveBeenCalledWith(
-      'Atlas basemap tile source failed',
-      expect.objectContaining({
-        level: 'error',
-        tags: expect.objectContaining({
-          service: 'atlas-basemap',
-          error_type: 'basemap_source_failed',
-          basemap_source: PH_BASEMAP_SOURCE_ID,
-          basemap_host: 'tiles.openfreemap.org',
-          basemap_status: 503,
-        }),
-      })
-    )
-  })
-
-  it('ships no full URL — not in the title, the tags, or the extras', async () => {
-    const { handleBasemapError, captureMessage } = await freshSession()
-
-    handleBasemapError(
-      sourceErrorEvent(PH_BASEMAP_SOURCE_ID, ajaxError(500, TILE_URL))
-    )
-
-    // AJAXError puts the whole URL in its message; the event must not carry it
-    // anywhere, however deeply nested. Asserted on the HOST, not on
-    // `'https://'`: a scrub that replaces the scheme but stops early at a
-    // query-legal character leaves the credential-bearing tail behind, and a
-    // scheme assertion goes green on exactly that leak.
-    const serialized = JSON.stringify(captureMessage.mock.calls[0])
-    // The bare hostname survives as a deliberate tag; the URL must not. Both
-    // halves are checked: the scheme (so nothing ships a whole URL) AND the
-    // path (so a scrub that stopped early cannot go green on the tail alone).
-    expect(serialized).not.toContain('://')
-    expect(serialized).not.toContain('/planet/')
-    const options = captureMessage.mock.calls[0][1] as {
-      extra: { errorMessage: string }
-    }
-    expect(options.extra.errorMessage).not.toContain(TILE_URL)
-    expect(options.extra.errorMessage).toContain('<url>')
-  })
-
-  it('caps the message it ships', async () => {
-    const { handleBasemapError, captureMessage } = await freshSession()
-    const long = Object.assign(new Error('y'.repeat(500)), {
-      status: 500,
-      url: TILE_URL,
+      expect(captureMessage).toHaveBeenCalledTimes(1)
     })
 
-    handleBasemapError(sourceErrorEvent(PH_BASEMAP_SOURCE_ID, long))
+    it('reports again in a new session', async () => {
+      const first = await freshSession()
+      first.handleBasemapError(
+        sourceErrorEvent(sourceId, ajaxError(503, tileUrl))
+      )
+      expect(first.captureMessage).toHaveBeenCalledTimes(1)
 
-    const options = captureMessage.mock.calls[0][1] as {
-      extra: { errorMessage: string }
-    }
-    expect(options.extra.errorMessage.length).toBeLessThanOrEqual(203)
-  })
+      // `vi.resetModules()` resets the MODULE registry, not the mock's recorded
+      // calls — the same spy instance is handed back — so the history is cleared
+      // by hand to keep the next assertion about the second session alone.
+      first.captureMessage.mockClear()
 
-  it('still reports when MapLibre attaches no HTTP fields', async () => {
+      const second = await freshSession()
+      second.handleBasemapError(
+        sourceErrorEvent(sourceId, ajaxError(503, tileUrl))
+      )
+      expect(second.captureMessage).toHaveBeenCalledTimes(1)
+    })
+
+    it('attaches the source, host and status as searchable tags', async () => {
+      const { handleBasemapError, captureMessage } = await freshSession()
+
+      handleBasemapError(sourceErrorEvent(sourceId, ajaxError(503, tileUrl)))
+
+      expect(captureMessage).toHaveBeenCalledWith(
+        'Atlas basemap tile source failed',
+        expect.objectContaining({
+          level: 'error',
+          tags: expect.objectContaining({
+            service: 'atlas-basemap',
+            error_type: 'basemap_source_failed',
+            basemap_source: sourceId,
+            basemap_host: host,
+            basemap_status: 503,
+          }),
+        })
+      )
+    })
+
+    it('ships no full URL — not in the title, the tags, or the extras', async () => {
+      const { handleBasemapError, captureMessage } = await freshSession()
+
+      handleBasemapError(sourceErrorEvent(sourceId, ajaxError(500, tileUrl)))
+
+      // AJAXError puts the whole URL in its message; the event must not carry it
+      // anywhere, however deeply nested. Asserted on the HOST, not on
+      // `'https://'`: a scrub that replaces the scheme but stops early at a
+      // query-legal character leaves the credential-bearing tail behind, and a
+      // scheme assertion goes green on exactly that leak.
+      const serialized = JSON.stringify(captureMessage.mock.calls[0])
+      // The bare hostname survives as a deliberate tag; the URL must not. Both
+      // halves are checked: the scheme (so nothing ships a whole URL) AND the
+      // path (so a scrub that stopped early cannot go green on the tail alone).
+      expect(serialized).not.toContain('://')
+      expect(serialized).not.toContain(new URL(tileUrl).pathname)
+      const options = captureMessage.mock.calls[0][1] as {
+        extra: { errorMessage: string }
+      }
+      expect(options.extra.errorMessage).not.toContain(tileUrl)
+      expect(options.extra.errorMessage).toContain('<url>')
+    })
+
+    it('caps the message it ships', async () => {
+      const { handleBasemapError, captureMessage } = await freshSession()
+      const long = Object.assign(new Error('y'.repeat(500)), {
+        status: 500,
+        url: tileUrl,
+      })
+
+      handleBasemapError(sourceErrorEvent(sourceId, long))
+
+      const options = captureMessage.mock.calls[0][1] as {
+        extra: { errorMessage: string }
+      }
+      expect(options.extra.errorMessage.length).toBeLessThanOrEqual(203)
+    })
+
+    it('still reports when MapLibre attaches no HTTP fields', async () => {
+      const { handleBasemapError, captureMessage } = await freshSession()
+
+      handleBasemapError(
+        sourceErrorEvent(sourceId, new Error('style load failed'))
+      )
+
+      const options = captureMessage.mock.calls[0][1] as {
+        tags: { basemap_status: string | number; basemap_host: string }
+        extra: { tilePath: string | undefined }
+      }
+      // No status and no URL: the event degrades to THIS source's configured
+      // host — not the other source's — and an explicit "none" rather than
+      // throwing or silently dropping the signal.
+      expect(options.tags.basemap_status).toBe('none')
+      expect(options.tags.basemap_host).toBe(host)
+      expect(options.extra.tilePath).toBeUndefined()
+    })
+
+    it('never throws out of the handler when reporting fails', async () => {
+      const { handleBasemapError, captureMessage } = await freshSession()
+      captureMessage.mockImplementationOnce(() => {
+        throw new Error('sentry transport down')
+      })
+
+      // A throw here would surface inside MapLibre's event dispatch as an error
+      // about the thing that was trying to report an error.
+      expect(() =>
+        handleBasemapError(sourceErrorEvent(sourceId, ajaxError(503, tileUrl)))
+      ).not.toThrow()
+    })
+
+    it('stays quiet when the browser knows it is offline', async () => {
+      const { handleBasemapError, captureMessage } = await freshSession()
+      const onLine = vi
+        .spyOn(navigator, 'onLine', 'get')
+        .mockReturnValue(false)
+
+      handleBasemapError(sourceErrorEvent(sourceId, ajaxError(0, tileUrl)))
+      expect(captureMessage).not.toHaveBeenCalled()
+
+      // ...and the slot is NOT spent, so a real outage once connectivity is back
+      // still reports. Otherwise one tunnel would silence the whole session.
+      onLine.mockReturnValue(true)
+      handleBasemapError(sourceErrorEvent(sourceId, ajaxError(503, tileUrl)))
+      expect(captureMessage).toHaveBeenCalledTimes(1)
+
+      // Restored explicitly: the config sets no `restoreMocks`, and the global
+      // afterEach only clears call history, so a getter spy left installed here
+      // would leak a mocked navigator into every test that follows.
+      onLine.mockRestore()
+    })
+
+    it('does not burn the one report slot on a send that threw', async () => {
+      const { handleBasemapError, captureMessage } = await freshSession()
+      captureMessage.mockImplementationOnce(() => {
+        throw new Error('sentry transport down')
+      })
+
+      // A failed send must not count as "reported". Stamping the throttle before
+      // the capture would let one transport hiccup silence the source for the
+      // whole session, so the outage would never surface -- exactly the silent
+      // degradation this module exists to catch.
+      handleBasemapError(sourceErrorEvent(sourceId, ajaxError(503, tileUrl)))
+      handleBasemapError(sourceErrorEvent(sourceId, ajaxError(503, tileUrl)))
+
+      expect(captureMessage).toHaveBeenCalledTimes(2)
+
+      // ...and once one lands, the throttle engages as normal.
+      handleBasemapError(sourceErrorEvent(sourceId, ajaxError(503, tileUrl)))
+      expect(captureMessage).toHaveBeenCalledTimes(2)
+    })
+
+    it('never hands the raw error to console.error when Sentry is collecting', async () => {
+      vi.stubEnv('NEXT_PUBLIC_SENTRY_DSN', 'https://k@sentry.example.test/1')
+      try {
+        const { handleBasemapError } = await freshSession()
+
+        handleBasemapError(sourceErrorEvent(sourceId, ajaxError(503, tileUrl)))
+
+        // This is the load-bearing privacy property, and it is NOT about the
+        // console. Sentry's console breadcrumb keeps the raw `data.arguments`
+        // alongside its joined message, and normalizeEvent expands an Error
+        // argument into its own properties -- so passing the AJAXError object
+        // here would ship `.url` and the unscrubbed `.message` on the very
+        // event captured a line later, whatever the breadcrumb message said.
+        const logged = vi.mocked(console.error).mock.calls[0]
+        expect(logged).toHaveLength(1)
+        expect(typeof logged[0]).toBe('string')
+        expect(logged[0]).not.toContain(host)
+        expect(logged[0]).toContain('<url>')
+      } finally {
+        vi.unstubAllEnvs()
+      }
+    })
+
+    it('logs the raw error when no DSN is set, where the stack is read', async () => {
+      const { handleBasemapError } = await freshSession()
+      const error = ajaxError(503, tileUrl)
+
+      handleBasemapError(sourceErrorEvent(sourceId, error))
+
+      // No DSN means no breadcrumb ships, and the object carries the stack.
+      expect(console.error).toHaveBeenCalledWith(error)
+    })
+  }
+)
+
+/**
+ * The rest: properties that are either ABOUT the cross-source behaviour, or
+ * about the scrub and console paths, which are source-independent by
+ * construction (they never read the sourceId) and so are exercised once
+ * against the vector source rather than duplicated per source.
+ */
+describe('handleBasemapError, cross-source and scrubbing', () => {
+  it('gives each tile source its own report slot', async () => {
     const { handleBasemapError, captureMessage } = await freshSession()
 
+    // The property the PSY-1568 suite could not express with one source in
+    // scope: the throttle and the tag must read the EVENT's sourceId, not a
+    // module constant. The two hosts fail independently, so a single shared
+    // slot would report whichever lost the race and hide the other outage
+    // entirely for the rest of the session.
     handleBasemapError(
-      sourceErrorEvent(PH_BASEMAP_SOURCE_ID, new Error('style load failed'))
+      sourceErrorEvent(NIGHT_EARTH_SOURCE_ID, ajaxError(503, GIBS_TILE_URL))
     )
-
-    const options = captureMessage.mock.calls[0][1] as {
-      tags: { basemap_status: string | number; basemap_host: string }
-      extra: { tilePath: string | undefined }
-    }
-    // No status and no URL: the event degrades to the configured host and an
-    // explicit "none" rather than throwing or silently dropping the signal.
-    expect(options.tags.basemap_status).toBe('none')
-    expect(options.tags.basemap_host).toBe('tiles.openfreemap.org')
-    expect(options.extra.tilePath).toBeUndefined()
-  })
-
-  it('tags the event with the basemap source id', async () => {
-    const { handleBasemapError, captureMessage } = await freshSession()
-
+    handleBasemapError(
+      sourceErrorEvent(PH_BASEMAP_SOURCE_ID, ajaxError(503, TILE_URL))
+    )
+    // ...and each is still throttled to one after the other has reported.
+    handleBasemapError(
+      sourceErrorEvent(NIGHT_EARTH_SOURCE_ID, ajaxError(503, GIBS_TILE_URL))
+    )
     handleBasemapError(
       sourceErrorEvent(PH_BASEMAP_SOURCE_ID, ajaxError(503, TILE_URL))
     )
 
-    const options = captureMessage.mock.calls[0][1] as {
-      tags: { basemap_source: string }
-    }
-    expect(options.tags.basemap_source).toBe(PH_BASEMAP_SOURCE_ID)
-
-    // NOT covered, and deliberately not pretended otherwise: that the throttle
-    // and the tag read the EVENT's sourceId rather than the module constant.
-    // Past the filter the two are provably equal, so no test here can tell
-    // them apart -- the property only becomes observable once a second source
-    // is in scope. Whoever adds the GIBS raster must extract the accepted-id
-    // set and add a test that two sources get two independent throttle slots;
-    // keying on the constant would let the first failure silence the other.
+    expect(captureMessage).toHaveBeenCalledTimes(2)
+    const reported = captureMessage.mock.calls.map(
+      (call) =>
+        (call[1] as { tags: { basemap_source: string; basemap_host: string } })
+          .tags
+    )
+    expect(reported.map((tags) => tags.basemap_source)).toEqual([
+      NIGHT_EARTH_SOURCE_ID,
+      PH_BASEMAP_SOURCE_ID,
+    ])
+    // Distinct tags, so the two outages never group into one Sentry issue.
+    expect(new Set(reported.map((tags) => tags.basemap_host)).size).toBe(2)
   })
 
-  it('ignores errors from other sources and from the map itself', async () => {
+  it('ignores the local sources and errors from the map itself', async () => {
     const { handleBasemapError, captureMessage } = await freshSession()
 
-    // The NASA GIBS raster is explicitly out of scope (a follow-up), and a
-    // map-level error carries no sourceId at all.
-    handleBasemapError(sourceErrorEvent('nightEarth', ajaxError(503, TILE_URL)))
+    // The GeoJSON sources are fed from data already in the page — there is no
+    // host to be down — and a map-level error carries no sourceId at all.
     handleBasemapError(sourceErrorEvent('scenes', new Error('bad geojson')))
+    handleBasemapError(sourceErrorEvent('scene-rings', new Error('bad geojson')))
+    handleBasemapError(sourceErrorEvent('venues', new Error('bad geojson')))
     handleBasemapError(sourceErrorEvent(undefined, new Error('WebGL context lost')))
 
     expect(captureMessage).not.toHaveBeenCalled()
@@ -226,41 +363,6 @@ describe('handleBasemapError', () => {
 
     // Attaching ANY error listener disables MapLibre's built-in console.error,
     // so every error — reported or not — must still reach the console.
-    expect(console.error).toHaveBeenCalledWith(error)
-  })
-
-  it('never hands the raw error to console.error when Sentry is collecting', async () => {
-    vi.stubEnv('NEXT_PUBLIC_SENTRY_DSN', 'https://k@sentry.example.test/1')
-    try {
-      const { handleBasemapError } = await freshSession()
-
-      handleBasemapError(
-        sourceErrorEvent(PH_BASEMAP_SOURCE_ID, ajaxError(503, TILE_URL))
-      )
-
-      // This is the load-bearing privacy property, and it is NOT about the
-      // console. Sentry's console breadcrumb keeps the raw `data.arguments`
-      // alongside its joined message, and normalizeEvent expands an Error
-      // argument into its own properties -- so passing the AJAXError object
-      // here would ship `.url` and the unscrubbed `.message` on the very
-      // event captured a line later, whatever the breadcrumb message said.
-      const logged = vi.mocked(console.error).mock.calls[0]
-      expect(logged).toHaveLength(1)
-      expect(typeof logged[0]).toBe('string')
-      expect(logged[0]).not.toContain('tiles.openfreemap.org')
-      expect(logged[0]).toContain('<url>')
-    } finally {
-      vi.unstubAllEnvs()
-    }
-  })
-
-  it('logs the raw error when no DSN is set, where the stack is read', async () => {
-    const { handleBasemapError } = await freshSession()
-    const error = ajaxError(503, TILE_URL)
-
-    handleBasemapError(sourceErrorEvent(PH_BASEMAP_SOURCE_ID, error))
-
-    // No DSN means no breadcrumb ships, and the object carries the stack.
     expect(console.error).toHaveBeenCalledWith(error)
   })
 
@@ -281,46 +383,6 @@ describe('handleBasemapError', () => {
     } finally {
       vi.unstubAllEnvs()
     }
-  })
-
-  it('never throws out of the handler when reporting fails', async () => {
-    const { handleBasemapError, captureMessage } = await freshSession()
-    captureMessage.mockImplementationOnce(() => {
-      throw new Error('sentry transport down')
-    })
-
-    // A throw here would surface inside MapLibre's event dispatch as an error
-    // about the thing that was trying to report an error.
-    expect(() =>
-      handleBasemapError(
-        sourceErrorEvent(PH_BASEMAP_SOURCE_ID, ajaxError(503, TILE_URL))
-      )
-    ).not.toThrow()
-  })
-
-  it('stays quiet when the browser knows it is offline', async () => {
-    const { handleBasemapError, captureMessage } = await freshSession()
-    const onLine = vi
-      .spyOn(navigator, 'onLine', 'get')
-      .mockReturnValue(false)
-
-    handleBasemapError(
-      sourceErrorEvent(PH_BASEMAP_SOURCE_ID, ajaxError(0, TILE_URL))
-    )
-    expect(captureMessage).not.toHaveBeenCalled()
-
-    // ...and the slot is NOT spent, so a real outage once connectivity is back
-    // still reports. Otherwise one tunnel would silence the whole session.
-    onLine.mockReturnValue(true)
-    handleBasemapError(
-      sourceErrorEvent(PH_BASEMAP_SOURCE_ID, ajaxError(503, TILE_URL))
-    )
-    expect(captureMessage).toHaveBeenCalledTimes(1)
-
-    // Restored explicitly: the config sets no `restoreMocks`, and the global
-    // afterEach only clears call history, so a getter spy left installed here
-    // would leak a mocked navigator into every test that follows.
-    onLine.mockRestore()
   })
 
   it('scrubs a whole URL whose query contains commas, brackets or semicolons', async () => {
@@ -371,31 +433,5 @@ describe('handleBasemapError', () => {
     expect(options.extra.errorMessage).not.toContain('https://')
     expect(options.extra.errorMessage).toContain('keep me')
     expect(options.extra.errorMessage).toContain('503')
-  })
-
-  it('does not burn the one report slot on a send that threw', async () => {
-    const { handleBasemapError, captureMessage } = await freshSession()
-    captureMessage.mockImplementationOnce(() => {
-      throw new Error('sentry transport down')
-    })
-
-    // A failed send must not count as "reported". Stamping the throttle before
-    // the capture would let one transport hiccup silence the source for the
-    // whole session, so the outage would never surface -- exactly the silent
-    // degradation this module exists to catch.
-    handleBasemapError(
-      sourceErrorEvent(PH_BASEMAP_SOURCE_ID, ajaxError(503, TILE_URL))
-    )
-    handleBasemapError(
-      sourceErrorEvent(PH_BASEMAP_SOURCE_ID, ajaxError(503, TILE_URL))
-    )
-
-    expect(captureMessage).toHaveBeenCalledTimes(2)
-
-    // ...and once one lands, the throttle engages as normal.
-    handleBasemapError(
-      sourceErrorEvent(PH_BASEMAP_SOURCE_ID, ajaxError(503, TILE_URL))
-    )
-    expect(captureMessage).toHaveBeenCalledTimes(2)
   })
 })

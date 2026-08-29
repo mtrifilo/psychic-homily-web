@@ -88,8 +88,9 @@ changes its schema or endpoints:
   right edge whenever a scene is selected — either one hides the required
   credit. Don't move it back without re-checking both.
 - **OpenFreeMap (requested)**: included in the same source attribution.
-- **NASA GIBS (requested)**: carried by the `nightEarth` source in
-  GlobeCanvas ("Imagery courtesy NASA GIBS"); shown by the same control.
+- **NASA GIBS (requested)**: carried by the `nightEarth` source GlobeCanvas
+  registers from `nightEarthRaster.ts` ("Imagery courtesy NASA GIBS"); shown
+  by the same control.
 
 Do not restore `attributionControl: false` without replacing the OSM credit
 somewhere equally visible.
