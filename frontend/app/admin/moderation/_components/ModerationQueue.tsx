@@ -55,9 +55,20 @@ import {
 } from '@/lib/hooks/admin/useAdminEntityRequests'
 import { CommentEditHistory } from '@/features/comments'
 import { EntitySaveSuccessBanner } from '@/features/contributions'
-// Deep import, not the '@/features/shows' barrel: that barrel is reachable from
-// the root layout, and this module only needs two pure values from a util file
-// (PSY-1772's shared-chunk note).
+// Imported by path, not through the '@/features/shows' barrel, which is
+// root-layout reachable (see features/sharedChunkBarrelGuard.test.ts). Note the
+// barrel was never actually an option here: it does not re-export
+// show-form-utils at all, so the path import is the only way to reach the
+// vocabulary.
+//
+// It is NOT free, and the honest number is worth writing down: show-form-utils
+// value-imports lib/utils/timeUtils, lib/utils/formatters and
+// features/shows/utils, so roughly a thousand lines of date and form-mapping
+// code ride into the admin chunk for two constants. Tolerated because the
+// alternative is duplicating the vocabulary, which is the thing that must not
+// drift. The durable fix is to split the vocabulary into its own leaf module
+// that both this form and ShowForm import; that is a features/shows change and
+// is deliberately not made here.
 import {
   SET_TYPE_OPTIONS,
   SET_TYPE_VALUES,
@@ -384,24 +395,33 @@ const UNSTATED_ROLE = 'unstated'
 const _unstatedIsNotASetType: typeof UNSTATED_ROLE extends SetType ? never : true = true
 void _unstatedIsNotASetType
 
-type BillRoleChoice = SetType | typeof UNSTATED_ROLE
+type SetTypeChoice = SetType | typeof UNSTATED_ROLE
 
 /**
  * The role choices offered per act: the unstated default first, then the whole
  * PSY-1673 vocabulary in the same presentation order the show form uses.
  *
- * "Role not stated" and "Performer (slot unknown)" are INDISTINGUISHABLE once
- * stored. Both land on `set_type = 'performer'` with no headliner flag:
- * resolveArtistRole returns SetTypeDefault for an explicit 'performer' and for
- * an absent set_type carrying `is_headliner: false` alike, and nothing records
- * which one the admin picked. Do not build on a distinction between them.
+ * "Role not stated" and "Performer (slot unknown)" are indistinguishable once
+ * stored, BUT ONLY BECAUSE this form always sends an explicit `is_headliner`.
+ * Given that, resolveArtistRole returns SetTypeDefault for an explicit
+ * 'performer' and for an absent set_type alike, and nothing records which the
+ * admin picked.
+ *
+ * Do not read that as "the two options are interchangeable at the endpoint".
+ * They are not. buildShowAssociations flips billIsCurated on a present
+ * set_type, and suppressPositionInference skips rows that state either field,
+ * so for a payload that OMITTED is_headliner the two diverge: all-unstated
+ * gives position 0 the headliner, all-'performer' gives the bill no headliner.
+ * Making is_headliner conditional the way set_type already is would silently
+ * activate that difference. toShowArtistInputs' always-send is the invariant
+ * holding this equivalence up, and a test pins it.
  *
  * The unstated option is not redundant even so, because its whole job happens
  * BEFORE the write: it lets the form show a role nobody has chosen as unchosen,
  * instead of pre-filling a value the admin then has to notice and correct. The
  * honesty is in the control, not in the row.
  */
-const BILL_ROLE_OPTIONS: ReadonlyArray<{ value: BillRoleChoice; label: string }> = [
+const BILL_ROLE_OPTIONS: ReadonlyArray<{ value: SetTypeChoice; label: string }> = [
   { value: UNSTATED_ROLE, label: 'Role not stated' },
   ...SET_TYPE_OPTIONS,
 ]
@@ -418,7 +438,7 @@ const BILL_ROLE_OPTIONS: ReadonlyArray<{ value: BillRoleChoice; label: string }>
  * says nothing instead, which is the only safe thing to say about a value we
  * could not read.
  */
-function toBillRoleChoice(value: string): BillRoleChoice {
+function toSetTypeChoice(value: string): SetTypeChoice {
   const match = SET_TYPE_VALUES.find(setType => setType === value)
   return match ?? UNSTATED_ROLE
 }
@@ -426,7 +446,7 @@ function toBillRoleChoice(value: string): BillRoleChoice {
 // One artist row in the show-create form (PSY-1037; bill role PSY-1856).
 interface ShowArtistRow {
   name: string
-  role: BillRoleChoice
+  set_type: SetTypeChoice
 }
 
 /**
@@ -450,8 +470,8 @@ interface ShowArtistRow {
 function toShowArtistInputs(rows: ShowArtistRow[]): ShowArtistInput[] {
   return rows.map(row => ({
     name: row.name.trim(),
-    is_headliner: row.role === 'headliner',
-    ...(row.role === UNSTATED_ROLE ? {} : { set_type: row.role }),
+    is_headliner: row.set_type === 'headliner',
+    ...(row.set_type === UNSTATED_ROLE ? {} : { set_type: row.set_type }),
   }))
 }
 
@@ -484,7 +504,7 @@ function ShowCreateForm({
   // nobody had looked at; a bill role is a curated fact somebody states, and it
   // is never inferred from row order.
   const [artists, setArtists] = useState<ShowArtistRow[]>([
-    { name: '', role: UNSTATED_ROLE },
+    { name: '', set_type: UNSTATED_ROLE },
   ])
 
   const updateArtist = (index: number, patch: Partial<ShowArtistRow>) => {
@@ -492,11 +512,20 @@ function ShowCreateForm({
   }
 
   const filledArtists = artists.filter(a => a.name.trim() !== '')
+  // A nameless row is dropped from the bill. That was harmless when the only
+  // thing it carried was a checkbox, but it now carries the six-way role an
+  // admin reaches for first, so dropping it silently discards a stated fact and
+  // can leave the bill without the headliner somebody explicitly designated.
+  // Block the submit instead: the admin either names the act or clears the role.
+  const hasNamelessStatedRole = artists.some(
+    a => a.name.trim() === '' && a.set_type !== UNSTATED_ROLE
+  )
   const canSubmit =
     venueName.trim() !== '' &&
     venueCity.trim() !== '' &&
     venueState.trim() !== '' &&
     filledArtists.length > 0 &&
+    !hasNamelessStatedRole &&
     !isSubmitting
 
   const inputClass =
@@ -558,8 +587,8 @@ function ShowCreateForm({
                 is_headliner server-side. Named by aria-label alone — this dense
                 row has no visible label to conflict with (WCAG 2.5.3). */}
             <Select
-              value={artist.role}
-              onValueChange={value => updateArtist(index, { role: toBillRoleChoice(value) })}
+              value={artist.set_type}
+              onValueChange={value => updateArtist(index, { set_type: toSetTypeChoice(value) })}
               disabled={isSubmitting}
             >
               {/* Wide enough for the longest label, "Performer (slot unknown)".
@@ -597,13 +626,19 @@ function ShowCreateForm({
           type="button"
           variant="ghost"
           size="sm"
-          onClick={() => setArtists(rows => [...rows, { name: '', role: UNSTATED_ROLE }])}
+          onClick={() => setArtists(rows => [...rows, { name: '', set_type: UNSTATED_ROLE }])}
           disabled={isSubmitting}
         >
           <Plus className="h-3 w-3 mr-1" />
           Add artist
         </Button>
       </div>
+
+      {hasNamelessStatedRole && (
+        <p className="text-xs text-muted-foreground">
+          Name the act you gave a role to, or set its role back to “Role not stated”.
+        </p>
+      )}
 
       <div className="flex items-center gap-2">
         <Button

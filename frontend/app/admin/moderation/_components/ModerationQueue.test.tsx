@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ModerationQueue } from './ModerationQueue'
+import { SET_TYPE_OPTIONS } from '@/features/shows/components/show-form-utils'
 import type { PendingEditResponse } from '@/lib/hooks/admin/useAdminPendingEdits'
 import type { EntityReportResponse } from '@/lib/hooks/admin/useAdminEntityReports'
 import type { PendingComment } from '@/lib/hooks/admin/useAdminComments'
@@ -578,9 +579,16 @@ describe('ModerationQueue', () => {
     fireEvent.change(screen.getByLabelText('Artist 3 name'), { target: { value: 'DJ Sleep' } })
     await chooseBillRole(user, 3, 'DJ')
 
-    // The rows are keyed by index, so a middle removal is where React could
-    // reuse the wrong row's state. Role is the second per-row field, so this is
-    // the first time that key carries something beyond the name.
+    // Pins the index arithmetic in the remove handler: every surviving row
+    // keeps its OWN name paired with its OWN role, rather than inheriting the
+    // removed row's.
+    //
+    // It does NOT pin React key stability, and must not be read as doing so:
+    // name and role are both controlled from `artists` state, so this passes
+    // under index keys, stable ids, or random keys alike. The rows are keyed by
+    // index today; the sibling ShowForm mints a `_clientId` per row precisely
+    // because that breaks once a row owns uncontrolled state. Add the first
+    // such field here (an autocomplete, say) and this test will not save you.
     fireEvent.click(screen.getByRole('button', { name: 'Remove artist 2' }))
     fireEvent.click(screen.getByRole('button', { name: /create show/i }))
 
@@ -595,7 +603,42 @@ describe('ModerationQueue', () => {
     )
   })
 
-  it('sends each stated bill role and derives is_headliner from it', async () => {
+  // One case per value, mirroring ShowForm.test.tsx, so a regression names the
+  // role it broke. Driven off SET_TYPE_OPTIONS rather than a hand-written list:
+  // a seventh role then arrives with coverage instead of without it. This also
+  // covers 'performer', the one value whose payload shape differs from the
+  // unstated sentinel's despite both storing the same row, and which a
+  // "simplification" of the omit branch would silently fold away.
+  for (const option of SET_TYPE_OPTIONS) {
+    it(`sends set_type "${option.value}" when "${option.label}" is chosen`, async () => {
+      const user = userEvent.setup()
+      const mutate = vi.fn()
+      mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+      setDefaultMocks({ requests: [showRequestForRoles] })
+
+      render(<ModerationQueue />)
+      openShowFormWithVenue()
+
+      fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
+      await chooseBillRole(user, 1, option.label)
+      fireEvent.click(screen.getByRole('button', { name: /create show/i }))
+
+      expect(mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          show_artists: [
+            {
+              name: 'Boris',
+              is_headliner: option.value === 'headliner',
+              set_type: option.value,
+            },
+          ],
+        }),
+        expect.anything()
+      )
+    })
+  }
+
+  it('sends a whole stated bill in order, deriving is_headliner from each role', async () => {
     const user = userEvent.setup()
     const mutate = vi.fn()
     mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
@@ -627,6 +670,40 @@ describe('ModerationQueue', () => {
     )
   })
 
+  // Pinning a DELIBERATE consequence, not asserting a desirable one. The
+  // sibling ShowForm's removeArtistAtIndex promotes the first survivor to
+  // headliner on this transition; this form does not, because promoting would
+  // infer a role from row order, which is the inference the vocabulary exists
+  // to remove. The result is a bill that states a role and has no headliner,
+  // which the backend classifies as having no headline slot at all. That
+  // consequence is escalated in the PR body as an open decision; this test
+  // exists so the behavior cannot change by accident while it is being decided.
+  it('leaves the bill headliner-less when the headliner row is removed', async () => {
+    const user = userEvent.setup()
+    const mutate = vi.fn()
+    mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+    setDefaultMocks({ requests: [showRequestForRoles] })
+
+    render(<ModerationQueue />)
+    openShowFormWithVenue()
+
+    fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
+    await chooseBillRole(user, 1, 'Headliner')
+    fireEvent.click(screen.getByRole('button', { name: /add artist/i }))
+    fireEvent.change(screen.getByLabelText('Artist 2 name'), { target: { value: 'Earth' } })
+    await chooseBillRole(user, 2, 'Direct support')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove artist 1' }))
+    fireEvent.click(screen.getByRole('button', { name: /create show/i }))
+
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        show_artists: [{ name: 'Earth', is_headliner: false, set_type: 'direct_support' }],
+      }),
+      expect.anything()
+    )
+  })
+
   it('omits set_type for an unstated act on a bill that states other roles', async () => {
     const user = userEvent.setup()
     const mutate = vi.fn()
@@ -650,7 +727,11 @@ describe('ModerationQueue', () => {
     expect(submitted.show_artists[1]).toEqual({ name: 'Earth', is_headliner: false })
   })
 
-  it('keeps the stated role out of the payload when the act is dropped', async () => {
+  // A nameless row is dropped from the bill, so a role stated on one would be
+  // discarded silently. Blocked at submit instead: the discarded thing is the
+  // primary field an admin reaches for, and losing it can quietly cost the bill
+  // the headliner somebody explicitly designated.
+  it('blocks submit while a row states a role but has no name', async () => {
     const user = userEvent.setup()
     const mutate = vi.fn()
     mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
@@ -662,9 +743,16 @@ describe('ModerationQueue', () => {
     fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
     await chooseBillRole(user, 1, 'Headliner')
     fireEvent.click(screen.getByRole('button', { name: /add artist/i }))
-    // Row 2 states a role but is left nameless, so it is not part of the bill.
     await chooseBillRole(user, 2, 'Opener')
 
+    const submit = screen.getByRole('button', { name: /create show/i })
+    expect(submit).toBeDisabled()
+    expect(screen.getByText(/Name the act you gave a role to/i)).toBeInTheDocument()
+    fireEvent.click(submit)
+    expect(mutate).not.toHaveBeenCalled()
+
+    // Clearing the role releases the block, and the empty row stays out of the bill.
+    await chooseBillRole(user, 2, 'Role not stated')
     fireEvent.click(screen.getByRole('button', { name: /create show/i }))
 
     expect(mutate).toHaveBeenCalledWith(
@@ -673,6 +761,31 @@ describe('ModerationQueue', () => {
       }),
       expect.anything()
     )
+  })
+
+  // The invariant the "Role not stated" / "Performer (slot unknown)" equivalence
+  // rests on. Drop the always-send and those two menu options start producing
+  // different bills server-side, because buildShowAssociations reads a present
+  // set_type as curation while suppressPositionInference only skips rows that
+  // state a field. Enforced here rather than merely described in a comment.
+  it('always sends is_headliner, even for an entirely unstated bill', async () => {
+    const mutate = vi.fn()
+    mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+    setDefaultMocks({ requests: [showRequestForRoles] })
+
+    render(<ModerationQueue />)
+    openShowFormWithVenue()
+
+    fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
+    fireEvent.click(screen.getByRole('button', { name: /add artist/i }))
+    fireEvent.change(screen.getByLabelText('Artist 2 name'), { target: { value: 'Earth' } })
+    fireEvent.click(screen.getByRole('button', { name: /create show/i }))
+
+    const submitted = mutate.mock.calls[0][0] as { show_artists: Record<string, unknown>[] }
+    for (const artist of submitted.show_artists) {
+      expect('is_headliner' in artist).toBe(true)
+      expect('set_type' in artist).toBe(false)
+    }
   })
 
   it('cancel closes the show form without mutating', () => {
