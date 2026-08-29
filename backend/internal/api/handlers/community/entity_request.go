@@ -119,15 +119,6 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 		return nil, huma.Error422UnprocessableEntity("Invalid payload for " + entityType + ": " + err.Error())
 	}
 
-	// PSY-1675: the payload's image_url rides onto a real entity at fulfillment
-	// and is then fetched server-side by the share-card renderer, so it clears
-	// the same SSRF host guard the direct show/venue/label endpoints apply.
-	// Enforced here at queue-create so a hostile value never reaches the queue;
-	// fulfillEntity re-applies it to rows queued before this existed.
-	if err := validatePayloadImageURL(ctx, entityType, req.Body.Payload); err != nil {
-		return nil, err
-	}
-
 	// PSY-1858: a show payload may carry the bill the contributor knew. Its
 	// roles are checked against the curated set_type vocabulary HERE, at submit,
 	// for the same reason the admin path checks them pre-claim: a role rejected
@@ -135,7 +126,19 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 	// can edit a queued payload to repair it. The check is not inside
 	// ValidateEntityRequestPayload only because the vocabulary lives in a
 	// package that imports the payload models. See validateShowPayloadBillRoles.
+	// (The bill's structure was already checked by ValidateEntityRequestPayload
+	// above.) Ordered ahead of the image-URL guard because it is a pure
+	// in-memory check and that one can resolve DNS.
 	if err := validateShowPayloadBillRoles(entityType, req.Body.Payload); err != nil {
+		return nil, err
+	}
+
+	// PSY-1675: the payload's image_url rides onto a real entity at fulfillment
+	// and is then fetched server-side by the share-card renderer, so it clears
+	// the same SSRF host guard the direct show/venue/label endpoints apply.
+	// Enforced here at queue-create so a hostile value never reaches the queue;
+	// fulfillEntity re-applies it to rows queued before this existed.
+	if err := validatePayloadImageURL(ctx, entityType, req.Body.Payload); err != nil {
 		return nil, err
 	}
 
@@ -464,9 +467,9 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 	// PSY-1037: approving a show REQUIRES the associations — guard before the
 	// claim. Decide only operates on pending rows, so a post-claim failure
 	// would leave an approved-but-unfulfilled row no decide call can ever
-	// re-process. Costs one PK read, only on the approve path. The guard is
-	// scoped to PENDING rows so an already-decided row still gets Decide's
-	// 409 (invalid state), not a misleading missing-associations 422.
+	// re-process. Costs one PK read, only on the approve path. Every check that
+	// reads the stored row is scoped to PENDING rows so an already-decided row
+	// still gets Decide's 409 (invalid state), never a misleading 422.
 	//
 	// PSY-1675 rides on the same pre-claim read for the same reason: a stored
 	// image_url pointing at an internal address must not be fulfilled, and a
@@ -495,17 +498,38 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 			return nil, huma.Error500InternalServerError("Failed to load request")
 		}
 
+		// Every pre-claim check below is scoped to a PENDING row, the prefill
+		// included. Decide claims only pending rows, so for anything else the
+		// honest answer is its 409 (invalid state); a 422 about a bill the admin
+		// never typed would report the wrong problem entirely and read as though
+		// re-sending the request with a bill could fix it.
+		pendingRow := existing != nil && existing.DecisionState == communitym.EntityRequestStatePending
+		var prefillFrom *communitym.EntityRequest
+		if pendingRow {
+			prefillFrom = existing
+		}
+
+		bill, billField := resolveShowBill(req.Body.ShowArtists, prefillFrom)
 		var aerr error
-		showAssoc, aerr = buildShowAssociations(req.Body.ShowVenue, resolveShowBill(req.Body.ShowArtists, existing))
+		showAssoc, aerr = buildShowAssociations(req.Body.ShowVenue, bill, billField)
 		if aerr != nil {
 			return nil, aerr
 		}
 
-		if existing != nil && existing.DecisionState == communitym.EntityRequestStatePending {
+		if pendingRow {
 			if showAssoc == nil && existing.EntityType == communitym.EntityRequestShow {
 				return nil, huma.Error422UnprocessableEntity("Approving a show requires show_venue and show_artists")
 			}
 			if existing.Payload != nil {
+				// PSY-1858: the STORED bill is validated whether or not the admin
+				// also typed one. The body supersedes it for fulfillment, but
+				// fulfillEntity still re-validates the whole stored payload, and
+				// that runs post-claim, and a broken stored bill found there is an
+				// orphan. Ordered ahead of the image-URL guard because it is a
+				// pure in-memory check and that one can resolve DNS.
+				if verr := validateShowPayloadBill(existing.EntityType, *existing.Payload); verr != nil {
+					return nil, verr
+				}
 				if verr := validatePayloadImageURL(ctx, existing.EntityType, *existing.Payload); verr != nil {
 					return nil, verr
 				}

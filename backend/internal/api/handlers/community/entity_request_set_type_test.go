@@ -45,7 +45,7 @@ func TestBuildShowAssociations_SetType(t *testing.T) {
 			value := want
 			assoc, err := buildShowAssociations(validVenue, []ShowArtistInput{
 				{Name: "Boris", SetType: &value},
-			})
+			}, billFieldBody)
 			if err != nil {
 				t.Fatalf("set_type %q: unexpected error: %v", want, err)
 			}
@@ -59,7 +59,7 @@ func TestBuildShowAssociations_SetType(t *testing.T) {
 	t.Run("an absent key is the only way to say the slot is unknown", func(t *testing.T) {
 		assoc, err := buildShowAssociations(validVenue, []ShowArtistInput{
 			{Name: "Boris", SetType: nil},
-		})
+		}, billFieldBody)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -83,7 +83,7 @@ func TestBuildShowAssociations_SetType(t *testing.T) {
 			value := bad
 			_, err := buildShowAssociations(validVenue, []ShowArtistInput{
 				{Name: "Boris", SetType: &value},
-			})
+			}, billFieldBody)
 			testhelpers.AssertHumaError(t, err, 422)
 		}
 	})
@@ -102,7 +102,7 @@ func TestBuildShowAssociations_SetType(t *testing.T) {
 		assoc, err := buildShowAssociations(validVenue, []ShowArtistInput{
 			{Name: "Earth"},
 			{Name: "Boris", SetType: &headliner},
-		})
+		}, billFieldBody)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -121,7 +121,7 @@ func TestBuildShowAssociations_SetType(t *testing.T) {
 		assoc, err := buildShowAssociations(validVenue, []ShowArtistInput{
 			{Name: "Earth"},
 			{Name: "Boris"},
-		})
+		}, billFieldBody)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -138,7 +138,7 @@ func TestBuildShowAssociations_SetType(t *testing.T) {
 		assoc, err := buildShowAssociations(validVenue, []ShowArtistInput{
 			{Name: "Earth", IsHeadliner: &explicitFalse},
 			{Name: "DJ Sleep", SetType: &dj},
-		})
+		}, billFieldBody)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -152,7 +152,7 @@ func TestBuildShowAssociations_SetType(t *testing.T) {
 		_, err := buildShowAssociations(validVenue, []ShowArtistInput{
 			{Name: "Boris"},
 			{Name: "Earth", SetType: &bad},
-		})
+		}, billFieldBody)
 		testhelpers.AssertHumaErrorWithDetail(t, err, 422,
 			`show_artists[1].set_type "support" is not a valid set type (allowed: `+
 				contracts.SetTypeVocabularyCSV()+`)`)
@@ -164,7 +164,7 @@ func TestBuildShowAssociations_SetType(t *testing.T) {
 		assoc, err := buildShowAssociations(validVenue, []ShowArtistInput{
 			{Name: "Boris", IsHeadliner: &headliner},
 			{Name: "DJ Earth", SetType: &dj},
-		})
+		}, billFieldBody)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}

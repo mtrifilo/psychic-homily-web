@@ -138,11 +138,25 @@ func (h *EntityRequestHandler) AdminFulfillEntityRequestHandler(ctx context.Cont
 	// PSY-1858: a bill the body omits is prefilled from the stored payload, on
 	// the same terms as the decide path (resolveShowBill). The venue is still
 	// the admin's to supply (the payload has no venue field), so a show rescue
-	// with no show_venue is a 422 however complete the payload's bill is.
+	// with no show_venue is a 422 however complete the payload's bill is. No
+	// state gate here, unlike the decide path: a rescuable row is
+	// approved-but-unfulfilled BY DEFINITION (checked directly above), and that
+	// row shape is exactly where an auto-approved show with a contributor's bill
+	// lands.
 	var showAssoc *showAssociations
 	if existing.EntityType == communitym.EntityRequestShow {
+		// Validate the STORED bill whether or not the body carries one: the
+		// re-validation inside fulfillEntity would otherwise be the first place a
+		// broken stored bill surfaced, and a rescue that fails there is a second
+		// failed recovery on a row that is already an orphan.
+		if existing.Payload != nil {
+			if verr := validateShowPayloadBill(existing.EntityType, *existing.Payload); verr != nil {
+				return nil, verr
+			}
+		}
+		bill, billField := resolveShowBill(req.Body.ShowArtists, existing)
 		var aerr error
-		showAssoc, aerr = buildShowAssociations(req.Body.ShowVenue, resolveShowBill(req.Body.ShowArtists, existing))
+		showAssoc, aerr = buildShowAssociations(req.Body.ShowVenue, bill, billField)
 		if aerr != nil {
 			return nil, aerr
 		}

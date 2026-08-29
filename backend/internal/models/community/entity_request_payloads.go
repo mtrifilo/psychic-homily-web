@@ -430,12 +430,12 @@ func PayloadImageURL(entityType string, raw json.RawMessage) (*string, error) {
 // bill (PSY-1858): the entry count, each act's name, and that no act is named
 // twice.
 //
-// Exported because the API layer runs it at both of its trust boundaries: at
-// queue-create alongside the role check, and again PRE-CLAIM on the decide
-// path. The pre-claim run is the load-bearing one. fulfillEntity re-validates
-// the whole stored payload, but that runs after the row has been claimed, so a
-// structurally broken stored bill discovered there is an orphan no decide call
-// can re-process.
+// Called at queue-create as part of ValidateEntityRequestPayload, and EXPORTED
+// so the API layer can run it again PRE-CLAIM on the decide and rescue paths.
+// That second run is the load-bearing one. fulfillEntity re-validates the whole
+// stored payload, but on the decide path that runs after the row has been
+// claimed, so a structurally broken stored bill discovered there is an orphan no
+// decide call can re-process.
 //
 // What it deliberately does NOT check is set_type's membership in the curated
 // vocabulary. That vocabulary lives in services/contracts, which imports THIS
