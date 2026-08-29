@@ -361,9 +361,9 @@ export function VenueRail({
  * that matches nothing has to say WHY, or a working feature reads as a broken
  * one — and "no venues match these filters" is a claim about a CITY, which is
  * the wrong claim when the real answer is about our data. The all-ages tag has
- * near-zero coverage in production (PSY-1573 seeds no production data; the dev
- * seed tags exactly one venue, the archive exemplar), so that wrong reading
- * would be the common one. emptyRailReason owns the precedence.
+ * near-zero coverage in production (nothing seeds production data with it, and
+ * the dev seed applies it only to its own exemplar venues), so that wrong
+ * reading would be the common one. emptyRailReason owns the precedence.
  *
  * None of these invite the reader to go add the tag. There is nowhere to do it:
  * VenueDetail mounts EntityTagList but not the AddTagDialog + "[Add tag]"
