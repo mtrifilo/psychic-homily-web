@@ -70,6 +70,7 @@ import { EntitySaveSuccessBanner } from '@/features/contributions'
 // that both this form and ShowForm import; that is a features/shows change and
 // is deliberately not made here.
 import {
+  DEFAULT_SET_TYPE,
   SET_TYPE_OPTIONS,
   SET_TYPE_VALUES,
 } from '@/features/shows/components/show-form-utils'
@@ -520,6 +521,31 @@ function ShowCreateForm({
   const hasNamelessStatedRole = artists.some(
     a => a.name.trim() === '' && a.set_type !== UNSTATED_ROLE
   )
+
+  // A bill somebody curated but gave no headliner has NO headline slot at all
+  // in charts: headlineSlotSQL reads such a bill as curated and then takes the
+  // headline slot to be exactly the rows marked 'headliner', inferring nothing
+  // from list order. The show page meanwhile still renders the first act as the
+  // headliner, so the two disagree. This form makes that state reachable in two
+  // clicks, so it says so, and only says so. WARN, DO NOT BLOCK is the recorded
+  // decision (PSY-1856): a bill with a stated opener and no stated headliner is
+  // a legitimate description of a real bill, and the display reconciliation
+  // belongs to PSY-1943's one-rule scope, not to a gate here.
+  //
+  // "Curated" is the BACKEND's test, not the form's. 'performer' is one of the
+  // two spellings of "slot unknown" (headlineSlotUnknownValues), so a bill whose
+  // acts are all explicitly "Performer (slot unknown)" is still uncurated and
+  // DOES get a headline slot from position 0. Testing `!== UNSTATED_ROLE` alone
+  // would warn about that bill wrongly.
+  //
+  // Read off filledArtists because that is the bill that gets sent: a nameless
+  // row is dropped (and separately blocks the submit above).
+  const curatesABillSlot = (row: ShowArtistRow) =>
+    row.set_type !== UNSTATED_ROLE && row.set_type !== DEFAULT_SET_TYPE
+  const hasCuratedBillWithoutHeadliner =
+    filledArtists.some(curatesABillSlot) &&
+    !filledArtists.some(row => row.set_type === 'headliner')
+
   const canSubmit =
     venueName.trim() !== '' &&
     venueCity.trim() !== '' &&
@@ -637,6 +663,16 @@ function ShowCreateForm({
       {hasNamelessStatedRole && (
         <p className="text-xs text-muted-foreground">
           Name the act you gave a role to, or set its role back to “Role not stated”.
+        </p>
+      )}
+
+      {/* Caution, not a gate: submission stays enabled. Amber is this file's
+          established "worth knowing before you act" register (the rescue-request
+          banner uses it), which is the distinction being drawn against the
+          muted hint above, and it is legible in both themes. */}
+      {hasCuratedBillWithoutHeadliner && (
+        <p className="text-xs text-amber-700 dark:text-amber-400">
+          No headliner stated. This bill will have no headline slot in charts.
         </p>
       )}
 

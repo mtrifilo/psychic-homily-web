@@ -676,8 +676,10 @@ describe('ModerationQueue', () => {
   // infer a role from row order, which is the inference the vocabulary exists
   // to remove. The result is a bill that states a role and has no headliner,
   // which the backend classifies as having no headline slot at all. That
-  // consequence is escalated in the PR body as an open decision; this test
-  // exists so the behavior cannot change by accident while it is being decided.
+  // consequence was escalated and DECIDED: warn, allow, and reconcile the
+  // display under PSY-1943. So the transition below is exactly what raises the
+  // partial-bill warning, and this test pins that it still submits the bill the
+  // admin described rather than promoting a survivor behind their back.
   it('leaves the bill headliner-less when the headliner row is removed', async () => {
     const user = userEvent.setup()
     const mutate = vi.fn()
@@ -786,6 +788,123 @@ describe('ModerationQueue', () => {
       expect('is_headliner' in artist).toBe(true)
       expect('set_type' in artist).toBe(false)
     }
+  })
+
+  // ─── Partial-bill warning (PSY-1856) ─────────────────────────────────────
+  //
+  // A bill that curates a slot but names no headliner has NO headline slot in
+  // charts, while the show page still renders the first act as the headliner.
+  // The recorded decision is WARN, ALLOW: the form surfaces the state, does not
+  // gate on it, and the display reconciliation is PSY-1943's.
+  //
+  // The pair worth holding together is "warns on the partial shape" and "stays
+  // silent on an all-'performer' bill": 'performer' reads as a stated role in
+  // this form and as "slot unknown" in headlineSlotSQL, so the warning has to
+  // ask the backend's question, not the form's.
+
+  const partialBillWarning = /No headliner stated/i
+
+  it('warns, without blocking, when the bill states a role but names no headliner', async () => {
+    const user = userEvent.setup()
+    const mutate = vi.fn()
+    mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+    setDefaultMocks({ requests: [showRequestForRoles] })
+
+    render(<ModerationQueue />)
+    openShowFormWithVenue()
+
+    fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
+    await chooseBillRole(user, 1, 'Opener')
+    fireEvent.click(screen.getByRole('button', { name: /add artist/i }))
+    fireEvent.change(screen.getByLabelText('Artist 2 name'), { target: { value: 'Earth' } })
+
+    expect(screen.getByText(partialBillWarning)).toBeInTheDocument()
+
+    // The whole point of the decision: this is a caution, not a gate. The bill
+    // an admin describes honestly ("somebody opened, nobody topped it") still
+    // submits, and submits unchanged.
+    const submit = screen.getByRole('button', { name: /create show/i })
+    expect(submit).toBeEnabled()
+    fireEvent.click(submit)
+
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        show_artists: [
+          { name: 'Boris', is_headliner: false, set_type: 'opener' },
+          { name: 'Earth', is_headliner: false },
+        ],
+      }),
+      expect.anything()
+    )
+    // Still on screen after the submit: nothing about it is a submit-time gate.
+    expect(screen.getByText(partialBillWarning)).toBeInTheDocument()
+  })
+
+  it('warns on a single-act bill whose one act is stated as something other than the headliner', async () => {
+    const user = userEvent.setup()
+    setDefaultMocks({ requests: [showRequestForRoles] })
+
+    render(<ModerationQueue />)
+    openShowFormWithVenue()
+
+    fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
+    await chooseBillRole(user, 1, 'Direct support')
+
+    // No second row to "promote", so there is genuinely no headline slot.
+    expect(screen.getByText(partialBillWarning)).toBeInTheDocument()
+  })
+
+  it('stays silent while every act is unstated', () => {
+    setDefaultMocks({ requests: [showRequestForRoles] })
+
+    render(<ModerationQueue />)
+    openShowFormWithVenue()
+
+    fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
+    fireEvent.click(screen.getByRole('button', { name: /add artist/i }))
+    fireEvent.change(screen.getByLabelText('Artist 2 name'), { target: { value: 'Earth' } })
+
+    // Nobody curated this bill, so headlineSlotSQL falls back to position 0 and
+    // the top act DOES hold the headline slot. Warning here would be false.
+    expect(screen.queryByText(partialBillWarning)).not.toBeInTheDocument()
+  })
+
+  it('stays silent for a bill of explicit "Performer (slot unknown)" rows', async () => {
+    const user = userEvent.setup()
+    setDefaultMocks({ requests: [showRequestForRoles] })
+
+    render(<ModerationQueue />)
+    openShowFormWithVenue()
+
+    fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
+    await chooseBillRole(user, 1, 'Performer (slot unknown)')
+    fireEvent.click(screen.getByRole('button', { name: /add artist/i }))
+    fireEvent.change(screen.getByLabelText('Artist 2 name'), { target: { value: 'Earth' } })
+    await chooseBillRole(user, 2, 'Performer (slot unknown)')
+
+    // 'performer' is one of the two spellings of "slot unknown", so this bill is
+    // uncurated server-side and keeps its position-0 headline slot. A warning
+    // written as `set_type !== unstated` would fire here, wrongly.
+    expect(screen.queryByText(partialBillWarning)).not.toBeInTheDocument()
+  })
+
+  it('clears the warning once an act is stated headliner', async () => {
+    const user = userEvent.setup()
+    setDefaultMocks({ requests: [showRequestForRoles] })
+
+    render(<ModerationQueue />)
+    openShowFormWithVenue()
+
+    fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
+    await chooseBillRole(user, 1, 'Opener')
+    fireEvent.click(screen.getByRole('button', { name: /add artist/i }))
+    fireEvent.change(screen.getByLabelText('Artist 2 name'), { target: { value: 'Earth' } })
+    expect(screen.getByText(partialBillWarning)).toBeInTheDocument()
+
+    // Naming a headliner anywhere on the bill resolves it: the rule is about
+    // the bill, not about row 1.
+    await chooseBillRole(user, 2, 'Headliner')
+    expect(screen.queryByText(partialBillWarning)).not.toBeInTheDocument()
   })
 
   it('cancel closes the show form without mutating', () => {
