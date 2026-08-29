@@ -16,6 +16,13 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
   AdminEmptyState,
   CategoryBadge,
   RejectWithReasonRow,
@@ -48,6 +55,14 @@ import {
 } from '@/lib/hooks/admin/useAdminEntityRequests'
 import { CommentEditHistory } from '@/features/comments'
 import { EntitySaveSuccessBanner } from '@/features/contributions'
+// Deep import, not the '@/features/shows' barrel: that barrel is reachable from
+// the root layout, and this module only needs two pure values from a util file
+// (PSY-1772's shared-chunk note).
+import {
+  SET_TYPE_OPTIONS,
+  toSetType,
+} from '@/features/shows/components/show-form-utils'
+import type { SetType } from '@/features/shows/types'
 import type { PendingEditResponse } from '@/lib/hooks/admin/useAdminPendingEdits'
 import type { EntityReportResponse } from '@/lib/hooks/admin/useAdminEntityReports'
 import type { PendingComment } from '@/lib/hooks/admin/useAdminComments'
@@ -345,10 +360,71 @@ const FULFILLABLE_REQUEST_TYPES = new Set([
   'show',
 ])
 
-// One artist row in the show-create form (PSY-1037).
+/**
+ * The moderation form's stand-in for "nobody has stated this act's slot"
+ * (PSY-1856).
+ *
+ * It exists as a NAMED value rather than an empty string for two reasons that
+ * point the same way: Radix's Select forbids an item whose value is `""`, and
+ * `set_type: ""` is exactly what the API rejects — only an ABSENT key means the
+ * slot is unknown (a present value must be in the vocabulary, so the empty
+ * string 422s). Giving the unset state a value that is not a set_type makes the
+ * rejected payload unrepresentable rather than merely avoided.
+ */
+const UNSTATED_ROLE = 'unstated'
+
+type BillRoleChoice = SetType | typeof UNSTATED_ROLE
+
+/**
+ * The role choices offered per act: the unstated default first, then the whole
+ * PSY-1673 vocabulary in the same presentation order the show form uses.
+ *
+ * "Not stated" and "Performer (slot unknown)" both end up storing `performer`.
+ * They are still distinct choices because they say different things about the
+ * BILL: picking Performer states this act's slot is unknown, while leaving the
+ * row unstated says the admin did not look. Only the former is a curation
+ * signal the backend can read.
+ */
+const BILL_ROLE_OPTIONS: ReadonlyArray<{ value: BillRoleChoice; label: string }> = [
+  { value: UNSTATED_ROLE, label: 'Role not stated' },
+  ...SET_TYPE_OPTIONS,
+]
+
+/** Coerce a Select value back into the choice union (the Select can only emit these). */
+function toBillRoleChoice(value: string): BillRoleChoice {
+  return value === UNSTATED_ROLE ? UNSTATED_ROLE : toSetType(value)
+}
+
+// One artist row in the show-create form (PSY-1037; bill role PSY-1856).
 interface ShowArtistRow {
   name: string
-  isHeadliner: boolean
+  role: BillRoleChoice
+}
+
+/**
+ * Map the form's artist rows onto the API payload (PSY-1856).
+ *
+ * Two rules, both deliberate:
+ *
+ *  1. `set_type` is OMITTED for an unstated row. The endpoint reads only an
+ *     absent key as "slot unknown"; a present `""` is a 422. This is the same
+ *     conditional-spread shape the decide/rescue mutations use for their own
+ *     optional fields.
+ *
+ *  2. `is_headliner` is DERIVED from the role and always sent — never tracked
+ *     beside it, exactly as ShowForm's toArtistPayloads does. Sending it is
+ *     what keeps an entirely unstated bill honest: with no signal at all on any
+ *     act, the backend falls back to reading position 0 as the headliner, which
+ *     would re-introduce the guess the bill-role vocabulary exists to remove.
+ *     An explicit `false` says "this act was not designated", so an unstated
+ *     act stores `performer` whatever the rest of the bill says.
+ */
+function toShowArtistInputs(rows: ShowArtistRow[]): ShowArtistInput[] {
+  return rows.map(row => ({
+    name: row.name.trim(),
+    is_headliner: row.role === 'headliner',
+    ...(row.role === UNSTATED_ROLE ? {} : { set_type: row.role }),
+  }))
 }
 
 /**
@@ -375,9 +451,13 @@ function ShowCreateForm({
   const [venueName, setVenueName] = useState('')
   const [venueCity, setVenueCity] = useState(defaultCity)
   const [venueState, setVenueState] = useState(defaultState)
-  // First artist defaults to headliner (mirrors the backend's first-artist
-  // fallback, but explicit so the admin sees + can change it).
-  const [artists, setArtists] = useState<ShowArtistRow[]>([{ name: '', isHeadliner: true }])
+  // Every act starts with its role unstated, including the first (PSY-1856).
+  // The row used to arrive pre-checked as the headliner, which asserted a slot
+  // nobody had looked at; a bill role is a curated fact somebody states, and it
+  // is never inferred from row order.
+  const [artists, setArtists] = useState<ShowArtistRow[]>([
+    { name: '', role: UNSTATED_ROLE },
+  ])
 
   const updateArtist = (index: number, patch: Partial<ShowArtistRow>) => {
     setArtists(rows => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)))
@@ -441,16 +521,29 @@ function ShowCreateForm({
               className={inputClass}
               disabled={isSubmitting}
             />
-            <label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={artist.isHeadliner}
-                onChange={e => updateArtist(index, { isHeadliner: e.target.checked })}
-                aria-label={`Artist ${index + 1} is headliner`}
-                disabled={isSubmitting}
-              />
-              headliner
-            </label>
+            {/* Bill role, replacing the headliner checkbox (PSY-1856):
+                headliner is one role among six, and set_type outranks
+                is_headliner server-side. Named by aria-label alone — this dense
+                row has no visible label to conflict with (WCAG 2.5.3). */}
+            <Select
+              value={artist.role}
+              onValueChange={value => updateArtist(index, { role: toBillRoleChoice(value) })}
+              disabled={isSubmitting}
+            >
+              <SelectTrigger
+                className="w-44 shrink-0"
+                aria-label={`Artist ${index + 1} bill role`}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {BILL_ROLE_OPTIONS.map(option => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             {artists.length > 1 && (
               <Button
                 type="button"
@@ -469,7 +562,7 @@ function ShowCreateForm({
           type="button"
           variant="ghost"
           size="sm"
-          onClick={() => setArtists(rows => [...rows, { name: '', isHeadliner: false }])}
+          onClick={() => setArtists(rows => [...rows, { name: '', role: UNSTATED_ROLE }])}
           disabled={isSubmitting}
         >
           <Plus className="h-3 w-3 mr-1" />
@@ -489,10 +582,7 @@ function ShowCreateForm({
                 city: venueCity.trim(),
                 state: venueState.trim(),
               },
-              filledArtists.map(a => ({
-                name: a.name.trim(),
-                is_headliner: a.isHeadliner,
-              }))
+              toShowArtistInputs(filledArtists)
             )
           }
         >

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { ModerationQueue } from './ModerationQueue'
 import type { PendingEditResponse } from '@/lib/hooks/admin/useAdminPendingEdits'
 import type { EntityReportResponse } from '@/lib/hooks/admin/useAdminEntityReports'
@@ -456,15 +457,158 @@ describe('ModerationQueue', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: /create show/i }))
 
+    // PSY-1856: with no role stated on either act, set_type is ABSENT from
+    // both entries (toHaveBeenCalledWith compares the array exactly, so an
+    // extra key fails here) and is_headliner is an explicit false — which is
+    // what keeps the backend from reading position 0 as the headliner.
     expect(mutate).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 11,
         decision: 'approved',
         show_venue: { name: 'Valley Bar', city: 'Phoenix', state: 'AZ' },
         show_artists: [
-          { name: 'Boris', is_headliner: true },
+          { name: 'Boris', is_headliner: false },
           { name: 'Earth', is_headliner: false },
         ],
+      }),
+      expect.anything()
+    )
+  })
+
+  // ─── Bill roles (PSY-1856) ───────────────────────────────────────────────
+  //
+  // The paired UI for PSY-1705's set_type on decide/fulfill. The three things
+  // worth pinning: the vocabulary is offered, a stated role reaches the
+  // mutation, and an UNSTATED role omits the key rather than sending "" (a
+  // present-but-empty set_type is a 422 — only an absent key means unknown).
+
+  const showRequestForRoles: AdminEntityRequest = {
+    ...mockEntityRequest,
+    id: 11,
+    entity_type: 'show',
+    payload: { title: 'Big Fest', event_date: '2026-07-01', city: 'Phoenix', state: 'AZ' },
+    source_detail: null,
+  }
+
+  /** Open the show form on the queued request and fill the venue. */
+  function openShowFormWithVenue() {
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }))
+    fireEvent.change(screen.getByLabelText('Venue name'), { target: { value: 'Valley Bar' } })
+  }
+
+  async function chooseBillRole(
+    user: ReturnType<typeof userEvent.setup>,
+    artistNumber: number,
+    optionLabel: string
+  ) {
+    await user.click(
+      screen.getByRole('combobox', { name: `Artist ${artistNumber} bill role` })
+    )
+    await user.click(await screen.findByRole('option', { name: optionLabel }))
+  }
+
+  it('replaces the headliner checkbox with an unstated-by-default bill role', async () => {
+    const user = userEvent.setup()
+    setDefaultMocks({ requests: [showRequestForRoles] })
+
+    render(<ModerationQueue />)
+    openShowFormWithVenue()
+
+    // The checkbox is gone: headliner is a role, not a separate flag.
+    expect(screen.queryByLabelText(/is headliner/i)).not.toBeInTheDocument()
+
+    const roleSelect = screen.getByRole('combobox', { name: 'Artist 1 bill role' })
+    expect(roleSelect).toHaveTextContent('Role not stated')
+
+    await user.click(roleSelect)
+    for (const label of [
+      'Role not stated',
+      'Headliner',
+      'Direct support',
+      'Opener',
+      'Special guest',
+      'DJ',
+      'Performer (slot unknown)',
+    ]) {
+      expect(await screen.findByRole('option', { name: label })).toBeInTheDocument()
+    }
+  })
+
+  it('sends each stated bill role and derives is_headliner from it', async () => {
+    const user = userEvent.setup()
+    const mutate = vi.fn()
+    mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+    setDefaultMocks({ requests: [showRequestForRoles] })
+
+    render(<ModerationQueue />)
+    openShowFormWithVenue()
+
+    fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
+    await chooseBillRole(user, 1, 'Headliner')
+    fireEvent.click(screen.getByRole('button', { name: /add artist/i }))
+    fireEvent.change(screen.getByLabelText('Artist 2 name'), { target: { value: 'Earth' } })
+    await chooseBillRole(user, 2, 'Direct support')
+    fireEvent.click(screen.getByRole('button', { name: /add artist/i }))
+    fireEvent.change(screen.getByLabelText('Artist 3 name'), { target: { value: 'DJ Sleep' } })
+    await chooseBillRole(user, 3, 'DJ')
+
+    fireEvent.click(screen.getByRole('button', { name: /create show/i }))
+
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        show_artists: [
+          { name: 'Boris', is_headliner: true, set_type: 'headliner' },
+          { name: 'Earth', is_headliner: false, set_type: 'direct_support' },
+          { name: 'DJ Sleep', is_headliner: false, set_type: 'dj' },
+        ],
+      }),
+      expect.anything()
+    )
+  })
+
+  it('omits set_type for an unstated act on a bill that states other roles', async () => {
+    const user = userEvent.setup()
+    const mutate = vi.fn()
+    mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+    setDefaultMocks({ requests: [showRequestForRoles] })
+
+    render(<ModerationQueue />)
+    openShowFormWithVenue()
+
+    fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
+    await chooseBillRole(user, 1, 'Headliner')
+    fireEvent.click(screen.getByRole('button', { name: /add artist/i }))
+    fireEvent.change(screen.getByLabelText('Artist 2 name'), { target: { value: 'Earth' } })
+
+    fireEvent.click(screen.getByRole('button', { name: /create show/i }))
+
+    const submitted = mutate.mock.calls[0][0] as { show_artists: Record<string, unknown>[] }
+    // The key is ABSENT, not "" and not null: a present set_type outside the
+    // vocabulary is rejected, so "unstated" can only be expressed by omission.
+    expect('set_type' in submitted.show_artists[1]).toBe(false)
+    expect(submitted.show_artists[1]).toEqual({ name: 'Earth', is_headliner: false })
+  })
+
+  it('keeps the stated role out of the payload when the act is dropped', async () => {
+    const user = userEvent.setup()
+    const mutate = vi.fn()
+    mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+    setDefaultMocks({ requests: [showRequestForRoles] })
+
+    render(<ModerationQueue />)
+    openShowFormWithVenue()
+
+    fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
+    await chooseBillRole(user, 1, 'Headliner')
+    fireEvent.click(screen.getByRole('button', { name: /add artist/i }))
+    // Row 2 states a role but is left nameless, so it is not part of the bill.
+    await chooseBillRole(user, 2, 'Opener')
+
+    fireEvent.click(screen.getByRole('button', { name: /create show/i }))
+
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        show_artists: [{ name: 'Boris', is_headliner: true, set_type: 'headliner' }],
       }),
       expect.anything()
     )
@@ -904,7 +1048,38 @@ describe('ModerationQueue', () => {
           id: 51,
           action: 'fulfill',
           show_venue: { name: 'Valley Bar', city: 'Phoenix', state: 'AZ' },
-          show_artists: [{ name: 'Boris', is_headliner: true }],
+          show_artists: [{ name: 'Boris', is_headliner: false }],
+        }),
+        expect.anything()
+      )
+    })
+
+    // PSY-1856: the rescue path shares ShowCreateForm with the approve path,
+    // so it has to carry set_type too — the two endpoints accept the same
+    // field and a rescue is where a stale orphan most often gets its bill
+    // stated for the first time.
+    it('carries the stated bill roles through the rescue fulfill', async () => {
+      const user = userEvent.setup()
+      const mutate = vi.fn()
+      mockUseRescueEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+      setDefaultMocks({ rescue: [orphanShow] })
+
+      render(<ModerationQueue />)
+      fireEvent.click(screen.getByText('Needs attention'))
+      fireEvent.click(screen.getByRole('button', { name: /^fulfill$/i }))
+
+      fireEvent.change(screen.getByLabelText('Venue name'), { target: { value: 'Valley Bar' } })
+      fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
+      await user.click(screen.getByRole('combobox', { name: 'Artist 1 bill role' }))
+      await user.click(await screen.findByRole('option', { name: 'Special guest' }))
+      fireEvent.click(screen.getByRole('button', { name: /create show/i }))
+
+      expect(mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'fulfill',
+          show_artists: [
+            { name: 'Boris', is_headliner: false, set_type: 'special_guest' },
+          ],
         }),
         expect.anything()
       )
