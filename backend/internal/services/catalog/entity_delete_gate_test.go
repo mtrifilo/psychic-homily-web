@@ -153,22 +153,23 @@ func TestRecordedEngagementActorsAreTheOnesReviewed(t *testing.T) {
 // Same idiom as the rest of this package's guard tests: unusableTx() is a
 // zero-value *gorm.DB, so a check that stopped rejecting would reach Raw and
 // panic rather than passing quietly.
-func TestOtherUsersEngagementRejectsAMissingCaller(t *testing.T) {
-	if _, err := otherUsersEngagement(unusableTx(), entityTypeArtist, 7, 0); err == nil {
+func TestEngagementCheckRejectsAMissingCaller(t *testing.T) {
+	if _, err := tablesWithOtherUsersEngagement(unusableTx(), entityTypeArtist, 7, 0); err == nil {
 		t.Fatal("a zero caller id must be rejected: with no caller there is no way to tell " +
 			"the caller's own rows from a stranger's, and the gate would pass on rows it " +
 			"cannot attribute")
 	}
 }
 
-func TestOtherUsersEngagementRejectsAnUnknownEntityType(t *testing.T) {
-	if _, err := otherUsersEngagement(unusableTx(), polymorphicEntityType("scene"), 7, 3); err == nil {
+func TestEngagementCheckRejectsAnUnknownEntityType(t *testing.T) {
+	if _, err := tablesWithOtherUsersEngagement(
+		unusableTx(), polymorphicEntityType("scene"), 7, 3); err == nil {
 		t.Fatal("an unknown entity type must be rejected, not queried")
 	}
 }
 
-func TestOtherUsersEngagementRejectsZeroID(t *testing.T) {
-	if _, err := otherUsersEngagement(unusableTx(), entityTypeArtist, 0, 3); err == nil {
+func TestEngagementCheckRejectsZeroID(t *testing.T) {
+	if _, err := tablesWithOtherUsersEngagement(unusableTx(), entityTypeArtist, 0, 3); err == nil {
 		t.Fatal("a zero entity id must be rejected: it matches nothing, so the gate would " +
 			"report an engaged artist as inert")
 	}

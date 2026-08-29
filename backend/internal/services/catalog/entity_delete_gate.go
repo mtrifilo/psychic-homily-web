@@ -38,9 +38,17 @@ import (
 //     behaviour of an endpoint that has always been open, unchanged by
 //     PSY-1868, and widening the gate to cover it is a moderation-policy call
 //     rather than a fix for the destruction this ticket introduced.
-//   - The database's own foreign keys. Ten of them CASCADE (see the note at the
-//     top of entity_ref_delete.go); this gate reads the polymorphic inventory
-//     only, because the polymorphic tables are the ones the sweep destroys.
+//   - The database's own foreign keys. This gate reads the polymorphic inventory
+//     only, because those are the tables the SWEEP destroys, and the sweep is
+//     what this ticket added. The FK cascades are not harmless, and two of them
+//     carry work a delete cannot give back: artist_reports (a moderation report
+//     filed by a user, reported_by) and artist_link_suggestions (a MusicBrainz
+//     match plus whatever admin review it has been through, reviewed_by_user_id)
+//     both CASCADE, so a non-admin delete takes them with the artist. Pre-existing
+//     behaviour of an endpoint that has always been open, unchanged by
+//     PSY-1868 in either direction, and it is written down here rather than
+//     implied because the presence of this gate would otherwise read as a
+//     promise that no non-admin delete can destroy a stranger's row.
 
 // engagementActorCols names, for every table the sweep DROPS rows from, the
 // column that attributes a row to the person who created it.
@@ -49,14 +57,16 @@ import (
 // a kept table destroys nothing, so it has no bearing on what a non-admin delete
 // may take from a stranger. TestEveryDroppedTableHasAnEngagementActor and
 // TestNoEngagementActorForATableTheSweepDoesNotDrop keep the two halves aligned,
-// and otherUsersEngagement REFUSES a dropped table that is missing here rather
+// and tablesWithOtherUsersEngagement REFUSES a dropped table missing from here rather
 // than skipping it. A skipped table is a table the gate silently answers "no
 // engagement" for, which is exactly the hole this file exists to close.
 var engagementActorCols = map[string]string{
-	// The crate item names its adder, not the crate's owner. Both are the same
-	// person today (AddItem requires the caller to own the collection), and the
-	// adder is the right column either way: it is the one recording a HUMAN
-	// action on this entity.
+	// The crate item names its ADDER, which on a collaborative collection is not
+	// the crate's owner (AddItem admits any authenticated user when
+	// collection.Collaborative). The adder is still the right column, and the
+	// reason is RemoveItem's own permission rule: it lets a row's adder remove it
+	// from any crate, owned or not. So excluding the caller's own added rows here
+	// grants exactly the reach they already have, and never more.
 	"collection_items": "added_by_user_id",
 	// A per-user read cursor on the entity's comment thread.
 	"comment_last_read": "user_id",
@@ -98,7 +108,7 @@ var engagementActorCols = map[string]string{
 // unanswered question that fails the delete.
 const systemWrittenRows = ""
 
-// otherUsersEngagement reports which swept tables hold a row belonging to
+// tablesWithOtherUsersEngagement reports which swept tables hold a row that belongs to
 // somebody other than the caller.
 //
 // The rule, stated once so nothing else has to restate it: a table counts when
@@ -111,11 +121,16 @@ const systemWrittenRows = ""
 // It walks entityRefsWalkedOnDelete(), the same list the sweep walks, so a
 // table added to the inventory reaches both or fails both.
 //
-// Must run inside the delete's transaction. That is not a formality: it is what
-// makes the answer describe the same snapshot the sweep is about to act on. It
-// does NOT make the check atomic against a concurrent engagement write, and the
-// residual window is documented at the call site in DeleteArtist.
-func otherUsersEngagement(
+// Must run inside the delete's transaction, so a refusal aborts the same unit of
+// work the sweep would have run and no partial state escapes.
+//
+// Being in that transaction does NOT buy snapshot isolation: this package runs
+// at the Postgres default READ COMMITTED (the one place that asks for anything
+// stronger says so explicitly, ShowService's read at show.go), where every
+// statement takes its own snapshot. So the check and the sweep can see different
+// states, and the residual window is documented at the call site in DeleteArtist
+// rather than papered over here.
+func tablesWithOtherUsersEngagement(
 	tx *gorm.DB,
 	entity polymorphicEntityType,
 	entityID uint,
@@ -163,11 +178,20 @@ func otherUsersEngagement(
 		// this is a scan an unprivileged caller can trigger, and EXISTS lets the
 		// planner stop at the first matching row.
 		//
+		// IS DISTINCT FROM rather than <>, and the difference is the whole
+		// fail-closed posture in one operator. Every recorded actor column is NOT
+		// NULL today, so the two are equivalent right now. If one ever becomes
+		// nullable, `col <> $1` evaluates to NULL for that row, EXISTS says false,
+		// and the gate reports an artist as inert while holding a row it cannot
+		// attribute to anybody. IS DISTINCT FROM counts it instead, which is the
+		// direction that refuses rather than destroys.
+		//
 		// #nosec G201 -- table and both column names come from the hardcoded
 		// inventory and the hardcoded map above, never from caller input; the
 		// entity type, id and caller id are bound parameters.
 		sql := fmt.Sprintf(
-			"SELECT EXISTS (SELECT 1 FROM %s WHERE entity_type = ? AND %s = ? AND %s <> ?)",
+			"SELECT EXISTS ("+
+				"SELECT 1 FROM %s WHERE entity_type = ? AND %s = ? AND %s IS DISTINCT FROM ?)",
 			ref.table, ref.idCol, actorCol)
 
 		var found bool

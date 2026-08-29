@@ -546,13 +546,18 @@ func (s *ArtistService) DeleteArtist(artistID uint, actor contracts.EntityDelete
 		// The access gate, inside the transaction and immediately in front of the
 		// sweep it guards.
 		//
-		// Both placements are load-bearing. Inside the transaction, the check reads
-		// the same snapshot the sweep then acts on. Immediately in front of it, the
-		// window between "nobody else has engaged with this artist" and "its rows
-		// are destroyed" is as narrow as this method can make it.
+		// Both placements are load-bearing. Inside the transaction, a refusal aborts
+		// the same unit of work the sweep would have run, so no partial state
+		// escapes. Immediately in front of it, the window between "nobody else has
+		// engaged with this artist" and "its rows are destroyed" is as narrow as
+		// this method can make it.
 		//
-		// It is NOT zero, and the residue is worth naming: an engagement row
-		// committed inside that window is destroyed by the sweep as if the gate had
+		// Note what the transaction does NOT give: this runs at READ COMMITTED, so
+		// the gate's SELECTs and the sweep's DELETEs take separate snapshots. The
+		// transaction makes the OUTCOME atomic, not the observation.
+		//
+		// So the window is NOT zero, and the residue is worth naming: an engagement
+		// row committed inside it is destroyed by the sweep as if the gate had
 		// passed on it. This is the same unclosed race the artist row lock above
 		// already documents, from the other side: the writers take no lock on the
 		// artist, so nothing here can make them wait, and closing it means giving
@@ -561,18 +566,19 @@ func (s *ArtistService) DeleteArtist(artistID uint, actor contracts.EntityDelete
 		// between this check and the sweep's deletes, and only opens at all on an
 		// artist that nobody had engaged with a moment earlier.
 		if !actor.IsAdmin {
-			engaged, err := otherUsersEngagement(tx, entityTypeArtist, artistID, actor.UserID)
+			engagedTables, err := tablesWithOtherUsersEngagement(
+				tx, entityTypeArtist, artistID, actor.UserID)
 			if err != nil {
 				return err
 			}
-			if len(engaged) > 0 {
+			if len(engagedTables) > 0 {
 				// The tables go to the log, not to the caller: the operator needs to
 				// know which reference refused the delete, and the caller only needs
 				// to know to ask an admin.
 				slog.Default().Info("artist delete refused: not inert for a non-admin",
 					"artist_id", artistID,
 					"user_id", actor.UserID,
-					"engaged_tables", engaged,
+					"engaged_tables", engagedTables,
 				)
 				return apperrors.ErrArtistHasOtherUsersEngagement(artistID)
 			}

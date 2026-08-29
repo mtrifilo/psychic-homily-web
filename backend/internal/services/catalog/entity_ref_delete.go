@@ -308,6 +308,11 @@ func entityRefsWalkedOnDelete() []entityRef {
 // looks: DELETE /artists/{id} is reachable by any authenticated user, so this is
 // scan work an unprivileged caller can trigger, unlike the merges that issue the
 // same statement shape from admin-only paths.
+//
+// A NON-ADMIN delete pays it roughly twice: the inertness gate in
+// entity_delete_gate.go reads the same tables before the sweep writes them. Its
+// reads are EXISTS rather than COUNT for exactly this reason, so the planner can
+// stop at the first matching row instead of scanning to the end.
 
 // deleteEntityRefs carries out every recorded disposition for one entity that is
 // about to be deleted, and reports what it did per table.
