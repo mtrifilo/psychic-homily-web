@@ -741,9 +741,12 @@ func TestGetArtistShowYears_ServiceError(t *testing.T) {
 
 func TestDeleteArtist_Success(t *testing.T) {
 	mock := &testhelpers.MockArtistService{
-		DeleteArtistFn: func(artistID uint) error {
+		DeleteArtistFn: func(artistID uint, actor contracts.EntityDeleteActor) error {
 			if artistID != 42 {
 				t.Errorf("expected artistID=42, got %d", artistID)
+			}
+			if actor.UserID != 1 {
+				t.Errorf("expected the authenticated caller's id, got %d", actor.UserID)
 			}
 			return nil
 		},
@@ -757,9 +760,54 @@ func TestDeleteArtist_Success(t *testing.T) {
 	}
 }
 
+// The handler is the ONLY thing that tells the service whether the caller is an
+// admin, and the service lifts the whole inertness gate on that one bool. A
+// handler that forgot to forward it would hand every caller the non-admin path
+// (harmless) or, if it hardcoded true, hand every caller the admin path (the
+// exact hole PSY-1868's gate closes). So both values are pinned.
+func TestDeleteArtist_ForwardsTheCallersAdminFlag(t *testing.T) {
+	for _, isAdmin := range []bool{true, false} {
+		var got contracts.EntityDeleteActor
+		mock := &testhelpers.MockArtistService{
+			DeleteArtistFn: func(_ uint, actor contracts.EntityDeleteActor) error {
+				got = actor
+				return nil
+			},
+		}
+		h := NewArtistHandler(mock, nil, nil, nil)
+		ctx := testhelpers.CtxWithUser(&authm.User{ID: 7, IsAdmin: isAdmin})
+
+		if _, err := h.DeleteArtistHandler(ctx, &DeleteArtistRequest{ArtistID: "42"}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got.IsAdmin != isAdmin {
+			t.Errorf("IsAdmin: got %v, want %v", got.IsAdmin, isAdmin)
+		}
+		if got.UserID != 7 {
+			t.Errorf("UserID: got %d, want 7", got.UserID)
+		}
+	}
+}
+
+// A non-admin refused because other people have engaged with the artist must get
+// 403, not the 409 the has-shows refusal returns: the client's only remedy is to
+// escalate to an admin, and a 409 reads as "change something and retry".
+func TestDeleteArtist_NotInertForNonAdmin(t *testing.T) {
+	mock := &testhelpers.MockArtistService{
+		DeleteArtistFn: func(_ uint, _ contracts.EntityDeleteActor) error {
+			return apperrors.ErrArtistHasOtherUsersEngagement(42)
+		},
+	}
+	h := NewArtistHandler(mock, nil, nil, nil)
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+
+	_, err := h.DeleteArtistHandler(ctx, &DeleteArtistRequest{ArtistID: "42"})
+	testhelpers.AssertHumaError(t, err, 403)
+}
+
 func TestDeleteArtist_NotFound(t *testing.T) {
 	mock := &testhelpers.MockArtistService{
-		DeleteArtistFn: func(_ uint) error {
+		DeleteArtistFn: func(_ uint, _ contracts.EntityDeleteActor) error {
 			return apperrors.ErrArtistNotFound(99)
 		},
 	}
@@ -772,7 +820,7 @@ func TestDeleteArtist_NotFound(t *testing.T) {
 
 func TestDeleteArtist_HasShows(t *testing.T) {
 	mock := &testhelpers.MockArtistService{
-		DeleteArtistFn: func(_ uint) error {
+		DeleteArtistFn: func(_ uint, _ contracts.EntityDeleteActor) error {
 			return apperrors.ErrArtistHasShows(42, 3)
 		},
 	}
@@ -785,7 +833,7 @@ func TestDeleteArtist_HasShows(t *testing.T) {
 
 func TestDeleteArtist_ServiceError(t *testing.T) {
 	mock := &testhelpers.MockArtistService{
-		DeleteArtistFn: func(_ uint) error {
+		DeleteArtistFn: func(_ uint, _ contracts.EntityDeleteActor) error {
 			return fmt.Errorf("db error")
 		},
 	}
@@ -1482,7 +1530,7 @@ func TestAdminCreateArtist_AuditLogCalled(t *testing.T) {
 
 func TestDeleteArtist_ZeroID(t *testing.T) {
 	mock := &testhelpers.MockArtistService{
-		DeleteArtistFn: func(id uint) error {
+		DeleteArtistFn: func(id uint, _ contracts.EntityDeleteActor) error {
 			return apperrors.ErrArtistNotFound(id)
 		},
 	}

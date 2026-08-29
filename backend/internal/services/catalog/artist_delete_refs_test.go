@@ -9,10 +9,12 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
+	apperrors "psychic-homily-backend/internal/errors"
 	adminm "psychic-homily-backend/internal/models/admin"
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	notificationm "psychic-homily-backend/internal/models/notification"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -128,7 +130,16 @@ func (s *ArtistDeleteRefsSuite) seedUser(email string) *authm.User {
 }
 
 func (s *ArtistDeleteRefsSuite) seedFixtures() artistRefFixtures {
-	f := artistRefFixtures{user: s.seedUser("sweep@test.com")}
+	return s.seedFixturesFor(s.seedUser("sweep@test.com"))
+}
+
+// seedFixturesFor is seedFixtures with the owning user chosen by the caller.
+//
+// The access-gate tests need both halves: rows belonging to SOMEBODY ELSE (the
+// refusal) and rows belonging to the caller (which must not refuse), and every
+// seed in this file attributes its row to f.user.
+func (s *ArtistDeleteRefsSuite) seedFixturesFor(user *authm.User) artistRefFixtures {
+	f := artistRefFixtures{user: user}
 	unique := time.Now().UnixNano()
 
 	// tags carries idx_tags_name_lower, UNIQUE on lower(name), so the NAME has to
@@ -250,6 +261,11 @@ func (s *ArtistDeleteRefsSuite) seedArtistPendingEdit(artistID, userID uint) {
 // "The row is gone" and "the row is still there on purpose" are both passes, and
 // which one is correct is decided by entityRefDeleteDispositions rather than by
 // this test — so flipping a disposition without meaning to fails here.
+//
+// It deletes as an ADMIN, which makes it the maximally-engaged case for the
+// access gate too: every inventory table holds a row belonging to a user who is
+// not the caller, and the admin path still sweeps the lot. The non-admin half of
+// that pair is TestDeleteArtist_NonAdminIsRefusedWhenAnotherUserHasEngaged.
 func (s *ArtistDeleteRefsSuite) TestDeleteArtist_HandlesEveryInventoriedReference() {
 	artist := s.seedArtist("Sweep")
 	f := s.seedFixtures()
@@ -274,7 +290,7 @@ func (s *ArtistDeleteRefsSuite) TestDeleteArtist_HandlesEveryInventoriedReferenc
 		}
 	}
 
-	s.Require().NoError(s.svc.DeleteArtist(artist.ID))
+	s.Require().NoError(s.svc.DeleteArtist(artist.ID, deleteAsAdmin()))
 
 	for _, ref := range polymorphicEntityRefs {
 		if !seeded[ref.table] {
@@ -379,7 +395,7 @@ func (s *ArtistDeleteRefsSuite) TestDeleteArtist_ReleasesTheTagUsageCountItHeld(
 		Scan(&before).Error)
 	s.Require().Equal(2, before)
 
-	s.Require().NoError(s.svc.DeleteArtist(doomed.ID))
+	s.Require().NoError(s.svc.DeleteArtist(doomed.ID, deleteAsAdmin()))
 
 	var after int
 	s.Require().NoError(s.db.Raw(`SELECT usage_count FROM tags WHERE id = ?`, f.tagID).
@@ -399,7 +415,7 @@ func (s *ArtistDeleteRefsSuite) TestDeleteArtist_TagUsageCountFloorsAtZero() {
 	s.seedArtistRefRow("entity_tags", artist.ID, f)
 
 	s.Require().NoError(s.db.Exec(`UPDATE tags SET usage_count = 0 WHERE id = ?`, f.tagID).Error)
-	s.Require().NoError(s.svc.DeleteArtist(artist.ID))
+	s.Require().NoError(s.svc.DeleteArtist(artist.ID, deleteAsAdmin()))
 
 	var after int
 	s.Require().NoError(s.db.Raw(`SELECT usage_count FROM tags WHERE id = ?`, f.tagID).
@@ -435,7 +451,7 @@ func (s *ArtistDeleteRefsSuite) TestDeleteArtist_LeavesAlertRowsThatOnlyNameItAs
 		VALUES (?, ?, ?, ?, 'email')`,
 		f.user.ID, notificationm.NotificationEntityArtistShowAlert, show.ID, artist.ID).Error)
 
-	s.Require().NoError(s.svc.DeleteArtist(artist.ID))
+	s.Require().NoError(s.svc.DeleteArtist(artist.ID, deleteAsAdmin()))
 
 	var surviving int64
 	s.Require().NoError(s.db.Raw(
@@ -494,7 +510,7 @@ func (s *ArtistDeleteRefsSuite) TestDeleteArtist_RefusedDeleteSweepsNothing() {
 		`INSERT INTO show_artists (show_id, artist_id, position) VALUES (?, ?, 0)`,
 		show.ID, artist.ID).Error)
 
-	err := s.svc.DeleteArtist(artist.ID)
+	err := s.svc.DeleteArtist(artist.ID, deleteAsAdmin())
 	s.Require().Error(err, "an artist with shows must not be deletable")
 
 	s.Equal(int64(1), s.countRefRows("user_bookmarks", "entity_id", artist.ID),
@@ -541,7 +557,7 @@ func (s *ArtistDeleteRefsSuite) TestDeleteArtist_RollsBackTheSweepWhenTheDeleteI
 		INSERT INTO artist_relationships (source_artist_id, target_artist_id, relationship_type, auto_derived)
 		VALUES (?, ?, 'related', false)`, src, tgt).Error)
 
-	err := s.svc.DeleteArtist(artist.ID)
+	err := s.svc.DeleteArtist(artist.ID, deleteAsAdmin())
 	s.Require().Error(err,
 		"artist_relationships has no ON DELETE clause, so the database refuses this delete")
 
@@ -554,6 +570,188 @@ func (s *ArtistDeleteRefsSuite) TestDeleteArtist_RollsBackTheSweepWhenTheDeleteI
 	s.Require().NoError(s.db.Raw(`SELECT COUNT(*) FROM artists WHERE id = ?`, artist.ID).
 		Scan(&stillThere).Error)
 	s.Equal(int64(1), stillThere, "the artist must survive its own failed delete")
+}
+
+// ──────────────────────────────────────────────
+// The access gate in front of the sweep
+// ──────────────────────────────────────────────
+
+// A non-admin must be refused for EVERY table the sweep would drop rows from,
+// one table at a time.
+//
+// Table-driven off the same maps the gate reads, so a migration that adds a
+// dropped reference table gets this assertion for free rather than needing
+// somebody to remember it. That matters more here than in most table-driven
+// tests: the harm the gate prevents is per table, and a gate that covers eight
+// of nine still hands an unprivileged caller a way to destroy the ninth.
+//
+// Each case seeds ONE row, owned by a user who is not the caller, and asserts
+// both halves of the refusal: the right error, and a database nothing happened
+// to. A gate that returned its error after the sweep would pass the first
+// assertion and fail the second.
+func (s *ArtistDeleteRefsSuite) TestDeleteArtist_NonAdminIsRefusedWhenAnotherUserHasEngaged() {
+	exercised := 0
+	for _, ref := range entityRefsWalkedOnDelete() {
+		if entityRefDeleteDispositions[ref.table] != dropRefRows {
+			continue
+		}
+		if engagementActorCols[ref.table] == systemWrittenRows {
+			continue
+		}
+		if refsThatCannotHoldAnArtist[ref.table] {
+			continue
+		}
+		exercised++
+
+		s.Run(ref.table, func() {
+			// Named per table: the subtests share one SetupTest, and artists are
+			// unique on name.
+			artist := s.seedArtist("Engaged " + ref.table)
+			stranger := s.seedFixtures()
+			caller := s.seedUser("caller@test.com")
+
+			s.seedArtistRefRow(ref.table, artist.ID, stranger)
+			s.Require().Equal(int64(1), s.countRefRows(ref.table, ref.idCol, artist.ID),
+				"the seed did not land, so the refusal below would prove nothing")
+
+			err := s.svc.DeleteArtist(artist.ID, deleteAsUser(caller.ID))
+
+			s.Require().Error(err, "a non-admin must not delete an artist somebody else has "+
+				"engaged with: the sweep would destroy that row")
+			var artistErr *apperrors.ArtistError
+			s.Require().ErrorAs(err, &artistErr)
+			s.Equal(apperrors.CodeArtistHasOtherUsersEngagement, artistErr.Code)
+
+			s.Equal(int64(1), s.countRefRows(ref.table, ref.idCol, artist.ID),
+				"the refused delete destroyed the row it refused over")
+
+			var stillThere int64
+			s.Require().NoError(s.db.Raw(`SELECT COUNT(*) FROM artists WHERE id = ?`, artist.ID).
+				Scan(&stillThere).Error)
+			s.Equal(int64(1), stillThere, "the refused delete removed the artist anyway")
+		})
+	}
+
+	s.Positive(exercised, "no dropped, user-attributed table was exercised, so this test "+
+		"passed without checking the gate at all")
+}
+
+// The refusal must roll back the whole transaction, including the denormalized
+// counter the sweep releases.
+//
+// Separate from the per-table cases above because tags.usage_count is not a row
+// count: a gate that ran after releaseTagUsageCounts would leave every tag on the
+// artist permanently understated while the entity_tags rows survived, and no
+// count of rows would notice.
+func (s *ArtistDeleteRefsSuite) TestDeleteArtist_NonAdminRefusalReleasesNoTagUsage() {
+	artist := s.seedArtist("Tagged")
+	stranger := s.seedFixtures()
+	caller := s.seedUser("caller@test.com")
+
+	s.seedArtistRefRow("entity_tags", artist.ID, stranger)
+	s.seedArtistRefRow("user_bookmarks", artist.ID, stranger)
+
+	err := s.svc.DeleteArtist(artist.ID, deleteAsUser(caller.ID))
+	s.Require().Error(err)
+
+	var usage int
+	s.Require().NoError(s.db.Raw(`SELECT usage_count FROM tags WHERE id = ?`, stranger.tagID).
+		Scan(&usage).Error)
+	s.Equal(1, usage, "a refused delete must not have released the tag usage count")
+
+	s.Equal(int64(1), s.countRefRows("entity_tags", "entity_id", artist.ID))
+	s.Equal(int64(1), s.countRefRows("user_bookmarks", "entity_id", artist.ID))
+}
+
+// The flow the non-admin path exists for, end to end through the real create.
+//
+// With the enrichment sweep enabled, CreateArtist enqueues an image_enrich_queue
+// row for every artist it makes, and that table is dispositioned dropRefRows,
+// so a gate that counted rows rather than PEOPLE would refuse every freshly
+// created artist and break OrphanedArtistsDialog, which is the endpoint's only
+// real caller. Written against CreateArtist rather than a hand-seeded row so it
+// keeps testing what creation actually writes.
+func (s *ArtistDeleteRefsSuite) TestDeleteArtist_NonAdminMayCleanUpAJustCreatedOrphan() {
+	// The enqueue is behind this flag (off by default), and the flag is the
+	// interesting case: an environment with it OFF never seeds the row that could
+	// refuse the delete, so testing the default would prove nothing.
+	s.T().Setenv("ENABLE_IMAGE_ENRICH_SWEEP", "1")
+
+	caller := s.seedUser("caller@test.com")
+	created, err := s.svc.CreateArtist(&contracts.CreateArtistRequest{
+		Name: fmt.Sprintf("Fresh Orphan %d", time.Now().UnixNano()),
+	})
+	s.Require().NoError(err)
+
+	var queued int64
+	s.Require().NoError(s.db.Raw(
+		`SELECT COUNT(*) FROM image_enrich_queue WHERE entity_type = 'artist' AND entity_id = ?`,
+		created.ID).Scan(&queued).Error)
+	s.Require().Equal(int64(1), queued,
+		"creation must still enqueue image enrichment, or this test no longer covers the "+
+			"machine-written row that would otherwise refuse the delete")
+
+	s.Require().NoError(s.svc.DeleteArtist(created.ID, deleteAsUser(caller.ID)),
+		"a non-admin must be able to clean up an artist nobody has engaged with")
+
+	var remaining int64
+	s.Require().NoError(s.db.Raw(`SELECT COUNT(*) FROM artists WHERE id = ?`, created.ID).
+		Scan(&remaining).Error)
+	s.Zero(remaining)
+	s.Zero(s.countRefRows("image_enrich_queue", "entity_id", created.ID),
+		"the enrichment job must still go with the artist it can never enrich")
+}
+
+// The caller's OWN engagement does not make an artist un-inert.
+//
+// The gate protects other people's rows; a caller destroying their own follow or
+// their own tag is doing what the un-follow and un-tag endpoints already let them
+// do. Pinned because the cheap version of this gate ("no engagement rows at
+// all") looks equivalent and is not: a user who followed an artist before
+// orphaning it would be locked out of a cleanup nobody else has a stake in.
+func (s *ArtistDeleteRefsSuite) TestDeleteArtist_NonAdminMayDeleteWhatOnlyTheyEngagedWith() {
+	artist := s.seedArtist("Mine Alone")
+	caller := s.seedUser("caller@test.com")
+	own := s.seedFixturesFor(caller)
+
+	s.seedArtistRefRow("user_bookmarks", artist.ID, own)
+	s.seedArtistRefRow("entity_tags", artist.ID, own)
+	s.seedArtistRefRow("collection_items", artist.ID, own)
+
+	s.Require().NoError(s.svc.DeleteArtist(artist.ID, deleteAsUser(caller.ID)))
+
+	s.Zero(s.countRefRows("user_bookmarks", "entity_id", artist.ID))
+	s.Zero(s.countRefRows("entity_tags", "entity_id", artist.ID))
+	s.Zero(s.countRefRows("collection_items", "entity_id", artist.ID))
+
+	var usage int
+	s.Require().NoError(s.db.Raw(`SELECT usage_count FROM tags WHERE id = ?`, own.tagID).
+		Scan(&usage).Error)
+	s.Zero(usage, "the caller's own tag must still give its usage_count back")
+}
+
+// A tombstone table does not gate the delete.
+//
+// comments is dispositioned keepRefRowsAsTombstone: the delete destroys nothing
+// there, so somebody else's comment is not something a non-admin delete can take
+// away, and counting it would refuse cleanups over rows that survive either way.
+// The rows must still be there afterwards, which is the half that makes this a
+// statement about the disposition rather than about the gate alone.
+func (s *ArtistDeleteRefsSuite) TestDeleteArtist_NonAdminIsNotGatedByTombstoneTables() {
+	artist := s.seedArtist("Discussed")
+	stranger := s.seedFixtures()
+	caller := s.seedUser("caller@test.com")
+
+	s.seedArtistRefRow("comments", artist.ID, stranger)
+	s.seedArtistRefRow("audit_logs", artist.ID, stranger)
+	s.seedArtistRefRow("revisions", artist.ID, stranger)
+
+	s.Require().NoError(s.svc.DeleteArtist(artist.ID, deleteAsUser(caller.ID)),
+		"tombstone rows survive the delete, so they must not refuse it")
+
+	s.Equal(int64(1), s.countRefRows("comments", "entity_id", artist.ID))
+	s.Equal(int64(1), s.countRefRows("audit_logs", "entity_id", artist.ID))
+	s.Equal(int64(1), s.countRefRows("revisions", "entity_id", artist.ID))
 }
 
 // ──────────────────────────────────────────────
@@ -762,7 +960,7 @@ func (s *ArtistDeleteRefsSuite) TestDeleteArtist_LeavesOtherArtistsReferencesAlo
 		s.seedArtistRefRow(table, survivor.ID, f)
 	}
 
-	s.Require().NoError(s.svc.DeleteArtist(doomed.ID))
+	s.Require().NoError(s.svc.DeleteArtist(doomed.ID, deleteAsAdmin()))
 
 	for _, ref := range polymorphicEntityRefs {
 		if refsThatCannotHoldAnArtist[ref.table] {

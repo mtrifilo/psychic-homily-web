@@ -266,6 +266,27 @@ var entityRefDeleteDispositions = map[string]refDeleteDisposition{
 // cannot be swept against the wrong column in silence.
 const refsRepointedElsewhereIDCol = "entity_id"
 
+// entityRefsWalkedOnDelete is the whole inventory as one list of (table, id
+// column) pairs: polymorphicEntityRefs, then the refsRepointedElsewhere tables,
+// which all use refsRepointedElsewhereIDCol.
+//
+// It exists so the sweep and the inertness gate in FRONT of the sweep
+// (entity_delete_gate.go) cannot walk different lists. The gate's whole job is
+// to answer "would this delete destroy anything of somebody else's?", and a
+// table the gate does not know about is a table it silently answers "no" for.
+// One function, two callers, so a new inventory entry reaches both or neither.
+//
+// The returned entries are copies of the inventory's, and callers must treat
+// them as read-only: table and idCol are interpolated into SQL.
+func entityRefsWalkedOnDelete() []entityRef {
+	out := make([]entityRef, 0, len(polymorphicEntityRefs)+len(refsRepointedElsewhere))
+	out = append(out, polymorphicEntityRefs...)
+	for _, table := range refsRepointedElsewhere {
+		out = append(out, entityRef{table: table, idCol: refsRepointedElsewhereIDCol})
+	}
+	return out
+}
+
 // COST, measured rather than assumed. FOUR of the nine dropped tables have no
 // index supporting (entity_type, entity_id), so their DELETE is a sequential
 // scan:
@@ -313,8 +334,18 @@ func deleteEntityRefs(
 		return nil, fmt.Errorf("delete entity refs: entity id is required")
 	}
 
-	affected := make(map[string]int64, len(polymorphicEntityRefs)+len(refsRepointedElsewhere))
+	refs := entityRefsWalkedOnDelete()
+	affected := make(map[string]int64, len(refs))
 
+	// The list includes the provenance-gated tables (refsRepointedElsewhere)
+	// rather than excluding them the way repointEntityRefs does. The reason that
+	// exclusion exists does not apply: it forces an author to state what happens
+	// to a re-pointed row's READ-TIME REDACTION, and a delete re-points nothing.
+	// All three are recorded as kept, so the loop issues no statement for them
+	// today — but routing them through the same lookup is what makes a future
+	// change to one of those dispositions impossible to forget, and what makes
+	// them appear in the affected map rather than silently missing from it.
+	//
 	// entity_tags is held back to the END of the loop, and the tag counter is
 	// released immediately before it, so the two run as an adjacent pair.
 	//
@@ -326,12 +357,12 @@ func deleteEntityRefs(
 	// behind an unrelated entity's deletion for EVERY entity carrying those tags.
 	// Doing it last shrinks that window to two adjacent statements.
 	var tagRef *entityRef
-	for i, ref := range polymorphicEntityRefs {
+	for i, ref := range refs {
 		if ref.table == "" || ref.idCol == "" {
 			return nil, fmt.Errorf("delete entity refs: table and id column are required")
 		}
 		if ref.table == "entity_tags" {
-			tagRef = &polymorphicEntityRefs[i]
+			tagRef = &refs[i]
 			continue
 		}
 		n, err := applyRefDeleteDisposition(tx, ref.table, ref.idCol, entity, entityID)
@@ -339,22 +370,6 @@ func deleteEntityRefs(
 			return nil, err
 		}
 		affected[ref.table] = n
-	}
-
-	// The provenance-gated tables are swept here rather than being excluded the
-	// way repointEntityRefs excludes them. The reason that exclusion exists does
-	// not apply: it forces an author to state what happens to a re-pointed row's
-	// READ-TIME REDACTION, and a delete re-points nothing. All three are recorded
-	// as kept, so this loop issues no statement for them today — but routing them
-	// through the same lookup is what makes a future change to one of those
-	// dispositions impossible to forget, and what makes them appear in the
-	// affected map rather than silently missing from it.
-	for _, table := range refsRepointedElsewhere {
-		n, err := applyRefDeleteDisposition(tx, table, refsRepointedElsewhereIDCol, entity, entityID)
-		if err != nil {
-			return nil, err
-		}
-		affected[table] = n
 	}
 
 	// Last, as a pair: give back the denormalized counter, then drop the rows it

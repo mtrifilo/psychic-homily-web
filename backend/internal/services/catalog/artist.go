@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/url"
 	"strings"
 	"time"
@@ -493,7 +494,15 @@ func (s *ArtistService) UpdateArtist(artistID uint, req *contracts.UpdateArtistR
 // what each one gets, is recorded in entityRefDeleteDispositions rather than
 // here — see entity_ref_delete.go, and the seeding sweep in
 // artist_delete_refs_test.go that fails by name when a new table has no answer.
-func (s *ArtistService) DeleteArtist(artistID uint) error {
+//
+// WHO MAY CALL IT. This is the only catalog delete that is not admin-only, and
+// the sweep is what makes that matter: an unprivileged caller now destroys other
+// people's follows, crate items, tag votes and subscriptions rather than merely
+// stranding them. So a non-admin may delete an artist only while it is INERT:
+// no shows, and no swept row belonging to anyone but the caller. An admin
+// deletes outright, as the five sibling paths already do. The inertness rule and
+// what it deliberately does not cover live in entity_delete_gate.go.
+func (s *ArtistService) DeleteArtist(artistID uint, actor contracts.EntityDeleteActor) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
 	}
@@ -532,6 +541,41 @@ func (s *ArtistService) DeleteArtist(artistID uint) error {
 
 		if count > 0 {
 			return apperrors.ErrArtistHasShows(artistID, count)
+		}
+
+		// The access gate, inside the transaction and immediately in front of the
+		// sweep it guards.
+		//
+		// Both placements are load-bearing. Inside the transaction, the check reads
+		// the same snapshot the sweep then acts on. Immediately in front of it, the
+		// window between "nobody else has engaged with this artist" and "its rows
+		// are destroyed" is as narrow as this method can make it.
+		//
+		// It is NOT zero, and the residue is worth naming: an engagement row
+		// committed inside that window is destroyed by the sweep as if the gate had
+		// passed on it. This is the same unclosed race the artist row lock above
+		// already documents, from the other side: the writers take no lock on the
+		// artist, so nothing here can make them wait, and closing it means giving
+		// FollowService.Follow, CreateBookmark and AddTagToEntity a SHARE lock on
+		// the entity. What bounds it is that the window spans only the statements
+		// between this check and the sweep's deletes, and only opens at all on an
+		// artist that nobody had engaged with a moment earlier.
+		if !actor.IsAdmin {
+			engaged, err := otherUsersEngagement(tx, entityTypeArtist, artistID, actor.UserID)
+			if err != nil {
+				return err
+			}
+			if len(engaged) > 0 {
+				// The tables go to the log, not to the caller: the operator needs to
+				// know which reference refused the delete, and the caller only needs
+				// to know to ask an admin.
+				slog.Default().Info("artist delete refused: not inert for a non-admin",
+					"artist_id", artistID,
+					"user_id", actor.UserID,
+					"engaged_tables", engaged,
+				)
+				return apperrors.ErrArtistHasOtherUsersEngagement(artistID)
+			}
 		}
 
 		if err := sweepEntityRefsForDelete(tx, entityTypeArtist, artistID); err != nil {

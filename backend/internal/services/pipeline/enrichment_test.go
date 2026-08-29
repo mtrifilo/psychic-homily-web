@@ -485,7 +485,9 @@ func (m *mockArtistServiceForEnrichment) GetArtistListing() ([]contracts.ArtistL
 func (m *mockArtistServiceForEnrichment) UpdateArtist(artistID uint, req *contracts.UpdateArtistRequest) (*contracts.ArtistDetailResponse, error) {
 	return nil, nil
 }
-func (m *mockArtistServiceForEnrichment) DeleteArtist(artistID uint) error { return nil }
+func (m *mockArtistServiceForEnrichment) DeleteArtist(artistID uint, actor contracts.EntityDeleteActor) error {
+	return nil
+}
 func (m *mockArtistServiceForEnrichment) SearchArtists(query string) ([]*contracts.ArtistDetailResponse, error) {
 	if m.searchArtistsFn != nil {
 		return m.searchArtistsFn(query)

@@ -14,6 +14,26 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 
+const GENERIC_DELETE_FAILURE =
+  'Failed to delete some artists. They may have been associated with other shows.'
+
+/**
+ * Explain a failed delete.
+ *
+ * The generic line is a guess, and for one refusal it is the WRONG guess: the
+ * API refuses a non-admin delete of an artist other people have followed,
+ * tagged or saved, and answers 403 with a message naming that reason and the
+ * remedy (ask an admin). Overwriting it with "may have been associated with
+ * other shows" sends the reader to look at a bill that has nothing to do with
+ * it. Only 403 is passed through, because it is the one status whose body is
+ * written for this reader rather than for an operator.
+ */
+function deleteFailureMessage(err: unknown): string {
+  const status = (err as { status?: number } | null)?.status
+  const message = err instanceof Error ? err.message.trim() : ''
+  return status === 403 && message ? message : GENERIC_DELETE_FAILURE
+}
+
 interface OrphanedArtistsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -44,8 +64,8 @@ export function OrphanedArtistsDialog({
       )
       onOpenChange(false)
       onComplete?.()
-    } catch {
-      setError('Failed to delete some artists. They may have been associated with other shows.')
+    } catch (err) {
+      setError(deleteFailureMessage(err))
     } finally {
       setIsDeleting(false)
     }

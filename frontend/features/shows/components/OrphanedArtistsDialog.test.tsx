@@ -170,6 +170,66 @@ describe('OrphanedArtistsDialog', () => {
       expect(onComplete).not.toHaveBeenCalled()
     })
 
+    // The API refuses a non-admin delete of an artist other people have
+    // followed, tagged or saved, and its 403 body is the only accurate
+    // explanation: the generic line blames shows, which is not why this one was
+    // refused, and sends the reader to look at the wrong thing.
+    it('shows the API reason when the delete is refused as forbidden', async () => {
+      const user = userEvent.setup()
+      const refusal = Object.assign(
+        new Error(
+          'Cannot delete artist: other people have followed, tagged or saved it. ' +
+            'Ask an admin to delete it.'
+        ),
+        { status: 403 }
+      )
+      mockApiRequest.mockRejectedValue(refusal)
+
+      renderWithProviders(
+        <OrphanedArtistsDialog
+          open
+          onOpenChange={vi.fn()}
+          artists={[makeArtist()]}
+        />
+      )
+
+      await user.click(screen.getByRole('button', { name: /Delete Artist/i }))
+
+      expect(
+        await screen.findByText(/other people have followed, tagged or saved it/i)
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText(/Failed to delete some artists/i)
+      ).not.toBeInTheDocument()
+    })
+
+    // Every other failure keeps the generic line: those bodies are written for
+    // an operator (they carry request ids and internal detail), not for the
+    // person looking at this dialog.
+    it('keeps the generic message for a non-403 failure', async () => {
+      const user = userEvent.setup()
+      const serverError = Object.assign(
+        new Error('Failed to delete artist (request_id: abc123)'),
+        { status: 500 }
+      )
+      mockApiRequest.mockRejectedValue(serverError)
+
+      renderWithProviders(
+        <OrphanedArtistsDialog
+          open
+          onOpenChange={vi.fn()}
+          artists={[makeArtist()]}
+        />
+      )
+
+      await user.click(screen.getByRole('button', { name: /Delete Artist/i }))
+
+      expect(
+        await screen.findByText(/Failed to delete some artists/i)
+      ).toBeInTheDocument()
+      expect(screen.queryByText(/request_id/i)).not.toBeInTheDocument()
+    })
+
     it('disables both buttons while a delete is in flight', async () => {
       const user = userEvent.setup()
       // Hold the request open so the pending UI is observable.

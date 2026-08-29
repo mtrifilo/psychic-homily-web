@@ -211,6 +211,9 @@ func TestMapArtistError_CodeToStatus(t *testing.T) {
 		{"alias exists", apperrors.ErrArtistAliasExists("alias 'x' already exists"), 409},
 		{"has shows", apperrors.ErrArtistHasShows(7, 3), 409},
 		{"merge self", apperrors.ErrArtistMergeSelf(), 422},
+		// 403 rather than 409: the artist is deletable, just not by this caller,
+		// and the only remedy is to escalate to an admin.
+		{"other users' engagement", apperrors.ErrArtistHasOtherUsersEngagement(7), 403},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

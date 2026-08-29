@@ -950,6 +950,12 @@ type DeleteArtistRequest struct {
 
 // DeleteArtistHandler handles DELETE /artists/{artist_id}
 // Only deletes artists with 0 show associations. Returns 409 Conflict if artist still has shows.
+//
+// This route is authenticated but NOT admin-gated, unlike the five sibling
+// entity deletes, because the show form offers to clean up artists its own edit
+// just orphaned. The caller's identity and admin flag are therefore passed to
+// the service, which refuses a non-admin delete of an artist other people have
+// engaged with (403). See DeleteArtist and entity_delete_gate.go.
 func (h *ArtistHandler) DeleteArtistHandler(ctx context.Context, req *DeleteArtistRequest) (*struct{}, error) {
 	requestID := logger.GetRequestID(ctx)
 
@@ -971,7 +977,12 @@ func (h *ArtistHandler) DeleteArtistHandler(ctx context.Context, req *DeleteArti
 		"request_id", requestID,
 	)
 
-	err = h.artistService.DeleteArtist(uint(artistID))
+	err = h.artistService.DeleteArtist(uint(artistID), contracts.EntityDeleteActor{
+		UserID: user.ID,
+		// The same field HumaAdminMiddleware gates the admin router on, taken from
+		// the same context user, so "admin" means one thing across the API.
+		IsAdmin: user.IsAdmin,
+	})
 	if err != nil {
 		if mapped := shared.MapArtistError(err); mapped != nil {
 			return nil, mapped
