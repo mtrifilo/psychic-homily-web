@@ -128,8 +128,9 @@ describe('StationSidebar — STATION info box outbound links', () => {
   // as a disabled feature rather than as bad data.
   //
   // Scoped to THIS box on purpose — the same columns are rendered as raw
-  // anchors elsewhere on the station page, so this asserts nothing about the
-  // field in general.
+  // anchors elsewhere on the station page (StationDetail's header buttons), so
+  // this asserts nothing about the field in general. Validating those columns
+  // on write, which is the real fix, is tracked in PSY-1953.
   it.each([
     ['javascript:alert(1)'],
     ['data:text/html,<script>alert(1)</script>'],
@@ -142,6 +143,26 @@ describe('StationSidebar — STATION info box outbound links', () => {
     expect(
       screen.queryByRole('button', { name: /donate/i })
     ).not.toBeInTheDocument()
+  })
+
+  // `social` is free-form JSONB with no server-side schema, so its values are
+  // string-typed only by assertion. One bad value must skip its own entry, not
+  // throw during render and take the whole sidebar to the error boundary.
+  it('skips a non-string social value without crashing the sidebar', () => {
+    render(
+      <StationSidebar
+        station={makeStation({
+          website: 'https://wfmu.org',
+          social: { twitter: 123, bluesky: 'https://bsky.app/profile/wfmu' } as never,
+        })}
+      />
+    )
+
+    expect(screen.getByRole('link', { name: /^WFMU website\b/ })).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: /^WFMU on bluesky\b/ })
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /twitter/i })).not.toBeInTheDocument()
   })
 
   it('renders no link row when the station has no outbound urls', () => {

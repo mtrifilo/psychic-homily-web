@@ -92,23 +92,40 @@ function StationInfoBox({ station }: { station: RadioStationDetail }) {
   // Trimmed before the scheme test, matching BracketLink: the write path
   // persists raw operator input, so a pasted "  https://..." must not be
   // mistaken for an unusable value and dropped.
-  const addLink = (label: string, url: string | null | undefined, name: string) => {
-    const href = url?.trim()
+  //
+  // Named parameters, not positional: `label` and `ariaLabel` are both strings
+  // and both plausible in either slot, so a transposition would typecheck and
+  // render a bracket whose visible text and spoken name are swapped.
+  const addLink = (link: {
+    label: string
+    url: string | null | undefined
+    ariaLabel: string
+  }) => {
+    // `typeof` guard, not just a null check: `social` is free-form JSONB with
+    // no server-side schema, so its values are only string-typed by assertion.
+    // A stored number would make `.trim()` throw during render and take the
+    // whole sidebar to the error boundary, where the old code merely skipped
+    // the entry.
+    const href = typeof link.url === 'string' ? link.url.trim() : ''
     if (href && /^https?:\/\//i.test(href)) {
-      links.push({ label, href, ariaLabel: name })
+      links.push({ label: link.label, href, ariaLabel: link.ariaLabel })
     }
   }
 
-  addLink('donate', station.donation_url, `Donate to ${station.name}`)
+  addLink({
+    label: 'donate',
+    url: station.donation_url,
+    ariaLabel: `Donate to ${station.name}`,
+  })
   if (station.website) {
-    addLink(
-      `${hostLabel(station.website)} ↗`,
-      station.website,
-      `${station.name} website`
-    )
+    addLink({
+      label: `${hostLabel(station.website)} ↗`,
+      url: station.website,
+      ariaLabel: `${station.name} website`,
+    })
   }
   for (const [key, url] of Object.entries(station.social ?? {})) {
-    addLink(`${key} ↗`, url, `${station.name} on ${key}`)
+    addLink({ label: `${key} ↗`, url, ariaLabel: `${station.name} on ${key}` })
   }
 
   return (

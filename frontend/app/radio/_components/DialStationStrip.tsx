@@ -106,6 +106,12 @@ export function DialStationStrip({ station }: DialStationStripProps) {
 
       {/* Actions column */}
       <div className="flex items-center gap-4 md:flex-col md:items-end md:gap-2">
+        {/* NOT gated or announced, unlike the channel-row bracket below: this
+            is a Button, a different idiom that does not route through
+            BracketLink. It reads the same operator-entered `website` column,
+            so it is the second consumer of a value only one of them checks.
+            Validating that column on write, which fixes both consumers at the
+            source, is tracked in PSY-1953. */}
         {detail?.website && (
           <Button asChild size="sm">
             <a href={detail.website} target="_blank" rel="noopener noreferrer">

@@ -14,7 +14,11 @@ const NEW_TAB_SUFFIX = '(opens in a new tab)'
  *
  *  - It must anchor at the END. The name it inspects can carry operator-entered
  *    text (a venue or station name), so a mid-string match would let stored
- *    content suppress the announcement for the whole control.
+ *    content suppress the announcement for the whole control. The anchor
+ *    NARROWS that window rather than closing it: a call site that interpolates
+ *    operator text last could still, in principle, produce a name ending in
+ *    this shape. Accepted because the alternative (no tolerance at all) trades
+ *    a far-fetched suppression for a routine stutter.
  *  - It must tolerate phrasing variants. The one hand-written announcement this
  *    codebase actually had read "(opens Google Maps in a new tab)", which a
  *    literal check for the canonical string would miss, and "window" is the
@@ -75,11 +79,16 @@ export interface BracketLinkProps
    * `target="_blank" rel="noopener noreferrer"` instead of a Next `<Link>`,
    * and appends "(opens in a new tab)" to the accessible name.
    *
-   * Callers put the outbound marker in the visible label themselves
-   * ("Directions ↗") so the glyph is not this component's business. The
-   * new-tab announcement IS: do not hand-write it into `ariaLabel`, or the
-   * claim and the `target` it describes can drift apart again. A caller string
-   * that already carries the phrase is used as-is rather than doubled.
+   * The visible outbound marker is the CALLER's choice, not this component's:
+   * prose-like brackets carry a "↗" ("Directions ↗", "site ↗"), while dense
+   * tabular ones deliberately do not ("mp3" in an archive column, "listen"
+   * down the dial), because a glyph per row is noise. Put it in `label` when
+   * you want it, so it stays visual and out of the announced name.
+   *
+   * The new-tab announcement is NOT optional and NOT the caller's: do not
+   * hand-write it into `ariaLabel`, or the claim and the `target` it describes
+   * can drift apart again. A caller string that already ends in such a note is
+   * used as-is rather than doubled.
    *
    * Only `http(s)` hrefs are honored — anything else renders the disabled
    * fallback instead of a live anchor (see the scheme floor below). Marking a
@@ -123,9 +132,10 @@ export interface BracketLinkProps
  *   <BracketLink label="X" variant="danger" onClick={handleRemove} title="Remove" />
  *   <BracketLink label="site ↗" href={room.website} external ariaLabel={`${room.name} website`} />
  *
- * That last line is the whole outbound split: the glyph rides in `label`, the
- * disambiguating context rides in `ariaLabel`, and "(opens in a new tab)" is
- * appended by this component — callers never write it.
+ * That last line is the whole outbound split: the optional glyph rides in
+ * `label` (visual only), the disambiguating context rides in `ariaLabel`, and
+ * "(opens in a new tab)" is appended by this component — callers never write
+ * it. Dense tabular call sites keep the context and skip the glyph.
  */
 export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
   function BracketLink(
@@ -176,11 +186,22 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
     // "  https://x" reaches here intact. A browser strips that whitespace when
     // parsing an href, so an untrimmed test would reject a URL the platform
     // treats as perfectly valid and hand the reader a dead grey bracket where
-    // a working link used to be. Trimming cannot widen what passes: it only
-    // removes surrounding whitespace, so a rejected scheme stays rejected.
+    // a working link used to be.
+    //
+    // The presence test stays on the RAW href on purpose. Testing the trimmed
+    // copy would let a whitespace-only href ("   ") slip through as "no unsafe
+    // href here" while the render branch below still saw a truthy string,
+    // producing an enabled <a href=""> that reopens the current page in a new
+    // tab while announcing that it opens something else. Raw for "was anything
+    // supplied", trimmed for "is what was supplied usable".
+    // Resolved ONCE, above every render branch. The suffix is a rule about the
+    // name, so a branch added later inherits both halves instead of silently
+    // picking up the naming rule and dropping the announcement.
+    const accessibleName = resolveAccessibleName(ariaLabel, label)
+
     const trimmedHref = href?.trim()
     const unsafeExternalHref =
-      external && !!trimmedHref && !/^https?:\/\//i.test(trimmedHref)
+      external && !!href && !/^https?:\/\//i.test(trimmedHref ?? '')
     const effectiveDisabled = disabled || unsafeExternalHref
 
     const classes = cn(
@@ -231,8 +252,8 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
         className: classes,
         title,
         'aria-label': external
-          ? withNewTabSuffix(resolveAccessibleName(ariaLabel, label))
-          : resolveAccessibleName(ariaLabel, label),
+          ? withNewTabSuffix(accessibleName)
+          : accessibleName,
       }
       if (external) {
         return (
@@ -267,7 +288,7 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
         disabled={effectiveDisabled}
         className={classes}
         title={title}
-        aria-label={resolveAccessibleName(ariaLabel, label)}
+        aria-label={accessibleName}
         aria-pressed={active || undefined}
         {...rest}
       >

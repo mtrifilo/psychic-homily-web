@@ -308,15 +308,20 @@ describe('BracketLink', () => {
       ['ftp://tix.example'],
       // Protocol-relative: inherits the page scheme, so it IS off-site.
       ['//evil.example/x'],
-      // Leading whitespace/control chars, which browsers strip from an href
-      // before navigating. The check runs on the raw value, so these stay
-      // rejected; that is the safe direction.
+      // Leading whitespace/control chars. The scheme test runs on the TRIMMED
+      // copy, and these still fail it once trimmed; trimming only removes
+      // surrounding whitespace, so it can never widen the accepted set.
       [' javascript:alert(1)'],
       ['\njavascript:alert(1)'],
       ['\tjavascript:alert(1)'],
       // Scheme-less: not a live relative link either.
       ['tix.example/buy'],
-    ])('renders a disabled button, never an anchor, for %s', href => {
+      // Whitespace-only. The presence test runs on the RAW href so these stay
+      // disabled; testing the trimmed copy would emit an enabled <a href="">
+      // that reopens the current page while announcing a new tab.
+      ['   '],
+      ['\n\t'],
+    ])('renders a disabled button, never an anchor, for %j', href => {
       render(<BracketLink label="Buy ↗" href={href} external />)
       expect(screen.queryByRole('link')).not.toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Buy ↗' })).toBeDisabled()

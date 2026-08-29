@@ -27,9 +27,10 @@ describe('ImageAttribution', () => {
     render(
       <ImageAttribution source="spotify" sourceUrl="https://open.spotify.com/album/abc" kind="cover" />
     )
-    const link = screen.getByRole('link', {
-      name: 'Spotify (opens in a new tab)',
-    })
+    // Anchored on this call site's own half of the name. The suffix wording
+    // belongs to BracketLink and is pinned in its suite, not re-owned here.
+    const link = screen.getByRole('link', { name: /^Spotify\b/ })
+    expect(link.getAttribute('aria-label')).not.toMatch(/↗/)
     expect(link).toHaveAttribute('target', '_blank')
     expect(link).toHaveAttribute('rel', 'noopener noreferrer')
   })
