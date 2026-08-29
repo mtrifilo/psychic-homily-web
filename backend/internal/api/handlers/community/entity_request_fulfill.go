@@ -45,6 +45,38 @@ func validatePayloadImageURL(ctx context.Context, entityType string, raw json.Ra
 	return shared.ValidateImageURL(ctx, imageURL)
 }
 
+// validateShowPayloadBillRoles checks each role on a show payload's bill
+// against the curated set_type vocabulary (PSY-1858), at the queue-create trust
+// boundary.
+//
+// It lives here rather than in ValidateEntityRequestPayload because the
+// vocabulary lives in services/contracts, which imports the models package.
+// See validateShowPayloadBill for the full note. The payload model checks the
+// bill's structure (count, names); this closes the one rule it cannot reach,
+// against the same contracts.IsValidSetType the admin path uses, so a
+// contributor can never submit a role an admin approve would later reject.
+//
+// Rejecting at submit is the whole point: a typo'd role caught here is a 422 on
+// a request that was never filed, while the same typo caught at fulfillment is
+// caught after the decide call has claimed the row: an approved-but-unfulfilled
+// orphan that only the rescue endpoint can clear.
+//
+// Non-show types carry no bill and return nil. A payload that fails to decode
+// also returns nil: the caller runs ValidateEntityRequestPayload first, which
+// reports decode failures with a better message than this could.
+func validateShowPayloadBillRoles(entityType string, raw json.RawMessage) error {
+	artists, err := communitym.ShowPayloadArtists(entityType, raw)
+	if err != nil {
+		return nil
+	}
+	for i := range artists {
+		if _, serr := curatedShowArtistSetType("payload artists", i, artists[i].SetType); serr != nil {
+			return serr
+		}
+	}
+	return nil
+}
+
 // isFulfillUnsupported reports whether err is the typed "fulfillment
 // unsupported" error fulfillEntity returns when a show request has no
 // admin-supplied associations (its Create needs venue + artists the payload
@@ -97,8 +129,10 @@ func mapFulfillmentError(err error) error {
 
 // maxShowArtistInputs caps the admin-supplied bill size on a show approve
 // (PSY-1037) — large enough for any festival bill, small enough to stop a
-// runaway script from flooding one CreateShow transaction.
-const maxShowArtistInputs = 50
+// runaway script from flooding one CreateShow transaction. Aliased to the
+// payload's own cap (PSY-1858) so the queue and the approve path cannot drift
+// into a bill that is submittable but not approvable.
+const maxShowArtistInputs = communitym.MaxShowRequestArtists
 
 // showAssociations carries the admin-supplied venue + artists (already
 // converted to the catalog contract types) from the decide endpoint to the
@@ -156,7 +190,7 @@ func buildShowAssociations(venue *ShowVenueInput, artists []ShowArtistInput) (*s
 		if len(name) > 255 {
 			return nil, huma.Error422UnprocessableEntity("show_artists name must be 255 characters or fewer")
 		}
-		setType, serr := curatedShowArtistSetType(i, a.SetType)
+		setType, serr := curatedShowArtistSetType("show_artists", i, a.SetType)
 		if serr != nil {
 			return nil, serr
 		}
@@ -174,6 +208,85 @@ func buildShowAssociations(venue *ShowVenueInput, artists []ShowArtistInput) (*s
 		suppressPositionInference(out.artists)
 	}
 	return out, nil
+}
+
+// resolveShowBill picks which of the two possible bills gets fulfilled: the one
+// the admin submitted, or the one the contributor stored on the request payload
+// (PSY-1858). It returns the bill and the request field it came from, so a 422
+// about that bill names an input its reader can act on.
+//
+// The rule, in one line: the BODY is authoritative, and the payload prefills
+// only a bill the body does not state at all.
+//
+// "Does not state at all" means the key is absent (or null). An explicit
+// "show_artists": [] is a STATED bill, of zero acts, and prefills nothing: by
+// the deletion rule below, an empty array is an admin who removed every act,
+// and a bill with no acts is not fulfillable, so it 422s exactly as it did
+// before any of this existed.
+//
+// The payload bill exists so the moderation form can be PREFILLED with what the
+// contributor recorded, which is a data-entry saving, not a new authority.
+// PSY-1037's posture is untouched: nothing is ever fulfilled from the payload
+// alone. The admin still confirms the request, and still supplies the venue,
+// which the payload has no field for, so an approve that omits show_venue is
+// still a 422 no matter how complete the payload's bill is.
+//
+// Acts are NOT merged per-act, and a role is NOT borrowed from the payload for
+// an act the body left uncurated. The reason is DELETION. The form the admin
+// submitted was seeded from this same payload, so an act present in the payload
+// and missing from the body is an act the admin deliberately REMOVED. Union
+// semantics would resurrect it, and nothing an admin could do would then drop a
+// hallucinated act off an AI-extracted bill, precisely the failure the
+// human-confirmation posture exists to prevent. A body that states one act
+// where the payload had five is a correction, not an addition.
+//
+// The converse also matters: because the body wins WHOLE, an admin who wants
+// the contributor's bill sends it back (the prefilled form does exactly that),
+// and one who wants a different bill sends that. Neither outcome depends on
+// what the payload happens to contain.
+//
+// The returned inputs still flow through buildShowAssociations, so a payload
+// bill is validated (names, cap, roles) and position-inference-suppressed on
+// exactly the same terms as an admin-typed one: a payload bill that states one
+// role does not get a second, position-inferred headliner.
+func resolveShowBill(bodyArtists []ShowArtistInput, req *communitym.EntityRequest) []ShowArtistInput {
+	if len(bodyArtists) > 0 {
+		return bodyArtists
+	}
+	return payloadShowBill(req)
+}
+
+// payloadShowBill converts a stored show payload's bill into the admin-shaped
+// bill inputs, for prefill (PSY-1858). Nil for a non-show request, a request
+// with no payload, or a payload that does not decode.
+//
+// A decode failure is deliberately silent rather than an error: the paths that
+// call this then fall through to "no bill", which surfaces as the existing
+// "approving a show requires show_venue and show_artists" 422, and fulfillment
+// re-validates the stored payload anyway and reports the decode failure with a
+// far better message than a prefill helper could. Inventing a second error
+// channel here would only give the same corrupt row two different 422s
+// depending on whether the admin also typed a bill.
+//
+// The converted inputs carry no ID (the payload has no ID field: contributors
+// have no artist picker, so fulfillment find-or-creates by name) and no
+// is_headliner (the payload states roles, not flags).
+func payloadShowBill(req *communitym.EntityRequest) []ShowArtistInput {
+	if req == nil || req.Payload == nil {
+		return nil
+	}
+	artists, err := communitym.ShowPayloadArtists(req.EntityType, *req.Payload)
+	if err != nil || len(artists) == 0 {
+		return nil
+	}
+	out := make([]ShowArtistInput, 0, len(artists))
+	for i := range artists {
+		out = append(out, ShowArtistInput{
+			Name:    artists[i].Name,
+			SetType: artists[i].SetType,
+		})
+	}
+	return out
 }
 
 // suppressPositionInference pins is_headliner=false on the acts the admin left
@@ -265,14 +378,17 @@ func suppressPositionInference(artists []contracts.CreateShowArtist) {
 // action on a request that now reads as approved with nothing created. Both
 // callers run buildShowAssociations pre-claim, alongside the venue/name/
 // image_url checks that live there for the same reason.
-func curatedShowArtistSetType(index int, value *string) (*string, error) {
+// field names the list being validated in the error message ("show_artists" for
+// an admin body, "payload artists" for a contributor's stored bill), so a 422
+// points at the thing its reader can actually edit.
+func curatedShowArtistSetType(field string, index int, value *string) (*string, error) {
 	if value == nil {
 		return nil, nil
 	}
 	if !contracts.IsValidSetType(*value) {
 		return nil, huma.Error422UnprocessableEntity(fmt.Sprintf(
-			"show_artists[%d].set_type %q is not a valid set type (allowed: %s)",
-			index, *value, contracts.SetTypeVocabularyCSV(),
+			"%s[%d].set_type %q is not a valid set type (allowed: %s)",
+			field, index, *value, contracts.SetTypeVocabularyCSV(),
 		))
 	}
 	return value, nil

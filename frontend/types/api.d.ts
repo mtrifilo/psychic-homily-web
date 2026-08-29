@@ -7609,7 +7609,7 @@ export interface components {
             decision: string;
             /** @description Optional decision note (shown to the requester) */
             note?: string | null;
-            /** @description Artists for fulfilling a show request (required when approving a show; at least one) */
+            /** @description Artists for fulfilling a show request. Required when approving a show unless the request payload carries its own artists, which are then used. A bill sent here replaces the payload's entirely: acts are not merged, so an act omitted here is dropped. */
             show_artists?: components["schemas"]["ShowArtistInput"][] | null;
             /** @description Venue for fulfilling a show request (required when approving a show) */
             show_venue?: components["schemas"]["ShowVenueInput"];
@@ -7665,7 +7665,7 @@ export interface components {
             action?: string;
             /** @description Optional note (recorded as the decision note when voiding) */
             note?: string;
-            /** @description Artists for fulfilling a show request (required when fulfilling a show; at least one) */
+            /** @description Artists for fulfilling a show request. Required when fulfilling a show unless the request payload carries its own artists, which are then used. A bill sent here replaces the payload's entirely: acts are not merged, so an act omitted here is dropped. */
             show_artists?: components["schemas"]["ShowArtistInput"][] | null;
             /** @description Venue for fulfilling a show request (required when fulfilling a show) */
             show_venue?: components["schemas"]["ShowVenueInput"];

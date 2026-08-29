@@ -102,9 +102,45 @@ type ShowRequestPayload struct {
 	Description    *string  `json:"description,omitempty"`
 	TicketURL      *string  `json:"ticket_url,omitempty"`
 	ImageURL       *string  `json:"image_url,omitempty"`
+	// Artists is the bill the contributor knew at request time (PSY-1858).
+	// Optional, and PREFILL ONLY: it does not make a show fulfillable on its
+	// own. PSY-1037's posture is unchanged: an admin still confirms the
+	// request and still supplies the venue (which this payload has no field
+	// for), and the admin's submitted bill is authoritative over this one. See
+	// resolveShowBill in the entity-request handlers for the exact rule.
+	//
+	// DEPLOY ORDERING, because UnmarshalPayload runs DisallowUnknownFields:
+	// adding this field is backward compatible (every row already queued has no
+	// "artists" key, and a missing key is not an unknown one), but it is NOT
+	// forward compatible. A row written WITH a bill and then read by a binary
+	// that predates this field fails to decode, and on the approve path that
+	// failure lands post-claim, stranding the row. Nothing writes a bill until a
+	// producer ships, so the constraint binds at the FIRST PRODUCER, not here:
+	// once one exists, rolling the backend back past this commit is a one-way
+	// door for any row it wrote.
+	Artists []ShowRequestArtist `json:"artists,omitempty"`
 }
 
 func (ShowRequestPayload) entityRequestType() string { return EntityRequestShow }
+
+// ShowRequestArtist is one act on the bill a contributor recorded with a show
+// request (PSY-1858).
+//
+// There is deliberately no ID field. A contributor has no artist picker (the
+// contribute flow collects typed names), so an ID here could only come from a
+// client guessing at catalog ids, and fulfillment resolves names by
+// find-or-create anyway (the admin-side ShowArtistInput keeps its ID because
+// the moderation form does pin existing artists).
+//
+// SetType carries the act's role on the bill, using the same curated
+// vocabulary the admin path accepts (contracts.SetTypeVocabulary). An absent
+// key means "on the bill, slot unknown", which resolves to 'performer' at
+// fulfillment, never 'opener'. The vocabulary itself is checked at the API
+// boundary rather than here; see validateShowPayloadBill for why.
+type ShowRequestArtist struct {
+	Name    string  `json:"name"`
+	SetType *string `json:"set_type,omitempty"`
+}
 
 // VenueRequestPayload carries the user-supplied fields to create a venue.
 // City + State are required on the catalog model, so they are non-pointer here.
@@ -297,6 +333,9 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		if err := optionalHTTPURL("show", "ticket_url", p.TicketURL, maxRequestShortURLLen); err != nil {
 			return err
 		}
+		if err := ValidateShowPayloadArtists(p.Artists); err != nil {
+			return err
+		}
 		return optionalMaxLen("show", "description", p.Description, maxRequestDescriptionLen)
 	case EntityRequestFestival:
 		p, err := UnmarshalPayload[FestivalRequestPayload](raw)
@@ -387,6 +426,97 @@ func PayloadImageURL(entityType string, raw json.RawMessage) (*string, error) {
 	}
 }
 
+// ValidateShowPayloadArtists checks the STRUCTURE of a contributor-supplied
+// bill (PSY-1858): the entry count, each act's name, and that no act is named
+// twice.
+//
+// Exported because the API layer runs it at both of its trust boundaries: at
+// queue-create alongside the role check, and again PRE-CLAIM on the decide
+// path. The pre-claim run is the load-bearing one. fulfillEntity re-validates
+// the whole stored payload, but that runs after the row has been claimed, so a
+// structurally broken stored bill discovered there is an orphan no decide call
+// can re-process.
+//
+// What it deliberately does NOT check is set_type's membership in the curated
+// vocabulary. That vocabulary lives in services/contracts, which imports THIS
+// package, so importing it back is an import cycle. Rather than duplicate the
+// vocabulary here, which is drift that would stay invisible until an admin
+// approve rejected a role a contributor was allowed to submit, the membership
+// check runs one layer up, at the API trust boundary, against the single
+// authoritative list. See validateShowPayloadBill in
+// internal/api/handlers/community, which pairs the two into one call.
+func ValidateShowPayloadArtists(artists []ShowRequestArtist) error {
+	if len(artists) > MaxShowRequestArtists {
+		return fmt.Errorf("show payload: artists is capped at %d entries", MaxShowRequestArtists)
+	}
+	names := make([]string, 0, len(artists))
+	for i, a := range artists {
+		name := strings.TrimSpace(a.Name)
+		if name == "" {
+			return fmt.Errorf("show payload: artists[%d].name is required", i)
+		}
+		if len(name) > MaxShowRequestArtistNameLen {
+			return fmt.Errorf("show payload: artists[%d].name must be %d characters or fewer", i, MaxShowRequestArtistNameLen)
+		}
+		names = append(names, name)
+	}
+	if dupe, ok := FirstDuplicateArtistName(names); ok {
+		return fmt.Errorf("show payload: artists names an act twice (%q)", dupe)
+	}
+	return nil
+}
+
+// FirstDuplicateArtistName reports the first name that repeats on a bill,
+// comparing case-insensitively.
+//
+// It is the one implementation of "no act twice", shared by the payload
+// validator and the admin bill builder, because the rule is not cosmetic: the
+// show service find-or-creates artists on a case-insensitive name match, and
+// show_artists is keyed PRIMARY KEY (show_id, artist_id). A bill naming "Boris"
+// and "boris" therefore resolves to ONE artist and violates that key at INSERT.
+// On the decide path that INSERT happens after the row is claimed, so a
+// duplicate caught anywhere later than pre-claim is an approved-but-unfulfilled
+// orphan, and one that survives a retry: the rescue endpoint re-reads the same
+// bill and fails the same way.
+//
+// Names are expected pre-trimmed; callers trim as part of their own per-act
+// checks, and trimming is itself part of the collision ("Boris " and "Boris"
+// are the same act).
+func FirstDuplicateArtistName(names []string) (string, bool) {
+	seen := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		key := strings.ToLower(name)
+		if _, dupe := seen[key]; dupe {
+			return name, true
+		}
+		seen[key] = struct{}{}
+	}
+	return "", false
+}
+
+// ShowPayloadArtists returns the bill stored on a show request's payload, or
+// nil for any other entity type (which carries no bill).
+//
+// It exists for the same reason PayloadImageURL does: a caller outside this
+// package needs one field out of the payload without this package taking on
+// that caller's dependencies. Here the dependency is the set_type vocabulary in
+// services/contracts, which imports this package. See validateShowPayloadBill.
+//
+// A non-show type is (nil, nil) rather than an error: unlike PayloadImageURL,
+// which fails closed so a new entity_type cannot silently skip the SSRF guard,
+// "no bill" is the honest and permanently correct answer for every entity that
+// is not a show.
+func ShowPayloadArtists(entityType string, raw json.RawMessage) ([]ShowRequestArtist, error) {
+	if entityType != EntityRequestShow {
+		return nil, nil
+	}
+	p, err := UnmarshalPayload[ShowRequestPayload](raw)
+	if err != nil {
+		return nil, err
+	}
+	return p.Artists, nil
+}
+
 // requireField returns an error when a required string field is empty (after
 // trimming). Keeps ValidateEntityRequestPayload's required-field checks terse.
 func requireField(entityType, field, value string) error {
@@ -450,6 +580,23 @@ const (
 	maxRequestPrice    = 10000
 	maxRequestCityLen  = 255
 	maxRequestStateLen = 10
+)
+
+// Bill limits (PSY-1858). Both are EXPORTED and both are aliased by the admin
+// approve path (maxShowArtistInputs, and the name cap in buildShowAssociations)
+// rather than restated there, so a bill that clears the queue is always one the
+// fulfiller will still accept. Restating either number is the invisible drift
+// this pairing exists to prevent.
+const (
+	// MaxShowRequestArtists caps the bill a show request may carry. It stops a
+	// runaway script from driving an unbounded number of artist find-or-creates
+	// through one CreateShow transaction; 50 comfortably covers a festival bill.
+	MaxShowRequestArtists = 50
+	// MaxShowRequestArtistNameLen mirrors artists.name (VARCHAR(255)). The cap
+	// is applied to the trimmed name in BYTES, which is stricter than the
+	// column's 255 CHARACTERS, so a multi-byte name can never overflow at
+	// INSERT.
+	MaxShowRequestArtistNameLen = 255
 )
 
 // requireDate validates a required date field is present AND well-formed

@@ -47,9 +47,11 @@ type AdminFulfillEntityRequestRequest struct {
 		Note   *string `json:"note,omitempty" required:"false" doc:"Optional note (recorded as the decision note when voiding)"`
 		// PSY-1037 reuse: required when fulfilling a SHOW request (its payload
 		// lacks the venue + artist associations CreateShow needs); ignored for
-		// every other type and for void.
+		// every other type and for void. PSY-1858: show_artists may be omitted
+		// when the request's payload already carries a bill, which then prefills
+		// it; a body bill supersedes the payload's outright.
 		ShowVenue   *ShowVenueInput   `json:"show_venue,omitempty" required:"false" doc:"Venue for fulfilling a show request (required when fulfilling a show)"`
-		ShowArtists []ShowArtistInput `json:"show_artists,omitempty" required:"false" doc:"Artists for fulfilling a show request (required when fulfilling a show; at least one)"`
+		ShowArtists []ShowArtistInput `json:"show_artists,omitempty" required:"false" doc:"Artists for fulfilling a show request. Required when fulfilling a show unless the request payload carries its own artists, which are then used. A bill sent here replaces the payload's entirely: acts are not merged, so an act omitted here is dropped."`
 	}
 }
 
@@ -132,10 +134,15 @@ func (h *EntityRequestHandler) AdminFulfillEntityRequestHandler(ctx context.Cont
 	// fulfill that incidentally carries a stray show_venue/show_artists would
 	// get a misleading show-specific 422 for the wrong entity type. For
 	// non-show types the fields are simply ignored, as the request doc states.
+	//
+	// PSY-1858: a bill the body omits is prefilled from the stored payload, on
+	// the same terms as the decide path (resolveShowBill). The venue is still
+	// the admin's to supply (the payload has no venue field), so a show rescue
+	// with no show_venue is a 422 however complete the payload's bill is.
 	var showAssoc *showAssociations
 	if existing.EntityType == communitym.EntityRequestShow {
 		var aerr error
-		showAssoc, aerr = buildShowAssociations(req.Body.ShowVenue, req.Body.ShowArtists)
+		showAssoc, aerr = buildShowAssociations(req.Body.ShowVenue, resolveShowBill(req.Body.ShowArtists, existing))
 		if aerr != nil {
 			return nil, aerr
 		}
