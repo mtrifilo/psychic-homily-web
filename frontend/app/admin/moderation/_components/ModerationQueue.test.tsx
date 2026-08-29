@@ -521,7 +521,12 @@ describe('ModerationQueue', () => {
     expect(roleSelect).toHaveTextContent('Role not stated')
 
     await user.click(roleSelect)
-    for (const label of [
+    // Exact list AND exact order. The backend orders its vocabulary so the API
+    // docs, the 422 message and the form selector all read the same way, so an
+    // extra option, a missing one, or a reshuffle is a regression. A
+    // presence-only loop would pass through all three.
+    expect(await screen.findByRole('option', { name: 'Headliner' })).toBeInTheDocument()
+    expect(screen.getAllByRole('option').map(option => option.textContent)).toEqual([
       'Role not stated',
       'Headliner',
       'Direct support',
@@ -529,9 +534,65 @@ describe('ModerationQueue', () => {
       'Special guest',
       'DJ',
       'Performer (slot unknown)',
-    ]) {
-      expect(await screen.findByRole('option', { name: label })).toBeInTheDocument()
-    }
+    ])
+  })
+
+  it('returns a row to unstated, dropping the set_type it had already stated', async () => {
+    const user = userEvent.setup()
+    const mutate = vi.fn()
+    mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+    setDefaultMocks({ requests: [showRequestForRoles] })
+
+    render(<ModerationQueue />)
+    openShowFormWithVenue()
+
+    fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
+    await chooseBillRole(user, 1, 'Headliner')
+    // The admin thinks better of it. The key must LEAVE the payload, not linger
+    // as a stale value and not become '': this round trip is the one transition
+    // where a previously stated role could survive in row state.
+    await chooseBillRole(user, 1, 'Role not stated')
+
+    fireEvent.click(screen.getByRole('button', { name: /create show/i }))
+
+    const submitted = mutate.mock.calls[0][0] as { show_artists: Record<string, unknown>[] }
+    expect('set_type' in submitted.show_artists[0]).toBe(false)
+    expect(submitted.show_artists[0]).toEqual({ name: 'Boris', is_headliner: false })
+  })
+
+  it('keeps each row on its own role when an earlier row is removed', async () => {
+    const user = userEvent.setup()
+    const mutate = vi.fn()
+    mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+    setDefaultMocks({ requests: [showRequestForRoles] })
+
+    render(<ModerationQueue />)
+    openShowFormWithVenue()
+
+    fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
+    await chooseBillRole(user, 1, 'Headliner')
+    fireEvent.click(screen.getByRole('button', { name: /add artist/i }))
+    fireEvent.change(screen.getByLabelText('Artist 2 name'), { target: { value: 'Earth' } })
+    await chooseBillRole(user, 2, 'Opener')
+    fireEvent.click(screen.getByRole('button', { name: /add artist/i }))
+    fireEvent.change(screen.getByLabelText('Artist 3 name'), { target: { value: 'DJ Sleep' } })
+    await chooseBillRole(user, 3, 'DJ')
+
+    // The rows are keyed by index, so a middle removal is where React could
+    // reuse the wrong row's state. Role is the second per-row field, so this is
+    // the first time that key carries something beyond the name.
+    fireEvent.click(screen.getByRole('button', { name: 'Remove artist 2' }))
+    fireEvent.click(screen.getByRole('button', { name: /create show/i }))
+
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        show_artists: [
+          { name: 'Boris', is_headliner: true, set_type: 'headliner' },
+          { name: 'DJ Sleep', is_headliner: false, set_type: 'dj' },
+        ],
+      }),
+      expect.anything()
+    )
   })
 
   it('sends each stated bill role and derives is_headliner from it', async () => {

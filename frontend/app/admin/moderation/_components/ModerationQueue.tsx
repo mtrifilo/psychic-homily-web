@@ -60,7 +60,7 @@ import { EntitySaveSuccessBanner } from '@/features/contributions'
 // (PSY-1772's shared-chunk note).
 import {
   SET_TYPE_OPTIONS,
-  toSetType,
+  SET_TYPE_VALUES,
 } from '@/features/shows/components/show-form-utils'
 import type { SetType } from '@/features/shows/types'
 import type { PendingEditResponse } from '@/lib/hooks/admin/useAdminPendingEdits'
@@ -373,26 +373,54 @@ const FULFILLABLE_REQUEST_TYPES = new Set([
  */
 const UNSTATED_ROLE = 'unstated'
 
+/**
+ * Compile-time proof that the sentinel is not itself a role. If the backend
+ * ever adds a vocabulary member named 'unstated', this assignment stops
+ * building. Without it the collision is silent and corrupting: the union
+ * collapses, the Select renders two items sharing one value, and every act the
+ * admin deliberately marked 'unstated' has its set_type OMITTED and is stored
+ * as 'performer'. Mirrors show-form-utils.ts's UnlistedSetType guard.
+ */
+const _unstatedIsNotASetType: typeof UNSTATED_ROLE extends SetType ? never : true = true
+void _unstatedIsNotASetType
+
 type BillRoleChoice = SetType | typeof UNSTATED_ROLE
 
 /**
  * The role choices offered per act: the unstated default first, then the whole
  * PSY-1673 vocabulary in the same presentation order the show form uses.
  *
- * "Not stated" and "Performer (slot unknown)" both end up storing `performer`.
- * They are still distinct choices because they say different things about the
- * BILL: picking Performer states this act's slot is unknown, while leaving the
- * row unstated says the admin did not look. Only the former is a curation
- * signal the backend can read.
+ * "Role not stated" and "Performer (slot unknown)" are INDISTINGUISHABLE once
+ * stored. Both land on `set_type = 'performer'` with no headliner flag:
+ * resolveArtistRole returns SetTypeDefault for an explicit 'performer' and for
+ * an absent set_type carrying `is_headliner: false` alike, and nothing records
+ * which one the admin picked. Do not build on a distinction between them.
+ *
+ * The unstated option is not redundant even so, because its whole job happens
+ * BEFORE the write: it lets the form show a role nobody has chosen as unchosen,
+ * instead of pre-filling a value the admin then has to notice and correct. The
+ * honesty is in the control, not in the row.
  */
 const BILL_ROLE_OPTIONS: ReadonlyArray<{ value: BillRoleChoice; label: string }> = [
   { value: UNSTATED_ROLE, label: 'Role not stated' },
   ...SET_TYPE_OPTIONS,
 ]
 
-/** Coerce a Select value back into the choice union (the Select can only emit these). */
+/**
+ * Coerce a Select value back into the choice union.
+ *
+ * Unreachable in practice (Radix can only emit a value this file gave it), so
+ * this is about which way to fail. The sibling `toSetType` is the wrong floor
+ * here: it falls back to 'performer', and its own docs scope it to DISPLAY of
+ * server-supplied values. On this WRITE path that fallback would turn a value
+ * nobody recognised into a role the admin never chose, and any stated role is
+ * what flips the whole bill to "curated" server-side. Falling back to unstated
+ * says nothing instead, which is the only safe thing to say about a value we
+ * could not read.
+ */
 function toBillRoleChoice(value: string): BillRoleChoice {
-  return value === UNSTATED_ROLE ? UNSTATED_ROLE : toSetType(value)
+  const match = SET_TYPE_VALUES.find(setType => setType === value)
+  return match ?? UNSTATED_ROLE
 }
 
 // One artist row in the show-create form (PSY-1037; bill role PSY-1856).
@@ -512,13 +540,17 @@ function ShowCreateForm({
 
       <div className="space-y-2">
         {artists.map((artist, index) => (
-          <div key={index} className="flex items-center gap-2">
+          // The row wraps below `sm`: the role Select is 224px of fixed width
+          // where the headliner checkbox was ~70px, and an <input> will not
+          // shrink past its intrinsic width, so on a phone the name field was
+          // squeezed to a few characters. Above `sm` it is one row as before.
+          <div key={index} className="flex flex-wrap items-center gap-2">
             <input
               value={artist.name}
               onChange={e => updateArtist(index, { name: e.target.value })}
               placeholder={`Artist ${index + 1} name`}
               aria-label={`Artist ${index + 1} name`}
-              className={inputClass}
+              className={`${inputClass} min-w-0 flex-1 basis-full sm:basis-0`}
               disabled={isSubmitting}
             />
             {/* Bill role, replacing the headliner checkbox (PSY-1856):
@@ -530,8 +562,11 @@ function ShowCreateForm({
               onValueChange={value => updateArtist(index, { role: toBillRoleChoice(value) })}
               disabled={isSubmitting}
             >
+              {/* Wide enough for the longest label, "Performer (slot unknown)".
+                  The trigger line-clamps its value, so a narrower box renders
+                  the neutral default as "Performer (slot unk". */}
               <SelectTrigger
-                className="w-44 shrink-0"
+                className="w-56 shrink-0"
                 aria-label={`Artist ${index + 1} bill role`}
               >
                 <SelectValue />
