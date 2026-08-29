@@ -3,6 +3,7 @@ package community
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -134,8 +135,8 @@ func TestCreateEntityRequest_ShowBillOverCapRejected(t *testing.T) {
 		nil, nil,
 	)
 
-	acts := make([]communitym.ShowRequestArtist, 0, maxShowArtistInputs+1)
-	for i := 0; i <= maxShowArtistInputs; i++ {
+	acts := make([]communitym.ShowRequestArtist, 0, communitym.MaxShowRequestArtists+1)
+	for i := 0; i <= communitym.MaxShowRequestArtists; i++ {
 		acts = append(acts, communitym.ShowRequestArtist{Name: fmt.Sprintf("Act %d", i)})
 	}
 	req := &CreateEntityRequestRequest{}
@@ -260,6 +261,28 @@ func TestCreateEntityRequest_AutoApproveShowWithPayloadBillStillDefers(t *testin
 	require.NoError(t, err, "the deferral must stay graceful")
 	assert.Nil(t, resp.Body.CreatedEntityID, "nothing is created from the payload alone")
 	assert.Equal(t, communitym.EntityRequestStateApproved, resp.Body.DecisionState)
+}
+
+// The payload is json.RawMessage, so its shape reaches no OpenAPI schema and no
+// generated type: the create endpoint's doc string is the entire contract a
+// producer author gets. A struct tag cannot be built from constants, so this is
+// the join that keeps the published text from drifting off the values it
+// restates, mirroring TestShowArtistInputSetTypeEnumTagMatchesVocabulary.
+func TestCreateEntityRequestPayloadDocMatchesTheRules(t *testing.T) {
+	body, ok := reflect.TypeOf(CreateEntityRequestRequest{}).FieldByName("Body")
+	require.True(t, ok, "CreateEntityRequestRequest.Body must exist")
+	field, ok := body.Type.FieldByName("Payload")
+	require.True(t, ok, "the request body must carry a Payload field")
+	doc := field.Tag.Get("doc")
+
+	assert.Contains(t, doc, fmt.Sprintf("at most %d acts", communitym.MaxShowRequestArtists),
+		"the documented cap must be the cap ValidateShowBill enforces")
+	assert.Contains(t, doc, contracts.SetTypeVocabularyCSV(),
+		"the documented roles must be exactly the vocabulary, in order")
+	assert.Contains(t, doc, "NEVER infers a headliner from list order",
+		"the headliner rule is the one thing a producer cannot discover by trying it: "+
+			"omitting set_type and stating 'performer' produce identical rows, so a "+
+			"producer who assumes bill order names the headliner ships shows with none")
 }
 
 // ============================================================================
@@ -649,8 +672,8 @@ func TestAdminDecide_ApproveShow_StoredDuplicateActs422BeforeClaim(t *testing.T)
 
 // An over-cap stored bill is refused pre-claim too, for the same reason.
 func TestAdminDecide_ApproveShow_StoredOverCapBill422BeforeClaim(t *testing.T) {
-	acts := make([]string, 0, maxShowArtistInputs+1)
-	for i := 0; i <= maxShowArtistInputs; i++ {
+	acts := make([]string, 0, communitym.MaxShowRequestArtists+1)
+	for i := 0; i <= communitym.MaxShowRequestArtists; i++ {
 		acts = append(acts, fmt.Sprintf(`{"name":"Act %d"}`, i))
 	}
 	raw := json.RawMessage(`{"title":"Legacy Row","event_date":"2026-09-12T21:00:00-07:00","artists":[` +

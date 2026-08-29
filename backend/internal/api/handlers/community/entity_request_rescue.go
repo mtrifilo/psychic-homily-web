@@ -143,6 +143,13 @@ func (h *EntityRequestHandler) AdminFulfillEntityRequestHandler(ctx context.Cont
 	// approved-but-unfulfilled BY DEFINITION (checked directly above), and that
 	// row shape is exactly where an auto-approved show with a contributor's bill
 	// lands.
+	//
+	// That last point cuts both ways and is worth stating plainly: a trusted
+	// tier's auto-approved show was never reviewed by an admin at ANY point, so
+	// a rescue that omits show_artists fulfills a bill no admin has affirmed.
+	// The venue requirement is the only human step, and it is a check on the
+	// venue, not on the bill. See PSY-1955, which owns the moderation form that
+	// is supposed to put the bill in front of a human before it gets here.
 	var showAssoc *showAssociations
 	if existing.EntityType == communitym.EntityRequestShow {
 		// The row is passed as eligible unconditionally: a rescuable row is

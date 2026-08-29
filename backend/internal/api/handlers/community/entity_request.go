@@ -60,13 +60,17 @@ func NewEntityRequestHandler(
 // the handler only enforces it is present + non-empty here.
 type CreateEntityRequestRequest struct {
 	Body struct {
-		EntityType    string                                `json:"entity_type" doc:"Entity type to request (artist, venue, label, release, show, festival)"`
+		EntityType string `json:"entity_type" doc:"Entity type to request (artist, venue, label, release, show, festival)"`
 		// The payload is json.RawMessage, so NOTHING about its shape reaches the
 		// generated OpenAPI document: the doc string is the only contract a
-		// producer author sees. The show bill's two rules are stated here for
-		// that reason (PSY-1858): a producer that defaults set_type instead of
-		// omitting it gets a show with no headliner at all, silently.
-		Payload json.RawMessage `json:"payload" doc:"Typed creation payload for the entity_type. A show payload may carry the bill as artists: [{name, set_type?}], name only, no id, at most 50 acts. OMIT set_type for an act whose slot is unknown; do not default it to 'performer', which states a role and is not the same as saying nothing. When set_type is present it must be one of: headliner, direct_support, opener, special_guest, dj, performer."`
+		// producer author sees. The show bill's headliner rule is stated there
+		// for that reason (PSY-1858) — a producer that assumes bill order names
+		// the headliner, as most sources do, ships shows with none.
+		//
+		// TestCreateEntityRequestPayloadDocMatchesTheRules pins the cap and the
+		// vocabulary this string restates, since a doc tag cannot be built from
+		// constants.
+		Payload       json.RawMessage                       `json:"payload" doc:"Typed creation payload for the entity_type. A show payload may carry the bill as artists: [{name, set_type?}], name only, no id, at most 50 acts. A payload bill NEVER infers a headliner from list order: an act with no set_type is stored as 'performer', so a bill naming no 'headliner' creates a show with no headliner row. State set_type 'headliner' explicitly when the source names one. When set_type is present it must be one of: headliner,direct_support,opener,special_guest,dj,performer."`
 		SourceContext string                                `json:"source_context" required:"false" doc:"How the request originated (ai_extraction, paste_mode, manual); defaults to manual"`
 		SourceDetail  *communitym.EntityRequestSourceDetail `json:"source_detail" required:"false" doc:"Optional origin context (source URL + excerpt), chiefly for AI extraction; shown in the admin moderation queue"`
 		Confirmed     bool                                  `json:"confirmed" required:"false" doc:"FE-side confirm step (only relevant to trusted_contributor tier)"`

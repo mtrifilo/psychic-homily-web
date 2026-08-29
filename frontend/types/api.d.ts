@@ -9761,7 +9761,7 @@ export interface components {
             confirmed?: boolean;
             /** @description Entity type to request (artist, venue, label, release, show, festival) */
             entity_type: string;
-            /** @description Typed creation payload for the entity_type. A show payload may carry the bill as artists: [{name, set_type?}], name only, no id, at most 50 acts. OMIT set_type for an act whose slot is unknown; do not default it to 'performer', which states a role and is not the same as saying nothing. When set_type is present it must be one of: headliner, direct_support, opener, special_guest, dj, performer. */
+            /** @description Typed creation payload for the entity_type. A show payload may carry the bill as artists: [{name, set_type?}], name only, no id, at most 50 acts. A payload bill NEVER infers a headliner from list order: an act with no set_type is stored as 'performer', so a bill naming no 'headliner' creates a show with no headliner row. State set_type 'headliner' explicitly when the source names one. When set_type is present it must be one of: headliner,direct_support,opener,special_guest,dj,performer. */
             payload: unknown;
             /** @description How the request originated (ai_extraction, paste_mode, manual); defaults to manual */
             source_context?: string;

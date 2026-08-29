@@ -125,6 +125,14 @@ type ShowRequestPayload struct {
 	//
 	// Nothing writes a bill until a producer ships, so this binds at the FIRST
 	// PRODUCER, not here.
+	//
+	// ONE-SHOT PER TITLE, which a producer author will otherwise learn the hard
+	// way: CreateRequest dedups on (entity_type, requester, lower(trim(title)))
+	// and returns the EXISTING pending row on a collision, unchanged. So a
+	// contributor who files a show with no bill, learns the bill, and resubmits
+	// the same title gets a 2xx carrying the old bill-less payload; the new bill
+	// is silently dropped. That is PSY-1948, and this field makes re-submitting
+	// something a producer would now do deliberately.
 	Artists []ShowRequestArtist `json:"artists,omitempty"`
 }
 
@@ -144,6 +152,12 @@ func (ShowRequestPayload) entityRequestType() string { return EntityRequestShow 
 // key means "on the bill, slot unknown", which resolves to 'performer' at
 // fulfillment, never 'opener'. The vocabulary itself is checked at the API
 // boundary rather than here; see validateShowPayloadBillRoles for why.
+//
+// Omitting the key and stating 'performer' are INDISTINGUISHABLE in the created
+// show: both store set_type='performer' with no headliner flag, and
+// headlineSlotSQL counts both as uncurated. The difference is only in what the
+// bill claims, and nothing downstream reads that claim. Stating 'headliner' is
+// the only way a payload bill designates one, because bill ORDER never does.
 type ShowRequestArtist struct {
 	Name    string  `json:"name"`
 	SetType *string `json:"set_type,omitempty"`
@@ -614,11 +628,16 @@ const (
 	maxRequestStateLen = 10
 )
 
-// Bill limits (PSY-1858). Both are EXPORTED and both are aliased by the admin
-// approve path (maxShowArtistInputs, and the name cap in buildShowAssociations)
-// rather than restated there, so a bill that clears the queue is always one the
-// fulfiller will still accept. Restating either number is the invisible drift
-// this pairing exists to prevent.
+// Bill limits (PSY-1858). Both are read ONLY by ValidateShowBill, which is the
+// single enforcement point for every bill: the queue-create path reaches it
+// through ValidateEntityRequestPayload, and the admin approve path reaches it
+// through buildShowAssociations. So a bill that clears the queue is always one
+// the fulfiller will still accept, not because two numbers are kept in step but
+// because there is only one of each.
+//
+// The one place either number is restated is the create endpoint's payload doc
+// string, which cannot be built from a constant because it is a struct tag; a
+// test pins it to these values.
 const (
 	// MaxShowRequestArtists caps the bill a show request may carry. It stops a
 	// runaway script from driving an unbounded number of artist find-or-creates

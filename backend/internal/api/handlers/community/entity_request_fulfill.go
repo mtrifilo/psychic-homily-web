@@ -174,13 +174,6 @@ func mapFulfillmentError(err error) error {
 	return nil
 }
 
-// maxShowArtistInputs caps the admin-supplied bill size on a show approve
-// (PSY-1037) — large enough for any festival bill, small enough to stop a
-// runaway script from flooding one CreateShow transaction. Aliased to the
-// payload's own cap (PSY-1858) so the queue and the approve path cannot drift
-// into a bill that is submittable but not approvable.
-const maxShowArtistInputs = communitym.MaxShowRequestArtists
-
 // showAssociations carries the admin-supplied venue + artists (already
 // converted to the catalog contract types) from the decide endpoint to the
 // show fulfillment branch (PSY-1037). nil means "none supplied" — the show
@@ -330,12 +323,20 @@ func showBillArtists(artists []ShowArtistInput) []communitym.ShowRequestArtist {
 // correction, not an addition.
 //
 // STATED PRECISELY, because the rule is chosen for a form that does not exist
-// yet: the moderation form does NOT seed from payload.artists today, and always
-// sends show_artists, so the prefill branch is currently reachable only by an
-// API client that omits the key. The semantics are fixed now so the form can be
-// built against them rather than the reverse. Until it is, an approve that omits
-// show_artists fulfills a bill no human has seen in the UI, which is why the
-// admin must still supply the venue by hand and why nothing auto-approves.
+// yet: the moderation form does NOT seed from payload.artists today, and its
+// submit is gated on at least one filled act, so the prefill branch is currently
+// reachable only by an API client that omits the key. The semantics are fixed
+// now so the form can be built against them rather than the reverse.
+//
+// THE OPEN RISK, because it is the one a future reader must not have to
+// rediscover: an approve that omits show_artists fulfills a bill NO ADMIN HAS
+// AFFIRMED. The venue requirement is the only human step and it checks the
+// venue, not the bill; the moderation card renders payload.artists as a raw JSON
+// blob today. On the rescue path the row may never have been reviewed at all,
+// since that is where a trusted tier's auto-approved show lands. Whether an
+// omitted key is a strong enough signal of intent, or whether the prefill should
+// require an explicit opt-in, is a product decision recorded on PSY-1858 and
+// owned by PSY-1955.
 //
 // The converse also matters: because the body wins WHOLE, an admin who wants
 // the contributor's bill sends it back (the prefilled form does exactly that),
@@ -361,9 +362,17 @@ func resolveShowBill(bodyArtists []ShowArtistInput, req *communitym.EntityReques
 	return payloadShowBill(req), billSourcePayload
 }
 
-// admitShowBill is the pre-claim admission check both admin endpoints run
-// before anything is claimed or created, in one place because they drifted apart
-// the moment they each assembled it by hand (PSY-1858). It runs, in this order:
+// admitShowBill is the pre-claim admission check for THE BILL, and only the
+// bill, that both admin endpoints run before anything is claimed or created. It
+// lives in one place because they drifted apart the moment they each assembled
+// it by hand (PSY-1858).
+//
+// Scope, stated because the name invites over-reading: it unifies the bill's
+// checks, NOT every pre-claim check over the stored payload. The decide path
+// still runs validatePayloadImageURL itself, and the rescue path still does not
+// run it at all (PSY-1956) — that gap predates this and is not closed here.
+//
+// It runs, in this order:
 //
 //  1. validate the STORED bill's structure, whether or not the body carries a
 //     bill of its own, because fulfillEntity re-validates it after the claim,
@@ -407,8 +416,8 @@ func admitShowBill(
 // with no payload, or a payload that does not decode.
 //
 // A decode failure is deliberately silent rather than an error: the paths that
-// call this then fall through to "no bill", which surfaces as the existing
-// "approving a show requires show_venue and show_artists" 422, and fulfillment
+// call this then fall through to "no bill", which surfaces as whichever
+// venue-and-bill-required refusal the caller phrases, and fulfillment
 // re-validates the stored payload anyway and reports the decode failure with a
 // far better message than a prefill helper could. Inventing a second error
 // channel here would only give the same corrupt row two different 422s
@@ -435,8 +444,15 @@ func payloadShowBill(req *communitym.EntityRequest) []ShowArtistInput {
 	return out
 }
 
-// suppressPositionInference pins is_headliner=false on the acts the admin left
-// uncurated, and is called only once SOME act on the bill states a role.
+// suppressPositionInference pins is_headliner=false on the acts nobody curated.
+//
+// Called on two conditions, which differ by who typed the bill (see the call
+// site in buildShowAssociations): for an ADMIN-typed bill, only once some act
+// states a role; for a PAYLOAD bill, always. The asymmetry is the point. An
+// admin's list order is a considered ordering from a form that also sends an
+// explicit is_headliner per act, while a contributor's is whatever they typed or
+// an extractor emitted, so order is evidence in the first case and noise in the
+// second.
 //
 // resolveArtistRole reads position 0 as the headliner, but only as a last resort
 // for an act that carries no other signal. That fallback is right for a bill
@@ -474,10 +490,13 @@ func payloadShowBill(req *communitym.EntityRequest) []ShowArtistInput {
 // fix, so what remains is the code change and its test.
 //
 // Scoped deliberately narrower than initializeArtist: acts that state their own
-// set_type or is_headliner are left untouched, and a bill where NOBODY states
-// anything is left untouched as a whole, so no caller that predates set_type on
-// this endpoint can see a different outcome. Pinning unconditionally would
-// instead turn an undescribed bill into a bill with no headliner at all.
+// set_type or is_headliner are left untouched. For an ADMIN-typed bill the
+// caller adds a second narrowing, leaving a bill where NOBODY states anything
+// untouched as a whole, so no caller that predates set_type on this endpoint can
+// see a different outcome; pinning those unconditionally would turn an
+// undescribed admin bill into a bill with no headliner at all. A PAYLOAD bill
+// gets exactly that outcome on purpose, because there the alternative is
+// asserting a headliner nobody chose.
 //
 // A bill that ends up with no headliner row is still safe, and is sometimes the
 // honest answer (an admin who states only "performer" and "dj" has not named a

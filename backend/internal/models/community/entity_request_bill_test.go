@@ -83,7 +83,7 @@ func TestValidateEntityRequestPayload_ShowArtists(t *testing.T) {
 
 	t.Run("a bill over the cap is rejected", func(t *testing.T) {
 		// The cap is the queue's half of a shared contract: a bill that clears
-		// submit must still be one the approve path (maxShowArtistInputs, which
+		// submit must still be one the approve path (buildShowAssociations, which
 		// aliases MaxShowRequestArtists) will accept.
 		acts := make([]string, 0, MaxShowRequestArtists+1)
 		for i := 0; i <= MaxShowRequestArtists; i++ {
