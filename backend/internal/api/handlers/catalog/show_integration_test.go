@@ -666,6 +666,42 @@ func (s *ShowHandlerIntegrationSuite) TestUpdateShow_RejectsURLShapedInstagramHa
 	s.Equal(int64(0), count)
 }
 
+// PSY-1860 at the endpoint the ticket names. UpdateShow has no Resolve, so
+// initializeArtist never runs and a nil is_headliner reaches resolveArtistRole,
+// whose position-0 fallback used to promote the act the caller said nothing
+// about -- giving the show TWO set_type='headliner' rows, with the undesignated
+// one winning every `ORDER BY position ASC LIMIT 1` headliner read.
+//
+// Asserted through the HTTP handler rather than the service alone because the
+// nil is forwarded by the handler's own artist mapping: a future "default the
+// flag like create does" edit there would reintroduce the defect in a shape the
+// service test cannot see.
+func (s *ShowHandlerIntegrationSuite) TestUpdateShow_StatedBillDoesNotInferASecondHeadliner() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Stated Bill Show")
+
+	ctx := testhelpers.CtxWithUser(user)
+	headliner := "headliner"
+	req := &UpdateShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
+	req.Body.Artists = []Artist{
+		// States nothing at all.
+		{Name: testhelpers.StringPtr("Earth")},
+		{Name: testhelpers.StringPtr("Boris"), SetType: &headliner},
+	}
+
+	resp, err := s.handler.UpdateShowHandler(ctx, req)
+	s.Require().NoError(err)
+	s.Require().Len(resp.Body.Artists, 2)
+	s.False(*resp.Body.Artists[0].IsHeadliner, "the act nobody designated must not be promoted")
+	s.True(*resp.Body.Artists[1].IsHeadliner)
+
+	var headlinerRows int64
+	s.Require().NoError(s.deps.DB.Model(&catalogm.ShowArtist{}).
+		Where("show_id = ? AND set_type = ?", show.ID, "headliner").
+		Count(&headlinerRows).Error)
+	s.EqualValues(1, headlinerRows, "an update must write exactly the headliner the caller stated")
+}
+
 // --- GetMySubmissionsHandler ---
 
 func (s *ShowHandlerIntegrationSuite) TestGetMySubmissions_Success() {

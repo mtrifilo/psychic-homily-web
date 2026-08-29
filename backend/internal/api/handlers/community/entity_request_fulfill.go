@@ -192,12 +192,16 @@ func buildShowAssociations(venue *ShowVenueInput, artists []ShowArtistInput) (*s
 // is not a second opinion. ConfirmShowImport encodes the same rule for markdown
 // imports ("first-in-file is not a second opinion"), and the direct show-CREATE
 // handler is immune for a different reason: initializeArtist pins the flag false
-// on every act before Resolve runs, unconditionally. The show UPDATE handler
-// does NOT (it forwards a nil IsHeadliner through replaceShowArtists ->
-// associateArtists -> resolveArtistRole), so it still has this exposure; that is
-// a sibling defect, filed separately rather than fixed here, since it is a
-// different endpoint with its own callers. The product's own show form is
-// unaffected either way because it derives an explicit is_headliner per act.
+// on every act before Resolve runs, unconditionally. The show UPDATE handler had
+// the same exposure (it forwards a nil IsHeadliner through replaceShowArtists ->
+// associateArtists -> resolveArtistRole) and was fixed separately, in the show
+// service rather than the handler, by
+// catalog.suppressPositionInferenceWhenHeadlinerNamed (PSY-1860). That one fires
+// only when some act NAMES itself the headliner, not on any stated role, because
+// suppressing on a described bill where nobody claims the top would mint the
+// shape PSY-1704 calls a write-path defect; see its doc comment for the open
+// disagreement between the two rules. The product's own show form was unaffected
+// either way because it derives an explicit is_headliner per act.
 //
 // Scoped deliberately narrower than initializeArtist: acts that state their own
 // set_type or is_headliner are left untouched, and a bill where NOBODY states

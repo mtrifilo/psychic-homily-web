@@ -163,6 +163,148 @@ func TestResolveArtistRole_AlwaysWritesAVocabularyValue(t *testing.T) {
 	}
 }
 
+// The update path's bill-level rule (PSY-1860): position inference is a
+// fallback for an act nobody placed, and it has to stop once some OTHER act has
+// named itself the headliner -- otherwise the act the caller never designated is
+// written as a second headliner and outranks the curated one on every reader's
+// `set_type='headliner' ORDER BY position ASC LIMIT 1`.
+func TestSuppressPositionInferenceWhenHeadlinerNamed(t *testing.T) {
+	t.Run("a named headliner silences inference on the silent acts", func(t *testing.T) {
+		out := suppressPositionInferenceWhenHeadlinerNamed([]contracts.CreateShowArtist{
+			{Name: "Earth"},
+			{Name: "Boris", SetType: strPtr(contracts.SetTypeHeadliner)},
+		})
+		require.Len(t, out, 2)
+		require.NotNil(t, out[0].IsHeadliner)
+		assert.False(t, *out[0].IsHeadliner)
+		// The act that stated a role is never rewritten.
+		assert.Nil(t, out[1].IsHeadliner)
+		assert.Equal(t, contracts.SetTypeHeadliner, *out[1].SetType)
+	})
+
+	t.Run("the legacy is_headliner flag also names a headliner", func(t *testing.T) {
+		out := suppressPositionInferenceWhenHeadlinerNamed([]contracts.CreateShowArtist{
+			{Name: "Earth"},
+			{Name: "Boris", IsHeadliner: boolPtr(true)},
+		})
+		require.NotNil(t, out[0].IsHeadliner)
+		assert.False(t, *out[0].IsHeadliner)
+		assert.True(t, *out[1].IsHeadliner)
+	})
+
+	t.Run("an undescribed bill is left alone so position 0 still infers", func(t *testing.T) {
+		in := []contracts.CreateShowArtist{{Name: "Earth"}, {Name: "Boris"}}
+		out := suppressPositionInferenceWhenHeadlinerNamed(in)
+		for i := range out {
+			assert.Nil(t, out[i].IsHeadliner, "artist %d", i)
+		}
+	})
+
+	// The deliberate NON-change, pinned so a future edit cannot widen the
+	// trigger silently. Nobody claims the top of this bill, so suppressing would
+	// write the silent top act as 'performer' -- and headlineSlotSQL would then
+	// read the bill as curated with no headline slot and classify the genuine
+	// top act as a SUPPORT slot (eligible for Openers to Watch). That is the
+	// shape PSY-1704 calls a write-path defect; PSY-1705's wider rule disagrees,
+	// and PSY-1860 declines to settle it here.
+	t.Run("a described bill with no named headliner keeps position inference", func(t *testing.T) {
+		in := []contracts.CreateShowArtist{
+			{Name: "Earth"},
+			{Name: "Boris", SetType: strPtr(contracts.SetTypeOpener)},
+		}
+		out := suppressPositionInferenceWhenHeadlinerNamed(in)
+		assert.Nil(t, out[0].IsHeadliner, "the silent top act must keep its 'stated nothing' signal")
+	})
+
+	// 'performer' is one of the two spellings of "slot unknown"
+	// (headlineSlotUnknownValues), so it names no headliner and must not arm
+	// the suppression.
+	t.Run("set_type performer names no headliner", func(t *testing.T) {
+		in := []contracts.CreateShowArtist{
+			{Name: "Earth"},
+			{Name: "Boris", SetType: strPtr(contracts.SetTypePerformer)},
+		}
+		out := suppressPositionInferenceWhenHeadlinerNamed(in)
+		assert.Nil(t, out[0].IsHeadliner)
+	})
+
+	// An explicit is_headliner:false is a statement about that act only, not a
+	// nomination, so it must not cost the silent top act its inference.
+	t.Run("is_headliner false names no headliner", func(t *testing.T) {
+		in := []contracts.CreateShowArtist{
+			{Name: "Earth"},
+			{Name: "Boris", IsHeadliner: boolPtr(false)},
+		}
+		out := suppressPositionInferenceWhenHeadlinerNamed(in)
+		assert.Nil(t, out[0].IsHeadliner)
+	})
+
+	// Rule 1 outranks rule 2 in resolveArtistRole, so a curated non-headliner
+	// role beats a contradicting flag here too: this act does NOT claim the slot.
+	t.Run("curated opener outranks a contradicting is_headliner flag", func(t *testing.T) {
+		in := []contracts.CreateShowArtist{
+			{Name: "Earth"},
+			{Name: "Boris", SetType: strPtr(contracts.SetTypeOpener), IsHeadliner: boolPtr(true)},
+		}
+		out := suppressPositionInferenceWhenHeadlinerNamed(in)
+		assert.Nil(t, out[0].IsHeadliner)
+	})
+
+	t.Run("whitespace-only set_type is silence, matching resolveArtistRole", func(t *testing.T) {
+		out := suppressPositionInferenceWhenHeadlinerNamed([]contracts.CreateShowArtist{
+			{Name: "Earth", SetType: strPtr("   ")},
+			{Name: "Boris", SetType: strPtr(contracts.SetTypeHeadliner)},
+		})
+		require.NotNil(t, out[0].IsHeadliner)
+		assert.False(t, *out[0].IsHeadliner)
+	})
+
+	t.Run("does not mutate the caller's slice", func(t *testing.T) {
+		in := []contracts.CreateShowArtist{
+			{Name: "Earth"},
+			{Name: "Boris", SetType: strPtr(contracts.SetTypeHeadliner)},
+		}
+		_ = suppressPositionInferenceWhenHeadlinerNamed(in)
+		assert.Nil(t, in[0].IsHeadliner, "the input bill must be left untouched")
+	})
+
+	t.Run("a nil bill stays nil", func(t *testing.T) {
+		// replaceShowArtists reads nil as "leave the associations untouched";
+		// an allocated empty slice would tear the whole bill down instead.
+		assert.Nil(t, suppressPositionInferenceWhenHeadlinerNamed(nil))
+	})
+
+	t.Run("a fully stated bill is returned unchanged", func(t *testing.T) {
+		in := []contracts.CreateShowArtist{
+			{Name: "Earth", SetType: strPtr(contracts.SetTypeHeadliner)},
+			{Name: "Boris", IsHeadliner: boolPtr(false)},
+		}
+		out := suppressPositionInferenceWhenHeadlinerNamed(in)
+		assert.Equal(t, in, out)
+	})
+}
+
+// claimsHeadlineSlot must agree with resolveArtistRole's own verdict on every
+// act that states a role, or the trigger would arm on a bill whose "headliner"
+// is not the row associateArtists actually writes.
+func TestClaimsHeadlineSlotAgreesWithResolveArtistRole(t *testing.T) {
+	inputs := []contracts.CreateShowArtist{
+		{Name: "a", SetType: strPtr(contracts.SetTypeHeadliner)},
+		{Name: "b", SetType: strPtr(contracts.SetTypeOpener)},
+		{Name: "c", SetType: strPtr(contracts.SetTypePerformer)},
+		{Name: "d", SetType: strPtr(contracts.SetTypeDJ), IsHeadliner: boolPtr(true)},
+		{Name: "e", IsHeadliner: boolPtr(true)},
+		{Name: "f", IsHeadliner: boolPtr(false)},
+		{Name: "g", SetType: strPtr(contracts.SetTypeHeadliner), IsHeadliner: boolPtr(false)},
+	}
+	for _, in := range inputs {
+		require.True(t, statesBillRole(in), "%s should count as stating a role", in.Name)
+		// Position 1 keeps rule 3 out of it; these acts all resolve by rule 1 or 2.
+		_, isHeadliner := resolveArtistRole(in, 1)
+		assert.Equal(t, isHeadliner, claimsHeadlineSlot(in), "artist %s", in.Name)
+	}
+}
+
 func TestValidateShowArtistSetTypes(t *testing.T) {
 	t.Run("accepts every vocabulary value", func(t *testing.T) {
 		var artists []contracts.CreateShowArtist
@@ -407,6 +549,141 @@ func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_Reject
 	var count int64
 	suite.Require().NoError(suite.db.Model(&catalogm.ShowArtist{}).Where("show_id = ?", show.ID).Count(&count).Error)
 	suite.EqualValues(2, count)
+}
+
+// The decisive PSY-1860 case. On main this stores TWO headliner rows: the
+// caller designated Boris and said nothing about Earth, and position inference
+// promoted Earth anyway -- so every reader that resolves the one headliner
+// (`set_type='headliner' ORDER BY position ASC LIMIT 1`) returns Earth, the act
+// nobody chose, for the slug, search, explore cards, tags and dedup display.
+func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_StatedBillWritesExactlyOneHeadliner() {
+	show := suite.createTestShow(func(req *contracts.CreateShowRequest) {
+		req.Title = "Bill To Restate"
+		req.EventDate = suite.uniqueEventDate()
+		req.Artists = []contracts.CreateShowArtist{{Name: "Original Act", IsHeadliner: boolPtr(true)}}
+	})
+
+	updated, _, err := suite.showService.UpdateShowWithRelations(
+		show.ID,
+		&contracts.UpdateShowRequest{},
+		nil,
+		[]contracts.CreateShowArtist{
+			// States nothing: first-in-list is not a second opinion.
+			{Name: "Earth"},
+			{Name: "Boris", SetType: strPtr(contracts.SetTypeHeadliner)},
+		},
+		true,
+	)
+	suite.Require().NoError(err)
+
+	suite.Equal([]string{contracts.SetTypePerformer, contracts.SetTypeHeadliner}, suite.storedSetTypes(show.ID))
+	suite.Equal(1, suite.storedHeadlinerCount(show.ID), "an update must never write a second, unstated headliner")
+
+	// The response mirrors the rows, so the caller sees the bill they stated.
+	suite.Require().Len(updated.Artists, 2)
+	suite.False(*updated.Artists[0].IsHeadliner)
+	suite.True(*updated.Artists[1].IsHeadliner)
+}
+
+// Same corruption through the legacy flag rather than set_type: an update that
+// marks the SECOND act is_headliner:true and leaves the first alone.
+func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_LegacyFlagAlsoSilencesPositionInference() {
+	show := suite.createTestShow(func(req *contracts.CreateShowRequest) {
+		req.Title = "Bill To Restate By Flag"
+		req.EventDate = suite.uniqueEventDate()
+		req.Artists = []contracts.CreateShowArtist{{Name: "Flag Original Act", IsHeadliner: boolPtr(true)}}
+	})
+
+	_, _, err := suite.showService.UpdateShowWithRelations(
+		show.ID,
+		&contracts.UpdateShowRequest{},
+		nil,
+		[]contracts.CreateShowArtist{
+			{Name: "Flag Silent Act"},
+			{Name: "Flag Named Headliner", IsHeadliner: boolPtr(true)},
+		},
+		true,
+	)
+	suite.Require().NoError(err)
+
+	suite.Equal([]string{contracts.SetTypePerformer, contracts.SetTypeHeadliner}, suite.storedSetTypes(show.ID))
+	suite.Equal(1, suite.storedHeadlinerCount(show.ID))
+}
+
+// The other half of the rule: an update whose bill NOBODY describes keeps
+// resolveArtistRole's position-0 fallback. Suppressing here unconditionally --
+// the initializeArtist shape PSY-1704 recorded as a defect -- would leave an
+// undescribed bill with no headline slot at all.
+func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_UncuratedBillKeepsPositionInference() {
+	show := suite.createTestShow(func(req *contracts.CreateShowRequest) {
+		req.Title = "Bill To Leave Undescribed"
+		req.EventDate = suite.uniqueEventDate()
+		req.Artists = []contracts.CreateShowArtist{{Name: "Undescribed Original", IsHeadliner: boolPtr(true)}}
+	})
+
+	updated, _, err := suite.showService.UpdateShowWithRelations(
+		show.ID,
+		&contracts.UpdateShowRequest{},
+		nil,
+		[]contracts.CreateShowArtist{
+			{Name: "Undescribed First"},
+			{Name: "Undescribed Second"},
+			{Name: "Undescribed Third"},
+		},
+		true,
+	)
+	suite.Require().NoError(err)
+
+	suite.Equal([]string{
+		contracts.SetTypeHeadliner,
+		contracts.SetTypePerformer,
+		contracts.SetTypePerformer,
+	}, suite.storedSetTypes(show.ID))
+	suite.Require().Len(updated.Artists, 3)
+	suite.True(*updated.Artists[0].IsHeadliner)
+}
+
+// The scope boundary, pinned end to end: an update that describes the bill but
+// names NO headliner keeps position inference, so the genuine top act is still
+// written into the headline slot. Suppressing here would leave the show with
+// zero headliner rows, and headlineSlotSQL would then count that top act as a
+// SUPPORT slot -- the PSY-1704 write-path defect, newly minted on an endpoint
+// that does not produce it today. PSY-1705's wider rule would suppress; the
+// disagreement is left open rather than settled here.
+func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_DescribedBillWithNoNamedHeadlinerKeepsInference() {
+	show := suite.createTestShow(func(req *contracts.CreateShowRequest) {
+		req.Title = "Bill With No Named Headliner"
+		req.EventDate = suite.uniqueEventDate()
+		req.Artists = []contracts.CreateShowArtist{{Name: "No Named Original", IsHeadliner: boolPtr(true)}}
+	})
+
+	_, _, err := suite.showService.UpdateShowWithRelations(
+		show.ID,
+		&contracts.UpdateShowRequest{},
+		nil,
+		[]contracts.CreateShowArtist{
+			{Name: "No Named Top Act"},
+			{Name: "No Named Opener", SetType: strPtr(contracts.SetTypeOpener)},
+		},
+		true,
+	)
+	suite.Require().NoError(err)
+
+	suite.Equal([]string{contracts.SetTypeHeadliner, contracts.SetTypeOpener}, suite.storedSetTypes(show.ID))
+	suite.Equal(1, suite.storedHeadlinerCount(show.ID))
+}
+
+// storedHeadlinerCount counts the rows an update actually wrote into the
+// headliner slot, which is the fact PSY-1860 is about -- storedSetTypes alone
+// would still pass a bill that promoted the wrong act to a sole headliner.
+func (suite *ShowServiceIntegrationTestSuite) storedHeadlinerCount(showID uint) int {
+	var count int64
+	suite.Require().NoError(
+		suite.db.Model(&catalogm.ShowArtist{}).
+			Where("show_id = ? AND set_type = ?", showID, contracts.SetTypeHeadliner).
+			Count(&count).Error,
+	)
+	return int(count)
 }
 
 // storedSetTypes reads set_type straight off show_artists in bill order, so
