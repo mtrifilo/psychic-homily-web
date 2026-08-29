@@ -2227,12 +2227,20 @@ func (s *ShowService) attachBillLabels(resp *contracts.ShowResponse) {
 // already costs them. One more query per single-show request is the same trade
 // made there, for the same reason.
 //
-// The resolution chain is shared.ResolveUserName / ResolveUserUsername — the
-// same pair the revisions endpoint's byline already renders from, so the two
-// halves of "added by X · updated by Y" cannot name the same person
-// differently. The Select must keep listing every chain column: the resolver
-// reads display_name, username, first/last and email, and a missing column
-// scans as nil and silently disables that branch.
+// The resolution chain is shared.ResolveUserName / ResolveUserUsername, the
+// canonical pair (PSY-612 / PSY-598). The Select must keep listing every chain
+// column: the resolver reads display_name, username, first/last and email, and
+// a missing column scans as nil and silently disables that branch (PSY-1063).
+//
+// This does NOT yet match the "updated by" half of the same byline. The
+// revisions endpoint resolves through its own local copy of the chain
+// (admin/revision.go resolveRevisionUserName), which predates display_name and
+// so starts at username. For a contributor who has set a display name, one line
+// can therefore read "added by Matt T · updated by mtrifilo". The divergence is
+// the revisions copy's, not this one's — the fix is to point that copy at
+// shared.ResolveUserName, which changes revision output for every entity type
+// and is its own ticket. Do not "fix" the mismatch by copying the stale chain
+// here; that spreads the bug instead of shrinking it.
 //
 // Two distinct absences, deliberately collapsed to one wire signal (the key is
 // dropped):

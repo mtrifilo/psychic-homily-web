@@ -59,11 +59,15 @@ interface ShowProvenanceLineProps {
  *   caption does ({@link sourceVenueName}) and says nothing for
  *   user-submitted shows.
  * - "added … by …" credits the submitter from `submitted_by_name` /
- *   `submitted_by_username`, which the show DETAIL read resolves through the
- *   same backend chain the revisions byline below it uses (PSY-1866), so the
- *   two cannot name one person two ways. Only the detail read carries them —
- *   a `ShowResponse` from a list payload has neither, and the fragment falls
- *   back to a bare "added Jul 12" exactly as it did before the fields existed.
+ *   `submitted_by_username`, resolved by the show DETAIL read (PSY-1866). Only
+ *   the detail read carries them — a `ShowResponse` from a list payload has
+ *   neither, and the fragment falls back to a bare "added Jul 12" exactly as it
+ *   did before the fields existed. NOTE the two bylines on this line do not
+ *   resolve identically yet: "added by" uses the backend's canonical chain
+ *   (display_name first), "updated by" uses the revisions endpoint's older
+ *   local copy (username first), so a contributor with a display name can be
+ *   named two ways here. Tracked backend-side; nothing to compensate for in
+ *   this component.
  * - "updated … by …" and the edit count come from the revisions read the
  *   old attribution line already made on this page; zero revisions renders
  *   neither. This is DELIBERATELY human edits only — `show.updated_at`
