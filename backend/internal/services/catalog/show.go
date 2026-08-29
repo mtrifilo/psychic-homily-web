@@ -2220,12 +2220,10 @@ func (s *ShowService) attachBillLabels(resp *contracts.ShowResponse) {
 // show page's provenance byline reads (PSY-1680: buildShowResponse is a hot
 // loop). List payloads keep exactly the shape they had.
 //
-// It inherits attachBillLabels' one unpaid cost, and does not widen it: the
-// non-page callers that resolve a show through GetShow (the per-show .ics feed,
-// the update/delete ownership pre-checks, the admin batch-approve loop) each pay
-// one query here for a field they never read, on top of the two that function
-// already costs them. One more query per single-show request is the same trade
-// made there, for the same reason.
+// It inherits attachBillLabels' one unpaid cost without widening it: the
+// non-page callers of GetShow (the .ics feed, the update/delete ownership
+// pre-checks, the admin batch-approve loop) each pay one more query for a field
+// they never read. Same trade that function already makes, for the same reason.
 //
 // The resolution chain is shared.ResolveUserName / ResolveUserUsername, the
 // canonical pair (PSY-612 / PSY-598). The Select must keep listing every chain
