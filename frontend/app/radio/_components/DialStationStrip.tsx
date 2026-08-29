@@ -357,7 +357,13 @@ function DialChannelRow({
             ` — ${nowPlaying.current_track.track_title}`}
         </span>
       )}
-      {channelDetail?.website && (
+      {/* Scheme-gated (on a trimmed copy, as BracketLink does) before it
+          becomes an href: the column is operator-entered free text. A non-http
+          value is dropped rather than rendered as BracketLink's greyed
+          disabled bracket, which would read as a disabled feature instead of
+          bad data. Matches the station sidebar's policy. */}
+      {channelDetail?.website?.trim() &&
+        /^https?:\/\//i.test(channelDetail.website.trim()) && (
         <BracketLink
           label="listen"
           href={channelDetail.website}

@@ -88,15 +88,20 @@ describe('StationSidebar — STATION info box outbound links', () => {
   it('renders the website link as an outbound bracket announced once', () => {
     render(<StationSidebar station={makeStation({ website: 'https://wfmu.org' })} />)
 
-    const site = screen.getByRole('link', { name: /^wfmu\.org/ })
+    // Named for the STATION, not the host label: "wfmu.org" alone says nothing
+    // in a list, and the ↗ must stay visual rather than being read aloud.
+    const site = screen.getByRole('link', { name: /^WFMU website\b/ })
     expect(site).toHaveAttribute('href', 'https://wfmu.org')
     expect(site).toHaveAttribute('target', '_blank')
     expect(site).toHaveAttribute('rel', 'noopener noreferrer')
-    // The suffix itself is BracketLink's contract; assert only that it is
-    // present exactly once, not its wording.
+    expect(site.getAttribute('aria-label')).not.toMatch(/↗/)
+    // The suffix wording is BracketLink's contract; assert only that it is
+    // present exactly once.
     expect(
       site.getAttribute('aria-label')?.match(/opens in a new tab/g)
     ).toHaveLength(1)
+    // ...and that the ↗ is still VISIBLE.
+    expect(site).toHaveTextContent('↗')
   })
 
   it('renders donation and social links as outbound brackets too', () => {
@@ -110,27 +115,33 @@ describe('StationSidebar — STATION info box outbound links', () => {
     )
 
     expect(
-      screen.getByRole('link', { name: /^donate\b/ })
+      screen.getByRole('link', { name: /^Donate to WFMU\b/ })
     ).toHaveAttribute('target', '_blank')
     expect(
-      screen.getByRole('link', { name: /^bluesky/ })
+      screen.getByRole('link', { name: /^WFMU on bluesky\b/ })
     ).toHaveAttribute('href', 'https://bsky.app/profile/wfmu')
   })
 
-  // Inherited from the bracket primitive's `external` scheme floor: these
-  // columns are admin-entered free text, so a non-http value degrades to the
-  // disabled fallback here rather than shipping a live javascript:/data: href.
+  // These columns are operator-entered free text, so the box keeps only
+  // absolute http(s) and DROPS the rest. Dropping beats the two alternatives:
+  // a live javascript:/data: href, or a permanently greyed bracket that reads
+  // as a disabled feature rather than as bad data.
   //
   // Scoped to THIS box on purpose — the same columns are rendered as raw
   // anchors elsewhere on the station page, so this asserts nothing about the
   // field in general.
-  it('degrades a non-http donation url to a disabled control, never an anchor', () => {
-    render(
-      <StationSidebar station={makeStation({ donation_url: 'javascript:alert(1)' })} />
-    )
+  it.each([
+    ['javascript:alert(1)'],
+    ['data:text/html,<script>alert(1)</script>'],
+    ['//evil.example/give'],
+    ['givewfmu.org'],
+  ])('drops a non-http donation url (%s) entirely', url => {
+    render(<StationSidebar station={makeStation({ donation_url: url })} />)
 
-    expect(screen.queryByRole('link', { name: /donate/ })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'donate' })).toBeDisabled()
+    expect(screen.queryByRole('link', { name: /donate/i })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /donate/i })
+    ).not.toBeInTheDocument()
   })
 
   it('renders no link row when the station has no outbound urls', () => {

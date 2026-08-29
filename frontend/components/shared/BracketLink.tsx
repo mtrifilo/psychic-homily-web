@@ -5,25 +5,39 @@ import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 
-const NEW_TAB_ANNOUNCEMENT = 'opens in a new tab'
+const NEW_TAB_SUFFIX = '(opens in a new tab)'
+
+/**
+ * A trailing new-tab parenthetical that a caller already wrote by hand.
+ *
+ * Deliberately NOT a bare substring test. Two independent constraints:
+ *
+ *  - It must anchor at the END. The name it inspects can carry operator-entered
+ *    text (a venue or station name), so a mid-string match would let stored
+ *    content suppress the announcement for the whole control.
+ *  - It must tolerate phrasing variants. The one hand-written announcement this
+ *    codebase actually had read "(opens Google Maps in a new tab)", which a
+ *    literal check for the canonical string would miss, and "window" is the
+ *    other spelling people reach for.
+ */
+const HAND_WRITTEN_NEW_TAB = /\(opens[^)]*\bnew\s+(?:tab|window)\)$/i
 
 /**
  * Appends the outbound announcement to an accessible name, idempotently.
  *
- * The idempotence is the point, not politeness: the whole reason this moved
- * into the component is that hand-written copies of this phrase drifted from
- * the `target` they described. A caller that writes it anyway (the habit this
- * replaced, and the obvious thing to reach for) would otherwise ship a name
- * that says it twice, which reads as a stutter to a screen reader and is
- * invisible in a visual diff. Absorbing the duplicate keeps the bad habit from
- * having a bad OUTCOME while the JSDoc discourages the habit itself.
+ * The idempotence is a safety net, not the contract: callers are told not to
+ * write this phrase (see `external`), because a hand-written copy is what
+ * drifted from the `target` it described in the first place. But the habit is
+ * the obvious thing to reach for, and a doubled announcement reads as a
+ * stutter to a screen reader while being invisible in a visual diff. Absorbing
+ * the duplicate keeps a bad habit from having a bad OUTCOME.
  *
- * Callers resolve the base name first (see `resolveName`), so this never has
- * to guess what an empty string meant.
+ * Callers resolve the base name first (see `resolveAccessibleName`), so this
+ * never has to guess what an empty string meant.
  */
-function announceNewTab(name: string): string {
-  if (name.toLowerCase().includes(NEW_TAB_ANNOUNCEMENT)) return name
-  return `${name} (${NEW_TAB_ANNOUNCEMENT})`
+function withNewTabSuffix(name: string): string {
+  if (HAND_WRITTEN_NEW_TAB.test(name)) return name
+  return `${name} ${NEW_TAB_SUFFIX}`
 }
 
 /**
@@ -33,7 +47,10 @@ function announceNewTab(name: string): string {
  * building one by interpolation (`${room.name} website`) intended, and an
  * unnamed control is worse than a redundant one.
  */
-function resolveName(ariaLabel: string | undefined, label: string): string {
+function resolveAccessibleName(
+  ariaLabel: string | undefined,
+  label: string
+): string {
   return ariaLabel?.trim() || label
 }
 
@@ -152,8 +169,18 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
     // every caller's repair logic. An unsafe value renders the DISABLED
     // button fallback (same as href+disabled) — never an enabled dead
     // control, and never the raw href.
+    //
+    // Trimmed FIRST, and the trimmed value is what gets rendered. Stored URLs
+    // in this app are operator- and contributor-entered paste, and the write
+    // path validates a trimmed copy while persisting the raw string, so
+    // "  https://x" reaches here intact. A browser strips that whitespace when
+    // parsing an href, so an untrimmed test would reject a URL the platform
+    // treats as perfectly valid and hand the reader a dead grey bracket where
+    // a working link used to be. Trimming cannot widen what passes: it only
+    // removes surrounding whitespace, so a rejected scheme stays rejected.
+    const trimmedHref = href?.trim()
     const unsafeExternalHref =
-      external && !!href && !/^https?:\/\//i.test(href)
+      external && !!trimmedHref && !/^https?:\/\//i.test(trimmedHref)
     const effectiveDisabled = disabled || unsafeExternalHref
 
     const classes = cn(
@@ -204,12 +231,17 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
         className: classes,
         title,
         'aria-label': external
-          ? announceNewTab(resolveName(ariaLabel, label))
-          : resolveName(ariaLabel, label),
+          ? withNewTabSuffix(resolveAccessibleName(ariaLabel, label))
+          : resolveAccessibleName(ariaLabel, label),
       }
       if (external) {
         return (
-          <a {...anchorProps} href={href} target="_blank" rel="noopener noreferrer">
+          <a
+            {...anchorProps}
+            href={trimmedHref}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
             {content}
           </a>
         )
@@ -235,7 +267,7 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
         disabled={effectiveDisabled}
         className={classes}
         title={title}
-        aria-label={resolveName(ariaLabel, label)}
+        aria-label={resolveAccessibleName(ariaLabel, label)}
         aria-pressed={active || undefined}
         {...rest}
       >

@@ -77,19 +77,38 @@ function StationInfoBox({ station }: { station: RadioStationDetail }) {
   }
   items.push({ label: 'On the graph since', value: formatMonthYear(station.created_at) })
 
-  const links: Array<{ label: string; href: string }> = []
-  if (station.donation_url) links.push({ label: 'donate', href: station.donation_url })
-  if (station.website) {
-    links.push({ label: `${hostLabel(station.website)} ↗`, href: station.website })
-  }
-  // social is free-form JSONB; elsewhere in the codebase social values are
-  // sometimes bare handles (SocialLinks builds hrefs from baseUrl + handle).
-  // Only absolute http(s) URLs are safe to render directly — skip the rest
-  // rather than emit broken relative links (or non-http schemes).
-  for (const [key, url] of Object.entries(station.social ?? {})) {
-    if (url && /^https?:\/\//i.test(url)) {
-      links.push({ label: `${key} ↗`, href: url })
+  // ONE policy for every URL in this box: keep only absolute http(s), drop the
+  // rest. These columns are operator-entered free text, and `social` is
+  // free-form JSONB whose values are sometimes bare handles (SocialLinks builds
+  // hrefs from baseUrl + handle). Dropping an unusable value is better than
+  // both alternatives: a broken/relative anchor, or a permanently greyed
+  // bracket (BracketLink's `external` floor renders one) that looks like a
+  // disabled feature rather than bad data.
+  //
+  // `ariaLabel` names the station on every entry: the labels here are hosts and
+  // network keys ("wfmu.org", "bluesky") that say nothing on their own, and the
+  // ↗ is a VISUAL marker that should not be read aloud as "north east arrow".
+  const links: Array<{ label: string; href: string; ariaLabel: string }> = []
+  // Trimmed before the scheme test, matching BracketLink: the write path
+  // persists raw operator input, so a pasted "  https://..." must not be
+  // mistaken for an unusable value and dropped.
+  const addLink = (label: string, url: string | null | undefined, name: string) => {
+    const href = url?.trim()
+    if (href && /^https?:\/\//i.test(href)) {
+      links.push({ label, href, ariaLabel: name })
     }
+  }
+
+  addLink('donate', station.donation_url, `Donate to ${station.name}`)
+  if (station.website) {
+    addLink(
+      `${hostLabel(station.website)} ↗`,
+      station.website,
+      `${station.name} website`
+    )
+  }
+  for (const [key, url] of Object.entries(station.social ?? {})) {
+    addLink(`${key} ↗`, url, `${station.name} on ${key}`)
   }
 
   return (

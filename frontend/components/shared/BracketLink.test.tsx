@@ -211,26 +211,50 @@ describe('BracketLink', () => {
       ).toBeInTheDocument()
     })
 
-    // The failure this guards is a caller writing the announcement by hand —
-    // the exact habit the consolidation replaced, so the one most likely to
-    // come back. Passing no ariaLabel here would make the assertion
-    // arithmetically true and pin nothing.
-    it('announces the new tab exactly once when a caller hand-writes it too', () => {
+    // Tolerance, NOT endorsement: `external`'s contract says callers must not
+    // write this phrase. These pin that doing it anyway degrades to a correct
+    // name rather than a stutter, across the phrasings people actually reach
+    // for. The middle case is the exact string this codebase carried before
+    // the announcement moved into the component; a literal check for the
+    // canonical wording would miss it.
+    //
+    // Passing no ariaLabel here would make the count assertion arithmetically
+    // true and pin nothing, which is what the earlier version of this test did.
+    it.each([
+      ['Buy tickets (opens in a new tab)'],
+      ['Directions to Salt Shed (opens Google Maps in a new tab)'],
+      ['Listen live (opens in a new window)'],
+    ])('does not double a hand-written announcement: %s', ariaLabel => {
       render(
-        <BracketLink
-          label="Buy Tickets ↗"
-          href="https://tix.test"
-          external
-          ariaLabel="Buy tickets (opens in a new tab)"
-        />
+        <BracketLink label="Go ↗" href="https://x.test" external ariaLabel={ariaLabel} />
       )
-      const name = screen
-        .getByRole('link')
-        .getAttribute('aria-label') as string
-      expect(name.match(/opens in a new tab/g)).toHaveLength(1)
-      expect(name).toBe('Buy tickets (opens in a new tab)')
+      const name = screen.getByRole('link').getAttribute('aria-label') as string
+      expect(name).toBe(ariaLabel)
+      expect(name.match(/new (tab|window)/g)).toHaveLength(1)
     })
 
+    // Anchored at the END on purpose: the name can carry operator-entered text
+    // (a venue or station name), and stored content must not be able to
+    // suppress the announcement for the whole control.
+    it('still announces when the phrase appears mid-name rather than as a trailing note', () => {
+      render(
+        <BracketLink
+          label="Go ↗"
+          href="https://x.test"
+          external
+          ariaLabel="The (opens in a new tab) Lounge"
+        />
+      )
+      expect(
+        screen.getByRole('link', {
+          name: 'The (opens in a new tab) Lounge (opens in a new tab)',
+        })
+      ).toBeInTheDocument()
+    })
+
+    // Asserted on all three render branches, not just this one: the button
+    // branch carries the destructive [X] / [Remove] controls, where an unnamed
+    // control is worst.
     it('falls back to the visible label when ariaLabel is blank', () => {
       render(
         <BracketLink
@@ -243,6 +267,16 @@ describe('BracketLink', () => {
       expect(
         screen.getByRole('link', { name: 'Buy Tickets ↗ (opens in a new tab)' })
       ).toBeInTheDocument()
+    })
+
+    it('falls back to the visible label when ariaLabel is blank on an internal link', () => {
+      render(<BracketLink label="History" href="/history" ariaLabel="  " />)
+      expect(screen.getByRole('link', { name: 'History' })).toBeInTheDocument()
+    })
+
+    it('falls back to the visible label when ariaLabel is blank on the button branch', () => {
+      render(<BracketLink label="X" variant="danger" ariaLabel="" onClick={() => {}} />)
+      expect(screen.getByRole('button', { name: 'X' })).toBeInTheDocument()
     })
 
     it('leaves internal links in the same tab, with no new-tab announcement', () => {
@@ -269,12 +303,39 @@ describe('BracketLink', () => {
     // never render as an anchor — disabled fallback, same as href+disabled.
     it.each([
       ['javascript:alert(1)'],
+      ['JaVaScRiPt:alert(1)'],
       ['data:text/html,x'],
       ['ftp://tix.example'],
+      // Protocol-relative: inherits the page scheme, so it IS off-site.
+      ['//evil.example/x'],
+      // Leading whitespace/control chars, which browsers strip from an href
+      // before navigating. The check runs on the raw value, so these stay
+      // rejected; that is the safe direction.
+      [' javascript:alert(1)'],
+      ['\njavascript:alert(1)'],
+      ['\tjavascript:alert(1)'],
+      // Scheme-less: not a live relative link either.
+      ['tix.example/buy'],
     ])('renders a disabled button, never an anchor, for %s', href => {
       render(<BracketLink label="Buy ↗" href={href} external />)
       expect(screen.queryByRole('link')).not.toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Buy ↗' })).toBeDisabled()
+    })
+
+    // The write path persists raw operator/contributor paste while validating
+    // a trimmed copy, so padded URLs reach this component. A browser strips
+    // that whitespace when parsing an href, so rejecting it here would kill a
+    // link the platform considers valid.
+    it.each([
+      ['  https://tix.example'],
+      ['https://tix.example  '],
+      ['\n https://tix.example \t'],
+    ])('renders a live, trimmed anchor for a padded url (%j)', href => {
+      render(<BracketLink label="Buy ↗" href={href} external />)
+      const link = screen.getByRole('link', { name: /^Buy ↗/ })
+      expect(link).toHaveAttribute('href', 'https://tix.example')
+      expect(link).toHaveAttribute('target', '_blank')
+      expect(link).toHaveAttribute('rel', 'noopener noreferrer')
     })
   })
 

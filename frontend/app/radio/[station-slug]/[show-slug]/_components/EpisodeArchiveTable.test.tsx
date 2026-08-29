@@ -159,10 +159,14 @@ describe('EpisodeArchiveTable', () => {
       />
     )
     expect(screen.getByText('live')).toBeInTheDocument()
-    // Queried by ROLE, not text: an unusable archive_url renders BracketLink's
-    // disabled BUTTON fallback, which a link-only query would miss entirely.
-    expect(screen.queryByRole('link', { name: /mp3/ })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /mp3/ })).not.toBeInTheDocument()
+    // Matched on /archive/, NOT /mp3/: the bracket carries an ariaLabel
+    // ("Listen to the {date} archive"), which REPLACES the visible "mp3" in
+    // the accessible name. Both roles, because an unusable archive_url renders
+    // the disabled button fallback a link-only query would miss.
+    expect(screen.queryByRole('link', { name: /archive/i })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /archive/i })
+    ).not.toBeInTheDocument()
   })
 
   // PSY-1128 regression: an episode whose air window has ENDED is NOT live, even
@@ -207,8 +211,11 @@ describe('EpisodeArchiveTable', () => {
       />
     )
     expect(screen.getByText('upcoming')).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: /mp3/ })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /mp3/ })).not.toBeInTheDocument()
+    // /archive/, not /mp3/ — see the live-episode test above.
+    expect(screen.queryByRole('link', { name: /archive/i })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /archive/i })
+    ).not.toBeInTheDocument()
     expect(screen.queryByText('live')).not.toBeInTheDocument()
     // date + title render as plain text, not links to the not-yet-aired page
     expect(screen.queryByRole('link')).not.toBeInTheDocument()

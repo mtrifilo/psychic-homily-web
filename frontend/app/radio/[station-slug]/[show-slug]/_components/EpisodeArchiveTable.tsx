@@ -122,7 +122,10 @@ export function EpisodeArchiveTable({
                     label="mp3"
                     href={episode.archive_url}
                     external
-                    className="font-mono text-xs text-primary hover:text-primary/80"
+                    // text-xs beats BracketLink's text-sm base; the enclosing
+                    // <td> already supplies font-mono. Adopts the primitive's
+                    // tight [mp3], replacing the old padded [ mp3 ].
+                    className="text-xs text-primary hover:text-primary/80"
                     // Dates the row, because every row's bracket reads "mp3";
                     // the new-tab half is BracketLink's to append.
                     ariaLabel={`Listen to the ${cellDate} archive`}
