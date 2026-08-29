@@ -139,8 +139,14 @@ describe('SceneRooms — dense', () => {
       'href',
       '/venues/crescent-ballroom'
     )
-    const site = screen.getByRole('link', { name: /Crescent Ballroom website/ })
+    // PSY-1865: a BracketLink `external` now, so the room name still
+    // disambiguates the bare [site ↗] but the new-tab half comes from the
+    // component rather than a hand-written aria string.
+    const site = screen.getByRole('link', {
+      name: 'Crescent Ballroom website (opens in a new tab)',
+    })
     expect(site).toHaveAttribute('href', 'https://crescentphx.com')
+    expect(site).toHaveAttribute('target', '_blank')
     expect(site).toHaveAttribute('rel', 'noopener noreferrer')
   })
 

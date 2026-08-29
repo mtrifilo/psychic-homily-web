@@ -287,10 +287,14 @@ describe('DialStationStrip', () => {
     ).toHaveAttribute('href', '/radio/wfmu-drummer/honky-tonk')
     expect(screen.getByText(/w\/ Becky/)).toBeInTheDocument()
 
-    expect(screen.getByRole('link', { name: '[listen]' })).toHaveAttribute(
-      'href',
-      'https://wfmu.org/drummer'
-    )
+    // PSY-1865: now a BracketLink `external` (was a hand-rolled anchor), so the
+    // brackets are aria-hidden and the new-tab announcement is appended.
+    const listen = screen.getByRole('link', {
+      name: 'listen (opens in a new tab)',
+    })
+    expect(listen).toHaveAttribute('href', 'https://wfmu.org/drummer')
+    expect(listen).toHaveAttribute('target', '_blank')
+    expect(listen).toHaveAttribute('rel', 'noopener noreferrer')
   })
 
   it('renders an unmatched channel show name as plain text with its track', () => {

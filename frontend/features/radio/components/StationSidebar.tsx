@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { SectionHeader, StatsList } from '@/components/shared'
+import { BracketLink, SectionHeader, StatsList } from '@/components/shared'
 import type { StatsListItem } from '@/components/shared'
 import { useStationEpisodes } from '../hooks/useStationEpisodes'
 import { useStationTopArtists } from '../hooks/useStationTopArtists'
@@ -99,7 +99,12 @@ function StationInfoBox({ station }: { station: RadioStationDetail }) {
       {links.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
           {links.map(link => (
-            <ExternalBracketLink key={link.label} {...link} />
+            <BracketLink
+              key={link.label}
+              {...link}
+              external
+              className="font-mono text-xs"
+            />
           ))}
         </div>
       )}
@@ -126,26 +131,6 @@ function hostLabel(url: string): string {
   } catch {
     return 'website'
   }
-}
-
-/**
- * Bracketed external link in the BracketLink idiom. The shared BracketLink
- * renders next/link without target="_blank", so external sidebar links get
- * a local anchor variant instead.
- */
-function ExternalBracketLink({ label, href }: { label: string; href: string }) {
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="inline-flex items-baseline whitespace-nowrap font-mono text-xs text-muted-foreground hover:text-foreground transition-colors"
-    >
-      <span aria-hidden>[</span>
-      <span className="px-0.5">{label}</span>
-      <span aria-hidden>]</span>
-    </a>
-  )
 }
 
 // ---------------------------------------------------------------------------

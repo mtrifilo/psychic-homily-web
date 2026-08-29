@@ -182,7 +182,9 @@ describe('BracketLink', () => {
           external
         />
       )
-      const link = screen.getByRole('link', { name: 'Directions ↗' })
+      const link = screen.getByRole('link', {
+        name: 'Directions ↗ (opens in a new tab)',
+      })
       expect(link).toHaveAttribute('target', '_blank')
       expect(link).toHaveAttribute('rel', 'noopener noreferrer')
       expect(link).toHaveAttribute(
@@ -191,21 +193,51 @@ describe('BracketLink', () => {
       )
     })
 
-    it('leaves internal links in the same tab', () => {
-      render(<BracketLink label="History" href="/history" />)
+    // PSY-1865: the announcement is the component's, so no call site writes
+    // (or forgets) it. Before this, four call sites hand-wrote the string and
+    // ImageAttribution announced it over a same-tab <Link> — behavior and
+    // claim had no single place to disagree in.
+    it('appends the new-tab announcement to a caller ariaLabel rather than replacing it', () => {
+      render(
+        <BracketLink
+          label="site ↗"
+          href="https://crescentphx.test"
+          external
+          ariaLabel="Crescent Ballroom website"
+        />
+      )
       expect(
-        screen.getByRole('link', { name: 'History' })
-      ).not.toHaveAttribute('target')
+        screen.getByRole('link', {
+          name: 'Crescent Ballroom website (opens in a new tab)',
+        })
+      ).toBeInTheDocument()
     })
 
-    it('still falls back to a disabled button when disabled', () => {
+    it('announces the new tab exactly once', () => {
+      render(<BracketLink label="Buy Tickets ↗" href="https://tix.test" external />)
+      const name = screen
+        .getByRole('link')
+        .getAttribute('aria-label') as string
+      expect(name.match(/opens in a new tab/g)).toHaveLength(1)
+    })
+
+    it('leaves internal links in the same tab, with no new-tab announcement', () => {
+      render(<BracketLink label="History" href="/history" />)
+      const link = screen.getByRole('link', { name: 'History' })
+      expect(link).not.toHaveAttribute('target')
+      expect(link.getAttribute('aria-label')).not.toMatch(/new tab/)
+    })
+
+    // The disabled fallback opens nothing, so announcing a new tab there would
+    // be the same class of lie PSY-1865 removed.
+    it('still falls back to a disabled button when disabled, without announcing a new tab', () => {
       render(
         <BracketLink label="Directions ↗" href="https://maps.example" external disabled />
       )
       expect(screen.queryByRole('link')).not.toBeInTheDocument()
-      expect(
-        screen.getByRole('button', { name: 'Directions ↗' })
-      ).toBeDisabled()
+      const button = screen.getByRole('button', { name: 'Directions ↗' })
+      expect(button).toBeDisabled()
+      expect(button.getAttribute('aria-label')).not.toMatch(/new tab/)
     })
 
     // The scheme floor lives in the primitive: `external` is exactly where a

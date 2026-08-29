@@ -59,12 +59,7 @@ export function ShowTicketRow({ show, lifecycle }: ShowTicketRowProps) {
 
       <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
         {buyHref && (
-          <BracketLink
-            label="Buy Tickets ↗"
-            href={buyHref}
-            external
-            ariaLabel="Buy tickets (opens in a new tab)"
-          />
+          <BracketLink label="Buy Tickets ↗" href={buyHref} external />
         )}
         <ShowAddToCalendar show={show} />
         {/* SaveButton's bracket branch defaults to the header-linkbox

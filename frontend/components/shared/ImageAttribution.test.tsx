@@ -19,6 +19,21 @@ describe('ImageAttribution', () => {
     expect(link).toHaveAttribute('href', 'https://open.spotify.com/album/abc')
   })
 
+  // PSY-1865: this link used to announce "(opens in a new tab)" while rendering
+  // a same-tab next/link. It is a provider linkback (always off-site), so it
+  // now goes through BracketLink's `external` branch — which owns BOTH the
+  // target/rel hygiene and the announcement, keeping them from drifting apart.
+  it('opens the provider linkback in a new tab, announced once, with rel hygiene', () => {
+    render(
+      <ImageAttribution source="spotify" sourceUrl="https://open.spotify.com/album/abc" kind="cover" />
+    )
+    const link = screen.getByRole('link', {
+      name: 'Spotify ↗ (opens in a new tab)',
+    })
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+  })
+
   it('uses the required "Data provided by Discogs" phrasing', () => {
     render(<ImageAttribution source="discogs" sourceUrl="https://discogs.com/release/1" />)
     expect(screen.getByText(/data provided by/i)).toBeInTheDocument()

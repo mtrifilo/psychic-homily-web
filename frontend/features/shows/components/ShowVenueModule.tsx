@@ -111,7 +111,9 @@ export function ShowVenueModule({ show }: ShowVenueModuleProps) {
             label="Directions ↗"
             href={mapsUrl}
             external
-            ariaLabel={`Directions to ${venue.name} (opens Google Maps in a new tab)`}
+            // Names the venue because "[Directions ↗]" alone is ambiguous out
+            // of context; the new-tab half is BracketLink's to append.
+            ariaLabel={`Directions to ${venue.name}`}
           />
         )}
         {/* One bracket, not two. This module used to pair [Follow venue] with

@@ -358,17 +358,12 @@ function DialChannelRow({
         </span>
       )}
       {channelDetail?.website && (
-        // Hand-rolled bracket link (not BracketLink) because the target is an
-        // external stream URL needing target="_blank"; text matches
-        // BracketLink's tight [label] idiom.
-        <a
+        <BracketLink
+          label="listen"
           href={channelDetail.website}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="font-mono text-xs text-primary transition-colors hover:text-primary/80"
-        >
-          [listen]
-        </a>
+          external
+          className="font-mono text-xs text-primary hover:text-primary/80"
+        />
       )}
     </li>
   )

@@ -66,7 +66,9 @@ describe('EpisodeArchiveTable', () => {
     expect(screen.queryByText('Jun 8 2026')).not.toBeInTheDocument()
     // the [mp3] link announces the SAME viewer-local date the cell shows
     expect(
-      screen.getByRole('link', { name: 'Listen to the Jun 9 2026 archive' })
+      screen.getByRole('link', {
+        name: 'Listen to the Jun 9 2026 archive (opens in a new tab)',
+      })
     ).toBeInTheDocument()
     // the deep-link stays keyed on the station-dated air_date
     expect(screen.getByText('Jun 9 2026').closest('a')).toHaveAttribute(
@@ -126,16 +128,20 @@ describe('EpisodeArchiveTable', () => {
         episodes={[makeEpisode({ archive_url: 'https://example.com/ep.mp3' })]}
       />
     )
+    // PSY-1865: a BracketLink `external` now, so the row's date context stays
+    // in ariaLabel and the new-tab announcement is appended by the component.
     const mp3 = screen.getByRole('link', {
-      name: 'Listen to the Jun 2 2026 archive',
+      name: 'Listen to the Jun 2 2026 archive (opens in a new tab)',
     })
     expect(mp3).toHaveAttribute('href', 'https://example.com/ep.mp3')
     expect(mp3).toHaveAttribute('target', '_blank')
+    expect(mp3).toHaveAttribute('rel', 'noopener noreferrer')
+    expect(mp3).toHaveTextContent('[mp3]')
   })
 
   it('omits the [mp3] link when there is no archive_url', () => {
     render(<EpisodeArchiveTable {...defaultProps} episodes={[makeEpisode()]} />)
-    expect(screen.queryByText('[ mp3 ]')).not.toBeInTheDocument()
+    expect(screen.queryByText('mp3')).not.toBeInTheDocument()
   })
 
   it('marks a currently-live episode (now inside its air window) as live, not [mp3]', () => {

@@ -48,7 +48,9 @@ export function ImageAttribution({
 
   const wrapClass = `text-xs text-muted-foreground ${className ?? ''}`
   const link = sourceUrl ? (
-    <BracketLink label={`${name} ↗`} href={sourceUrl} ariaLabel={`${name} (opens in a new tab)`} />
+    // `external`: these are provider linkbacks (Spotify, Discogs, Commons),
+    // always off-site. BracketLink appends "(opens in a new tab)" itself.
+    <BracketLink label={`${name} ↗`} href={sourceUrl} external />
   ) : (
     <span>{name}</span>
   )

@@ -23,14 +23,21 @@ export interface BracketLinkProps
   active?: boolean
   /**
    * `href` points OUTSIDE the app: renders a plain anchor with
-   * `target="_blank" rel="noopener noreferrer"` instead of a Next `<Link>`.
+   * `target="_blank" rel="noopener noreferrer"` instead of a Next `<Link>`,
+   * and appends "(opens in a new tab)" to the accessible name.
    * Callers put the outbound marker in the label themselves ("Directions ↗")
-   * so the glyph stays part of the announced name. Ignored without `href`.
+   * so the glyph stays part of the announced name, but must NOT hand-write the
+   * new-tab announcement — this component owns it. Ignored without `href`.
    */
   external?: boolean
   /** Visual variant. `danger` is red for destructive actions like [Remove] / [Delete] / [X]. */
   variant?: 'default' | 'danger'
-  /** ARIA label override (defaults to the visible label). */
+  /**
+   * ARIA label override (defaults to the visible label). Use it for CONTEXT the
+   * label leaves out ("Crescent Ballroom website" for a bare `[site ↗]` in a
+   * list), never for the outbound announcement — with `external`, the
+   * "(opens in a new tab)" suffix is appended to whatever this resolves to.
+   */
   ariaLabel?: string
 }
 
@@ -137,11 +144,23 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
       // cannot silently skip the external ones — both render as an <a> and
       // the omission would be invisible in review. Spread BEFORE the literal
       // target/rel so the bag can never override the hygiene attributes.
+      // The outbound announcement is COMPONENT-owned (PSY-1865): one owner, no
+      // drift. Before this, four call sites hand-wrote "(opens in a new tab)"
+      // into their own aria strings and a fifth (ImageAttribution) announced it
+      // while rendering a same-tab <Link> — the claim and the behavior had no
+      // single place to disagree in. Appending it HERE, next to the literal
+      // target="_blank" below, makes the two impossible to separate.
+      //
+      // Deliberately NOT applied to the disabled-button fallback further down:
+      // that branch opens nothing, so announcing a new tab would be the same
+      // class of lie this fixes.
       const anchorProps = {
         onClick: onClick as React.MouseEventHandler | undefined,
         className: classes,
         title,
-        'aria-label': ariaLabel ?? label,
+        'aria-label': external
+          ? `${ariaLabel ?? label} (opens in a new tab)`
+          : (ariaLabel ?? label),
       }
       if (external) {
         return (
