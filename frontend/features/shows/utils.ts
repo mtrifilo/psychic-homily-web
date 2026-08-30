@@ -1,3 +1,4 @@
+import { formatLocation } from '@/lib/formatLocation'
 import type { ShowTimingInput } from '@/lib/utils/showTiming'
 import type { ShowResponse } from './types'
 
@@ -138,6 +139,79 @@ export function dedupVenueShows<T extends ShowWithArtists>(shows: T[]): T[] {
 interface BillArtist {
   set_type?: string | null
   is_headliner?: boolean | null
+}
+
+/** The bill fields that decide who comes first. */
+interface OrderedBillArtist {
+  position: number
+  id: number
+}
+
+/**
+ * Bill order lives in `show_artists.position`. Every backend read path already
+ * sorts by it (`buildShowResponse`, `loadShowArtistResponses`), so this is a
+ * defensive re-assertion against a caller, cache layer, or future query handing
+ * us a different order.
+ *
+ * Ties are possible: `idx_show_artists_position` is a plain index, so nothing
+ * enforces one position per show, and rows written outside the create path
+ * (backfills, seeds) can share position 0. The backend's `ORDER BY position
+ * ASC` has no tiebreaker, so Postgres may order tied rows differently between
+ * requests. Break the tie on `id` so the rendered bill is at least
+ * deterministic client-side.
+ *
+ * Shared for the same reason `splitBill` is: the header's bill and the listen
+ * module's cards are two renderings of ONE running order, and a second copy of
+ * the tiebreak rule is exactly the kind of thing that drifts silently.
+ *
+ * This is HALF of that running order, not all of it. Position is the sequence;
+ * `splitBill` then hoists whoever is curated as a headliner, because `set_type`
+ * is authoritative at any position and a bill entered in stage order puts the
+ * headliner last. A surface that sorts and stops will print a different bill
+ * from one that does both, on exactly the shows where it matters most.
+ */
+export function byBillPosition(
+  a: OrderedBillArtist,
+  b: OrderedBillArtist
+): number {
+  return a.position - b.position || a.id - b.id
+}
+
+/** The location fields an act is placed by. */
+interface PlaceableArtist {
+  city?: string | null
+  state?: string | null
+  country?: string | null
+}
+
+/**
+ * Where an act is from, or null when nothing about it is placeable.
+ *
+ * Judged on the PARTS, never on the formatted string. Comparing the result to
+ * `LOCATION_UNKNOWN` would also silence an artist whose city is literally
+ * "Location Unknown", which is exactly the placeholder an extraction run writes
+ * when it does not know.
+ *
+ * `formatLocation` carries the locked display rule: country is included UNLESS
+ * the state is set and the country is USA/US.
+ *
+ * Shared for the same reason `byBillPosition` is. The header's bill and the
+ * listen module's cards state the same fact about the same act a few hundred
+ * pixels apart, so a second copy of the placeability test is a rule with two
+ * answers on one page.
+ */
+export function billHometown(artist: PlaceableArtist): string | null {
+  const hasPlaceableLocation = [
+    artist.city,
+    artist.state,
+    artist.country,
+  ].some(part => part?.trim())
+  if (!hasPlaceableLocation) return null
+  return formatLocation({
+    city: artist.city,
+    state: artist.state,
+    country: artist.country,
+  })
 }
 
 /**

@@ -31,18 +31,48 @@ type BandcampEmbed = Pick<BandcampEmbedResponse, 'kind' | 'id'> & {
 // null success for 15min and every same-URL instance + remount would render the
 // plain fallback link until staleTime expires — even after Bandcamp recovers
 // seconds later (PSY-1102 adversarial review). So:
-//   - 5xx / network throw  → THROW → query errors → no durable cache, a later
-//     mount retries → embed self-heals once the outage clears.
-//   - 4xx (incl. the route's 404 "no embed found") → return null → a genuine
-//     "this URL has no embeddable player" answer that IS safe to cache.
+//   - transient (5xx, 429, 408, network throw) → THROW → query errors → no
+//     durable cache, a later mount retries → embed self-heals once the outage
+//     clears.
+//   - other 4xx (incl. the route's 404 "no embed found") → return null → a
+//     genuine "this URL has no embeddable player" answer that IS safe to cache.
 //   - 2xx with no usable id/kind → return null (same: a real negative answer).
+//
+// 429 and 408 are on the transient side for the same reason 5xx is, and they
+// are not hypothetical: the route scrapes bandcamp.com once per distinct URL,
+// so a page that mounts a whole bill's worth of embeds at once is exactly what
+// draws a rate limit. Reading that as "no player exists" would strand every
+// card on a plain link for the full staleTime, long after the limit cleared.
+const TRANSIENT_RESOLVE_STATUSES = new Set([408, 429])
+
+/**
+ * A resolve that failed in a way worth retrying.
+ *
+ * Carries the status so the Sentry report can tell a third party rate-limiting
+ * us apart from something actually broken. Being throttled is operational
+ * weather, and it arrives once per distinct URL on a page, so reporting it at
+ * error level would page loudest exactly when a bill is longest.
+ */
+class TransientResolveError extends Error {
+  readonly rateLimited: boolean
+
+  constructor(status: number) {
+    super(`Bandcamp embed resolve failed: ${status}`)
+    this.name = 'TransientResolveError'
+    this.rateLimited = TRANSIENT_RESOLVE_STATUSES.has(status)
+  }
+}
+
 async function resolveBandcampEmbed(albumUrl: string): Promise<BandcampEmbed | null> {
   const response = await fetch(
     `/api/bandcamp/album-id?url=${encodeURIComponent(albumUrl)}`
   )
   if (!response.ok) {
-    if (response.status >= 500) {
-      throw new Error(`Bandcamp embed resolve failed: ${response.status}`)
+    if (
+      response.status >= 500 ||
+      TRANSIENT_RESOLVE_STATUSES.has(response.status)
+    ) {
+      throw new TransientResolveError(response.status)
     }
     return null
   }
@@ -53,6 +83,26 @@ async function resolveBandcampEmbed(albumUrl: string): Promise<BandcampEmbed | n
   }
   return null
 }
+
+/**
+ * How wide the Bandcamp player is allowed to get.
+ *
+ * Exported because it is a constraint on the player, not a preference of this
+ * file: the player's internal layout is fixed, so a container that lets it run
+ * wider ends up framing it with dead space. A caller sizing a card around one
+ * of these should read the number from here rather than restate it, or a change
+ * on this side leaves a silent gutter on the other.
+ */
+export const BANDCAMP_EMBED_MAX_WIDTH_PX = 700
+
+/**
+ * How tall the Bandcamp player renders, and therefore how much room the
+ * loading placeholder has to hold open for it.
+ *
+ * Not exported: no caller needs the number, they need the placeholder to have
+ * already used it.
+ */
+const BANDCAMP_EMBED_HEIGHT_PX = 120
 
 type EmbedState =
   | { type: 'loading' }
@@ -81,7 +131,14 @@ export function MusicEmbed({
         return await resolveBandcampEmbed(bandcampAlbumUrl as string)
       } catch (error) {
         Sentry.captureException(error, {
-          level: 'error',
+          // Being rate-limited is expected weather, not a defect, and it
+          // arrives once per distinct URL on the page: a long bill would
+          // otherwise report loudest at exactly the moment the noise is least
+          // actionable. Anything else here is still an error.
+          level:
+            error instanceof TransientResolveError && error.rateLimited
+              ? 'warning'
+              : 'error',
           tags: { service: 'music-embed' },
           extra: { bandcampAlbumUrl },
         })
@@ -122,7 +179,17 @@ export function MusicEmbed({
             Music
           </h2>
         )}
-        <div className={`flex items-center justify-center ${compact ? 'py-4' : 'py-8'} bg-muted/30 rounded-md`}>
+        {/* The placeholder stands at the player's own height, so the resolve
+            swaps in place instead of growing the block by ~64px. This state is
+            only ever reached with a Bandcamp URL in hand, so the height it has
+            to reserve is that player's. It matters most where several of these
+            sit in a column and their queries settle at independent moments:
+            without it, each one lands as its own jump and everything below the
+            stack walks down the page. */}
+        <div
+          className={`flex items-center justify-center ${compact ? 'py-4' : 'py-8'} bg-muted/30 rounded-md`}
+          style={{ minHeight: BANDCAMP_EMBED_HEIGHT_PX }}
+        >
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
       </section>
@@ -151,7 +218,12 @@ export function MusicEmbed({
         <div className="music-embed-container">
           <iframe
             title={`${artistName} on Bandcamp`}
-            style={{ border: 0, width: '100%', maxWidth: '700px', height: '120px' }}
+            style={{
+              border: 0,
+              width: '100%',
+              maxWidth: BANDCAMP_EMBED_MAX_WIDTH_PX,
+              height: BANDCAMP_EMBED_HEIGHT_PX,
+            }}
             src={bandcampEmbedSrc({ kind: embed.embedKind, id: embed.embedId })}
             // Matches the Spotify branch below, which has always had it. It
             // costs nothing on the one-embed pages this component was built for

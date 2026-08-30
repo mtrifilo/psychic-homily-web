@@ -2,16 +2,15 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Loader2, MapPin } from 'lucide-react'
+import { ArrowLeft, Loader2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useShow } from '../hooks/useShows'
 import type { ApiError } from '@/lib/api'
 import { useSetShowSoldOut, useSetShowCancelled } from '@/lib/hooks/admin/useAdminShows'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { queryKeys } from '@/lib/queryClient'
-import type { ArtistResponse } from '../types'
 import { Button } from '@/components/ui/button'
-import { SocialLinks, MusicEmbed, EntityDetailLayout, EntityDetailContainer, RevisionHistory } from '@/components/shared'
+import { EntityDetailLayout, EntityDetailContainer, RevisionHistory } from '@/components/shared'
 import { EntityCollections } from '@/features/collections'
 import { EntityChartRankBadge, useChartEntityRank } from '@/features/charts'
 import { EntityTagList } from '@/features/tags'
@@ -23,6 +22,7 @@ import {
 } from '@/features/contributions'
 import { DeleteShowDialog } from './DeleteShowDialog'
 import { ShowHeader } from './ShowHeader'
+import { ShowListenModule } from './ShowListenModule'
 import { ShowActions } from './ShowActions'
 import { ShowProvenanceLine } from './ShowProvenanceLine'
 import { ShowStatusStripe } from './ShowStatusStripe'
@@ -42,14 +42,6 @@ interface ShowDetailProps {
    * immediately while the clock half stays frozen at what the server saw.
    */
   lifecycle: ShowLifecycleState
-}
-
-function artistHasMusic(artist: ArtistResponse): boolean {
-  return !!(
-    artist.bandcamp_embed_url ||
-    artist.socials?.spotify ||
-    artist.socials?.bandcamp
-  )
 }
 
 export function ShowDetail({ showId, lifecycle }: ShowDetailProps) {
@@ -166,7 +158,6 @@ export function ShowDetail({ showId, lifecycle }: ShowDetailProps) {
   }
 
   const artists = show.artists
-  const artistsWithMusic = artists.filter(artistHasMusic)
   const showTitle = showDisplayTitle(show.title, artists.map(a => a.name))
 
   return (
@@ -222,47 +213,13 @@ export function ShowDetail({ showId, lifecycle }: ShowDetailProps) {
             NOT extended to shows. */}
         <EntitySaveSuccessBanner visible={saveBanner.isVisible} />
 
-        {/* Artist Music Section */}
-        {artistsWithMusic.length > 0 && (
-          <section className="mb-8">
-            <h2 className="text-lg font-semibold mb-4">Listen to the Artists</h2>
-            <div className="space-y-6">
-              {artistsWithMusic.map(artist => (
-                <div key={artist.id} className="space-y-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      {artist.slug ? (
-                        <Link
-                          href={`/artists/${artist.slug}`}
-                          className="font-medium hover:text-primary transition-colors"
-                        >
-                          {artist.name}
-                        </Link>
-                      ) : (
-                        <span className="font-medium">{artist.name}</span>
-                      )}
-                      {(artist.city || artist.state) && (
-                        <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
-                          <MapPin className="h-3 w-3" />
-                          <span>
-                            {[artist.city, artist.state].filter(Boolean).join(', ')}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                    <SocialLinks social={artist.socials} className="shrink-0" />
-                  </div>
-                  <MusicEmbed
-                    bandcampAlbumUrl={artist.bandcamp_embed_url}
-                    bandcampProfileUrl={artist.socials?.bandcamp}
-                    spotifyUrl={artist.socials?.spotify}
-                    artistName={artist.name}
-                  />
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
+        {/* SLOT: listen module. Self-hiding, so no guard here.
+
+            The card states the act's hometown and carries its social links
+            alongside the player, against the mock, which draws neither (owner
+            decision, 2026-08-30). What the module changed from the block it
+            replaced is the gate and the chrome, not the facts stated. */}
+        <ShowListenModule artists={artists} />
 
         {/* In Collections */}
         <section className="mb-8">

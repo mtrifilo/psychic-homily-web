@@ -4,6 +4,7 @@ import {
   swapAlbumTrackPath,
   resolveBandcampEmbed,
   isAllowedBandcampUrl,
+  isBandcampReleaseUrl,
   bandcampEmbedSrc,
 } from './bandcamp'
 
@@ -94,6 +95,39 @@ describe('isAllowedBandcampUrl (SSRF guard)', () => {
     expect(isAllowedBandcampUrl('not a url')).toBe(false)
     // A subdomain-suffix lookalike must not slip through endsWith.
     expect(isAllowedBandcampUrl('https://notbandcamp.com/album/x')).toBe(false)
+  })
+})
+
+describe('isBandcampReleaseUrl (outbound-link guard)', () => {
+  it('accepts an album or track page on bandcamp.com or a subdomain', () => {
+    expect(isBandcampReleaseUrl('https://kingbuffalo.bandcamp.com/album/regenerator')).toBe(true)
+    expect(isBandcampReleaseUrl('https://x.bandcamp.com/track/leyenda')).toBe(true)
+    expect(isBandcampReleaseUrl('https://bandcamp.com/album/x')).toBe(true)
+  })
+  it('rejects a host that merely mentions bandcamp', () => {
+    // The threat this exists for: `bandcamp_embed_url` is contributor-writable
+    // and not URL-validated on write, and this value is rendered as an outbound
+    // link under a "Buy ... on Bandcamp" accessible name.
+    expect(isBandcampReleaseUrl('https://evil.test/album/checkout')).toBe(false)
+    expect(isBandcampReleaseUrl('https://bandcamp.com.attacker.test/album/x')).toBe(false)
+    expect(isBandcampReleaseUrl('https://evil.test/?next=https://x.bandcamp.com/album/y')).toBe(false)
+  })
+  it('rejects a Bandcamp page that is not a release', () => {
+    expect(isBandcampReleaseUrl('https://kingbuffalo.bandcamp.com')).toBe(false)
+    expect(isBandcampReleaseUrl('https://kingbuffalo.bandcamp.com/music')).toBe(false)
+    expect(isBandcampReleaseUrl('https://kingbuffalo.bandcamp.com/merch/shirt')).toBe(false)
+  })
+  it('reads the path, not the whole URL', () => {
+    // A host that carries "/album/" only in a query string it controls.
+    expect(isBandcampReleaseUrl('https://evil.test/x?y=/album/z')).toBe(false)
+    // And the real segment still wins when a query string also mentions one.
+    expect(isBandcampReleaseUrl('https://x.bandcamp.com/track/t?ref=/album/a')).toBe(true)
+  })
+  it('rejects non-https and unparseable input', () => {
+    expect(isBandcampReleaseUrl('http://x.bandcamp.com/album/x')).toBe(false)
+    expect(isBandcampReleaseUrl('javascript:alert(1)//bandcamp.com/album/x')).toBe(false)
+    expect(isBandcampReleaseUrl('   ')).toBe(false)
+    expect(isBandcampReleaseUrl('')).toBe(false)
   })
 })
 
