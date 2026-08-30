@@ -45,6 +45,24 @@ type BandcampEmbed = Pick<BandcampEmbedResponse, 'kind' | 'id'> & {
 // card on a plain link for the full staleTime, long after the limit cleared.
 const TRANSIENT_RESOLVE_STATUSES = new Set([408, 429])
 
+/**
+ * A resolve that failed in a way worth retrying.
+ *
+ * Carries the status so the Sentry report can tell a third party rate-limiting
+ * us apart from something actually broken. Being throttled is operational
+ * weather, and it arrives once per distinct URL on a page, so reporting it at
+ * error level would page loudest exactly when a bill is longest.
+ */
+class TransientResolveError extends Error {
+  readonly rateLimited: boolean
+
+  constructor(status: number) {
+    super(`Bandcamp embed resolve failed: ${status}`)
+    this.name = 'TransientResolveError'
+    this.rateLimited = TRANSIENT_RESOLVE_STATUSES.has(status)
+  }
+}
+
 async function resolveBandcampEmbed(albumUrl: string): Promise<BandcampEmbed | null> {
   const response = await fetch(
     `/api/bandcamp/album-id?url=${encodeURIComponent(albumUrl)}`
@@ -54,7 +72,7 @@ async function resolveBandcampEmbed(albumUrl: string): Promise<BandcampEmbed | n
       response.status >= 500 ||
       TRANSIENT_RESOLVE_STATUSES.has(response.status)
     ) {
-      throw new Error(`Bandcamp embed resolve failed: ${response.status}`)
+      throw new TransientResolveError(response.status)
     }
     return null
   }
@@ -113,7 +131,14 @@ export function MusicEmbed({
         return await resolveBandcampEmbed(bandcampAlbumUrl as string)
       } catch (error) {
         Sentry.captureException(error, {
-          level: 'error',
+          // Being rate-limited is expected weather, not a defect, and it
+          // arrives once per distinct URL on the page: a long bill would
+          // otherwise report loudest at exactly the moment the noise is least
+          // actionable. Anything else here is still an error.
+          level:
+            error instanceof TransientResolveError && error.rateLimited
+              ? 'warning'
+              : 'error',
           tags: { service: 'music-embed' },
           extra: { bandcampAlbumUrl },
         })

@@ -248,6 +248,12 @@ describe('ShowListenModule', () => {
     }
     expect(embeds[0]).toHaveAttribute('data-bandcamp', BANDCAMP_ALBUM)
     expect(embeds[1]).toHaveAttribute('data-spotify', SPOTIFY_ARTIST)
-    expect(screen.queryByRole('button', { name: /load|play|listen/i })).toBeNull()
+    // The only buttons in the module are the share brackets. Anything else
+    // sitting between the reader and the audio would be the facade.
+    expect(
+      within(screen.getByTestId('show-listen-module'))
+        .getAllByRole('button')
+        .map(button => button.getAttribute('aria-label'))
+    ).toEqual(['Share Modest Mouse', 'Share Califone'])
   })
 })

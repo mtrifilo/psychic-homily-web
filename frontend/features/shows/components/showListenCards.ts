@@ -60,14 +60,20 @@ export interface ListenCard {
  * not decorative: they are the same validation the player and the resolver
  * route run, so the three agree on which URLs are real.
  *
- * What no synchronous predicate can settle: a stored release URL whose id
- * resolve FAILS at request time. `MusicEmbed` then falls through to the
- * artist's Spotify embed if it has one (the card plays, under a label that
- * still says "Bandcamp"), and otherwise to its own outbound link to that same
- * release page (the card does not play, and shows the reader a link one line
- * under the `[Buy]` bracket pointing at the same place). Both are degraded
- * states of a real player during a Bandcamp outage rather than a card that
- * never had one, which is the line this gate draws.
+ * What no synchronous predicate can settle: a stored release URL that does not
+ * resolve to a player id. `MusicEmbed` then falls through to the artist's
+ * Spotify embed if it has one (the card plays, under a label that still says
+ * "Bandcamp"), and otherwise to its own outbound link to that same release page
+ * (the card does not play, and shows a link one line under the `[Buy]` bracket
+ * pointing at the same place).
+ *
+ * Do not read that as an outage-only state. The likelier cause is a STEADY one:
+ * stored embed URLs are never revalidated, so a release the band renamed,
+ * un-published, or deleted answers 404 forever, and the route reports "no
+ * embeddable player" for a page that loads fine but no longer carries the
+ * descriptor. This gate cannot see any of that, because the answer only exists
+ * over the network. What it CAN keep out is the card that was never going to
+ * have a player, and that is the line it draws.
  */
 export function listenCardsForBill(artists: ArtistResponse[]): ListenCard[] {
   const { headliners, support } = splitBill([...artists].sort(byBillPosition))

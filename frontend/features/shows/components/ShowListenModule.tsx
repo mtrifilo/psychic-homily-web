@@ -28,12 +28,14 @@ interface ShowListenModuleProps {
  * listen is a card they skip. The iframes carry `loading="lazy"` inside
  * `MusicEmbed`, which is a fetch-timing detail the reader never sees.
  *
- * Every card mounts a real player. The one state where a card can be on screen
- * without one is a Bandcamp id resolve that fails at request time for an act
- * with no Spotify to fall back on; `MusicEmbed` then shows its own link to the
- * same release page. That is a Bandcamp outage degrading a player, not a card
- * that never had one. `listenCardsForBill` is what keeps the second case from
- * existing, and it is the reason a bare Bandcamp profile earns no card.
+ * Every card is built from a source that CAN carry a player, which is not the
+ * same promise as every card showing one. A stored Bandcamp release URL that no
+ * longer resolves (the band renamed or pulled the record, or Bandcamp is
+ * throttling) leaves an act with no Spotify holding `MusicEmbed`'s own outbound
+ * link to that release instead of the iframe. Only the network knows, and it
+ * knows after render. What `listenCardsForBill` can rule out, and does, is the
+ * card that was never going to have a player at all, which is why a bare
+ * Bandcamp profile earns no card.
  *
  * The mock draws each card as artwork + release title + a transport row with a
  * scrubber and a duration. Those four things all live INSIDE the third-party
