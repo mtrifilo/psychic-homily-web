@@ -91,7 +91,6 @@ import {
   useProfile,
   useUpdateProfile,
   useRefreshToken,
-  useIsAuthenticated,
   useSendVerificationEmail,
   useConfirmVerification,
   useChangePassword,
@@ -617,39 +616,9 @@ describe('useAuth hooks', () => {
     })
   })
 
-  describe('useIsAuthenticated', () => {
-    it('returns authenticated true when profile has user', async () => {
-      mockApiRequest.mockResolvedValueOnce({
-        success: true,
-        user: { id: '1', email: 'test@example.com' },
-      })
-
-      const { result } = renderHook(() => useIsAuthenticated(), {
-        wrapper: createWrapper(),
-      })
-
-      await waitFor(() => expect(result.current.isLoading).toBe(false))
-
-      expect(result.current.isAuthenticated).toBe(true)
-      expect(result.current.user?.email).toBe('test@example.com')
-    })
-
-    it('returns authenticated false when no user', async () => {
-      mockApiRequest.mockResolvedValueOnce({
-        success: false,
-        message: 'Not authenticated',
-      })
-
-      const { result } = renderHook(() => useIsAuthenticated(), {
-        wrapper: createWrapper(),
-      })
-
-      await waitFor(() => expect(result.current.isLoading).toBe(false))
-
-      expect(result.current.isAuthenticated).toBe(false)
-      expect(result.current.user).toBeUndefined()
-    })
-  })
+  // `useIsAuthenticated` moved to ./useIsAuthenticated when it stopped
+  // deriving auth from this module's profile query; its cells live in
+  // ./useIsAuthenticated.test.tsx.
 
   describe('useSendVerificationEmail', () => {
     it('calls send verification endpoint', async () => {

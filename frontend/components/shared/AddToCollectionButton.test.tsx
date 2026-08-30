@@ -5,18 +5,29 @@ import userEvent from '@testing-library/user-event'
 import { AddToCollectionButton } from './AddToCollectionButton'
 
 // Mock AuthContext
+type MockAuthStatus = 'pending' | 'authenticated' | 'anonymous'
 interface MockAuthState {
   user: { id: string } | null
   isAuthenticated: boolean
+  authStatus: MockAuthStatus
   isLoading: boolean
   logout: ReturnType<typeof vi.fn>
 }
-const mockAuthContext = vi.fn<() => MockAuthState>(() => ({
-  user: { id: '1' },
-  isAuthenticated: true,
-  isLoading: false,
+// Single source of truth for the mocked auth state, mirroring the real
+// AuthContext's invariant that `isAuthenticated` is DERIVED from `authStatus`.
+// Setting the two independently would let a test assert against a viewer that
+// cannot exist; driving both from one value still leaves 'pending' reachable,
+// which is the cell where a signed-in viewer reads isAuthenticated=false.
+const authState = (authStatus: MockAuthStatus): MockAuthState => ({
+  authStatus,
+  isAuthenticated: authStatus === 'authenticated',
+  user: authStatus === 'authenticated' ? { id: '1' } : null,
+  isLoading: authStatus === 'pending',
   logout: vi.fn(),
-}))
+})
+const mockAuthContext = vi.fn<() => MockAuthState>(() =>
+  authState('authenticated')
+)
 vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => mockAuthContext(),
 }))
@@ -125,12 +136,7 @@ vi.mock('@/features/collections/components/CreateCollectionDrawer', () => ({
 describe('AddToCollectionButton', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockAuthContext.mockReturnValue({
-      user: { id: '1' },
-      isAuthenticated: true,
-      isLoading: false,
-      logout: vi.fn(),
-    })
+    mockAuthContext.mockReturnValue(authState('authenticated'))
     mockMyCollections.mockReturnValue({
       data: { collections: DEFAULT_COLLECTIONS },
       isLoading: false,
@@ -146,12 +152,7 @@ describe('AddToCollectionButton', () => {
   })
 
   it('renders nothing when not authenticated', () => {
-    mockAuthContext.mockReturnValue({
-      user: null,
-      isAuthenticated: false,
-      isLoading: false,
-      logout: vi.fn(),
-    })
+    mockAuthContext.mockReturnValue(authState('anonymous'))
     const { container } = render(
       <AddToCollectionButton entityType="artist" entityId={1} entityName="Test Artist" />
     )
@@ -709,18 +710,13 @@ describe('AddToCollectionButton', () => {
     // treats the auth hook as a stable slot and can actually see the
     // component body's hook-count change. Without this, the mock calls
     // zero hooks and React has nothing to anchor the comparison.
-    let authState: MockAuthState = {
-      user: null,
-      isAuthenticated: false,
-      isLoading: true,
-      logout: vi.fn(),
-    }
+    let mockedAuth: MockAuthState = authState('pending')
     mockAuthContext.mockImplementation(() => {
       // Real React hook — ensures this mock contributes a stable number
       // of hooks across renders so the component-body transition is
       // what React's hook-tracker actually sees.
       useState(0)
-      return authState
+      return mockedAuth
     })
 
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -733,12 +729,7 @@ describe('AddToCollectionButton', () => {
 
     // Transition to authenticated — this is what triggered the
     // hook-order violation in production once /auth/profile resolved.
-    authState = {
-      user: { id: '1' },
-      isAuthenticated: true,
-      isLoading: false,
-      logout: vi.fn(),
-    }
+    mockedAuth = authState('authenticated')
 
     let threwDuringRerender: Error | null = null
     try {
@@ -780,12 +771,7 @@ describe('AddToCollectionButton', () => {
 describe('AddToCollectionButton — bracket variant (PSY-641)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockAuthContext.mockReturnValue({
-      user: { id: '1' },
-      isAuthenticated: true,
-      isLoading: false,
-      logout: vi.fn(),
-    })
+    mockAuthContext.mockReturnValue(authState('authenticated'))
   })
 
   it('renders [Add to collection] as a bracket link in bracket variant', () => {
@@ -822,12 +808,7 @@ describe('AddToCollectionButton — bracket variant (PSY-641)', () => {
   // viewers it must still render (not return an empty linkbox) and redirect
   // to /auth on click, mirroring FollowButton / NotifyMeButton.
   it('renders [Add to collection] for an unauthenticated viewer in bracket variant', () => {
-    mockAuthContext.mockReturnValue({
-      user: null,
-      isAuthenticated: false,
-      isLoading: false,
-      logout: vi.fn(),
-    })
+    mockAuthContext.mockReturnValue(authState('anonymous'))
     render(
       <AddToCollectionButton
         entityType="release"
@@ -842,12 +823,7 @@ describe('AddToCollectionButton — bracket variant (PSY-641)', () => {
   })
 
   it('redirects an unauthenticated viewer to /auth with returnTo on click', async () => {
-    mockAuthContext.mockReturnValue({
-      user: null,
-      isAuthenticated: false,
-      isLoading: false,
-      logout: vi.fn(),
-    })
+    mockAuthContext.mockReturnValue(authState('anonymous'))
     const user = userEvent.setup()
     render(
       <AddToCollectionButton
@@ -870,12 +846,7 @@ describe('AddToCollectionButton — bracket variant (PSY-641)', () => {
   it.each(['default', 'ghost', 'outline'] as const)(
     'renders nothing for an unauthenticated viewer in %s variant',
     (variant) => {
-      mockAuthContext.mockReturnValue({
-        user: null,
-        isAuthenticated: false,
-        isLoading: false,
-        logout: vi.fn(),
-      })
+      mockAuthContext.mockReturnValue(authState('anonymous'))
       const { container } = render(
         <AddToCollectionButton
           entityType="release"
@@ -887,6 +858,51 @@ describe('AddToCollectionButton — bracket variant (PSY-641)', () => {
       expect(container.innerHTML).toBe('')
     }
   )
+
+  // ── Unsettled auth
+  //
+  // The anonymous bracket above is a bare router push to /auth, and it reaches
+  // that branch on `!isAuthenticated`, which reads true both for a viewer with
+  // no session and for one whose profile has not arrived. BracketLink ships it
+  // enabled in server HTML and opts it into pre-hydration click replay, so
+  // `disabled` (which also sets pointer-events-none) is what keeps a replayed
+  // click from routing a signed-in viewer to /auth.
+  it('ships the bracket disabled while auth is unsettled', () => {
+    mockAuthContext.mockReturnValue(authState('pending'))
+    render(
+      <AddToCollectionButton
+        entityType="release"
+        entityId={7}
+        entityName="Test Release"
+        variant="bracket"
+      />
+    )
+    expect(
+      screen.getByRole('button', { name: /add to collection/i })
+    ).toBeDisabled()
+  })
+
+  // No test covers the onClick's own `authStatus === 'pending'` bail: it is
+  // unreachable while the bracket renders disabled. React reads `props.disabled`
+  // off the fiber before dispatching onClick, so stripping the DOM attribute
+  // does not reach it either, and `consumePendingReplay` refuses a disabled
+  // target as well. It is defence in depth against a future edit that drops the
+  // `disabled` prop, and no single-file mutation can fail on it.
+
+  it('ships the bracket enabled once auth settles anonymous', () => {
+    mockAuthContext.mockReturnValue(authState('anonymous'))
+    render(
+      <AddToCollectionButton
+        entityType="release"
+        entityId={7}
+        entityName="Test Release"
+        variant="bracket"
+      />
+    )
+    expect(
+      screen.getByRole('button', { name: /add to collection/i })
+    ).toBeEnabled()
+  })
 })
 
 describe('AddToCollectionButton — recently-used promotion (PSY-960)', () => {
@@ -915,12 +931,7 @@ describe('AddToCollectionButton — recently-used promotion (PSY-960)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     window.localStorage.clear()
-    mockAuthContext.mockReturnValue({
-      user: { id: '1' },
-      isAuthenticated: true,
-      isLoading: false,
-      logout: vi.fn(),
-    })
+    mockAuthContext.mockReturnValue(authState('authenticated'))
     mockContaining.mockReturnValue({
       data: new Map<number, number>(),
       isLoading: false,

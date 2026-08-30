@@ -44,9 +44,12 @@ export function NotifyMeButton({
 }: NotifyMeButtonProps) {
   const router = useRouter()
   const pathname = usePathname()
-  const { isAuthenticated } = useAuthContext()
+  const { isAuthenticated, authStatus } = useAuthContext()
   const [isHovering, setIsHovering] = useState(false)
 
+  // No fetch-side guard is needed here: `useNotificationFilters` enables on
+  // `isAuthenticated`, which is true only for a SETTLED authenticated viewer,
+  // so neither an anonymous viewer nor the unsettled window issues a request.
   const { data: matchingFilter, hasFilter, isLoading: checkLoading } =
     useNotificationFilterCheck(entityType, entityId)
 
@@ -54,10 +57,16 @@ export function NotifyMeButton({
   const deleteFilter = useDeleteFilter()
 
   const isMutating = quickCreate.isPending || deleteFilter.isPending
+  const isUnsettled = authStatus === 'pending'
 
   const handleClick = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
+
+    // Unreachable while every unsettled branch renders disabled (React
+    // suppresses onClick on a disabled control); kept because the redirect
+    // below cannot distinguish "no session" from "profile in flight".
+    if (isUnsettled) return
 
     if (!isAuthenticated) {
       router.push(`/auth?returnTo=${encodeURIComponent(pathname)}`)
@@ -75,8 +84,15 @@ export function NotifyMeButton({
 
   // Bracket variant — dense header linkbox. handleClick already handles the
   // unauthenticated → /auth redirect, so a single BracketLink covers all states.
+  //
+  // Cells:
+  //   pending                    disabled (BracketLink adds pointer-events-none,
+  //                              so the pre-hydration click it replays cannot
+  //                              land while the viewer is unidentified)
+  //   authenticated + checking   disabled
+  //   anonymous                  enabled, click routes to /auth
   if (variant === 'bracket') {
-    if (isAuthenticated && checkLoading) {
+    if (isUnsettled || (isAuthenticated && checkLoading)) {
       return <BracketLink label="Notify me" disabled />
     }
     return (
@@ -86,6 +102,24 @@ export function NotifyMeButton({
         onClick={handleClick}
         disabled={isMutating}
       />
+    )
+  }
+
+  // Unsettled: the anonymous branch below is a bare router push to /auth, so it
+  // must not ship actionable for a viewer who may turn out to be signed in.
+  if (isUnsettled) {
+    if (compact) {
+      return (
+        <Button variant="ghost" size="sm" disabled className="h-7 px-2 gap-1">
+          <Bell className="h-3.5 w-3.5" />
+        </Button>
+      )
+    }
+    return (
+      <Button variant="outline" size="sm" disabled className="gap-1.5">
+        <Bell className="h-4 w-4" />
+        <span>Notify me</span>
+      </Button>
     )
   }
 

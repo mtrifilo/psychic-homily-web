@@ -8,8 +8,11 @@ import {
   useCallback,
   ReactNode,
 } from 'react'
-import { useProfile, useLogout } from '@/features/auth'
-import type { UserTier } from '@/features/auth'
+// Concrete module paths, not the `@/features/auth` barrel. `useIsAuthenticated`
+// lives in that barrel and reads this context, so the barrel import would close
+// a cycle through it.
+import { useProfile, useLogout } from '@/features/auth/hooks/useAuth'
+import type { UserTier } from '@/features/auth/types'
 import type { NavMode } from '@/lib/nav-mode'
 import { AuthError, isDefinitiveUnauthenticated } from '@/lib/errors'
 

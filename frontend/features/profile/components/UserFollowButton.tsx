@@ -34,7 +34,7 @@ export function UserFollowButton({
 }: UserFollowButtonProps) {
   const router = useRouter()
   const pathname = usePathname()
-  const { isAuthenticated } = useAuthContext()
+  const { isAuthenticated, authStatus } = useAuthContext()
   const [isHovering, setIsHovering] = useState(false)
   // Shared auto-dismiss primitive rather than a hand-rolled timer, which must
   // not outlive unmount. See useAutoDismissBanner / useDismissTimer (PSY-1664).
@@ -44,15 +44,35 @@ export function UserFollowButton({
     clear: clearErrorAction,
   } = useAutoDismissBanner<'follow' | 'unfollow'>(ERROR_DISMISS_MS)
 
-  const { data, isLoading: statusLoading } = useUserFollowStatus(username)
+  // This control paints no follower count, and a settled-anonymous viewer's
+  // `is_following` is false by definition, so the whole response is discarded
+  // for them. The gate is `authStatus === 'anonymous'`, never `!isAuthenticated`
+  // or `!isLoading`: both read "anonymous" for a signed-in viewer whose profile
+  // has not landed, and acting on that misread skips the request that decides
+  // whether this reads Follow or Following.
+  const { data, isLoading: statusLoading } = useUserFollowStatus(
+    username,
+    authStatus !== 'anonymous'
+  )
   const follow = useUserFollow()
   const unfollow = useUserUnfollow()
 
   const isFollowing = data?.is_following ?? false
   const isMutating = follow.isPending || unfollow.isPending
-  const isDisabled = isMutating
+  // `authStatus === 'pending'` for the reason FollowButton carries it: this
+  // control ships ENABLED in server HTML and opts into pre-hydration click
+  // replay, and the handler routes on `!isAuthenticated`, which reads false
+  // both for a viewer with no session and for one whose profile has not
+  // arrived. A replayed click in that window sends a signed-in viewer to /auth.
+  const isDisabled = isMutating || authStatus === 'pending'
 
   const handleClick = () => {
+    // Unreachable while `isDisabled` includes 'pending' (React suppresses
+    // onClick on a disabled control); kept because the redirect below cannot
+    // distinguish "no session" from "profile in flight", and it sits ahead of
+    // the `isDisabled` bail, which runs after the redirect.
+    if (authStatus === 'pending') return
+
     if (!isAuthenticated) {
       const returnTo = `${pathname}${window.location.search}`
       router.push(`/auth?returnTo=${encodeURIComponent(returnTo)}`)
@@ -99,8 +119,11 @@ export function UserFollowButton({
         onMouseLeave={() => setIsHovering(false)}
         disabled={isDisabled}
         className={cn('gap-1.5', className)}
+        // `authStatus === 'anonymous'`, not `!isAuthenticated`: the sign-in
+        // wording is a claim about the viewer, and the unsettled window is not
+        // yet entitled to make it.
         aria-label={
-          !isAuthenticated
+          authStatus === 'anonymous'
             ? 'Sign in to follow'
             : showUnfollow
               ? 'Unfollow'

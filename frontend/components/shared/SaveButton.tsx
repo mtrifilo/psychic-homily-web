@@ -54,10 +54,18 @@ export function SaveButton({
   // flight the prop is 'pending', which suppresses the per-item request instead
   // of racing it.
   const { value: batched, shouldSelfFetch } = resolveBatchedSaveData(saveData)
+  // The save COUNT is public, so an anonymous viewer still fetches — this
+  // control paints the count it gets back.
+  //
+  // `authStatus !== 'pending'` is the write-side half of that: the cache key
+  // carries `isAuthenticated`, which is false during the unsettled window, and
+  // a request issued there carries the viewer's cookie. Without the guard a
+  // signed-in viewer's `is_saved` lands under the viewer-less key and is
+  // painted back to them once their session ends within the same SPA session.
   const { data: single } = useShowSaveCount(
     showId,
     isAuthenticated,
-    shouldSelfFetch,
+    shouldSelfFetch && authStatus !== 'pending',
     user?.id
   )
   const data = batched ?? single
@@ -113,11 +121,16 @@ export function SaveButton({
     }
   }
 
-  const label = !isAuthenticated
-    ? 'Sign in to save'
-    : isSaved
-      ? 'Remove from My List'
-      : 'Add to My List'
+  // `authStatus === 'anonymous'`, not `!isAuthenticated`: the sign-in wording
+  // is a claim about the viewer, and the unsettled window is not yet entitled
+  // to make it. The control is disabled there, so it announces the neutral
+  // add/remove name instead.
+  const label =
+    authStatus === 'anonymous'
+      ? 'Sign in to save'
+      : isSaved
+        ? 'Remove from My List'
+        : 'Add to My List'
 
   if (variant === 'bracket') {
     return (

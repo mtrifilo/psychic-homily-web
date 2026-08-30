@@ -12,7 +12,7 @@ import type { PublicProfileResponse } from '@/features/auth'
  * Optional auth — when authenticated, includes is_following.
  */
 export const useUserFollowStatus = (username: string, enabled = true) => {
-  const { isAuthenticated, user } = useAuthContext()
+  const { isAuthenticated, authStatus, user } = useAuthContext()
   const viewerId = isAuthenticated ? user?.id : undefined
   return useQuery({
     queryKey: queryKeys.follows.user(username, viewerId),
@@ -22,8 +22,18 @@ export const useUserFollowStatus = (username: string, enabled = true) => {
         { method: 'GET' }
       )
     },
+    // Invariant: the viewer-less key `[follows, user, username, null]` holds
+    // only anonymous data.
+    //
+    // `viewerId` is undefined whenever `isAuthenticated` is false, which
+    // includes the window before a signed-in viewer's profile lands. A fetch
+    // issued there carries their cookie, so the response is THEIR follow state
+    // under the viewer-less key. `authStatus !== 'pending'` keeps that write
+    // from happening, and it lives here rather than in the caller because the
+    // key is shared with the follow/unfollow mutations.
     enabled:
       enabled &&
+      authStatus !== 'pending' &&
       Boolean(username) &&
       (!isAuthenticated || viewerId !== undefined),
     staleTime: 2 * 60 * 1000,

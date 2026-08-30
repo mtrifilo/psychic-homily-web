@@ -35,42 +35,50 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/shows/1',
 }))
 
+type MockAuthStatus = 'pending' | 'authenticated' | 'anonymous'
 type MockUseAuthContextValue = {
   user: { id: number; email: string } | null
   isAuthenticated: boolean
+  authStatus: MockAuthStatus
   isLoading: boolean
   logout: () => void
 }
-const mockUseAuthContext = vi.fn<() => MockUseAuthContextValue>(() => ({
-  isAuthenticated: true,
-  user: { id: 42, email: 'test@test.com' },
-  isLoading: false,
+// Single source of truth for the mocked auth state, mirroring the real
+// AuthContext's invariant that `isAuthenticated` is DERIVED from `authStatus`.
+// Setting the two independently would let a test assert against a viewer that
+// cannot exist; driving both from one value still leaves 'pending' reachable,
+// which is the cell where a signed-in viewer reads isAuthenticated=false.
+const authState = (authStatus: MockAuthStatus): MockUseAuthContextValue => ({
+  authStatus,
+  isAuthenticated: authStatus === 'authenticated',
+  user:
+    authStatus === 'authenticated'
+      ? { id: 42, email: 'test@test.com' }
+      : null,
+  isLoading: authStatus === 'pending',
   logout: vi.fn(),
-}))
+})
+const mockUseAuthContext = vi.fn<() => MockUseAuthContextValue>(() =>
+  authState('authenticated')
+)
 
 vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => mockUseAuthContext(),
 }))
 
 function anonymous() {
-  mockUseAuthContext.mockReturnValue({
-    isAuthenticated: false,
-    user: null,
-    isLoading: false,
-    logout: vi.fn(),
-  })
+  mockUseAuthContext.mockReturnValue(authState('anonymous'))
+}
+
+function unsettled() {
+  mockUseAuthContext.mockReturnValue(authState('pending'))
 }
 
 describe('SaveButton', () => {
   beforeEach(() => {
     window.history.replaceState({}, '', '/')
     vi.clearAllMocks()
-    mockUseAuthContext.mockReturnValue({
-      isAuthenticated: true,
-      user: { id: 42, email: 'test@test.com' },
-      isLoading: false,
-      logout: vi.fn(),
-    })
+    mockUseAuthContext.mockReturnValue(authState('authenticated'))
     mockUseSaveShowToggle.mockReturnValue({
       isLoading: false,
       toggle: mockToggle,
@@ -344,5 +352,62 @@ describe('SaveButton', () => {
     render(<SaveButton showId={1} showLabel={false} />)
     expect(screen.queryByText('Save')).not.toBeInTheDocument()
     expect(screen.queryByText('Saved')).not.toBeInTheDocument()
+  })
+
+  // ── Unsettled auth
+  //
+  // This control ships ENABLED in server HTML and opts into pre-hydration click
+  // replay, and `handleClick` routes on `!isAuthenticated`, which reads false
+  // both for a viewer with no session and for one whose profile has not
+  // arrived. Cells:
+  //
+  //   authStatus     save-count request     render
+  //   pending        skipped                disabled
+  //   anonymous      issued (count public)  enabled, click -> /auth
+  //   authenticated  issued                 enabled, click -> toggle
+
+  it.each([['ghost'], ['bracket']] as const)(
+    'ships the %s variant disabled while auth is unsettled',
+    (variant) => {
+      unsettled()
+      render(<SaveButton showId={1} variant={variant} />)
+      expect(screen.getByRole('button')).toBeDisabled()
+    }
+  )
+
+  // No test covers `handleClick`'s own `authStatus === 'pending'` bail: it is
+  // unreachable while the control renders disabled. React reads `props.disabled`
+  // off the fiber before dispatching onClick, so stripping the DOM attribute
+  // does not reach it either, and `consumePendingReplay` refuses a disabled
+  // target as well. It is defence in depth against a future edit that drops the
+  // pending term from `isDisabled`, and no single-file mutation can fail on it.
+
+  it('does not claim the viewer is signed out while auth is unsettled', () => {
+    unsettled()
+    render(<SaveButton showId={1} />)
+    expect(
+      screen.queryByRole('button', { name: /sign in to save/i })
+    ).not.toBeInTheDocument()
+  })
+
+  // The cache key carries `isAuthenticated`, which is false during the
+  // unsettled window, and the request carries the viewer's cookie — so an
+  // unguarded fetch writes a signed-in viewer's `is_saved` under the
+  // viewer-less key.
+  it('does not ask for the save count while auth is unsettled', () => {
+    unsettled()
+    render(<SaveButton showId={1} />)
+    expect(mockUseShowSaveCount).toHaveBeenCalledWith(1, false, false, undefined)
+  })
+
+  it('asks for the public save count once auth settles anonymous', () => {
+    anonymous()
+    render(<SaveButton showId={1} />)
+    expect(mockUseShowSaveCount).toHaveBeenCalledWith(1, false, true, undefined)
+  })
+
+  it('asks for the save count for a signed-in viewer', () => {
+    render(<SaveButton showId={1} />)
+    expect(mockUseShowSaveCount).toHaveBeenCalledWith(1, true, true, 42)
   })
 })

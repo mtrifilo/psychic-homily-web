@@ -9,7 +9,10 @@ import { AuthError, AuthErrorCode } from '@/lib/errors'
 const mockUseProfile = vi.fn()
 const mockUseLogout = vi.fn()
 
-vi.mock('@/features/auth', () => ({
+// The concrete module AuthContext imports, not the `@/features/auth` barrel:
+// the barrel re-exports `useIsAuthenticated`, which reads this context, so
+// AuthContext imports past it.
+vi.mock('@/features/auth/hooks/useAuth', () => ({
   useProfile: () => mockUseProfile(),
   useLogout: () => mockUseLogout(),
 }))

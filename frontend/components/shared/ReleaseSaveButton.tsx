@@ -46,16 +46,24 @@ export function ReleaseSaveButton({
   actionLabel,
   actionAriaLabel,
 }: ReleaseSaveButtonProps) {
-  const { isAuthenticated, user } = useAuthContext()
+  const { isAuthenticated, authStatus, user } = useAuthContext()
   const router = useRouter()
   const pathname = usePathname()
   // While a batch owns this release the prop is 'pending', which suppresses the
   // per-item request rather than racing the batch that replaces it.
   const { value: batched, shouldSelfFetch } = resolveBatchedSaveData(saveData)
+  // The save COUNT is public, so an anonymous viewer still fetches — unlike the
+  // bracket FollowButton, this control paints the count it gets back.
+  //
+  // `authStatus !== 'pending'` is the write-side half of that: the cache key
+  // carries `isAuthenticated`, which is false during the unsettled window, and
+  // a request issued there carries the viewer's cookie. Without the guard a
+  // signed-in viewer's `is_saved` lands under the viewer-less key and is
+  // painted back to them once their session ends within the same SPA session.
   const { data: fetched, isLoading: statusLoading } = useReleaseSaveCount(
     releaseId,
     isAuthenticated,
-    shouldSelfFetch,
+    shouldSelfFetch && authStatus !== 'pending',
     user?.id
   )
   const data = batched ?? fetched
@@ -73,11 +81,23 @@ export function ReleaseSaveButton({
     show: showSaveError,
     clear: clearSaveError,
   } = useAutoDismissBanner<true>(ERROR_DISMISS_MS)
-  const isDisabled = disabled || statusLoading || isLoading
+  // `authStatus === 'pending'` for the reason FollowButton and SaveButton carry
+  // it: all three variants ship ENABLED in server HTML and opt into
+  // pre-hydration click replay, and the handler routes on `!isAuthenticated`,
+  // which reads false both for a viewer with no session and for one whose
+  // profile has not arrived. A replayed click in that window sends a signed-in
+  // viewer to /auth.
+  const isDisabled =
+    disabled || statusLoading || isLoading || authStatus === 'pending'
 
   const handleClick = async (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault()
     event.stopPropagation()
+    // Unreachable while `isDisabled` includes 'pending' (React suppresses
+    // onClick on a disabled control); kept because the redirect below cannot
+    // distinguish "no session" from "profile in flight", and it sits ahead of
+    // the `isDisabled` bail, which runs after the redirect.
+    if (authStatus === 'pending') return
     if (!isAuthenticated) {
       const returnTo = `${pathname}${window.location.search}`
       router.push(`/auth?returnTo=${encodeURIComponent(returnTo)}`)

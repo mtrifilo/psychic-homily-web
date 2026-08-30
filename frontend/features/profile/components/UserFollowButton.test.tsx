@@ -8,7 +8,12 @@ import type { UserFollowStatus } from '@/lib/types/follow'
 import type { PublicProfileResponse } from '@/features/auth'
 
 const mockPush = vi.fn()
-let mockIsAuthenticated = true
+// Single source of truth for the mocked auth state, mirroring the real
+// AuthContext's invariant that `isAuthenticated` is DERIVED from `authStatus`.
+// Driving both from one variable is what keeps these tests from asserting
+// against a viewer that cannot exist, while still letting a test reproduce
+// 'pending', where a signed-in viewer legitimately reads isAuthenticated=false.
+let mockAuthStatus: 'pending' | 'authenticated' | 'anonymous' = 'authenticated'
 let mockUserId: number | undefined = 42
 
 vi.mock('next/navigation', () => ({
@@ -18,8 +23,12 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => ({
-    isAuthenticated: mockIsAuthenticated,
-    user: mockIsAuthenticated ? { id: mockUserId, username: 'bob' } : null,
+    authStatus: mockAuthStatus,
+    isAuthenticated: mockAuthStatus === 'authenticated',
+    user:
+      mockAuthStatus === 'authenticated'
+        ? { id: mockUserId, username: 'bob' }
+        : null,
   }),
 }))
 
@@ -36,6 +45,13 @@ vi.mock('@/lib/api', async () => {
 })
 
 const useMockedHooks = vi.hoisted(() => ({ value: true }))
+// Records the last useUserFollowStatus invocation so tests can assert the
+// component's fetch-gating: this control paints no follower count, so a
+// SETTLED-anonymous viewer must not issue the request, while an unsettled one
+// must still ask for it (that request is what decides Follow vs Following).
+const statusCall = vi.hoisted(() => ({
+  last: undefined as undefined | { username: string; enabled: boolean },
+}))
 const mockFollowMutate = vi.fn()
 const mockUnfollowMutate = vi.fn()
 let mockStatusData: UserFollowStatus | undefined
@@ -49,10 +65,18 @@ vi.mock('@/lib/hooks/common/useUserFollow', async () => {
   >('@/lib/hooks/common/useUserFollow')
   return {
     ...actual,
-    useUserFollowStatus: (username: string, enabled = true) =>
-      useMockedHooks.value
-        ? { data: mockStatusData, isLoading: mockStatusLoading }
-        : actual.useUserFollowStatus(username, enabled),
+    useUserFollowStatus: (username: string, enabled = true) => {
+      statusCall.last = { username, enabled }
+      // `isLoading` is DERIVED, not stipulated: a disabled TanStack observer
+      // never reports loading, so stipulating it would let a test assert the
+      // mock's behavior instead of the component's.
+      return useMockedHooks.value
+        ? {
+            data: mockStatusData,
+            isLoading: enabled && mockStatusLoading,
+          }
+        : actual.useUserFollowStatus(username, enabled)
+    },
     useUserFollow: () =>
       useMockedHooks.value
         ? { mutate: mockFollowMutate, isPending: mockFollowPending }
@@ -71,7 +95,7 @@ describe('UserFollowButton', () => {
     window.history.replaceState({}, '', '/users/alice')
     vi.clearAllMocks()
     useMockedHooks.value = true
-    mockIsAuthenticated = true
+    mockAuthStatus = 'authenticated'
     mockUserId = 42
     mockStatusData = {
       username: 'alice',
@@ -127,7 +151,7 @@ describe('UserFollowButton', () => {
 
   it('redirects to /auth when logged out', async () => {
     const user = userEvent.setup()
-    mockIsAuthenticated = false
+    mockAuthStatus = 'anonymous'
     window.history.replaceState({}, '', '/users/alice?tab=bio')
 
     renderWithProviders(<UserFollowButton username="alice" />)
@@ -143,6 +167,65 @@ describe('UserFollowButton', () => {
     mockFollowPending = true
     renderWithProviders(<UserFollowButton username="alice" />)
     expect(screen.getByRole('button', { name: /^follow$/i })).toBeDisabled()
+  })
+
+  // ── Unsettled auth (PSY-1972)
+  //
+  // This control ships enabled in server HTML and opts into pre-hydration
+  // click replay, and its handler routes on `!isAuthenticated` — which reads
+  // false for a signed-in viewer whose profile has not landed. Cells:
+  //
+  //   authStatus     status request   render
+  //   pending        skipped          disabled, no sign-in claim
+  //   anonymous      skipped          enabled, "Sign in to follow" -> /auth
+  //   authenticated  issued           enabled, Follow / Following
+
+  it('ships disabled while auth is unsettled', () => {
+    mockAuthStatus = 'pending'
+    renderWithProviders(<UserFollowButton username="alice" />)
+    expect(screen.getByRole('button', { name: /^follow$/i })).toBeDisabled()
+  })
+
+  it('does not claim the viewer is signed out while auth is unsettled', () => {
+    mockAuthStatus = 'pending'
+    renderWithProviders(<UserFollowButton username="alice" />)
+    expect(
+      screen.queryByRole('button', { name: /sign in to follow/i })
+    ).not.toBeInTheDocument()
+  })
+
+  // No test covers `handleClick`'s own `authStatus === 'pending'` bail: it is
+  // unreachable while the control renders disabled. React reads `props.disabled`
+  // off the fiber before dispatching onClick, so stripping the DOM attribute
+  // does not reach it either, and `consumePendingReplay` refuses a disabled
+  // target as well. It is defence in depth against a future edit that drops the
+  // pending term from `isDisabled`, and no single-file mutation can fail on it.
+
+  it('still asks for follow status while auth is unsettled', () => {
+    mockAuthStatus = 'pending'
+    renderWithProviders(<UserFollowButton username="alice" />)
+    expect(statusCall.last?.enabled).toBe(true)
+  })
+
+  it('skips the follow-status request for a settled-anonymous viewer', () => {
+    mockAuthStatus = 'anonymous'
+    renderWithProviders(<UserFollowButton username="alice" />)
+    expect(statusCall.last?.enabled).toBe(false)
+  })
+
+  it('issues the follow-status request for a signed-in viewer', () => {
+    renderWithProviders(<UserFollowButton username="alice" />)
+    expect(statusCall.last?.enabled).toBe(true)
+  })
+
+  it('renders an actionable control for a settled-anonymous viewer', () => {
+    mockAuthStatus = 'anonymous'
+    mockStatusLoading = true
+    renderWithProviders(<UserFollowButton username="alice" />)
+    // The skipped request must not leave the control stuck in the loading
+    // spinner branch — the anonymous posture is enabled, click routes to /auth.
+    const button = screen.getByRole('button', { name: /sign in to follow/i })
+    expect(button).toBeEnabled()
   })
 
   it('shows inline error when follow mutate fails', async () => {

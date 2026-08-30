@@ -5,7 +5,6 @@ export {
   useProfile,
   useUpdateProfile,
   useRefreshToken,
-  useIsAuthenticated,
   useSendVerificationEmail,
   useConfirmVerification,
   useChangePassword,
@@ -28,6 +27,8 @@ export {
   useRevokeAPIToken,
   type APIToken,
 } from './useAuth'
+
+export { useIsAuthenticated } from './useIsAuthenticated'
 
 export {
   useCalendarTokenStatus,

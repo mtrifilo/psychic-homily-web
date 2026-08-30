@@ -5,7 +5,18 @@ import { ReleaseSaveButton } from './ReleaseSaveButton'
 
 const mockToggle = vi.fn()
 const mockPush = vi.fn()
-const mockUseAuthContext = vi.fn(() => ({ isAuthenticated: true }))
+type MockAuthStatus = 'pending' | 'authenticated' | 'anonymous'
+// Single source of truth for the mocked auth state, mirroring the real
+// AuthContext's invariant that `isAuthenticated` is DERIVED from `authStatus`.
+// Setting the two independently would let a test assert against a viewer that
+// cannot exist; driving both from one value still leaves 'pending' reachable,
+// which is the cell where a signed-in viewer reads isAuthenticated=false.
+const authState = (authStatus: MockAuthStatus) => ({
+  authStatus,
+  isAuthenticated: authStatus === 'authenticated',
+  user: authStatus === 'authenticated' ? { id: 42 } : null,
+})
+const mockUseAuthContext = vi.fn(() => authState('authenticated'))
 const mockUseReleaseSaveCount = vi.fn<
   (...args: unknown[]) => { data: undefined; isLoading: boolean }
 >(() => ({ data: undefined, isLoading: false }))
@@ -34,7 +45,7 @@ describe('ReleaseSaveButton', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     window.history.replaceState({}, '', '/releases/the-record')
-    mockUseAuthContext.mockReturnValue({ isAuthenticated: true })
+    mockUseAuthContext.mockReturnValue(authState('authenticated'))
     mockUseReleaseSaveCount.mockReturnValue({
       data: undefined,
       isLoading: false,
@@ -57,7 +68,7 @@ describe('ReleaseSaveButton', () => {
     )
 
     await user.click(screen.getByRole('button', { name: 'Save release' }))
-    expect(mockUseReleaseSaveToggle).toHaveBeenCalledWith(17, false, undefined)
+    expect(mockUseReleaseSaveToggle).toHaveBeenCalledWith(17, false, 42)
     expect(mockToggle).toHaveBeenCalledOnce()
   })
 
@@ -94,7 +105,7 @@ describe('ReleaseSaveButton', () => {
 
   it('sends anonymous users to auth with the current release as returnTo', async () => {
     const user = userEvent.setup()
-    mockUseAuthContext.mockReturnValue({ isAuthenticated: false })
+    mockUseAuthContext.mockReturnValue(authState('anonymous'))
     render(
       <ReleaseSaveButton
         releaseId={17}
@@ -112,7 +123,7 @@ describe('ReleaseSaveButton', () => {
   it('preserves active query state in the sign-in return path', async () => {
     const user = userEvent.setup()
     window.history.replaceState({}, '', '/releases/the-record?window=all_time')
-    mockUseAuthContext.mockReturnValue({ isAuthenticated: false })
+    mockUseAuthContext.mockReturnValue(authState('anonymous'))
     render(
       <ReleaseSaveButton
         releaseId={17}
@@ -124,6 +135,61 @@ describe('ReleaseSaveButton', () => {
     expect(mockPush).toHaveBeenCalledWith(
       '/auth?returnTo=%2Freleases%2Fthe-record%3Fwindow%3Dall_time'
     )
+  })
+
+  // ── Unsettled auth (PSY-1972)
+  //
+  // Every variant ships ENABLED in server HTML and opts into pre-hydration
+  // click replay, and `handleClick` routes on `!isAuthenticated`, which reads
+  // false both for a viewer with no session and for one whose profile has not
+  // arrived. Cells:
+  //
+  //   authStatus     save-count request   render
+  //   pending        skipped              disabled
+  //   anonymous      issued (count public) enabled, click -> /auth
+  //   authenticated  issued               enabled, click -> toggle
+
+  it.each([['bracket'], ['text'], ['button']] as const)(
+    'ships the %s variant disabled while auth is unsettled',
+    (variant) => {
+      mockUseAuthContext.mockReturnValue(authState('pending'))
+      render(
+        <ReleaseSaveButton
+          releaseId={17}
+          saveData={{ save_count: 4, is_saved: false }}
+          variant={variant}
+        />
+      )
+      expect(screen.getByRole('button')).toBeDisabled()
+    }
+  )
+
+  // No test covers `handleClick`'s own `authStatus === 'pending'` bail: it is
+  // unreachable while the control renders disabled. React reads `props.disabled`
+  // off the fiber before dispatching onClick, so stripping the DOM attribute
+  // does not reach it either, and `consumePendingReplay` refuses a disabled
+  // target as well. It is defence in depth against a future edit that drops the
+  // pending term from `isDisabled`, and no single-file mutation can fail on it.
+
+  // The cache key carries `isAuthenticated`, which is false during the
+  // unsettled window, and the request carries the viewer's cookie — so an
+  // unguarded fetch writes a signed-in viewer's `is_saved` under the
+  // viewer-less key.
+  it('does not ask for the save count while auth is unsettled', () => {
+    mockUseAuthContext.mockReturnValue(authState('pending'))
+    render(<ReleaseSaveButton releaseId={17} />)
+    expect(mockUseReleaseSaveCount).toHaveBeenCalledWith(17, false, false, undefined)
+  })
+
+  it('asks for the public save count once auth settles anonymous', () => {
+    mockUseAuthContext.mockReturnValue(authState('anonymous'))
+    render(<ReleaseSaveButton releaseId={17} />)
+    expect(mockUseReleaseSaveCount).toHaveBeenCalledWith(17, false, true, undefined)
+  })
+
+  it('asks for the save count for a signed-in viewer', () => {
+    render(<ReleaseSaveButton releaseId={17} />)
+    expect(mockUseReleaseSaveCount).toHaveBeenCalledWith(17, true, true, 42)
   })
 
   // The error auto-hide used to be an untracked `setTimeout`, so it still fired
