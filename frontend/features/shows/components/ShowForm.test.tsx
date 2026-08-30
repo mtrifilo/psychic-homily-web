@@ -1136,9 +1136,10 @@ describe('ShowForm: bill role selector', () => {
 
   // Documents a KNOWN LIMITATION rather than desired behavior: blanking the
   // field omits the key, and the backend reads an omitted key as "unchanged",
-  // so a recorded door price cannot be retracted through this form. If a
-  // tri-state clear signal is ever added, this test SHOULD fail and be
-  // rewritten to assert door_price: null.
+  // so a recorded door price cannot be retracted through this form.
+  //
+  // PSY-1961 is the fix. When its tri-state clear signal lands, this test
+  // SHOULD fail — rewrite it to assert door_price: null, do not delete it.
   it('cannot clear a recorded door price by blanking the field (known limitation)', async () => {
     mockShowUpdate.mutate.mockImplementation((_vars, opts) => {
       opts?.onSuccess?.({ id: 42 })

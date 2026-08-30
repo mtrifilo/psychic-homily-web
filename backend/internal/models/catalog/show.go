@@ -72,10 +72,10 @@ type Show struct {
 	// Three of those need the field added to their own contracts first
 	// (VenueShowResponse, ArtistShowResponse, SceneShowSummary).
 	//
-	// That is a KNOWN, DEFERRED gap, not an oversight. What is left is
-	// genuinely a design question — how a PAIR should read in a dense list —
-	// and it wants one answer applied everywhere, so do not solve it for a
-	// single surface in isolation.
+	// That is a KNOWN, DEFERRED gap TRACKED IN PSY-1962, not an oversight. What
+	// is left is genuinely a design question — how a PAIR should read in a
+	// dense list — and it wants one answer applied everywhere, so do not solve
+	// it for a single surface in isolation.
 	Price          *float64
 	DoorPrice      *float64 `gorm:"column:door_price"`
 	AgeRequirement *string

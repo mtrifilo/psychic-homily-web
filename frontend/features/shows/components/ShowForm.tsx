@@ -270,6 +270,11 @@ export function ShowForm({
       // rather than an edge case. Clearing needs an explicit tri-state signal
       // on UpdateShowRequest (null distinguished from omitted); until that
       // exists, blanking this field is silently a no-op.
+      //
+      // TRACKED IN PSY-1961, which also carries the open question of whether
+      // this should surface user-facing copy in the meantime. It compounds
+      // PSY-1960: a rollback can write a spurious door_price of 0 (rendered
+      // "DOOR Free"), and with no clear path that false claim is stuck.
       const doorPrice = parseCost(value.door_cost)
 
       if (isEditMode && initialData) {

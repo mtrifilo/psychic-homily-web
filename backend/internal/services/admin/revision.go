@@ -277,10 +277,14 @@ func (s *RevisionService) Rollback(revisionID uint, adminUserID uint) error {
 	// claim: the ticket line renders 0 as "Free". door_price makes the trigger
 	// routine rather than rare -- the column ships NULL on every existing row
 	// (PSY-1864), so the FIRST door-price edit on any show records old_value 0,
-	// and rolling that edit back publishes "DOOR Free". Deliberately not fixed
-	// here for the reason above: the fix is an optionalFloatValue mirroring
-	// optionalTimeValue, and it changes the shape of every historical *float64
-	// diff, which is its own ticket rather than a rider on a schema change.
+	// and rolling that edit back publishes "DOOR Free". Worse, NULL is then
+	// unreachable: no product surface can clear the column back (PSY-1961), so
+	// an undo creates a false price claim that cannot itself be undone.
+	//
+	// TRACKED IN PSY-1960, deliberately not fixed here: the fix is an
+	// optionalFloatValue mirroring optionalTimeValue, and it changes the shape
+	// of every historical *float64 diff -- its own change, not a rider on a
+	// schema ticket.
 	if err := NarrowNumericUpdates(updates); err != nil {
 		return err
 	}

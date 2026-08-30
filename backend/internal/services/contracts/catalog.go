@@ -529,15 +529,25 @@ const (
 // resolver, the show update handler, and the entity-request payload validator
 // (which keeps its own copy of the ceiling -- see maxRequestPrice).
 //
-// NOT enforced on the ADMIN-ONLY write paths, which map a price straight onto
-// the row: catalog.ConfirmShowImport (markdown frontmatter) and
-// admin.importShow (the JSON data-sync import). A price above the rail but under
-// the column's DECIMAL(10,2) width is stored and published there; one above the
-// column width fails at INSERT as a 500. That is a PRE-EXISTING gap that `price`
-// already had and `door_price` now inherits -- both paths are admin-gated, so it
-// is a trusted-operator footgun, not an escalation. Closing it means validating
-// at the service chokepoint (ShowService.CreateShow / showUpdatesToMap) rather
-// than adding a fourth copy of the check.
+// NOT enforced on three ADMIN-ONLY paths:
+//
+//   - catalog.ConfirmShowImport (markdown frontmatter) and admin.importShow
+//     (the JSON data-sync import) map a price straight onto the row. A value
+//     above the rail but under the column's DECIMAL(10,2) width is stored and
+//     published; one above the column width fails at INSERT -- as a 500 on the
+//     markdown path, as a counted per-row error on the data-sync report.
+//   - admin.RevisionService.Rollback writes whatever old_value the revision
+//     recorded, with no allowlist and no bounds check. That is deliberate (see
+//     the reasoning on Rollback: history can hold values that predate a bound,
+//     so refusing them would break undo for exactly the rows most likely to
+//     need it), and restore-only -- it cannot introduce a value the rails never
+//     saw, except one that arrived via the two import paths above.
+//
+// A PRE-EXISTING gap that `price` already had and `door_price` now inherits.
+// All three are admin-gated, so it is a trusted-operator footgun, not an
+// escalation. Closing the import half means validating at the service
+// chokepoint (ShowService.CreateShow / showUpdatesToMap) rather than adding a
+// fourth copy of the check.
 //
 // NOT registered in NumericEditFieldBounds: that registry is the pending-edit
 // (suggest/approve) pipeline's, its bounds are ints, and shows have no

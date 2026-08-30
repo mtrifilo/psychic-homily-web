@@ -422,7 +422,8 @@ type filterMatch struct {
 // When BOTH prices are known this stays the ADVANCE price, which is the
 // pre-existing behavior and is deliberately left alone. Whether a user's
 // ceiling should instead apply to the HIGHEST price they could pay is a real
-// product question, and a schema ticket is the wrong place to answer it.
+// product question, and a schema ticket is the wrong place to answer it — it
+// is recorded on PSY-1962 alongside the rest of the split-price read surfaces.
 func effectiveShowPriceCents(show *catalogm.Show) *int {
 	price := show.Price
 	if price == nil {
