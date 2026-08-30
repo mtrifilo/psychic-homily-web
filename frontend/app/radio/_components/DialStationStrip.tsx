@@ -106,6 +106,12 @@ export function DialStationStrip({ station }: DialStationStripProps) {
 
       {/* Actions column */}
       <div className="flex items-center gap-4 md:flex-col md:items-end md:gap-2">
+        {/* NOT gated or announced, unlike the channel-row bracket below: this
+            is a Button, a different idiom that does not route through
+            BracketLink. It reads the same operator-entered `website` column,
+            so it is the second consumer of a value only one of them checks.
+            Validating that column on write, which fixes both consumers at the
+            source, is tracked in PSY-1953. */}
         {detail?.website && (
           <Button asChild size="sm">
             <a href={detail.website} target="_blank" rel="noopener noreferrer">
@@ -357,18 +363,23 @@ function DialChannelRow({
             ` — ${nowPlaying.current_track.track_title}`}
         </span>
       )}
-      {channelDetail?.website && (
-        // Hand-rolled bracket link (not BracketLink) because the target is an
-        // external stream URL needing target="_blank"; text matches
-        // BracketLink's tight [label] idiom.
-        <a
+      {/* Scheme-gated (on a trimmed copy, as BracketLink does) before it
+          becomes an href: the column is operator-entered free text. A non-http
+          value is dropped rather than rendered as BracketLink's greyed
+          disabled bracket, which would read as a disabled feature instead of
+          bad data. Matches the station sidebar's policy. */}
+      {channelDetail?.website?.trim() &&
+        /^https?:\/\//i.test(channelDetail.website.trim()) && (
+        <BracketLink
+          label="listen"
           href={channelDetail.website}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="font-mono text-xs text-primary transition-colors hover:text-primary/80"
-        >
-          [listen]
-        </a>
+          external
+          className="font-mono text-xs text-primary hover:text-primary/80"
+          // Names the channel: this row repeats per channel and again per
+          // station, so a bare "listen" would announce identically down the
+          // whole dial with nothing to tell the streams apart.
+          ariaLabel={`Listen to ${channel.name}`}
+        />
       )}
     </li>
   )

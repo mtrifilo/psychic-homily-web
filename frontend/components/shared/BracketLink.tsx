@@ -5,6 +5,59 @@ import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 
+const NEW_TAB_SUFFIX = '(opens in a new tab)'
+
+/**
+ * A trailing new-tab parenthetical that a caller already wrote by hand.
+ *
+ * Deliberately NOT a bare substring test. Two independent constraints:
+ *
+ *  - It must anchor at the END. The name it inspects can carry operator-entered
+ *    text (a venue or station name), so a mid-string match would let stored
+ *    content suppress the announcement for the whole control. The anchor
+ *    NARROWS that window rather than closing it: a call site that interpolates
+ *    operator text last could still, in principle, produce a name ending in
+ *    this shape. Accepted because the alternative (no tolerance at all) trades
+ *    a far-fetched suppression for a routine stutter.
+ *  - It must tolerate phrasing variants. The one hand-written announcement this
+ *    codebase actually had read "(opens Google Maps in a new tab)", which a
+ *    literal check for the canonical string would miss, and "window" is the
+ *    other spelling people reach for.
+ */
+const HAND_WRITTEN_NEW_TAB = /\(opens[^)]*\bnew\s+(?:tab|window)\)$/i
+
+/**
+ * Appends the outbound announcement to an accessible name, idempotently.
+ *
+ * The idempotence is a safety net, not the contract: callers are told not to
+ * write this phrase (see `external`), because a hand-written copy is what
+ * drifted from the `target` it described in the first place. But the habit is
+ * the obvious thing to reach for, and a doubled announcement reads as a
+ * stutter to a screen reader while being invisible in a visual diff. Absorbing
+ * the duplicate keeps a bad habit from having a bad OUTCOME.
+ *
+ * Callers resolve the base name first (see `resolveAccessibleName`), so this
+ * never has to guess what an empty string meant.
+ */
+function withNewTabSuffix(name: string): string {
+  if (HAND_WRITTEN_NEW_TAB.test(name)) return name
+  return `${name} ${NEW_TAB_SUFFIX}`
+}
+
+/**
+ * The accessible name before any outbound suffix: an explicit `ariaLabel`,
+ * else the visible label. A blank/whitespace `ariaLabel` is treated as absent
+ * rather than honored — an empty accessible name is never what a caller
+ * building one by interpolation (`${room.name} website`) intended, and an
+ * unnamed control is worse than a redundant one.
+ */
+function resolveAccessibleName(
+  ariaLabel: string | undefined,
+  label: string
+): string {
+  return ariaLabel?.trim() || label
+}
+
 export interface BracketLinkProps
   extends Omit<
     React.ButtonHTMLAttributes<HTMLButtonElement>,
@@ -23,14 +76,37 @@ export interface BracketLinkProps
   active?: boolean
   /**
    * `href` points OUTSIDE the app: renders a plain anchor with
-   * `target="_blank" rel="noopener noreferrer"` instead of a Next `<Link>`.
-   * Callers put the outbound marker in the label themselves ("Directions ↗")
-   * so the glyph stays part of the announced name. Ignored without `href`.
+   * `target="_blank" rel="noopener noreferrer"` instead of a Next `<Link>`,
+   * and appends "(opens in a new tab)" to the accessible name.
+   *
+   * The visible outbound marker is the CALLER's choice, not this component's:
+   * prose-like brackets carry a "↗" ("Directions ↗", "site ↗"), while dense
+   * tabular ones deliberately do not ("mp3" in an archive column, "listen"
+   * down the dial), because a glyph per row is noise. Put it in `label` when
+   * you want it, so it stays visual and out of the announced name.
+   *
+   * The new-tab announcement is NOT optional and NOT the caller's: do not
+   * hand-write it into `ariaLabel`, or the claim and the `target` it describes
+   * can drift apart again. A caller string that already ends in such a note is
+   * used as-is rather than doubled.
+   *
+   * Only `http(s)` hrefs are honored — anything else renders the disabled
+   * fallback instead of a live anchor (see the scheme floor below). Marking a
+   * RELATIVE href `external` therefore yields a dead control, not a link.
+   *
+   * Ignored without `href`.
    */
   external?: boolean
   /** Visual variant. `danger` is red for destructive actions like [Remove] / [Delete] / [X]. */
   variant?: 'default' | 'danger'
-  /** ARIA label override (defaults to the visible label). */
+  /**
+   * ARIA label override (defaults to the visible label). Use it for CONTEXT the
+   * visible label leaves out — the room name behind a bare `[site ↗]` repeated
+   * down a list, the date behind a column of `[mp3]`. Without it, every row in
+   * such a list announces the same name.
+   *
+   * Never write the outbound announcement here; `external` appends it.
+   */
   ariaLabel?: string
 }
 
@@ -54,6 +130,12 @@ export interface BracketLinkProps
  *   <BracketLink label="Following" active onClick={handleUnfollow} />
  *   <BracketLink label="View history" href={`/artists/${slug}/history`} />
  *   <BracketLink label="X" variant="danger" onClick={handleRemove} title="Remove" />
+ *   <BracketLink label="site ↗" href={room.website} external ariaLabel={`${room.name} website`} />
+ *
+ * That last line is the whole outbound split: the optional glyph rides in
+ * `label` (visual only), the disambiguating context rides in `ariaLabel`, and
+ * "(opens in a new tab)" is appended by this component — callers never write
+ * it. Dense tabular call sites keep the context and skip the glyph.
  */
 export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
   function BracketLink(
@@ -97,8 +179,29 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
     // every caller's repair logic. An unsafe value renders the DISABLED
     // button fallback (same as href+disabled) — never an enabled dead
     // control, and never the raw href.
+    //
+    // Trimmed FIRST, and the trimmed value is what gets rendered. Stored URLs
+    // in this app are operator- and contributor-entered paste, and the write
+    // path validates a trimmed copy while persisting the raw string, so
+    // "  https://x" reaches here intact. A browser strips that whitespace when
+    // parsing an href, so an untrimmed test would reject a URL the platform
+    // treats as perfectly valid and hand the reader a dead grey bracket where
+    // a working link used to be.
+    //
+    // The presence test stays on the RAW href on purpose. Testing the trimmed
+    // copy would let a whitespace-only href ("   ") slip through as "no unsafe
+    // href here" while the render branch below still saw a truthy string,
+    // producing an enabled <a href=""> that reopens the current page in a new
+    // tab while announcing that it opens something else. Raw for "was anything
+    // supplied", trimmed for "is what was supplied usable".
+    // Resolved ONCE, above every render branch. The suffix is a rule about the
+    // name, so a branch added later inherits both halves instead of silently
+    // picking up the naming rule and dropping the announcement.
+    const accessibleName = resolveAccessibleName(ariaLabel, label)
+
+    const trimmedHref = href?.trim()
     const unsafeExternalHref =
-      external && !!href && !/^https?:\/\//i.test(href)
+      external && !!href && !/^https?:\/\//i.test(trimmedHref ?? '')
     const effectiveDisabled = disabled || unsafeExternalHref
 
     const classes = cn(
@@ -137,15 +240,29 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
       // cannot silently skip the external ones — both render as an <a> and
       // the omission would be invisible in review. Spread BEFORE the literal
       // target/rel so the bag can never override the hygiene attributes.
+      // The outbound announcement is COMPONENT-owned: one owner, no drift.
+      // Appending it HERE, next to the literal target="_blank" below, is what
+      // keeps the claim and the behavior it describes from being edited apart.
+      //
+      // Deliberately NOT applied to the disabled-button fallback further down:
+      // that branch opens nothing, so announcing a new tab would be the same
+      // class of lie this exists to prevent.
       const anchorProps = {
         onClick: onClick as React.MouseEventHandler | undefined,
         className: classes,
         title,
-        'aria-label': ariaLabel ?? label,
+        'aria-label': external
+          ? withNewTabSuffix(accessibleName)
+          : accessibleName,
       }
       if (external) {
         return (
-          <a {...anchorProps} href={href} target="_blank" rel="noopener noreferrer">
+          <a
+            {...anchorProps}
+            href={trimmedHref}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
             {content}
           </a>
         )
@@ -171,7 +288,7 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
         disabled={effectiveDisabled}
         className={classes}
         title={title}
-        aria-label={ariaLabel ?? label}
+        aria-label={accessibleName}
         aria-pressed={active || undefined}
         {...rest}
       >

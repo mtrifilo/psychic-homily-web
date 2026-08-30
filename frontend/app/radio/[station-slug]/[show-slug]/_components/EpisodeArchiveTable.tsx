@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react'
 import Link from 'next/link'
+import { BracketLink } from '@/components/shared/BracketLink'
 import { DenseTable } from '@/components/shared/DenseTable'
 import {
   AirDateCellContent,
@@ -117,15 +118,18 @@ export function EpisodeArchiveTable({
                     <span aria-hidden="true">●</span> live
                   </span>
                 ) : episode.archive_url ? (
-                  <a
+                  <BracketLink
+                    label="mp3"
                     href={episode.archive_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-primary hover:text-primary/80 transition-colors"
-                    aria-label={`Listen to the ${cellDate} archive`}
-                  >
-                    [ mp3 ]
-                  </a>
+                    external
+                    // text-xs beats BracketLink's text-sm base; the enclosing
+                    // <td> already supplies font-mono. Adopts the primitive's
+                    // tight [mp3], replacing the old padded [ mp3 ].
+                    className="text-xs text-primary hover:text-primary/80"
+                    // Dates the row, because every row's bracket reads "mp3";
+                    // the new-tab half is BracketLink's to append.
+                    ariaLabel={`Listen to the ${cellDate} archive`}
+                  />
                 ) : null}
               </td>
             </tr>

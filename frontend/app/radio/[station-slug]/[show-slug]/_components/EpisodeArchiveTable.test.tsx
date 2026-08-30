@@ -66,7 +66,9 @@ describe('EpisodeArchiveTable', () => {
     expect(screen.queryByText('Jun 8 2026')).not.toBeInTheDocument()
     // the [mp3] link announces the SAME viewer-local date the cell shows
     expect(
-      screen.getByRole('link', { name: 'Listen to the Jun 9 2026 archive' })
+      screen.getByRole('link', {
+        name: /^Listen to the Jun 9 2026 archive\b/,
+      })
     ).toBeInTheDocument()
     // the deep-link stays keyed on the station-dated air_date
     expect(screen.getByText('Jun 9 2026').closest('a')).toHaveAttribute(
@@ -126,16 +128,20 @@ describe('EpisodeArchiveTable', () => {
         episodes={[makeEpisode({ archive_url: 'https://example.com/ep.mp3' })]}
       />
     )
+    // Every row's bracket reads "mp3", so the date is what disambiguates them.
+    // Assert only that half; the bracket primitive's suite owns the suffix.
     const mp3 = screen.getByRole('link', {
-      name: 'Listen to the Jun 2 2026 archive',
+      name: /^Listen to the Jun 2 2026 archive\b/,
     })
     expect(mp3).toHaveAttribute('href', 'https://example.com/ep.mp3')
     expect(mp3).toHaveAttribute('target', '_blank')
+    expect(mp3).toHaveAttribute('rel', 'noopener noreferrer')
+    expect(mp3).toHaveTextContent('[mp3]')
   })
 
   it('omits the [mp3] link when there is no archive_url', () => {
     render(<EpisodeArchiveTable {...defaultProps} episodes={[makeEpisode()]} />)
-    expect(screen.queryByText('[ mp3 ]')).not.toBeInTheDocument()
+    expect(screen.queryByText('mp3')).not.toBeInTheDocument()
   })
 
   it('marks a currently-live episode (now inside its air window) as live, not [mp3]', () => {
@@ -153,7 +159,14 @@ describe('EpisodeArchiveTable', () => {
       />
     )
     expect(screen.getByText('live')).toBeInTheDocument()
-    expect(screen.queryByText('[ mp3 ]')).not.toBeInTheDocument()
+    // Matched on /archive/, NOT /mp3/: the bracket carries an ariaLabel
+    // ("Listen to the {date} archive"), which REPLACES the visible "mp3" in
+    // the accessible name. Both roles, because an unusable archive_url renders
+    // the disabled button fallback a link-only query would miss.
+    expect(screen.queryByRole('link', { name: /archive/i })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /archive/i })
+    ).not.toBeInTheDocument()
   })
 
   // PSY-1128 regression: an episode whose air window has ENDED is NOT live, even
@@ -198,7 +211,11 @@ describe('EpisodeArchiveTable', () => {
       />
     )
     expect(screen.getByText('upcoming')).toBeInTheDocument()
-    expect(screen.queryByText('[ mp3 ]')).not.toBeInTheDocument()
+    // /archive/, not /mp3/ — see the live-episode test above.
+    expect(screen.queryByRole('link', { name: /archive/i })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /archive/i })
+    ).not.toBeInTheDocument()
     expect(screen.queryByText('live')).not.toBeInTheDocument()
     // date + title render as plain text, not links to the not-yet-aired page
     expect(screen.queryByRole('link')).not.toBeInTheDocument()

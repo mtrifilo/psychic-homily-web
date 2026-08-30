@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { SectionHeader, StatsList } from '@/components/shared'
+import { BracketLink, SectionHeader, StatsList } from '@/components/shared'
 import type { StatsListItem } from '@/components/shared'
 import { useStationEpisodes } from '../hooks/useStationEpisodes'
 import { useStationTopArtists } from '../hooks/useStationTopArtists'
@@ -77,19 +77,55 @@ function StationInfoBox({ station }: { station: RadioStationDetail }) {
   }
   items.push({ label: 'On the graph since', value: formatMonthYear(station.created_at) })
 
-  const links: Array<{ label: string; href: string }> = []
-  if (station.donation_url) links.push({ label: 'donate', href: station.donation_url })
-  if (station.website) {
-    links.push({ label: `${hostLabel(station.website)} ↗`, href: station.website })
-  }
-  // social is free-form JSONB; elsewhere in the codebase social values are
-  // sometimes bare handles (SocialLinks builds hrefs from baseUrl + handle).
-  // Only absolute http(s) URLs are safe to render directly — skip the rest
-  // rather than emit broken relative links (or non-http schemes).
-  for (const [key, url] of Object.entries(station.social ?? {})) {
-    if (url && /^https?:\/\//i.test(url)) {
-      links.push({ label: `${key} ↗`, href: url })
+  // ONE policy for every URL in this box: keep only absolute http(s), drop the
+  // rest. These columns are operator-entered free text, and `social` is
+  // free-form JSONB whose values are sometimes bare handles (SocialLinks builds
+  // hrefs from baseUrl + handle). Dropping an unusable value is better than
+  // both alternatives: a broken/relative anchor, or a permanently greyed
+  // bracket (BracketLink's `external` floor renders one) that looks like a
+  // disabled feature rather than bad data.
+  //
+  // `ariaLabel` names the station on every entry: the labels here are hosts and
+  // network keys ("wfmu.org", "bluesky") that say nothing on their own, and the
+  // ↗ is a VISUAL marker that should not be read aloud as "north east arrow".
+  const links: Array<{ label: string; href: string; ariaLabel: string }> = []
+  // Trimmed before the scheme test, matching BracketLink: the write path
+  // persists raw operator input, so a pasted "  https://..." must not be
+  // mistaken for an unusable value and dropped.
+  //
+  // Named parameters, not positional: `label` and `ariaLabel` are both strings
+  // and both plausible in either slot, so a transposition would typecheck and
+  // render a bracket whose visible text and spoken name are swapped.
+  const addLink = (link: {
+    label: string
+    url: string | null | undefined
+    ariaLabel: string
+  }) => {
+    // `typeof` guard, not just a null check: `social` is free-form JSONB with
+    // no server-side schema, so its values are only string-typed by assertion.
+    // A stored number would make `.trim()` throw during render and take the
+    // whole sidebar to the error boundary, where the old code merely skipped
+    // the entry.
+    const href = typeof link.url === 'string' ? link.url.trim() : ''
+    if (href && /^https?:\/\//i.test(href)) {
+      links.push({ label: link.label, href, ariaLabel: link.ariaLabel })
     }
+  }
+
+  addLink({
+    label: 'donate',
+    url: station.donation_url,
+    ariaLabel: `Donate to ${station.name}`,
+  })
+  if (station.website) {
+    addLink({
+      label: `${hostLabel(station.website)} ↗`,
+      url: station.website,
+      ariaLabel: `${station.name} website`,
+    })
+  }
+  for (const [key, url] of Object.entries(station.social ?? {})) {
+    addLink({ label: `${key} ↗`, url, ariaLabel: `${station.name} on ${key}` })
   }
 
   return (
@@ -99,7 +135,12 @@ function StationInfoBox({ station }: { station: RadioStationDetail }) {
       {links.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
           {links.map(link => (
-            <ExternalBracketLink key={link.label} {...link} />
+            <BracketLink
+              key={link.label}
+              {...link}
+              external
+              className="font-mono text-xs"
+            />
           ))}
         </div>
       )}
@@ -126,26 +167,6 @@ function hostLabel(url: string): string {
   } catch {
     return 'website'
   }
-}
-
-/**
- * Bracketed external link in the BracketLink idiom. The shared BracketLink
- * renders next/link without target="_blank", so external sidebar links get
- * a local anchor variant instead.
- */
-function ExternalBracketLink({ label, href }: { label: string; href: string }) {
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="inline-flex items-baseline whitespace-nowrap font-mono text-xs text-muted-foreground hover:text-foreground transition-colors"
-    >
-      <span aria-hidden>[</span>
-      <span className="px-0.5">{label}</span>
-      <span aria-hidden>]</span>
-    </a>
-  )
 }
 
 // ---------------------------------------------------------------------------

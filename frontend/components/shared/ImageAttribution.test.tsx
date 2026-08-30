@@ -19,6 +19,22 @@ describe('ImageAttribution', () => {
     expect(link).toHaveAttribute('href', 'https://open.spotify.com/album/abc')
   })
 
+  // A provider linkback always leaves the app, so it must go through the
+  // `external` branch that owns BOTH the target/rel hygiene and the
+  // announcement. Announcing a new tab over a same-tab link is the drift this
+  // pins shut. The ↗ stays visual-only, hence the ariaLabel at the call site.
+  it('opens the provider linkback in a new tab, announced once, with rel hygiene', () => {
+    render(
+      <ImageAttribution source="spotify" sourceUrl="https://open.spotify.com/album/abc" kind="cover" />
+    )
+    // Anchored on this call site's own half of the name. The suffix wording
+    // belongs to BracketLink and is pinned in its suite, not re-owned here.
+    const link = screen.getByRole('link', { name: /^Spotify\b/ })
+    expect(link.getAttribute('aria-label')).not.toMatch(/↗/)
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+  })
+
   it('uses the required "Data provided by Discogs" phrasing', () => {
     render(<ImageAttribution source="discogs" sourceUrl="https://discogs.com/release/1" />)
     expect(screen.getByText(/data provided by/i)).toBeInTheDocument()

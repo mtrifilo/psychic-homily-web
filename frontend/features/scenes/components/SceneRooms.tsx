@@ -51,15 +51,15 @@ function RoomRow({
       )}
 
       {website && (
-        <a
+        <BracketLink
+          label="site ↗"
           href={website}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="font-mono text-xs text-muted-foreground transition-colors hover:text-foreground"
-          aria-label={`${room.name} website (opens in a new tab)`}
-        >
-          [site ↗]
-        </a>
+          external
+          className="font-mono text-xs"
+          // Every room in the list renders a bare [site ↗]; the room name is
+          // what tells them apart. The new-tab half is BracketLink's to append.
+          ariaLabel={`${room.name} website`}
+        />
       )}
 
       {showCount && (

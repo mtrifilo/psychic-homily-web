@@ -287,10 +287,15 @@ describe('DialStationStrip', () => {
     ).toHaveAttribute('href', '/radio/wfmu-drummer/honky-tonk')
     expect(screen.getByText(/w\/ Becky/)).toBeInTheDocument()
 
-    expect(screen.getByRole('link', { name: '[listen]' })).toHaveAttribute(
-      'href',
-      'https://wfmu.org/drummer'
-    )
+    // Named per channel: this row repeats down the dial, so a bare "listen"
+    // would announce identically for every stream. The bracket primitive's own
+    // suite owns the new-tab suffix, so match only the disambiguating half.
+    const listen = screen.getByRole('link', {
+      name: /^Listen to Give the Drummer Radio\b/,
+    })
+    expect(listen).toHaveAttribute('href', 'https://wfmu.org/drummer')
+    expect(listen).toHaveAttribute('target', '_blank')
+    expect(listen).toHaveAttribute('rel', 'noopener noreferrer')
   })
 
   it('renders an unmatched channel show name as plain text with its track', () => {

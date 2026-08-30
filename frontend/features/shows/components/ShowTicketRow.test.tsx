@@ -190,10 +190,15 @@ describe('ShowTicketRow', () => {
       <ShowTicketRow lifecycle="upcoming" show={makeShow({ ticket_url: 'https://tix.example/1' })} />
     )
 
-    const buy = screen.getByRole('link', { name: /Buy tickets/i })
+    const buy = screen.getByRole('link', { name: /^Buy tickets\b/i })
     expect(buy).toHaveAttribute('href', 'https://tix.example/1')
     expect(buy).toHaveAttribute('target', '_blank')
     expect(buy).toHaveAttribute('rel', 'noopener noreferrer')
+    // Anchored above so the ↗ cannot drift into the announced name, and the
+    // new-tab claim must be present exactly once.
+    expect(
+      buy.getAttribute('aria-label')?.match(/opens in a new tab/g)
+    ).toHaveLength(1)
   })
 
   // The backend stores ticket urls as typed; the repair is scheme-anchored

@@ -209,9 +209,16 @@ describe('ShowVenueModule', () => {
   it('links Directions to a Google Maps search in a new tab', () => {
     render(<ShowVenueModule show={makeShow()} />)
 
-    const directions = screen.getByRole('link', { name: /Directions/ })
+    // Names the venue AND the destination app: the component-owned suffix says
+    // a new tab opens, but only the call site can say where it lands.
+    const directions = screen.getByRole('link', {
+      name: /^Directions to Salt Shed on Google Maps\b/,
+    })
     expect(directions).toHaveAttribute('target', '_blank')
     expect(directions).toHaveAttribute('rel', 'noopener noreferrer')
+    expect(
+      directions.getAttribute('aria-label')?.match(/opens in a new tab/g)
+    ).toHaveLength(1)
     expect(directions.getAttribute('href')).toBe(
       `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
         'Salt Shed, 1357 N Elston Ave, Chicago, IL'
