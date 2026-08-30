@@ -136,12 +136,12 @@ import (
 //     discovery.resolveHeadlinerName, which unlike its slug-writing sibling
 //     DOES honor set_type). They keep the
 //     `(set_type = 'headliner' OR position = 0)` disjunction, which is NOT
-//     equivalent to this rule and is not meant to be. They do not classify a
-//     bill; they ask whether a write would collide, and being BROADER than this
-//     predicate is the point. The error directions stay asymmetric with a
-//     chart's (a false positive blocks a legitimate save; a false negative
-//     admits a duplicate). checkDuplicateHeadlinerConflicts carries the
-//     rationale and the reason not to align them.
+//     equivalent to this rule and is deliberately broader: they ask whether a
+//     write would collide, not which row tops a bill. The error directions stay
+//     asymmetric with a chart's (a false positive blocks a legitimate save; a
+//     false negative admits a duplicate). The rationale, and the reason
+//     aligning them to this predicate is a defect rather than a cleanup, lives
+//     on checkDuplicateHeadlinerConflicts.
 
 // headlineSlotUnknownValues is the SQL literal list of set_type values that
 // mean "slot unknown". A row holding one of these states nothing, so a bill

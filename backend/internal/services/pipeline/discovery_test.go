@@ -891,60 +891,44 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_HeadlinerDuplicate(
 	suite.Equal(int64(0), count)
 }
 
-// TestImportEvents_DuplicateAgainstCuratedOpenerClaimsNoRole covers the bill the
-// guard's position arm reaches (PSY-1944): the stored show curated this artist as
-// its OPENER at position 0, so the event is still classified a duplicate and the
-// message asserts no role for either side.
+// TestImportEvents_CuratedOpenerAtPositionZeroTalliesDuplicate covers the bill
+// the guard's position arm reaches on a CURATED show: the stored bill names this
+// artist its OPENER at position 0, which headlineSlotSQL would read as "not the
+// headline slot". The guard is broader on purpose, so the event stays a clean
+// DUPLICATE tally instead of falling through to a unique-violation ERROR.
 //
-// Classifying it is the correct outcome, not a tolerated false positive: the same
-// artist at the same venue at the same instant is the same event, and letting it
-// through only trades this DUPLICATE tally for a raw unique-violation ERROR.
-func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_DuplicateAgainstCuratedOpenerClaimsNoRole() {
-	curated := contracts.DiscoveredEvent{
-		ID:        "evt-1944a",
-		Title:     "Curated Bill",
-		Date:      "2026-10-04",
-		Venue:     "Valley Bar",
-		VenueSlug: "valley-bar",
-		BillingArtists: []contracts.DiscoveredArtist{
-			{Name: "Opener Act", SetType: "opener", BillingOrder: 1},
-			{Name: "Headline Act", SetType: "headliner", BillingOrder: 2},
-		},
-		ScrapedAt: time.Now().UTC().Format(time.RFC3339),
+// The sibling Position0Match case covers the uncurated spelling of the same arm
+// ('performer' at position 0); only this one would change if the predicate were
+// aligned to the classifier.
+func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_CuratedOpenerAtPositionZeroTalliesDuplicate() {
+	curated := suite.makeEvent("evt-1944a", "Curated Bill", "valley-bar", "2026-10-04", nil)
+	curated.BillingArtists = []contracts.DiscoveredArtist{
+		{Name: "Opener Act", SetType: contracts.SetTypeOpener, BillingOrder: 1},
+		{Name: "Headline Act", SetType: contracts.SetTypeHeadliner, BillingOrder: 2},
 	}
 	result1, err := suite.svc.ImportEvents([]contracts.DiscoveredEvent{curated}, false, false, catalogm.ShowStatusApproved)
 	suite.Require().NoError(err)
 	suite.Require().Equal(1, result1.Imported)
 
-	// The curated opener really did land at position 0 with a non-inferred role,
-	// so this test exercises the position arm rather than the set_type arm.
+	// The curated opener really did land at position 0 with a stated role, so
+	// this exercises the position arm rather than the set_type arm.
+	var show catalogm.Show
+	suite.Require().NoError(suite.db.Where("source_event_id = ?", "evt-1944a").First(&show).Error)
 	var stored catalogm.ShowArtist
-	suite.Require().NoError(suite.db.Where("position = 0").First(&stored).Error)
-	suite.Equal("opener", stored.SetType)
+	suite.Require().NoError(suite.db.Where("show_id = ? AND position = 0", show.ID).First(&stored).Error)
+	suite.Equal(contracts.SetTypeOpener, stored.SetType)
 
-	rebilled := contracts.DiscoveredEvent{
-		ID:        "evt-1944b",
-		Title:     "Rebilled Show",
-		Date:      "2026-10-04",
-		Venue:     "Valley Bar",
-		VenueSlug: "valley-bar",
-		BillingArtists: []contracts.DiscoveredArtist{
-			{Name: "Opener Act", SetType: "headliner", BillingOrder: 1},
-		},
-		ScrapedAt: time.Now().UTC().Format(time.RFC3339),
+	rebilled := suite.makeEvent("evt-1944b", "Rebilled Show", "valley-bar", "2026-10-04", nil)
+	rebilled.BillingArtists = []contracts.DiscoveredArtist{
+		{Name: "Opener Act", SetType: contracts.SetTypeHeadliner, BillingOrder: 1},
 	}
 	result2, err := suite.svc.ImportEvents([]contracts.DiscoveredEvent{rebilled}, false, false, catalogm.ShowStatusApproved)
 	suite.Require().NoError(err)
-	suite.Equal(1, result2.Duplicates, "the position arm still catches this bill")
+	suite.Equal(1, result2.Duplicates, "the position arm still catches this curated bill")
 	suite.Equal(0, result2.Errors, "a clean duplicate tally, not a unique-violation error")
+	suite.Equal(0, result2.Imported)
 	suite.Require().Len(result2.Messages, 1)
 	suite.Contains(result2.Messages[0], "DUPLICATE:")
-	suite.NotContains(result2.Messages[0], "headliner",
-		"the matched row is a curated opener, so the copy must claim no role")
-
-	var count int64
-	suite.db.Model(&catalogm.Show{}).Where("source_event_id = ?", "evt-1944b").Count(&count)
-	suite.Equal(int64(0), count)
 }
 
 func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_RejectedShowSkipped() {

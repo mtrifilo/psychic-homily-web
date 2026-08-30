@@ -2257,17 +2257,15 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_NoHeadliner_SameFir
 }
 
 // TestCreateShow_DuplicateErrorClaimsNoRoleForTheMatchedArtist pins the guard's
-// copy on the case that used to misdescribe it (PSY-1944). The existing bill is
-// CURATED and the artist being probed is stored as its OPENER at position 0, so
-// the row the guard reaches through its position arm is not a headliner and the
-// message must not call it one.
+// copy on the bill that used to make it lie. The existing bill is CURATED and
+// the probed artist is stored as its OPENER at position 0, so the row the guard
+// reaches through its position arm is not a headliner and the message must not
+// call it one.
 //
-// The guard still fires here on purpose: the write is refused regardless, by
-// shows_artist_venue_eventdate_uniq. Aligning the predicate to headlineSlotSQL
-// would only swap this message for a raw driver string. See the guard docblock.
+// The guard still fires here on purpose; see checkDuplicateHeadlinerConflicts.
 func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_DuplicateErrorClaimsNoRoleForTheMatchedArtist() {
 	user := suite.createTestUser()
-	eventDate := time.Date(2027, 3, 3, 20, 0, 0, 0, time.UTC)
+	eventDate := suite.uniqueEventDate()
 	venue := []contracts.CreateShowVenue{{Name: "Role Claim Venue", City: "Phoenix", State: "AZ"}}
 
 	_, err := suite.showService.CreateShow(&contracts.CreateShowRequest{
@@ -2277,8 +2275,8 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_DuplicateErrorClaim
 		State:     "AZ",
 		Venues:    venue,
 		Artists: []contracts.CreateShowArtist{
-			{Name: "Role Claim Opener", SetType: strPtr("opener")},
-			{Name: "Role Claim Headliner", SetType: strPtr("headliner")},
+			{Name: "Role Claim Opener", SetType: strPtr(contracts.SetTypeOpener)},
+			{Name: "Role Claim Headliner", SetType: strPtr(contracts.SetTypeHeadliner)},
 		},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
@@ -2291,18 +2289,16 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_DuplicateErrorClaim
 		City:              "Phoenix",
 		State:             "AZ",
 		Venues:            venue,
-		Artists:           []contracts.CreateShowArtist{{Name: "Role Claim Opener", SetType: strPtr("headliner")}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Role Claim Opener", SetType: strPtr(contracts.SetTypeHeadliner)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	})
 
 	suite.Require().Error(err)
 	suite.Contains(err.Error(), "'Role Claim Opener' is already performing",
-		"the message names the artist without asserting a role")
+		"the guard produced this, not the index, and it names the artist without a role")
 	suite.NotContains(err.Error(), "headliner",
 		"the matched row is a curated opener, so the copy must claim no role")
-	suite.NotContains(strings.ToLower(err.Error()), "duplicate key",
-		"the guard, not the index, is what produced this error")
 }
 
 // =============================================================================

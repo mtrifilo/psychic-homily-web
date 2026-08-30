@@ -188,15 +188,14 @@ func (s *DiscoveryService) ImportFromJSON(filepath string, dryRun bool) (*contra
 // The dedup key is the FULL event_date timestamp (PSY-559) — matinee and evening sets at
 // the same venue are distinct shows, not duplicates.
 //
-// The stored row matches on curated 'headliner' OR position 0. That disjunction is
-// deliberately BROADER than catalog's headlineSlotSQL classifier, for the reasons
-// documented on catalog.checkDuplicateHeadlinerConflicts; do not align it.
+// The stored row matches on curated 'headliner' OR position 0, deliberately broader
+// than catalog's headlineSlotSQL; catalog.checkDuplicateHeadlinerConflicts carries the
+// rationale and the reason not to align it.
 //
-// Classifier, not gate: a hit routes the event to the "duplicate" tally and skips it.
-// A miss falls through to the import, where shows_artist_venue_eventdate_uniq refuses
-// the same collision as a raw error. So narrowing this predicate does not admit
-// duplicates on single-venue shows, it converts clean DUPLICATE counts into ERROR
-// counts (measured on PSY-1944).
+// Local consequence: a hit tallies the event as DUPLICATE and skips it, while a miss
+// falls through to the import, where shows_artist_venue_eventdate_uniq refuses the same
+// collision as a raw error. Narrowing this predicate converts clean DUPLICATE tallies
+// into ERRORs.
 func (s *DiscoveryService) checkHeadlinerDuplicate(headlinerName, venueName string, eventDate time.Time) *catalogm.Show {
 	var existingShow catalogm.Show
 	err := s.db.
@@ -309,7 +308,7 @@ func (s *DiscoveryService) importEvent(event *contracts.DiscoveredEvent, dryRun 
 
 	// Check for duplicate: this event's headliner is already on a bill at the
 	// same venue on the same exact date. The stored row it matches need not be
-	// a headliner, so the message below claims no role for either side.
+	// a headliner.
 	// Determine the headliner name from billing data (preferred) or artist list.
 	headlinerName := s.resolveHeadlinerName(event)
 	if headlinerName != "" {
