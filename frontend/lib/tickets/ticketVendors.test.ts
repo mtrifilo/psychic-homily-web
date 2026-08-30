@@ -11,6 +11,33 @@ import type { AffiliatePartnerIds } from './ticketVendors'
 const NO_PARTNERS: AffiliatePartnerIds = {}
 const IMPACT: AffiliatePartnerIds = { impact: '1234567' }
 
+// Every test that sets the variable is freed from restoring it, so no test can
+// leak a configured partner ID into the pass-through cases that must not see one.
+afterEach(() => {
+  delete process.env.NEXT_PUBLIC_IMPACT_PARTNER_ID
+})
+
+/**
+ * Values that must survive UNTOUCHED whatever is configured: no vendor, no
+ * affiliate program, or nothing the builder could rewrite without inventing a
+ * scheme. Asserted under both partner-ID states, so "config changes nothing
+ * here" is a claim the suite makes rather than two lists that can drift.
+ */
+const NEVER_TAGGABLE = [
+  'https://dice.fm/event/abc',
+  'https://tix.some-venue.example/e/1',
+  'https://ticketweb.com.evil.test/e/2',
+  'ticketweb.com/event/2',
+  '//ticketweb.com/event/2',
+  '/relative/path',
+  'not a url',
+  '',
+]
+
+function expectPassthrough(url: string, partnerIds: AffiliatePartnerIds) {
+  expect(ticketLink(url, partnerIds)).toEqual({ href: url, sponsored: false })
+}
+
 describe('resolveTicketVendor', () => {
   it.each([
     ['https://dice.fm/event/abc', 'DICE'],
@@ -42,10 +69,6 @@ describe('resolveTicketVendor', () => {
 })
 
 describe('affiliatePartnerIds', () => {
-  afterEach(() => {
-    delete process.env.NEXT_PUBLIC_IMPACT_PARTNER_ID
-  })
-
   it('is empty when the environment carries no partner ID', () => {
     delete process.env.NEXT_PUBLIC_IMPACT_PARTNER_ID
     expect(affiliatePartnerIds()).toEqual({})
@@ -67,26 +90,22 @@ describe('ticketLink with no partner IDs configured', () => {
   // turning affiliate links on has to be a config flip, so today's rendered
   // href is exactly the stored string.
   it.each([
+    ...NEVER_TAGGABLE,
+    // The configured vendors, which an ID would tag — the whole point.
     'https://www.ticketweb.com/event/2',
     'https://www.ticketmaster.com/event/1',
-    'https://dice.fm/event/abc',
+    // Shapes URL normalization would silently rewrite if the builder ever
+    // round-tripped through `new URL()` on this branch.
     'https://www.ticketweb.com/event/2?utm_source=venue#tickets',
     'https://www.ticketweb.com',
-    'https://tix.some-venue.example/e/1',
-    'ticketweb.com/event/2',
-    '/relative/path',
-    '//ticketweb.com/event/2',
-    'not a url',
-    '',
     '   https://www.ticketweb.com/event/2   ',
   ])('passes %s through byte-identically', url => {
-    expect(ticketLink(url, NO_PARTNERS)).toEqual({ href: url, sponsored: false })
+    expectPassthrough(url, NO_PARTNERS)
   })
 
   it('leaves the whole table untagged', () => {
     for (const domain of Object.keys(TICKET_VENDORS_BY_DOMAIN)) {
-      const url = `https://${domain}/event/1`
-      expect(ticketLink(url, NO_PARTNERS)).toEqual({ href: url, sponsored: false })
+      expectPassthrough(`https://${domain}/event/1`, NO_PARTNERS)
     }
   })
 })
@@ -139,28 +158,18 @@ describe('ticketLink with an Impact partner ID configured', () => {
     expect(ticketLink(url, IMPACT)).toEqual({ href: url, sponsored: false })
   })
 
-  it.each([
-    ['a vendor with no affiliate config', 'https://dice.fm/event/abc'],
-    ['an unknown vendor', 'https://tix.some-venue.example/e/1'],
-    ['a lookalike host', 'https://ticketweb.com.evil.test/e/2'],
-    ['a scheme-less value it would have to invent a scheme for', 'ticketweb.com/e/2'],
-    ['a protocol-relative value', '//www.ticketweb.com/e/2'],
-    ['a relative path', '/e/2'],
-    ['junk', 'not a url'],
-    ['an empty string', ''],
-  ])('passes %s through untagged', (_label, url) => {
-    expect(ticketLink(url, IMPACT)).toEqual({ href: url, sponsored: false })
+  // The same list the no-config suite walks: an unknown vendor, a lookalike
+  // host, and anything the builder would have to invent a scheme for stay
+  // untouched whether or not a partner ID exists.
+  it.each(NEVER_TAGGABLE)('passes %s through untagged', url => {
+    expectPassthrough(url, IMPACT)
   })
 
   it('reads the ambient environment when no partner IDs are passed', () => {
     process.env.NEXT_PUBLIC_IMPACT_PARTNER_ID = '1234567'
-    try {
-      expect(ticketLink('https://www.ticketweb.com/e/2').href).toBe(
-        'https://www.ticketweb.com/e/2?irmp=1234567'
-      )
-    } finally {
-      delete process.env.NEXT_PUBLIC_IMPACT_PARTNER_ID
-    }
+    expect(ticketLink('https://www.ticketweb.com/e/2').href).toBe(
+      'https://www.ticketweb.com/e/2?irmp=1234567'
+    )
   })
 
   it('never throws on any input', () => {

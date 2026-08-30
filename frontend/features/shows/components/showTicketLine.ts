@@ -44,6 +44,12 @@ function storedTicketUrl(show: ShowResponse): string | null {
  * anchored (`https?://`), not a bare prefix check — `startsWith('http')`
  * passed "httpfoo.example" through as a RELATIVE href that navigated under
  * /shows/. Protocol-relative values keep their own scheme resolution.
+ *
+ * NOT the href a buy affordance renders. This answers "may this be offered,
+ * and at what URL", which is the question the `ON SALE` words ask; the URL it
+ * returns is deliberately UNTAGGED, so a second Buy Tickets surface built on
+ * it would ship an unmonetized, unqualified link and no test would notice.
+ * Render {@link buyTicketsLink}.
  */
 export function ticketHref(
   show: ShowResponse,

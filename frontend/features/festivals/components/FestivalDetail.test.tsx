@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 import type { FestivalDetail as FestivalDetailType } from '../types'
@@ -169,6 +169,12 @@ function makeFestival(
 }
 
 describe('FestivalDetail', () => {
+  // No test may leak a configured partner ID into the cases that assert an
+  // untagged, unqualified ticket link.
+  afterEach(() => {
+    delete process.env.NEXT_PUBLIC_IMPACT_PARTNER_ID
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     mockUseIsAuthenticated.mockReturnValue({
@@ -256,23 +262,19 @@ describe('FestivalDetail', () => {
   // vendor table as the show page's, and a partner ID reaches both surfaces.
   it('tags a configured vendor and qualifies the paid link', () => {
     process.env.NEXT_PUBLIC_IMPACT_PARTNER_ID = '1234567'
-    try {
-      mockUseFestival.mockReturnValue({
-        data: makeFestival({ ticket_url: 'https://www.ticketweb.com/event/2' }),
-        isLoading: false,
-        error: null,
-      })
-      renderWithProviders(<FestivalDetail idOrSlug="form-arcosanti" />)
+    mockUseFestival.mockReturnValue({
+      data: makeFestival({ ticket_url: 'https://www.ticketweb.com/event/2' }),
+      isLoading: false,
+      error: null,
+    })
+    renderWithProviders(<FestivalDetail idOrSlug="form-arcosanti" />)
 
-      const buy = screen.getByRole('link', { name: 'Buy Tickets' })
-      expect(buy).toHaveAttribute(
-        'href',
-        'https://www.ticketweb.com/event/2?irmp=1234567'
-      )
-      expect(buy).toHaveAttribute('rel', 'noopener noreferrer sponsored')
-    } finally {
-      delete process.env.NEXT_PUBLIC_IMPACT_PARTNER_ID
-    }
+    const buy = screen.getByRole('link', { name: 'Buy Tickets' })
+    expect(buy).toHaveAttribute(
+      'href',
+      'https://www.ticketweb.com/event/2?irmp=1234567'
+    )
+    expect(buy).toHaveAttribute('rel', 'noopener noreferrer sponsored')
   })
 
   it('renders the venues section with venue links', () => {

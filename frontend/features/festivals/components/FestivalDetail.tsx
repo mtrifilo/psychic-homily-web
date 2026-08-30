@@ -30,6 +30,7 @@ import {
 } from '@/components/shared'
 import { EntityCollections } from '@/features/collections'
 import { ticketLink as buildTicketLink } from '@/lib/tickets/ticketVendors'
+import { outboundRel } from '@/lib/outboundRel'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { FestivalLineup } from './FestivalLineup'
@@ -368,11 +369,7 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
                 <a
                   href={ticketLink.href}
                   target="_blank"
-                  rel={
-                    ticketLink.sponsored
-                      ? 'noopener noreferrer sponsored'
-                      : 'noopener noreferrer'
-                  }
+                  rel={outboundRel(ticketLink.sponsored)}
                   className="flex items-center gap-2 text-primary hover:text-primary/80 transition-colors text-sm"
                 >
                   <Ticket className="h-4 w-4" />

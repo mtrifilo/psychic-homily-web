@@ -59,20 +59,36 @@ export interface TicketVendor {
  * Moshtix, which are absent here because naming a vendor is a structured-data
  * claim of its own and none of those has been added as a seller yet.
  */
+/**
+ * Impact's direct-domain tracking: the partner ID rides on the advertiser's
+ * own host as `?irmp=`. Shared by every vendor inside one Impact program, so
+ * correcting the parameter is one edit rather than one per vendor.
+ */
+const IMPACT_DIRECT_TRACKING: VendorAffiliate = {
+  network: 'impact',
+  param: 'irmp',
+}
+
 export const TICKET_VENDORS_BY_DOMAIN: Record<string, TicketVendor> = {
   'dice.fm': { name: 'DICE' },
   'eventbrite.com': { name: 'Eventbrite' },
   'ticketmaster.com': {
     name: 'Ticketmaster',
-    affiliate: { network: 'impact', param: 'irmp' },
+    affiliate: IMPACT_DIRECT_TRACKING,
   },
-  'ticketweb.com': {
-    name: 'TicketWeb',
-    affiliate: { network: 'impact', param: 'irmp' },
-  },
+  'ticketweb.com': { name: 'TicketWeb', affiliate: IMPACT_DIRECT_TRACKING },
   'seetickets.us': { name: 'See Tickets' },
   'etix.com': { name: 'Etix' },
 }
+
+/**
+ * An absolute http(s) URL: one spelling of the test, shared by the two
+ * questions that ask it. Classification tolerates a scheme-less value by
+ * supplying a scheme; rewriting refuses one, because it would have to invent
+ * the scheme it then renders. Those answers differ, so the RULE they differ
+ * about must not.
+ */
+const ABSOLUTE_HTTP_URL = /^https?:\/\//i
 
 /**
  * The vendor behind a stored ticket URL, or `undefined` when it is not one we
@@ -93,7 +109,7 @@ export function resolveTicketVendor(
   const raw = rawUrl?.trim()
   if (!raw) return undefined
 
-  const candidate = /^https?:\/\//i.test(raw)
+  const candidate = ABSOLUTE_HTTP_URL.test(raw)
     ? raw
     : `https://${raw.replace(/^\/+/, '')}`
   let host: string
@@ -169,7 +185,7 @@ export function ticketLink(
   if (!partnerId) return passthrough
 
   const trimmed = rawUrl.trim()
-  if (!/^https?:\/\//i.test(trimmed)) return passthrough
+  if (!ABSOLUTE_HTTP_URL.test(trimmed)) return passthrough
 
   let url: URL
   try {

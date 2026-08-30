@@ -3,6 +3,7 @@
 import { forwardRef, useCallback } from 'react'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
+import { outboundRel } from '@/lib/outboundRel'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 
 const NEW_TAB_SUFFIX = '(opens in a new tab)'
@@ -286,12 +287,7 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
             {...anchorProps}
             href={trimmedHref}
             target="_blank"
-            // The hygiene tokens are unconditional; `sponsored` is additive, so
-            // qualifying a paid link can never cost the link its opener/referrer
-            // protection.
-            rel={
-              sponsored ? 'noopener noreferrer sponsored' : 'noopener noreferrer'
-            }
+            rel={outboundRel(sponsored)}
           >
             {content}
           </a>
