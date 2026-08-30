@@ -4,11 +4,27 @@ import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import type { ShowResponse } from '../types'
 
 /**
+ * The stored ticket URL with surrounding whitespace removed, or null when
+ * the field holds nothing meaningful.
+ *
+ * Whitespace-only is a REAL stored value, not a paranoid guard: the backend
+ * persists `ticket_url` untrimmed and the ingest paths skip the handler's
+ * validator. Both readers in this module go through here so that fact, and
+ * any future addition to it, has one home.
+ *
+ * Deliberately says nothing about whether the URL may be OFFERED — that is
+ * {@link ticketHref}'s job, and it is a different question with different
+ * inputs.
+ */
+function rawTicketUrl(show: ShowResponse): string | null {
+  return show.ticket_url?.trim() || null
+}
+
+/**
  * The stored ticket URL repaired into something navigable, or null when
  * there is nothing to buy or no honest way to offer it.
  *
- * Null for a blank/whitespace value (storable: the backend persists the
- * field untrimmed and ingest paths skip the handler validator), for a
+ * Null for a blank/whitespace value (see {@link rawTicketUrl}), for a
  * cancelled or sold-out show, and for a PAST show — offering a purchase
  * under a stripe that says CANCELLED or PAST SHOW is the page arguing with
  * itself, and the click is the half that costs a reader money. This is THE
@@ -26,7 +42,7 @@ export function ticketHref(
   show: ShowResponse,
   lifecycle: ShowLifecycleState
 ): string | null {
-  const raw = show.ticket_url?.trim()
+  const raw = rawTicketUrl(show)
   if (!raw || show.is_cancelled || show.is_sold_out || lifecycle === 'past') {
     return null
   }
@@ -83,7 +99,7 @@ function ticketPriceSegments(show: ShowResponse): string[] {
  * Whether this show ever had a purchase for the past register to close out.
  *
  * True when a ticket link was stored, or when entry cost money. The link is
- * read from the RAW field rather than through {@link ticketHref}, which
+ * read through {@link rawTicketUrl} rather than {@link ticketHref}, which
  * refuses past shows by design — the question here is what the show sold
  * while it was upcoming, not what a reader can buy now.
  *
@@ -97,7 +113,9 @@ function ticketPriceSegments(show: ShowResponse): string[] {
  * page has no reason to use.
  */
 function wasPurchasable(show: ShowResponse): boolean {
-  if (show.ticket_url?.trim()) return true
+  if (rawTicketUrl(show)) return true
+  // The same zero that {@link ticketPrice} renders as "Free"; keep the two
+  // in step if a price ever becomes something other than a plain number.
   return (show.price ?? 0) > 0 || (show.door_price ?? 0) > 0
 }
 

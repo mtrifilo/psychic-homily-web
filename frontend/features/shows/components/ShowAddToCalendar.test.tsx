@@ -129,10 +129,37 @@ describe('ShowAddToCalendar', () => {
 
   async function openPopover(show = makeShow()) {
     const user = userEvent.setup()
-    render(<ShowAddToCalendar show={show} />)
+    render(<ShowAddToCalendar show={show} lifecycle="upcoming" />)
     await user.click(screen.getByRole('button', { name: /add to calendar/i }))
     return user
   }
+
+  // The refusal is OWNED here rather than in the caller's markup (PSY-1690),
+  // so it is asserted here: an appointment for a date that has passed argues
+  // with the page's PAST SHOW stripe from inside the reader's calendar app.
+  it('renders nothing at all for a past show', () => {
+    const { container } = render(
+      <ShowAddToCalendar show={makeShow()} lifecycle="past" />
+    )
+
+    expect(
+      screen.queryByRole('button', { name: /add to calendar/i })
+    ).not.toBeInTheDocument()
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  // Only PAST withdraws it. A show tonight is still a show a reader can plan
+  // to be at, and the lifecycle's `today` spans the whole venue-local day.
+  it.each(['upcoming', 'today'] as const)(
+    'still offers the calendar on a %s show',
+    lifecycle => {
+      render(<ShowAddToCalendar show={makeShow()} lifecycle={lifecycle} />)
+
+      expect(
+        screen.getByRole('button', { name: /add to calendar/i })
+      ).toBeInTheDocument()
+    }
+  )
 
   it('renders both calendar actions with correct targets once opened', async () => {
     await openPopover()

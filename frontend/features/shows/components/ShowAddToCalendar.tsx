@@ -15,6 +15,7 @@ import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 import { SITE_URL } from '@/lib/seo/siteMetadata'
 import { API_BASE_URL } from '@/lib/api-base'
 import { useSaveShow, useShowSaveCount } from '../hooks/useSavedShows'
+import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import type { ShowResponse } from '../types'
 
 /**
@@ -99,6 +100,14 @@ export function showGoogleCalendarUrl(show: ShowResponse): string {
 
 interface ShowAddToCalendarProps {
   show: ShowResponse
+  /**
+   * Server-computed, threaded from the route through ShowTicketRow. A PROP
+   * and never derived here: this is a client component, so a local
+   * `getShowLifecycleState` would read the READER's clock at the venue's day
+   * boundary and could disagree with the stripe rendered above it in the
+   * same HTML.
+   */
+  lifecycle: ShowLifecycleState
 }
 
 /**
@@ -107,6 +116,18 @@ interface ShowAddToCalendarProps {
  * locked show mock's placement — see ShowTicketRow's docstring for the
  * supersession of the earlier meta-row convention).
  *
+ * Renders NOTHING for a past show (PSY-1690). The refusal lives here rather
+ * than in the caller's JSX for the reason `ticketHref` gives for owning the
+ * matching Buy Tickets refusal: a rule kept in one caller's markup is a rule
+ * the second mount will not inherit, and this one is not obvious enough to
+ * rediscover — an appointment booked for a date that has passed argues with
+ * the page's `PAST SHOW` stripe from inside the reader's calendar app, where
+ * the page can no longer correct it.
+ *
+ * The backend's `.ics` endpoint stays open to a direct request. That is the
+ * right split: this component withdraws an AFFORDANCE, and a URL somebody
+ * already holds is not one the page is offering.
+ *
  * Signed-in viewers get an "Also save this show" checkbox, CHECKED by
  * default: the calendar action then also saves the show. The save is
  * fire-and-forget — a failed save must never block the calendar action,
@@ -114,7 +135,10 @@ interface ShowAddToCalendarProps {
  * actions plus a quiet sign-in hint; the calendar path is deliberately never
  * auth-gated.
  */
-export function ShowAddToCalendar({ show }: ShowAddToCalendarProps) {
+export function ShowAddToCalendar({
+  show,
+  lifecycle,
+}: ShowAddToCalendarProps) {
   const [open, setOpen] = useState(false)
   const [alsoSave, setAlsoSave] = useState(true)
   const { isAuthenticated, user } = useAuthContext()
@@ -141,6 +165,11 @@ export function ShowAddToCalendar({ show }: ShowAddToCalendarProps) {
       saveShow.mutate(show.id)
     }
   }
+
+  // After the hooks, never before: an early return above them would make the
+  // hook order depend on `lifecycle`, and the prop can change identity when
+  // the route re-renders.
+  if (lifecycle === 'past') return null
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

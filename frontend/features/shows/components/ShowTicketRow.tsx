@@ -40,12 +40,11 @@ interface ShowTicketRowProps {
  *
  * PAST REGISTER (PSY-1690): the two forward-looking verbs drop out and the
  * rest of the row stays, which is the locked PAST mock's row minus the
- * attendance affordance it draws in their place. `[Buy Tickets ↗]` goes via
- * {@link ticketHref}; `[Add to calendar]` goes explicitly, because putting a
- * show that already happened on a reader's calendar is an appointment for a
- * date in the past, and the .ics it exports would then argue with the
- * `PAST SHOW` stripe from inside their calendar app where the page cannot
- * correct it.
+ * attendance affordance it draws in their place. Neither refusal is written
+ * here — `[Buy Tickets ↗]` goes via {@link ticketHref} and
+ * `[Add to calendar]` via `ShowAddToCalendar`'s own past guard, each beside
+ * the thing it governs, so this row states the mock's ORDER and nothing
+ * about when a verb applies. Both carry their reason at the definition.
  *
  * `[Save]` deliberately STAYS. A past show is an archive document, demoted
  * rather than deleted, and saving one is how a reader keeps it: /shows/saved
@@ -87,7 +86,7 @@ export function ShowTicketRow({ show, lifecycle }: ShowTicketRowProps) {
             ariaLabel="Buy tickets"
           />
         )}
-        {lifecycle !== 'past' && <ShowAddToCalendar show={show} />}
+        <ShowAddToCalendar show={show} lifecycle={lifecycle} />
         {/* SaveButton's bracket branch defaults to the header-linkbox
             treatment (11px mono); this row is 14px sans, and one odd bracket
             mid-row reads as a mistake. The count display the Button variant
