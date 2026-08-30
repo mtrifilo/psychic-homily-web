@@ -1794,6 +1794,88 @@ type ShowAlsoTonightResponse struct {
 	Shows []SceneShowSummary `json:"shows"`
 }
 
+// ShowTimelineEntry is one date on a show timeline: enough to print a line,
+// link to it, and read its date on the right clock.
+//
+// Timezone is RESOLVED, never the venue's raw nullable column: each entry names
+// a different room, so a client that received nulls would have to redo
+// utils.EventLocation's timezone-then-state-then-default fallback per entry to
+// avoid printing a Berlin date on a Phoenix clock. The server already holds
+// both inputs, so it answers once.
+//
+// VenueSlug and ShowSlug can be empty: both columns are nullable, and a client
+// must render an empty slug as unlinked text rather than building `/venues/`,
+// which resolves to the INDEX rather than a 404.
+type ShowTimelineEntry struct {
+	ShowID    uint      `json:"show_id"`
+	ShowSlug  string    `json:"show_slug"`
+	EventDate time.Time `json:"event_date"`
+	VenueName string    `json:"venue_name"`
+	VenueSlug string    `json:"venue_slug"`
+	City      string    `json:"city"`
+	State     string    `json:"state"`
+	Timezone  string    `json:"timezone"`
+}
+
+// ShowTimelineRecurrence is what this show's place already knows about one act
+// on its bill.
+//
+// Carries the artist ID and no name: the caller is rendering a bill it already
+// holds, and a second copy of the name here would be a second source of truth
+// for it.
+//
+// Only acts with something to say are emitted, so an entry always has
+// IsHometown set, a LastPlayed, or both.
+type ShowTimelineRecurrence struct {
+	ArtistID uint `json:"artist_id"`
+	// IsHometown says the act is BASED in this show's place — the metro when
+	// both sides have one, else a city+state match. Independent of LastPlayed:
+	// a hometown band with no prior date on record sets this and nothing else.
+	IsHometown bool `json:"is_hometown"`
+	// LastPlayed is the act's most recent APPROVED date in this show's place,
+	// strictly before this show. Nil when the archive holds none.
+	LastPlayed *ShowTimelineEntry `json:"last_played"`
+}
+
+// ShowTimelineResponse is the archive read behind the show page's two corridor
+// modules: the headliner's adjacent dates, and per-act recurrence in this
+// show's place.
+//
+// Its own endpoint rather than fields on ShowResponse because only the show
+// PAGE renders it, while the detail read also feeds share-card generation,
+// JSON-LD and the edit form — surfaces that would pay for the archive queries
+// and discard them.
+//
+// "Adjacent" and "before" are decided on the ABSOLUTE INSTANT, never on a
+// venue-local calendar day: the neighbours are at other rooms in other zones,
+// so a per-row local date gives no consistent ordering. Local dates are a
+// DISPLAY concern, which is what each entry's Timezone is for.
+//
+// Every field is independently absent-able. A show whose headliner tours alone
+// has no Previous or Next; a show in a place nobody on the bill has played has
+// an empty Recurrence. Each module hides itself on its own evidence.
+type ShowTimelineResponse struct {
+	// HeadlinerArtistID is the act Previous/Next were resolved for, so a client
+	// can label the spine and confirm it matches the name it printed as the
+	// lead. Zero when the show has no bill.
+	//
+	// Resolved by the DISPLAY rule (curated 'headliner' first, then lowest bill
+	// position), which is what ShowResponse.Artists carries and therefore what
+	// the page's own heading resolves from. Deliberately NOT headlineSlotSQL:
+	// that predicate CLASSIFIES rows for charts and returns no headline slot at
+	// all on a partially curated bill, which would blank the spine on a show
+	// whose heading names a headliner perfectly well.
+	HeadlinerArtistID uint `json:"headliner_artist_id"`
+	// Previous and Next are the headliner's own adjacent approved dates.
+	// Non-approved shows are invisible here exactly as they are everywhere
+	// else, so a pending date never leaks into a public spine.
+	Previous *ShowTimelineEntry `json:"previous"`
+	Next     *ShowTimelineEntry `json:"next"`
+	// Recurrence is in BILL ORDER, headliner first, and always non-nil so a
+	// bill with no history marshals as `[]` rather than `null`.
+	Recurrence []ShowTimelineRecurrence `json:"recurrence"`
+}
+
 // SceneNewArtist is one "new band based here" row for the weekly scene digest
 // (PSY-1342) — just enough to render a linked name, plus the moment the band
 // entered the catalog.
@@ -2258,6 +2340,13 @@ type ShowServiceInterface interface {
 	CreateShow(req *CreateShowRequest) (*ShowResponse, error)
 	GetShow(showID uint) (*ShowResponse, error)
 	GetShowBySlug(slug string) (*ShowResponse, error)
+	// GetShowTimeline returns the headliner's adjacent dates and each billed
+	// act's recurrence in this show's place, addressed by numeric id or slug.
+	//
+	// Approved-only, and an unknown show and a non-approved one return the same
+	// not-found error: this is an anonymous surface enumerable by show id, so a
+	// distinguishable answer would confirm that an unpublished id is real.
+	GetShowTimeline(idOrSlug string) (*ShowTimelineResponse, error)
 	// GetShows returns ONE PAGE of approved shows matching filters, plus the
 	// filter-aware total across all pages.
 	//

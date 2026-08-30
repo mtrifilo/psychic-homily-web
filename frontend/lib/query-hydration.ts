@@ -49,6 +49,40 @@ export interface QuerySeed {
 }
 
 /**
+ * `prefetchEntity` for a page whose first paint depends on more than one key.
+ *
+ * `getQueryClient()` mints a fresh client per call on the server, so two
+ * `prefetchEntity` calls produce two dehydrated states and a
+ * `<HydrationBoundary>` can only take one. Seeding all of a page's keys through
+ * one client is the whole difference.
+ *
+ * Freshness semantics are `prefetchEntity`'s, NOT `seedFirstScreen`'s: each
+ * entry is stamped "fetched now" and the client honours its `staleTime` instead
+ * of revalidating on the first commit. Use this for a detail page whose seeds
+ * are all anonymous request-time reads of the same entity; use
+ * `seedFirstScreen` when a seed comes out of Next's Data Cache, or when a
+ * signed-in viewer's payload would differ from the anonymous one the server
+ * fetched.
+ *
+ * A seed whose `data` is null is SKIPPED rather than cached, so a module whose
+ * server fetch failed falls through to its own client fetch and its own error
+ * state instead of hydrating into a permanent empty.
+ */
+export async function prefetchEntities(
+  seeds: readonly QuerySeed[],
+): Promise<DehydratedState> {
+  const queryClient = getQueryClient()
+  for (const seed of seeds) {
+    if (seed.data == null) continue
+    await queryClient.prefetchQuery({
+      queryKey: seed.queryKey,
+      queryFn: () => seed.data,
+    })
+  }
+  return dehydrate(queryClient)
+}
+
+/**
  * Seed several cache entries into ONE dehydrated state, each marked as
  * already stale.
  *

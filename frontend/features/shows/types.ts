@@ -172,6 +172,65 @@ export interface ShowResponse {
   duplicate_of_show_id?: number
 }
 
+/**
+ * One dated row on a show timeline.
+ *
+ * DERIVED from the generated schema, so a field added on the server arrives
+ * here without a hand-edit.
+ *
+ * `timezone` is a RESOLVED IANA zone, never the venue's raw nullable column:
+ * every entry names a different room, so a caller must format each date in its
+ * OWN entry's zone rather than the subject show's. Passing this to
+ * `formatInTimezone` is the whole contract; `resolveShowTimezone`'s
+ * state-then-default fallback has already been applied server-side.
+ *
+ * `show_slug` and `venue_slug` can be empty strings. Both columns are nullable
+ * and the backend flattens null to "", and neither `/shows/` nor `/venues/` is
+ * a 404 -- both are the INDEX -- so an unguarded href would quietly navigate a
+ * reader off the page rather than failing visibly.
+ */
+export type ShowTimelineEntry = components['schemas']['ShowTimelineEntry']
+
+/**
+ * What this show's place already knows about one act on its bill.
+ *
+ * Carries no artist name: the caller is rendering a bill it already holds, and
+ * `artist_id` joins back to it. An act the backend had nothing to say about is
+ * absent from the list entirely, so every entry has `is_hometown`, a
+ * `last_played`, or both.
+ *
+ * `last_played` is re-declared nullable: Huma emits a Go pointer-to-struct as a
+ * plain `$ref` with no `nullable`, so the generated type claims a value that is
+ * absent for most acts.
+ */
+export type ShowTimelineRecurrence = Omit<
+  components['schemas']['ShowTimelineRecurrence'],
+  'last_played'
+> & {
+  last_played: ShowTimelineEntry | null
+}
+
+/**
+ * The archive read behind the show page's gig-timeline spine and its
+ * last-played line.
+ *
+ * `previous` / `next` are re-declared nullable for the same reason
+ * `last_played` is. They are independently absent: a tour's opening night has a
+ * `next` and no `previous`.
+ *
+ * `headliner_artist_id` is the act the spine was resolved for, and is 0 for a
+ * show with no bill. The backend resolves it by the same rule `splitBill` does,
+ * so it matches the name the page prints as the lead.
+ */
+export type ShowTimelineResponse = Omit<
+  components['schemas']['ShowTimelineResponse'],
+  'previous' | 'next' | 'recurrence'
+> & {
+  previous: ShowTimelineEntry | null
+  next: ShowTimelineEntry | null
+  recurrence: ShowTimelineRecurrence[]
+}
+
 // Orphaned artist returned when a show edit removes an artist's only association
 export interface OrphanedArtist {
   id: number

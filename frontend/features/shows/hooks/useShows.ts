@@ -13,7 +13,12 @@ import {
   showQueryKeys,
   SHOW_CITIES_FIRST_SCREEN_URL,
 } from '@/features/shows/api'
-import type { UpcomingShowsResponse, ShowResponse, ShowCitiesResponse } from '../types'
+import type {
+  UpcomingShowsResponse,
+  ShowResponse,
+  ShowCitiesResponse,
+  ShowTimelineResponse,
+} from '../types'
 import type { ShowAlsoTonightResponse } from '../showRails'
 import { buildCitiesParam } from '@/components/filters/cityParams'
 
@@ -142,6 +147,32 @@ export const useShowAlsoTonight = (
     },
     enabled: enabled && Boolean(showId),
     staleTime: 5 * 60 * 1000, // 5 minutes
+  })
+}
+
+/**
+ * Hook to fetch a show's gig timeline: the headliner's adjacent dates and each
+ * billed act's recurrence in this show's place.
+ *
+ * Takes the NUMERIC id, not the route's slug, because the query key is the
+ * numeric one -- see `showQueryKeys.timeline`. The show route seeds this key
+ * server-side from the same id, so the modules are in the first paint rather
+ * than shifting the page when they arrive.
+ *
+ * A long `staleTime`: this is archive data about dates that have already
+ * happened, so it goes stale only when somebody edits a neighbouring show.
+ */
+export const useShowTimeline = (showId: number | undefined) => {
+  return useQuery({
+    queryKey: showQueryKeys.timeline(showId ?? 0),
+    queryFn: async (): Promise<ShowTimelineResponse> => {
+      return apiRequest<ShowTimelineResponse>(
+        showEndpoints.TIMELINE(showId as number),
+        { method: 'GET' },
+      )
+    },
+    enabled: Boolean(showId),
+    staleTime: 60 * 60 * 1000, // 1 hour
   })
 }
 

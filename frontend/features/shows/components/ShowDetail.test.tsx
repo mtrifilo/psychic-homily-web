@@ -32,8 +32,15 @@ vi.mock('next/link', () => ({
 
 // Mock useShow hook
 const mockUseShow = vi.fn()
+// The corridor modules' archive read. Defaulted to "nothing yet" so every test
+// that is not about the timeline renders the header exactly as it did before
+// the modules existed; the timeline tests override it.
+const mockUseShowTimeline = vi.fn(() => ({ data: undefined }))
 vi.mock('../hooks/useShows', () => ({
   useShow: (...args: unknown[]) => mockUseShow(...args),
+  // Arguments deliberately dropped: nothing here asserts on them, and the
+  // stub's return is what the header renders from.
+  useShowTimeline: () => mockUseShowTimeline(),
 }))
 
 // Mock admin hooks

@@ -4,7 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useShow } from '../hooks/useShows'
+import { useShow, useShowTimeline } from '../hooks/useShows'
 import type { ApiError } from '@/lib/api'
 import { useSetShowSoldOut, useSetShowCancelled } from '@/lib/hooks/admin/useAdminShows'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -65,6 +65,17 @@ export function ShowDetail({ showId, lifecycle }: ShowDetailProps) {
     'quarter',
     { enabled: !!show?.id }
   )
+
+  // The corridor modules' archive read, owned here rather than inside
+  // ShowHeader so that component stays renderable without a query client. Its
+  // own query rather than a field on the show payload, so the two facts cost
+  // nothing on the surfaces that read a show without rendering this page
+  // (share cards, JSON-LD, the edit form).
+  //
+  // Keyed on the numeric id, which the show route seeds server-side, so on a
+  // cold load both modules are in the first paint instead of shifting the bill
+  // down when they arrive.
+  const timeline = useShowTimeline(show?.id)
 
   // Admin mutations for status flags
   const setSoldOutMutation = useSetShowSoldOut()
@@ -183,6 +194,7 @@ export function ShowDetail({ showId, lifecycle }: ShowDetailProps) {
           <ShowHeader
             show={show}
             lifecycle={lifecycle}
+            timeline={timeline.data}
             actions={
               // Gated HERE and only here (ShowActions carries no internal
               // guard): the cluster is admin/owner-only, and handing
