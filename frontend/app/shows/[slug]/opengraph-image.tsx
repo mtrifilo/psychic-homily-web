@@ -16,6 +16,8 @@ import {
   ogFallbackCard,
 } from '@/lib/og/response'
 import { isShowCardSettled } from '@/lib/og/settled'
+import { getShowLifecycleState } from '@/lib/utils/showTiming'
+import { saysSoldOut } from '@/features/shows/components/showSaleState'
 import { loadRemoteImage } from '@/lib/og/remoteImage'
 import {
   CONTENT_WIDTH,
@@ -372,7 +374,19 @@ function renderCard(
             >
               {showDate}
             </div>
-            {show.is_sold_out && (
+            {/* Through the show page's own rule, so the unfurl cannot make a
+                claim the page it links to has retracted. This card is cached
+                for a day once the show settles, with an equal
+                stale-while-revalidate window, so a stale SOLD OUT here
+                outlives the page's correction rather than trailing it. */}
+            {saysSoldOut(
+              show,
+              getShowLifecycleState({
+                eventDate: show.event_date,
+                state: venue?.state,
+                timezone: venue?.timezone,
+              })
+            ) && (
               <div
                 style={{
                   display: 'flex',

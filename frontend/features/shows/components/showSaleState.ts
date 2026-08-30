@@ -1,3 +1,4 @@
+import { showIsArchived } from '@/lib/utils/showTiming'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 
 /**
@@ -6,37 +7,49 @@ import type { ShowLifecycleState } from '@/lib/utils/showTiming'
  * Its own module, and a STRUCTURAL input type rather than `ShowResponse`, so
  * the rule can be imported by a surface that does not carry the full show
  * payload — the share-card route builds a narrow `ShowData` of its own, and
- * an edge route has a hard bundle ceiling that pulling a feature module's
- * import graph would eat into. It lives here rather than in `showTicketLine`
- * because the ticket line is only one of its callers; a header badge whose
- * rule is filed under the ticket line is a rule nobody greps for.
+ * it runs on the edge, where a feature module's import graph would be a real
+ * cost. This file has one `import type` and one tiny runtime import for that
+ * reason; keep it that way. It lives here rather than in `showTicketLine`
+ * because the ticket line is only one of its callers, and a header badge
+ * whose rule is filed under the ticket line is a rule nobody greps for.
  *
  * `SOLD OUT` asserts two things at once — that the event is happening, and
- * that tickets are gone — so both a cancellation and an elapsed show
- * withdraw it. Neither claim survives the show: a past sold-out show
- * printing the badge over `NO LONGER AVAILABLE` is one page arguing with
- * itself, and printing it under a `CANCELLED` stripe contradicts the one
- * fact a reader must not miss.
+ * that tickets are gone. A cancellation withdraws it outright. Being over
+ * withdraws it too, but only on the evidence {@link showIsArchived} accepts:
+ * an UNDATEABLE show is `past` to the lifecycle by a default that is not
+ * evidence of anything, and withholding a true badge on that basis would be
+ * its own quiet bug — the badge stands, exactly as it did before this rule
+ * existed.
  *
- * KNOWN SCOPE, so the next reader does not over-trust this. It governs the
- * show DETAIL page: the ticket line's segment and the header badge beside
- * the date. It does NOT yet govern two other surfaces that badge sold-out
- * shows, and both are deliberate for now rather than overlooked:
+ * KNOWN SCOPE — this is NOT the only place the badge is drawn, and the list
+ * below is what was audited when the rule was written, not a guarantee.
+ * `grep -rn "is_sold_out" frontend` before assuming otherwise. Governed
+ * today: the show page's ticket line, its header badge, and its
+ * `opengraph-image`. NOT governed, and each is a separate decision rather
+ * than an oversight:
  *
- * - `ShowBill`'s badge, rendered by the venue and artist PAST-SHOWS tables,
- *   which have a pinned test asserting the badge appears there. A listing
- *   row is a different claim from a detail page's status band, and changing
- *   it is a product call with its own test to rewrite.
- * - The show route's own `opengraph-image`, which still reads the flag raw.
- *   That one IS a straightforward inconsistency, not a considered split, and
- *   it is the more costly of the two because the card is cached long once
- *   the show has settled. Left out of the change that introduced this
- *   predicate to keep an edge-runtime route out of a page-behaviour diff;
- *   it is the obvious next caller.
+ * - `ShowStatusBadge` via `ShowCard` — the /shows list, the homepage list,
+ *   and the admin consoles.
+ * - The scene calendar / week / day views, which do render past days.
+ * - `ShowBill`, rendered by the venue and artist PAST-SHOWS tables, which
+ *   have pinned tests asserting the badge appears there.
+ *
+ * Those are all LISTING rows, and a row is a different claim from a detail
+ * page's status band; the pinned tests say the current behaviour is at least
+ * deliberate. Unifying them is a product call with tests to rewrite, not a
+ * refactor to slip into an unrelated change.
  */
 export function saysSoldOut(
-  show: { is_sold_out: boolean; is_cancelled: boolean },
+  show: {
+    is_sold_out: boolean
+    is_cancelled: boolean
+    event_date: string | null | undefined
+  },
   lifecycle: ShowLifecycleState
 ): boolean {
-  return show.is_sold_out && !show.is_cancelled && lifecycle !== 'past'
+  if (!show.is_sold_out || show.is_cancelled) return false
+  return !showIsArchived(
+    { eventDate: show.event_date, isCancelled: show.is_cancelled },
+    lifecycle
+  )
 }

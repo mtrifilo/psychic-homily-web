@@ -1,7 +1,7 @@
 import { showTimingInput } from '../utils'
 import { startTimeFactSegment } from './showStatusStripeCopy'
 import { saysSoldOut } from './showSaleState'
-import { hasReadableStartDate } from '@/lib/utils/showTiming'
+import { showIsArchived } from '@/lib/utils/showTiming'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import type { ShowResponse } from '../types'
 
@@ -141,44 +141,36 @@ function hasTicketCommerce(show: ShowResponse): boolean {
 }
 
 /**
- * Whether this line speaks in the PAST register at all.
+ * Whether this line speaks in the PAST register at all: {@link showIsArchived}
+ * applied to a `ShowResponse`.
  *
- * Three conditions, each guarding a different way of being wrong:
+ * A thin adapter and nothing more, deliberately. The rule itself (cancelled
+ * shows and undateable shows are not archives) is shared with the field-notes
+ * section in another feature, and an earlier revision of this change spelled
+ * it out here AND there — the two copies then disagreed about cancellation
+ * within one commit, which is how a cancelled past show came to be asked what
+ * it was like. Add conditions to the shared predicate, never to this wrapper.
  *
- * - `lifecycle === 'past'`, the venue-local day boundary the stripe uses, so
- *   the two cannot disagree about which day it is where the show happened.
- * - A READABLE DATE. `getShowLifecycleState` returns `past` for a show whose
- *   `event_date` cannot be parsed — a default inherited from a cache-window
- *   caller, where "past" only meant "cache it longer", and one its own
- *   docstring warns every word-rendering surface about. Without this test an
- *   undateable show would print `NO LONGER AVAILABLE` under a stripe that
- *   (correctly) renders nothing at all, announcing a closed door for a show
- *   the page cannot date. The stripe already declines; this line declines the
- *   same way, for the same reason.
- * - NOT CANCELLED. Cancellation outranks the past register exactly as it
- *   outranks the present-tense pair: the stripe's precedence puts CANCELLED
- *   first and never says PAST SHOW under it, so this line must not answer in
- *   the other state's words. `CANCELLED` is the whole statement, and it was
- *   already made at the top of the page.
- *
- * There is deliberately NO fourth condition on the venue timezone, and the
- * omission looks wrong at first glance, so here is why. `startTimeFactSegment`
- * two calls up REFUSES to print this show's start time on a guessed zone,
- * because a confidently wrong hour is worse than no hour. That rule does not
- * transfer: a guessed zone can be many hours out, which ruins an hour, but the
- * stripe still prints `PAST SHOW` for the same show on the same guess. Adding
- * the test here would make this line MORE conservative than the band it is
- * required to agree with — the page would say PAST SHOW at the top and decline
- * to close the ticket line beneath it. One boundary, one answer, even when the
- * boundary is imperfect; fixing the guess is the timezone backfill's job, not
- * this line's.
+ * There is deliberately NO condition on the venue timezone, and the omission
+ * looks wrong at first glance, so here is why. `startTimeFactSegment` two
+ * calls up REFUSES to print this show's start time on a guessed zone, because
+ * a confidently wrong hour is worse than no hour. That rule does not transfer:
+ * a guessed zone can be many hours out, which ruins an hour, but the stripe
+ * still prints `PAST SHOW` for the same show on the same guess. Adding the
+ * test would make this line MORE conservative than the band it is required to
+ * agree with — the page would say PAST SHOW at the top and decline to close
+ * the ticket line beneath it. One boundary, one answer, even when the boundary
+ * is imperfect; fixing the guess is the timezone backfill's job, not this
+ * line's.
  */
 function saysPastRegister(
   show: ShowResponse,
   lifecycle: ShowLifecycleState
 ): boolean {
-  if (show.is_cancelled || lifecycle !== 'past') return false
-  return hasReadableStartDate(show.event_date)
+  return showIsArchived(
+    { eventDate: show.event_date, isCancelled: show.is_cancelled },
+    lifecycle
+  )
 }
 
 /**

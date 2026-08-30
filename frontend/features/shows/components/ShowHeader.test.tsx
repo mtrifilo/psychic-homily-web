@@ -141,22 +141,38 @@ describe('ShowHeader SOLD OUT badge', () => {
 
     expect(screen.queryByText('SOLD OUT')).not.toBeInTheDocument()
   })
+
+  // The lifecycle calls an undateable show `past` on a default that is not
+  // evidence of anything. Withholding a TRUE badge on that basis would be its
+  // own quiet bug, and would regress what this header rendered before the
+  // rule existed.
+  it('keeps the badge when the date cannot be read', () => {
+    render(
+      <ShowHeader
+        lifecycle="past"
+        show={makeShow({ is_sold_out: true, event_date: 'not-a-date' })}
+      />
+    )
+
+    // Badge and ticket-line segment together, the same pair an upcoming
+    // sold-out show renders: both flow from the one predicate, so both stand
+    // or both go.
+    expect(screen.getAllByText('SOLD OUT')).toHaveLength(2)
+  })
 })
 
 describe('ShowHeader date register', () => {
-  // On an archive page the year is the fact that dates the document; on an
-  // upcoming one it is noise.
-  it('carries the year on a past show and omits it on an upcoming one', () => {
-    const { rerender } = render(
-      <ShowHeader lifecycle="past" show={makeShow()} />
-    )
-    const pastDate = screen.getByText(/Aug \d+/).textContent ?? ''
-    expect(pastDate).toMatch(/20\d\d/)
+  // One register in every state. The year-on-past variant was tried and
+  // reverted: `formatShowDate`'s include-year path throws on an unparseable
+  // date, and the lifecycle calls exactly that show `past`.
+  it.each(['past', 'today', 'upcoming'] as const)(
+    'renders the same unqualified date on a %s show',
+    lifecycle => {
+      render(<ShowHeader lifecycle={lifecycle} show={makeShow()} />)
 
-    rerender(<ShowHeader lifecycle="upcoming" show={makeShow()} />)
-    const upcomingDate = screen.getByText(/Aug \d+/).textContent ?? ''
-    expect(upcomingDate).not.toMatch(/20\d\d/)
-  })
+      expect(screen.getByText('Fri, Aug 14')).toBeInTheDocument()
+    }
+  )
 })
 
 describe('ShowHeader layout', () => {

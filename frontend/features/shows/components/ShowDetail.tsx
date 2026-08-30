@@ -238,6 +238,7 @@ export function ShowDetail({ showId, lifecycle }: ShowDetailProps) {
             showId={show.id}
             showDate={show.event_date}
             lifecycle={lifecycle}
+            isCancelled={show.is_cancelled}
             artists={artists.map(a => ({ id: a.id, name: a.name }))}
           />
         </section>

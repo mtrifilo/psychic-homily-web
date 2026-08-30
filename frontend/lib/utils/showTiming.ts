@@ -115,6 +115,41 @@ export function hasReadableStartDate(
 export type ShowLifecycleState = 'past' | 'today' | 'upcoming'
 
 /**
+ * Whether a surface may speak about this show IN THE PAST TENSE.
+ *
+ * THE archive predicate. Every past-tense claim on a show page must branch on
+ * this one function rather than on `lifecycle === 'past'` directly, because
+ * the raw lifecycle is wrong for that question in two directions and both
+ * have already shipped as bugs:
+ *
+ * - A CANCELLED show that has since gone by is `past` to the lifecycle, which
+ *   knows nothing about cancellation. It did not happen, so nothing may ask
+ *   what it was like. The stripe says CANCELLED and never PAST SHOW; a
+ *   surface answering in the other state's words contradicts the one fact a
+ *   reader must not miss.
+ * - An UNDATEABLE show is `past` by a default inherited from a cache-window
+ *   caller, where "past" only meant "cache it longer". A page that cannot
+ *   print a date cannot assert the show happened either.
+ *
+ * Structural input type, not `ShowResponse`, so a surface outside the shows
+ * feature can ask without importing it — the field-notes section lives in
+ * `features/comments` and takes exactly these two facts as props.
+ *
+ * Note this is NOT the boundary for whether the show has BEGUN: that is
+ * `hasShowStarted`, the start instant, and it is what the field-notes FORM
+ * and the JSON-LD offer gate use. This one turns over at venue-local
+ * midnight, so between doors and midnight a show is started but not yet
+ * archived — which is the whole evening a page must still read as tonight's.
+ */
+export function showIsArchived(
+  show: { eventDate: string | null | undefined; isCancelled: boolean },
+  lifecycle: ShowLifecycleState
+): boolean {
+  if (show.isCancelled || lifecycle !== 'past') return false
+  return hasReadableStartDate(show.eventDate)
+}
+
+/**
  * Where a show sits on the venue's own calendar: yesterday or earlier, today,
  * or a later day.
  *

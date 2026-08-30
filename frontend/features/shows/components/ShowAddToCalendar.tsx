@@ -162,6 +162,15 @@ export function ShowAddToCalendar({
   const saveShow = useSaveShow()
   const isSaved = saveData?.is_saved ?? false
 
+  // Below every hook, because React identifies hooks by call order and an
+  // earlier return would make their count depend on `lifecycle` — but ABOVE
+  // the two URL constants, which is not a nicety. `showGoogleCalendarUrl`
+  // calls `.toISOString()` on the parsed `event_date`, which throws a
+  // RangeError for a date it cannot read, and the lifecycle labels exactly
+  // that show `past`. Built the URLs first and the component would crash on
+  // the branch whose whole job is to render nothing.
+  if (lifecycle === 'past') return null
+
   const icsUrl = showCalendarIcsUrl(show.slug || String(show.id))
   const googleUrl = showGoogleCalendarUrl(show)
 
@@ -173,13 +182,6 @@ export function ShowAddToCalendar({
       saveShow.mutate(show.id)
     }
   }
-
-  // Below the hooks, never above them: an early return placed higher would
-  // make the number of hooks this component runs depend on `lifecycle`, and
-  // React identifies hooks by call order. The wasted work is a popover's
-  // worth of URL building on a branch that renders nothing, which is the
-  // cheaper half of that trade.
-  if (lifecycle === 'past') return null
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

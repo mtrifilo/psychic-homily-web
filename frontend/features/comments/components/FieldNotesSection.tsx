@@ -8,7 +8,7 @@ import { useAuthContext } from '@/lib/context/AuthContext'
 // every page that renders this section.
 import { SignInPrompt } from '@/features/auth/components/SignInPrompt'
 import { StatusBanner } from '@/components/shared'
-import { hasReadableStartDate, hasShowStarted } from '@/lib/utils/showTiming'
+import { hasShowStarted, showIsArchived } from '@/lib/utils/showTiming'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import {
   useFieldNotes,
@@ -34,11 +34,20 @@ interface FieldNotesSectionProps {
    * empty state's tense — never to gate the form, which has its own
    * boundary and a different reason for it (see `isFuture` below).
    *
-   * Optional because this section is mounted from one place today and a
-   * caller without a lifecycle should get the tense-neutral wording rather
-   * than a type error; `undefined` reads as "not known to be past".
+   * REQUIRED, though there is one caller. An earlier revision made it
+   * optional and defaulted to the forward-looking copy, which meant a future
+   * edit that dropped the prop would silently restore the exact bug this
+   * section was changed to fix — no type error, no failing test, because the
+   * page-level test mocks this component away. A required prop turns that
+   * regression into a compile error.
    */
-  lifecycle?: ShowLifecycleState
+  lifecycle: ShowLifecycleState
+  /**
+   * Cancellation is not derivable from `lifecycle`: the lifecycle knows only
+   * about the calendar, so a cancelled show that has since gone by is `past`
+   * to it. A show that did not happen must never be asked what it was like.
+   */
+  isCancelled?: boolean
 }
 
 export function FieldNotesSection({
@@ -46,6 +55,7 @@ export function FieldNotesSection({
   showDate,
   artists = [],
   lifecycle,
+  isCancelled = false,
 }: FieldNotesSectionProps) {
   const { isAuthenticated } = useAuthContext()
   const { data, isLoading } = useFieldNotes(showId)
@@ -73,16 +83,20 @@ export function FieldNotesSection({
 
   // TWO boundaries on this page, and they are not the same one — the whole
   // reason this prop exists. `isFuture` above opens the FORM at the start
-  // INSTANT, mirroring the API. `lifecycle` turns past at venue-local
+  // INSTANT, mirroring the API. The archive test turns over at venue-local
   // MIDNIGHT, which is what the stripe at the top of the page says. Between
   // those two moments the form is open and the stripe reads TONIGHT, so the
   // empty state must not ask "were you there?" about a band currently on
-  // stage. An unreadable date is excluded for the same reason the ticket
-  // line excludes it: `hasShowStarted` counts an undateable show as started
-  // and the lifecycle counts it as past, and neither is evidence the show
-  // actually happened.
-  const isArchived =
-    lifecycle === 'past' && hasReadableStartDate(showDate)
+  // stage.
+  //
+  // Through the SHARED predicate, not a local `lifecycle === 'past'`: the
+  // cancellation and unreadable-date terms live in it, and an earlier
+  // revision that spelled this rule out here instead promptly diverged from
+  // the ticket line's copy of it and asked a cancelled show what it was like.
+  const isArchived = showIsArchived(
+    { eventDate: showDate, isCancelled },
+    lifecycle
+  )
 
   const hasCanonicalPending =
     pendingNote !== null && fieldNotes.some((c) => c.id === pendingNote.id)
@@ -196,18 +210,24 @@ export function FieldNotesSection({
               className="text-sm text-muted-foreground py-8 text-center"
               data-testid="field-notes-empty"
             >
-              {/* Two tenses, because this branch spans two states. It used to
-                  read "Attend this show…" unconditionally, which was an
-                  instruction to go to something that had already happened on
-                  every past show with no notes. Reversing it unconditionally
-                  would only move the bug: "were you there?" is just as wrong
-                  during the show, when the stripe above says TONIGHT. The
-                  past phrasing is the locked mock's own prompt for this act;
-                  the in-progress phrasing is the original, which was always
-                  correct in this window. */}
+              {/* THREE states, and each earlier revision of this line covered
+                  fewer of them than it thought. It read "Attend this show…"
+                  unconditionally, which instructed readers to go to something
+                  that had already happened. Reversing it unconditionally only
+                  moved the bug, since "were you there?" is just as wrong
+                  during the show, when the stripe above says TONIGHT. And
+                  both prompts are wrong for a CANCELLED show, which did not
+                  happen and cannot be attended — that one gets the bare
+                  sentence and asks nothing.
+
+                  The past phrasing is the locked mock's own prompt for this
+                  act; the in-progress phrasing is the original, which was
+                  always correct in that window. */}
               {isArchived
                 ? 'No field notes yet. Were you there? Share what you saw.'
-                : 'No field notes yet. Attend this show and share your experience!'}
+                : isCancelled
+                  ? 'No field notes yet.'
+                  : 'No field notes yet. Attend this show and share your experience!'}
             </p>
           ) : (
             <div className="space-y-4">
