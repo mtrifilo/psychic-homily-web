@@ -874,7 +874,11 @@ func RecanonicaliseShowSlug(tx *gorm.DB, showID uint) (bool, error) {
 		return false, fmt.Errorf("load show: %w", err)
 	}
 
-	// Resolve headliner — set_type='headliner' wins, else position=0.
+	// Resolve headliner — set_type='headliner' wins, else lowest position.
+	// Rank, then position, then a stable id; see headline_slot.go for why each
+	// part is required. This site feeds a PERSISTED slug rather than a rendered
+	// name, so a mis-ranked or unstable winner here is written down rather than
+	// re-derived on the next read.
 	var artists []catalogm.Artist
 	if err := tx.Table("artists").
 		Joins("JOIN show_artists ON show_artists.artist_id = artists.id").

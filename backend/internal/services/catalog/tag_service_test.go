@@ -1749,6 +1749,89 @@ func (suite *TagServiceIntegrationTestSuite) TestBulkImportAliases_EmptyList() {
 	suite.Assert().Len(result.Skipped, 0)
 }
 
+// Guards the NULL-safe rank in enrichShows (see its doc comment for why the
+// CASE form is required).
+//
+// The bill is deliberately arranged so the rank arm is load-bearing and the
+// row that must win is LAST by position. It fails two ways without the
+// current expression:
+//
+//   - the boolean `(set_type = 'headliner') DESC` form is NULLS FIRST, so the
+//     unslotted act wins;
+//   - deleting the rank and ordering on position alone picks the stated
+//     opener, which is the curated-bill misread that motivated this rule.
+//
+// Only "headliner outranks everything, then lowest position" names the
+// curated headliner. The trailing artist_id tiebreak is NOT exercised here;
+// these three rows hold distinct positions. See the note above
+// TestTagServiceIntegration for why it is not pinned at this surface.
+func (suite *TagServiceIntegrationTestSuite) TestGetTagEntities_Shows_NullSetTypeDoesNotOutrankCuratedHeadliner() {
+	user := suite.createTestUserWithTier("show-tagger", "contributor")
+	tag := suite.createTag("noise-rock", "genre")
+
+	city := "Phoenix"
+	state := "AZ"
+	showSlug := "null-set-type-bill"
+	show := &catalogm.Show{
+		Title:     "Null Set Type Bill",
+		Slug:      &showSlug,
+		EventDate: time.Now().UTC().AddDate(0, 0, 10),
+		City:      &city,
+		State:     &state,
+		Status:    catalogm.ShowStatusApproved,
+	}
+	suite.Require().NoError(suite.db.Create(show).Error)
+
+	headlinerID := suite.createArtist("Curated Headliner")
+	unslottedID := suite.createArtist("Unslotted Act")
+	openerID := suite.createArtist("Stated Opener")
+
+	// First by position, and curated as something other than the headliner:
+	// this is the row that wins if the rank arm is ever dropped.
+	suite.Require().NoError(suite.db.Exec(
+		`INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'opener')`,
+		show.ID, openerID).Error)
+	// Explicit NULL: the column is nullable, so a row can carry no role at all.
+	// This is the row that wins under the boolean NULLS FIRST ordering.
+	suite.Require().NoError(suite.db.Exec(
+		`INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 1, NULL)`,
+		show.ID, unslottedID).Error)
+	// Last by position, and the only correct answer.
+	suite.Require().NoError(suite.db.Exec(
+		`INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 2, 'headliner')`,
+		show.ID, headlinerID).Error)
+
+	var storedNulls int64
+	suite.Require().NoError(suite.db.Raw(
+		`SELECT COUNT(*) FROM show_artists WHERE show_id = ? AND set_type IS NULL`,
+		show.ID).Scan(&storedNulls).Error)
+	suite.Require().EqualValues(1, storedNulls,
+		"the NULL row must survive insertion, or this test proves nothing. Do not "+
+			"convert these raw inserts to db.Create: ShowArtist.SetType is a "+
+			"non-pointer string, so GORM would omit it and the column default "+
+			"'performer' would land instead of the NULL this test needs")
+
+	_, err := suite.tagService.AddTagToEntity(tag.ID, "", catalogm.TagEntityShow, show.ID, user.ID, "")
+	suite.Require().NoError(err)
+
+	items, _, err := suite.tagService.GetTagEntities(tag.ID, catalogm.TagEntityShow, 50, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(items, 1, "the tagged show must be listed")
+	suite.Assert().Equal("Curated Headliner", items[0].HeadlinerName,
+		"a NULL set_type row must not outrank the curated headliner")
+}
+
+// NOTE on the trailing `sa.artist_id ASC` tiebreak in enrichShows: it is NOT
+// pinned by a test here, deliberately. A tied-bill fixture was written and
+// removed because it passed with the tiebreak deleted, on every run. The
+// lateral joins artists on sa.artist_id, so the planner reaches show_artists
+// by the (show_id, artist_id) primary key and already yields ascending
+// artist_id; the tiebreak is redundant under that plan and only earns its keep
+// if the plan changes. A test that cannot fail is worse than no test, so the
+// guard is documented rather than falsely pinned. The explore surface does not
+// share the plan and IS pinned, by
+// TestGetUpcomingShows_TiedBillPicksLowestArtistID.
+
 // ──────────────────────────────────────────────
 // Run all integration tests
 // ──────────────────────────────────────────────

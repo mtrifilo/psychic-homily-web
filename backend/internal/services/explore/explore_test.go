@@ -104,7 +104,11 @@ func (s *ExploreServiceIntegrationSuite) createShow(title string, daysFromNow in
 
 // createShowInCity inserts an approved, future-dated show in a specific
 // city/state with no venue/artist joins — the city filter only reads
-// shows.city/state. Used by the PSY-840 city-filter tests.
+// shows.city/state. Also the right seed for a test that wants to attach its
+// own bill, since it leaves show_artists empty. It leaves show_venues empty
+// too, and bill rows a caller inserts are outside the artist/venue/event_date
+// dedup index unless the caller also stamps event_date and venue_id; use
+// createShow instead when either matters.
 func (s *ExploreServiceIntegrationSuite) createShowInCity(title string, daysFromNow int, city, state string) *catalogm.Show {
 	slug := fmt.Sprintf("show-%s-%d", title, time.Now().UnixNano())
 	show := &catalogm.Show{
@@ -374,4 +378,103 @@ func (s *ExploreServiceIntegrationSuite) TestGetShuffleTarget_RespectsApprovedSt
 	resp, err := s.exploreService.GetShuffleTarget()
 	s.Require().NoError(err)
 	s.Nil(resp.ArtistID, "artist with only non-approved shows must NOT be eligible")
+}
+
+// Guards the NULL-safe rank in headlinerNameByShow (see its doc comment for
+// why the CASE form is required).
+//
+// The bill is deliberately arranged so the rank arm is load-bearing and the
+// row that must win is LAST by position. It fails two ways without the
+// current expression:
+//
+//   - the boolean `(set_type = 'headliner') DESC` form is NULLS FIRST, so the
+//     unslotted act wins;
+//   - deleting the rank and ordering on position alone picks the stated
+//     opener, which is the curated-bill misread that motivated this rule.
+//
+// Only "headliner outranks everything, then lowest position" names the
+// curated headliner. The trailing artist_id tiebreak is NOT exercised here;
+// these three rows hold distinct positions.
+// TestGetUpcomingShows_TiedBillPicksLowestArtistID covers that.
+func (s *ExploreServiceIntegrationSuite) TestGetUpcomingShows_NullSetTypeDoesNotOutrankCuratedHeadliner() {
+	show := s.createShowInCity("Null Set Type Bill", 10, "Phoenix", "AZ")
+
+	headlinerSlug := "curated-headliner"
+	headliner := &catalogm.Artist{Name: "Curated Headliner", Slug: &headlinerSlug}
+	s.Require().NoError(s.db.Create(headliner).Error)
+
+	unslottedSlug := "unslotted-act"
+	unslotted := &catalogm.Artist{Name: "Unslotted Act", Slug: &unslottedSlug}
+	s.Require().NoError(s.db.Create(unslotted).Error)
+
+	openerSlug := "stated-opener"
+	opener := &catalogm.Artist{Name: "Stated Opener", Slug: &openerSlug}
+	s.Require().NoError(s.db.Create(opener).Error)
+
+	// First by position, and curated as something other than the headliner:
+	// this is the row that wins if the rank arm is ever dropped.
+	s.Require().NoError(s.db.Exec(
+		`INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'opener')`,
+		show.ID, opener.ID).Error)
+	// Explicit NULL: the column is nullable, so a row can carry no role at all.
+	// This is the row that wins under the boolean NULLS FIRST ordering.
+	s.Require().NoError(s.db.Exec(
+		`INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 1, NULL)`,
+		show.ID, unslotted.ID).Error)
+	// Last by position, and the only correct answer.
+	s.Require().NoError(s.db.Exec(
+		`INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 2, 'headliner')`,
+		show.ID, headliner.ID).Error)
+
+	var storedNulls int64
+	s.Require().NoError(s.db.Raw(
+		`SELECT COUNT(*) FROM show_artists WHERE show_id = ? AND set_type IS NULL`,
+		show.ID).Scan(&storedNulls).Error)
+	s.Require().EqualValues(1, storedNulls,
+		"the NULL row must survive insertion, or this test proves nothing. Do not "+
+			"convert these raw inserts to db.Create: ShowArtist.SetType is a "+
+			"non-pointer string, so GORM would omit it and the column default "+
+			"'performer' would land instead of the NULL this test needs")
+
+	resp, err := s.exploreService.GetUpcomingShows(50, 0, nil)
+	s.Require().NoError(err)
+	s.Require().Len(resp.Shows, 1, "the seeded upcoming show must be listed")
+	s.Assert().Equal("Curated Headliner", resp.Shows[0].HeadlinerName,
+		"a NULL set_type row must not outrank the curated headliner")
+}
+
+// Pins the trailing artist_id tiebreak. The PK is (show_id, artist_id) and
+// idx_show_artists_position is not unique, so a bill can hold two rows at the
+// same position; the data-quality report for bills left entirely at position 0
+// exists because such shows are in the corpus. Without the tiebreak the winner
+// is planner order, which is stable enough to look correct in a test and can
+// change in production after an unrelated UPDATE rewrites the tuples.
+func (s *ExploreServiceIntegrationSuite) TestGetUpcomingShows_TiedBillPicksLowestArtistID() {
+	show := s.createShowInCity("Tied Bill", 11, "Phoenix", "AZ")
+
+	// Neither row states a role and both sit at position 0, so the rank and
+	// position arms both tie and only artist_id can decide.
+	lowerSlug := "tied-lower-id"
+	lower := &catalogm.Artist{Name: "Tied Lower ID", Slug: &lowerSlug}
+	s.Require().NoError(s.db.Create(lower).Error)
+
+	higherSlug := "tied-higher-id"
+	higher := &catalogm.Artist{Name: "Tied Higher ID", Slug: &higherSlug}
+	s.Require().NoError(s.db.Create(higher).Error)
+	s.Require().Less(lower.ID, higher.ID, "fixture assumes ascending artist ids")
+
+	// Inserted highest-id first so insertion order cannot masquerade as the
+	// tiebreak working.
+	s.Require().NoError(s.db.Exec(
+		`INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'performer')`,
+		show.ID, higher.ID).Error)
+	s.Require().NoError(s.db.Exec(
+		`INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'performer')`,
+		show.ID, lower.ID).Error)
+
+	resp, err := s.exploreService.GetUpcomingShows(50, 0, nil)
+	s.Require().NoError(err)
+	s.Require().Len(resp.Shows, 1, "the seeded upcoming show must be listed")
+	s.Assert().Equal("Tied Lower ID", resp.Shows[0].HeadlinerName,
+		"a bill tied on rank and position must resolve to the lowest artist_id")
 }

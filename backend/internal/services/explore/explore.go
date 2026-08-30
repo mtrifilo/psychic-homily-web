@@ -266,6 +266,11 @@ func (s *ExploreService) firstVenueByShow(showIDs []uint) map[uint]catalogm.Venu
 // artist). Matches the existing convention in
 // services/engagement/saved_show.go where set_type='headliner' is the
 // canonical flag.
+//
+// The ordering is rank, then position, then a stable id. Do not shorten the
+// rank to `(set_type = 'headliner') DESC` and do not drop the trailing
+// artist_id; catalog/headline_slot.go explains why each part is required and
+// lists the other sites that resolve this same slot.
 func (s *ExploreService) headlinerNameByShow(showIDs []uint) map[uint]string {
 	out := make(map[uint]string, len(showIDs))
 	if len(showIDs) == 0 {
@@ -275,7 +280,7 @@ func (s *ExploreService) headlinerNameByShow(showIDs []uint) map[uint]string {
 	var rows []catalogm.ShowArtist
 	if err := s.db.
 		Where("show_id IN ?", showIDs).
-		Order("show_id ASC, (set_type = 'headliner') DESC, position ASC, artist_id ASC").
+		Order("show_id ASC, CASE WHEN set_type = 'headliner' THEN 0 ELSE 1 END, position ASC, artist_id ASC").
 		Find(&rows).Error; err != nil {
 		return out
 	}

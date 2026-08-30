@@ -333,10 +333,10 @@ type ShowCityResponse struct {
 // "{Headliner} @ {Venue} · {Date}" entity-search label, without the cost of
 // hydrating the full ShowResponse (artists slice, venues slice, etc).
 //
-// Headliner resolution mirrors the existing convention used elsewhere in
-// catalog/show.go (e.g. checkDuplicateHeadlinerConflicts): the headliner is
-// the show_artists row with set_type = 'headliner', falling back to position
-// = 0. There is no `is_headliner` column on show_artists. PSY-520.
+// The headliner is the show_artists row stating set_type = 'headliner',
+// falling back to the lowest position and then the lowest artist_id. Do not
+// restate the SQL here; catalog/headline_slot.go owns that rule and lists
+// every site bound by it. There is no `is_headliner` column on show_artists.
 type ShowSearchResult struct {
 	ID            uint      `json:"id"`
 	Slug          string    `json:"slug"`

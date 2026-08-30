@@ -54,27 +54,97 @@ import (
 // states 'headliner'" would also mask it, and would re-introduce the position
 // heuristic on bills whose curator described an opener and no headliner.
 //
-// NOT covered here, deliberately, in two groups:
+// NOT covered here, deliberately, in three groups:
 //
-//  1. Reads that RESOLVE THE ONE headliner row of a show for display
-//     (tag_service.enrichShows, explore.go, show_dedup.go). They ORDER BY a
-//     `set_type = 'headliner'` test and fall back to lowest position, so they
-//     already prefer curation and, unlike a classification predicate, must
-//     always return a row. (tag_service and explore order `DESC` on a bare
-//     boolean, which is NULLS FIRST in Postgres, so a NULL-set_type row can
-//     outrank the real headliner. Pre-existing, and a display bug rather than
-//     a chart one; show_dedup.go's CASE form is the NULL-safe shape to copy.)
+//  1. SQL reads over show_artists that RESOLVE THE ONE headliner row of a
+//     show. They prefer a `set_type = 'headliner'` row and fall back to lowest
+//     position, so they already prefer curation and, unlike a classification
+//     predicate, name an act whenever the bill has one at all (on an
+//     artist-less show they degrade to '' or omit the show rather than
+//     reporting "no headline slot"). Four sites, in two shapes:
 //
-//  2. The duplicate-headliner GUARDS at show.go's checkDuplicateHeadlinerConflicts
-//     and pipeline/discovery.go's checkHeadlinerDuplicate. These do still use
+//     tag_service.enrichShows, explore.headlinerNameByShow, and
+//     show_dedup.RecanonicaliseShowSlug RANK the bill. The required shape is
+//     rank, then position, then a stable id:
+//
+//     CASE WHEN set_type = 'headliner' THEN 0 ELSE 1 END, position ASC, <id> ASC
+//
+//     The shorter bare-boolean `DESC` form is NULLS FIRST in Postgres, so an
+//     unslotted row would outrank the curated headliner. No current writer
+//     produces such a row -- the set_type backfill normalized the NULLs that
+//     existed, and the model's non-pointer SetType field cannot write one --
+//     so this is defense-in-depth against a nullable column, not a repair of
+//     a surface that was observably naming the wrong act. The id tiebreak is
+//     there because the PK is (show_id, artist_id) and idx_show_artists_position
+//     is NOT unique, so two rows on one show may share a position; an untied
+//     `LIMIT 1` then returns planner order, which can change after an unrelated
+//     UPDATE rewrites the tuples. Tied bills are real -- admin
+//     data_quality.getShowsNoBillingOrder reports shows whose every row sits at
+//     position 0 -- though current write paths do assign incrementing
+//     positions, so the tiebreak guards the corpus, not the writers.
+//
+//     Test coverage is asymmetric, deliberately, and uneven across the four:
+//
+//       - enrichShows (tag) and headlinerNameByShow (explore): rank arm pinned
+//         by mutation-checked tests at both.
+//       - The id tiebreak is pinned ONLY at explore. enrichShows reaches
+//         show_artists by the (show_id, artist_id) primary key, so its plan
+//         already yields ascending artist_id and a tied-bill test there passes
+//         with the tiebreak deleted; it is kept as a guard against a plan
+//         change and documented rather than falsely pinned.
+//       - SearchShows and RecanonicaliseShowSlug are UNPINNED for both arms.
+//         Their existing fixtures seed the headliner at position 0, so
+//         deleting either arm leaves those suites green. RecanonicaliseShowSlug
+//         is the one that writes its answer into a slug, so it is both the
+//         highest-consequence site and the least defended. Adding a
+//         curated-bill case there is the obvious next increment.
+//
+//     show.SearchShows instead COALESCEs a filtered subquery over an
+//     unfiltered one, which is NULL-safe for a different reason
+//     (`NULL = 'headliner'` is NULL, so the row fails the filter rather than
+//     sorting ahead of the winner).
+//
+//     show_dedup.RecanonicaliseShowSlug resolves this to GENERATE A PERSISTED
+//     SLUG rather than to display a name, so a mis-ranked row there is written
+//     down, not merely rendered.
+//
+//  2. IN-MEMORY resolutions that pick a headliner from a request or export
+//     payload rather than from show_artists, and feed utils.GenerateShowSlug.
+//     In internal/ there are four: catalog.CreateShow,
+//     pipeline/discovery.createShowFromEvent, and two in
+//     internal/services/admin/data_sync.go -- importShow and
+//     backfillShowSlugs. (Note that path: there is also an
+//     internal/api/handlers/admin, which is NOT where this lives.) They are
+//     not reachable by the SQL rule above and need their own audit. cmd/seed
+//     has two more; it is dev tooling and is not audited here.
+//
+//     NOTE that three of the four ignore set_type entirely, by two different
+//     mechanisms. createShowFromEvent takes artistEntries[0] by list index.
+//     The two data_sync sites read the EXPORTED Position field and keep the
+//     LAST artist whose Position is 0, falling back to the first in the list
+//     when none is -- so do not go looking for an [0] index there. Either way
+//     the role was in hand: discovery carries it on artistEntries[i].SetType
+//     (a per-artist setType is computed in the loop immediately above the slug
+//     call), and the export payload carries ExportedShowArtist.SetType. So a
+//     curated bill whose headliner is not first can persist a slug naming the
+//     wrong act, and because a slug is written down that outlives any
+//     read-path fix. Left alone here only because the SQL rule above cannot
+//     reach it. catalog.CreateShow is the one that reads the stated role.
+//
+//  3. The duplicate-headliner GUARDS at show.go's checkDuplicateHeadlinerConflicts
+//     and pipeline/discovery.go's checkHeadlinerDuplicate (the latter fed by
+//     discovery.resolveHeadlinerName, which unlike its slug-writing sibling
+//     DOES honor set_type). These do still use
 //     the retired `(set_type = 'headliner' OR position = 0)` disjunction, and
 //     it is NOT equivalent to this rule. They are deliberately left: they are
 //     write-time collision checks where the two error directions are not
-//     symmetric with a chart's, and PSY-1673 added their position arm on
+//     symmetric with a chart's (a false positive blocks a legitimate save; a
+//     false negative admits a duplicate), and the position arm was added on
 //     purpose so a position-inferred headliner is still duplicate-checked.
-//     They inherit the same misread this ticket fixes for charts (a curated
-//     first-billed opener still matches as "the headliner" there), which needs
-//     its own ticket and its own test surface.
+//     They do inherit the same misread the rank rule above avoids: a curated
+//     first-billed opener still matches as "the headliner" there. Realigning
+//     them is a separate change with its own design question and its own test
+//     surface, not an oversight in this one.
 
 // headlineSlotUnknownValues is the SQL literal list of set_type values that
 // mean "slot unknown". A row holding one of these states nothing, so a bill
