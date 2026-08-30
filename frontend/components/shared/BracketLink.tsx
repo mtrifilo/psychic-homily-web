@@ -3,6 +3,7 @@
 import { forwardRef, useCallback } from 'react'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
+import { outboundRel } from '@/lib/outboundRel'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 
 const NEW_TAB_SUFFIX = '(opens in a new tab)'
@@ -76,8 +77,10 @@ export interface BracketLinkProps
   active?: boolean
   /**
    * `href` points OUTSIDE the app: renders a plain anchor with
-   * `target="_blank" rel="noopener noreferrer"` instead of a Next `<Link>`,
-   * and appends "(opens in a new tab)" to the accessible name.
+   * `target="_blank"` and the outbound `rel` instead of a Next `<Link>`, and
+   * appends "(opens in a new tab)" to the accessible name. The `rel` is the
+   * hygiene tokens, plus `sponsored` when that prop is set — composed by
+   * `lib/outboundRel`, never by a call site.
    *
    * The visible outbound marker is the CALLER's choice, not this component's:
    * prose-like brackets carry a "↗" ("Directions ↗", "site ↗"), while dense
@@ -109,6 +112,20 @@ export interface BracketLinkProps
    * Ignored without `href`.
    */
   external?: boolean
+  /**
+   * This outbound link is monetized, so `rel` gains `sponsored` alongside the
+   * hygiene tokens. Google's link-spam policy requires paid links to be
+   * qualified, and an unqualified affiliate link is the site's own ranking at
+   * risk, not the vendor's.
+   *
+   * Derive it, never assert it: the ticket call site passes what `ticketLink`
+   * in `lib/tickets/ticketVendors` reports, which is the only thing that knows
+   * whether a partner ID was actually attached. A hand-set `sponsored` on a
+   * link carrying no tag is a claim about money that is simply false.
+   * Ignored without `external`, since the internal `<Link>` branch points
+   * inside this site.
+   */
+  sponsored?: boolean
   /** Visual variant. `danger` is red for destructive actions like [Remove] / [Delete] / [X]. */
   variant?: 'default' | 'danger'
   /**
@@ -158,6 +175,7 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
       active = false,
       variant = 'default',
       external = false,
+      sponsored = false,
       disabled = false,
       title,
       ariaLabel,
@@ -273,7 +291,7 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
             {...anchorProps}
             href={trimmedHref}
             target="_blank"
-            rel="noopener noreferrer"
+            rel={outboundRel(sponsored)}
           >
             {content}
           </a>

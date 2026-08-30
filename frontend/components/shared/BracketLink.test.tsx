@@ -193,6 +193,41 @@ describe('BracketLink', () => {
       )
     })
 
+    it('qualifies a sponsored link without dropping the hygiene tokens', () => {
+      render(
+        <BracketLink
+          label="Buy Tickets ↗"
+          href="https://www.ticketweb.com/event/2?irmp=1234567"
+          external
+          sponsored
+        />
+      )
+      const link = screen.getByRole('link', {
+        name: 'Buy Tickets ↗ (opens in a new tab)',
+      })
+      expect(link).toHaveAttribute('rel', 'noopener noreferrer sponsored')
+    })
+
+    it('omits the sponsored token on an unpaid outbound link', () => {
+      render(
+        <BracketLink label="site ↗" href="https://example.test" external />
+      )
+      const link = screen.getByRole('link', {
+        name: 'site ↗ (opens in a new tab)',
+      })
+      expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    })
+
+    // `rel` lives on the external branch only, NOT in the shared anchor-props
+    // bag. Hoisting it there type-checks and passes the rest of this file,
+    // while stamping `noopener noreferrer` onto every internal bracket link in
+    // the app and telling Google the site's own links are paid placements.
+    it('never puts sponsored on an internal link', () => {
+      render(<BracketLink label="Shows" href="/shows" sponsored />)
+      const link = screen.getByRole('link', { name: 'Shows' })
+      expect(link.getAttribute('rel') ?? '').not.toContain('sponsored')
+    })
+
     // The announcement belongs to the component so that no call site can write
     // it, forget it, or let it drift from the target it describes.
     //

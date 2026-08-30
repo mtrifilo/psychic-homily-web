@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 import type { FestivalDetail as FestivalDetailType } from '../types'
@@ -169,6 +169,12 @@ function makeFestival(
 }
 
 describe('FestivalDetail', () => {
+  // No test may leak a configured partner ID into the cases that assert an
+  // untagged, unqualified ticket link.
+  afterEach(() => {
+    delete process.env.NEXT_PUBLIC_IMPACT_PARTNER_ID
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     mockUseIsAuthenticated.mockReturnValue({
@@ -250,6 +256,87 @@ describe('FestivalDetail', () => {
       'href',
       'https://tickets.com'
     )
+  })
+
+  // Affiliate tagging is a config flip: the festival ticket link reads the same
+  // vendor table as the show page's, and a partner ID reaches both surfaces.
+  it('tags a configured vendor and qualifies the paid link', () => {
+    process.env.NEXT_PUBLIC_IMPACT_PARTNER_ID = '1234567'
+    mockUseFestival.mockReturnValue({
+      data: makeFestival({ ticket_url: 'https://www.ticketweb.com/event/2' }),
+      isLoading: false,
+      error: null,
+    })
+    renderWithProviders(<FestivalDetail idOrSlug="form-arcosanti" />)
+
+    const buy = screen.getByRole('link', { name: 'Buy Tickets' })
+    expect(buy).toHaveAttribute(
+      'href',
+      'https://www.ticketweb.com/event/2?irmp=1234567'
+    )
+    expect(buy).toHaveAttribute('rel', 'noopener noreferrer sponsored')
+  })
+
+  // The show page repairs a scheme-less ticket url; this surface had no repair
+  // at all, so the value shipped as a relative href that navigated under
+  // /festivals/ and could never be tagged.
+  it('repairs a scheme-less ticket url instead of rendering it relative', () => {
+    mockUseFestival.mockReturnValue({
+      data: makeFestival({ ticket_url: 'tickets.example/1' }),
+      isLoading: false,
+      error: null,
+    })
+    renderWithProviders(<FestivalDetail idOrSlug="form-arcosanti" />)
+
+    expect(screen.getByRole('link', { name: 'Buy Tickets' })).toHaveAttribute(
+      'href',
+      'https://tickets.example/1'
+    )
+  })
+
+  // A whitespace-only ticket_url is storable (the column is validated for
+  // length only). Gating the section on the raw value while gating the anchor
+  // on the resolved one renders a Links heading over nothing.
+  it('renders no Links section for a whitespace-only ticket url', () => {
+    mockUseFestival.mockReturnValue({
+      data: makeFestival({ ticket_url: '   ', website: null }),
+      isLoading: false,
+      error: null,
+    })
+    renderWithProviders(<FestivalDetail idOrSlug="form-arcosanti" />)
+
+    expect(screen.queryByRole('heading', { name: 'Links' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Buy Tickets' })).toBeNull()
+  })
+
+  // The gate and the anchor read the same value: gating the section on the raw
+  // column while rendering a trimmed one (or the reverse) yields either a
+  // heading over nothing or an href="   " that reopens the current page.
+  it('renders no website anchor for a whitespace-only website', () => {
+    mockUseFestival.mockReturnValue({
+      data: makeFestival({
+        website: '   ',
+        ticket_url: 'https://tickets.example/1',
+      }),
+      isLoading: false,
+      error: null,
+    })
+    renderWithProviders(<FestivalDetail idOrSlug="form-arcosanti" />)
+
+    expect(screen.getByRole('link', { name: 'Buy Tickets' })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Official Website' })).toBeNull()
+  })
+
+  it('renders no script-bearing ticket href', () => {
+    mockUseFestival.mockReturnValue({
+      data: makeFestival({ ticket_url: 'javascript:alert(1)' }),
+      isLoading: false,
+      error: null,
+    })
+    renderWithProviders(<FestivalDetail idOrSlug="form-arcosanti" />)
+
+    const buy = screen.queryByRole('link', { name: 'Buy Tickets' })
+    expect(buy?.getAttribute('href') ?? '').not.toMatch(/^javascript:/i)
   })
 
   it('renders the venues section with venue links', () => {

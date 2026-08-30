@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import type { ShowResponse } from '../types'
@@ -12,6 +12,13 @@ vi.mock('@/lib/context/AuthContext', () => ({
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
   usePathname: () => '/shows/test-show',
+}))
+
+// The planted-tag warning is a Sentry side effect; this file asserts that the
+// row FIRES it, and plantedTagTelemetry's own tests cover dedupe and scrubbing.
+const reportPlantedTicketTag = vi.fn()
+vi.mock('@/lib/tickets/plantedTagTelemetry', () => ({
+  reportPlantedTicketTag: (...args: unknown[]) => reportPlantedTicketTag(...args),
 }))
 
 vi.mock('../hooks/useSavedShows', () => ({
@@ -344,6 +351,89 @@ describe('ShowTicketRow', () => {
     expect(
       buy.getAttribute('aria-label')?.match(/opens in a new tab/g)
     ).toHaveLength(1)
+  })
+
+  // Affiliate tagging is a config flip, not a markup change: the same row
+  // renders a raw href today and a tagged, qualified one once the environment
+  // carries a partner ID.
+  describe('with an affiliate partner ID configured', () => {
+    beforeEach(() => {
+      process.env.NEXT_PUBLIC_IMPACT_PARTNER_ID = '1234567'
+      reportPlantedTicketTag.mockClear()
+    })
+    afterEach(() => {
+      delete process.env.NEXT_PUBLIC_IMPACT_PARTNER_ID
+    })
+
+    it('tags a configured vendor on its own domain and qualifies the link', () => {
+      render(
+        <ShowTicketRow
+          lifecycle="upcoming"
+          show={makeShow({ ticket_url: 'https://www.ticketweb.com/event/2' })}
+        />
+      )
+
+      const buy = screen.getByRole('link', { name: /^Buy tickets\b/i })
+      expect(buy).toHaveAttribute(
+        'href',
+        'https://www.ticketweb.com/event/2?irmp=1234567'
+      )
+      expect(buy).toHaveAttribute('rel', 'noopener noreferrer sponsored')
+    })
+
+    // The stored value carried the tag, and we only ever append at render, so
+    // it was planted by whoever submitted the show. The link still renders as
+    // stored; the report is what makes the row findable.
+    it('renders a planted tag untouched, qualified, and reports it', () => {
+      render(
+        <ShowTicketRow
+          lifecycle="upcoming"
+          show={makeShow({
+            id: 4242,
+            ticket_url: 'https://www.ticketweb.com/event/2?irmp=9999999',
+          })}
+        />
+      )
+
+      const buy = screen.getByRole('link', { name: /^Buy tickets\b/i })
+      expect(buy).toHaveAttribute(
+        'href',
+        'https://www.ticketweb.com/event/2?irmp=9999999'
+      )
+      expect(buy).toHaveAttribute('rel', 'noopener noreferrer sponsored')
+      expect(reportPlantedTicketTag).toHaveBeenCalledWith({
+        entityType: 'show',
+        entityId: 4242,
+        tag: {
+          param: 'irmp',
+          host: 'www.ticketweb.com',
+          matchesConfiguredPartner: false,
+        },
+      })
+    })
+
+    it('reports nothing for a link this build tagged itself', () => {
+      render(
+        <ShowTicketRow
+          lifecycle="upcoming"
+          show={makeShow({ ticket_url: 'https://www.ticketweb.com/event/2' })}
+        />
+      )
+      expect(reportPlantedTicketTag).not.toHaveBeenCalled()
+    })
+
+    it('leaves an unknown vendor raw and unqualified', () => {
+      render(
+        <ShowTicketRow
+          lifecycle="upcoming"
+          show={makeShow({ ticket_url: 'https://tix.example/1' })}
+        />
+      )
+
+      const buy = screen.getByRole('link', { name: /^Buy tickets\b/i })
+      expect(buy).toHaveAttribute('href', 'https://tix.example/1')
+      expect(buy).toHaveAttribute('rel', 'noopener noreferrer')
+    })
   })
 
   // The backend stores ticket urls as typed; the repair is scheme-anchored

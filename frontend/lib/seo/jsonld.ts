@@ -8,6 +8,7 @@
 import { resolveShowTimezone } from '@/lib/utils/formatters'
 import { toZonedISOString } from '@/lib/utils/timeUtils'
 import { SITE_DESCRIPTION, SITE_URL } from '@/lib/seo/siteMetadata'
+import { resolveTicketVendor } from '@/lib/tickets/ticketVendors'
 
 export interface OrganizationSchema {
   '@context': 'https://schema.org'
@@ -202,47 +203,17 @@ export function generateBreadcrumbSchema(
 }
 
 /**
- * Ticket vendors we are willing to name in structured data, keyed by
- * registrable domain.
- *
- * An explicit map rather than a prettified hostname: `seller.name` is a claim
- * about a real company, and deriving "Tix" from `tix.some-venue.example` would
- * invent one. An unrecognized host simply gets no seller.
- */
-const TICKET_VENDORS_BY_DOMAIN: Record<string, string> = {
-  'dice.fm': 'DICE',
-  'eventbrite.com': 'Eventbrite',
-  'ticketmaster.com': 'Ticketmaster',
-  'ticketweb.com': 'TicketWeb',
-  'seetickets.us': 'See Tickets',
-  'etix.com': 'Etix',
-}
-
-/**
  * Name the ticket vendor behind a show's `ticket_url`, or `undefined` when it
  * is not one we recognize.
  *
- * Host-anchored (`host === domain || host.endsWith('.' + domain)`) so
- * `evil-dice.fm` and `dice.fm.evil.test` do not borrow a real vendor's name.
- * The URL itself is never emitted — only the vendor's name — so this reads a
- * user-supplied field purely to look up a constant.
+ * Reads the shared vendor table (`lib/tickets/ticketVendors`), which is also
+ * what the visible Buy Tickets link resolves against, so the company this page
+ * names and the company it links to can never disagree. The URL itself is
+ * never emitted here — only the name — so this reads a user-supplied field
+ * purely to look up a constant.
  */
 function ticketVendorName(ticketUrl: string | undefined): string | undefined {
-  const raw = ticketUrl?.trim()
-  if (!raw) return undefined
-
-  const candidate = /^https?:\/\//i.test(raw) ? raw : `https://${raw.replace(/^\/+/, '')}`
-  let host: string
-  try {
-    host = new URL(candidate).hostname.toLowerCase()
-  } catch {
-    return undefined
-  }
-
-  const domain = Object.keys(TICKET_VENDORS_BY_DOMAIN).find(
-    d => host === d || host.endsWith(`.${d}`)
-  )
-  return domain ? TICKET_VENDORS_BY_DOMAIN[domain] : undefined
+  return resolveTicketVendor(ticketUrl)?.name
 }
 
 /**
@@ -388,12 +359,22 @@ export function generateMusicEventSchema(show: {
   // There is deliberately NO `offers.url`. Google documents it as Recommended,
   // not required, and the only thing omitting it costs is the "ticket purchase
   // option" placement — price display and sold-out badging both survive
-  // without it. Neither available value is honest: the vendor's own URL hands
-  // the sale to a company this site has no referral arrangement with, and a
-  // self-referencing URL fails Google's own bar for the field, a "landing page
-  // that clearly and predominantly provides the opportunity to buy". So the
-  // offer says only what it can back up — the price, whether it is sold out,
-  // and who sells it.
+  // without it. Neither available value is honest: a self-referencing URL
+  // fails Google's own bar for the field, a "landing page that clearly and
+  // predominantly provides the opportunity to buy", and the vendor's own URL
+  // hands the sale away. So the offer says only what it can back up — the
+  // price, whether it is sold out, and who sells it.
+  //
+  // An affiliate program does NOT by itself reopen this. `lib/tickets/
+  // ticketVendors` can now tag a vendor URL, but read its
+  // `AffiliateNetwork` docblock before putting one here: the tagger does not
+  // police the stored PATH, so for any vendor carrying an affiliate entry a
+  // robots-disallowed path would be tagged like any other (Ticketmaster's
+  // `/goto*` is the live example of such a path, though Ticketmaster carries
+  // no affiliate entry today), it cannot stop a contributor storing a redirect
+  // domain that is `Disallow: /` to Googlebot, and Google has no documented
+  // way to mark a structured-data URL as sponsored. Those are the gates to
+  // clear, not the referral arrangement.
   //
   // The gate is price-or-sold-out for the same reason: with no url, an offer
   // carrying neither conveys nothing at all.

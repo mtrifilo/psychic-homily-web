@@ -29,6 +29,9 @@ import {
   StatsList,
 } from '@/components/shared'
 import { EntityCollections } from '@/features/collections'
+import { repairTicketUrl, ticketLink } from '@/lib/tickets/ticketVendors'
+import { usePlantedTicketTagReport } from '@/lib/tickets/usePlantedTicketTagReport'
+import { outboundRel } from '@/lib/outboundRel'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { FestivalLineup } from './FestivalLineup'
@@ -99,6 +102,40 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
     return uniqueDays.size > 1
   }, [artistsData])
 
+  // Derived ABOVE the loading/error/missing returns because the planted-tag
+  // report below is a hook and cannot sit behind them. Tolerates an absent
+  // festival: every branch yields null until the fetch resolves.
+  //
+  // The same repair and the same vendor table the show page's Buy Tickets
+  // bracket reads, so a stored value means one thing on both surfaces. Without
+  // the repair a scheme-less `ticket_url` rendered as a relative href that
+  // navigated under /festivals/, and could never be tagged. A pass-through
+  // until a partner ID is configured.
+  //
+  // The http(s) floor is this anchor's own, because it is a raw <a> rather
+  // than a BracketLink (which carries the same floor for the same reason).
+  //
+  // Festival `ticket_url` is CONTRIBUTOR-writable, not admin-only: it is in
+  // `FestivalAllowedEditFields`, `PUT /festivals/{id}/suggest-edit` is a
+  // protected (any authenticated user) route, and the edit auto-applies with
+  // no review for the trusted_contributor and local_ambassador tiers. So this
+  // guards a contributor-supplied value, exactly like the show surface.
+  //
+  // Unreachable TODAY only because every non-null branch of repairTicketUrl
+  // yields an http(s) value. It stays because that is a navigation repair
+  // rather than a safety rule, and a future "don't invent a scheme" change to
+  // it would otherwise land here silently.
+  const repairedTicketUrl = repairTicketUrl(festival?.ticket_url)
+  const ticketBuyLink =
+    repairedTicketUrl && /^https?:\/\//i.test(repairedTicketUrl)
+      ? ticketLink(repairedTicketUrl)
+      : null
+  usePlantedTicketTagReport(
+    'festival',
+    festival?.id ?? '',
+    ticketBuyLink?.plantedTag
+  )
+
   if (isLoading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
@@ -155,8 +192,19 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
   const hasDescription = !!festival.description && festival.description.trim().length > 0
   const hasSocialLinks =
     !!festival.social && Object.values(festival.social).some(v => !!v)
-  const hasLinks =
-    !!festival.website || !!festival.ticket_url || hasSocialLinks
+  // Both halves gate on the SAME value the anchor renders. A whitespace-only
+  // column is storable, and gating the section on the raw value while gating
+  // the anchor on a resolved one puts a Links heading over nothing in one
+  // direction and an `href="   "` (which reopens the current page) in the
+  // other.
+  //
+  // The website half trims and stops there, which is a known gap rather than a
+  // matching treatment: a scheme-less `website` still renders as a relative
+  // href, exactly as it did before this change. Repairing it means deciding
+  // what a bare `website` means on every surface that reads it, which is a
+  // wider change than this one.
+  const websiteHref = festival.website?.trim() || null
+  const hasLinks = !!websiteHref || !!ticketBuyLink || hasSocialLinks
 
   const statsItems = [
     { label: 'Artists', value: festival.artist_count },
@@ -347,9 +395,9 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
           <div>
             <h2 className="text-lg font-semibold mb-3">Links</h2>
             <div className="space-y-2">
-              {festival.website && (
+              {websiteHref && (
                 <a
-                  href={festival.website}
+                  href={websiteHref}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-2 text-primary hover:text-primary/80 transition-colors text-sm"
@@ -358,11 +406,11 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
                   Official Website
                 </a>
               )}
-              {festival.ticket_url && (
+              {ticketBuyLink && (
                 <a
-                  href={festival.ticket_url}
+                  href={ticketBuyLink.href}
                   target="_blank"
-                  rel="noopener noreferrer"
+                  rel={outboundRel(ticketBuyLink.sponsored)}
                   className="flex items-center gap-2 text-primary hover:text-primary/80 transition-colors text-sm"
                 >
                   <Ticket className="h-4 w-4" />

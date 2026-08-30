@@ -2,6 +2,8 @@ import { showTimingInput } from '../utils'
 import { startTimeFactSegment } from './showStatusStripeCopy'
 import { saysSoldOut } from './showSaleState'
 import { showIsArchived } from '@/lib/utils/showTiming'
+import { repairTicketUrl, ticketLink } from '@/lib/tickets/ticketVendors'
+import type { TicketLink } from '@/lib/tickets/ticketVendors'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import type { ShowResponse } from '../types'
 
@@ -37,13 +39,18 @@ function storedTicketUrl(show: ShowResponse): string | null {
  * branches on it and the Buy Tickets bracket consumes it, so a refusal
  * added here reaches both.
  *
- * Submitters type scheme-less hosts ("tix.example/1") and vendors print
- * uppercase schemes; the scheme test is therefore case-insensitive and
- * anchored (`https?://`), not a bare prefix check — `startsWith('http')`
- * passed "httpfoo.example" through as a RELATIVE href that navigated under
- * /shows/. Protocol-relative values keep their own scheme resolution.
+ * The repair itself is {@link repairTicketUrl}, shared with the festival
+ * page's ticket link so the two surfaces cannot disagree about what a stored
+ * value means. This function owns only the refusals above.
+ *
+ * NOT the href a buy affordance renders, and NOT exported for exactly that
+ * reason. This answers "may this be offered, and at what URL", which is the
+ * question the `ON SALE` words ask; the URL it returns is UNTAGGED, so a Buy
+ * Tickets surface built on it would ship an unmonetized, unqualified link and
+ * no test would notice. {@link buyTicketsLink} is the exported one, and is
+ * what a new surface should render.
  */
-export function ticketHref(
+function ticketHref(
   show: ShowResponse,
   lifecycle: ShowLifecycleState
 ): string | null {
@@ -51,9 +58,30 @@ export function ticketHref(
   if (!raw || show.is_cancelled || show.is_sold_out || lifecycle === 'past') {
     return null
   }
-  if (/^https?:\/\//i.test(raw)) return raw
-  if (raw.startsWith('//')) return `https:${raw}`
-  return `https://${raw}`
+  return repairTicketUrl(raw)
+}
+
+/**
+ * What the Buy Tickets bracket renders: the href plus whether it is a paid
+ * link that has to be qualified with `rel="sponsored"`. Null when there is
+ * nothing to offer.
+ *
+ * Two steps that stay separate on purpose. {@link ticketHref} answers "may
+ * this show be offered, and at what URL" and is also what the `ON SALE` words
+ * branch on; {@link ticketLink} answers "is this vendor's link monetized",
+ * which the words have no opinion about. Composing them here rather than in
+ * the component keeps every derivation of the Buy Tickets href in this file.
+ *
+ * Until the affiliate application is approved and the environment carries a
+ * partner ID, `href` is `ticketHref`'s value unchanged and `sponsored` is
+ * false for every vendor.
+ */
+export function buyTicketsLink(
+  show: ShowResponse,
+  lifecycle: ShowLifecycleState
+): TicketLink | null {
+  const href = ticketHref(show, lifecycle)
+  return href === null ? null : ticketLink(href)
 }
 
 /**
@@ -179,9 +207,10 @@ function saysPastRegister(
  * cancelled or past show makes neither: `SOLD OUT` asserts the event is
  * happening and tickets are gone, `ON SALE` that they can be bought.
  * `SOLD OUT` swaps `ON SALE` per the mock; `ON SALE` requires somewhere to
- * actually buy — it branches on {@link ticketHref}, the same derivation the
- * Buy Tickets bracket renders from, so the words and the affordance cannot
- * drift. The price half is {@link ticketPriceSegments}: one price renders
+ * actually buy — it branches on {@link ticketHref}, the same nullability the
+ * Buy Tickets bracket derives from via {@link buyTicketsLink}, so the words
+ * and the affordance cannot drift. (The bracket renders the TAGGED href;
+ * `ticketHref` answers only whether there is anything to offer.) The price half is {@link ticketPriceSegments}: one price renders
  * bare, an advance/door pair renders as the mock's `$35 ADV · DOOR $40`. The
  * mock's trailing `CASH` is a separate fact with no column and no source that
  * states it reliably, so the line does not claim it. Both numbers are read
