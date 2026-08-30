@@ -373,7 +373,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPublicProfile
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetOwnProfile_Success() {
 	user := suite.createTestUser("ownprofile")
 
-	profile, err := suite.profileService.GetOwnProfile(user.ID, contracts.ShowViewer{UserID: user.ID})
+	profile, err := suite.profileService.GetOwnProfile(contracts.ShowViewer{UserID: user.ID})
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(profile)
@@ -385,7 +385,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetOwnProfile_Su
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetOwnProfile_PrivateBypassesVisibility() {
 	user := suite.createPrivateUser("ownprivate")
 
-	profile, err := suite.profileService.GetOwnProfile(user.ID, contracts.ShowViewer{UserID: user.ID})
+	profile, err := suite.profileService.GetOwnProfile(contracts.ShowViewer{UserID: user.ID})
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(profile, "GetOwnProfile should always work regardless of visibility")
@@ -394,7 +394,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetOwnProfile_Pr
 }
 
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetOwnProfile_NotFound() {
-	profile, err := suite.profileService.GetOwnProfile(99999, contracts.ShowViewer{UserID: 99999})
+	profile, err := suite.profileService.GetOwnProfile(contracts.ShowViewer{UserID: 99999})
 
 	suite.Require().NoError(err)
 	suite.Nil(profile)
@@ -1147,7 +1147,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestUpdatePrivacySet
 	suite.Require().NoError(err)
 
 	// Reload and verify
-	profile, err := suite.profileService.GetOwnProfile(user.ID, contracts.ShowViewer{UserID: user.ID})
+	profile, err := suite.profileService.GetOwnProfile(contracts.ShowViewer{UserID: user.ID})
 	suite.Require().NoError(err)
 	suite.Require().NotNil(profile.PrivacySettings)
 	suite.Equal(contracts.PrivacyHidden, profile.PrivacySettings.Contributions)
@@ -1281,7 +1281,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetOwnProfile_In
 	err := suite.db.Model(user).Update("user_tier", "trusted_contributor").Error
 	suite.Require().NoError(err)
 
-	profile, err := suite.profileService.GetOwnProfile(user.ID, contracts.ShowViewer{UserID: user.ID})
+	profile, err := suite.profileService.GetOwnProfile(contracts.ShowViewer{UserID: user.ID})
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(profile)
@@ -1498,7 +1498,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetOwnProfile_In
 	_, err = suite.profileService.UpdateSection(user.ID, s2.ID, map[string]interface{}{"is_visible": false})
 	suite.Require().NoError(err)
 
-	profile, err := suite.profileService.GetOwnProfile(user.ID, contracts.ShowViewer{UserID: user.ID})
+	profile, err := suite.profileService.GetOwnProfile(contracts.ShowViewer{UserID: user.ID})
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(profile)

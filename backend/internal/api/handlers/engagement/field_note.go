@@ -40,8 +40,7 @@ type FieldNoteHandler struct {
 	reader          FieldNoteReader
 	auditLogService contracts.AuditLogServiceInterface
 	// showVisibility gates the show listing on the same rule GET /shows/{id}
-	// enforces (PSY-1939). Required, not optional: a nil gate answers "not
-	// visible" for everyone rather than serving.
+	// enforces (PSY-1939). Required; see shared.ShowSubResourceVisible.
 	showVisibility contracts.ShowVisibilityInterface
 }
 
@@ -57,17 +56,6 @@ func NewFieldNoteHandler(
 		reader:          reader,
 		auditLogService: auditLogService,
 		showVisibility:  showVisibility,
-	}
-}
-
-// emptyCommentList is the answer a gated show's note listing gives, and it must
-// stay byte-identical to what the service returns for a show with no notes: an
-// empty (never null) array, a zero total, and has_more false.
-func emptyCommentList() *contracts.CommentListResponse {
-	return &contracts.CommentListResponse{
-		Comments: []*contracts.CommentResponse{},
-		Total:    0,
-		HasMore:  false,
 	}
 }
 
@@ -152,11 +140,28 @@ func (h *FieldNoteHandler) CreateFieldNoteHandler(ctx context.Context, req *Crea
 		)
 	}
 
-	// Audit log (fire and forget)
+	// Audit log (fire and forget).
+	//
+	// entity_id is the SHOW, which is what entity_type "show" promises. It used
+	// to be the note's own comment id, and two readers depend on the promise:
+	// contributor_profile.enrichEntityNames resolves this row's name out of the
+	// shows table, and the contributions timeline gates show-typed rows on the
+	// show's visibility (PSY-1939). Under the old value the first labelled a
+	// field note with whatever unrelated show happened to share that id, and the
+	// second dropped the row.
+	//
+	// Rows written before this stayed wrong on both counts. They are not
+	// backfilled here: the show id they should carry is in their metadata, so a
+	// migration can recover it, but a data migration is not this change's job.
+	// The gate fails closed on them, which is the safe direction.
+	//
+	// show_id stays in metadata: it is what the frontend reads, and dropping it
+	// would break the row's link.
 	if h.auditLogService != nil {
 		servicesshared.GoSafe(ctx, "audit_log", func() {
-			h.auditLogService.LogAction(user.ID, "create_field_note", "show", fieldNote.ID, map[string]interface{}{
-				"show_id": uint(showID),
+			h.auditLogService.LogAction(user.ID, "create_field_note", "show", uint(showID), map[string]interface{}{
+				"show_id":       uint(showID),
+				"field_note_id": fieldNote.ID,
 			})
 		})
 	}

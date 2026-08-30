@@ -45,20 +45,19 @@ import (
 // change to what "visible" means has one obvious second site rather than a rule
 // that silently drifts out of agreement.
 //
-// THREE functions in this file decide WHERE the rule is applied:
-// requireEntityVisible (the entity-history route's 404), revisionVisibleTo (the
-// single-revision route), and visibleRevisionsOnly (the SQL both listings
-// filter with). All three now delegate the rule itself to services/shared, so a
-// change to what "visible" means is made once, there.
+// This file decides WHERE the rule is applied, never what it says. The rule
+// itself lives in services/shared/show_visibility.go, shared with every other
+// route that serves a show's content by id, so a change to what "visible" means
+// is made once, there.
+//
+// THREE functions apply it: requireEntityVisible (the entity-history route's
+// 404), revisionVisibleTo (the single-revision route), and visibleRevisionsOnly
+// (the SQL both listings filter with).
 // TestTheGoPredicateAndTheSQLFilterAgree pins the last two against each other;
 // nothing but this sentence pins the first.
 //
-// The mirror no longer stops at revision history. The sibling routes that serve
-// a show's content by id — field notes, comments, tags, collections, saves —
-// were closed by PSY-1939, and the rule they all evaluate is the one in
-// services/shared/show_visibility.go. This file holds what is SPECIFIC to
-// revisions: which reads gate, what a gated read answers, and the merge
-// provenance stamp below. The predicate itself is no longer spelled here.
+// What is SPECIFIC to revisions and therefore stays here: which reads gate, what
+// a gated read answers, and the merge provenance stamp below.
 //
 // It fails closed at every step. A missing show row, a nil db and a failed
 // lookup all resolve to "not visible" for a non-admin, which withholds history
@@ -87,18 +86,6 @@ import (
 // handled by a provenance stamp rather than by this lookup. See
 // adminm.Revision.FromGatedShow and catalog.MergeDuplicateShow.
 
-// entityTypeShow is the polymorphic entity_type value show revisions are stored
-// under.
-//
-// The canonical spelling lives in services/shared beside the rest of the rule,
-// because the contributor profile filters revisions by the same value. This
-// name is the local alias for it, not a second definition.
-//
-// A caller passing "Show" is rejected by the handler's entity-type allowlist
-// before it reaches here. Were it not, the case-sensitive comparison would
-// select zero rows rather than bypass the gate.
-const entityTypeShow = shared.RevisionEntityTypeShow
-
 // requireEntityVisible reports whether a whole entity's revision history may be
 // served to viewer, returning contracts.ErrRevisionEntityHidden when it may not.
 //
@@ -109,7 +96,7 @@ func (s *RevisionService) requireEntityVisible(entityType string, entityID uint,
 	if viewer.IsAdmin {
 		return nil
 	}
-	if entityType != entityTypeShow {
+	if entityType != shared.RevisionEntityTypeShow {
 		return nil
 	}
 	if s.showVisibleTo(entityID, viewer) {
@@ -182,7 +169,7 @@ func (s *RevisionService) revisionVisibleTo(r *adminm.Revision, viewer contracts
 	if viewer.IsAdmin {
 		return true
 	}
-	if r.EntityType != entityTypeShow {
+	if r.EntityType != shared.RevisionEntityTypeShow {
 		return true
 	}
 	if r.FromGatedShow {
@@ -198,14 +185,13 @@ func (s *RevisionService) revisionVisibleTo(r *adminm.Revision, viewer contracts
 // after the fact would return a short page beside a total that announces how
 // many rows were withheld, which is this leak stated as a number.
 //
-// KNOWN GAP, and the reason that sentence says "this leak" and not "the leak":
-// the same number is still derivable elsewhere. user.ContributorProfileService
-// counts revisions_made as an unfiltered COUNT(*) over revisions.user_id and
-// serves it on the public profile, so differencing it against this total yields
-// how many of an author's edits sit on shows the caller cannot see. Closing that
-// means threading a viewer through the profile stats, which is a change to a
-// different service's contract and is deliberately not made here. The
-// counterpart note lives at that count.
+// The total is only worth filtering while its PUBLIC SIBLINGS are filtered too.
+// user.ContributorProfileService serves revisions_made on the public profile
+// over the same rows, so a difference between that count and this total is a
+// count of an author's edits on shows the caller cannot see, published as
+// arithmetic. Both read shared.VisibleShowRevisionsSQL for exactly that reason,
+// and a change to either that does not move the other reopens the leak
+// (PSY-1939). The percentile rankings and the leaderboard read it as well.
 //
 // The condition is the SQL spelling of revisionVisibleTo, and the two have to
 // stay in agreement. It is one correlated EXISTS on the shows primary key, so
@@ -225,7 +211,7 @@ func visibleRevisionsOnly(q *gorm.DB, viewer contracts.RevisionViewer) *gorm.DB 
 	// are the same number. See shared.VisibleShowRevisionsSQL for the three
 	// terms and for why the parentheses are written rather than left to the
 	// query builder.
-	cond, args := shared.VisibleShowRevisionsSQL(viewer)
+	cond, args := shared.VisibleShowRevisionsSQL(shared.RevisionsTable, viewer)
 
 	return q.Where(cond, args...)
 }

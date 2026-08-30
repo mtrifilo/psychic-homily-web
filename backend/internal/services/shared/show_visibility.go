@@ -9,7 +9,7 @@ import (
 )
 
 // =============================================================================
-// SHOW VISIBILITY — ONE RULE, THREE SPELLINGS
+// SHOW VISIBILITY — ONE RULE, SEVERAL SPELLINGS
 // =============================================================================
 //
 // GET /shows/{id} answers 404 for a show whose status is not approved unless
@@ -18,24 +18,28 @@ import (
 // definition, and every route that serves a show's content, id, title or count
 // by show id evaluates it from here rather than re-deriving it (PSY-1939).
 //
-// Before this file the rule was copied. PSY-1715 mirrored it inside the
-// revision service while field notes, comments, tags, collections, the
-// contributions timeline and the public contribution counts kept serving a
-// gated show's content anonymously — the detail route's 404 cost a reader one
-// extra request. Copies drift; the fix for a class of leak is one definition
-// with N callers.
+// A rule spelled in N places is N rules. Anything that needs this one calls it
+// from here; a `status = 'approved'` written by hand anywhere else is a bug
+// waiting for the next status value, and the class of leak this file exists to
+// close was exactly that — a copied predicate that several surfaces never got a
+// copy of.
 //
-// THREE spellings, because the callers are not the same shape:
+// The spellings differ because the callers are not the same shape:
 //
 //   - ShowVisibleTo answers for ONE already-identified show. Handlers use it.
 //   - VisibleShowPredicateSQL is the same rule over a shows-table alias, for a
 //     query already reading shows.
 //   - VisibleShowExistsSQL wraps that in a correlated EXISTS, for a query
 //     holding only a show id in some other table's column.
+//   - VisibleShowRevisionsSQL adds the two revision-specific terms.
+//   - PublicShowPredicateSQL and PublicShowRevisionsSQL are the public tier of
+//     the two predicates with the status inlined, for statement builders that
+//     return a bare string and have no argument list to bind into.
 //
-// The three must agree, and TestShowVisibilityGoAndSQLAgree in
-// show_visibility_test.go enumerates the viewer x status matrix against all
-// three rather than trusting that they read alike.
+// They must all agree, and TestShowVisibilitySpellingsAgree in
+// show_visibility_test.go enumerates the whole viewer x status matrix against
+// every one of them, comparing each to a hand-written truth table rather than
+// to the others. A shared bug cannot make them agree and be wrong together.
 //
 // EVERY spelling fails closed. A missing show row, a nil db, a zero id and a
 // failed lookup all resolve to "not visible" for a non-admin. Withholding a
@@ -72,9 +76,13 @@ import (
 // beside a non-zero total.
 
 // visibleShowsAlias is the alias VisibleShowExistsSQL binds the shows table to.
-// Deliberately not `s`: the queries this predicate is spliced into already use
-// short aliases, and a collision would silently re-point the correlation at the
-// outer query's row.
+//
+// Deliberately not `s`, which the queries this predicate is spliced into already
+// use. An alias declared in this subquery SHADOWS an outer one of the same name,
+// so a showIDExpr qualified with the colliding alias would self-correlate —
+// `visible_show.id = visible_show.id` — and the EXISTS would be true whenever any
+// approved show exists at all, opening the gate completely. Callers must never
+// pass an expression qualified with this alias.
 const visibleShowsAlias = "visible_show"
 
 // ShowVisibleTo reports whether viewer may see show showID at all.
@@ -162,10 +170,16 @@ func VisibleShowExistsSQL(showIDExpr string, viewer contracts.ShowViewer) (strin
 		return "TRUE", nil
 	}
 	inner, args := VisibleShowPredicateSQL(visibleShowsAlias, viewer)
-	cond := "EXISTS (SELECT 1 FROM shows " + visibleShowsAlias +
+	return showExistsSQL(showIDExpr, inner), args
+}
+
+// showExistsSQL wraps a shows-table condition in the correlated EXISTS both
+// tiers use. The subquery shape lives here once so the bound and inlined forms
+// cannot correlate on different columns.
+func showExistsSQL(showIDExpr, showCond string) string {
+	return "EXISTS (SELECT 1 FROM shows " + visibleShowsAlias +
 		" WHERE " + visibleShowsAlias + ".id = " + showIDExpr +
-		" AND " + inner + ")"
-	return cond, args
+		" AND " + showCond + ")"
 }
 
 // RevisionEntityTypeShow is the polymorphic entity_type value show revisions
@@ -196,14 +210,35 @@ const RevisionEntityTypeShow = "show"
 //
 // The outer parentheses are written here, not left to the query builder, for the
 // reason ShowVisibleTo gives.
-func VisibleShowRevisionsSQL(viewer contracts.ShowViewer) (string, []interface{}) {
+func VisibleShowRevisionsSQL(alias string, viewer contracts.ShowViewer) (string, []interface{}) {
 	if viewer.IsAdmin {
 		return "TRUE", nil
 	}
-	visible, visibleArgs := VisibleShowExistsSQL("revisions.entity_id", viewer)
-	cond := "(revisions.entity_type <> ? OR (revisions.from_gated_show = FALSE AND " + visible + "))"
-	args := append([]interface{}{RevisionEntityTypeShow}, visibleArgs...)
-	return cond, args
+	visible, visibleArgs := VisibleShowExistsSQL(alias+".entity_id", viewer)
+	return revisionVisibilitySQL(alias, visible), visibleArgs
+}
+
+// RevisionsTable is the alias to pass the revision spellings when the query
+// leaves the revisions table unaliased.
+const RevisionsTable = "revisions"
+
+// revisionVisibilitySQL wraps a show-visibility condition in the two
+// revision-specific terms both tiers share: a non-show row passes, and a
+// merge-stamped row never does.
+//
+// alias is the revisions-table alias the enclosing query uses, and it is a
+// parameter rather than a hardcoded "revisions" because a caller that writes
+// FROM revisions r, or joins the table twice, would otherwise splice in a
+// predicate naming a table not in its FROM clause: Postgres either errors or,
+// where an outer scope has one, silently correlates against the wrong rows.
+//
+// The entity_type value is interpolated rather than bound because it is
+// RevisionEntityTypeShow, a package constant, and because the inlined tier below
+// has no bind slot to put it in. Keeping both tiers on one spelling of this
+// skeleton matters more than keeping one of them on a placeholder.
+func revisionVisibilitySQL(alias, showCond string) string {
+	return "(" + alias + ".entity_type <> '" + RevisionEntityTypeShow + "' OR (" +
+		alias + ".from_gated_show = FALSE AND " + showCond + "))"
 }
 
 // =============================================================================
@@ -236,12 +271,14 @@ func PublicShowPredicateSQL(alias string) string {
 }
 
 // PublicShowRevisionsSQL is VisibleShowRevisionsSQL's public tier, inlined.
-func PublicShowRevisionsSQL() string {
-	return "(revisions.entity_type <> '" + RevisionEntityTypeShow + "' OR (" +
-		"revisions.from_gated_show = FALSE AND EXISTS (" +
-		"SELECT 1 FROM shows " + visibleShowsAlias +
-		" WHERE " + visibleShowsAlias + ".id = revisions.entity_id" +
-		" AND " + PublicShowPredicateSQL(visibleShowsAlias) + ")))"
+//
+// Shares the revision skeleton and the EXISTS shape with the bound form, so the
+// only thing that differs between the two is which show condition goes inside.
+func PublicShowRevisionsSQL(alias string) string {
+	return revisionVisibilitySQL(
+		alias,
+		showExistsSQL(alias+".entity_id", PublicShowPredicateSQL(visibleShowsAlias)),
+	)
 }
 
 // ShowVisibilityService is the injectable form of ShowVisibleTo, for handlers,

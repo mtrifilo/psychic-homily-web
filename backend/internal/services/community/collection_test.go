@@ -3763,8 +3763,10 @@ func (suite *CollectionServiceIntegrationTestSuite) TestCollectionShowHydration_
 		"a gated slug and an unknown slug leave by the same door")
 
 	// Site 2: batchResolveEntityNames, through the collection detail response.
-	// The item row survives (it is a real membership) but carries no title and
-	// no slug, exactly as it would for an entity id no show row holds.
+	// The item is DROPPED, not emitted nameless. Withholding only the title
+	// would still publish the gated show's ID, and a blank name beside a real id
+	// positively marks it — "a show is here and you may not see it" — which is a
+	// louder signal than the title was.
 	detail, err := suite.collectionService.GetBySlug(coll.Slug, 0)
 	suite.Require().NoError(err)
 	byEntityID := map[uint]contracts.CollectionItemResponse{}
@@ -3773,9 +3775,8 @@ func (suite *CollectionServiceIntegrationTestSuite) TestCollectionShowHydration_
 	}
 	suite.Require().Contains(byEntityID, approved.ID)
 	suite.Equal("Approved Bill", byEntityID[approved.ID].EntityName)
-	suite.Require().Contains(byEntityID, gated.ID)
-	suite.Empty(byEntityID[gated.ID].EntityName, "a gated show's title must not reach a public collection")
-	suite.Empty(byEntityID[gated.ID].EntitySlug, "a gated show's slug must not reach a public collection")
+	suite.NotContains(byEntityID, gated.ID,
+		"a gated show's id must not reach a public collection at all")
 
 	// Site 3: loadEntityDetailsForGraph. No node at all for the gated show.
 	graph, err := suite.collectionService.GetCollectionGraph(coll.Slug, 0, nil)
@@ -3817,9 +3818,15 @@ func (suite *CollectionServiceIntegrationTestSuite) TestCollectionShowHydration_
 	suite.Equal(addedMissing.EntityName, addedGated.EntityName,
 		"a gated show and a nonexistent one must read identically here")
 
-	// Site 5: GetUserCollectionsContainingEntity. The gated show answers with
-	// the empty slice a show held in none of the caller's collections answers
-	// with, even though the caller's own collection does hold it.
+	// Site 5: GetUserCollectionsContainingEntity is deliberately NOT gated, and
+	// the gated show must still be found. This lookup is scoped to the CALLER's
+	// own collections, so everything it reports is something the caller put there
+	// themselves and it discloses nothing to anyone else.
+	//
+	// Asserted rather than left to the code, because gating it looks like the
+	// consistent thing to do and is a bug: the owner's popover would render the
+	// collection unchecked, clicking it would hit the uniqueness constraint, and
+	// the item could not be removed either.
 	containingApproved, err := suite.collectionService.GetUserCollectionsContainingEntity(
 		user.ID, communitym.CollectionEntityShow, approved.ID)
 	suite.Require().NoError(err)
@@ -3828,5 +3835,6 @@ func (suite *CollectionServiceIntegrationTestSuite) TestCollectionShowHydration_
 	containingGated, err := suite.collectionService.GetUserCollectionsContainingEntity(
 		user.ID, communitym.CollectionEntityShow, gated.ID)
 	suite.Require().NoError(err)
-	suite.Empty(containingGated, "a gated show is not addressable through the containing-collections lookup")
+	suite.NotEmpty(containingGated,
+		"the owner must still see their own collection holding a gated show, or they cannot curate it")
 }

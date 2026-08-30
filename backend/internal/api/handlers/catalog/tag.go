@@ -21,8 +21,8 @@ type TagHandler struct {
 	tagService contracts.TagServiceInterface
 	auditLog   contracts.AuditLogServiceInterface
 	// showVisibility gates the per-entity tag routes when the entity is a show,
-	// on the rule GET /shows/{id} enforces (PSY-1939). Required, not optional: a
-	// nil gate answers "not visible" for everyone rather than serving.
+	// on the rule GET /shows/{id} enforces (PSY-1939). Required; see
+	// shared.ShowSubResourceVisible.
 	showVisibility contracts.ShowVisibilityInterface
 }
 

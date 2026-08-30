@@ -34,7 +34,7 @@ import { labelQueryKeys } from '@/features/labels/api'
 import { festivalQueryKeys } from '@/features/festivals/api'
 import { radioQueryKeys } from '@/features/radio/api'
 import { chartQueryKeys } from '@/features/charts/api'
-import { commentQueryKeys } from '@/features/comments/api'
+import { commentQueryKeys, fieldNoteQueryKeys } from '@/features/comments/api'
 
 // Default query options for all queries
 const defaultQueryOptions: DefaultOptions = {
@@ -737,12 +737,11 @@ export const queryKeys = {
  *     the key here if that changes. Its siblings `/artists/{id}/related` (no
  *     consumer today), `/bill-composition` and `/relationships/{id}/provenance`
  *     are also optional-auth but read no viewer.
- *   - `field-notes`: `GET /shows/{id}/field-notes` reads no viewer at all, so
- *     the `user_vote` its comment-shaped rows can carry is never populated.
- *     Same for its venue sibling `GET /venues/{venue_id}/field-notes`
- *     (`['field-notes','venue',id,limit]`, PSY-1590), which is registered with
- *     no auth middleware at all — deliberately, so nothing per-viewer can
- *     enter a response that anonymous callers share.
+ *   - `field-notes` VENUE rollup only: `GET /venues/{venue_id}/field-notes`
+ *     (`['field-notes','venue',id,limit]`, PSY-1590) is registered with no auth
+ *     middleware at all — deliberately, so nothing per-viewer can enter a
+ *     response that anonymous callers share. Its SHOW sibling is a different
+ *     case and is listed below.
  *   - `admin.*`, `contributor.own*`, `collections.my`, personal `charts`,
  *     `passkeys`, `mySubmissions`, `calendar`, `savedShows.list`: signed-in
  *     only, with no anonymous variant to be confused with. Logout drops them
@@ -789,6 +788,16 @@ const VIEWER_TIER_QUERY_KEYS: readonly (readonly unknown[])[] = [
   // category from anonymous viewers, which also changes `total_items`, and
   // orders items per-viewer.
   queryKeys.contribute.opportunities,
+  // A show's field notes are withheld entirely when the caller may not see the
+  // show, and served to its submitter and to admins (PSY-1939). So the whole
+  // LIST varies by credential, not just a `user_vote` inside it: a submitter who
+  // was served the anonymous empty list before signing in would keep seeing
+  // their own show's notes missing.
+  //
+  // The family prefix covers the venue rollup key too. That one does not vary,
+  // so this refetches it for nothing on a tier flip — a cheap price for a key
+  // list that cannot drift out of step with the family it names.
+  fieldNoteQueryKeys.all,
 ]
 
 /**

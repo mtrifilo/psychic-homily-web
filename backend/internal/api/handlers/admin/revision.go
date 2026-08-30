@@ -149,18 +149,12 @@ func revisionAuthorCredit(r *adminm.Revision, viewer contracts.RevisionViewer) s
 // demoted admin, a deactivated account and a deleted user all lose their tier
 // on the next request rather than carrying it in a live token.
 //
-// Mirrors the shape used for optional-auth reads elsewhere — the closest
-// exemplar is catalog.ShowHandler.GetShowHandler, whose route is likewise
-// registered on an optional-auth group and keys its own 404 on the same two
-// facts. Named here rather than re-spelled because three handlers need it, and
-// an inline `user != nil && user.IsAdmin` is the shape a later edit drops the
-// nil check from.
+// Every optional-auth read that gates on a show reduces its caller the same way,
+// so the reduction lives in one place (PSY-1939) and this is the name the three
+// revision handlers reach it by. contracts.RevisionViewer is an alias of the
+// ShowViewer that resolver returns, so this is a rename, not a conversion.
 func revisionViewer(ctx context.Context) contracts.RevisionViewer {
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil {
-		return contracts.RevisionViewer{}
-	}
-	return contracts.RevisionViewer{UserID: user.ID, IsAdmin: user.IsAdmin}
+	return middleware.GetShowViewerFromContext(ctx)
 }
 
 // mapRevisionToResponse converts a adminm.Revision to a RevisionResponseItem

@@ -18,7 +18,7 @@ import (
 )
 
 func testShowHandler() *ShowHandler {
-	return NewShowHandler(nil, nil, nil, nil, nil, nil, nil)
+	return NewShowHandler(nil, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 }
 
 // --- CreateShowHandler ---
@@ -405,23 +405,23 @@ func TestExportShowHandler_NonDevEnvironment(t *testing.T) {
 func TestExportShowHandler_GatedShowAnswersLikeMissing(t *testing.T) {
 	const notFoundDetail = "Show not found"
 
-	cases := []struct {
-		name    string
-		show    *contracts.ShowResponse
-		lookErr error
-	}{
-		{name: "pending", show: &contracts.ShowResponse{ID: 7, Status: "pending"}},
-		{name: "rejected", show: &contracts.ShowResponse{ID: 7, Status: "rejected"}},
-		{name: "nonexistent", lookErr: fmt.Errorf("not found")},
-	}
+	// The gate answers false for a gated show and for a show id that carries no
+	// row, so both cases reach this handler identically. The three names below
+	// are the three ways that happens in production; the handler cannot tell them
+	// apart, and that is the property under test.
+	cases := []string{"pending", "rejected", "nonexistent"}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+	for _, name := range cases {
+		t.Run(name, func(t *testing.T) {
 			t.Setenv("ENVIRONMENT", "development")
 			exported := false
-			showMock := &testhelpers.MockShowService{
-				GetShowFn: func(_ uint) (*contracts.ShowResponse, error) {
-					return tc.show, tc.lookErr
+			var gateAskedFor uint
+			var gateViewer contracts.ShowViewer
+			gate := &testhelpers.MockShowVisibility{
+				ShowVisibleToFn: func(showID uint, viewer contracts.ShowViewer) bool {
+					gateAskedFor = showID
+					gateViewer = viewer
+					return false
 				},
 			}
 			importMock := &testhelpers.MockShowImportService{
@@ -430,12 +430,24 @@ func TestExportShowHandler_GatedShowAnswersLikeMissing(t *testing.T) {
 					return []byte("# leaked"), "leaked.md", nil
 				},
 			}
-			h := NewShowHandler(showMock, nil, importMock, nil, nil, nil, nil)
+			// showService is nil on purpose: reaching it would mean the handler
+			// loads the show before deciding, which is the round trip the gate
+			// replaced. A nil-pointer panic here is the assertion.
+			h := NewShowHandler(nil, nil, importMock, nil, nil, nil, nil, gate)
 
 			_, err := h.ExportShowHandler(context.Background(), &ExportShowRequest{ShowID: "7"})
 			testhelpers.AssertHumaErrorWithDetail(t, err, 404, notFoundDetail)
 			if exported {
 				t.Error("the export must not run for a show the caller may not see")
+			}
+			if gateAskedFor != 7 {
+				t.Errorf("gate was asked about show %d, want 7", gateAskedFor)
+			}
+			// The route carries no auth middleware, so the only viewer it can
+			// pass is the public tier. A non-zero one here would mean the handler
+			// invented an identity.
+			if gateViewer != (contracts.ShowViewer{}) {
+				t.Errorf("gate was passed viewer %+v, want the public tier", gateViewer)
 			}
 		})
 	}
@@ -446,17 +458,12 @@ func TestExportShowHandler_GatedShowAnswersLikeMissing(t *testing.T) {
 // show is the only thing it streams.
 func TestExportShowHandler_ApprovedShowExports(t *testing.T) {
 	t.Setenv("ENVIRONMENT", "development")
-	showMock := &testhelpers.MockShowService{
-		GetShowFn: func(showID uint) (*contracts.ShowResponse, error) {
-			return &contracts.ShowResponse{ID: showID, Status: "approved"}, nil
-		},
-	}
 	importMock := &testhelpers.MockShowImportService{
 		ExportShowToMarkdownFn: func(_ uint) ([]byte, string, error) {
 			return []byte("# Show"), "show-7.md", nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, importMock, nil, nil, nil, nil)
+	h := NewShowHandler(nil, nil, importMock, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 
 	resp, err := h.ExportShowHandler(context.Background(), &ExportShowRequest{ShowID: "7"})
 	if err != nil {
@@ -477,7 +484,7 @@ func TestGetShowHandler_ByID(t *testing.T) {
 			return &contracts.ShowResponse{ID: showID, Status: "approved"}, nil
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 
 	resp, err := h.GetShowHandler(context.Background(), &GetShowRequest{ShowID: "42"})
 	if err != nil {
@@ -494,7 +501,7 @@ func TestGetShowHandler_BySlug(t *testing.T) {
 			return &contracts.ShowResponse{ID: 10, Slug: slug, Status: "approved"}, nil
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 
 	resp, err := h.GetShowHandler(context.Background(), &GetShowRequest{ShowID: "cool-show"})
 	if err != nil {
@@ -511,7 +518,7 @@ func TestGetShowHandler_NotFound(t *testing.T) {
 			return nil, fmt.Errorf("not found")
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 
 	_, err := h.GetShowHandler(context.Background(), &GetShowRequest{ShowID: "99"})
 	testhelpers.AssertHumaError(t, err, 404)
@@ -523,7 +530,7 @@ func TestGetShowHandler_NonApproved_Admin(t *testing.T) {
 			return &contracts.ShowResponse{ID: 1, Status: "pending"}, nil
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 
 	resp, err := h.GetShowHandler(ctx, &GetShowRequest{ShowID: "1"})
@@ -542,7 +549,7 @@ func TestGetShowHandler_NonApproved_Submitter(t *testing.T) {
 			return &contracts.ShowResponse{ID: 1, Status: "pending", SubmittedBy: &userID}, nil
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 
 	resp, err := h.GetShowHandler(ctx, &GetShowRequest{ShowID: "1"})
@@ -561,7 +568,7 @@ func TestGetShowHandler_NonApproved_Denied(t *testing.T) {
 			return &contracts.ShowResponse{ID: 1, Status: "pending", SubmittedBy: &otherUser}, nil
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 
 	_, err := h.GetShowHandler(ctx, &GetShowRequest{ShowID: "1"})
@@ -578,7 +585,7 @@ func TestGetShowsHandler_Success(t *testing.T) {
 			return []*contracts.ShowResponse{{ID: 1}, {ID: 2}}, 2, nil
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 
 	resp, err := h.GetShowsHandler(context.Background(), &GetShowsRequest{})
 	if err != nil {
@@ -598,7 +605,7 @@ func TestGetShowsHandler_ServiceError(t *testing.T) {
 			return nil, 0, fmt.Errorf("db error")
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 
 	_, err := h.GetShowsHandler(context.Background(), &GetShowsRequest{})
 	testhelpers.AssertHumaError(t, err, 500)
@@ -617,7 +624,7 @@ func TestGetShowsHandler_ZeroLimitTakesDefault(t *testing.T) {
 			return []*contracts.ShowResponse{}, 0, nil
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 
 	resp, err := h.GetShowsHandler(context.Background(), &GetShowsRequest{})
 	if err != nil {
@@ -641,7 +648,7 @@ func TestGetShowsHandler_PassesAndEchoesPageWindow(t *testing.T) {
 			return []*contracts.ShowResponse{{ID: 7}}, 931, nil
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 
 	resp, err := h.GetShowsHandler(context.Background(), &GetShowsRequest{Limit: 25, Offset: 100})
 	if err != nil {
@@ -673,7 +680,7 @@ func TestGetShowCitiesHandler_Success(t *testing.T) {
 			}, nil
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 
 	resp, err := h.GetShowCitiesHandler(context.Background(), &GetShowCitiesRequest{Timezone: "America/Phoenix"})
 	if err != nil {
@@ -697,7 +704,7 @@ func TestGetShowCitiesHandler_ServiceError(t *testing.T) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 
 	_, err := h.GetShowCitiesHandler(context.Background(), &GetShowCitiesRequest{})
 	testhelpers.AssertHumaError(t, err, 500)
@@ -714,7 +721,7 @@ func TestGetUpcomingShowsHandler_Success(t *testing.T) {
 			return []*contracts.ShowResponse{{ID: 1}}, &nextCursor, 1, nil
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 
 	resp, err := h.GetUpcomingShowsHandler(context.Background(), &GetUpcomingShowsRequest{Limit: 50})
 	if err != nil {
@@ -737,7 +744,7 @@ func TestGetUpcomingShowsHandler_ServiceError(t *testing.T) {
 			return nil, nil, 0, fmt.Errorf("db error")
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 
 	_, err := h.GetUpcomingShowsHandler(context.Background(), &GetUpcomingShowsRequest{Limit: 50})
 	testhelpers.AssertHumaError(t, err, 500)
@@ -753,7 +760,7 @@ func TestCreateShowHandler_Success(t *testing.T) {
 			return &contracts.ShowResponse{ID: 100, Title: req.Title, Status: "pending"}, nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, &testhelpers.MockSavedShowService{}, &testhelpers.MockDiscordService{}, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, &testhelpers.MockSavedShowService{}, &testhelpers.MockDiscordService{}, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, EmailVerified: true})
 
 	venueID := uint(1)
@@ -788,7 +795,7 @@ func TestCreateShowHandler_AutoSave(t *testing.T) {
 			return nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, savedShowMock, &testhelpers.MockDiscordService{}, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, savedShowMock, &testhelpers.MockDiscordService{}, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 7, EmailVerified: true})
 
 	venueID := uint(1)
@@ -818,7 +825,7 @@ func TestCreateShowHandler_ServiceError(t *testing.T) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, &testhelpers.MockDiscordService{}, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, &testhelpers.MockDiscordService{}, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, EmailVerified: true})
 
 	venueID := uint(1)
@@ -848,7 +855,7 @@ func TestUpdateShowHandler_OwnerSuccess(t *testing.T) {
 			return &contracts.ShowResponse{ID: showID, Title: "Updated"}, nil, nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 	title := "Updated"
 	req := &UpdateShowRequest{ShowID: "1"}
@@ -873,7 +880,7 @@ func TestUpdateShowHandler_AdminSuccess(t *testing.T) {
 			return &contracts.ShowResponse{ID: showID}, nil, nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	title := "Admin Update"
 	req := &UpdateShowRequest{ShowID: "1"}
@@ -891,7 +898,7 @@ func TestUpdateShowHandler_NotFound(t *testing.T) {
 			return nil, fmt.Errorf("not found")
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.UpdateShowHandler(ctx, &UpdateShowRequest{ShowID: "99"})
@@ -905,7 +912,7 @@ func TestUpdateShowHandler_Unauthorized(t *testing.T) {
 			return &contracts.ShowResponse{ID: 1, SubmittedBy: &otherUser}, nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 
 	_, err := h.UpdateShowHandler(ctx, &UpdateShowRequest{ShowID: "1"})
@@ -922,7 +929,7 @@ func TestUpdateShowHandler_ServiceError(t *testing.T) {
 			return nil, nil, fmt.Errorf("update failed")
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	title := "New"
 	req := &UpdateShowRequest{ShowID: "1"}
@@ -942,7 +949,7 @@ func TestUpdateShowHandler_SummaryTooLong(t *testing.T) {
 			return &contracts.ShowResponse{ID: 1, SubmittedBy: &userID}, nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	longSummary := make([]byte, 5001)
@@ -1006,7 +1013,7 @@ func TestUpdateShowHandler_RecordsRevisionOnChange(t *testing.T) {
 		},
 	}
 
-	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, revisionMock)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, revisionMock, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 	title := "Updated Title"
 	desc := "New description"
@@ -1083,7 +1090,7 @@ func TestUpdateShowHandler_SkipsRevisionWhenNoChanges(t *testing.T) {
 		},
 	}
 
-	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, revisionMock)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, revisionMock, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 	title := "Same Title"
 	summary := "Pointless save"
@@ -1129,7 +1136,7 @@ func TestDeleteShowHandler_OwnerSuccess(t *testing.T) {
 			return nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 
 	_, err := h.DeleteShowHandler(ctx, &DeleteShowRequest{ShowID: "1"})
@@ -1146,7 +1153,7 @@ func TestDeleteShowHandler_AdminSuccess(t *testing.T) {
 		},
 		DeleteShowFn: func(_ uint) error { return nil },
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 
 	_, err := h.DeleteShowHandler(ctx, &DeleteShowRequest{ShowID: "1"})
@@ -1161,7 +1168,7 @@ func TestDeleteShowHandler_NotFound(t *testing.T) {
 			return nil, fmt.Errorf("not found")
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.DeleteShowHandler(ctx, &DeleteShowRequest{ShowID: "99"})
@@ -1175,7 +1182,7 @@ func TestDeleteShowHandler_Unauthorized(t *testing.T) {
 			return &contracts.ShowResponse{ID: 1, SubmittedBy: &otherUser}, nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 
 	_, err := h.DeleteShowHandler(ctx, &DeleteShowRequest{ShowID: "1"})
@@ -1190,7 +1197,7 @@ func TestDeleteShowHandler_ServiceError(t *testing.T) {
 		},
 		DeleteShowFn: func(_ uint) error { return fmt.Errorf("delete failed") },
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.DeleteShowHandler(ctx, &DeleteShowRequest{ShowID: "1"})
@@ -1207,7 +1214,7 @@ func TestUnpublishShowHandler_Success(t *testing.T) {
 			return &contracts.ShowResponse{ID: showID, Status: "pending", Title: "Test"}, nil
 		},
 	}
-	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil)
+	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.UnpublishShowHandler(ctx, &UnpublishShowRequest{ShowID: "42"})
@@ -1225,7 +1232,7 @@ func TestUnpublishShowHandler_NotFound(t *testing.T) {
 			return nil, apperrors.ErrShowNotFound(42)
 		},
 	}
-	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil)
+	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.UnpublishShowHandler(ctx, &UnpublishShowRequest{ShowID: "42"})
@@ -1238,7 +1245,7 @@ func TestUnpublishShowHandler_Unauthorized(t *testing.T) {
 			return nil, apperrors.ErrShowUnpublishUnauthorized(42)
 		},
 	}
-	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil)
+	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 
 	_, err := h.UnpublishShowHandler(ctx, &UnpublishShowRequest{ShowID: "42"})
@@ -1255,7 +1262,7 @@ func TestMakePrivateShowHandler_Success(t *testing.T) {
 			return &contracts.ShowResponse{ID: showID, Status: "private", Title: "Test"}, nil
 		},
 	}
-	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil)
+	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.MakePrivateShowHandler(ctx, &MakePrivateShowRequest{ShowID: "42"})
@@ -1273,7 +1280,7 @@ func TestMakePrivateShowHandler_NotFound(t *testing.T) {
 			return nil, apperrors.ErrShowNotFound(42)
 		},
 	}
-	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil)
+	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.MakePrivateShowHandler(ctx, &MakePrivateShowRequest{ShowID: "42"})
@@ -1286,7 +1293,7 @@ func TestMakePrivateShowHandler_Unauthorized(t *testing.T) {
 			return nil, apperrors.ErrShowMakePrivateUnauthorized(42)
 		},
 	}
-	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil)
+	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 
 	_, err := h.MakePrivateShowHandler(ctx, &MakePrivateShowRequest{ShowID: "42"})
@@ -1303,7 +1310,7 @@ func TestPublishShowHandler_Success(t *testing.T) {
 			return &contracts.ShowResponse{ID: showID, Status: "approved", Title: "Test"}, nil
 		},
 	}
-	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil)
+	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.PublishShowHandler(ctx, &PublishShowRequest{ShowID: "42"})
@@ -1321,7 +1328,7 @@ func TestPublishShowHandler_NotFound(t *testing.T) {
 			return nil, apperrors.ErrShowNotFound(42)
 		},
 	}
-	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil)
+	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.PublishShowHandler(ctx, &PublishShowRequest{ShowID: "42"})
@@ -1334,7 +1341,7 @@ func TestPublishShowHandler_Unauthorized(t *testing.T) {
 			return nil, apperrors.ErrShowPublishUnauthorized(42)
 		},
 	}
-	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil)
+	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 
 	_, err := h.PublishShowHandler(ctx, &PublishShowRequest{ShowID: "42"})
@@ -1357,7 +1364,7 @@ func TestSetShowSoldOutHandler_Success(t *testing.T) {
 			return &contracts.ShowResponse{ID: showID, IsSoldOut: value}, nil
 		},
 	}
-	h := NewShowHandler(showMock, stateMock, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, stateMock, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 	req := &SetShowSoldOutRequest{ShowID: "1"}
 	req.Body.Value = true
@@ -1378,7 +1385,7 @@ func TestSetShowSoldOutHandler_NotOwner(t *testing.T) {
 			return &contracts.ShowResponse{ID: 1, SubmittedBy: &otherUser}, nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 	req := &SetShowSoldOutRequest{ShowID: "1"}
 	req.Body.Value = true
@@ -1403,7 +1410,7 @@ func TestSetShowCancelledHandler_Success(t *testing.T) {
 			return &contracts.ShowResponse{ID: showID, IsCancelled: value}, nil
 		},
 	}
-	h := NewShowHandler(showMock, stateMock, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, stateMock, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 	req := &SetShowCancelledRequest{ShowID: "1"}
 	req.Body.Value = true
@@ -1424,7 +1431,7 @@ func TestSetShowCancelledHandler_NotOwner(t *testing.T) {
 			return &contracts.ShowResponse{ID: 1, SubmittedBy: &otherUser}, nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 	req := &SetShowCancelledRequest{ShowID: "1"}
 	req.Body.Value = true
@@ -1443,7 +1450,7 @@ func TestGetMySubmissionsHandler_Success(t *testing.T) {
 			return []contracts.ShowResponse{{ID: 1}, {ID: 2}}, 2, nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.GetMySubmissionsHandler(ctx, &GetMySubmissionsRequest{Limit: 50})
@@ -1461,7 +1468,7 @@ func TestGetMySubmissionsHandler_ServiceError(t *testing.T) {
 			return nil, 0, fmt.Errorf("db error")
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.GetMySubmissionsHandler(ctx, &GetMySubmissionsRequest{Limit: 50})
@@ -1478,7 +1485,7 @@ func TestAIProcessShowHandler_Success(t *testing.T) {
 			return &contracts.ExtractShowResponse{Success: true}, nil
 		},
 	}
-	h := NewShowHandler(nil, nil, nil, nil, nil, extractMock, nil)
+	h := NewShowHandler(nil, nil, nil, nil, nil, extractMock, nil, testhelpers.AllShowsVisible())
 
 	req := &AIProcessShowRequest{}
 	req.Body.Type = "text"
@@ -1506,7 +1513,7 @@ func TestGetShowHandler_ZeroID(t *testing.T) {
 			return nil, fmt.Errorf("not found")
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 	_, err := h.GetShowHandler(context.Background(), &GetShowRequest{ShowID: "0"})
 	testhelpers.AssertHumaError(t, err, 404)
 }
@@ -1517,7 +1524,7 @@ func TestGetShowHandler_VeryLargeID(t *testing.T) {
 			return nil, fmt.Errorf("not found")
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 	_, err := h.GetShowHandler(context.Background(), &GetShowRequest{ShowID: "4294967295"})
 	testhelpers.AssertHumaError(t, err, 404)
 }
@@ -1528,7 +1535,7 @@ func TestGetShowHandler_OverflowID(t *testing.T) {
 			return nil, fmt.Errorf("not found")
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 	_, err := h.GetShowHandler(context.Background(), &GetShowRequest{ShowID: "99999999999"})
 	testhelpers.AssertHumaError(t, err, 404)
 }
@@ -1539,7 +1546,7 @@ func TestUpdateShowHandler_ZeroID(t *testing.T) {
 			return nil, fmt.Errorf("not found")
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	_, err := h.UpdateShowHandler(ctx, &UpdateShowRequest{ShowID: "0"})
 	testhelpers.AssertHumaError(t, err, 404)
@@ -1551,7 +1558,7 @@ func TestDeleteShowHandler_ZeroID(t *testing.T) {
 			return nil, fmt.Errorf("not found")
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	_, err := h.DeleteShowHandler(ctx, &DeleteShowRequest{ShowID: "0"})
 	testhelpers.AssertHumaError(t, err, 404)
@@ -1570,7 +1577,7 @@ func TestAIProcessShowHandler_ServiceError(t *testing.T) {
 			return nil, fmt.Errorf("AI service down")
 		},
 	}
-	h := NewShowHandler(nil, nil, nil, nil, nil, extractMock, nil)
+	h := NewShowHandler(nil, nil, nil, nil, nil, extractMock, nil, testhelpers.AllShowsVisible())
 
 	req := &AIProcessShowRequest{}
 	req.Body.Type = "text"

@@ -1150,6 +1150,20 @@ func (s *TagService) GetTagEntities(tagID uint, entityType string, limit, offset
 		query = query.Where("entity_type = ?", entityType)
 	}
 
+	// Gated shows leave this listing in the QUERY, not in the assembly loop
+	// below, so the total, the page and the offset all describe the same rows
+	// (PSY-1939). Dropping them later would answer an empty page beside a total
+	// that counts them, which is the withheld count published as arithmetic and
+	// is exactly what a gate on this listing exists to prevent.
+	//
+	// PUBLIC tier: this route is anonymous, and a tag's membership is a shared
+	// listing whose contents must not vary by credential.
+	visibleShows, visibleShowsArgs := shared.VisibleShowExistsSQL(
+		"entity_tags.entity_id", contracts.ShowViewer{})
+	query = query.Where(
+		"(entity_tags.entity_type <> ? OR "+visibleShows+")",
+		append([]interface{}{catalogm.TagEntityShow}, visibleShowsArgs...)...)
+
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to count tagged entities: %w", err)
@@ -1220,11 +1234,16 @@ func (s *TagService) GetTagEntities(tagID uint, entityType string, limit, offset
 				// collections so the public tag detail page can't leak
 				// them; skip rather than emit an empty-name placeholder.
 				//
-				// enrichShows drops gated shows for the same reason
-				// (PSY-1939). A show absent from the enrichment index is one
-				// that does not exist or one the public tier may not see, and
-				// both leave this listing by the same door: no row, rather
-				// than a nameless card that says a show is there.
+				// KNOWN GAP for collections, stated rather than implied: the
+				// total above still counts the rows this drops, so a short page
+				// beside a larger total reports how many private collections
+				// carry the tag. Closing it needs the collection visibility
+				// rule in the query, the way the show rule now is.
+				//
+				// Shows never reach this branch: the query already excluded
+				// them, which is what keeps their total honest. The arm stays
+				// as defence in depth, so a future edit that loosens the query
+				// still cannot emit a nameless card asserting a show is there.
 				continue
 			}
 		}
@@ -1304,8 +1323,9 @@ func (s *TagService) enrichBare(entityType string, ids []uint) map[uint]contract
 // `shows` is deliberately UNALIASED: shared.VenueTZJoin's lateral correlates on
 // `shows.id`, so aliasing the table would leave the correlation dangling.
 //
-// The status literal is interpolated from the Go constant rather than bound, so
-// the fragment stays composable into GORM's Joins and Raw alike. Safe by
+// The visibility predicate is the shared rule's PUBLIC tier in its inlined form,
+// so the status literal is interpolated from the Go constant rather than bound
+// and the fragment stays composable into GORM's Joins and Raw alike. Safe by
 // construction (a `const ShowStatus = "approved"`), pinned by
 // TestShowStatusApproved_IsSafeToInterpolate.
 func venueLocalUpcomingCountSQL(junction, entityFK, entityRestriction string) string {
@@ -1317,7 +1337,7 @@ func venueLocalUpcomingCountSQL(junction, entityFK, entityRestriction string) st
 	    FROM ` + junction + ` j
 	    JOIN shows ON shows.id = j.show_id
 	    ` + shared.VenueTZJoin + `
-	    WHERE shows.status = '` + string(catalogm.ShowStatusApproved) + `'
+	    WHERE ` + shared.PublicShowPredicateSQL("shows") + `
 	      AND ` + shared.VenueLocalDateCondition("upcoming") + entityRestriction + `
 	    GROUP BY j.` + entityFK + `
 	)`

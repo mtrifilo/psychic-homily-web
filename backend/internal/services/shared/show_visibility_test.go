@@ -16,15 +16,17 @@ import (
 	"psychic-homily-backend/internal/testutil"
 )
 
-// The rule has five spellings: one in Go and four in SQL. They are only useful
-// if they agree, and reading alike is not agreeing — the SQL forms are strings
+// The rule has six spellings: one in Go and five in SQL. They are only useful if
+// they agree, and reading alike is not agreeing — the SQL forms are strings
 // assembled by concatenation, and the one that decides a security boundary is
 // the one Postgres parses, not the one a reviewer reads.
 //
 // So these tests enumerate the whole viewer x status matrix and run every
-// spelling against a real database, asserting that all five give the same answer
-// for the same row. A change to one that the others do not follow fails here
-// rather than in whichever route happens to use it.
+// spelling against a real database. The four viewer-taking spellings are checked
+// against every viewer; the two inlined public-tier forms take no viewer and are
+// checked against the anonymous row only, which is exactly what they claim to
+// be. A change to one that the others do not follow fails here rather than in
+// whichever route happens to use it.
 
 // showCase is one row of the matrix: a show in some state, and who submitted it.
 type showCase struct {
@@ -138,7 +140,7 @@ func TestShowVisibilitySpellingsAgree(t *testing.T) {
 					t.Errorf("VisibleShowExistsSQL for %s matched %d rows, want visible=%v", v.name, got, want)
 				}
 
-				revSQL, revArgs := shared.VisibleShowRevisionsSQL(v.viewer)
+				revSQL, revArgs := shared.VisibleShowRevisionsSQL(shared.RevisionsTable, v.viewer)
 				if got := countRevisionsMatching(t, td.DB, revision.ID, revSQL, revArgs); (got > 0) != want {
 					t.Errorf("VisibleShowRevisionsSQL for %s matched %d rows, want visible=%v", v.name, got, want)
 				}
@@ -153,7 +155,7 @@ func TestShowVisibilitySpellingsAgree(t *testing.T) {
 				t.Errorf("PublicShowPredicateSQL matched %d rows, want visible=%v", got, publicWant)
 			}
 			if got := countRevisionsMatching(t, td.DB, revision.ID,
-				shared.PublicShowRevisionsSQL(), nil); (got > 0) != publicWant {
+				shared.PublicShowRevisionsSQL(shared.RevisionsTable), nil); (got > 0) != publicWant {
 				t.Errorf("PublicShowRevisionsSQL matched %d rows, want visible=%v", got, publicWant)
 			}
 		})

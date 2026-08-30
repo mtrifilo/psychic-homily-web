@@ -386,7 +386,7 @@ type ContributorProfileServiceInterface interface {
 	// unfiltered one differenced against a filtered sibling is a count of a
 	// user's edits and submissions on hidden shows.
 	GetPublicProfile(username string, viewer ShowViewer) (*PublicProfileResponse, error)
-	GetOwnProfile(userID uint, viewer ShowViewer) (*PublicProfileResponse, error)
+	GetOwnProfile(viewer ShowViewer) (*PublicProfileResponse, error)
 	GetContributionStats(userID uint, viewer ShowViewer) (*ContributionStats, error)
 	GetContributionHistory(userID uint, limit, offset int, entityType string, viewer ShowViewer) ([]*ContributionEntry, int64, error)
 	UpdatePrivacySettings(userID uint, settings PrivacySettings) (*PrivacySettings, error)

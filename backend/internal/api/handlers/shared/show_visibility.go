@@ -23,15 +23,15 @@ import (
 // each gated route below returns its empty list or zero count rather than
 // calling a helper that decides the status code for it.
 
-// showEntityTypes are the spellings of "show" that the polymorphic routes
-// accept in an {entity_type} path segment.
+// showEntityTypes are the spellings of "show" this gate recognises in an
+// {entity_type} path segment.
 //
-// BOTH forms are gated, though no route accepts both: the comment, tag and
-// collection routes take "show" while the follow family takes the plural. A gate
-// that recognises only the spelling its own route uses is one rename away from
-// silently passing everything, and recognising a spelling a route rejects costs
-// nothing — that request is refused before the gate by the route's own
-// allowlist.
+// Every gated route today emits the SINGULAR: the comment, tag and collection
+// allowlists all spell it "show". The plural is here anyway because the codebase
+// uses it elsewhere for the same concept (catalog.EntityExistenceService keys on
+// "shows"), so a route wired to that vocabulary would otherwise reach a gate
+// that silently waves it through. Recognising a spelling no route emits costs
+// nothing; failing to recognise one that does costs the whole gate.
 //
 // Case is folded rather than compared exactly for the same reason: an
 // entity_type is caller-supplied text, and a gate that "show" passes but "Show"
@@ -43,21 +43,26 @@ var showEntityTypes = map[string]bool{
 	"shows": true,
 }
 
-// IsShowEntityType reports whether an {entity_type} path segment names a show.
-func IsShowEntityType(entityType string) bool {
+// isShowEntityType reports whether an {entity_type} path segment names a show.
+func isShowEntityType(entityType string) bool {
 	return showEntityTypes[strings.ToLower(strings.TrimSpace(entityType))]
 }
 
 // ShowSubResourceVisible reports whether a show-scoped sub-resource read may be
 // answered with real data for viewer.
 //
-// The one call every gated show sub-resource route makes. A nil checker answers
-// false: a handler wired without a gate refuses rather than serves.
+// The one call every gated show sub-resource route makes.
+//
+// A nil checker answers FALSE, which is why every handler holding one documents
+// its field as required rather than optional: a handler constructed without a
+// gate refuses every show-scoped read instead of serving it, so a construction
+// bug on this boundary fails closed.
 //
 // The viewer arrives as a value rather than being read out of a context here,
-// because this package must not import the middleware that plants it: the
-// package that owns the JWT middleware is imported by services/admin, whose
-// tests import this one. middleware.GetShowViewerFromContext is the resolver.
+// because this package must not import the middleware that plants it:
+// internal/api/middleware imports services/admin, and services/admin's internal
+// tests import THIS package, so an import of middleware here closes a cycle in
+// the admin test binary. middleware.GetShowViewerFromContext is the resolver.
 func ShowSubResourceVisible(checker contracts.ShowVisibilityInterface, showID uint, viewer contracts.ShowViewer) bool {
 	if checker == nil {
 		return false
@@ -72,7 +77,7 @@ func ShowSubResourceVisible(checker contracts.ShowVisibilityInterface, showID ui
 // entity types that have no read-time visibility rule of their own; adding one
 // means adding it here, beside this sentence, not at each caller.
 func EntitySubResourceVisible(checker contracts.ShowVisibilityInterface, entityType string, entityID uint, viewer contracts.ShowViewer) bool {
-	if !IsShowEntityType(entityType) {
+	if !isShowEntityType(entityType) {
 		return true
 	}
 	return ShowSubResourceVisible(checker, entityID, viewer)

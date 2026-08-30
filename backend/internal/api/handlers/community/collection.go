@@ -20,9 +20,8 @@ type CollectionHandler struct {
 	collectionService contracts.CollectionServiceInterface
 	auditLogService   contracts.AuditLogServiceInterface
 	// showVisibility gates the per-entity backlinks route when the entity is a
-	// show, on the rule GET /shows/{id} enforces (PSY-1939). Required, not
-	// optional: a nil gate answers "not visible" for everyone rather than
-	// serving.
+	// show, on the rule GET /shows/{id} enforces (PSY-1939). Required; see
+	// shared.ShowSubResourceVisible.
 	showVisibility contracts.ShowVisibilityInterface
 }
 

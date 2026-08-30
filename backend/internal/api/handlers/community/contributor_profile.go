@@ -358,7 +358,7 @@ func (h *ContributorProfileHandler) GetOwnProfileHandler(ctx context.Context, re
 		return nil, huma.Error401Unauthorized("Authentication required")
 	}
 
-	profile, err := h.profileService.GetOwnProfile(user.ID, middleware.GetShowViewerFromContext(ctx))
+	profile, err := h.profileService.GetOwnProfile(middleware.GetShowViewerFromContext(ctx))
 	if err != nil {
 		logger.FromContext(ctx).Error("get_own_profile_failed",
 			"user_id", user.ID,

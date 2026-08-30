@@ -266,7 +266,7 @@ func buildCountSubquery(dimension string, periodFilter string) string {
 				GROUP BY user_id
 			) combined
 			GROUP BY user_id
-		`, periodFilter, shared.PublicShowRevisionsSQL(), periodFilter)
+		`, periodFilter, shared.PublicShowRevisionsSQL(shared.RevisionsTable), periodFilter)
 	case "requests":
 		return fmt.Sprintf(`
 			SELECT fulfiller_id AS user_id, COUNT(*) AS count

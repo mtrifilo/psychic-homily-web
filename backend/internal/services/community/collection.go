@@ -2068,16 +2068,23 @@ func (s *CollectionService) GetUserCollectionsContainingEntity(userID uint, enti
 		return []contracts.ContainingCollectionItem{}, nil
 	}
 
-	// A show the public tier may not see is not addressable through this
-	// lookup, and answers with the same empty slice a show held in none of the
-	// caller's collections answers with. The tier is public for every caller
-	// for the reason scopeToVisibleShows states; the cost is that a pending
-	// show sitting in the caller's own collection does not pre-check in the
-	// popover until it is approved (PSY-1939).
-	if entityType == communitym.CollectionEntityShow &&
-		!shared.ShowVisibleTo(s.db, entityID, contracts.ShowViewer{}) {
-		return []contracts.ContainingCollectionItem{}, nil
-	}
+	// NOT gated on show visibility, deliberately (PSY-1939).
+	//
+	// This lookup is scoped to the CALLER's own collections and answers one
+	// question: which of your collections already hold this entity. Everything it
+	// can report is something the caller put there themselves, so it discloses
+	// nothing about the show to anyone else, and there is no oracle to close.
+	//
+	// Gating it would create a bug rather than fix one. A show that is
+	// unpublished after being added would stop pre-checking in the popover, so
+	// the collection renders unchecked; clicking it calls AddItem, which finds
+	// the existing row and errors on the uniqueness constraint; and the item
+	// cannot be removed through the popover either, because the popover no longer
+	// believes it is there. The owner is left unable to curate their own list.
+	//
+	// What the collection PUBLISHES is gated instead, in batchResolveEntityNames
+	// and buildItemResponses, which is where a reader other than the owner
+	// actually looks.
 
 	// Mirror GetUserCollections's scope: collections the user CREATED or
 	// is SUBSCRIBED to. The popover only adds to creator-owned collections
@@ -2538,11 +2545,28 @@ func (s *CollectionService) buildItemResponses(items []communitym.CollectionItem
 	// Batch-resolve user names
 	userNames := s.batchResolveUserNames(userIDs)
 
-	// Build responses
-	responses := make([]contracts.CollectionItemResponse, len(items))
-	for i, item := range items {
+	// Build responses.
+	//
+	// A SHOW the resolver did not name is dropped, not emitted nameless
+	// (PSY-1939). batchResolveEntityNames omits a gated show for the same reason
+	// it omits one that no longer exists, and emitting the row anyway would
+	// publish the id — which is the whole of what an enumeration oracle needs —
+	// and mark it, because a blank name beside a real id says "a show is here and
+	// you may not see it". A dropped row says nothing, which is what a
+	// nonexistent show says too.
+	//
+	// Only shows are dropped. The other entity types have no read-time
+	// visibility rule, so an unresolved one is a genuinely missing row and the
+	// existing nameless-card behaviour for them is unchanged.
+	responses := make([]contracts.CollectionItemResponse, 0, len(items))
+	for _, item := range items {
 		key := fmt.Sprintf("%s:%d", item.EntityType, item.EntityID)
-		responses[i] = contracts.CollectionItemResponse{
+		if item.EntityType == communitym.CollectionEntityShow {
+			if _, named := entityNames[key]; !named {
+				continue
+			}
+		}
+		responses = append(responses, contracts.CollectionItemResponse{
 			ID:            item.ID,
 			EntityType:    item.EntityType,
 			EntityID:      item.EntityID,
@@ -2555,7 +2579,7 @@ func (s *CollectionService) buildItemResponses(items []communitym.CollectionItem
 			Notes:         item.Notes,
 			NotesHTML:     s.renderNotes(item.Notes),
 			CreatedAt:     item.CreatedAt,
-		}
+		})
 	}
 
 	return responses

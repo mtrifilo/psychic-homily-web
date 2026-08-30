@@ -1205,7 +1205,7 @@ func (m *MockCommentVoteService) GetCommentVoteCounts(commentID uint) (int, int,
 
 type MockContributorProfileService struct {
 	GetPublicProfileFn       func(string, contracts.ShowViewer) (*contracts.PublicProfileResponse, error)
-	GetOwnProfileFn          func(uint, contracts.ShowViewer) (*contracts.PublicProfileResponse, error)
+	GetOwnProfileFn          func(contracts.ShowViewer) (*contracts.PublicProfileResponse, error)
 	GetContributionStatsFn   func(uint, contracts.ShowViewer) (*contracts.ContributionStats, error)
 	GetContributionHistoryFn func(uint, int, int, string, contracts.ShowViewer) ([]*contracts.ContributionEntry, int64, error)
 	UpdatePrivacySettingsFn  func(uint, contracts.PrivacySettings) (*contracts.PrivacySettings, error)
@@ -1224,9 +1224,9 @@ func (m *MockContributorProfileService) GetPublicProfile(username string, viewer
 	}
 	return nil, nil
 }
-func (m *MockContributorProfileService) GetOwnProfile(userID uint, viewer contracts.ShowViewer) (*contracts.PublicProfileResponse, error) {
+func (m *MockContributorProfileService) GetOwnProfile(viewer contracts.ShowViewer) (*contracts.PublicProfileResponse, error) {
 	if m.GetOwnProfileFn != nil {
-		return m.GetOwnProfileFn(userID, viewer)
+		return m.GetOwnProfileFn(viewer)
 	}
 	return nil, nil
 }

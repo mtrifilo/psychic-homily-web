@@ -51,8 +51,8 @@ type CommentHandler struct {
 	voteReader      CommentVoteReader
 	auditLogService contracts.AuditLogServiceInterface
 	// showVisibility gates every read whose entity is a show on the rule GET
-	// /shows/{id} enforces (PSY-1939). Required, not optional: a nil gate
-	// answers "not visible" for everyone rather than serving.
+	// /shows/{id} enforces (PSY-1939). Required; see
+	// shared.ShowSubResourceVisible.
 	showVisibility contracts.ShowVisibilityInterface
 }
 
@@ -71,6 +71,20 @@ func NewCommentHandler(
 		voteReader:      voteReader,
 		auditLogService: auditLogService,
 		showVisibility:  showVisibility,
+	}
+}
+
+// emptyCommentList is the answer a gated show gives on BOTH comment listings,
+// the discussion route and the field-note route, which share this response type.
+//
+// It must stay byte-identical to what the service returns for an entity with no
+// rows: an empty (never null) array, a zero total, and has_more false. A gated
+// show and an entity nobody has written about are one response.
+func emptyCommentList() *contracts.CommentListResponse {
+	return &contracts.CommentListResponse{
+		Comments: []*contracts.CommentResponse{},
+		Total:    0,
+		HasMore:  false,
 	}
 }
 
@@ -343,11 +357,18 @@ func (h *CommentHandler) CreateCommentHandler(ctx context.Context, req *CreateCo
 		)
 	}
 
-	// Audit log (fire and forget)
+	// Audit log (fire and forget).
+	//
+	// entity_id is the ENTITY the comment is about, which is what entity_type
+	// names. It used to be the comment's own id, so a show-typed row carried a
+	// comment id, and the contributions timeline both mislabels such a row and
+	// gates it on the wrong id (PSY-1939). comment_id moves to metadata, which is
+	// where a secondary identifier belongs.
 	if h.auditLogService != nil {
 		servicesshared.GoSafe(ctx, "audit_log", func() {
-			h.auditLogService.LogAction(user.ID, "create_comment", req.EntityType, comment.ID, map[string]interface{}{
-				"entity_id": uint(entityID),
+			h.auditLogService.LogAction(user.ID, "create_comment", req.EntityType, uint(entityID), map[string]interface{}{
+				"entity_id":  uint(entityID),
+				"comment_id": comment.ID,
 			})
 		})
 	}
@@ -398,6 +419,25 @@ func (h *CommentHandler) CreateReplyHandler(ctx context.Context, req *CreateRepl
 		return nil, huma.Error500InternalServerError("Failed to fetch parent comment")
 	}
 
+	// A reply is addressed by the PARENT's id, so it reaches the same show the
+	// single-comment route gates, and without this it walks straight past that
+	// gate (PSY-1939). The response carries entity_type and entity_id, so a 201
+	// here hands back the gated show's id; and a nonexistent comment id already
+	// 404s, which makes the pair a clean two-valued oracle over a dense id space.
+	//
+	// Same answer as the single-comment route: the service's own not-found error,
+	// so a reply target on a gated show is indistinguishable from one that never
+	// existed.
+	if parent == nil || !shared.EntitySubResourceVisible(
+		h.showVisibility, parent.EntityType, parent.EntityID,
+		middleware.GetShowViewerFromContext(ctx),
+	) {
+		if mapped := shared.MapCommentError(apperrors.ErrCommentNotFound()); mapped != nil {
+			return nil, mapped
+		}
+		return nil, huma.Error404NotFound("Comment not found")
+	}
+
 	parentIDUint := uint(parentID)
 	serviceReq := &contracts.CreateCommentRequest{
 		EntityType:      parent.EntityType,
@@ -421,9 +461,10 @@ func (h *CommentHandler) CreateReplyHandler(ctx context.Context, req *CreateRepl
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
 		servicesshared.GoSafe(ctx, "audit_log", func() {
-			h.auditLogService.LogAction(user.ID, "create_comment", parent.EntityType, comment.ID, map[string]interface{}{
-				"entity_id": parent.EntityID,
-				"parent_id": parentIDUint,
+			h.auditLogService.LogAction(user.ID, "create_comment", parent.EntityType, parent.EntityID, map[string]interface{}{
+				"entity_id":  parent.EntityID,
+				"comment_id": comment.ID,
+				"parent_id":  parentIDUint,
 			})
 		})
 	}
