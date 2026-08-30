@@ -107,6 +107,7 @@ const showFormSchema = z.object({
   ),
   time: z.string(),
   cost: z.string(),
+  door_cost: z.string(),
   ages: z.string(),
   description: z.string(),
   image_url: z
@@ -257,6 +258,24 @@ export function ShowForm({
       const eventDate = combineDateTimeToUTC(value.date, value.time || '20:00', venueTimezone)
 
       const price = parseCost(value.cost)
+      // Independent of `price`: a blank door field leaves door_price absent on
+      // a create, and never falls back to the advance price (PSY-1864).
+      //
+      // KNOWN LIMITATION on EDIT: blank means "unchanged", not "clear". The key
+      // is dropped from the payload and the backend's nil-means-unchanged rule
+      // keeps the stored value, so a recorded door price cannot be RETRACTED
+      // here — only overwritten with another number. `price`, `doors_at` and
+      // `music_at` share the limitation, but it bites harder here: the door
+      // price is the opt-in half, so "remove it again" is a routine correction
+      // rather than an edge case. Clearing needs an explicit tri-state signal
+      // on UpdateShowRequest (null distinguished from omitted); until that
+      // exists, blanking this field is silently a no-op.
+      //
+      // TRACKED IN PSY-1961, which also carries the open question of whether
+      // this should surface user-facing copy in the meantime. It compounds
+      // PSY-1960: a rollback can write a spurious door_price of 0 (rendered
+      // "DOOR Free"), and with no clear path that false claim is stuck.
+      const doorPrice = parseCost(value.door_cost)
 
       if (isEditMode && initialData) {
         // Build update payload including venues and artists
@@ -266,6 +285,7 @@ export function ShowForm({
           city: value.venue.city,
           state: value.venue.state,
           price,
+          door_price: doorPrice,
           age_requirement: value.ages || undefined,
           description: value.description || undefined,
           image_url: value.image_url || undefined,
@@ -306,6 +326,7 @@ export function ShowForm({
           city: value.venue.city,
           state: value.venue.state,
           price,
+          door_price: doorPrice,
           age_requirement: value.ages || undefined,
           description: value.description || undefined,
           venues: [
@@ -693,6 +714,14 @@ export function ShowForm({
       <div className="space-y-4">
         <h3 className="font-medium">Additional Details</h3>
 
+        {/* Cost and Door Cost sit side by side so the pair reads as one fact
+            with two halves. Cost alone is the common case and stays the whole
+            statement; Door Cost is filled only when the listing states a
+            separate door price (PSY-1864).
+            Three children in a 2-col grid, so Ages now falls to its own row
+            with an empty cell beside it. That is deliberate: keeping the price
+            pair adjacent outranks the ragged cell. If you tidy this row, move
+            Ages -- do not split Cost from Door Cost. */}
         <div className="grid grid-cols-2 gap-4">
           <form.Field name="cost">
             {field => (
@@ -700,6 +729,16 @@ export function ShowForm({
                 field={field}
                 label="Cost (Optional)"
                 placeholder="$20, Free"
+              />
+            )}
+          </form.Field>
+
+          <form.Field name="door_cost">
+            {field => (
+              <FormField
+                field={field}
+                label="Door Cost (Optional)"
+                placeholder="$25, only if it differs"
               />
             )}
           </form.Field>

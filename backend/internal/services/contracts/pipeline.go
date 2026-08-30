@@ -62,13 +62,19 @@ type ExtractedVenue struct {
 	Suggestions []VenueMatchSuggestion `json:"suggestions,omitempty"`
 }
 
-// ExtractedShowData is the full extraction result
+// ExtractedShowData is the full extraction result.
+//
+// DoorCost is set ONLY when the source states a separate door / day-of price
+// alongside an advance price, in which case Cost is the advance half
+// (PSY-1864). Empty otherwise -- it is never derived from Cost, matching the
+// explicit-only rule the doors/music extraction follows.
 type ExtractedShowData struct {
 	Artists     []ExtractedArtist `json:"artists"`
 	Venue       *ExtractedVenue   `json:"venue,omitempty"`
 	Date        string            `json:"date,omitempty"`
 	Time        string            `json:"time,omitempty"`
 	Cost        string            `json:"cost,omitempty"`
+	DoorCost    string            `json:"door_cost,omitempty"`
 	Ages        string            `json:"ages,omitempty"`
 	Description string            `json:"description,omitempty"`
 }

@@ -52,6 +52,9 @@ type CreateShowArtist struct {
 // CreateShowRequest represents the data needed to create a new show.
 // The service will prevent duplicate headliners at the same venue on the same date/time
 // and reuse existing venues by name and city (venues are unique by name within a city).
+//
+// Price / DoorPrice carry the advance/door split; see catalog.Show for what the
+// pair means and why neither is derived from the other.
 type CreateShowRequest struct {
 	Title     string    `json:"title" validate:"required"`
 	EventDate time.Time `json:"event_date" validate:"required"`
@@ -62,6 +65,7 @@ type CreateShowRequest struct {
 	City           string     `json:"city"`
 	State          string     `json:"state"`
 	Price          *float64   `json:"price"`
+	DoorPrice      *float64   `json:"door_price"`
 	AgeRequirement string     `json:"age_requirement"`
 	Description    string     `json:"description"`
 	TicketURL      string     `json:"ticket_url"`
@@ -94,26 +98,49 @@ type UpdateShowRequest struct {
 	City           *string    `json:"city"`
 	State          *string    `json:"state"`
 	Price          *float64   `json:"price"`
+	DoorPrice      *float64   `json:"door_price"`
 	AgeRequirement *string    `json:"age_requirement"`
 	Description    *string    `json:"description"`
 	TicketURL      *string    `json:"ticket_url"`
 	ImageURL       *string    `json:"image_url"`
 }
 
-// ShowResponse represents the show data returned to clients
+// ShowResponse represents the show data returned to clients.
+//
+// FOUR hand-maintained builders populate this struct, and a new field has to
+// reach ALL of them or it silently serializes as null on whichever surface was
+// missed:
+//
+//	(*catalog.ShowService).CreateShow               services/catalog/show.go
+//	(*catalog.ShowService).buildUpdatedShowResponse services/catalog/show.go
+//	catalog.assembleShowResponse                    services/catalog/show.go
+//	                                                (detail + list reads)
+//	(*engagement.SavedShowService).buildShowResponse
+//	                                                services/engagement/saved_show.go
+//	                                                (saved shows AND the
+//	                                                personal ICS feed)
+//
+// The last one is the easy miss: it lives in a different package AND shares its
+// name with (*catalog.ShowService).buildShowResponse, so grepping the obvious
+// name lands in the wrong package first. PSY-1864 added DoorPrice and missed it.
+//
+// Note UpdateShow itself builds nothing -- it ends in GetShow -- so the update
+// path's literal is buildUpdatedShowResponse.
 type ShowResponse struct {
 	ID        uint      `json:"id"`
 	Slug      string    `json:"slug"`
 	Title     string    `json:"title"`
 	EventDate time.Time `json:"event_date"`
-	// DoorsAt / MusicAt are null when unknown. Emitted unconditionally rather
-	// than with omitempty so a client can tell "not set" from "this response
-	// shape predates the field".
+	// DoorsAt / MusicAt / Price / DoorPrice are null when unknown. Emitted
+	// unconditionally rather than with omitempty so a client can tell "not set"
+	// from "this response shape predates the field". The show page's ticket line
+	// qualifies a price pair as `$35 ADV · DOOR $40` and prints a lone value bare.
 	DoorsAt         *time.Time `json:"doors_at"`
 	MusicAt         *time.Time `json:"music_at"`
 	City            *string    `json:"city"`
 	State           *string    `json:"state"`
 	Price           *float64   `json:"price"`
+	DoorPrice       *float64   `json:"door_price"`
 	AgeRequirement  *string    `json:"age_requirement"`
 	Description     *string    `json:"description"`
 	TicketURL       *string    `json:"ticket_url,omitempty"`
@@ -374,6 +401,7 @@ type ExportShowData struct {
 	City           string   `yaml:"city,omitempty" json:"city,omitempty"`
 	State          string   `yaml:"state,omitempty" json:"state,omitempty"`
 	Price          *float64 `yaml:"price,omitempty" json:"price,omitempty"`
+	DoorPrice      *float64 `yaml:"door_price,omitempty" json:"door_price,omitempty"`
 	AgeRequirement string   `yaml:"age_requirement,omitempty" json:"age_requirement,omitempty"`
 	Status         string   `yaml:"status" json:"status"`
 }
@@ -495,6 +523,47 @@ const MaxVenueAgePolicyLength = 100
 const (
 	MinVenueCapacity = 1
 	MaxVenueCapacity = 200000
+)
+
+// MinShowPrice and MaxShowPrice bound both shows.price and shows.door_price.
+// One rail for the pair: an advance price and a door price are the same kind of
+// fact, and a ceiling that admitted one but not the other would be arbitrary.
+//
+// The ceiling is a typo guard, not a domain claim -- it exists so a fat-fingered
+// "3500" instead of "35.00" is rejected at the boundary instead of being
+// published on a show page.
+//
+// Enforced on the three SELF-SERVE write paths, and only those: the show create
+// resolver, the show update handler, and the entity-request payload validator
+// (which keeps its own copy of the ceiling -- see maxRequestPrice).
+//
+// NOT enforced on three ADMIN-ONLY paths:
+//
+//   - catalog.ConfirmShowImport (markdown frontmatter) and admin.importShow
+//     (the JSON data-sync import) map a price straight onto the row. A value
+//     above the rail but under the column's DECIMAL(10,2) width is stored and
+//     published; one above the column width fails at INSERT -- as a 500 on the
+//     markdown path, as a counted per-row error on the data-sync report.
+//   - admin.RevisionService.Rollback writes whatever old_value the revision
+//     recorded, with no allowlist and no bounds check. That is deliberate (see
+//     the reasoning on Rollback: history can hold values that predate a bound,
+//     so refusing them would break undo for exactly the rows most likely to
+//     need it), and restore-only -- it cannot introduce a value the rails never
+//     saw, except one that arrived via the two import paths above.
+//
+// A PRE-EXISTING gap that `price` already had and `door_price` now inherits.
+// All three are admin-gated, so it is a trusted-operator footgun, not an
+// escalation. Closing the import half means validating at the service
+// chokepoint (ShowService.CreateShow / showUpdatesToMap) rather than adding a
+// fourth copy of the check.
+//
+// NOT registered in NumericEditFieldBounds: that registry is the pending-edit
+// (suggest/approve) pipeline's, its bounds are ints, and shows have no
+// contributor allowlist to route through it. A price is a decimal, so narrowing
+// it to an int there would silently drop the cents.
+const (
+	MinShowPrice = 0
+	MaxShowPrice = 10000
 )
 
 // NumericEditBounds is the accepted range for one whole-number column that the
@@ -1454,7 +1523,11 @@ type SceneShowSummary struct {
 	// timestamp — structured-data `startDate`, a calendar export — must use this
 	// and render it in the venue's own zone.
 	StartsAt time.Time `json:"starts_at"`
-	// Door price when known; absent when the show has none recorded. NO currency
+	// The show's price when known -- and the ADVANCE price on rows that also
+	// record shows.door_price, which this summary deliberately does NOT carry
+	// (PSY-1864). It was described as the "door price" before that column
+	// existed; it never was one. A scene surface that wants the split has to add
+	// the field here first. NO currency
 	// is recorded anywhere in the schema — `shows.price` is a bare numeric — so
 	// a consumer that needs one has to assume, and for a non-US scene that
 	// assumption is wrong. Do not add a currency here without adding the column.

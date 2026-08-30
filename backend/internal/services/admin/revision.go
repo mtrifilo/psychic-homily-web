@@ -311,6 +311,20 @@ func (s *RevisionService) Rollback(revisionID uint, adminUserID uint) error {
 	// their revisions are recorded from the raw field_changes, which carry a
 	// true null. Fixing that means teaching revisiondiff to emit null, which
 	// changes the shape of every historical *int diff.
+	//
+	// *float64 has the SAME defect (derefFloat64), and for shows.price and
+	// shows.door_price a restored 0 is not merely wrong, it is a false public
+	// claim: the ticket line renders 0 as "Free". door_price makes the trigger
+	// routine rather than rare -- the column ships NULL on every existing row
+	// (PSY-1864), so the FIRST door-price edit on any show records old_value 0,
+	// and rolling that edit back publishes "DOOR Free". Worse, NULL is then
+	// unreachable: no product surface can clear the column back (PSY-1961), so
+	// an undo creates a false price claim that cannot itself be undone.
+	//
+	// TRACKED IN PSY-1960, deliberately not fixed here: the fix is an
+	// optionalFloatValue mirroring optionalTimeValue, and it changes the shape
+	// of every historical *float64 diff -- its own change, not a rider on a
+	// schema ticket.
 	if err := NarrowNumericUpdates(updates); err != nil {
 		return err
 	}

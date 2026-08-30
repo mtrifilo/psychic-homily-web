@@ -58,7 +58,10 @@ export interface ShowUpdate {
   event_date?: string // ISO 8601 UTC timestamp
   city?: string
   state?: string
+  // Advance price and door price. An omitted field leaves the stored value
+  // alone, so writing one never clears the other.
   price?: number
+  door_price?: number
   age_requirement?: string
   description?: string
   image_url?: string

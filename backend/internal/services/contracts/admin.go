@@ -170,6 +170,7 @@ type ExportedShow struct {
 	City           *string              `json:"city,omitempty"`
 	State          *string              `json:"state,omitempty"`
 	Price          *float64             `json:"price,omitempty"`
+	DoorPrice      *float64             `json:"doorPrice,omitempty"`
 	AgeRequirement *string              `json:"ageRequirement,omitempty"`
 	Description    *string              `json:"description,omitempty"`
 	Status         string               `json:"status"`

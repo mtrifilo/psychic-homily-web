@@ -166,7 +166,13 @@ export interface FormValues {
   }
   date: string
   time: string
+  /**
+   * `cost` is the show's price, and the ADVANCE price when `door_cost` is
+   * filled too. Both are free text run through {@link parseCost}; a blank
+   * field makes no claim about the other.
+   */
   cost: string
+  door_cost: string
   ages: string
   description: string
   image_url: string
@@ -186,6 +192,7 @@ export const defaultFormValues: FormValues = {
   date: '',
   time: '20:00',
   cost: '',
+  door_cost: '',
   ages: '',
   description: '',
   image_url: '',
@@ -232,6 +239,7 @@ export function showToFormValues(show: ShowResponse): FormValues {
     date,
     time,
     cost: show.price != null ? `$${show.price}` : '',
+    door_cost: show.door_price != null ? `$${show.door_price}` : '',
     ages: show.age_requirement || '',
     description: show.description || '',
     image_url: show.image_url || '',
@@ -346,6 +354,7 @@ export function mergeExtraction(
   if (extraction.date) merged.date = extraction.date
   if (extraction.time) merged.time = extraction.time
   if (extraction.cost) merged.cost = extraction.cost
+  if (extraction.door_cost) merged.door_cost = extraction.door_cost
   if (extraction.ages) merged.ages = extraction.ages
   if (extraction.description) merged.description = extraction.description
 

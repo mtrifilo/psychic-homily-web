@@ -10145,6 +10145,11 @@ export interface components {
             /** @description Show description */
             description?: string;
             /**
+             * Format: double
+             * @description Price at the door
+             */
+            door_price?: number;
+            /**
              * Format: date-time
              * @description When doors open (RFC3339)
              */
@@ -10163,7 +10168,7 @@ export interface components {
             music_at?: string;
             /**
              * Format: double
-             * @description Ticket price
+             * @description Ticket price (advance price when a door price is also given)
              */
             price?: number;
             /** @description State where the show takes place */
@@ -10837,6 +10842,8 @@ export interface components {
         ExportShowData: {
             age_requirement?: string;
             city?: string;
+            /** Format: double */
+            door_price?: number;
             event_date: string;
             /** Format: double */
             price?: number;
@@ -10885,6 +10892,8 @@ export interface components {
             artists: components["schemas"]["ExportedShowArtist"][] | null;
             city?: string;
             description?: string;
+            /** Format: double */
+            doorPrice?: number;
             doorsAt?: string;
             eventDate: string;
             isCancelled: boolean;
@@ -10962,6 +10971,7 @@ export interface components {
             cost?: string;
             date?: string;
             description?: string;
+            door_cost?: string;
             time?: string;
             venue?: components["schemas"]["ExtractedVenue"];
         };
@@ -15435,6 +15445,8 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             description: string | null;
+            /** Format: double */
+            door_price: number | null;
             /** Format: date-time */
             doors_at: string | null;
             /** Format: int64 */
@@ -16429,6 +16441,8 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             description: string | null;
+            /** Format: double */
+            door_price: number | null;
             /** Format: date-time */
             doors_at: string | null;
             /** Format: int64 */
@@ -17421,6 +17435,11 @@ export interface components {
             /** @description Show description */
             description?: string;
             /**
+             * Format: double
+             * @description Price at the door
+             */
+            door_price?: number;
+            /**
              * Format: date-time
              * @description When doors open (RFC3339)
              */
@@ -17439,7 +17458,7 @@ export interface components {
             music_at?: string;
             /**
              * Format: double
-             * @description Ticket price
+             * @description Ticket price (advance price when a door price is also set)
              */
             price?: number;
             /** @description State where the show takes place */
@@ -17466,6 +17485,8 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             description: string | null;
+            /** Format: double */
+            door_price: number | null;
             /** Format: date-time */
             doors_at: string | null;
             /** Format: int64 */

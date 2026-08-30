@@ -98,6 +98,7 @@ type ShowRequestPayload struct {
 	City           *string  `json:"city,omitempty"`
 	State          *string  `json:"state,omitempty"`
 	Price          *float64 `json:"price,omitempty"`
+	DoorPrice      *float64 `json:"door_price,omitempty"`
 	AgeRequirement *string  `json:"age_requirement,omitempty"`
 	Description    *string  `json:"description,omitempty"`
 	TicketURL      *string  `json:"ticket_url,omitempty"`
@@ -339,7 +340,8 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		// Shows are fulfillable when the admin supplies associations (PSY-1037),
 		// so the payload's fields ride onto a created show — validate them with
 		// the SAME caps the direct show-create handler enforces (title ≤255,
-		// age_requirement ≤50, price 0–10000, description ≤5000; image_url
+		// age_requirement ≤50, price and door_price 0–10000, description
+		// ≤5000; image_url
 		// VARCHAR(2048), ticket_url VARCHAR(500)). A value that slipped past
 		// here would 500 at INSERT after the row is claimed, leaving an
 		// approved-but-unfulfilled row no decide call can re-process.
@@ -357,6 +359,9 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		}
 		if p.Price != nil && (*p.Price < 0 || *p.Price > maxRequestPrice) {
 			return fmt.Errorf("show payload: price must be between 0 and %d", maxRequestPrice)
+		}
+		if p.DoorPrice != nil && (*p.DoorPrice < 0 || *p.DoorPrice > maxRequestPrice) {
+			return fmt.Errorf("show payload: door_price must be between 0 and %d", maxRequestPrice)
 		}
 		if err := optionalHTTPURL("show", "image_url", p.ImageURL, maxRequestURLLen); err != nil {
 			return err
@@ -629,10 +634,21 @@ const (
 	maxRequestDescriptionLen = 5000
 	// Show-specific caps, mirroring the direct show-create handler's Resolve
 	// limits (PSY-1037): title ≤255 (column is VARCHAR(500); 255 keeps boundary
-	// parity with the direct path), age_requirement ≤50, price 0–10000.
+	// parity with the direct path), age_requirement ≤50, price and door_price
+	// 0–10000.
 	// city/state mirror the shows columns (VARCHAR(255)/VARCHAR(10)).
 	maxRequestTitleLen = 255
 	maxRequestAgeLen   = 50
+	// maxRequestPrice deliberately DUPLICATES contracts.MaxShowPrice rather
+	// than importing it: models must not depend on services, and this package
+	// imports nothing from there.
+	//
+	// There is NO backstop if the two drift. The column is DECIMAL(10,2), which
+	// accepts up to 99,999,999.99, so a queue-fulfilled show carrying a price
+	// the direct API would refuse INSERTs cleanly and publishes. The external
+	// test package holds the two together instead -- see
+	// TestMaxRequestPriceMatchesContractRail in the _test package, which CAN
+	// import contracts without inverting the layering.
 	maxRequestPrice    = 10000
 	maxRequestCityLen  = 255
 	maxRequestStateLen = 10

@@ -357,6 +357,45 @@ func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_Carries
 	suite.Nil(unset.MusicAt)
 }
 
+// TestGetUserSavedShows_CarriesBothPrices is the price twin of the show-times
+// test above, and exists because the same mapper made the same mistake again:
+// PSY-1864 added shows.door_price and threaded it through all three
+// services/catalog builders while missing this one, so every saved show
+// reported door_price: null. The contract emits the field unconditionally, so
+// a dropped value reads as "this show has no door price" rather than failing.
+func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_CarriesBothPrices() {
+	user := suite.createTestUser()
+	withPrices, _, _ := suite.createShowWithVenueAndArtist("Show With Prices", user.ID)
+	withoutPrices, _, _ := suite.createShowWithVenueAndArtist("Show Without Prices", user.ID)
+
+	suite.Require().NoError(suite.db.Model(withPrices).
+		Updates(map[string]interface{}{"price": 35.0, "door_price": 40.0}).Error)
+
+	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, withPrices.ID))
+	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, withoutPrices.ID))
+
+	resp, _, err := suite.savedShowService.GetUserSavedShows(user.ID, 10, 0, "")
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 2)
+
+	byID := map[uint]*contracts.SavedShowResponse{}
+	for _, r := range resp {
+		byID[r.ID] = r
+	}
+
+	got := byID[withPrices.ID]
+	suite.Require().NotNil(got)
+	suite.Require().NotNil(got.Price, "saved-shows must carry price, not drop it")
+	suite.Require().NotNil(got.DoorPrice, "saved-shows must carry door_price, not drop it")
+	suite.InDelta(35.0, *got.Price, 0.001)
+	suite.InDelta(40.0, *got.DoorPrice, 0.001)
+
+	unset := byID[withoutPrices.ID]
+	suite.Require().NotNil(unset)
+	suite.Nil(unset.Price)
+	suite.Nil(unset.DoorPrice)
+}
+
 func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_Empty() {
 	user := suite.createTestUser()
 

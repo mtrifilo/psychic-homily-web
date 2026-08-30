@@ -325,6 +325,7 @@ func (s *SavedShowService) buildShowResponse(show *catalogm.Show, artistsByShow 
 		City:              show.City,
 		State:             show.State,
 		Price:             show.Price,
+		DoorPrice:         show.DoorPrice,
 		AgeRequirement:    show.AgeRequirement,
 		Description:       show.Description,
 		TicketURL:         show.TicketURL,

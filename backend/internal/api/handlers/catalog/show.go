@@ -118,7 +118,8 @@ type CreateShowRequestBody struct {
 	MusicAt        *time.Time `json:"music_at,omitempty" doc:"When the first set starts (RFC3339)"`
 	City           string     `json:"city" doc:"City where the show takes place"`
 	State          string     `json:"state" doc:"State where the show takes place"`
-	Price          *float64   `json:"price,omitempty" doc:"Ticket price"`
+	Price          *float64   `json:"price,omitempty" doc:"Ticket price (advance price when a door price is also given)"`
+	DoorPrice      *float64   `json:"door_price,omitempty" doc:"Price at the door"`
 	AgeRequirement *string    `json:"age_requirement,omitempty" doc:"Age requirement (e.g., '21+', 'All Ages')"`
 	Description    *string    `json:"description,omitempty" doc:"Show description" required:"false"`
 	TicketURL      *string    `json:"ticket_url,omitempty" doc:"Ticket purchase URL" required:"false"`
@@ -141,6 +142,37 @@ const (
 	maxShowArtists = 50
 	maxShowVenues  = 10
 )
+
+// showPriceField pairs one of a show's two prices with how to name it in an
+// error: its wire key for the error Location, its sentence-case label for the
+// message.
+type showPriceField struct {
+	jsonName string
+	label    string
+	value    *float64
+}
+
+// showPriceFields is the ONE list of a show's prices (PSY-1864). Both write
+// paths -- the create resolver and the update handler -- range over it, so the
+// advance and door halves cannot end up with different ceilings or differently
+// worded refusals. A third price would be one entry here, not two more branches
+// in two files.
+func showPriceFields(price, doorPrice *float64) [2]showPriceField {
+	return [2]showPriceField{
+		{jsonName: "price", label: "Price", value: price},
+		{jsonName: "door_price", label: "Door price", value: doorPrice},
+	}
+}
+
+// outOfShowPriceRange reports whether a supplied price falls outside the shared
+// rail. A nil price is absent, not invalid.
+func outOfShowPriceRange(price *float64) bool {
+	return price != nil && (*price < contracts.MinShowPrice || *price > contracts.MaxShowPrice)
+}
+
+func showPriceRangeMessage(label string) string {
+	return fmt.Sprintf("%s must be between %d and %d", label, contracts.MinShowPrice, contracts.MaxShowPrice)
+}
 
 // Resolve implements preprocessing and validation for the request body
 func (r *CreateShowRequestBody) Resolve(ctx huma.Context) []error {
@@ -198,13 +230,16 @@ func (r *CreateShowRequestBody) Resolve(ctx huma.Context) []error {
 		}
 	}
 
-	// Validate price range
-	if r.Price != nil && (*r.Price < 0 || *r.Price > 10000) {
-		errors = append(errors, &huma.ErrorDetail{
-			Location: "body.price",
-			Message:  "Price must be between 0 and 10000",
-			Value:    *r.Price,
-		})
+	// Validate both price ranges against the one shared rail, so the advance
+	// and door halves cannot drift to different ceilings.
+	for _, p := range showPriceFields(r.Price, r.DoorPrice) {
+		if outOfShowPriceRange(p.value) {
+			errors = append(errors, &huma.ErrorDetail{
+				Location: "body." + p.jsonName,
+				Message:  showPriceRangeMessage(p.label),
+				Value:    *p.value,
+			})
+		}
 	}
 
 	// Validate venues
@@ -429,13 +464,16 @@ type UpdateShowRequest struct {
 	Body   struct {
 		Title     *string    `json:"title,omitempty" doc:"Show title"`
 		EventDate *time.Time `json:"event_date,omitempty" doc:"Event date and time"`
-		// Omitting doors_at / music_at leaves the stored value unchanged;
-		// there is no clear-back-to-null signal yet.
+		// Omitting doors_at / music_at / price / door_price leaves the stored
+		// value unchanged -- so an edit that records a door price never
+		// disturbs the advance price. There is no clear-back-to-null signal
+		// for any of them yet.
 		DoorsAt        *time.Time `json:"doors_at,omitempty" doc:"When doors open (RFC3339)"`
 		MusicAt        *time.Time `json:"music_at,omitempty" doc:"When the first set starts (RFC3339)"`
 		City           *string    `json:"city,omitempty" doc:"City where the show takes place"`
 		State          *string    `json:"state,omitempty" doc:"State where the show takes place"`
-		Price          *float64   `json:"price,omitempty" doc:"Ticket price"`
+		Price          *float64   `json:"price,omitempty" doc:"Ticket price (advance price when a door price is also set)"`
+		DoorPrice      *float64   `json:"door_price,omitempty" doc:"Price at the door"`
 		AgeRequirement *string    `json:"age_requirement,omitempty" doc:"Age requirement"`
 		Description    *string    `json:"description,omitempty" doc:"Show description" required:"false"`
 		TicketURL      *string    `json:"ticket_url,omitempty" doc:"Ticket purchase URL" required:"false"`
@@ -549,6 +587,7 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 		City:              req.Body.City,
 		State:             req.Body.State,
 		Price:             req.Body.Price,
+		DoorPrice:         req.Body.DoorPrice,
 		AgeRequirement:    ageRequirement,
 		Description:       description,
 		TicketURL:         ticketURL,
@@ -1007,8 +1046,10 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 	if req.Body.AgeRequirement != nil && len(*req.Body.AgeRequirement) > 50 {
 		return nil, huma.Error422UnprocessableEntity("Age requirement must be 50 characters or fewer")
 	}
-	if req.Body.Price != nil && (*req.Body.Price < 0 || *req.Body.Price > 10000) {
-		return nil, huma.Error422UnprocessableEntity("Price must be between 0 and 10000")
+	for _, p := range showPriceFields(req.Body.Price, req.Body.DoorPrice) {
+		if outOfShowPriceRange(p.value) {
+			return nil, huma.Error422UnprocessableEntity(showPriceRangeMessage(p.label))
+		}
 	}
 	// PSY-747: ticket URL is length-capped AND scheme-validated (http/https
 	// only) — previously it accepted javascript:/data: on a public show.
@@ -1057,6 +1098,7 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 		City:           req.Body.City,
 		State:          req.Body.State,
 		Price:          req.Body.Price,
+		DoorPrice:      req.Body.DoorPrice,
 		AgeRequirement: req.Body.AgeRequirement,
 		Description:    req.Body.Description,
 		TicketURL:      req.Body.TicketURL,

@@ -125,7 +125,10 @@ export interface ShowResponse {
   music_at?: string | null
   city?: string | null
   state?: string | null
+  // `price` is the show's price, and the ADVANCE price on the shows that also
+  // carry a `door_price`. Null means "not known" on either, zero means free.
   price?: number | null
+  door_price?: number | null
   age_requirement?: string | null
   description?: string | null
   ticket_url?: string | null

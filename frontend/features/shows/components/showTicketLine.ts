@@ -50,6 +50,36 @@ function ticketPrice(price: number): string {
 }
 
 /**
+ * `[]`, `['$35']`, or the mock's split pair `['$35 ADV', 'DOOR $40']`
+ * (PSY-1864).
+ *
+ * `ADV` / `DOOR` are disambiguators, so they are spelled only when there ARE
+ * two DIFFERENT numbers to tell apart. A lone price renders bare — including a
+ * lone DOOR price, where the word would distinguish the number from nothing.
+ * Segments rather than one string because the pair is two middot-separated
+ * facts in the mock, not a compound one.
+ *
+ * Equal prices collapse to one bare segment. Nothing stops a curator entering
+ * the same number twice (the door field's own placeholder says "only if it
+ * differs", but that is a hint, not a constraint, and an importer has no hint
+ * at all), and `$35 ADV · DOOR $35` spends two segments and two qualifiers to
+ * say one thing — it reads as a rendering bug, and it would make this function
+ * contradict the rule stated one paragraph above.
+ *
+ * Zero is a price ("Free"), not silence, which is why the guards test
+ * `!= null` rather than truthiness.
+ */
+function ticketPriceSegments(show: ShowResponse): string[] {
+  const advance = show.price
+  const door = show.door_price
+  if (advance != null && door != null && advance !== door) {
+    return [`${ticketPrice(advance)} ADV`, `DOOR ${ticketPrice(door)}`]
+  }
+  const only = advance ?? door
+  return only != null ? [ticketPrice(only)] : []
+}
+
+/**
  * The ticket line's segments: `8PM · ON SALE · $35`, middot-joined by the
  * component.
  *
@@ -69,8 +99,10 @@ function ticketPrice(price: number): string {
  * `SOLD OUT` swaps `ON SALE` per the mock; `ON SALE` requires somewhere to
  * actually buy — it branches on {@link ticketHref}, the same derivation the
  * Buy Tickets bracket renders from, so the words and the affordance cannot
- * drift. The door-price split (`DOOR $40 CASH`) has no schema — one `price`
- * column — so the single price is the whole statement.
+ * drift. The price half is {@link ticketPriceSegments}: one price renders
+ * bare, an advance/door pair renders as the mock's `$35 ADV · DOOR $40`. The
+ * mock's trailing `CASH` is a separate fact with no column and no source that
+ * states it reliably, so the line does not claim it (PSY-1864).
  *
  * The age segment is a venue-less fallback: the venue module's facts line
  * owns the age fact, but a show with no venue row never mounts that module,
@@ -98,9 +130,7 @@ export function ticketLineSegments(
       segments.push('ON SALE')
     }
   }
-  if (show.price != null) {
-    segments.push(ticketPrice(show.price))
-  }
+  segments.push(...ticketPriceSegments(show))
   const age = show.age_requirement?.trim()
   if (show.venues.length === 0 && age) {
     segments.push(age)

@@ -1504,6 +1504,119 @@ func (suite *ShowServiceIntegrationTestSuite) TestUpdateShow_ShowTimes() {
 	suite.Equal(music.Unix(), resp.MusicAt.Unix())
 }
 
+// =============================================================================
+// Advance / door price split (PSY-1864)
+// =============================================================================
+
+func float64Ptr(f float64) *float64 { return &f }
+
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_PersistsBothPrices() {
+	created := suite.createTestShow(func(req *contracts.CreateShowRequest) {
+		req.Price = float64Ptr(35)
+		req.DoorPrice = float64Ptr(40)
+	})
+
+	suite.Require().NotNil(created.Price)
+	suite.Require().NotNil(created.DoorPrice)
+	suite.InDelta(35.0, *created.Price, 0.001)
+	suite.InDelta(40.0, *created.DoorPrice, 0.001)
+
+	// Read the column back, not just the in-memory response the create path
+	// built: a missing gorm column tag writes nothing and this is the only
+	// assertion that would catch it.
+	var stored catalogm.Show
+	suite.Require().NoError(suite.db.First(&stored, created.ID).Error)
+	suite.Require().NotNil(stored.DoorPrice)
+	suite.InDelta(40.0, *stored.DoorPrice, 0.001)
+}
+
+// A zero door price means FREE AT THE DOOR, which is a fact. It has to survive
+// the write, so the create path must not treat it as an absent value.
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_PersistsAZeroDoorPrice() {
+	created := suite.createTestShow(func(req *contracts.CreateShowRequest) {
+		req.Price = float64Ptr(15)
+		req.DoorPrice = float64Ptr(0)
+	})
+
+	var stored catalogm.Show
+	suite.Require().NoError(suite.db.First(&stored, created.ID).Error)
+	suite.Require().NotNil(stored.DoorPrice, "a zero door price is free, not absent")
+	suite.InDelta(0.0, *stored.DoorPrice, 0.001)
+}
+
+// A show with no door price recorded is the overwhelmingly common case, and it
+// must stay NULL rather than defaulting to the advance price.
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_LeavesDoorPriceNullWhenUnstated() {
+	created := suite.createTestShow(func(req *contracts.CreateShowRequest) {
+		req.Price = float64Ptr(35)
+	})
+
+	suite.Nil(created.DoorPrice)
+
+	var stored catalogm.Show
+	suite.Require().NoError(suite.db.First(&stored, created.ID).Error)
+	suite.Nil(stored.DoorPrice)
+}
+
+// The two prices are independent facts: writing one must leave the other
+// exactly where it was. Both directions, because a shared update map makes it
+// easy to get one right and the other wrong.
+func (suite *ShowServiceIntegrationTestSuite) TestUpdateShow_PricesAreIndependent() {
+	created := suite.createTestShow(func(req *contracts.CreateShowRequest) {
+		req.Price = float64Ptr(35)
+		req.DoorPrice = float64Ptr(40)
+	})
+
+	resp, err := suite.showService.UpdateShow(created.ID, &contracts.UpdateShowRequest{
+		DoorPrice: float64Ptr(45),
+	})
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.Price)
+	suite.Require().NotNil(resp.DoorPrice)
+	suite.InDelta(35.0, *resp.Price, 0.001, "editing the door price must not disturb the advance price")
+	suite.InDelta(45.0, *resp.DoorPrice, 0.001)
+
+	resp, err = suite.showService.UpdateShow(created.ID, &contracts.UpdateShowRequest{
+		Price: float64Ptr(30),
+	})
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.Price)
+	suite.Require().NotNil(resp.DoorPrice)
+	suite.InDelta(30.0, *resp.Price, 0.001)
+	suite.InDelta(45.0, *resp.DoorPrice, 0.001, "editing the advance price must not disturb the door price")
+
+	// An edit that touches neither leaves both alone.
+	resp, err = suite.showService.UpdateShow(created.ID, &contracts.UpdateShowRequest{
+		Title: stringPtr("Retitled"),
+	})
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.Price)
+	suite.Require().NotNil(resp.DoorPrice)
+	suite.InDelta(30.0, *resp.Price, 0.001)
+	suite.InDelta(45.0, *resp.DoorPrice, 0.001)
+}
+
+// UpdateShow has no non-test callers; the PUT handler runs through
+// UpdateShowWithRelations, so the write-through is pinned there too.
+func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_WritesDoorPrice() {
+	created := suite.createTestShow(func(req *contracts.CreateShowRequest) {
+		req.Price = float64Ptr(20)
+	})
+
+	resp, _, err := suite.showService.UpdateShowWithRelations(
+		created.ID,
+		&contracts.UpdateShowRequest{DoorPrice: float64Ptr(25)},
+		nil,
+		nil,
+		true,
+	)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.DoorPrice)
+	suite.InDelta(25.0, *resp.DoorPrice, 0.001)
+	suite.Require().NotNil(resp.Price)
+	suite.InDelta(20.0, *resp.Price, 0.001)
+}
+
 // TestCreateShow_RejectsMusicBeforeDoors covers the storage chokepoint, which
 // is what protects the create callers that never run the handler's Resolve.
 func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_RejectsMusicBeforeDoors() {
