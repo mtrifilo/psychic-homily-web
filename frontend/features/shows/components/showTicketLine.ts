@@ -1,5 +1,6 @@
 import { showTimingInput } from '../utils'
 import { startTimeFactSegment } from './showStatusStripeCopy'
+import { saysSoldOut } from './showSaleState'
 import { hasReadableStartDate } from '@/lib/utils/showTiming'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import type { ShowResponse } from '../types'
@@ -114,17 +115,26 @@ function ticketPriceSegments(show: ShowResponse): string[] {
  *
  * A LINK OUTRANKS A ZERO PRICE, deliberately: a free show with an RSVP or
  * guestlist link did have a reservation to close out, and `Free · NO LONGER
- * AVAILABLE` is the true thing to say about it once the list is shut. What
- * returns false is the free show with NO link, and the show carrying neither
- * field — `NO LONGER AVAILABLE` is the past tense of `ON SALE`, and a line
- * that never said `ON SALE` has nothing to un-say. Both cases would only
- * restate the stripe's `PAST SHOW` in a register the page has no reason to
- * use.
+ * AVAILABLE` is the true thing to say about it once the list is shut.
  *
- * Reads BOTH prices: a show sold only at the door still charged for entry.
+ * THE SOLD-OUT FLAG COUNTS TOO, and it is the input this function most
+ * easily forgets because it is not a price and not a link. An ingested show
+ * an admin marked sold out may carry neither field, and its line read
+ * `8PM · SOLD OUT` right up until the show ended. Without this test it would
+ * flip to a bare `8PM`: the register would go from a present-tense claim to
+ * SILENCE rather than to the past tense of that claim, losing the most
+ * emphatic evidence the show ever had of a sale to close.
+ *
+ * BOTH PRICES COUNT: a show sold only at the door still charged for entry.
+ *
+ * What returns false is the free show with no link and no sold-out flag, and
+ * the show carrying none of the three — `NO LONGER AVAILABLE` is the past
+ * tense of `ON SALE`, and a line that never said anything has nothing to
+ * un-say. Those cases would only restate the stripe's `PAST SHOW` in a
+ * register the page has no reason to use.
  */
 function hasTicketCommerce(show: ShowResponse): boolean {
-  if (storedTicketUrl(show)) return true
+  if (storedTicketUrl(show) || show.is_sold_out) return true
   // The same zero that {@link ticketPrice} renders as "Free"; keep the two
   // in step if a price ever becomes something other than a plain number.
   return (show.price ?? 0) > 0 || (show.door_price ?? 0) > 0
@@ -150,6 +160,18 @@ function hasTicketCommerce(show: ShowResponse): boolean {
  *   first and never says PAST SHOW under it, so this line must not answer in
  *   the other state's words. `CANCELLED` is the whole statement, and it was
  *   already made at the top of the page.
+ *
+ * There is deliberately NO fourth condition on the venue timezone, and the
+ * omission looks wrong at first glance, so here is why. `startTimeFactSegment`
+ * two calls up REFUSES to print this show's start time on a guessed zone,
+ * because a confidently wrong hour is worse than no hour. That rule does not
+ * transfer: a guessed zone can be many hours out, which ruins an hour, but the
+ * stripe still prints `PAST SHOW` for the same show on the same guess. Adding
+ * the test here would make this line MORE conservative than the band it is
+ * required to agree with — the page would say PAST SHOW at the top and decline
+ * to close the ticket line beneath it. One boundary, one answer, even when the
+ * boundary is imperfect; fixing the guess is the timezone backfill's job, not
+ * this line's.
  */
 function saysPastRegister(
   show: ShowResponse,
@@ -157,24 +179,6 @@ function saysPastRegister(
 ): boolean {
   if (show.is_cancelled || lifecycle !== 'past') return false
   return hasReadableStartDate(show.event_date)
-}
-
-/**
- * Whether a surface may say `SOLD OUT` about this show.
- *
- * Exported because the page says it TWICE — this line, and the header badge
- * beside the date — and a present-tense claim guarded in one of those places
- * is a claim the other will make anyway. It asserts two things at once, that
- * the event is happening and that tickets are gone, so both a cancellation
- * and an elapsed show withdraw it: a past sold-out show printing the badge
- * over `NO LONGER AVAILABLE` is one band arguing with itself across eighty
- * pixels.
- */
-export function saysSoldOut(
-  show: ShowResponse,
-  lifecycle: ShowLifecycleState
-): boolean {
-  return show.is_sold_out && !show.is_cancelled && lifecycle !== 'past'
 }
 
 /**
@@ -204,7 +208,7 @@ export function saysSoldOut(
  * has anything to close out.
  *
  * A past show closes the line instead: `$35 · NO LONGER AVAILABLE`, the
- * locked PAST mock's `1241:18` register (PSY-1690). It sits AFTER the price
+ * register of the locked PAST show-page mock. It sits AFTER the price
  * rather than in the sale state's slot because that is the mock's order and
  * because it reads as what it is — a record of what entry cost, then the
  * fact that the door has shut. {@link saysPastRegister} decides whether this

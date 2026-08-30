@@ -143,6 +143,22 @@ describe('ShowHeader SOLD OUT badge', () => {
   })
 })
 
+describe('ShowHeader date register', () => {
+  // On an archive page the year is the fact that dates the document; on an
+  // upcoming one it is noise.
+  it('carries the year on a past show and omits it on an upcoming one', () => {
+    const { rerender } = render(
+      <ShowHeader lifecycle="past" show={makeShow()} />
+    )
+    const pastDate = screen.getByText(/Aug \d+/).textContent ?? ''
+    expect(pastDate).toMatch(/20\d\d/)
+
+    rerender(<ShowHeader lifecycle="upcoming" show={makeShow()} />)
+    const upcomingDate = screen.getByText(/Aug \d+/).textContent ?? ''
+    expect(upcomingDate).not.toMatch(/20\d\d/)
+  })
+})
+
 describe('ShowHeader layout', () => {
   // The locked decision: no flyer means no reserved gutter. The earlier
   // always-on placeholder promised an image that was never coming.

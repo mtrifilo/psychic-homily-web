@@ -8,7 +8,8 @@ import { useAuthContext } from '@/lib/context/AuthContext'
 // every page that renders this section.
 import { SignInPrompt } from '@/features/auth/components/SignInPrompt'
 import { StatusBanner } from '@/components/shared'
-import { hasShowStarted } from '@/lib/utils/showTiming'
+import { hasReadableStartDate, hasShowStarted } from '@/lib/utils/showTiming'
+import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import {
   useFieldNotes,
   useCreateFieldNote,
@@ -28,9 +29,24 @@ interface FieldNotesSectionProps {
   showId: number
   showDate: string
   artists?: ShowArtist[]
+  /**
+   * Server-computed, threaded from the show route. Used ONLY to pick the
+   * empty state's tense — never to gate the form, which has its own
+   * boundary and a different reason for it (see `isFuture` below).
+   *
+   * Optional because this section is mounted from one place today and a
+   * caller without a lifecycle should get the tense-neutral wording rather
+   * than a type error; `undefined` reads as "not known to be past".
+   */
+  lifecycle?: ShowLifecycleState
 }
 
-export function FieldNotesSection({ showId, showDate, artists = [] }: FieldNotesSectionProps) {
+export function FieldNotesSection({
+  showId,
+  showDate,
+  artists = [],
+  lifecycle,
+}: FieldNotesSectionProps) {
   const { isAuthenticated } = useAuthContext()
   const { data, isLoading } = useFieldNotes(showId)
   const createMutation = useCreateFieldNote()
@@ -54,6 +70,19 @@ export function FieldNotesSection({ showId, showDate, artists = [] }: FieldNotes
   // boundary. It is the wrong one here and its only consumer is the share
   // card's cache window, not any reader-facing surface.
   const isFuture = !hasShowStarted(showDate)
+
+  // TWO boundaries on this page, and they are not the same one — the whole
+  // reason this prop exists. `isFuture` above opens the FORM at the start
+  // INSTANT, mirroring the API. `lifecycle` turns past at venue-local
+  // MIDNIGHT, which is what the stripe at the top of the page says. Between
+  // those two moments the form is open and the stripe reads TONIGHT, so the
+  // empty state must not ask "were you there?" about a band currently on
+  // stage. An unreadable date is excluded for the same reason the ticket
+  // line excludes it: `hasShowStarted` counts an undateable show as started
+  // and the lifecycle counts it as past, and neither is evidence the show
+  // actually happened.
+  const isArchived =
+    lifecycle === 'past' && hasReadableStartDate(showDate)
 
   const hasCanonicalPending =
     pendingNote !== null && fieldNotes.some((c) => c.id === pendingNote.id)
@@ -167,14 +196,18 @@ export function FieldNotesSection({ showId, showDate, artists = [] }: FieldNotes
               className="text-sm text-muted-foreground py-8 text-center"
               data-testid="field-notes-empty"
             >
-              {/* Past tense, because this branch has no other tense available
-                  to it: the whole section is behind `hasShowStarted`, so the
-                  empty state is reached ONLY once the show has begun. It used
-                  to read "Attend this show and share your experience!", which
-                  every past show with no notes displayed — an instruction to
-                  go to something that had already happened (PSY-1690). The
-                  phrasing is the locked mock's own prompt for this act. */}
-              No field notes yet. Were you there? Share what you saw.
+              {/* Two tenses, because this branch spans two states. It used to
+                  read "Attend this show…" unconditionally, which was an
+                  instruction to go to something that had already happened on
+                  every past show with no notes. Reversing it unconditionally
+                  would only move the bug: "were you there?" is just as wrong
+                  during the show, when the stripe above says TONIGHT. The
+                  past phrasing is the locked mock's own prompt for this act;
+                  the in-progress phrasing is the original, which was always
+                  correct in this window. */}
+              {isArchived
+                ? 'No field notes yet. Were you there? Share what you saw.'
+                : 'No field notes yet. Attend this show and share your experience!'}
             </p>
           ) : (
             <div className="space-y-4">

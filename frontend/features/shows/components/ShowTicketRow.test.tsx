@@ -171,6 +171,10 @@ describe('ticketLineSegments', () => {
     // to close out, so this is the one "Free" line that closes.
     ['a free show with an rsvp link did open one', { price: 0, ticket_url: 'https://rsvp.example/1' }, 'past', true],
     ['neither field means no commerce to close', {}, 'past', false],
+    // The flag this test matrix most easily forgets: an ingested show an
+    // admin marked sold out can carry no price and no link, and its line read
+    // `8PM · SOLD OUT` until the show ended. It must close, not fall silent.
+    ['a sold-out flag alone is a sale to close', { is_sold_out: true }, 'past', true],
     // getShowLifecycleState returns 'past' for an unreadable date. The stripe
     // renders nothing at all for that show, so this line must not announce a
     // closed door the page cannot date.
@@ -442,8 +446,13 @@ describe('ShowTicketRow', () => {
   // Its absence is deliberately NOT asserted: nothing in the tree renders
   // that string, so the query could never fail and would pin nothing.
   it('drops the calendar verb on a past show and keeps the archive row', () => {
-    render(<ShowTicketRow lifecycle="past" show={makeShow()} />)
+    // Priced, so the rendered line actually carries the past register rather
+    // than testing the archive row beside an empty one.
+    render(<ShowTicketRow lifecycle="past" show={makeShow({ price: 35 })} />)
 
+    expect(screen.getByTestId('ticket-line')).toHaveTextContent(
+      'NO LONGER AVAILABLE'
+    )
     expect(screen.queryByText('Add to calendar')).not.toBeInTheDocument()
     expect(screen.getByText('Save')).toBeInTheDocument()
     expect(screen.getByTestId('add-to-collection')).toBeInTheDocument()

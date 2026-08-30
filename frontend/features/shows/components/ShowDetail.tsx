@@ -229,9 +229,15 @@ export function ShowDetail({ showId, lifecycle }: ShowDetailProps) {
 
         {/* Field Notes */}
         <section className="mb-8">
+          {/* `lifecycle` picks the empty state's TENSE only; the form's own
+              gate stays on the start instant, where the API's boundary is.
+              The two differ for the whole evening of a show, which is why
+              the section needs both rather than re-deriving one from the
+              other. */}
           <FieldNotesSection
             showId={show.id}
             showDate={show.event_date}
+            lifecycle={lifecycle}
             artists={artists.map(a => ({ id: a.id, name: a.name }))}
           />
         </section>

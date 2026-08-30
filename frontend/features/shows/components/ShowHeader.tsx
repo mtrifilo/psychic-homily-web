@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 import { formatShowDate } from '@/lib/utils/formatters'
 import { ShowFlyerPlate } from './ShowFlyerPlate'
 import { ShowTicketRow } from './ShowTicketRow'
-import { saysSoldOut } from './showTicketLine'
+import { saysSoldOut } from './showSaleState'
 import { ShowVenueModule } from './ShowVenueModule'
 import { flyerImageSrc, sourceVenueName } from './showFlyer'
 import { billHometown, byBillPosition, showTimingInput, splitBill } from '../utils'
@@ -271,14 +271,15 @@ export function ShowHeader({ show, lifecycle, actions }: ShowHeaderProps) {
           <span className="text-lg font-bold text-primary">
             {formatShowDate(show.event_date, timing.state, false, timing.timezone)}
           </span>
-          {/* Through the ticket line's derivation, not `show.is_sold_out`
-              directly (PSY-1690). SOLD OUT is a present-tense claim and the
-              page makes it twice — here, and in the ticket row a few hundred
-              pixels down — so a guard held by only one of them is a guard the
-              other walks straight past: this badge used to print over
-              `NO LONGER AVAILABLE` on a past sold-out show, and over the
-              CANCELLED stripe on a cancelled one. The flag is still the
-              input; when it may be SAID is `saysSoldOut`'s to answer. */}
+          {/* Through the shared derivation, not `show.is_sold_out` directly.
+              SOLD OUT is a present-tense claim and this page makes it twice —
+              here, and in the ticket row a few hundred pixels down — so a
+              guard held by only one of them is a guard the other walks
+              straight past: this badge used to print over `NO LONGER
+              AVAILABLE` on a past sold-out show, and over the CANCELLED
+              stripe on a cancelled one. The flag is still the input; when it
+              may be SAID is `saysSoldOut`'s to answer, and that module
+              records which other surfaces do not yet ask it. */}
           {saysSoldOut(show, lifecycle) && (
             <Badge
               variant="secondary"

@@ -79,7 +79,12 @@ describe('FieldNotesSection', () => {
       })
 
       render(
-        <FieldNotesSection showId={1} showDate={pastDate} artists={mockArtists} />
+        <FieldNotesSection
+          showId={1}
+          showDate={pastDate}
+          lifecycle="past"
+          artists={mockArtists}
+        />
       )
 
       expect(screen.getByTestId('field-notes-section')).toBeInTheDocument()
@@ -87,6 +92,61 @@ describe('FieldNotesSection', () => {
       expect(
         screen.getByText('No field notes yet. Were you there? Share what you saw.')
       ).toBeInTheDocument()
+    })
+
+    // The form's gate opens at the START INSTANT; the lifecycle turns past at
+    // venue-local MIDNIGHT. For the whole evening in between, the page's
+    // stripe says TONIGHT — so the empty state must not ask "were you there?"
+    // about a band currently on stage.
+    it('keeps the present tense while the show is in progress', () => {
+      mockUseAuthContext.mockReturnValue({
+        isAuthenticated: false,
+        user: null,
+      })
+      mockUseFieldNotes.mockReturnValue({
+        data: { comments: [], total: 0, has_more: false },
+        isLoading: false,
+      })
+
+      render(
+        <FieldNotesSection
+          showId={1}
+          showDate={pastDate}
+          lifecycle="today"
+          artists={mockArtists}
+        />
+      )
+
+      expect(screen.getByTestId('field-notes-empty')).toHaveTextContent(
+        'Attend this show and share your experience!'
+      )
+    })
+
+    // `hasShowStarted` counts an undateable show as started and the lifecycle
+    // counts it as past; neither is evidence the show actually happened, so
+    // the archive prompt stays off.
+    it('makes no archive claim for a show whose date cannot be read', () => {
+      mockUseAuthContext.mockReturnValue({
+        isAuthenticated: false,
+        user: null,
+      })
+      mockUseFieldNotes.mockReturnValue({
+        data: { comments: [], total: 0, has_more: false },
+        isLoading: false,
+      })
+
+      render(
+        <FieldNotesSection
+          showId={1}
+          showDate="not-a-date"
+          lifecycle="past"
+          artists={mockArtists}
+        />
+      )
+
+      expect(screen.getByTestId('field-notes-empty')).not.toHaveTextContent(
+        'Were you there?'
+      )
     })
 
     it('renders auth gate for unauthenticated users', () => {

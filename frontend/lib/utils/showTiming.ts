@@ -90,7 +90,11 @@ function startInstantMs(eventDate: string | null | undefined): number | null {
  * Whether the show's start instant can be read at all.
  *
  * The check `getShowLifecycleState` demands of every surface that renders
- * WORDS, made callable so it is not re-implemented per surface. An undateable
+ * WORDS, made callable so a surface can ASK it rather than infer it. (It is
+ * not yet the only implementation: `showStatusStripeCopy` still parses the
+ * instant itself, because it needs the number rather than the yes/no. Fold
+ * that one in here if this ever grows a rule beyond `Date.parse`.) An
+ * undateable
  * show comes back `past` from that function, a default inherited from a
  * cache-window caller where "past" only meant "cache it longer" — so a
  * surface that prints the past register without asking this first will put an
