@@ -90,17 +90,17 @@ export interface BracketLinkProps
    * can drift apart again. A caller string that already ends in such a note is
    * used as-is rather than doubled.
    *
-   * TEST-LOCATOR CONSEQUENCE (PSY-1957): this suffix, combined with the
+   * Consequence for name-based test locators: this suffix, plus the
    * entity-naming `ariaLabel` below, makes an external bracket's accessible
-   * name a SUPERSTRING of the entity it names ("Listen to {channel} (opens in
-   * a new tab)"). Playwright's `getByRole(..., { name })` matches by substring
-   * by default, so an outbound bracket rendered near a link named after the
-   * same entity silently makes that entity-name locator ambiguous, and any
-   * spec using it dies on a strict-mode violation. That is how PSY-1865 turned
-   * main's E2E red. It is not a reason to change this contract (the
-   * announcement and the context both belong here), but when you add an
-   * `external` bracket beside a same-named link, check `frontend/e2e/` for a
-   * name-matched locator that now needs `exact: true` or a region scope.
+   * name a SUPERSTRING of the entity it names. Playwright matches
+   * `getByRole(..., { name })` by substring unless told otherwise, so an
+   * outbound bracket rendered beside a link named after the same entity makes
+   * that entity-name locator ambiguous and fails the spec on strict mode.
+   * Neither half is negotiable here, so the repair belongs in the spec: when
+   * you add an `external` bracket next to a same-named link, check
+   * `frontend/e2e/` for a name-matched locator needing `exact: true` or a
+   * container scope. `BracketLink.test.tsx` pins the superstring property so
+   * this stays a known property rather than a surprise.
    *
    * Only `http(s)` hrefs are honored — anything else renders the disabled
    * fallback instead of a live anchor (see the scheme floor below). Marking a

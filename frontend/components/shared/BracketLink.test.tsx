@@ -211,6 +211,33 @@ describe('BracketLink', () => {
       ).toBeInTheDocument()
     })
 
+    // The superstring property, pinned deliberately rather than left to be
+    // rediscovered. Appending the announcement means an outbound bracket's
+    // accessible name always CONTAINS its `ariaLabel`, so a name-matched test
+    // locator for the entity ("Give the Drummer Radio") also selects the
+    // bracket that merely mentions it ("Listen to Give the Drummer Radio
+    // (opens in a new tab)"). That is why specs pairing an entity link with an
+    // outbound bracket need `exact: true` or a container scope; see
+    // e2e/pages/radio.spec.ts. This test exists so the property is a stated
+    // invariant of the component, not a surprise found via a red CI run.
+    it('produces an accessible name that contains the caller ariaLabel', () => {
+      const entity = 'Give the Drummer Radio'
+      render(
+        <BracketLink
+          label="listen"
+          href="https://wfmu.test/drummer"
+          external
+          ariaLabel={`Listen to ${entity}`}
+        />
+      )
+      const name = screen.getByRole('link').getAttribute('aria-label') ?? ''
+      // Substring match (what Playwright does by default) hits it...
+      expect(name).toContain(entity)
+      // ...while an exact match on the bare entity name does not, which is the
+      // property that makes `exact: true` the correct repair in a spec.
+      expect(name).not.toBe(entity)
+    })
+
     // Tolerance, NOT endorsement: `external`'s contract says callers must not
     // write this phrase. These pin that doing it anyway degrades to a correct
     // name rather than a stutter, across the phrasings people actually reach

@@ -1,6 +1,32 @@
 import { test } from '../fixtures/error-detection'
 import { expect } from '@playwright/test'
 
+/**
+ * FLAKE NOTE on the list-to-detail leg below (`/shows` -> click the first
+ * card's show link -> `waitForURL(/\/shows\//)`).
+ *
+ * Both tests here have timed out on that `waitForURL` in CI while the product
+ * was fine. Recorded so the next occurrence is not re-investigated from zero:
+ *
+ *  - Both timed out on the initial attempt and PASSED ON RETRY, in a job whose
+ *    Playwright summary read "1 failed / 2 flaky / 29 passed". The `1 failed`
+ *    was a different spec with a genuine strict-mode defect, which failed the
+ *    initial attempt AND both retries. Deterministic defect versus
+ *    retry-recoverable flake is exactly that difference.
+ *  - This leg is not unique to this file. `artist-detail.spec.ts` and
+ *    `venue-detail.spec.ts` open with a byte-identical construct, and
+ *    `city-filter.spec.ts` with a near-identical one. They sit on other shards
+ *    and were green in the same run, which is the evidence against a real
+ *    defect in the shared shape.
+ *  - Ten local executions across five independent stack bring-ups, including
+ *    under parallel workers, produced zero failures.
+ *
+ * So this is treated as shard load, and the spec is deliberately left alone
+ * rather than absorbing a timeout bump that would hide a future real
+ * regression. If it recurs and stops recovering on retry, fix the shape in
+ * ALL FOUR specs together, not just this one: they are twins, and a fix that
+ * lands on a subset is how the next red goes unconnected to this note.
+ */
 test.describe('Show detail', () => {
   test('displays show details with artist and venue links', async ({ page }) => {
     await page.goto('/shows')

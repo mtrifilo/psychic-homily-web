@@ -69,6 +69,12 @@ export default function RadioHub() {
         </header>
 
         {/* THE DIAL */}
+        {/* This `aria-label` is a TEST LOCATOR, not just an a11y name:
+            e2e/pages/radio.spec.ts scopes its station-link queries to
+            `region "The dial"` to separate these strips from the program
+            guide, which links the same stations by the same bare names.
+            Renaming it (for instance to match the visible heading below)
+            breaks that spec. Rename the constant in the spec too. */}
         <section className="mb-10" aria-label="The dial">
           <DialSectionHeading title="The dial — live now" />
           {stationsQuery.isLoading && (
