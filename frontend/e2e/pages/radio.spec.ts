@@ -27,11 +27,29 @@ import { expect } from '@playwright/test'
  * The dial's outbound `[listen]` bracket announces "Listen to {channel}
  * (opens in a new tab)" (PSY-1865 gave it the channel-naming `ariaLabel`;
  * BracketLink appends the new-tab half), which contains the channel name and
- * so collided with the channel's own strip link under strict mode. Wherever
- * the intended target IS the bare entity-name link, these queries pass
- * `exact: true`. Wherever the target legitimately carries decoration around
- * the name — the show page's "← {station}" back-link — the substring match
- * is the point and `exact` must NOT be added; those sites say so inline.
+ * so collided with the channel's own strip link under strict mode.
+ *
+ * Two DIFFERENT tools, for two different collisions — do not reach for one
+ * expecting it to cover the other:
+ *
+ *  - `exact: true` defeats a LONGER name that contains the target's name.
+ *    That is the outbound-bracket case above. It does nothing about a second
+ *    element whose name is identical.
+ *  - A landmark/region SCOPE defeats an identical name elsewhere on the page.
+ *    `/radio` has exactly that: the program guide links stations by bare name
+ *    too, so the strip assertions scope to `region "The dial"` first.
+ *
+ * Where a region scope already excludes the colliding element, `exact` is
+ * belt-and-braces rather than required (the Shows-directory queries below).
+ * Where the target's name legitimately carries decoration, match the WHOLE
+ * decorated name exactly ("← KEXP") rather than falling back to a substring
+ * plus `.first()` — a substring plus `.first()` can pass while asserting
+ * nothing, which is worse than the collision it works around.
+ *
+ * One behavior change to know about: `exact: true` is case-SENSITIVE, while
+ * substring matching is not. Every literal here matches
+ * backend/internal/seeddata/radio.go byte for byte; a casing edit to the seed
+ * will now fail these tests. That failure is loud, which is the point.
  *
  * SEED SCOPE (verified against backend/internal/seeddata/radio.go, rendered
  * by cmd/gen-e2e-seed into frontend/e2e/setup-db.sh):
@@ -81,25 +99,38 @@ test.describe('Radio browse flow', () => {
     // WFMU / NTS are the three index-visible stations (the 3 WFMU
     // sub-channels are hidden by isStationVisibleOnIndex per PSY-673; they
     // appear as channel sub-rows under the WFMU strip instead).
+    //
+    // SCOPE, then exactness — both are load-bearing and they defeat different
+    // collisions. `RadioGuide` renders its own station link whose accessible
+    // name is EXACTLY the station name (`<Link>{row.station.name}</Link>`,
+    // app/radio/_components/RadioGuide.tsx), inside the same <main>. Exactness
+    // is powerless against that one — two identical names stay ambiguous — so
+    // the dial's own landmark (`<section aria-label="The dial">`,
+    // RadioHub.tsx) is what keeps these queries pointed at the strips. The
+    // guide is empty on the E2E seed today only because `gen-e2e-seed` never
+    // writes `radio_shows.schedule` and the guide query filters on
+    // `schedule IS NOT NULL`, so this scope is what stands between the spec
+    // and a red the day one schedule slot gets seeded.
+    const dial = main.getByRole('region', { name: 'The dial' })
     await expect(
-      main.getByRole('link', { name: KEXP_STATION_NAME, exact: true })
+      dial.getByRole('link', { name: KEXP_STATION_NAME, exact: true })
     ).toBeVisible({ timeout: 10_000 })
     await expect(
-      main.getByRole('link', { name: 'WFMU', exact: true })
+      dial.getByRole('link', { name: 'WFMU', exact: true })
     ).toBeVisible()
     await expect(
-      main.getByRole('link', { name: 'NTS Radio', exact: true })
+      dial.getByRole('link', { name: 'NTS Radio', exact: true })
     ).toBeVisible()
 
     // WFMU's channels surface as underlined sub-row links on the flagship
     // strip (seed has 3 wfmu sub-channels; assert one stable example).
-    // `exact: true`: the same row's outbound bracket announces "Listen to
-    // Give the Drummer Radio (opens in a new tab)", which a substring match
-    // also selects. The strip link's whole accessible name is the channel
-    // name, so exactness names the intended element without weakening what
-    // this asserts.
+    // `exact: true` is what does the work HERE: the collision is inside the
+    // dial, in the same row — the outbound bracket announces "Listen to Give
+    // the Drummer Radio (opens in a new tab)", which a substring match also
+    // selects. The strip link's whole accessible name is the channel name, so
+    // exactness names the intended element without weakening the assertion.
     await expect(
-      main.getByRole('link', { name: 'Give the Drummer Radio', exact: true })
+      dial.getByRole('link', { name: 'Give the Drummer Radio', exact: true })
     ).toBeVisible()
   })
 
@@ -108,11 +139,14 @@ test.describe('Radio browse flow', () => {
   }) => {
     await page.goto('/radio')
 
-    // Click into KEXP (network-less → 1-segment /radio/kexp URL). `exact: true`
-    // for the same reason as above — this must be the strip's identity link,
-    // not any control that merely mentions the station in its name.
+    // Click into KEXP (network-less → 1-segment /radio/kexp URL). Scoped to
+    // the dial region and exact, for the reasons spelled out in the test
+    // above. This one is a CLICK, so an ambiguous locator is a hard failure
+    // rather than a failed assertion — the guide's same-named station link is
+    // the collision the region scope exists to exclude.
     const stationLink = page
       .getByRole('main')
+      .getByRole('region', { name: 'The dial' })
       .getByRole('link', { name: KEXP_STATION_NAME, exact: true })
     await expect(stationLink).toBeVisible({ timeout: 10_000 })
     await stationLink.click()
@@ -139,10 +173,17 @@ test.describe('Radio browse flow', () => {
     // the playlists feed (client-fetched, so the un-scoped match count varies
     // 2–3 and trips strict mode). StationShowsDirectory renders
     // `<section aria-label="Shows">` → role=region.
+    //
+    // `exact: true` per the exactness note above: StationShowsDirectory renders
+    // the card title as a bare `<Link>{show.name}</Link>`, so the whole
+    // accessible name is the show name. Region-scoping alone would leave this
+    // one seed edit away from the same strict-mode failure — a KEXP show named
+    // "The Morning Show Weekend Edition" would make the substring match
+    // ambiguous INSIDE the region.
     await expect(
       main
         .getByRole('region', { name: 'Shows' })
-        .getByRole('link', { name: KEXP_SHOW_NAME })
+        .getByRole('link', { name: KEXP_SHOW_NAME, exact: true })
     ).toBeVisible({ timeout: 10_000 })
   })
 
@@ -152,13 +193,15 @@ test.describe('Radio browse flow', () => {
     // Start at the station so the click target is the real rendered show
     // card link (not a hand-built URL). PSY-1072: scoped to the shows
     // directory region — the on-air box + playlists feed (PSY-1050) also
-    // link the show name, tripping strict mode un-scoped.
+    // link the show name, tripping strict mode un-scoped. `exact: true` for the
+    // same reason as the station-detail test above — this is a bare
+    // entity-name link, so the file's exactness rule applies to it.
     await page.goto(`/radio/${KEXP_SLUG}`)
 
     const showLink = page
       .getByRole('main')
       .getByRole('region', { name: 'Shows' })
-      .getByRole('link', { name: KEXP_SHOW_NAME })
+      .getByRole('link', { name: KEXP_SHOW_NAME, exact: true })
     await expect(showLink).toBeVisible({ timeout: 10_000 })
     await showLink.click()
 
@@ -177,13 +220,25 @@ test.describe('Radio browse flow', () => {
     // PSY-1072: the PSY-1051 show-page rebuild replaced the Radio + station
     // breadcrumb chain with a single "← {station}" back-link (the hub stays
     // reachable via the top-bar Radio link, which lives outside <main>).
-    // `name` matching is substring, so KEXP_STATION_NAME matches "← KEXP";
-    // `.first()` guards against the station name also appearing in body copy.
-    // PSY-1957: do NOT add `exact: true` here. The target's accessible name is
-    // "← KEXP", not "KEXP" — exactness would match nothing. This is the site
-    // where the substring behavior is load-bearing rather than accidental.
+    // PSY-1957: this used to be a substring match on the bare station name
+    // plus `.first()`, which was the one construct in this file that could
+    // pass while asserting NOTHING — if the back-link were renamed or removed
+    // and any earlier-in-DOM link in <main> carried "KEXP" in its name,
+    // `.first()` would silently retarget and stay green. The show meta line
+    // already prints `station_name` as plain text, so linking it is an
+    // obvious next edit.
+    //
+    // The decoration here is a hard-coded literal, not variable data
+    // (`← {show.station_name}` in RadioShowDetail.tsx), so the whole
+    // accessible name is knowable and can be matched exactly. Naming it in
+    // full is both unambiguous and self-describing: the assertion now fails
+    // loudly if the back-link changes, instead of quietly matching something
+    // else.
     await expect(
-      main.getByRole('link', { name: KEXP_STATION_NAME }).first()
+      main.getByRole('link', {
+        name: `← ${KEXP_STATION_NAME}`,
+        exact: true,
+      })
     ).toBeVisible()
 
     // Episode archive renders. PSY-899 seeds one KEXP episode for this show
