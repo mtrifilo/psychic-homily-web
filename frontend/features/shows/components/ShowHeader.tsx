@@ -275,11 +275,13 @@ export function ShowHeader({ show, lifecycle, actions }: ShowHeaderProps) {
               SOLD OUT is a present-tense claim and this page makes it twice —
               here, and in the ticket row a few hundred pixels down — so a
               guard held by only one of them is a guard the other walks
-              straight past: this badge used to print over `NO LONGER
-              AVAILABLE` on a past sold-out show, and over the CANCELLED
-              stripe on a cancelled one. The flag is still the input; when it
-              may be SAID is `saysSoldOut`'s to answer, and that module
-              records which other surfaces do not yet ask it. */}
+              straight past. Without the shared rule this badge would print
+              directly above the `NO LONGER AVAILABLE` that this change
+              introduces — and it ALREADY printed over the CANCELLED stripe,
+              which is a real pre-existing bug this retires rather than a
+              hazard it avoids. The flag is still the input; when it may be
+              SAID is `saysSoldOut`'s to answer, and that module records which
+              other surfaces do not yet ask it. */}
           {saysSoldOut(show, lifecycle) && (
             <Badge
               variant="secondary"

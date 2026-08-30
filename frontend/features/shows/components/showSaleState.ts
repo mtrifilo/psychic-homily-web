@@ -28,16 +28,20 @@ import type { ShowLifecycleState } from '@/lib/utils/showTiming'
  * `opengraph-image`. NOT governed, and each is a separate decision rather
  * than an oversight:
  *
- * - `ShowStatusBadge` via `ShowCard` — the /shows list, the homepage list,
- *   and the admin consoles.
+ * - `ShowStatusBadge` via `ShowCard` — the /shows list and the homepage list.
  * - The scene calendar / week / day views, which do render past days.
  * - `ShowBill`, rendered by the venue and artist PAST-SHOWS tables, which
  *   have pinned tests asserting the badge appears there.
+ * - The admin consoles (`ShowSubmissionsConsole`, `ShowActions`), which
+ *   hand-roll their own sold-out pill and share no code with
+ *   `ShowStatusBadge` — the likeliest of these to drift, for that reason.
  *
- * Those are all LISTING rows, and a row is a different claim from a detail
- * page's status band; the pinned tests say the current behaviour is at least
- * deliberate. Unifying them is a product call with tests to rewrite, not a
- * refactor to slip into an unrelated change.
+ * The first three are LISTING rows, and a row is a different claim from a
+ * detail page's status band; the pinned tests say the current behaviour is at
+ * least deliberate. The admin pills are moderation chrome, which answers to
+ * the stored flag rather than to a reader's register. Unifying any of them is
+ * a product call with tests to rewrite, not a refactor to slip into an
+ * unrelated change.
  */
 export function saysSoldOut(
   show: {

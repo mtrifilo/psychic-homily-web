@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { deflateSync } from 'node:zlib'
 
 import { isPng, rightmostContentColumn } from '@/lib/og/test-helpers'
@@ -142,6 +142,62 @@ describe('the show OG route', () => {
     expect(res.status).toBe(200)
     expect(isPng(bytes)).toBe(true)
   }, 30000)
+
+  // The badge is the one reader-facing CLAIM this card makes about state, and
+  // it outlives a correction: a settled card holds for a day with an equal
+  // stale-while-revalidate window, so a stale SOLD OUT can survive the page
+  // withdrawing it by twice that. Pixel count is the available signal — the
+  // badge is a filled rect with text, so it cannot cost zero bytes.
+  describe('the SOLD OUT badge', () => {
+    const soldOut = { ...BASE_SHOW, is_sold_out: true }
+
+    // `Date` ONLY. Faking the timer functions too would stall the rasteriser,
+    // which awaits real async work inside `ImageResponse`.
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+    })
+
+    it('draws it while the show is still to come', async () => {
+      vi.setSystemTime(new Date('2026-09-01T12:00:00Z'))
+      const { res, bytes } = await render(soldOut)
+      const { bytes: plain } = await render(BASE_SHOW)
+
+      expect(res.status).toBe(200)
+      expect(isPng(bytes)).toBe(true)
+      expect(bytes.byteLength).toBeGreaterThan(plain.byteLength)
+    }, 30000)
+
+    // Withdrawn on the same rule the page uses, so the unfurl cannot keep
+    // making a claim the page it links to has retracted.
+    it('withholds it once the show is over', async () => {
+      vi.setSystemTime(new Date('2026-10-15T12:00:00Z'))
+      const { res, bytes } = await render(soldOut)
+      const { bytes: plain } = await render(BASE_SHOW)
+
+      expect(res.status).toBe(200)
+      expect(isPng(bytes)).toBe(true)
+      expect(bytes.byteLength).toBe(plain.byteLength)
+    }, 30000)
+
+    // A venue-less show falls back to the SHOW's own state. Omitting that
+    // fallback silently put this card on Arizona's calendar while the page
+    // used the real one, which is how the two could disagree about `past`.
+    it('reads the venue-less fallback state, not the Arizona default', async () => {
+      vi.setSystemTime(new Date('2026-10-15T12:00:00Z'))
+      const { bytes } = await render({
+        ...soldOut,
+        venues: [],
+        state: 'IL',
+      })
+      const { bytes: plain } = await render({ ...BASE_SHOW, venues: [], state: 'IL' })
+
+      expect(bytes.byteLength).toBe(plain.byteLength)
+    }, 30000)
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+  })
 
   // The cancelled flyer-less card is where an unconditional row `gap` bit: with
   // the absolute overlay as a sibling, Yoga reserved the gap anyway and the

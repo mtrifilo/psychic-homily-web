@@ -69,6 +69,14 @@ export const contentType = OG_CONTENT_TYPE
 interface ShowData {
   title?: string
   event_date: string
+  /**
+   * The show's OWN state, the fallback when it has no venue row. Declared
+   * here because omitting it silently changed the answer rather than failing:
+   * a venue-less show fell through to the Arizona default, so this card could
+   * date, cache, and badge itself on a different calendar than the page it
+   * unfurls. See {@link showTiming} below.
+   */
+  state?: string | null
   is_sold_out: boolean
   is_cancelled: boolean
   image_url?: string | null
@@ -222,7 +230,24 @@ function renderCard(
     show.artists?.find(a => a.is_headliner)?.name || show.artists?.[0]?.name || 'Live Music'
   const venue = show.venues?.[0]
   const venueName = venue?.name || 'TBA'
-  const showDate = formatDate(show.event_date, venue?.state, venue?.timezone, Boolean(plate))
+  // Which calendar this show is on, derived ONCE. Mirrors the page's own
+  // `showTimingInput` (`features/shows/utils.ts`), including the
+  // `venue?.state ?? show.state` fallback a venue-less show depends on. Three
+  // things read it — the printed date, the cache window, and the sold-out
+  // badge — and when they each spelled it out separately they disagreed:
+  // a venue-less show got Arizona here and its real state on the page, so the
+  // card could keep saying SOLD OUT after the page had withdrawn it.
+  const showTiming = {
+    eventDate: show.event_date,
+    state: venue?.state ?? show.state,
+    timezone: venue?.timezone,
+  }
+  const showDate = formatDate(
+    show.event_date,
+    showTiming.state,
+    showTiming.timezone,
+    Boolean(plate)
+  )
   const displayTitle = show.title || `${headliner} at ${venueName}`
   const otherArtists = show.artists?.filter(a => a.name !== headliner).map(a => a.name)
 
@@ -292,11 +317,7 @@ function renderCard(
   // between here and there. The rule itself lives in `lib/og/response` so it can
   // be tested: every card rendered under vitest is `degraded` and takes the
   // short window before this branch is reached.
-  const settled = isShowCardSettled({
-    eventDate: show.event_date,
-    state: venue?.state,
-    timezone: venue?.timezone,
-  })
+  const settled = isShowCardSettled(showTiming)
 
   return new ImageResponse(
     (
@@ -379,14 +400,7 @@ function renderCard(
                 for a day once the show settles, with an equal
                 stale-while-revalidate window, so a stale SOLD OUT here
                 outlives the page's correction rather than trailing it. */}
-            {saysSoldOut(
-              show,
-              getShowLifecycleState({
-                eventDate: show.event_date,
-                state: venue?.state,
-                timezone: venue?.timezone,
-              })
-            ) && (
+            {saysSoldOut(show, getShowLifecycleState(showTiming)) && (
               <div
                 style={{
                   display: 'flex',

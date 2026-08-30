@@ -8,7 +8,11 @@ import { useAuthContext } from '@/lib/context/AuthContext'
 // every page that renders this section.
 import { SignInPrompt } from '@/features/auth/components/SignInPrompt'
 import { StatusBanner } from '@/components/shared'
-import { hasShowStarted, showIsArchived } from '@/lib/utils/showTiming'
+import {
+  hasReadableStartDate,
+  hasShowStarted,
+  showIsArchived,
+} from '@/lib/utils/showTiming'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import {
   useFieldNotes,
@@ -45,9 +49,16 @@ interface FieldNotesSectionProps {
   /**
    * Cancellation is not derivable from `lifecycle`: the lifecycle knows only
    * about the calendar, so a cancelled show that has since gone by is `past`
-   * to it. A show that did not happen must never be asked what it was like.
+   * to it.
+   *
+   * REQUIRED for exactly the reason `lifecycle` is, and it was optional in an
+   * earlier revision of this same change — which is how the argument above
+   * failed to reach the prop added three lines below it. Defaulted to
+   * `false`, a dropped `isCancelled` sends a cancelled past show back to
+   * "Were you there?" with tsc and the whole suite green, because the
+   * page-level test mocks this component away.
    */
-  isCancelled?: boolean
+  isCancelled: boolean
 }
 
 export function FieldNotesSection({
@@ -55,7 +66,7 @@ export function FieldNotesSection({
   showDate,
   artists = [],
   lifecycle,
-  isCancelled = false,
+  isCancelled,
 }: FieldNotesSectionProps) {
   const { isAuthenticated } = useAuthContext()
   const { data, isLoading } = useFieldNotes(showId)
@@ -153,8 +164,19 @@ export function FieldNotesSection({
 
               This also drops a `toLocaleDateString` with no `timeZone`, which
               formatted against the SERVER's clock during SSR and the reader's
-              on hydration. */}
-          Field notes will be available after the show starts.
+              on hydration.
+
+              A CANCELLED show gets no sentence at all, rather than a reworded
+              one. "After the show starts" is a promise about a moment that
+              will never arrive, so it cannot stand — but the positive
+              replacement ("field notes are closed for this show", or
+              whatever it should say) is copy, and copy on this project is a
+              human decision. Saying nothing is the honest interim: the
+              section still renders its heading, and nothing false is
+              asserted. */}
+          {isCancelled
+            ? null
+            : 'Field notes will be available after the show starts.'}
         </p>
       ) : (
         <>
@@ -210,22 +232,30 @@ export function FieldNotesSection({
               className="text-sm text-muted-foreground py-8 text-center"
               data-testid="field-notes-empty"
             >
-              {/* THREE states, and each earlier revision of this line covered
-                  fewer of them than it thought. It read "Attend this show…"
-                  unconditionally, which instructed readers to go to something
-                  that had already happened. Reversing it unconditionally only
-                  moved the bug, since "were you there?" is just as wrong
-                  during the show, when the stripe above says TONIGHT. And
-                  both prompts are wrong for a CANCELLED show, which did not
-                  happen and cannot be attended — that one gets the bare
-                  sentence and asks nothing.
+              {/* FOUR states, and every earlier revision of this line covered
+                  fewer than it claimed — including the revision whose comment
+                  said "three".
 
-                  The past phrasing is the locked mock's own prompt for this
-                  act; the in-progress phrasing is the original, which was
-                  always correct in that window. */}
+                  It read "Attend this show…" unconditionally, which
+                  instructed readers to go to something that had already
+                  happened. Reversing it unconditionally only moved the bug,
+                  since "were you there?" is just as wrong during the show,
+                  when the stripe above says TONIGHT. Both prompts are wrong
+                  for a CANCELLED show, which did not happen and cannot be
+                  attended. And both are wrong again for an UNDATEABLE show:
+                  `hasShowStarted` counts it as started so the composer is
+                  open, while nothing on the page can say when or whether it
+                  happened — telling that reader to attend it is the original
+                  bug surviving on the one input every other surface here
+                  handles explicitly.
+
+                  Cancelled and undateable therefore share the bare sentence,
+                  which asks nothing. The past phrasing is the locked mock's
+                  own prompt for this act; the in-progress phrasing is the
+                  original, which was always correct in that window. */}
               {isArchived
                 ? 'No field notes yet. Were you there? Share what you saw.'
-                : isCancelled
+                : isCancelled || !hasReadableStartDate(showDate)
                   ? 'No field notes yet.'
                   : 'No field notes yet. Attend this show and share your experience!'}
             </p>

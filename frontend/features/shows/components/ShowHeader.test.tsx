@@ -143,9 +143,17 @@ describe('ShowHeader SOLD OUT badge', () => {
   })
 
   // The lifecycle calls an undateable show `past` on a default that is not
-  // evidence of anything. Withholding a TRUE badge on that basis would be its
-  // own quiet bug, and would regress what this header rendered before the
-  // rule existed.
+  // evidence of anything, so a TRUE sold-out flag still stands: the badge is
+  // what this header rendered before the rule existed.
+  //
+  // The ticket-line segment beside it is a DELIBERATE CHANGE, not a
+  // preservation, and is called out here because the assertion below cannot
+  // tell them apart. The old guard was `lifecycle !== 'past'`, which an
+  // undateable show fails, so the line used to print no sale state while the
+  // badge above it printed SOLD OUT. One derivation now answers for both,
+  // which means this page gained a segment. That is the point: the two were
+  // contradicting each other, and `is_sold_out` is a stored fact that owes
+  // nothing to the calendar.
   it('keeps the badge when the date cannot be read', () => {
     render(
       <ShowHeader

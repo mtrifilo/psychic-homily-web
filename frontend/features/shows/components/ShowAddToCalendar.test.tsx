@@ -134,7 +134,7 @@ describe('ShowAddToCalendar', () => {
     return user
   }
 
-  // The refusal is OWNED here rather than in the caller's markup (PSY-1690),
+  // The refusal is OWNED here rather than in the caller's markup,
   // so it is asserted here: an appointment for a date that has passed argues
   // with the page's PAST SHOW stripe from inside the reader's calendar app.
   it('renders nothing at all for a past show', () => {
