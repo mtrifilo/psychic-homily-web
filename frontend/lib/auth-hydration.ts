@@ -15,7 +15,7 @@
  *   - Calls the backend with `cache: 'no-store'` so per-user profile data
  *     never leaks across requests.
  *   - On a DEFINITIVE unauthenticated answer (no cookie at all, or the
- *     backend replying 401/403) populates the cache with a "no user"
+ *     backend replying 401) populates the cache with a "no user"
  *     sentinel matching the `UserProfile` body shape the backend returns
  *     for unauthenticated requests. This is what `useProfile`'s queryFn
  *     would resolve to IF apiRequest didn't throw on 401 — the seed lets
@@ -72,11 +72,13 @@ const UNAUTHENTICATED_PROFILE: AuthProfilePayload = {
  * deliberately indistinguishable from a real unauthenticated payload, so
  * nothing downstream could tell a genuine logged-out viewer from a signed-in
  * one whose prefetch happened to fail, and the failure did not self-correct:
- * `refetchOnWindowFocus` is `NODE_ENV === 'development'` (lib/queryClient.ts),
- * so it is OFF in production, and `AuthProvider` mounts once in the root
- * layout, which does not re-render on client navigation. A single blip
- * therefore pinned a signed-in viewer to "anonymous" for the rest of the SPA
- * session, across every page they visited.
+ * the profile query inherited the global `refetchOnWindowFocus`, which is
+ * `NODE_ENV === 'development'` (lib/queryClient.ts) and so off in production,
+ * and `AuthProvider` mounts once in the root layout, which does not re-render
+ * on client navigation. A single blip therefore pinned a signed-in viewer to
+ * "anonymous" for the rest of the SPA session. That query now sets a throttled
+ * focus refetch of its own; seeding nothing here is what makes that refetch ask
+ * a question which has not already been answered wrongly.
  *
  * Returning `indeterminate` seeds NOTHING, so the client query mounts pending
  * and asks again with the viewer's own cookie. If that also fails, staying
@@ -187,7 +189,7 @@ const fetchAuthProfile = cache(async (): Promise<AuthProfileResolution> => {
 
     if (!response.ok) {
       // Shared with AuthContext and useProfile's retry policy rather than
-      // re-decided here: a 401/403 (or a token error code) is the backend
+      // re-decided here: a 401 (or a token error code) is the backend
       // ANSWERING that this cookie identifies no session, which settles.
       const errorCode = await readErrorCode(response)
       if (isDefinitiveUnauthenticated(response.status, errorCode)) {

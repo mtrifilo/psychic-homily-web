@@ -317,6 +317,11 @@ export const useLogout = () => {
 }
 
 // Get user profile query
+// Floor between focus-triggered refetches of a FAILING profile query. An
+// errored query has `dataUpdatedAt === 0` and so is permanently stale, which
+// makes an unthrottled focus refetch fire on every tab switch.
+const PROFILE_ERROR_REFETCH_FLOOR_MS = 30_000
+
 export const useProfile = () => {
   return useQuery({
     queryKey: queryKeys.auth.profile,
@@ -343,18 +348,21 @@ export const useProfile = () => {
     // This query's failure state is no longer inert, so it must not be
     // terminal. Since an indeterminate failure reads as 'pending' rather than
     // 'anonymous', a viewer whose profile read dies in a deploy window would
-    // otherwise stay unresolved for the whole SPA session: the global defaults
-    // set `refetchOnWindowFocus` to development-only, `refetchOnReconnect`
-    // needs an `online` event that a backend 5xx never fires, and AuthProvider
-    // mounts once in the root layout so nothing remounts it.
+    // otherwise stay unresolved for the whole SPA session: the global default
+    // sets `refetchOnWindowFocus` to development-only, and AuthProvider mounts
+    // once in the root layout so nothing remounts it.
     //
-    // These two overrides give it the ordinary ways back that every other
-    // query has, scoped to the one query whose unresolved state now gates UI.
-    // Both are event-driven; deliberately NOT a refetchInterval, which polls
-    // an already-failing endpoint on a timer and has its own error-state
-    // footgun.
-    refetchOnWindowFocus: true,
-    refetchOnReconnect: 'always',
+    // Throttled rather than plain `true`, and the difference matters. An
+    // errored query has `dataUpdatedAt === 0`, so it is permanently stale and
+    // a bare `true` refires on EVERY focus event, each starting a fresh chain
+    // of up to three attempts. A viewer alt-tabbing during an incident would
+    // then hammer `/auth/profile`, which is rate-limited per auth cookie, and
+    // could limit themselves out of the recovery this exists to provide. The
+    // predicate form keeps the ordinary behavior for a healthy query and puts
+    // a floor under the retry cadence for a failing one.
+    refetchOnWindowFocus: query =>
+      query.state.status !== 'error' ||
+      Date.now() - query.state.errorUpdatedAt > PROFILE_ERROR_REFETCH_FLOOR_MS,
     retry: (failureCount, error) => {
       // Check if it's an AuthError or has status property
       const authError =
@@ -365,7 +373,13 @@ export const useProfile = () => {
       // which failures are terminal; this used to be a local code-plus-403
       // test, which called a bodyless 401 retryable while AuthContext called
       // the same response definitive.
-      if (isDefinitiveUnauthenticated(authError.status, authError.code)) {
+      // 403 is tested separately from the identity predicate on purpose: it is
+      // not an answer about who the viewer is (see isDefinitiveUnauthenticated),
+      // but it is still pointless to retry.
+      if (
+        isDefinitiveUnauthenticated(authError.status, authError.code) ||
+        authError.status === 403
+      ) {
         authLogger.debug('Profile fetch auth error, not retrying', {
           code: authError.code,
         })

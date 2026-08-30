@@ -136,20 +136,29 @@ function reportExhaustedRateLimit(
   })
 }
 
-// Helper to check if an error is a session expiry error
+// Helper to check if an error is a session expiry error.
+//
+// Routed through the same `isDefinitiveUnauthenticated` the SSR prefetch, the
+// auth context and the profile retry policy use. It was left on a code-only
+// test when the others were unified, and that gap was not cosmetic: this
+// function GATES the profile invalidation below, so a bodyless 401 from a
+// sibling query counted as "definitive" to the guard and as "not a session
+// expiry" to this one, and the recovery never fired for exactly the errors the
+// unification was meant to cover.
 function isSessionExpiredError(error: unknown): boolean {
   if (error instanceof AuthError) {
-    return error.shouldRedirectToLogin
+    return isDefinitiveUnauthenticated(error.status, error.code)
   }
-  // Check for raw error objects with error_code
-  const apiError = error as { code?: string; error_code?: string }
+  // Raw error objects: `status` where one is present, plus either shape of
+  // error code, since these arrive from more than one layer.
+  const apiError = error as {
+    status?: number
+    code?: string
+    error_code?: string
+  }
   return (
-    apiError?.code === AuthErrorCode.TOKEN_EXPIRED ||
-    apiError?.code === AuthErrorCode.TOKEN_INVALID ||
-    apiError?.code === AuthErrorCode.TOKEN_MISSING ||
-    apiError?.error_code === AuthErrorCode.TOKEN_EXPIRED ||
-    apiError?.error_code === AuthErrorCode.TOKEN_INVALID ||
-    apiError?.error_code === AuthErrorCode.TOKEN_MISSING
+    isDefinitiveUnauthenticated(apiError?.status, apiError?.code) ||
+    isDefinitiveUnauthenticated(apiError?.status, apiError?.error_code)
   )
 }
 
@@ -165,6 +174,17 @@ function profileAlreadyKnowsAnonymous(
   if (!client) return false
   const state = client.getQueryState(queryKeys.auth.profile)
   if (!state) return false
+
+  // A refetch already under way counts as "handled", whatever it resolves to.
+  // This is the circuit breaker that the narrowing below would otherwise have
+  // removed. `invalidateQueries` refetches with `cancelRefetch: true` by
+  // default, and an entity page fans out into a dozen-plus parallel reads that
+  // all 401 together when a session ends, so without this each sibling's error
+  // handler cancels and restarts the in-flight profile fetch. The profile
+  // query would then be repeatedly aborted and never settle, pinning auth as
+  // unknown for as long as the failures keep arriving.
+  if (state.fetchStatus !== 'idle') return true
+
   if (state.status === 'error') {
     // An error only "knows" the viewer is anonymous when it is the backend
     // ANSWERING that, and this used to treat EVERY error as that answer. Once

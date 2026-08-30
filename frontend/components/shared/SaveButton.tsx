@@ -45,7 +45,7 @@ export function SaveButton({
   className,
   disabled = false,
 }: SaveButtonProps) {
-  const { isAuthenticated, user } = useAuthContext()
+  const { isAuthenticated, authStatus, user } = useAuthContext()
   const router = useRouter()
   const pathname = usePathname()
 
@@ -70,7 +70,15 @@ export function SaveButton({
     isSaved,
     user?.id
   )
-  const isDisabled = disabled || isLoading
+  // `authStatus === 'pending'` for the same reason FollowButton includes it:
+  // this control ships ENABLED in server HTML and opts into pre-hydration click
+  // replay, and its click handler routes on `!isAuthenticated`, which reads
+  // false both for a viewer with no session and for one whose profile has not
+  // arrived. A replayed click in that window sends a signed-in viewer to /auth.
+  // The window is normally imperceptible; it lengthens exactly when the SSR
+  // profile read could not be completed, which is when this control could not
+  // have worked anyway.
+  const isDisabled = disabled || isLoading || authStatus === 'pending'
   // Shared auto-dismiss primitive rather than a hand-rolled timer, which must
   // not outlive unmount. See useAutoDismissBanner / useDismissTimer (PSY-1664).
   const {
@@ -82,6 +90,11 @@ export function SaveButton({
   const handleClick = async (e: React.MouseEvent) => {
     e.preventDefault() // Prevent any parent link clicks
     e.stopPropagation()
+
+    // Never route a viewer we have not identified yet. Defence in depth behind
+    // the disabled render above, and ahead of the redirect because the redirect
+    // cannot tell "no session" from "profile still in flight".
+    if (authStatus === 'pending') return
 
     // Matches FollowButton: render for anonymous visitors so the public save
     // count stays visible, and send them to sign-in on click.

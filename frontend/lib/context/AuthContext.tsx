@@ -52,17 +52,21 @@ interface User {
  *
  * The guarantee, stated exactly, because a weaker version of this sentence was
  * wrong once already: 'anonymous' is reached only from a DEFINITIVE answer:
- * the profile query resolved with no user, or it failed with a 401/403, which
- * is the backend saying this viewer has no session. A failure that is not an
- * answer (5xx, network, unknown) reads 'pending', and so does an SSR prefetch
+ * the profile query resolved with no user, or it failed with a 401, which is
+ * the backend saying this viewer has no session. A failure that is not an
+ * answer (5xx, network, unknown, and 403, which means forbidden rather than
+ * unidentified) reads 'pending', and so does an SSR prefetch
  * that could not reach the backend, which now seeds nothing rather than
  * fabricating a logged-out payload (see lib/auth-hydration.ts).
  *
  * That distinction is load-bearing rather than pedantic. Anonymous-on-failure
- * is forgeable by a single transient 5xx, and it does not heal: production has
- * `refetchOnWindowFocus: false`, and `AuthProvider` mounts once in the root
- * layout, so a fabricated 'anonymous' would survive for the whole SPA session
- * and make every gate built on this primitive wrong at once.
+ * is forgeable by a single transient 5xx, and before this ticket it could not
+ * heal: the profile query inherited the global `refetchOnWindowFocus`, which is
+ * development-only, and `AuthProvider` mounts once in the root layout, so a
+ * fabricated 'anonymous' survived for the whole SPA session and made every gate
+ * built on this primitive wrong at once. The query now sets its own throttled
+ * focus refetch (features/auth/hooks/useAuth.ts), which is what gives an
+ * unresolved read a way back.
  */
 export type AuthStatus = 'pending' | 'authenticated' | 'anonymous'
 
@@ -110,6 +114,30 @@ export function AuthProvider({ children }: AuthProviderProps) {
   } = useProfile()
   const logoutMutation = useLogout()
 
+  // Is the profile query's failure itself the answer?
+  //
+  // A 401 (or one of the token error codes) is the backend saying "this viewer
+  // has no session", which settles. A 5xx, a network failure, an unknown error
+  // or a 403 is the backend failing to say who the viewer is, and must not be
+  // read as "nobody".
+  //
+  // The test for "definitive" is NOT written here. It lives in
+  // `isDefinitiveUnauthenticated`, shared with the SSR prefetch, `useProfile`'s
+  // retry policy and the query cache's error handler. Local copies of this
+  // decision had already drifted apart once (status-only on the server,
+  // code-only in the retry policy), so the same bodyless 401 could settle a
+  // viewer as logged out in one place while another kept retrying it.
+  //
+  // Declared before `user` because `user` depends on it: see the note there.
+  const profileErrorIsDefinitive = useMemo(() => {
+    if (!profileError) return false
+    const authError =
+      profileError instanceof AuthError
+        ? profileError
+        : AuthError.fromUnknown(profileError)
+    return isDefinitiveUnauthenticated(authError.status, authError.code)
+  }, [profileError])
+
   // Derive user from profile data or override
   const user = useMemo(() => {
     // If there's an explicit user override (truthy), use it.
@@ -124,6 +152,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
         ...userOverride,
         nav_mode: userOverride.nav_mode ?? profileData?.user?.nav_mode,
       }
+    }
+
+    // A profile query that FAILED definitively outranks the profile data it is
+    // still holding. TanStack keeps the last successful `data` when a refetch
+    // errors, so after a session expires mid-visit the cache reads
+    // "successful profile + 401 error" simultaneously. Trusting the data half
+    // there reports a viewer as signed in after the backend has said they are
+    // not: every control renders enabled, and each click fires a mutation that
+    // 401s with nothing to explain it. Dropping the user is what makes
+    // `isAuthenticated`, `user` and `authStatus` agree on the same viewer.
+    if (profileErrorIsDefinitive) {
+      return null
     }
 
     // Otherwise derive from profile data
@@ -146,7 +186,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
 
     return null
-  }, [profileData, userOverride])
+  }, [profileData, userOverride, profileErrorIsDefinitive])
 
   // Derive the settled-auth signal. Order is load-bearing:
   //
@@ -167,35 +207,29 @@ export function AuthProvider({ children }: AuthProviderProps) {
   //    conservative direction: consumers keep their disabled/loading posture.
   // 3. Only a profile query that has actually resolved without a user yields
   //    'anonymous'.
-  // 4. A profile query that FAILED has not answered either, unless the failure
-  //    is itself the answer. A 401/403 (expired, missing or invalid token) is
-  //    the backend saying "this viewer has no session", which settles to
-  //    'anonymous'. A 5xx, a network failure or an unknown error is the
-  //    backend failing to say anything, and must not be read as "nobody".
-  //    The test for "definitive" is NOT written here. It lives in
-  //    `isDefinitiveUnauthenticated`, which the SSR prefetch and
-  //    `useProfile`'s retry policy call too. Three local copies of this
-  //    decision had already drifted apart once (status-only on the server,
-  //    code-only in the retry policy), so the same bodyless 401 could settle a
-  //    viewer as logged out in one place while another kept retrying it. A
-  //    shared function is what makes them agree; a comment claiming they agree
-  //    is what one of them said while they did not.
-  const profileErrorIsDefinitive = useMemo(() => {
-    if (!profileError) return false
-    const authError =
-      profileError instanceof AuthError
-        ? profileError
-        : AuthError.fromUnknown(profileError)
-    return isDefinitiveUnauthenticated(authError.status, authError.code)
-  }, [profileError])
-
+  // 4. A DEFINITIVE failure is an answer: the backend said this viewer has no
+  //    session. It outranks any profile still sitting in the cache, because
+  //    TanStack retains the last successful `data` when a refetch errors, so
+  //    "signed-in payload + fresh 401" is a real simultaneous state after a
+  //    session expires mid-visit.
+  // 5. A payload we ALREADY RECEIVED is likewise an answer, and a failed
+  //    background refetch does not un-answer it. Without this clause a settled
+  //    anonymous viewer whose focus-refetch hit a 5xx would slide back to
+  //    'pending', which re-enables the request this ticket skips and disables
+  //    every Follow control sitewide, at the exact moment the backend is
+  //    already struggling.
+  // 6. Only a query that never resolved AND failed non-definitively is
+  //    genuinely unknown.
   const authStatus: AuthStatus = useMemo(() => {
     if (user) return 'authenticated'
+    if (profileErrorIsDefinitive) return 'anonymous'
     if (isProfilePending || logoutMutation.isPending) return 'pending'
-    if (profileError && !profileErrorIsDefinitive) return 'pending'
+    if (profileData) return 'anonymous'
+    if (profileError) return 'pending'
     return 'anonymous'
   }, [
     user,
+    profileData,
     isProfilePending,
     logoutMutation.isPending,
     profileError,

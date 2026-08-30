@@ -227,7 +227,28 @@ export function isDefinitiveUnauthenticated(
   status: number | undefined,
   code: string | undefined
 ): boolean {
-  if (status === 401 || status === 403) return true
+  // 401 only. 403 is deliberately NOT here: it means authenticated but
+  // forbidden, which is a different answer, and this backend never emits it on
+  // /auth/profile (that route's JWT middleware writes 401 exclusively). A 403
+  // reaching this function therefore comes from infrastructure (an edge rule,
+  // a WAF, a platform protection page), and reading it as "no session" would
+  // settle a signed-in viewer to anonymous on a proxy misconfiguration. Where
+  // a 403 should stop a RETRY, the caller tests that separately: whether to
+  // retry and who the viewer is are different questions.
+  if (status === 401) return true
+
+  // A 5xx is the server failing, and it stays that way even when the body
+  // happens to carry a token code. `apiRequest` copies an unrecognized error
+  // body wholesale into `details`, so a 503 whose payload mentions
+  // TOKEN_EXPIRED would otherwise be promoted to "the backend answered: no
+  // session" by the fallback below, which is exactly the fabricated answer the
+  // callers of this function exist to avoid. Status wins where the two
+  // disagree.
+  if (status !== undefined && status >= 500) return false
+
+  // No status to go on (a raw error object, a thrown value from a layer that
+  // does not attach one): the token codes are the only remaining evidence, and
+  // they are only ever emitted alongside a real 401.
   return (
     code === AuthErrorCode.TOKEN_EXPIRED ||
     code === AuthErrorCode.TOKEN_MISSING ||

@@ -652,6 +652,58 @@ describe('AuthContext', () => {
       expect(result.current.authStatus).toBe('anonymous')
     })
 
+    // The two cells where `data` and `error` are present SIMULTANEOUSLY.
+    // TanStack retains the last successful `data` when a refetch fails, so this
+    // is not a contrived shape: it is what every failed background refetch of a
+    // resolved profile looks like. Both directions were unpinned, and both were
+    // wrong in the code until the panel found them.
+    it('is "anonymous", not "authenticated", when a signed-in profile is followed by a 401', () => {
+      // Session expired mid-visit. Trusting the retained payload would report
+      // the viewer as signed in after the backend said otherwise, leaving every
+      // control enabled and every click 401ing with nothing to explain it.
+      mockUseProfile.mockReturnValue({
+        data: {
+          success: true,
+          user: { id: 'user-123', email: 'test@example.com' },
+        },
+        isPending: false,
+        isLoading: false,
+        error: new AuthError('Token expired', AuthErrorCode.TOKEN_EXPIRED, {
+          status: 401,
+        }),
+      })
+
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      expect(result.current.authStatus).toBe('anonymous')
+      expect(result.current.isAuthenticated).toBe(false)
+      expect(result.current.user).toBeNull()
+    })
+
+    it('stays "anonymous" when a settled anonymous profile is followed by a 5xx', () => {
+      // The mirror case. A resolved payload is an ANSWER, and a failed
+      // background refetch does not un-answer it. Sliding back to 'pending'
+      // here would re-enable the very request this ticket skips and disable
+      // every Follow control sitewide, at the moment the backend is already
+      // failing.
+      mockUseProfile.mockReturnValue({
+        data: { success: false, message: 'Authentication required' },
+        isPending: false,
+        isLoading: false,
+        error: new AuthError('Bad gateway', AuthErrorCode.UNKNOWN, {
+          status: 502,
+        }),
+      })
+
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      expect(result.current.authStatus).toBe('anonymous')
+    })
+
     it('is "pending" when the profile query fails with a non-auth error', () => {
       // Network failure / DNS / abort: `AuthError.fromUnknown` gives UNKNOWN,
       // which is not definitive, so the conservative reading applies.
