@@ -62,12 +62,12 @@ export interface ShowTimingInput {
  * would reintroduce a zone, and subtracting instants would reintroduce DST.
  * Ordering holds because each field occupies a fixed decimal width.
  *
- * Constructs its formatter per call, deliberately. An earlier revision memoized
- * them, which is the right shape for a hot loop, but `isShowPast` has one
- * caller, once per share-card request, so the memo bought nothing and cost a
- * module-level mutable map plus a cap to bound it. Add the memo back when a
- * caller arrives that asks this per row; `resolveShowTimezone` builds a
- * throwaway formatter of its own on the same path, so measure both together.
+ * Constructs its formatter per call, deliberately. Memoizing is the right
+ * shape for a hot loop, and this is not one: callers ask per page or per
+ * request, not per row, so a memo buys nothing and costs a module-level
+ * mutable map plus a cap to bound it. Add one when a caller arrives that asks
+ * this per row; `resolveShowTimezone` builds a throwaway formatter of its own
+ * on the same path, so measure both together.
  */
 function venueLocalDayOrdinal(instant: number, timeZone: string): number {
   const parts = new Intl.DateTimeFormat('en-US', {
@@ -86,7 +86,64 @@ function startInstantMs(eventDate: string | null | undefined): number | null {
   return Number.isFinite(at) ? at : null
 }
 
+/**
+ * Whether the show's start instant can be read at all.
+ *
+ * `getShowLifecycleState` returns `past` for an unreadable date, so a surface
+ * that renders past-tense WORDS must ask this first or it will make an
+ * archive claim about a show whose date nobody can read.
+ *
+ * Takes the instant field alone: readability is a property of the string, and
+ * no timezone can rescue an unparseable one. Deliberately NOT the same
+ * question as "is the venue's timezone known" — a show on a guessed zone
+ * still has a real date.
+ */
+export function hasReadableStartDate(
+  eventDate: string | null | undefined
+): boolean {
+  return startInstantMs(eventDate) !== null
+}
+
 export type ShowLifecycleState = 'past' | 'today' | 'upcoming'
+
+/**
+ * Whether a surface may speak about this show IN THE PAST TENSE.
+ *
+ * The predicate a past-tense CLAIM branches on. `lifecycle === 'past'` alone
+ * is not that predicate: it is true in two cases where the past tense is a
+ * lie.
+ *
+ * - A CANCELLED show is `past` once its date goes by, because the lifecycle
+ *   answers only about the calendar. The show did not happen, so nothing may
+ *   describe what it was like.
+ * - An UNDATEABLE show is `past` because that is `getShowLifecycleState`'s
+ *   default for a date it cannot parse. An unparseable date is not evidence
+ *   the show happened.
+ *
+ * Governs CLAIMS, not REFUSALS. A surface that withholds something may branch
+ * on the raw lifecycle instead, and one that also guards a date-parsing crash
+ * MUST: withholding is the safe direction, and this predicate reports an
+ * undateable show as NOT archived, so a refusal written against it would stop
+ * firing exactly where it is needed.
+ *
+ * Governs only the surfaces that call it. It is a predicate, not an
+ * enforcement mechanism, and other copy on the same page may still be
+ * phrased in a tense it would reject.
+ *
+ * Structural input type rather than `ShowResponse`, so a caller outside the
+ * shows feature can ask with the two facts it has.
+ *
+ * NOT the boundary for whether the show has BEGUN — that is `hasShowStarted`,
+ * the start instant. This one turns over at venue-local midnight, so between
+ * doors and midnight a show is started and not yet archived.
+ */
+export function showIsArchived(
+  show: { eventDate: string | null | undefined; isCancelled: boolean },
+  lifecycle: ShowLifecycleState
+): boolean {
+  if (show.isCancelled || lifecycle !== 'past') return false
+  return hasReadableStartDate(show.eventDate)
+}
 
 /**
  * Where a show sits on the venue's own calendar: yesterday or earlier, today,

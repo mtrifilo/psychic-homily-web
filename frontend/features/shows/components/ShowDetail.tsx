@@ -34,8 +34,10 @@ interface ShowDetailProps {
   showId: string | number
   /**
    * Where the show sits on the venue's calendar, computed ON THE SERVER (see
-   * the show route) and passed through to {@link ShowStatusStripe}. A prop
-   * rather than a hook because this component runs on the client; see
+   * the show route) and threaded to every module whose register depends on it:
+   * the status stripe, the header (ticket line and sold-out badge), the listen
+   * module's heading, the field notes' empty state, and the discovery rails. A
+   * prop rather than a hook because this component runs on the client; see
    * `getShowLifecycleState` for the boundary and why it is not the reader's.
    *
    * Cancellation is deliberately NOT folded in here. It is a data flag the
@@ -220,7 +222,7 @@ export function ShowDetail({ showId, lifecycle }: ShowDetailProps) {
             alongside the player, against the mock, which draws neither (owner
             decision, 2026-08-30). What the module changed from the block it
             replaced is the gate and the chrome, not the facts stated. */}
-        <ShowListenModule artists={artists} />
+        <ShowListenModule artists={artists} lifecycle={lifecycle} />
 
         {/* In Collections */}
         <section className="mb-8">
@@ -229,9 +231,16 @@ export function ShowDetail({ showId, lifecycle }: ShowDetailProps) {
 
         {/* Field Notes */}
         <section className="mb-8">
+          {/* `lifecycle` picks the empty state's TENSE only; the form's own
+              gate stays on the start instant, where the API's boundary is.
+              The two differ for the whole evening of a show, which is why
+              the section needs both rather than re-deriving one from the
+              other. */}
           <FieldNotesSection
             showId={show.id}
             showDate={show.event_date}
+            lifecycle={lifecycle}
+            isCancelled={show.is_cancelled}
             artists={artists.map(a => ({ id: a.id, name: a.name }))}
           />
         </section>
@@ -240,7 +249,7 @@ export function ShowDetail({ showId, lifecycle }: ShowDetailProps) {
             at this venue", below the embeds and above the footer. Renders
             nothing at all when neither rail has rows, so a quiet night and a
             room with no other dates cost this page no space. */}
-        <ShowDiscoveryRails show={show} />
+        <ShowDiscoveryRails show={show} lifecycle={lifecycle} />
 
         {/* Tags and provenance footer. Both were in the header slot, above the
             fold, competing with the bill for the first thing a reader sees.

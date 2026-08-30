@@ -124,7 +124,14 @@ export const useShow = (showId: string | number) => {
  * Same `staleTime` as the show itself: the rail is a property of the night, and
  * a reader who leaves the page open is not owed a refetch of what else was on.
  */
-export const useShowAlsoTonight = (showId: string | number) => {
+export const useShowAlsoTonight = (
+  showId: string | number,
+  /**
+   * Lets a caller that will not RENDER this rail skip fetching it. Defaults to
+   * on, so the only callers paying attention are the ones with a reason.
+   */
+  enabled = true
+) => {
   return useQuery({
     queryKey: showQueryKeys.alsoTonight(String(showId)),
     queryFn: async (): Promise<ShowAlsoTonightResponse> => {
@@ -133,7 +140,7 @@ export const useShowAlsoTonight = (showId: string | number) => {
         { method: 'GET' }
       )
     },
-    enabled: Boolean(showId),
+    enabled: enabled && Boolean(showId),
     staleTime: 5 * 60 * 1000, // 5 minutes
   })
 }

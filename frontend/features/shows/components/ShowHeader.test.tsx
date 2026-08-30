@@ -109,6 +109,72 @@ function layoutGrid(): HTMLElement {
 
 const TWO_COLUMN_CLASS = 'md:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]'
 
+describe('ShowHeader SOLD OUT badge', () => {
+  // `getAllByText`, because an upcoming sold-out show says SOLD OUT TWICE:
+  // the badge here and the ticket line's sale-state segment below it. That
+  // duplication is pre-existing and out of scope; what matters for the shared
+  // derivation is that BOTH appear together and, in the cases below, that
+  // both disappear together.
+  it('prints the badge for a sold-out show that has not happened yet', () => {
+    render(
+      <ShowHeader lifecycle="upcoming" show={makeShow({ is_sold_out: true })} />
+    )
+
+    expect(screen.getAllByText('SOLD OUT')).toHaveLength(2)
+  })
+
+  // SOLD OUT asserts the event is happening and tickets are gone. The page
+  // makes that claim twice — here and in the ticket line — through one
+  // derivation, so the badge cannot survive a state the line refuses:
+  // a past sold-out show would otherwise print the badge directly above
+  // `NO LONGER AVAILABLE`, and a cancelled one above the CANCELLED stripe.
+  it.each([
+    ['a past show', 'past' as const, {}],
+    ['a cancelled show', 'upcoming' as const, { is_cancelled: true }],
+  ])('withholds the badge on %s', (_label, lifecycle, overrides) => {
+    render(
+      <ShowHeader
+        lifecycle={lifecycle}
+        show={makeShow({ is_sold_out: true, ...overrides })}
+      />
+    )
+
+    expect(screen.queryByText('SOLD OUT')).not.toBeInTheDocument()
+  })
+
+  // The lifecycle calls an undateable show `past` on a default that is not
+  // evidence of anything, so a TRUE sold-out flag still stands. Both the badge
+  // and the ticket-line segment appear, from the one derivation: `is_sold_out`
+  // is a stored fact that owes nothing to the calendar.
+  it('keeps the badge when the date cannot be read', () => {
+    render(
+      <ShowHeader
+        lifecycle="past"
+        show={makeShow({ is_sold_out: true, event_date: 'not-a-date' })}
+      />
+    )
+
+    // Badge and ticket-line segment together, the same pair an upcoming
+    // sold-out show renders: both flow from the one predicate, so both stand
+    // or both go.
+    expect(screen.getAllByText('SOLD OUT')).toHaveLength(2)
+  })
+})
+
+describe('ShowHeader date register', () => {
+  // One register in every state. A year-on-past variant would route through
+  // `formatShowDate`'s include-year path, which throws on an unparseable
+  // date — and the lifecycle calls exactly that show `past`.
+  it.each(['past', 'today', 'upcoming'] as const)(
+    'renders the same unqualified date on a %s show',
+    lifecycle => {
+      render(<ShowHeader lifecycle={lifecycle} show={makeShow()} />)
+
+      expect(screen.getByText('Fri, Aug 14')).toBeInTheDocument()
+    }
+  )
+})
+
 describe('ShowHeader layout', () => {
   // The locked decision: no flyer means no reserved gutter. The earlier
   // always-on placeholder promised an image that was never coming.

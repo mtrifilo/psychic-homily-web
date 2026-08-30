@@ -76,7 +76,7 @@ function meta(artistId = 1) {
 
 describe('ShowListenModule', () => {
   it('renders nothing when no bill artist has a playable source', () => {
-    const { container } = render(<ShowListenModule artists={[makeArtist()]} />)
+    const { container } = render(<ShowListenModule artists={[makeArtist()]} lifecycle="upcoming" />)
     expect(container).toBeEmptyDOMElement()
   })
 
@@ -95,6 +95,7 @@ describe('ShowListenModule', () => {
           // No playable source: contributes no card rather than an empty one.
           makeArtist({ id: 3, slug: 'quiet', name: 'Quiet', position: 2 }),
         ]}
+        lifecycle="upcoming"
       />
     )
 
@@ -103,6 +104,27 @@ describe('ShowListenModule', () => {
     ).toBeInTheDocument()
     expect(cards()).toHaveLength(2)
     expect(screen.getAllByTestId('music-embed')).toHaveLength(2)
+  })
+
+  // "Before you go" instructs a reader who can still go, so it does not
+  // survive the show. Only the HEADING changes: the cards and their open
+  // players are the archive's whole point and are identical in both states.
+  it('drops the forward-looking qualifier on a past show', () => {
+    const bill = [makeArtist({ bandcamp_embed_url: BANDCAMP_ALBUM })]
+    const { rerender } = render(
+      <ShowListenModule artists={bill} lifecycle="past" />
+    )
+
+    expect(screen.getByRole('heading', { name: 'Listen' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: /Before you go/ })
+    ).not.toBeInTheDocument()
+    const pastCards = cards().length
+    const pastPlayers = screen.getAllByTestId('music-embed').length
+
+    rerender(<ShowListenModule artists={bill} lifecycle="upcoming" />)
+    expect(cards()).toHaveLength(pastCards)
+    expect(screen.getAllByTestId('music-embed')).toHaveLength(pastPlayers)
   })
 
   // The running order itself (position sort, then the curated-headliner hoist)
@@ -121,6 +143,7 @@ describe('ShowListenModule', () => {
           }),
           makeArtist({ bandcamp_embed_url: BANDCAMP_ALBUM }),
         ]}
+        lifecycle="upcoming"
       />
     )
 
@@ -133,6 +156,7 @@ describe('ShowListenModule', () => {
     render(
       <ShowListenModule
         artists={[makeArtist({ bandcamp_embed_url: BANDCAMP_ALBUM })]}
+        lifecycle="upcoming"
       />
     )
 
@@ -159,6 +183,7 @@ describe('ShowListenModule', () => {
     render(
       <ShowListenModule
         artists={[makeArtist({ socials: { spotify: SPOTIFY_ARTIST } })]}
+        lifecycle="upcoming"
       />
     )
 
@@ -179,6 +204,7 @@ describe('ShowListenModule', () => {
         artists={[
           makeArtist({ socials: { bandcamp: 'https://band.bandcamp.com' } }),
         ]}
+        lifecycle="upcoming"
       />
     )
     expect(container).toBeEmptyDOMElement()
@@ -194,6 +220,7 @@ describe('ShowListenModule', () => {
         artists={[
           makeArtist({ slug: '', socials: { spotify: SPOTIFY_ARTIST } }),
         ]}
+        lifecycle="upcoming"
       />
     )
 
@@ -209,6 +236,7 @@ describe('ShowListenModule', () => {
     render(
       <ShowListenModule
         artists={[makeArtist({ slug: '', bandcamp_embed_url: BANDCAMP_ALBUM })]}
+        lifecycle="upcoming"
       />
     )
 
@@ -236,6 +264,7 @@ describe('ShowListenModule', () => {
               country: 'USA',
             }),
           ]}
+          lifecycle="upcoming"
         />
       )
 
@@ -256,6 +285,7 @@ describe('ShowListenModule', () => {
               country: 'Australia',
             }),
           ]}
+          lifecycle="upcoming"
         />
       )
 
@@ -269,6 +299,7 @@ describe('ShowListenModule', () => {
       render(
         <ShowListenModule
           artists={[makeArtist({ bandcamp_embed_url: BANDCAMP_ALBUM })]}
+          lifecycle="upcoming"
         />
       )
 
@@ -292,6 +323,7 @@ describe('ShowListenModule', () => {
               },
             }),
           ]}
+          lifecycle="upcoming"
         />
       )
 
@@ -312,6 +344,7 @@ describe('ShowListenModule', () => {
       render(
         <ShowListenModule
           artists={[makeArtist({ bandcamp_embed_url: BANDCAMP_ALBUM })]}
+          lifecycle="upcoming"
         />
       )
 
@@ -340,6 +373,7 @@ describe('ShowListenModule', () => {
             socials: { spotify: SPOTIFY_ARTIST },
           }),
         ]}
+        lifecycle="upcoming"
       />
     )
 

@@ -16,6 +16,8 @@ import {
   ogFallbackCard,
 } from '@/lib/og/response'
 import { isShowCardSettled } from '@/lib/og/settled'
+import { getShowLifecycleState } from '@/lib/utils/showTiming'
+import { saysSoldOut } from '@/features/shows/components/showSaleState'
 import { loadRemoteImage } from '@/lib/og/remoteImage'
 import {
   CONTENT_WIDTH,
@@ -67,6 +69,12 @@ export const contentType = OG_CONTENT_TYPE
 interface ShowData {
   title?: string
   event_date: string
+  /**
+   * The show's OWN state, the fallback when it has no venue row. Omitting it
+   * does not fail — it silently resolves to the default timezone, putting this
+   * card on a different calendar than the page it unfurls.
+   */
+  state?: string | null
   is_sold_out: boolean
   is_cancelled: boolean
   image_url?: string | null
@@ -220,7 +228,22 @@ function renderCard(
     show.artists?.find(a => a.is_headliner)?.name || show.artists?.[0]?.name || 'Live Music'
   const venue = show.venues?.[0]
   const venueName = venue?.name || 'TBA'
-  const showDate = formatDate(show.event_date, venue?.state, venue?.timezone, Boolean(plate))
+  // Which calendar this show is on, derived ONCE and shared by the three
+  // things that need it: the printed date, the cache window, and the sold-out
+  // badge. Spelled out separately they can disagree, and a card that judges
+  // the show differently than the page it unfurls contradicts it. Mirrors
+  // `showTimingInput`, fallback included.
+  const showTiming = {
+    eventDate: show.event_date,
+    state: venue?.state ?? show.state,
+    timezone: venue?.timezone,
+  }
+  const showDate = formatDate(
+    show.event_date,
+    showTiming.state,
+    showTiming.timezone,
+    Boolean(plate)
+  )
   const displayTitle = show.title || `${headliner} at ${venueName}`
   const otherArtists = show.artists?.filter(a => a.name !== headliner).map(a => a.name)
 
@@ -290,11 +313,7 @@ function renderCard(
   // between here and there. The rule itself lives in `lib/og/response` so it can
   // be tested: every card rendered under vitest is `degraded` and takes the
   // short window before this branch is reached.
-  const settled = isShowCardSettled({
-    eventDate: show.event_date,
-    state: venue?.state,
-    timezone: venue?.timezone,
-  })
+  const settled = isShowCardSettled(showTiming)
 
   return new ImageResponse(
     (
@@ -372,7 +391,11 @@ function renderCard(
             >
               {showDate}
             </div>
-            {show.is_sold_out && (
+            {/* Through the page's own rule, so the unfurl cannot make a claim
+                the page it links to has withdrawn. A settled card holds for a
+                day with an equal stale-while-revalidate window, so a wrong
+                badge here outlives a correction rather than trailing it. */}
+            {saysSoldOut(show, getShowLifecycleState(showTiming)) && (
               <div
                 style={{
                   display: 'flex',

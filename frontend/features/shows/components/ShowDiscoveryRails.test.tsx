@@ -38,13 +38,13 @@ describe('ShowDiscoveryRails', () => {
   it('renders nothing at all when neither rail has rows', () => {
     // Not merely empty rails: the ROW must go, or its bottom margin opens a
     // gap above the footer on every quiet page.
-    const { container } = render(<ShowDiscoveryRails show={makeRailShow()} />)
+    const { container } = render(<ShowDiscoveryRails show={makeRailShow()} lifecycle="upcoming" />)
     expect(container).toBeEmptyDOMElement()
   })
 
   it('draws the also-tonight rail in the mock’s register', () => {
     useShowAlsoTonight.mockReturnValue({ data: makeAlsoTonightPayload() })
-    render(<ShowDiscoveryRails show={makeRailShow()} />)
+    render(<ShowDiscoveryRails show={makeRailShow()} lifecycle="upcoming" />)
 
     expect(
       screen.getByRole('heading', { name: 'Also / Tonight · Chicago' })
@@ -61,7 +61,7 @@ describe('ShowDiscoveryRails', () => {
     useVenueShows.mockReturnValue({
       data: makeVenueShowsResponse([makeVenueShow()]),
     })
-    render(<ShowDiscoveryRails show={makeRailShow()} />)
+    render(<ShowDiscoveryRails show={makeRailShow()} lifecycle="upcoming" />)
 
     expect(
       screen.getByRole('heading', { name: 'More at / Salt Shed' })
@@ -81,7 +81,7 @@ describe('ShowDiscoveryRails', () => {
         makeVenueShow({ is_cancelled: true, is_sold_out: false }),
       ]),
     })
-    render(<ShowDiscoveryRails show={makeRailShow()} />)
+    render(<ShowDiscoveryRails show={makeRailShow()} lifecycle="upcoming" />)
     const row = screen.getByRole('link', { name: /Waxahatchee/ })
     expect(row.lastElementChild).toHaveTextContent('Cancelled')
     expect(row.querySelector('.line-through')).not.toBeNull()
@@ -94,7 +94,7 @@ describe('ShowDiscoveryRails', () => {
         makeVenueShow({ is_cancelled: true, is_sold_out: true }),
       ]),
     })
-    render(<ShowDiscoveryRails show={makeRailShow()} />)
+    render(<ShowDiscoveryRails show={makeRailShow()} lifecycle="upcoming" />)
     const row = screen.getByRole('link', { name: /Waxahatchee/ })
     expect(row).toHaveTextContent('Cancelled')
     expect(row).not.toHaveTextContent('Sold out')
@@ -107,7 +107,7 @@ describe('ShowDiscoveryRails', () => {
     useVenueShows.mockReturnValue({
       data: makeVenueShowsResponse([makeVenueShow()]),
     })
-    render(<ShowDiscoveryRails show={makeRailShow()} />)
+    render(<ShowDiscoveryRails show={makeRailShow()} lifecycle="upcoming" />)
 
     const alsoTonight = screen.getByTestId('also-tonight-rail')
     const moreAtVenue = screen.getByTestId('more-at-venue-rail')
@@ -122,7 +122,7 @@ describe('ShowDiscoveryRails', () => {
     useVenueShows.mockReturnValue({
       data: makeVenueShowsResponse([makeVenueShow()]),
     })
-    render(<ShowDiscoveryRails show={makeRailShow()} />)
+    render(<ShowDiscoveryRails show={makeRailShow()} lifecycle="upcoming" />)
 
     expect(
       screen.getByRole('region', { name: 'Also / Tonight · Chicago' })
@@ -138,7 +138,7 @@ describe('ShowDiscoveryRails', () => {
         shows: [makeAlsoTonightShow({ is_cancelled: true })],
       }),
     })
-    render(<ShowDiscoveryRails show={makeRailShow()} />)
+    render(<ShowDiscoveryRails show={makeRailShow()} lifecycle="upcoming" />)
     const row = screen.getByRole('link', { name: /Dehd \+ Lifeguard/ })
     expect(row.lastElementChild).toHaveTextContent('Cancelled')
     expect(row.querySelector('.line-through')).not.toBeNull()
@@ -151,7 +151,7 @@ describe('ShowDiscoveryRails', () => {
         shows: [makeAlsoTonightShow({ starts_at: 'not-a-date' })],
       }),
     })
-    render(<ShowDiscoveryRails show={makeRailShow()} />)
+    render(<ShowDiscoveryRails show={makeRailShow()} lifecycle="upcoming" />)
     const row = screen.getByRole('link', { name: /Dehd \+ Lifeguard/ })
     // Width class, not text: the point is that the cell still OCCUPIES its
     // column so the bills beneath it stay in line.
@@ -161,7 +161,7 @@ describe('ShowDiscoveryRails', () => {
 
   it('draws one rail without the other', () => {
     useShowAlsoTonight.mockReturnValue({ data: makeAlsoTonightPayload() })
-    render(<ShowDiscoveryRails show={makeRailShow()} />)
+    render(<ShowDiscoveryRails show={makeRailShow()} lifecycle="upcoming" />)
     expect(screen.getByTestId('also-tonight-rail')).toBeInTheDocument()
     expect(screen.queryByTestId('more-at-venue-rail')).not.toBeInTheDocument()
   })
@@ -170,7 +170,7 @@ describe('ShowDiscoveryRails', () => {
     useShowAlsoTonight.mockReturnValue({
       data: makeAlsoTonightPayload({ has_more: true }),
     })
-    render(<ShowDiscoveryRails show={makeRailShow()} />)
+    render(<ShowDiscoveryRails show={makeRailShow()} lifecycle="upcoming" />)
     expect(
       screen.getByRole('link', { name: 'See every show Tonight, Chicago' })
     ).toHaveAttribute('href', '/scenes/chicago-il/2026-08-12')
@@ -178,18 +178,21 @@ describe('ShowDiscoveryRails', () => {
 
   it('renders no bracket when the rail withheld its see-all', () => {
     useShowAlsoTonight.mockReturnValue({ data: makeAlsoTonightPayload() })
-    render(<ShowDiscoveryRails show={makeRailShow()} />)
+    render(<ShowDiscoveryRails show={makeRailShow()} lifecycle="upcoming" />)
     expect(screen.getByTestId('also-tonight-rail')).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /^See all/ })).toBeNull()
   })
 
   it('addresses the also-tonight request by slug, preferring it to the id', () => {
-    render(<ShowDiscoveryRails show={makeRailShow()} />)
-    expect(useShowAlsoTonight).toHaveBeenCalledWith('modest-mouse-califone')
+    render(<ShowDiscoveryRails show={makeRailShow()} lifecycle="upcoming" />)
+    expect(useShowAlsoTonight).toHaveBeenCalledWith(
+      'modest-mouse-califone',
+      true
+    )
   })
 
   it('asks the venue for one row more than the rail can draw', () => {
-    render(<ShowDiscoveryRails show={makeRailShow()} />)
+    render(<ShowDiscoveryRails show={makeRailShow()} lifecycle="upcoming" />)
     expect(useVenueShows).toHaveBeenCalledWith(
       expect.objectContaining({
         venueId: 10,
@@ -200,8 +203,33 @@ describe('ShowDiscoveryRails', () => {
     )
   })
 
+  // The two rails answer different questions and only one survives the show.
+  // Also-tonight is scoped to THIS show's night, so on a past page it would
+  // offer shows the reader equally cannot attend under a heading naming a date
+  // that has gone by. More-at-venue queries the venue's UPCOMING window, so it
+  // is forward-looking whatever the subject show's date.
+  it('withholds the also-tonight rail on a past show and keeps more-at-venue', () => {
+    useShowAlsoTonight.mockReturnValue({ data: makeAlsoTonightPayload() })
+    useVenueShows.mockReturnValue({
+      data: makeVenueShowsResponse([makeVenueShow()], 9),
+    })
+
+    render(<ShowDiscoveryRails show={makeRailShow()} lifecycle="past" />)
+
+    expect(screen.queryByTestId('also-tonight-rail')).not.toBeInTheDocument()
+    expect(screen.getByTestId('more-at-venue-rail')).toBeInTheDocument()
+  })
+
+  // Not fetched either: a rail that cannot render has no reason to cost a
+  // request on every past show page.
+  it('does not ask for also-tonight on a past show', () => {
+    render(<ShowDiscoveryRails show={makeRailShow()} lifecycle="past" />)
+
+    expect(useShowAlsoTonight).toHaveBeenCalledWith(expect.anything(), false)
+  })
+
   it('does not ask for venue shows when the show has no venue', () => {
-    render(<ShowDiscoveryRails show={makeRailShow({ venues: [] })} />)
+    render(<ShowDiscoveryRails show={makeRailShow({ venues: [] })} lifecycle="upcoming" />)
     expect(useVenueShows).toHaveBeenCalledWith(
       expect.objectContaining({ enabled: false })
     )
@@ -230,7 +258,7 @@ describe('ShowDiscoveryRails', () => {
         ],
       }),
     })
-    render(<ShowDiscoveryRails show={makeRailShow({ id: 999 })} />)
+    render(<ShowDiscoveryRails show={makeRailShow({ id: 999 })} lifecycle="upcoming" />)
     expect(
       screen.getByRole('link', { name: /Sen Morimoto/ })
     ).toHaveAttribute('href', '/shows/sen-morimoto')
@@ -246,6 +274,7 @@ describe('ShowDiscoveryRails', () => {
     render(
       <ShowDiscoveryRails
         show={makeRailShow({ venues: [makeRailVenue({ slug: '' })] })}
+        lifecycle="upcoming"
       />
     )
     expect(screen.getByTestId('more-at-venue-rail')).toBeInTheDocument()

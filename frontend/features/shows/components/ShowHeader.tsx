@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 import { formatShowDate } from '@/lib/utils/formatters'
 import { ShowFlyerPlate } from './ShowFlyerPlate'
 import { ShowTicketRow } from './ShowTicketRow'
+import { saysSoldOut } from './showSaleState'
 import { ShowVenueModule } from './ShowVenueModule'
 import { flyerImageSrc, sourceVenueName } from './showFlyer'
 import { billHometown, byBillPosition, showTimingInput, splitBill } from '../utils'
@@ -270,7 +271,14 @@ export function ShowHeader({ show, lifecycle, actions }: ShowHeaderProps) {
           <span className="text-lg font-bold text-primary">
             {formatShowDate(show.event_date, timing.state, false, timing.timezone)}
           </span>
-          {show.is_sold_out && (
+          {/* Through the shared derivation, not `show.is_sold_out` directly.
+              This page states SOLD OUT twice — here and in the ticket row
+              below — and a present-tense claim guarded in only one of them is
+              a claim the other still makes: the badge would sit above a
+              ticket line that has withdrawn it, or above a CANCELLED stripe.
+              The flag is the input; whether it may be SAID is
+              `saysSoldOut`'s. */}
+          {saysSoldOut(show, lifecycle) && (
             <Badge
               variant="secondary"
               className="text-xs font-semibold bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400"

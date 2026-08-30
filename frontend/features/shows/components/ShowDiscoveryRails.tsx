@@ -13,6 +13,7 @@ import {
   type RailRowData,
   type ShowRail,
 } from '../showRails'
+import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import type { ShowResponse } from '../types'
 
 /**
@@ -54,13 +55,34 @@ import type { ShowResponse } from '../types'
  * both rails into the route's prefetch so they are in the HTML, which is
  * PSY-1967 and is deliberately not attempted here.
  */
-export function ShowDiscoveryRails({ show }: { show: ShowResponse }) {
+export function ShowDiscoveryRails({
+  show,
+  lifecycle,
+}: {
+  show: ShowResponse
+  lifecycle: ShowLifecycleState
+}) {
   const venue = show.venues[0]
+
+  // The two rails answer different questions, and only one survives the show.
+  //
+  // ALSO-TONIGHT is scoped to THIS show's night: on a past page it would offer
+  // a reader other shows they equally cannot attend, under a heading naming a
+  // date that has gone by. It is withheld, and not fetched.
+  //
+  // MORE-AT-VENUE queries the venue's UPCOMING window, so it is forward-looking
+  // whatever the subject show's date: from an archive page it is the live "this
+  // room is still putting on shows" thread, and it stays.
+  const showsAlsoTonight = lifecycle !== 'past'
 
   // Both hooks run unconditionally. `useVenueShows` is DISABLED rather than
   // skipped for a venue-less show, because a conditional hook would change the
-  // hook order between renders.
-  const { data: alsoTonightPayload } = useShowAlsoTonight(show.slug || show.id)
+  // hook order between renders. `useShowAlsoTonight` is disabled the same way
+  // on a past show.
+  const { data: alsoTonightPayload } = useShowAlsoTonight(
+    show.slug || show.id,
+    showsAlsoTonight
+  )
   const { data: venueShows } = useVenueShows({
     venueId: venue?.id ?? 0,
     timeFilter: 'upcoming',
@@ -73,13 +95,18 @@ export function ShowDiscoveryRails({ show }: { show: ShowResponse }) {
   // another show at this room on this night — and without this the same bill
   // renders in both columns at once. The venue rail yields because its heading
   // already names the room.
-  const alsoTonight = buildAlsoTonightRail(alsoTonightPayload, show.id)
+  const alsoTonight = showsAlsoTonight
+    ? buildAlsoTonightRail(alsoTonightPayload, show.id)
+    : null
   const moreAtVenue = buildMoreAtVenueRail(
     venue,
     venueShows?.shows,
     venueShows?.total,
     show.id,
-    alsoTonightDrawnIds(alsoTonightPayload, show.id)
+    // Nothing to yield to when the other rail is not drawn: an exclusion set
+    // built from a rail the reader cannot see would silently drop bills from
+    // the only rail they can.
+    alsoTonight ? alsoTonightDrawnIds(alsoTonightPayload, show.id) : undefined
   )
 
   if (!alsoTonight && !moreAtVenue) return null

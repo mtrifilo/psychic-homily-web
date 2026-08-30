@@ -37,6 +37,15 @@ interface ShowTicketRowProps {
  * `SaveButton` through the shared query key. They used to sit rows apart
  * with a warning to check both when moving either; they now share this row,
  * which is the easier invariant to keep.
+ *
+ * PAST REGISTER: the forward-looking verbs drop out and the archive verbs
+ * stay. Neither refusal is written here — each lives beside the thing it
+ * governs, so this row states ORDER and nothing about when a verb applies.
+ * A refusal added to this JSX instead would apply to this mount alone.
+ *
+ * `[Save]` stays on a past show. A save already made must survive the show
+ * ending, so the verb that creates and clears it cannot disappear underneath
+ * it.
  */
 export function ShowTicketRow({ show, lifecycle }: ShowTicketRowProps) {
   const segments = ticketLineSegments(show, lifecycle)
@@ -70,7 +79,7 @@ export function ShowTicketRow({ show, lifecycle }: ShowTicketRowProps) {
             ariaLabel="Buy tickets"
           />
         )}
-        <ShowAddToCalendar show={show} />
+        <ShowAddToCalendar show={show} lifecycle={lifecycle} />
         {/* SaveButton's bracket branch defaults to the header-linkbox
             treatment (11px mono); this row is 14px sans, and one odd bracket
             mid-row reads as a mistake. The count display the Button variant
