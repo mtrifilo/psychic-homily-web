@@ -90,6 +90,18 @@ export interface BracketLinkProps
    * can drift apart again. A caller string that already ends in such a note is
    * used as-is rather than doubled.
    *
+   * Consequence for name-based test locators: this suffix, plus the
+   * entity-naming `ariaLabel` below, makes an external bracket's accessible
+   * name a SUPERSTRING of the entity it names. Playwright matches
+   * `getByRole(..., { name })` by substring unless told otherwise, so an
+   * outbound bracket rendered beside a link named after the same entity makes
+   * that entity-name locator ambiguous and fails the spec on strict mode.
+   * Neither half is negotiable here, so the repair belongs in the spec: when
+   * you add an `external` bracket next to a same-named link, check
+   * `frontend/e2e/` for a name-matched locator needing `exact: true` or a
+   * container scope. The "appends rather than replaces" test in
+   * `BracketLink.test.tsx` pins the property.
+   *
    * Only `http(s)` hrefs are honored — anything else renders the disabled
    * fallback instead of a live anchor (see the scheme floor below). Marking a
    * RELATIVE href `external` therefore yields a dead control, not a link.

@@ -195,6 +195,14 @@ describe('BracketLink', () => {
 
     // The announcement belongs to the component so that no call site can write
     // it, forget it, or let it drift from the target it describes.
+    //
+    // This also pins the superstring property, which has a consequence outside
+    // this file: appending to the caller's name means an outbound bracket's
+    // accessible name always CONTAINS whatever entity the caller named. A
+    // Playwright `getByRole(..., { name })` matches by substring by default, so
+    // a spec locating that entity's own link also selects the bracket that
+    // merely mentions it. Specs pairing the two need `exact: true` or a
+    // container scope; see e2e/pages/radio.spec.ts.
     it('appends the new-tab announcement to a caller ariaLabel rather than replacing it', () => {
       render(
         <BracketLink
