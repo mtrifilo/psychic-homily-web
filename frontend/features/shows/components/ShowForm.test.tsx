@@ -309,8 +309,10 @@ describe('ShowForm — required fields render in create mode', () => {
     // Date + Time in the date grid.
     expect(screen.getByLabelText(/^Date$/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/^Time$/i)).toBeInTheDocument()
-    // Cost + Ages + Description in additional details.
-    expect(screen.getByLabelText(/cost/i)).toBeInTheDocument()
+    // Cost + Door Cost + Ages + Description in additional details. The cost
+    // queries are anchored because "Door Cost" also matches a bare /cost/.
+    expect(screen.getByLabelText(/^cost \(optional\)$/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/^door cost \(optional\)$/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/ages/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/description/i)).toBeInTheDocument()
     // Submit button uses create-mode copy.
@@ -527,6 +529,62 @@ describe('ShowForm — successful submit', () => {
     })
   })
 
+  // PSY-1864: the door price is a separate fact from the advance price. The
+  // submission must carry both when both are typed, and must leave door_price
+  // absent (NOT copied from the cost field) when the door field is blank.
+  it('submits the advance and door prices as independent fields', async () => {
+    mockShowSubmit.mutate.mockImplementation((_vars, opts) => {
+      opts?.onSuccess?.({ status: 'approved' })
+    })
+
+    const user = userEvent.setup()
+    renderWithProviders(<ShowForm mode="create" redirectOnCreate={false} />)
+
+    await user.type(screen.getByPlaceholderText('Enter artist name'), 'Headliner Band')
+    await user.type(screen.getByLabelText(/^Venue$/i), 'Some Venue')
+    await user.type(screen.getByLabelText(/^City$/i), 'Phoenix')
+    await user.type(screen.getByLabelText(/^State$/i), 'AZ')
+    fireSet(screen.getByLabelText(/^Date$/i) as HTMLInputElement, futureDate())
+    await user.type(screen.getByLabelText(/^cost \(optional\)$/i), '$35')
+    await user.type(screen.getByLabelText(/^door cost \(optional\)$/i), '$40')
+
+    await user.click(screen.getByRole('button', { name: /submit show/i }))
+
+    await waitFor(() => expect(mockShowSubmit.mutate).toHaveBeenCalledTimes(1))
+    const submission = mockShowSubmit.mutate.mock.calls[0][0] as {
+      price?: number
+      door_price?: number
+    }
+    expect(submission.price).toBe(35)
+    expect(submission.door_price).toBe(40)
+  })
+
+  it('leaves door_price absent when only the cost field is filled', async () => {
+    mockShowSubmit.mutate.mockImplementation((_vars, opts) => {
+      opts?.onSuccess?.({ status: 'approved' })
+    })
+
+    const user = userEvent.setup()
+    renderWithProviders(<ShowForm mode="create" redirectOnCreate={false} />)
+
+    await user.type(screen.getByPlaceholderText('Enter artist name'), 'Headliner Band')
+    await user.type(screen.getByLabelText(/^Venue$/i), 'Some Venue')
+    await user.type(screen.getByLabelText(/^City$/i), 'Phoenix')
+    await user.type(screen.getByLabelText(/^State$/i), 'AZ')
+    fireSet(screen.getByLabelText(/^Date$/i) as HTMLInputElement, futureDate())
+    await user.type(screen.getByLabelText(/^cost \(optional\)$/i), '$20')
+
+    await user.click(screen.getByRole('button', { name: /submit show/i }))
+
+    await waitFor(() => expect(mockShowSubmit.mutate).toHaveBeenCalledTimes(1))
+    const submission = mockShowSubmit.mutate.mock.calls[0][0] as {
+      price?: number
+      door_price?: number
+    }
+    expect(submission.price).toBe(20)
+    expect(submission.door_price).toBeUndefined()
+  })
+
   // PSY-1873: the selected venue's own IANA zone anchors event_date. Keying on
   // the state alone ran "England" through the US state map, which answers
   // America/Phoenix, so an 8pm Leeds show was submitted as 03:00Z the NEXT day
@@ -712,7 +770,9 @@ describe('ShowForm — AI extraction seeds defaultValues + key-remount re-seed',
     expect((screen.getByLabelText(/^State$/i) as HTMLInputElement).value).toBe('AZ')
     expect((screen.getByLabelText(/^Date$/i) as HTMLInputElement).value).toBe('2099-09-09')
     expect((screen.getByLabelText(/^Time$/i) as HTMLInputElement).value).toBe('21:30')
-    expect((screen.getByLabelText(/cost/i) as HTMLInputElement).value).toBe('$20')
+    expect(
+      (screen.getByLabelText(/^cost \(optional\)$/i) as HTMLInputElement).value
+    ).toBe('$20')
     expect((screen.getByLabelText(/ages/i) as HTMLInputElement).value).toBe('All Ages')
     expect((screen.getByLabelText(/description/i) as HTMLTextAreaElement).value).toBe(
       'AI flyer description'
@@ -752,7 +812,9 @@ describe('ShowForm — AI extraction seeds defaultValues + key-remount re-seed',
     expect((screen.getByLabelText(/^Venue$/i) as HTMLInputElement).value).toBe('Second Venue')
     expect((screen.getByLabelText(/^City$/i) as HTMLInputElement).value).toBe('Mesa')
     expect((screen.getByLabelText(/^Date$/i) as HTMLInputElement).value).toBe('2099-10-10')
-    expect((screen.getByLabelText(/cost/i) as HTMLInputElement).value).toBe('Free')
+    expect(
+      (screen.getByLabelText(/^cost \(optional\)$/i) as HTMLInputElement).value
+    ).toBe('Free')
   })
 
   it('does not clobber a user edit when re-rendered with the same key (defaultValues read once)', async () => {
@@ -802,7 +864,10 @@ describe('ShowForm — edit mode pre-fills from initialData', () => {
     expect(screen.getByLabelText(/ages/i)).toHaveValue('21+')
     expect(screen.getByLabelText(/description/i)).toHaveValue('A pre-existing show.')
     // price=25 → cost field renders as "$25".
-    expect(screen.getByLabelText(/cost/i)).toHaveValue('$25')
+    expect(screen.getByLabelText(/^cost \(optional\)$/i)).toHaveValue('$25')
+    // PSY-1864: no door price recorded, so the door field opens EMPTY rather
+    // than echoing the advance price back at the editor.
+    expect(screen.getByLabelText(/^door cost \(optional\)$/i)).toHaveValue('')
     // image_url is editable in edit mode (PSY-521 carve-out).
     expect(screen.getByLabelText(/image url/i)).toHaveValue('https://example.com/flyer.jpg')
     // Submit copy switches to "Save Changes".

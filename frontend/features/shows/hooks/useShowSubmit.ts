@@ -43,7 +43,10 @@ export interface ShowSubmission {
   event_date: string // ISO 8601 UTC timestamp
   city: string
   state: string
+  // Advance price and door price. Omitting one says nothing about the other
+  // (PSY-1864); the backend caps both at 0-10000.
   price?: number
+  door_price?: number
   age_requirement?: string
   description?: string
   venues: SubmitVenue[]

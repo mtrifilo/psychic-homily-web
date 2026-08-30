@@ -256,6 +256,35 @@ describe('showToFormValues', () => {
     expect(showToFormValues(show).cost).toBe('$0')
   })
 
+  // PSY-1864: door_cost round-trips independently of cost. An unrecorded door
+  // price opens the field EMPTY — echoing the advance price back would let a
+  // no-op save invent a door price the source never stated.
+  it('round-trips the door price into its own field', () => {
+    const show = makeShowResponse({ price: 35, door_price: 40 })
+    const result = showToFormValues(show)
+    expect(result.cost).toBe('$35')
+    expect(result.door_cost).toBe('$40')
+  })
+
+  it('returns empty door_cost when no door price is recorded', () => {
+    expect(showToFormValues(makeShowResponse({ price: 35 })).door_cost).toBe('')
+    expect(
+      showToFormValues(makeShowResponse({ price: 35, door_price: null })).door_cost
+    ).toBe('')
+  })
+
+  it('returns "$0" when the door price is 0', () => {
+    const show = makeShowResponse({ price: 35, door_price: 0 })
+    expect(showToFormValues(show).door_cost).toBe('$0')
+  })
+
+  it('round-trips a door price with no advance price', () => {
+    const show = makeShowResponse({ price: null, door_price: 40 })
+    const result = showToFormValues(show)
+    expect(result.cost).toBe('')
+    expect(result.door_cost).toBe('$40')
+  })
+
   it('falls back to show city/state when venue has none', () => {
     const show = makeShowResponse({
       city: 'Tucson',

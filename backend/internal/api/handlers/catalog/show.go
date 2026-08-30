@@ -114,14 +114,17 @@ type CreateShowRequestBody struct {
 	EventDate time.Time `json:"event_date" validate:"required" doc:"Event date and time"`
 	// DoorsAt / MusicAt are optional display times. They do not replace
 	// EventDate, which stays the show's canonical instant.
-	DoorsAt        *time.Time `json:"doors_at,omitempty" doc:"When doors open (RFC3339)"`
-	MusicAt        *time.Time `json:"music_at,omitempty" doc:"When the first set starts (RFC3339)"`
-	City           string     `json:"city" doc:"City where the show takes place"`
-	State          string     `json:"state" doc:"State where the show takes place"`
-	Price          *float64   `json:"price,omitempty" doc:"Ticket price"`
-	AgeRequirement *string    `json:"age_requirement,omitempty" doc:"Age requirement (e.g., '21+', 'All Ages')"`
-	Description    *string    `json:"description,omitempty" doc:"Show description" required:"false"`
-	TicketURL      *string    `json:"ticket_url,omitempty" doc:"Ticket purchase URL" required:"false"`
+	DoorsAt *time.Time `json:"doors_at,omitempty" doc:"When doors open (RFC3339)"`
+	MusicAt *time.Time `json:"music_at,omitempty" doc:"When the first set starts (RFC3339)"`
+	City    string     `json:"city" doc:"City where the show takes place"`
+	State   string     `json:"state" doc:"State where the show takes place"`
+	// Price is the show's price, and the ADVANCE price when door_price also
+	// arrives. Neither is inferred from the other (PSY-1864).
+	Price          *float64 `json:"price,omitempty" doc:"Ticket price (advance price when a door price is also given)"`
+	DoorPrice      *float64 `json:"door_price,omitempty" doc:"Price at the door"`
+	AgeRequirement *string  `json:"age_requirement,omitempty" doc:"Age requirement (e.g., '21+', 'All Ages')"`
+	Description    *string  `json:"description,omitempty" doc:"Show description" required:"false"`
+	TicketURL      *string  `json:"ticket_url,omitempty" doc:"Ticket purchase URL" required:"false"`
 	// NOTE: `validate:"..."` tags are NOT enforced here — huma reads its own schema
 	// tags (minItems/maxItems/...), not go-playground `validate`, and this repo wires
 	// no validator. The real per-field validation is the Resolve method below, where
@@ -204,6 +207,13 @@ func (r *CreateShowRequestBody) Resolve(ctx huma.Context) []error {
 			Location: "body.price",
 			Message:  "Price must be between 0 and 10000",
 			Value:    *r.Price,
+		})
+	}
+	if r.DoorPrice != nil && (*r.DoorPrice < 0 || *r.DoorPrice > 10000) {
+		errors = append(errors, &huma.ErrorDetail{
+			Location: "body.door_price",
+			Message:  "Door price must be between 0 and 10000",
+			Value:    *r.DoorPrice,
 		})
 	}
 
@@ -431,17 +441,21 @@ type UpdateShowRequest struct {
 		EventDate *time.Time `json:"event_date,omitempty" doc:"Event date and time"`
 		// Omitting doors_at / music_at leaves the stored value unchanged;
 		// there is no clear-back-to-null signal yet.
-		DoorsAt        *time.Time `json:"doors_at,omitempty" doc:"When doors open (RFC3339)"`
-		MusicAt        *time.Time `json:"music_at,omitempty" doc:"When the first set starts (RFC3339)"`
-		City           *string    `json:"city,omitempty" doc:"City where the show takes place"`
-		State          *string    `json:"state,omitempty" doc:"State where the show takes place"`
-		Price          *float64   `json:"price,omitempty" doc:"Ticket price"`
-		AgeRequirement *string    `json:"age_requirement,omitempty" doc:"Age requirement"`
-		Description    *string    `json:"description,omitempty" doc:"Show description" required:"false"`
-		TicketURL      *string    `json:"ticket_url,omitempty" doc:"Ticket purchase URL" required:"false"`
-		ImageURL       *string    `json:"image_url,omitempty" doc:"Show flyer image URL" required:"false"`
-		Venues         []Venue    `json:"venues,omitempty" doc:"List of venues for the show"`
-		Artists        []Artist   `json:"artists,omitempty" doc:"List of artists for the show"`
+		DoorsAt *time.Time `json:"doors_at,omitempty" doc:"When doors open (RFC3339)"`
+		MusicAt *time.Time `json:"music_at,omitempty" doc:"When the first set starts (RFC3339)"`
+		City    *string    `json:"city,omitempty" doc:"City where the show takes place"`
+		State   *string    `json:"state,omitempty" doc:"State where the show takes place"`
+		// Omitting either price leaves the stored value unchanged, so an edit
+		// that records a door price never disturbs the advance price
+		// (PSY-1864). There is no clear-back-to-null signal for either.
+		Price          *float64 `json:"price,omitempty" doc:"Ticket price (advance price when a door price is also set)"`
+		DoorPrice      *float64 `json:"door_price,omitempty" doc:"Price at the door"`
+		AgeRequirement *string  `json:"age_requirement,omitempty" doc:"Age requirement"`
+		Description    *string  `json:"description,omitempty" doc:"Show description" required:"false"`
+		TicketURL      *string  `json:"ticket_url,omitempty" doc:"Ticket purchase URL" required:"false"`
+		ImageURL       *string  `json:"image_url,omitempty" doc:"Show flyer image URL" required:"false"`
+		Venues         []Venue  `json:"venues,omitempty" doc:"List of venues for the show"`
+		Artists        []Artist `json:"artists,omitempty" doc:"List of artists for the show"`
 		// Summary describes the reason for the edit; persisted on the
 		// revision row so the History accordion can display it. Mirrors
 		// AdminUpdateArtistRequest.Body.Summary (PSY-563). Empty string =
@@ -549,6 +563,7 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 		City:              req.Body.City,
 		State:             req.Body.State,
 		Price:             req.Body.Price,
+		DoorPrice:         req.Body.DoorPrice,
 		AgeRequirement:    ageRequirement,
 		Description:       description,
 		TicketURL:         ticketURL,
@@ -1010,6 +1025,9 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 	if req.Body.Price != nil && (*req.Body.Price < 0 || *req.Body.Price > 10000) {
 		return nil, huma.Error422UnprocessableEntity("Price must be between 0 and 10000")
 	}
+	if req.Body.DoorPrice != nil && (*req.Body.DoorPrice < 0 || *req.Body.DoorPrice > 10000) {
+		return nil, huma.Error422UnprocessableEntity("Door price must be between 0 and 10000")
+	}
 	// PSY-747: ticket URL is length-capped AND scheme-validated (http/https
 	// only) — previously it accepted javascript:/data: on a public show.
 	if err := shared.ValidateURLField(ctx, "ticket_url", req.Body.TicketURL); err != nil {
@@ -1057,6 +1075,7 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 		City:           req.Body.City,
 		State:          req.Body.State,
 		Price:          req.Body.Price,
+		DoorPrice:      req.Body.DoorPrice,
 		AgeRequirement: req.Body.AgeRequirement,
 		Description:    req.Body.Description,
 		TicketURL:      req.Body.TicketURL,

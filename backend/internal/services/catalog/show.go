@@ -133,6 +133,7 @@ func (s *ShowService) CreateShow(req *contracts.CreateShowRequest) (*contracts.S
 			City:           &req.City,
 			State:          &req.State,
 			Price:          req.Price,
+			DoorPrice:      req.DoorPrice,
 			AgeRequirement: &req.AgeRequirement,
 			Description:    &req.Description,
 			ImageURL:       req.ImageURL,
@@ -241,6 +242,7 @@ func (s *ShowService) CreateShow(req *contracts.CreateShowRequest) (*contracts.S
 			City:            show.City,
 			State:           show.State,
 			Price:           show.Price,
+			DoorPrice:       show.DoorPrice,
 			AgeRequirement:  show.AgeRequirement,
 			Description:     show.Description,
 			TicketURL:       show.TicketURL,
@@ -586,6 +588,9 @@ func showUpdatesToMap(req *contracts.UpdateShowRequest) map[string]interface{} {
 	if req.Price != nil {
 		updates["price"] = *req.Price
 	}
+	if req.DoorPrice != nil {
+		updates["door_price"] = *req.DoorPrice
+	}
 	if req.AgeRequirement != nil {
 		updates["age_requirement"] = *req.AgeRequirement
 	}
@@ -859,6 +864,7 @@ func (s *ShowService) buildUpdatedShowResponse(
 		City:            show.City,
 		State:           show.State,
 		Price:           show.Price,
+		DoorPrice:       show.DoorPrice,
 		AgeRequirement:  show.AgeRequirement,
 		Description:     show.Description,
 		TicketURL:       show.TicketURL,
@@ -2721,6 +2727,7 @@ func assembleShowResponse(show *catalogm.Show, artists []contracts.ArtistRespons
 		City:              show.City,
 		State:             show.State,
 		Price:             show.Price,
+		DoorPrice:         show.DoorPrice,
 		AgeRequirement:    show.AgeRequirement,
 		Description:       show.Description,
 		TicketURL:         show.TicketURL,
@@ -2789,6 +2796,9 @@ func (s *ShowService) ExportShowToMarkdown(showID uint) ([]byte, string, error) 
 	}
 	if show.Price != nil {
 		frontmatter.Show.Price = show.Price
+	}
+	if show.DoorPrice != nil {
+		frontmatter.Show.DoorPrice = show.DoorPrice
 	}
 	if show.AgeRequirement != nil && *show.AgeRequirement != "" {
 		frontmatter.Show.AgeRequirement = *show.AgeRequirement
@@ -3251,6 +3261,7 @@ func (s *ShowService) ConfirmShowImport(content []byte, isAdmin bool) (*contract
 		City:             parsed.Frontmatter.Show.City,
 		State:            parsed.Frontmatter.Show.State,
 		Price:            parsed.Frontmatter.Show.Price,
+		DoorPrice:        parsed.Frontmatter.Show.DoorPrice,
 		AgeRequirement:   parsed.Frontmatter.Show.AgeRequirement,
 		Description:      parsed.Description,
 		Venues:           requestVenues,

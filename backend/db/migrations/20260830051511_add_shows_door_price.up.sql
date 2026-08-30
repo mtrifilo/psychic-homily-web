@@ -1,0 +1,23 @@
+-- PSY-1864: the advance/door price split.
+--
+-- The locked show-page mock renders the ticket line as `$35 ADV · DOOR $40`,
+-- but shows carried ONE price column, so the second half of that sentence had
+-- nowhere to live. This is the deferred schema follow-up to PSY-1686.
+--
+-- `price` keeps its meaning and every existing row keeps its value: it is the
+-- show's price, and the ADVANCE price on the rows that also record a door
+-- price. `door_price` is purely additive, so nothing that reads `price` today
+-- (JSON-LD offers, the /shows cards, the artist and venue archives, the
+-- notification filters, the data-quality "missing price" check) changes
+-- behavior or needs a backfill.
+--
+-- DECIMAL(10, 2) NULL, byte-for-byte the shape of `price` in
+-- 000001_create_initial_schema: the two are the same kind of fact and a
+-- narrower type here would reject a value the advance column accepts. NULL is
+-- the common state and means "not known", never "free" — a free door is
+-- recorded as 0, the same distinction `price` already carries.
+--
+-- Cash-only (`DOOR $40 CASH` in the mock) is a SEPARATE fact and is
+-- deliberately not built here: no source states it reliably enough to fill a
+-- column with.
+ALTER TABLE shows ADD COLUMN door_price DECIMAL(10, 2);

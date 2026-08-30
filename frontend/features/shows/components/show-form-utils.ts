@@ -166,7 +166,15 @@ export interface FormValues {
   }
   date: string
   time: string
+  /**
+   * `cost` is the show's price, and the ADVANCE price when `door_cost` is
+   * filled too; `door_cost` is what it costs at the door (PSY-1864). Both are
+   * free text run through {@link parseCost}, matching how `cost` has always
+   * been collected. Empty means "not known" on either — a field left blank
+   * makes no claim about the other.
+   */
   cost: string
+  door_cost: string
   ages: string
   description: string
   image_url: string
@@ -186,6 +194,7 @@ export const defaultFormValues: FormValues = {
   date: '',
   time: '20:00',
   cost: '',
+  door_cost: '',
   ages: '',
   description: '',
   image_url: '',
@@ -232,6 +241,7 @@ export function showToFormValues(show: ShowResponse): FormValues {
     date,
     time,
     cost: show.price != null ? `$${show.price}` : '',
+    door_cost: show.door_price != null ? `$${show.door_price}` : '',
     ages: show.age_requirement || '',
     description: show.description || '',
     image_url: show.image_url || '',

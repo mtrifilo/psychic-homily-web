@@ -107,6 +107,7 @@ const showFormSchema = z.object({
   ),
   time: z.string(),
   cost: z.string(),
+  door_cost: z.string(),
   ages: z.string(),
   description: z.string(),
   image_url: z
@@ -257,6 +258,10 @@ export function ShowForm({
       const eventDate = combineDateTimeToUTC(value.date, value.time || '20:00', venueTimezone)
 
       const price = parseCost(value.cost)
+      // Independent of `price`: a blank door field leaves door_price alone on
+      // an edit and absent on a create, and never falls back to the advance
+      // price (PSY-1864).
+      const doorPrice = parseCost(value.door_cost)
 
       if (isEditMode && initialData) {
         // Build update payload including venues and artists
@@ -266,6 +271,7 @@ export function ShowForm({
           city: value.venue.city,
           state: value.venue.state,
           price,
+          door_price: doorPrice,
           age_requirement: value.ages || undefined,
           description: value.description || undefined,
           image_url: value.image_url || undefined,
@@ -306,6 +312,7 @@ export function ShowForm({
           city: value.venue.city,
           state: value.venue.state,
           price,
+          door_price: doorPrice,
           age_requirement: value.ages || undefined,
           description: value.description || undefined,
           venues: [
@@ -693,6 +700,10 @@ export function ShowForm({
       <div className="space-y-4">
         <h3 className="font-medium">Additional Details</h3>
 
+        {/* Cost and Door Cost sit side by side so the pair reads as one fact
+            with two halves. Cost alone is the common case and stays the whole
+            statement; Door Cost is filled only when the listing states a
+            separate door price (PSY-1864). */}
         <div className="grid grid-cols-2 gap-4">
           <form.Field name="cost">
             {field => (
@@ -700,6 +711,16 @@ export function ShowForm({
                 field={field}
                 label="Cost (Optional)"
                 placeholder="$20, Free"
+              />
+            )}
+          </form.Field>
+
+          <form.Field name="door_cost">
+            {field => (
+              <FormField
+                field={field}
+                label="Door Cost (Optional)"
+                placeholder="$25, only if it differs"
               />
             )}
           </form.Field>

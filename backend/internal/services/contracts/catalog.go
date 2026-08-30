@@ -57,14 +57,18 @@ type CreateShowRequest struct {
 	EventDate time.Time `json:"event_date" validate:"required"`
 	// DoorsAt / MusicAt are optional display times. Nil means unknown; they
 	// never substitute for EventDate.
-	DoorsAt        *time.Time `json:"doors_at"`
-	MusicAt        *time.Time `json:"music_at"`
-	City           string     `json:"city"`
-	State          string     `json:"state"`
-	Price          *float64   `json:"price"`
-	AgeRequirement string     `json:"age_requirement"`
-	Description    string     `json:"description"`
-	TicketURL      string     `json:"ticket_url"`
+	DoorsAt *time.Time `json:"doors_at"`
+	MusicAt *time.Time `json:"music_at"`
+	City    string     `json:"city"`
+	State   string     `json:"state"`
+	// Price is the show's price, and the ADVANCE price when DoorPrice is also
+	// supplied. Nil on either means "not known"; zero means free. Neither is
+	// derived from the other (PSY-1864).
+	Price          *float64 `json:"price"`
+	DoorPrice      *float64 `json:"door_price"`
+	AgeRequirement string   `json:"age_requirement"`
+	Description    string   `json:"description"`
+	TicketURL      string   `json:"ticket_url"`
 	// ImageURL is populated by the entity_request fulfiller (PSY-1037, the
 	// payload's flyer). The direct create handler does not expose it yet (set
 	// post-create via the update endpoint), so it leaves it nil here.
@@ -89,15 +93,20 @@ type UpdateShowRequest struct {
 	// other field here, so there is no way to clear a previously set time
 	// through this struct. Clearing needs an explicit tri-state signal and no
 	// caller asks for it yet.
-	DoorsAt        *time.Time `json:"doors_at"`
-	MusicAt        *time.Time `json:"music_at"`
-	City           *string    `json:"city"`
-	State          *string    `json:"state"`
-	Price          *float64   `json:"price"`
-	AgeRequirement *string    `json:"age_requirement"`
-	Description    *string    `json:"description"`
-	TicketURL      *string    `json:"ticket_url"`
-	ImageURL       *string    `json:"image_url"`
+	DoorsAt *time.Time `json:"doors_at"`
+	MusicAt *time.Time `json:"music_at"`
+	City    *string    `json:"city"`
+	State   *string    `json:"state"`
+	// Price / DoorPrice follow the same nil-means-unchanged rule as every
+	// other field here. Writing one leaves the other alone: recording a door
+	// price on a show that already has an advance price must not silently
+	// clear the advance price, and vice versa (PSY-1864).
+	Price          *float64 `json:"price"`
+	DoorPrice      *float64 `json:"door_price"`
+	AgeRequirement *string  `json:"age_requirement"`
+	Description    *string  `json:"description"`
+	TicketURL      *string  `json:"ticket_url"`
+	ImageURL       *string  `json:"image_url"`
 }
 
 // ShowResponse represents the show data returned to clients
@@ -109,18 +118,25 @@ type ShowResponse struct {
 	// DoorsAt / MusicAt are null when unknown. Emitted unconditionally rather
 	// than with omitempty so a client can tell "not set" from "this response
 	// shape predates the field".
-	DoorsAt         *time.Time `json:"doors_at"`
-	MusicAt         *time.Time `json:"music_at"`
-	City            *string    `json:"city"`
-	State           *string    `json:"state"`
-	Price           *float64   `json:"price"`
-	AgeRequirement  *string    `json:"age_requirement"`
-	Description     *string    `json:"description"`
-	TicketURL       *string    `json:"ticket_url,omitempty"`
-	ImageURL        *string    `json:"image_url"` // Optional show flyer (PSY-521)
-	Status          string     `json:"status"`
-	SubmittedBy     *uint      `json:"submitted_by,omitempty"`
-	RejectionReason *string    `json:"rejection_reason,omitempty"`
+	DoorsAt *time.Time `json:"doors_at"`
+	MusicAt *time.Time `json:"music_at"`
+	City    *string    `json:"city"`
+	State   *string    `json:"state"`
+	// Price is the show's price, and the ADVANCE price on the rows that also
+	// carry DoorPrice; the show page's ticket line qualifies the pair as
+	// `$35 ADV · DOOR $40` and prints a lone value bare (PSY-1864). Both are
+	// emitted unconditionally, like DoorsAt / MusicAt above and for the same
+	// reason: null has to be distinguishable from a response shape that
+	// predates the field.
+	Price           *float64 `json:"price"`
+	DoorPrice       *float64 `json:"door_price"`
+	AgeRequirement  *string  `json:"age_requirement"`
+	Description     *string  `json:"description"`
+	TicketURL       *string  `json:"ticket_url,omitempty"`
+	ImageURL        *string  `json:"image_url"` // Optional show flyer (PSY-521)
+	Status          string   `json:"status"`
+	SubmittedBy     *uint    `json:"submitted_by,omitempty"`
+	RejectionReason *string  `json:"rejection_reason,omitempty"`
 	// SubmittedByName / SubmittedByUsername are the resolved display identity
 	// of SubmittedBy, so a client can credit the submitter without a second
 	// round trip per show to turn the numeric id into a name.
@@ -366,6 +382,7 @@ type ExportShowData struct {
 	City           string   `yaml:"city,omitempty" json:"city,omitempty"`
 	State          string   `yaml:"state,omitempty" json:"state,omitempty"`
 	Price          *float64 `yaml:"price,omitempty" json:"price,omitempty"`
+	DoorPrice      *float64 `yaml:"door_price,omitempty" json:"door_price,omitempty"`
 	AgeRequirement string   `yaml:"age_requirement,omitempty" json:"age_requirement,omitempty"`
 	Status         string   `yaml:"status" json:"status"`
 }

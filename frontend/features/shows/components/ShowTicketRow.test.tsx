@@ -167,8 +167,85 @@ describe('ticketLineSegments', () => {
   })
 
   it('omits the price segment when no price is known', () => {
-    const segments = ticketLineSegments(makeShow({ price: null }), 'upcoming')
+    const segments = ticketLineSegments(
+      makeShow({ price: null, door_price: null }),
+      'upcoming'
+    )
     expect(segments.join(' ')).not.toContain('$')
+  })
+
+  // PSY-1864: the advance/door split. ADV and DOOR are disambiguators, so
+  // they appear only when there are two numbers to tell apart.
+  it('qualifies the pair as ADV and DOOR when both prices are known', () => {
+    const segments = ticketLineSegments(
+      makeShow({ price: 35, door_price: 40 }),
+      'upcoming'
+    )
+    expect(segments).toContain('$35 ADV')
+    expect(segments).toContain('DOOR $40')
+    // The mock's order: advance leads, door follows.
+    expect(segments.indexOf('$35 ADV')).toBeLessThan(
+      segments.indexOf('DOOR $40')
+    )
+  })
+
+  it('leaves a lone advance price bare', () => {
+    const segments = ticketLineSegments(
+      makeShow({ price: 35, door_price: null }),
+      'upcoming'
+    )
+    expect(segments).toContain('$35')
+    expect(segments.join(' ')).not.toContain('ADV')
+    expect(segments.join(' ')).not.toContain('DOOR')
+  })
+
+  it('leaves a lone door price bare', () => {
+    const segments = ticketLineSegments(
+      makeShow({ price: null, door_price: 40 }),
+      'upcoming'
+    )
+    expect(segments).toContain('$40')
+    expect(segments.join(' ')).not.toContain('DOOR')
+  })
+
+  // Zero is a price, not silence, on either side of the split.
+  it('spells a free advance against a paid door', () => {
+    const segments = ticketLineSegments(
+      makeShow({ price: 0, door_price: 10 }),
+      'upcoming'
+    )
+    expect(segments).toContain('Free ADV')
+    expect(segments).toContain('DOOR $10')
+  })
+
+  it('spells a free door against a paid advance', () => {
+    const segments = ticketLineSegments(
+      makeShow({ price: 10, door_price: 0 }),
+      'upcoming'
+    )
+    expect(segments).toContain('$10 ADV')
+    expect(segments).toContain('DOOR Free')
+  })
+
+  it('drops the cents on both halves of the split', () => {
+    const segments = ticketLineSegments(
+      makeShow({ price: 12.5, door_price: 15 }),
+      'upcoming'
+    )
+    expect(segments).toContain('$12.50 ADV')
+    expect(segments).toContain('DOOR $15')
+  })
+
+  it('renders the split into the ticket line the page shows', () => {
+    render(
+      <ShowTicketRow
+        show={makeShow({ price: 35, door_price: 40 })}
+        lifecycle="upcoming"
+      />
+    )
+    expect(screen.getByTestId('ticket-line')).toHaveTextContent(
+      '$35 ADV · DOOR $40'
+    )
   })
 
   // The venue facts line owns the age fact, but a venue-less show never

@@ -93,11 +93,14 @@ type ShowRequestPayload struct {
 	EventDate string `json:"event_date"` // RFC3339 / YYYY-MM-DD; parsed at fulfillment
 	// DoorsAt / MusicAt are optional and, unlike EventDate, must be RFC3339:
 	// a bare date carries no time of day, which is the only thing these mean.
-	DoorsAt        *string  `json:"doors_at,omitempty"`
-	MusicAt        *string  `json:"music_at,omitempty"`
-	City           *string  `json:"city,omitempty"`
-	State          *string  `json:"state,omitempty"`
+	DoorsAt *string `json:"doors_at,omitempty"`
+	MusicAt *string `json:"music_at,omitempty"`
+	City    *string `json:"city,omitempty"`
+	State   *string `json:"state,omitempty"`
+	// Price is the show's price, and the ADVANCE price when DoorPrice also
+	// arrives; neither is inferred from the other (PSY-1864).
 	Price          *float64 `json:"price,omitempty"`
+	DoorPrice      *float64 `json:"door_price,omitempty"`
 	AgeRequirement *string  `json:"age_requirement,omitempty"`
 	Description    *string  `json:"description,omitempty"`
 	TicketURL      *string  `json:"ticket_url,omitempty"`
@@ -272,7 +275,8 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		// Shows are fulfillable when the admin supplies associations (PSY-1037),
 		// so the payload's fields ride onto a created show — validate them with
 		// the SAME caps the direct show-create handler enforces (title ≤255,
-		// age_requirement ≤50, price 0–10000, description ≤5000; image_url
+		// age_requirement ≤50, price and door_price 0–10000, description
+		// ≤5000; image_url
 		// VARCHAR(2048), ticket_url VARCHAR(500)). A value that slipped past
 		// here would 500 at INSERT after the row is claimed, leaving an
 		// approved-but-unfulfilled row no decide call can re-process.
@@ -290,6 +294,9 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		}
 		if p.Price != nil && (*p.Price < 0 || *p.Price > maxRequestPrice) {
 			return fmt.Errorf("show payload: price must be between 0 and %d", maxRequestPrice)
+		}
+		if p.DoorPrice != nil && (*p.DoorPrice < 0 || *p.DoorPrice > maxRequestPrice) {
+			return fmt.Errorf("show payload: door_price must be between 0 and %d", maxRequestPrice)
 		}
 		if err := optionalHTTPURL("show", "image_url", p.ImageURL, maxRequestURLLen); err != nil {
 			return err
@@ -443,7 +450,8 @@ const (
 	maxRequestDescriptionLen = 5000
 	// Show-specific caps, mirroring the direct show-create handler's Resolve
 	// limits (PSY-1037): title ≤255 (column is VARCHAR(500); 255 keeps boundary
-	// parity with the direct path), age_requirement ≤50, price 0–10000.
+	// parity with the direct path), age_requirement ≤50, price and door_price
+	// 0–10000.
 	// city/state mirror the shows columns (VARCHAR(255)/VARCHAR(10)).
 	maxRequestTitleLen = 255
 	maxRequestAgeLen   = 50

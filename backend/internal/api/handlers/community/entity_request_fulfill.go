@@ -547,6 +547,7 @@ func (h *EntityRequestHandler) fulfillEntity(ctx context.Context, req *community
 			City:           shared.Deref(p.City),
 			State:          shared.Deref(p.State),
 			Price:          p.Price,
+			DoorPrice:      p.DoorPrice,
 			AgeRequirement: shared.Deref(p.AgeRequirement),
 			Description:    shared.Deref(p.Description),
 			TicketURL:      shared.Deref(p.TicketURL),

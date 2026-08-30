@@ -46,11 +46,20 @@ type Show struct {
 	// sorting, dedup, slugs, and structured data all read. Nil means unknown,
 	// which is the common case. Pointers keep the GORM zero-value trap out of
 	// the picture.
-	DoorsAt        *time.Time `gorm:"column:doors_at"`
-	MusicAt        *time.Time `gorm:"column:music_at"`
-	City           *string
-	State          *string
+	DoorsAt *time.Time `gorm:"column:doors_at"`
+	MusicAt *time.Time `gorm:"column:music_at"`
+	City    *string
+	State   *string
+	// Price is the show's price, and the ADVANCE price on the rows that also
+	// record a DoorPrice. DoorPrice is the price at the door (PSY-1864).
+	//
+	// Nil means "not known" on either; zero means free. Both are pointers so
+	// that distinction survives — a free show is a real fact the ticket line
+	// prints as "Free", and a float64 zero-value could not tell it from
+	// silence. Neither is inferred from the other: a show with an advance
+	// price says nothing about what the door costs.
 	Price          *float64
+	DoorPrice      *float64 `gorm:"column:door_price"`
 	AgeRequirement *string
 	Description    *string
 	CreatedAt      time.Time `gorm:"not null"`
