@@ -119,18 +119,22 @@ export function useAdminEntityRequests(filters: AdminEntityRequestsFilters = {})
 }
 
 /** Admin-supplied venue for fulfilling a show request (PSY-1037). */
-export interface ShowVenueInput {
-  name: string
-  city: string
-  state: string
-  address?: string
-}
+export type ShowVenueInput = components['schemas']['ShowVenueInput']
 
-/** One admin-supplied artist for fulfilling a show request (PSY-1037). */
-export interface ShowArtistInput {
-  name: string
-  is_headliner?: boolean
-}
+/**
+ * One admin-supplied artist for fulfilling a show request (PSY-1037).
+ *
+ * Aliased from the generated schema rather than hand-written (PSY-1856): the
+ * local interface these two names used to declare SHADOWED the spec, so
+ * `bun run typecheck` could not see drift between them — `set_type` existed on
+ * the endpoint from PSY-1705 and was invisible here until somebody noticed by
+ * eye.
+ *
+ * `set_type` is optional, and its optionality is load-bearing: only an ABSENT
+ * key means "slot unknown". A present value must be in the vocabulary, so
+ * callers must OMIT the field rather than send an empty string.
+ */
+export type ShowArtistInput = components['schemas']['ShowArtistInput']
 
 export interface DecideEntityRequestVars {
   id: number

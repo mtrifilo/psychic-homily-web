@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { ModerationQueue } from './ModerationQueue'
+import { SET_TYPE_OPTIONS } from '@/features/shows/components/show-form-utils'
 import type { PendingEditResponse } from '@/lib/hooks/admin/useAdminPendingEdits'
 import type { EntityReportResponse } from '@/lib/hooks/admin/useAdminEntityReports'
 import type { PendingComment } from '@/lib/hooks/admin/useAdminComments'
@@ -456,18 +458,453 @@ describe('ModerationQueue', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: /create show/i }))
 
+    // PSY-1856: with no role stated on either act, set_type is ABSENT from
+    // both entries (toHaveBeenCalledWith compares the array exactly, so an
+    // extra key fails here) and is_headliner is an explicit false — which is
+    // what keeps the backend from reading position 0 as the headliner.
     expect(mutate).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 11,
         decision: 'approved',
         show_venue: { name: 'Valley Bar', city: 'Phoenix', state: 'AZ' },
         show_artists: [
-          { name: 'Boris', is_headliner: true },
+          { name: 'Boris', is_headliner: false },
           { name: 'Earth', is_headliner: false },
         ],
       }),
       expect.anything()
     )
+  })
+
+  // ─── Bill roles (PSY-1856) ───────────────────────────────────────────────
+  //
+  // The paired UI for PSY-1705's set_type on decide/fulfill. The three things
+  // worth pinning: the vocabulary is offered, a stated role reaches the
+  // mutation, and an UNSTATED role omits the key rather than sending "" (a
+  // present-but-empty set_type is a 422 — only an absent key means unknown).
+
+  const showRequestForRoles: AdminEntityRequest = {
+    ...mockEntityRequest,
+    id: 11,
+    entity_type: 'show',
+    payload: { title: 'Big Fest', event_date: '2026-07-01', city: 'Phoenix', state: 'AZ' },
+    source_detail: null,
+  }
+
+  /** Open the show form on the queued request and fill the venue. */
+  function openShowFormWithVenue() {
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }))
+    fireEvent.change(screen.getByLabelText('Venue name'), { target: { value: 'Valley Bar' } })
+  }
+
+  async function chooseBillRole(
+    user: ReturnType<typeof userEvent.setup>,
+    artistNumber: number,
+    optionLabel: string
+  ) {
+    await user.click(
+      screen.getByRole('combobox', { name: `Artist ${artistNumber} bill role` })
+    )
+    await user.click(await screen.findByRole('option', { name: optionLabel }))
+  }
+
+  it('replaces the headliner checkbox with an unstated-by-default bill role', async () => {
+    const user = userEvent.setup()
+    setDefaultMocks({ requests: [showRequestForRoles] })
+
+    render(<ModerationQueue />)
+    openShowFormWithVenue()
+
+    // The checkbox is gone: headliner is a role, not a separate flag.
+    expect(screen.queryByLabelText(/is headliner/i)).not.toBeInTheDocument()
+
+    const roleSelect = screen.getByRole('combobox', { name: 'Artist 1 bill role' })
+    expect(roleSelect).toHaveTextContent('Role not stated')
+
+    await user.click(roleSelect)
+    // Exact list AND exact order. The backend orders its vocabulary so the API
+    // docs, the 422 message and the form selector all read the same way, so an
+    // extra option, a missing one, or a reshuffle is a regression. A
+    // presence-only loop would pass through all three.
+    expect(await screen.findByRole('option', { name: 'Headliner' })).toBeInTheDocument()
+    expect(screen.getAllByRole('option').map(option => option.textContent)).toEqual([
+      'Role not stated',
+      'Headliner',
+      'Direct support',
+      'Opener',
+      'Special guest',
+      'DJ',
+      'Performer (slot unknown)',
+    ])
+  })
+
+  it('returns a row to unstated, dropping the set_type it had already stated', async () => {
+    const user = userEvent.setup()
+    const mutate = vi.fn()
+    mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+    setDefaultMocks({ requests: [showRequestForRoles] })
+
+    render(<ModerationQueue />)
+    openShowFormWithVenue()
+
+    fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
+    await chooseBillRole(user, 1, 'Headliner')
+    // The admin thinks better of it. The key must LEAVE the payload, not linger
+    // as a stale value and not become '': this round trip is the one transition
+    // where a previously stated role could survive in row state.
+    await chooseBillRole(user, 1, 'Role not stated')
+
+    fireEvent.click(screen.getByRole('button', { name: /create show/i }))
+
+    const submitted = mutate.mock.calls[0][0] as { show_artists: Record<string, unknown>[] }
+    expect('set_type' in submitted.show_artists[0]).toBe(false)
+    expect(submitted.show_artists[0]).toEqual({ name: 'Boris', is_headliner: false })
+  })
+
+  it('keeps each row on its own role when an earlier row is removed', async () => {
+    const user = userEvent.setup()
+    const mutate = vi.fn()
+    mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+    setDefaultMocks({ requests: [showRequestForRoles] })
+
+    render(<ModerationQueue />)
+    openShowFormWithVenue()
+
+    fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
+    await chooseBillRole(user, 1, 'Headliner')
+    fireEvent.click(screen.getByRole('button', { name: /add artist/i }))
+    fireEvent.change(screen.getByLabelText('Artist 2 name'), { target: { value: 'Earth' } })
+    await chooseBillRole(user, 2, 'Opener')
+    fireEvent.click(screen.getByRole('button', { name: /add artist/i }))
+    fireEvent.change(screen.getByLabelText('Artist 3 name'), { target: { value: 'DJ Sleep' } })
+    await chooseBillRole(user, 3, 'DJ')
+
+    // Pins the index arithmetic in the remove handler: every surviving row
+    // keeps its OWN name paired with its OWN role, rather than inheriting the
+    // removed row's.
+    //
+    // It does NOT pin React key stability, and must not be read as doing so:
+    // name and role are both controlled from `artists` state, so this passes
+    // under index keys, stable ids, or random keys alike. The rows are keyed by
+    // index today; the sibling ShowForm mints a `_clientId` per row precisely
+    // because that breaks once a row owns uncontrolled state. Add the first
+    // such field here (an autocomplete, say) and this test will not save you.
+    fireEvent.click(screen.getByRole('button', { name: 'Remove artist 2' }))
+    fireEvent.click(screen.getByRole('button', { name: /create show/i }))
+
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        show_artists: [
+          { name: 'Boris', is_headliner: true, set_type: 'headliner' },
+          { name: 'DJ Sleep', is_headliner: false, set_type: 'dj' },
+        ],
+      }),
+      expect.anything()
+    )
+  })
+
+  // One case per value, mirroring ShowForm.test.tsx, so a regression names the
+  // role it broke. Driven off SET_TYPE_OPTIONS rather than a hand-written list:
+  // a seventh role then arrives with coverage instead of without it. This also
+  // covers 'performer', the one value whose payload shape differs from the
+  // unstated sentinel's despite both storing the same row, and which a
+  // "simplification" of the omit branch would silently fold away.
+  for (const option of SET_TYPE_OPTIONS) {
+    it(`sends set_type "${option.value}" when "${option.label}" is chosen`, async () => {
+      const user = userEvent.setup()
+      const mutate = vi.fn()
+      mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+      setDefaultMocks({ requests: [showRequestForRoles] })
+
+      render(<ModerationQueue />)
+      openShowFormWithVenue()
+
+      fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
+      await chooseBillRole(user, 1, option.label)
+      fireEvent.click(screen.getByRole('button', { name: /create show/i }))
+
+      expect(mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          show_artists: [
+            {
+              name: 'Boris',
+              is_headliner: option.value === 'headliner',
+              set_type: option.value,
+            },
+          ],
+        }),
+        expect.anything()
+      )
+    })
+  }
+
+  it('sends a whole stated bill in order, deriving is_headliner from each role', async () => {
+    const user = userEvent.setup()
+    const mutate = vi.fn()
+    mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+    setDefaultMocks({ requests: [showRequestForRoles] })
+
+    render(<ModerationQueue />)
+    openShowFormWithVenue()
+
+    fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
+    await chooseBillRole(user, 1, 'Headliner')
+    fireEvent.click(screen.getByRole('button', { name: /add artist/i }))
+    fireEvent.change(screen.getByLabelText('Artist 2 name'), { target: { value: 'Earth' } })
+    await chooseBillRole(user, 2, 'Direct support')
+    fireEvent.click(screen.getByRole('button', { name: /add artist/i }))
+    fireEvent.change(screen.getByLabelText('Artist 3 name'), { target: { value: 'DJ Sleep' } })
+    await chooseBillRole(user, 3, 'DJ')
+
+    fireEvent.click(screen.getByRole('button', { name: /create show/i }))
+
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        show_artists: [
+          { name: 'Boris', is_headliner: true, set_type: 'headliner' },
+          { name: 'Earth', is_headliner: false, set_type: 'direct_support' },
+          { name: 'DJ Sleep', is_headliner: false, set_type: 'dj' },
+        ],
+      }),
+      expect.anything()
+    )
+  })
+
+  // Pinning a DELIBERATE consequence, not asserting a desirable one. The
+  // sibling ShowForm's removeArtistAtIndex promotes the first survivor to
+  // headliner on this transition; this form does not, because promoting would
+  // infer a role from row order, which is the inference the vocabulary exists
+  // to remove. The result is a bill that states a role and has no headliner,
+  // which the backend classifies as having no headline slot at all. That
+  // consequence was escalated and DECIDED: warn, allow, and reconcile the
+  // display under PSY-1943. So the transition below is exactly what raises the
+  // partial-bill warning, and this test pins that it still submits the bill the
+  // admin described rather than promoting a survivor behind their back.
+  it('leaves the bill headliner-less when the headliner row is removed', async () => {
+    const user = userEvent.setup()
+    const mutate = vi.fn()
+    mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+    setDefaultMocks({ requests: [showRequestForRoles] })
+
+    render(<ModerationQueue />)
+    openShowFormWithVenue()
+
+    fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
+    await chooseBillRole(user, 1, 'Headliner')
+    fireEvent.click(screen.getByRole('button', { name: /add artist/i }))
+    fireEvent.change(screen.getByLabelText('Artist 2 name'), { target: { value: 'Earth' } })
+    await chooseBillRole(user, 2, 'Direct support')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove artist 1' }))
+    fireEvent.click(screen.getByRole('button', { name: /create show/i }))
+
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        show_artists: [{ name: 'Earth', is_headliner: false, set_type: 'direct_support' }],
+      }),
+      expect.anything()
+    )
+  })
+
+  it('omits set_type for an unstated act on a bill that states other roles', async () => {
+    const user = userEvent.setup()
+    const mutate = vi.fn()
+    mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+    setDefaultMocks({ requests: [showRequestForRoles] })
+
+    render(<ModerationQueue />)
+    openShowFormWithVenue()
+
+    fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
+    await chooseBillRole(user, 1, 'Headliner')
+    fireEvent.click(screen.getByRole('button', { name: /add artist/i }))
+    fireEvent.change(screen.getByLabelText('Artist 2 name'), { target: { value: 'Earth' } })
+
+    fireEvent.click(screen.getByRole('button', { name: /create show/i }))
+
+    const submitted = mutate.mock.calls[0][0] as { show_artists: Record<string, unknown>[] }
+    // The key is ABSENT, not "" and not null: a present set_type outside the
+    // vocabulary is rejected, so "unstated" can only be expressed by omission.
+    expect('set_type' in submitted.show_artists[1]).toBe(false)
+    expect(submitted.show_artists[1]).toEqual({ name: 'Earth', is_headliner: false })
+  })
+
+  // A nameless row is dropped from the bill, so a role stated on one would be
+  // discarded silently. Blocked at submit instead: the discarded thing is the
+  // primary field an admin reaches for, and losing it can quietly cost the bill
+  // the headliner somebody explicitly designated.
+  it('blocks submit while a row states a role but has no name', async () => {
+    const user = userEvent.setup()
+    const mutate = vi.fn()
+    mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+    setDefaultMocks({ requests: [showRequestForRoles] })
+
+    render(<ModerationQueue />)
+    openShowFormWithVenue()
+
+    fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
+    await chooseBillRole(user, 1, 'Headliner')
+    fireEvent.click(screen.getByRole('button', { name: /add artist/i }))
+    await chooseBillRole(user, 2, 'Opener')
+
+    const submit = screen.getByRole('button', { name: /create show/i })
+    expect(submit).toBeDisabled()
+    expect(screen.getByText(/Name the act you gave a role to/i)).toBeInTheDocument()
+    fireEvent.click(submit)
+    expect(mutate).not.toHaveBeenCalled()
+
+    // Clearing the role releases the block, and the empty row stays out of the bill.
+    await chooseBillRole(user, 2, 'Role not stated')
+    fireEvent.click(screen.getByRole('button', { name: /create show/i }))
+
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        show_artists: [{ name: 'Boris', is_headliner: true, set_type: 'headliner' }],
+      }),
+      expect.anything()
+    )
+  })
+
+  // The invariant the "Role not stated" / "Performer (slot unknown)" equivalence
+  // rests on. Drop the always-send and those two menu options start producing
+  // different bills server-side, because buildShowAssociations reads a present
+  // set_type as curation while suppressPositionInference only skips rows that
+  // state a field. Enforced here rather than merely described in a comment.
+  it('always sends is_headliner, even for an entirely unstated bill', async () => {
+    const mutate = vi.fn()
+    mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+    setDefaultMocks({ requests: [showRequestForRoles] })
+
+    render(<ModerationQueue />)
+    openShowFormWithVenue()
+
+    fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
+    fireEvent.click(screen.getByRole('button', { name: /add artist/i }))
+    fireEvent.change(screen.getByLabelText('Artist 2 name'), { target: { value: 'Earth' } })
+    fireEvent.click(screen.getByRole('button', { name: /create show/i }))
+
+    const submitted = mutate.mock.calls[0][0] as { show_artists: Record<string, unknown>[] }
+    for (const artist of submitted.show_artists) {
+      expect('is_headliner' in artist).toBe(true)
+      expect('set_type' in artist).toBe(false)
+    }
+  })
+
+  // ─── Partial-bill warning (PSY-1856) ─────────────────────────────────────
+  //
+  // A bill that curates a slot but names no headliner has NO headline slot in
+  // charts, while the show page still renders the first act as the headliner.
+  // The recorded decision is WARN, ALLOW: the form surfaces the state, does not
+  // gate on it, and the display reconciliation is PSY-1943's.
+  //
+  // The pair worth holding together is "warns on the partial shape" and "stays
+  // silent on an all-'performer' bill": 'performer' reads as a stated role in
+  // this form and as "slot unknown" in headlineSlotSQL, so the warning has to
+  // ask the backend's question, not the form's.
+
+  const partialBillWarning = /No headliner stated/i
+
+  it('warns, without blocking, when the bill states a role but names no headliner', async () => {
+    const user = userEvent.setup()
+    const mutate = vi.fn()
+    mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+    setDefaultMocks({ requests: [showRequestForRoles] })
+
+    render(<ModerationQueue />)
+    openShowFormWithVenue()
+
+    fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
+    await chooseBillRole(user, 1, 'Opener')
+    fireEvent.click(screen.getByRole('button', { name: /add artist/i }))
+    fireEvent.change(screen.getByLabelText('Artist 2 name'), { target: { value: 'Earth' } })
+
+    expect(screen.getByText(partialBillWarning)).toBeInTheDocument()
+
+    // The whole point of the decision: this is a caution, not a gate. The bill
+    // an admin describes honestly ("somebody opened, nobody topped it") still
+    // submits, and submits unchanged.
+    const submit = screen.getByRole('button', { name: /create show/i })
+    expect(submit).toBeEnabled()
+    fireEvent.click(submit)
+
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        show_artists: [
+          { name: 'Boris', is_headliner: false, set_type: 'opener' },
+          { name: 'Earth', is_headliner: false },
+        ],
+      }),
+      expect.anything()
+    )
+    // Still on screen after the submit: nothing about it is a submit-time gate.
+    expect(screen.getByText(partialBillWarning)).toBeInTheDocument()
+  })
+
+  it('warns on a single-act bill whose one act is stated as something other than the headliner', async () => {
+    const user = userEvent.setup()
+    setDefaultMocks({ requests: [showRequestForRoles] })
+
+    render(<ModerationQueue />)
+    openShowFormWithVenue()
+
+    fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
+    await chooseBillRole(user, 1, 'Direct support')
+
+    // No second row to "promote", so there is genuinely no headline slot.
+    expect(screen.getByText(partialBillWarning)).toBeInTheDocument()
+  })
+
+  it('stays silent while every act is unstated', () => {
+    setDefaultMocks({ requests: [showRequestForRoles] })
+
+    render(<ModerationQueue />)
+    openShowFormWithVenue()
+
+    fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
+    fireEvent.click(screen.getByRole('button', { name: /add artist/i }))
+    fireEvent.change(screen.getByLabelText('Artist 2 name'), { target: { value: 'Earth' } })
+
+    // Nobody curated this bill, so headlineSlotSQL falls back to position 0 and
+    // the top act DOES hold the headline slot. Warning here would be false.
+    expect(screen.queryByText(partialBillWarning)).not.toBeInTheDocument()
+  })
+
+  it('stays silent for a bill of explicit "Performer (slot unknown)" rows', async () => {
+    const user = userEvent.setup()
+    setDefaultMocks({ requests: [showRequestForRoles] })
+
+    render(<ModerationQueue />)
+    openShowFormWithVenue()
+
+    fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
+    await chooseBillRole(user, 1, 'Performer (slot unknown)')
+    fireEvent.click(screen.getByRole('button', { name: /add artist/i }))
+    fireEvent.change(screen.getByLabelText('Artist 2 name'), { target: { value: 'Earth' } })
+    await chooseBillRole(user, 2, 'Performer (slot unknown)')
+
+    // 'performer' is one of the two spellings of "slot unknown", so this bill is
+    // uncurated server-side and keeps its position-0 headline slot. A warning
+    // written as `set_type !== unstated` would fire here, wrongly.
+    expect(screen.queryByText(partialBillWarning)).not.toBeInTheDocument()
+  })
+
+  it('clears the warning once an act is stated headliner', async () => {
+    const user = userEvent.setup()
+    setDefaultMocks({ requests: [showRequestForRoles] })
+
+    render(<ModerationQueue />)
+    openShowFormWithVenue()
+
+    fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
+    await chooseBillRole(user, 1, 'Opener')
+    fireEvent.click(screen.getByRole('button', { name: /add artist/i }))
+    fireEvent.change(screen.getByLabelText('Artist 2 name'), { target: { value: 'Earth' } })
+    expect(screen.getByText(partialBillWarning)).toBeInTheDocument()
+
+    // Naming a headliner anywhere on the bill resolves it: the rule is about
+    // the bill, not about row 1.
+    await chooseBillRole(user, 2, 'Headliner')
+    expect(screen.queryByText(partialBillWarning)).not.toBeInTheDocument()
   })
 
   it('cancel closes the show form without mutating', () => {
@@ -904,7 +1341,38 @@ describe('ModerationQueue', () => {
           id: 51,
           action: 'fulfill',
           show_venue: { name: 'Valley Bar', city: 'Phoenix', state: 'AZ' },
-          show_artists: [{ name: 'Boris', is_headliner: true }],
+          show_artists: [{ name: 'Boris', is_headliner: false }],
+        }),
+        expect.anything()
+      )
+    })
+
+    // PSY-1856: the rescue path shares ShowCreateForm with the approve path,
+    // so it has to carry set_type too — the two endpoints accept the same
+    // field and a rescue is where a stale orphan most often gets its bill
+    // stated for the first time.
+    it('carries the stated bill roles through the rescue fulfill', async () => {
+      const user = userEvent.setup()
+      const mutate = vi.fn()
+      mockUseRescueEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+      setDefaultMocks({ rescue: [orphanShow] })
+
+      render(<ModerationQueue />)
+      fireEvent.click(screen.getByText('Needs attention'))
+      fireEvent.click(screen.getByRole('button', { name: /^fulfill$/i }))
+
+      fireEvent.change(screen.getByLabelText('Venue name'), { target: { value: 'Valley Bar' } })
+      fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
+      await user.click(screen.getByRole('combobox', { name: 'Artist 1 bill role' }))
+      await user.click(await screen.findByRole('option', { name: 'Special guest' }))
+      fireEvent.click(screen.getByRole('button', { name: /create show/i }))
+
+      expect(mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'fulfill',
+          show_artists: [
+            { name: 'Boris', is_headliner: false, set_type: 'special_guest' },
+          ],
         }),
         expect.anything()
       )
