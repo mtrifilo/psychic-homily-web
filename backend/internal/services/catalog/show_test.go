@@ -2299,6 +2299,70 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_DuplicateErrorClaim
 		"the guard produced this, not the index, and it names the artist without a role")
 	suite.NotContains(err.Error(), "headliner",
 		"the matched row is a curated opener, so the copy must claim no role")
+
+	// The stored row really is a curated opener at position 0, so the guard
+	// reached it through its position arm and not its set_type arm.
+	var stored catalogm.ShowArtist
+	suite.Require().NoError(suite.db.
+		Joins("JOIN artists ON artists.id = show_artists.artist_id").
+		Where("artists.name = ? AND show_artists.position = 0", "Role Claim Opener").
+		First(&stored).Error)
+	suite.Equal(contracts.SetTypeOpener, stored.SetType)
+}
+
+// TestCreateShow_PartiallyCuratedTopActIsStillDuplicateChecked covers the bill
+// the public create surface produces by default. handlers/catalog.initializeArtist
+// pins is_headliner=false on any act that did not state one, so resolveArtistRole
+// stores the top act 'performer' at position 0 and the bill carries no headliner
+// row at all. headlineSlotSQL reads that as "no headline slot", so aligning the
+// guard to it would stop duplicate-checking the shape most shows arrive in.
+//
+// The position arm is the only reason this bill is duplicate-checked, which is
+// why checkDuplicateHeadlinerConflicts keeps it.
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_PartiallyCuratedTopActIsStillDuplicateChecked() {
+	user := suite.createTestUser()
+	eventDate := suite.uniqueEventDate()
+	venue := []contracts.CreateShowVenue{{Name: "Partial Curation Venue", City: "Phoenix", State: "AZ"}}
+
+	_, err := suite.showService.CreateShow(&contracts.CreateShowRequest{
+		Title:     "Partially Curated Bill",
+		EventDate: eventDate,
+		City:      "Phoenix",
+		State:     "AZ",
+		Venues:    venue,
+		Artists: []contracts.CreateShowArtist{
+			// Silent top act, exactly as initializeArtist leaves it.
+			{Name: "Partial Top Act", IsHeadliner: boolPtr(false)},
+			{Name: "Partial Support Act", SetType: strPtr(contracts.SetTypeOpener)},
+		},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	})
+	suite.Require().NoError(err)
+
+	// Precondition: the bill really has no headliner row, so this is the
+	// partially-curated shape and not a disguised curated one.
+	var headlinerRows int64
+	suite.Require().NoError(suite.db.Model(&catalogm.ShowArtist{}).
+		Where("set_type = ?", contracts.SetTypeHeadliner).Count(&headlinerRows).Error)
+	suite.Require().Equal(int64(0), headlinerRows, "no row states 'headliner'")
+
+	_, err = suite.showService.CreateShow(&contracts.CreateShowRequest{
+		Title:             "Partial Rebill",
+		EventDate:         eventDate,
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            venue,
+		Artists:           []contracts.CreateShowArtist{{Name: "Partial Top Act", SetType: strPtr(contracts.SetTypeHeadliner)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	})
+
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "'Partial Top Act' is already performing",
+		"the position arm must still catch a bill whose top act states nothing")
+	suite.NotContains(strings.ToLower(err.Error()), "duplicate key",
+		"the guard refuses this, so the index never has to")
 }
 
 // =============================================================================

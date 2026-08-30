@@ -849,9 +849,11 @@ func (s *ShowHandlerIntegrationSuite) TestSetShowCancelled_OwnerSuccess() {
 // to set up search-test fixtures with deterministic ordering. Returns the
 // created show.
 //
-// `set_type='headliner' OR position=0` is the convention used to identify a
-// show's headliner across the codebase (see checkDuplicateHeadlinerConflicts
-// in catalog/show.go). There is no `is_headliner` column on show_artists.
+// Seeds the headliner as `set_type='headliner'` at position 0, so the fixture
+// satisfies display resolvers and duplicate guards alike. That pairing is a
+// fixture convenience, not a codebase-wide definition of "headliner":
+// catalog/headline_slot.go owns the rule and groups the sites that diverge.
+// There is no `is_headliner` column on show_artists.
 func (s *ShowHandlerIntegrationSuite) createShowForSearch(
 	title, headlinerName string,
 	supportingArtistNames []string,

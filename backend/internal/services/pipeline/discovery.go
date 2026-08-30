@@ -183,8 +183,8 @@ func (s *DiscoveryService) ImportFromJSON(filepath string, dryRun bool) (*contra
 }
 
 // checkHeadlinerDuplicate reports whether the scraped event's headliner is already
-// on a non-rejected bill at the same venue at the same exact event_date. Returns the
-// matching show or nil.
+// on a bill at the same venue at the same exact event_date, ignoring rejected and
+// private shows. Returns the matching show or nil.
 // The dedup key is the FULL event_date timestamp (PSY-559) — matinee and evening sets at
 // the same venue are distinct shows, not duplicates.
 //
@@ -193,9 +193,10 @@ func (s *DiscoveryService) ImportFromJSON(filepath string, dryRun bool) (*contra
 // rationale and the reason not to align it.
 //
 // Local consequence: a hit tallies the event as DUPLICATE and skips it, while a miss
-// falls through to the import, where shows_artist_venue_eventdate_uniq refuses the same
-// collision as a raw error. Narrowing this predicate converts clean DUPLICATE tallies
-// into ERRORs.
+// falls through to the import, where the dedup index refuses a single-venue collision
+// as a raw error instead. Narrowing this predicate turns clean DUPLICATE tallies into
+// ERRORs there, and on a multi-venue show admits the duplicate outright. The status
+// filter above already produces that raw-error outcome for a private colliding show.
 func (s *DiscoveryService) checkHeadlinerDuplicate(headlinerName, venueName string, eventDate time.Time) *catalogm.Show {
 	var existingShow catalogm.Show
 	err := s.db.

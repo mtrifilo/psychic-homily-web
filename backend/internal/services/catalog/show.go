@@ -283,31 +283,40 @@ func (s *ShowService) determineShowStatus(tx *gorm.DB, venues []contracts.Create
 // Uses pg_advisory_xact_lock to prevent race conditions where two concurrent
 // requests could both pass the check before either commits.
 //
-// CANONICAL rationale for both duplicate guards; the twin in pipeline's
-// checkHeadlinerDuplicate points here rather than restating it.
+// CANONICAL rationale for this predicate; pipeline's checkHeadlinerDuplicate and
+// headline_slot.go both point here rather than restating it. That twin is not
+// identical: it also filters out rejected and private shows.
 //
-// This is a friendly pre-check in front of a broader constraint, not the thing
-// that keeps duplicates out. `shows_artist_venue_eventdate_uniq` is UNIQUE
-// (artist_id, venue_id, event_date) over every show_artists row, with no
-// set_type or position term, and syncShowArtistDedupColumns stamps those columns
-// inside this same transaction. The index therefore refuses every collision this
-// guard refuses. What the guard adds is an actionable message in place of a raw
-// driver string.
+// Two things refuse a duplicate here, and neither covers the other completely.
+// `shows_artist_venue_eventdate_uniq` is UNIQUE (artist_id, venue_id,
+// event_date) on show_artists, keyed on ids and PARTIAL on
+// `WHERE event_date IS NOT NULL AND venue_id IS NOT NULL`;
+// syncShowArtistDedupColumns stamps those columns in this same transaction.
+// Where the index reaches it refuses any artist collision, with no set_type or
+// position term, so it is strictly wider than this guard and the guard's value
+// there is the message. Where it does not reach, this guard is the only refusal.
 //
-// The predicate is NOT headlineSlotSQL's and must not be aligned to it. A
+// So the predicate is NOT headlineSlotSQL's and must not be aligned to it. A
 // classifier answers "which row tops this bill"; this guard answers "would this
-// write collide", and is deliberately broader on both axes:
+// write collide". The difference that matters is on a CURATED bill: the
+// classifier names only rows curated 'headliner', while position 0 here also
+// reaches a curated opener. On an UNCURATED bill the two agree, both resolving
+// to position 0, so that is not where they diverge.
 //
-//   - The position arm keeps a position-inferred headliner duplicate-checked on
-//     a bill nobody has described.
-//   - Matching artists and venues by LOWER(name) covers shapes the index keys on
-//     ids cannot see: duplicate venue rows sharing a name, and case-variant
-//     artist names.
+// Narrowing to the classifier was measured: wherever the index reaches it
+// refuses nothing new, and on a MULTI-VENUE show it admits a real duplicate,
+// because syncShowArtistDedupColumns stamps only the lowest venue_id and the
+// index is blind to a collision at any other venue of that show. That is what
+// makes the position arm load-bearing rather than redundant.
 //
-// Both arms are load-bearing because the index leaves a multi-venue show's
-// other venues uncovered; syncShowArtistDedupColumns documents that gap.
-// Narrowing this predicate to the classifier admits a real duplicate there, and
-// refuses nothing new anywhere else.
+// Scope, so this is not read as more than it is:
+//
+//   - Only the two create paths run a guard. UpdateShow re-stamps the dedup
+//     columns without calling one, so a show edited onto a colliding timestamp
+//     has the index alone behind it.
+//   - The message below reaches server logs and in-process callers. The HTTP
+//     surface replaces it with a fixed "Failed to create show", so this copy is
+//     not what an API client reads.
 //
 // Accepted consequence: a curated OPENER at position 0 still trips the guard.
 // The write is refused either way, so the message is what carries the fix, and
@@ -364,7 +373,8 @@ func (s *ShowService) checkDuplicateHeadlinerConflicts(tx *gorm.DB, req *contrac
 
 	// Check for conflicts: same artist + same venue + same exact timestamp
 	// (case-insensitive), where the stored row is curated 'headliner' OR sits
-	// at position 0.
+	// at position 0. Do not narrow this to headlineSlotSQL; this function's
+	// docblock records what that was measured to break.
 	for _, headlinerName := range headlinerNames {
 		for _, venueName := range venueNames {
 			var existingShows []catalogm.Show
@@ -1035,14 +1045,13 @@ func (s *ShowService) loadShowArtistResponses(tx *gorm.DB, showID uint) ([]contr
 // checkDuplicateHeadlinerConflicts continues to provide a user-friendly
 // duplicate error before the index ever fires (PSY-576).
 //
-// COVERAGE GAP, and the reason the duplicate guards match venues by name
-// rather than deferring to the index: stamping one venue_id per row means a
-// show playing several venues is indexed at its lowest venue_id only, so the
-// constraint cannot see a collision at any of its other venues. Those are the
-// bills where checkDuplicateHeadlinerConflicts and pipeline's
-// checkHeadlinerDuplicate are the sole protection. Widening the index is
-// PSY-1979; until it lands, do not narrow either guard on the assumption that
-// the constraint backstops it.
+// COVERAGE GAP: stamping one venue_id per row means a show playing several
+// venues is indexed at its lowest venue_id only, so the constraint cannot see
+// a collision at any of that show's other venues. On those bills the
+// create-path duplicate guards are the only refusal, which is why
+// checkDuplicateHeadlinerConflicts and pipeline's checkHeadlinerDuplicate stay
+// broader than headlineSlotSQL. Do not narrow either on the assumption that
+// this constraint backstops it.
 //
 // Package-level so the show-dedup merge path (show_dedup.go) can call
 // it too after re-pointing show_artists rows between merged shows.
@@ -1327,8 +1336,11 @@ func (s *ShowService) GetShowCities(timezone string) ([]contracts.ShowCityRespon
 // think of shows by artist first. PSY-520.
 //
 // Headliner resolution: there is no `is_headliner` column on show_artists.
-// Headliner = the show_artists row with set_type = 'headliner', falling back
-// to position = 0. This mirrors checkDuplicateHeadlinerConflicts above.
+// Headliner = the show_artists row with set_type = 'headliner', falling back to
+// the lowest position and then the lowest artist_id. This is a display
+// resolver, so it always names an act; it does NOT mirror the duplicate guards,
+// whose disjunction answers a different question. headline_slot.go groups the
+// sites and owns the rule.
 //
 // Venue resolution: a show may have multiple venues; we pick the
 // lowest-numbered venue_id deterministically as the "primary" — venues array
