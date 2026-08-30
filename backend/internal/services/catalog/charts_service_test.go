@@ -100,6 +100,25 @@ func (suite *ChartsServiceIntegrationTestSuite) createVenue(name, city, state st
 	return venue
 }
 
+// createVerifiedVenue seeds a venue the scene surfaces count, carrying the CBSA
+// its city pins (NULL for a city that pins none) — the undrifted shape.
+func (suite *ChartsServiceIntegrationTestSuite) createVerifiedVenue(name, city, state string) *catalogm.Venue {
+	venue := suite.createVenue(name, city, state)
+	suite.Require().NoError(suite.db.Model(venue).Updates(map[string]any{"verified": true, "metro": seedMetro(city, state)}).Error)
+	return venue
+}
+
+// createVerifiedVenueNullMetro seeds a verified venue whose city DOES pin a CBSA
+// but whose metro column was never written — the drift
+// cmd/backfill-entity-metro repairs, and the venue-side twin of the scene
+// suite's fixture of the same name.
+func (suite *ChartsServiceIntegrationTestSuite) createVerifiedVenueNullMetro(name, city, state string) *catalogm.Venue {
+	suite.Require().NotNil(seedMetro(city, state), "fixture is only meaningful for a city that pins a CBSA")
+	venue := suite.createVenue(name, city, state)
+	suite.Require().NoError(suite.db.Model(venue).Updates(map[string]any{"verified": true, "metro": nil}).Error)
+	return venue
+}
+
 func (suite *ChartsServiceIntegrationTestSuite) createArtist(name string) *catalogm.Artist {
 	artist := &catalogm.Artist{Name: name}
 	err := suite.db.Create(artist).Error
@@ -2268,6 +2287,80 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetChartsSummary_ActiveScene
 	month, err := suite.chartsService.GetChartsSummary(contracts.ChartWindowMonth, "")
 	suite.Require().NoError(err)
 	suite.Equal(2, month.ActiveScenes, "shared metro collapses to one scene; the (city,state) fallback is a second; unverified/old/upcoming never count")
+}
+
+// TestGetChartsSummary_ActiveScenesCollapsesDriftedMetro (PSY-1949): verified
+// Phoenix rooms whose denormalized venues.metro was never written form their own
+// fallback group, and that group publishes the SAME "phoenix-az" slug as the
+// CBSA group. Counting sceneGroupKeySQL keys made the masthead print 2 beside a
+// directory showing one row; the count runs through the directory's collapse
+// instead. The fixture puts every show inside the window and clears the
+// directory thresholds on both halves, so the two populations coincide and the
+// numbers are directly comparable.
+func (suite *ChartsServiceIntegrationTestSuite) TestGetChartsSummary_ActiveScenesCollapsesDriftedMetro() {
+	now := time.Now().UTC()
+	user := suite.createUser("drifted-scene@test.com")
+	band := suite.createArtist("Drift Band")
+	suite.Require().NotNil(seedMetro("Phoenix", "AZ"), "the fixture needs a city that pins a CBSA")
+
+	metroA := suite.createVerifiedVenue("Metro Room A", "Phoenix", "AZ")
+	metroB := suite.createVerifiedVenue("Metro Room B", "Phoenix", "AZ")
+	driftedA := suite.createVerifiedVenueNullMetro("Drifted Room A", "Phoenix", "AZ")
+	driftedB := suite.createVerifiedVenueNullMetro("Drifted Room B", "Phoenix", "AZ")
+
+	// Each half independently clears sceneMinVenues/sceneMinShows, so the
+	// directory sees both groups and has to resolve the collision — and every
+	// show is played inside the month window, so the chart sees both too.
+	suite.createApprovedShow("Metro 1", metroA.ID, band.ID, user.ID, now.AddDate(0, 0, -3))
+	suite.createApprovedShow("Metro 2", metroB.ID, band.ID, user.ID, now.AddDate(0, 0, -4))
+	suite.createApprovedShow("Metro 3", metroA.ID, band.ID, user.ID, now.AddDate(0, 0, -5))
+	suite.createApprovedShow("Drift 1", driftedA.ID, band.ID, user.ID, now.AddDate(0, 0, -3))
+	suite.createApprovedShow("Drift 2", driftedB.ID, band.ID, user.ID, now.AddDate(0, 0, -4))
+	suite.createApprovedShow("Drift 3", driftedA.ID, band.ID, user.ID, now.AddDate(0, 0, -5))
+
+	scenes, err := NewSceneService(suite.db).ListScenes()
+	suite.Require().NoError(err)
+	suite.Require().Len(scenes, 1, "the directory publishes one row per slug")
+	suite.Equal("phoenix-az", scenes[0].Slug)
+
+	month, err := suite.chartsService.GetChartsSummary(contracts.ChartWindowMonth, "")
+	suite.Require().NoError(err)
+	suite.Equal(len(scenes), month.ActiveScenes, "the masthead count is the directory's row count, not its SQL group count")
+	suite.Equal(1, month.ActiveScenes)
+}
+
+// TestGetChartsSummary_ActiveScenesCollapsesSpellingVariants (PSY-1949): the
+// collision that needs no drift at all. sceneGroupKeySQL only lower/trims while
+// buildSceneSlug also maps spaces to dashes, so two spellings of one non-US city
+// are two groups under one slug — and the chart must count them once, the same
+// way the directory lists them once.
+func (suite *ChartsServiceIntegrationTestSuite) TestGetChartsSummary_ActiveScenesCollapsesSpellingVariants() {
+	now := time.Now().UTC()
+	user := suite.createUser("spelling-scene@test.com")
+	band := suite.createArtist("Variant Band")
+	suite.Require().Nil(seedMetro("Saint Jerome", "QC"), "a non-US city must not pin a CBSA — this collision is not metro drift")
+
+	spacedA := suite.createVerifiedVenue("Spaced A", "Saint Jerome", "QC")
+	spacedB := suite.createVerifiedVenue("Spaced B", "Saint Jerome", "QC")
+	hyphenA := suite.createVerifiedVenue("Hyphen A", "Saint-Jerome", "QC")
+	hyphenB := suite.createVerifiedVenue("Hyphen B", "Saint-Jerome", "QC")
+
+	suite.createApprovedShow("Sp 1", spacedA.ID, band.ID, user.ID, now.AddDate(0, 0, -3))
+	suite.createApprovedShow("Sp 2", spacedB.ID, band.ID, user.ID, now.AddDate(0, 0, -4))
+	suite.createApprovedShow("Sp 3", spacedA.ID, band.ID, user.ID, now.AddDate(0, 0, -5))
+	suite.createApprovedShow("Hy 1", hyphenA.ID, band.ID, user.ID, now.AddDate(0, 0, -3))
+	suite.createApprovedShow("Hy 2", hyphenB.ID, band.ID, user.ID, now.AddDate(0, 0, -4))
+	suite.createApprovedShow("Hy 3", hyphenA.ID, band.ID, user.ID, now.AddDate(0, 0, -5))
+
+	scenes, err := NewSceneService(suite.db).ListScenes()
+	suite.Require().NoError(err)
+	suite.Require().Len(scenes, 1, "the directory publishes one row per slug")
+	suite.Equal("saint-jerome-qc", scenes[0].Slug)
+
+	month, err := suite.chartsService.GetChartsSummary(contracts.ChartWindowMonth, "")
+	suite.Require().NoError(err)
+	suite.Equal(len(scenes), month.ActiveScenes, "the masthead count is the directory's row count, not its SQL group count")
+	suite.Equal(1, month.ActiveScenes)
 }
 
 func (suite *ChartsServiceIntegrationTestSuite) TestGetFreshlyAdded_InterleavedNewestFirst() {

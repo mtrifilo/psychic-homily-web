@@ -98,7 +98,10 @@ const usCountry = "US"
 // the CBSA metro when the venue rolls up to one, else a (city,state) fallback
 // key. Shared by the scenes list (ListScenes) and the charts summary's
 // active-scenes count — two surfaces disagreeing on what a scene IS would
-// show contradictory scene counts. NOTE the ARTIST-side scene key
+// show contradictory scene counts. It is only HALF of that shared identity:
+// both callers must also run their groups through
+// collapseSceneGroupsToCanonicalSlug, because this key splits a scene the
+// published slug keeps whole. NOTE the ARTIST-side scene key
 // (sceneGenreCounts) is a separate inline expression with subtly different
 // semantics — it NULLIFs an empty-string metro into the fallback, this one
 // does not (venues get metro from the geocoder, never ''); an identity

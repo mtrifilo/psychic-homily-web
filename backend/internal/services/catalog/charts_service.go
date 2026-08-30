@@ -1717,11 +1717,12 @@ func appendRadioAiredWindow(query string, args []any, now time.Time, bounds char
 	return query, args
 }
 
-// GetChartsSummary returns the masthead stat strip counts for the window as
-// ONE statement of five scalar subqueries scanned straight into the summary
-// shape — one round trip, and a column/field mismatch fails loudly at scan
-// time instead of silently zeroing a stat. Each count reuses the shared
-// eligibility definition of the module it summarizes:
+// GetChartsSummary returns the masthead stat strip counts for the window: the
+// four entity counts as ONE statement of scalar subqueries, plus the scene
+// count, which is settled in Go and so costs a second round trip
+// (activeSceneCount says why it cannot be a fifth subquery). Both run inside
+// one cache entry. Each count reuses the shared eligibility definition of the
+// module it summarizes:
 //   - shows/artists/releases count entities ADDED in the window
 //     (appendWindowBounds); shows must be approved and not cancelled — a
 //     cancelled show must not inflate the proof-of-life strip that every
@@ -1731,13 +1732,14 @@ func appendRadioAiredWindow(query string, args []any, now time.Time, bounds char
 //   - radio plays share the aired pair + pseudo exclusion with the
 //     on-the-radio module via appendRadioAiredWindow (unmatched plays DO
 //     count here — the strip measures logging activity, not match rate).
-//   - active scenes share sceneGroupKeySQL/sceneVenueEligibilitySQL with the
-//     scenes list and count scenes with >=1 show played in the window
-//     (appendChartShowWindow semantics). NOTE this floor is deliberately
-//     lower than the scenes DIRECTORY's listing thresholds (sceneMinVenues/
-//     sceneMinShows): "active this window" is a different claim than
-//     "established enough to list", so the strip count can exceed the
-//     /scenes list length.
+//   - active scenes share the scenes list's whole identity rule
+//     (sceneGroupKeySQL/sceneVenueEligibilitySQL plus the slug collapse) and
+//     count scenes with >=1 show played in the window (appendChartShowWindow
+//     semantics). NOTE this floor is deliberately lower than the scenes
+//     DIRECTORY's listing thresholds (sceneMinVenues/sceneMinShows): "active
+//     this window" is a different claim than "established enough to list", so
+//     the strip count can exceed the /scenes list length. Only the POPULATION
+//     differs; what a scene IS must not.
 //
 // Scene scoping (see the scene-scoping block): shows by venue metro, artists
 // and radio plays by artist home metro, releases by credited-artist home
@@ -1837,33 +1839,81 @@ func (s *ChartsService) getChartsSummaryUncached(window contracts.ChartWindow, s
 	}
 
 	query += `
-		) AS radio_plays,
-		(SELECT COUNT(DISTINCT ` + sceneGroupKeySQL + `)
-			FROM shows s
-			JOIN show_venues sv ON sv.show_id = s.id
-			JOIN venues v ON v.id = sv.venue_id
-			WHERE s.status = ?
-			  ` + sceneVenueEligibilitySQL
-	args = append(args, catalogm.ShowStatusApproved)
-	query, args = appendChartShowWindow(query, args, bounds)
-	query, args = appendEntityMetroScope(query, args, "v", scene)
-	query += `
-		) AS active_scenes`
+		) AS radio_plays`
 
 	type summaryRow struct {
-		ShowsAdded   int `gorm:"column:shows_added"`
-		NewArtists   int `gorm:"column:new_artists"`
-		NewReleases  int `gorm:"column:new_releases"`
-		RadioPlays   int `gorm:"column:radio_plays"`
-		ActiveScenes int `gorm:"column:active_scenes"`
+		ShowsAdded  int `gorm:"column:shows_added"`
+		NewArtists  int `gorm:"column:new_artists"`
+		NewReleases int `gorm:"column:new_releases"`
+		RadioPlays  int `gorm:"column:radio_plays"`
 	}
 	var row summaryRow
 	if err := s.db.Raw(query, args...).Scan(&row).Error; err != nil {
 		return nil, fmt.Errorf("failed to get charts summary: %w", err)
 	}
 
-	summary := contracts.ChartsSummary(row)
-	return &summary, nil
+	// A second round trip rather than a fifth scalar subquery above: the scene
+	// count is settled in Go, not in SQL (see activeSceneCount).
+	activeScenes, err := s.activeSceneCount(bounds, scene)
+	if err != nil {
+		return nil, err
+	}
+
+	return &contracts.ChartsSummary{
+		ShowsAdded:   row.ShowsAdded,
+		NewArtists:   row.NewArtists,
+		NewReleases:  row.NewReleases,
+		RadioPlays:   row.RadioPlays,
+		ActiveScenes: activeScenes,
+	}, nil
+}
+
+// activeSceneCount is the summary's active-scenes number: how many distinct
+// SCENES had a show played inside the window.
+//
+// It counts PUBLISHED scene identities, not sceneGroupKeySQL keys, because that
+// key is finer than a scene's identity: a room whose venues.metro drifted, or a
+// second spelling of one city name, is a second group under ONE slug. A
+// COUNT(DISTINCT key) therefore counts a scene the /scenes directory beside it
+// shows once twice over, so these groups run through the same collapse
+// ListScenes publishes its rows through (PSY-1949).
+//
+// What the two share is the IDENTITY rule, not the population: this counts
+// every scene with a show played in the window, while the directory counts
+// scenes clearing sceneMinVenues/sceneMinShows over all time. The numbers may
+// legitimately differ; what may not differ is how many scenes one drifted city
+// is.
+//
+// Only the row count is read, never a surviving group's fields, so the venue /
+// show counts sceneGroupOutranks tie-breaks on stay unselected: the collapse
+// DROPS losers rather than summing them, and the number of surviving slugs is
+// the same whichever half of a colliding pair wins.
+//
+// geo.Default() is the geocoder every production caller of the collapse holds
+// (SceneService injects that same instance) and it is stateless, so this reaches
+// for it directly rather than carrying a field a struct-literal test could leave
+// nil.
+func (s *ChartsService) activeSceneCount(bounds chartBounds, scene string) (int, error) {
+	query := `
+		SELECT COALESCE(MAX(v.metro), '') AS metro,
+		       MIN(v.city)  AS city,
+		       MIN(v.state) AS state
+		FROM shows s
+		JOIN show_venues sv ON sv.show_id = s.id
+		JOIN venues v ON v.id = sv.venue_id
+		WHERE s.status = ?
+		  ` + sceneVenueEligibilitySQL
+	args := []any{catalogm.ShowStatusApproved}
+	query, args = appendChartShowWindow(query, args, bounds)
+	query, args = appendEntityMetroScope(query, args, "v", scene)
+	query += `
+		GROUP BY ` + sceneGroupKeySQL
+
+	var groups []sceneVenueGroup
+	if err := s.db.Raw(query, args...).Scan(&groups).Error; err != nil {
+		return 0, fmt.Errorf("failed to count active scenes: %w", err)
+	}
+	return len(collapseSceneGroupsToCanonicalSlug(groups, geo.Default())), nil
 }
 
 // GetCommunityPulse returns the homepage global heartbeat (PSY-1431):
