@@ -195,6 +195,14 @@ describe('BracketLink', () => {
 
     // The announcement belongs to the component so that no call site can write
     // it, forget it, or let it drift from the target it describes.
+    //
+    // This also pins the superstring property, which has a consequence outside
+    // this file: appending to the caller's name means an outbound bracket's
+    // accessible name always CONTAINS whatever entity the caller named. A
+    // Playwright `getByRole(..., { name })` matches by substring by default, so
+    // a spec locating that entity's own link also selects the bracket that
+    // merely mentions it. Specs pairing the two need `exact: true` or a
+    // container scope; see e2e/pages/radio.spec.ts.
     it('appends the new-tab announcement to a caller ariaLabel rather than replacing it', () => {
       render(
         <BracketLink
@@ -209,33 +217,6 @@ describe('BracketLink', () => {
           name: 'Crescent Ballroom website (opens in a new tab)',
         })
       ).toBeInTheDocument()
-    })
-
-    // The superstring property, pinned deliberately rather than left to be
-    // rediscovered. Appending the announcement means an outbound bracket's
-    // accessible name always CONTAINS its `ariaLabel`, so a name-matched test
-    // locator for the entity ("Give the Drummer Radio") also selects the
-    // bracket that merely mentions it ("Listen to Give the Drummer Radio
-    // (opens in a new tab)"). That is why specs pairing an entity link with an
-    // outbound bracket need `exact: true` or a container scope; see
-    // e2e/pages/radio.spec.ts. This test exists so the property is a stated
-    // invariant of the component, not a surprise found via a red CI run.
-    it('produces an accessible name that contains the caller ariaLabel', () => {
-      const entity = 'Give the Drummer Radio'
-      render(
-        <BracketLink
-          label="listen"
-          href="https://wfmu.test/drummer"
-          external
-          ariaLabel={`Listen to ${entity}`}
-        />
-      )
-      const name = screen.getByRole('link').getAttribute('aria-label') ?? ''
-      // Substring match (what Playwright does by default) hits it...
-      expect(name).toContain(entity)
-      // ...while an exact match on the bare entity name does not, which is the
-      // property that makes `exact: true` the correct repair in a spec.
-      expect(name).not.toBe(entity)
     })
 
     // Tolerance, NOT endorsement: `external`'s contract says callers must not

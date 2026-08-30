@@ -22,48 +22,46 @@ import { expect } from '@playwright/test'
  * (`page.getByRole('main')`), which excludes the TopBar and Footer.
  *
  * EXACTNESS NOTE (PSY-1957): Playwright's `name:` option matches by SUBSTRING
- * with a string argument, so a locator naming an entity also matches every
- * OTHER control whose accessible name merely contains that entity's name.
- * The dial's outbound `[listen]` bracket announces "Listen to {channel}
- * (opens in a new tab)" (PSY-1865 gave it the channel-naming `ariaLabel`;
- * BracketLink appends the new-tab half), which contains the channel name and
- * so collided with the channel's own strip link under strict mode.
+ * with a string argument. The dial's outbound `[listen]` bracket announces
+ * "Listen to {channel} (opens in a new tab)", which CONTAINS the channel name,
+ * so it collided with the channel's own strip link under strict mode.
  *
- * SCOPE OF THE RULE: it governs LINK locators that name an entity (a station,
- * channel, or show). It does NOT govern the heading locators below, which
- * deliberately match a section-title PREFIX by substring: `SectionHeader`
- * renders "Shows — active first, sorted by latest playlist", so
- * `heading { name: 'Shows' }` would match NOTHING with `exact: true`. Do not
+ * Two tools, two different collisions:
+ *
+ *  - `exact: true` defeats a LONGER name that contains the target's. It does
+ *    nothing about a second element whose name is identical.
+ *  - A region SCOPE defeats an IDENTICAL name elsewhere on the page. `exact`
+ *    cannot help there.
+ *
+ * Apply exactness to LINK locators whose name is a substring of some other
+ * control's name: entity names and short chrome copy alike (the station
+ * breadcrumb "Radio" is a suffix of three seeded station names, and is the
+ * sharpest case in the file because it clicks). The exception is the HEADING
+ * locators below, which deliberately match a section-title prefix:
+ * `SectionHeader` renders "Shows — active first, sorted by latest playlist",
+ * so `heading { name: 'Shows' }` with `exact` would match nothing. Do not
  * sweep `exact: true` across this file mechanically.
  *
- * Two DIFFERENT tools, for two different collisions. Do not reach for one
- * expecting it to cover the other:
- *
- *  - `exact: true` defeats a LONGER name that CONTAINS the target's name.
- *    That is the outbound-bracket case above. It does nothing about a second
- *    element whose name is identical.
- *  - A landmark/region SCOPE defeats an IDENTICAL name elsewhere on the page.
- *    `exact` cannot help there. `/radio` has exactly that case: the program
- *    guide links stations by bare name too.
- *
  * Where the target's name legitimately carries decoration, match the WHOLE
- * decorated name exactly ("← KEXP") rather than falling back to a substring
- * plus `.first()`: a substring plus `.first()` can pass while asserting
- * nothing, which is worse than the collision it works around.
+ * decorated name exactly ("← KEXP") rather than a substring plus `.first()`,
+ * which can pass while asserting nothing.
  *
- * Honest accounting of what is load-bearing TODAY versus hardening: on the
- * current seed the only live collision is the dial's channel row (the
- * `[listen]` bracket named after its channel). The region scopes and the
- * remaining `exact: true`s are hardening against collisions the code already
- * contains but the seed does not yet reach — see the guide note in the first
- * test. That is a good reason to keep them; it is not the same as "required".
+ * What is load-bearing TODAY: only the dial's channel row. Everything else
+ * here is hardening against collisions the code already contains but the seed
+ * does not reach. Worth keeping, but not the same as "required".
  *
- * One behavior change to know about: `exact: true` is case-SENSITIVE, while
- * substring matching is not. The link literals carrying `exact: true` match
- * backend/internal/seeddata/radio.go byte for byte, so a casing edit to a
- * seeded station/channel/show name will now fail those assertions. That
- * failure is loud, which is the point. (The heading and landmark literals
- * below are not seed data and are unaffected.)
+ * `exact: true` is case-SENSITIVE where substring matching is not. Most of
+ * these literals come from backend/internal/seeddata/radio.go, so a casing
+ * edit to a seeded name now fails loudly. Two do NOT: the show-page back-link
+ * ("← KEXP") is seed data plus a hard-coded glyph, and the station breadcrumb
+ * ("Radio") is UI copy from StationDetail. Those two are pinned to component
+ * text, not to the seed.
+ *
+ * No lint rule enforces any of this, deliberately. A rule that flagged every
+ * name-matched locator lacking `exact` would fire on the heading cases above,
+ * where substring matching is correct, and the two are not distinguishable
+ * without knowing what the page renders. The guard is this note plus the
+ * BracketLink prop docs, which is weaker than a rule and is the honest state.
  *
  * SEED SCOPE (verified against backend/internal/seeddata/radio.go, rendered
  * by cmd/gen-e2e-seed into frontend/e2e/setup-db.sh):
@@ -98,9 +96,10 @@ const KEXP_SHOW_SLUG = 'the-morning-show'
 const KEXP_EPISODE_AIR_DATE = '2025-01-15'
 
 // Landmark names this spec scopes to. Hoisted like the seed literals above so
-// a rename is one edit here rather than a hunt through the file. These are
-// `aria-label`s on production components, so they are a real coupling: see the
-// note beside `<section aria-label="The dial">` in RadioHub.tsx.
+// a rename is one edit here rather than a hunt through the file. Both are
+// `aria-label`s on production components, so they are a real coupling, and
+// both components carry a reciprocal note: DIAL_REGION is owned by
+// RadioHub.tsx, SHOWS_REGION by features/radio/StationShowsDirectory.tsx.
 const DIAL_REGION = 'The dial'
 const SHOWS_REGION = 'Shows'
 
@@ -128,9 +127,17 @@ test.describe('Radio browse flow', () => {
     // the scope is the only tool that works on that one.
     //
     // That collision is latent, not live: the guide renders nothing on the E2E
-    // seed because `gen-e2e-seed` never writes `radio_shows.schedule` while the
-    // guide query filters `schedule IS NOT NULL`. Seed one schedule slot and
-    // these four assertions go ambiguous without the scope.
+    // seed because `gen-e2e-seed` writes `schedule_display` but never
+    // `radio_shows.schedule`, while the guide query filters
+    // `schedule IS NOT NULL`.
+    //
+    // Precisely what it would take, since the loose version of this claim is
+    // easy to over-trust: the guide emits an ON NOW row per live slot plus one
+    // UP NEXT row per station, each linking that show's OWN station. So seeding
+    // a schedule slot duplicates ONE station's link, and only while the slot is
+    // on-air or next-up. The CHANNEL rows need more than that: every seeded
+    // WFMU show hangs off station `wfmu`, none off the sub-channels, so
+    // "Give the Drummer Radio" needs a new show row before it can collide.
     const dial = main.getByRole('region', { name: DIAL_REGION, exact: true })
     await expect(
       dial.getByRole('link', { name: KEXP_STATION_NAME, exact: true })

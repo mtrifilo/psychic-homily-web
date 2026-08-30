@@ -99,8 +99,8 @@ export interface BracketLinkProps
    * Neither half is negotiable here, so the repair belongs in the spec: when
    * you add an `external` bracket next to a same-named link, check
    * `frontend/e2e/` for a name-matched locator needing `exact: true` or a
-   * container scope. `BracketLink.test.tsx` pins the superstring property so
-   * this stays a known property rather than a surprise.
+   * container scope. The "appends rather than replaces" test in
+   * `BracketLink.test.tsx` pins the property.
    *
    * Only `http(s)` hrefs are honored — anything else renders the disabled
    * fallback instead of a live anchor (see the scheme floor below). Marking a

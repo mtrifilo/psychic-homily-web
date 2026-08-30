@@ -6,7 +6,8 @@ import { expect } from '@playwright/test'
  * card's show link -> `waitForURL(/\/shows\//)`).
  *
  * Both tests here have timed out on that `waitForURL` in CI while the product
- * was fine. Recorded so the next occurrence is not re-investigated from zero:
+ * was fine. Recorded so the next occurrence is not re-investigated from zero.
+ * Evidence, from main CI run 33282546005 (shard 4/4, 2026-08-29):
  *
  *  - Both timed out on the initial attempt and PASSED ON RETRY, in a job whose
  *    Playwright summary read "1 failed / 2 flaky / 29 passed". The `1 failed`
@@ -23,7 +24,20 @@ import { expect } from '@playwright/test'
  *
  * So this is treated as shard load, and the spec is deliberately left alone
  * rather than absorbing a timeout bump that would hide a future real
- * regression. If it recurs and stops recovering on retry, fix the shape in
+ * regression.
+ *
+ * There is a THIRD option, and this repo has already used it: navigation.spec.ts
+ * hit flakiness on this same shape and fixed it under PSY-430 by navigating
+ * straight to a reserved seeded slug instead of clicking `.first()`, on the
+ * reasoning that unreserved first-card rows race parallel mutating tests
+ * (`fullyParallel`, 3 workers in CI). Not adopted here, for one reason worth
+ * stating plainly: this spec's `.first()` card is the only place the
+ * list-to-detail CLICK is exercised end to end, and swapping it for a `goto`
+ * trades a real coverage leg for a flake that currently self-recovers. That
+ * trade is worth making the moment it stops self-recovering, and the reserved
+ * row (`e2e-attendance-test`) already exists to make it a small change.
+ *
+ * If it recurs and stops recovering on retry, take that option, and take it in
  * ALL FOUR specs together, not just this one: they are twins, and a fix that
  * lands on a subset is how the next red goes unconnected to this note.
  */

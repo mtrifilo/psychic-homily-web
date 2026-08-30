@@ -1,6 +1,10 @@
 import { test } from '../fixtures/error-detection'
 import { expect } from '@playwright/test'
 
+// The `/shows` -> click first card -> `waitForURL` leg below is shared with
+// show-detail, artist-detail, and city-filter. It has flaked in CI under shard
+// load. See the FLAKE NOTE at the top of show-detail.spec.ts before changing
+// it, and change all four together if you do.
 test.describe('Venue detail', () => {
   test('displays venue information with shows tabs', async ({ page }) => {
     // Navigate: shows list → show detail → venue link
