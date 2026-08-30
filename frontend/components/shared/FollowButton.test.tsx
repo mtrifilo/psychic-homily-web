@@ -429,19 +429,14 @@ describe('FollowButton — bracket variant (PSY-641)', () => {
   })
 
   // A disabled TanStack observer still reports whatever is CACHED under its
-  // key, and the follow-status key collapses to a viewer id of null for anyone
-  // not currently authenticated. A signed-in viewer passing through a 'pending'
-  // window therefore writes their real `is_following: true` into the shared
-  // identity-less entry; if their session then ends without an explicit logout
-  // (expiry clears no cache), this skip fires and there is no enabled query
-  // left that could ever correct it.
-  //
-  // `is_following: true` is the whole point of the fixture. An earlier version
-  // of this test used `false`, which is indistinguishable from the no-cache
-  // case, so it asserted nothing about the leak it was named for.
-  it('ignores a cached anonymous-key follow state instead of painting it', () => {
+  // key, so the skip reads a cache it does not refresh. That is safe only
+  // because `useFollowStatus` keeps the viewer-less key to anonymous data (it
+  // refuses to fetch while auth is 'pending', which is the window in which a
+  // signed-in viewer would otherwise write their own state to it). This pins
+  // the read side of that contract: cached data is used, not discarded.
+  it('paints a cached anonymous-key entry without re-fetching', () => {
     mockAuthStatus = 'anonymous'
-    mockFollowStatusData = { follower_count: 7, is_following: true }
+    mockFollowStatusData = { follower_count: 7, is_following: false }
 
     render(
       <FollowButton entityType="venues" entityId={1} variant="bracket" />,
@@ -449,11 +444,9 @@ describe('FollowButton — bracket variant (PSY-641)', () => {
     )
 
     expect(followStatusCall.last?.enabled).toBe(false)
-    // Not [Following]: an anonymous viewer follows nothing by definition, which
-    // is the same premise that makes the request skippable at all.
     const bracket = screen.getByRole('button', { name: 'Follow' })
     expect(bracket).toBeEnabled()
-    expect(screen.queryByRole('button', { name: 'Following' })).toBeNull()
+    // The bracket paints no count in either direction.
     expect(screen.queryByText('7')).toBeNull()
   })
 

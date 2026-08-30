@@ -682,6 +682,49 @@ describe('AuthContext', () => {
       expect(result.current.user).toBeNull()
     })
 
+    // The override survives an expiry (nothing clears it but logout), so it has
+    // to yield to a definitive failure the same way retained data does.
+    // Otherwise anyone who signed in during this SPA session is exempt from the
+    // demotion above, which is the more common signed-in population.
+    it('is "anonymous" when a login override is followed by a 401', () => {
+      mockUseProfile.mockReturnValue({
+        data: undefined,
+        isPending: false,
+        isLoading: false,
+        error: null,
+      })
+
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      act(() => {
+        result.current.setUser({
+          id: 'user-123',
+          email: 'test@example.com',
+          email_verified: true,
+        })
+      })
+      expect(result.current.authStatus).toBe('authenticated')
+
+      // Session ends elsewhere; this tab's next profile read 401s.
+      mockUseProfile.mockReturnValue({
+        data: undefined,
+        isPending: false,
+        isLoading: false,
+        error: new AuthError('Token expired', AuthErrorCode.TOKEN_EXPIRED, {
+          status: 401,
+        }),
+      })
+
+      const { result: after } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      expect(after.current.authStatus).toBe('anonymous')
+      expect(after.current.user).toBeNull()
+    })
+
     it('stays "anonymous" when a settled anonymous profile is followed by a 5xx', () => {
       // The mirror case. A resolved payload is an ANSWER, and a failed
       // background refetch does not un-answer it. Sliding back to 'pending'

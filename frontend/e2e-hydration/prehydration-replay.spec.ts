@@ -415,10 +415,9 @@ test.describe('pre-hydration clicks on a mutation control', () => {
       'bracket hydrated before the click landed, raise the throttle'
     ).toBe(false)
 
-    expect(
-      followerRequests,
-      'a settled-anonymous viewer must fire no follower-status request'
-    ).toEqual([])
+    // NOT asserted here. At this point `result.hydrated` is false, so no client
+    // query has run and the array is empty for any implementation. The
+    // assertion belongs after hydration, below.
 
     // The replayed click has to survive hydration and land the redirect. If
     // replay dropped it, the URL simply stays on the artist page.
@@ -426,6 +425,16 @@ test.describe('pre-hydration clicks on a mutation control', () => {
     expect(new URL(page.url()).searchParams.get('returnTo')).toBe(
       `/artists/${ARTIST_SLUG}`
     )
+
+    // Now. Replay requires hydration, so reaching this line proves the page
+    // hydrated and both FollowButton and FollowAlertsReveal mounted against the
+    // real QueryClient; a broken skip would have fired before the redirect. The
+    // listener is page-scoped and survives the navigation.
+    await page.waitForLoadState('networkidle')
+    expect(
+      followerRequests,
+      'a settled-anonymous viewer must fire no follower-status request'
+    ).toEqual([])
   })
 
   test('a click after hydration still saves exactly once', async ({ page }) => {

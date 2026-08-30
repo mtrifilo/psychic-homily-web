@@ -18,11 +18,7 @@ import {
   QueryCache,
   MutationCache,
 } from '@tanstack/react-query'
-import {
-  AuthError,
-  AuthErrorCode,
-  isDefinitiveUnauthenticated,
-} from './errors'
+import { AuthError, isDefinitiveUnauthenticated } from './errors'
 import type { ApiError } from './api'
 import {
   isRateLimitError,
@@ -175,15 +171,16 @@ function profileAlreadyKnowsAnonymous(
   const state = client.getQueryState(queryKeys.auth.profile)
   if (!state) return false
 
-  // A refetch already under way counts as "handled", whatever it resolves to.
-  // This is the circuit breaker that the narrowing below would otherwise have
-  // removed. `invalidateQueries` refetches with `cancelRefetch: true` by
-  // default, and an entity page fans out into a dozen-plus parallel reads that
-  // all 401 together when a session ends, so without this each sibling's error
-  // handler cancels and restarts the in-flight profile fetch. The profile
-  // query would then be repeatedly aborted and never settle, pinning auth as
-  // unknown for as long as the failures keep arriving.
-  if (state.fetchStatus !== 'idle') return true
+  // A refetch already IN FLIGHT counts as handled: `invalidateQueries`
+  // refetches with `cancelRefetch: true`, and an entity page's dozen-plus
+  // parallel reads all 401 together when a session ends, so without this each
+  // sibling's handler cancels and restarts the profile fetch and it never
+  // settles.
+  //
+  // 'fetching', not `!== 'idle'`: the third value is 'paused' (offline), which
+  // is precisely not under way, and would suppress the invalidation for the
+  // whole offline window.
+  if (state.fetchStatus === 'fetching') return true
 
   if (state.status === 'error') {
     // An error only "knows" the viewer is anonymous when it is the backend

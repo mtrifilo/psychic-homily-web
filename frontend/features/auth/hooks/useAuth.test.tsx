@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
 import { createWrapper, createWrapperWithClient, createTestQueryClient } from '@/test/utils'
 import { AuthErrorCode, AuthError } from '@/lib/errors'
+import { refetchFailedProfileOnly } from './useAuth'
 
 // Create a mock for apiRequest that we can control
 const mockApiRequest = vi.fn()
@@ -1368,4 +1369,32 @@ describe('useAuth hooks', () => {
   // mechanism, which is out of scope for a test-strengthening ticket.
   // Filing this as a documented gap; if a BroadcastChannel-based sync
   // ships later, the new code should land with its own tests.
+})
+
+// The profile query's recovery gate. It runs on both focus and reconnect, so a
+// wrong answer either strands a viewer as unresolved (never true) or hammers a
+// rate-limited endpoint during an incident (always true). Neither shows up in a
+// component test.
+describe('refetchFailedProfileOnly', () => {
+  const errored = (errorUpdatedAt: number) => ({
+    state: { status: 'error', errorUpdatedAt },
+  })
+
+  it('does not refetch a healthy query, matching the production default', () => {
+    expect(
+      refetchFailedProfileOnly({ state: { status: 'success', errorUpdatedAt: 0 } })
+    ).toBe(false)
+    expect(
+      refetchFailedProfileOnly({ state: { status: 'pending', errorUpdatedAt: 0 } })
+    ).toBe(false)
+  })
+
+  it('does not refetch an error younger than the floor', () => {
+    expect(refetchFailedProfileOnly(errored(Date.now()))).toBe(false)
+    expect(refetchFailedProfileOnly(errored(Date.now() - 5_000))).toBe(false)
+  })
+
+  it('refetches an error older than the floor', () => {
+    expect(refetchFailedProfileOnly(errored(Date.now() - 31_000))).toBe(true)
+  })
 })

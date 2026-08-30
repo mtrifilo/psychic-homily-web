@@ -218,7 +218,24 @@ const fetchAuthProfile = cache(async (): Promise<AuthProfileResolution> => {
     // above exists to prevent, arriving through the one branch that was not
     // checking. `success` is the field every consumer keys off, so its
     // presence is the minimum that makes this a profile.
-    const body: unknown = await response.json()
+    // Parsed in its own try, so an HTML interstitial (the motivating case) is
+    // tagged as a bad body rather than falling to the outer catch and being
+    // reported as "backend unreachable" for a 200.
+    let body: unknown
+    try {
+      body = await response.json()
+    } catch {
+      Sentry.captureMessage('SSR auth profile returned an unparseable body', {
+        level: 'error',
+        tags: { service: 'auth', error_type: 'ssr_prefetch_bad_body' },
+        extra: {
+          status: response.status,
+          contentType: response.headers.get('content-type'),
+        },
+      })
+      return { kind: 'indeterminate' }
+    }
+
     if (typeof (body as AuthProfilePayload)?.success !== 'boolean') {
       Sentry.captureMessage('SSR auth profile returned an unrecognized body', {
         level: 'error',

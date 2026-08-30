@@ -237,18 +237,16 @@ export function isDefinitiveUnauthenticated(
   // retry and who the viewer is are different questions.
   if (status === 401) return true
 
-  // A 5xx is the server failing, and it stays that way even when the body
-  // happens to carry a token code. `apiRequest` copies an unrecognized error
-  // body wholesale into `details`, so a 503 whose payload mentions
-  // TOKEN_EXPIRED would otherwise be promoted to "the backend answered: no
-  // session" by the fallback below, which is exactly the fabricated answer the
-  // callers of this function exist to avoid. Status wins where the two
-  // disagree.
-  if (status !== undefined && status >= 500) return false
+  // Any other status is not an answer about identity, whatever the body says.
+  // `apiRequest` copies an unrecognized error body wholesale into `details`, so
+  // a 403 / 404 / 429 forwarded by a proxy or WAF can arrive carrying a token
+  // code; promoting those would settle a signed-in viewer as anonymous on an
+  // infrastructure fault.
+  if (status !== undefined) return false
 
-  // No status to go on (a raw error object, a thrown value from a layer that
+  // No status to go on (a raw error object, or a thrown value from a layer that
   // does not attach one): the token codes are the only remaining evidence, and
-  // they are only ever emitted alongside a real 401.
+  // this backend emits them only alongside a 401.
   return (
     code === AuthErrorCode.TOKEN_EXPIRED ||
     code === AuthErrorCode.TOKEN_MISSING ||

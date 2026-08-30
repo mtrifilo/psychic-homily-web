@@ -140,6 +140,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   // Derive user from profile data or override
   const user = useMemo(() => {
+    // FIRST, ahead of the override. TanStack retains the last successful `data`
+    // when a refetch errors, and `userOverride` is set by every in-session
+    // login and cleared only by `logout()`, so both survive an expiry. Checking
+    // either before this one reports a viewer as signed in after the backend
+    // has answered that they are not. The override exists to bridge the window
+    // BEFORE the profile lands, where `profileError` is null, so it loses
+    // nothing by yielding here.
+    if (profileErrorIsDefinitive) {
+      return null
+    }
+
     // If there's an explicit user override (truthy), use it.
     // Note: null means "no override" - logout clears via queryClient.clear().
     // Login/signup build the override from the minimal auth response, which
@@ -152,18 +163,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
         ...userOverride,
         nav_mode: userOverride.nav_mode ?? profileData?.user?.nav_mode,
       }
-    }
-
-    // A profile query that FAILED definitively outranks the profile data it is
-    // still holding. TanStack keeps the last successful `data` when a refetch
-    // errors, so after a session expires mid-visit the cache reads
-    // "successful profile + 401 error" simultaneously. Trusting the data half
-    // there reports a viewer as signed in after the backend has said they are
-    // not: every control renders enabled, and each click fires a mutation that
-    // 401s with nothing to explain it. Dropping the user is what makes
-    // `isAuthenticated`, `user` and `authStatus` agree on the same viewer.
-    if (profileErrorIsDefinitive) {
-      return null
     }
 
     // Otherwise derive from profile data
@@ -188,45 +187,34 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return null
   }, [profileData, userOverride, profileErrorIsDefinitive])
 
-  // Derive the settled-auth signal. Order is load-bearing:
+  // Cells, in the clause order below. `user` is already null whenever
+  // `profileErrorIsDefinitive` (see the memo above), so clauses 1 and 2 cannot
+  // both match.
   //
-  // 1. A user we already hold is an answer, whatever the query is doing — the
-  //    login/signup override lands before the profile refetch it triggers, and
-  //    a background refetch of a cached profile must not re-open the window.
-  // 2. A logout in flight is a TRANSITION, not an answer, so it may resolve
-  //    DOWN to 'pending' but never up to a settled 'anonymous'. Be precise
-  //    about what this clause does and does not do: in the ordinary logout it
-  //    is NOT the thing holding the line. `logout()` clears only the OVERRIDE,
-  //    so `user` falls back to the still-cached profile and clause 1 answers
-  //    'authenticated' until `useLogout`'s onSuccess reaches
-  //    `queryClient.clear()`, at which point `isProfilePending` covers the gap
-  //    on its own. The clause is insurance against that ordering changing: it
-  //    makes "a logout is running" sufficient by itself to hold the pending
-  //    posture, rather than something merely implied by two other facts.
-  //    Either way both unresolved cases collapse to 'pending', which is the
-  //    conservative direction: consumers keep their disabled/loading posture.
-  // 3. Only a profile query that has actually resolved without a user yields
-  //    'anonymous'.
-  // 4. A DEFINITIVE failure is an answer: the backend said this viewer has no
-  //    session. It outranks any profile still sitting in the cache, because
-  //    TanStack retains the last successful `data` when a refetch errors, so
-  //    "signed-in payload + fresh 401" is a real simultaneous state after a
-  //    session expires mid-visit.
-  // 5. A payload we ALREADY RECEIVED is likewise an answer, and a failed
-  //    background refetch does not un-answer it. Without this clause a settled
-  //    anonymous viewer whose focus-refetch hit a 5xx would slide back to
-  //    'pending', which re-enables the request this ticket skips and disables
-  //    every Follow control sitewide, at the exact moment the backend is
-  //    already struggling.
-  // 6. Only a query that never resolved AND failed non-definitively is
-  //    genuinely unknown.
+  //   user truthy (override, or profile data w/o definitive error)  authenticated
+  //   definitive failure (401 / token code), any cached data        anonymous
+  //   query never resolved, or logout in flight                     pending
+  //   payload received, latest refetch failed indefinitely          anonymous
+  //   never resolved, failed indefinitely                           pending
+  //   residue (unreachable: query is always pending/success/error)  pending
+  //
+  // Two cells are the ones prior revisions got wrong, in opposite directions:
+  // a definitive failure must outrank retained data, and a payload already
+  // received must NOT be un-answered by a failed background refetch.
+  //
+  // The logout clause does not outrank a definitive failure: a refetch that
+  // 401s mid-logout yields 'anonymous', which is the same answer the logout is
+  // heading toward.
   const authStatus: AuthStatus = useMemo(() => {
     if (user) return 'authenticated'
     if (profileErrorIsDefinitive) return 'anonymous'
     if (isProfilePending || logoutMutation.isPending) return 'pending'
     if (profileData) return 'anonymous'
     if (profileError) return 'pending'
-    return 'anonymous'
+    // Residue defaults to the conservative answer, matching every other
+    // unresolved cell, so a future `enabled`/`select` on the profile query
+    // cannot silently settle a viewer as anonymous.
+    return 'pending'
   }, [
     user,
     profileData,

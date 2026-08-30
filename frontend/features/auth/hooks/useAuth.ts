@@ -317,10 +317,17 @@ export const useLogout = () => {
 }
 
 // Get user profile query
-// Floor between focus-triggered refetches of a FAILING profile query. An
+// Floor between event-triggered refetches of a FAILING profile query. An
 // errored query has `dataUpdatedAt === 0` and so is permanently stale, which
-// makes an unthrottled focus refetch fire on every tab switch.
+// makes an unthrottled refetch fire on every focus or online event.
 const PROFILE_ERROR_REFETCH_FLOOR_MS = 30_000
+
+/** Exported for the options test; see the cells beside `refetchOnWindowFocus`. */
+export const refetchFailedProfileOnly = (query: {
+  state: { status: string; errorUpdatedAt: number }
+}): boolean =>
+  query.state.status === 'error' &&
+  Date.now() - query.state.errorUpdatedAt > PROFILE_ERROR_REFETCH_FLOOR_MS
 
 export const useProfile = () => {
   return useQuery({
@@ -345,30 +352,19 @@ export const useProfile = () => {
       return response
     },
     staleTime: 5 * 60 * 1000, // 5 minutes
-    // This query's failure state is no longer inert, so it must not be
-    // terminal. Since an indeterminate failure reads as 'pending' rather than
-    // 'anonymous', a viewer whose profile read dies in a deploy window would
-    // otherwise stay unresolved for the whole SPA session: the global default
-    // sets `refetchOnWindowFocus` to development-only, and AuthProvider mounts
-    // once in the root layout so nothing remounts it.
-    //
-    // Scoped to the FAILING case only, in both directions.
-    //
-    // It returns false for a healthy query, which preserves today's production
-    // behavior exactly: the global default is `NODE_ENV === 'development'`, so
-    // signed-in viewers do not refetch their profile on focus today, and this
-    // fix has no business changing that for everyone to repair an error path.
-    //
-    // And it is throttled rather than a bare `true` for the failing case,
-    // because an errored query has `dataUpdatedAt === 0` and is therefore
-    // permanently stale: an unthrottled predicate refires on EVERY focus event,
-    // each starting a fresh chain of up to three attempts. A viewer alt-tabbing
-    // during an incident would hammer `/auth/profile`, which is rate-limited per
-    // auth cookie, and could limit themselves out of the very recovery this
-    // exists to provide.
-    refetchOnWindowFocus: query =>
-      query.state.status === 'error' &&
-      Date.now() - query.state.errorUpdatedAt > PROFILE_ERROR_REFETCH_FLOOR_MS,
+    // An indeterminate failure reads as 'pending', which gates UI, so this
+    // query's error state must be recoverable. Cells:
+    //   healthy  -> false, matching production's global default
+    //               (`NODE_ENV === 'development'`); repairing an error path is
+    //               no reason to add a per-focus request for every viewer.
+    //   errored  -> true, but not oftener than the floor. An errored query has
+    //               `dataUpdatedAt === 0` and is permanently stale, so an
+    //               unthrottled predicate refires on every event, each starting
+    //               a fresh retry chain against a rate-limited endpoint.
+    // Focus and reconnect share one predicate: the same staleness argument
+    // applies to both, and `refetchOnReconnect` defaults to a bare `true`.
+    refetchOnWindowFocus: refetchFailedProfileOnly,
+    refetchOnReconnect: refetchFailedProfileOnly,
     retry: (failureCount, error) => {
       // Check if it's an AuthError or has status property
       const authError =

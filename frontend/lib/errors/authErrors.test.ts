@@ -332,15 +332,25 @@ describe('isDefinitiveUnauthenticated', () => {
     expect(isDefinitiveUnauthenticated(429, undefined)).toBe(false)
   })
 
-  // Status wins where the two disagree. `apiRequest` copies an unrecognized
-  // error body wholesale into `details`, so a 5xx whose payload happens to
-  // mention a token code must not be promoted into "the backend said no
-  // session" by the code fallback.
-  it('lets a 5xx status override a token code in the body', () => {
-    expect(isDefinitiveUnauthenticated(503, AuthErrorCode.TOKEN_EXPIRED)).toBe(
-      false
-    )
-  })
+  // A PRESENT status decides, whatever the body carries. `apiRequest` copies an
+  // unrecognized error body wholesale into `details`, so any status can arrive
+  // paired with a token code once a proxy, WAF or future handler is in the
+  // path. These are the rows where the code previously contradicted its own
+  // docstring by promoting the code over the status.
+  it.each([503, 500, 403, 404, 429, 400])(
+    'lets status %s override a token code in the body',
+    status => {
+      expect(
+        isDefinitiveUnauthenticated(status, AuthErrorCode.TOKEN_EXPIRED)
+      ).toBe(false)
+      expect(
+        isDefinitiveUnauthenticated(status, AuthErrorCode.TOKEN_INVALID)
+      ).toBe(false)
+      expect(
+        isDefinitiveUnauthenticated(status, AuthErrorCode.TOKEN_MISSING)
+      ).toBe(false)
+    }
+  )
 
   // With no status to go on (a raw thrown value from a layer that attaches
   // none) the token codes are the only remaining evidence, and they are only

@@ -168,7 +168,7 @@ export const useFollowStatus = (
   entityId: number | string,
   enabled = true
 ) => {
-  const { isAuthenticated, user } = useAuthContext()
+  const { isAuthenticated, authStatus, user } = useAuthContext()
   const viewerId = isAuthenticated ? user?.id : undefined
   return useQuery({
     queryKey: queryKeys.follows.entity(entityType, entityId, viewerId),
@@ -178,8 +178,19 @@ export const useFollowStatus = (
         { method: 'GET' }
       )
     },
+    // Invariant: the viewer-less key `[follows, type, null, id]` holds only
+    // anonymous data.
+    //
+    // `viewerId` is `undefined` whenever `isAuthenticated` is false, which
+    // includes the window before a signed-in viewer's profile lands. A fetch
+    // issued in that window carries their cookie, so the response is THEIR
+    // follow state, and it lands under the viewer-less key. `authStatus !==
+    // 'pending'` is what keeps that write from happening; it is on the write
+    // side because the key is shared by every observer and both variants, so a
+    // read-side guard in one component cannot hold it.
     enabled:
       enabled &&
+      authStatus !== 'pending' &&
       (typeof entityId === 'number' ? entityId > 0 : entityId.length > 0) &&
       !!entityType &&
       (!isAuthenticated || viewerId !== undefined),
