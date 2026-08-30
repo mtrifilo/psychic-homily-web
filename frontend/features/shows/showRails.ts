@@ -120,9 +120,10 @@ const RAIL_TITLE_SEPARATOR = ' / '
  * invariant, and it is not "the two filters look alike" — it is "the ids the
  * venue rail suppresses are exactly the rows the reader can see in the left
  * column." Two look-alike `filter().slice()` chains cannot hold that: the
- * moment either grows a rule the other does not (PSY-1969 is filed to add one
- * — dropping shows that already started), the venue rail starts hiding a bill
- * that appears nowhere on the page, and silently.
+ * moment either grows a rule the other does not — PSY-1969 is filed to DECIDE
+ * whether to drop shows that already started, and dropping them is one of its
+ * options — the venue rail starts hiding a bill that appears nowhere on the
+ * page, and silently.
  *
  * The subject-show exclusion here is belt-and-braces: the endpoint already
  * documents that it excludes the subject show, and this is the boundary where
@@ -490,9 +491,11 @@ function railShowDate(
  *
  * The two rails carry two different wire types, and this is the seam where
  * that stops mattering. Keeping it primitives-only is what lets ONE row
- * renderer serve both without a mode flag — the alternative, a row component
- * that understands both shapes, is the multi-mode design `CompactShowRow`
- * already demonstrates the cost of.
+ * renderer serve both without a mode flag. The alternative — a row component
+ * that understands both payload shapes — is the shape `CompactShowRow` has
+ * grown into: six optional props (`isPastShow`, `showDetailsLink`,
+ * `showVenueLine`, `venue`, `primaryLine`, `secondaryArtists`) whose valid
+ * combinations are not stated anywhere.
  */
 export interface RailRowData {
   href: string
