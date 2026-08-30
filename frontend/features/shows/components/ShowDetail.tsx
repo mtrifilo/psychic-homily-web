@@ -34,8 +34,10 @@ interface ShowDetailProps {
   showId: string | number
   /**
    * Where the show sits on the venue's calendar, computed ON THE SERVER (see
-   * the show route) and passed through to {@link ShowStatusStripe}. A prop
-   * rather than a hook because this component runs on the client; see
+   * the show route) and threaded to every module whose register depends on it:
+   * the status stripe, the header (ticket line and sold-out badge), the listen
+   * module's heading, the field notes' empty state, and the discovery rails. A
+   * prop rather than a hook because this component runs on the client; see
    * `getShowLifecycleState` for the boundary and why it is not the reader's.
    *
    * Cancellation is deliberately NOT folded in here. It is a data flag the
