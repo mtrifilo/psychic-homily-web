@@ -1,188 +1,313 @@
 import { describe, expect, it } from 'vitest'
 import {
-  alsoTonightHasMore,
-  alsoTonightQualifier,
-  alsoTonightRailRows,
   alsoTonightRailTitle,
   alsoTonightSeeAllHref,
-  moreAtVenueRailRows,
+  buildAlsoTonightRail,
+  buildMoreAtVenueRail,
   SHOW_RAIL_ROW_CAP,
   VENUE_RAIL_FETCH_LIMIT,
-  type AlsoTonightShow,
-  type ShowAlsoTonightResponse,
 } from './showRails'
-import type { VenueShow } from '@/features/venues/types'
+import {
+  makeAlsoTonightPayload,
+  makeAlsoTonightShow,
+  makeRailVenue,
+  makeVenueShow,
+} from './showRails.fixtures'
 
-function alsoTonightShow(overrides: Partial<AlsoTonightShow> = {}): AlsoTonightShow {
-  return {
-    id: 1,
-    title: 'A show',
-    slug: 'a-show',
-    event_date: '2026-08-12',
-    starts_at: '2026-08-13T01:00:00Z',
-    is_cancelled: false,
-    is_sold_out: false,
-    ...overrides,
-  }
-}
-
-function rail(overrides: Partial<ShowAlsoTonightResponse> = {}): ShowAlsoTonightResponse {
-  return {
-    city: 'Chicago',
-    state: 'IL',
-    scene_name: 'Chicago, IL',
-    scene_slug: 'chicago-il',
-    date: '2026-08-12',
-    timezone: 'America/Chicago',
-    is_tonight: true,
-    show_count: 0,
-    has_more: false,
-    shows: [],
-    ...overrides,
-  }
-}
-
-function venueShow(overrides: Partial<VenueShow> = {}): VenueShow {
-  return {
-    id: 1,
-    slug: 'a-show',
-    title: 'A show',
-    event_date: '2026-08-15T01:00:00Z',
-    city: 'Chicago',
-    state: 'IL',
-    price: null,
-    age_requirement: null,
-    is_cancelled: false,
-    is_sold_out: false,
-    artists: [],
-    ...overrides,
-  }
-}
-
-describe('alsoTonightRailRows', () => {
-  it('draws nothing without a payload, so a pending rail is an absent rail', () => {
-    expect(alsoTonightRailRows(undefined, 1)).toEqual([])
+describe('buildAlsoTonightRail', () => {
+  it('builds nothing without a payload, so a pending rail is an absent rail', () => {
+    expect(buildAlsoTonightRail(undefined, 1)).toBeNull()
   })
 
   it('tolerates the generator-nullable shows array', () => {
-    expect(alsoTonightRailRows(rail({ shows: null }), 1)).toEqual([])
+    expect(buildAlsoTonightRail(makeAlsoTonightPayload({ shows: null }), 1))
+      .toBeNull()
   })
 
   it('drops the subject show even though the endpoint promises to', () => {
-    const rows = alsoTonightRailRows(
-      rail({
+    const rail = buildAlsoTonightRail(
+      makeAlsoTonightPayload({
         shows: [
-          alsoTonightShow({ id: 7 }),
-          alsoTonightShow({ id: 8 }),
+          makeAlsoTonightShow({ id: 7, slug: 'seven' }),
+          makeAlsoTonightShow({ id: 8, slug: 'eight' }),
         ],
       }),
       7
     )
-    expect(rows.map(row => row.id)).toEqual([8])
+    expect(rail?.rows.map(row => row.href)).toEqual(['/shows/eight'])
+  })
+
+  it('is null when the only listable row was the subject show', () => {
+    expect(
+      buildAlsoTonightRail(
+        makeAlsoTonightPayload({ shows: [makeAlsoTonightShow({ id: 7 })] }),
+        7
+      )
+    ).toBeNull()
   })
 
   it('caps at the mock’s three rows, keeping the earliest', () => {
-    const rows = alsoTonightRailRows(
-      rail({
-        shows: [1, 2, 3, 4, 5].map(id => alsoTonightShow({ id })),
+    const rail = buildAlsoTonightRail(
+      makeAlsoTonightPayload({
+        shows: [1, 2, 3, 4, 5].map(id =>
+          makeAlsoTonightShow({ id, slug: `s${id}` })
+        ),
       }),
       99
     )
-    expect(rows.map(row => row.id)).toEqual([1, 2, 3])
-    expect(SHOW_RAIL_ROW_CAP).toBe(3)
+    expect(rail?.rows.map(row => row.href)).toEqual([
+      '/shows/s1',
+      '/shows/s2',
+      '/shows/s3',
+    ])
+  })
+
+  it('sets each row’s time on the VENUE’s clock, not the reader’s', () => {
+    // 01:00 UTC Aug 13 is 8PM Aug 12 in Chicago. The heading above these rows
+    // names the Chicago night, so the rows must be set on Chicago's clock
+    // whatever zone the runtime is in.
+    const rail = buildAlsoTonightRail(makeAlsoTonightPayload(), 99)
+    expect(rail?.rows[0]?.lead).toBe('8:00 PM')
+  })
+
+  it('falls back to the scene’s clock for a row with no venue zone', () => {
+    const rail = buildAlsoTonightRail(
+      makeAlsoTonightPayload({
+        shows: [
+          makeAlsoTonightShow({
+            venue_timezone: undefined,
+            venue_state: undefined,
+          }),
+        ],
+      }),
+      99
+    )
+    expect(rail?.rows[0]?.lead).toBe('8:00 PM')
+  })
+
+  it('leaves the lead null when the payload carries no usable instant', () => {
+    const rail = buildAlsoTonightRail(
+      makeAlsoTonightPayload({
+        shows: [makeAlsoTonightShow({ starts_at: 'not-a-date' })],
+      }),
+      99
+    )
+    expect(rail?.rows[0]?.lead).toBeNull()
+  })
+
+  it('carries the room and the price as the row’s facts', () => {
+    const rail = buildAlsoTonightRail(makeAlsoTonightPayload(), 99)
+    expect(rail?.rows[0]?.facts).toEqual(['Empty Bottle', '$15.00'])
+  })
+
+  it('drops a fact it does not have rather than rendering a gap', () => {
+    const rail = buildAlsoTonightRail(
+      makeAlsoTonightPayload({
+        shows: [makeAlsoTonightShow({ venue_name: undefined, price: undefined })],
+      }),
+      99
+    )
+    expect(rail?.rows[0]?.facts).toEqual([])
+  })
+
+  it('offers see-all when the backend already truncated the night', () => {
+    const rail = buildAlsoTonightRail(
+      makeAlsoTonightPayload({ has_more: true }),
+      99
+    )
+    expect(rail?.seeAllHref).toBe('/scenes/chicago-il/2026-08-12')
+  })
+
+  it('offers see-all when the rail’s own cap hid a row the payload carried', () => {
+    const rail = buildAlsoTonightRail(
+      makeAlsoTonightPayload({
+        shows: [1, 2, 3, 4].map(id => makeAlsoTonightShow({ id })),
+      }),
+      99
+    )
+    expect(rail?.seeAllHref).toBe('/scenes/chicago-il/2026-08-12')
+  })
+
+  it('withholds see-all when every listable row is on screen', () => {
+    const rail = buildAlsoTonightRail(
+      makeAlsoTonightPayload({
+        shows: [1, 2, 3].map(id => makeAlsoTonightShow({ id })),
+      }),
+      99
+    )
+    expect(rail?.seeAllHref).toBeNull()
+  })
+
+  it('does not count the subject show as something hidden', () => {
+    // Four rows, one of them this show: three are listable and three are
+    // drawn, so there is nothing behind a "see all".
+    const rail = buildAlsoTonightRail(
+      makeAlsoTonightPayload({
+        shows: [1, 2, 3, 7].map(id => makeAlsoTonightShow({ id })),
+      }),
+      7
+    )
+    expect(rail?.seeAllHref).toBeNull()
   })
 })
 
-describe('moreAtVenueRailRows', () => {
+describe('buildMoreAtVenueRail', () => {
+  it('builds nothing for a venue-less show', () => {
+    expect(buildMoreAtVenueRail(undefined, [makeVenueShow()], 1, 99)).toBeNull()
+  })
+
   it('excludes the show being read — a page must not recommend itself', () => {
-    const rows = moreAtVenueRailRows(
-      [venueShow({ id: 4 }), venueShow({ id: 5 }), venueShow({ id: 6 })],
+    const rail = buildMoreAtVenueRail(
+      makeRailVenue(),
+      [
+        makeVenueShow({ id: 4, slug: 'four' }),
+        makeVenueShow({ id: 5, slug: 'five' }),
+      ],
+      2,
       4
     )
-    expect(rows.map(row => row.id)).toEqual([5, 6])
+    expect(rail?.rows.map(row => row.href)).toEqual(['/shows/five'])
   })
 
   it('still fills the rail once the subject show is removed', () => {
-    // The reason VENUE_RAIL_FETCH_LIMIT is cap + 1: a full page of rows minus
+    // This is why VENUE_RAIL_FETCH_LIMIT is cap + 1: a full page of rows minus
     // the subject show must still reach the cap.
     const fetched = Array.from({ length: VENUE_RAIL_FETCH_LIMIT }, (_, i) =>
-      venueShow({ id: i + 1 })
+      makeVenueShow({ id: i + 1, slug: `s${i + 1}` })
     )
-    expect(moreAtVenueRailRows(fetched, 1)).toHaveLength(SHOW_RAIL_ROW_CAP)
+    const rail = buildMoreAtVenueRail(makeRailVenue(), fetched, 20, 1)
+    expect(rail?.rows).toHaveLength(SHOW_RAIL_ROW_CAP)
   })
 
-  it('draws nothing without rows', () => {
-    expect(moreAtVenueRailRows(undefined, 1)).toEqual([])
-    expect(moreAtVenueRailRows([venueShow({ id: 1 })], 1)).toEqual([])
+  it('is null when the room has no other dates', () => {
+    expect(
+      buildMoreAtVenueRail(makeRailVenue(), [makeVenueShow({ id: 1 })], 1, 1)
+    ).toBeNull()
+  })
+
+  it('heads the rail with the room’s name', () => {
+    const rail = buildMoreAtVenueRail(makeRailVenue(), [makeVenueShow()], 2, 99)
+    expect(rail?.title).toBe('More at / Salt Shed')
+  })
+
+  it('leads each row with the venue-local date, no weekday', () => {
+    // 01:00 UTC Aug 16 is Aug 15 in Chicago.
+    const rail = buildMoreAtVenueRail(makeRailVenue(), [makeVenueShow()], 2, 99)
+    expect(rail?.rows[0]?.lead).toBe('AUG 15')
+  })
+
+  it('lets a row’s own state override the venue’s for the date', () => {
+    const rail = buildMoreAtVenueRail(
+      makeRailVenue({ timezone: null }),
+      [makeVenueShow({ state: 'HI' })],
+      2,
+      99
+    )
+    // 01:00 UTC Aug 16 is still Aug 15 in Hawaii, two hours further back.
+    expect(rail?.rows[0]?.lead).toBe('AUG 15')
+  })
+
+  it('names the bill, falling back to the promoter’s title', () => {
+    const rail = buildMoreAtVenueRail(
+      makeRailVenue(),
+      [makeVenueShow({ artists: [], title: 'Label Showcase' })],
+      2,
+      99
+    )
+    expect(rail?.rows[0]?.title).toBe('Label Showcase')
+  })
+
+  it('refuses a whitespace-only title rather than rendering an invisible label', () => {
+    const rail = buildMoreAtVenueRail(
+      makeRailVenue(),
+      [makeVenueShow({ artists: [], title: '   ' })],
+      2,
+      99
+    )
+    expect(rail?.rows[0]?.title).toBe('Live music')
+  })
+
+  it('carries the sold-out flag through to the row', () => {
+    const rail = buildMoreAtVenueRail(makeRailVenue(), [makeVenueShow()], 2, 99)
+    expect(rail?.rows[0]?.isSoldOut).toBe(true)
+  })
+
+  it('does not offer see-all when the room’s only other show is on screen', () => {
+    // total 2 = the one row drawn plus the show being read.
+    const rail = buildMoreAtVenueRail(makeRailVenue(), [makeVenueShow()], 2, 99)
+    expect(rail?.seeAllHref).toBeNull()
+  })
+
+  it('offers see-all once rows are hidden', () => {
+    const rail = buildMoreAtVenueRail(makeRailVenue(), [makeVenueShow()], 9, 99)
+    expect(rail?.seeAllHref).toBe('/venues/salt-shed')
+  })
+
+  it('never links a venue with no slug — an empty slug resolves to the index', () => {
+    const rail = buildMoreAtVenueRail(
+      makeRailVenue({ slug: '' }),
+      [makeVenueShow()],
+      9,
+      99
+    )
+    expect(rail?.rows).toHaveLength(1)
+    expect(rail?.seeAllHref).toBeNull()
+  })
+
+  it('addresses a row by id when the row carries no slug', () => {
+    const rail = buildMoreAtVenueRail(
+      makeRailVenue(),
+      [makeVenueShow({ id: 200, slug: '' })],
+      9,
+      99
+    )
+    expect(rail?.rows[0]?.href).toBe('/shows/200')
   })
 })
 
-describe('alsoTonightQualifier', () => {
+describe('alsoTonightRailTitle', () => {
   it('says Tonight only when the SCENE says so, never the viewer’s clock', () => {
-    expect(alsoTonightQualifier(rail({ is_tonight: true }))).toBe('Tonight')
+    expect(alsoTonightRailTitle(makeAlsoTonightPayload())).toBe(
+      'Also / Tonight · Chicago'
+    )
   })
 
   it('names the night by its own date otherwise', () => {
     // A show page is read months early and years late; the same rail must not
     // claim "tonight" on either.
-    expect(alsoTonightQualifier(rail({ is_tonight: false, date: '2026-08-12' })))
-      .toBe('Wed Aug 12')
-  })
-})
-
-describe('alsoTonightRailTitle', () => {
-  it('composes the SECTION / QUALIFIER register with the metro’s city', () => {
-    expect(alsoTonightRailTitle(rail())).toBe('Also / Tonight · Chicago')
+    expect(
+      alsoTonightRailTitle(makeAlsoTonightPayload({ is_tonight: false }))
+    ).toBe('Also / Wed Aug 12 · Chicago')
   })
 
   it('omits a city it does not have rather than guessing one', () => {
-    expect(alsoTonightRailTitle(rail({ city: undefined }))).toBe('Also / Tonight')
+    expect(alsoTonightRailTitle(makeAlsoTonightPayload({ city: undefined })))
+      .toBe('Also / Tonight')
   })
 })
 
 describe('alsoTonightSeeAllHref', () => {
   it('points at the scene’s own page for that night', () => {
-    expect(alsoTonightSeeAllHref(rail())).toBe('/scenes/chicago-il/2026-08-12')
+    expect(alsoTonightSeeAllHref(makeAlsoTonightPayload())).toBe(
+      '/scenes/chicago-il/2026-08-12'
+    )
   })
 
   it('withholds the link when the backend withheld the slug', () => {
     // The backend drops scene_slug precisely when following it would land on a
     // page that does not list the show it came from.
-    expect(alsoTonightSeeAllHref(rail({ scene_slug: undefined }))).toBeNull()
-    expect(alsoTonightSeeAllHref(rail({ scene_slug: '' }))).toBeNull()
+    expect(
+      alsoTonightSeeAllHref(makeAlsoTonightPayload({ scene_slug: undefined }))
+    ).toBeNull()
+    expect(
+      alsoTonightSeeAllHref(makeAlsoTonightPayload({ scene_slug: '' }))
+    ).toBeNull()
   })
 
   it('refuses to build a link from a date the scene route would not route', () => {
-    expect(alsoTonightSeeAllHref(rail({ date: 'tonight' }))).toBeNull()
-    expect(alsoTonightSeeAllHref(rail({ date: '' }))).toBeNull()
-  })
-})
-
-describe('alsoTonightHasMore', () => {
-  it('is true when the backend already truncated the night', () => {
-    expect(alsoTonightHasMore(rail({ has_more: true }), 3, 99)).toBe(true)
-  })
-
-  it('is true when the rail’s own cap hid a row the payload carried', () => {
-    const payload = rail({
-      shows: [1, 2, 3, 4].map(id => alsoTonightShow({ id })),
-    })
-    expect(alsoTonightHasMore(payload, 3, 99)).toBe(true)
-  })
-
-  it('is false when every listable row is on screen', () => {
-    const payload = rail({
-      shows: [1, 2, 3].map(id => alsoTonightShow({ id })),
-    })
-    expect(alsoTonightHasMore(payload, 3, 99)).toBe(false)
-  })
-
-  it('does not count the subject show as something hidden', () => {
-    // Four rows, one of them this show: three are listable and three are drawn,
-    // so there is nothing behind a "see all".
-    const payload = rail({
-      shows: [1, 2, 3, 7].map(id => alsoTonightShow({ id })),
-    })
-    expect(alsoTonightHasMore(payload, 3, 7)).toBe(false)
+    expect(
+      alsoTonightSeeAllHref(makeAlsoTonightPayload({ date: 'tonight' }))
+    ).toBeNull()
+    expect(alsoTonightSeeAllHref(makeAlsoTonightPayload({ date: '' }))).toBeNull()
   })
 })

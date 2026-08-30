@@ -91,30 +91,6 @@ export function formatShowDate(
 }
 
 /**
- * A show's venue-local date with no weekday: `Aug 30`.
- *
- * For dense ledgers whose lead column is a fixed narrow width — the show page's
- * discovery rails (PSY-1689) — where `formatShowDate`'s weekday wraps the
- * column and breaks the row rhythm beside it. The weekday is worth its width in
- * a full listing a reader scans for a night out; in a three-row rail already
- * headed by the room's name, the date alone answers "when next".
- *
- * Shares `resolveShowTimezone` with every other formatter here rather than
- * reaching for `Intl` directly, so a rail and the venue's own table can never
- * resolve the same show to different zones.
- */
-export function formatShowDayMonth(
-  dateString: string,
-  state?: string | null,
-  timezone?: string | null
-): string {
-  return formatInTimezone(dateString, resolveShowTimezone(state, timezone), {
-    month: 'short',
-    day: 'numeric',
-  })
-}
-
-/**
  * The venue-local month and year of a show, kept apart: `{ month: 'Sep', year:
  * '2025' }`.
  *

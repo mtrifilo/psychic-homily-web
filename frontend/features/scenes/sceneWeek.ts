@@ -265,6 +265,34 @@ export function showHref(show: SceneWeekShow): string {
 }
 
 /**
+ * The start instant, or `null` when the payload cannot supply one.
+ *
+ * `starts_at` is typed as required, but a TYPE is not a runtime guarantee: the
+ * frontend and backend deploy separately, and Next's data cache can serve a
+ * body fetched before the backend widened. `new Date(undefined)` is an invalid
+ * date, and `Intl.DateTimeFormat.formatToParts` THROWS on one — from a server
+ * component, which turns a missing structured-data field into a 500 for the
+ * whole page. Parse defensively at this boundary.
+ *
+ * Shared because three surfaces read the same field and must apply the same
+ * rule: the JSON-LD builders, the nightly page's start TIME, and the show
+ * page's also-tonight rail. A second copy would eventually drift, and the
+ * drift would show as a row displaying a time for a show the structured data
+ * refuses to describe.
+ *
+ * It lives HERE, beside the row type it inspects, rather than in
+ * `sceneShowJsonLd.ts` where it started. That module value-imports the whole
+ * `lib/seo/jsonld` builder, so every CLIENT component that wanted this
+ * four-line guard dragged ~24KB of server-only structured-data code into its
+ * bundle along with it — which is what the show page's rails would have done.
+ */
+export function startInstant(show: SceneWeekShow): string | null {
+  const raw = show.starts_at
+  if (typeof raw !== 'string' || !Number.isFinite(Date.parse(raw))) return null
+  return raw
+}
+
+/**
  * Total shows actually listed.
  *
  * Prefer the server's `show_count`, but fall back to counting: `days` is typed

@@ -1,6 +1,6 @@
 import { generateMusicEventSchema, type MusicEventSchema } from '@/lib/seo/jsonld'
 import { hasShowStarted } from '@/lib/utils/showTiming'
-import type { SceneWeekShow } from './sceneWeek'
+import { startInstant, type SceneWeekShow } from './sceneWeek'
 
 /**
  * The builder's input shape, pinned so this module's mapper is checked against
@@ -22,27 +22,6 @@ type MusicEventInput = Parameters<typeof generateMusicEventSchema>[0]
  * and a show described differently on the two would be a contradiction in the
  * structured data a crawler reads for the same URL.
  */
-
-/**
- * The start instant, or `null` when the payload cannot supply one.
- *
- * `starts_at` is typed as required, but a TYPE is not a runtime guarantee: the
- * frontend and backend deploy separately, and Next's data cache can serve a
- * body fetched before the backend widened. `new Date(undefined)` is an invalid
- * date, and `Intl.DateTimeFormat.formatToParts` THROWS on one — from a server
- * component, which turns a missing structured-data field into a 500 for the
- * whole page. Parse defensively at this boundary.
- *
- * Exported because the nightly page renders a start TIME from the same field
- * and must apply the same rule: a second copy would eventually drift, and the
- * drift would show as a row displaying a time for a show the structured data
- * refuses to describe.
- */
-export function startInstant(show: SceneWeekShow): string | null {
-  const raw = show.starts_at
-  if (typeof raw !== 'string' || !Number.isFinite(Date.parse(raw))) return null
-  return raw
-}
 
 /**
  * Whether a show can be described as an event at all.
