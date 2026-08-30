@@ -1557,8 +1557,8 @@ func (s *TagService) enrichReleases(ids []uint) map[uint]contracts.TaggedEntityI
 // rank must stay a CASE expression rather than the shorter boolean
 // `(sa.set_type = 'headliner') DESC`: a boolean sort key is NULLS FIRST under
 // DESC in Postgres, so a row whose set_type is NULL would outrank the curated
-// headliner and this surface would name the wrong act. show_dedup.go and
-// explore.go resolve the same slot with the same CASE form.
+// headliner and this surface would name the wrong act. See
+// catalog/headline_slot.go for the other sites that resolve this same slot.
 func (s *TagService) enrichShows(ids []uint) map[uint]contracts.TaggedEntityItem {
 	out := make(map[uint]contracts.TaggedEntityItem, len(ids))
 	type row struct {

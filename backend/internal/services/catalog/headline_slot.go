@@ -56,14 +56,23 @@ import (
 //
 // NOT covered here, deliberately, in two groups:
 //
-//  1. Reads that RESOLVE THE ONE headliner row of a show for display
-//     (tag_service.enrichShows, explore.go, show_dedup.go). They ORDER BY a
-//     `set_type = 'headliner'` test and fall back to lowest position, so they
+//  1. Reads that RESOLVE THE ONE headliner row of a show. They prefer a
+//     `set_type = 'headliner'` row and fall back to lowest position, so they
 //     already prefer curation and, unlike a classification predicate, must
-//     always return a row. All three rank with the NULL-safe
-//     `CASE WHEN ... THEN 0 ELSE 1 END`, which a new site must copy: the
-//     shorter bare-boolean `DESC` form is NULLS FIRST in Postgres, so a
-//     NULL-set_type row would outrank the curated headliner.
+//     always return a row. Four sites do this, in two shapes:
+//
+//     tag_service.enrichShows, explore.go, and show_dedup.go RANK the bill
+//     with `CASE WHEN set_type = 'headliner' THEN 0 ELSE 1 END`, which a new
+//     ranking site must copy: the shorter bare-boolean `DESC` form is NULLS
+//     FIRST in Postgres, so a NULL-set_type row would outrank the curated
+//     headliner. show.go's SearchShows instead COALESCEs a filtered subquery
+//     over an unfiltered one, which is NULL-safe for a different reason
+//     (`NULL = 'headliner'` is NULL, so the row fails the filter rather than
+//     sorting ahead of the winner).
+//
+//     show_dedup.go resolves this to GENERATE A PERSISTED SLUG rather than to
+//     display a name, so a mis-ranked row there is written down, not merely
+//     rendered.
 //
 //  2. The duplicate-headliner GUARDS at show.go's checkDuplicateHeadlinerConflicts
 //     and pipeline/discovery.go's checkHeadlinerDuplicate. These do still use

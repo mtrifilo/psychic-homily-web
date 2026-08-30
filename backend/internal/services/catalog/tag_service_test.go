@@ -1749,13 +1749,10 @@ func (suite *TagServiceIntegrationTestSuite) TestBulkImportAliases_EmptyList() {
 	suite.Assert().Len(result.Skipped, 0)
 }
 
-// A NULL set_type row must not outrank the act the curator actually named as
-// the headliner. The rank expression is the whole subject here: ordering
-// `(sa.set_type = 'headliner') DESC` is NULLS FIRST in Postgres, so the
-// unslotted act sorted ahead of the curated headliner and the tag page named
-// the wrong band. The curated row is given the LOWER position so position
-// ordering alone cannot rescue the result; only a NULL-safe rank can, which is
-// what holds the CASE form in place.
+// Guards the NULL-safe rank in enrichShows (see its doc comment for why the
+// CASE form is required). The curated row is given the LOWER position on
+// purpose, so position ordering alone cannot rescue the result; only the
+// NULL-safe rank can.
 func (suite *TagServiceIntegrationTestSuite) TestGetTagEntities_Shows_NullSetTypeDoesNotOutrankCuratedHeadliner() {
 	user := suite.createTestUserWithTier("show-tagger", "contributor")
 	tag := suite.createTag("noise-rock", "genre")
@@ -1789,7 +1786,10 @@ func (suite *TagServiceIntegrationTestSuite) TestGetTagEntities_Shows_NullSetTyp
 		`SELECT COUNT(*) FROM show_artists WHERE show_id = ? AND set_type IS NULL`,
 		show.ID).Scan(&storedNulls).Error)
 	suite.Require().EqualValues(1, storedNulls,
-		"the NULL row must survive insertion, or this test proves nothing")
+		"the NULL row must survive insertion, or this test proves nothing. Do not "+
+			"convert these raw inserts to db.Create: ShowArtist.SetType is a "+
+			"non-pointer string, so GORM would omit it and the column default "+
+			"'performer' would land instead of the NULL this test needs")
 
 	_, err := suite.tagService.AddTagToEntity(tag.ID, "", catalogm.TagEntityShow, show.ID, user.ID, "")
 	suite.Require().NoError(err)

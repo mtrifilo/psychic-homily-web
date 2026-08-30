@@ -104,7 +104,8 @@ func (s *ExploreServiceIntegrationSuite) createShow(title string, daysFromNow in
 
 // createShowInCity inserts an approved, future-dated show in a specific
 // city/state with no venue/artist joins — the city filter only reads
-// shows.city/state. Used by the PSY-840 city-filter tests.
+// shows.city/state. Also the right seed for any test that wants to attach its
+// own bill, since it leaves show_artists empty.
 func (s *ExploreServiceIntegrationSuite) createShowInCity(title string, daysFromNow int, city, state string) *catalogm.Show {
 	slug := fmt.Sprintf("show-%s-%d", title, time.Now().UnixNano())
 	show := &catalogm.Show{
@@ -376,26 +377,12 @@ func (s *ExploreServiceIntegrationSuite) TestGetShuffleTarget_RespectsApprovedSt
 	s.Nil(resp.ArtistID, "artist with only non-approved shows must NOT be eligible")
 }
 
-// A NULL set_type row must not outrank the act the curator actually named as
-// the headliner. The rank expression is the whole subject here: ordering
-// `(set_type = 'headliner') DESC` is NULLS FIRST in Postgres, so the unslotted
-// act sorted ahead of the curated headliner and /explore titled the tile with
-// the wrong band. The curated row is given the LOWER position so position
-// ordering alone cannot rescue the result; only a NULL-safe rank can, which is
-// what holds the CASE form in place.
+// Guards the NULL-safe rank in headlinerNameByShow (see its doc comment for
+// why the CASE form is required). The curated row is given the LOWER position
+// on purpose, so position ordering alone cannot rescue the result; only the
+// NULL-safe rank can.
 func (s *ExploreServiceIntegrationSuite) TestGetUpcomingShows_NullSetTypeDoesNotOutrankCuratedHeadliner() {
-	city := "Phoenix"
-	state := "AZ"
-	slug := "null-set-type-bill"
-	show := &catalogm.Show{
-		Title:     "Null Set Type Bill",
-		Slug:      &slug,
-		EventDate: time.Now().UTC().AddDate(0, 0, 10),
-		City:      &city,
-		State:     &state,
-		Status:    catalogm.ShowStatusApproved,
-	}
-	s.Require().NoError(s.db.Create(show).Error)
+	show := s.createShowInCity("Null Set Type Bill", 10, "Phoenix", "AZ")
 
 	headlinerSlug := "curated-headliner"
 	headliner := &catalogm.Artist{Name: "Curated Headliner", Slug: &headlinerSlug}
@@ -418,19 +405,14 @@ func (s *ExploreServiceIntegrationSuite) TestGetUpcomingShows_NullSetTypeDoesNot
 		`SELECT COUNT(*) FROM show_artists WHERE show_id = ? AND set_type IS NULL`,
 		show.ID).Scan(&storedNulls).Error)
 	s.Require().EqualValues(1, storedNulls,
-		"the NULL row must survive insertion, or this test proves nothing")
+		"the NULL row must survive insertion, or this test proves nothing. Do not "+
+			"convert these raw inserts to db.Create: ShowArtist.SetType is a "+
+			"non-pointer string, so GORM would omit it and the column default "+
+			"'performer' would land instead of the NULL this test needs")
 
 	resp, err := s.exploreService.GetUpcomingShows(50, 0, nil)
 	s.Require().NoError(err)
-
-	var item *contracts.ExploreUpcomingShowItem
-	for i := range resp.Shows {
-		if resp.Shows[i].ID == show.ID {
-			item = &resp.Shows[i]
-			break
-		}
-	}
-	s.Require().NotNil(item, "the seeded upcoming show must be listed")
-	s.Assert().Equal("Curated Headliner", item.HeadlinerName,
+	s.Require().Len(resp.Shows, 1, "the seeded upcoming show must be listed")
+	s.Assert().Equal("Curated Headliner", resp.Shows[0].HeadlinerName,
 		"a NULL set_type row must not outrank the curated headliner")
 }
