@@ -704,3 +704,75 @@ func (s *ShowTimelineIntegrationTestSuite) TestShowTimeline_RoomlessNeighbourIsD
 	s.Equal(timelineChicagoZone, timeline.Previous.Timezone,
 		"the show row's state decides the clock, not the Arizona default")
 }
+
+// venues.city and venues.state are NOT NULL, so an ungeocoded room holds BLANK
+// STRINGS rather than NULLs. The show row's own place has to survive that, which
+// a bare COALESCE would not: it stops at the blank string and reports a place
+// hasPlace then rejects.
+func (s *ShowTimelineIntegrationTestSuite) TestShowTimeline_BlankRoomFallsBackToTheShowRowPlace() {
+	loc := s.loc(timelineChicagoZone)
+	blankRoom := s.seedRoom(timelineRoom{name: "A Secret Location", city: "", state: "", noMetro: true})
+	chicagoRoom := s.seedChicagoRoom("Empty Bottle", "Chicago")
+	act := s.seedAct("Blank Room Act", "Portland", "OR")
+
+	prior := s.seedDate(chicagoRoom, time.Date(2026, time.March, 2, 20, 0, 0, 0, loc), catalogm.ShowStatusApproved, act)
+	subject := s.seedDate(blankRoom, time.Date(2026, time.September, 18, 20, 0, 0, 0, loc), catalogm.ShowStatusApproved, act)
+	s.Require().NoError(s.db.Model(subject).Updates(map[string]any{"city": "Chicago", "state": "IL"}).Error)
+
+	timeline := s.timelineFor(subject)
+	s.Require().Len(timeline.Recurrence, 1,
+		"a blank room is as absent as no room, so the show row names the place")
+	s.Require().NotNil(timeline.Recurrence[0].LastPlayed)
+	s.Equal(prior.ID, timeline.Recurrence[0].LastPlayed.ShowID)
+}
+
+// A CANDIDATE show billed at two rooms is reduced to one by the same
+// placeable-first pick the subject uses. Under an attribution pick the
+// unplaceable room wins, that row loses its metro, and the match falls through
+// to an OLDER date presented as the act's most recent one.
+func (s *ShowTimelineIntegrationTestSuite) TestShowTimeline_MultiRoomCandidateIsMatchedByItsPlaceableRoom() {
+	loc := s.loc(timelineChicagoZone)
+	blankRoom := s.seedRoom(timelineRoom{name: "A Secret Location", city: "", state: "", noMetro: true})
+	chicagoRoom := s.seedChicagoRoom("Empty Bottle", "Chicago")
+	subjectRoom := s.seedChicagoRoom("Thalia Hall", "Chicago")
+	act := s.seedAct("Two Room Candidate Act", "Portland", "OR")
+
+	older := s.seedDate(chicagoRoom, time.Date(2025, time.June, 11, 20, 0, 0, 0, loc), catalogm.ShowStatusApproved, act)
+	newer := s.seedDate(blankRoom, time.Date(2026, time.March, 2, 20, 0, 0, 0, loc), catalogm.ShowStatusApproved, act)
+	// The newer date is billed at BOTH rooms, the unplaceable one holding the
+	// lower id.
+	s.Require().NoError(s.db.Create(&catalogm.ShowVenue{ShowID: newer.ID, VenueID: chicagoRoom.ID}).Error)
+	subject := s.seedDate(subjectRoom, time.Date(2026, time.September, 18, 20, 0, 0, 0, loc), catalogm.ShowStatusApproved, act)
+
+	timeline := s.timelineFor(subject)
+	s.Require().Len(timeline.Recurrence, 1)
+	s.Require().NotNil(timeline.Recurrence[0].LastPlayed)
+	s.Equal(newer.ID, timeline.Recurrence[0].LastPlayed.ShowID,
+		"the placeable room qualifies the newer date; the unplaceable one would answer with the older")
+	s.NotEqual(older.ID, timeline.Recurrence[0].LastPlayed.ShowID)
+}
+
+// Among rooms that are all placeable the tie-break is name-ASC, matching
+// resolveAlsoTonightSubject. That rail renders on the same page, so a show
+// billed across two metros must not be scoped to one metro here and the other
+// there.
+func (s *ShowTimelineIntegrationTestSuite) TestShowTimeline_MultiMetroSubjectPicksTheSameRoomAsTheAlsoTonightRail() {
+	loc := s.loc(timelineChicagoZone)
+	// Alphabetically last, lower venue id: an id-ordered pick takes this one.
+	milwaukee := s.seedRoom(timelineRoom{name: "Turner Hall", city: "Milwaukee", state: "WI", tz: timelineChicagoZone})
+	chicago := s.seedRoom(timelineRoom{name: "Metro", city: "Chicago", state: "IL", tz: timelineChicagoZone})
+	act := s.seedAct("Two Metro Act", "Portland", "OR")
+
+	priorChicago := s.seedDate(
+		s.seedChicagoRoom("Empty Bottle", "Chicago"),
+		time.Date(2026, time.March, 2, 20, 0, 0, 0, loc), catalogm.ShowStatusApproved, act,
+	)
+	subject := s.seedDate(milwaukee, time.Date(2026, time.September, 18, 20, 0, 0, 0, loc), catalogm.ShowStatusApproved, act)
+	s.Require().NoError(s.db.Create(&catalogm.ShowVenue{ShowID: subject.ID, VenueID: chicago.ID}).Error)
+
+	timeline := s.timelineFor(subject)
+	s.Require().Len(timeline.Recurrence, 1,
+		"name-ASC picks Metro over Turner Hall, so the subject is scoped to Chicago")
+	s.Require().NotNil(timeline.Recurrence[0].LastPlayed)
+	s.Equal(priorChicago.ID, timeline.Recurrence[0].LastPlayed.ShowID)
+}

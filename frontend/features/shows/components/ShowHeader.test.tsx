@@ -1025,6 +1025,40 @@ describe('ShowHeader corridor modules', () => {
     expect(precedes(spine, venue)).toBe(true)
   })
 
+  // The spine follows ONE act. On a co-headline bill the heading names several,
+  // so the landmark has to say which of them these dates belong to, and it must
+  // be the act the payload resolved rather than the first one printed.
+  it('names the payload headliner in the spine landmark, not the first billed act', () => {
+    render(
+      <ShowHeader
+        lifecycle="upcoming"
+        show={billedShow}
+        timeline={makeTimeline({ headliner_artist_id: 2 })}
+      />
+    )
+
+    expect(
+      screen.getByRole('navigation', { name: 'Gig timeline for Califone' })
+    ).toBeInTheDocument()
+  })
+
+  // The show payload and the timeline are two independently cached reads, so a
+  // bill edit can leave the id pointing at an act this render does not hold.
+  // Naming the rendered lead is the honest answer; naming nobody is not.
+  it('falls back to the rendered lead when the headliner id is not on the bill', () => {
+    render(
+      <ShowHeader
+        lifecycle="upcoming"
+        show={billedShow}
+        timeline={makeTimeline({ headliner_artist_id: 999 })}
+      />
+    )
+
+    expect(
+      screen.getByRole('navigation', { name: 'Gig timeline for Modest Mouse' })
+    ).toBeInTheDocument()
+  })
+
   // The caller may not fetch the archive at all, and it is in flight on the
   // first paint of every page that does. The header is complete without it.
   it('renders neither module when there is no timeline', () => {

@@ -76,6 +76,10 @@ export const showQueryKeys = {
   // for. The id is the spelling every caller can reach: a component holding a
   // ShowResponse has it, a route holding only a slug does not.
   timeline: (showId: number) => ['shows', 'timeline', showId] as const,
+  // Every cached timeline, for invalidation. A show's neighbours are cached
+  // under THEIR ids, and editing one show's date reorders their spines too, so
+  // a mutation cannot name the set of keys it invalidated.
+  timelineAll: () => ['shows', 'timeline'] as const,
   userShows: (userId: string) => ['shows', 'user', userId] as const,
   search: (query: string) => ['shows', 'search', query.toLowerCase()] as const,
 } as const

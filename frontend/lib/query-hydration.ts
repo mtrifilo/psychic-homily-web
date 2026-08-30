@@ -31,13 +31,16 @@ import { connection } from 'next/server'
 import { getQueryClient } from '@/lib/queryClient'
 
 /**
- * Seed ONE key. The single-seed spelling of {@link prefetchEntities}, whose
- * null-skipping it inherits: every caller is a `[slug]` route that has already
- * `notFound()`ed on a missing entity, so the skip is unreachable from here.
+ * Seed ONE key. The single-seed spelling of {@link prefetchEntities}.
+ *
+ * `NonNullable` so the inherited null-SKIP is unreachable rather than merely
+ * unused: every caller today is a `[slug]` route that has already
+ * `notFound()`ed, and a future caller seeding a legitimately-null payload
+ * should get a compile error instead of a silently dropped seed.
  */
 export async function prefetchEntity<T>(
   queryKey: readonly unknown[],
-  data: T,
+  data: NonNullable<T>,
 ): Promise<DehydratedState> {
   return prefetchEntities([{ queryKey, data }])
 }

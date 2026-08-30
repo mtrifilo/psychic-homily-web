@@ -27,10 +27,9 @@ export interface ShowBillRecurrenceProps {
  * Chicago band and says nothing: every local band last played their own city.
  * The interesting fact is that they live here, so that is the one stated.
  *
- * The city named is the one on the ENTRY, never the show's own. The backend
- * matches these dates across a whole metro, so an Evanston room is a valid
- * answer for a Chicago show, and naming the show's city would print
- * "last played Chicago" above a venue that is not in Chicago.
+ * The city named is the one on the ENTRY, never the show's own. An entry can
+ * name a neighbouring city, so naming the show's city would print "last played
+ * Chicago" against a venue that is not in Chicago.
  *
  * Names come from the BILL, not from the payload, so this line and the heading
  * above it cannot disagree about what an act is called. An entry naming an act
@@ -50,13 +49,17 @@ export function ShowBillRecurrence({
     }
     if (!entry.last_played) return []
     // A room with no city on record leaves the sentence no place to name, so it
-    // states what it still has: when, and which room.
+    // states what it still has: when, and which room. The colon goes with the
+    // city, because a colon introduces the place clause and reads as a
+    // rendering fault standing on its own.
     const city = entry.last_played.city?.trim()
-    const where = city ? ` ${city}` : ''
+    const when = lastPlayedLabel(entry.last_played)
     return [
       {
         id: entry.artist_id,
-        text: `${name} last played${where}: ${lastPlayedLabel(entry.last_played)}`,
+        text: city
+          ? `${name} last played ${city}: ${when}`
+          : `${name} last played ${when}`,
       },
     ]
   })

@@ -172,7 +172,7 @@ describe('ShowBillRecurrence', () => {
     )
 
     expect(lineText()).toBe(
-      'Modest Mouse last played: Nov 2023, Aragon Ballroom'
+      'Modest Mouse last played Nov 2023, Aragon Ballroom'
     )
     // The clause is dropped whole: no space left where the city was, and no
     // colon left standing on its own.

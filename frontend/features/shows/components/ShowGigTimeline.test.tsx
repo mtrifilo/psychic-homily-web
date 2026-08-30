@@ -18,11 +18,9 @@ function makeEntry(overrides: Partial<ShowTimelineEntry> = {}): ShowTimelineEntr
   }
 }
 
-/**
- * The screen-reader prefix and the label are separate text nodes, and the
- * accessible name concatenates each node's trimmed text, so the gap between
- * them is whitespace-insensitive: `\s*`, not a literal space.
- */
+/** The glyphs the module paints for each direction, as rendered characters. */
+const LEFT_ARROW = '←'
+const RIGHT_ARROW = '→'
 
 /**
  * The show being read, as a stop on its own spine. The module formats it with
@@ -30,11 +28,11 @@ function makeEntry(overrides: Partial<ShowTimelineEntry> = {}): ShowTimelineEntr
  * rather than pre-built label strings: 9:00 PM Aug 12 in Chicago renders as
  * `AUG 12 SALT SHED`, and its year is what the neighbours' dates are compared
  * against.
+ *
+ * Accessible-name assertions below match the direction prefix with `\s*` rather
+ * than a literal space: the prefix and the label are separate text nodes and
+ * the computed name concatenates each node's TRIMMED text.
  */
-/** The glyphs the module paints for each direction, as rendered characters. */
-const LEFT_ARROW = '←'
-const RIGHT_ARROW = '→'
-
 const current = {
   event_date: '2025-08-13T02:00:00Z',
   timezone: 'America/Chicago',

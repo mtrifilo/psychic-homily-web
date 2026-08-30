@@ -9,7 +9,6 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
-	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -170,6 +169,38 @@ func (r *timelineEntryRow) entry() *contracts.ShowTimelineEntry {
 	}
 }
 
+// placeableVenueLateralSQL renders the room pick every query in this file uses:
+// at most one room per show, PLACEABLE ones first, then by name, then by id.
+//
+// It is deliberately NOT shared.PrimaryVenueLateralSQL. That one answers "which
+// room OWNS this show" for attribution and takes the lowest venue id flat; this
+// answers "where did this happen", and the two differ on a show billed at more
+// than one room. Under the plain id rule an unplaceable room ("A Secret
+// Location", blank city and state, NULL metro) with the lower id wins, and the
+// show then has no place at all: the subject loses its whole recurrence module,
+// and a CANDIDATE row loses its metro and drops out of the match, which is worse
+// than hiding a module because the answer that survives is an OLDER date
+// presented as the act's most recent one.
+//
+// The `name ASC, id ASC` tail matches resolveAlsoTonightSubject and
+// GetSceneShowsInRange exactly, so a show billed in two metros is scoped to the
+// same one by the timeline and by the also-tonight rail that renders a few
+// hundred pixels below it.
+//
+// Both arguments are compile-time literals supplied by this package; they are
+// interpolated, never bound, and never carry caller data.
+func placeableVenueLateralSQL(cols, showIDExpr string) string {
+	return `(
+			SELECT ` + cols + `
+			FROM show_venues sv
+			JOIN venues iv ON iv.id = sv.venue_id
+			WHERE sv.show_id = ` + showIDExpr + `
+			ORDER BY (TRIM(iv.city) = '' OR TRIM(iv.state) = '') ASC,
+			         iv.name ASC, sv.venue_id ASC
+			LIMIT 1
+		)`
+}
+
 // resolveTimelineSubject loads the subject show by numeric id or slug.
 //
 // The status filter is in the WHERE clause rather than a check on the loaded
@@ -180,41 +211,28 @@ func (r *timelineEntryRow) entry() *contracts.ShowTimelineEntry {
 // cross-match: a purely numeric slug has to keep meaning the id, as it does on
 // every other /shows/{show_id} route.
 //
-// The room is picked PLACEABLE-FIRST, which is the one place this file departs
-// from shared.PrimaryVenueLateralSQL's lowest-venue-id rule. A show can be
-// billed at more than one room, and this lateral answers "where did this
-// happen" rather than "which room owns this show": under the plain id rule an
-// unplaceable room ("A Secret Location", no city, no metro) with the lower id
-// wins the pick, hasPlace then reports no place, and every act's recurrence is
-// dropped on a show whose other room would have answered.
-// resolveAlsoTonightSubject demotes the same rows for the same reason.
+// The room comes from placeableVenueLateralSQL; see there for why this file
+// does not use the attribution pick. Only the PLACE comes from it, so a
+// differing pick cannot put two venue names on one screen.
 //
-// Only the PLACE comes from here; the room the page NAMES is the venue module's,
-// so a differing pick cannot put two venue names on one screen.
+// The show row is the fallback for a bill with no usable room. NULLIF(TRIM(...))
+// rather than a bare COALESCE, because `venues.city` and `venues.state` are NOT
+// NULL: a room with no place on record holds BLANK STRINGS, which COALESCE would
+// take as present and hand to hasPlace as an empty place. That is the same
+// emptiness test the lateral's demotion and hasPlace already apply, so all three
+// now agree on what absent means.
 //
-// The show row is the fallback for a bill with no room at all. `shows.city` and
-// `shows.state` are denormalized and can lag an edit, so the venue wins wherever
-// both exist, which is the precedence showTimingInput applies on the page.
-// Without it a roomless show has no place at all, which silently empties its
-// recurrence.
+// `shows.city`/`shows.state` are denormalized and can lag an edit, so a usable
+// venue still wins, which is the precedence showTimingInput applies on the page.
 func (s *ShowService) resolveTimelineSubject(idOrSlug string) (*timelineSubject, error) {
-	const placeableVenue = `(
-			SELECT iv.metro, iv.city, iv.state
-			FROM show_venues sv
-			JOIN venues iv ON iv.id = sv.venue_id
-			WHERE sv.show_id = s.id
-			ORDER BY (iv.city IS NULL OR TRIM(iv.city) = '' OR iv.state IS NULL OR TRIM(iv.state) = '') ASC,
-			         sv.venue_id ASC
-			LIMIT 1
-		)`
 	selectSubject := `
 		SELECT s.id AS show_id,
 		       s.event_date,
-		       COALESCE(v.metro, '')          AS venue_metro,
-		       COALESCE(v.city, s.city, '')   AS venue_city,
-		       COALESCE(v.state, s.state, '') AS venue_state
+		       COALESCE(v.metro, '') AS venue_metro,
+		       COALESCE(NULLIF(TRIM(v.city), ''),  NULLIF(TRIM(s.city), ''),  '') AS venue_city,
+		       COALESCE(NULLIF(TRIM(v.state), ''), NULLIF(TRIM(s.state), ''), '') AS venue_state
 		FROM shows s
-		LEFT JOIN LATERAL ` + placeableVenue + ` v ON TRUE
+		LEFT JOIN LATERAL ` + placeableVenueLateralSQL("iv.metro, iv.city, iv.state", "s.id") + ` v ON TRUE
 		WHERE `
 	const (
 		andApproved = ` AND s.status = ? LIMIT 1`
@@ -316,9 +334,9 @@ func (s *ShowService) loadAdjacentShows(artistID uint, subject *timelineSubject)
 		FROM neighbour n
 		-- Raw columns, defaulted at the select above: this lateral is LEFT
 		-- joined, so a neighbour with no room matches no lateral row at all and
-		-- every column arrives NULL regardless of what the lateral coalesces
-		-- internally. Anchored on the CTE's id because ` + "`s`" + ` is out of scope here.
-		LEFT JOIN LATERAL ` + shared.PrimaryVenueLateralSQL(
+		-- every column arrives NULL regardless of what the lateral selects.
+		-- Anchored on the CTE's id because ` + "`s`" + ` is out of scope here.
+		LEFT JOIN LATERAL ` + placeableVenueLateralSQL(
 		"iv.name, iv.slug, iv.city, iv.state, iv.timezone",
 		"n.id",
 	) + ` v ON TRUE`
@@ -357,9 +375,10 @@ func (s *ShowService) loadBillRecurrence(bill []timelineBillArtist, subject *tim
 	recurrence := make([]contracts.ShowTimelineRecurrence, 0, len(bill))
 
 	lastPlayed := map[uint]*contracts.ShowTimelineEntry{}
-	// No place to ask about means no prior-date lookup, but the hometown test
-	// below still runs: it can match on metro alone, and a metro-less subject
-	// simply fails it.
+	// No place means nothing to ask AND nothing to answer, so the loop below
+	// emits an empty slice. hasPlace is false only when the metro is blank and
+	// city+state are incomplete, which is exactly the pair of signals
+	// isHometownOf matches on, so neither branch of it can fire either.
 	if subject.hasPlace() {
 		var err error
 		if lastPlayed, err = s.loadLastPlayedInPlace(bill, subject); err != nil {
@@ -386,10 +405,18 @@ func (s *ShowService) loadBillRecurrence(bill []timelineBillArtist, subject *tim
 // subject's place, keyed by artist id.
 //
 // The place predicate is the metro when the subject's room has one and its
-// city+state otherwise, chosen here rather than expressed as one OR so the
-// planner gets a single indexed equality on venues.metro on the common path
-// instead of a predicate it cannot use either arm of. The city arm TRIMs and
-// case-folds both sides, because city/state are free text on the venue.
+// city+state otherwise. Two branches rather than one OR so each arm carries its
+// own bound argument and the city arm's LOWER(TRIM(...)) is not evaluated on the
+// metro path. The city arm folds case and trims on both sides, because
+// city/state are free text on the venue.
+//
+// NOT an index-driven predicate, and no claim is made that it is: `v` is a
+// LATERAL with LIMIT 1, so the planner cannot push the metro equality into it
+// without changing which room is picked. The query drives from
+// show_artists.artist_id, walks each act's approved history before the subject,
+// and filters on the room the lateral chose. That makes it O(act's history) in
+// lateral probes on a public anonymous route; the bound has not been EXPLAINed
+// against production-shaped data, so treat this as unmeasured.
 //
 // An inner JOIN on the venue lateral, not a LEFT one: a show with no room
 // cannot have happened in this place, so it must not survive the join and
@@ -416,7 +443,7 @@ func (s *ShowService) loadLastPlayedInPlace(bill []timelineBillArtist, subject *
 		JOIN shows s ON s.id = sa.show_id
 		-- Carries metro because the place predicate below reads it. An INNER
 		-- join, so a roomless show cannot survive to occupy an act's slot.
-		JOIN LATERAL ` + shared.PrimaryVenueLateralSQL(
+		JOIN LATERAL ` + placeableVenueLateralSQL(
 		"iv.name, COALESCE(iv.slug, '') AS slug, COALESCE(iv.city, '') AS city, COALESCE(iv.state, '') AS state, COALESCE(iv.timezone, '') AS timezone, iv.metro",
 		"s.id",
 	) + ` v ON TRUE
