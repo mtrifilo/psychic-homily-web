@@ -16,6 +16,7 @@ import (
 	"psychic-homily-backend/internal/respond"
 	adminsvc "psychic-homily-backend/internal/services/admin"
 	"psychic-homily-backend/internal/services/auth"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 type contextKey string
@@ -375,6 +376,31 @@ func GetUserFromContext(ctx context.Context) *authm.User {
 		return user
 	}
 	return nil
+}
+
+// GetShowViewerFromContext reduces the request's user to the two facts a
+// show-visibility gate is allowed to read (PSY-1939).
+//
+// Returns the zero viewer — neither an admin nor anybody's submitter — for an
+// anonymous caller, which is every caller on a route NOT registered on an
+// optional-auth group. A route that gates on this and forgets the middleware
+// therefore under-serves rather than over-serves: submitters lose their own
+// content until the group is fixed, and nobody gains anyone else's.
+//
+// Here beside GetUserFromContext rather than in handlers/shared because it is
+// the same kind of thing — reading what the middleware planted — and because
+// handlers/shared must not depend on this package: services/admin's tests
+// import handlers/shared, and this package imports services/admin.
+//
+// Named rather than re-spelled at each handler: an inline
+// `user != nil && user.IsAdmin` is the shape a later edit drops the nil check
+// from, and that edit would be a nil dereference on an anonymous request.
+func GetShowViewerFromContext(ctx context.Context) contracts.ShowViewer {
+	user := GetUserFromContext(ctx)
+	if user == nil {
+		return contracts.ShowViewer{}
+	}
+	return contracts.ShowViewer{UserID: user.ID, IsAdmin: user.IsAdmin}
 }
 
 // writeJWTError writes a JSON error response for JWT authentication failures

@@ -394,6 +394,79 @@ func TestExportShowHandler_NonDevEnvironment(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 404)
 }
 
+// The export is a full markdown dump of a show, so it answers the detail
+// route's visibility question. A gated show and a show that does not exist must
+// be indistinguishable through it: same status, same detail string, and no
+// export call in either case (PSY-1939).
+//
+// All three cases live in one test so a regression that re-opens the gate, or
+// that gives the gated case its own message, fails against the approved control
+// in the same run.
+func TestExportShowHandler_GatedShowAnswersLikeMissing(t *testing.T) {
+	const notFoundDetail = "Show not found"
+
+	cases := []struct {
+		name    string
+		show    *contracts.ShowResponse
+		lookErr error
+	}{
+		{name: "pending", show: &contracts.ShowResponse{ID: 7, Status: "pending"}},
+		{name: "rejected", show: &contracts.ShowResponse{ID: 7, Status: "rejected"}},
+		{name: "nonexistent", lookErr: fmt.Errorf("not found")},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("ENVIRONMENT", "development")
+			exported := false
+			showMock := &testhelpers.MockShowService{
+				GetShowFn: func(_ uint) (*contracts.ShowResponse, error) {
+					return tc.show, tc.lookErr
+				},
+			}
+			importMock := &testhelpers.MockShowImportService{
+				ExportShowToMarkdownFn: func(_ uint) ([]byte, string, error) {
+					exported = true
+					return []byte("# leaked"), "leaked.md", nil
+				},
+			}
+			h := NewShowHandler(showMock, nil, importMock, nil, nil, nil, nil)
+
+			_, err := h.ExportShowHandler(context.Background(), &ExportShowRequest{ShowID: "7"})
+			testhelpers.AssertHumaErrorWithDetail(t, err, 404, notFoundDetail)
+			if exported {
+				t.Error("the export must not run for a show the caller may not see")
+			}
+		})
+	}
+}
+
+// An admin is not a special case here: the export route carries no auth
+// middleware, so the gate is the public tier for whoever asks, and an approved
+// show is the only thing it streams.
+func TestExportShowHandler_ApprovedShowExports(t *testing.T) {
+	t.Setenv("ENVIRONMENT", "development")
+	showMock := &testhelpers.MockShowService{
+		GetShowFn: func(showID uint) (*contracts.ShowResponse, error) {
+			return &contracts.ShowResponse{ID: showID, Status: "approved"}, nil
+		},
+	}
+	importMock := &testhelpers.MockShowImportService{
+		ExportShowToMarkdownFn: func(_ uint) ([]byte, string, error) {
+			return []byte("# Show"), "show-7.md", nil
+		},
+	}
+	h := NewShowHandler(showMock, nil, importMock, nil, nil, nil, nil)
+
+	resp, err := h.ExportShowHandler(context.Background(), &ExportShowRequest{ShowID: "7"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp == nil || resp.Body == nil {
+		t.Fatal("expected a streaming body for an approved show")
+	}
+}
+
 // ============================================================================
 // Mock-based tests: GetShowHandler
 // ============================================================================

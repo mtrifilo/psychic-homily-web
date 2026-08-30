@@ -24,7 +24,7 @@ type CollectionHandlerIntegrationSuite struct {
 
 func (s *CollectionHandlerIntegrationSuite) SetupSuite() {
 	s.deps = testhelpers.SetupIntegrationDeps(s.T())
-	s.handler = NewCollectionHandler(s.deps.CollectionService, s.deps.AuditLogService)
+	s.handler = NewCollectionHandler(s.deps.CollectionService, s.deps.AuditLogService, testhelpers.AllShowsVisible())
 }
 
 func (s *CollectionHandlerIntegrationSuite) TearDownTest() {

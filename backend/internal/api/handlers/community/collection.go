@@ -19,13 +19,23 @@ import (
 type CollectionHandler struct {
 	collectionService contracts.CollectionServiceInterface
 	auditLogService   contracts.AuditLogServiceInterface
+	// showVisibility gates the per-entity backlinks route when the entity is a
+	// show, on the rule GET /shows/{id} enforces (PSY-1939). Required, not
+	// optional: a nil gate answers "not visible" for everyone rather than
+	// serving.
+	showVisibility contracts.ShowVisibilityInterface
 }
 
 // NewCollectionHandler creates a new CollectionHandler
-func NewCollectionHandler(collectionService contracts.CollectionServiceInterface, auditLogService contracts.AuditLogServiceInterface) *CollectionHandler {
+func NewCollectionHandler(
+	collectionService contracts.CollectionServiceInterface,
+	auditLogService contracts.AuditLogServiceInterface,
+	showVisibility contracts.ShowVisibilityInterface,
+) *CollectionHandler {
 	return &CollectionHandler{
 		collectionService: collectionService,
 		auditLogService:   auditLogService,
+		showVisibility:    showVisibility,
 	}
 }
 
@@ -950,6 +960,18 @@ func (h *CollectionHandler) GetEntityCollectionsHandler(ctx context.Context, req
 	limit := req.Limit
 	if limit <= 0 {
 		limit = 10
+	}
+
+	// Which collections a show sits in is the show's own sub-resource, reached
+	// by the id GET /shows/{id} refuses for a non-approved show, so it answers
+	// to the same viewer rule (PSY-1939). Other entity types pass untouched.
+	//
+	// The EMPTY LIST, not a 404: an entity in no collections already answers
+	// that way and the two must be indistinguishable.
+	if !shared.EntitySubResourceVisible(h.showVisibility, req.EntityType, uint(entityID), middleware.GetShowViewerFromContext(ctx)) {
+		resp := &GetEntityCollectionsHandlerResponse{}
+		resp.Body.Collections = []*contracts.CollectionListResponse{}
+		return resp, nil
 	}
 
 	// PSY-583: surface the viewer's own private collections so a creator

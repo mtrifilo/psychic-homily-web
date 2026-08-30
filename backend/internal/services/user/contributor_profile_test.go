@@ -301,7 +301,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) setPrivacySettings(u
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPublicProfile_Success() {
 	user := suite.createTestUser("contributor1")
 
-	profile, err := suite.profileService.GetPublicProfile("contributor1", nil)
+	profile, err := suite.profileService.GetPublicProfile("contributor1", contracts.ShowViewer{})
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(profile)
@@ -315,7 +315,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPublicProfile
 }
 
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPublicProfile_NotFound() {
-	profile, err := suite.profileService.GetPublicProfile("nonexistent", nil)
+	profile, err := suite.profileService.GetPublicProfile("nonexistent", contracts.ShowViewer{})
 
 	suite.Require().NoError(err)
 	suite.Nil(profile)
@@ -324,7 +324,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPublicProfile
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPublicProfile_PrivateProfile_Anonymous() {
 	suite.createPrivateUser("privateperson")
 
-	profile, err := suite.profileService.GetPublicProfile("privateperson", nil)
+	profile, err := suite.profileService.GetPublicProfile("privateperson", contracts.ShowViewer{})
 
 	suite.Require().NoError(err)
 	suite.Nil(profile, "Private profiles should not be visible to anonymous users")
@@ -334,7 +334,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPublicProfile
 	suite.createPrivateUser("privateperson2")
 	otherUser := suite.createTestUser("otheruser")
 
-	profile, err := suite.profileService.GetPublicProfile("privateperson2", &otherUser.ID)
+	profile, err := suite.profileService.GetPublicProfile("privateperson2", contracts.ShowViewer{UserID: otherUser.ID})
 
 	suite.Require().NoError(err)
 	suite.Nil(profile, "Private profiles should not be visible to other users")
@@ -343,7 +343,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPublicProfile
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPublicProfile_PrivateProfile_Owner() {
 	owner := suite.createPrivateUser("privateperson3")
 
-	profile, err := suite.profileService.GetPublicProfile("privateperson3", &owner.ID)
+	profile, err := suite.profileService.GetPublicProfile("privateperson3", contracts.ShowViewer{UserID: owner.ID})
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(profile, "Private profiles should be visible to the owner")
@@ -357,7 +357,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPublicProfile
 	suite.createShow(user.ID, "Show 2")
 	suite.createVenue(user.ID, "Test Venue")
 
-	profile, err := suite.profileService.GetPublicProfile("statsuser", nil)
+	profile, err := suite.profileService.GetPublicProfile("statsuser", contracts.ShowViewer{})
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(profile)
@@ -373,7 +373,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPublicProfile
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetOwnProfile_Success() {
 	user := suite.createTestUser("ownprofile")
 
-	profile, err := suite.profileService.GetOwnProfile(user.ID)
+	profile, err := suite.profileService.GetOwnProfile(user.ID, contracts.ShowViewer{UserID: user.ID})
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(profile)
@@ -385,7 +385,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetOwnProfile_Su
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetOwnProfile_PrivateBypassesVisibility() {
 	user := suite.createPrivateUser("ownprivate")
 
-	profile, err := suite.profileService.GetOwnProfile(user.ID)
+	profile, err := suite.profileService.GetOwnProfile(user.ID, contracts.ShowViewer{UserID: user.ID})
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(profile, "GetOwnProfile should always work regardless of visibility")
@@ -394,7 +394,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetOwnProfile_Pr
 }
 
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetOwnProfile_NotFound() {
-	profile, err := suite.profileService.GetOwnProfile(99999)
+	profile, err := suite.profileService.GetOwnProfile(99999, contracts.ShowViewer{UserID: 99999})
 
 	suite.Require().NoError(err)
 	suite.Nil(profile)
@@ -407,7 +407,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetOwnProfile_No
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionStats_Empty() {
 	user := suite.createTestUser("emptystats")
 
-	stats, err := suite.profileService.GetContributionStats(user.ID)
+	stats, err := suite.profileService.GetContributionStats(user.ID, contracts.ShowViewer{UserID: user.ID})
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(stats)
@@ -423,7 +423,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 	suite.createShow(user.ID, "Show C")
 	suite.createVenue(user.ID, "Venue A")
 
-	stats, err := suite.profileService.GetContributionStats(user.ID)
+	stats, err := suite.profileService.GetContributionStats(user.ID, contracts.ShowViewer{UserID: user.ID})
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(3), stats.ShowsSubmitted)
@@ -441,7 +441,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 	// PSY-618: edit events live in entity_edit_audit_logs now.
 	suite.auditLog.LogEntityEdit(user.ID, "artist", 1, nil)
 
-	stats, err := suite.profileService.GetContributionStats(user.ID)
+	stats, err := suite.profileService.GetContributionStats(user.ID, contracts.ShowViewer{UserID: user.ID})
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(2), stats.ReleasesCreated)
@@ -457,7 +457,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 	suite.auditLog.LogAction(user.ID, "reject_show", "show", 2, nil)
 	suite.auditLog.LogAction(user.ID, "verify_venue", "venue", 1, nil)
 
-	stats, err := suite.profileService.GetContributionStats(user.ID)
+	stats, err := suite.profileService.GetContributionStats(user.ID, contracts.ShowViewer{UserID: user.ID})
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(3), stats.ModerationActions)
@@ -475,7 +475,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 	suite.auditLog.LogAction(user.ID, "create_release", "release", 1, nil)
 	suite.auditLog.LogAction(user.ID, "approve_show", "show", 99, nil)
 
-	stats, err := suite.profileService.GetContributionStats(user.ID)
+	stats, err := suite.profileService.GetContributionStats(user.ID, contracts.ShowViewer{UserID: user.ID})
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), stats.ShowsSubmitted)
@@ -493,7 +493,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 	suite.createShow(user2.ID, "User2 Show")
 	suite.auditLog.LogAction(user2.ID, "create_release", "release", 1, nil)
 
-	stats, err := suite.profileService.GetContributionStats(user1.ID)
+	stats, err := suite.profileService.GetContributionStats(user1.ID, contracts.ShowViewer{UserID: user1.ID})
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), stats.ShowsSubmitted)
@@ -521,7 +521,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 		TagID: tag.ID, EntityType: "artist", EntityID: artist.ID, UserID: user.ID, Vote: 1,
 	}).Error)
 
-	stats, err := suite.profileService.GetContributionStats(user.ID)
+	stats, err := suite.profileService.GetContributionStats(user.ID, contracts.ShowViewer{UserID: user.ID})
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), stats.TagVotesCast)
 }
@@ -550,7 +550,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 		UserID:           user.ID, Direction: 1,
 	}).Error)
 
-	stats, err := suite.profileService.GetContributionStats(user.ID)
+	stats, err := suite.profileService.GetContributionStats(user.ID, contracts.ShowViewer{UserID: user.ID})
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), stats.RelationshipVotesCast)
 }
@@ -571,7 +571,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 		RequestID: request.ID, UserID: user.ID, Vote: 1,
 	}).Error)
 
-	stats, err := suite.profileService.GetContributionStats(user.ID)
+	stats, err := suite.profileService.GetContributionStats(user.ID, contracts.ShowViewer{UserID: user.ID})
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), stats.RequestVotesCast)
 }
@@ -596,7 +596,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 		AddedByUserID: user.ID,
 	}).Error)
 
-	stats, err := suite.profileService.GetContributionStats(user.ID)
+	stats, err := suite.profileService.GetContributionStats(user.ID, contracts.ShowViewer{UserID: user.ID})
 	suite.Require().NoError(err)
 	suite.Equal(int64(2), stats.CollectionItemsAdded)
 }
@@ -625,7 +625,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 		CollectionID: col2.ID, UserID: user.ID,
 	}).Error)
 
-	stats, err := suite.profileService.GetContributionStats(user.ID)
+	stats, err := suite.profileService.GetContributionStats(user.ID, contracts.ShowViewer{UserID: user.ID})
 	suite.Require().NoError(err)
 	suite.Equal(int64(2), stats.CollectionSubscriptions)
 }
@@ -643,7 +643,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 		FieldChanges: &fieldChanges,
 	}).Error)
 
-	stats, err := suite.profileService.GetContributionStats(user.ID)
+	stats, err := suite.profileService.GetContributionStats(user.ID, contracts.ShowViewer{UserID: user.ID})
 	suite.Require().NoError(err)
 	suite.Equal(int64(2), stats.RevisionsMade)
 }
@@ -658,7 +658,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 		Status: adminm.PendingEditStatusPending,
 	}).Error)
 
-	stats, err := suite.profileService.GetContributionStats(user.ID)
+	stats, err := suite.profileService.GetContributionStats(user.ID, contracts.ShowViewer{UserID: user.ID})
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), stats.PendingEditsSubmitted)
 }
@@ -687,7 +687,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 		Status: adminm.PendingEditStatusPending,
 	}).Error)
 
-	stats, err := suite.profileService.GetContributionStats(user.ID)
+	stats, err := suite.profileService.GetContributionStats(user.ID, contracts.ShowViewer{UserID: user.ID})
 	suite.Require().NoError(err)
 	suite.Require().NotNil(stats.ApprovalRate)
 	suite.InDelta(0.75, *stats.ApprovalRate, 0.001)
@@ -697,7 +697,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionStats_ApprovalRate_NilWhenNone() {
 	user := suite.createTestUser("noapproval")
 
-	stats, err := suite.profileService.GetContributionStats(user.ID)
+	stats, err := suite.profileService.GetContributionStats(user.ID, contracts.ShowViewer{UserID: user.ID})
 	suite.Require().NoError(err)
 	suite.Nil(stats.ApprovalRate, "ApprovalRate should be nil when no approved/rejected edits exist")
 }
@@ -718,7 +718,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 		ReportType: communitym.ShowReportTypeCancelled, Status: communitym.ShowReportStatusPending,
 	}).Error)
 
-	stats, err := suite.profileService.GetContributionStats(user.ID)
+	stats, err := suite.profileService.GetContributionStats(user.ID, contracts.ShowViewer{UserID: user.ID})
 	suite.Require().NoError(err)
 	suite.Equal(int64(2), stats.ReportsFiled)
 }
@@ -743,7 +743,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 		ReviewedBy: &user.ID, ReviewedAt: &now,
 	}).Error)
 
-	stats, err := suite.profileService.GetContributionStats(user.ID)
+	stats, err := suite.profileService.GetContributionStats(user.ID, contracts.ShowViewer{UserID: user.ID})
 	suite.Require().NoError(err)
 	suite.Equal(int64(2), stats.ReportsResolved)
 }
@@ -772,7 +772,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 		EntityID: 1, Action: engagementm.BookmarkActionSave,
 	}).Error)
 
-	stats, err := suite.profileService.GetContributionStats(user.ID)
+	stats, err := suite.profileService.GetContributionStats(user.ID, contracts.ShowViewer{UserID: user.ID})
 	suite.Require().NoError(err)
 	suite.Equal(int64(2), stats.FollowingCount)
 }
@@ -796,7 +796,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 		EntityID: target.ID, Action: engagementm.BookmarkActionFollow,
 	}).Error)
 
-	stats, err := suite.profileService.GetContributionStats(target.ID)
+	stats, err := suite.profileService.GetContributionStats(target.ID, contracts.ShowViewer{UserID: target.ID})
 	suite.Require().NoError(err)
 	suite.Equal(int64(2), stats.FollowersCount)
 }
@@ -829,7 +829,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 		ReportType: "inaccurate", Status: communitym.EntityReportStatusPending,
 	}).Error)
 
-	stats, err := suite.profileService.GetContributionStats(user.ID)
+	stats, err := suite.profileService.GetContributionStats(user.ID, contracts.ShowViewer{UserID: user.ID})
 	suite.Require().NoError(err)
 	// 1 show + 1 revision + 1 tag vote + 1 report = 4
 	suite.Equal(int64(4), stats.TotalContributions)
@@ -842,7 +842,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_Empty() {
 	user := suite.createTestUser("emptyhistory")
 
-	entries, total, err := suite.profileService.GetContributionHistory(user.ID, 20, 0, "")
+	entries, total, err := suite.profileService.GetContributionHistory(user.ID, 20, 0, "", contracts.ShowViewer{UserID: user.ID})
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(0), total)
@@ -853,7 +853,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	user := suite.createTestUser("showhistory")
 	suite.createShow(user.ID, "My Great Show")
 
-	entries, total, err := suite.profileService.GetContributionHistory(user.ID, 20, 0, "")
+	entries, total, err := suite.profileService.GetContributionHistory(user.ID, 20, 0, "", contracts.ShowViewer{UserID: user.ID})
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), total)
@@ -870,7 +870,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 		"title": "New Album",
 	})
 
-	entries, total, err := suite.profileService.GetContributionHistory(user.ID, 20, 0, "")
+	entries, total, err := suite.profileService.GetContributionHistory(user.ID, 20, 0, "", contracts.ShowViewer{UserID: user.ID})
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), total)
@@ -888,7 +888,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	suite.createVenue(user.ID, "Submitted Venue")
 	suite.auditLog.LogAction(user.ID, "create_release", "release", 1, nil)
 
-	entries, total, err := suite.profileService.GetContributionHistory(user.ID, 20, 0, "")
+	entries, total, err := suite.profileService.GetContributionHistory(user.ID, 20, 0, "", contracts.ShowViewer{UserID: user.ID})
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(3), total)
@@ -910,18 +910,18 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	}
 
 	// Page 1
-	page1, total, err := suite.profileService.GetContributionHistory(user.ID, 2, 0, "")
+	page1, total, err := suite.profileService.GetContributionHistory(user.ID, 2, 0, "", contracts.ShowViewer{UserID: user.ID})
 	suite.Require().NoError(err)
 	suite.Equal(int64(5), total)
 	suite.Len(page1, 2)
 
 	// Page 2
-	page2, _, err := suite.profileService.GetContributionHistory(user.ID, 2, 2, "")
+	page2, _, err := suite.profileService.GetContributionHistory(user.ID, 2, 2, "", contracts.ShowViewer{UserID: user.ID})
 	suite.Require().NoError(err)
 	suite.Len(page2, 2)
 
 	// Page 3
-	page3, _, err := suite.profileService.GetContributionHistory(user.ID, 2, 4, "")
+	page3, _, err := suite.profileService.GetContributionHistory(user.ID, 2, 4, "", contracts.ShowViewer{UserID: user.ID})
 	suite.Require().NoError(err)
 	suite.Len(page3, 1)
 
@@ -935,7 +935,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	suite.createVenue(user.ID, "A Venue")
 
 	// Filter to shows only
-	entries, total, err := suite.profileService.GetContributionHistory(user.ID, 20, 0, "show")
+	entries, total, err := suite.profileService.GetContributionHistory(user.ID, 20, 0, "show", contracts.ShowViewer{UserID: user.ID})
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), total)
@@ -947,11 +947,11 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	user := suite.createTestUser("limithistory")
 
 	// Limit > 100 should be clamped
-	_, _, err := suite.profileService.GetContributionHistory(user.ID, 200, 0, "")
+	_, _, err := suite.profileService.GetContributionHistory(user.ID, 200, 0, "", contracts.ShowViewer{UserID: user.ID})
 	suite.Require().NoError(err)
 
 	// Limit < 1 should default to 20
-	_, _, err = suite.profileService.GetContributionHistory(user.ID, 0, 0, "")
+	_, _, err = suite.profileService.GetContributionHistory(user.ID, 0, 0, "", contracts.ShowViewer{UserID: user.ID})
 	suite.Require().NoError(err)
 }
 
@@ -959,7 +959,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	user := suite.createTestUser("venueenrich")
 	suite.createVenue(user.ID, "The Rebel Lounge")
 
-	entries, _, err := suite.profileService.GetContributionHistory(user.ID, 20, 0, "")
+	entries, _, err := suite.profileService.GetContributionHistory(user.ID, 20, 0, "", contracts.ShowViewer{UserID: user.ID})
 
 	suite.Require().NoError(err)
 	suite.Require().Len(entries, 1)
@@ -976,7 +976,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	time.Sleep(10 * time.Millisecond) // Ensure different timestamps
 	show2 := suite.createShow(user.ID, "Second Show")
 
-	entries, _, err := suite.profileService.GetContributionHistory(user.ID, 20, 0, "")
+	entries, _, err := suite.profileService.GetContributionHistory(user.ID, 20, 0, "", contracts.ShowViewer{UserID: user.ID})
 
 	suite.Require().NoError(err)
 	suite.Require().Len(entries, 2)
@@ -1088,7 +1088,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 				Status:       adminm.PendingEditStatusPending,
 			}).Error)
 
-			entries, _, err := suite.profileService.GetContributionHistory(user.ID, 20, 0, "")
+			entries, _, err := suite.profileService.GetContributionHistory(user.ID, 20, 0, "", contracts.ShowViewer{UserID: user.ID})
 
 			suite.Require().NoError(err)
 			suite.Require().Len(entries, 1, "expected exactly one feed row for one suggest-edit")
@@ -1147,7 +1147,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestUpdatePrivacySet
 	suite.Require().NoError(err)
 
 	// Reload and verify
-	profile, err := suite.profileService.GetOwnProfile(user.ID)
+	profile, err := suite.profileService.GetOwnProfile(user.ID, contracts.ShowViewer{UserID: user.ID})
 	suite.Require().NoError(err)
 	suite.Require().NotNil(profile.PrivacySettings)
 	suite.Equal(contracts.PrivacyHidden, profile.PrivacySettings.Contributions)
@@ -1194,7 +1194,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPublicProfile
 	})
 
 	otherUser := suite.createTestUser("viewer1")
-	profile, err := suite.profileService.GetPublicProfile("privgatecontrib", &otherUser.ID)
+	profile, err := suite.profileService.GetPublicProfile("privgatecontrib", contracts.ShowViewer{UserID: otherUser.ID})
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(profile)
@@ -1219,7 +1219,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPublicProfile
 	})
 
 	otherUser := suite.createTestUser("viewer2")
-	profile, err := suite.profileService.GetPublicProfile("privgatecountonly", &otherUser.ID)
+	profile, err := suite.profileService.GetPublicProfile("privgatecountonly", contracts.ShowViewer{UserID: otherUser.ID})
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(profile)
@@ -1241,7 +1241,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPublicProfile
 		ProfileSections: contracts.PrivacyHidden,
 	})
 
-	profile, err := suite.profileService.GetPublicProfile("ownerseesall", &user.ID)
+	profile, err := suite.profileService.GetPublicProfile("ownerseesall", contracts.ShowViewer{UserID: user.ID})
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(profile)
@@ -1257,7 +1257,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPublicProfile
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPublicProfile_DefaultTier() {
 	suite.createTestUser("tierdefault")
 
-	profile, err := suite.profileService.GetPublicProfile("tierdefault", nil)
+	profile, err := suite.profileService.GetPublicProfile("tierdefault", contracts.ShowViewer{})
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(profile)
@@ -1269,7 +1269,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPublicProfile
 	err := suite.db.Model(user).Update("user_tier", "contributor").Error
 	suite.Require().NoError(err)
 
-	profile, err := suite.profileService.GetPublicProfile("tiercustom", nil)
+	profile, err := suite.profileService.GetPublicProfile("tiercustom", contracts.ShowViewer{})
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(profile)
@@ -1281,7 +1281,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetOwnProfile_In
 	err := suite.db.Model(user).Update("user_tier", "trusted_contributor").Error
 	suite.Require().NoError(err)
 
-	profile, err := suite.profileService.GetOwnProfile(user.ID)
+	profile, err := suite.profileService.GetOwnProfile(user.ID, contracts.ShowViewer{UserID: user.ID})
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(profile)
@@ -1479,7 +1479,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPublicProfile
 	_, err = suite.profileService.CreateSection(user.ID, "Favorite Genres", "Punk, Indie", 1)
 	suite.Require().NoError(err)
 
-	profile, err := suite.profileService.GetPublicProfile("profilesections", nil)
+	profile, err := suite.profileService.GetPublicProfile("profilesections", contracts.ShowViewer{})
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(profile)
@@ -1498,7 +1498,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetOwnProfile_In
 	_, err = suite.profileService.UpdateSection(user.ID, s2.ID, map[string]interface{}{"is_visible": false})
 	suite.Require().NoError(err)
 
-	profile, err := suite.profileService.GetOwnProfile(user.ID)
+	profile, err := suite.profileService.GetOwnProfile(user.ID, contracts.ShowViewer{UserID: user.ID})
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(profile)
@@ -1530,7 +1530,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetSections_Orde
 
 func TestGetActivityHeatmap_NilDB(t *testing.T) {
 	svc := &ContributorProfileService{db: nil}
-	result, err := svc.GetActivityHeatmap(1)
+	result, err := svc.GetActivityHeatmap(1, contracts.ShowViewer{UserID: 1})
 	assert.Nil(t, result)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "database not initialized")
@@ -1539,7 +1539,7 @@ func TestGetActivityHeatmap_NilDB(t *testing.T) {
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatmap_NoActivity() {
 	user := suite.createTestUser("heatmap_empty")
 
-	resp, err := suite.profileService.GetActivityHeatmap(user.ID)
+	resp, err := suite.profileService.GetActivityHeatmap(user.ID, contracts.ShowViewer{UserID: user.ID})
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(resp)
@@ -1551,7 +1551,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatm
 	suite.createShow(user.ID, "Show 1")
 	suite.createShow(user.ID, "Show 2")
 
-	resp, err := suite.profileService.GetActivityHeatmap(user.ID)
+	resp, err := suite.profileService.GetActivityHeatmap(user.ID, contracts.ShowViewer{UserID: user.ID})
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(resp)
@@ -1565,7 +1565,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatm
 	user := suite.createTestUser("heatmap_venues")
 	suite.createVenue(user.ID, "Venue 1")
 
-	resp, err := suite.profileService.GetActivityHeatmap(user.ID)
+	resp, err := suite.profileService.GetActivityHeatmap(user.ID, contracts.ShowViewer{UserID: user.ID})
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(resp)
@@ -1579,7 +1579,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatm
 	helper.LogAction(user.ID, "create_release", "release", 1, nil)
 	helper.LogAction(user.ID, "edit_artist", "artist", 1, nil)
 
-	resp, err := suite.profileService.GetActivityHeatmap(user.ID)
+	resp, err := suite.profileService.GetActivityHeatmap(user.ID, contracts.ShowViewer{UserID: user.ID})
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(resp)
@@ -1595,7 +1595,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatm
 		FieldChanges: &fieldChanges,
 	}).Error)
 
-	resp, err := suite.profileService.GetActivityHeatmap(user.ID)
+	resp, err := suite.profileService.GetActivityHeatmap(user.ID, contracts.ShowViewer{UserID: user.ID})
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(resp)
@@ -1614,7 +1614,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatm
 		FieldChanges: &fieldChanges,
 	}).Error)
 
-	resp, err := suite.profileService.GetActivityHeatmap(user.ID)
+	resp, err := suite.profileService.GetActivityHeatmap(user.ID, contracts.ShowViewer{UserID: user.ID})
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(resp)
@@ -1643,7 +1643,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatm
 		FieldChanges: &fieldChanges,
 	}).Error)
 
-	resp, err := suite.profileService.GetActivityHeatmap(user.ID)
+	resp, err := suite.profileService.GetActivityHeatmap(user.ID, contracts.ShowViewer{UserID: user.ID})
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(resp)
@@ -1659,7 +1659,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatm
 	suite.createShow(user1.ID, "User 1 Show")
 	suite.createShow(user2.ID, "User 2 Show")
 
-	resp, err := suite.profileService.GetActivityHeatmap(user1.ID)
+	resp, err := suite.profileService.GetActivityHeatmap(user1.ID, contracts.ShowViewer{UserID: user1.ID})
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(resp)
@@ -1680,7 +1680,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatm
 		"Old Show", user.ID, oldDate, oldDate, oldDate,
 	).Error)
 
-	resp, err := suite.profileService.GetActivityHeatmap(user.ID)
+	resp, err := suite.profileService.GetActivityHeatmap(user.ID, contracts.ShowViewer{UserID: user.ID})
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(resp)
@@ -1693,7 +1693,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatm
 	user := suite.createTestUser("heatmap_format")
 	suite.createShow(user.ID, "Date Format Show")
 
-	resp, err := suite.profileService.GetActivityHeatmap(user.ID)
+	resp, err := suite.profileService.GetActivityHeatmap(user.ID, contracts.ShowViewer{UserID: user.ID})
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(resp)

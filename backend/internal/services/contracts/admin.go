@@ -436,29 +436,8 @@ type AdminStatsServiceInterface interface {
 // Revision Service Interface
 // ──────────────────────────────────────────────
 
-// RevisionViewer identifies the caller a revision read is answered for. It is
-// the whole of what the revision service is allowed to know about who is
-// asking, and both gates that read it fail closed on the zero value: an
-// anonymous caller is RevisionViewer{}, which is neither an admin nor anybody's
-// submitter.
-//
-// UserID is 0 for an anonymous caller, and the gates do not compare that
-// against anything: they OMIT the submitter branch entirely when it is 0 rather
-// than relying on "no row has id 0" or on NULL = 0 evaluating non-true. A
-// refactor that folds the branch back in unconditionally reintroduces both
-// assumptions at once.
-//
-// It is a struct rather than two parameters because the two facts are read
-// together by every call site and a bare (uint, bool) pair is the shape a later
-// edit transposes. The next viewer fact — a trusted tier, a moderator role —
-// belongs here rather than as a fourth positional argument.
-type RevisionViewer struct {
-	// UserID is the authenticated caller's id, or 0 when there is none.
-	UserID uint
-	// IsAdmin is true only for an authenticated admin. It is resolved from the
-	// user row loaded during token validation, never from a claim.
-	IsAdmin bool
-}
+// The caller a revision read is answered for is a RevisionViewer, declared in
+// show_visibility.go as an alias of the ShowViewer every show gate shares.
 
 // ErrRevisionEntityHidden reports that the entity a revision read names is one
 // the viewer is not allowed to see at all, so its history must not be served.

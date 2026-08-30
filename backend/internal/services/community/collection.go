@@ -1338,6 +1338,28 @@ func (s *CollectionService) ResolveCollectionItems(req *contracts.ResolveCollect
 	return response, nil
 }
 
+// scopeToVisibleShows narrows a query over the shows table to the shows a
+// collection surface may publish, and is the ONE place this file spells that
+// rule (PSY-1939).
+//
+// The tier is PUBLIC for every caller, admins included. A collection is a
+// shared, linkable, cacheable listing that merely CONTAINS shows: what it names
+// must not vary by who is reading it, and every sibling listing in this
+// codebase already answers that way (catalog/tag_intersection.go,
+// catalog/entity_existence.go, engagement's venue field-note rollup). Threading
+// a viewer through these resolver signatures would buy no product behaviour.
+//
+// A gated show therefore leaves every caller by the SAME door a nonexistent
+// show leaves by: absent from the map, absent from the row set, "Unknown" from
+// the single-row resolver. There is no distinguishable answer to find.
+//
+// alias is the shows-table alias the query uses, a literal in calling code:
+// "shows" when the table is unaliased.
+func (s *CollectionService) scopeToVisibleShows(q *gorm.DB, alias string) *gorm.DB {
+	cond, args := shared.VisibleShowPredicateSQL(alias, contracts.ShowViewer{})
+	return q.Where(cond, args...)
+}
+
 // fillResolvedBySlug runs the per-entity-type slug-IN query and builds each
 // resolved row's metadata. Subtitle + image_url mirror the frontend search
 // mapper shape so the preview chip can render identically to a search-result
@@ -1394,7 +1416,10 @@ func (s *CollectionService) fillResolvedBySlug(entityType string, slugs []string
 		}
 	case communitym.CollectionEntityShow:
 		var rows []catalogm.Show
-		if err := s.db.Select("id, title, slug, image_url").
+		// A guessed slug does not become a confirmed show here: a gated one
+		// falls into the caller's Unresolved partition, exactly where a slug
+		// matching no show falls.
+		if err := s.scopeToVisibleShows(s.db.Select("id, title, slug, image_url"), "shows").
 			Where("slug IN ?", slugs).Find(&rows).Error; err != nil {
 			log.Printf("warning: resolve shows by slug failed: %v", err)
 			return
@@ -2043,6 +2068,17 @@ func (s *CollectionService) GetUserCollectionsContainingEntity(userID uint, enti
 		return []contracts.ContainingCollectionItem{}, nil
 	}
 
+	// A show the public tier may not see is not addressable through this
+	// lookup, and answers with the same empty slice a show held in none of the
+	// caller's collections answers with. The tier is public for every caller
+	// for the reason scopeToVisibleShows states; the cost is that a pending
+	// show sitting in the caller's own collection does not pre-check in the
+	// popover until it is approved (PSY-1939).
+	if entityType == communitym.CollectionEntityShow &&
+		!shared.ShowVisibleTo(s.db, entityID, contracts.ShowViewer{}) {
+		return []contracts.ContainingCollectionItem{}, nil
+	}
+
 	// Mirror GetUserCollections's scope: collections the user CREATED or
 	// is SUBSCRIBED to. The popover only adds to creator-owned collections
 	// today, but collaborative collections shown in the user's library
@@ -2435,7 +2471,10 @@ func (s *CollectionService) resolveEntityNameAndSlug(entityType string, entityID
 		}
 	case communitym.CollectionEntityShow:
 		var show catalogm.Show
-		if err := s.db.Select("id, title, slug").First(&show, entityID).Error; err == nil {
+		// A gated show misses here and falls through to the trailing
+		// ("Unknown", "") every other unresolvable entity id returns.
+		if err := s.scopeToVisibleShows(s.db.Select("id, title, slug"), "shows").
+			First(&show, entityID).Error; err == nil {
 			slug := ""
 			if show.Slug != nil {
 				slug = *show.Slug
@@ -2564,7 +2603,11 @@ func (s *CollectionService) batchResolveEntityNames(entityIDsByType map[string][
 
 		case communitym.CollectionEntityShow:
 			var shows []catalogm.Show
-			s.db.Select("id, title, slug, image_url").Where("id IN ?", ids).Find(&shows)
+			// A collection that contains a gated show does not publish its
+			// title or slug: the key is simply absent from the maps, the same
+			// as for an id no show row carries.
+			s.scopeToVisibleShows(s.db.Select("id, title, slug, image_url"), "shows").
+				Where("id IN ?", ids).Find(&shows)
 			for _, sh := range shows {
 				key := fmt.Sprintf("%s:%d", entityType, sh.ID)
 				names[key] = sh.Title
@@ -3532,7 +3575,10 @@ func (s *CollectionService) loadEntityDetailsForGraph(entityType string, ids []u
 			return nil, fmt.Errorf("failed to load venue details: %w", err)
 		}
 	case communitym.CollectionEntityShow:
-		if err := s.db.Table("shows").
+		// A gated show contributes no node to the graph, the same as an id
+		// with no show row. batchUpcomingShowCountForArtists above holds the
+		// same line for its own counts.
+		if err := s.scopeToVisibleShows(s.db.Table("shows"), "shows").
 			Select("id, title AS name, slug, city, state").
 			Where("id IN ?", ids).
 			Order("title ASC").Scan(&raws).Error; err != nil {

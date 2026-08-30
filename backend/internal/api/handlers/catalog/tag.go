@@ -20,13 +20,22 @@ import (
 type TagHandler struct {
 	tagService contracts.TagServiceInterface
 	auditLog   contracts.AuditLogServiceInterface
+	// showVisibility gates the per-entity tag routes when the entity is a show,
+	// on the rule GET /shows/{id} enforces (PSY-1939). Required, not optional: a
+	// nil gate answers "not visible" for everyone rather than serving.
+	showVisibility contracts.ShowVisibilityInterface
 }
 
 // NewTagHandler creates a new TagHandler.
-func NewTagHandler(tagService contracts.TagServiceInterface, auditLog contracts.AuditLogServiceInterface) *TagHandler {
+func NewTagHandler(
+	tagService contracts.TagServiceInterface,
+	auditLog contracts.AuditLogServiceInterface,
+	showVisibility contracts.ShowVisibilityInterface,
+) *TagHandler {
 	return &TagHandler{
-		tagService: tagService,
-		auditLog:   auditLog,
+		tagService:     tagService,
+		auditLog:       auditLog,
+		showVisibility: showVisibility,
 	}
 }
 
@@ -317,6 +326,19 @@ func (h *TagHandler) ListEntityTagsHandler(ctx context.Context, req *ListEntityT
 	entityID, err := strconv.ParseUint(req.EntityID, 10, 32)
 	if err != nil {
 		return nil, huma.Error400BadRequest("Invalid entity ID")
+	}
+
+	// A show's tags are the show's own sub-resource, reached by the id GET
+	// /shows/{id} refuses for a non-approved show, so they answer to the same
+	// viewer rule (PSY-1939). Other entity types pass untouched.
+	//
+	// The EMPTY LIST, not a 404: an untagged entity already answers that way and
+	// the two must be indistinguishable. The array is allocated, never nil, so
+	// the JSON is [] exactly as the service's own empty result encodes.
+	if !shared.EntitySubResourceVisible(h.showVisibility, req.EntityType, uint(entityID), middleware.GetShowViewerFromContext(ctx)) {
+		resp := &ListEntityTagsResponse{}
+		resp.Body.Tags = []contracts.EntityTagResponse{}
+		return resp, nil
 	}
 
 	var userID uint

@@ -260,13 +260,7 @@ func granularPrivacy(targetUser *authm.User) contracts.PrivacySettings {
 func (h *ContributorProfileHandler) GetPublicProfileHandler(ctx context.Context, req *GetPublicProfileRequest) (*GetPublicProfileResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	var viewerID *uint
-	user := middleware.GetUserFromContext(ctx)
-	if user != nil {
-		viewerID = &user.ID
-	}
-
-	profile, err := h.profileService.GetPublicProfile(req.Username, viewerID)
+	profile, err := h.profileService.GetPublicProfile(req.Username, middleware.GetShowViewerFromContext(ctx))
 	if err != nil {
 		logger.FromContext(ctx).Error("get_public_profile_failed",
 			"username", req.Username,
@@ -301,7 +295,7 @@ func (h *ContributorProfileHandler) GetContributionHistoryHandler(ctx context.Co
 			return nil, huma.Error404NotFound("User not found")
 		case contracts.PrivacyCountOnly:
 			// Return total count but no items
-			stats, err := h.profileService.GetContributionStats(targetUser.ID)
+			stats, err := h.profileService.GetContributionStats(targetUser.ID, middleware.GetShowViewerFromContext(ctx))
 			if err != nil {
 				logger.FromContext(ctx).Error("get_contribution_stats_failed",
 					"user_id", targetUser.ID,
@@ -328,7 +322,7 @@ func (h *ContributorProfileHandler) GetContributionHistoryHandler(ctx context.Co
 		}
 	}
 
-	contributions, total, err := h.profileService.GetContributionHistory(targetUser.ID, req.Limit, req.Offset, req.EntityType)
+	contributions, total, err := h.profileService.GetContributionHistory(targetUser.ID, req.Limit, req.Offset, req.EntityType, middleware.GetShowViewerFromContext(ctx))
 	if err != nil {
 		logger.FromContext(ctx).Error("get_contribution_history_failed",
 			"user_id", targetUser.ID,
@@ -364,7 +358,7 @@ func (h *ContributorProfileHandler) GetOwnProfileHandler(ctx context.Context, re
 		return nil, huma.Error401Unauthorized("Authentication required")
 	}
 
-	profile, err := h.profileService.GetOwnProfile(user.ID)
+	profile, err := h.profileService.GetOwnProfile(user.ID, middleware.GetShowViewerFromContext(ctx))
 	if err != nil {
 		logger.FromContext(ctx).Error("get_own_profile_failed",
 			"user_id", user.ID,
@@ -392,7 +386,7 @@ func (h *ContributorProfileHandler) GetOwnContributionsHandler(ctx context.Conte
 		return nil, huma.Error401Unauthorized("Authentication required")
 	}
 
-	contributions, total, err := h.profileService.GetContributionHistory(user.ID, req.Limit, req.Offset, req.EntityType)
+	contributions, total, err := h.profileService.GetContributionHistory(user.ID, req.Limit, req.Offset, req.EntityType, middleware.GetShowViewerFromContext(ctx))
 	if err != nil {
 		logger.FromContext(ctx).Error("get_own_contributions_failed",
 			"user_id", user.ID,
@@ -713,7 +707,7 @@ func (h *ContributorProfileHandler) GetActivityHeatmapHandler(ctx context.Contex
 		}
 	}
 
-	heatmap, err := h.profileService.GetActivityHeatmap(targetUser.ID)
+	heatmap, err := h.profileService.GetActivityHeatmap(targetUser.ID, middleware.GetShowViewerFromContext(ctx))
 	if err != nil {
 		logger.FromContext(ctx).Error("get_activity_heatmap_failed",
 			"user_id", targetUser.ID,

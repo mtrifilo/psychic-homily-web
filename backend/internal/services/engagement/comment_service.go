@@ -1110,9 +1110,22 @@ func (s *CommentService) ListFieldNotesByAuthor(userID uint, limit, offset int) 
 		offset = 0
 	}
 
+	// Notes on shows the public cannot see are omitted, from the page AND from
+	// the total (PSY-1939). Every note here is on a show by construction, and a
+	// note carries the show's address and running order: the payload
+	// GET /shows/{id}'s 404 withholds. This is a per-author listing, not the
+	// show's own sub-resource, so it reads the PUBLIC tier for every caller
+	// including the author. See services/shared/show_visibility.go for that
+	// split; the show's own page is where a submitter reads their own notes.
+	//
+	// Filtered in the query rather than after the load so the total counts the
+	// rows the page contains. A short page beside a larger total announces how
+	// many were withheld, which is the same disclosure as a number.
+	showVisible, showVisibleArgs := shared.VisibleShowExistsSQL("comments.entity_id", contracts.ShowViewer{})
 	query := s.db.Model(&engagementm.Comment{}).
 		Where("user_id = ? AND entity_type = ? AND kind = ? AND visibility = ?",
-			userID, engagementm.CommentEntityShow, engagementm.CommentKindFieldNote, engagementm.CommentVisibilityVisible)
+			userID, engagementm.CommentEntityShow, engagementm.CommentKindFieldNote, engagementm.CommentVisibilityVisible).
+		Where(showVisible, showVisibleArgs...)
 
 	var total int64
 	if err := query.Count(&total).Error; err != nil {

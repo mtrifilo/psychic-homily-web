@@ -17,7 +17,7 @@ import (
 // ============================================================================
 
 func testCommentHandler() *CommentHandler {
-	return NewCommentHandler(nil, nil, nil, nil)
+	return NewCommentHandler(nil, nil, nil, nil, testhelpers.AllShowsVisible())
 }
 
 func commentUserCtx() context.Context {
@@ -75,7 +75,7 @@ func TestListComments_UnsupportedEntityType(t *testing.T) {
 			return nil, apperrors.ErrCommentInvalidEntityType(entityType)
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, nil)
+	h := NewCommentHandler(mock, mock, nil, nil, testhelpers.AllShowsVisible())
 	_, err := h.ListCommentsHandler(context.Background(), &ListCommentsRequest{
 		EntityType: "invalid_type",
 		EntityID:   "1",
@@ -103,7 +103,7 @@ func TestListComments_Success(t *testing.T) {
 			}, nil
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, nil)
+	h := NewCommentHandler(mock, mock, nil, nil, testhelpers.AllShowsVisible())
 	resp, err := h.ListCommentsHandler(context.Background(), &ListCommentsRequest{
 		EntityType: "show",
 		EntityID:   "5",
@@ -129,7 +129,7 @@ func TestListComments_DefaultLimit(t *testing.T) {
 			return &contracts.CommentListResponse{Comments: []*contracts.CommentResponse{}, Total: 0}, nil
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, nil)
+	h := NewCommentHandler(mock, mock, nil, nil, testhelpers.AllShowsVisible())
 	_, err := h.ListCommentsHandler(context.Background(), &ListCommentsRequest{
 		EntityType: "artist",
 		EntityID:   "1",
@@ -148,7 +148,7 @@ func TestListComments_LimitCap(t *testing.T) {
 			return &contracts.CommentListResponse{Comments: []*contracts.CommentResponse{}, Total: 0}, nil
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, nil)
+	h := NewCommentHandler(mock, mock, nil, nil, testhelpers.AllShowsVisible())
 	_, err := h.ListCommentsHandler(context.Background(), &ListCommentsRequest{
 		EntityType: "artist",
 		EntityID:   "1",
@@ -165,7 +165,7 @@ func TestListComments_ServiceError(t *testing.T) {
 			return nil, fmt.Errorf("database error")
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, nil)
+	h := NewCommentHandler(mock, mock, nil, nil, testhelpers.AllShowsVisible())
 	_, err := h.ListCommentsHandler(context.Background(), &ListCommentsRequest{
 		EntityType: "show",
 		EntityID:   "1",
@@ -194,7 +194,7 @@ func TestListComments_PopulatesUserVote_WhenAuthenticated(t *testing.T) {
 			return map[uint]int{1: up}, nil
 		},
 	}
-	h := NewCommentHandler(commentSvc, commentSvc, voteSvc, nil)
+	h := NewCommentHandler(commentSvc, commentSvc, voteSvc, nil, testhelpers.AllShowsVisible())
 	resp, err := h.ListCommentsHandler(commentUserCtx(), &ListCommentsRequest{
 		EntityType: "show",
 		EntityID:   "5",
@@ -233,7 +233,7 @@ func TestListComments_DoesNotPopulateUserVote_WhenAnonymous(t *testing.T) {
 			return nil, nil
 		},
 	}
-	h := NewCommentHandler(commentSvc, commentSvc, voteSvc, nil)
+	h := NewCommentHandler(commentSvc, commentSvc, voteSvc, nil, testhelpers.AllShowsVisible())
 	resp, err := h.ListCommentsHandler(context.Background(), &ListCommentsRequest{
 		EntityType: "show",
 		EntityID:   "5",
@@ -261,7 +261,7 @@ func TestListComments_SwallowsVoteLookupError(t *testing.T) {
 			return nil, fmt.Errorf("vote lookup failed")
 		},
 	}
-	h := NewCommentHandler(commentSvc, commentSvc, voteSvc, nil)
+	h := NewCommentHandler(commentSvc, commentSvc, voteSvc, nil, testhelpers.AllShowsVisible())
 	resp, err := h.ListCommentsHandler(commentUserCtx(), &ListCommentsRequest{
 		EntityType: "show",
 		EntityID:   "5",
@@ -290,7 +290,7 @@ func TestGetComment_NotFound(t *testing.T) {
 			return nil, apperrors.ErrCommentNotFound()
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, nil)
+	h := NewCommentHandler(mock, mock, nil, nil, testhelpers.AllShowsVisible())
 	_, err := h.GetCommentHandler(context.Background(), &GetCommentRequest{CommentID: "99"})
 	testhelpers.AssertHumaError(t, err, 404)
 }
@@ -305,7 +305,7 @@ func TestGetComment_Success(t *testing.T) {
 			return expected, nil
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, nil)
+	h := NewCommentHandler(mock, mock, nil, nil, testhelpers.AllShowsVisible())
 	resp, err := h.GetCommentHandler(context.Background(), &GetCommentRequest{CommentID: "1"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -331,7 +331,7 @@ func TestGetThread_NotFound(t *testing.T) {
 			return nil, apperrors.ErrCommentThreadRootNotFound()
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, nil)
+	h := NewCommentHandler(mock, mock, nil, nil, testhelpers.AllShowsVisible())
 	_, err := h.GetThreadHandler(context.Background(), &GetThreadRequest{CommentID: "99"})
 	testhelpers.AssertHumaError(t, err, 404)
 }
@@ -342,7 +342,7 @@ func TestGetThread_NotARoot(t *testing.T) {
 			return nil, apperrors.ErrCommentNotThreadRoot()
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, nil)
+	h := NewCommentHandler(mock, mock, nil, nil, testhelpers.AllShowsVisible())
 	_, err := h.GetThreadHandler(context.Background(), &GetThreadRequest{CommentID: "5"})
 	testhelpers.AssertHumaError(t, err, 400)
 }
@@ -358,7 +358,7 @@ func TestGetThread_Success(t *testing.T) {
 			return []*contracts.CommentResponse{root, reply}, nil
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, nil)
+	h := NewCommentHandler(mock, mock, nil, nil, testhelpers.AllShowsVisible())
 	resp, err := h.GetThreadHandler(context.Background(), &GetThreadRequest{CommentID: "1"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -404,7 +404,7 @@ func TestCreateComment_UnsupportedEntityType(t *testing.T) {
 			return nil, apperrors.ErrCommentInvalidEntityType("nope")
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, nil)
+	h := NewCommentHandler(mock, mock, nil, nil, testhelpers.AllShowsVisible())
 	req := &CreateCommentRequest{EntityType: "nope", EntityID: "1"}
 	req.Body.Body = "Hello"
 	_, err := h.CreateCommentHandler(commentUserCtx(), req)
@@ -417,7 +417,7 @@ func TestCreateComment_EntityNotFound(t *testing.T) {
 			return nil, apperrors.ErrCommentEntityNotFound("show", 999)
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, nil)
+	h := NewCommentHandler(mock, mock, nil, nil, testhelpers.AllShowsVisible())
 	req := &CreateCommentRequest{EntityType: "show", EntityID: "999"}
 	req.Body.Body = "Hello"
 	_, err := h.CreateCommentHandler(commentUserCtx(), req)
@@ -440,7 +440,7 @@ func TestCreateComment_Success(t *testing.T) {
 			return expected, nil
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, &testhelpers.MockAuditLogService{})
+	h := NewCommentHandler(mock, mock, nil, &testhelpers.MockAuditLogService{}, testhelpers.AllShowsVisible())
 	req := &CreateCommentRequest{EntityType: "show", EntityID: "5"}
 	req.Body.Body = "Great show!"
 	resp, err := h.CreateCommentHandler(commentUserCtx(), req)
@@ -461,7 +461,7 @@ func TestCreateComment_WithReplyPermission(t *testing.T) {
 			return makeCommentResponse(1, "show", 5, 10), nil
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, nil)
+	h := NewCommentHandler(mock, mock, nil, nil, testhelpers.AllShowsVisible())
 	req := &CreateCommentRequest{EntityType: "show", EntityID: "5"}
 	req.Body.Body = "My thoughts"
 	req.Body.ReplyPermission = "author_only"
@@ -477,7 +477,7 @@ func TestCreateComment_ServiceError(t *testing.T) {
 			return nil, fmt.Errorf("database error")
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, nil)
+	h := NewCommentHandler(mock, mock, nil, nil, testhelpers.AllShowsVisible())
 	req := &CreateCommentRequest{EntityType: "show", EntityID: "1"}
 	req.Body.Body = "Hello"
 	_, err := h.CreateCommentHandler(commentUserCtx(), req)
@@ -514,7 +514,7 @@ func TestCreateReply_ParentNotFound(t *testing.T) {
 			return nil, apperrors.ErrCommentNotFound()
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, nil)
+	h := NewCommentHandler(mock, mock, nil, nil, testhelpers.AllShowsVisible())
 	req := &CreateReplyRequest{CommentID: "99"}
 	req.Body.Body = "Replying..."
 	_, err := h.CreateReplyHandler(commentUserCtx(), req)
@@ -531,7 +531,7 @@ func TestCreateReply_MaxDepthExceeded(t *testing.T) {
 			return nil, apperrors.ErrCommentMaxDepthExceeded(2)
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, nil)
+	h := NewCommentHandler(mock, mock, nil, nil, testhelpers.AllShowsVisible())
 	req := &CreateReplyRequest{CommentID: "1"}
 	req.Body.Body = "Deep reply"
 	_, err := h.CreateReplyHandler(commentUserCtx(), req)
@@ -555,7 +555,7 @@ func TestCreateReply_Success(t *testing.T) {
 			return reply, nil
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, &testhelpers.MockAuditLogService{})
+	h := NewCommentHandler(mock, mock, nil, &testhelpers.MockAuditLogService{}, testhelpers.AllShowsVisible())
 	req := &CreateReplyRequest{CommentID: "1"}
 	req.Body.Body = "Nice reply!"
 	resp, err := h.CreateReplyHandler(commentUserCtx(), req)
@@ -600,7 +600,7 @@ func TestUpdateComment_NotFound(t *testing.T) {
 			return nil, apperrors.ErrCommentNotFound()
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, nil)
+	h := NewCommentHandler(mock, mock, nil, nil, testhelpers.AllShowsVisible())
 	req := &UpdateCommentRequest{CommentID: "99"}
 	req.Body.Body = "Updated text"
 	_, err := h.UpdateCommentHandler(commentUserCtx(), req)
@@ -613,7 +613,7 @@ func TestUpdateComment_ForbiddenNotAuthor(t *testing.T) {
 			return nil, apperrors.ErrCommentForbidden("only the comment author can edit this comment")
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, nil)
+	h := NewCommentHandler(mock, mock, nil, nil, testhelpers.AllShowsVisible())
 	req := &UpdateCommentRequest{CommentID: "1"}
 	req.Body.Body = "Trying to edit someone else's comment"
 	_, err := h.UpdateCommentHandler(commentUserCtx(), req)
@@ -639,7 +639,7 @@ func TestUpdateComment_Success(t *testing.T) {
 			return updated, nil
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, &testhelpers.MockAuditLogService{})
+	h := NewCommentHandler(mock, mock, nil, &testhelpers.MockAuditLogService{}, testhelpers.AllShowsVisible())
 	req := &UpdateCommentRequest{CommentID: "1"}
 	req.Body.Body = "Updated body"
 	resp, err := h.UpdateCommentHandler(commentUserCtx(), req)
@@ -676,7 +676,7 @@ func TestDeleteComment_NotFound(t *testing.T) {
 			return apperrors.ErrCommentNotFound()
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, nil)
+	h := NewCommentHandler(mock, mock, nil, nil, testhelpers.AllShowsVisible())
 	_, err := h.DeleteCommentHandler(commentUserCtx(), &DeleteCommentRequest{CommentID: "99"})
 	testhelpers.AssertHumaError(t, err, 404)
 }
@@ -687,7 +687,7 @@ func TestDeleteComment_ForbiddenNotAuthorOrAdmin(t *testing.T) {
 			return apperrors.ErrCommentForbidden("only the comment author or an admin can delete this comment")
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, nil)
+	h := NewCommentHandler(mock, mock, nil, nil, testhelpers.AllShowsVisible())
 	_, err := h.DeleteCommentHandler(commentUserCtx(), &DeleteCommentRequest{CommentID: "1"})
 	testhelpers.AssertHumaError(t, err, 403)
 }
@@ -707,7 +707,7 @@ func TestDeleteComment_SuccessOwn(t *testing.T) {
 			return nil
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, &testhelpers.MockAuditLogService{})
+	h := NewCommentHandler(mock, mock, nil, &testhelpers.MockAuditLogService{}, testhelpers.AllShowsVisible())
 	_, err := h.DeleteCommentHandler(commentUserCtx(), &DeleteCommentRequest{CommentID: "1"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -723,7 +723,7 @@ func TestDeleteComment_SuccessAdmin(t *testing.T) {
 			return nil
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, &testhelpers.MockAuditLogService{})
+	h := NewCommentHandler(mock, mock, nil, &testhelpers.MockAuditLogService{}, testhelpers.AllShowsVisible())
 	_, err := h.DeleteCommentHandler(commentAdminCtx(), &DeleteCommentRequest{CommentID: "1"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -736,7 +736,7 @@ func TestDeleteComment_ServiceError(t *testing.T) {
 			return fmt.Errorf("database error")
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, nil)
+	h := NewCommentHandler(mock, mock, nil, nil, testhelpers.AllShowsVisible())
 	_, err := h.DeleteCommentHandler(commentUserCtx(), &DeleteCommentRequest{CommentID: "1"})
 	testhelpers.AssertHumaError(t, err, 500)
 }
@@ -781,7 +781,7 @@ func TestUpdateReplyPermission_InvalidEnum(t *testing.T) {
 			return nil, nil
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, nil)
+	h := NewCommentHandler(mock, mock, nil, nil, testhelpers.AllShowsVisible())
 	req := &UpdateReplyPermissionRequest{CommentID: "1"}
 	req.Body.Permission = "garbage"
 	_, err := h.UpdateReplyPermissionHandler(commentUserCtx(), req)
@@ -794,7 +794,7 @@ func TestUpdateReplyPermission_Forbidden(t *testing.T) {
 			return nil, apperrors.ErrCommentForbidden("only the comment author can change reply permission")
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, nil)
+	h := NewCommentHandler(mock, mock, nil, nil, testhelpers.AllShowsVisible())
 	req := &UpdateReplyPermissionRequest{CommentID: "1"}
 	req.Body.Permission = "author_only"
 	_, err := h.UpdateReplyPermissionHandler(commentUserCtx(), req)
@@ -807,7 +807,7 @@ func TestUpdateReplyPermission_NotFound(t *testing.T) {
 			return nil, apperrors.ErrCommentNotFound()
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, nil)
+	h := NewCommentHandler(mock, mock, nil, nil, testhelpers.AllShowsVisible())
 	req := &UpdateReplyPermissionRequest{CommentID: "99"}
 	req.Body.Permission = "followers"
 	_, err := h.UpdateReplyPermissionHandler(commentUserCtx(), req)
@@ -831,7 +831,7 @@ func TestUpdateReplyPermission_Success(t *testing.T) {
 			return updated, nil
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, &testhelpers.MockAuditLogService{})
+	h := NewCommentHandler(mock, mock, nil, &testhelpers.MockAuditLogService{}, testhelpers.AllShowsVisible())
 	req := &UpdateReplyPermissionRequest{CommentID: "1"}
 	req.Body.Permission = "followers"
 	resp, err := h.UpdateReplyPermissionHandler(commentUserCtx(), req)
@@ -860,7 +860,7 @@ func TestUpdateReplyPermission_AcceptsAllValidEnumValues(t *testing.T) {
 					return updated, nil
 				},
 			}
-			h := NewCommentHandler(mock, mock, nil, &testhelpers.MockAuditLogService{})
+			h := NewCommentHandler(mock, mock, nil, &testhelpers.MockAuditLogService{}, testhelpers.AllShowsVisible())
 			req := &UpdateReplyPermissionRequest{CommentID: "1"}
 			req.Body.Permission = perm
 			resp, err := h.UpdateReplyPermissionHandler(commentUserCtx(), req)
@@ -889,7 +889,7 @@ func TestCreateReply_RepliesDisabled(t *testing.T) {
 			return nil, apperrors.ErrCommentForbidden("replies to this comment are disabled")
 		},
 	}
-	h := NewCommentHandler(reader, writer, nil, nil)
+	h := NewCommentHandler(reader, writer, nil, nil, testhelpers.AllShowsVisible())
 	req := &CreateReplyRequest{CommentID: "1"}
 	req.Body.Body = "trying to reply"
 	_, err := h.CreateReplyHandler(commentUserCtx(), req)
@@ -907,7 +907,7 @@ func TestCreateReply_FollowersOnlyRejected(t *testing.T) {
 			return nil, apperrors.ErrCommentForbidden("only followers of the author can reply to this comment")
 		},
 	}
-	h := NewCommentHandler(reader, writer, nil, nil)
+	h := NewCommentHandler(reader, writer, nil, nil, testhelpers.AllShowsVisible())
 	req := &CreateReplyRequest{CommentID: "1"}
 	req.Body.Body = "trying to reply"
 	_, err := h.CreateReplyHandler(commentUserCtx(), req)

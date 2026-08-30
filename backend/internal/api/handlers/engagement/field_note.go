@@ -39,14 +39,35 @@ type FieldNoteHandler struct {
 	writer          FieldNoteWriter
 	reader          FieldNoteReader
 	auditLogService contracts.AuditLogServiceInterface
+	// showVisibility gates the show listing on the same rule GET /shows/{id}
+	// enforces (PSY-1939). Required, not optional: a nil gate answers "not
+	// visible" for everyone rather than serving.
+	showVisibility contracts.ShowVisibilityInterface
 }
 
 // NewFieldNoteHandler creates a new FieldNoteHandler.
-func NewFieldNoteHandler(writer FieldNoteWriter, reader FieldNoteReader, auditLogService contracts.AuditLogServiceInterface) *FieldNoteHandler {
+func NewFieldNoteHandler(
+	writer FieldNoteWriter,
+	reader FieldNoteReader,
+	auditLogService contracts.AuditLogServiceInterface,
+	showVisibility contracts.ShowVisibilityInterface,
+) *FieldNoteHandler {
 	return &FieldNoteHandler{
 		writer:          writer,
 		reader:          reader,
 		auditLogService: auditLogService,
+		showVisibility:  showVisibility,
+	}
+}
+
+// emptyCommentList is the answer a gated show's note listing gives, and it must
+// stay byte-identical to what the service returns for a show with no notes: an
+// empty (never null) array, a zero total, and has_more false.
+func emptyCommentList() *contracts.CommentListResponse {
+	return &contracts.CommentListResponse{
+		Comments: []*contracts.CommentResponse{},
+		Total:    0,
+		HasMore:  false,
 	}
 }
 
@@ -87,6 +108,19 @@ func (h *FieldNoteHandler) CreateFieldNoteHandler(ctx context.Context, req *Crea
 
 	if strings.TrimSpace(req.Body.Body) == "" {
 		return nil, huma.Error400BadRequest("Field note body is required")
+	}
+
+	// The WRITE gate, and it is the read gate's twin (PSY-1939). Without it a
+	// caller who cannot see a show can still tell it apart from a show that does
+	// not exist, by the difference between "show not found" and any later
+	// validation error — and can attach content to it. The answer here is
+	// literally the service's own not-found error, so the two cases are one
+	// response.
+	if !shared.ShowSubResourceVisible(h.showVisibility, uint(showID), middleware.GetShowViewerFromContext(ctx)) {
+		if mapped := shared.MapFieldNoteError(apperrors.ErrFieldNoteShowNotFound()); mapped != nil {
+			return nil, mapped
+		}
+		return nil, huma.Error404NotFound("Show not found")
 	}
 
 	serviceReq := &contracts.CreateFieldNoteRequest{
@@ -147,10 +181,24 @@ type ListFieldNotesResponse struct {
 }
 
 // ListFieldNotesHandler handles GET /shows/{show_id}/field-notes
+//
+// GATED on the show's own visibility (PSY-1939). A field note carries the show's
+// address, its running order and what the room was like, which is precisely the
+// payload GET /shows/{id}'s 404 withholds for a non-approved show; serving it
+// here made that 404 cost a reader one extra request.
+//
+// A gated show answers with the EMPTY LIST, not a 404, because that is what a
+// show id with no notes on it already answers and the two must be
+// indistinguishable. Total 0 and has_more false come with it: an empty page
+// beside a non-zero total is the same leak stated as a number.
 func (h *FieldNoteHandler) ListFieldNotesHandler(ctx context.Context, req *ListFieldNotesRequest) (*ListFieldNotesResponse, error) {
 	showID, err := strconv.ParseUint(req.ShowID, 10, 32)
 	if err != nil {
 		return nil, huma.Error400BadRequest("Invalid show ID")
+	}
+
+	if !shared.ShowSubResourceVisible(h.showVisibility, uint(showID), middleware.GetShowViewerFromContext(ctx)) {
+		return &ListFieldNotesResponse{Body: emptyCommentList()}, nil
 	}
 
 	limit := req.Limit

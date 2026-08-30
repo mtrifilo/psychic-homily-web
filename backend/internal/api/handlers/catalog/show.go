@@ -15,6 +15,7 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/respond"
 	"psychic-homily-backend/internal/services/contracts"
 	servicesshared "psychic-homily-backend/internal/services/shared"
@@ -1624,6 +1625,28 @@ func (h *ShowHandler) ExportShowHandler(ctx context.Context, req *ExportShowRequ
 	logger.FromContext(ctx).Debug("show_export_attempt",
 		"show_id", showID,
 	)
+
+	// The export streams a show's whole contents, so it answers the detail
+	// route's visibility question first: a show whose status is not approved is
+	// not exported, and a caller asking for one gets the SAME 404 an unknown
+	// show id gets, from the same branch below.
+	//
+	// PUBLIC tier for every caller, admins included. This route carries no auth
+	// middleware and is not registered on an optional-auth group
+	// (routes/shows.go), so there is no viewer to resolve here and no admin or
+	// submitter arm to take. The rule's single definition is
+	// services/shared/show_visibility.go; its SQL and *gorm.DB spellings both
+	// want a database, which a handler does not hold, so the public arm is
+	// spelled against the same catalogm.ShowStatusApproved constant those
+	// spellings compare (PSY-1939).
+	show, err := h.showService.GetShow(uint(showID))
+	if err != nil || show == nil || show.Status != string(catalogm.ShowStatusApproved) {
+		logger.FromContext(ctx).Warn("show_export_not_visible",
+			"show_id", showID,
+			"request_id", requestID,
+		)
+		return nil, huma.Error404NotFound("Show not found")
+	}
 
 	// Export show to markdown
 	content, filename, err := h.showImportService.ExportShowToMarkdown(uint(showID))

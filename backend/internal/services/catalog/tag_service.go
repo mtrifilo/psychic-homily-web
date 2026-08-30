@@ -1215,10 +1215,16 @@ func (s *TagService) GetTagEntities(tagID uint, entityType string, limit, offset
 				enriched.EntityType = et.EntityType
 				enriched.EntityID = et.EntityID
 				item = enriched
-			} else if et.EntityType == "collection" {
+			} else if et.EntityType == "collection" || et.EntityType == catalogm.TagEntityShow {
 				// PSY-553: enrichCollections drops private + deleted
 				// collections so the public tag detail page can't leak
 				// them; skip rather than emit an empty-name placeholder.
+				//
+				// enrichShows drops gated shows for the same reason
+				// (PSY-1939). A show absent from the enrichment index is one
+				// that does not exist or one the public tier may not see, and
+				// both leave this listing by the same door: no row, rather
+				// than a nameless card that says a show is there.
 				continue
 			}
 		}
@@ -1241,10 +1247,22 @@ func (s *TagService) enrichBare(entityType string, ids []uint) map[uint]contract
 		Name string
 		Slug string
 	}
+	// The shows table carries a read-time visibility gate, so the bare spelling
+	// of a show row carries it too: enrichShows falls back here when its own
+	// query fails, and that path may not publish a gated show's title either.
+	// Public tier for every caller, for the reason enrichShows gives (PSY-1939).
+	where := "id IN ?"
+	args := []interface{}{ids}
+	if meta.table == "shows" {
+		visible, visibleArgs := shared.VisibleShowPredicateSQL("shows", contracts.ShowViewer{})
+		where += " AND " + visible
+		args = append(args, visibleArgs...)
+	}
+
 	var rows []row
 	if err := s.db.Raw(
-		fmt.Sprintf("SELECT id, %s AS name, COALESCE(slug, '') AS slug FROM %s WHERE id IN ?", meta.nameCol, meta.table),
-		ids,
+		fmt.Sprintf("SELECT id, %s AS name, COALESCE(slug, '') AS slug FROM %s WHERE %s", meta.nameCol, meta.table, where),
+		args...,
 	).Scan(&rows).Error; err != nil {
 		return out
 	}
@@ -1571,6 +1589,17 @@ func (s *TagService) enrichShows(ids []uint) map[uint]contracts.TaggedEntityItem
 		HeadlinerName string
 		HeadlinerSlug string
 	}
+	// A show whose status is not approved is not published by this listing, and
+	// the tier is PUBLIC for every caller, admins included: /tags/{tag_id}/entities
+	// is an anonymous, shareable, cacheable listing whose contents must not vary
+	// by credential. Its siblings answer the same way (tag_intersection.go,
+	// entity_existence.go, engagement's venue field-note rollup), and
+	// venueLocalUpcomingCountSQL above spells this same rule for its own count.
+	// The predicate comes from services/shared so there stays ONE definition of
+	// it (PSY-1939).
+	visible, visibleArgs := shared.VisibleShowPredicateSQL("s", contracts.ShowViewer{})
+	args := append([]interface{}{ids}, visibleArgs...)
+
 	var rows []row
 	err := s.db.Raw(`
 		SELECT s.id,
@@ -1599,8 +1628,8 @@ func (s *TagService) enrichShows(ids []uint) map[uint]contracts.TaggedEntityItem
 		    ORDER BY CASE WHEN sa.set_type = 'headliner' THEN 0 ELSE 1 END, sa.position ASC, sa.artist_id ASC
 		    LIMIT 1
 		) a ON true
-		WHERE s.id IN ?
-	`, ids).Scan(&rows).Error
+		WHERE s.id IN ? AND `+visible+`
+	`, args...).Scan(&rows).Error
 	if err != nil {
 		return s.enrichBare("show", ids)
 	}

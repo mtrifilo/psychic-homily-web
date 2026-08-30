@@ -22,7 +22,7 @@ type TagHandlerIntegrationSuite struct {
 
 func (s *TagHandlerIntegrationSuite) SetupSuite() {
 	s.deps = testhelpers.SetupIntegrationDeps(s.T())
-	s.handler = NewTagHandler(s.deps.TagService, s.deps.AuditLogService)
+	s.handler = NewTagHandler(s.deps.TagService, s.deps.AuditLogService, testhelpers.AllShowsVisible())
 }
 
 func (s *TagHandlerIntegrationSuite) TearDownTest() {
