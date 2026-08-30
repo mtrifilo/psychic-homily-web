@@ -219,9 +219,9 @@ describe('BracketLink', () => {
     })
 
     // `rel` lives on the external branch only, NOT in the shared anchor-props
-    // bag. Hoisting it there type-checks and renders identically for every
-    // current call site, while telling Google this site's own internal links
-    // are paid placements.
+    // bag. Hoisting it there type-checks and passes the rest of this file,
+    // while stamping `noopener noreferrer` onto every internal bracket link in
+    // the app and telling Google the site's own links are paid placements.
     it('never puts sponsored on an internal link', () => {
       render(<BracketLink label="Shows" href="/shows" sponsored />)
       const link = screen.getByRole('link', { name: 'Shows' })

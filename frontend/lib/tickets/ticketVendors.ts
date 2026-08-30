@@ -33,8 +33,10 @@
  * so IT cannot introduce a redirect domain. It does not make one unreachable —
  * a contributor who stores `ticketmaster.evyy.net/c/123` gets it rendered
  * as-is, matching no vendor and carrying no tag. Nor does it police the PATH:
- * a stored Ticketmaster `/goto/` link (robots-disallowed, and what their share
- * UI hands out) would be tagged like any other. None of that is load-bearing
+ * for any vendor that carries an affiliate entry, a robots-disallowed path
+ * would be tagged like any other. (Ticketmaster's `/goto*` is the live example
+ * of such a path, but Ticketmaster is untaggable today for the separate reason
+ * recorded on {@link TICKET_VENDORS_BY_DOMAIN}.) None of that is load-bearing
  * while the JSON-LD emits no offer URL; all of it becomes a gate to build if
  * an affiliate-tagged `offers.url` is ever reconsidered.
  *
@@ -209,9 +211,15 @@ export interface TicketLink {
   /** The href to render. */
   href: string
   /**
-   * We attached (or already own) the affiliate tag on this URL, so the visible
-   * anchor must carry `rel="sponsored"` — Google's link-spam policy requires
-   * paid links to be qualified.
+   * This link carries a known affiliate tag — OURS OR SOMEBODY ELSE'S — so the
+   * visible anchor must carry `rel="sponsored"`. Google's link-spam policy
+   * requires paid links to be qualified, and that is a fact about the link
+   * rather than about who is paid.
+   *
+   * NOT "this link earns us money". A contributor can plant a stranger's
+   * partner ID, and this is true for that link too. Anything measuring revenue
+   * or attribution needs its own derivation; see {@link ticketLink} for why
+   * over-qualifying is the deliberate choice.
    */
   sponsored: boolean
 }
@@ -233,25 +241,80 @@ interface QueryPair {
 /**
  * A query-string key reduced to the form a vendor's server will compare on.
  *
- * Vendors percent-decode parameter NAMES, so `irmp`, `IRMP`, `%69rmp` and
- * `irmp%20` all arrive at the advertiser as the same parameter. Matching the
- * raw text would let any of the encoded spellings pass as "no tag here", and
- * this module would append ours beside one already present, delivering two
- * competing partner IDs. Used ONLY for comparison; output always keeps the
- * stored spelling.
+ * The decode is real and the leniency stops there. A server percent-decodes
+ * parameter NAMES and reads `+` as a space, so `%69rmp` genuinely arrives as
+ * `irmp` and matching raw text would let that spelling pass as "no tag here",
+ * appending ours beside one already present and delivering two competing IDs.
  *
- * `+` is a form-encoded space, and a malformed escape makes `decodeURIComponent`
- * throw, which this module never does.
+ * But query keys are CASE-SENSITIVE and no mainstream parser trims them, so
+ * `IRMP`, `irmp%20` and `+irmp` arrive as `IRMP`, `irmp ` and ` irmp`, none of
+ * which is the parameter the advertiser reads. Lowercasing or trimming here
+ * would treat them as somebody's credit and refuse to add ours, handing a
+ * contributor a one-character lever to suppress the tag forever while the page
+ * announced a paid link that pays nobody. Matching what the vendor actually
+ * reads is what makes both answers right.
+ *
+ * Used ONLY for comparison; output always keeps the stored spelling. A
+ * malformed escape makes `decodeURIComponent` throw, which this module never
+ * does.
  */
 function affiliateParamKey(key: string): string {
   const spaced = key.replace(/\+/g, ' ')
-  let decoded = spaced
   try {
-    decoded = decodeURIComponent(spaced)
+    return decodeURIComponent(spaced)
   } catch {
     // Keep the raw spelling: an undecodable key is not a tag we recognize.
+    return spaced
   }
-  return decoded.trim().toLowerCase()
+}
+
+/**
+ * Every affiliate parameter this module knows about, in normalized form.
+ *
+ * Read for QUALIFICATION, which is a different question from tagging and has a
+ * different scope. Tagging asks "does THIS vendor have a program we are in";
+ * qualification asks "is this link already monetized for somebody", and that
+ * is true of a planted `?irmp=` on any host, including a vendor with no
+ * affiliate entry and a host not in the table at all. Scoping the check to the
+ * matched vendor left every host but one publishing planted tags unqualified.
+ */
+const KNOWN_AFFILIATE_PARAMS: ReadonlySet<string> = new Set(
+  [
+    // Every network's parameter, whether or not a vendor currently uses it: a
+    // planted tag is planted regardless of which vendors we have onboarded.
+    IMPACT_DIRECT_TRACKING.param,
+    ...Object.values(TICKET_VENDORS_BY_DOMAIN).flatMap(vendor =>
+      vendor.affiliate ? [vendor.affiliate.param] : []
+    ),
+  ].map(affiliateParamKey)
+)
+
+/**
+ * Splits a query segment the way a server that accepts `;` as a separator
+ * would, for MATCHING only.
+ *
+ * `?a=1;irmp=<theirs>` hides a tag from a `&`-only parser: the guard sees one
+ * pair named `a` and appends ours, delivering two competing IDs to any vendor
+ * that splits on `;`. This module already preserves semicolons on the write
+ * side because such servers exist, so it cannot also refuse to look behind
+ * one. The write-back unit stays the whole `&`-segment, so byte preservation
+ * is unaffected.
+ */
+function matchableKeys(pair: QueryPair): { key: string; value: string }[] {
+  return pair.raw.split(';').map(part => {
+    const eq = part.indexOf('=')
+    return eq === -1
+      ? { key: part, value: '' }
+      : { key: part.slice(0, eq), value: part.slice(eq + 1) }
+  })
+}
+
+/** Whether this segment already credits somebody through a known param. */
+function carriesAffiliateTag(pair: QueryPair): boolean {
+  return matchableKeys(pair).some(
+    part =>
+      part.value !== '' && KNOWN_AFFILIATE_PARAMS.has(affiliateParamKey(part.key))
+  )
 }
 
 /**
@@ -326,10 +389,11 @@ function splitUrlForTagging(url: string): {
  * makes the answer independent of build configuration and of how the value was
  * encoded, which is what keeps this idempotent under re-application.
  *
- * The key is normalized before matching (percent-decoded, `+`-to-space,
- * trimmed, lowercased) because a vendor decodes parameter NAMES too: `?IRMP=`,
- * `?%69rmp=` and `?irmp%20=` are all somebody's credit, and treating them as
- * unrecognized would append ours beside theirs and deliver two competing IDs.
+ * The key is matched as the VENDOR reads it (see {@link affiliateParamKey}):
+ * `?%69rmp=` is their credit and gets ours withheld, while `?IRMP=` and
+ * `?irmp%20=` are inert spellings that credit nobody and do not block a real
+ * tag. `;` is treated as a separator for matching, because a tag hidden behind
+ * one would otherwise be invisible to this check.
  *
  * A VALUELESS occurrence (`?irmp` or `?irmp=`) credits nobody — it is a
  * truncated paste, not a competing partner — so it is dropped in favour of a
@@ -341,14 +405,11 @@ export function ticketLink(
 ): TicketLink {
   const passthrough: TicketLink = { href: rawUrl, sponsored: false }
 
-  const affiliate = resolveTicketVendor(rawUrl)?.affiliate
-  if (!affiliate) return passthrough
-
   const trimmed = rawUrl.trim()
   if (!ABSOLUTE_HTTP_URL.test(trimmed)) return passthrough
 
-  // Parsed only to confirm the value is a URL at all; the rewrite below works
-  // on the original text so nothing is re-encoded.
+  // Confirms the value is a URL at all, so everything below is total. The
+  // rewrite works on the original text, so nothing is re-encoded.
   try {
     new URL(trimmed)
   } catch {
@@ -356,20 +417,23 @@ export function ticketLink(
   }
 
   const { base, pairs, fragment } = splitUrlForTagging(trimmed)
-  const param = affiliateParamKey(affiliate.param)
-  const isAffiliateParam = (pair: QueryPair) =>
-    affiliateParamKey(pair.key) === param
 
-  // Checked BEFORE the partner ID, so an already-monetized link is qualified
-  // on every build, including one deployed without an ID configured.
-  if (pairs.some(pair => isAffiliateParam(pair) && pair.value !== '')) {
+  // Qualification comes FIRST, and is not scoped to the matched vendor or to
+  // this build's configuration: a planted tag on a vendor we have not
+  // onboarded, or on a host not in the table at all, is still a monetized link
+  // published on an indexed page.
+  if (pairs.some(carriesAffiliateTag)) {
     return { href: rawUrl, sponsored: true }
   }
+
+  const affiliate = resolveTicketVendor(rawUrl)?.affiliate
+  if (!affiliate) return passthrough
 
   const partnerId = partnerIds[affiliate.network]
   if (!partnerId) return passthrough
 
-  const kept = pairs.filter(pair => !isAffiliateParam(pair))
+  const param = affiliateParamKey(affiliate.param)
+  const kept = pairs.filter(pair => affiliateParamKey(pair.key) !== param)
   const query = [
     ...kept.map(pair => pair.raw),
     `${affiliate.param}=${encodeURIComponent(partnerId)}`,

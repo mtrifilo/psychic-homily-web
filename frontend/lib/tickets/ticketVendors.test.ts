@@ -241,27 +241,45 @@ describe('ticketLink with an Impact partner ID configured', () => {
   // planted foreign tag is a real input. It is neither rewritten (that would
   // redirect their commission to us) nor left unqualified (that would publish
   // an affiliate link on an indexed page with no rel="sponsored").
+  // Spellings a server really does resolve to `irmp`. Ours is withheld (two
+  // ids would compete) and the link is qualified.
   it.each([
     ['our own id', 'https://www.ticketweb.com/e/2?irmp=1234567'],
     ["another partner's id", 'https://www.ticketweb.com/e/2?irmp=9999999'],
-    ['an uppercase key', 'https://www.ticketweb.com/e/2?IRMP=9999999'],
-    // Vendors percent-decode parameter NAMES, so these all arrive as `irmp`.
-    // Matching raw text would append ours beside theirs and deliver two ids.
     ['a percent-encoded key', 'https://www.ticketweb.com/e/2?%69rmp=9999999'],
-    ['a space-padded key', 'https://www.ticketweb.com/e/2?irmp%20=9999999'],
-    // A literal `+` is a form-encoded space, so this key decodes to `irmp`.
-    ['a plus-padded key', 'https://www.ticketweb.com/e/2?+irmp=9999999'],
     ['a tag among other params', 'https://www.ticketweb.com/e/2?a=1&irmp=9999999&b=2'],
+    // Hidden behind a `;`, which some servers split on. A `&`-only scan would
+    // miss it and append ours, delivering two ids.
+    ['a tag behind a semicolon', 'https://www.ticketweb.com/e/2?a=1;irmp=9999999'],
   ])('leaves %s untouched and qualifies the link', (_label, url) => {
     expect(ticketLink(url, IMPACT)).toEqual({ href: url, sponsored: true })
   })
 
-  // The qualification describes the LINK, so it cannot depend on whether this
-  // particular build happens to carry an ID. A build deployed without one must
-  // still qualify a URL that already carries somebody's tag.
-  it('qualifies an already-tagged link even with no partner ID configured', () => {
-    const url = 'https://www.ticketweb.com/e/2?irmp=1234567'
-    expect(ticketLink(url, NO_PARTNERS)).toEqual({ href: url, sponsored: true })
+  // Query keys are case-sensitive and are not trimmed by any mainstream
+  // parser, so these reach the advertiser as `IRMP`, `irmp ` and ` irmp` and
+  // credit NOBODY. Treating them as a competing tag would hand a contributor a
+  // one-character lever to suppress ours forever.
+  it.each([
+    ['an uppercase key', 'https://www.ticketweb.com/e/2?IRMP=9999999'],
+    ['a space-padded key', 'https://www.ticketweb.com/e/2?irmp%20=9999999'],
+    ['a plus-padded key', 'https://www.ticketweb.com/e/2?+irmp=9999999'],
+  ])('still tags past %s, which credits nobody', (_label, url) => {
+    const result = ticketLink(url, IMPACT)
+    expect(result.href).toBe(`${url}&irmp=1234567`)
+    expect(result.sponsored).toBe(true)
+  })
+
+  // Qualification is about the LINK, so it is scoped neither to this build's
+  // configuration nor to vendors we have onboarded. A planted tag on a vendor
+  // with no affiliate entry, or on a host not in the table at all, is still a
+  // monetized link on an indexed page.
+  it.each([
+    ['no partner ID configured', 'https://www.ticketweb.com/e/2?irmp=1234567', NO_PARTNERS],
+    ['a vendor with no affiliate entry', 'https://www.ticketmaster.com/e/1?irmp=9999999', IMPACT],
+    ['an unaffiliated table vendor', 'https://dice.fm/e/1?irmp=9999999', IMPACT],
+    ['a host not in the table', 'https://tix.some-venue.example/e/1?irmp=9999999', IMPACT],
+  ])('qualifies a planted tag with %s', (_label, url, partners) => {
+    expect(ticketLink(url, partners)).toEqual({ href: url, sponsored: true })
   })
 
   // A valueless occurrence credits nobody: it is a truncated paste, and

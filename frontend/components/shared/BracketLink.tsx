@@ -77,8 +77,10 @@ export interface BracketLinkProps
   active?: boolean
   /**
    * `href` points OUTSIDE the app: renders a plain anchor with
-   * `target="_blank" rel="noopener noreferrer"` instead of a Next `<Link>`,
-   * and appends "(opens in a new tab)" to the accessible name.
+   * `target="_blank"` and the outbound `rel` instead of a Next `<Link>`, and
+   * appends "(opens in a new tab)" to the accessible name. The `rel` is the
+   * hygiene tokens, plus `sponsored` when that prop is set — composed by
+   * `lib/outboundRel`, never by a call site.
    *
    * The visible outbound marker is the CALLER's choice, not this component's:
    * prose-like brackets carry a "↗" ("Directions ↗", "site ↗"), while dense

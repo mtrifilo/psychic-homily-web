@@ -165,20 +165,24 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
   //
   // The http(s) floor is this anchor's own, because it is a raw <a> rather
   // than a BracketLink (which carries the same floor for the same reason).
-  // `ticket_url` is contributor-supplied and this column is validated for
-  // length only, so a `javascript:` value can reach it; the repair happens to
-  // defuse one by prefixing a scheme, but that is a navigation fix, not a
-  // safety guarantee, and this must not depend on it.
+  // Defence in depth, and currently UNREACHABLE: every non-null branch of
+  // repairTicketUrl already yields an http(s) value, and the festival write
+  // path is admin-only. It stays because the thing making it unreachable is a
+  // navigation repair, not a safety rule, and a future "don't invent a scheme"
+  // change to that repair would otherwise land here silently.
   const repairedTicketUrl = repairTicketUrl(festival.ticket_url)
   const ticketBuyLink =
     repairedTicketUrl && /^https?:\/\//i.test(repairedTicketUrl)
       ? ticketLink(repairedTicketUrl)
       : null
-  // Derived from the resolved link, not the raw column: a whitespace-only
+  // The ticket half is derived from the resolved link: a whitespace-only
   // `ticket_url` is storable, and gating the section on the raw value while
   // gating the anchor on the resolved one renders a Links heading over
-  // nothing.
-  const hasLinks = !!festival.website || !!ticketBuyLink || hasSocialLinks
+  // nothing. The website half only trims, and is a known gap rather than a
+  // matching treatment: a scheme-less `website` still renders as a relative
+  // href, exactly as it did before this change.
+  const hasLinks =
+    !!festival.website?.trim() || !!ticketBuyLink || hasSocialLinks
 
   const statsItems = [
     { label: 'Artists', value: festival.artist_count },
