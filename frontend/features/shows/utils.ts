@@ -15,6 +15,28 @@ import type { ShowResponse } from './types'
  * this only ever matters for a venue with no resolved `timezone`, since
  * `resolveShowTimezone` consults `state` only as a fallback.
  *
+ * `??`, NOT `||`, and the difference is load-bearing (PSY-1696). `venues.state`
+ * is NOT NULL, so a venue with no state on file stores `''` rather than null,
+ * and `??` therefore keeps that empty string instead of consulting the show
+ * row. That looks like it discards information, and it is deliberate.
+ *
+ * The row this decides is a US show repointed onto an international venue by a
+ * merge, which does not rewrite the denormalized `shows.state`: venue
+ * `state: ''`, `timezone: null`, show `state: 'NY'`. Falling through to `'NY'`
+ * would hand a Berlin show a zone the state map KNOWS, so
+ * `isShowTimezoneResolved` would answer true and the page would print DOORS and
+ * a start time in America/New_York beside a Berlin address. Keeping `''` keeps
+ * the answer honest — no zone is known — and the show page's clock refusals
+ * hold. A guessed DATE is at most a day out; a laundered CLOCK is hours out and
+ * reads as fact. `CompactShowRow` documents the identical trap in its `'AZ'`
+ * form.
+ *
+ * The cost of that choice is paid in `showToFormValues`, which MUST seed the
+ * edit form's `venue.state` field from this same value: `ShowForm`'s submit
+ * resolves its zone from that field, so if the two spellings diverge the form
+ * opens on one wall clock and saves through another, moving `event_date` on a
+ * no-op Save and again on every save after.
+ *
  * Not the repo-wide rule yet. The show PAGE uses it throughout, but `ShowCard`
  * and the artist / venue list rows still pass `show.state` alongside the
  * venue's timezone, which differs from this for a zone-less venue whose state

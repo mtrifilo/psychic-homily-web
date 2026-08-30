@@ -11,51 +11,59 @@ import {
   isShowTimezoneResolved,
 } from './formatters'
 
-// Mock timeUtils to control timezone behavior deterministically
-vi.mock('./timeUtils', () => ({
-  getTimezoneForState: (state: string) => {
-    const map: Record<string, string> = {
-      AZ: 'America/Phoenix',
-      CA: 'America/Los_Angeles',
-      NY: 'America/New_York',
-    }
-    return map[state.toUpperCase()] || 'America/Phoenix'
-  },
-  hasTimezoneForState: (state?: string | null) =>
-    !!state && ['AZ', 'CA', 'NY'].includes(state.toUpperCase()),
-  formatDateInTimezone: (dateStr: string, tz: string) =>
-    new Date(dateStr).toLocaleString('en-US', {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-      timeZone: tz,
-    }),
-  formatDateWithYearInTimezone: (dateStr: string, tz: string) => {
-    const date = new Date(dateStr)
-    const formatter = new Intl.DateTimeFormat('en-US', {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      timeZone: tz,
-    })
-    const parts = formatter.formatToParts(date)
-    const p = (type: string) => parts.find(x => x.type === type)?.value || ''
-    return `${p('weekday')} ${p('month')} ${p('day')}, ${p('year')}`
-  },
-  formatTimeInTimezone: (dateStr: string, tz: string) =>
-    new Date(dateStr).toLocaleString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-      timeZone: tz,
-    }),
-  formatInTimezone: (
-    dateStr: string,
-    tz: string,
-    options: Intl.DateTimeFormatOptions,
-  ) => new Intl.DateTimeFormat('en-US', { ...options, timeZone: tz }).format(new Date(dateStr)),
-}))
+// Mock timeUtils to control timezone behavior deterministically. The three-state
+// map is the deliberate fake; the MISS branch is not — it takes the real
+// `FALLBACK_SHOW_TIMEZONE` so this suite cannot keep asserting Phoenix after the
+// one production constant moves (PSY-1696).
+vi.mock('./timeUtils', async importOriginal => {
+  const { FALLBACK_SHOW_TIMEZONE } =
+    await importOriginal<typeof import('./timeUtils')>()
+  return {
+    FALLBACK_SHOW_TIMEZONE,
+    getTimezoneForState: (state: string) => {
+      const map: Record<string, string> = {
+        AZ: 'America/Phoenix',
+        CA: 'America/Los_Angeles',
+        NY: 'America/New_York',
+      }
+      return map[state.toUpperCase()] || FALLBACK_SHOW_TIMEZONE
+    },
+    hasTimezoneForState: (state?: string | null) =>
+      !!state && ['AZ', 'CA', 'NY'].includes(state.toUpperCase()),
+    formatDateInTimezone: (dateStr: string, tz: string) =>
+      new Date(dateStr).toLocaleString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        timeZone: tz,
+      }),
+    formatDateWithYearInTimezone: (dateStr: string, tz: string) => {
+      const date = new Date(dateStr)
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        timeZone: tz,
+      })
+      const parts = formatter.formatToParts(date)
+      const p = (type: string) => parts.find(x => x.type === type)?.value || ''
+      return `${p('weekday')} ${p('month')} ${p('day')}, ${p('year')}`
+    },
+    formatTimeInTimezone: (dateStr: string, tz: string) =>
+      new Date(dateStr).toLocaleString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        timeZone: tz,
+      }),
+    formatInTimezone: (
+      dateStr: string,
+      tz: string,
+      options: Intl.DateTimeFormatOptions,
+    ) => new Intl.DateTimeFormat('en-US', { ...options, timeZone: tz }).format(new Date(dateStr)),
+  }
+})
 
 describe('formatShowDate', () => {
   const utcDate = '2026-03-15T02:30:00Z' // Mar 14 7:30 PM in Phoenix

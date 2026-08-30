@@ -72,12 +72,92 @@ const STATE_TIMEZONES: Record<string, string> = {
 }
 
 /**
- * Get the IANA timezone for a US state. Defaults to America/Phoenix (Arizona,
- * no DST) for unknown/international input — callers should prefer a venue's
- * resolved `timezone` and use this only as a fallback.
+ * The zone a show is read on when NOTHING is known about where it happens:
+ * no `venues.timezone`, and a `state` this map does not list (blank, or any
+ * non-US region).
+ *
+ * The one place this value exists IN THE FRONTEND. It used to be spelled twice
+ * even here — this literal, and again as `state || 'AZ'` inside
+ * `resolveShowTimezone` — so "the default" was two literals in two files that
+ * happened to agree.
+ *
+ * IT IS NOT THE ONLY COPY IN THE REPO, and the others are WRITERS, which is why
+ * this is not a value you can change alone. The same fallback is hardcoded as
+ * the `||` default of `getTimezoneForState` in `cli/src/lib/timezone.ts` and of
+ * `utils.GetTimezoneForState` in `backend/internal/utils/timezone.go` — the
+ * DEFAULT, not an entry in the state map, so syncing "the map" does not touch
+ * either. Both compose instants: `ph submit-show` through
+ * `resolveVenueTimezone`, and the backend when it anchors a date-only show via
+ * `utils.EventLocation`. `catalog.backfillTimezones` uses it a third way, to
+ * INFER the zone historical rows were written under. PSY-1915 tracks the
+ * remaining state-map anchoring on the backend.
+ *
+ * (Symbols, not line numbers, on purpose: this is the stop sign in front of a
+ * change that can move stored instants, and a stop sign pointing at the wrong
+ * line is worse than one pointing at a name. Nothing in CI pins them.)
+ *
+ * `shared.showVenueLocalTimezoneSQL` is NOT a fourth copy, and the difference
+ * matters: its CASE reaches this fallback only when the venue's country is
+ * null, blank, or US/USA/UNITED STATES, and every other country falls to
+ * `ELSE 'UTC'`. So for a Berlin venue with `country = 'DE'` and no stored
+ * `timezone` — the exact population this constant exists for — the backend
+ * buckets the show's venue-local day in UTC while this file renders it in
+ * Arizona, up to a calendar day apart. That divergence is real and untracked;
+ * do not assume a sweep of "the constant" reconciles it.
+ *
+ * DO NOT change it to UTC, to the reader's zone, or to anything else without
+ * changing every writer in the same commit. This is not a display guess: it is
+ * one half of a matched pair. `ShowForm`'s submit composes `event_date` with
+ * `combineDateTimeToUTC(date, time, resolveShowTimezone(...))`, and
+ * `showToFormValues` reads it back through the same resolver (PSY-1873). For a
+ * show written through the app with no resolvable zone, the stored instant
+ * therefore MEANS "this wall clock, read in America/Phoenix", and rendering it
+ * here reproduces exactly what the submitter typed. Swapping this constant for
+ * a more "honest" zone would keep every stored instant where it is and shift
+ * every rendered clock off it — showing a time nobody entered. Changing it on
+ * the read side while a writer still uses the old value is the corruption class
+ * `backend/internal/utils/timezone.go` warns about at the top of the file.
+ *
+ * Arizona rather than UTC for the one case this genuinely guesses at (a US
+ * show whose state never reached us): a North American evening crosses UTC
+ * midnight, so reading such an instant in UTC lands it on the WRONG calendar
+ * day, while a UTC-7 zone with no DST lands it on the right one.
+ *
+ * It is still a guess for anything outside the US, and wrong by up to a
+ * calendar day on a date and by hours on a clock. `hasTimezoneForState` (and
+ * `isShowTimezoneResolved`, which wraps it) is how a caller tells a known zone
+ * from this one.
+ *
+ * WHERE THAT IS ENFORCED TODAY, stated narrowly because it is not a site-wide
+ * rule and reads as one if you squint. The SHOW PAGE asks first and prints no
+ * CLOCK when the answer is no: Wave 1A (PSY-1684) put the gate on the stripe,
+ * which drops DOORS, MUSIC and TONIGHT; Wave 1C (PSY-1686) extended it to
+ * `startTimeFactSegment` and `doorsMusicFactSegment` in
+ * `features/shows/components/showStatusStripeCopy.ts`, which both return null.
+ *
+ * Three things on that same page are NOT gated, and each is a separate ticket
+ * because each needs a different decision:
+ * - The DATE renders through the guess unmarked, here and in the stripe, plus
+ *   two hand-rolled copies in `app/shows/[slug]/page.tsx` (meta description)
+ *   and `app/shows/[slug]/opengraph-image.tsx` (share card). Whether to mark it
+ *   is PSY-1964.
+ * - `getShowLifecycleState` (`./showTiming`) resolves through here with no gate,
+ *   so a zone-less venue east of Phoenix keeps ON SALE and [Buy Tickets] live
+ *   past its own midnight — about nine hours for Berlin. See PSY-1963.
+ * - `formatShowTime` has no gate at all, so its 11 listing call sites (ShowCard,
+ *   CompactShowRow, ShowSubmissionsConsole, the artist/venue show tables,
+ *   library, the scene panels, sceneDay) and `MusicEvent.startDate` in
+ *   `lib/seo/jsonld.ts` name an hour on this guess. Also PSY-1963.
+ */
+export const FALLBACK_SHOW_TIMEZONE = 'America/Phoenix'
+
+/**
+ * Get the IANA timezone for a US state. Falls back to
+ * {@link FALLBACK_SHOW_TIMEZONE} for unknown/international input — callers
+ * should prefer a venue's resolved `timezone` and use this only as a fallback.
  */
 export function getTimezoneForState(state: string): string {
-  return STATE_TIMEZONES[state.toUpperCase()] || 'America/Phoenix'
+  return STATE_TIMEZONES[state.toUpperCase()] || FALLBACK_SHOW_TIMEZONE
 }
 
 /**

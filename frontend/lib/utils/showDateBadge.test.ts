@@ -1,26 +1,33 @@
 import { describe, it, expect, vi } from 'vitest'
 
-// Mock the timeUtils module
-vi.mock('./timeUtils', () => ({
-  getTimezoneForState: vi.fn((state: string) => {
-    const map: Record<string, string> = {
-      AZ: 'America/Phoenix',
-      CA: 'America/Los_Angeles',
-      NY: 'America/New_York',
-    }
-    return map[state.toUpperCase()] || 'America/Phoenix'
-  }),
-  // Honor the passed timezone (the real formatInTimezone does) so tests can
-  // verify venue-tz threading, not just the hardcoded-Phoenix path.
-  formatInTimezone: vi.fn(
-    (dateString: string, timezone: string, options: Intl.DateTimeFormatOptions) => {
-      return new Date(dateString).toLocaleString('en-US', {
-        ...options,
-        timeZone: timezone,
-      })
-    }
-  ),
-}))
+// Mock the timeUtils module. The three-state map is the deliberate fake; the
+// MISS branch takes the real `FALLBACK_SHOW_TIMEZONE` so this suite cannot keep
+// asserting Phoenix after the one production constant moves (PSY-1696).
+vi.mock('./timeUtils', async importOriginal => {
+  const { FALLBACK_SHOW_TIMEZONE } =
+    await importOriginal<typeof import('./timeUtils')>()
+  return {
+    FALLBACK_SHOW_TIMEZONE,
+    getTimezoneForState: vi.fn((state: string) => {
+      const map: Record<string, string> = {
+        AZ: 'America/Phoenix',
+        CA: 'America/Los_Angeles',
+        NY: 'America/New_York',
+      }
+      return map[state.toUpperCase()] || FALLBACK_SHOW_TIMEZONE
+    }),
+    // Honor the passed timezone (the real formatInTimezone does) so tests can
+    // verify venue-tz threading, not just the hardcoded-Phoenix path.
+    formatInTimezone: vi.fn(
+      (dateString: string, timezone: string, options: Intl.DateTimeFormatOptions) => {
+        return new Date(dateString).toLocaleString('en-US', {
+          ...options,
+          timeZone: timezone,
+        })
+      }
+    ),
+  }
+})
 
 import { formatShowDateBadge, formatShowMonthDay } from './showDateBadge'
 import { formatInTimezone } from './timeUtils'
