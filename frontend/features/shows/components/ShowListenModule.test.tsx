@@ -222,6 +222,108 @@ describe('ShowListenModule', () => {
     ).toBeInTheDocument()
   })
 
+  // Restored against the mock, which draws neither, by owner decision
+  // 2026-08-30. Both are absence-gated, so both halves are pinned.
+  describe('hometown', () => {
+    it('states where the act is from, on the meta line', () => {
+      render(
+        <ShowListenModule
+          artists={[
+            makeArtist({
+              bandcamp_embed_url: BANDCAMP_ALBUM,
+              city: 'Issaquah',
+              state: 'WA',
+              country: 'USA',
+            }),
+          ]}
+        />
+      )
+
+      // "USA" suppressed by the locked display rule: country is included
+      // UNLESS the state is set and the country is USA/US.
+      expect(meta()).toHaveTextContent(
+        'Modest Mouse · from Issaquah, WA · Bandcamp'
+      )
+    })
+
+    it('states the country for an act outside the US', () => {
+      render(
+        <ShowListenModule
+          artists={[
+            makeArtist({
+              bandcamp_embed_url: BANDCAMP_ALBUM,
+              city: 'Melbourne',
+              country: 'Australia',
+            }),
+          ]}
+        />
+      )
+
+      expect(meta()).toHaveTextContent('from Melbourne, Australia')
+    })
+
+    it('renders no hometown segment for an act with nothing placeable', () => {
+      // Not "Location Unknown": the placeholder stands alone in a location
+      // field, and mid-line it states something the card was not asked to
+      // state. The line must close up rather than carry an empty segment.
+      render(
+        <ShowListenModule
+          artists={[makeArtist({ bandcamp_embed_url: BANDCAMP_ALBUM })]}
+        />
+      )
+
+      const card = meta()
+      expect(card).not.toHaveTextContent('Location Unknown')
+      expect(card).not.toHaveTextContent('from')
+      expect(card.textContent).toContain('Modest Mouse · Bandcamp')
+    })
+  })
+
+  describe('social links', () => {
+    it("carries the act's own social links", () => {
+      render(
+        <ShowListenModule
+          artists={[
+            makeArtist({
+              bandcamp_embed_url: BANDCAMP_ALBUM,
+              socials: {
+                instagram: 'https://instagram.com/modestmouse',
+                website: 'https://modestmouse.com',
+              },
+            }),
+          ]}
+        />
+      )
+
+      const card = cards()[0]
+      // Named by the platform, not by the icon: the glyph is `aria-hidden` and
+      // the sr-only label is the whole accessible name.
+      expect(within(card).getByRole('link', { name: 'Instagram' })).toHaveAttribute(
+        'href',
+        'https://instagram.com/modestmouse'
+      )
+      expect(within(card).getByRole('link', { name: 'Website' })).toHaveAttribute(
+        'href',
+        'https://modestmouse.com'
+      )
+    })
+
+    it('renders no social links for an act with none', () => {
+      render(
+        <ShowListenModule
+          artists={[makeArtist({ bandcamp_embed_url: BANDCAMP_ALBUM })]}
+        />
+      )
+
+      // `bandcamp_embed_url` is a release URL, not a social; an act whose only
+      // music link is that column has an empty socials object and must get no
+      // icon row rather than an empty one.
+      const card = cards()[0]
+      expect(within(card).queryByRole('link', { name: 'Instagram' })).toBeNull()
+      expect(within(card).queryByRole('link', { name: 'Bandcamp' })).toBeNull()
+    })
+  })
+
   it('loads every player open and compact, with no activation step', () => {
     // Locked decision 9: no facade, no click-to-load. Every card ships a real
     // embed on first render, and `compact` suppresses MusicEmbed's own "Music"

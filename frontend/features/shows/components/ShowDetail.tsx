@@ -215,11 +215,10 @@ export function ShowDetail({ showId, lifecycle }: ShowDetailProps) {
 
         {/* SLOT: listen module. Self-hiding, so no guard here.
 
-            Why the removals here are the mock rather than an oversight: the
-            block this replaced repeated each artist's hometown, which the bill
-            block above already states, and hung a SocialLinks row off every
-            card. The mock's card carries the player and two verbs. The socials
-            still live one click away on the artist page the card links to. */}
+            The card states the act's hometown and carries its social links
+            alongside the player, against the mock, which draws neither (owner
+            decision, 2026-08-30). What the module changed from the block it
+            replaced is the gate and the chrome, not the facts stated. */}
         <ShowListenModule artists={artists} />
 
         {/* In Collections */}

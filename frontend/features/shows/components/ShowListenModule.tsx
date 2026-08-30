@@ -8,9 +8,11 @@ import {
   MusicEmbed,
   SectionHeader,
   ShareButton,
+  SocialLinks,
 } from '@/components/shared'
 import { MiddotSegments } from './MiddotSegments'
 import { listenCardsForBill, type ListenCard } from './showListenCards'
+import { billHometown } from '../utils'
 import type { ArtistResponse } from '../types'
 
 interface ShowListenModuleProps {
@@ -41,8 +43,14 @@ interface ShowListenModuleProps {
  * scrubber and a duration. Those four things all live INSIDE the third-party
  * player: they are what the Bandcamp iframe renders, and it exposes no API for
  * a host page to draw its own transport over. What this module owns is the
- * chrome around the player — the section label, the card, and the meta line
- * with its outbound verbs.
+ * chrome around the player: the section label, the card, the meta line with its
+ * outbound verbs, and the act's hometown and social links.
+ *
+ * Those last two are a deliberate departure from the mock, which draws neither.
+ * The owner ruled on 2026-08-30 that they stay: the hometown is what tells a
+ * reader whether the unheard band is a local one, and the socials are the act's
+ * own destinations, which is a different thing from the page's player. See
+ * {@link ShowListenCard} for where they sit and what that costs in height.
  */
 export function ShowListenModule({ artists }: ShowListenModuleProps) {
   // Memoized for prop identity rather than for the arithmetic: the cards are
@@ -86,16 +94,25 @@ export function ShowListenModule({ artists }: ShowListenModuleProps) {
 }
 
 /**
- * One card: the meta line, then the player.
+ * One card: the meta line and the act's socials, then the player.
  *
  * Padding is deliberately asymmetric. `MusicEmbed` owns a `mb-2` on its own
  * wrapper (it is a section in its own right elsewhere), so a symmetric `py`
  * here would read as a card with a fat bottom gutter. The bottom padding is
  * shrunk by that same 8px instead of reaching into the shared primitive for a
  * className it does not take.
+ *
+ * The hometown is a SEGMENT of the meta line and the socials share that line's
+ * row rather than either taking a row of its own: both restore an affordance
+ * the mock omits (owner decision, 2026-08-30), and the mock's whole subject is
+ * density, so they are placed where they cost the fewest pixels. The socials
+ * are the taller of the two at 36px buttons, which sets the row height; the
+ * hometown costs nothing. Below the card's own width the row wraps and the
+ * icons drop under the meta line rather than crushing it.
  */
 function ShowListenCard({ card }: { card: ListenCard }) {
   const { artist, source, buyHref } = card
+  const hometown = billHometown(artist)
 
   // Segment and key pushed together, the way ShowProvenanceLine builds its
   // byline: `MiddotSegments` reads the two as parallel arrays, so building them
@@ -124,20 +141,40 @@ function ShowListenCard({ card }: { card: ListenCard }) {
       <span>{artist.name}</span>
     )
   )
+  if (hometown) {
+    push(
+      'hometown',
+      // Read aloud, a city is one more proper noun in a row of them unless
+      // something says "from". Same connective, and the same
+      // space-outside-the-hidden-span placement, as the bill block's hometown.
+      <span>
+        <span className="sr-only">from</span> {hometown}
+      </span>
+    )
+  }
   push('source', source)
   const verbs = listenVerbs(card)
   if (verbs) push('verbs', verbs)
 
   return (
     <div className="rounded-sm border border-border/60 px-3 pt-2.5 pb-0.5">
-      <MiddotSegments
-        segments={segments}
-        keys={keys}
-        className="mb-1.5 font-mono text-xs text-muted-foreground"
-        // Per CARD, not per page: reach it through `within(card)`, never a bare
-        // `getByTestId`, which throws on any bill with two playable acts.
-        data-testid={`listen-card-meta-${artist.id}`}
-      />
+      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+        <MiddotSegments
+          segments={segments}
+          keys={keys}
+          className="min-w-0 font-mono text-xs text-muted-foreground"
+          // Per CARD, not per page: reach it through `within(card)`, never a
+          // bare `getByTestId`, which throws on any bill with two playable
+          // acts.
+          data-testid={`listen-card-meta-${artist.id}`}
+        />
+        {/* Renders nothing for an act with no social links, so the row
+            collapses back to the meta line alone. The redundancy with the
+            player's own source is accepted: these are the act's OWN
+            destinations, restored per owner decision, and the player is the
+            page's. */}
+        <SocialLinks social={artist.socials} className="shrink-0" />
+      </div>
       <MusicEmbed
         // The CHECKED copy of the column, not the column. `listenCardsForBill`
         // has already established that this is a real Bandcamp release page;

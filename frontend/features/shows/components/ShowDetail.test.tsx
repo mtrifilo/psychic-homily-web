@@ -87,6 +87,10 @@ vi.mock('@/components/shared', () => ({
     ),
   UserAttribution: ({ name }: { name: string }) => <span>{name}</span>,
   SectionHeader: ({ title }: { title: string }) => <h2>{title}</h2>,
+  // The listen card renders one per act. Its own coverage is in
+  // SocialLinks.test and ShowListenModule.test; here it only has to exist, or
+  // the barrel mock hands the card `undefined` and the page fails to render.
+  SocialLinks: () => <div data-testid="social-links" />,
   // Surfaces `path` so the page-level test can assert WHICH url this show
   // hands out — the primitive's own behaviour is covered in ShareButton.test.
   ShareButton: ({ path }: { path: string }) => (

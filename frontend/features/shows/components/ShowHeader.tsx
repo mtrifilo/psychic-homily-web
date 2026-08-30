@@ -4,13 +4,12 @@ import { Fragment, useCallback, useState } from 'react'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
-import { formatLocation } from '@/lib/formatLocation'
 import { formatShowDate } from '@/lib/utils/formatters'
 import { ShowFlyerPlate } from './ShowFlyerPlate'
 import { ShowTicketRow } from './ShowTicketRow'
 import { ShowVenueModule } from './ShowVenueModule'
 import { flyerImageSrc, sourceVenueName } from './showFlyer'
-import { byBillPosition, showTimingInput, splitBill } from '../utils'
+import { billHometown, byBillPosition, showTimingInput, splitBill } from '../utils'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import type {
   ArtistResponse,
@@ -127,12 +126,11 @@ function BillLabels({
  * Where an act is from, inline after its labels: `Issaquah, WA`,
  * `Melbourne, Australia`.
  *
- * Delegates to `formatLocation` so the bill obeys the same locked display rule
- * as every other surface: country included UNLESS the state is set and the
- * country is USA/US. An act with nothing placeable renders NO segment. The
- * helper's "Location Unknown" placeholder is designed to stand alone in a
- * location field, and "Modest Mouse [Epic] Location Unknown" states something
- * the bill was not asked to state.
+ * Delegates to `billHometown` so the bill obeys the same locked display rule as
+ * every other surface: country included UNLESS the state is set and the country
+ * is USA/US. An act with nothing placeable renders NO segment, because
+ * "Modest Mouse [Epic] Location Unknown" states something the bill was not
+ * asked to state.
  *
  * Carries the same kind of screen-reader-only connective as {@link BillLabels}
  * and for the same reason: visually a city sits in its own typographic slot,
@@ -145,21 +143,8 @@ function BillHometown({
   artist: ArtistResponse
   className?: string
 }) {
-  // Judged on the PARTS, not on the formatted string. Comparing the result to
-  // `LOCATION_UNKNOWN` would also silence an artist whose city is literally
-  // "Location Unknown", which is exactly the placeholder an extraction run
-  // writes when it does not know.
-  const hasPlaceableLocation = [
-    artist.city,
-    artist.state,
-    artist.country,
-  ].some(part => part?.trim())
-  if (!hasPlaceableLocation) return null
-  const hometown = formatLocation({
-    city: artist.city,
-    state: artist.state,
-    country: artist.country,
-  })
+  const hometown = billHometown(artist)
+  if (!hometown) return null
   return (
     <>
       {' '}

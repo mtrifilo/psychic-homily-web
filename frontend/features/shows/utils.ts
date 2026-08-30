@@ -1,3 +1,4 @@
+import { formatLocation } from '@/lib/formatLocation'
 import type { ShowTimingInput } from '@/lib/utils/showTiming'
 import type { ShowResponse } from './types'
 
@@ -152,6 +153,43 @@ export function byBillPosition(
   b: OrderedBillArtist
 ): number {
   return a.position - b.position || a.id - b.id
+}
+
+/** The location fields an act is placed by. */
+interface PlaceableArtist {
+  city?: string | null
+  state?: string | null
+  country?: string | null
+}
+
+/**
+ * Where an act is from, or null when nothing about it is placeable.
+ *
+ * Judged on the PARTS, never on the formatted string. Comparing the result to
+ * `LOCATION_UNKNOWN` would also silence an artist whose city is literally
+ * "Location Unknown", which is exactly the placeholder an extraction run writes
+ * when it does not know.
+ *
+ * `formatLocation` carries the locked display rule: country is included UNLESS
+ * the state is set and the country is USA/US.
+ *
+ * Shared for the same reason `byBillPosition` is. The header's bill and the
+ * listen module's cards state the same fact about the same act a few hundred
+ * pixels apart, so a second copy of the placeability test is a rule with two
+ * answers on one page.
+ */
+export function billHometown(artist: PlaceableArtist): string | null {
+  const hasPlaceableLocation = [
+    artist.city,
+    artist.state,
+    artist.country,
+  ].some(part => part?.trim())
+  if (!hasPlaceableLocation) return null
+  return formatLocation({
+    city: artist.city,
+    state: artist.state,
+    country: artist.country,
+  })
 }
 
 /**
