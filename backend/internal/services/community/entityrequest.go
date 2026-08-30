@@ -127,10 +127,7 @@ func (s *EntityRequestService) CreateRequest(
 		SourceContext: sourceContext,
 		DecisionState: communitym.EntityRequestStatePending,
 	}
-	if len(sourceDetail) > 0 {
-		sd := json.RawMessage(sourceDetail)
-		req.SourceDetail = &sd
-	}
+	req.SourceDetail = nullableJSONB(sourceDetail)
 
 	if autoApproves(user, confirmed) {
 		now := time.Now().UTC()
@@ -155,11 +152,8 @@ func (s *EntityRequestService) CreateRequest(
 		// queued payload — answering with the stored one discarded the correction
 		// behind a success response.
 		if servicesshared.IsDuplicateKey(err) {
-			// ferr is intentionally swallowed in favor of the original create
-			// error: if the lookup fails OR finds nothing, we fall through to the
-			// wrapped duplicate-key error below.
 			if existing, ferr := s.findPendingDuplicate(entityType, user.ID, payload); ferr == nil && existing != nil {
-				refreshed, rerr := s.replacePendingSubmission(existing.ID, payload, sourceContext, sourceDetail)
+				refreshed, rerr := s.replacePendingSubmission(existing.ID, entityType, payload, sourceContext, sourceDetail)
 				if rerr != nil {
 					return nil, false, rerr
 				}
@@ -167,13 +161,14 @@ func (s *EntityRequestService) CreateRequest(
 					return refreshed, true, nil
 				}
 			}
-			// Two narrow races fall through to the wrapped duplicate-key error,
-			// and neither writes anything: the colliding row was decided between
-			// the constraint violation and the lookup (the lookup then finds
-			// nothing, since the partial index no longer covers it), or between
-			// the lookup and the conditional update (the update then matches no
-			// row). Both leave a rare transient error the caller can simply
-			// retry — a retry now inserts a fresh pending row — not a data fault.
+			// Three cases fall through to the wrapped duplicate-key error, and
+			// none of them writes anything: the lookup errored, or the colliding
+			// row was decided between the constraint violation and the lookup (so
+			// the lookup finds nothing — the partial index no longer covers it),
+			// or between the lookup and the conditional update (so the update
+			// matches no row). The last two are narrow races that leave a rare
+			// transient error the caller can simply retry, since a retry now
+			// inserts a fresh pending row, not a data fault.
 		}
 		return nil, false, fmt.Errorf("failed to create entity request: %w", err)
 	}
@@ -190,9 +185,7 @@ func (s *EntityRequestService) CreateRequest(
 // resubmission exists to correct.
 //
 // decision_state, requester and created_at are untouched, so the row keeps its
-// identity and its place in the moderation queue. The caller has already run the
-// same validation a fresh create runs, so an invalid resubmission never reaches
-// here and the stored payload survives it.
+// identity and its place in the moderation queue.
 //
 // The UPDATE is conditional on the row still being pending — the same discipline
 // Decide uses to claim one — so a replace racing an admin decision loses instead
@@ -200,17 +193,27 @@ func (s *EntityRequestService) CreateRequest(
 // pending row matched.
 func (s *EntityRequestService) replacePendingSubmission(
 	requestID uint,
+	entityType string,
 	payload []byte,
 	sourceContext string,
 	sourceDetail []byte,
 ) (*communitym.EntityRequest, error) {
+	// The write DESTROYS the stored payload, and the superseded one is not
+	// recoverable, so the structure is checked here as well as at the API
+	// boundary: a caller that skipped validation would replace a good queued
+	// payload with junk. Mirrors fulfillEntity, which re-validates the STORED
+	// payload at the other end of the same row's lifecycle. Reaching this is a
+	// caller bug, not contributor input — the API boundary answers a bad payload
+	// with a 422 long before here.
+	if err := communitym.ValidateEntityRequestPayload(entityType, payload); err != nil {
+		return nil, fmt.Errorf("refusing to replace pending entity request %d with an invalid %s payload: %w",
+			requestID, entityType, err)
+	}
+
 	updates := map[string]interface{}{
 		"payload":        json.RawMessage(payload),
 		"source_context": sourceContext,
-		"source_detail":  nil,
-	}
-	if len(sourceDetail) > 0 {
-		updates["source_detail"] = json.RawMessage(sourceDetail)
+		"source_detail":  nullableJSONB(sourceDetail),
 	}
 
 	result := s.db.Model(&communitym.EntityRequest{}).
@@ -399,6 +402,18 @@ func (s *EntityRequestService) Decide(
 	}
 
 	return s.GetRequest(requestID)
+}
+
+// nullableJSONB wraps already-marshalled JSONB bytes for storage, answering nil
+// for empty input so the column holds NULL rather than an empty object. Shared by
+// the create and the replace paths so "no source detail" means the same thing in
+// both: a resubmission with no detail CLEARS the stored one.
+func nullableJSONB(b []byte) *json.RawMessage {
+	if len(b) == 0 {
+		return nil
+	}
+	raw := json.RawMessage(b)
+	return &raw
 }
 
 // isValidSourceContext reports whether sourceContext is a recognized origin.

@@ -455,11 +455,12 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_ResubmittedSho
 	suite.Require().NoError(err)
 
 	headliner := "headliner"
+	correctedPayload := suite.marshalShow("Doom Night",
+		communitym.ShowRequestArtist{Name: "Boris", SetType: &headliner},
+		communitym.ShowRequestArtist{Name: "Earth"},
+	)
 	corrected, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
-		suite.marshalShow("Doom Night",
-			communitym.ShowRequestArtist{Name: "Boris", SetType: &headliner},
-			communitym.ShowRequestArtist{Name: "Earth"},
-		), communitym.EntityRequestSourceManual, nil, false)
+		correctedPayload, communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 	suite.Require().True(replaced)
 	suite.Require().Equal(first.ID, corrected.ID)
@@ -469,13 +470,8 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_ResubmittedSho
 	fetched, err := suite.service.GetRequest(first.ID)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(fetched.Payload)
-	var stored communitym.ShowRequestPayload
-	suite.Require().NoError(json.Unmarshal(*fetched.Payload, &stored))
-	suite.Require().Len(stored.Artists, 2, "the corrected bill must reach the queue")
-	suite.Assert().Equal("Boris", stored.Artists[0].Name)
-	suite.Require().NotNil(stored.Artists[0].SetType)
-	suite.Assert().Equal("headliner", *stored.Artists[0].SetType)
-	suite.Assert().Equal("Earth", stored.Artists[1].Name)
+	suite.Assert().JSONEq(string(correctedPayload), string(*fetched.Payload),
+		"the corrected bill, and nothing else, is what the queue now holds")
 }
 
 // source_context and source_detail describe the SUBMISSION, so they move with
@@ -569,7 +565,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestReplacePendingSubmiss
 	_, err = suite.service.Decide(queued.ID, admin.ID, communitym.EntityRequestStateApproved, nil)
 	suite.Require().NoError(err)
 
-	refreshed, err := suite.service.replacePendingSubmission(queued.ID,
+	refreshed, err := suite.service.replacePendingSubmission(queued.ID, communitym.EntityRequestArtist,
 		suite.marshalArtist("Raced Band Corrected"), communitym.EntityRequestSourceManual, nil)
 	suite.Require().NoError(err)
 	suite.Assert().Nil(refreshed, "a decided row matches no pending update")
@@ -580,6 +576,29 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestReplacePendingSubmiss
 	suite.Assert().JSONEq(`{"name":"Raced Band"}`, string(*stored.Payload),
 		"the approved row keeps the payload it was approved with")
 	suite.Assert().Equal(communitym.EntityRequestStateApproved, stored.DecisionState)
+}
+
+// The overwrite is destructive and the superseded payload is unrecoverable, so
+// the writer fails closed on an invalid payload rather than trusting that every
+// caller validated first. Driven against the writer because the API boundary
+// answers a bad payload with a 422 long before it gets here.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestReplacePendingSubmission_InvalidPayloadIsRefused() {
+	user := suite.createUser("junk", tierContributor, false)
+
+	queued, _, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+		suite.marshalArtist("Good Band"), communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+
+	refreshed, err := suite.service.replacePendingSubmission(queued.ID, communitym.EntityRequestArtist,
+		[]byte(`{"name":""}`), communitym.EntityRequestSourceManual, nil)
+	suite.Require().Error(err)
+	suite.Assert().Nil(refreshed)
+
+	stored, err := suite.service.GetRequest(queued.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(stored.Payload)
+	suite.Assert().JSONEq(`{"name":"Good Band"}`, string(*stored.Payload),
+		"a refused replacement must leave the queued payload untouched")
 }
 
 // Dedup is per-requester: two different users requesting the same name each get

@@ -9775,7 +9775,7 @@ export interface components {
             /** Format: int64 */
             id: number;
             payload: unknown;
-            /** @description True when this submission replaced the requester's existing pending request for the same name (a correction) rather than filing a new one. The returned id is that queued request's. */
+            /** @description True when this submission replaced the requester's existing pending request for the same name (a correction) rather than filing a new one. The returned id is that queued request's, and decision_state is still pending. */
             replaced: boolean;
             /** Format: int64 */
             requester_id: number;

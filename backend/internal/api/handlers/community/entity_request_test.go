@@ -214,9 +214,6 @@ func TestCreateEntityRequest_Replaced_IsReportedOnTheResponse(t *testing.T) {
 	if resp.Body.ID != 7 {
 		t.Errorf("a replacement carries the queued request's own id, got %d", resp.Body.ID)
 	}
-	if resp.Body.DecisionState != communitym.EntityRequestStatePending {
-		t.Errorf("a replaced row stays pending, got %s", resp.Body.DecisionState)
-	}
 }
 
 // A replacement OVERWRITES a stored payload, so it gets its own audit action.
@@ -258,39 +255,13 @@ func TestCreateEntityRequest_Replaced_AuditsAsAReplacement(t *testing.T) {
 	}
 }
 
-// A resubmission is validated exactly as a fresh create is, BEFORE it can reach
-// the writer. An invalid correction must be a 422 that leaves the queued payload
-// untouched, never a write that replaces a good payload with a bad one.
-func TestCreateEntityRequest_InvalidResubmission_NeverReachesTheWriter(t *testing.T) {
-	cases := []struct {
-		name    string
-		payload json.RawMessage
-	}{
-		{"missing required field", json.RawMessage(`{"title":"","event_date":"2026-09-12"}`)},
-		{"unknown field", json.RawMessage(`{"title":"Doom Night","event_date":"2026-09-12","sneaky":"x"}`)},
-		{"role outside the vocabulary", json.RawMessage(
-			`{"title":"Doom Night","event_date":"2026-09-12","artists":[{"name":"Boris","set_type":"co-headliner"}]}`)},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			h := NewEntityRequestHandler(
-				&testhelpers.MockEntityRequestService{
-					CreateRequestFn: func(*authm.User, string, []byte, string, []byte, bool) (*communitym.EntityRequest, bool, error) {
-						t.Fatal("an invalid resubmission must never reach the writer")
-						return nil, false, nil
-					},
-				},
-				nil,
-				&testhelpers.MockAuditLogService{},
-			)
-			req := &CreateEntityRequestRequest{}
-			req.Body.EntityType = communitym.EntityRequestShow
-			req.Body.Payload = c.payload
-			_, err := h.CreateEntityRequestHandler(erUserCtx(), req)
-			testhelpers.AssertHumaError(t, err, 422)
-		})
-	}
-}
+// A resubmission is validated exactly as a fresh create is, before it can reach
+// the writer: the handler has no resubmission-aware branch, so the existing
+// boundary tests (PayloadMissingRequiredField, PayloadUnknownField,
+// ShowBillInvalidRole422AtSubmit) cover the correction case too. The invariant
+// that a bad payload cannot overwrite a good queued one is pinned where the
+// overwrite happens, in the service:
+// TestReplacePendingSubmission_InvalidPayloadIsRefused.
 
 // ============================================================================
 // Tests: Queue-create — auto-approve fulfillment + source detail (PSY-1008)

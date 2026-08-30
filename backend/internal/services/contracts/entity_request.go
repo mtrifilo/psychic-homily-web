@@ -29,10 +29,13 @@ type EntityRequestServiceInterface interface {
 	// name) it does NOT error (PSY-1008): the resubmission REPLACES that pending
 	// row's payload, source_context and source_detail, and the refreshed row is
 	// returned with replaced=true (PSY-1948). The row stays pending, so the
-	// caller must not treat a replacement as a fresh decision. The CALLER is
-	// responsible for validating the payload first — a replacement writes
-	// whatever it is given, so an unvalidated one overwrites a good queued
-	// payload with a bad one.
+	// caller must not treat a replacement as a fresh decision.
+	//
+	// A replacement DESTROYS the stored payload, so the caller still validates
+	// first at the API boundary (that is where a bad payload becomes a 422 rather
+	// than a 500); the service re-checks the payload's structure before the
+	// overwrite and fails closed, so a caller that forgets cannot corrupt a queued
+	// request.
 	CreateRequest(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (req *communitym.EntityRequest, replaced bool, err error)
 
 	// RecordFulfillment persists created_entity_id on a request after its

@@ -97,12 +97,9 @@ type CreateEntityRequestResponse struct {
 // payload are read straight off the body).
 type CreateEntityRequestBody struct {
 	*communitym.EntityRequest
-	// Replaced is true when this submission overwrote the requester's existing
-	// PENDING request for the same name instead of filing a new one (PSY-1948).
-	// The id is then the queued request's, not a new one, and decision_state is
-	// still pending. A client that reports "queued" for both leaves a contributor
-	// unable to tell a correction landed.
-	Replaced bool `json:"replaced" doc:"True when this submission replaced the requester's existing pending request for the same name (a correction) rather than filing a new one. The returned id is that queued request's."`
+	// A client that reports "queued" for both a fresh request and a replacement
+	// leaves a contributor unable to tell their correction landed.
+	Replaced bool `json:"replaced" doc:"True when this submission replaced the requester's existing pending request for the same name (a correction) rather than filing a new one. The returned id is that queued request's, and decision_state is still pending."`
 }
 
 // CreateEntityRequestHandler handles POST /entity-requests.
@@ -186,11 +183,9 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 		return nil, err
 	}
 
-	// Every check above this line runs before a replacement too, which is the
-	// point of ordering them here rather than in the service (PSY-1948): a
+	// Every check above this line runs before a replacement too, so a
 	// resubmission that fails validation is a 422 that leaves the queued payload
-	// exactly as it was, so a contributor cannot corrupt their own queued request
-	// by resubmitting it badly.
+	// exactly as it was (PSY-1948).
 	created, replaced, err := h.entityRequestService.CreateRequest(user, entityType, req.Body.Payload, sourceContext, sourceDetail, req.Body.Confirmed)
 	if err != nil {
 		if mapped := shared.MapEntityRequestError(err); mapped != nil {
@@ -208,10 +203,10 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 	// Auto-approve fulfillment (PSY-1008): when a trusted tier's request lands
 	// already-approved (the service stamped it), create the catalog entity now
 	// and stamp created_entity_id onto the returned row so the frontend can
-	// stage the new entity in the same step (true inline create-and-add). The
-	// dedup-replace path never reaches here: the pending index only covers
-	// pending rows, so a replaced row is pending, and the CreatedEntityID == nil
-	// guard is the second belt on the same fact.
+	// stage the new entity in the same step (true inline create-and-add). A
+	// replaced row never reaches here — the dedup index covers pending rows only
+	// — and the CreatedEntityID == nil guard keeps an already-fulfilled row from
+	// being fulfilled twice.
 	if created.DecisionState == communitym.EntityRequestStateApproved && created.CreatedEntityID == nil {
 		// nil show-associations: only the admin decide endpoint can supply them
 		// (PSY-1037), so an auto-approved show defers below.
@@ -260,10 +255,8 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 	//
 	// PSY-1948: a replacement gets its own action because it OVERWRITES a stored
 	// payload. Nothing else records that the queued submission an admin is about
-	// to moderate is not the one originally filed, and the row itself keeps no
-	// history of what it replaced. Checked before the approved branch because a
-	// replacement is always pending (the dedup index is pending-only), so the two
-	// can never both apply.
+	// to moderate is not the one originally filed, and the row keeps no history of
+	// what it replaced.
 	if h.auditLogService != nil {
 		action := "queue_entity_request"
 		switch {
