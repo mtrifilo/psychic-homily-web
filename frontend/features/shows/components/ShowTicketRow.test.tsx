@@ -166,8 +166,16 @@ describe('ticketLineSegments', () => {
   it.each<[string, Partial<ShowResponse>, ShowLifecycleState, boolean]>([
     ['a stored ticket url alone is a purchase', { ticket_url: 'https://tix.example/1' }, 'past', true],
     ['a price alone is a purchase', { price: 35 }, 'past', true],
-    ['a free show never opened a sale', { price: 0 }, 'past', false],
+    ['a free show with no link never opened a sale', { price: 0 }, 'past', false],
+    // A link outranks a zero price: a free RSVP or guestlist IS a reservation
+    // to close out, so this is the one "Free" line that closes.
+    ['a free show with an rsvp link did open one', { price: 0, ticket_url: 'https://rsvp.example/1' }, 'past', true],
     ['neither field means no commerce to close', {}, 'past', false],
+    // getShowLifecycleState returns 'past' for an unreadable date. The stripe
+    // renders nothing at all for that show, so this line must not announce a
+    // closed door the page cannot date.
+    ['an unreadable date is not evidence of pastness', { ...SOLD, event_date: 'not-a-date' }, 'past', false],
+    ['an empty date is not evidence of pastness', { ...SOLD, event_date: '' }, 'past', false],
     ['a whitespace-only url is storable, and is not a purchase', { ticket_url: '   ' }, 'past', false],
     // Cancellation outranks the past register exactly as it outranks the
     // present-tense pair: the stripe says CANCELLED and never PAST SHOW, so
@@ -429,9 +437,10 @@ describe('ShowTicketRow', () => {
 
   // The past register's row, against the mock: the forward-looking verb goes
   // and the archive verbs stay (see ShowTicketRow's docstring for why [Save]
-  // is one of the latter). The `[I was there]` the mock draws in the gap is
-  // an explicit non-goal of this ticket, asserted here rather than left to be
-  // noticed.
+  // is one of the latter). The mock also draws `[I was there]` in the gap the
+  // calendar verb leaves; attendance is an explicit non-goal of this ticket.
+  // Its absence is deliberately NOT asserted: nothing in the tree renders
+  // that string, so the query could never fail and would pin nothing.
   it('drops the calendar verb on a past show and keeps the archive row', () => {
     render(<ShowTicketRow lifecycle="past" show={makeShow()} />)
 
@@ -439,7 +448,6 @@ describe('ShowTicketRow', () => {
     expect(screen.getByText('Save')).toBeInTheDocument()
     expect(screen.getByTestId('add-to-collection')).toBeInTheDocument()
     expect(screen.getByTestId('share-button')).toBeInTheDocument()
-    expect(screen.queryByText(/I was there/i)).not.toBeInTheDocument()
   })
 
   it('names the collection entry from the bill when the show has no title', () => {

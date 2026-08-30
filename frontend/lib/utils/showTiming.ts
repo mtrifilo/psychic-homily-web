@@ -86,6 +86,28 @@ function startInstantMs(eventDate: string | null | undefined): number | null {
   return Number.isFinite(at) ? at : null
 }
 
+/**
+ * Whether the show's start instant can be read at all.
+ *
+ * The check `getShowLifecycleState` demands of every surface that renders
+ * WORDS, made callable so it is not re-implemented per surface. An undateable
+ * show comes back `past` from that function, a default inherited from a
+ * cache-window caller where "past" only meant "cache it longer" — so a
+ * surface that prints the past register without asking this first will put an
+ * archive claim over a show whose date nobody could read, on a page that
+ * cannot show a date anywhere to justify it.
+ *
+ * Takes the instant field alone: readability is a property of the string, and
+ * no timezone can rescue an unparseable one. This is deliberately NOT the
+ * same question as "is the venue's timezone known" — a show on a guessed zone
+ * still has a real date, and the stripe still says PAST SHOW for it.
+ */
+export function hasReadableStartDate(
+  eventDate: string | null | undefined
+): boolean {
+  return startInstantMs(eventDate) !== null
+}
+
 export type ShowLifecycleState = 'past' | 'today' | 'upcoming'
 
 /**

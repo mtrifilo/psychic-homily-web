@@ -109,6 +109,40 @@ function layoutGrid(): HTMLElement {
 
 const TWO_COLUMN_CLASS = 'md:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]'
 
+describe('ShowHeader SOLD OUT badge', () => {
+  // `getAllByText`, because an upcoming sold-out show says SOLD OUT TWICE:
+  // the badge here and the ticket line's sale-state segment below it. That
+  // duplication is pre-existing and out of scope; what matters for the shared
+  // derivation is that BOTH appear together and, in the cases below, that
+  // both disappear together.
+  it('prints the badge for a sold-out show that has not happened yet', () => {
+    render(
+      <ShowHeader lifecycle="upcoming" show={makeShow({ is_sold_out: true })} />
+    )
+
+    expect(screen.getAllByText('SOLD OUT')).toHaveLength(2)
+  })
+
+  // SOLD OUT asserts the event is happening and tickets are gone. The page
+  // makes that claim twice — here and in the ticket line — through one
+  // derivation, so the badge cannot survive a state the line refuses:
+  // a past sold-out show would otherwise print the badge directly above
+  // `NO LONGER AVAILABLE`, and a cancelled one above the CANCELLED stripe.
+  it.each([
+    ['a past show', 'past' as const, {}],
+    ['a cancelled show', 'upcoming' as const, { is_cancelled: true }],
+  ])('withholds the badge on %s', (_label, lifecycle, overrides) => {
+    render(
+      <ShowHeader
+        lifecycle={lifecycle}
+        show={makeShow({ is_sold_out: true, ...overrides })}
+      />
+    )
+
+    expect(screen.queryByText('SOLD OUT')).not.toBeInTheDocument()
+  })
+})
+
 describe('ShowHeader layout', () => {
   // The locked decision: no flyer means no reserved gutter. The earlier
   // always-on placeholder promised an image that was never coming.

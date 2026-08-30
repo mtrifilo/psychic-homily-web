@@ -1,5 +1,6 @@
 import { showTimingInput } from '../utils'
 import { startTimeFactSegment } from './showStatusStripeCopy'
+import { hasReadableStartDate } from '@/lib/utils/showTiming'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import type { ShowResponse } from '../types'
 
@@ -12,11 +13,14 @@ import type { ShowResponse } from '../types'
  * validator. Both readers in this module go through here so that fact, and
  * any future addition to it, has one home.
  *
+ * "Stored", not "raw": the trim is the point of the function, so a caller
+ * wanting the byte-for-byte column value must read `show.ticket_url` itself.
+ *
  * Deliberately says nothing about whether the URL may be OFFERED — that is
  * {@link ticketHref}'s job, and it is a different question with different
  * inputs.
  */
-function rawTicketUrl(show: ShowResponse): string | null {
+function storedTicketUrl(show: ShowResponse): string | null {
   return show.ticket_url?.trim() || null
 }
 
@@ -24,7 +28,7 @@ function rawTicketUrl(show: ShowResponse): string | null {
  * The stored ticket URL repaired into something navigable, or null when
  * there is nothing to buy or no honest way to offer it.
  *
- * Null for a blank/whitespace value (see {@link rawTicketUrl}), for a
+ * Null for a blank/whitespace value (see {@link storedTicketUrl}), for a
  * cancelled or sold-out show, and for a PAST show — offering a purchase
  * under a stripe that says CANCELLED or PAST SHOW is the page arguing with
  * itself, and the click is the half that costs a reader money. This is THE
@@ -42,7 +46,7 @@ export function ticketHref(
   show: ShowResponse,
   lifecycle: ShowLifecycleState
 ): string | null {
-  const raw = rawTicketUrl(show)
+  const raw = storedTicketUrl(show)
   if (!raw || show.is_cancelled || show.is_sold_out || lifecycle === 'past') {
     return null
   }
@@ -96,27 +100,81 @@ function ticketPriceSegments(show: ShowResponse): string[] {
 }
 
 /**
- * Whether this show ever had a purchase for the past register to close out.
+ * Whether this show carries any ticket commerce at all: somewhere a reader
+ * was sent to get in, or a price for getting in.
  *
- * True when a ticket link was stored, or when entry cost money. The link is
- * read through {@link rawTicketUrl} rather than {@link ticketHref}, which
- * refuses past shows by design — the question here is what the show sold
- * while it was upcoming, not what a reader can buy now.
+ * Says nothing about WHEN — an upcoming show returns true too. It is the
+ * "was there anything to sell" half of the past register's test; the "is it
+ * over" half is {@link saysPastRegister}, and they are kept apart so neither
+ * name has to promise the other's guard.
+ *
+ * The link is read through {@link storedTicketUrl} rather than
+ * {@link ticketHref}, which refuses past shows by design — the question here
+ * is what the show sold while it was upcoming, not what a reader can buy now.
+ *
+ * A LINK OUTRANKS A ZERO PRICE, deliberately: a free show with an RSVP or
+ * guestlist link did have a reservation to close out, and `Free · NO LONGER
+ * AVAILABLE` is the true thing to say about it once the list is shut. What
+ * returns false is the free show with NO link, and the show carrying neither
+ * field — `NO LONGER AVAILABLE` is the past tense of `ON SALE`, and a line
+ * that never said `ON SALE` has nothing to un-say. Both cases would only
+ * restate the stripe's `PAST SHOW` in a register the page has no reason to
+ * use.
  *
  * Reads BOTH prices: a show sold only at the door still charged for entry.
- *
- * A free show is deliberately false, and so is a show carrying neither
- * field. `NO LONGER AVAILABLE` is the past tense of `ON SALE`, and a line
- * that never said `ON SALE` has nothing to un-say; printing it beside `Free`
- * closes a sale that never opened, and printing it on a line with no
- * commerce on it at all restates the stripe's `PAST SHOW` in a register the
- * page has no reason to use.
  */
-function wasPurchasable(show: ShowResponse): boolean {
-  if (rawTicketUrl(show)) return true
+function hasTicketCommerce(show: ShowResponse): boolean {
+  if (storedTicketUrl(show)) return true
   // The same zero that {@link ticketPrice} renders as "Free"; keep the two
   // in step if a price ever becomes something other than a plain number.
   return (show.price ?? 0) > 0 || (show.door_price ?? 0) > 0
+}
+
+/**
+ * Whether this line speaks in the PAST register at all.
+ *
+ * Three conditions, each guarding a different way of being wrong:
+ *
+ * - `lifecycle === 'past'`, the venue-local day boundary the stripe uses, so
+ *   the two cannot disagree about which day it is where the show happened.
+ * - A READABLE DATE. `getShowLifecycleState` returns `past` for a show whose
+ *   `event_date` cannot be parsed — a default inherited from a cache-window
+ *   caller, where "past" only meant "cache it longer", and one its own
+ *   docstring warns every word-rendering surface about. Without this test an
+ *   undateable show would print `NO LONGER AVAILABLE` under a stripe that
+ *   (correctly) renders nothing at all, announcing a closed door for a show
+ *   the page cannot date. The stripe already declines; this line declines the
+ *   same way, for the same reason.
+ * - NOT CANCELLED. Cancellation outranks the past register exactly as it
+ *   outranks the present-tense pair: the stripe's precedence puts CANCELLED
+ *   first and never says PAST SHOW under it, so this line must not answer in
+ *   the other state's words. `CANCELLED` is the whole statement, and it was
+ *   already made at the top of the page.
+ */
+function saysPastRegister(
+  show: ShowResponse,
+  lifecycle: ShowLifecycleState
+): boolean {
+  if (show.is_cancelled || lifecycle !== 'past') return false
+  return hasReadableStartDate(show.event_date)
+}
+
+/**
+ * Whether a surface may say `SOLD OUT` about this show.
+ *
+ * Exported because the page says it TWICE — this line, and the header badge
+ * beside the date — and a present-tense claim guarded in one of those places
+ * is a claim the other will make anyway. It asserts two things at once, that
+ * the event is happening and that tickets are gone, so both a cancellation
+ * and an elapsed show withdraw it: a past sold-out show printing the badge
+ * over `NO LONGER AVAILABLE` is one band arguing with itself across eighty
+ * pixels.
+ */
+export function saysSoldOut(
+  show: ShowResponse,
+  lifecycle: ShowLifecycleState
+): boolean {
+  return show.is_sold_out && !show.is_cancelled && lifecycle !== 'past'
 }
 
 /**
@@ -141,20 +199,18 @@ function wasPurchasable(show: ShowResponse): boolean {
  * drift. The price half is {@link ticketPriceSegments}: one price renders
  * bare, an advance/door pair renders as the mock's `$35 ADV · DOOR $40`. The
  * mock's trailing `CASH` is a separate fact with no column and no source that
- * states it reliably, so the line does not claim it (PSY-1864).
+ * states it reliably, so the line does not claim it. Both numbers are read
+ * again by {@link hasTicketCommerce}, which decides whether the past register
+ * has anything to close out.
  *
  * A past show closes the line instead: `$35 · NO LONGER AVAILABLE`, the
  * locked PAST mock's `1241:18` register (PSY-1690). It sits AFTER the price
  * rather than in the sale state's slot because that is the mock's order and
  * because it reads as what it is — a record of what entry cost, then the
- * fact that the door has shut. See {@link wasPurchasable} for when it is
- * said at all.
- *
- * Cancellation outranks it, exactly as it outranks the present-tense pair.
- * The stripe's own precedence puts CANCELLED first and never says PAST SHOW
- * under it, so a cancelled show that has also now passed must not pick up
- * the past register's words down here; `CANCELLED` is the whole statement,
- * and it was already made at the top of the page.
+ * fact that the door has shut. {@link saysPastRegister} decides whether this
+ * line is in that register at all and {@link hasTicketCommerce} whether it
+ * has anything to close out; cancellation and an unreadable date are handled
+ * in the former, with the reasons.
  *
  * The age segment is a venue-less fallback: the venue module's facts line
  * owns the age fact, but a show with no venue row never mounts that module,
@@ -175,15 +231,13 @@ export function ticketLineSegments(
   if (startTime) {
     segments.push(startTime)
   }
-  if (!show.is_cancelled && lifecycle !== 'past') {
-    if (show.is_sold_out) {
-      segments.push('SOLD OUT')
-    } else if (ticketHref(show, lifecycle)) {
-      segments.push('ON SALE')
-    }
+  if (saysSoldOut(show, lifecycle)) {
+    segments.push('SOLD OUT')
+  } else if (ticketHref(show, lifecycle)) {
+    segments.push('ON SALE')
   }
   segments.push(...ticketPriceSegments(show))
-  if (!show.is_cancelled && lifecycle === 'past' && wasPurchasable(show)) {
+  if (saysPastRegister(show, lifecycle) && hasTicketCommerce(show)) {
     segments.push('NO LONGER AVAILABLE')
   }
   const age = show.age_requirement?.trim()

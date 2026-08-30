@@ -85,7 +85,7 @@ describe('FieldNotesSection', () => {
       expect(screen.getByTestId('field-notes-section')).toBeInTheDocument()
       expect(screen.getByTestId('field-notes-empty')).toBeInTheDocument()
       expect(
-        screen.getByText('No field notes yet. Attend this show and share your experience!')
+        screen.getByText('No field notes yet. Were you there? Share what you saw.')
       ).toBeInTheDocument()
     })
 

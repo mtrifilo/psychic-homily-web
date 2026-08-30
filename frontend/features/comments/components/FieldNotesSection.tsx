@@ -167,7 +167,14 @@ export function FieldNotesSection({ showId, showDate, artists = [] }: FieldNotes
               className="text-sm text-muted-foreground py-8 text-center"
               data-testid="field-notes-empty"
             >
-              No field notes yet. Attend this show and share your experience!
+              {/* Past tense, because this branch has no other tense available
+                  to it: the whole section is behind `hasShowStarted`, so the
+                  empty state is reached ONLY once the show has begun. It used
+                  to read "Attend this show and share your experience!", which
+                  every past show with no notes displayed — an instruction to
+                  go to something that had already happened (PSY-1690). The
+                  phrasing is the locked mock's own prompt for this act. */}
+              No field notes yet. Were you there? Share what you saw.
             </p>
           ) : (
             <div className="space-y-4">

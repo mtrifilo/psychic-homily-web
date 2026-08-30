@@ -166,9 +166,11 @@ export function ShowAddToCalendar({
     }
   }
 
-  // After the hooks, never before: an early return above them would make the
-  // hook order depend on `lifecycle`, and the prop can change identity when
-  // the route re-renders.
+  // Below the hooks, never above them: an early return placed higher would
+  // make the number of hooks this component runs depend on `lifecycle`, and
+  // React identifies hooks by call order. The wasted work is a popover's
+  // worth of URL building on a branch that renders nothing, which is the
+  // cheaper half of that trade.
   if (lifecycle === 'past') return null
 
   return (
