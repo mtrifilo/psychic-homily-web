@@ -553,10 +553,14 @@ func (suite *CommentServiceIntegrationTestSuite) TestCreateComment_TopLevel_Show
 	suite.Equal(showID, comment.EntityID)
 }
 
-// PSY-552: AuthorName must never be empty. Users without username/first/last
-// name should fall back to the local-part of their email (matching the
-// PSY-353 resolveUserName chain used everywhere else). AuthorUsername must
-// be nil-pointer for those users so the frontend renders the byline as
+// PSY-552 / PSY-1940: AuthorName must never be empty — a comment's author slot
+// has to say something, so this surface keeps the "Anonymous" terminal rather
+// than omitting the byline the way a contribution credit does. What it must NOT
+// do is publish the local part of the account's email address: comments are
+// served to anonymous callers, and PSY-1940 cut that tier off every public
+// surface. This test used to assert the opposite.
+//
+// AuthorUsername stays a nil pointer for such a user so the frontend renders
 // plain text rather than a broken /users/ link.
 func (suite *CommentServiceIntegrationTestSuite) TestCreateComment_AuthorName_EmailPrefixFallback() {
 	// User has only an email — no username, no first/last.
@@ -577,10 +581,13 @@ func (suite *CommentServiceIntegrationTestSuite) TestCreateComment_AuthorName_Em
 	})
 	suite.Require().NoError(err)
 
-	// Local-part of the email (everything before '@') is the fallback.
-	prefix := email[:strings.Index(email, "@")]
-	suite.Equal(prefix, comment.AuthorName, "author_name must fall back to email prefix")
+	suite.Equal("Anonymous", comment.AuthorName,
+		"author_name must bottom out at Anonymous, not at the email local-part")
 	suite.NotEmpty(comment.AuthorName, "author_name must never be empty")
+	// Asserted on the substring too: the point is that no fragment of the
+	// address escapes, whichever tier a future edit might route it through.
+	prefix := email[:strings.Index(email, "@")]
+	suite.NotContains(comment.AuthorName, prefix, "email local-part leaked into a public byline")
 	suite.Nil(comment.AuthorUsername, "author_username must be nil for users without a username")
 }
 

@@ -1512,7 +1512,12 @@ func (s *NotificationFilterService) enrichCommentNotifications(entries []contrac
 	for _, c := range commentsByID {
 		userIDs = append(userIDs, c.UserID)
 	}
-	names, _ := shared.BatchResolveUserNames(s.db, userIDs)
+	// Public chain (PSY-1940). The notification feed is private to its
+	// recipient, but the name it carries is a THIRD PARTY's — the commenter —
+	// and it must read the same as the byline on the comment the notification
+	// points at, which is public. Resolving it any other way would name someone
+	// here in a way the linked comment does not.
+	names, _ := shared.BatchResolvePublicUserNames(s.db, userIDs)
 	usernames, _ := shared.BatchResolveUserUsernames(s.db, userIDs)
 
 	entitiesByTypeID := s.loadParentEntitiesByType(commentsByID)

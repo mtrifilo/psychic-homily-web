@@ -257,6 +257,57 @@ describe('ShowProvenanceLine', () => {
     expect(screen.queryByText(/edits?$/)).not.toBeInTheDocument()
   })
 
+  // PSY-1940: the revisions endpoint now withholds the author's name for a
+  // contributor who hid their contributions, and for one whose only resolvable
+  // name would be an email fragment. The "updated" fragment degrades exactly as
+  // the "added" one does — the date and the edit count are still facts about
+  // the listing, only the person is withheld.
+  it('renders "updated <date>" with no editor when the backend withheld the name', () => {
+    mockUseEntityAttribution.mockReturnValue({
+      data: {
+        user_name: null,
+        user_username: null,
+        created_at: '2026-07-31T12:00:00Z',
+        total: 3,
+      },
+    })
+    renderLine(makeShow())
+
+    const text = screen.getByTestId('show-provenance-line').textContent ?? ''
+    expect(text).toMatch(/updated Jul 31/)
+    expect(text).not.toMatch(/updated Jul 31 by/)
+    expect(screen.queryByText('Anonymous')).toBeNull()
+    expect(text).not.toMatch(/@/)
+    // The edit count is unrelated to who made the edits and must survive.
+    expect(screen.getByText('3 edits')).toBeInTheDocument()
+  })
+
+  // Both halves suppressed at once: a contributor who submitted the show AND
+  // made its last edit. The line must degrade on both sides rather than leaking
+  // the person through whichever byline was overlooked.
+  it('suppresses both bylines for one hidden contributor', () => {
+    mockUseEntityAttribution.mockReturnValue({
+      data: {
+        user_name: null,
+        user_username: null,
+        created_at: '2026-07-31T12:00:00Z',
+        total: 2,
+      },
+    })
+    renderLine(
+      makeShow({
+        submitted_by: 42,
+        submitted_by_name: null,
+        submitted_by_username: null,
+      })
+    )
+
+    const text = screen.getByTestId('show-provenance-line').textContent ?? ''
+    expect(text).toMatch(/added Jul 12/)
+    expect(text).toMatch(/updated Jul 31/)
+    expect(text).not.toMatch(/ by /)
+  })
+
   // Shows have no suggest pipeline: the affordance exists only for viewers
   // whose drawer actually opens, honestly labelled. The accessible name is
   // distinguished from ShowActions' plain "Edit" button so an admin's page

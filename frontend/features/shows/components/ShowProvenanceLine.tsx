@@ -62,17 +62,16 @@ interface ShowProvenanceLineProps {
  *   `submitted_by_username`, resolved by the show DETAIL read (PSY-1866). Only
  *   the detail read carries them — a `ShowResponse` from a list payload has
  *   neither, and the fragment falls back to a bare "added Jul 12" exactly as it
- *   did before the fields existed. NOTE the two bylines on this line do not
- *   resolve identically yet: "added by" uses the backend's canonical chain
- *   (display_name first), "updated by" uses the revisions endpoint's older
- *   local copy (username first), so a contributor with a display name can be
- *   named two ways here. Tracked backend-side; nothing to compensate for in
- *   this component.
+ *   did before the fields existed.
  * - "updated … by …" and the edit count come from the revisions read the
  *   old attribution line already made on this page; zero revisions renders
  *   neither. This is DELIBERATELY human edits only — `show.updated_at`
  *   also moves on scrape refreshes and admin flag flips, and "updated" in
  *   a byline that names an editor should mean a person edited the listing.
+ *   The editor's name degrades exactly as the submitter's does, and now under
+ *   the same backend rule (PSY-1940): both halves of this line resolve through
+ *   `shared.ResolvePublicContributorCredit`, so a contributor with a display
+ *   name is named identically on both.
  * - `[Edit]` renders only when the drawer can actually open (the mock says
  *   "Suggest an edit", but shows have no suggest pipeline — user decision:
  *   honest label, no dead button).
@@ -135,16 +134,24 @@ export function ShowProvenanceLine({
     )
   }
   if (attribution && updated) {
+    // Same NAME-gated shape as the "added" fragment above, and for the same
+    // reasons: a revision whose author the backend will not publish (hidden
+    // contributions, or an email-only name — PSY-1940) renders a bare
+    // "updated Jul 31", never a placeholder.
     push(
       'updated',
-      <span>
-        updated {updated} by{' '}
-        <UserAttribution
-          name={attribution.user_name}
-          username={attribution.user_username}
-          className="hover:underline"
-        />
-      </span>
+      attribution.user_name ? (
+        <span>
+          updated {updated} by{' '}
+          <UserAttribution
+            name={attribution.user_name}
+            username={attribution.user_username}
+            className="hover:underline"
+          />
+        </span>
+      ) : (
+        <span>updated {updated}</span>
+      )
     )
     // Guarded on the VALUE, not just the object: the hook's response type is
     // a hand-written mirror of the wire shape, so nothing at build time

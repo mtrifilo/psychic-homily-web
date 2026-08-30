@@ -39,9 +39,16 @@ const AnonymousUserName = "Anonymous"
 //
 // nil-safe: returns AnonymousUserName when the user is nil or has ID 0.
 //
-// Use this whenever a backend response needs a label for a user. Pair with
-// ResolveUserUsername when you also want a profile-link slug — the username
-// form returns *string so consumers can omit the link when no username is set.
+// NOT FOR PUBLIC RESPONSES. Tier 4 publishes a fragment of the account's email
+// address, which no logged-out surface may render (owner decision 2026-08-29).
+// Use this on admin-only views, on internal channels, and in messages addressed
+// to the user themselves; everywhere else reach for ResolvePublicUserName, or
+// ResolvePublicContributorCredit when the surface credits a CONTRIBUTION and can
+// omit the byline. See public_attribution.go.
+//
+// Pair with ResolveUserUsername when you also want a profile-link slug — the
+// username form returns *string so consumers can omit the link when no username
+// is set.
 //
 // CALLERS USING A COLUMN-RESTRICTED Select MUST LOAD EVERY CHAIN COLUMN:
 // id, username, display_name, first_name, last_name, email. Omitting one

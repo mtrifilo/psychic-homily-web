@@ -16,9 +16,15 @@ interface EntityHistoryResponse {
 }
 
 export interface EntityAttribution {
-  /** Resolved display name; never empty (backend resolveUserName chain). */
-  user_name: string
-  /** URL-safe username slug; null when the user has no username set. */
+  /**
+   * Resolved display name, or null when the backend will not name the author:
+   * they hid their contributions, or their only resolvable name would come
+   * from their email address (PSY-1940). Null means RENDER NO BYLINE — the
+   * absence says "we may not say", and an "Anonymous" placeholder would assert
+   * a person the backend deliberately declined to name.
+   */
+  user_name: string | null
+  /** URL-safe username slug; null when there is no profile to link to. */
   user_username: string | null
   created_at: string
   /**
@@ -30,9 +36,13 @@ export interface EntityAttribution {
 }
 
 /**
- * Fetches the most recent revision for an entity to show "Last edited by" attribution.
- * Returns the most recent editor's display name and (when set) linkable username.
- * Returns null data if no revisions exist.
+ * Fetches the most recent revision for an entity to show "Last edited"
+ * attribution. Returns the most recent editor's display name (when the backend
+ * will publish one) and, when set, a linkable username.
+ *
+ * Returns null data if no revisions exist. A revision WITH no publishable
+ * author is not the same thing: the edit and its date are still returned, with
+ * `user_name: null`.
  */
 export function useEntityAttribution(
   entityType: string,
@@ -49,8 +59,11 @@ export function useEntityAttribution(
       }
       const revision = data.revisions[0]
       return {
-        // 'Anonymous' fallback is defensive — backend should always populate.
-        user_name: revision.user_name || 'Anonymous',
+        // Normalised to null, NOT to 'Anonymous'. An absent name is a decision
+        // the backend made about what it may publish (PSY-1940), and the old
+        // placeholder converted "we may not say" into a claim about a person.
+        // An empty string collapses to null for the same reason.
+        user_name: revision.user_name || null,
         user_username: revision.user_username ?? null,
         created_at: revision.created_at,
         // Passed through untouched. The backend handler always sets it, but

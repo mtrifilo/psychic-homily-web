@@ -2380,21 +2380,32 @@ func (s *CollectionService) batchResolveUserUsernames(userIDs []uint) map[uint]*
 	return result
 }
 
-// resolveUserName loads a user by ID and delegates to shared.ResolveUserName.
-// Falls back to "Anonymous" when the lookup fails.
+// resolveUserName loads a user by ID and delegates to the PUBLIC resolution
+// chain. Falls back to "Anonymous" when the lookup fails.
+//
+// Public, not canonical (PSY-1940): a collection's curator byline and its
+// per-item "added by" credit are served to anonymous callers on every public
+// collection, and the canonical chain's last-resort tier would publish the
+// local part of the curator's email address. "Anonymous" is the terminal here
+// rather than an omission because these slots are structural — a collection
+// card has a curator line whether or not we can name the person.
+//
+// The Select drops `email` to match: the tier is disabled by policy above, and
+// not loading the column means an address cannot reach a response even if that
+// policy were later loosened. Every OTHER chain column must stay listed.
 func (s *CollectionService) resolveUserName(userID uint) string {
 	var user authm.User
-	if err := s.db.Select("id, username, display_name, first_name, last_name, email").First(&user, userID).Error; err != nil {
+	if err := s.db.Select("id, username, display_name, first_name, last_name").First(&user, userID).Error; err != nil {
 		return "Anonymous"
 	}
-	return shared.ResolveUserName(&user)
+	return shared.ResolvePublicUserName(&user)
 }
 
 // batchResolveUserNames resolves display names for multiple user IDs in a
-// single query. Returns an empty (non-nil) map on DB error so callers can
-// index without a nil-check guard.
+// single query, under the same public rule as resolveUserName. Returns an empty
+// (non-nil) map on DB error so callers can index without a nil-check guard.
 func (s *CollectionService) batchResolveUserNames(userIDs []uint) map[uint]string {
-	result, err := shared.BatchResolveUserNames(s.db, userIDs)
+	result, err := shared.BatchResolvePublicUserNames(s.db, userIDs)
 	if err != nil {
 		return make(map[uint]string)
 	}

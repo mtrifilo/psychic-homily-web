@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -2399,17 +2398,14 @@ func (s *ShowService) attachBillLabels(resp *contracts.ShowResponse) {
 // they never read. Same trade that function already makes, for the same reason.
 //
 // The resolution chain is shared.ResolveUserName / ResolveUserUsername, the
-// canonical pair (PSY-612 / PSY-598), narrowed by the privacy gates below.
+// canonical pair (PSY-612 / PSY-598), narrowed by the public attribution rule
+// in shared.ResolvePublicContributorCredit.
 //
-// This does NOT yet match the "updated by" half of the same byline. The
-// revisions endpoint resolves through its own local copy of the chain
-// (admin/revision.go resolveRevisionUserName), which predates display_name and
-// so starts at username. For a contributor who has set a display name, one line
-// can therefore read "added by Matt T · updated by mtrifilo". The divergence is
-// the revisions copy's, not this one's — the fix is to point that copy at
-// shared.ResolveUserName, which changes revision output for every entity type
-// and is its own ticket. Do not "fix" the mismatch by copying the stale chain
-// here; that spreads the bug instead of shrinking it.
+// The "updated by" half of the same byline now runs the same helper: PSY-1940
+// deleted the revisions endpoint's local copy of the chain, which predated
+// display_name and so started at username and could make one line read
+// "added by Matt T · updated by mtrifilo". If a mismatch ever reappears, fix it
+// by pointing both halves at the shared helper — never by copying a chain.
 //
 // Absences that drop the credit before the privacy gates even run:
 //   - No submitter to resolve. A scraped listing never had one, and a
@@ -2423,44 +2419,28 @@ func (s *ShowService) attachBillLabels(resp *contracts.ShowResponse) {
 // it covers a future migration that weakens the constraint, not today's data.
 // The query-error case it shares is the one that actually happens.
 //
-// PRIVACY. This byline is a public contribution-attribution surface, and it is
-// a WIDER one than the revisions byline beside it: a revision credit needs an
-// edit to exist, this one appears on every user-submitted show. So it enforces
-// the privacy model the rest of the app enforces, rather than the one the
-// revisions endpoint happens to have.
-//
-// Three fail-closed gates, in order. Each drops the credit rather than
-// substituting a placeholder — "added Jul 12" claims nothing about who, which
-// is the honest reading of "we may not say".
-//
-//  1. privacy_settings.contributions = "hidden" omits the credit entirely.
-//     This is a real user-facing setting, already honoured by the contributor
-//     leaderboard (services/user/leaderboard.go), the activity heatmap and the
-//     profile's contribution stats. The revisions endpoint does NOT honour it —
-//     its applyPrivacyRedaction masks edit CONTENT (field values, summary) and
-//     never the author's identity. That is a gap in revisions, not a policy to
-//     copy. User decision 2026-08-29: fail closed here.
-//  2. No public name tier omits the credit. The canonical chain's last resort
-//     derives a name from the local-part of the account's email, and an email
-//     fragment is not something a public byline may publish. A name is rendered
-//     only when it came from display_name, username, or first/last — the tiers a
-//     person chose as a public identity. This also swallows the chain's terminal
-//     "Anonymous", which carried no information worth a byline anyway.
-//  3. profile_visibility = "private" keeps the NAME but drops the username, so
-//     the credit renders as plain text. The profile route 404s a private profile
-//     (community/contributor_profile.go), so linking would be a dead link. The
-//     name still shows: only gate 1 suppresses the person.
+// PRIVACY. This byline is a public contribution-attribution surface, so it
+// resolves through shared.ResolvePublicContributorCredit — the one definition
+// of the fail-closed attribution rule (owner decision 2026-08-29). The three
+// gates, and why each drops the credit rather than substituting a placeholder,
+// are argued there; do not re-spell them here. The revision byline beside this
+// one on the show page runs the same helper (PSY-1940), which is what keeps the
+// two halves of "added by … · updated by …" from disagreeing about a person.
 //
 // Deliberately NOT viewer-dependent (v1): the same public rule applies to
 // everyone, submitter included. Threading viewer identity into the detail reads
 // is a real API change, and the leaderboard's own gate is likewise viewerless.
+// The revisions endpoints DO have viewer plumbing and so grant admins the
+// unmasked byline; this one has none to grant.
 //
 // The Select deliberately does NOT load `email`, departing from the
 // load-every-chain-column rule on shared.ResolveUserName. That rule exists so a
 // missing column cannot silently disable a tier; here disabling the email tier
 // is the POINT, and not loading the column means an email cannot reach a
-// response even if gate 2 were later removed. Structural, not incidental — keep
-// it that way. Every OTHER chain column must stay listed.
+// response even if the helper's name gate were later removed. Structural, not
+// incidental — keep it that way. Every OTHER chain column must stay listed, and
+// so must privacy_settings and profile_visibility: a missing privacy column
+// unmarshals as the DEFAULTS, which have contributions VISIBLE.
 //
 // Nothing here decides WHO may see the byline; the route does. A show the
 // caller may not see is 404'd before the response is serialized
@@ -2483,44 +2463,13 @@ func (s *ShowService) attachSubmitterAttribution(resp *contracts.ShowResponse) {
 		return
 	}
 
-	// Gate 1. Falling back to the DEFAULTS, which have Contributions visible,
-	// is not fail-closed by itself — but it matches how every other reader of
-	// this column behaves, and a divergent local rule would be the surprise.
-	// Both ways in are near-unreachable by the schema, which is what makes that
-	// safe: the column is NOT NULL with a default, so the nil branch is purely
-	// defensive, and it is jsonb, so Postgres rejects malformed JSON at write
-	// time and only a well-formed blob of the wrong SHAPE can fail to unmarshal.
-	privacy := contracts.DefaultPrivacySettings()
-	if user.PrivacySettings != nil {
-		_ = json.Unmarshal(*user.PrivacySettings, &privacy)
-	}
-	if privacy.Contributions == contracts.PrivacyHidden {
+	credit := shared.ResolvePublicContributorCredit(&user)
+	if !credit.Renderable() {
 		return
 	}
-
-	// Gate 2. Checked on the SOURCE columns, not by inspecting the resolved
-	// string: the chain returns a bare local-part for an email-derived name, so
-	// there is nothing in the output to pattern-match on. Because these are the
-	// first three tiers, a true here guarantees ResolveUserName returns one of
-	// them and never reaches the email or "Anonymous" branches.
-	hasPublicName := (user.DisplayName != nil && *user.DisplayName != "") ||
-		(user.Username != nil && *user.Username != "") ||
-		(user.FirstName != nil && *user.FirstName != "")
-	if !hasPublicName {
-		return
-	}
-
-	name := shared.ResolveUserName(&user)
+	name := credit.Name
 	resp.SubmittedByName = &name
-
-	// Gate 3. NOTE this return is not like the two above: the name is already
-	// assigned and STAYS. A private profile loses only its link, because
-	// /users/{username} 404s for it — the person is still credited, as plain
-	// text. Do not move this above the assignment.
-	if user.ProfileVisibility == "private" {
-		return
-	}
-	resp.SubmittedByUsername = shared.ResolveUserUsername(&user)
+	resp.SubmittedByUsername = credit.Username
 }
 
 // fetchBillsForShows resolves the ordered bill of every show in showIDs, keyed
