@@ -1059,14 +1059,24 @@ func TestAdminDecide_ApproveShow_CreateFailureIs422(t *testing.T) {
 	decided.Payload = &payload
 	decided.DecisionState = communitym.EntityRequestStateApproved
 
+	pending := pendingRequest(44, "show")
+	pending.Payload = &payload
+
+	// createCalled is what keeps this test honest. Without it, a handler that
+	// never reaches CreateShow still answers 422 (via the FulfillUnsupported
+	// branch), so the assertion below would pass while the mapping under test
+	// went unexercised.
+	createCalled := false
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
+			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return pending, nil },
 			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
 				return decided, nil
 			},
 		},
 		&testhelpers.MockEntityRequestFulfiller{
 			CreateShowFn: func(req *contracts.CreateShowRequest) (*contracts.ShowResponse, error) {
+				createCalled = true
 				return nil, fmt.Errorf("duplicate headliner at venue on date")
 			},
 		},
@@ -1079,6 +1089,9 @@ func TestAdminDecide_ApproveShow_CreateFailureIs422(t *testing.T) {
 	req.Body.ShowArtists = []ShowArtistInput{{Name: "Boris"}}
 	_, err = h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
 	testhelpers.AssertHumaError(t, err, 422)
+	if !createCalled {
+		t.Fatal("CreateShow must be reached, or the 422 proves nothing about the create-failure mapping")
+	}
 }
 
 // Approving a festival creates a real festival: the fulfiller derives the two

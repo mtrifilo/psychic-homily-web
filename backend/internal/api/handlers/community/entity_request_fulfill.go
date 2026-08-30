@@ -217,8 +217,12 @@ func buildShowAssociations(venue *ShowVenueInput, artists []ShowArtistInput, bil
 		if venue == nil {
 			return nil, huma.Error422UnprocessableEntity("show_venue is required to fulfil a show")
 		}
+		// "a bill" and not "the bill on this request's payload": a non-show decide
+		// that carries a stray show_venue reaches this branch, and that request's
+		// payload has no bill to adopt. Promising one there would send the reader
+		// looking for a field that does not exist on their entity type.
 		return nil, huma.Error422UnprocessableEntity(
-			"supply show_artists, or set use_payload_artists to adopt the bill on this request's payload")
+			"supply show_artists, or set use_payload_artists to adopt a bill stored on the request's payload")
 	}
 	// Names are validated as a whole bill, BEFORE any conversion work: the cap
 	// exists to stop a runaway script from driving an unbounded number of artist
@@ -384,6 +388,13 @@ func resolveShowBill(bodyArtists []ShowArtistInput, req *communitym.EntityReques
 		// Honest about which input is empty. Falling through to the caller's
 		// "a show needs a venue and a bill" refusal would tell an admin who DID
 		// ask for the payload's bill to go find a field they deliberately left out.
+		//
+		// The req != nil half is NOT redundant, though both callers now pass a
+		// non-nil row: nil means "this row is not eligible to adopt", and a row
+		// nobody can act on must not answer with a complaint about its payload.
+		// That is the exact 422-instead-of-409 this endpoint has already had to
+		// fix twice. Keep the guard even if the callers look like they make it
+		// unreachable.
 		return nil, billSourcePayload, huma.Error422UnprocessableEntity(
 			"use_payload_artists was set, but this request's payload carries no artists")
 	}

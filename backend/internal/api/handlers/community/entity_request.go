@@ -621,7 +621,14 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 		// PSY-1858: record WHICH bill was fulfilled, so an approve that adopted the
 		// contributor's stored bill is distinguishable after the fact from one the
 		// admin typed and vetted. Nothing else in the row carries that.
-		if showAssoc != nil && showAssoc.billSource != "" {
+		//
+		// Gated on the entity type as well as on showAssoc, because a non-show
+		// approve carrying stray show_venue + show_artists still builds a
+		// showAssoc that fulfillEntity then ignores. Recording a bill_source there
+		// would answer "which bill was fulfilled" for an entity that has no bill,
+		// which is worse than staying silent in the one field added to make that
+		// question answerable.
+		if showAssoc != nil && showAssoc.billSource != "" && decided.EntityType == communitym.EntityRequestShow {
 			metadata["bill_source"] = string(showAssoc.billSource)
 		}
 		entityType := decided.EntityType
