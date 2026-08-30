@@ -51,9 +51,9 @@ func billNames(artists []contracts.CreateShowArtist) []string {
 func TestCreateEntityRequest_ShowBillInvalidRole422AtSubmit(t *testing.T) {
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
 				t.Fatal("the request must NOT be queued with an invalid bill role")
-				return nil, nil
+				return nil, false, nil
 			},
 		},
 		nil, nil,
@@ -79,9 +79,9 @@ func TestCreateEntityRequest_ShowBillBlankRoleRejected(t *testing.T) {
 	for _, blank := range []string{"", "   ", "Headliner", " headliner "} {
 		h := NewEntityRequestHandler(
 			&testhelpers.MockEntityRequestService{
-				CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
+				CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
 					t.Fatalf("the request must NOT be queued with role %q", blank)
-					return nil, nil
+					return nil, false, nil
 				},
 			},
 			nil, nil,
@@ -103,12 +103,12 @@ func TestCreateEntityRequest_ShowBillAcceptsEveryVocabularyRole(t *testing.T) {
 		queued := false
 		h := NewEntityRequestHandler(
 			&testhelpers.MockEntityRequestService{
-				CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
+				CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
 					queued = true
 					// The bill must reach the STORE verbatim -- the handler
 					// validates it, it does not rewrite it.
 					assert.Contains(t, string(payload), `"set_type":"`+role+`"`)
-					return pendingRequest(1, "show"), nil
+					return pendingRequest(1, "show"), false, nil
 				},
 			},
 			nil, &testhelpers.MockAuditLogService{},
@@ -129,9 +129,9 @@ func TestCreateEntityRequest_ShowBillAcceptsEveryVocabularyRole(t *testing.T) {
 func TestCreateEntityRequest_ShowBillOverCapRejected(t *testing.T) {
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
 				t.Fatal("an over-cap bill must NOT be queued")
-				return nil, nil
+				return nil, false, nil
 			},
 		},
 		nil, nil,
@@ -157,9 +157,9 @@ func TestCreateEntityRequest_ShowBillDuplicateActRejected(t *testing.T) {
 	for _, dupe := range []string{"boris", "BORIS", "  Boris  "} {
 		h := NewEntityRequestHandler(
 			&testhelpers.MockEntityRequestService{
-				CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
+				CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
 					t.Fatalf("a bill naming an act twice (%q) must NOT be queued", dupe)
-					return nil, nil
+					return nil, false, nil
 				},
 			},
 			nil, nil,
@@ -236,8 +236,8 @@ func TestCreateEntityRequest_AutoApproveShowWithPayloadBillStillDefers(t *testin
 
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
-				return approved, nil
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
+				return approved, false, nil
 			},
 			RecordFulfillmentFn: func(requestID, createdEntityID uint) error {
 				t.Fatal("a deferred show must not record a fulfillment")
@@ -426,7 +426,7 @@ func decideHandler(t *testing.T, pending *communitym.EntityRequest, got **contra
 	return NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
 			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return pending, nil },
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				if decideCalled != nil {
 					*decideCalled = true
 				}
@@ -582,7 +582,7 @@ func TestAdminDecide_ApproveShow_AlreadyDecidedRowWithBrokenStoredBillIs409(t *t
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
 			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return decided, nil },
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				return nil, apperrors.ErrEntityRequestInvalidState(requestID, string(communitym.EntityRequestStateApproved))
 			},
 		},
@@ -764,7 +764,7 @@ func TestAdminDecide_ApproveShow_AlreadyDecidedRowWithFlagIs409(t *testing.T) {
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
 			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return decided, nil },
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				return nil, apperrors.ErrEntityRequestInvalidState(requestID, string(communitym.EntityRequestStateApproved))
 			},
 		},
@@ -796,7 +796,7 @@ func TestAdminDecide_ApproveShow_MissingRowWithFlagIs404(t *testing.T) {
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
 			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return nil, nil },
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				return nil, apperrors.ErrEntityRequestNotFound(requestID)
 			},
 		},
@@ -860,7 +860,7 @@ func TestAdminAdoption_NonShowRequestIgnoresTheFlag(t *testing.T) {
 		h := NewEntityRequestHandler(
 			&testhelpers.MockEntityRequestService{
 				GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return pending, nil },
-				DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+				DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 					return &approved, nil
 				},
 			},
@@ -950,7 +950,7 @@ func TestAdminDecide_ApproveShow_AuditRecordsTheBillSource(t *testing.T) {
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
 			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return pending, nil },
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				return &approved, nil
 			},
 		},

@@ -71,8 +71,9 @@ const (
 // authoritative contracts.IsValidSetType.
 //
 // Rejecting at submit is the whole point: a typo'd role caught here is a 422 on
-// a request that was never filed, and no endpoint can edit a queued payload to
-// repair one that got through (PSY-1948).
+// a request that was never filed. A role that got through is repairable only
+// while the row is PENDING, by resubmitting the same title (PSY-1948); once an
+// admin claims the row, nothing can correct its payload.
 //
 // NOT re-run pre-claim on the admin paths, deliberately. buildShowAssociations
 // validates the roles of whichever bill actually wins, with this same function

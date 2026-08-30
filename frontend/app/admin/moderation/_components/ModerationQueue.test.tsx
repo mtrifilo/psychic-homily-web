@@ -155,6 +155,9 @@ const mockEntityRequest: AdminEntityRequest = {
   requester_username: null,
   decision_state: 'pending',
   created_at: '2026-04-08T00:00:00Z',
+  // PSY-1948: moves ahead of created_at when the contributor resubmits a
+  // correction; equal here because this request has not been replaced.
+  updated_at: '2026-04-08T00:00:00Z',
 }
 
 // --- Mocks ---

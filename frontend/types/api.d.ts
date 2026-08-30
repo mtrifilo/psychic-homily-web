@@ -7672,6 +7672,8 @@ export interface components {
             requester_username: string | null;
             source_context: string;
             source_detail?: unknown;
+            /** Format: date-time */
+            updated_at: string;
         };
         AdminFulfillEntityRequestRequestBody: {
             /**
@@ -9789,6 +9791,36 @@ export interface components {
             /** @description Optional origin context (source URL + excerpt), chiefly for AI extraction; shown in the admin moderation queue */
             source_detail?: components["schemas"]["EntityRequestSourceDetail"];
         };
+        CreateEntityRequestResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/CreateEntityRequestResponseBody.json
+             */
+            readonly $schema?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: int64 */
+            created_entity_id?: number;
+            /** Format: date-time */
+            decided_at?: string;
+            /** Format: int64 */
+            decided_by?: number;
+            decision_note?: string;
+            decision_state: string;
+            entity_type: string;
+            /** Format: int64 */
+            id: number;
+            payload: unknown;
+            /** @description True when this submission replaced the requester's existing pending request for the same name (a correction) rather than filing a new one. The returned id is that queued request's. Only a PENDING request is ever replaced; read decision_state for the row's state, which an admin can decide the moment the replacement lands. */
+            replaced: boolean;
+            /** Format: int64 */
+            requester_id: number;
+            source_context: string;
+            source_detail?: unknown;
+            /** Format: date-time */
+            updated_at: string;
+        };
         CreateFestivalRequestBody: {
             /**
              * Format: uri
@@ -10693,12 +10725,6 @@ export interface components {
             status: string;
         };
         EntityRequest: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/EntityRequest.json
-             */
-            readonly $schema?: string;
             /** Format: date-time */
             created_at: string;
             /** Format: int64 */
@@ -28405,7 +28431,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["EntityRequest"];
+                    "application/json": components["schemas"]["CreateEntityRequestResponseBody"];
                 };
             };
             /** @description Error */

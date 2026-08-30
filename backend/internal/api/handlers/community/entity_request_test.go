@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -102,9 +103,9 @@ func TestCreateEntityRequest_EmptyPayload(t *testing.T) {
 func TestCreateEntityRequest_PayloadMissingRequiredField(t *testing.T) {
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
 				t.Fatal("service must NOT be called for an invalid payload")
-				return nil, nil
+				return nil, false, nil
 			},
 		},
 		nil, nil,
@@ -121,9 +122,9 @@ func TestCreateEntityRequest_PayloadMissingRequiredField(t *testing.T) {
 func TestCreateEntityRequest_PayloadUnknownField(t *testing.T) {
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
 				t.Fatal("service must NOT be called for an invalid payload")
-				return nil, nil
+				return nil, false, nil
 			},
 		},
 		nil, nil,
@@ -144,7 +145,7 @@ func TestCreateEntityRequest_ContributorQueuesPending(t *testing.T) {
 	want := pendingRequest(7, "artist")
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
 				if user.ID != 2 {
 					t.Errorf("expected requester 2, got %d", user.ID)
 				}
@@ -154,7 +155,7 @@ func TestCreateEntityRequest_ContributorQueuesPending(t *testing.T) {
 				if sourceContext != communitym.EntityRequestSourceManual {
 					t.Errorf("expected default source manual, got %s", sourceContext)
 				}
-				return want, nil
+				return want, false, nil
 			},
 		},
 		nil,
@@ -175,7 +176,180 @@ func TestCreateEntityRequest_ContributorQueuesPending(t *testing.T) {
 	if resp.Body.DecisionState != communitym.EntityRequestStatePending {
 		t.Errorf("expected pending, got %s", resp.Body.DecisionState)
 	}
+	if resp.Body.Replaced {
+		t.Error("a first submission must not report itself as a replacement")
+	}
 }
+
+// ============================================================================
+// Tests: Queue-create — resubmission replaces a queued request (PSY-1948)
+// ============================================================================
+
+// A resubmission that landed on the requester's queued row reports replaced:
+// true. Without it the response for a correction is byte-identical to the one
+// for a fresh queue-create, and the contributor cannot tell their correction
+// landed rather than being swallowed.
+func TestCreateEntityRequest_Replaced_IsReportedOnTheResponse(t *testing.T) {
+	queued := pendingRequest(7, "artist")
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
+				return queued, true, nil
+			},
+		},
+		nil,
+		&testhelpers.MockAuditLogService{},
+	)
+
+	req := &CreateEntityRequestRequest{}
+	req.Body.EntityType = "artist"
+	req.Body.Payload = artistPayload(t, "Boris")
+
+	resp, err := h.CreateEntityRequestHandler(erUserCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Body.Replaced {
+		t.Error("a replacement must be distinguishable from a fresh queue-create")
+	}
+	if resp.Body.ID != 7 {
+		t.Errorf("a replacement carries the queued request's own id, got %d", resp.Body.ID)
+	}
+}
+
+// A replacement OVERWRITES a stored payload, so it gets its own audit action.
+// Nothing else records that the submission an admin is about to moderate is not
+// the one originally filed.
+func TestCreateEntityRequest_Replaced_AuditsAsAReplacement(t *testing.T) {
+	// The audit write is fire-and-forget (GoSafe), so it lands on another
+	// goroutine after the handler returns; a channel reads it without a sleep.
+	logged := make(chan string, 1)
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
+				return pendingRequest(7, "artist"), true, nil
+			},
+		},
+		nil,
+		&testhelpers.MockAuditLogService{
+			LogActionFn: func(_ uint, action, _ string, _ uint, _ map[string]interface{}) {
+				logged <- action
+			},
+		},
+	)
+
+	req := &CreateEntityRequestRequest{}
+	req.Body.EntityType = "artist"
+	req.Body.Payload = artistPayload(t, "Boris")
+
+	if _, err := h.CreateEntityRequestHandler(erUserCtx(), req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	select {
+	case action := <-logged:
+		if action != "replace_entity_request" {
+			t.Errorf("expected action=replace_entity_request, got %s", action)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a replacement must write an audit row")
+	}
+}
+
+// The response body embeds the request row, and huma's schema-link transformer
+// rebuilds every body struct with reflect.StructOf to prepend $schema — which
+// REFUSES an embedded type that has methods once it is no longer the first field.
+// Huma only warns on that failure, so embedding communitym.EntityRequest directly
+// silently drops $schema and the describedBy Link header from this one endpoint
+// while the generated types still declare them. This pins the shape that avoids
+// it; it fails if the embed is ever pointed back at a type with methods.
+func TestCreateEntityRequestResponseBody_SurvivesTheSchemaLinkTransform(t *testing.T) {
+	bodyType := reflect.TypeOf(CreateEntityRequestResponseBody{})
+	fields := []reflect.StructField{{
+		Name: "Schema",
+		Type: reflect.TypeOf(""),
+		Tag:  `json:"$schema,omitempty"`,
+	}}
+	for i := 0; i < bodyType.NumField(); i++ {
+		fields = append(fields, bodyType.Field(i))
+	}
+
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("the response body cannot carry $schema, so the endpoint ships without it: %v", r)
+			}
+		}()
+		reflect.StructOf(fields)
+	}()
+
+	// The transformer copies only EXPORTED fields into that wrapper, so an
+	// unexported embed passes reflect.StructOf and silently ships a body with the
+	// request's fields missing entirely. Pin the promoted shape.
+	if bodyType.Field(0).PkgPath != "" {
+		t.Fatal("the embedded request must be exported, or huma drops every promoted field from the response")
+	}
+	encoded, err := json.Marshal(&CreateEntityRequestResponseBody{
+		EntityRequestFields: (*EntityRequestFields)(pendingRequest(7, "artist")),
+		Replaced:            true,
+	})
+	if err != nil {
+		t.Fatalf("marshal response body: %v", err)
+	}
+	for _, key := range []string{`"id":7`, `"decision_state":"pending"`, `"entity_type":"artist"`, `"replaced":true`} {
+		if !strings.Contains(string(encoded), key) {
+			t.Errorf("response body must carry %s at the top level, got %s", key, encoded)
+		}
+	}
+}
+
+// A replacement never fulfills, whatever state the re-read reports. The write
+// only ever lands on a pending row, but the row is re-read in a separate
+// statement, so an admin approving in that gap makes the read return 'approved'
+// with no created_entity_id yet. Fulfilling there would run the admin's approval
+// on the CONTRIBUTOR's request, racing them into a duplicate entity.
+func TestCreateEntityRequest_Replaced_NeverFulfills(t *testing.T) {
+	// The shape the race produces: replaced, but re-read as already approved.
+	decidedUnderneath := approvedRequest(7, "artist")
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
+				return decidedUnderneath, true, nil
+			},
+			RecordFulfillmentFn: func(requestID, createdEntityID uint) error {
+				t.Fatal("a replacement must not record a fulfillment")
+				return nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
+				t.Fatal("a replacement must not create a catalog entity")
+				return nil, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	req := &CreateEntityRequestRequest{}
+	req.Body.EntityType = "artist"
+	req.Body.Payload = artistPayload(t, "Boris")
+
+	resp, err := h.CreateEntityRequestHandler(erUserCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.CreatedEntityID != nil {
+		t.Errorf("a replacement must not report a created entity, got %d", *resp.Body.CreatedEntityID)
+	}
+}
+
+// A resubmission is validated exactly as a fresh create is, before it can reach
+// the writer: the handler has no resubmission-aware branch, so the existing
+// boundary tests (PayloadMissingRequiredField, PayloadUnknownField,
+// ShowBillInvalidRole422AtSubmit) cover the correction case too. The invariant
+// that a bad payload cannot overwrite a good queued one is pinned where the
+// overwrite happens, in the service:
+// TestReplacePendingSubmission_InvalidPayloadIsRefused.
 
 // ============================================================================
 // Tests: Queue-create — auto-approve fulfillment + source detail (PSY-1008)
@@ -191,8 +365,8 @@ func TestCreateEntityRequest_AutoApprove_FulfillsAndReturnsID(t *testing.T) {
 
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
-				return approved, nil
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
+				return approved, false, nil
 			},
 			RecordFulfillmentFn: func(requestID, createdEntityID uint) error {
 				if requestID != 11 {
@@ -242,8 +416,8 @@ func TestCreateEntityRequest_AutoApprove_ShowDeferredNotError(t *testing.T) {
 
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
-				return approved, nil
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
+				return approved, false, nil
 			},
 			RecordFulfillmentFn: func(requestID, createdEntityID uint) error {
 				t.Fatal("RecordFulfillment must NOT be called when fulfillment is unsupported")
@@ -281,8 +455,8 @@ func TestCreateEntityRequest_AutoApprove_FulfillFails(t *testing.T) {
 
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
-				return approved, nil
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
+				return approved, false, nil
 			},
 		},
 		&testhelpers.MockEntityRequestFulfiller{
@@ -309,8 +483,8 @@ func TestCreateEntityRequest_AutoApprove_ExistsConflictIs409(t *testing.T) {
 
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
-				return approved, nil
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
+				return approved, false, nil
 			},
 		},
 		&testhelpers.MockEntityRequestFulfiller{
@@ -336,9 +510,9 @@ func TestCreateEntityRequest_SourceDetailPassthrough(t *testing.T) {
 
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
 				gotDetail = sourceDetail
-				return want, nil
+				return want, false, nil
 			},
 		},
 		nil,
@@ -379,9 +553,9 @@ func TestCreateEntityRequest_EmptySourceDetailDropped(t *testing.T) {
 
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
 				sawDetail = sourceDetail != nil
-				return want, nil
+				return want, false, nil
 			},
 		},
 		nil,
@@ -407,9 +581,9 @@ func TestCreateEntityRequest_EmptySourceDetailDropped(t *testing.T) {
 func TestCreateEntityRequest_SourceDetailTooLong(t *testing.T) {
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
 				t.Fatal("service must NOT be called when source_detail is invalid")
-				return nil, nil
+				return nil, false, nil
 			},
 		},
 		nil, nil,
@@ -427,8 +601,8 @@ func TestCreateEntityRequest_SourceDetailTooLong(t *testing.T) {
 func TestCreateEntityRequest_ServiceError(t *testing.T) {
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
-				return nil, fmt.Errorf("db down")
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
+				return nil, false, fmt.Errorf("db down")
 			},
 		},
 		nil,
@@ -444,8 +618,8 @@ func TestCreateEntityRequest_ServiceError(t *testing.T) {
 func TestCreateEntityRequest_MapsTypedError(t *testing.T) {
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
-				return nil, apperrors.ErrEntityRequestEmptyPayload("artist")
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
+				return nil, false, apperrors.ErrEntityRequestEmptyPayload("artist")
 			},
 		},
 		nil,
@@ -596,7 +770,7 @@ func TestAdminDecide_ApproveArtist_CreatesEntity(t *testing.T) {
 
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				if requestID != 5 || adminID != 1 {
 					t.Errorf("unexpected decide params: req=%d admin=%d", requestID, adminID)
 				}
@@ -659,7 +833,7 @@ func TestAdminDecide_ApproveArtist_CarriesNullableFields(t *testing.T) {
 	var gotImage, gotEmbed *string
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				return decided, nil
 			},
 		},
@@ -704,7 +878,7 @@ func TestAdminDecide_ApproveVenue_CarriesNullableFields(t *testing.T) {
 	var gotDesc, gotImage *string
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				return decided, nil
 			},
 		},
@@ -744,7 +918,7 @@ func TestAdminDecide_ApproveLabel_CarriesNullableFields(t *testing.T) {
 	var gotImage *string
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				return decided, nil
 			},
 		},
@@ -780,7 +954,7 @@ func TestAdminDecide_ApproveArtist_RejectsHostileStoredURL(t *testing.T) {
 	createCalled := false
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				return decided, nil
 			},
 		},
@@ -813,7 +987,7 @@ func TestAdminDecide_ApproveShow_Unsupported(t *testing.T) {
 			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) {
 				return pending, nil
 			},
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				decideCalled = true
 				return pending, nil
 			},
@@ -861,7 +1035,7 @@ func TestAdminDecide_ApproveShow_WithAssociations_CreatesShow(t *testing.T) {
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
 			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return pending, nil },
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				return decided, nil
 			},
 		},
@@ -947,7 +1121,7 @@ func TestAdminDecide_ApproveShow_DateOnlyAnchorsEveningLocal(t *testing.T) {
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
 			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return pending, nil },
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				return decided, nil
 			},
 		},
@@ -985,7 +1159,7 @@ func TestAdminDecide_ApproveShow_PartialAssociations422BeforeClaim(t *testing.T)
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
 			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return pending, nil },
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				decideCalled = true
 				return nil, nil
 			},
@@ -1020,7 +1194,7 @@ func TestAdminDecide_ApproveShow_MalformedStoredPayloadRejected(t *testing.T) {
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
 			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return pending, nil },
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				return decided, nil
 			},
 		},
@@ -1070,7 +1244,7 @@ func TestAdminDecide_ApproveShow_CreateFailureIs422(t *testing.T) {
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
 			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return pending, nil },
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				return decided, nil
 			},
 		},
@@ -1114,7 +1288,7 @@ func TestAdminDecide_ApproveFestival_CreatesEntity(t *testing.T) {
 
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				return decided, nil
 			},
 		},
@@ -1172,7 +1346,7 @@ func TestAdminDecide_ApproveFestival_EditionYearFromStartDate(t *testing.T) {
 	gotYear := -1
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				return decided, nil
 			},
 		},
@@ -1213,7 +1387,7 @@ func TestAdminDecide_ApproveFestival_ExistsConflictIs409(t *testing.T) {
 
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				return decided, nil
 			},
 		},
@@ -1247,7 +1421,7 @@ func TestAdminDecide_ApproveFestival_MalformedStoredDateRejected(t *testing.T) {
 	createCalled := false
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				return decided, nil
 			},
 		},
@@ -1290,7 +1464,7 @@ func TestAdminDecide_ApproveFestival_NonPositiveYearRejected(t *testing.T) {
 
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				return decided, nil
 			},
 		},
@@ -1316,7 +1490,7 @@ func TestAdminDecide_ApproveFulfillFails(t *testing.T) {
 
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				return decided, nil
 			},
 		},
@@ -1342,7 +1516,7 @@ func TestAdminDecide_ApproveExistsConflictIs409(t *testing.T) {
 
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				return decided, nil
 			},
 		},
@@ -1371,7 +1545,7 @@ func TestAdminDecide_Reject(t *testing.T) {
 
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				if newState != communitym.EntityRequestStateRejected {
 					t.Errorf("expected rejected, got %s", newState)
 				}
@@ -1417,7 +1591,7 @@ func TestAdminDecide_Reject(t *testing.T) {
 func TestAdminDecide_NotFound(t *testing.T) {
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				return nil, apperrors.ErrEntityRequestNotFound(404)
 			},
 		},
@@ -1434,7 +1608,7 @@ func TestAdminDecide_NotFound(t *testing.T) {
 func TestAdminDecide_AlreadyDecided(t *testing.T) {
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				return nil, apperrors.ErrEntityRequestInvalidState(1, "approved")
 			},
 		},
@@ -1450,7 +1624,7 @@ func TestAdminDecide_AlreadyDecided(t *testing.T) {
 func TestAdminDecide_ServiceError(t *testing.T) {
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				return nil, fmt.Errorf("db down")
 			},
 		},
@@ -1659,8 +1833,9 @@ func TestAdminFulfill_Show_CarriesShowTimes(t *testing.T) {
 
 	// A malformed or disordered pair must be rejected at QUEUE-CREATE, never at
 	// fulfillment: fulfillment runs after the decide call has atomically claimed
-	// the row, and no endpoint can edit a queued payload, so failing there
-	// strands an approved-but-unfulfilled request whose only exit is void.
+	// the row, and a claimed row's payload can no longer be corrected (PSY-1948's
+	// resubmission replaces PENDING rows only), so failing there strands an
+	// approved-but-unfulfilled request whose only exit is void.
 	// The fulfiller's own parse stays as defense in depth; these payloads must
 	// not reach it.
 	t.Run("malformed and disordered times are rejected before the row is claimed", func(t *testing.T) {

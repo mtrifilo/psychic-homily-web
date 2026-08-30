@@ -85,7 +85,36 @@ const (
 
 // CreateEntityRequestResponse is the Huma response for POST /entity-requests.
 type CreateEntityRequestResponse struct {
-	Body *communitym.EntityRequest
+	Body *CreateEntityRequestResponseBody
+}
+
+// EntityRequestFields is communitym.EntityRequest with its methods stripped, so
+// it can be EMBEDDED in a response body. Huma's schema-link transformer rebuilds
+// every body struct with reflect.StructOf to prepend $schema, and
+// reflect.StructOf refuses an embedded type that HAS METHODS unless it is the
+// first field — which it no longer is once $schema goes in front. EntityRequest
+// has TableName(); a defined type does not inherit it. Huma only warns on that
+// failure, so embedding the model directly silently drops $schema and the
+// describedBy Link header from this one endpoint while the generated types still
+// declare them. Same fields, same json tags, same schema.
+type EntityRequestFields communitym.EntityRequest
+
+// CreateEntityRequestResponseBody is the queue-create response body: the request
+// row, plus the one fact the row itself cannot carry — whether this submission
+// opened a new request or corrected a queued one.
+//
+// Named rather than anonymous so the embed below survives; the ...ResponseBody
+// suffix is the one Huma would have generated, and the sibling schema
+// CreateEntityRequestRequestBody is one token away in the generated document.
+//
+// The request is EMBEDDED so its fields stay at the top level of the JSON, which
+// is the shape clients already read (PSY-1008's created_entity_id / PSY-1858's
+// payload are read straight off the body).
+type CreateEntityRequestResponseBody struct {
+	*EntityRequestFields
+	// A client that reports "queued" for both a fresh request and a replacement
+	// leaves a contributor unable to tell their correction landed.
+	Replaced bool `json:"replaced" doc:"True when this submission replaced the requester's existing pending request for the same name (a correction) rather than filing a new one. The returned id is that queued request's. Only a PENDING request is ever replaced; read decision_state for the row's state, which an admin can decide the moment the replacement lands."`
 }
 
 // CreateEntityRequestHandler handles POST /entity-requests.
@@ -95,6 +124,30 @@ type CreateEntityRequestResponse struct {
 // feedback_human_verify_ai_entity_data); admin/local_ambassador (and confirmed
 // trusted_contributor) auto-approve. The service stamps decided_by/at on
 // auto-approve. This handler is a thin validator + pass-through.
+//
+// PSY-1948 — RESUBMISSION REPLACES: a request matching an existing PENDING one
+// on (entity_type, requester, normalized name) overwrites that row's payload,
+// source_context and source_detail instead of filing a second row, and the
+// response reports replaced: true on the queued row's own id. A resubmission is
+// how a contributor corrects a queued request, and returning the stored payload
+// discarded the correction behind a 2xx.
+//
+// Only a PENDING row is ever written: the dedup index is pending-only and the
+// UPDATE is conditional on the state, so a decided request is never rewritten.
+//
+// What that does NOT buy, stated here because it is the surprising half: a
+// queued payload is now MUTABLE until it is decided, so an admin can review one
+// payload in the queue and approve a later one. That is the intended shape of
+// replace-on-resubmit (the queue is meant to show the correction).
+// AdminEntityRequestView carries updated_at so a queue CAN tell a revised row
+// from an untouched one, but nothing renders it yet (PSY-1975), so today the
+// signal exists on the wire and not on the screen. The decide handler's claim
+// defends the narrower window between its own read and its claim; see the note
+// there.
+//
+// Only queueing tiers reach this path at all. An auto-approving tier's row is
+// stamped 'approved' before the INSERT, so it never collides with the
+// pending-only index and never replaces anything.
 func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, req *CreateEntityRequestRequest) (*CreateEntityRequestResponse, error) {
 	user := middleware.GetUserFromContext(ctx)
 	if user == nil {
@@ -131,10 +184,11 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 	// PSY-1858: a show payload may carry the bill the contributor knew. Its roles
 	// are checked against the curated set_type vocabulary HERE, at submit, for
 	// the same reason the admin paths check them pre-claim: a role rejected at
-	// fulfillment is rejected after the row has been claimed, and no endpoint can
-	// edit a queued payload to repair it. The check is not inside
-	// ValidateEntityRequestPayload only because the vocabulary lives in a package
-	// that imports the payload models; see validateShowPayloadBillRoles. The
+	// fulfillment is rejected after the row has been claimed, and a claimed row's
+	// payload can no longer be corrected (PSY-1948's resubmission replaces PENDING
+	// rows only). The check is not inside ValidateEntityRequestPayload only
+	// because the vocabulary lives in a package that imports the payload models;
+	// see validateShowPayloadBillRoles. The
 	// bill's STRUCTURE was already checked by ValidateEntityRequestPayload above.
 	// Ordered ahead of the image-URL guard because it is a pure in-memory check
 	// and that one can resolve DNS.
@@ -145,8 +199,10 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 	// PSY-1675: the payload's image_url rides onto a real entity at fulfillment
 	// and is then fetched server-side by the share-card renderer, so it clears
 	// the same SSRF host guard the direct show/venue/label endpoints apply.
-	// Enforced here at queue-create so a hostile value never reaches the queue;
-	// fulfillEntity re-applies it to rows queued before this existed.
+	// Enforced here at queue-create so a hostile value never reaches the queue.
+	// NOTHING re-applies it at fulfillment — validatePayloadImageURL has exactly
+	// two call sites, this one and the decide handler's pre-claim check — which is
+	// why that check's read has to be the one the claim commits against.
 	if err := validatePayloadImageURL(ctx, entityType, req.Body.Payload); err != nil {
 		return nil, err
 	}
@@ -159,7 +215,10 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 		return nil, err
 	}
 
-	created, err := h.entityRequestService.CreateRequest(user, entityType, req.Body.Payload, sourceContext, sourceDetail, req.Body.Confirmed)
+	// Every check above this line runs before a replacement too, so a
+	// resubmission that fails validation is a 422 that leaves the queued payload
+	// exactly as it was (PSY-1948).
+	created, replaced, err := h.entityRequestService.CreateRequest(user, entityType, req.Body.Payload, sourceContext, sourceDetail, req.Body.Confirmed)
 	if err != nil {
 		if mapped := shared.MapEntityRequestError(err); mapped != nil {
 			return nil, mapped
@@ -177,9 +236,18 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 	// already-approved (the service stamped it), create the catalog entity now
 	// and stamp created_entity_id onto the returned row so the frontend can
 	// stage the new entity in the same step (true inline create-and-add). The
-	// CreatedEntityID == nil guard skips the idempotent-dedup path, which only
-	// ever returns an existing PENDING row (never approved/fulfilled).
-	if created.DecisionState == communitym.EntityRequestStateApproved && created.CreatedEntityID == nil {
+	// CreatedEntityID == nil guard keeps an already-fulfilled row from being
+	// fulfilled twice.
+	//
+	// !replaced states the invariant rather than relying on it: a replacement only
+	// ever writes a PENDING row and the service builds the returned row from the
+	// one it matched, so DecisionState is pending by construction and this branch
+	// is already unreachable for a replacement. The guard is what keeps that true
+	// if the service ever re-reads the row again — a read landing after an admin's
+	// approval but before their RecordFulfillment returns 'approved' with no
+	// created_entity_id, and the CONTRIBUTOR's request would fulfill the admin's
+	// approval. A replacement is never an auto-approval, so it never fulfills.
+	if !replaced && created.DecisionState == communitym.EntityRequestStateApproved && created.CreatedEntityID == nil {
 		// nil show-associations: only the admin decide endpoint can supply them
 		// (PSY-1037), so an auto-approved show defers below.
 		if _, ferr := h.fulfillAndRecord(ctx, created, nil); ferr != nil {
@@ -224,9 +292,17 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 
 	// Fire-and-forget audit log. Distinguish auto-approved (trusted tiers) from
 	// queued so the activity feed reads correctly.
+	//
+	// PSY-1948: a replacement gets its own action because it OVERWRITES a stored
+	// payload. Nothing else records that the queued submission an admin is about
+	// to moderate is not the one originally filed, and the row keeps no history of
+	// what it replaced.
 	if h.auditLogService != nil {
 		action := "queue_entity_request"
-		if created.DecisionState == communitym.EntityRequestStateApproved {
+		switch {
+		case replaced:
+			action = "replace_entity_request"
+		case created.DecisionState == communitym.EntityRequestStateApproved:
 			action = "auto_approve_entity_request"
 		}
 		reqID := created.ID
@@ -244,7 +320,10 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 		})
 	}
 
-	return &CreateEntityRequestResponse{Body: created}, nil
+	return &CreateEntityRequestResponse{Body: &CreateEntityRequestResponseBody{
+		EntityRequestFields: (*EntityRequestFields)(created),
+		Replaced:            replaced,
+	}}, nil
 }
 
 // ============================================================================
@@ -286,6 +365,11 @@ type AdminEntityRequestView struct {
 	DecisionNote      *string          `json:"decision_note,omitempty"`
 	CreatedEntityID   *uint            `json:"created_entity_id,omitempty"`
 	CreatedAt         time.Time        `json:"created_at"`
+	// UpdatedAt is the only field that distinguishes a request whose payload the
+	// contributor has since corrected from one that still holds what they first
+	// filed (PSY-1948). created_at does not move on a replacement, so a queue
+	// that shows only "filed 2 hours ago" cannot tell the two apart.
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // toAdminEntityRequestView projects a model row onto the admin view, resolving
@@ -305,6 +389,7 @@ func toAdminEntityRequestView(r *communitym.EntityRequest) AdminEntityRequestVie
 		DecisionNote:      r.DecisionNote,
 		CreatedEntityID:   r.CreatedEntityID,
 		CreatedAt:         r.CreatedAt,
+		UpdatedAt:         r.UpdatedAt,
 	}
 }
 
@@ -476,6 +561,22 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 	// entirely (no spurious 422 for a reject that happens to carry them), and
 	// skip the pre-claim read below along with them.
 	//
+	// SCOPE OF THESE CHECKS, since PSY-1948 made a queued payload mutable: they
+	// describe the payload as of THIS read, and NOTHING re-runs them after the
+	// claim — validatePayloadImageURL is deliberately not called from
+	// fulfillEntity, and buildShowAssociations reads the bill resolved here. So
+	// the claim is OPTIMISTIC: reviewedVersion carries this read's updated_at into
+	// Decide, and a row the requester replaced in between refuses with a 409
+	// instead of fulfilling a payload no check ever saw. Without that the SSRF
+	// host guard is bypassable by resubmitting during the DNS resolution it
+	// performs, and an adopted show bill can be fulfilled against scalar fields
+	// from a different payload.
+	//
+	// This closes the window between THIS read and the claim. It does NOT close
+	// the window between the admin READING the queue and pressing approve: that
+	// body carries no version, so the payload can change under a human review.
+	// PSY-1975 covers surfacing a revision in the queue.
+	//
 	// PSY-1037: approving a show REQUIRES the associations — guard before the
 	// claim. Decide only operates on pending rows, so a post-claim failure
 	// would leave an approved-but-unfulfilled row no decide call can ever
@@ -485,11 +586,11 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 	//
 	// PSY-1675 rides on the same pre-claim read for the same reason: a stored
 	// image_url pointing at an internal address must not be fulfilled, and a
-	// post-claim rejection would strand the row (no endpoint can edit a queued
-	// payload, and the rescue path re-enters the same fulfiller), leaving void
-	// — which discards the contributor's request and their attribution — as the
-	// only way out. Checked here, a hostile flyer is a clean 422 on a row that
-	// is still pending.
+	// post-claim rejection would strand the row (a CLAIMED row's payload can no
+	// longer be corrected, and the rescue path re-enters the same fulfiller),
+	// leaving void — which discards the contributor's request and their
+	// attribution — as the only way out. Checked here, a hostile flyer is a clean
+	// 422 on a row that is still pending.
 	//
 	// PSY-1858 is why the read now happens BEFORE the association build rather
 	// than after it: an adopted bill is read off the stored payload, so the
@@ -497,6 +598,9 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 	// read that ERRORS still reports ahead of any complaint about the body, and a
 	// read that finds nothing (GetRequest answers (nil, nil) for a missing row)
 	// still falls through to Decide, which is what turns it into the 404.
+	// nil for a rejection: it reads nothing off the row and creates nothing, so
+	// there is no validated version to defend.
+	var reviewedVersion *time.Time
 	var showAssoc *showAssociations
 	if newState == communitym.EntityRequestStateApproved {
 		existing, gerr := h.entityRequestService.GetRequest(uint(requestID))
@@ -526,6 +630,10 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 		var eligible *communitym.EntityRequest
 		if existing != nil && existing.DecisionState == communitym.EntityRequestStatePending {
 			eligible = existing
+			// The version every check below is about to run against. Passed to the
+			// claim so a row the requester revised in between refuses instead of
+			// fulfilling a payload none of these checks ever saw (PSY-1948).
+			reviewedVersion = &eligible.UpdatedAt
 		}
 
 		// EVERY pre-claim check is inside this block, so a row Decide cannot act
@@ -563,7 +671,7 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 	}
 
 	// Claim the decision atomically before any side effect.
-	decided, err := h.entityRequestService.Decide(uint(requestID), admin.ID, newState, note)
+	decided, err := h.entityRequestService.Decide(uint(requestID), admin.ID, newState, note, reviewedVersion)
 	if err != nil {
 		if mapped := shared.MapEntityRequestError(err); mapped != nil {
 			return nil, mapped

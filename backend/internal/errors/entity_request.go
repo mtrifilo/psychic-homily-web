@@ -33,6 +33,11 @@ const (
 	// or already fulfilled (created_entity_id set), or was rescued concurrently.
 	// Only approved AND created_entity_id IS NULL rows are rescuable.
 	CodeEntityRequestNotRescuable = "ENTITY_REQUEST_NOT_RESCUABLE"
+	// CodeEntityRequestStale: the row was still pending, but its payload changed
+	// between the caller's read and its claim, so the checks the caller ran
+	// describe a payload that is no longer stored (PSY-1948 made a queued payload
+	// mutable). Distinct from InvalidState, which means the row was decided.
+	CodeEntityRequestStale = "ENTITY_REQUEST_STALE"
 )
 
 // EntityRequestError represents an entity-request error with context.
@@ -104,6 +109,19 @@ func ErrEntityRequestInvalidState(requestID uint, currentState string) *EntityRe
 	return &EntityRequestError{
 		Code:      CodeEntityRequestInvalidState,
 		Message:   fmt.Sprintf("Entity request %d is %s, expected pending", requestID, currentState),
+		RequestID: requestID,
+	}
+}
+
+// ErrEntityRequestStale creates a conflict error when a decision was claimed
+// against a payload the requester has since replaced (PSY-1948). Maps to 409:
+// the row is still decidable, but every pre-claim check ran against the old
+// payload, so approving would fulfill content nobody validated. The admin re-reads
+// and decides again.
+func ErrEntityRequestStale(requestID uint) *EntityRequestError {
+	return &EntityRequestError{
+		Code:      CodeEntityRequestStale,
+		Message:   fmt.Sprintf("Entity request %d was revised by its requester after you loaded it; review it again", requestID),
 		RequestID: requestID,
 	}
 }

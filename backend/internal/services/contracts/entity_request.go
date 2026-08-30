@@ -1,6 +1,8 @@
 package contracts
 
 import (
+	"time"
+
 	authm "psychic-homily-backend/internal/models/auth"
 	communitym "psychic-homily-backend/internal/models/community"
 )
@@ -23,10 +25,31 @@ type EntityRequestServiceInterface interface {
 	// CreateRequest persists a typed entity-creation request, applying
 	// trust-tier gating to decide whether it auto-approves or queues.
 	// sourceDetail is the optional, already-marshalled source-context JSONB
-	// (nil = none). On a duplicate PENDING request (same entity_type +
-	// requester + normalized name), it returns the EXISTING pending row
-	// idempotently rather than erroring (PSY-1008).
-	CreateRequest(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error)
+	// (nil = none).
+	//
+	// On a duplicate PENDING request (same entity_type + requester + normalized
+	// name) it does NOT error (PSY-1008): the resubmission REPLACES that pending
+	// row's payload, source_context and source_detail, and the refreshed row is
+	// returned with replaced=true (PSY-1948). Only a PENDING row is ever written,
+	// so the caller must not treat a replacement as a fresh decision — and must
+	// not fulfill one, since the row is re-read in a separate statement and can
+	// come back already decided by an admin.
+	//
+	// replaced is always false for an AUTO-APPROVING tier: its row is stamped
+	// 'approved' before the insert and never meets the pending-only dedup index,
+	// so it files a new approved row and leaves an earlier pending request queued
+	// with its original payload.
+	//
+	// A replacement DESTROYS the stored payload, so the service re-checks the
+	// payload's typed STRUCTURE before the overwrite and fails closed. That is the
+	// only guard it can run: the show bill's set_type vocabulary
+	// (validateShowPayloadBillRoles) and the image_url SSRF host guard
+	// (validatePayloadImageURL) live at the HTTP boundary — the first because the
+	// vocabulary is in a package that imports these models, the second because it
+	// needs a request context — and NEITHER is re-run here. Any caller that is not
+	// the HTTP handler MUST run both itself, or it can queue a payload that 422s
+	// at fulfillment, after the row is claimed and past repair.
+	CreateRequest(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (req *communitym.EntityRequest, replaced bool, err error)
 
 	// RecordFulfillment persists created_entity_id on a request after its
 	// payload has been fulfilled into a real catalog entity (PSY-1008). The
@@ -52,7 +75,15 @@ type EntityRequestServiceInterface interface {
 	// UPDATE guards against concurrent decisions). Marks approved/rejected +
 	// decided_by/at + optional note. Creating the actual entity from the
 	// payload is the HANDLER's responsibility (PSY-997), not the service's.
-	Decide(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error)
+	//
+	// expectedUpdatedAt makes the claim optimistic (PSY-1948). A caller that ran
+	// checks against the stored payload MUST pass the updated_at its read saw:
+	// the requester can replace a pending payload, and the approve path's SSRF
+	// guard and show-bill admission are not re-run at fulfillment, so a claim that
+	// ignores the version can fulfill content nothing validated. A revised row
+	// then fails with ErrEntityRequestStale (409) and stays pending. nil skips the
+	// check and is correct only for a decision that reads nothing off the row.
+	Decide(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error)
 
 	// ClaimRescueFulfillment atomically stamps created_entity_id on an
 	// APPROVED-but-UNFULFILLED row (PSY-1088 rescue path). The conditional
