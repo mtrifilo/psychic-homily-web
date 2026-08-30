@@ -70,11 +70,36 @@ export const VENUE_RAIL_FETCH_LIMIT = SHOW_RAIL_ROW_CAP + 1
 export interface ShowRail {
   /** The `SECTION / QUALIFIER` heading, composed. */
   title: string
+  /**
+   * The see-all bracket's accessible name.
+   *
+   * Composed HERE rather than derived from `title` at the call site: "[See
+   * all]" means nothing read out of its heading, and a screen reader reaching
+   * the bracket has usually left the heading behind — but reconstructing the
+   * name by string-surgery on `title` would make the heading's separator a
+   * format two modules have to agree on silently. Changing `SECTION / QUALIFIER`
+   * to any other separator would then quietly corrupt every rail's accessible
+   * name with nothing to catch it.
+   */
+  seeAllLabel: string
+  /**
+   * Whether this rail reserves a room column at all.
+   *
+   * A per-RAIL question, not a per-row one: the also-tonight rail names a room
+   * on every row and must keep the column even for a row missing its venue
+   * name, while the venue rail has no room column because its room is the
+   * heading. Deriving it from the rows would collapse the column on a rail
+   * whose every row happened to lack a name.
+   */
+  hasRoomColumn: boolean
   /** Non-empty, and already rendered to primitives. */
   rows: RailRow[]
   /** Where "see all" goes, or null when it must not be offered. */
   seeAllHref: string | null
 }
+
+/** The separator between a rail heading's SECTION and its QUALIFIER. */
+const RAIL_TITLE_SEPARATOR = ' / '
 
 /**
  * The also-tonight rail, or null when there is nothing to head.
@@ -107,11 +132,41 @@ export function buildAlsoTonightRail(
   // the full night.
   const hasMore = rail.has_more || listable.length > drawn.length
 
+  const scope = [alsoTonightQualifier(rail), rail.city].filter(Boolean)
+
   return {
     title: alsoTonightRailTitle(rail),
+    seeAllLabel:
+      scope.length > 0
+        ? `See every show ${scope.join(', ')}`
+        : 'See every show that night',
+    hasRoomColumn: true,
     rows: drawn.map(show => alsoTonightRow(show, rail.timezone)),
     seeAllHref: hasMore ? alsoTonightSeeAllHref(rail) : null,
   }
+}
+
+/**
+ * The show ids the also-tonight rail will draw, for the venue rail to exclude.
+ *
+ * Derived from the payload with the SAME filter and cap `buildAlsoTonightRail`
+ * applies, rather than read back off the built rail: `ShowRail.rows` are
+ * primitives with no ids on them by design, and giving them ids purely so a
+ * sibling could read them would put payload back into a presentational type.
+ * The duplication is one `filter().slice()` and both call sites sit in this
+ * file, where they can be changed together.
+ */
+export function alsoTonightDrawnIds(
+  rail: ShowAlsoTonightResponse | undefined,
+  currentShowId: number
+): ReadonlySet<number> {
+  if (!rail) return new Set()
+  return new Set(
+    (rail.shows ?? [])
+      .filter(show => show.id !== currentShowId)
+      .slice(0, SHOW_RAIL_ROW_CAP)
+      .map(show => show.id)
+  )
 }
 
 /**
@@ -146,22 +201,42 @@ export function buildMoreAtVenueRail(
   venue: VenueResponse | undefined,
   shows: VenueShow[] | undefined,
   total: number | undefined,
-  currentShowId: number
+  currentShowId: number,
+  /**
+   * Show ids the also-tonight rail has already drawn.
+   *
+   * The two rails overlap on exactly one population: another show at THIS room
+   * on THIS night — an early/late set, or a second stage. Both queries return
+   * it (the also-tonight endpoint excludes only the subject show, and the
+   * venue's "upcoming" window includes tonight), and neither rail can see the
+   * other's output. Printing the same bill twice side by side is the most
+   * visible way a discovery row can look broken, so the venue rail — the one
+   * whose heading already names the room — yields.
+   */
+  alreadyDrawn: ReadonlySet<number> = new Set()
 ): ShowRail | null {
   if (!venue) return null
 
   const fetched = shows ?? []
   const drawn = fetched
-    .filter(show => show.id !== currentShowId)
+    .filter(show => show.id !== currentShowId && !alreadyDrawn.has(show.id))
     .slice(0, SHOW_RAIL_ROW_CAP)
   if (drawn.length === 0) return null
 
-  const subjectWasRemoved = fetched.some(show => show.id === currentShowId)
-  const hasMore =
-    (total ?? drawn.length) > drawn.length + (subjectWasRemoved ? 1 : 0)
+  // Everything this rail deliberately withheld has to come off `total` before
+  // asking whether the venue page still holds something new: the subject show
+  // (when it was in the page at all) and any row the other rail already drew.
+  // Counting them as "hidden" would offer a see-all whose destination shows
+  // the reader nothing they have not already seen on this screen.
+  const withheld = fetched.filter(
+    show => show.id === currentShowId || alreadyDrawn.has(show.id)
+  ).length
+  const hasMore = (total ?? drawn.length) > drawn.length + withheld
 
   return {
-    title: `More at / ${venue.name}`,
+    title: `More at${RAIL_TITLE_SEPARATOR}${venue.name}`,
+    seeAllLabel: `See every upcoming show at ${venue.name}`,
+    hasRoomColumn: false,
     rows: drawn.map(show => moreAtVenueRow(show, venue)),
     // Guarded on the slug as well as on truncation: entity slugs are nullable
     // in this schema and an empty one resolves `/venues/` to the INDEX rather
@@ -225,7 +300,13 @@ export function alsoTonightRailTitle(rail: ShowAlsoTonightResponse): string {
   const parts = [alsoTonightQualifier(rail), rail.city].filter(
     (part): part is string => Boolean(part)
   )
-  return parts.length > 0 ? `Also / ${parts.join(' · ')}` : 'Also'
+  // Both halves absent means the payload had neither a readable date nor a
+  // scene — which is also the case where it carries no rows, so this heading
+  // is unreachable in practice. It degrades to the bare section name rather
+  // than to a dangling separator, and `buildAlsoTonightRail` is what actually
+  // prevents an empty rail from being headed at all.
+  if (parts.length === 0) return 'Also'
+  return `Also${RAIL_TITLE_SEPARATOR}${parts.join(' · ')}`
 }
 
 /**
@@ -250,28 +331,61 @@ export function alsoTonightSeeAllHref(
 /**
  * A rail row's `/shows/...` target, from either rail's payload shape.
  *
- * Both rails address a show the same way and must keep doing so: an empty slug
- * is a modeled case here, and `/shows/` resolves to the INDEX rather than
- * 404ing (PSY-1754), so the id fallback is load-bearing, not merely defensive.
+ * This is `sceneWeek.showHref` widened by one degree: that one is typed to
+ * `SceneWeekShow`, which requires `starts_at`, and `VenueShow` does not carry
+ * it — so the venue rail cannot call it. Rather than let the two rails address
+ * shows through two different rules, both go through this structural version.
+ * The rule itself must stay identical to its cousin's: an empty slug is a
+ * modeled case here, and `/shows/` resolves to the INDEX rather than 404ing
+ * (PSY-1754), so the id fallback is load-bearing, not merely defensive.
  */
 function railShowHref(show: { slug?: string | null; id: number }): string {
   return show.slug ? `/shows/${show.slug}` : `/shows/${show.id}`
 }
 
-/** A rail row's price, or null when the show has none recorded. */
-function railPrice(price: number | null | undefined): string | null {
-  return typeof price === 'number' ? formatPrice(price) : null
+/**
+ * The trailing figure column: a status token when the show has one, else the
+ * price, else nothing.
+ *
+ * Status SUPERSEDES price, which is how the mock sets it (`SOLD OUT` where its
+ * neighbours carry `$45` / `$32`): a ticket that cannot be bought has no useful
+ * price, and a cancelled one has none at all. Cancelled outranks sold out —
+ * a called-off show's ticket status stopped mattering.
+ *
+ * Uppercased by the renderer's column, so `Free` reaches the mock's `FREE`
+ * without forking `formatPrice`, which serves the whole site.
+ */
+function railFigure(show: {
+  is_cancelled: boolean
+  is_sold_out: boolean
+  price?: number | null
+}): string | null {
+  if (show.is_cancelled) return 'Cancelled'
+  if (show.is_sold_out) return 'Sold out'
+  return typeof show.price === 'number' ? formatPrice(show.price) : null
 }
 
 /**
  * A rail row's bill as ONE line of text.
  *
- * Bill-first, matching the scene views rather than
+ * Bill-first, like `sceneWeek.showDisplayTitle` and unlike
  * `lib/utils/showDisplayTitle` (which is title-first): these rails list who is
  * playing, and a promoter's event title is the fallback, not the headline.
- * Trimmed, because a whitespace-only title is truthy and would otherwise
- * render an invisible, unclickable label.
+ *
+ * `sceneWeek.showDisplayTitle` is the direct cousin and is deliberately NOT
+ * called, for two reasons that compound. It takes a `SceneWeekShow`, and
+ * `VenueShow` carries `artists` rather than `artist_names`, so it could serve
+ * only one of the two rails. And it joins with `', '` where the LOCKED MOCK
+ * bills these rows with `' + '` (`Dehd + Lifeguard`, `Waxahatchee + Tim
+ * Heidecker`) — a real register difference for this surface, not an accidental
+ * copy. A rail matching the scene views exactly while its neighbour diverged
+ * would be the worse outcome.
+ *
+ * Also trimmed, which the cousin is not: a whitespace-only name or title is
+ * truthy and would render an invisible, unclickable label.
  */
+const RAIL_BILL_SEPARATOR = ' + '
+
 function railBillLine(
   names: Array<string | null | undefined>,
   title?: string | null
@@ -279,8 +393,36 @@ function railBillLine(
   const billed = names
     .map(name => name?.trim())
     .filter((name): name is string => Boolean(name))
-  if (billed.length > 0) return billed.join(', ')
+  if (billed.length > 0) return billed.join(RAIL_BILL_SEPARATOR)
   return title?.trim() || 'Live music'
+}
+
+/**
+ * A rail row's lead column when it is a DATE rather than a time.
+ *
+ * Shape-checked for the same reason `startInstant` guards `starts_at`: a type
+ * is not a runtime guarantee across two independently deployed services, and
+ * `formatInTimezone` routes through `toLocaleString`, which does not throw on a
+ * bad instant — it returns the literal string `Invalid Date`, which the lead
+ * column would then uppercase and print. Null keeps the `RailRow.lead` contract
+ * honest and leaves the column reserved but blank.
+ */
+function railShowDate(
+  eventDate: string | null | undefined,
+  state: string | null | undefined,
+  timezone: string | null | undefined
+): string | null {
+  if (typeof eventDate !== 'string' || !Number.isFinite(Date.parse(eventDate))) {
+    return null
+  }
+  // Zero-padded to the mock's `SEP 04`. The day is the only variable-width part
+  // of this cell, and an unpadded one un-aligns the bills beside it in a column
+  // whose whole job is to be scanned vertically. Padded HERE rather than in
+  // `formatShowMonthDay`, which serves surfaces that set the date in prose.
+  return formatShowMonthDay(eventDate, state, timezone).replace(
+    /\b(\d)$/,
+    '0$1'
+  )
 }
 
 /**
@@ -297,10 +439,25 @@ export interface RailRow {
   /** Time or date. Null when the payload carries no usable instant. */
   lead: string | null
   title: string
+  /** Struck through, and the figure column says CANCELLED. */
   isCancelled: boolean
-  isSoldOut: boolean
-  /** Right-hand facts, already filtered — the renderer drops nothing. */
-  facts: string[]
+  /**
+   * The room. Null on the venue rail, whose room is named in the heading, and
+   * on an also-tonight row whose payload has no venue name.
+   *
+   * Null means RESERVED-BUT-EMPTY, not dropped: these are ledger columns, and a
+   * row that omits a cell shifts every cell after it, which is exactly what
+   * stops a column of figures from being readable as a column.
+   */
+  room: string | null
+  /**
+   * The trailing figure: a price, or the status token that SUPERSEDES it.
+   *
+   * One column, not two. The mock gives a sold-out row `SOLD OUT` where a
+   * priced row has `$45` — a ticket you cannot buy has no useful price, and
+   * printing both is how the two facts start arguing.
+   */
+  figure: string | null
 }
 
 /**
@@ -334,10 +491,8 @@ export function alsoTonightRow(
     lead: formatShowStartTime(show, railTimezone),
     title: railBillLine(show.artist_names ?? [], show.title),
     isCancelled: show.is_cancelled,
-    isSoldOut: show.is_sold_out,
-    facts: [show.venue_name, railPrice(show.price)].filter(
-      (fact): fact is string => Boolean(fact)
-    ),
+    room: show.venue_name?.trim() || null,
+    figure: railFigure(show),
   }
 }
 
@@ -356,16 +511,11 @@ export function alsoTonightRow(
 export function moreAtVenueRow(show: VenueShow, venue: VenueResponse): RailRow {
   return {
     href: railShowHref(show),
-    lead: formatShowMonthDay(
-      show.event_date,
-      show.state ?? venue.state,
-      venue.timezone
-    ),
+    lead: railShowDate(show.event_date, show.state ?? venue.state, venue.timezone),
     title: railBillLine(show.artists.map(artist => artist.name), show.title),
     isCancelled: show.is_cancelled,
-    isSoldOut: show.is_sold_out,
-    facts: [railPrice(show.price)].filter((fact): fact is string =>
-      Boolean(fact)
-    ),
+    // No room column: every row on this rail is at the room in the heading.
+    room: null,
+    figure: railFigure(show),
   }
 }

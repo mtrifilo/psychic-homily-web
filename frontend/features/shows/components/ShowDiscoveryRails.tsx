@@ -1,26 +1,12 @@
 'use client'
 
+import { useId } from 'react'
 import Link from 'next/link'
 import { BracketLink, SectionHeader } from '@/components/shared'
-// NOT the sibling `./ShowStatusBadge`, which is a DIFFERENT component sharing
-// the name three files away in this directory: it takes `{ show }` and paints
-// the header's filled orange badge, while this one takes `{ label }` and paints
-// the mono outline the scene ledgers use. The rails are a ledger, so they take
-// the ledger's badge, and `SceneCalendar` / `SceneDayView` / `SceneWeekView`
-// use it through the identical `label="SOLD OUT"` idiom. A show page therefore
-// carries two SOLD OUT treatments on purpose — page chrome above, ledger rows
-// down here — rather than by oversight.
-//
-// Deep import, not the `features/scenes/components` barrel: that barrel is
-// root-reachable, and merely LISTING an export there puts it in the one client
-// chunk every route loads eagerly (PSY-1772, guarded by
-// features/sharedChunkBarrelGuard.test.ts). Importing it is the same hazard in
-// reverse — it would pull the whole scenes component graph into the show route
-// for one small badge.
-import { ShowStatusBadge } from '@/features/scenes/components/sceneChrome'
 import { useVenueShows } from '@/features/venues/hooks/useVenues'
 import { useShowAlsoTonight } from '../hooks/useShows'
 import {
+  alsoTonightDrawnIds,
   buildAlsoTonightRail,
   buildMoreAtVenueRail,
   VENUE_RAIL_FETCH_LIMIT,
@@ -52,10 +38,21 @@ import type { ShowResponse } from '../types'
  * element, so the row would keep its bottom margin over two invisible columns
  * — the same slot-reservation trap `ShowHeader`'s actions gate documents.
  *
- * Pending and errored requests draw nothing, deliberately. The rails are
- * supplementary and sit at the foot of the page, where a late arrival costs
- * nothing, and a spinner would advertise a wait for something the reader did
- * not ask for.
+ * Pending and errored requests draw nothing. That is deliberate for the error
+ * case — an empty night is a 200 with an empty list, so a failed request has
+ * nothing honest to say and a spinner would advertise a wait for something the
+ * reader did not ask for.
+ *
+ * It is an ACCEPTED COST for the pending case, not a free one, and the cost is
+ * layout shift: these rails are not the last thing on the page. The provenance
+ * byline sits below them, and `RevisionHistory` + `CommentThread` sit below
+ * that, so rows arriving late push all three down — worst on a phone, where the
+ * columns stack. The page already inserts four client-fetched blocks above the
+ * comment thread (collections, field notes, tags, the byline's revision
+ * count), so this joins an existing pattern rather than starting one; it does
+ * make it materially bigger. Removing the class properly means server-fetching
+ * both rails into the route's prefetch so they are in the HTML, which is
+ * PSY-1967 and is deliberately not attempted here.
  */
 export function ShowDiscoveryRails({ show }: { show: ShowResponse }) {
   const venue = show.venues[0]
@@ -71,12 +68,18 @@ export function ShowDiscoveryRails({ show }: { show: ShowResponse }) {
     enabled: Boolean(venue),
   })
 
+  // ORDER MATTERS: the also-tonight rail is built first and its rows are handed
+  // to the venue rail as an exclusion set. The two overlap on one population —
+  // another show at this room on this night — and without this the same bill
+  // renders in both columns at once. The venue rail yields because its heading
+  // already names the room.
   const alsoTonight = buildAlsoTonightRail(alsoTonightPayload, show.id)
   const moreAtVenue = buildMoreAtVenueRail(
     venue,
     venueShows?.shows,
     venueShows?.total,
-    show.id
+    show.id,
+    alsoTonightDrawnIds(alsoTonightPayload, show.id)
   )
 
   if (!alsoTonight && !moreAtVenue) return null
@@ -110,10 +113,13 @@ export function ShowDiscoveryRails({ show }: { show: ShowResponse }) {
 function Rail({ rail, testId }: { rail: ShowRail; testId: string }) {
   // A `section` with no accessible name is a generic element, not a `region`,
   // so landmark navigation could not tell the two rails apart — they would be
-  // reachable only by heading. Naming it from its own heading is the shape
-  // `ShowSubmissionsConsole` already uses, and is why `SectionHeader` exposes
-  // `headingProps.id`.
-  const headingId = `${testId}-heading`
+  // reachable only by heading. `ShowSubmissionsConsole` names its regions the
+  // same way, from their own heading.
+  //
+  // `useId`, NOT the testId: a `data-testid` is a testing affordance, and
+  // hanging an accessibility contract off it means a test refactor that renames
+  // or strips testids silently breaks the landmark with nothing to catch it.
+  const headingId = useId()
 
   return (
     <section data-testid={testId} aria-labelledby={headingId}>
@@ -131,17 +137,14 @@ function Rail({ rail, testId }: { rail: ShowRail; testId: string }) {
             <BracketLink
               label="See all"
               href={rail.seeAllHref}
-              // "[See all]" means nothing read out of its heading, and a
-              // screen reader reaching the bracket has usually left the
-              // heading behind.
-              ariaLabel={`See all: ${rail.title.replace(' / ', ', ')}`}
+              ariaLabel={rail.seeAllLabel}
             />
           ) : undefined
         }
       />
       <ul>
         {rail.rows.map(row => (
-          <RailRow key={row.href} row={row} />
+          <RailRow key={row.href} row={row} hasRoomColumn={rail.hasRoomColumn} />
         ))}
       </ul>
     </section>
@@ -149,52 +152,62 @@ function Rail({ rail, testId }: { rail: ShowRail; testId: string }) {
 }
 
 /**
- * The ledger row both rails draw: a lead column, the bill, right-aligned mono
- * facts, hairline beneath.
+ * The ledger row both rails draw: lead, bill, room, figure — fixed columns,
+ * hairline beneath.
  *
  * It takes primitives, not a payload, which is what lets one renderer serve
  * two different wire types without a mode flag — and what keeps the hairline,
  * the hover target, the cancelled treatment and the column rhythm from
  * drifting apart between two rails sitting side by side, where any drift is
  * visible at a glance.
+ *
+ * Deliberately not `ShowBill`, which links each act separately: a rail row is
+ * ONE link to the show, so nested anchors would be invalid markup and an
+ * unusable tab order. That means the cancelled treatment has a second home —
+ * if `ShowBill`'s strike-through or its status copy changes, change it here
+ * too.
  */
-function RailRow({ row }: { row: RailRowData }) {
+function RailRow({
+  row,
+  hasRoomColumn,
+}: {
+  row: RailRowData
+  hasRoomColumn: boolean
+}) {
   return (
     <li className="border-b border-border/40 last:border-0">
       <Link
         href={row.href}
         className="group flex flex-col gap-0.5 py-1.5 transition-colors hover:bg-muted/40 sm:flex-row sm:items-baseline sm:gap-3"
       >
-        {/* Reserved even when the instant is unusable, so one undated row does
-            not pull every bill beneath it out of line. */}
+        {/* Every cell below is a fixed-width COLUMN, and an absent value leaves
+            its column reserved rather than collapsing it. That is the whole
+            difference between the mock's ledger and a list of facts pushed to
+            the right margin: the figures only read as a column when they start
+            at the same x on every row, which is also the only thing that makes
+            `tabular-nums` worth anything here. Widths are `sm:` so the columns
+            dissolve into a stack on a phone, where they cannot fit. */}
         <span className="shrink-0 font-mono text-xs uppercase tabular-nums text-muted-foreground sm:w-16">
           {row.lead ?? ''}
         </span>
-        <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-          <span
-            className={`text-sm group-hover:underline ${
-              row.isCancelled ? 'text-muted-foreground line-through' : ''
-            }`}
-          >
-            {row.title}
-          </span>
-          {row.isCancelled && <ShowStatusBadge label="CANCELLED" />}
-          {!row.isCancelled && row.isSoldOut && (
-            <ShowStatusBadge label="SOLD OUT" />
-          )}
+        <span
+          className={`min-w-0 flex-1 truncate text-sm group-hover:underline ${
+            row.isCancelled ? 'text-muted-foreground line-through' : ''
+          }`}
+        >
+          {row.title}
         </span>
-        <span className="hidden flex-1 sm:block" aria-hidden="true" />
-        {/* Index-keyed: these are stateless strings whose order and count are
-            fixed per rail, so a positional remount repaints identically (the
-            same rule `MiddotSegments` states for its fallback). */}
-        {row.facts.map((fact, index) => (
-          <span
-            key={index}
-            className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground"
-          >
-            {fact}
+        {hasRoomColumn && (
+          <span className="shrink-0 truncate font-mono text-xs text-muted-foreground sm:w-40">
+            {row.room ?? ''}
           </span>
-        ))}
+        )}
+        {/* Uppercased here rather than in the policy, so `Free` reaches the
+            mock's `FREE` and `Sold out` reaches `SOLD OUT` without forking
+            `formatPrice`, which serves the whole site. */}
+        <span className="shrink-0 font-mono text-xs uppercase tabular-nums text-muted-foreground sm:w-20">
+          {row.figure ?? ''}
+        </span>
       </Link>
     </li>
   )

@@ -49,7 +49,7 @@ describe('ShowDiscoveryRails', () => {
     expect(
       screen.getByRole('heading', { name: 'Also / Tonight · Chicago' })
     ).toBeInTheDocument()
-    const row = screen.getByRole('link', { name: /Dehd, Lifeguard/ })
+    const row = screen.getByRole('link', { name: /Dehd \+ Lifeguard/ })
     expect(row).toHaveAttribute('href', '/shows/dehd-lifeguard')
     // Venue-local: 01:00 UTC Aug 13 is 8PM Aug 12 in Chicago.
     expect(row).toHaveTextContent('8:00 PM')
@@ -57,7 +57,7 @@ describe('ShowDiscoveryRails', () => {
     expect(row).toHaveTextContent('$15.00')
   })
 
-  it('draws the venue rail date-first, with its status badge', () => {
+  it('draws the venue rail date-first, status in the figure column', () => {
     useVenueShows.mockReturnValue({
       data: makeVenueShowsResponse([makeVenueShow()]),
     })
@@ -69,7 +69,10 @@ describe('ShowDiscoveryRails', () => {
     const row = screen.getByRole('link', { name: /Waxahatchee/ })
     expect(row).toHaveAttribute('href', '/shows/waxahatchee')
     expect(row).toHaveTextContent('AUG 15')
-    expect(row).toHaveTextContent('SOLD OUT')
+    // Uppercased by the column, not by the policy — `formatPrice` still says
+    // `Free` for the whole site.
+    expect(row.lastElementChild).toHaveTextContent('Sold out')
+    expect(row.lastElementChild).toHaveClass('uppercase')
   })
 
   it('strikes through a cancelled bill and says so', () => {
@@ -80,7 +83,7 @@ describe('ShowDiscoveryRails', () => {
     })
     render(<ShowDiscoveryRails show={makeRailShow()} />)
     const row = screen.getByRole('link', { name: /Waxahatchee/ })
-    expect(row).toHaveTextContent('CANCELLED')
+    expect(row.lastElementChild).toHaveTextContent('Cancelled')
     expect(row.querySelector('.line-through')).not.toBeNull()
   })
 
@@ -93,8 +96,8 @@ describe('ShowDiscoveryRails', () => {
     })
     render(<ShowDiscoveryRails show={makeRailShow()} />)
     const row = screen.getByRole('link', { name: /Waxahatchee/ })
-    expect(row).toHaveTextContent('CANCELLED')
-    expect(row).not.toHaveTextContent('SOLD OUT')
+    expect(row).toHaveTextContent('Cancelled')
+    expect(row).not.toHaveTextContent('Sold out')
   })
 
   it('puts also-tonight LEFT of more-at-venue, as the mock sets them', () => {
@@ -129,16 +132,16 @@ describe('ShowDiscoveryRails', () => {
     ).toBeInTheDocument()
   })
 
-  it('badges a cancelled also-tonight row, not only a venue row', () => {
+  it('states cancellation on an also-tonight row, not only a venue row', () => {
     useShowAlsoTonight.mockReturnValue({
       data: makeAlsoTonightPayload({
         shows: [makeAlsoTonightShow({ is_cancelled: true })],
       }),
     })
     render(<ShowDiscoveryRails show={makeRailShow()} />)
-    expect(
-      screen.getByRole('link', { name: /Dehd, Lifeguard/ })
-    ).toHaveTextContent('CANCELLED')
+    const row = screen.getByRole('link', { name: /Dehd \+ Lifeguard/ })
+    expect(row.lastElementChild).toHaveTextContent('Cancelled')
+    expect(row.querySelector('.line-through')).not.toBeNull()
   })
 
   it('reserves the lead column for a row with no usable instant', () => {
@@ -149,7 +152,7 @@ describe('ShowDiscoveryRails', () => {
       }),
     })
     render(<ShowDiscoveryRails show={makeRailShow()} />)
-    const row = screen.getByRole('link', { name: /Dehd, Lifeguard/ })
+    const row = screen.getByRole('link', { name: /Dehd \+ Lifeguard/ })
     expect(row.firstElementChild).toHaveClass('sm:w-16')
     expect(row.firstElementChild).toHaveTextContent('')
   })
@@ -167,7 +170,7 @@ describe('ShowDiscoveryRails', () => {
     })
     render(<ShowDiscoveryRails show={makeRailShow()} />)
     expect(
-      screen.getByRole('link', { name: 'See all: Also, Tonight · Chicago' })
+      screen.getByRole('link', { name: 'See every show Tonight, Chicago' })
     ).toHaveAttribute('href', '/scenes/chicago-il/2026-08-12')
   })
 
@@ -203,9 +206,12 @@ describe('ShowDiscoveryRails', () => {
     expect(screen.queryByTestId('more-at-venue-rail')).not.toBeInTheDocument()
   })
 
-  it('keys rows by their target, so two rooms’ rows cannot collide', () => {
-    // Regression guard for index keys: the two rails render into one grid and
-    // a positional key would let a re-render reuse the wrong row's DOM.
+  it('addresses each row by its own show, not by its position', () => {
+    // NOT a key-reconciliation guard, which this cannot be: each rail renders
+    // its own <ul>, so rows from the two rails are never siblings and React
+    // scopes keys per list. What this pins is simpler and is what actually
+    // broke in review — that two rows of one rail resolve to two different
+    // shows rather than both inheriting the first row's target.
     useShowAlsoTonight.mockReturnValue({
       data: makeAlsoTonightPayload({
         shows: [

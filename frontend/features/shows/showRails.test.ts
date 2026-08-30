@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  alsoTonightDrawnIds,
   alsoTonightRailTitle,
   alsoTonightSeeAllHref,
   buildAlsoTonightRail,
@@ -95,19 +96,30 @@ describe('buildAlsoTonightRail', () => {
     expect(rail?.rows[0]?.lead).toBeNull()
   })
 
-  it('carries the room and the price as the row’s facts', () => {
+  it('carries the room and the price as separate ledger columns', () => {
     const rail = buildAlsoTonightRail(makeAlsoTonightPayload(), 99)
-    expect(rail?.rows[0]?.facts).toEqual(['Empty Bottle', '$15.00'])
+    expect(rail?.rows[0]?.room).toBe('Empty Bottle')
+    expect(rail?.rows[0]?.figure).toBe('$15.00')
+    expect(rail?.hasRoomColumn).toBe(true)
   })
 
-  it('drops a fact it does not have rather than rendering a gap', () => {
+  it('leaves an absent cell EMPTY rather than collapsing its column', () => {
+    // The difference between a ledger and a list of facts: dropping a cell
+    // shifts every cell after it, and the figures stop being a column.
     const rail = buildAlsoTonightRail(
       makeAlsoTonightPayload({
         shows: [makeAlsoTonightShow({ venue_name: undefined, price: undefined })],
       }),
       99
     )
-    expect(rail?.rows[0]?.facts).toEqual([])
+    expect(rail?.rows[0]?.room).toBeNull()
+    expect(rail?.rows[0]?.figure).toBeNull()
+    expect(rail?.hasRoomColumn).toBe(true)
+  })
+
+  it('bills the row with the mock’s separator, not the scene views’ comma', () => {
+    const rail = buildAlsoTonightRail(makeAlsoTonightPayload(), 99)
+    expect(rail?.rows[0]?.title).toBe('Dehd + Lifeguard')
   })
 
   it('offers see-all when the backend already truncated the night', () => {
@@ -197,14 +209,53 @@ describe('buildMoreAtVenueRail', () => {
   })
 
   it('lets a row’s own state override the venue’s for the date', () => {
+    // The instant has to STRADDLE the two zones' date boundary or the test
+    // proves nothing: 05:30 UTC Aug 16 is already Aug 16 in Chicago (00:30)
+    // but still Aug 15 in Honolulu (19:30). Reading the venue's IL instead of
+    // the row's HI would give AUG 16.
+    const straddling = '2026-08-16T05:30:00Z'
+    expect(
+      buildMoreAtVenueRail(
+        makeRailVenue({ timezone: null }),
+        [makeVenueShow({ state: 'HI', event_date: straddling })],
+        2,
+        99
+      )?.rows[0]?.lead
+    ).toBe('AUG 15')
+
+    // The control: same instant, no row-level override, so the venue's own
+    // state decides and the date lands a day later.
+    expect(
+      buildMoreAtVenueRail(
+        makeRailVenue({ timezone: null }),
+        [makeVenueShow({ state: null, event_date: straddling })],
+        2,
+        99
+      )?.rows[0]?.lead
+    ).toBe('AUG 16')
+  })
+
+  it('zero-pads the day so the lead column stays a column', () => {
+    // The mock's `SEP 04`. The day is the only variable-width part of the cell.
     const rail = buildMoreAtVenueRail(
-      makeRailVenue({ timezone: null }),
-      [makeVenueShow({ state: 'HI' })],
+      makeRailVenue(),
+      [makeVenueShow({ event_date: '2026-09-05T01:00:00Z' })],
       2,
       99
     )
-    // 01:00 UTC Aug 16 is still Aug 15 in Hawaii, two hours further back.
-    expect(rail?.rows[0]?.lead).toBe('AUG 15')
+    expect(rail?.rows[0]?.lead).toBe('SEP 04')
+  })
+
+  it('leaves the lead null for an unusable instant rather than printing junk', () => {
+    // `toLocaleString` does not throw on a bad date — it returns the literal
+    // string "Invalid Date", which the uppercased column would happily print.
+    const rail = buildMoreAtVenueRail(
+      makeRailVenue(),
+      [makeVenueShow({ event_date: 'not-a-date' })],
+      2,
+      99
+    )
+    expect(rail?.rows[0]?.lead).toBeNull()
   })
 
   it('names the bill, falling back to the promoter’s title', () => {
@@ -227,9 +278,43 @@ describe('buildMoreAtVenueRail', () => {
     expect(rail?.rows[0]?.title).toBe('Live music')
   })
 
-  it('carries the sold-out flag through to the row', () => {
+  it('puts the status in the figure column, superseding the price', () => {
+    // The mock gives a sold-out row `SOLD OUT` where its neighbours carry
+    // `$45` — one column, not a badge plus a price arguing with each other.
+    const rail = buildMoreAtVenueRail(
+      makeRailVenue(),
+      [makeVenueShow({ price: 45 })],
+      2,
+      99
+    )
+    expect(rail?.rows[0]?.figure).toBe('Sold out')
+  })
+
+  it('lets CANCELLED outrank SOLD OUT — a called-off ticket status is moot', () => {
+    const rail = buildMoreAtVenueRail(
+      makeRailVenue(),
+      [makeVenueShow({ is_cancelled: true, is_sold_out: true })],
+      2,
+      99
+    )
+    expect(rail?.rows[0]?.figure).toBe('Cancelled')
+    expect(rail?.rows[0]?.isCancelled).toBe(true)
+  })
+
+  it('shows the price when there is no status to state', () => {
+    const rail = buildMoreAtVenueRail(
+      makeRailVenue(),
+      [makeVenueShow({ is_sold_out: false, price: 45 })],
+      2,
+      99
+    )
+    expect(rail?.rows[0]?.figure).toBe('$45.00')
+  })
+
+  it('reserves no room column — the room is the heading', () => {
     const rail = buildMoreAtVenueRail(makeRailVenue(), [makeVenueShow()], 2, 99)
-    expect(rail?.rows[0]?.isSoldOut).toBe(true)
+    expect(rail?.hasRoomColumn).toBe(false)
+    expect(rail?.rows[0]?.room).toBeNull()
   })
 
   it('does not offer see-all when the room’s only other show is on screen', () => {
@@ -290,6 +375,82 @@ describe('buildMoreAtVenueRail', () => {
       99
     )
     expect(rail?.rows[0]?.href).toBe('/shows/200')
+  })
+})
+
+describe('cross-rail overlap', () => {
+  // A room with two bills on one night — an early/late set, or a second stage.
+  // Both queries return it: the also-tonight endpoint excludes only the SUBJECT
+  // show, and the venue's "upcoming" window includes tonight. Without the
+  // exclusion the same bill renders in both columns at once.
+  it('drops from the venue rail a show the also-tonight rail already drew', () => {
+    const payload = makeAlsoTonightPayload({
+      shows: [makeAlsoTonightShow({ id: 500, slug: 'late-set' })],
+    })
+    const drawn = alsoTonightDrawnIds(payload, 99)
+    expect(drawn.has(500)).toBe(true)
+
+    const rail = buildMoreAtVenueRail(
+      makeRailVenue(),
+      [
+        makeVenueShow({ id: 500, slug: 'late-set' }),
+        makeVenueShow({ id: 501, slug: 'next-week' }),
+      ],
+      2,
+      99,
+      drawn
+    )
+    expect(rail?.rows.map(row => row.href)).toEqual(['/shows/next-week'])
+  })
+
+  it('hides the venue rail entirely when the other rail drew all of it', () => {
+    const payload = makeAlsoTonightPayload({
+      shows: [makeAlsoTonightShow({ id: 500 })],
+    })
+    const rail = buildMoreAtVenueRail(
+      makeRailVenue(),
+      [makeVenueShow({ id: 500 })],
+      1,
+      99,
+      alsoTonightDrawnIds(payload, 99)
+    )
+    expect(rail).toBeNull()
+  })
+
+  it('does not count a de-duplicated row as something see-all would reveal', () => {
+    // total 2 = the drawn row plus the one the other rail already shows. There
+    // is nothing behind the bracket the reader has not seen on this screen.
+    const payload = makeAlsoTonightPayload({
+      shows: [makeAlsoTonightShow({ id: 500 })],
+    })
+    const rail = buildMoreAtVenueRail(
+      makeRailVenue(),
+      [makeVenueShow({ id: 500 }), makeVenueShow({ id: 501 })],
+      2,
+      99,
+      alsoTonightDrawnIds(payload, 99)
+    )
+    expect(rail?.rows).toHaveLength(1)
+    expect(rail?.seeAllHref).toBeNull()
+  })
+
+  it('excludes only what the other rail actually DREW, not its whole payload', () => {
+    // The other rail caps at three; a fourth same-night show at this room is
+    // not on screen anywhere and must still be listable here.
+    const payload = makeAlsoTonightPayload({
+      shows: [1, 2, 3, 4].map(id => makeAlsoTonightShow({ id: 500 + id })),
+    })
+    const drawn = alsoTonightDrawnIds(payload, 99)
+    expect(drawn.has(504)).toBe(false)
+
+    const rail = buildMoreAtVenueRail(
+      makeRailVenue(),
+      [makeVenueShow({ id: 504, slug: 'fourth' })],
+      5,
+      99,
+      drawn
+    )
+    expect(rail?.rows.map(row => row.href)).toEqual(['/shows/fourth'])
   })
 })
 
