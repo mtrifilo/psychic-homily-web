@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -15,7 +14,6 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	adminm "psychic-homily-backend/internal/models/admin"
-	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 	servicesshared "psychic-homily-backend/internal/services/shared"
 )
@@ -50,14 +48,43 @@ var validEntityTypes = map[string]bool{
 // --- Response Types ---
 
 // RevisionResponseItem represents a single revision in API responses.
-// UserName is never empty (resolveRevisionUserName chain).
-// UserUsername is nil when no username is set — distinct from UserName so
-// the frontend can decide between a /users/:username link and plain text.
+//
+// UserName is ABSENT — not empty, not a placeholder — when the author may not
+// be named on this view: they hid their contributions, or their only resolvable
+// name would come from their email address. See mapRevisionToResponse. Clients
+// must render the row without a byline in that case ("edited Jul 12", no "by"),
+// never substitute "Anonymous": the absence means "we may not say", and a
+// placeholder would assert a person.
+//
+// UserUsername is nil when there is no profile to link to — no username set, a
+// private profile, or a suppressed credit. Distinct from UserName so the
+// frontend can decide between a /users/:username link and plain text.
+//
+// UserID GOES WITH THE NAME. A suppressed credit omits the numeric id too,
+// because on its own the id is not anonymity — it is a lookup key. Several
+// public, unauthenticated payloads publish a user id and a display name in the
+// same object (a comment carries user_id + author_name; a collection carries
+// creator_id + creator_name), so one anonymous request builds an id-to-name
+// directory and the withheld byline is recovered in the next lookup.
+//
+// Withholding it RAISES THE COST of recovery; it is not the whole control. The
+// author id of a suppressed revision was also recoverable by scanning
+// GET /users/{id}/revisions for a page containing that revision's id, which is
+// why that route now refuses a hidden contributor's listing outright
+// (requireAuthorContributionsVisible). Both halves are needed: this one so the
+// id is not simply handed over, that one so it cannot be searched for.
+//
+// This deliberately does NOT match the show submitter byline, which suppresses
+// submitted_by_name while keeping submitted_by. The difference is that
+// submitted_by is LOAD-BEARING there: the frontend runs ownership checks on it
+// (ShowDetail, ShowCard, VenueDetail, the submissions console). A revision's
+// user_id has no consumer at all, so withholding it costs nothing and closes
+// the recovery. Do not "restore consistency" by re-publishing it.
 type RevisionResponseItem struct {
 	ID           uint                 `json:"id"`
 	EntityType   string               `json:"entity_type"`
 	EntityID     uint                 `json:"entity_id"`
-	UserID       uint                 `json:"user_id"`
+	UserID       *uint                `json:"user_id,omitempty"`
 	UserName     string               `json:"user_name,omitempty"`
 	UserUsername *string              `json:"user_username"`
 	Changes      []adminm.FieldChange `json:"changes"`
@@ -65,46 +92,45 @@ type RevisionResponseItem struct {
 	CreatedAt    string               `json:"created_at"`
 }
 
-// resolveRevisionUserName returns the display name for a revision's author,
-// never empty. Resolution chain: username → first/last → email-prefix →
-// "Anonymous". Mirrors resolveCommentAuthorName (PSY-552) and
-// CollectionService.resolveUserName (PSY-353); operates on the preloaded
-// User so there's no extra query per revision.
-func resolveRevisionUserName(u *authm.User) string {
-	if u == nil || u.ID == 0 {
-		return "Anonymous"
-	}
-	if u.Username != nil && *u.Username != "" {
-		return *u.Username
-	}
-	if u.FirstName != nil && *u.FirstName != "" {
-		name := *u.FirstName
-		if u.LastName != nil && *u.LastName != "" {
-			name += " " + *u.LastName
+// revisionAuthorCredit resolves the byline a revision may carry for its author,
+// for the tier this caller is served.
+//
+// ADMIN reads the stored identity through the canonical chain
+// (servicesshared.ResolveUserName), the same whole-view unmasking PSY-1717
+// grants over field values and summaries: a moderator deciding on a rollback
+// needs to know whose edit it is, and the admin surfaces already resolve
+// contributors this way (the moderation queue, the audit log, entity reports).
+//
+// EVERYONE ELSE gets the public contribution credit, which fails closed on
+// privacy_settings.contributions and never publishes an email-derived name
+// (servicesshared.ResolvePublicContributorCredit — the gates are argued there).
+// A suppressed credit is an ABSENT name, not "Anonymous"; see
+// RevisionResponseItem.
+//
+// What the admin tier unmasks is the NAME, and only the name. The profile link
+// runs through the same ContributorProfileLink both tiers use, because a private
+// profile 404s for admins too — withholding that link is not a privacy rule to
+// waive, it is the difference between a working href and a broken one.
+//
+// This is the ONLY place the two tiers diverge for identity. Content redaction
+// is decided upstream in the service (applyPrivacyRedaction) off the same
+// viewer, so the two policies read the same fact and cannot disagree about who
+// is asking.
+//
+// Do not narrow this route's Preload("User") with a Select. The two tiers here
+// need DIFFERENT columns — the public one needs privacy_settings and
+// profile_visibility, the admin one needs email — so neither helper's own
+// column contract is the contract for this route. The union, and what each
+// omission silently breaks, is written beside the queries themselves: see the
+// AUTHOR COLUMN CONTRACT note at the top of services/admin/revision.go.
+func revisionAuthorCredit(r *adminm.Revision, viewer contracts.RevisionViewer) servicesshared.PublicContributorCredit {
+	if viewer.IsAdmin {
+		return servicesshared.PublicContributorCredit{
+			Name:     servicesshared.ResolveUserName(&r.User),
+			Username: servicesshared.ContributorProfileLink(&r.User),
 		}
-		return name
 	}
-	if u.Email != nil && *u.Email != "" {
-		if idx := strings.Index(*u.Email, "@"); idx > 0 {
-			return (*u.Email)[:idx]
-		}
-	}
-	return "Anonymous"
-}
-
-// resolveRevisionUserUsername returns the URL-safe username slug, or nil
-// when the user has no username set. Distinct from resolveRevisionUserName,
-// whose fallback to first/last/email can't be used in a /users/:username
-// link. Mirrors resolveCommentAuthorUsername (PSY-552).
-func resolveRevisionUserUsername(u *authm.User) *string {
-	if u == nil || u.ID == 0 {
-		return nil
-	}
-	if u.Username == nil || *u.Username == "" {
-		return nil
-	}
-	username := *u.Username
-	return &username
+	return servicesshared.ResolvePublicContributorCredit(&r.User)
 }
 
 // revisionViewer resolves the caller the three read routes serve.
@@ -137,7 +163,8 @@ func revisionViewer(ctx context.Context) contracts.RevisionViewer {
 	return contracts.RevisionViewer{UserID: user.ID, IsAdmin: user.IsAdmin}
 }
 
-// mapRevisionToResponse converts a adminm.Revision to a RevisionResponseItem.
+// mapRevisionToResponse converts a adminm.Revision to a RevisionResponseItem
+// for the given caller.
 //
 // All three read routes are public, and optionally authenticated: anonymous and
 // non-admin callers see the redacted view, admins see the stored one
@@ -145,8 +172,14 @@ func revisionViewer(ctx context.Context) contracts.RevisionViewer {
 // RevisionService applies the read-time privacy redaction for the tier the
 // handler passes it (see applyPrivacyRedaction), and this function publishes the
 // result verbatim. Do not read revisions.field_changes or revisions.summary into
-// a response through any other path, and do not add a tier check here — this
-// function cannot see the caller, which is what keeps the policy in one place.
+// a response through any other path, and do not add a CONTENT tier check here —
+// that policy lives in one place, in the service.
+//
+// The viewer parameter decides ONE thing here and nothing else: how the author
+// is credited (revisionAuthorCredit, PSY-1940). It is passed explicitly rather
+// than read off a context so this function stays a pure mapping that a test can
+// drive both tiers of, and so a future reader cannot mistake it for a place
+// where content policy may also be re-decided.
 //
 // The show gate (PSY-1715) never reaches this function at all: a revision the
 // caller may not see is not passed here to be masked, it is not returned. So
@@ -158,14 +191,23 @@ func revisionViewer(ctx context.Context) contracts.RevisionViewer {
 // empty summary here means EITHER the contributor wrote none or the revision is
 // gated. Do not add a branch that tries to tell them apart. The whole point is
 // that the response cannot.
-func mapRevisionToResponse(r adminm.Revision) RevisionResponseItem {
+func mapRevisionToResponse(r adminm.Revision, viewer contracts.RevisionViewer) RevisionResponseItem {
+	credit := revisionAuthorCredit(&r, viewer)
+	// One decision, three fields. The id is part of the credit, not metadata
+	// beside it — see RevisionResponseItem on why publishing it would undo the
+	// suppression.
+	var userID *uint
+	if credit.Renderable() {
+		id := r.UserID
+		userID = &id
+	}
 	item := RevisionResponseItem{
 		ID:           r.ID,
 		EntityType:   r.EntityType,
 		EntityID:     r.EntityID,
-		UserID:       r.UserID,
-		UserName:     resolveRevisionUserName(&r.User),
-		UserUsername: resolveRevisionUserUsername(&r.User),
+		UserID:       userID,
+		UserName:     credit.Name,
+		UserUsername: credit.Username,
 		// PSY-604: must convert to UTC before formatting — the literal "Z"
 		// in the layout asserts the value is UTC but Format does not convert.
 		// A local time.Time would otherwise be stamped with "Z" while still
@@ -225,8 +267,14 @@ func (h *RevisionHandler) GetEntityHistoryHandler(ctx context.Context, req *GetE
 		limit = 20
 	}
 
+	// Resolved once and reused for the response mapping: the tier that decides
+	// what content the service serves must be the same one that decides how the
+	// author is credited, or a single request could redact on one reading of the
+	// caller and attribute on another.
+	viewer := revisionViewer(ctx)
+
 	revisions, total, err := h.revisionService.GetEntityHistory(
-		req.EntityType, uint(entityID), limit, req.Offset, revisionViewer(ctx))
+		req.EntityType, uint(entityID), limit, req.Offset, viewer)
 	// An entity this caller may not see answers 404, mirroring the detail route
 	// the gate is copied from (PSY-1715). The message says nothing about WHY,
 	// and is the same one an entity that does not exist would produce, so the
@@ -250,7 +298,7 @@ func (h *RevisionHandler) GetEntityHistoryHandler(ctx context.Context, req *GetE
 
 	items := make([]RevisionResponseItem, 0, len(revisions))
 	for _, r := range revisions {
-		items = append(items, mapRevisionToResponse(r))
+		items = append(items, mapRevisionToResponse(r, viewer))
 	}
 
 	resp := &GetEntityHistoryResponse{}
@@ -278,7 +326,11 @@ func (h *RevisionHandler) GetRevisionHandler(ctx context.Context, req *GetRevisi
 		return nil, huma.Error400BadRequest("Invalid revision ID")
 	}
 
-	revision, err := h.revisionService.GetRevision(uint(revisionID), revisionViewer(ctx))
+	// One reading of the caller for both the service's redaction and the
+	// response's byline — see GetEntityHistoryHandler.
+	viewer := revisionViewer(ctx)
+
+	revision, err := h.revisionService.GetRevision(uint(revisionID), viewer)
 	if err != nil {
 		logger.FromContext(ctx).Error("revision_get_failed",
 			"revision_id", revisionID,
@@ -290,7 +342,7 @@ func (h *RevisionHandler) GetRevisionHandler(ctx context.Context, req *GetRevisi
 		return nil, huma.Error404NotFound("Revision not found")
 	}
 
-	item := mapRevisionToResponse(*revision)
+	item := mapRevisionToResponse(*revision, viewer)
 	return &GetRevisionResponse{Body: item}, nil
 }
 
@@ -323,8 +375,29 @@ func (h *RevisionHandler) GetUserRevisionsHandler(ctx context.Context, req *GetU
 		limit = 20
 	}
 
+	// One reading of the caller for both the service's redaction and the
+	// response's byline — see GetEntityHistoryHandler.
+	//
+	// Note this route names the author in its PATH, so suppressing the byline
+	// here withholds the NAME, not the fact that user {user_id} edited these
+	// entities. That residual is the same one the show submitter byline leaves
+	// by publishing submitted_by; the per-user counting and differencing family
+	// is PSY-1939's.
+	viewer := revisionViewer(ctx)
+
 	revisions, total, err := h.revisionService.GetUserRevisions(
-		uint(userID), limit, req.Offset, revisionViewer(ctx))
+		uint(userID), limit, req.Offset, viewer)
+	// A contributor who hid their contributions has no public contributions
+	// page, and this route is one. Same 404, same message, as a user id that
+	// does not exist — mirroring GET /users/{username}/contributions, and
+	// leaving nothing to tell the two apart. Info, not Error: a public route
+	// refusing a public request is routine.
+	if errors.Is(err, contracts.ErrRevisionEntityHidden) {
+		logger.FromContext(ctx).Info("revision_user_contributions_hidden",
+			"user_id", userID,
+		)
+		return nil, huma.Error404NotFound("User not found")
+	}
 	if err != nil {
 		logger.FromContext(ctx).Error("revision_get_user_revisions_failed",
 			"user_id", userID,
@@ -335,7 +408,7 @@ func (h *RevisionHandler) GetUserRevisionsHandler(ctx context.Context, req *GetU
 
 	items := make([]RevisionResponseItem, 0, len(revisions))
 	for _, r := range revisions {
-		items = append(items, mapRevisionToResponse(r))
+		items = append(items, mapRevisionToResponse(r, viewer))
 	}
 
 	resp := &GetUserRevisionsResponse{}

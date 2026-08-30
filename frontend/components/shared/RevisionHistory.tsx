@@ -82,16 +82,23 @@ function RevisionEntry({
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Stop byline-link clicks from also toggling the surrounding
-                expand button (we're nested inside <button>; the link should
-                navigate, not collapse the row). */}
-            <span onClick={e => e.stopPropagation()}>
-              <UserAttribution
-                name={revision.user_name}
-                username={revision.user_username}
-                className="text-sm font-medium text-foreground hover:underline"
-              />
-            </span>
+            {/* The byline is dropped entirely, not replaced with "Anonymous",
+                when the backend will not name the author (hidden
+                contributions, or an email-only name — PSY-1940). The row still
+                carries its date, its summary and its field count, so the edit
+                remains auditable; only the person goes unnamed. */}
+            {revision.user_name && (
+              /* Stop byline-link clicks from also toggling the surrounding
+                 expand button (we're nested inside <button>; the link should
+                 navigate, not collapse the row). */
+              <span onClick={e => e.stopPropagation()}>
+                <UserAttribution
+                  name={revision.user_name}
+                  username={revision.user_username}
+                  className="text-sm font-medium text-foreground hover:underline"
+                />
+              </span>
+            )}
             <span className="text-xs text-muted-foreground">
               {formatRelativeTime(revision.created_at)}
             </span>

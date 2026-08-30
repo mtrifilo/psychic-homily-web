@@ -16,6 +16,35 @@ import (
 	"psychic-homily-backend/internal/services/shared/revisiondiff"
 )
 
+// AUTHOR COLUMN CONTRACT — why all three reads below Preload the WHOLE user
+// row, and what breaks if someone narrows that.
+//
+// The handler resolves the author's byline from this preloaded relation, and
+// the two tiers it serves need DIFFERENT columns (PSY-1940):
+//
+//   - the public tier reads display_name, username, first_name, last_name to
+//     resolve a name, plus privacy_settings and profile_visibility to decide
+//     whether it may publish one;
+//   - the admin tier reads email as well, as the last resort for an account
+//     that set no public name.
+//
+// So the union is every identity column, and the union is what a bare
+// Preload("User") gives.
+//
+// Narrowing it is a tempting optimisation: this pulls password_hash and the
+// rest for every row of every history page. Do not. A Select that omits
+// privacy_settings does not fail loudly — the column scans as nil, which
+// unmarshals to the DEFAULTS, which have contributions VISIBLE, and every
+// contributor who asked not to be credited is silently named again. Dropping
+// profile_visibility restores links to profiles that 404. Dropping email
+// breaks the admin tier's last resort.
+//
+// If this must be narrowed, list all of: id, username, display_name,
+// first_name, last_name, email, privacy_settings, profile_visibility — and add
+// a test that reads a hidden contributor's history through the real query, of
+// which routes/revision_viewer_tier_test.go is the exemplar. An in-memory test
+// of the mapper cannot catch a column that was never selected.
+
 // RevisionService handles revision history business logic.
 type RevisionService struct {
 	db *gorm.DB
@@ -108,6 +137,7 @@ func (s *RevisionService) GetEntityHistory(entityType string, entityID uint, lim
 	var revisions []adminm.Revision
 	err := visibleRevisionsOnly(s.db.Model(&adminm.Revision{}).
 		Where("entity_type = ? AND entity_id = ?", entityType, entityID), viewer).
+		// DO NOT NARROW THIS PRELOAD WITH A Select — see the AUTHOR COLUMN CONTRACT note at the top of this file.
 		Preload("User").
 		Order("created_at DESC").
 		Limit(limit).
@@ -161,6 +191,7 @@ func (s *RevisionService) getRevisionRaw(revisionID uint) (*adminm.Revision, err
 	}
 
 	var revision adminm.Revision
+	// DO NOT NARROW THIS PRELOAD WITH A Select — see the AUTHOR COLUMN CONTRACT note at the top of this file.
 	err := s.db.Preload("User").First(&revision, revisionID).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -187,6 +218,14 @@ func (s *RevisionService) GetUserRevisions(userID uint, limit, offset int, viewe
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
+	// This route is indexed by a PERSON, which makes the whole listing a
+	// contributions page and puts it under the setting that governs those. See
+	// requireAuthorContributionsVisible for why suppressing the byline alone
+	// would not have been enough.
+	if err := s.requireAuthorContributionsVisible(userID, viewer); err != nil {
+		return nil, 0, err
+	}
+
 	if limit <= 0 {
 		limit = 20
 	}
@@ -203,6 +242,7 @@ func (s *RevisionService) GetUserRevisions(userID uint, limit, offset int, viewe
 
 	var revisions []adminm.Revision
 	err := visibleRevisionsOnly(s.db.Model(&adminm.Revision{}).Where("user_id = ?", userID), viewer).
+		// DO NOT NARROW THIS PRELOAD WITH A Select — see the AUTHOR COLUMN CONTRACT note at the top of this file.
 		Preload("User").
 		Order("created_at DESC").
 		Limit(limit).

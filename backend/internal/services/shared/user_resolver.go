@@ -39,37 +39,92 @@ const AnonymousUserName = "Anonymous"
 //
 // nil-safe: returns AnonymousUserName when the user is nil or has ID 0.
 //
-// Use this whenever a backend response needs a label for a user. Pair with
-// ResolveUserUsername when you also want a profile-link slug — the username
-// form returns *string so consumers can omit the link when no username is set.
+// NOT FOR PUBLIC RESPONSES. Tier 4 publishes a fragment of the account's email
+// address, which no logged-out surface may render (owner decision 2026-08-29).
+// Use this on admin-only views, on internal channels, and in messages addressed
+// to the user themselves; everywhere else reach for ResolvePublicUserName, or
+// ResolvePublicContributorCredit when the surface credits a CONTRIBUTION and can
+// omit the byline. See public_attribution.go.
+//
+// Pair with ResolveUserUsername when you also want a profile-link slug — the
+// username form returns *string so consumers can omit the link when no username
+// is set.
 //
 // CALLERS USING A COLUMN-RESTRICTED Select MUST LOAD EVERY CHAIN COLUMN:
 // id, username, display_name, first_name, last_name, email. Omitting one
 // silently disables that branch (the field scans as nil) — this bit two
 // call sites when display_name was added (PSY-1063).
 func ResolveUserName(user *authm.User) string {
-	if user == nil || user.ID == 0 {
-		return AnonymousUserName
-	}
-	if user.DisplayName != nil && *user.DisplayName != "" {
-		return *user.DisplayName
-	}
-	if user.Username != nil && *user.Username != "" {
-		return *user.Username
-	}
-	if user.FirstName != nil && *user.FirstName != "" {
-		name := *user.FirstName
-		if user.LastName != nil && *user.LastName != "" {
-			name += " " + *user.LastName
-		}
+	if name := resolvePublicNameTiers(user); name != "" {
 		return name
 	}
-	if user.Email != nil && *user.Email != "" {
+	if user != nil && user.ID != 0 && user.Email != nil && *user.Email != "" {
 		if idx := strings.Index(*user.Email, "@"); idx > 0 {
 			return (*user.Email)[:idx]
 		}
 	}
 	return AnonymousUserName
+}
+
+// resolvePublicNameTiers walks the tiers of the chain that a PUBLIC surface may
+// render, and returns "" when the user has none of them.
+//
+// This is the primitive, not a copy: ResolveUserName is this plus the email
+// tier plus the terminal, ResolvePublicUserName is this plus the terminal, and
+// HasPublicName is this being non-empty. Spelling the shared prefix ONCE is what
+// makes "the public chain is the canonical chain minus its last tier" true by
+// construction rather than by comment. Two functions each listing the tiers
+// would let a later edit reorder or insert one in a way that silently promotes
+// the email tier above a public one, which is precisely the leak PSY-1940 closed.
+//
+// So: a new tier goes HERE if a logged-out visitor may see it, and in
+// ResolveUserName's own body if not. Nowhere else.
+//
+// A tier holding only WHITESPACE counts as unset, and what a tier does return
+// is trimmed. Registration stores first_name raw (services/user/user.go; only
+// the profile PATCH trims), so " " and "\t" and "\n" are all storable today.
+// Untrimmed they are non-empty strings that satisfy every `!= ""` gate above
+// and every `name &&` guard on the frontend, and the byline renders as a
+// dangling "added Jul 12 by " with an empty span. Trimming here rather than at
+// each gate is the point of having one primitive: the callers ask "is there a
+// name" and get a truthful answer, once.
+//
+// This is unicode.IsSpace only. A name that is invisible without being space —
+// a lone zero-width space, a bidi override — still resolves, and deliberately
+// so: the format-character category that would catch it also holds joiners
+// that legitimate names in several scripts require. Rejecting those belongs to
+// input validation at the write side, not to a resolver that must render
+// whatever was stored.
+//
+// nil-safe: returns "" for a nil or ID-0 user, which every caller above turns
+// into its own terminal.
+func resolvePublicNameTiers(user *authm.User) string {
+	if user == nil || user.ID == 0 {
+		return ""
+	}
+	if name := trimmedDeref(user.DisplayName); name != "" {
+		return name
+	}
+	if name := trimmedDeref(user.Username); name != "" {
+		return name
+	}
+	if first := trimmedDeref(user.FirstName); first != "" {
+		if last := trimmedDeref(user.LastName); last != "" {
+			return first + " " + last
+		}
+		return first
+	}
+	return ""
+}
+
+// trimmedDeref unwraps a nullable text column to its trimmed value, or "" for
+// nil. "" therefore means "nothing a surface could render", covering NULL, the
+// empty string, and whitespace alike.
+func trimmedDeref(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(*value)
 }
 
 // ResolveUserUsername returns the user's username for /users/:username links,
@@ -92,31 +147,13 @@ func ResolveUserUsername(user *authm.User) *string {
 	return &username
 }
 
-// BatchResolveUserNames resolves display names for multiple user IDs in a
-// single query. Returns a map keyed by user ID; missing users are absent
-// from the map (callers can default to "Anonymous" via ResolveUserName(nil)
-// or by checking the map directly).
-//
-// Returns an empty map (not nil) when userIDs is empty so callers can index
-// without nil-check guards.
-func BatchResolveUserNames(db *gorm.DB, userIDs []uint) (map[uint]string, error) {
-	result := make(map[uint]string)
-	if len(userIDs) == 0 {
-		return result, nil
-	}
-
-	var users []authm.User
-	if err := db.Select("id, username, display_name, first_name, last_name, email").
-		Where("id IN ?", userIDs).
-		Find(&users).Error; err != nil {
-		return nil, err
-	}
-
-	for i := range users {
-		result[users[i].ID] = ResolveUserName(&users[i])
-	}
-	return result, nil
-}
+// NOTE: there is deliberately no batch form of ResolveUserName. PSY-1940 moved
+// every batch caller to BatchResolvePublicUserNames, and a batch resolver that
+// publishes email local-parts is the most convenient wrong answer for the next
+// list endpoint that needs names — an unused one sitting here would be a trap,
+// not a convenience. If an ADMIN list surface ever needs the canonical chain in
+// bulk, add it then, with its own "not for public responses" warning and a
+// named caller.
 
 // BatchResolveUserUsernames resolves usernames for multiple user IDs in a
 // single query. Map values are nil-pointer when the user has no username —

@@ -79,9 +79,17 @@ type CommentResponse struct {
 	EntityID   uint   `json:"entity_id"`
 	Kind       string `json:"kind"`
 	UserID     uint   `json:"user_id"`
-	// AuthorName is the resolved display name for the comment's author —
-	// never empty. Resolution chain mirrors PSY-353: username → first/last
-	// → email-prefix → "Anonymous".
+	// AuthorName is the resolved display name for the comment's author, and is
+	// never empty: a comment's author slot has to say something, so this
+	// surface bottoms out at "Anonymous" rather than omitting the byline the
+	// way a CONTRIBUTION credit does.
+	//
+	// Chain: display_name → username → first/last → "Anonymous"
+	// (shared.ResolvePublicUserName). There is NO email tier: comments are
+	// served to anonymous callers, and no public surface may render a fragment
+	// of an account's email address (PSY-1940). privacy_settings.contributions
+	// is deliberately not read here either — it governs submissions and edits
+	// to the catalogue, not authored discussion.
 	AuthorName string `json:"author_name"`
 	// AuthorUsername is the author's username when set — used by the
 	// frontend to link the byline to /users/:username. Pointer so the JSON

@@ -15369,7 +15369,7 @@ export interface components {
             id: number;
             summary?: string;
             /** Format: int64 */
-            user_id: number;
+            user_id?: number;
             user_name?: string;
             user_username: string | null;
         };

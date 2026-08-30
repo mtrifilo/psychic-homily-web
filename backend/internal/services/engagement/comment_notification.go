@@ -355,7 +355,10 @@ func (s *CommentNotificationService) NotifySubscribers(commentID uint) error {
 	entityName := s.buildEntityName(comment.EntityType, comment.EntityID)
 	entityURL := s.buildEntityURL(comment.EntityType, comment.EntityID)
 	excerpt := buildExcerpt(comment.Body)
-	commenterName := shared.ResolveUserName(&comment.User)
+	// Public chain (PSY-1940): the name belongs to a THIRD PARTY, the
+	// commenter, and must read the same here as on the comment this
+	// notification points at — which is public.
+	commenterName := shared.ResolvePublicUserName(&comment.User)
 	now := time.Now().UTC()
 	emailCutoff := now.Add(-subscriberDedupWindow)
 
@@ -504,7 +507,8 @@ func (s *CommentNotificationService) NotifyMentioned(commentID uint) error {
 	entityName := s.buildEntityName(comment.EntityType, comment.EntityID)
 	commentURL := s.buildCommentURL(comment.EntityType, comment.EntityID, comment.ID)
 	excerpt := buildExcerpt(comment.Body)
-	mentionerName := shared.ResolveUserName(&comment.User)
+	// Public chain, for the reason on commenterName above.
+	mentionerName := shared.ResolvePublicUserName(&comment.User)
 
 	now := time.Now().UTC()
 	for _, r := range rows {

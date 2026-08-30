@@ -55,10 +55,29 @@ describe('AttributionLine', () => {
     expect(link).toHaveAttribute('href', '/users/alice')
   })
 
+  // PSY-1940: an unnamed author drops the credit, it does not fall back to a
+  // placeholder. The edit's DATE still renders — the edit happened, only the
+  // person is not ours to publish.
+  it('renders "Last edited <time>" with no byline when the author is unnamed', () => {
+    mockUseEntityAttribution.mockReturnValue({
+      data: {
+        user_name: null,
+        user_username: null,
+        created_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+      },
+    })
+    render(<AttributionLine entityType="artist" entityId={42} />)
+
+    expect(screen.getByText(/Last edited/)).toBeInTheDocument()
+    expect(screen.getByText(/2 hours ago/)).toBeInTheDocument()
+    expect(screen.queryByText(/Last edited by/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Anonymous')).not.toBeInTheDocument()
+  })
+
   // PSY-560: when the editor has no username slug, the byline must render
-  // the resolved display name (first/last, email-prefix, "Anonymous") as
-  // plain text — never as a link, since /users/:username would 404. Mirrors
-  // CommentCard byline behavior (PSY-552).
+  // the resolved display name (display name, first/last) as plain text —
+  // never as a link, since /users/:username would 404. Mirrors CommentCard
+  // byline behavior (PSY-552).
   it('renders display name as plain text when user_username is null', () => {
     mockUseEntityAttribution.mockReturnValue({
       data: {

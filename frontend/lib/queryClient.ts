@@ -717,11 +717,15 @@ export const queryKeys = {
  *     cannot see a viewer and the payload cannot vary.
  */
 const VIEWER_TIER_QUERY_KEYS: readonly (readonly unknown[])[] = [
-  // Revision history. Non-privileged viewers get the stored `address` and
-  // `zipcode` values replaced with "(hidden)" on unverified venues and lose
-  // the summary entirely (PSY-1717), and a non-approved show 404s its history
-  // outright (PSY-1715) — so a tier flip changes both the values shown and
-  // which rows exist at all. The family prefix also covers the
+  // Revision history, which now varies by credential in THREE ways.
+  // Non-privileged viewers get the stored `address` and `zipcode` values
+  // replaced with "(hidden)" on unverified venues and lose the summary entirely
+  // (PSY-1717); a non-approved show 404s its history outright (PSY-1715); and
+  // the AUTHOR is unnamed for a contributor who hid their contributions or
+  // whose only resolvable name would come from their email address, with
+  // `user_name`, `user_username` and `user_id` all withheld together
+  // (PSY-1940). So a tier flip changes the values shown, which rows exist at
+  // all, and who they are attributed to. The family prefix also covers the
   // `{ limit, offset }`-suffixed entity/user keys and the
   // `{ attribution: true }` key that useEntityAttribution appends.
   queryKeys.revisions.all,

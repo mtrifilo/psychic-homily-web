@@ -155,6 +155,17 @@ func (s *CommentService) validateEntityExists(entityType engagementm.CommentEnti
 }
 
 // commentToResponse maps a Comment model to a CommentResponse.
+//
+// The author resolves through the PUBLIC chain (PSY-1940): comments are served
+// to anonymous callers, and the canonical chain's last-resort tier would
+// publish the local part of the author's email address. An author with no
+// display name, username or first name is credited "Anonymous" rather than
+// omitted — unlike a contribution byline, a comment's author slot has to say
+// something, and "Anonymous" is the terminal this surface already renders.
+//
+// privacy_settings.contributions is deliberately NOT read here. That setting
+// governs CONTRIBUTIONS — submissions and edits to the catalog — not authored
+// discussion, which is published under a byline by the act of posting it.
 func commentToResponse(c *engagementm.Comment) *contracts.CommentResponse {
 	resp := &contracts.CommentResponse{
 		ID:              c.ID,
@@ -162,7 +173,7 @@ func commentToResponse(c *engagementm.Comment) *contracts.CommentResponse {
 		EntityID:        c.EntityID,
 		Kind:            string(c.Kind),
 		UserID:          c.UserID,
-		AuthorName:      shared.ResolveUserName(&c.User),
+		AuthorName:      shared.ResolvePublicUserName(&c.User),
 		AuthorUsername:  shared.ResolveUserUsername(&c.User),
 		ParentID:        c.ParentID,
 		RootID:          c.RootID,
@@ -812,7 +823,8 @@ func (s *CommentService) GetCommentEditHistory(requesterID uint, commentID uint)
 			EditorUserID: e.EditorUserID,
 		}
 		if e.Editor != nil && e.Editor.ID != 0 {
-			entry.EditorName = shared.ResolveUserName(e.Editor)
+			// Public chain, for the reason stated on commentToResponse.
+			entry.EditorName = shared.ResolvePublicUserName(e.Editor)
 			if username := shared.ResolveUserUsername(e.Editor); username != nil {
 				entry.EditorUsername = *username
 			}
