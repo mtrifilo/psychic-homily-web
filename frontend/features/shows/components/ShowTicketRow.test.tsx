@@ -147,6 +147,74 @@ describe('ticketLineSegments', () => {
     ).not.toContain('SOLD OUT')
   })
 
+  // The locked PAST mock's line: what entry cost, then the closed door,
+  // in that order.
+  it('closes a past line with NO LONGER AVAILABLE after the price', () => {
+    const segments = ticketLineSegments(
+      makeShow({ price: 35, ticket_url: 'https://tix.example/1' }),
+      'past'
+    )
+    expect(segments).toEqual(['8PM', '$35', 'NO LONGER AVAILABLE'])
+  })
+
+  // The past tense of ON SALE, so it is said whenever there was a purchase
+  // to close out — a stored link, or a price. Either field on its own is
+  // enough; neither is the upcoming state's affordance test.
+  it.each([
+    ['a stored ticket url and no price', { ticket_url: 'https://tix.example/1' }],
+    ['a price and no ticket url', { price: 35 }],
+  ])('says NO LONGER AVAILABLE for a past show with %s', (_label, overrides) => {
+    expect(ticketLineSegments(makeShow(overrides), 'past')).toContain(
+      'NO LONGER AVAILABLE'
+    )
+  })
+
+  // A line that never said ON SALE has nothing to un-say. Both cases would
+  // otherwise close a sale that never opened, under a stripe already saying
+  // PAST SHOW.
+  it.each([
+    ['a free show', { price: 0 }],
+    ['a show with no price and no ticket url', {}],
+  ])('says nothing about availability for past %s', (_label, overrides) => {
+    expect(ticketLineSegments(makeShow(overrides), 'past')).not.toContain(
+      'NO LONGER AVAILABLE'
+    )
+  })
+
+  // A whitespace-only url is storable and is not a purchase, on this line
+  // in either tense.
+  it('ignores a whitespace-only ticket url in the past register', () => {
+    expect(
+      ticketLineSegments(makeShow({ ticket_url: '   ' }), 'past')
+    ).not.toContain('NO LONGER AVAILABLE')
+  })
+
+  // Cancellation outranks the past register exactly as it outranks the
+  // present-tense pair: the stripe says CANCELLED and never PAST SHOW, so
+  // this line must not answer in the other state's words.
+  it('makes no availability claim for a cancelled show that has passed', () => {
+    expect(
+      ticketLineSegments(
+        makeShow({ is_cancelled: true, price: 35, ticket_url: 'https://tix.example/1' }),
+        'past'
+      )
+    ).not.toContain('NO LONGER AVAILABLE')
+  })
+
+  // The closing statement is the PAST register's alone; an upcoming or
+  // tonight line still has a live sale state to make.
+  it.each(['upcoming', 'today'] as const)(
+    'never says NO LONGER AVAILABLE on a %s show',
+    lifecycle => {
+      expect(
+        ticketLineSegments(
+          makeShow({ price: 35, ticket_url: 'https://tix.example/1' }),
+          lifecycle
+        )
+      ).not.toContain('NO LONGER AVAILABLE')
+    }
+  )
+
   // The backend stores the field untrimmed and ingest skips the validator,
   // so a whitespace-only url is storable — and is not somewhere to buy.
   it('never claims ON SALE on a whitespace-only ticket url', () => {
@@ -390,6 +458,29 @@ describe('ShowTicketRow', () => {
       'data-path',
       '/shows/test-show'
     )
+  })
+
+  // The past register drops both forward-looking verbs and keeps the rest:
+  // a save already made must not be orphaned by the show ending, and the
+  // archive verbs are what a past page is for.
+  it('drops the calendar affordance on a past show and keeps the rest', () => {
+    render(<ShowTicketRow lifecycle="past" show={makeShow()} />)
+
+    expect(screen.queryByText('Add to calendar')).not.toBeInTheDocument()
+    expect(screen.getByText('Save')).toBeInTheDocument()
+    expect(screen.getByTestId('add-to-collection')).toBeInTheDocument()
+    expect(screen.getByTestId('share-button')).toBeInTheDocument()
+  })
+
+  // Attendance (`247 went · [I was there]`) is an explicit non-goal of the
+  // past register (privacy default undecided), and so is the setlist ledger.
+  // Both are drawn in the PAST mock, which is exactly why this asserts they
+  // are absent rather than leaving it to be noticed.
+  it('renders nothing from the mocked-not-built past modules', () => {
+    render(<ShowTicketRow lifecycle="past" show={makeShow()} />)
+
+    expect(screen.queryByText(/I was there/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/went$/)).not.toBeInTheDocument()
   })
 
   it('names the collection entry from the bill when the show has no title', () => {

@@ -37,6 +37,23 @@ interface ShowTicketRowProps {
  * `SaveButton` through the shared query key. They used to sit rows apart
  * with a warning to check both when moving either; they now share this row,
  * which is the easier invariant to keep.
+ *
+ * PAST REGISTER (PSY-1690): the two forward-looking verbs drop out and the
+ * rest of the row stays, which is the locked PAST mock's row minus the
+ * attendance affordance it draws in their place. `[Buy Tickets ↗]` goes via
+ * {@link ticketHref}; `[Add to calendar]` goes explicitly, because putting a
+ * show that already happened on a reader's calendar is an appointment for a
+ * date in the past, and the .ics it exports would then argue with the
+ * `PAST SHOW` stripe from inside their calendar app where the page cannot
+ * correct it.
+ *
+ * `[Save]` deliberately STAYS. A past show is an archive document, demoted
+ * rather than deleted, and saving one is how a reader keeps it: /shows/saved
+ * lists past saves, and withdrawing the verb here would orphan every save
+ * already made the moment the show ended. The mock's past row shows
+ * `[I was there]` in this neighbourhood instead, but attendance is an
+ * explicit non-goal of this ticket (privacy default undecided), and its
+ * absence is not a reason to withdraw a working affordance beside it.
  */
 export function ShowTicketRow({ show, lifecycle }: ShowTicketRowProps) {
   const segments = ticketLineSegments(show, lifecycle)
@@ -70,7 +87,7 @@ export function ShowTicketRow({ show, lifecycle }: ShowTicketRowProps) {
             ariaLabel="Buy tickets"
           />
         )}
-        <ShowAddToCalendar show={show} />
+        {lifecycle !== 'past' && <ShowAddToCalendar show={show} />}
         {/* SaveButton's bracket branch defaults to the header-linkbox
             treatment (11px mono); this row is 14px sans, and one odd bracket
             mid-row reads as a mistake. The count display the Button variant

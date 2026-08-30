@@ -80,6 +80,28 @@ function ticketPriceSegments(show: ShowResponse): string[] {
 }
 
 /**
+ * Whether this show ever had a purchase for the past register to close out.
+ *
+ * True when a ticket link was stored, or when entry cost money. The link is
+ * read from the RAW field rather than through {@link ticketHref}, which
+ * refuses past shows by design — the question here is what the show sold
+ * while it was upcoming, not what a reader can buy now.
+ *
+ * Reads BOTH prices: a show sold only at the door still charged for entry.
+ *
+ * A free show is deliberately false, and so is a show carrying neither
+ * field. `NO LONGER AVAILABLE` is the past tense of `ON SALE`, and a line
+ * that never said `ON SALE` has nothing to un-say; printing it beside `Free`
+ * closes a sale that never opened, and printing it on a line with no
+ * commerce on it at all restates the stripe's `PAST SHOW` in a register the
+ * page has no reason to use.
+ */
+function wasPurchasable(show: ShowResponse): boolean {
+  if (show.ticket_url?.trim()) return true
+  return (show.price ?? 0) > 0 || (show.door_price ?? 0) > 0
+}
+
+/**
  * The ticket line's segments: `8PM · ON SALE · $35`, middot-joined by the
  * component.
  *
@@ -92,10 +114,9 @@ function ticketPriceSegments(show: ShowResponse): string[] {
  * confidently-wrong hour here either.
  *
  * The sale state must never argue with the stripe, so its guards mirror the
- * stripe's own precedence. Both claims are PRESENT TENSE, so a cancelled or
- * past show makes neither: `SOLD OUT` asserts the event is happening and
- * tickets are gone, `ON SALE` that they can be bought — the fuller past
- * register (`NO LONGER AVAILABLE`) belongs to the past-register ticket.
+ * stripe's own precedence. `SOLD OUT` and `ON SALE` are PRESENT TENSE, so a
+ * cancelled or past show makes neither: `SOLD OUT` asserts the event is
+ * happening and tickets are gone, `ON SALE` that they can be bought.
  * `SOLD OUT` swaps `ON SALE` per the mock; `ON SALE` requires somewhere to
  * actually buy — it branches on {@link ticketHref}, the same derivation the
  * Buy Tickets bracket renders from, so the words and the affordance cannot
@@ -103,6 +124,19 @@ function ticketPriceSegments(show: ShowResponse): string[] {
  * bare, an advance/door pair renders as the mock's `$35 ADV · DOOR $40`. The
  * mock's trailing `CASH` is a separate fact with no column and no source that
  * states it reliably, so the line does not claim it (PSY-1864).
+ *
+ * A past show closes the line instead: `$35 · NO LONGER AVAILABLE`, the
+ * locked PAST mock's `1241:18` register (PSY-1690). It sits AFTER the price
+ * rather than in the sale state's slot because that is the mock's order and
+ * because it reads as what it is — a record of what entry cost, then the
+ * fact that the door has shut. See {@link wasPurchasable} for when it is
+ * said at all.
+ *
+ * Cancellation outranks it, exactly as it outranks the present-tense pair.
+ * The stripe's own precedence puts CANCELLED first and never says PAST SHOW
+ * under it, so a cancelled show that has also now passed must not pick up
+ * the past register's words down here; `CANCELLED` is the whole statement,
+ * and it was already made at the top of the page.
  *
  * The age segment is a venue-less fallback: the venue module's facts line
  * owns the age fact, but a show with no venue row never mounts that module,
@@ -131,6 +165,9 @@ export function ticketLineSegments(
     }
   }
   segments.push(...ticketPriceSegments(show))
+  if (!show.is_cancelled && lifecycle === 'past' && wasPurchasable(show)) {
+    segments.push('NO LONGER AVAILABLE')
+  }
   const age = show.age_requirement?.trim()
   if (show.venues.length === 0 && age) {
     segments.push(age)
