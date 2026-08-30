@@ -59,18 +59,15 @@ export function UserFollowButton({
 
   const isFollowing = data?.is_following ?? false
   const isMutating = follow.isPending || unfollow.isPending
-  // `authStatus === 'pending'` for the reason FollowButton carries it: this
-  // control ships ENABLED in server HTML and opts into pre-hydration click
-  // replay, and the handler routes on `!isAuthenticated`, which reads false
-  // both for a viewer with no session and for one whose profile has not
-  // arrived. A replayed click in that window sends a signed-in viewer to /auth.
+  // Disabled while unsettled, as every control in this class is: it ships
+  // ENABLED in server HTML with pre-hydration click replay, and its handler
+  // routes on `!isAuthenticated`, which reads false for a signed-in viewer whose
+  // profile has not landed. See AuthStatus in lib/context/AuthContext.
   const isDisabled = isMutating || authStatus === 'pending'
 
   const handleClick = () => {
-    // Unreachable while `isDisabled` includes 'pending' (React suppresses
-    // onClick on a disabled control); kept because the redirect below cannot
-    // distinguish "no session" from "profile in flight", and it sits ahead of
-    // the `isDisabled` bail, which runs after the redirect.
+    // Unreachable while the control renders disabled; defence in depth for the
+    // redirect below, which cannot tell "no session" from "profile in flight".
     if (authStatus === 'pending') return
 
     if (!isAuthenticated) {

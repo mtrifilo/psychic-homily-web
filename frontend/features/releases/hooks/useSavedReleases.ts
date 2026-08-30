@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiRequest } from '@/lib/api'
 import { createInvalidateQueries } from '@/lib/queryClient'
+import { useAuthContext } from '@/lib/context/AuthContext'
 import { releaseEndpoints, releaseQueryKeys } from '../api'
 import type {
   BatchReleaseSaveCountsResponse,
@@ -38,13 +39,18 @@ export function useReleaseSaveCount(
   enabled = true,
   userId?: string | number
 ) {
+  const { authStatus } = useAuthContext()
   return useQuery({
     queryKey: releaseQueryKeys.saveCount(releaseId, isAuthenticated, userId),
     queryFn: () =>
       apiRequest<ReleaseSaveCount>(releaseEndpoints.SAVE_COUNT(releaseId), {
         method: 'GET',
       }),
-    enabled: releaseId > 0 && enabled,
+    // The count itself is public, so a settled-anonymous viewer still fetches;
+    // this control paints what comes back. The pending term is the write-side
+    // rule (see AuthStatus in lib/context/AuthContext).
+    enabled:
+      releaseId > 0 && enabled && authStatus !== 'pending',
     staleTime: 2 * 60 * 1000,
   })
 }
@@ -54,6 +60,7 @@ export function useReleaseSaveCountBatch(
   isAuthenticated: boolean,
   userId?: string | number
 ) {
+  const { authStatus } = useAuthContext()
   return useQuery({
     queryKey: releaseQueryKeys.saveCountBatch(
       releaseIds,
@@ -70,7 +77,11 @@ export function useReleaseSaveCountBatch(
       )
       return response.saves
     },
-    enabled: releaseIds.length > 0,
+    // Same viewer-keyed hazard as the single-item read, on the highest-traffic
+    // path: a list holds one of these for every row on screen. While the batch
+    // is disabled `batchedSaveFor` reports 'pending', so no row falls back to
+    // its own request.
+    enabled: releaseIds.length > 0 && authStatus !== 'pending',
     staleTime: 2 * 60 * 1000,
   })
 }

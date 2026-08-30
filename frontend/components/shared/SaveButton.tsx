@@ -54,18 +54,12 @@ export function SaveButton({
   // flight the prop is 'pending', which suppresses the per-item request instead
   // of racing it.
   const { value: batched, shouldSelfFetch } = resolveBatchedSaveData(saveData)
-  // The save COUNT is public, so an anonymous viewer still fetches — this
-  // control paints the count it gets back.
-  //
-  // `authStatus !== 'pending'` is the write-side half of that: the cache key
-  // carries `isAuthenticated`, which is false during the unsettled window, and
-  // a request issued there carries the viewer's cookie. Without the guard a
-  // signed-in viewer's `is_saved` lands under the viewer-less key and is
-  // painted back to them once their session ends within the same SPA session.
+  // The unsettled-window gate lives inside the hook, beside the key it
+  // protects (see AuthStatus in lib/context/AuthContext).
   const { data: single } = useShowSaveCount(
     showId,
     isAuthenticated,
-    shouldSelfFetch && authStatus !== 'pending',
+    shouldSelfFetch,
     user?.id
   )
   const data = batched ?? single
@@ -78,14 +72,10 @@ export function SaveButton({
     isSaved,
     user?.id
   )
-  // `authStatus === 'pending'` for the same reason FollowButton includes it:
-  // this control ships ENABLED in server HTML and opts into pre-hydration click
-  // replay, and its click handler routes on `!isAuthenticated`, which reads
-  // false both for a viewer with no session and for one whose profile has not
-  // arrived. A replayed click in that window sends a signed-in viewer to /auth.
-  // The window is normally imperceptible; it lengthens exactly when the SSR
-  // profile read could not be completed, which is when this control could not
-  // have worked anyway.
+  // Disabled while unsettled, as every control in this class is: it ships
+  // ENABLED in server HTML with pre-hydration click replay, and its handler
+  // routes on `!isAuthenticated`, which reads false for a signed-in viewer whose
+  // profile has not landed. See AuthStatus in lib/context/AuthContext.
   const isDisabled = disabled || isLoading || authStatus === 'pending'
   // Shared auto-dismiss primitive rather than a hand-rolled timer, which must
   // not outlive unmount. See useAutoDismissBanner / useDismissTimer (PSY-1664).
@@ -99,9 +89,8 @@ export function SaveButton({
     e.preventDefault() // Prevent any parent link clicks
     e.stopPropagation()
 
-    // Never route a viewer we have not identified yet. Defence in depth behind
-    // the disabled render above, and ahead of the redirect because the redirect
-    // cannot tell "no session" from "profile still in flight".
+    // Unreachable while the control renders disabled; defence in depth for the
+    // redirect below, which cannot tell "no session" from "profile in flight".
     if (authStatus === 'pending') return
 
     // Matches FollowButton: render for anonymous visitors so the public save

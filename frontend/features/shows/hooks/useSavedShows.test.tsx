@@ -3,6 +3,18 @@ import { renderHook, waitFor, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createWrapper } from '@/test/utils'
 
+// Single source of truth for the mocked auth state, mirroring the real
+// AuthContext's invariant that `isAuthenticated` is DERIVED from `authStatus`.
+let mockAuthStatus: 'pending' | 'authenticated' | 'anonymous' = 'anonymous'
+
+vi.mock('@/lib/context/AuthContext', () => ({
+  useAuthContext: () => ({
+    authStatus: mockAuthStatus,
+    isAuthenticated: mockAuthStatus === 'authenticated',
+    user: mockAuthStatus === 'authenticated' ? { id: 42 } : null,
+  }),
+}))
+
 // Create mocks
 const mockApiRequest = vi.fn()
 const mockInvalidateSavedShows = vi.fn()
@@ -90,9 +102,66 @@ import {
   useInfiniteSavedShows,
   useSavedShows,
   useSaveShow,
+  useShowSaveCount,
+  useShowSaveCountBatch,
   useUnsaveShow,
   useSaveShowToggle,
 } from './useSavedShows'
+
+// The write-side rule (see AuthStatus in lib/context/AuthContext): the save
+// count's key carries `isAuthenticated`, which is false during the unsettled
+// window, and a request issued there carries the viewer's cookie — so an
+// unguarded fetch writes a signed-in viewer's `is_saved` under the viewer-less
+// key, where it outlives the session that produced it.
+describe('show save-count reads and the unsettled window', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockApiRequest.mockReset()
+    mockAuthStatus = 'anonymous'
+  })
+
+  it('does not read the save count while auth is unsettled', () => {
+    mockAuthStatus = 'pending'
+    const { result } = renderHook(() => useShowSaveCount(7, false), {
+      wrapper: createWrapper(),
+    })
+
+    expect(result.current.fetchStatus).toBe('idle')
+    expect(mockApiRequest).not.toHaveBeenCalled()
+  })
+
+  it('reads the public save count once auth settles anonymous', async () => {
+    mockApiRequest.mockResolvedValueOnce({ save_count: 3, is_saved: false })
+    const { result } = renderHook(() => useShowSaveCount(7, false), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(mockApiRequest).toHaveBeenCalledWith('/shows/7/saves', {
+      method: 'GET',
+    })
+  })
+
+  it('does not read the batch save counts while auth is unsettled', () => {
+    mockAuthStatus = 'pending'
+    const { result } = renderHook(() => useShowSaveCountBatch([1, 2], false), {
+      wrapper: createWrapper(),
+    })
+
+    expect(result.current.fetchStatus).toBe('idle')
+    expect(mockApiRequest).not.toHaveBeenCalled()
+  })
+
+  it('reads the batch save counts once auth settles anonymous', async () => {
+    mockApiRequest.mockResolvedValueOnce({ saves: {} })
+    const { result } = renderHook(() => useShowSaveCountBatch([1, 2], false), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(mockApiRequest).toHaveBeenCalled()
+  })
+})
 
 describe('useSavedShows', () => {
   beforeEach(() => {

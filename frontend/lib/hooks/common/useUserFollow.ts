@@ -22,15 +22,10 @@ export const useUserFollowStatus = (username: string, enabled = true) => {
         { method: 'GET' }
       )
     },
-    // Invariant: the viewer-less key `[follows, user, username, null]` holds
-    // only anonymous data.
-    //
-    // `viewerId` is undefined whenever `isAuthenticated` is false, which
-    // includes the window before a signed-in viewer's profile lands. A fetch
-    // issued there carries their cookie, so the response is THEIR follow state
-    // under the viewer-less key. `authStatus !== 'pending'` keeps that write
-    // from happening, and it lives here rather than in the caller because the
-    // key is shared with the follow/unfollow mutations.
+    // The write-side rule (see AuthStatus in lib/context/AuthContext): the key carries `viewerId`, which is
+    // undefined whenever `isAuthenticated` is false, and that includes the
+    // window before a signed-in viewer's profile lands. It is held here, not by
+    // the caller, because the follow/unfollow mutations write this key too.
     enabled:
       enabled &&
       authStatus !== 'pending' &&

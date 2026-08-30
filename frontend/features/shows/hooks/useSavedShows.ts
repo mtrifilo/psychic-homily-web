@@ -9,6 +9,7 @@ import {
 } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys, createInvalidateQueries } from '@/lib/queryClient'
+import { useAuthContext } from '@/lib/context/AuthContext'
 // Note: useSavedShows uses SAVED_SHOWS endpoints from lib/api (not show-specific)
 import type {
   SavedShowsListResponse,
@@ -110,6 +111,7 @@ export const useShowSaveCount = (
   enabled: boolean = true,
   userId?: string | number
 ) => {
+  const { authStatus } = useAuthContext()
   return useQuery({
     queryKey: queryKeys.savedShows.count(
       showId,
@@ -121,8 +123,14 @@ export const useShowSaveCount = (
         method: 'GET',
       })
     },
+    // The count itself is public, so a settled-anonymous viewer still fetches;
+    // this control paints what comes back. The pending term is the write-side
+    // rule (see AuthStatus in lib/context/AuthContext).
     enabled:
-      showId > 0 && enabled && (!isAuthenticated || userId !== undefined),
+      showId > 0 &&
+      enabled &&
+      authStatus !== 'pending' &&
+      (!isAuthenticated || userId !== undefined),
     staleTime: 2 * 60 * 1000,
   })
 }
@@ -140,6 +148,7 @@ export const useShowSaveCountBatch = (
   isAuthenticated: boolean,
   userId?: string | number
 ) => {
+  const { authStatus } = useAuthContext()
   return useQuery({
     queryKey: queryKeys.savedShows.countBatch(
       showIds,
@@ -156,7 +165,14 @@ export const useShowSaveCountBatch = (
       )
       return response.saves
     },
-    enabled: showIds.length > 0 && (!isAuthenticated || userId !== undefined),
+    // Same viewer-keyed hazard as the single-item read, on the highest-traffic
+    // path: a list holds one of these for every row on screen. While the batch
+    // is disabled `batchedSaveFor` reports 'pending', so no row falls back to
+    // its own request.
+    enabled:
+      showIds.length > 0 &&
+      authStatus !== 'pending' &&
+      (!isAuthenticated || userId !== undefined),
     staleTime: 2 * 60 * 1000,
   })
 }

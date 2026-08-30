@@ -9,7 +9,20 @@ vi.mock('@/lib/api', () => ({
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),
 }))
 
+// Single source of truth for the mocked auth state, mirroring the real
+// AuthContext's invariant that `isAuthenticated` is DERIVED from `authStatus`.
+let mockAuthStatus: 'pending' | 'authenticated' | 'anonymous' = 'anonymous'
+
+vi.mock('@/lib/context/AuthContext', () => ({
+  useAuthContext: () => ({
+    authStatus: mockAuthStatus,
+    isAuthenticated: mockAuthStatus === 'authenticated',
+    user: mockAuthStatus === 'authenticated' ? { id: 42 } : null,
+  }),
+}))
+
 import {
+  useReleaseSaveCount,
   useReleaseSaveCountBatch,
   useReleaseSaveToggle,
   useSavedReleases,
@@ -19,6 +32,44 @@ import { releaseQueryKeys } from '../api'
 describe('release save hooks', () => {
   beforeEach(() => {
     mockApiRequest.mockReset()
+    mockAuthStatus = 'anonymous'
+  })
+
+  // The write-side rule (see AuthStatus in lib/context/AuthContext): the save
+  // count's key carries `isAuthenticated`, which is false during the unsettled
+  // window, and a request issued there carries the viewer's cookie — so an
+  // unguarded fetch writes a signed-in viewer's `is_saved` under the
+  // viewer-less key, where it outlives the session that produced it.
+
+  it('does not read the save count while auth is unsettled', () => {
+    mockAuthStatus = 'pending'
+    const { result } = renderHook(() => useReleaseSaveCount(17, false), {
+      wrapper: createWrapper(),
+    })
+
+    expect(result.current.fetchStatus).toBe('idle')
+    expect(mockApiRequest).not.toHaveBeenCalled()
+  })
+
+  it('reads the public save count once auth settles anonymous', async () => {
+    mockApiRequest.mockResolvedValueOnce({ save_count: 3, is_saved: false })
+    const { result } = renderHook(() => useReleaseSaveCount(17, false), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(mockApiRequest).toHaveBeenCalled()
+  })
+
+  it('does not read the batch save counts while auth is unsettled', () => {
+    mockAuthStatus = 'pending'
+    const { result } = renderHook(
+      () => useReleaseSaveCountBatch([1, 2], false),
+      { wrapper: createWrapper() }
+    )
+
+    expect(result.current.fetchStatus).toBe('idle')
+    expect(mockApiRequest).not.toHaveBeenCalled()
   })
 
   it('fetches the authenticated saved-release list with pagination', async () => {

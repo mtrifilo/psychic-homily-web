@@ -882,12 +882,10 @@ describe('AddToCollectionButton — bracket variant (PSY-641)', () => {
     ).toBeDisabled()
   })
 
-  // No test covers the onClick's own `authStatus === 'pending'` bail: it is
-  // unreachable while the bracket renders disabled. React reads `props.disabled`
-  // off the fiber before dispatching onClick, so stripping the DOM attribute
-  // does not reach it either, and `consumePendingReplay` refuses a disabled
-  // target as well. It is defence in depth against a future edit that drops the
-  // `disabled` prop, and no single-file mutation can fail on it.
+  // The handler's own pending bail is not covered: React reads `props.disabled`
+  // off the fiber before dispatching onClick, and `consumePendingReplay` refuses
+  // a disabled target, so nothing can reach it while the control renders
+  // disabled. It is defence in depth, and no single-file mutation fails on it.
 
   it('ships the bracket enabled once auth settles anonymous', () => {
     mockAuthContext.mockReturnValue(authState('anonymous'))

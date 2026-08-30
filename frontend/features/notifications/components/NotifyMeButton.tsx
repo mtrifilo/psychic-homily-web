@@ -63,9 +63,8 @@ export function NotifyMeButton({
     e.preventDefault()
     e.stopPropagation()
 
-    // Unreachable while every unsettled branch renders disabled (React
-    // suppresses onClick on a disabled control); kept because the redirect
-    // below cannot distinguish "no session" from "profile in flight".
+    // Unreachable while the control renders disabled; defence in depth for the
+    // redirect below, which cannot tell "no session" from "profile in flight".
     if (isUnsettled) return
 
     if (!isAuthenticated) {
@@ -84,14 +83,10 @@ export function NotifyMeButton({
 
   // Bracket variant — dense header linkbox. handleClick already handles the
   // unauthenticated → /auth redirect, so a single BracketLink covers all states.
-  //
-  // Cells:
-  //   pending                    disabled (BracketLink adds pointer-events-none,
-  //                              so the pre-hydration click it replays cannot
-  //                              land while the viewer is unidentified)
-  //   authenticated + checking   disabled
-  //   anonymous                  enabled, click routes to /auth
   if (variant === 'bracket') {
+    // `disabled` also sets pointer-events-none, which is what keeps the
+    // pre-hydration click BracketLink replays from landing on a viewer whose
+    // identity is not settled.
     if (isUnsettled || (isAuthenticated && checkLoading)) {
       return <BracketLink label="Notify me" disabled />
     }
@@ -105,34 +100,24 @@ export function NotifyMeButton({
     )
   }
 
-  // Unsettled: the anonymous branch below is a bare router push to /auth, so it
-  // must not ship actionable for a viewer who may turn out to be signed in.
-  if (isUnsettled) {
-    if (compact) {
-      return (
-        <Button variant="ghost" size="sm" disabled className="h-7 px-2 gap-1">
-          <Bell className="h-3.5 w-3.5" />
-        </Button>
-      )
-    }
-    return (
-      <Button variant="outline" size="sm" disabled className="gap-1.5">
-        <Bell className="h-4 w-4" />
-        <span>Notify me</span>
-      </Button>
-    )
-  }
-
-  // Don't render for unauthenticated users in loading state
-  if (!isAuthenticated) {
+  // The sign-in affordance, shared by the settled-anonymous viewer it is FOR and
+  // by the unsettled one, who gets the same shape inert: this branch is a bare
+  // router push to /auth, and `!isAuthenticated` reads true for a signed-in
+  // viewer whose profile has not arrived. One branch rather than two so the two
+  // states cannot drift into different buttons.
+  if (isUnsettled || !isAuthenticated) {
+    const goToAuth = isUnsettled
+      ? undefined
+      : () => router.push(`/auth?returnTo=${encodeURIComponent(pathname)}`)
     if (compact) {
       return (
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => router.push(`/auth?returnTo=${encodeURIComponent(pathname)}`)}
+          onClick={goToAuth}
+          disabled={isUnsettled}
           className="h-7 px-2 gap-1 text-xs"
-          title="Sign in to get notifications"
+          title={isUnsettled ? undefined : 'Sign in to get notifications'}
         >
           <Bell className="h-3.5 w-3.5" />
         </Button>
@@ -142,7 +127,8 @@ export function NotifyMeButton({
       <Button
         variant="outline"
         size="sm"
-        onClick={() => router.push(`/auth?returnTo=${encodeURIComponent(pathname)}`)}
+        onClick={goToAuth}
+        disabled={isUnsettled}
         className="gap-1.5"
       >
         <Bell className="h-4 w-4" />

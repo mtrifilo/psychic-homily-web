@@ -194,12 +194,10 @@ describe('UserFollowButton', () => {
     ).not.toBeInTheDocument()
   })
 
-  // No test covers `handleClick`'s own `authStatus === 'pending'` bail: it is
-  // unreachable while the control renders disabled. React reads `props.disabled`
-  // off the fiber before dispatching onClick, so stripping the DOM attribute
-  // does not reach it either, and `consumePendingReplay` refuses a disabled
-  // target as well. It is defence in depth against a future edit that drops the
-  // pending term from `isDisabled`, and no single-file mutation can fail on it.
+  // The handler's own pending bail is not covered: React reads `props.disabled`
+  // off the fiber before dispatching onClick, and `consumePendingReplay` refuses
+  // a disabled target, so nothing can reach it while the control renders
+  // disabled. It is defence in depth, and no single-file mutation fails on it.
 
   it('still asks for follow status while auth is unsettled', () => {
     mockAuthStatus = 'pending'

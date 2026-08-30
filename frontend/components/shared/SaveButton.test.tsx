@@ -375,12 +375,10 @@ describe('SaveButton', () => {
     }
   )
 
-  // No test covers `handleClick`'s own `authStatus === 'pending'` bail: it is
-  // unreachable while the control renders disabled. React reads `props.disabled`
-  // off the fiber before dispatching onClick, so stripping the DOM attribute
-  // does not reach it either, and `consumePendingReplay` refuses a disabled
-  // target as well. It is defence in depth against a future edit that drops the
-  // pending term from `isDisabled`, and no single-file mutation can fail on it.
+  // The handler's own pending bail is not covered: React reads `props.disabled`
+  // off the fiber before dispatching onClick, and `consumePendingReplay` refuses
+  // a disabled target, so nothing can reach it while the control renders
+  // disabled. It is defence in depth, and no single-file mutation fails on it.
 
   it('does not claim the viewer is signed out while auth is unsettled', () => {
     unsettled()
@@ -390,24 +388,23 @@ describe('SaveButton', () => {
     ).not.toBeInTheDocument()
   })
 
-  // The cache key carries `isAuthenticated`, which is false during the
-  // unsettled window, and the request carries the viewer's cookie — so an
-  // unguarded fetch writes a signed-in viewer's `is_saved` under the
-  // viewer-less key.
-  it('does not ask for the save count while auth is unsettled', () => {
-    unsettled()
+  // The unsettled-window gate is inside `useShowSaveCount`, beside the key it
+  // protects — its cells live in features/shows/hooks/useSavedShows.test.tsx.
+  // What belongs here is that this component hands the hook the viewer it
+  // actually has, since the key is built from those arguments.
+  it('passes the settled viewer through to the save-count hook', () => {
     render(<SaveButton showId={1} />)
-    expect(mockUseShowSaveCount).toHaveBeenCalledWith(1, false, false, undefined)
+    expect(mockUseShowSaveCount).toHaveBeenCalledWith(1, true, true, 42)
   })
 
-  it('asks for the public save count once auth settles anonymous', () => {
+  it('passes an anonymous viewer through to the save-count hook', () => {
     anonymous()
     render(<SaveButton showId={1} />)
     expect(mockUseShowSaveCount).toHaveBeenCalledWith(1, false, true, undefined)
   })
 
-  it('asks for the save count for a signed-in viewer', () => {
-    render(<SaveButton showId={1} />)
-    expect(mockUseShowSaveCount).toHaveBeenCalledWith(1, true, true, 42)
+  it('suppresses the self-fetch while a batch owns this row', () => {
+    render(<SaveButton showId={1} saveData="pending" />)
+    expect(mockUseShowSaveCount).toHaveBeenCalledWith(1, true, false, 42)
   })
 })

@@ -484,8 +484,8 @@ export const useRefreshToken = () => {
   })
 }
 
-// `useIsAuthenticated` lives in ./useIsAuthenticated, which reads AuthContext.
-// It is not defined here because AuthContext imports this module.
+// `useIsAuthenticated` lives in ./useIsAuthenticated: it reads AuthContext,
+// which imports this module.
 
 // Email verification types
 interface VerificationResponse {
