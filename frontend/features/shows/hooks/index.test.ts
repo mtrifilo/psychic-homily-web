@@ -12,6 +12,7 @@ describe('shows hooks barrel', () => {
     expect(typeof hooks.useUpcomingShows).toBe('function')
     expect(typeof hooks.useShow).toBe('function')
     expect(typeof hooks.useShowCities).toBe('function')
+    expect(typeof hooks.useShowAlsoTonight).toBe('function')
   })
 
   it('re-exports the delete / extraction hooks', () => {

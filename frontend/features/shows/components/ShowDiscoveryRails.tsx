@@ -4,13 +4,13 @@ import { useId } from 'react'
 import Link from 'next/link'
 import { BracketLink, SectionHeader } from '@/components/shared'
 import { useVenueShows } from '@/features/venues/hooks/useVenues'
-import { useShowAlsoTonight } from '../hooks/useShows'
+import { useShowAlsoTonight } from '../hooks'
 import {
   alsoTonightDrawnIds,
   buildAlsoTonightRail,
   buildMoreAtVenueRail,
   VENUE_RAIL_FETCH_LIMIT,
-  type RailRow as RailRowData,
+  type RailRowData,
   type ShowRail,
 } from '../showRails'
 import type { ShowResponse } from '../types'
@@ -87,7 +87,7 @@ export function ShowDiscoveryRails({ show }: { show: ShowResponse }) {
   return (
     <div
       data-testid="show-discovery-rails"
-      className="mb-8 grid grid-cols-1 gap-x-10 gap-y-6 md:grid-cols-2"
+      className="mb-8 grid grid-cols-1 gap-x-10 gap-y-6 lg:grid-cols-2"
     >
       {/* Each column renders or does not; the surviving rail keeps its own
           measure rather than stretching across the row, so a page with one
@@ -113,8 +113,10 @@ export function ShowDiscoveryRails({ show }: { show: ShowResponse }) {
 function Rail({ rail, testId }: { rail: ShowRail; testId: string }) {
   // A `section` with no accessible name is a generic element, not a `region`,
   // so landmark navigation could not tell the two rails apart — they would be
-  // reachable only by heading. `ShowSubmissionsConsole` names its regions the
-  // same way, from their own heading.
+  // reachable only by heading. There is no existing labelled-region precedent
+  // in this repo to copy (the nearest, `ShowSubmissionsConsole`, labels an
+  // `article` from a data-derived id and its one `section` by `aria-label`), so
+  // this is the first.
   //
   // `useId`, NOT the testId: a `data-testid` is a testing affordance, and
   // hanging an accessibility contract off it means a test refactor that renames
@@ -185,27 +187,40 @@ function RailRow({
             difference between the mock's ledger and a list of facts pushed to
             the right margin: the figures only read as a column when they start
             at the same x on every row, which is also the only thing that makes
-            `tabular-nums` worth anything here. Widths are `sm:` so the columns
-            dissolve into a stack on a phone, where they cannot fit. */}
+            `tabular-nums` worth anything here.
+
+            The widths have to FIT the narrowest column the layout can hand
+            them, which is not the 672px the mock is drawn at. The rails row
+            goes two-up at `lg`, and `EntityDetailLayout` may also be carrying
+            a 320px chart-rank sidebar, so the narrowest real rail column is
+            ~300px (lg + sidebar). Reserving lead+room+figure at the mock's
+            proportions overflowed that outright and left the BILL — the one
+            cell a reader is scanning for — as a bare ellipsis from `md` up to
+            ~1100px. So: the room column, the least load-bearing of the four,
+            waits for `xl`, and the bill keeps `flex-1` everywhere. Budget with
+            the arithmetic, not by eye: lead 64 + figure 64 + gaps 24 = 152 of
+            a 300px column, leaving the bill 148. */}
         <span className="shrink-0 font-mono text-xs uppercase tabular-nums text-muted-foreground sm:w-16">
           {row.lead ?? ''}
         </span>
         <span
-          className={`min-w-0 flex-1 truncate text-sm group-hover:underline ${
+          className={`min-w-0 flex-1 text-sm group-hover:underline sm:truncate ${
             row.isCancelled ? 'text-muted-foreground line-through' : ''
           }`}
         >
           {row.title}
         </span>
+        {/* Not `shrink-0`: under pressure this cell yields to the bill rather
+            than pushing it out. */}
         {hasRoomColumn && (
-          <span className="shrink-0 truncate font-mono text-xs text-muted-foreground sm:w-40">
+          <span className="hidden min-w-0 truncate font-mono text-xs text-muted-foreground xl:block xl:w-32">
             {row.room ?? ''}
           </span>
         )}
         {/* Uppercased here rather than in the policy, so `Free` reaches the
             mock's `FREE` and `Sold out` reaches `SOLD OUT` without forking
             `formatPrice`, which serves the whole site. */}
-        <span className="shrink-0 font-mono text-xs uppercase tabular-nums text-muted-foreground sm:w-20">
+        <span className="shrink-0 font-mono text-xs uppercase tabular-nums text-muted-foreground sm:w-16">
           {row.figure ?? ''}
         </span>
       </Link>

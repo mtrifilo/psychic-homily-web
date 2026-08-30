@@ -246,6 +246,31 @@ describe('buildMoreAtVenueRail', () => {
     expect(rail?.rows[0]?.lead).toBe('SEP 04')
   })
 
+  it('dates a row in another year, so an archive page cannot mis-file it', () => {
+    // On a past show's page the left rail is headed with ITS year (e.g. 2019)
+    // while this rail lists the room's UPCOMING dates. A bare `AUG 15` beside
+    // that heading reads as 2019 — the exact inverse of what the row says.
+    const nextYear = new Date().getFullYear() + 1
+    const rail = buildMoreAtVenueRail(
+      makeRailVenue(),
+      [makeVenueShow({ event_date: `${nextYear}-09-05T01:00:00Z` })],
+      2,
+      99
+    )
+    expect(rail?.rows[0]?.lead).toBe(`SEP 04 ${String(nextYear).slice(-2)}`)
+  })
+
+  it('leaves the year off the current one, which needs no disambiguating', () => {
+    const thisYear = new Date().getFullYear()
+    const rail = buildMoreAtVenueRail(
+      makeRailVenue(),
+      [makeVenueShow({ event_date: `${thisYear}-09-05T01:00:00Z` })],
+      2,
+      99
+    )
+    expect(rail?.rows[0]?.lead).toBe('SEP 04')
+  })
+
   it('leaves the lead null for an unusable instant rather than printing junk', () => {
     // `toLocaleString` does not throw on a bad date — it returns the literal
     // string "Invalid Date", which the uppercased column would happily print.
@@ -432,6 +457,59 @@ describe('cross-rail overlap', () => {
     )
     expect(rail?.rows).toHaveLength(1)
     expect(rail?.seeAllHref).toBeNull()
+  })
+
+  it('still fills the rail when BOTH filters take rows from the fetched page', () => {
+    // The regression the fetch limit was resized for. A room with an early and
+    // a late set tonight loses the subject AND the sibling the other rail drew;
+    // a full page must still reach the cap, or the rails row goes lopsided on
+    // exactly the venues the dedup exists to serve.
+    const payload = makeAlsoTonightPayload({
+      shows: [makeAlsoTonightShow({ id: 500 })],
+    })
+    const fetched = [
+      makeVenueShow({ id: 99, slug: 'subject' }),
+      makeVenueShow({ id: 500, slug: 'late-set' }),
+      ...Array.from({ length: VENUE_RAIL_FETCH_LIMIT - 2 }, (_, i) =>
+        makeVenueShow({ id: 600 + i, slug: `future-${i}` })
+      ),
+    ]
+    expect(fetched).toHaveLength(VENUE_RAIL_FETCH_LIMIT)
+
+    const rail = buildMoreAtVenueRail(
+      makeRailVenue(),
+      fetched,
+      20,
+      99,
+      alsoTonightDrawnIds(payload, 99)
+    )
+    expect(rail?.rows).toHaveLength(SHOW_RAIL_ROW_CAP)
+  })
+
+  it('survives a whole cap’s worth of same-night siblings', () => {
+    // The tail case: a multi-stage room with three other bills tonight, all
+    // three drawn by the metro rail. The venue rail must still find its rows
+    // rather than vanishing from a room with a full calendar.
+    const payload = makeAlsoTonightPayload({
+      shows: [1, 2, 3].map(id => makeAlsoTonightShow({ id: 500 + id })),
+    })
+    const fetched = [
+      makeVenueShow({ id: 99, slug: 'subject' }),
+      makeVenueShow({ id: 501 }),
+      makeVenueShow({ id: 502 }),
+      makeVenueShow({ id: 503 }),
+      ...Array.from({ length: VENUE_RAIL_FETCH_LIMIT - 4 }, (_, i) =>
+        makeVenueShow({ id: 700 + i, slug: `later-${i}` })
+      ),
+    ]
+    const rail = buildMoreAtVenueRail(
+      makeRailVenue(),
+      fetched,
+      20,
+      99,
+      alsoTonightDrawnIds(payload, 99)
+    )
+    expect(rail?.rows).toHaveLength(SHOW_RAIL_ROW_CAP)
   })
 
   it('excludes only what the other rail actually DREW, not its whole payload', () => {

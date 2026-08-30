@@ -7,7 +7,7 @@ import {
 import { isCalendarDate, parseCalendarDate } from '@/features/scenes/sceneWeek'
 import type { SceneShowSummary } from '@/features/scenes/types'
 import { formatPrice } from '@/lib/utils/formatters'
-import { formatShowMonthDay } from '@/lib/utils/showDateBadge'
+import { formatShowMonthDayPadded } from '@/lib/utils/showDateBadge'
 import type { VenueShow } from '@/features/venues/types'
 import type { VenueResponse } from './types'
 
@@ -47,17 +47,25 @@ export type AlsoTonightShow = SceneShowSummary
 export const SHOW_RAIL_ROW_CAP = 3
 
 /**
- * Rows to REQUEST for the venue rail: one more than the cap.
+ * Rows to REQUEST for the venue rail, budgeted for everything it can discard.
  *
- * The venue's upcoming list contains the show being viewed whenever that show
- * is itself upcoming, and dropping it is what stops a page recommending
- * itself. Asking for exactly the cap would then leave the rail one row short
- * on every upcoming show — the common case. One spare absorbs that removal.
+ * The rail filters the fetched page TWICE, and the request has to survive both
+ * or it draws fewer rows than the mock while the room has a full calendar:
  *
- * The also-tonight endpoint excludes the subject show server-side, so its rail
- * needs no equivalent (`buildAlsoTonightRail` still re-checks; see there).
+ *  - the subject show, whenever it is itself approved and upcoming, because a
+ *    page must not recommend itself; and
+ *  - up to `SHOW_RAIL_ROW_CAP` more that the also-tonight rail already drew —
+ *    another bill at THIS room on THIS night, which both queries return.
+ *
+ * Hence cap + 1 + cap. Asking for cap + 1 (which is all the subject show
+ * needed, before the cross-rail exclusion existed) leaves a room with an early
+ * and a late set drawing two rows, and a room running three bills on one night
+ * drawing none at all — the rail vanishing from a venue that is not empty.
+ *
+ * The also-tonight endpoint excludes the subject show server-side and has no
+ * second filter, so its rail needs no equivalent budget.
  */
-export const VENUE_RAIL_FETCH_LIMIT = SHOW_RAIL_ROW_CAP + 1
+export const VENUE_RAIL_FETCH_LIMIT = SHOW_RAIL_ROW_CAP * 2 + 1
 
 /**
  * Everything a rail needs in order to render, and nothing about how.
@@ -93,7 +101,7 @@ export interface ShowRail {
    */
   hasRoomColumn: boolean
   /** Non-empty, and already rendered to primitives. */
-  rows: RailRow[]
+  rows: RailRowData[]
   /** Where "see all" goes, or null when it must not be offered. */
   seeAllHref: string | null
 }
@@ -102,17 +110,54 @@ export interface ShowRail {
 const RAIL_TITLE_SEPARATOR = ' / '
 
 /**
+ * The rows the also-tonight rail will draw — the ONE definition of that set.
+ *
+ * Everything that needs to know what the left rail shows goes through here:
+ * the rail itself, and the id set the venue rail excludes. That is the real
+ * invariant, and it is not "the two filters look alike" — it is "the ids the
+ * venue rail suppresses are exactly the rows the reader can see in the left
+ * column." Two look-alike `filter().slice()` chains cannot hold that: the
+ * moment either grows a rule the other does not (PSY-1969 is filed to add one
+ * — dropping shows that already started), the venue rail starts hiding a bill
+ * that appears nowhere on the page, and silently.
+ *
+ * The subject-show exclusion here is belt-and-braces: the endpoint already
+ * documents that it excludes the subject show, and this is the boundary where
+ * that promise arrives from another process. A show listed in its own "also
+ * tonight" rail is the most visible way this feature can be wrong.
+ */
+function listableAlsoTonight(
+  rail: ShowAlsoTonightResponse | undefined,
+  currentShowId: number
+): { drawn: AlsoTonightShow[]; listableCount: number } {
+  // `shows` is typed nullable by the generator even though the API always
+  // emits an array — the same accommodation `dayShows` makes.
+  const listable = (rail?.shows ?? []).filter(
+    show => show.id !== currentShowId
+  )
+  return { drawn: listable.slice(0, SHOW_RAIL_ROW_CAP), listableCount: listable.length }
+}
+
+/**
+ * The scope the also-tonight rail is about, as parts: the night, then the city.
+ *
+ * Composed once and joined two ways — `·` for the heading, `,` for the
+ * bracket's accessible name. Keeping the PARTS shared rather than the string
+ * is what stops the two drifting: a scope that later needs the state to
+ * disambiguate Portland OR from Portland ME is added here, and both consumers
+ * get it.
+ */
+function alsoTonightScopeParts(rail: ShowAlsoTonightResponse): string[] {
+  return [alsoTonightQualifier(rail), rail.city].filter(
+    (part): part is string => Boolean(part)
+  )
+}
+
+/**
  * The also-tonight rail, or null when there is nothing to head.
  *
- * The subject-show exclusion is belt-and-braces: `GET /shows/{id}/also-tonight`
- * already documents that it excludes the subject show, and this is the
- * boundary where that promise arrives from another process. A show listed in
- * its own "also tonight" rail is the single most visible way this feature can
- * be wrong, and the check costs one comparison per row.
- *
- * That filter runs ONCE, and the truncation question is answered from its
- * result rather than by re-deriving it, so the rows drawn and the claim that
- * more exist can never disagree.
+ * The truncation question is answered from the same pass that produced the
+ * rows, so the rows drawn and the claim that more exist can never disagree.
  */
 export function buildAlsoTonightRail(
   rail: ShowAlsoTonightResponse | undefined,
@@ -120,19 +165,15 @@ export function buildAlsoTonightRail(
 ): ShowRail | null {
   if (!rail) return null
 
-  // `shows` is typed nullable by the generator even though the API always
-  // emits an array — the same accommodation `dayShows` makes.
-  const listable = (rail.shows ?? []).filter(show => show.id !== currentShowId)
-  const drawn = listable.slice(0, SHOW_RAIL_ROW_CAP)
+  const { drawn, listableCount } = listableAlsoTonight(rail, currentShowId)
   if (drawn.length === 0) return null
 
   // Two independent sources of truncation: the backend's own cap (`has_more`,
   // which compares against the whole night rather than against this rail), and
   // this rail's cap of three. Either one hiding a show is a reason to offer
   // the full night.
-  const hasMore = rail.has_more || listable.length > drawn.length
-
-  const scope = [alsoTonightQualifier(rail), rail.city].filter(Boolean)
+  const hasMore = rail.has_more || listableCount > drawn.length
+  const scope = alsoTonightScopeParts(rail)
 
   return {
     title: alsoTonightRailTitle(rail),
@@ -147,25 +188,20 @@ export function buildAlsoTonightRail(
 }
 
 /**
- * The show ids the also-tonight rail will draw, for the venue rail to exclude.
+ * The show ids the also-tonight rail draws, for the venue rail to exclude.
  *
- * Derived from the payload with the SAME filter and cap `buildAlsoTonightRail`
- * applies, rather than read back off the built rail: `ShowRail.rows` are
- * primitives with no ids on them by design, and giving them ids purely so a
- * sibling could read them would put payload back into a presentational type.
- * The duplication is one `filter().slice()` and both call sites sit in this
- * file, where they can be changed together.
+ * Reads the same `listableAlsoTonight` the rail itself is built from, so the
+ * two cannot describe different sets. Not read back off the built rail because
+ * `ShowRail.rows` are primitives with no ids on them by design, and giving
+ * them ids purely so a sibling could read them would put payload back into a
+ * presentational type.
  */
 export function alsoTonightDrawnIds(
   rail: ShowAlsoTonightResponse | undefined,
   currentShowId: number
 ): ReadonlySet<number> {
-  if (!rail) return new Set()
   return new Set(
-    (rail.shows ?? [])
-      .filter(show => show.id !== currentShowId)
-      .slice(0, SHOW_RAIL_ROW_CAP)
-      .map(show => show.id)
+    listableAlsoTonight(rail, currentShowId).drawn.map(show => show.id)
   )
 }
 
@@ -174,28 +210,36 @@ export function alsoTonightDrawnIds(
  *
  * The truncation question is "does the venue page hold a show this rail did
  * not draw", and answering it means reconciling two different populations.
- * `total` counts the venue's APPROVED UPCOMING shows; `drawn` is this rail's
- * three, already minus the show being read. Those differ by the subject show
- * only when the subject is itself approved and upcoming — a PAST show, and the
- * majority of show pages become past ones, is absent from `total` entirely.
+ * `total` counts the venue's APPROVED UPCOMING shows. `drawn` is this rail's
+ * three, minus everything it deliberately withheld — which is TWO things, not
+ * one: the show being read, and any row the also-tonight rail already drew.
  *
- * So the adjustment is conditional on the subject actually having been
- * removed, not unconditional. Adding 1 either way withheld "see all" from
- * exactly the case it exists for: a past show at a room with four upcoming
- * dates draws three, hides one, and `4 > 4` is false.
+ * So `withheld` counts what was actually dropped FROM THE FETCHED PAGE, rather
+ * than assuming a fixed adjustment. Both populations matter and neither is
+ * constant:
  *
- * `subjectWasRemoved` is read off the fetched page rather than inferred, and
- * it is trustworthy precisely where it matters. It can only be wrong if the
- * subject is upcoming but sorted beyond the fetched page — which requires
- * `total` to exceed the page size, and in that case `hasMore` is already true
- * by a wide margin and the adjustment cannot change the answer.
+ *  - The subject show is in `total` only when it is itself approved and
+ *    upcoming. A PAST show — and most show pages become past ones — is absent
+ *    from `total` entirely. An unconditional +1 therefore withheld "see all"
+ *    from exactly the case it exists for: a past show at a room with four
+ *    upcoming dates draws three, hides one, and `4 > 4` is false.
+ *  - De-duplicated rows ARE in `total` but are already on screen in the other
+ *    column, so counting them as hidden would offer a see-all that reveals
+ *    nothing new.
  *
- * This rail's `[See all]` and `ShowVenueModule`'s `More at {venue} →` point at
- * the same venue page, which the mock draws BOTH of: the module's link is part
- * of the venue's own verb cluster beside [Directions] and [Follow venue], and
- * this one is the rail's own overflow. They are kept because the mock keeps
- * them, not by oversight — if one is ever cut, cut the module's, since a
- * bracket that overflows a visible list is the one carrying new information.
+ * `withheld` can never over-count: `fetched` and `total` come from the same
+ * query under the same filter, so anything counted here is by construction in
+ * `total`. It can under-count only if the subject is upcoming yet sorted
+ * beyond the fetched page — which requires `total` to exceed the page size,
+ * where `hasMore` is already true by a wide margin.
+ *
+ * Note this rail's `[See all]` and `ShowVenueModule`'s `More at {venue} →`
+ * point at the same venue page and sit about a screen apart. The mock draws
+ * the module's link but NO bracket on either rail (node `1241:7` holds only a
+ * heading and rows), so this one is an addition the ticket permits rather than
+ * something the mock requires — it exists because a rail that truncates owes
+ * the reader a way to the rest. If the duplication is ever cut, that is a
+ * design call, not a cleanup.
  */
 export function buildMoreAtVenueRail(
   venue: VenueResponse | undefined,
@@ -297,9 +341,7 @@ function alsoTonightQualifier(rail: ShowAlsoTonightResponse): string | null {
  * that names its scope (`Also / Chicago`) rather than a dangling separator.
  */
 export function alsoTonightRailTitle(rail: ShowAlsoTonightResponse): string {
-  const parts = [alsoTonightQualifier(rail), rail.city].filter(
-    (part): part is string => Boolean(part)
-  )
+  const parts = alsoTonightScopeParts(rail)
   // Both halves absent means the payload had neither a readable date nor a
   // scene — which is also the case where it carries no rows, so this heading
   // is unreachable in practice. It degrades to the bare section name rather
@@ -415,14 +457,18 @@ function railShowDate(
   if (typeof eventDate !== 'string' || !Number.isFinite(Date.parse(eventDate))) {
     return null
   }
-  // Zero-padded to the mock's `SEP 04`. The day is the only variable-width part
-  // of this cell, and an unpadded one un-aligns the bills beside it in a column
-  // whose whole job is to be scanned vertically. Padded HERE rather than in
-  // `formatShowMonthDay`, which serves surfaces that set the date in prose.
-  return formatShowMonthDay(eventDate, state, timezone).replace(
-    /\b(\d)$/,
-    '0$1'
-  )
+
+  const label = formatShowMonthDayPadded(eventDate, state, timezone)
+
+  // The year joins the cell when it is not the current one, by the SAME rule
+  // the also-tonight heading applies to its own date — and for a sharper
+  // reason. On an archive show page the two rails sit in different years: the
+  // left one is headed `Also / Thu Aug 15, 2019` while this one lists the
+  // room's UPCOMING dates. A bare `AUG 15` beside that heading reads as 2019,
+  // which inverts the one fact the row exists to convey.
+  const year = new Date(eventDate).getFullYear()
+  if (year === new Date().getFullYear()) return label
+  return `${label} ${String(year).slice(-2)}`
 }
 
 /**
@@ -434,7 +480,7 @@ function railShowDate(
  * that understands both shapes, is the multi-mode design `CompactShowRow`
  * already demonstrates the cost of.
  */
-export interface RailRow {
+export interface RailRowData {
   href: string
   /** Time or date. Null when the payload carries no usable instant. */
   lead: string | null
@@ -476,16 +522,18 @@ export interface RailRow {
  *    age requirement, and the rail is not worth a request per row to invent
  *    one. The venue module above states the age rule for the show being read,
  *    which is the one a reader on this page is deciding about.
- *  - `8:00 PM`, not the mock's `8PM`. `formatShowTime` is the site's one
- *    show-time format; the mock's sample times all happen to fall on the hour,
- *    and a 7:30 door cannot be said as "7PM".
- *  - `$15.00`, not `$15`. Same argument: `formatPrice` is the one money format,
- *    and forking it here would put two dollar renderings on one page.
+ *  - `8:00 PM`, not the mock's `8PM`, and `$15.00`, not `$15`. `formatShowTime`
+ *    and `formatPrice` are the site's single time and money formats, and
+ *    forking them here would put two renderings of each on one page; a 7:30
+ *    door also cannot be said as "7PM". This one is NOT settled — it is a
+ *    divergence from a locked mock with a real width cost in these columns, so
+ *    PSY-1970 is filed to take the design call rather than leaving it decided
+ *    by a comment.
  */
 export function alsoTonightRow(
   show: AlsoTonightShow,
   railTimezone: string
-): RailRow {
+): RailRowData {
   return {
     href: railShowHref(show),
     lead: formatShowStartTime(show, railTimezone),
@@ -508,7 +556,7 @@ export function alsoTonightRow(
  * page's own table uses, so the two surfaces cannot print different dates for
  * one show.
  */
-export function moreAtVenueRow(show: VenueShow, venue: VenueResponse): RailRow {
+export function moreAtVenueRow(show: VenueShow, venue: VenueResponse): RailRowData {
   return {
     href: railShowHref(show),
     lead: railShowDate(show.event_date, show.state ?? venue.state, venue.timezone),

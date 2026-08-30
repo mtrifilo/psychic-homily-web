@@ -96,12 +96,20 @@ describe('showQueryKeys', () => {
     ])
   })
 
-  it('keeps the also-tonight key out of the detail key’s namespace', () => {
-    // They are addressed by the same id and invalidated independently — a
-    // shared prefix would make an edit to the show drop the rail too.
-    expect(showQueryKeys.alsoTonight('42')).not.toEqual(
-      showQueryKeys.detail('42')
-    )
+  it('shares the shows root, so a show edit invalidates the rail with it', () => {
+    // `invalidateEntity.shows()` invalidates the bare `['shows']` prefix, which
+    // reaches this key. That is correct rather than incidental: editing a show
+    // can move it to a different night or venue, which changes what belongs on
+    // its rail.
+    expect(showQueryKeys.alsoTonight('42')[0]).toBe(showQueryKeys.all[0])
+  })
+
+  it('sits OUTSIDE the detail key, so refetching the show alone keeps the rail', () => {
+    // react-query matches on key PREFIX, so this is the assertion that matters
+    // — comparing the two arrays for inequality could never fail.
+    const detail = showQueryKeys.detail('42')
+    const alsoTonight = showQueryKeys.alsoTonight('42')
+    expect(alsoTonight.slice(0, detail.length)).not.toEqual([...detail])
   })
 
   it('scopes the userShows key by user id', () => {
