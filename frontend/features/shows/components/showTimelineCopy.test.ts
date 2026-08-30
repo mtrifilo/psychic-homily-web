@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import {
+  billRecurrenceSegments,
   lastPlayedLabel,
   timelineCurrentPlaceLabel,
   timelineDateLabel,
   timelinePlaceLabel,
 } from './showTimelineCopy'
+import type { ShowTimelineEntry, ShowTimelineRecurrence } from '../types'
 
 // 9:00 PM Aug 9 in Chicago, which is already Aug 10 in UTC and in Sydney.
 // Every zone assertion below reads this one instant.
@@ -174,5 +176,100 @@ describe('lastPlayedLabel', () => {
     expect(
       lastPlayedLabel({ ...lastNightOfNovemberInChicago, timezone: 'UTC' })
     ).toBe('Dec 2023, Aragon Ballroom')
+  })
+})
+
+describe('billRecurrenceSegments', () => {
+  const artists = [
+    { id: 1, name: 'Modest Mouse' },
+    { id: 2, name: 'Califone' },
+    { id: 3, name: 'Ocotillo Lights' },
+  ]
+
+  function makeStop(
+    overrides: Partial<ShowTimelineEntry> = {}
+  ): ShowTimelineEntry {
+    return {
+      show_id: 9,
+      show_slug: 'aragon-nov-2023',
+      // 8:00 PM Nov 14 2023 in Chicago.
+      event_date: '2023-11-15T02:00:00Z',
+      timezone: 'America/Chicago',
+      venue_name: 'Aragon Ballroom',
+      venue_slug: 'aragon-ballroom',
+      city: 'Chicago',
+      state: 'IL',
+      ...overrides,
+    }
+  }
+
+  /** An act with a prior date here, which is what turns the line on. */
+  function priorDate(artist_id: number): ShowTimelineRecurrence {
+    return { artist_id, is_hometown: false, last_played: makeStop() }
+  }
+
+  function hometown(artist_id: number): ShowTimelineRecurrence {
+    return { artist_id, is_hometown: true, last_played: null }
+  }
+
+  function texts(
+    recurrence: ShowTimelineRecurrence[],
+    bill = artists
+  ): string[] {
+    return billRecurrenceSegments(recurrence, bill).map(segment => segment.text)
+  }
+
+  it('says nothing about a bill the archive has nothing on', () => {
+    expect(texts([])).toEqual([])
+  })
+
+  // A line that says only "hometown show", once per act, repeats what the bill
+  // above it already labels each of those acts with.
+  it('says nothing when every act on the line is a hometown act', () => {
+    expect(texts([hometown(1), hometown(2), hometown(3)])).toEqual([])
+  })
+
+  it('says nothing for a single local act playing alone', () => {
+    expect(texts([hometown(2)])).toEqual([])
+  })
+
+  it('keeps the hometown clauses once one act has a prior date here', () => {
+    expect(texts([priorDate(1), hometown(2), hometown(3)])).toEqual([
+      'Modest Mouse last played Chicago: Nov 2023, Aragon Ballroom',
+      'Califone: hometown show',
+      'Ocotillo Lights: hometown show',
+    ])
+  })
+
+  // The decision's other direction: one local act does not suppress a line the
+  // acts around it have a story for.
+  it('keeps a single hometown clause among acts with prior dates', () => {
+    expect(texts([priorDate(1), hometown(2), priorDate(3)])).toEqual([
+      'Modest Mouse last played Chicago: Nov 2023, Aragon Ballroom',
+      'Califone: hometown show',
+      'Ocotillo Lights last played Chicago: Nov 2023, Aragon Ballroom',
+    ])
+  })
+
+  // An act with no hometown claim and no prior date is neither local nor
+  // touring here. It renders no clause, so it cannot turn an all-local line on.
+  it('does not let an act with no claim and no prior date turn the line on', () => {
+    expect(
+      texts([
+        hometown(1),
+        { artist_id: 2, is_hometown: false, last_played: null },
+      ])
+    ).toEqual([])
+  })
+
+  // Same rule for an act the bill cannot name: dropped before the test runs.
+  it('does not let a prior date for an act off the bill turn the line on', () => {
+    expect(texts([hometown(1), priorDate(404)])).toEqual([])
+  })
+
+  it('drops an entry for an act that is not on the bill', () => {
+    expect(texts([priorDate(404), priorDate(1)])).toEqual([
+      'Modest Mouse last played Chicago: Nov 2023, Aragon Ballroom',
+    ])
   })
 })

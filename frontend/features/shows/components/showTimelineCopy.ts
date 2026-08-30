@@ -1,5 +1,6 @@
 import { formatShowMonth } from '@/lib/utils/formatters'
 import { formatInTimezone } from '@/lib/utils/timeUtils'
+import type { ShowTimelineRecurrence } from '../types'
 
 /**
  * The copy rules for the gig-timeline spine and the last-played line.
@@ -126,4 +127,80 @@ export function lastPlayedLabel(
   const month = formatShowMonth(stop.event_date, null, stop.timezone)
   const venue = stop.venue_name?.trim()
   return venue ? `${month}, ${venue}` : month
+}
+
+/** The bill fields the last-played line needs: a name to say, keyed by id. */
+export interface RecurrenceBillArtist {
+  id: number
+  name: string
+}
+
+/** One act's clause on the last-played line, keyed for a stable render list. */
+export interface RecurrenceSegment {
+  id: number
+  text: string
+}
+
+/**
+ * The last-played line's clauses, in bill order, or NONE when the line has no
+ * recurrence story to tell.
+ *
+ * Every act on the line is one of two kinds. A PRIOR-DATE clause says when and
+ * where an act last played this place. A HOMETOWN clause says the act lives
+ * here, and WINS over a prior date: "Califone last played Chicago" is true of
+ * every Chicago band and says nothing, so living here is the fact stated.
+ *
+ * ALL-LOCAL BILLS RENDER NOTHING. A line whose every clause is a hometown
+ * clause repeats one phrase per act and adds nothing to the bill above it,
+ * which already carries a hometown label on each of those acts. A prior date is
+ * the recurrence story this module exists to tell, so ONE prior-date clause is
+ * what turns the line on, and the hometown clauses then ride along beside it.
+ *
+ * The test runs over the clauses that would RENDER, not over the bill. An act
+ * that contributes no clause is neither local nor touring here: an act with no
+ * hometown claim and no prior date on record, and an entry naming an act the
+ * bill cannot name, are both invisible to this line and so cannot turn it on.
+ *
+ * The city named is the one on the ENTRY, never the show's own. The backend
+ * matches prior dates across a whole metro, so an entry can name a neighbouring
+ * city, and naming the show's city would claim a date in a city the act did not
+ * play.
+ *
+ * Names come from the BILL, so this line and the heading above it cannot
+ * disagree about what an act is called.
+ */
+export function billRecurrenceSegments(
+  recurrence: ShowTimelineRecurrence[],
+  artists: RecurrenceBillArtist[],
+): RecurrenceSegment[] {
+  const nameById = new Map(artists.map(artist => [artist.id, artist.name]))
+
+  const clauses = recurrence.flatMap(entry => {
+    const name = nameById.get(entry.artist_id)
+    if (!name) return []
+    if (entry.is_hometown) {
+      return [
+        { id: entry.artist_id, text: `${name}: hometown show`, hometown: true },
+      ]
+    }
+    if (!entry.last_played) return []
+    // A room with no city on record leaves the sentence no place to name, so it
+    // states what it still has: when, and which room. The colon goes with the
+    // city, because a colon introduces the place clause and reads as a
+    // rendering fault standing on its own.
+    const city = entry.last_played.city?.trim()
+    const when = lastPlayedLabel(entry.last_played)
+    return [
+      {
+        id: entry.artist_id,
+        text: city
+          ? `${name} last played ${city}: ${when}`
+          : `${name} last played ${when}`,
+        hometown: false,
+      },
+    ]
+  })
+
+  if (!clauses.some(clause => !clause.hometown)) return []
+  return clauses.map(({ id, text }) => ({ id, text }))
 }

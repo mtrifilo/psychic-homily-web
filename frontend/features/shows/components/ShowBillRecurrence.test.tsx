@@ -58,32 +58,52 @@ describe('ShowBillRecurrence', () => {
   })
 
   // "Califone last played Chicago" is true of every Chicago band and says
-  // nothing; living here is the fact worth stating.
+  // nothing; living here is the fact worth stating. The touring act rides
+  // along because a line of nothing but hometown clauses does not render.
   it('states the hometown claim instead of a prior date when both are known', () => {
     render(
       <ShowBillRecurrence
         recurrence={[
+          makeEntry(),
           makeEntry({ artist_id: 2, is_hometown: true, last_played: makeStop() }),
         ]}
         artists={artists}
       />
     )
 
-    expect(lineText()).toBe('Califone: hometown show')
-    expect(lineText()).not.toContain('last played')
+    expect(lineText()).toContain('Califone: hometown show')
+    expect(lineText()).not.toContain('Califone last played')
   })
 
   it('states the hometown claim for an act with no prior date on record', () => {
     render(
       <ShowBillRecurrence
         recurrence={[
+          makeEntry(),
           makeEntry({ artist_id: 2, is_hometown: true, last_played: null }),
         ]}
         artists={artists}
       />
     )
 
-    expect(lineText()).toBe('Califone: hometown show')
+    expect(lineText()).toContain('Califone: hometown show')
+  })
+
+  // An all-local bill has no recurrence story: the line would repeat one
+  // phrase per act, and the bill above it already labels each act's hometown.
+  it('renders nothing when every act on the bill is a hometown act', () => {
+    const { container } = render(
+      <ShowBillRecurrence
+        recurrence={[
+          makeEntry({ artist_id: 1, is_hometown: true, last_played: null }),
+          makeEntry({ artist_id: 2, is_hometown: true, last_played: makeStop() }),
+        ]}
+        artists={artists}
+      />
+    )
+
+    expect(container).toBeEmptyDOMElement()
+    expect(screen.queryByTestId('show-bill-recurrence')).not.toBeInTheDocument()
   })
 
   it('joins two acts with a middot and names both', () => {
