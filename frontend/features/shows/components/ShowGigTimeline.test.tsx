@@ -24,17 +24,25 @@ function makeEntry(overrides: Partial<ShowTimelineEntry> = {}): ShowTimelineEntr
  * them is whitespace-insensitive: `\s*`, not a literal space.
  */
 
-/** The show being read, in the shape the module takes it: already formatted. */
+/**
+ * The show being read, as a stop on its own spine. The module formats it with
+ * the same helpers it formats the neighbours with, so this is raw payload
+ * rather than pre-built label strings: 9:00 PM Aug 12 in Chicago renders as
+ * `AUG 12 SALT SHED, CHICAGO`, and its year is what the neighbours' dates are
+ * compared against.
+ */
 const current = {
-  currentDateLabel: 'AUG 12',
-  currentPlaceLabel: 'SALT SHED, CHICAGO',
-  currentYear: '2025',
+  event_date: '2025-08-13T02:00:00Z',
+  timezone: 'America/Chicago',
+  venue_name: 'Salt Shed',
+  city: 'Chicago',
+  state: 'IL',
 }
 
 describe('ShowGigTimeline', () => {
   it('renders nothing when there is no neighbour in either direction', () => {
     const { container } = render(
-      <ShowGigTimeline {...current} previous={null} next={null} />
+      <ShowGigTimeline current={current} previous={null} next={null} />
     )
 
     expect(container).toBeEmptyDOMElement()
@@ -43,7 +51,7 @@ describe('ShowGigTimeline', () => {
 
   it('renders with only a previous neighbour', () => {
     render(
-      <ShowGigTimeline {...current} previous={makeEntry()} next={null} />
+      <ShowGigTimeline current={current} previous={makeEntry()} next={null} />
     )
 
     expect(screen.getByTestId('show-gig-timeline')).toBeInTheDocument()
@@ -55,7 +63,7 @@ describe('ShowGigTimeline', () => {
   it('renders with only a next neighbour', () => {
     render(
       <ShowGigTimeline
-        {...current}
+        current={current}
         previous={null}
         next={makeEntry({
           show_slug: 'royal-oak-aug-14',
@@ -76,7 +84,7 @@ describe('ShowGigTimeline', () => {
   it('links each neighbour to its own show page', () => {
     render(
       <ShowGigTimeline
-        {...current}
+        current={current}
         previous={makeEntry()}
         next={makeEntry({
           show_id: 3,
@@ -101,7 +109,7 @@ describe('ShowGigTimeline', () => {
   it('renders a slug-less neighbour as unlinked text', () => {
     const { container } = render(
       <ShowGigTimeline
-        {...current}
+        current={current}
         previous={makeEntry({ show_slug: '' })}
         next={null}
       />
@@ -115,7 +123,7 @@ describe('ShowGigTimeline', () => {
 
   it('renders the current date and place as text, never as a link', () => {
     render(
-      <ShowGigTimeline {...current} previous={makeEntry()} next={null} />
+      <ShowGigTimeline current={current} previous={makeEntry()} next={null} />
     )
 
     const marker = screen.getByText('AUG 12 SALT SHED, CHICAGO')
@@ -130,7 +138,7 @@ describe('ShowGigTimeline', () => {
   it('announces the direction of each stop to a screen reader', () => {
     render(
       <ShowGigTimeline
-        {...current}
+        current={current}
         previous={makeEntry()}
         next={makeEntry({
           show_id: 3,
@@ -151,7 +159,7 @@ describe('ShowGigTimeline', () => {
   it('carries the year on a neighbour outside the subject year', () => {
     render(
       <ShowGigTimeline
-        {...current}
+        current={current}
         previous={makeEntry({
           event_date: '2024-12-31T04:00:00Z',
           venue_name: 'Empty Bottle',

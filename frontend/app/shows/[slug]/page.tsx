@@ -81,15 +81,20 @@ const getShow = cache(async (slug: string): Promise<ShowResponse | null> => {
  * show page must not 500 because an archive query did. A null seed is skipped
  * by `prefetchEntities`, so the client hook then makes its own attempt.
  *
+ * Addressed by SLUG, not by the id on the loaded show, so this can be started
+ * before `getShow` has resolved rather than queued behind it. The endpoint takes
+ * either spelling. The cache key it seeds is still the numeric id, which is
+ * available by the time the seed is built.
+ *
  * Not `React.cache`d, unlike `getShow`: it has one caller. `generateMetadata`
  * has no use for it, and adding one would mean a second backend round trip on
  * every request for a title that already has everything it needs.
  */
 async function getShowTimeline(
-  showId: number,
+  slug: string,
 ): Promise<ShowTimelineResponse | null> {
   try {
-    const res = await fetch(`${API_BASE_URL}/shows/${showId}/timeline`, {
+    const res = await fetch(`${API_BASE_URL}/shows/${slug}/timeline`, {
       next: { revalidate: 3600 },
     })
     if (res.ok) {
@@ -99,14 +104,14 @@ async function getShowTimeline(
       Sentry.captureMessage(`Show timeline: API returned ${res.status}`, {
         level: 'warning',
         tags: { service: 'show-page' },
-        extra: { showId, status: res.status },
+        extra: { slug, status: res.status },
       })
     }
   } catch (error) {
     Sentry.captureException(error, {
       level: 'warning',
       tags: { service: 'show-page' },
-      extra: { showId },
+      extra: { slug },
     })
   }
   return null
@@ -237,6 +242,11 @@ export default async function ShowPage({ params }: ShowPageProps) {
     notFound()
   }
 
+  // Started BEFORE the show is awaited, so the two backend reads overlap
+  // instead of costing two serial round trips on every Data Cache miss. It
+  // resolves to null rather than rejecting, so leaving it in flight through the
+  // `notFound()` below cannot raise an unhandled rejection.
+  const timelinePromise = getShowTimeline(slug)
   const showData = await getShow(slug)
 
   if (!showData) {
@@ -255,7 +265,7 @@ export default async function ShowPage({ params }: ShowPageProps) {
     { queryKey: queryKeys.shows.detail(slug), data: showData },
     {
       queryKey: queryKeys.shows.timeline(showData.id),
-      data: await getShowTimeline(showData.id),
+      data: await timelinePromise,
     },
   ])
 

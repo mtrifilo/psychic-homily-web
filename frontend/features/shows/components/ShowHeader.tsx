@@ -12,11 +12,7 @@ import { ShowVenueModule } from './ShowVenueModule'
 import { ShowBillRecurrence } from './ShowBillRecurrence'
 import { ShowGigTimeline } from './ShowGigTimeline'
 import { flyerImageSrc, sourceVenueName } from './showFlyer'
-import {
-  timelineDateLabel,
-  timelinePlaceLabel,
-  timelineYear,
-} from './showTimelineCopy'
+import type { TimelineStop } from './showTimelineCopy'
 import { billHometown, byBillPosition, showTimingInput, splitBill } from '../utils'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import type {
@@ -268,14 +264,13 @@ export function ShowHeader({
   // The show's own stop on its spine, formatted by the same rules as its
   // neighbours. The zone is `timing`'s, which is the one the date line above
   // and the status stripe above that are already rendered on.
-  const currentStop = {
+  const currentStop: TimelineStop = {
     event_date: show.event_date,
     timezone: resolveShowTimezone(timing.state, timing.timezone),
     venue_name: venue?.name,
     city: venue?.city ?? show.city,
     state: venue?.state ?? show.state,
   }
-  const currentYear = timelineYear(currentStop)
 
   return (
     <div
@@ -440,9 +435,7 @@ export function ShowHeader({
           city={venue?.city?.trim() || show.city?.trim() || ''}
         />
         <ShowGigTimeline
-          currentDateLabel={timelineDateLabel(currentStop, currentYear)}
-          currentPlaceLabel={timelinePlaceLabel(currentStop)}
-          currentYear={currentYear}
+          current={currentStop}
           previous={timeline?.previous ?? null}
           next={timeline?.next ?? null}
         />

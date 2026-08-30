@@ -1,3 +1,4 @@
+import { formatShowMonth } from '@/lib/utils/formatters'
 import { formatInTimezone } from '@/lib/utils/timeUtils'
 
 /**
@@ -10,29 +11,36 @@ import { formatInTimezone } from '@/lib/utils/timeUtils'
  * different zones, and a spine that dated all three on the subject's clock
  * would print the wrong day for a neighbour across a date line, which is the
  * one thing a date-ordered module must not do.
- *
- * The parameters are structural rather than `ShowTimelineEntry`, so the show
- * being read is formatted by the same rules as its neighbours without being
- * dressed up as an archive row it is not.
  */
 
-/** A dated stop: when it happened, and on whose clock that date is read. */
-export interface TimelineStopDate {
+/**
+ * One dated stop on a timeline: when it happened, on whose clock that date is
+ * read, and where.
+ *
+ * Structural rather than `ShowTimelineEntry` so the show BEING READ is
+ * formatted by the same rules as its neighbours without being dressed up as an
+ * archive row it is not. `ShowTimelineEntry` satisfies it as-is.
+ */
+export interface TimelineStop {
   /** ISO instant. */
   event_date: string
   /** Resolved IANA zone. Never the venue's raw nullable column. */
   timezone: string
-}
-
-/** Where a stop happened, as the spine names it. */
-export interface TimelineStopPlace {
   venue_name?: string | null
   city?: string | null
   state?: string | null
 }
 
+/**
+ * ONE stop type, but each helper takes only the fields it reads: the place
+ * label has no business demanding a date, and a caller with only a place should
+ * not have to invent one to ask for its label.
+ */
+type StopDate = Pick<TimelineStop, 'event_date' | 'timezone'>
+type StopPlace = Pick<TimelineStop, 'venue_name' | 'city' | 'state'>
+
 /** Venue-local calendar year, for deciding whether a date needs one. */
-export function timelineYear(stop: TimelineStopDate): string {
+export function timelineYear(stop: StopDate): string {
   return formatInTimezone(stop.event_date, stop.timezone, { year: 'numeric' })
 }
 
@@ -49,7 +57,7 @@ export function timelineYear(stop: TimelineStopDate): string {
  * a New Year is the case that needs it, and there the year is the whole point.
  */
 export function timelineDateLabel(
-  stop: TimelineStopDate,
+  stop: StopDate,
   subjectYear: string,
 ): string {
   const date = formatInTimezone(stop.event_date, stop.timezone, {
@@ -68,8 +76,13 @@ export function timelineDateLabel(
  * and the city is the one a reader scanning a tour route groups by. A stop with
  * neither returns "", and the caller renders the date alone rather than a
  * dangling separator.
+ *
+ * Hand-joined rather than delegating to `formatLocation`: that helper's rule
+ * turns on the COUNTRY, which a timeline stop does not carry, and its
+ * "Location Unknown" placeholder is designed to stand alone in a location field
+ * rather than inside a dateline.
  */
-export function timelinePlaceLabel(stop: TimelineStopPlace): string {
+export function timelinePlaceLabel(stop: StopPlace): string {
   const parts = stop.venue_name?.trim()
     ? [stop.venue_name, stop.city]
     : [stop.city, stop.state]
@@ -83,20 +96,18 @@ export function timelinePlaceLabel(stop: TimelineStopPlace): string {
 /**
  * `Nov 2023, Aragon Ballroom`: when and where an act last played here.
  *
- * Month resolution, not a full date: the line is a recurrence fact ("they come
- * through about yearly"), and a day number invites a reader to check a calendar
- * the line is not offering.
+ * Month resolution through the same `formatShowMonth` the month-grouped
+ * archives head their sections with, so "Nov 2023" here and the "Nov 2023"
+ * heading a reader lands on after following the link are one string. It is
+ * passed a null state because the stop's zone is already resolved.
  *
  * Sentence case, unlike the spine: this line sits directly under the bill in
  * the same register as the band names above it.
  */
 export function lastPlayedLabel(
-  stop: TimelineStopDate & Pick<TimelineStopPlace, 'venue_name'>,
+  stop: StopDate & Pick<TimelineStop, 'venue_name'>,
 ): string {
-  const month = formatInTimezone(stop.event_date, stop.timezone, {
-    month: 'short',
-    year: 'numeric',
-  })
+  const month = formatShowMonth(stop.event_date, null, stop.timezone)
   const venue = stop.venue_name?.trim()
   return venue ? `${month}, ${venue}` : month
 }

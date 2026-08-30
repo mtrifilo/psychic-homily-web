@@ -1,4 +1,4 @@
-import { Fragment } from 'react'
+import { MiddotSegments } from './MiddotSegments'
 import { lastPlayedLabel } from './showTimelineCopy'
 import type { ShowTimelineRecurrence } from '../types'
 
@@ -61,30 +61,15 @@ export function ShowBillRecurrence({
     ]
   })
 
-  if (segments.length === 0) return null
-
+  // MiddotSegments owns the separator, including the spaces-outside-the-hidden
+  // -span rule that keeps two facts from running together when read aloud. It
+  // self-hides on an empty list, which is this module's empty state.
   return (
-    <p
+    <MiddotSegments
       data-testid="show-bill-recurrence"
       className="mt-2 text-sm text-muted-foreground"
-    >
-      {segments.map((segment, index) => (
-        <Fragment key={segment.id}>
-          {/* The glyph is decoration and is hidden; the spaces around it are
-              real text nodes OUTSIDE the hidden span, so the two facts stay
-              separated when the line is read aloud rather than running
-              together as one sentence. */}
-          {index > 0 && (
-            <>
-              {' '}
-              <span aria-hidden="true" className="text-muted-foreground/60">
-                &middot;
-              </span>{' '}
-            </>
-          )}
-          {segment.text}
-        </Fragment>
-      ))}
-    </p>
+      segments={segments.map(segment => segment.text)}
+      keys={segments.map(segment => String(segment.id))}
+    />
   )
 }

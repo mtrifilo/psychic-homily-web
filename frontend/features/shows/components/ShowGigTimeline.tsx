@@ -1,6 +1,11 @@
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
-import { timelineDateLabel, timelinePlaceLabel } from './showTimelineCopy'
+import {
+  timelineDateLabel,
+  timelinePlaceLabel,
+  timelineYear,
+  type TimelineStop,
+} from './showTimelineCopy'
 import type { ShowTimelineEntry } from '../types'
 
 /**
@@ -60,12 +65,14 @@ function TimelineStop({
 }
 
 export interface ShowGigTimelineProps {
-  /** The date being read, already formatted for the marker. */
-  currentDateLabel: string
-  /** The room this show is in. Empty for a venue-less show. */
-  currentPlaceLabel: string
-  /** The venue-local year of the show being read, for the year rule. */
-  currentYear: string
+  /**
+   * The show being read, as a stop on its own spine. It supplies the middle
+   * marker AND the year every neighbour's date is compared against, which is
+   * why it arrives whole rather than pre-formatted: two of those three strings
+   * would otherwise be derived at the call site from the same object, and the
+   * third could only ever be this stop's own year.
+   */
+  current: TimelineStop
   previous: ShowTimelineEntry | null
   next: ShowTimelineEntry | null
 }
@@ -92,13 +99,21 @@ export interface ShowGigTimelineProps {
  * three ragged fragments that no longer read as a route.
  */
 export function ShowGigTimeline({
-  currentDateLabel,
-  currentPlaceLabel,
-  currentYear,
+  current,
   previous,
   next,
 }: ShowGigTimelineProps) {
   if (!previous && !next) return null
+
+  const currentYear = timelineYear(current)
+  // Compared against its own year, so this stop never carries one. The
+  // neighbours are what the year rule exists for.
+  const currentLabel = [
+    timelineDateLabel(current, currentYear),
+    timelinePlaceLabel(current),
+  ]
+    .filter(Boolean)
+    .join(' ')
 
   return (
     <nav
@@ -132,9 +147,7 @@ export function ShowGigTimeline({
           <span aria-hidden="true" className="text-primary">
             &#9656;
           </span>
-          <span>
-            {[currentDateLabel, currentPlaceLabel].filter(Boolean).join(' ')}
-          </span>
+          <span>{currentLabel}</span>
         </span>
 
         {/* `justify-end` only once the row is horizontal: stacked, a

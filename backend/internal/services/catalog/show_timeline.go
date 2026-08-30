@@ -170,39 +170,6 @@ func (r *timelineEntryRow) entry() *contracts.ShowTimelineEntry {
 	}
 }
 
-// The three venue laterals this file reads a room through, each anchored on the
-// show id that is in scope where it is spliced. All go through the repo's
-// primary-venue pick, so a multi-venue show is attributed to the same room here
-// as on its own show page.
-//
-// Package-level rather than inline because PrimaryVenueLateralSQL is a function
-// and its result cannot be a Go constant. Both of its arguments are compile-time
-// literals here, never runtime input: it interpolates them rather than binding
-// them.
-var (
-	subjectVenueLateral = shared.PrimaryVenueLateralSQL(
-		"iv.metro, iv.city, iv.state",
-		"s.id",
-	)
-	// Carries metro because the recurrence query's place predicate reads it.
-	entryVenueLateral = shared.PrimaryVenueLateralSQL(
-		"iv.name, COALESCE(iv.slug, '') AS slug, COALESCE(iv.city, '') AS city, COALESCE(iv.state, '') AS state, COALESCE(iv.timezone, '') AS timezone, iv.metro",
-		"s.id",
-	)
-	// Anchored on the CTE's show id: `s` is out of scope by the time the
-	// adjacency query's lateral runs.
-	//
-	// Raw columns, unlike the two above, because this one is LEFT joined: a
-	// neighbour with no room matches no lateral row at all, so every column
-	// comes back NULL regardless of what the lateral coalesces internally.
-	// Defaulting at the outer select is the only place that covers both the
-	// no-room and the null-column cases with one rule.
-	neighbourVenueLateral = shared.PrimaryVenueLateralSQL(
-		"iv.name, iv.slug, iv.city, iv.state, iv.timezone",
-		"n.id",
-	)
-)
-
 // resolveTimelineSubject loads the subject show by numeric id or slug.
 //
 // The status filter is in the WHERE clause rather than a check on the loaded
@@ -220,7 +187,7 @@ func (s *ShowService) resolveTimelineSubject(idOrSlug string) (*timelineSubject,
 		       COALESCE(v.city, '')  AS venue_city,
 		       COALESCE(v.state, '') AS venue_state
 		FROM shows s
-		LEFT JOIN LATERAL ` + subjectVenueLateral + ` v ON TRUE
+		LEFT JOIN LATERAL ` + shared.PrimaryVenueLateralSQL("iv.metro, iv.city, iv.state", "s.id") + ` v ON TRUE
 		WHERE `
 	const (
 		andApproved = ` AND s.status = ? LIMIT 1`
@@ -228,13 +195,15 @@ func (s *ShowService) resolveTimelineSubject(idOrSlug string) (*timelineSubject,
 		bySlug      = "s.slug = ?"
 	)
 
-	var subject timelineSubject
-	var err error
+	// The predicate is one of two compile-time literals; the caller's value is
+	// always a bind arg, never interpolated.
+	predicate, addressArg := bySlug, any(idOrSlug)
 	if id, parseErr := strconv.ParseUint(idOrSlug, 10, 32); parseErr == nil {
-		err = s.db.Raw(selectSubject+byID+andApproved, uint(id), catalogm.ShowStatusApproved).Scan(&subject).Error
-	} else {
-		err = s.db.Raw(selectSubject+bySlug+andApproved, idOrSlug, catalogm.ShowStatusApproved).Scan(&subject).Error
+		predicate, addressArg = byID, any(uint(id))
 	}
+
+	var subject timelineSubject
+	err := s.db.Raw(selectSubject+predicate+andApproved, addressArg, catalogm.ShowStatusApproved).Scan(&subject).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve show: %w", err)
 	}
@@ -313,7 +282,14 @@ func (s *ShowService) loadAdjacentShows(artistID uint, subject *timelineSubject)
 		       COALESCE(v.state, '')    AS state,
 		       COALESCE(v.timezone, '') AS timezone
 		FROM neighbour n
-		LEFT JOIN LATERAL ` + neighbourVenueLateral + ` v ON TRUE`
+		-- Raw columns, defaulted at the select above: this lateral is LEFT
+		-- joined, so a neighbour with no room matches no lateral row at all and
+		-- every column arrives NULL regardless of what the lateral coalesces
+		-- internally. Anchored on the CTE's id because ` + "`s`" + ` is out of scope here.
+		LEFT JOIN LATERAL ` + shared.PrimaryVenueLateralSQL(
+		"iv.name, iv.slug, iv.city, iv.state, iv.timezone",
+		"n.id",
+	) + ` v ON TRUE`
 
 	var rows []timelineEntryRow
 	if err := s.db.Raw(query,
@@ -406,7 +382,12 @@ func (s *ShowService) loadLastPlayedInPlace(bill []timelineBillArtist, subject *
 		       v.timezone
 		FROM show_artists sa
 		JOIN shows s ON s.id = sa.show_id
-		JOIN LATERAL ` + entryVenueLateral + ` v ON TRUE
+		-- Carries metro because the place predicate below reads it. An INNER
+		-- join, so a roomless show cannot survive to occupy an act's slot.
+		JOIN LATERAL ` + shared.PrimaryVenueLateralSQL(
+		"iv.name, COALESCE(iv.slug, '') AS slug, COALESCE(iv.city, '') AS city, COALESCE(iv.state, '') AS state, COALESCE(iv.timezone, '') AS timezone, iv.metro",
+		"s.id",
+	) + ` v ON TRUE
 		WHERE sa.artist_id IN ?
 		  AND s.status = ?
 		  AND (s.event_date, s.id) < (?, ?)

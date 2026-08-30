@@ -30,16 +30,16 @@ import { dehydrate, type DehydratedState } from '@tanstack/react-query'
 import { connection } from 'next/server'
 import { getQueryClient } from '@/lib/queryClient'
 
+/**
+ * Seed ONE key. The single-seed spelling of {@link prefetchEntities}, whose
+ * null-skipping it inherits: every caller is a `[slug]` route that has already
+ * `notFound()`ed on a missing entity, so the skip is unreachable from here.
+ */
 export async function prefetchEntity<T>(
   queryKey: readonly unknown[],
   data: T,
 ): Promise<DehydratedState> {
-  const queryClient = getQueryClient()
-  await queryClient.prefetchQuery({
-    queryKey,
-    queryFn: () => data,
-  })
-  return dehydrate(queryClient)
+  return prefetchEntities([{ queryKey, data }])
 }
 
 /** One cache entry to seed: the key the client hook will read, and its data. */
