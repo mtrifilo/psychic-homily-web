@@ -60,10 +60,10 @@ import (
 //     (tag_service.enrichShows, explore.go, show_dedup.go). They ORDER BY a
 //     `set_type = 'headliner'` test and fall back to lowest position, so they
 //     already prefer curation and, unlike a classification predicate, must
-//     always return a row. (tag_service and explore order `DESC` on a bare
-//     boolean, which is NULLS FIRST in Postgres, so a NULL-set_type row can
-//     outrank the real headliner. Pre-existing, and a display bug rather than
-//     a chart one; show_dedup.go's CASE form is the NULL-safe shape to copy.)
+//     always return a row. All three rank with the NULL-safe
+//     `CASE WHEN ... THEN 0 ELSE 1 END`, which a new site must copy: the
+//     shorter bare-boolean `DESC` form is NULLS FIRST in Postgres, so a
+//     NULL-set_type row would outrank the curated headliner.
 //
 //  2. The duplicate-headliner GUARDS at show.go's checkDuplicateHeadlinerConflicts
 //     and pipeline/discovery.go's checkHeadlinerDuplicate. These do still use

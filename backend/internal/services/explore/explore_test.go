@@ -375,3 +375,62 @@ func (s *ExploreServiceIntegrationSuite) TestGetShuffleTarget_RespectsApprovedSt
 	s.Require().NoError(err)
 	s.Nil(resp.ArtistID, "artist with only non-approved shows must NOT be eligible")
 }
+
+// A NULL set_type row must not outrank the act the curator actually named as
+// the headliner. The rank expression is the whole subject here: ordering
+// `(set_type = 'headliner') DESC` is NULLS FIRST in Postgres, so the unslotted
+// act sorted ahead of the curated headliner and /explore titled the tile with
+// the wrong band. The curated row is given the LOWER position so position
+// ordering alone cannot rescue the result; only a NULL-safe rank can, which is
+// what holds the CASE form in place.
+func (s *ExploreServiceIntegrationSuite) TestGetUpcomingShows_NullSetTypeDoesNotOutrankCuratedHeadliner() {
+	city := "Phoenix"
+	state := "AZ"
+	slug := "null-set-type-bill"
+	show := &catalogm.Show{
+		Title:     "Null Set Type Bill",
+		Slug:      &slug,
+		EventDate: time.Now().UTC().AddDate(0, 0, 10),
+		City:      &city,
+		State:     &state,
+		Status:    catalogm.ShowStatusApproved,
+	}
+	s.Require().NoError(s.db.Create(show).Error)
+
+	headlinerSlug := "curated-headliner"
+	headliner := &catalogm.Artist{Name: "Curated Headliner", Slug: &headlinerSlug}
+	s.Require().NoError(s.db.Create(headliner).Error)
+
+	unslottedSlug := "unslotted-act"
+	unslotted := &catalogm.Artist{Name: "Unslotted Act", Slug: &unslottedSlug}
+	s.Require().NoError(s.db.Create(unslotted).Error)
+
+	s.Require().NoError(s.db.Exec(
+		`INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')`,
+		show.ID, headliner.ID).Error)
+	// Explicit NULL: the column is nullable, so a row can carry no role at all.
+	s.Require().NoError(s.db.Exec(
+		`INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 1, NULL)`,
+		show.ID, unslotted.ID).Error)
+
+	var storedNulls int64
+	s.Require().NoError(s.db.Raw(
+		`SELECT COUNT(*) FROM show_artists WHERE show_id = ? AND set_type IS NULL`,
+		show.ID).Scan(&storedNulls).Error)
+	s.Require().EqualValues(1, storedNulls,
+		"the NULL row must survive insertion, or this test proves nothing")
+
+	resp, err := s.exploreService.GetUpcomingShows(50, 0, nil)
+	s.Require().NoError(err)
+
+	var item *contracts.ExploreUpcomingShowItem
+	for i := range resp.Shows {
+		if resp.Shows[i].ID == show.ID {
+			item = &resp.Shows[i]
+			break
+		}
+	}
+	s.Require().NotNil(item, "the seeded upcoming show must be listed")
+	s.Assert().Equal("Curated Headliner", item.HeadlinerName,
+		"a NULL set_type row must not outrank the curated headliner")
+}

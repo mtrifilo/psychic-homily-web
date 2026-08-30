@@ -1749,6 +1749,58 @@ func (suite *TagServiceIntegrationTestSuite) TestBulkImportAliases_EmptyList() {
 	suite.Assert().Len(result.Skipped, 0)
 }
 
+// A NULL set_type row must not outrank the act the curator actually named as
+// the headliner. The rank expression is the whole subject here: ordering
+// `(sa.set_type = 'headliner') DESC` is NULLS FIRST in Postgres, so the
+// unslotted act sorted ahead of the curated headliner and the tag page named
+// the wrong band. The curated row is given the LOWER position so position
+// ordering alone cannot rescue the result; only a NULL-safe rank can, which is
+// what holds the CASE form in place.
+func (suite *TagServiceIntegrationTestSuite) TestGetTagEntities_Shows_NullSetTypeDoesNotOutrankCuratedHeadliner() {
+	user := suite.createTestUserWithTier("show-tagger", "contributor")
+	tag := suite.createTag("noise-rock", "genre")
+
+	city := "Phoenix"
+	state := "AZ"
+	showSlug := "null-set-type-bill"
+	show := &catalogm.Show{
+		Title:     "Null Set Type Bill",
+		Slug:      &showSlug,
+		EventDate: time.Now().UTC().AddDate(0, 0, 10),
+		City:      &city,
+		State:     &state,
+		Status:    catalogm.ShowStatusApproved,
+	}
+	suite.Require().NoError(suite.db.Create(show).Error)
+
+	headlinerID := suite.createArtist("Curated Headliner")
+	unslottedID := suite.createArtist("Unslotted Act")
+
+	suite.Require().NoError(suite.db.Exec(
+		`INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')`,
+		show.ID, headlinerID).Error)
+	// Explicit NULL: the column is nullable, so a row can carry no role at all.
+	suite.Require().NoError(suite.db.Exec(
+		`INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 1, NULL)`,
+		show.ID, unslottedID).Error)
+
+	var storedNulls int64
+	suite.Require().NoError(suite.db.Raw(
+		`SELECT COUNT(*) FROM show_artists WHERE show_id = ? AND set_type IS NULL`,
+		show.ID).Scan(&storedNulls).Error)
+	suite.Require().EqualValues(1, storedNulls,
+		"the NULL row must survive insertion, or this test proves nothing")
+
+	_, err := suite.tagService.AddTagToEntity(tag.ID, "", catalogm.TagEntityShow, show.ID, user.ID, "")
+	suite.Require().NoError(err)
+
+	items, _, err := suite.tagService.GetTagEntities(tag.ID, catalogm.TagEntityShow, 50, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(items, 1, "the tagged show must be listed")
+	suite.Assert().Equal("Curated Headliner", items[0].HeadlinerName,
+		"a NULL set_type row must not outrank the curated headliner")
+}
+
 // ──────────────────────────────────────────────
 // Run all integration tests
 // ──────────────────────────────────────────────
