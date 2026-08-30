@@ -109,6 +109,18 @@ export interface BracketLinkProps
    * Ignored without `href`.
    */
   external?: boolean
+  /**
+   * This outbound link is monetized, so `rel` gains `sponsored` alongside the
+   * hygiene tokens. Google's link-spam policy requires paid links to be
+   * qualified, and an unqualified affiliate link is the site's own ranking at
+   * risk, not the vendor's.
+   *
+   * Never hand-set from a call site's own judgement: the one caller derives it
+   * from `ticketLink` in `lib/tickets/ticketVendors`, which knows whether a
+   * partner ID was actually attached. Ignored without `external`, since the
+   * internal `<Link>` branch points inside this site.
+   */
+  sponsored?: boolean
   /** Visual variant. `danger` is red for destructive actions like [Remove] / [Delete] / [X]. */
   variant?: 'default' | 'danger'
   /**
@@ -158,6 +170,7 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
       active = false,
       variant = 'default',
       external = false,
+      sponsored = false,
       disabled = false,
       title,
       ariaLabel,
@@ -273,7 +286,12 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
             {...anchorProps}
             href={trimmedHref}
             target="_blank"
-            rel="noopener noreferrer"
+            // The hygiene tokens are unconditional; `sponsored` is additive, so
+            // qualifying a paid link can never cost the link its opener/referrer
+            // protection.
+            rel={
+              sponsored ? 'noopener noreferrer sponsored' : 'noopener noreferrer'
+            }
           >
             {content}
           </a>

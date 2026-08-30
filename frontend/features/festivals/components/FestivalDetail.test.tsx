@@ -252,6 +252,29 @@ describe('FestivalDetail', () => {
     )
   })
 
+  // Affiliate tagging is a config flip: the festival ticket link reads the same
+  // vendor table as the show page's, and a partner ID reaches both surfaces.
+  it('tags a configured vendor and qualifies the paid link', () => {
+    process.env.NEXT_PUBLIC_IMPACT_PARTNER_ID = '1234567'
+    try {
+      mockUseFestival.mockReturnValue({
+        data: makeFestival({ ticket_url: 'https://www.ticketweb.com/event/2' }),
+        isLoading: false,
+        error: null,
+      })
+      renderWithProviders(<FestivalDetail idOrSlug="form-arcosanti" />)
+
+      const buy = screen.getByRole('link', { name: 'Buy Tickets' })
+      expect(buy).toHaveAttribute(
+        'href',
+        'https://www.ticketweb.com/event/2?irmp=1234567'
+      )
+      expect(buy).toHaveAttribute('rel', 'noopener noreferrer sponsored')
+    } finally {
+      delete process.env.NEXT_PUBLIC_IMPACT_PARTNER_ID
+    }
+  })
+
   it('renders the venues section with venue links', () => {
     mockUseFestival.mockReturnValue({
       data: makeFestival(),

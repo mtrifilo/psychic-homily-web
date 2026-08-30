@@ -2,6 +2,8 @@ import { showTimingInput } from '../utils'
 import { startTimeFactSegment } from './showStatusStripeCopy'
 import { saysSoldOut } from './showSaleState'
 import { showIsArchived } from '@/lib/utils/showTiming'
+import { ticketLink } from '@/lib/tickets/ticketVendors'
+import type { TicketLink } from '@/lib/tickets/ticketVendors'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import type { ShowResponse } from '../types'
 
@@ -54,6 +56,29 @@ export function ticketHref(
   if (/^https?:\/\//i.test(raw)) return raw
   if (raw.startsWith('//')) return `https:${raw}`
   return `https://${raw}`
+}
+
+/**
+ * What the Buy Tickets bracket renders: the href plus whether it is a paid
+ * link that has to be qualified with `rel="sponsored"`. Null when there is
+ * nothing to offer.
+ *
+ * Two steps that stay separate on purpose. {@link ticketHref} answers "may
+ * this show be offered, and at what URL" and is also what the `ON SALE` words
+ * branch on; {@link ticketLink} answers "is this vendor's link monetized",
+ * which the words have no opinion about. Composing them here rather than in
+ * the component keeps every derivation of the Buy Tickets href in this file.
+ *
+ * Until the affiliate application is approved and the environment carries a
+ * partner ID, `href` is `ticketHref`'s value unchanged and `sponsored` is
+ * false for every vendor.
+ */
+export function buyTicketsLink(
+  show: ShowResponse,
+  lifecycle: ShowLifecycleState
+): TicketLink | null {
+  const href = ticketHref(show, lifecycle)
+  return href === null ? null : ticketLink(href)
 }
 
 /**

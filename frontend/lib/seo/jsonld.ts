@@ -8,6 +8,7 @@
 import { resolveShowTimezone } from '@/lib/utils/formatters'
 import { toZonedISOString } from '@/lib/utils/timeUtils'
 import { SITE_DESCRIPTION, SITE_URL } from '@/lib/seo/siteMetadata'
+import { resolveTicketVendor } from '@/lib/tickets/ticketVendors'
 
 export interface OrganizationSchema {
   '@context': 'https://schema.org'
@@ -202,47 +203,17 @@ export function generateBreadcrumbSchema(
 }
 
 /**
- * Ticket vendors we are willing to name in structured data, keyed by
- * registrable domain.
- *
- * An explicit map rather than a prettified hostname: `seller.name` is a claim
- * about a real company, and deriving "Tix" from `tix.some-venue.example` would
- * invent one. An unrecognized host simply gets no seller.
- */
-const TICKET_VENDORS_BY_DOMAIN: Record<string, string> = {
-  'dice.fm': 'DICE',
-  'eventbrite.com': 'Eventbrite',
-  'ticketmaster.com': 'Ticketmaster',
-  'ticketweb.com': 'TicketWeb',
-  'seetickets.us': 'See Tickets',
-  'etix.com': 'Etix',
-}
-
-/**
  * Name the ticket vendor behind a show's `ticket_url`, or `undefined` when it
  * is not one we recognize.
  *
- * Host-anchored (`host === domain || host.endsWith('.' + domain)`) so
- * `evil-dice.fm` and `dice.fm.evil.test` do not borrow a real vendor's name.
- * The URL itself is never emitted — only the vendor's name — so this reads a
- * user-supplied field purely to look up a constant.
+ * Reads the shared vendor table (`lib/tickets/ticketVendors`), which is also
+ * what the visible Buy Tickets link resolves against, so the company this page
+ * names and the company it links to can never disagree. The URL itself is
+ * never emitted here — only the name — so this reads a user-supplied field
+ * purely to look up a constant.
  */
 function ticketVendorName(ticketUrl: string | undefined): string | undefined {
-  const raw = ticketUrl?.trim()
-  if (!raw) return undefined
-
-  const candidate = /^https?:\/\//i.test(raw) ? raw : `https://${raw.replace(/^\/+/, '')}`
-  let host: string
-  try {
-    host = new URL(candidate).hostname.toLowerCase()
-  } catch {
-    return undefined
-  }
-
-  const domain = Object.keys(TICKET_VENDORS_BY_DOMAIN).find(
-    d => host === d || host.endsWith(`.${d}`)
-  )
-  return domain ? TICKET_VENDORS_BY_DOMAIN[domain] : undefined
+  return resolveTicketVendor(ticketUrl)?.name
 }
 
 /**

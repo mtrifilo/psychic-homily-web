@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import type { ShowResponse } from '../types'
@@ -344,6 +344,47 @@ describe('ShowTicketRow', () => {
     expect(
       buy.getAttribute('aria-label')?.match(/opens in a new tab/g)
     ).toHaveLength(1)
+  })
+
+  // Affiliate tagging is a config flip, not a markup change: the same row
+  // renders a raw href today and a tagged, qualified one once the environment
+  // carries a partner ID.
+  describe('with an affiliate partner ID configured', () => {
+    beforeEach(() => {
+      process.env.NEXT_PUBLIC_IMPACT_PARTNER_ID = '1234567'
+    })
+    afterEach(() => {
+      delete process.env.NEXT_PUBLIC_IMPACT_PARTNER_ID
+    })
+
+    it('tags a configured vendor on its own domain and qualifies the link', () => {
+      render(
+        <ShowTicketRow
+          lifecycle="upcoming"
+          show={makeShow({ ticket_url: 'https://www.ticketweb.com/event/2' })}
+        />
+      )
+
+      const buy = screen.getByRole('link', { name: /^Buy tickets\b/i })
+      expect(buy).toHaveAttribute(
+        'href',
+        'https://www.ticketweb.com/event/2?irmp=1234567'
+      )
+      expect(buy).toHaveAttribute('rel', 'noopener noreferrer sponsored')
+    })
+
+    it('leaves an unknown vendor raw and unqualified', () => {
+      render(
+        <ShowTicketRow
+          lifecycle="upcoming"
+          show={makeShow({ ticket_url: 'https://tix.example/1' })}
+        />
+      )
+
+      const buy = screen.getByRole('link', { name: /^Buy tickets\b/i })
+      expect(buy).toHaveAttribute('href', 'https://tix.example/1')
+      expect(buy).toHaveAttribute('rel', 'noopener noreferrer')
+    })
   })
 
   // The backend stores ticket urls as typed; the repair is scheme-anchored

@@ -9,7 +9,7 @@ import {
 import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 import { MiddotSegments } from './MiddotSegments'
 import { ShowAddToCalendar } from './ShowAddToCalendar'
-import { ticketHref, ticketLineSegments } from './showTicketLine'
+import { buyTicketsLink, ticketLineSegments } from './showTicketLine'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import type { ShowResponse } from '../types'
 
@@ -55,8 +55,10 @@ export function ShowTicketRow({ show, lifecycle }: ShowTicketRowProps) {
   )
   // The one derivation of "is there somewhere to buy" (showTicketLine):
   // null for cancelled, sold-out, and past shows, so neither the sale-state
-  // words nor this bracket can argue with the stripe.
-  const buyHref = ticketHref(show, lifecycle)
+  // words nor this bracket can argue with the stripe. It also carries the
+  // vendor's affiliate tagging, which is a pass-through until a partner ID is
+  // configured.
+  const buyLink = buyTicketsLink(show, lifecycle)
 
   return (
     <div data-testid="show-ticket-row">
@@ -67,15 +69,16 @@ export function ShowTicketRow({ show, lifecycle }: ShowTicketRowProps) {
       />
 
       <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-        {buyHref && (
+        {buyLink && (
           // Keeps the pre-existing announced name: the ↗ is a VISUAL outbound
           // marker, and letting it into the accessible name has a screen
           // reader read "north east arrow" right before the suffix says the
           // same thing in words. Only the new-tab claim moved to BracketLink.
           <BracketLink
             label="Buy Tickets ↗"
-            href={buyHref}
+            href={buyLink.href}
             external
+            sponsored={buyLink.sponsored}
             ariaLabel="Buy tickets"
           />
         )}
