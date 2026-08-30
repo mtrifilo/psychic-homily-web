@@ -80,26 +80,51 @@ func ResolveUserName(user *authm.User) string {
 // So: a new tier goes HERE if a logged-out visitor may see it, and in
 // ResolveUserName's own body if not. Nowhere else.
 //
+// A tier holding only WHITESPACE counts as unset, and what a tier does return
+// is trimmed. Registration stores first_name raw (services/user/user.go; only
+// the profile PATCH trims), so " " and "\t" and "\n" are all storable today.
+// Untrimmed they are non-empty strings that satisfy every `!= ""` gate above
+// and every `name &&` guard on the frontend, and the byline renders as a
+// dangling "added Jul 12 by " with an empty span. Trimming here rather than at
+// each gate is the point of having one primitive: the callers ask "is there a
+// name" and get a truthful answer, once.
+//
+// This is unicode.IsSpace only. A name that is invisible without being space —
+// a lone zero-width space, a bidi override — still resolves, and deliberately
+// so: the format-character category that would catch it also holds joiners
+// that legitimate names in several scripts require. Rejecting those belongs to
+// input validation at the write side, not to a resolver that must render
+// whatever was stored.
+//
 // nil-safe: returns "" for a nil or ID-0 user, which every caller above turns
 // into its own terminal.
 func resolvePublicNameTiers(user *authm.User) string {
 	if user == nil || user.ID == 0 {
 		return ""
 	}
-	if user.DisplayName != nil && *user.DisplayName != "" {
-		return *user.DisplayName
-	}
-	if user.Username != nil && *user.Username != "" {
-		return *user.Username
-	}
-	if user.FirstName != nil && *user.FirstName != "" {
-		name := *user.FirstName
-		if user.LastName != nil && *user.LastName != "" {
-			name += " " + *user.LastName
-		}
+	if name := trimmedDeref(user.DisplayName); name != "" {
 		return name
 	}
+	if name := trimmedDeref(user.Username); name != "" {
+		return name
+	}
+	if first := trimmedDeref(user.FirstName); first != "" {
+		if last := trimmedDeref(user.LastName); last != "" {
+			return first + " " + last
+		}
+		return first
+	}
 	return ""
+}
+
+// trimmedDeref unwraps a nullable text column to its trimmed value, or "" for
+// nil. "" therefore means "nothing a surface could render", covering NULL, the
+// empty string, and whitespace alike.
+func trimmedDeref(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(*value)
 }
 
 // ResolveUserUsername returns the user's username for /users/:username links,

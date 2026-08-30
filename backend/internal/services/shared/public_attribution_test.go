@@ -46,6 +46,15 @@ func TestHasPublicName(t *testing.T) {
 		{"last name only", &authm.User{ID: 1, LastName: strptr("Doe")}, false},
 		{"email only", &authm.User{ID: 1, Email: strptr("asdf@example.com")}, false},
 		{"empty strings", &authm.User{ID: 1, DisplayName: strptr(""), Username: strptr(""), FirstName: strptr("")}, false},
+		// Whitespace is not a name. Registration stores first_name raw (only the
+		// profile PATCH trims), so all of these are storable today, and
+		// untrimmed each one is a non-empty string that satisfies every `!= ""`
+		// gate and every `name &&` guard on the frontend — producing a byline
+		// that reads "added Jul 12 by " with nothing after the "by".
+		{"space", &authm.User{ID: 1, FirstName: strptr(" ")}, false},
+		{"tab", &authm.User{ID: 1, FirstName: strptr("\t")}, false},
+		{"newline", &authm.User{ID: 1, DisplayName: strptr("\n")}, false},
+		{"padded name is still a name", &authm.User{ID: 1, FirstName: strptr("  Jane  ")}, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -119,11 +128,17 @@ func TestResolvePublicContributorCredit_HiddenContributionsSuppressesEverything(
 	assert.Nil(t, credit.Username)
 }
 
-// count_only is a real level on this setting, and it is NOT hidden: the
-// leaderboard reads it as "publish the number, not the detail". A byline is
-// detail about a single contribution, not an aggregate, so the credit stands —
-// pinned here so a future edit that folds count_only into the hidden branch has
-// to argue with a test rather than slip through.
+// count_only currently credits. This test pins the BEHAVIOUR, not a decision:
+// the owner ruled on "hidden" (PSY-1866) and was never asked about count_only,
+// and crediting is what the code did before PSY-1940 touched it, so this
+// preserves the status quo rather than settling the question.
+//
+// The question is real and is recorded on ResolvePublicContributorCredit's
+// gate 1: /users/{username}/contributions answers a count_only user with an
+// empty list while this names them on an individual edit. If the owner rules
+// that count_only should suppress, widen the gate to `!= PrivacyVisible`,
+// update leaderboard.go's SQL to match, and rewrite this test — do not read it
+// as prior approval.
 func TestResolvePublicContributorCredit_CountOnlyStillCredits(t *testing.T) {
 	credit := ResolvePublicContributorCredit(&authm.User{
 		ID:              5,
@@ -173,11 +188,21 @@ func TestResolvePublicContributorCredit_PrivateProfileKeepsNameDropsLink(t *test
 // than as "unknown, therefore hide" — a divergent local rule here would blank
 // every byline on any column-restricted read that forgot the column.
 func TestResolvePublicContributorCredit_MalformedPrivacyFallsBackToDefaults(t *testing.T) {
+	// Each of these leaves Contributions at the merged default (visible), for a
+	// reason worth knowing: Go unmarshals `null` into a non-pointer field as a
+	// NO-OP, and on a type mismatch it records the error but leaves that one
+	// field at its existing value and carries on. Both are easy to guess wrong.
 	shapeMismatch := json.RawMessage(`{"contributions": {"unexpected": "shape"}}`)
+	explicitNull := json.RawMessage(`{"contributions": null}`)
+	wrongType := json.RawMessage(`{"contributions": 123}`)
+	notAnObject := json.RawMessage(`[]`)
 
 	for name, settings := range map[string]*json.RawMessage{
 		"nil":            nil,
 		"shape mismatch": &shapeMismatch,
+		"explicit null":  &explicitNull,
+		"wrong type":     &wrongType,
+		"not an object":  &notAnObject,
 	} {
 		t.Run(name, func(t *testing.T) {
 			credit := ResolvePublicContributorCredit(&authm.User{
@@ -189,6 +214,40 @@ func TestResolvePublicContributorCredit_MalformedPrivacyFallsBackToDefaults(t *t
 			assert.Equal(t, "mtrifilo", credit.Name)
 		})
 	}
+}
+
+// A whitespace-only name must not be renderable, and a padded one must come
+// back trimmed. The failure this prevents is a byline reading "added Jul 12 by "
+// with an empty span after the "by"; the newline case additionally keeps a raw
+// newline out of notification subjects, which is what display_name's own
+// validator (handlers/auth) guards against and first_name never got.
+//
+// SCOPE, honestly: this is unicode.IsSpace, via strings.TrimSpace. An
+// INVISIBLE-but-not-space name — a lone zero-width space (U+200B), or a bidi
+// override (U+202E) — still renders as a credit, because those are format
+// characters rather than whitespace. Stripping the whole Cf category here would
+// be wrong: it also contains joiners that legitimate names in several scripts
+// need. That is an input-validation problem at the write side, where
+// first_name currently has no validator at all, not a resolver problem.
+func TestResolvePublicContributorCredit_WhitespaceNameIsNotAName(t *testing.T) {
+	for name, value := range map[string]string{
+		"space":   " ",
+		"tab":     "\t",
+		"newline": "\n",
+		"mixed":   " \t\n ",
+	} {
+		t.Run(name, func(t *testing.T) {
+			credit := ResolvePublicContributorCredit(&authm.User{ID: 5, DisplayName: strptr(value)})
+			assert.False(t, credit.Renderable(), "whitespace is not a name")
+			assert.Equal(t, "", credit.Name)
+		})
+	}
+
+	t.Run("padded name is trimmed", func(t *testing.T) {
+		credit := ResolvePublicContributorCredit(&authm.User{ID: 5, DisplayName: strptr("  Matt T  ")})
+		assert.True(t, credit.Renderable())
+		assert.Equal(t, "Matt T", credit.Name)
+	})
 }
 
 func TestResolvePublicContributorCredit_NilAndZeroUser(t *testing.T) {

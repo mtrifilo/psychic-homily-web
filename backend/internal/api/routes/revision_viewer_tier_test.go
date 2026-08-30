@@ -14,7 +14,9 @@ import (
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	adminm "psychic-homily-backend/internal/models/admin"
 	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared/revisiondiff"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -418,5 +420,216 @@ func TestRevisionHistoryViewerTiersEndToEnd(t *testing.T) {
 		if after.Summary == nil || *after.Summary != tierSummary {
 			t.Errorf("stored summary was rewritten by a read: %v", after.Summary)
 		}
+	})
+}
+
+// PSY-1940: the author's byline is withheld from the public tier for a
+// contributor who set privacy_settings.contributions = "hidden", and served to
+// an admin.
+//
+// This exists because the gate reads columns the MAPPER never sees. Every other
+// test of this policy builds an authm.User in memory and calls the handler's
+// mapper directly, so all of them would keep passing if somebody narrowed the
+// three Preload("User") calls in services/admin/revision.go with a Select:
+// privacy_settings would scan as nil, unmarshal to the defaults, which have
+// contributions VISIBLE, and every hidden contributor would be named again.
+// Only a read through the real query can catch that, which is the same reason
+// the show byline has TestGetShow_ContributionsHiddenOmitsCredit.
+//
+// Deliberately a separate function from the venue-address tiers above: that one
+// needs an UNVERIFIED venue to engage its gate, this one uses an ARTIST so that
+// no content redaction runs and the byline is the only thing under test. That
+// also lets it assert the summary survives, which a venue revision's would not.
+func TestRevisionAuthorPrivacyEndToEnd(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	td := testutil.SetupTestPostgres(t)
+	defer td.Cleanup()
+
+	cfg := testConfig()
+	sc := services.NewServiceContainer(td.DB, cfg)
+	router := chi.NewRouter()
+	SetupRoutes(router, sc, cfg)
+
+	admin := testhelpers.CreateAdminUser(td.DB)
+	contributor := testhelpers.CreateTestUser(td.DB)
+
+	// A display name AND a username, so a suppressed byline cannot be mistaken
+	// for a contributor who simply had no name to resolve.
+	const (
+		hiddenDisplayName = "Matt T"
+		hiddenUsername    = "mtrifilo-hidden"
+	)
+	hidden := contracts.DefaultPrivacySettings()
+	hidden.Contributions = contracts.PrivacyHidden
+	hiddenJSON, err := json.Marshal(hidden)
+	if err != nil {
+		t.Fatalf("marshal privacy settings: %v", err)
+	}
+	if err := td.DB.Model(&authm.User{}).Where("id = ?", contributor.ID).
+		Updates(map[string]any{
+			"display_name":     hiddenDisplayName,
+			"username":         hiddenUsername,
+			"privacy_settings": string(hiddenJSON),
+		}).Error; err != nil {
+		t.Fatalf("hide contributions: %v", err)
+	}
+
+	// Read back rather than trusted: a fixture that failed to store the setting
+	// would make the public tier look correct for the wrong reason.
+	var seeded struct {
+		DisplayName     *string
+		PrivacySettings *string
+	}
+	if err := td.DB.Table("users").
+		Select("display_name, privacy_settings::text AS privacy_settings").
+		Where("id = ?", contributor.ID).Scan(&seeded).Error; err != nil {
+		t.Fatalf("read back contributor: %v", err)
+	}
+	if seeded.DisplayName == nil || *seeded.DisplayName != hiddenDisplayName {
+		t.Fatalf("fixture display_name did not store: %v", seeded.DisplayName)
+	}
+	if seeded.PrivacySettings == nil || !strings.Contains(*seeded.PrivacySettings, `"contributions": "hidden"`) {
+		t.Fatalf("fixture privacy_settings did not store hidden: %v", seeded.PrivacySettings)
+	}
+
+	artistSlug := "byline-test-band"
+	artist := &catalogm.Artist{Name: "Byline Test Band", Slug: &artistSlug}
+	if err := td.DB.Create(artist).Error; err != nil {
+		t.Fatalf("create artist: %v", err)
+	}
+
+	const bylineSummary = "renamed"
+	changes := []adminm.FieldChange{{Field: "name", OldValue: "Old Name", NewValue: "Byline Test Band"}}
+	if err := sc.Revision.RecordRevision("artist", artist.ID, contributor.ID, changes, bylineSummary); err != nil {
+		t.Fatalf("record revision: %v", err)
+	}
+	var stored adminm.Revision
+	if err := td.DB.First(&stored).Error; err != nil {
+		t.Fatalf("read back revision: %v", err)
+	}
+
+	adminToken, err := sc.JWT.CreateToken(admin)
+	if err != nil {
+		t.Fatalf("mint admin token: %v", err)
+	}
+
+	get := func(t *testing.T, path, bearer string) []byte {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		if bearer != "" {
+			req.Header.Set("Authorization", "Bearer "+bearer)
+		}
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("GET %s = %d, want 200; body: %s", path, w.Code, w.Body.String())
+		}
+		return w.Body.Bytes()
+	}
+
+	// Asserted on the RAW BODY as well as on the decoded item: neither the name
+	// nor the username may appear anywhere in the payload, under any key. A
+	// field-by-field check alone would pass if a future writer echoed the value
+	// somewhere else.
+	assertSuppressed := func(t *testing.T, body []byte, item adminh.RevisionResponseItem) {
+		t.Helper()
+		for _, secret := range []string{hiddenDisplayName, hiddenUsername} {
+			if strings.Contains(string(body), secret) {
+				t.Errorf("response published %q to a public caller; body: %s", secret, body)
+			}
+		}
+		if item.UserName != "" {
+			t.Errorf("user_name = %q, want empty for a hidden contributor", item.UserName)
+		}
+		if item.UserUsername != nil {
+			t.Errorf("user_username = %v, want nil for a hidden contributor", *item.UserUsername)
+		}
+		if item.UserID != nil {
+			t.Errorf("user_id = %v, want absent: the id is a lookup key back to the name", *item.UserID)
+		}
+		// The edit stays visible. The gate hides the person, not the history.
+		if len(item.Changes) != 1 || item.Changes[0].Field != "name" {
+			t.Errorf("expected the field change to survive the author gate, got %+v", item.Changes)
+		}
+		if item.Summary != bylineSummary {
+			t.Errorf("expected the summary to survive the author gate, got %q", item.Summary)
+		}
+	}
+
+	assertNamed := func(t *testing.T, item adminh.RevisionResponseItem) {
+		t.Helper()
+		if item.UserName != hiddenDisplayName {
+			t.Errorf("user_name = %q, want %q for an admin", item.UserName, hiddenDisplayName)
+		}
+		if item.UserUsername == nil || *item.UserUsername != hiddenUsername {
+			t.Errorf("user_username = %v, want %q for an admin", item.UserUsername, hiddenUsername)
+		}
+		if item.UserID == nil || *item.UserID != contributor.ID {
+			t.Errorf("user_id = %v, want %d for an admin", item.UserID, contributor.ID)
+		}
+	}
+
+	entityPath := fmt.Sprintf("/revisions/artist/%d", artist.ID)
+	detailPath := fmt.Sprintf("/revisions/%d", stored.ID)
+	userPath := fmt.Sprintf("/users/%d/revisions", contributor.ID)
+
+	t.Run("entity history", func(t *testing.T) {
+		body := get(t, entityPath, "")
+		var parsed adminh.GetEntityHistoryResponse
+		if err := json.Unmarshal(body, &parsed.Body); err != nil {
+			t.Fatalf("parse response: %v; body: %s", err, body)
+		}
+		if len(parsed.Body.Revisions) != 1 {
+			t.Fatalf("got %d revisions, want 1; body: %s", len(parsed.Body.Revisions), body)
+		}
+		assertSuppressed(t, body, parsed.Body.Revisions[0])
+
+		adminBody := get(t, entityPath, adminToken)
+		var asAdmin adminh.GetEntityHistoryResponse
+		if err := json.Unmarshal(adminBody, &asAdmin.Body); err != nil {
+			t.Fatalf("parse admin response: %v; body: %s", err, adminBody)
+		}
+		assertNamed(t, asAdmin.Body.Revisions[0])
+	})
+
+	t.Run("single revision", func(t *testing.T) {
+		body := get(t, detailPath, "")
+		var item adminh.RevisionResponseItem
+		if err := json.Unmarshal(body, &item); err != nil {
+			t.Fatalf("parse response: %v; body: %s", err, body)
+		}
+		assertSuppressed(t, body, item)
+
+		adminBody := get(t, detailPath, adminToken)
+		var asAdmin adminh.RevisionResponseItem
+		if err := json.Unmarshal(adminBody, &asAdmin); err != nil {
+			t.Fatalf("parse admin response: %v; body: %s", err, adminBody)
+		}
+		assertNamed(t, asAdmin)
+	})
+
+	// The route that names its subject in the PATH. Suppressing the byline here
+	// withholds the NAME, not the fact that this user made these edits — the
+	// caller supplied the id. What it must not do is become the one route where
+	// the name still leaks.
+	t.Run("user revisions", func(t *testing.T) {
+		body := get(t, userPath, "")
+		var parsed adminh.GetUserRevisionsResponse
+		if err := json.Unmarshal(body, &parsed.Body); err != nil {
+			t.Fatalf("parse response: %v; body: %s", err, body)
+		}
+		if len(parsed.Body.Revisions) != 1 {
+			t.Fatalf("got %d revisions, want 1; body: %s", len(parsed.Body.Revisions), body)
+		}
+		assertSuppressed(t, body, parsed.Body.Revisions[0])
+
+		adminBody := get(t, userPath, adminToken)
+		var asAdmin adminh.GetUserRevisionsResponse
+		if err := json.Unmarshal(adminBody, &asAdmin.Body); err != nil {
+			t.Fatalf("parse admin response: %v; body: %s", err, adminBody)
+		}
+		assertNamed(t, asAdmin.Body.Revisions[0])
 	})
 }

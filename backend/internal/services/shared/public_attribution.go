@@ -2,6 +2,7 @@ package shared
 
 import (
 	"encoding/json"
+	"strings"
 
 	"gorm.io/gorm"
 
@@ -69,8 +70,18 @@ func ResolvePublicUserName(user *authm.User) string {
 	return AnonymousUserName
 }
 
-// BatchResolvePublicUserNames is BatchResolveUserNames under the public rule:
-// one query for many ids, resolving each through ResolvePublicUserName.
+// BatchResolvePublicUserNames resolves names for many ids in one query, each
+// through ResolvePublicUserName.
+//
+// THIS APPLIES RULE 1 ONLY. It cuts the email tier; it does NOT read
+// privacy_settings.contributions, and its Select does not even load the column.
+// It is therefore right for the authored-content family (comment authors,
+// curators, requesters) and WRONG for a list of CONTRIBUTION bylines, which
+// needs ResolvePublicContributorCredit's gate. There is no batch form of that
+// yet: the first list endpoint to need one should add
+// BatchResolvePublicContributorCredits here, with privacy_settings and
+// profile_visibility in its Select, rather than reaching for this because the
+// name looks safe.
 //
 // The Select deliberately omits `email`, departing from the
 // load-every-chain-column rule stated on ResolveUserName. That rule exists so a
@@ -117,7 +128,11 @@ type PublicContributorCredit struct {
 }
 
 // Renderable reports whether the credit may be published at all.
-func (c PublicContributorCredit) Renderable() bool { return c.Name != "" }
+//
+// Trims before testing, belt-and-braces with resolvePublicNameTiers: a
+// whitespace-only name is not a name, and the failure it produces is a byline
+// reading "added Jul 12 by " with nothing after the "by".
+func (c PublicContributorCredit) Renderable() bool { return strings.TrimSpace(c.Name) != "" }
 
 // ContributorProfileLink returns the /users/{username} slug to hang a credit on,
 // or nil when there is no profile to link to.
@@ -130,8 +145,14 @@ func (c PublicContributorCredit) Renderable() bool { return c.Name != "" }
 // fact about whether the URL resolves: /users/{username} 404s for a private
 // profile for EVERYONE, admins included (community/contributor_profile.go). So
 // an admin-tier byline that skipped this gate would not be seeing more, it would
-// be getting a link that is guaranteed to break. Every tier that renders a
-// credit calls this; nobody calls ResolveUserUsername directly for a byline.
+// be getting a link that is guaranteed to break.
+//
+// SCOPE, precisely: every CONTRIBUTION byline goes through this, both tiers.
+// The authored-content family does not yet — comment_service, request,
+// collection, charts and the notification feed still call ResolveUserUsername
+// (or its batch form) directly, so a private profile keeps a dead link there.
+// That is pre-existing and is its own follow-up; do not read this function as a
+// site-wide invariant.
 func ContributorProfileLink(user *authm.User) *string {
 	if user == nil || user.ProfileVisibility == "private" {
 		return nil
@@ -151,6 +172,17 @@ func ContributorProfileLink(user *authm.User) *string {
 //     real user-facing setting, already honoured by the contributor leaderboard
 //     (services/user/leaderboard.go), the activity heatmap and the profile's
 //     contribution stats.
+//
+//     "hidden" is the ONLY level that suppresses, and that is an open question
+//     rather than a settled rule. The owner decided "hidden" on 2026-08-29
+//     (PSY-1866); "count_only" was not put to them. It is defensible to credit
+//     a count_only contributor — a byline is one edit, not an aggregate — and
+//     it is defensible not to, because their own profile answers
+//     /users/{username}/contributions with an empty list while this names them
+//     on a specific edit. Crediting them is the pre-existing behaviour, so this
+//     preserves it rather than deciding. ASK BEFORE CHANGING EITHER WAY, and
+//     note that the same question sits in leaderboard.go's raw SQL, which
+//     likewise tests only for 'hidden'.
 //  2. No public name tier omits the credit — see HasPublicName. This also
 //     swallows the chain's terminal AnonymousUserName, which carried no
 //     information worth a byline anyway.

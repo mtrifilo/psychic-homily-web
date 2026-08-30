@@ -1062,16 +1062,30 @@ func assertAuthorSuppressed(t *testing.T, item RevisionResponseItem) {
 	if item.UserUsername != nil {
 		t.Errorf("expected no user_username for a hidden contributor, got %v", *item.UserUsername)
 	}
+	// The id goes with the name. Left in, it is a lookup key against the public
+	// payloads that publish an id and a display name together, and the byline
+	// is recovered in one more request.
+	if item.UserID != nil {
+		t.Errorf("expected no user_id for a hidden contributor, got %d", *item.UserID)
+	}
 	// The edit survives: this gate hides the person, not the history.
 	if len(item.Changes) != 1 {
 		t.Errorf("expected the edit to remain visible, got %d changes", len(item.Changes))
 	}
 }
 
+// Asserts the WHOLE credit, not just the name: an admin-branch regression that
+// dropped the profile link or the id would otherwise pass every route test.
 func assertAuthorNamed(t *testing.T, item RevisionResponseItem) {
 	t.Helper()
 	if item.UserName != "Matt T" {
 		t.Errorf("expected an admin to see the hidden contributor, got %q", item.UserName)
+	}
+	if item.UserUsername == nil || *item.UserUsername != "mtrifilo" {
+		t.Errorf("expected the admin to get the profile link, got %v", item.UserUsername)
+	}
+	if item.UserID == nil || *item.UserID != 5 {
+		t.Errorf("expected the admin to get user_id=5, got %v", item.UserID)
 	}
 }
 

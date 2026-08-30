@@ -23,31 +23,55 @@ import (
 // Unit tests — no DB required
 // =============================================================================
 
+// PSY-1940 repointed this at the canonical public chain. Two behaviour changes
+// are pinned below: display_name now wins (it did not exist when this function
+// was written), and an adder with no public name is "a contributor" rather than
+// the local part of their EMAIL ADDRESS — which used to be mailed to a
+// different person, since the candidate query excludes the recipient from the
+// adders it reports.
 func TestDigestDisplayName(t *testing.T) {
-	user := strPtr("alice")
-	first := strPtr("Alice")
-	email := strPtr("alice@example.com")
-	noLocal := strPtr("@example.com")
+	adder := func(u *authm.User) *authm.User {
+		u.ID = 1
+		return u
+	}
 
-	t.Run("username preferred", func(t *testing.T) {
-		assert.Equal(t, "alice", digestDisplayName(user, first, email))
+	t.Run("display name preferred", func(t *testing.T) {
+		assert.Equal(t, "Alice A.", digestDisplayName(adder(&authm.User{
+			DisplayName: strPtr("Alice A."),
+			Username:    strPtr("alice"),
+			FirstName:   strPtr("Alice"),
+		})))
 	})
-	t.Run("first name fallback", func(t *testing.T) {
-		assert.Equal(t, "Alice", digestDisplayName(nil, first, email))
+	t.Run("username next", func(t *testing.T) {
+		assert.Equal(t, "alice", digestDisplayName(adder(&authm.User{
+			Username:  strPtr("alice"),
+			FirstName: strPtr("Alice"),
+		})))
 	})
-	t.Run("email local-part fallback", func(t *testing.T) {
-		assert.Equal(t, "alice", digestDisplayName(nil, nil, email))
+	t.Run("first and last name fallback", func(t *testing.T) {
+		assert.Equal(t, "Alice Adams", digestDisplayName(adder(&authm.User{
+			FirstName: strPtr("Alice"),
+			LastName:  strPtr("Adams"),
+		})))
 	})
-	t.Run("nil all", func(t *testing.T) {
-		assert.Equal(t, "a contributor", digestDisplayName(nil, nil, nil))
+	t.Run("email is never rendered", func(t *testing.T) {
+		got := digestDisplayName(adder(&authm.User{Email: strPtr("alice@example.com")}))
+		assert.Equal(t, "a contributor", got)
+		assert.NotContains(t, got, "alice", "email local-part leaked into a digest email")
 	})
-	t.Run("empty strings", func(t *testing.T) {
+	t.Run("nil user", func(t *testing.T) {
+		assert.Equal(t, "a contributor", digestDisplayName(nil))
+	})
+	t.Run("adder row is gone", func(t *testing.T) {
+		// A LEFT JOIN that matched nothing: every column NULL.
+		assert.Equal(t, "a contributor", digestDisplayName(adder(&authm.User{})))
+	})
+	t.Run("empty and whitespace strings", func(t *testing.T) {
 		empty := ""
-		assert.Equal(t, "a contributor", digestDisplayName(&empty, &empty, &empty))
-	})
-	t.Run("email with no local-part", func(t *testing.T) {
-		// "@example.com" → loop sees @ at position 0, falls through to default.
-		assert.Equal(t, "a contributor", digestDisplayName(nil, nil, noLocal))
+		blank := "   "
+		assert.Equal(t, "a contributor", digestDisplayName(adder(&authm.User{
+			Username: &empty, DisplayName: &blank, FirstName: &blank,
+		})))
 	})
 }
 

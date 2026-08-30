@@ -210,8 +210,9 @@ describe('RevisionHistory', () => {
             id: 99,
             entity_type: 'artist',
             entity_id: 42,
-            user_id: 99,
-            // user_name and user_username intentionally omitted
+            // user_id, user_name and user_username are withheld together:
+            // the backend suppresses the whole credit, id included, because
+            // the id alone would recover the name off another public payload.
             changes: [{ field: 'x', old_value: 'a', new_value: 'b' }],
             summary: 'Fixed the city',
             created_at: new Date().toISOString(),

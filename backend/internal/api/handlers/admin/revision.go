@@ -60,16 +60,24 @@ var validEntityTypes = map[string]bool{
 // private profile, or a suppressed credit. Distinct from UserName so the
 // frontend can decide between a /users/:username link and plain text.
 //
-// UserID is published unconditionally, matching the show submitter byline,
-// which likewise suppresses submitted_by_name while keeping submitted_by
-// (PSY-1866). The residual is deliberate and disclosed: the numeric id is still
-// an identity handle a caller can resolve against another public surface. The
-// per-user counting and differencing family is PSY-1939's.
+// UserID GOES WITH THE NAME. A suppressed credit omits the numeric id too,
+// because on its own the id is not anonymity — it is a lookup key. Several
+// public, unauthenticated payloads publish a user id and a display name in the
+// same object (a comment carries user_id + author_name; a collection carries
+// creator_id + creator_name), so one anonymous request builds an id-to-name
+// directory and the withheld byline is recovered in the next lookup.
+//
+// This deliberately does NOT match the show submitter byline, which suppresses
+// submitted_by_name while keeping submitted_by. The difference is that
+// submitted_by is LOAD-BEARING there: the frontend runs ownership checks on it
+// (ShowDetail, ShowCard, VenueDetail, the submissions console). A revision's
+// user_id has no consumer at all, so withholding it costs nothing and closes
+// the recovery. Do not "restore consistency" by re-publishing it.
 type RevisionResponseItem struct {
 	ID           uint                 `json:"id"`
 	EntityType   string               `json:"entity_type"`
 	EntityID     uint                 `json:"entity_id"`
-	UserID       uint                 `json:"user_id"`
+	UserID       *uint                `json:"user_id,omitempty"`
 	UserName     string               `json:"user_name,omitempty"`
 	UserUsername *string              `json:"user_username"`
 	Changes      []adminm.FieldChange `json:"changes"`
@@ -102,9 +110,12 @@ type RevisionResponseItem struct {
 // viewer, so the two policies read the same fact and cannot disagree about who
 // is asking.
 //
-// Do not narrow this route's Preload("User") with a Select: the gates read
-// columns the chain does not, and a missing privacy column fails OPEN. The
-// column contract is stated once, on ResolvePublicContributorCredit.
+// Do not narrow this route's Preload("User") with a Select. The two tiers here
+// need DIFFERENT columns — the public one needs privacy_settings and
+// profile_visibility, the admin one needs email — so neither helper's own
+// column contract is the contract for this route. The union, and what each
+// omission silently breaks, is written beside the queries themselves: see the
+// AUTHOR COLUMN CONTRACT note at the top of services/admin/revision.go.
 func revisionAuthorCredit(r *adminm.Revision, viewer contracts.RevisionViewer) servicesshared.PublicContributorCredit {
 	if viewer.IsAdmin {
 		return servicesshared.PublicContributorCredit{
@@ -175,11 +186,19 @@ func revisionViewer(ctx context.Context) contracts.RevisionViewer {
 // that the response cannot.
 func mapRevisionToResponse(r adminm.Revision, viewer contracts.RevisionViewer) RevisionResponseItem {
 	credit := revisionAuthorCredit(&r, viewer)
+	// One decision, three fields. The id is part of the credit, not metadata
+	// beside it — see RevisionResponseItem on why publishing it would undo the
+	// suppression.
+	var userID *uint
+	if credit.Renderable() {
+		id := r.UserID
+		userID = &id
+	}
 	item := RevisionResponseItem{
 		ID:           r.ID,
 		EntityType:   r.EntityType,
 		EntityID:     r.EntityID,
-		UserID:       r.UserID,
+		UserID:       userID,
 		UserName:     credit.Name,
 		UserUsername: credit.Username,
 		// PSY-604: must convert to UTC before formatting — the literal "Z"

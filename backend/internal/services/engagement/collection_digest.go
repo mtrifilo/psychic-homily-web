@@ -14,6 +14,7 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
+	authm "psychic-homily-backend/internal/models/auth"
 	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
@@ -140,9 +141,15 @@ type digestCandidate struct {
 	EntityType      string
 	EntityID        uint
 	ItemCreatedAt   time.Time
-	AddedByUsername *string
-	AddedByFirst    *string
-	AddedByEmail    *string
+	// The adder's identity columns, in the shape shared.ResolvePublicUserName
+	// reads. `email` is deliberately NOT among them (PSY-1940): the name below
+	// belongs to a THIRD PARTY — the join excludes the recipient — so it is
+	// governed by the public rule, and not selecting the column means an
+	// address cannot reach an outgoing email even if that rule were loosened.
+	AddedByUsername    *string
+	AddedByDisplayName *string
+	AddedByFirst       *string
+	AddedByLast        *string
 }
 
 // runDigestCycle sends one digest email per user with new items in their
@@ -238,7 +245,18 @@ func (s *CollectionDigestService) runDigestCycle() {
 					EntityType: it.EntityType,
 					EntityName: s.resolveEntityName(it.EntityType, it.EntityID),
 					EntityURL:  s.buildEntityURL(it.EntityType, it.EntityID),
-					AddedBy:    digestDisplayName(it.AddedByUsername, it.AddedByFirst, it.AddedByEmail),
+					// ID 1 is a stand-in, not a lookup: the chain's nil/ID-0
+					// guard exists to catch an absent USER, and a LEFT JOIN
+					// that matched gives us the columns without the id. A row
+					// whose adder is gone arrives with all four columns NULL
+					// and still resolves to "a contributor".
+					AddedBy: digestDisplayName(&authm.User{
+						ID:          1,
+						Username:    it.AddedByUsername,
+						DisplayName: it.AddedByDisplayName,
+						FirstName:   it.AddedByFirst,
+						LastName:    it.AddedByLast,
+					}),
 				})
 			}
 			groups = append(groups, contracts.CollectionDigestGroup{
@@ -314,9 +332,10 @@ func (s *CollectionDigestService) queryCandidates(now time.Time) ([]digestCandid
 		EntityType      string
 		EntityID        uint
 		ItemCreatedAt   time.Time
-		AddedByUsername *string
-		AddedByFirst    *string
-		AddedByEmail    *string
+		AddedByUsername    *string
+		AddedByDisplayName *string
+		AddedByFirst       *string
+		AddedByLast        *string
 	}
 
 	var rows []row
@@ -343,8 +362,9 @@ func (s *CollectionDigestService) queryCandidates(now time.Time) ([]digestCandid
 			ci.entity_id,
 			ci.created_at AS item_created_at,
 			added_by.username AS added_by_username,
+			added_by.display_name AS added_by_display_name,
 			added_by.first_name AS added_by_first,
-			added_by.email AS added_by_email
+			added_by.last_name AS added_by_last
 		FROM collection_subscribers cs
 		JOIN users u ON u.id = cs.user_id
 		JOIN collections c ON c.id = cs.collection_id
@@ -379,9 +399,10 @@ func (s *CollectionDigestService) queryCandidates(now time.Time) ([]digestCandid
 			EntityType:      r.EntityType,
 			EntityID:        r.EntityID,
 			ItemCreatedAt:   r.ItemCreatedAt,
-			AddedByUsername: r.AddedByUsername,
-			AddedByFirst:    r.AddedByFirst,
-			AddedByEmail:    r.AddedByEmail,
+			AddedByUsername:    r.AddedByUsername,
+			AddedByDisplayName: r.AddedByDisplayName,
+			AddedByFirst:       r.AddedByFirst,
+			AddedByLast:        r.AddedByLast,
 		})
 	}
 	return out, nil
@@ -490,27 +511,30 @@ func digestEntityPathAndTable(entityType string) (string, string) {
 }
 
 // digestDisplayName returns a friendly name for the user who added an item.
-// Username first, then first name, then email local-part, then "a contributor".
-// Pulled out for unit testability.
-func digestDisplayName(username, firstName, email *string) string {
-	if username != nil && *username != "" {
-		return *username
+//
+// Delegates to the canonical PUBLIC chain (PSY-1940) rather than resolving its
+// own. Until then this function was a third private copy that started at
+// username — so it credited a contributor "mtrifilo" where the collection page
+// beside it said "Matt T" — and fell back to the local part of their EMAIL
+// ADDRESS, which then went out in a digest to somebody else: the query's
+// `ci.added_by_user_id <> cs.user_id` join means the name is provably not the
+// recipient's own.
+//
+// It kept its own terminal, though. "a contributor" is this channel's empty
+// state, the way the Discord embed says "Not provided": prose in an email needs
+// a subject, so this family renders a placeholder rather than omitting the
+// credit the way a contribution byline does. AnonymousUserName is the chain's
+// terminal, and it is detected rather than reproduced so the two cannot drift.
+//
+// Deliberately NOT gated on privacy_settings.contributions: this is the
+// authored-content family, and the digest is only sent to people who
+// subscribed to the collection the item was added to.
+func digestDisplayName(user *authm.User) string {
+	name := shared.ResolvePublicUserName(user)
+	if name == shared.AnonymousUserName {
+		return "a contributor"
 	}
-	if firstName != nil && *firstName != "" {
-		return *firstName
-	}
-	if email != nil && *email != "" {
-		// Take everything before the @ as a fallback handle.
-		for i, ch := range *email {
-			if ch == '@' {
-				if i > 0 {
-					return (*email)[:i]
-				}
-				break
-			}
-		}
-	}
-	return "a contributor"
+	return name
 }
 
 // RunDigestCycleNow runs the digest cycle synchronously (test/admin entry

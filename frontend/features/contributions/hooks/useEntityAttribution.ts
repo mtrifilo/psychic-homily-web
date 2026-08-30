@@ -4,7 +4,8 @@ import { queryKeys } from '@/lib/queryClient'
 
 interface RevisionItem {
   id: number
-  user_id: number
+  /** Withheld together with `user_name` when the author may not be named. */
+  user_id?: number
   user_name?: string
   user_username?: string | null
   created_at: string
