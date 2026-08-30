@@ -56,7 +56,11 @@ const NEVER_TAGGABLE = [
 ]
 
 function expectPassthrough(url: string, partnerIds: AffiliatePartnerIds) {
-  expect(ticketLink(url, partnerIds)).toEqual({ href: url, sponsored: false })
+  expect(ticketLink(url, partnerIds)).toEqual({
+    href: url,
+    sponsored: false,
+    plantedTag: null,
+  })
 }
 
 describe('resolveTicketVendor', () => {
@@ -189,6 +193,7 @@ describe('ticketLink with an Impact partner ID configured', () => {
     expect(ticketLink(`https://www.${domain}/event/1`, IMPACT)).toEqual({
       href: `https://www.${domain}/event/1?${param}=1234567`,
       sponsored: true,
+      plantedTag: null,
     })
   })
 
@@ -214,14 +219,24 @@ describe('ticketLink with an Impact partner ID configured', () => {
   // direct-domain tracking enabled is unverified, so it must not be tagged.
   it('does not tag a recognized vendor that has no affiliate entry', () => {
     const url = 'https://www.ticketmaster.com/event/1'
-    expect(ticketLink(url, IMPACT)).toEqual({ href: url, sponsored: false })
+    expect(ticketLink(url, IMPACT)).toEqual({
+      href: url,
+      sponsored: false,
+      plantedTag: null,
+    })
     expect(resolveTicketVendor(url)?.name).toBe('Ticketmaster')
   })
 
+  // href and sponsored are idempotent. `plantedTag` deliberately is NOT part
+  // of that claim: it describes the INPUT, and re-application feeds it a value
+  // that does carry a tag. Nothing re-applies in practice (the stored value is
+  // what gets passed), and a report that fired on our own output would be a
+  // false positive, so this pins which fields the invariant covers.
   it('is idempotent under re-application', () => {
     const once = ticketLink('https://www.ticketweb.com/e/2', IMPACT)
     const twice = ticketLink(once.href, IMPACT)
-    expect(twice).toEqual(once)
+    expect(twice.href).toBe(once.href)
+    expect(twice.sponsored).toBe(once.sponsored)
   })
 
   // The write side percent-encodes the ID; a read side that compared the raw
@@ -233,16 +248,19 @@ describe('ticketLink with an Impact partner ID configured', () => {
     expect(once).toEqual({
       href: 'https://www.ticketweb.com/e/2?irmp=a%20b%26c',
       sponsored: true,
+      plantedTag: null,
     })
-    expect(ticketLink(once.href, partners)).toEqual(once)
+    const again = ticketLink(once.href, partners)
+    expect(again.href).toBe(once.href)
+    expect(again.sponsored).toBe(once.sponsored)
   })
 
   // `show.ticket_url` is open contribution that publishes without review, so a
-  // planted foreign tag is a real input. It is neither rewritten (that would
-  // redirect their commission to us) nor left unqualified (that would publish
-  // an affiliate link on an indexed page with no rel="sponsored").
-  // Spellings a server really does resolve to `irmp`. Ours is withheld (two
-  // ids would compete) and the link is qualified.
+  // planted tag is a real input. It is neither rewritten (that would redirect
+  // their commission to us) nor left unqualified (that would publish an
+  // affiliate link on an indexed page with no rel="sponsored") nor left
+  // silent. These are the spellings a server really does resolve to `irmp`, so
+  // ours is withheld: two ids would compete.
   it.each([
     ['our own id', 'https://www.ticketweb.com/e/2?irmp=1234567'],
     ["another partner's id", 'https://www.ticketweb.com/e/2?irmp=9999999'],
@@ -251,8 +269,12 @@ describe('ticketLink with an Impact partner ID configured', () => {
     // Hidden behind a `;`, which some servers split on. A `&`-only scan would
     // miss it and append ours, delivering two ids.
     ['a tag behind a semicolon', 'https://www.ticketweb.com/e/2?a=1;irmp=9999999'],
-  ])('leaves %s untouched and qualifies the link', (_label, url) => {
-    expect(ticketLink(url, IMPACT)).toEqual({ href: url, sponsored: true })
+  ])('leaves %s untouched, qualifies and reports it', (_label, url) => {
+    expect(ticketLink(url, IMPACT)).toEqual({
+      href: url,
+      sponsored: true,
+      plantedTag: { param: 'irmp', host: 'www.ticketweb.com' },
+    })
   })
 
   // Query keys are case-sensitive and are not trimmed by any mainstream
@@ -274,12 +296,36 @@ describe('ticketLink with an Impact partner ID configured', () => {
   // with no affiliate entry, or on a host not in the table at all, is still a
   // monetized link on an indexed page.
   it.each([
-    ['no partner ID configured', 'https://www.ticketweb.com/e/2?irmp=1234567', NO_PARTNERS],
-    ['a vendor with no affiliate entry', 'https://www.ticketmaster.com/e/1?irmp=9999999', IMPACT],
-    ['an unaffiliated table vendor', 'https://dice.fm/e/1?irmp=9999999', IMPACT],
-    ['a host not in the table', 'https://tix.some-venue.example/e/1?irmp=9999999', IMPACT],
-  ])('qualifies a planted tag with %s', (_label, url, partners) => {
-    expect(ticketLink(url, partners)).toEqual({ href: url, sponsored: true })
+    [
+      'no partner ID configured',
+      'https://www.ticketweb.com/e/2?irmp=1234567',
+      NO_PARTNERS,
+      'www.ticketweb.com',
+    ],
+    [
+      'a vendor with no affiliate entry',
+      'https://www.ticketmaster.com/e/1?irmp=9999999',
+      IMPACT,
+      'www.ticketmaster.com',
+    ],
+    [
+      'an unaffiliated table vendor',
+      'https://dice.fm/e/1?irmp=9999999',
+      IMPACT,
+      'dice.fm',
+    ],
+    [
+      'a host not in the table',
+      'https://tix.some-venue.example/e/1?irmp=9999999',
+      IMPACT,
+      'tix.some-venue.example',
+    ],
+  ])('qualifies and reports a planted tag with %s', (_l, url, partners, host) => {
+    expect(ticketLink(url, partners)).toEqual({
+      href: url,
+      sponsored: true,
+      plantedTag: { param: 'irmp', host },
+    })
   })
 
   // A valueless occurrence credits nobody: it is a truncated paste, and
@@ -292,7 +338,11 @@ describe('ticketLink with an Impact partner ID configured', () => {
       'https://www.ticketweb.com/e/2?a=1&irmp=1234567',
     ],
   ])('replaces the valueless tag in %s', (input, expected) => {
-    expect(ticketLink(input, IMPACT)).toEqual({ href: expected, sponsored: true })
+    expect(ticketLink(input, IMPACT)).toEqual({
+      href: expected,
+      sponsored: true,
+      plantedTag: null,
+    })
   })
 
   // THE contract of the tagging branch: the stored query survives byte for

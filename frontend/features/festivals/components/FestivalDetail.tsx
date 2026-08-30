@@ -30,6 +30,7 @@ import {
 } from '@/components/shared'
 import { EntityCollections } from '@/features/collections'
 import { repairTicketUrl, ticketLink } from '@/lib/tickets/ticketVendors'
+import { usePlantedTicketTagReport } from '@/lib/tickets/usePlantedTicketTagReport'
 import { outboundRel } from '@/lib/outboundRel'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -101,6 +102,34 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
     return uniqueDays.size > 1
   }, [artistsData])
 
+  // Derived ABOVE the loading/error/missing returns because the planted-tag
+  // report below is a hook and cannot sit behind them. Tolerates an absent
+  // festival: every branch yields null until the fetch resolves.
+  //
+  // The same repair and the same vendor table the show page's Buy Tickets
+  // bracket reads, so a stored value means one thing on both surfaces. Without
+  // the repair a scheme-less `ticket_url` rendered as a relative href that
+  // navigated under /festivals/, and could never be tagged. A pass-through
+  // until a partner ID is configured.
+  //
+  // The http(s) floor is this anchor's own, because it is a raw <a> rather
+  // than a BracketLink (which carries the same floor for the same reason).
+  // Defence in depth, and currently UNREACHABLE: every non-null branch of
+  // repairTicketUrl already yields an http(s) value, and the festival write
+  // path is admin-only. It stays because the thing making it unreachable is a
+  // navigation repair, not a safety rule, and a future "don't invent a scheme"
+  // change to that repair would otherwise land here silently.
+  const repairedTicketUrl = repairTicketUrl(festival?.ticket_url)
+  const ticketBuyLink =
+    repairedTicketUrl && /^https?:\/\//i.test(repairedTicketUrl)
+      ? ticketLink(repairedTicketUrl)
+      : null
+  usePlantedTicketTagReport(
+    'festival',
+    festival?.id ?? '',
+    ticketBuyLink?.plantedTag
+  )
+
   if (isLoading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
@@ -157,24 +186,6 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
   const hasDescription = !!festival.description && festival.description.trim().length > 0
   const hasSocialLinks =
     !!festival.social && Object.values(festival.social).some(v => !!v)
-  // The same repair and the same vendor table the show page's Buy Tickets
-  // bracket reads, so a stored value means one thing on both surfaces: without
-  // the repair a scheme-less `ticket_url` rendered as a relative href that
-  // navigated under /festivals/, and could never be tagged. A pass-through
-  // until a partner ID is configured.
-  //
-  // The http(s) floor is this anchor's own, because it is a raw <a> rather
-  // than a BracketLink (which carries the same floor for the same reason).
-  // Defence in depth, and currently UNREACHABLE: every non-null branch of
-  // repairTicketUrl already yields an http(s) value, and the festival write
-  // path is admin-only. It stays because the thing making it unreachable is a
-  // navigation repair, not a safety rule, and a future "don't invent a scheme"
-  // change to that repair would otherwise land here silently.
-  const repairedTicketUrl = repairTicketUrl(festival.ticket_url)
-  const ticketBuyLink =
-    repairedTicketUrl && /^https?:\/\//i.test(repairedTicketUrl)
-      ? ticketLink(repairedTicketUrl)
-      : null
   // The ticket half is derived from the resolved link: a whitespace-only
   // `ticket_url` is storable, and gating the section on the raw value while
   // gating the anchor on the resolved one renders a Links heading over

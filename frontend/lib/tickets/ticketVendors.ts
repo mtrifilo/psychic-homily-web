@@ -207,6 +207,26 @@ export function affiliatePartnerIds(): AffiliatePartnerIds {
   return impact ? { impact } : {}
 }
 
+/**
+ * An affiliate tag found ALREADY PRESENT in a stored ticket URL.
+ *
+ * "Planted" is exact, not a guess: this app never writes a tag into the
+ * database. {@link ticketLink} appends ours at render time and returns a
+ * string, so anything found in the stored value was put there by whoever
+ * submitted it. On shows that is any authenticated contributor, publishing
+ * without review.
+ *
+ * Carries the parameter NAME and the HOST only. The value is a partner's
+ * account identifier and the rest of the URL is the contributor's text; the
+ * two fields here are what an operator needs to find the row.
+ */
+export interface PlantedTicketTag {
+  /** Affiliate parameter name, as the vendor would read it. Never its value. */
+  param: string
+  /** Hostname the link points at. Never the path, query or fragment. */
+  host: string
+}
+
 export interface TicketLink {
   /** The href to render. */
   href: string
@@ -222,6 +242,15 @@ export interface TicketLink {
    * over-qualifying is the deliberate choice.
    */
   sponsored: boolean
+  /**
+   * Set when the STORED value already carried an affiliate tag, which is
+   * always somebody else's doing. Null otherwise, including when this call
+   * appended our own.
+   *
+   * Reported, not acted on: the link still renders exactly as stored. See
+   * `lib/tickets/plantedTagTelemetry`.
+   */
+  plantedTag: PlantedTicketTag | null
 }
 
 /**
@@ -309,12 +338,18 @@ function matchableKeys(pair: QueryPair): { key: string; value: string }[] {
   })
 }
 
-/** Whether this segment already credits somebody through a known param. */
-function carriesAffiliateTag(pair: QueryPair): boolean {
-  return matchableKeys(pair).some(
-    part =>
-      part.value !== '' && KNOWN_AFFILIATE_PARAMS.has(affiliateParamKey(part.key))
-  )
+/**
+ * The known affiliate parameter this segment already credits somebody through,
+ * or null. Returns the NAME only: the value is a partner's account identifier
+ * and never leaves this module.
+ */
+function affiliateTagIn(pair: QueryPair): string | null {
+  for (const part of matchableKeys(pair)) {
+    if (part.value === '') continue
+    const key = affiliateParamKey(part.key)
+    if (KNOWN_AFFILIATE_PARAMS.has(key)) return key
+  }
+  return null
 }
 
 /**
@@ -403,15 +438,21 @@ export function ticketLink(
   rawUrl: string,
   partnerIds: AffiliatePartnerIds = affiliatePartnerIds()
 ): TicketLink {
-  const passthrough: TicketLink = { href: rawUrl, sponsored: false }
+  const passthrough: TicketLink = {
+    href: rawUrl,
+    sponsored: false,
+    plantedTag: null,
+  }
 
   const trimmed = rawUrl.trim()
   if (!ABSOLUTE_HTTP_URL.test(trimmed)) return passthrough
 
-  // Confirms the value is a URL at all, so everything below is total. The
-  // rewrite works on the original text, so nothing is re-encoded.
+  // Confirms the value is a URL at all, so everything below is total, and
+  // yields the host the planted-tag report names. The rewrite works on the
+  // original text, so nothing is re-encoded.
+  let parsed: URL
   try {
-    new URL(trimmed)
+    parsed = new URL(trimmed)
   } catch {
     return passthrough
   }
@@ -422,8 +463,15 @@ export function ticketLink(
   // this build's configuration: a planted tag on a vendor we have not
   // onboarded, or on a host not in the table at all, is still a monetized link
   // published on an indexed page.
-  if (pairs.some(carriesAffiliateTag)) {
-    return { href: rawUrl, sponsored: true }
+  for (const pair of pairs) {
+    const param = affiliateTagIn(pair)
+    if (param) {
+      return {
+        href: rawUrl,
+        sponsored: true,
+        plantedTag: { param, host: parsed.hostname.toLowerCase() },
+      }
+    }
   }
 
   const affiliate = resolveTicketVendor(rawUrl)?.affiliate
@@ -438,5 +486,9 @@ export function ticketLink(
     ...kept.map(pair => pair.raw),
     `${affiliate.param}=${encodeURIComponent(partnerId)}`,
   ].join('&')
-  return { href: `${base}?${query}${fragment}`, sponsored: true }
+  return {
+    href: `${base}?${query}${fragment}`,
+    sponsored: true,
+    plantedTag: null,
+  }
 }

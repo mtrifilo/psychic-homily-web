@@ -14,6 +14,13 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/shows/test-show',
 }))
 
+// The planted-tag warning is a Sentry side effect; this file asserts that the
+// row FIRES it, and plantedTagTelemetry's own tests cover dedupe and scrubbing.
+const reportPlantedTicketTag = vi.fn()
+vi.mock('@/lib/tickets/plantedTagTelemetry', () => ({
+  reportPlantedTicketTag: (...args: unknown[]) => reportPlantedTicketTag(...args),
+}))
+
 vi.mock('../hooks/useSavedShows', () => ({
   useSaveShow: () => ({ mutate: vi.fn(), isPending: false }),
   useShowSaveCount: () => ({ data: undefined }),
@@ -352,6 +359,7 @@ describe('ShowTicketRow', () => {
   describe('with an affiliate partner ID configured', () => {
     beforeEach(() => {
       process.env.NEXT_PUBLIC_IMPACT_PARTNER_ID = '1234567'
+      reportPlantedTicketTag.mockClear()
     })
     afterEach(() => {
       delete process.env.NEXT_PUBLIC_IMPACT_PARTNER_ID
@@ -371,6 +379,43 @@ describe('ShowTicketRow', () => {
         'https://www.ticketweb.com/event/2?irmp=1234567'
       )
       expect(buy).toHaveAttribute('rel', 'noopener noreferrer sponsored')
+    })
+
+    // The stored value carried the tag, and we only ever append at render, so
+    // it was planted by whoever submitted the show. The link still renders as
+    // stored; the report is what makes the row findable.
+    it('renders a planted tag untouched, qualified, and reports it', () => {
+      render(
+        <ShowTicketRow
+          lifecycle="upcoming"
+          show={makeShow({
+            id: 4242,
+            ticket_url: 'https://www.ticketweb.com/event/2?irmp=9999999',
+          })}
+        />
+      )
+
+      const buy = screen.getByRole('link', { name: /^Buy tickets\b/i })
+      expect(buy).toHaveAttribute(
+        'href',
+        'https://www.ticketweb.com/event/2?irmp=9999999'
+      )
+      expect(buy).toHaveAttribute('rel', 'noopener noreferrer sponsored')
+      expect(reportPlantedTicketTag).toHaveBeenCalledWith({
+        entityType: 'show',
+        entityId: 4242,
+        tag: { param: 'irmp', host: 'www.ticketweb.com' },
+      })
+    })
+
+    it('reports nothing for a link this build tagged itself', () => {
+      render(
+        <ShowTicketRow
+          lifecycle="upcoming"
+          show={makeShow({ ticket_url: 'https://www.ticketweb.com/event/2' })}
+        />
+      )
+      expect(reportPlantedTicketTag).not.toHaveBeenCalled()
     })
 
     it('leaves an unknown vendor raw and unqualified', () => {

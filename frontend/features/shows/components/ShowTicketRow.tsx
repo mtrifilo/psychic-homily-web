@@ -10,6 +10,7 @@ import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 import { MiddotSegments } from './MiddotSegments'
 import { ShowAddToCalendar } from './ShowAddToCalendar'
 import { buyTicketsLink, ticketLineSegments } from './showTicketLine'
+import { usePlantedTicketTagReport } from '@/lib/tickets/usePlantedTicketTagReport'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import type { ShowResponse } from '../types'
 
@@ -59,6 +60,10 @@ export function ShowTicketRow({ show, lifecycle }: ShowTicketRowProps) {
   // vendor's affiliate tagging, which is a pass-through until a partner ID is
   // configured.
   const buyLink = buyTicketsLink(show, lifecycle)
+  // An affiliate tag in a STORED ticket url was planted by whoever submitted
+  // the show, since we only ever append ours at render. The link still renders
+  // as stored; this only makes the row findable.
+  usePlantedTicketTagReport('show', show.id, buyLink?.plantedTag)
 
   return (
     <div data-testid="show-ticket-row">
