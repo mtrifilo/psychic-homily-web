@@ -452,7 +452,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestDeleteArtist_Success() {
 	created, err := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Delete Me"})
 	suite.Require().NoError(err)
 
-	err = suite.artistService.DeleteArtist(created.ID)
+	err = suite.artistService.DeleteArtist(created.ID, deleteAsAdmin())
 
 	suite.Require().NoError(err)
 
@@ -462,7 +462,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestDeleteArtist_Success() {
 }
 
 func (suite *ArtistServiceIntegrationTestSuite) TestDeleteArtist_NotFound() {
-	err := suite.artistService.DeleteArtist(99999)
+	err := suite.artistService.DeleteArtist(99999, deleteAsAdmin())
 
 	suite.Require().Error(err)
 	var artistErr *apperrors.ArtistError
@@ -476,7 +476,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestDeleteArtist_HasShows_Fails(
 	user := suite.createTestUser()
 	suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
 
-	err := suite.artistService.DeleteArtist(artist.ID)
+	err := suite.artistService.DeleteArtist(artist.ID, deleteAsAdmin())
 
 	suite.Require().Error(err)
 	var artistErr *apperrors.ArtistError
@@ -1319,7 +1319,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtist_VeryLargeID() {
 }
 
 func (suite *ArtistServiceIntegrationTestSuite) TestDeleteArtist_ZeroID() {
-	err := suite.artistService.DeleteArtist(0)
+	err := suite.artistService.DeleteArtist(0, deleteAsAdmin())
 	suite.Require().Error(err)
 }
 

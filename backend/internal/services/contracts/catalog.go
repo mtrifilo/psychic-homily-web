@@ -2375,6 +2375,31 @@ type VenueMergeServiceInterface interface {
 // Artist Service Interface
 // ──────────────────────────────────────────────
 
+// EntityDeleteActor is who asked for a delete.
+//
+// It exists because DELETE /artists/{artist_id} is the one delete in the catalog
+// that is NOT admin-only: its five siblings (venue, label, festival, release,
+// show) sit behind the admin router, so their service methods can assume the
+// caller may destroy anything the entity carries. The artist path is open to any
+// authenticated user, because the show form offers to clean up an artist its
+// edit just orphaned, so the service has to be told who is asking before it can
+// decide how much it is allowed to destroy. See DeleteArtist.
+//
+// IsAdmin comes from the SAME field HumaAdminMiddleware gates on
+// (authm.User.IsAdmin, re-read from the database on every request by
+// JWTService.ValidateToken), so a caller cannot be an admin here and a non-admin
+// on /admin routes.
+type EntityDeleteActor struct {
+	// UserID is the authenticated caller. Zero is rejected on the non-admin
+	// path: the gate would have no way to tell the caller's own rows from a
+	// stranger's, so the delete fails rather than running with a widened
+	// definition of "inert".
+	UserID uint
+	// IsAdmin lifts the inertness gate entirely, matching the five admin-only
+	// delete paths.
+	IsAdmin bool
+}
+
 // ArtistServiceInterface defines the contract for artist operations.
 type ArtistServiceInterface interface {
 	CreateArtist(req *CreateArtistRequest) (*ArtistDetailResponse, error)
@@ -2396,7 +2421,11 @@ type ArtistServiceInterface interface {
 	// distinction is load-bearing.
 	GetArtistListing() ([]ArtistListingEntry, error)
 	UpdateArtist(artistID uint, req *UpdateArtistRequest) (*ArtistDetailResponse, error)
-	DeleteArtist(artistID uint) error
+	// DeleteArtist removes an artist and the polymorphic references that would
+	// otherwise be stranded. actor decides how much it may destroy: an admin
+	// deletes outright, a non-admin only when no other user has engaged with the
+	// artist. See the implementation for the inertness rule.
+	DeleteArtist(artistID uint, actor EntityDeleteActor) error
 	SearchArtists(query string) ([]*ArtistDetailResponse, error)
 	GetShowsForArtist(artistID uint, timezone string, query ArtistShowsQuery) ([]*ArtistShowResponse, int64, error)
 	// GetArtistShowYears is the year histogram behind the show list's year

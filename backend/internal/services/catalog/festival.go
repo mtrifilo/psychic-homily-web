@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
@@ -445,29 +446,37 @@ func (s *FestivalService) UpdateFestival(festivalID uint, req *contracts.UpdateF
 	return s.GetFestival(festivalID)
 }
 
-// DeleteFestival deletes a festival
+// DeleteFestival deletes a festival and sweeps the polymorphic references that
+// nothing else would clean up.
+//
+// Junction rows go by FK cascade; the polymorphic references have no FK to
+// cascade. See entityRefDeleteDispositions for the per-table record.
 func (s *FestivalService) DeleteFestival(festivalID uint) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
 	}
 
-	// Check if festival exists
-	var festival catalogm.Festival
-	err := s.db.First(&festival, festivalID).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return apperrors.ErrFestivalNotFound(festivalID)
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		var festival catalogm.Festival
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&festival, festivalID).Error
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return apperrors.ErrFestivalNotFound(festivalID)
+			}
+			return fmt.Errorf("failed to get festival: %w", err)
 		}
-		return fmt.Errorf("failed to get festival: %w", err)
-	}
 
-	// Delete the festival (cascades handle junction cleanup via FK)
-	err = s.db.Delete(&festival).Error
-	if err != nil {
-		return fmt.Errorf("failed to delete festival: %w", err)
-	}
+		if err := sweepEntityRefsForDelete(tx, entityTypeFestival, festivalID); err != nil {
+			return err
+		}
 
-	return nil
+		// Delete the festival (cascades handle junction cleanup via FK)
+		if err := tx.Delete(&festival).Error; err != nil {
+			return fmt.Errorf("failed to delete festival: %w", err)
+		}
+
+		return nil
+	})
 }
 
 // GetFestivalArtists retrieves the lineup for a festival

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
@@ -584,40 +585,50 @@ func (s *VenueService) UpdateVenue(venueID uint, req *contracts.UpdateVenueReque
 	return s.GetVenue(venueID)
 }
 
-// DeleteVenue deletes a venue
+// DeleteVenue deletes a venue and sweeps the polymorphic references that
+// nothing else would clean up.
+//
+// The reference sweep matters more here than anywhere else in this family:
+// source_configs is venue/label only, so a venue deleted without it leaves a
+// scraper registration pointed at a source whose venue is gone. See
+// entityRefDeleteDispositions for the full per-table record.
 func (s *VenueService) DeleteVenue(venueID uint) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
 	}
 
-	// Check if venue exists
-	var venue catalogm.Venue
-	err := s.db.First(&venue, venueID).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return apperrors.ErrVenueNotFound(venueID)
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		var venue catalogm.Venue
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&venue, venueID).Error
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return apperrors.ErrVenueNotFound(venueID)
+			}
+			return fmt.Errorf("failed to get venue: %w", err)
 		}
-		return fmt.Errorf("failed to get venue: %w", err)
-	}
 
-	// Check if venue is associated with any shows
-	var count int64
-	err = s.db.Model(&catalogm.ShowVenue{}).Where("venue_id = ?", venueID).Count(&count).Error
-	if err != nil {
-		return fmt.Errorf("failed to check venue associations: %w", err)
-	}
+		// Check if venue is associated with any shows
+		var count int64
+		err = tx.Model(&catalogm.ShowVenue{}).Where("venue_id = ?", venueID).Count(&count).Error
+		if err != nil {
+			return fmt.Errorf("failed to check venue associations: %w", err)
+		}
 
-	if count > 0 {
-		return apperrors.ErrVenueHasShows(venueID, count)
-	}
+		if count > 0 {
+			return apperrors.ErrVenueHasShows(venueID, count)
+		}
 
-	// Delete the venue
-	err = s.db.Delete(&venue).Error
-	if err != nil {
-		return fmt.Errorf("failed to delete venue: %w", err)
-	}
+		if err := sweepEntityRefsForDelete(tx, entityTypeVenue, venueID); err != nil {
+			return err
+		}
 
-	return nil
+		// Delete the venue
+		if err := tx.Delete(&venue).Error; err != nil {
+			return fmt.Errorf("failed to delete venue: %w", err)
+		}
+
+		return nil
+	})
 }
 
 func (venueService *VenueService) SearchVenues(query string) ([]*contracts.VenueDetailResponse, error) {

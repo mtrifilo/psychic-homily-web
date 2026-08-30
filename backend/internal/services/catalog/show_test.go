@@ -4226,8 +4226,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShow_VeryLargeID() {
 
 func (suite *ShowServiceIntegrationTestSuite) TestDeleteShow_ZeroID() {
 	err := suite.showService.DeleteShow(0)
-	// GORM Delete with ID=0 silently affects zero rows — no error returned.
-	suite.NoError(err)
+	// Before PSY-1868 this returned nil: GORM reports no error for a DELETE that
+	// matches zero rows, so the method reported success for an id that never
+	// existed. With a reference sweep in front of the delete, "success" for a
+	// show that is not there is a sweep that ran against nothing, so the method
+	// now loads the show first and reports it missing.
+	suite.Require().Error(err)
 }
 
 // =============================================================================

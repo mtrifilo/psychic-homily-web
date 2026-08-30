@@ -22,14 +22,14 @@ import (
 func unusableTx() *gorm.DB { return &gorm.DB{} }
 
 func TestRepointRevisions_RejectsUndecidedProvenance(t *testing.T) {
-	_, err := repointRevisions(unusableTx(), mergeEntityShow, 1, 2, provenanceUndecided)
+	_, err := repointRevisions(unusableTx(), entityTypeShow, 1, 2, provenanceUndecided)
 	if err == nil {
 		t.Fatal("the zero provenance must be rejected — it is 'nobody decided', not 'no stamp'")
 	}
 }
 
 func TestRepointRevisions_RejectsUnknownProvenance(t *testing.T) {
-	_, err := repointRevisions(unusableTx(), mergeEntityShow, 1, 2, revisionProvenance(99))
+	_, err := repointRevisions(unusableTx(), entityTypeShow, 1, 2, revisionProvenance(99))
 	if err == nil {
 		t.Fatal("a provenance outside the declared set must be rejected")
 	}
@@ -38,7 +38,7 @@ func TestRepointRevisions_RejectsUnknownProvenance(t *testing.T) {
 // The stamp names a venue column and only the venue read gate honors it.
 // Stamping an artist or a show would record a protection that does not exist.
 func TestRepointRevisions_RejectsVenueStampOnOtherEntities(t *testing.T) {
-	for _, entity := range []mergeEntityType{mergeEntityArtist, mergeEntityShow} {
+	for _, entity := range []polymorphicEntityType{entityTypeArtist, entityTypeShow} {
 		t.Run(string(entity), func(t *testing.T) {
 			_, err := repointRevisions(unusableTx(), entity, 1, 2, stampFromUnverifiedVenue)
 			if err == nil {
@@ -52,7 +52,7 @@ func TestRepointRevisions_RejectsVenueStampOnOtherEntities(t *testing.T) {
 // stamping a venue or an artist would record a suppression nothing enforces
 // while making the row look protected to the next reader.
 func TestRepointRevisions_RejectsShowStampOnOtherEntities(t *testing.T) {
-	for _, entity := range []mergeEntityType{mergeEntityArtist, mergeEntityVenue} {
+	for _, entity := range []polymorphicEntityType{entityTypeArtist, entityTypeVenue} {
 		t.Run(string(entity), func(t *testing.T) {
 			_, err := repointRevisions(unusableTx(), entity, 1, 2, stampFromGatedShow)
 			if err == nil {
@@ -63,7 +63,7 @@ func TestRepointRevisions_RejectsShowStampOnOtherEntities(t *testing.T) {
 }
 
 func TestRepointRevisions_RejectsUnknownEntityType(t *testing.T) {
-	_, err := repointRevisions(unusableTx(), mergeEntityType("venues"), 1, 2, noRedactionCarryover)
+	_, err := repointRevisions(unusableTx(), polymorphicEntityType("venues"), 1, 2, noRedactionCarryover)
 	if err == nil {
 		t.Fatal("a mistyped entity type must be rejected — it would match no rows and look like success")
 	}
@@ -73,17 +73,17 @@ func TestRepointRevisions_RejectsUnknownEntityType(t *testing.T) {
 // stamp: it would mark the surviving venue's own history as carried off an
 // unverified one.
 func TestRepointRevisions_RejectsSelfMerge(t *testing.T) {
-	_, err := repointRevisions(unusableTx(), mergeEntityVenue, 7, 7, stampFromUnverifiedVenue)
+	_, err := repointRevisions(unusableTx(), entityTypeVenue, 7, 7, stampFromUnverifiedVenue)
 	if err == nil {
 		t.Fatal("re-pointing an entity onto itself must be rejected")
 	}
 }
 
 func TestRepointRevisions_RejectsZeroIDs(t *testing.T) {
-	if _, err := repointRevisions(unusableTx(), mergeEntityVenue, 0, 2, noRedactionCarryover); err == nil {
+	if _, err := repointRevisions(unusableTx(), entityTypeVenue, 0, 2, noRedactionCarryover); err == nil {
 		t.Fatal("a zero canonical id must be rejected")
 	}
-	if _, err := repointRevisions(unusableTx(), mergeEntityVenue, 1, 0, noRedactionCarryover); err == nil {
+	if _, err := repointRevisions(unusableTx(), entityTypeVenue, 1, 0, noRedactionCarryover); err == nil {
 		t.Fatal("a zero merge-from id must be rejected")
 	}
 }

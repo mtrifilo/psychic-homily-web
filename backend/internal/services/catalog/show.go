@@ -18,12 +18,12 @@ import (
 
 	"gopkg.in/yaml.v3"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
-	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/geo"
 	"psychic-homily-backend/internal/services/shared"
@@ -1411,22 +1411,40 @@ func (s *ShowService) SearchShows(query string) ([]*contracts.ShowSearchResult, 
 	return results, nil
 }
 
-// DeleteShow deletes a show and its associations
+// DeleteShow deletes a show and its associations.
+//
+// Returns ErrShowNotFound when the show does not exist. Before PSY-1868 this
+// method loaded nothing and reported success for any id, including ids that
+// never existed, because GORM reports no error for a DELETE matching zero rows.
+// That was survivable while the method deleted one row; it is not survivable
+// with a reference sweep in front, which would run for an entity that was never
+// there. DeleteShowHandler already 404s on its own read before calling this, so
+// no API behaviour changes.
 func (s *ShowService) DeleteShow(showID uint) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
 	}
 
 	return s.db.Transaction(func(tx *gorm.DB) error {
-		// Polymorphic bookmarks have no FK to shows. Remove every action for
-		// this entity inside the same transaction so saved-show totals cannot
-		// retain a dangling row after deletion.
-		if err := tx.Where(
-			"entity_type = ? AND entity_id = ?",
-			engagementm.BookmarkEntityShow,
-			showID,
-		).Delete(&engagementm.UserBookmark{}).Error; err != nil {
-			return fmt.Errorf("failed to delete show bookmarks: %w", err)
+		// The row lock serializes this delete against the show merge and against
+		// another concurrent delete of the same show. It does not close the
+		// reference-writer race; see DeleteArtist for why, and for what closing it
+		// would take.
+		var show catalogm.Show
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&show, showID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return apperrors.ErrShowNotFound(showID)
+			}
+			return fmt.Errorf("failed to get show: %w", err)
+		}
+
+		// Polymorphic references have no FK to shows, so nothing cascades them.
+		// This used to sweep user_bookmarks alone; every other table in the
+		// inventory carries show ids too, including the alert rows that key on
+		// their own discriminator rather than on entity_type='show' (PSY-1868).
+		// The full per-table record is in entityRefDeleteDispositions.
+		if err := sweepEntityRefsForDelete(tx, entityTypeShow, showID); err != nil {
+			return err
 		}
 
 		// Delete show associations first (cascade will handle this, but being explicit)

@@ -170,6 +170,147 @@ describe('OrphanedArtistsDialog', () => {
       expect(onComplete).not.toHaveBeenCalled()
     })
 
+    // The API refuses a non-admin delete of an artist other people have engaged
+    // with, and its 403 body is the only accurate explanation: the generic line
+    // blames shows, which is not why this one was refused, and sends the reader
+    // to look at the wrong thing.
+    it('shows the API reason when the delete is refused as forbidden', async () => {
+      const user = userEvent.setup()
+      const refusal = Object.assign(
+        new Error(
+          'Cannot delete artist: other people have engaged with it, by saving, ' +
+            'tagging or following its comments. Ask an admin to delete it.'
+        ),
+        { status: 403 }
+      )
+      mockApiRequest.mockRejectedValue(refusal)
+
+      renderWithProviders(
+        <OrphanedArtistsDialog
+          open
+          onOpenChange={vi.fn()}
+          artists={[makeArtist()]}
+        />
+      )
+
+      await user.click(screen.getByRole('button', { name: /Delete Artist/i }))
+
+      expect(
+        await screen.findByText(/other people have engaged with it/i)
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText(/Failed to delete some artists/i)
+      ).not.toBeInTheDocument()
+    })
+
+    // Every other failure keeps the generic line: those bodies are written for
+    // an operator (they carry request ids and internal detail), not for the
+    // person looking at this dialog.
+    it('keeps the generic message for a non-403 failure', async () => {
+      const user = userEvent.setup()
+      const serverError = Object.assign(
+        new Error('Failed to delete artist (request_id: abc123)'),
+        { status: 500 }
+      )
+      mockApiRequest.mockRejectedValue(serverError)
+
+      renderWithProviders(
+        <OrphanedArtistsDialog
+          open
+          onOpenChange={vi.fn()}
+          artists={[makeArtist()]}
+        />
+      )
+
+      await user.click(screen.getByRole('button', { name: /Delete Artist/i }))
+
+      expect(
+        await screen.findByText(/Failed to delete some artists/i)
+      ).toBeInTheDocument()
+      expect(screen.queryByText(/request_id/i)).not.toBeInTheDocument()
+    })
+
+    // A mixed result is routine now that one orphan can be refused with 403
+    // while the rest delete cleanly. The deletes that committed must not be
+    // re-issued on a second click: those artists are gone, so the retry would
+    // 404 and the 404 would replace the real reason with the generic line.
+    it('does not re-delete artists that already succeeded after a partial failure', async () => {
+      const user = userEvent.setup()
+      const onOpenChange = vi.fn()
+      const onComplete = vi.fn()
+      const refusal = Object.assign(
+        new Error('Cannot delete artist: other people have engaged with it.'),
+        { status: 403 }
+      )
+      mockApiRequest.mockImplementation((endpoint: string) =>
+        endpoint === '/artists/2'
+          ? Promise.reject(refusal)
+          : Promise.resolve(undefined)
+      )
+
+      renderWithProviders(
+        <OrphanedArtistsDialog
+          open
+          onOpenChange={onOpenChange}
+          artists={[
+            makeArtist({ id: 1, name: 'Orphan A' }),
+            makeArtist({ id: 2, name: 'Orphan B' }),
+          ]}
+          onComplete={onComplete}
+        />
+      )
+
+      await user.click(screen.getByRole('button', { name: /Delete Artists/i }))
+
+      expect(
+        await screen.findByText(/other people have engaged with it/i)
+      ).toBeInTheDocument()
+      // The dialog stays open on a partial failure and does not claim completion.
+      expect(onOpenChange).not.toHaveBeenCalled()
+      expect(onComplete).not.toHaveBeenCalled()
+
+      mockApiRequest.mockClear()
+      await user.click(screen.getByRole('button', { name: /Delete Artists/i }))
+
+      expect(mockApiRequest).toHaveBeenCalledTimes(1)
+      expect(mockApiRequest).toHaveBeenCalledWith('/artists/2', {
+        method: 'DELETE',
+      })
+    })
+
+    // The parent keeps this mounted in edit mode, so a refusal left in state
+    // would greet the user again the next time the dialog opens for a different
+    // set of orphans.
+    it('clears a previous failure when the dialog is closed', async () => {
+      const user = userEvent.setup()
+      const refusal = Object.assign(
+        new Error('Cannot delete artist: other people have engaged with it.'),
+        { status: 403 }
+      )
+      mockApiRequest.mockRejectedValue(refusal)
+
+      renderWithProviders(
+        <OrphanedArtistsDialog
+          open
+          onOpenChange={vi.fn()}
+          artists={[makeArtist()]}
+        />
+      )
+
+      await user.click(screen.getByRole('button', { name: /Delete Artist/i }))
+      expect(
+        await screen.findByText(/other people have engaged with it/i)
+      ).toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: /Keep All/i }))
+
+      await waitFor(() =>
+        expect(
+          screen.queryByText(/other people have engaged with it/i)
+        ).not.toBeInTheDocument()
+      )
+    })
+
     it('disables both buttons while a delete is in flight', async () => {
       const user = userEvent.setup()
       // Hold the request open so the pending UI is observable.

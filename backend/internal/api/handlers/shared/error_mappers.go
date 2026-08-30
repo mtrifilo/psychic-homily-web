@@ -158,6 +158,11 @@ func MapNotificationFilterError(err error) error {
 // by-shows → 409 conflict; merge-into-self → 422 (semantic validation).
 // HasShows is 409 here — intentionally distinct from venue HasShows (422) —
 // to preserve each handler's pre-existing status contract.
+//
+// HasOtherUsersEngagement → 403, and the status is the point rather than a
+// detail: the request is well formed and the artist is deletable, just not BY
+// THIS CALLER. A 409 would tell the client to change the artist and retry; a 403
+// tells it to escalate to an admin, which is the only thing that works.
 func MapArtistError(err error) error {
 	var artistErr *apperrors.ArtistError
 	if errors.As(err, &artistErr) {
@@ -168,6 +173,8 @@ func MapArtistError(err error) error {
 			return huma.Error409Conflict(artistErr.Message)
 		case apperrors.CodeArtistMergeSelf:
 			return huma.Error422UnprocessableEntity(artistErr.Message)
+		case apperrors.CodeArtistHasOtherUsersEngagement:
+			return huma.Error403Forbidden(artistErr.Message)
 		}
 	}
 	return nil

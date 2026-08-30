@@ -507,7 +507,7 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 		// summary the CLI prints.
 		if skipped > 0 && ref.table == "show_reports" {
 			logDroppedEntityRefs(
-				mergeEntityShow, winnerID, loserID, map[string]int64{ref.table: skipped})
+				entityTypeShow, winnerID, loserID, map[string]int64{ref.table: skipped})
 		}
 	}
 
@@ -546,7 +546,7 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 		// notification the event would ever have received (see showFKColumns), and
 		// "which show went quiet" is not a question the aggregate counter can answer.
 		logDroppedEntityRefs(
-			mergeEntityShow, winnerID, loserID,
+			entityTypeShow, winnerID, loserID,
 			map[string]int64{"show_notify_queue": res.RowsAffected})
 	}
 
@@ -594,7 +594,7 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 		{entityEditAuditHistory, &summary.EditAuditLogsMoved, &summary.EditAuditLogsSkipped},
 	} {
 		moved, dropped, err := repointEditHistory(
-			tx, h.table, mergeEntityShow, winnerID, loserID, editHistoryCarriesNoRedaction)
+			tx, h.table, entityTypeShow, winnerID, loserID, editHistoryCarriesNoRedaction)
 		if err != nil {
 			return err
 		}
@@ -602,7 +602,7 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 		*h.dropped += dropped
 		if dropped > 0 {
 			logDroppedEntityRefs(
-				mergeEntityShow, winnerID, loserID, map[string]int64{h.table.name: dropped})
+				entityTypeShow, winnerID, loserID, map[string]int64{h.table.name: dropped})
 		}
 	}
 
@@ -628,12 +628,12 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 	// list is cheaper to keep correct than a list plus a set of per-entity
 	// exceptions that has to be re-verified every time a CHECK changes.
 	entityRefsMoved, entityRefsDropped, err := repointEntityRefs(
-		tx, polymorphicEntityRefs, mergeEntityShow, winnerID, loserID)
+		tx, polymorphicEntityRefs, entityTypeShow, winnerID, loserID)
 	if err != nil {
 		return err
 	}
 	summary.addEntityRefCounts(entityRefsMoved, entityRefsDropped)
-	logDroppedEntityRefs(mergeEntityShow, winnerID, loserID, entityRefsDropped)
+	logDroppedEntityRefs(entityTypeShow, winnerID, loserID, entityRefsDropped)
 
 	// notification_log rows for follow-driven show alerts (PSY-1896). Separate
 	// from the loop above because they key on their own entity_type, so
@@ -646,7 +646,7 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 	}
 	summary.AlertRowsMoved += alertsMoved
 	if alertsDropped > 0 {
-		logDroppedEntityRefs(mergeEntityShow, winnerID, loserID,
+		logDroppedEntityRefs(entityTypeShow, winnerID, loserID,
 			map[string]int64{"notification_log (artist_show_alert)": alertsDropped})
 	}
 
@@ -661,7 +661,7 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 	}
 	summary.VenueAlertBatchMoved += batchMoved
 	if batchDropped > 0 {
-		logDroppedEntityRefs(mergeEntityShow, winnerID, loserID,
+		logDroppedEntityRefs(entityTypeShow, winnerID, loserID,
 			map[string]int64{"venue_show_alert_batch": batchDropped})
 	}
 
@@ -782,7 +782,7 @@ func reassignShowRevisions(tx *gorm.DB, winnerID, loserID uint) (int64, error) {
 		provenance = stampFromGatedShow
 	}
 
-	return repointRevisions(tx, mergeEntityShow, winnerID, loserID, provenance)
+	return repointRevisions(tx, entityTypeShow, winnerID, loserID, provenance)
 }
 
 // moveShowFKRows re-points one table's foreign key to shows.id, dropping the

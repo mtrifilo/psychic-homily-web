@@ -203,12 +203,12 @@ func lockMergeArtists(tx *gorm.DB, canonicalID, mergeFromID uint) (*catalogm.Art
 func reassignArtistEditHistory(tx *gorm.DB, canonicalID, mergeFromID uint) error {
 	for _, table := range []editHistoryTable{pendingEditsHistory, entityEditAuditHistory} {
 		_, dropped, err := repointEditHistory(
-			tx, table, mergeEntityArtist, canonicalID, mergeFromID, editHistoryCarriesNoRedaction)
+			tx, table, entityTypeArtist, canonicalID, mergeFromID, editHistoryCarriesNoRedaction)
 		if err != nil {
 			return err
 		}
 		logDroppedEntityRefs(
-			mergeEntityArtist, canonicalID, mergeFromID, map[string]int64{table.name: dropped})
+			entityTypeArtist, canonicalID, mergeFromID, map[string]int64{table.name: dropped})
 	}
 	return nil
 }

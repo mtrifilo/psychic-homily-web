@@ -14,6 +14,26 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 
+const GENERIC_DELETE_FAILURE =
+  'Failed to delete some artists. They may have been associated with other shows.'
+
+/**
+ * Explain a failed delete.
+ *
+ * The generic line is a guess, and for one refusal it is the WRONG guess: the
+ * API refuses a non-admin delete of an artist other people have engaged with,
+ * and answers 403 with a message naming that reason and the remedy (ask an
+ * admin). Overwriting it with "may have been associated with other shows" sends
+ * the reader to look at a bill that has nothing to do with it. Only 403 is
+ * passed through, because it is the one status whose body is written for this
+ * reader rather than for an operator.
+ */
+function deleteFailureMessage(err: unknown): string {
+  const status = (err as { status?: number } | null)?.status
+  const message = err instanceof Error ? err.message.trim() : ''
+  return status === 403 && message ? message : GENERIC_DELETE_FAILURE
+}
+
 interface OrphanedArtistsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -29,35 +49,70 @@ export function OrphanedArtistsDialog({
 }: OrphanedArtistsDialogProps) {
   const [isDeleting, setIsDeleting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Which of these artists this dialog has already deleted. Needed because a
+  // partial failure leaves the dialog open with the whole list still on screen:
+  // without it, a second click re-issues DELETE for rows that are already gone,
+  // and their 404s replace the real reason with the generic line.
+  const [deletedIds, setDeletedIds] = useState<ReadonlySet<number>>(
+    () => new Set()
+  )
+
+  // Closing discards the failure. The parent keeps this component mounted in
+  // edit mode, so an "ask an admin" message left in state would be waiting on
+  // screen the next time the dialog opens for a different set of orphans.
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) setError(null)
+    onOpenChange(nextOpen)
+  }
 
   const handleDelete = async () => {
     setIsDeleting(true)
     setError(null)
 
+    const pending = artists.filter(artist => !deletedIds.has(artist.id))
+
     try {
-      await Promise.all(
-        artists.map(artist =>
+      // allSettled, not all: one refusal must not hide what happened to the
+      // others. A non-admin delete is now refused with 403 for any artist other
+      // people have engaged with, so a mixed result is a routine outcome rather
+      // than an edge case, and the deletes that DID commit have to be recorded.
+      const results = await Promise.allSettled(
+        pending.map(artist =>
           apiRequest(API_ENDPOINTS.ARTISTS.DELETE(artist.id), {
             method: 'DELETE',
           })
         )
       )
-      onOpenChange(false)
-      onComplete?.()
-    } catch {
-      setError('Failed to delete some artists. They may have been associated with other shows.')
+
+      const deleted = pending.filter((_, i) => results[i].status === 'fulfilled')
+      const firstFailure = results.find(r => r.status === 'rejected')
+
+      if (deleted.length > 0) {
+        setDeletedIds(previous => {
+          const next = new Set(previous)
+          for (const artist of deleted) next.add(artist.id)
+          return next
+        })
+      }
+
+      if (!firstFailure) {
+        handleOpenChange(false)
+        onComplete?.()
+        return
+      }
+      setError(deleteFailureMessage(firstFailure.reason))
     } finally {
       setIsDeleting(false)
     }
   }
 
   const handleKeep = () => {
-    onOpenChange(false)
+    handleOpenChange(false)
     onComplete?.()
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">

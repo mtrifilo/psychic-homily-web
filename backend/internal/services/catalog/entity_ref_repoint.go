@@ -137,11 +137,11 @@ var refsRepointedElsewhere = []string{
 func repointEntityRefs(
 	tx *gorm.DB,
 	refs []entityRef,
-	entity mergeEntityType,
+	entity polymorphicEntityType,
 	canonicalID, mergeFromID uint,
 ) (moved, dropped map[string]int64, err error) {
-	if !entity.valid() {
-		return nil, nil, fmt.Errorf("repoint entity refs: unknown entity type %q", string(entity))
+	if !entity.mergeable() {
+		return nil, nil, fmt.Errorf("repoint entity refs: %q has no merge path", string(entity))
 	}
 	if canonicalID == 0 || mergeFromID == 0 {
 		return nil, nil, fmt.Errorf("repoint entity refs: canonical and merge-from ids are required")
@@ -474,7 +474,7 @@ func repointVenueShowAlertBatch(
 // without this line nobody can answer "what did that merge destroy?" afterwards.
 // The merge summary types have no field for it, and adding one is an API-contract
 // change; a log entry is the part that can land with the fix itself.
-func logDroppedEntityRefs(entity mergeEntityType, canonicalID, mergeFromID uint, dropped map[string]int64) {
+func logDroppedEntityRefs(entity polymorphicEntityType, canonicalID, mergeFromID uint, dropped map[string]int64) {
 	for table, count := range dropped {
 		if count == 0 {
 			continue

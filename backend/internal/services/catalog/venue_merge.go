@@ -355,6 +355,31 @@ func deleteDuplicateShows(tx *gorm.DB) error {
 		return fmt.Errorf("failed to move venue alert batch rows: %w", err)
 	}
 
+	// KNOWN GAP, recorded rather than implied (PSY-1868).
+	//
+	// PSY-1868 wired sweepEntityRefsForDelete into the six delete methods for the
+	// six INVENTORIED catalog entity types (venue, artist, show, release, label,
+	// festival). This set-based delete is not one of them, so every
+	// entity_type='show' row for a losing show is stranded exactly as an artist
+	// delete used to strand its own — bookmarks, crate items, tags (and their
+	// share of tags.usage_count), comments, reports and history.
+	//
+	// It is NOT the only remaining stranding delete in this package, and saying so
+	// is the point of writing this down. RadioService.DeleteShow and
+	// RadioService.DeleteStation (radio.go) and TagService.DeleteTag plus the bulk
+	// delete in tag_low_quality.go are all still bare deletes, and 'radio_show',
+	// 'tag' and 'scene' are live user_bookmarks.entity_type values with no foreign
+	// key behind them. Those are outside the six-type vocabulary this sweep
+	// speaks, so each needs its own reference surface verified before it can be
+	// wired up; none of them is covered by any guard added here.
+	//
+	// It is deliberately NOT fixed here, because a sweep is the wrong repair. A
+	// losing show in this set has a WINNER (venue_merge_dup.winner_show), so its
+	// references should be RE-POINTED the way MergeDuplicateShow re-points them,
+	// not deleted. That is the PSY-1834 / PSY-1869 merge-side treatment, it needs
+	// this path routed through MergeDuplicateShow or given the same per-table
+	// provenance decisions, and it belongs in a ticket of its own rather than
+	// smuggled into a delete-path change.
 	if err := tx.Exec(`
 		DELETE FROM shows s
 		USING venue_merge_dup d
@@ -508,7 +533,7 @@ func reassignVenueRevisions(tx *gorm.DB, canonicalID uint, mergeFrom *catalogm.V
 		provenance = noRedactionCarryover
 	}
 
-	moved, err := repointRevisions(tx, mergeEntityVenue, canonicalID, mergeFrom.ID, provenance)
+	moved, err := repointRevisions(tx, entityTypeVenue, canonicalID, mergeFrom.ID, provenance)
 	if err != nil {
 		return err
 	}
@@ -536,7 +561,7 @@ func reassignVenueRevisions(tx *gorm.DB, canonicalID uint, mergeFrom *catalogm.V
 func reassignVenueEditHistory(tx *gorm.DB, canonicalID, mergeFromID uint, result *contracts.MergeVenueResult) error {
 	for _, table := range []editHistoryTable{pendingEditsHistory, entityEditAuditHistory} {
 		moved, _, err := repointEditHistory(
-			tx, table, mergeEntityVenue, canonicalID, mergeFromID, editHistoryCarriesNoRedaction)
+			tx, table, entityTypeVenue, canonicalID, mergeFromID, editHistoryCarriesNoRedaction)
 		if err != nil {
 			return err
 		}
@@ -555,14 +580,14 @@ func reassignVenueEditHistory(tx *gorm.DB, canonicalID, mergeFromID uint, result
 // field for it.
 func reassignEntityRefs(tx *gorm.DB, canonicalID, mergeFromID uint, result *contracts.MergeVenueResult) error {
 	moved, dropped, err := repointEntityRefs(
-		tx, polymorphicEntityRefs, mergeEntityVenue, canonicalID, mergeFromID)
+		tx, polymorphicEntityRefs, entityTypeVenue, canonicalID, mergeFromID)
 	if err != nil {
 		return err
 	}
 	for _, count := range moved {
 		result.EntityRefsMoved += count
 	}
-	logDroppedEntityRefs(mergeEntityVenue, canonicalID, mergeFromID, dropped)
+	logDroppedEntityRefs(entityTypeVenue, canonicalID, mergeFromID, dropped)
 	return nil
 }
 
@@ -592,7 +617,7 @@ func reassignVenueAlertRows(tx *gorm.DB, canonicalID, mergeFromID uint, result *
 	}
 	result.EntityRefsMoved += logMoved
 	if logDropped > 0 {
-		logDroppedEntityRefs(mergeEntityVenue, canonicalID, mergeFromID,
+		logDroppedEntityRefs(entityTypeVenue, canonicalID, mergeFromID,
 			map[string]int64{"notification_log (venue_show_alert)": logDropped})
 	}
 
@@ -602,7 +627,7 @@ func reassignVenueAlertRows(tx *gorm.DB, canonicalID, mergeFromID uint, result *
 	}
 	result.EntityRefsMoved += batchMoved
 	if batchDropped > 0 {
-		logDroppedEntityRefs(mergeEntityVenue, canonicalID, mergeFromID,
+		logDroppedEntityRefs(entityTypeVenue, canonicalID, mergeFromID,
 			map[string]int64{"venue_show_alert_batch": batchDropped})
 	}
 	return nil
