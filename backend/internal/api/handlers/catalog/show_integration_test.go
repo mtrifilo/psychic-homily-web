@@ -852,7 +852,8 @@ func (s *ShowHandlerIntegrationSuite) TestSetShowCancelled_OwnerSuccess() {
 // Seeds the headliner as `set_type='headliner'` at position 0, so the fixture
 // satisfies display resolvers and duplicate guards alike. That pairing is a
 // fixture convenience, not a codebase-wide definition of "headliner":
-// catalog/headline_slot.go owns the rule and groups the sites that diverge.
+// internal/services/catalog/headline_slot.go owns the rule and groups the sites
+// that diverge.
 // There is no `is_headliner` column on show_artists.
 func (s *ShowHandlerIntegrationSuite) createShowForSearch(
 	title, headlinerName string,

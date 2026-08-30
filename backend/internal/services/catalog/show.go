@@ -278,23 +278,33 @@ func (s *ShowService) determineShowStatus(tx *gorm.DB, venues []contracts.Create
 	return catalogm.ShowStatusApproved
 }
 
-// checkDuplicateHeadlinerConflicts refuses a create whose headliner is already
-// on a bill at the same venue at the same exact timestamp.
+// checkDuplicateHeadlinerConflicts refuses a create when the act this guard
+// probes -- the request's stated headliner, or Artists[0] when no act states one
+// -- is already on a bill at the same venue at the same exact timestamp. Neither
+// side of the match is necessarily a headliner.
 // Uses pg_advisory_xact_lock to prevent race conditions where two concurrent
 // requests could both pass the check before either commits.
 //
 // CANONICAL rationale for this predicate; pipeline's checkHeadlinerDuplicate and
-// headline_slot.go both point here rather than restating it. That twin is not
-// identical: it also filters out rejected and private shows.
+// services/catalog/headline_slot.go both point here rather than restating it.
+// That twin is not identical: it also filters out rejected and private shows.
 //
-// Two things refuse a duplicate here, and neither covers the other completely.
+// Two things refuse a duplicate here, and NEITHER IS A SUPERSET OF THE OTHER.
 // `shows_artist_venue_eventdate_uniq` is UNIQUE (artist_id, venue_id,
-// event_date) on show_artists, keyed on ids and PARTIAL on
-// `WHERE event_date IS NOT NULL AND venue_id IS NOT NULL`;
+// event_date) on show_artists, PARTIAL on
+// `WHERE event_date IS NOT NULL AND venue_id IS NOT NULL`, and keyed on IDS;
 // syncShowArtistDedupColumns stamps those columns in this same transaction.
-// Where the index reaches it refuses any artist collision, with no set_type or
-// position term, so it is strictly wider than this guard and the guard's value
-// there is the message. Where it does not reach, this guard is the only refusal.
+// This guard is keyed on LOWER(artists.name) and LOWER(venues.name), with no
+// city term. So:
+//
+//   - On one (artist_id, venue_id, event_date) triple the index refuses
+//     regardless of set_type or position, and there this guard adds only the
+//     message.
+//   - Where the two resolve to DIFFERENT ids, only this guard fires. Venues may
+//     legally share a name across cities (idx_venues_name_city_unique), and this
+//     guard cannot tell them apart, so that arm also produces false positives.
+//   - Where the denorm columns are NULL, or the collision sits at a multi-venue
+//     show's non-lowest venue_id, this guard is the only refusal.
 //
 // So the predicate is NOT headlineSlotSQL's and must not be aligned to it. A
 // classifier answers "which row tops this bill"; this guard answers "would this
@@ -303,7 +313,7 @@ func (s *ShowService) determineShowStatus(tx *gorm.DB, venues []contracts.Create
 // reaches a curated opener. On an UNCURATED bill the two agree, both resolving
 // to position 0, so that is not where they diverge.
 //
-// Narrowing to the classifier was measured: wherever the index reaches it
+// Narrowing to the classifier was measured: on an index-covered triple it
 // refuses nothing new, and on a MULTI-VENUE show it admits a real duplicate,
 // because syncShowArtistDedupColumns stamps only the lowest venue_id and the
 // index is blind to a collision at any other venue of that show. That is what
@@ -311,9 +321,11 @@ func (s *ShowService) determineShowStatus(tx *gorm.DB, venues []contracts.Create
 //
 // Scope, so this is not read as more than it is:
 //
-//   - Only the two create paths run a guard. UpdateShow re-stamps the dedup
-//     columns without calling one, so a show edited onto a colliding timestamp
-//     has the index alone behind it.
+//   - Of the paths that create shows, only this one and discovery's import run a
+//     guard. admin/data_sync.importShow runs a TITLE-keyed check instead, so an
+//     artist collision under a different title falls to the index alone there,
+//     and cmd/seed writes show_artists directly. UpdateShow re-stamps the dedup
+//     columns without calling any guard.
 //   - The message below reaches server logs and in-process callers. The HTTP
 //     surface replaces it with a fixed "Failed to create show", so this copy is
 //     not what an API client reads.
@@ -1052,6 +1064,10 @@ func (s *ShowService) loadShowArtistResponses(tx *gorm.DB, showID uint) ([]contr
 // checkDuplicateHeadlinerConflicts and pipeline's checkHeadlinerDuplicate stay
 // broader than headlineSlotSQL. Do not narrow either on the assumption that
 // this constraint backstops it.
+//
+// EXPIRES: PSY-1979 proposes covering every venue of a multi-venue show. If it
+// lands, this paragraph and the load-bearing argument on
+// checkDuplicateHeadlinerConflicts both have to be revisited together.
 //
 // Package-level so the show-dedup merge path (show_dedup.go) can call
 // it too after re-pointing show_artists rows between merged shows.

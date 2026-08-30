@@ -182,15 +182,17 @@ func (s *DiscoveryService) ImportFromJSON(filepath string, dryRun bool) (*contra
 	return result, nil
 }
 
-// checkHeadlinerDuplicate reports whether the scraped event's headliner is already
-// on a bill at the same venue at the same exact event_date, ignoring rejected and
-// private shows. Returns the matching show or nil.
+// checkHeadlinerDuplicate reports whether the act resolveHeadlinerName picked for
+// this event is already on a bill at the same venue at the same exact event_date,
+// ignoring rejected and private shows. Neither side of the match is necessarily a
+// headliner. Returns the matching show or nil.
 // The dedup key is the FULL event_date timestamp (PSY-559) — matinee and evening sets at
 // the same venue are distinct shows, not duplicates.
 //
 // The stored row matches on curated 'headliner' OR position 0, deliberately broader
-// than catalog's headlineSlotSQL; catalog.checkDuplicateHeadlinerConflicts carries the
-// rationale and the reason not to align it.
+// than catalog's headlineSlotSQL. checkDuplicateHeadlinerConflicts, in
+// internal/services/catalog/show.go, carries the rationale and the reason not to
+// align it.
 //
 // Local consequence: a hit tallies the event as DUPLICATE and skips it, while a miss
 // falls through to the import, where the dedup index refuses a single-venue collision

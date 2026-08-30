@@ -2310,21 +2310,26 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_DuplicateErrorClaim
 	suite.Equal(contracts.SetTypeOpener, stored.SetType)
 }
 
-// TestCreateShow_PartiallyCuratedTopActIsStillDuplicateChecked covers the bill
-// the public create surface produces by default. handlers/catalog.initializeArtist
-// pins is_headliner=false on any act that did not state one, so resolveArtistRole
-// stores the top act 'performer' at position 0 and the bill carries no headliner
-// row at all. headlineSlotSQL reads that as "no headline slot", so aligning the
-// guard to it would stop duplicate-checking the shape most shows arrive in.
+// TestCreateShow_PartiallyCuratedTopActIsStillDuplicateChecked covers a
+// PARTIALLY CURATED bill: one act states 'opener', the top act states nothing
+// and is stored 'performer' at position 0 (handlers/catalog.initializeArtist
+// pins is_headliner=false on any act that did not state a role).
 //
-// The position arm is the only reason this bill is duplicate-checked, which is
-// why checkDuplicateHeadlinerConflicts keeps it.
+// Because some act is curated, headlineSlotSQL takes its CURATED arm and finds
+// no 'headliner' row, so it reads this bill as having no headline slot. That is
+// what makes this the narrow shape where the two predicates diverge: on a fully
+// uncurated bill headlineSlotSQL falls back to position 0 and agrees with the
+// guard, and the show form always sends a set_type with act one defaulting to
+// 'headliner', so ordinary submissions are curated bills with a real headliner
+// row. This bill is reachable from an API client, not from the form.
+//
+// The position arm is the only reason it is duplicate-checked at all.
 func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_PartiallyCuratedTopActIsStillDuplicateChecked() {
 	user := suite.createTestUser()
 	eventDate := suite.uniqueEventDate()
 	venue := []contracts.CreateShowVenue{{Name: "Partial Curation Venue", City: "Phoenix", State: "AZ"}}
 
-	_, err := suite.showService.CreateShow(&contracts.CreateShowRequest{
+	existing, err := suite.showService.CreateShow(&contracts.CreateShowRequest{
 		Title:     "Partially Curated Bill",
 		EventDate: eventDate,
 		City:      "Phoenix",
@@ -2340,12 +2345,14 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_PartiallyCuratedTop
 	})
 	suite.Require().NoError(err)
 
-	// Precondition: the bill really has no headliner row, so this is the
-	// partially-curated shape and not a disguised curated one.
+	// Precondition, scoped to this show so an unrelated fixture cannot decide
+	// it: the bill really has no headliner row, so headlineSlotSQL takes its
+	// curated arm and finds no headline slot.
 	var headlinerRows int64
 	suite.Require().NoError(suite.db.Model(&catalogm.ShowArtist{}).
-		Where("set_type = ?", contracts.SetTypeHeadliner).Count(&headlinerRows).Error)
-	suite.Require().Equal(int64(0), headlinerRows, "no row states 'headliner'")
+		Where("show_id = ? AND set_type = ?", existing.ID, contracts.SetTypeHeadliner).
+		Count(&headlinerRows).Error)
+	suite.Require().Equal(int64(0), headlinerRows, "no row on this bill states 'headliner'")
 
 	_, err = suite.showService.CreateShow(&contracts.CreateShowRequest{
 		Title:             "Partial Rebill",
