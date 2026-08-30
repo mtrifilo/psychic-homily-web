@@ -99,9 +99,19 @@ const STATE_TIMEZONES: Record<string, string> = {
  * day, while a UTC-7 zone with no DST lands it on the right one.
  *
  * It is still a guess for anything outside the US, and wrong by up to a
- * calendar day. `hasTimezoneForState` is how a caller tells the two apart;
- * every surface that would name an HOUR is required to ask first. See
- * `isShowTimezoneResolved` and `showStatusStripeCopy`.
+ * calendar day on a date and by hours on a clock. `hasTimezoneForState` (and
+ * `isShowTimezoneResolved`, which wraps it) is how a caller tells a known zone
+ * from this one.
+ *
+ * WHERE THAT IS ENFORCED TODAY, stated narrowly because it is not yet a
+ * site-wide rule: the SHOW PAGE asks first, and prints no clock when the answer
+ * is no — `startTimeFactSegment` and `doorsMusicFactSegment` in
+ * `features/shows/components/showStatusStripeCopy.ts` both return null on a
+ * guessed zone, and the stripe drops TONIGHT with them. `formatShowTime` has no
+ * such gate, so its ~11 listing call sites (ShowCard, CompactShowRow, the
+ * artist/venue show tables, library, the scene panels) and `MusicEvent.startDate`
+ * in `lib/seo/jsonld.ts` still name an hour on this guess. Generalizing the
+ * refusal to them is PSY-1963.
  */
 export const FALLBACK_SHOW_TIMEZONE = 'America/Phoenix'
 

@@ -9,7 +9,6 @@ import {
   parseISOToDateAndTime,
   toZonedISOString,
 } from './timeUtils'
-import { resolveShowTimezone } from './formatters'
 
 describe('getTimezoneForState', () => {
   it('returns correct timezone for known states', () => {
@@ -67,67 +66,14 @@ describe('getTimezoneForState', () => {
     expect(getTimezoneForState('cA')).toBe('America/Los_Angeles')
   })
 
-  it('defaults to America/Phoenix for unknown states', () => {
-    expect(getTimezoneForState('XX')).toBe('America/Phoenix')
-    expect(getTimezoneForState('ZZ')).toBe('America/Phoenix')
-    expect(getTimezoneForState('')).toBe('America/Phoenix')
-  })
-
-  // The literal above and the exported constant must be the same thing. They
-  // were once two literals in two files (`getTimezoneForState` and
-  // `resolveShowTimezone`'s `state || 'AZ'`) that only happened to agree.
-  it('reaches the fallback through the one exported constant', () => {
+  // Asserted through the exported constant, not a fourth copy of the literal:
+  // the value was once spelled twice (here and as `resolveShowTimezone`'s
+  // `state || 'AZ'`) and the two only happened to agree (PSY-1696).
+  it('defaults to the one fallback constant for unknown states', () => {
     expect(FALLBACK_SHOW_TIMEZONE).toBe('America/Phoenix')
     expect(getTimezoneForState('XX')).toBe(FALLBACK_SHOW_TIMEZONE)
+    expect(getTimezoneForState('ZZ')).toBe(FALLBACK_SHOW_TIMEZONE)
     expect(getTimezoneForState('')).toBe(FALLBACK_SHOW_TIMEZONE)
-  })
-})
-
-/**
- * PSY-1696. The fallback zone is NOT a display default that can be swapped for
- * a more neutral one: it is the read half of the pair that composed
- * `event_date` in the first place (`ShowForm` submit and `showToFormValues`,
- * PSY-1873). These pin the round trip, so a future change to
- * `FALLBACK_SHOW_TIMEZONE` on either side alone fails here rather than silently
- * moving every unresolvable-zone show's rendered clock off its stored instant.
- */
-describe('missing venue timezone: the write/read round trip', () => {
-  // A venue outside the US that never geocoded: no `venues.timezone`, and a
-  // `state` the US map does not list.
-  const UNRESOLVABLE = { state: '', timezone: null }
-
-  it('resolves an unknown venue and an unknown state to the same one fallback', () => {
-    expect(resolveShowTimezone(UNRESOLVABLE.state, UNRESOLVABLE.timezone)).toBe(
-      FALLBACK_SHOW_TIMEZONE
-    )
-    expect(resolveShowTimezone(null, null)).toBe(FALLBACK_SHOW_TIMEZONE)
-    expect(resolveShowTimezone(undefined, undefined)).toBe(FALLBACK_SHOW_TIMEZONE)
-  })
-
-  it('renders back the wall clock that was submitted', () => {
-    const zone = resolveShowTimezone(UNRESOLVABLE.state, UNRESOLVABLE.timezone)
-
-    // What the submitter typed into the form for a Berlin show.
-    const stored = combineDateTimeToUTC('2026-08-15', '20:00', zone)
-    expect(stored).toBe('2026-08-16T03:00:00Z')
-
-    const { date, time } = parseISOToDateAndTime(stored, zone)
-    expect({ date, time }).toEqual({ date: '2026-08-15', time: '20:00' })
-    expect(formatDateInTimezone(stored, zone)).toBe('Sat, Aug 15')
-  })
-
-  it('would put that same show on the wrong calendar day if read in UTC', () => {
-    // Why the fallback is not "just use UTC to be honest": a North American
-    // evening, and anything written as one, crosses UTC midnight. Reading the
-    // stored instant in UTC moves the show a day forward and the clock seven
-    // hours off what was entered.
-    const stored = combineDateTimeToUTC('2026-08-15', '20:00', FALLBACK_SHOW_TIMEZONE)
-
-    expect(parseISOToDateAndTime(stored, 'UTC')).toEqual({
-      date: '2026-08-16',
-      time: '03:00',
-    })
-    expect(formatDateInTimezone(stored, 'UTC')).toBe('Sun, Aug 16')
   })
 })
 

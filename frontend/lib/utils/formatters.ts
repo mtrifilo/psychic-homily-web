@@ -16,19 +16,10 @@ import {
  * than crashing the render (`Intl` throws a RangeError on a bad zone),
  * mirroring the backend's EventLocation (PSY-996/986).
  *
- * THE LAST STEP IS NOT A DISPLAY DEFAULT, it is the read half of a round trip.
- * `ShowForm` composes `event_date` through this same function on submit and
- * `showToFormValues` reads it back through it (PSY-1873), so for an app-written
- * show with no resolvable zone the stored instant means "this wall clock, read
- * in the fallback zone". Changing the fallback on this side alone would leave
- * every stored instant where it is and move every rendered clock off it. See
- * `FALLBACK_SHOW_TIMEZONE` (`./timeUtils`) for the whole invariant before touching either
- * end.
- *
- * There is deliberately no second Arizona literal here. `''` is not a state
- * this map knows, so an absent state reaches the same single fallback that an
- * unrecognized one does; spelling `state || 'AZ'` made "the default" two
- * literals in two files that had to be kept in agreement by hand.
+ * THE LAST STEP IS NOT A DISPLAY DEFAULT. It is the read half of a round trip
+ * with the submit path, and swapping it here alone would move every rendered
+ * clock off its stored instant. `FALLBACK_SHOW_TIMEZONE` (`./timeUtils`) holds
+ * the whole invariant; read it before touching either end.
  */
 export function resolveShowTimezone(
   state?: string | null,

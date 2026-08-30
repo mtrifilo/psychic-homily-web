@@ -16,6 +16,10 @@ import {
   SET_TYPE_VALUES,
   type FormArtist,
 } from './show-form-utils'
+import {
+  FALLBACK_SHOW_TIMEZONE,
+  combineDateTimeToUTC,
+} from '@/lib/utils/timeUtils'
 import type { ShowResponse, VenueResponse } from '../types'
 import type { ExtractedShowData } from '@/lib/types/extraction'
 
@@ -238,6 +242,40 @@ describe('showToFormValues', () => {
     const result = showToFormValues(show)
 
     expect(result.date).toBe('2026-03-14')
+    expect(result.time).toBe('20:00')
+  })
+
+  it('round-trips a show whose zone resolves to neither venue nor state', () => {
+    // PSY-1696, the last rung of the chain: no `venues.timezone` AND a state
+    // the US map does not list, so `resolveShowTimezone` answers
+    // FALLBACK_SHOW_TIMEZONE. This is the case that makes the fallback a
+    // matched write/read PAIR rather than a display default. The submit path
+    // composed this instant as 20:00 in that same zone, so reading it back
+    // through the same resolver returns exactly what was typed; swapping the
+    // constant for a "more honest" zone on the read side alone would leave the
+    // instant where it is and show the editor a time nobody entered. Reading it
+    // in UTC, for instance, gives Aug 16 at 03:00.
+    const show = makeShowResponse({
+      event_date: combineDateTimeToUTC('2026-08-15', '20:00', FALLBACK_SHOW_TIMEZONE),
+      city: 'Berlin',
+      state: '',
+      venues: [
+        {
+          id: 11,
+          slug: 'hall-ohne-zone',
+          name: 'Hall Ohne Zone',
+          city: 'Berlin',
+          state: '',
+          timezone: null,
+          verified: true,
+        },
+      ],
+    })
+    expect(show.event_date).toBe('2026-08-16T03:00:00Z')
+
+    const result = showToFormValues(show)
+
+    expect(result.date).toBe('2026-08-15')
     expect(result.time).toBe('20:00')
   })
 

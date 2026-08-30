@@ -153,9 +153,9 @@ describe('isShowPast', () => {
 
   describe('zones the fallback chain cannot resolve', () => {
     // Documenting a known-wrong case rather than pretending it does not exist.
-    // `resolveShowTimezone` ends at `getTimezoneForState(state || 'AZ')`, whose
-    // map is US-only and whose default is Phoenix, so a non-US venue with no
-    // backfilled `timezone` is judged on Arizona's calendar. This predates the
+    // `resolveShowTimezone` ends at `FALLBACK_SHOW_TIMEZONE`, because the state
+    // map is US-only, so a non-US venue with no backfilled `timezone` is judged
+    // on Arizona's calendar. This predates the
     // module (every show date on the site already renders through that chain);
     // what is new is that the LISTING boundary now depends on it too.
     it('falls back to America/Phoenix for a non-US venue with no resolved timezone', () => {

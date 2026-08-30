@@ -288,31 +288,16 @@ export function ShowHeader({ show, lifecycle, actions }: ShowHeaderProps) {
       <div className="min-w-0">
         {/* SLOT: header block. Date, bill, sold-out flag. */}
         <div className="flex items-center gap-2 mb-2">
-          {/* A DATE AND NOTHING ELSE, deliberately, and that is the whole
-              missing-timezone policy on this line (PSY-1696).
-
-              `resolveShowTimezone` ends at `FALLBACK_SHOW_TIMEZONE` for a show
-              whose venue has no resolved `timezone` and whose state is blank or
-              non-US, so the calendar day printed here can be a guess. Two
-              things follow, and they pull in opposite directions on purpose:
-
-              - NOTHING HOUR-LEVEL IS BUILT ON IT HERE. The start time this
-                block used to print moved to `ShowTicketRow` in Wave 1C, where
-                `startTimeFactSegment` refuses to render on a guessed zone, and
-                the stripe above refuses DOORS / MUSIC / TONIGHT on the same
-                test. A clock is wrong by hours; a date is wrong by at most a
-                day.
-              - THE DATE STILL RENDERS, in the fallback zone, rather than being
-                withheld. The fallback is the read half of the pair that wrote
-                `event_date` (see `FALLBACK_SHOW_TIMEZONE`), so for a show
-                submitted through our own form it reproduces the day the
-                submitter chose. Withholding it, or reading the instant in UTC
-                instead, would move the common case OFF the right day to look
-                more careful.
+          {/* A DATE AND NOTHING ELSE. The zone here may be the fallback
+              (`FALLBACK_SHOW_TIMEZONE` in `lib/utils/timeUtils`, which carries
+              why that day is still the best available answer), so this line
+              deliberately builds nothing hour-level on it: the start time moved
+              to `ShowTicketRow` in Wave 1C and refuses on a guessed zone, as the
+              stripe above does for DOORS / MUSIC / TONIGHT.
 
               Whether a guessed day should also be MARKED as one for the reader
-              is a design question with no locked answer; it is deliberately not
-              invented here. */}
+              is a design question with no locked answer (PSY-1696); it is
+              deliberately not invented here. */}
           <span className="text-lg font-bold text-primary">
             {formatShowDate(show.event_date, timing.state, false, timing.timezone)}
           </span>
