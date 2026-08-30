@@ -384,17 +384,18 @@ func (s *ExploreServiceIntegrationSuite) TestGetShuffleTarget_RespectsApprovedSt
 // why the CASE form is required).
 //
 // The bill is deliberately arranged so the rank arm is load-bearing and the
-// row that must win is LAST by position. It fails three ways without the
+// row that must win is LAST by position. It fails two ways without the
 // current expression:
 //
 //   - the boolean `(set_type = 'headliner') DESC` form is NULLS FIRST, so the
 //     unslotted act wins;
 //   - deleting the rank and ordering on position alone picks the stated
-//     opener, which is the curated-bill misread that motivated this rule;
-//   - keeping the rank but dropping NULL-safety reintroduces the first case.
+//     opener, which is the curated-bill misread that motivated this rule.
 //
 // Only "headliner outranks everything, then lowest position" names the
-// curated headliner.
+// curated headliner. The trailing artist_id tiebreak is NOT exercised here;
+// these three rows hold distinct positions.
+// TestGetUpcomingShows_TiedBillPicksLowestArtistID covers that.
 func (s *ExploreServiceIntegrationSuite) TestGetUpcomingShows_NullSetTypeDoesNotOutrankCuratedHeadliner() {
 	show := s.createShowInCity("Null Set Type Bill", 10, "Phoenix", "AZ")
 
@@ -440,4 +441,40 @@ func (s *ExploreServiceIntegrationSuite) TestGetUpcomingShows_NullSetTypeDoesNot
 	s.Require().Len(resp.Shows, 1, "the seeded upcoming show must be listed")
 	s.Assert().Equal("Curated Headliner", resp.Shows[0].HeadlinerName,
 		"a NULL set_type row must not outrank the curated headliner")
+}
+
+// Pins the trailing artist_id tiebreak. The PK is (show_id, artist_id) and
+// idx_show_artists_position is not unique, so a bill can hold two rows at the
+// same position; the data-quality report for bills left entirely at position 0
+// exists because such shows are in the corpus. Without the tiebreak the winner
+// is planner order, which is stable enough to look correct in a test and can
+// change in production after an unrelated UPDATE rewrites the tuples.
+func (s *ExploreServiceIntegrationSuite) TestGetUpcomingShows_TiedBillPicksLowestArtistID() {
+	show := s.createShowInCity("Tied Bill", 11, "Phoenix", "AZ")
+
+	// Neither row states a role and both sit at position 0, so the rank and
+	// position arms both tie and only artist_id can decide.
+	lowerSlug := "tied-lower-id"
+	lower := &catalogm.Artist{Name: "Tied Lower ID", Slug: &lowerSlug}
+	s.Require().NoError(s.db.Create(lower).Error)
+
+	higherSlug := "tied-higher-id"
+	higher := &catalogm.Artist{Name: "Tied Higher ID", Slug: &higherSlug}
+	s.Require().NoError(s.db.Create(higher).Error)
+	s.Require().Less(lower.ID, higher.ID, "fixture assumes ascending artist ids")
+
+	// Inserted highest-id first so insertion order cannot masquerade as the
+	// tiebreak working.
+	s.Require().NoError(s.db.Exec(
+		`INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'performer')`,
+		show.ID, higher.ID).Error)
+	s.Require().NoError(s.db.Exec(
+		`INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'performer')`,
+		show.ID, lower.ID).Error)
+
+	resp, err := s.exploreService.GetUpcomingShows(50, 0, nil)
+	s.Require().NoError(err)
+	s.Require().Len(resp.Shows, 1, "the seeded upcoming show must be listed")
+	s.Assert().Equal("Tied Lower ID", resp.Shows[0].HeadlinerName,
+		"a bill tied on rank and position must resolve to the lowest artist_id")
 }

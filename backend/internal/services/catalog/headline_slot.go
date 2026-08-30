@@ -67,11 +67,35 @@ import (
 //
 //     CASE WHEN set_type = 'headliner' THEN 0 ELSE 1 END, position ASC, <id> ASC
 //
-//     Every part is load-bearing. The shorter bare-boolean `DESC` form is
-//     NULLS FIRST in Postgres, so an unslotted row would outrank the curated
-//     headliner. The id tiebreak matters because position is NOT NULL
-//     DEFAULT 0 and ingest paths leave whole bills at 0, so without it the
-//     winner is planner order and can change after an unrelated UPDATE.
+//     The shorter bare-boolean `DESC` form is NULLS FIRST in Postgres, so an
+//     unslotted row would outrank the curated headliner. No current writer
+//     produces such a row -- the set_type backfill normalized the NULLs that
+//     existed, and the model's non-pointer SetType field cannot write one --
+//     so this is defense-in-depth against a nullable column, not a repair of
+//     a surface that was observably naming the wrong act. The id tiebreak is
+//     there because the PK is (show_id, artist_id) and idx_show_artists_position
+//     is NOT unique, so two rows on one show may share a position; an untied
+//     `LIMIT 1` then returns planner order, which can change after an unrelated
+//     UPDATE rewrites the tuples. Tied bills are real -- admin
+//     data_quality.getShowsNoBillingOrder reports shows whose every row sits at
+//     position 0 -- though current write paths do assign incrementing
+//     positions, so the tiebreak guards the corpus, not the writers.
+//
+//     Test coverage is asymmetric, deliberately, and uneven across the four:
+//
+//       - enrichShows (tag) and headlinerNameByShow (explore): rank arm pinned
+//         by mutation-checked tests at both.
+//       - The id tiebreak is pinned ONLY at explore. enrichShows reaches
+//         show_artists by the (show_id, artist_id) primary key, so its plan
+//         already yields ascending artist_id and a tied-bill test there passes
+//         with the tiebreak deleted; it is kept as a guard against a plan
+//         change and documented rather than falsely pinned.
+//       - SearchShows and RecanonicaliseShowSlug are UNPINNED for both arms.
+//         Their existing fixtures seed the headliner at position 0, so
+//         deleting either arm leaves those suites green. RecanonicaliseShowSlug
+//         is the one that writes its answer into a slug, so it is both the
+//         highest-consequence site and the least defended. Adding a
+//         curated-bill case there is the obvious next increment.
 //
 //     show.SearchShows instead COALESCEs a filtered subquery over an
 //     unfiltered one, which is NULL-safe for a different reason
@@ -83,17 +107,29 @@ import (
 //     down, not merely rendered.
 //
 //  2. IN-MEMORY resolutions that pick a headliner from a request or export
-//     payload rather than from show_artists, and feed utils.GenerateShowSlug:
-//     catalog.CreateShow, pipeline/discovery.resolveHeadlinerName, and two in
-//     admin/data_sync.go (importShows and backfillShowSlugs). They are not
-//     reachable by the SQL rule above and need their own audit. NOTE that the
-//     data_sync pair is position-only and ignores set_type entirely even
-//     though the export payload carries it, so a curated bill can persist a
-//     slug naming the wrong act. That is a live defect, not a documented
-//     exclusion, and needs its own ticket.
+//     payload rather than from show_artists, and feed utils.GenerateShowSlug.
+//     In internal/ there are four: catalog.CreateShow,
+//     pipeline/discovery.createShowFromEvent, and two in
+//     internal/services/admin/data_sync.go -- importShow and
+//     backfillShowSlugs. (Note that path: there is also an
+//     internal/api/handlers/admin, which is NOT where this lives.) They are
+//     not reachable by the SQL rule above and need their own audit. cmd/seed
+//     has two more; it is dev tooling and is not audited here.
+//
+//     NOTE that three of the four -- createShowFromEvent and both data_sync
+//     sites -- take artist[0] by list position and ignore set_type entirely,
+//     even though each has a real role in hand at that moment:
+//     createShowFromEvent computes a per-artist setType a few lines earlier,
+//     and the export payload carries one. So a curated bill can persist a slug
+//     naming the wrong act. That is a live defect rather than a documented
+//     exclusion, it is NOT tracked anywhere as of this writing, and it is not
+//     fixed here because the read-path rule above cannot reach it.
+//     catalog.CreateShow is the one that reads the stated role.
 //
 //  3. The duplicate-headliner GUARDS at show.go's checkDuplicateHeadlinerConflicts
-//     and pipeline/discovery.go's checkHeadlinerDuplicate. These do still use
+//     and pipeline/discovery.go's checkHeadlinerDuplicate (the latter fed by
+//     discovery.resolveHeadlinerName, which unlike its slug-writing sibling
+//     DOES honor set_type). These do still use
 //     the retired `(set_type = 'headliner' OR position = 0)` disjunction, and
 //     it is NOT equivalent to this rule. They are deliberately left: they are
 //     write-time collision checks where the two error directions are not

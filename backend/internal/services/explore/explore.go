@@ -267,10 +267,10 @@ func (s *ExploreService) firstVenueByShow(showIDs []uint) map[uint]catalogm.Venu
 // services/engagement/saved_show.go where set_type='headliner' is the
 // canonical flag.
 //
-// The rank must stay a CASE expression rather than the shorter boolean
-// `(set_type = 'headliner') DESC`: a boolean sort key is NULLS FIRST under
-// DESC in Postgres, so a row whose set_type is NULL would outrank the curated
-// headliner and this surface would name the wrong act.
+// The ordering is rank, then position, then a stable id. Do not shorten the
+// rank to `(set_type = 'headliner') DESC` and do not drop the trailing
+// artist_id; catalog/headline_slot.go explains why each part is required and
+// lists the other sites that resolve this same slot.
 func (s *ExploreService) headlinerNameByShow(showIDs []uint) map[uint]string {
 	out := make(map[uint]string, len(showIDs))
 	if len(showIDs) == 0 {

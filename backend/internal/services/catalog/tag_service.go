@@ -1553,15 +1553,10 @@ func (s *TagService) enrichReleases(ids []uint) map[uint]contracts.TaggedEntityI
 // is deliberately not catalog/headline_slot.go's classification rule, which
 // may find no headline slot at all on a curated bill.
 //
-// The ordering is rank, then position, then a stable id. The rank must stay a
-// CASE expression rather than the shorter boolean
-// `(sa.set_type = 'headliner') DESC`: a boolean sort key is NULLS FIRST under
-// DESC in Postgres, so a row whose set_type is NULL would outrank the curated
-// headliner and this surface would name the wrong act. The trailing artist_id
-// is not decoration either: position is NOT NULL DEFAULT 0 and ingest paths
-// leave whole bills at 0, so without it a tied bill returns rows in planner
-// order and the named act can change after an unrelated UPDATE rewrites the
-// tuples. See headline_slot.go for the other sites that resolve this slot.
+// The ordering is rank, then position, then a stable id. Do not shorten the
+// rank to `(sa.set_type = 'headliner') DESC` and do not drop the trailing
+// artist_id; headline_slot.go explains why each part is required and lists the
+// other sites that resolve this same slot.
 func (s *TagService) enrichShows(ids []uint) map[uint]contracts.TaggedEntityItem {
 	out := make(map[uint]contracts.TaggedEntityItem, len(ids))
 	type row struct {

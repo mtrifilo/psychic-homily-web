@@ -1321,9 +1321,9 @@ func (s *ShowService) SearchShows(query string) ([]*contracts.ShowSearchResult, 
 			-- construction: NULL = 'headliner' is NULL, so an unslotted row
 			-- fails the filter rather than sorting ahead of the curated act.
 			-- Do NOT collapse these two arms into one ORDER BY on a bare
-			-- boolean; that form is NULLS FIRST in Postgres. See
-			-- headline_slot.go. The trailing artist_id keeps the winner stable
-			-- on bills left tied at position 0 by ingest.
+			-- boolean; that form is NULLS FIRST in Postgres. The trailing
+			-- artist_id keeps the winner stable on bills that share a position.
+			-- See headline_slot.go.
 			COALESCE(
 				(SELECT a.name
 				 FROM show_artists sa

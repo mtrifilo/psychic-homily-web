@@ -1753,17 +1753,18 @@ func (suite *TagServiceIntegrationTestSuite) TestBulkImportAliases_EmptyList() {
 // CASE form is required).
 //
 // The bill is deliberately arranged so the rank arm is load-bearing and the
-// row that must win is LAST by position. It fails three ways without the
+// row that must win is LAST by position. It fails two ways without the
 // current expression:
 //
 //   - the boolean `(set_type = 'headliner') DESC` form is NULLS FIRST, so the
 //     unslotted act wins;
 //   - deleting the rank and ordering on position alone picks the stated
-//     opener, which is the curated-bill misread that motivated this rule;
-//   - keeping the rank but dropping NULL-safety reintroduces the first case.
+//     opener, which is the curated-bill misread that motivated this rule.
 //
 // Only "headliner outranks everything, then lowest position" names the
-// curated headliner.
+// curated headliner. The trailing artist_id tiebreak is NOT exercised here;
+// these three rows hold distinct positions. See the note above
+// TestTagServiceIntegration for why it is not pinned at this surface.
 func (suite *TagServiceIntegrationTestSuite) TestGetTagEntities_Shows_NullSetTypeDoesNotOutrankCuratedHeadliner() {
 	user := suite.createTestUserWithTier("show-tagger", "contributor")
 	tag := suite.createTag("noise-rock", "genre")
@@ -1819,6 +1820,17 @@ func (suite *TagServiceIntegrationTestSuite) TestGetTagEntities_Shows_NullSetTyp
 	suite.Assert().Equal("Curated Headliner", items[0].HeadlinerName,
 		"a NULL set_type row must not outrank the curated headliner")
 }
+
+// NOTE on the trailing `sa.artist_id ASC` tiebreak in enrichShows: it is NOT
+// pinned by a test here, deliberately. A tied-bill fixture was written and
+// removed because it passed with the tiebreak deleted, on every run. The
+// lateral joins artists on sa.artist_id, so the planner reaches show_artists
+// by the (show_id, artist_id) primary key and already yields ascending
+// artist_id; the tiebreak is redundant under that plan and only earns its keep
+// if the plan changes. A test that cannot fail is worse than no test, so the
+// guard is documented rather than falsely pinned. The explore surface does not
+// share the plan and IS pinned, by
+// TestGetUpcomingShows_TiedBillPicksLowestArtistID.
 
 // ──────────────────────────────────────────────
 // Run all integration tests
