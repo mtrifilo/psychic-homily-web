@@ -354,6 +354,7 @@ export function mergeExtraction(
   if (extraction.date) merged.date = extraction.date
   if (extraction.time) merged.time = extraction.time
   if (extraction.cost) merged.cost = extraction.cost
+  if (extraction.door_cost) merged.door_cost = extraction.door_cost
   if (extraction.ages) merged.ages = extraction.ages
   if (extraction.description) merged.description = extraction.description
 

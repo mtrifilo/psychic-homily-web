@@ -10967,6 +10967,7 @@ export interface components {
             cost?: string;
             date?: string;
             description?: string;
+            door_cost?: string;
             time?: string;
             venue?: components["schemas"]["ExtractedVenue"];
         };

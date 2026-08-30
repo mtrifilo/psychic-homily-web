@@ -75,6 +75,7 @@ func TestRoundTrip_AllFieldsSet(t *testing.T) {
 			City:           strptr("Tucson"),
 			State:          strptr("AZ"),
 			Price:          fltptr(15.5),
+			DoorPrice:      fltptr(20),
 			AgeRequirement: strptr("21+"),
 			Description:    strptr("BYO."),
 			TicketURL:      strptr("https://tix.example/secret"),

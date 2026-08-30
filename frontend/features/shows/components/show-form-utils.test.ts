@@ -525,6 +525,31 @@ describe('mergeExtraction', () => {
     expect(mergeExtraction(defaultFormValues, undefined)).toBe(defaultFormValues)
   })
 
+  // PSY-1864: a flyer that states both prices seeds both fields. The
+  // extractor only emits door_cost when the source spelled a separate door
+  // price, so an absent door_cost must leave the field empty rather than
+  // echoing the advance price into it.
+  it('seeds both cost fields when the flyer stated a door price', () => {
+    const result = mergeExtraction(defaultFormValues, {
+      ...fullExtraction,
+      cost: '$20',
+      door_cost: '$25',
+    })
+
+    expect(result.cost).toBe('$20')
+    expect(result.door_cost).toBe('$25')
+  })
+
+  it('leaves door_cost empty when the flyer stated only one price', () => {
+    const result = mergeExtraction(defaultFormValues, {
+      ...fullExtraction,
+      cost: '$20',
+    })
+
+    expect(result.cost).toBe('$20')
+    expect(result.door_cost).toBe('')
+  })
+
   it('prefers the extraction set_type over the headliner flag', () => {
     const result = mergeExtraction(defaultFormValues, {
       ...fullExtraction,

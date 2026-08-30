@@ -1106,4 +1106,56 @@ describe('ShowForm: bill role selector', () => {
     expect(call.updates.artists[0].set_type).toBe('dj')
     expect(call.updates.artists[0].is_headliner).toBe(false)
   })
+
+  // PSY-1864: editing a door price on the surface a curator actually uses.
+  it('sends an edited door price on the update payload', async () => {
+    mockShowUpdate.mutate.mockImplementation((_vars, opts) => {
+      opts?.onSuccess?.({ id: 42 })
+    })
+    const user = userEvent.setup()
+    renderWithProviders(
+      <ShowForm mode="edit" initialData={makeShow({ price: 25, door_price: 30 })} />
+    )
+
+    const doorCost = screen.getByLabelText(/^door cost \(optional\)$/i)
+    expect(doorCost).toHaveValue('$30')
+
+    await user.clear(doorCost)
+    await user.type(doorCost, '$35')
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => expect(mockShowUpdate.mutate).toHaveBeenCalledTimes(1))
+
+    const call = mockShowUpdate.mutate.mock.calls[0][0] as {
+      updates: { price?: number; door_price?: number }
+    }
+    expect(call.updates.door_price).toBe(35)
+    // The advance price rides along untouched rather than being dropped.
+    expect(call.updates.price).toBe(25)
+  })
+
+  // Documents a KNOWN LIMITATION rather than desired behavior: blanking the
+  // field omits the key, and the backend reads an omitted key as "unchanged",
+  // so a recorded door price cannot be retracted through this form. If a
+  // tri-state clear signal is ever added, this test SHOULD fail and be
+  // rewritten to assert door_price: null.
+  it('cannot clear a recorded door price by blanking the field (known limitation)', async () => {
+    mockShowUpdate.mutate.mockImplementation((_vars, opts) => {
+      opts?.onSuccess?.({ id: 42 })
+    })
+    const user = userEvent.setup()
+    renderWithProviders(
+      <ShowForm mode="edit" initialData={makeShow({ price: 25, door_price: 30 })} />
+    )
+
+    await user.clear(screen.getByLabelText(/^door cost \(optional\)$/i))
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => expect(mockShowUpdate.mutate).toHaveBeenCalledTimes(1))
+
+    const call = mockShowUpdate.mutate.mock.calls[0][0] as {
+      updates: { door_price?: number }
+    }
+    expect(call.updates.door_price).toBeUndefined()
+  })
 })

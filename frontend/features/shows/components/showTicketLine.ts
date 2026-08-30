@@ -54,10 +54,17 @@ function ticketPrice(price: number): string {
  * (PSY-1864).
  *
  * `ADV` / `DOOR` are disambiguators, so they are spelled only when there ARE
- * two numbers to tell apart. A lone price renders bare — including a lone DOOR
- * price, where the word would distinguish the number from nothing. Segments
- * rather than one string because the pair is two middot-separated facts in the
- * mock, not a compound one.
+ * two DIFFERENT numbers to tell apart. A lone price renders bare — including a
+ * lone DOOR price, where the word would distinguish the number from nothing.
+ * Segments rather than one string because the pair is two middot-separated
+ * facts in the mock, not a compound one.
+ *
+ * Equal prices collapse to one bare segment. Nothing stops a curator entering
+ * the same number twice (the door field's own placeholder says "only if it
+ * differs", but that is a hint, not a constraint, and an importer has no hint
+ * at all), and `$35 ADV · DOOR $35` spends two segments and two qualifiers to
+ * say one thing — it reads as a rendering bug, and it would make this function
+ * contradict the rule stated one paragraph above.
  *
  * Zero is a price ("Free"), not silence, which is why the guards test
  * `!= null` rather than truthiness.
@@ -65,7 +72,7 @@ function ticketPrice(price: number): string {
 function ticketPriceSegments(show: ShowResponse): string[] {
   const advance = show.price
   const door = show.door_price
-  if (advance != null && door != null) {
+  if (advance != null && door != null && advance !== door) {
     return [`${ticketPrice(advance)} ADV`, `DOOR ${ticketPrice(door)}`]
   }
   const only = advance ?? door

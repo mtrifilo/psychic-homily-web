@@ -24,6 +24,7 @@ Output ONLY valid JSON with no additional text or markdown formatting:
   "date": "YYYY-MM-DD",
   "time": "HH:MM",
   "cost": "$20",
+  "door_cost": "$25",
   "ages": "21+"
 }
 
@@ -37,6 +38,7 @@ Rules:
 - State should be 2-letter abbreviation (default to AZ for Arizona venues)
 - Omit fields if not found (don't include null or empty values)
 - For cost, include the dollar sign if it's a paid show, or use "Free" if explicitly stated as free
+- For door_cost, include it ONLY when the source states a SEPARATE door / day-of-show price alongside an advance price (e.g. "$20 adv / $25 door", "$20 presale, $25 at the door"). Put the advance price in cost and the door price in door_cost. NEVER infer, estimate, or derive a door price from an advance price — omit door_cost entirely when the source states only one price
 - For ages, common formats are "21+", "18+", "All Ages"
 - If multiple dates are shown, extract only the first/primary date
 - Return ONLY the JSON object, no explanation or markdown code blocks`
@@ -193,6 +195,9 @@ func (s *ExtractionService) ExtractShow(req *contracts.ExtractShowRequest) (*con
 	}
 	if costStr, ok := parsed["cost"].(string); ok {
 		data.Cost = costStr
+	}
+	if doorCostStr, ok := parsed["door_cost"].(string); ok {
+		data.DoorCost = doorCostStr
 	}
 	if agesStr, ok := parsed["ages"].(string); ok {
 		data.Ages = agesStr

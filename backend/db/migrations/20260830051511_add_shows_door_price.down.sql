@@ -1,4 +1,13 @@
--- Rolling back drops every recorded door price. There is no second home for the
--- fact: it is NOT mirrored into `price`, which carries the advance price on
--- exactly these rows and is left untouched either way.
-ALTER TABLE shows DROP COLUMN door_price;
+-- Rollback. Nothing else references the column and `price` is untouched by the
+-- up migration, so dropping it restores the prior schema exactly. Every door
+-- price recorded while it existed is lost: it is NOT mirrored into `price`,
+-- which carries the advance price on exactly those rows.
+--
+-- ROLL THE APP BACK FIRST. Any server build from this change onward asserts
+-- this column at boot (db/schema_assertion.go, called from cmd/server), so
+-- running this against a current binary turns one bad deploy into a refusing
+-- to boot loop. Deploy a pre-PSY-1864 build, then migrate down.
+--
+-- IF EXISTS so a re-run, or a down against a database that never got the up,
+-- is a no-op rather than an error that strands the migration pointer.
+ALTER TABLE shows DROP COLUMN IF EXISTS door_price;

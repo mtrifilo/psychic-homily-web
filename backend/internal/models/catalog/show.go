@@ -58,6 +58,20 @@ type Show struct {
 	// prints as "Free", and a float64 zero-value could not tell it from
 	// silence. Neither is inferred from the other: a show with an advance
 	// price says nothing about what the door costs.
+	//
+	// ONLY THE SHOW DETAIL PAGE renders the split today. Every other price
+	// surface still reads Price alone and therefore shows the ADVANCE half of a
+	// split-price show without saying so — the /shows cards and compact rows,
+	// the venue and artist show tables, the scene day lists, the ICS feed
+	// descriptions, the schema.org Offer, and the notification price-cap
+	// filter. Three of those additionally need the field added to their own
+	// contracts first (VenueShowResponse, ArtistShowResponse,
+	// SceneShowSummary), which is why it was not a sweep.
+	//
+	// That is a KNOWN, DEFERRED gap, not an oversight: each surface needs its
+	// own call about how a pair should read in a dense list, and the price-cap
+	// filter needs a decision about which half a user's ceiling applies to.
+	// Do not "fix" one of them in isolation — they should move together.
 	Price          *float64
 	DoorPrice      *float64 `gorm:"column:door_price"`
 	AgeRequirement *string

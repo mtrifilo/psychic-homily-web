@@ -111,15 +111,21 @@ type UpdateShowRequest struct {
 // reach ALL of them or it silently serializes as null on whichever surface was
 // missed:
 //
-//	catalog.CreateShow          (services/catalog/show.go)
-//	catalog.UpdateShow          (services/catalog/show.go)
-//	catalog.assembleShowResponse(services/catalog/show.go -- detail + list reads)
-//	engagement.savedShowResponse(services/engagement/saved_show.go -- saved
-//	                             shows AND the personal ICS feed)
+//	(*catalog.ShowService).CreateShow               services/catalog/show.go
+//	(*catalog.ShowService).buildUpdatedShowResponse services/catalog/show.go
+//	catalog.assembleShowResponse                    services/catalog/show.go
+//	                                                (detail + list reads)
+//	(*engagement.SavedShowService).buildShowResponse
+//	                                                services/engagement/saved_show.go
+//	                                                (saved shows AND the
+//	                                                personal ICS feed)
 //
-// The last one is the easy miss: it lives in a different package, so a
-// field-by-field search of services/catalog does not surface it. PSY-1864 added
-// DoorPrice and missed it on the first pass.
+// The last one is the easy miss: it lives in a different package AND shares its
+// name with (*catalog.ShowService).buildShowResponse, so grepping the obvious
+// name lands in the wrong package first. PSY-1864 added DoorPrice and missed it.
+//
+// Note UpdateShow itself builds nothing -- it ends in GetShow -- so the update
+// path's literal is buildUpdatedShowResponse.
 type ShowResponse struct {
 	ID        uint      `json:"id"`
 	Slug      string    `json:"slug"`
@@ -517,8 +523,21 @@ const (
 //
 // The ceiling is a typo guard, not a domain claim -- it exists so a fat-fingered
 // "3500" instead of "35.00" is rejected at the boundary instead of being
-// published on a show page. Every write path enforces it: the show create
-// resolver, the show update handler, and the entity-request payload validator.
+// published on a show page.
+//
+// Enforced on the three SELF-SERVE write paths, and only those: the show create
+// resolver, the show update handler, and the entity-request payload validator
+// (which keeps its own copy of the ceiling -- see maxRequestPrice).
+//
+// NOT enforced on the ADMIN-ONLY write paths, which map a price straight onto
+// the row: catalog.ConfirmShowImport (markdown frontmatter) and
+// admin.importShow (the JSON data-sync import). A price above the rail but under
+// the column's DECIMAL(10,2) width is stored and published there; one above the
+// column width fails at INSERT as a 500. That is a PRE-EXISTING gap that `price`
+// already had and `door_price` now inherits -- both paths are admin-gated, so it
+// is a trusted-operator footgun, not an escalation. Closing it means validating
+// at the service chokepoint (ShowService.CreateShow / showUpdatesToMap) rather
+// than adding a fourth copy of the check.
 //
 // NOT registered in NumericEditFieldBounds: that registry is the pending-edit
 // (suggest/approve) pipeline's, its bounds are ints, and shows have no
@@ -1486,7 +1505,11 @@ type SceneShowSummary struct {
 	// timestamp — structured-data `startDate`, a calendar export — must use this
 	// and render it in the venue's own zone.
 	StartsAt time.Time `json:"starts_at"`
-	// Door price when known; absent when the show has none recorded. NO currency
+	// The show's price when known -- and the ADVANCE price on rows that also
+	// record shows.door_price, which this summary deliberately does NOT carry
+	// (PSY-1864). It was described as the "door price" before that column
+	// existed; it never was one. A scene surface that wants the split has to add
+	// the field here first. NO currency
 	// is recorded anywhere in the schema — `shows.price` is a bare numeric — so
 	// a consumer that needs one has to assume, and for a non-US scene that
 	// assumption is wrong. Do not add a currency here without adding the column.

@@ -227,6 +227,27 @@ describe('ticketLineSegments', () => {
     expect(segments).toContain('DOOR Free')
   })
 
+  // Nothing stops a curator (or an importer) recording the same number twice.
+  // `$35 ADV · DOOR $35` spends two qualifiers to say one thing.
+  it('collapses an equal advance and door price to one bare segment', () => {
+    const segments = ticketLineSegments(
+      makeShow({ price: 35, door_price: 35 }),
+      'upcoming'
+    )
+    expect(segments).toContain('$35')
+    expect(segments.join(' ')).not.toContain('ADV')
+    expect(segments.join(' ')).not.toContain('DOOR')
+  })
+
+  it('collapses an equal free advance and free door', () => {
+    const segments = ticketLineSegments(
+      makeShow({ price: 0, door_price: 0 }),
+      'upcoming'
+    )
+    expect(segments).toContain('Free')
+    expect(segments.join(' ')).not.toContain('ADV')
+  })
+
   it('drops the cents on both halves of the split', () => {
     const segments = ticketLineSegments(
       makeShow({ price: 12.5, door_price: 15 }),

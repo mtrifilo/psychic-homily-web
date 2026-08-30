@@ -77,6 +77,16 @@ export const ImportPreview = memo(function ImportPreview({ preview }: ImportPrev
               Price: ${preview.show.price.toFixed(2)}
             </div>
           )}
+          {/* The confirm step writes door_price, so the preview has to show it
+              or it no longer describes what commits (PSY-1864). Explicit
+              null/undefined guard rather than truthiness: a $0 door is Free,
+              which is a fact worth previewing. */}
+          {preview.show.door_price !== undefined &&
+            preview.show.door_price !== null && (
+              <div className="text-muted-foreground">
+                Door: ${preview.show.door_price.toFixed(2)}
+              </div>
+            )}
           {preview.show.age_requirement && (
             <div className="text-muted-foreground">
               Age: {preview.show.age_requirement}

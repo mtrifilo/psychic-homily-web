@@ -455,9 +455,14 @@ const (
 	maxRequestAgeLen   = 50
 	// maxRequestPrice deliberately DUPLICATES contracts.MaxShowPrice rather
 	// than importing it: models must not depend on services, and this package
-	// imports nothing from there. Keep the two in sync by hand -- a mismatch
-	// only means the queue accepts a price the direct path would refuse, which
-	// the fulfiller would then hit at INSERT.
+	// imports nothing from there.
+	//
+	// There is NO backstop if the two drift. The column is DECIMAL(10,2), which
+	// accepts up to 99,999,999.99, so a queue-fulfilled show carrying a price
+	// the direct API would refuse INSERTs cleanly and publishes. The external
+	// test package holds the two together instead -- see
+	// TestMaxRequestPriceMatchesContractRail in the _test package, which CAN
+	// import contracts without inverting the layering.
 	maxRequestPrice    = 10000
 	maxRequestCityLen  = 255
 	maxRequestStateLen = 10

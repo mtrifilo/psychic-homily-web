@@ -14,7 +14,11 @@ export interface ExportShowData {
   event_date: string
   city?: string
   state?: string
+  // Advance price and door price, mirroring contracts.ExportShowData. Both are
+  // written by the confirm step, so the preview has to be able to show both
+  // (PSY-1864).
   price?: number
+  door_price?: number
   age_requirement?: string
   status: string
 }
