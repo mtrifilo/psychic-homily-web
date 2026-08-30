@@ -1,7 +1,10 @@
 import type { components } from '@/types/api'
 import { formatPrice, formatShowTime } from '@/lib/utils/formatters'
-import { parseCalendarDate, type SceneWeekShow } from './sceneWeek'
-import { startInstant } from './sceneShowJsonLd'
+import {
+  parseCalendarDate,
+  startInstant,
+  type SceneWeekShow,
+} from './sceneWeek'
 
 /**
  * Scene-day types, DERIVED from the generated OpenAPI schema for the same
