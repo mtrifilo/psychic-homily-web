@@ -10,7 +10,7 @@ import { ShowFlyerPlate } from './ShowFlyerPlate'
 import { ShowTicketRow } from './ShowTicketRow'
 import { ShowVenueModule } from './ShowVenueModule'
 import { flyerImageSrc, sourceVenueName } from './showFlyer'
-import { showTimingInput, splitBill } from '../utils'
+import { byBillPosition, showTimingInput, splitBill } from '../utils'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import type {
   ArtistResponse,
@@ -18,23 +18,6 @@ import type {
   ShowArtistLabel,
   ShowResponse,
 } from '../types'
-
-/**
- * Bill order lives in `show_artists.position`. Every backend read path already
- * sorts by it (`buildShowResponse`, `loadShowArtistResponses`), so this is a
- * defensive re-assertion against a caller, cache layer, or future query handing
- * us a different order.
- *
- * Ties are possible: `idx_show_artists_position` is a plain index, so nothing
- * enforces one position per show, and rows written outside the create path
- * (backfills, seeds) can share position 0. The backend's `ORDER BY position
- * ASC` has no tiebreaker, so Postgres may order tied rows differently between
- * requests. Break the tie on `id` so the rendered bill is at least
- * deterministic client-side.
- */
-function byBillPosition(a: ArtistResponse, b: ArtistResponse): number {
-  return a.position - b.position || a.id - b.id
-}
 
 /**
  * Support-line annotations, keyed by `set_type`.

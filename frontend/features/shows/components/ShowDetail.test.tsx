@@ -82,6 +82,7 @@ vi.mock('@/components/shared', () => ({
       <button onClick={onClick} aria-label={ariaLabel ?? label}>[{label}]</button>
     ),
   UserAttribution: ({ name }: { name: string }) => <span>{name}</span>,
+  SectionHeader: ({ title }: { title: string }) => <h2>{title}</h2>,
   // Surfaces `path` so the page-level test can assert WHICH url this show
   // hands out — the primitive's own behaviour is covered in ShareButton.test.
   ShareButton: ({ path }: { path: string }) => (
@@ -792,15 +793,18 @@ describe('ShowDetail', () => {
     })
   })
 
-  describe('artist music section', () => {
-    it('renders music section when artists have music', () => {
+  // The module's own card rendering is covered in ShowListenModule.test.tsx;
+  // these two only pin that the page mounts it in the right slot and lets it
+  // decide whether the section exists at all (PSY-1688).
+  describe('listen module', () => {
+    it('renders the listen module when a bill artist has something to play', () => {
       mockUseShow.mockReturnValue({
         data: makeShow({
           artists: [
             makeArtist({
               id: 1,
               name: 'Band',
-              socials: { spotify: 'https://spotify.com/band' },
+              socials: { spotify: 'https://open.spotify.com/artist/1a2b3c4d5e6f7g8h9i0jkl' },
             }),
           ],
         }),
@@ -808,11 +812,12 @@ describe('ShowDetail', () => {
         error: null,
       })
       render(<ShowDetail showId="1" lifecycle="upcoming" />)
-      expect(screen.getByText('Listen to the Artists')).toBeInTheDocument()
+      expect(screen.getByTestId('show-listen-module')).toBeInTheDocument()
+      expect(screen.getByText('Listen / Before you go')).toBeInTheDocument()
       expect(screen.getByTestId('music-embed')).toBeInTheDocument()
     })
 
-    it('does not render music section when no artists have music', () => {
+    it('renders no listen module when no bill artist has a playable source', () => {
       mockUseShow.mockReturnValue({
         data: makeShow({
           artists: [
@@ -823,7 +828,8 @@ describe('ShowDetail', () => {
         error: null,
       })
       render(<ShowDetail showId="1" lifecycle="upcoming" />)
-      expect(screen.queryByText('Listen to the Artists')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('show-listen-module')).not.toBeInTheDocument()
+      expect(screen.queryByText('Listen / Before you go')).not.toBeInTheDocument()
     })
   })
 })

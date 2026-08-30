@@ -118,6 +118,38 @@ interface BillArtist {
   is_headliner?: boolean | null
 }
 
+/** The bill fields that decide who comes first. */
+interface OrderedBillArtist {
+  position: number
+  id: number
+}
+
+/**
+ * Bill order lives in `show_artists.position`. Every backend read path already
+ * sorts by it (`buildShowResponse`, `loadShowArtistResponses`), so this is a
+ * defensive re-assertion against a caller, cache layer, or future query handing
+ * us a different order.
+ *
+ * Ties are possible: `idx_show_artists_position` is a plain index, so nothing
+ * enforces one position per show, and rows written outside the create path
+ * (backfills, seeds) can share position 0. The backend's `ORDER BY position
+ * ASC` has no tiebreaker, so Postgres may order tied rows differently between
+ * requests. Break the tie on `id` so the rendered bill is at least
+ * deterministic client-side.
+ *
+ * Shared for the same reason `splitBill` is: the header's bill and the listen
+ * module's cards are two renderings of ONE running order, and a second copy of
+ * the tiebreak rule is exactly the kind of thing that drifts silently — the two
+ * lists would disagree only on bills with tied positions, which is the case
+ * nobody looks at.
+ */
+export function byBillPosition(
+  a: OrderedBillArtist,
+  b: OrderedBillArtist
+): number {
+  return a.position - b.position || a.id - b.id
+}
+
 /**
  * Split a bill into the acts at the top and everyone under them.
  *
