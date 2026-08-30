@@ -3638,6 +3638,7 @@ type MockShowService struct {
 	CreateShowFn              func(*contracts.CreateShowRequest) (*contracts.ShowResponse, error)
 	GetShowFn                 func(uint) (*contracts.ShowResponse, error)
 	GetShowBySlugFn           func(string) (*contracts.ShowResponse, error)
+	GetShowTimelineFn         func(string) (*contracts.ShowTimelineResponse, error)
 	GetShowsFn                func(map[string]interface{}, contracts.ShowsQuery) ([]*contracts.ShowResponse, int64, error)
 	GetUserSubmissionsFn      func(uint, int, int) ([]contracts.ShowResponse, int, error)
 	UpdateShowFn              func(uint, *contracts.UpdateShowRequest) (*contracts.ShowResponse, error)
@@ -3663,6 +3664,12 @@ func (m *MockShowService) GetShow(showID uint) (*contracts.ShowResponse, error) 
 func (m *MockShowService) GetShowBySlug(slug string) (*contracts.ShowResponse, error) {
 	if m.GetShowBySlugFn != nil {
 		return m.GetShowBySlugFn(slug)
+	}
+	return nil, nil
+}
+func (m *MockShowService) GetShowTimeline(idOrSlug string) (*contracts.ShowTimelineResponse, error) {
+	if m.GetShowTimelineFn != nil {
+		return m.GetShowTimelineFn(idOrSlug)
 	}
 	return nil, nil
 }

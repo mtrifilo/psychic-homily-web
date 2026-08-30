@@ -41,6 +41,10 @@ export const showEndpoints = {
   // Export endpoint (dev only)
   EXPORT: (showId: string | number) =>
     `${API_BASE_URL}/shows/${showId}/export`,
+  // The gig timeline: the headliner's adjacent dates plus per-act recurrence
+  // in this show's place. Takes the same id-or-slug address as GET above.
+  TIMELINE: (showId: string | number) =>
+    `${API_BASE_URL}/shows/${showId}/timeline`,
   // Show report endpoints
   REPORT: (showId: string | number) =>
     `${API_BASE_URL}/shows/${showId}/report`,
@@ -65,6 +69,17 @@ export const showQueryKeys = {
   // on the venue's clock, so every viewer gets the same answer for the same
   // show (the same contract `cities` states above).
   alsoTonight: (id: string) => ['shows', 'also-tonight', id] as const,
+  // Keyed on the NUMERIC show id, unlike `detail` above, which is keyed on
+  // whatever the route addressed the show by. The endpoint takes either, so two
+  // spellings of one show would otherwise occupy two entries holding identical
+  // data, and the route's server seed would miss whichever one the hook asked
+  // for. The id is the spelling every caller can reach: a component holding a
+  // ShowResponse has it, a route holding only a slug does not.
+  timeline: (showId: number) => ['shows', 'timeline', showId] as const,
+  // Every cached timeline, for invalidation. A show's neighbours are cached
+  // under THEIR ids, and editing one show's date reorders their spines too, so
+  // a mutation cannot name the set of keys it invalidated.
+  timelineAll: () => ['shows', 'timeline'] as const,
   userShows: (userId: string) => ['shows', 'user', userId] as const,
   search: (query: string) => ['shows', 'search', query.toLowerCase()] as const,
 } as const

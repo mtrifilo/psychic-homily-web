@@ -32,8 +32,15 @@ vi.mock('next/link', () => ({
 
 // Mock useShow hook
 const mockUseShow = vi.fn()
+// The corridor modules' archive read, stubbed as "nothing yet" so the header
+// renders here exactly as it did before the modules existed. What the modules
+// do with a populated payload is ShowHeader.test.tsx's subject.
+const mockUseShowTimeline = vi.fn(() => ({ data: undefined }))
 vi.mock('../hooks/useShows', () => ({
   useShow: (...args: unknown[]) => mockUseShow(...args),
+  // Arguments deliberately dropped: nothing here asserts on them, and the
+  // stub's return is what the header renders from.
+  useShowTimeline: () => mockUseShowTimeline(),
 }))
 
 // Mock admin hooks

@@ -30,22 +30,66 @@ import { dehydrate, type DehydratedState } from '@tanstack/react-query'
 import { connection } from 'next/server'
 import { getQueryClient } from '@/lib/queryClient'
 
+/**
+ * Seed ONE key. The single-seed spelling of {@link prefetchEntities}.
+ *
+ * `NonNullable` so the inherited null-SKIP is unreachable rather than merely
+ * unused: every caller today is a `[slug]` route that has already
+ * `notFound()`ed, and a future caller seeding a legitimately-null payload
+ * should get a compile error instead of a silently dropped seed.
+ */
 export async function prefetchEntity<T>(
   queryKey: readonly unknown[],
-  data: T,
+  data: NonNullable<T>,
 ): Promise<DehydratedState> {
-  const queryClient = getQueryClient()
-  await queryClient.prefetchQuery({
-    queryKey,
-    queryFn: () => data,
-  })
-  return dehydrate(queryClient)
+  return prefetchEntities([{ queryKey, data }])
 }
 
 /** One cache entry to seed: the key the client hook will read, and its data. */
 export interface QuerySeed {
   queryKey: readonly unknown[]
   data: unknown
+}
+
+/**
+ * `prefetchEntity` for a page whose first paint depends on more than one key.
+ *
+ * `getQueryClient()` mints a fresh client per call on the server, so two
+ * `prefetchEntity` calls produce two dehydrated states and a
+ * `<HydrationBoundary>` can only take one. Seeding all of a page's keys through
+ * one client is the whole difference.
+ *
+ * Freshness semantics are `prefetchEntity`'s, NOT `seedFirstScreen`'s: each
+ * entry is stamped "fetched now" and the client honours its `staleTime` instead
+ * of revalidating on the first commit. Use this when every seed is an ANONYMOUS
+ * read whose payload does not vary by viewer, so a stamp the client trusts
+ * cannot hide a signed-in difference. Use `seedFirstScreen` when a seed's
+ * payload WOULD differ for a signed-in viewer, which is what forces the
+ * immediate revalidation there. (Both are routinely Data-Cached; that alone
+ * does not decide it, since a `[slug]` detail read is the same bytes for
+ * everyone.)
+ *
+ * Callers on a route with no dynamic input of its own must `await connection()`
+ * first, for the reason `seedFirstScreen` documents: `dehydrate()` reads the
+ * clock, and under `cacheComponents` a prerenderable scope may not. A `[slug]`
+ * route has already awaited `params`, which satisfies the guard.
+ *
+ * A seed whose `data` is null is SKIPPED rather than cached, so a module whose
+ * server fetch failed falls through to its own client fetch and its own error
+ * state instead of hydrating into a permanent empty.
+ */
+export async function prefetchEntities(
+  seeds: readonly QuerySeed[],
+): Promise<DehydratedState> {
+  const queryClient = getQueryClient()
+  for (const seed of seeds) {
+    if (seed.data == null) continue
+    await queryClient.prefetchQuery({
+      queryKey: seed.queryKey,
+      queryFn: () => seed.data,
+    })
+  }
+  return dehydrate(queryClient)
 }
 
 /**

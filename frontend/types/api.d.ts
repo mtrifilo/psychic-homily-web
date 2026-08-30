@@ -6286,6 +6286,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/shows/{show_id}/timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get shows by show ID timeline */
+        get: operations["get-shows-by-show-id-timeline"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/shows/{show_id}/unpublish": {
         parameters: {
             query?: never;
@@ -16486,6 +16503,37 @@ export interface components {
             slug: string;
             title: string;
             venue_name: string;
+        };
+        ShowTimelineEntry: {
+            city: string;
+            /** Format: date-time */
+            event_date: string;
+            /** Format: int64 */
+            show_id: number;
+            show_slug: string;
+            state: string;
+            timezone: string;
+            venue_name: string;
+            venue_slug: string;
+        };
+        ShowTimelineRecurrence: {
+            /** Format: int64 */
+            artist_id: number;
+            is_hometown: boolean;
+            last_played: components["schemas"]["ShowTimelineEntry"];
+        };
+        ShowTimelineResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/ShowTimelineResponse.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            headliner_artist_id: number;
+            next: components["schemas"]["ShowTimelineEntry"];
+            previous: components["schemas"]["ShowTimelineEntry"];
+            recurrence: components["schemas"]["ShowTimelineRecurrence"][] | null;
         };
         ShowVenueInput: {
             /** @description Street address (optional) */
@@ -33669,6 +33717,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ShowResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-shows-by-show-id-timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Show ID or slug
+                 * @example desert-doom-night
+                 */
+                show_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShowTimelineResponse"];
                 };
             };
             /** @description Error */

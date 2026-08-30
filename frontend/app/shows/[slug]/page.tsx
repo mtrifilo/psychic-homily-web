@@ -12,14 +12,17 @@ import { connection } from 'next/server'
 // that surface eagerly reachable from this route and quietly undo the eviction
 // below. utils.ts has type-only imports of its own, so it costs nothing.
 import { showTimingInput } from '@/features/shows/utils'
-import type { ShowResponse } from '@/features/shows/types'
+import type {
+  ShowResponse,
+  ShowTimelineResponse,
+} from '@/features/shows/types'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicEventSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { resolveShowTimezone } from '@/lib/utils/formatters'
 import { getShowLifecycleState, hasShowStarted } from '@/lib/utils/showTiming'
 import { API_BASE_URL } from '@/lib/api-base'
 import { queryKeys } from '@/lib/queryClient'
-import { prefetchEntity } from '@/lib/query-hydration'
+import { prefetchEntities } from '@/lib/query-hydration'
 
 // Imported from the component FILE, never `@/features/shows` — see the note in
 // features/shows/components/index.ts for why the barrel would undo this.
@@ -45,11 +48,11 @@ interface ShowPageProps {
  */
 const getShow = cache(async (slug: string): Promise<ShowResponse | null> => {
   try {
-    const res = await fetch(`${API_BASE_URL}/shows/${slug}`, {
+    const res = await fetch(`${API_BASE_URL}/shows/${encodeURIComponent(slug)}`, {
       next: { revalidate: 3600 },
     })
     if (res.ok) {
-      return res.json()
+      return await res.json()
     }
     // Don't report 404s - they're expected for invalid slugs
     if (res.status >= 500) {
@@ -68,6 +71,61 @@ const getShow = cache(async (slug: string): Promise<ShowResponse | null> => {
   }
   return null
 })
+
+/**
+ * The show's gig timeline, fetched here so both corridor modules are in the
+ * server HTML rather than shifting the page down when they arrive after
+ * hydration. They sit directly under the bill, above the fold.
+ *
+ * Failure is SILENT and returns null: these are two supplementary lines, and a
+ * show page must not 500 because an archive query did. A null seed is skipped
+ * by `prefetchEntities`, so the client hook then makes its own attempt.
+ *
+ * Addressed by SLUG, not by the id on the loaded show, so this can be started
+ * before `getShow` has resolved rather than queued behind it. The endpoint takes
+ * either spelling. The cache key it seeds is still the numeric id, which is
+ * available by the time the seed is built.
+ *
+ * The slug is `encodeURIComponent`d because Next hands params through
+ * DECODED: `%2F` and `%3F` arrive as live path and query delimiters, which
+ * would otherwise let a caller re-point this server-side fetch at another
+ * backend path and have its body echoed back inside the hydration state.
+ *
+ * Not `React.cache`d, unlike `getShow`: it has one caller. `generateMetadata`
+ * has no use for it, and adding one would mean a second backend round trip on
+ * every request for a title that already has everything it needs.
+ */
+async function getShowTimeline(
+  slug: string,
+): Promise<ShowTimelineResponse | null> {
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/shows/${encodeURIComponent(slug)}/timeline`,
+      { next: { revalidate: 3600 } },
+    )
+    // `return await`, not a bare `return`: a bare one hands the caller the
+    // parse promise WITHOUT routing its rejection through the catch below, and
+    // a 200 with a truncated body would then reject after this function has
+    // already returned.
+    if (res.ok) {
+      return await res.json()
+    }
+    if (res.status >= 500) {
+      Sentry.captureMessage(`Show timeline: API returned ${res.status}`, {
+        level: 'warning',
+        tags: { service: 'show-page' },
+        extra: { slug, status: res.status },
+      })
+    }
+  } catch (error) {
+    Sentry.captureException(error, {
+      level: 'warning',
+      tags: { service: 'show-page' },
+      extra: { slug },
+    })
+  }
+  return null
+}
 
 /**
  * A hand-rolled sibling of `lib/utils/formatters.formatShowDate`, kept separate
@@ -194,16 +252,37 @@ export default async function ShowPage({ params }: ShowPageProps) {
     notFound()
   }
 
+  // Started BEFORE the show is awaited, so the two backend reads overlap
+  // instead of costing two serial round trips on every Data Cache miss. It
+  // resolves to null rather than rejecting, so leaving it in flight through the
+  // `notFound()` below cannot raise an unhandled rejection.
+  //
+  // The accepted cost is on the path that does NOT render: a bogus slug spends
+  // two backend requests instead of one, neither cacheable, since the Data
+  // Cache drops non-2xx. That is the cheaper side of the trade, because the
+  // rendering path is the common one and the 404 path is a fast backend miss.
+  const timelinePromise = getShowTimeline(slug)
   const showData = await getShow(slug)
 
   if (!showData) {
     notFound()
   }
 
-  const dehydratedState = await prefetchEntity(
-    queryKeys.shows.detail(slug),
-    showData,
-  )
+  // Both keys through ONE client: `getQueryClient()` mints a fresh one per
+  // call, so two `prefetchEntity` calls would produce two dehydrated states and
+  // the boundary below can only carry one.
+  //
+  // The timeline is keyed on the numeric id while the detail is keyed on the
+  // slug the route was addressed by. That is not drift: `useShowTimeline` asks
+  // by id because a component holding a ShowResponse has one, and the endpoint
+  // accepts either spelling.
+  const dehydratedState = await prefetchEntities([
+    { queryKey: queryKeys.shows.detail(slug), data: showData },
+    {
+      queryKey: queryKeys.shows.timeline(showData.id),
+      data: await timelinePromise,
+    },
+  ])
 
   const headliner = showData.artists?.find(a => a.is_headliner)?.name || showData.artists?.[0]?.name || 'Live Music'
   const showName = showData.title || `${headliner} at ${showData.venues?.[0]?.name || 'TBA'}`

@@ -819,8 +819,14 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
   shows: () => queryClient.invalidateQueries({ queryKey: ['shows'] }),
 
   // Invalidate specific show queries
-  show: (id: string) =>
-    queryClient.invalidateQueries({ queryKey: ['shows', 'detail', id] }),
+  show: (id: string) => {
+    queryClient.invalidateQueries({ queryKey: ['shows', 'detail', id] })
+    // Gig timelines are derived from show dates, venues and bills, and a change
+    // to ONE show reorders the spines of every show it neighbours. Those are
+    // cached under their own ids, so the whole prefix goes rather than this id's
+    // entry alone.
+    queryClient.invalidateQueries({ queryKey: ['shows', 'timeline'] })
+  },
 
   // Invalidate artist queries
   artists: () => queryClient.invalidateQueries({ queryKey: ['artists'] }),

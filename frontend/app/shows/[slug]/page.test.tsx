@@ -82,11 +82,39 @@ function musicEventSchemaFrom(result: ReactElement): Record<string, unknown> {
 const PAST_DATE = '2020-03-15T20:00:00Z'
 const FUTURE_DATE = '2099-03-15T20:00:00Z'
 
+/**
+ * The SHOW read's mock. Every test below queues its case on this one, and the
+ * queue is positional, so it must see only the show request.
+ */
 const fetchMock = vi.fn()
+
+/**
+ * The TIMELINE read's mock, kept separate because the page starts that fetch
+ * BEFORE it awaits the show, so the two reads overlap on one round trip. A
+ * single shared mock would hand the timeline the response the test queued for
+ * the show, and every assertion here would then be reading the wrong request.
+ *
+ * Defaulted to an empty timeline: these tests are about metadata, JSON-LD and
+ * the notFound wiring, and the timeline is two supplementary lines the page
+ * renders past. A test that wants a populated one overrides it.
+ */
+const timelineFetchMock = vi.fn()
+
+const EMPTY_TIMELINE = {
+  previous: null,
+  next: null,
+  recurrence: [],
+  headliner_artist_id: 0,
+}
 
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.stubGlobal('fetch', fetchMock)
+  timelineFetchMock.mockResolvedValue(okResponse(EMPTY_TIMELINE))
+  vi.stubGlobal('fetch', (url: string, init?: RequestInit) =>
+    String(url).includes('/timeline')
+      ? timelineFetchMock(url, init)
+      : fetchMock(url, init)
+  )
 })
 
 afterEach(() => {
@@ -222,6 +250,36 @@ describe('ShowPage', () => {
     ).rejects.toThrow(NOT_FOUND_SENTINEL)
 
     expect(notFoundMock).toHaveBeenCalledTimes(1)
+  })
+
+  // The two reads overlap, so each must be addressed to its own endpoint. A
+  // page that sent both to the same URL would still pass every assertion below
+  // while making two identical requests.
+  it('addresses the show and the timeline as two separate reads', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(buildShow()))
+
+    await ShowPage({ params: Promise.resolve({ slug: 'test-show' }) })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0][0]).toContain('/shows/test-show')
+    expect(fetchMock.mock.calls[0][0]).not.toContain('/timeline')
+    expect(timelineFetchMock).toHaveBeenCalledTimes(1)
+    expect(timelineFetchMock.mock.calls[0][0]).toContain(
+      '/shows/test-show/timeline'
+    )
+  })
+
+  // The timeline is two supplementary lines. A show page must not 404 because
+  // an archive query failed, and it must not report the show read as the
+  // casualty of it.
+  it('still renders the show when the timeline read fails', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(buildShow()))
+    timelineFetchMock.mockRejectedValue(new Error('archive down'))
+
+    const result = await ShowPage({ params: Promise.resolve({ slug: 'test-show' }) })
+
+    expect(notFoundMock).not.toHaveBeenCalled()
+    expect(musicEventSchemaFrom(result)['@type']).toBe('MusicEvent')
   })
 
   it('renders without calling notFound() when the show is found', async () => {

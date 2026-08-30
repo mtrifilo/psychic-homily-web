@@ -13,7 +13,12 @@ import {
   showQueryKeys,
   SHOW_CITIES_FIRST_SCREEN_URL,
 } from '@/features/shows/api'
-import type { UpcomingShowsResponse, ShowResponse, ShowCitiesResponse } from '../types'
+import type {
+  UpcomingShowsResponse,
+  ShowResponse,
+  ShowCitiesResponse,
+  ShowTimelineResponse,
+} from '../types'
 import type { ShowAlsoTonightResponse } from '../showRails'
 import { buildCitiesParam } from '@/components/filters/cityParams'
 
@@ -141,6 +146,37 @@ export const useShowAlsoTonight = (
       )
     },
     enabled: enabled && Boolean(showId),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  })
+}
+
+/**
+ * Hook to fetch a show's gig timeline: the headliner's adjacent dates and each
+ * billed act's recurrence in this show's place.
+ *
+ * Takes the NUMERIC id, not the route's slug, because the query key is the
+ * numeric one -- see `showQueryKeys.timeline`. The show route seeds this key
+ * server-side from the same id, so the modules are in the first paint rather
+ * than shifting the page when they arrive.
+ *
+ * `staleTime` matches `useShow`'s rather than running long on the "it is all
+ * archive data" argument, which is false for half the payload: `next` is by
+ * construction a FUTURE date, and a newly announced show ahead of this one
+ * invalidates it with no mutation on this page to observe. It also must not
+ * compound with the route's own `revalidate: 3600`, since the server seed is
+ * stamped "fetched now" and a longer window here would sit on a payload that
+ * was already up to an hour old when it arrived.
+ */
+export const useShowTimeline = (showId: number | undefined) => {
+  return useQuery({
+    queryKey: showQueryKeys.timeline(showId ?? 0),
+    queryFn: async (): Promise<ShowTimelineResponse> => {
+      return apiRequest<ShowTimelineResponse>(
+        showEndpoints.TIMELINE(showId as number),
+        { method: 'GET' },
+      )
+    },
+    enabled: Boolean(showId),
     staleTime: 5 * 60 * 1000, // 5 minutes
   })
 }

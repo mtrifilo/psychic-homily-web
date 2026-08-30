@@ -60,6 +60,15 @@ func setupShowRoutes(rc RouteContext) {
 	alsoTonightHandler := catalogh.NewSceneHandler(rc.SC.Scene)
 	huma.Get(rc.API, "/shows/{show_id}/also-tonight", alsoTonightHandler.GetShowAlsoTonightHandler)
 
+	// The gig timeline: the headliner's adjacent dates and each billed act's
+	// recurrence in this show's place.
+	//
+	// Anonymous and public for the same reason as the rail above — a
+	// non-approved show is answered exactly like an unknown one — so it stays
+	// off optionalAuthGroup. A show with nothing around it is a 200 with empty
+	// fields, so there is nothing here for proxy.ts to HEAD-probe either.
+	huma.Get(rc.API, "/shows/{show_id}/timeline", showHandler.GetShowTimelineHandler)
+
 	// Export endpoint - only register in development environment
 	if os.Getenv("ENVIRONMENT") == "development" {
 		huma.Get(rc.API, "/shows/{show_id}/export", showHandler.ExportShowHandler)

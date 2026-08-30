@@ -4,12 +4,15 @@ import { Fragment, useCallback, useState } from 'react'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
-import { formatShowDate } from '@/lib/utils/formatters'
+import { formatShowDate, resolveShowTimezone } from '@/lib/utils/formatters'
 import { ShowFlyerPlate } from './ShowFlyerPlate'
 import { ShowTicketRow } from './ShowTicketRow'
 import { saysSoldOut } from './showSaleState'
 import { ShowVenueModule } from './ShowVenueModule'
+import { ShowBillRecurrence } from './ShowBillRecurrence'
+import { ShowGigTimeline } from './ShowGigTimeline'
 import { flyerImageSrc, sourceVenueName } from './showFlyer'
+import type { TimelineStop } from './showTimelineCopy'
 import { billHometown, byBillPosition, showTimingInput, splitBill } from '../utils'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import type {
@@ -17,6 +20,7 @@ import type {
   SetType,
   ShowArtistLabel,
   ShowResponse,
+  ShowTimelineResponse,
 } from '../types'
 
 /**
@@ -173,6 +177,18 @@ interface ShowHeaderProps {
    * inside {@link ShowTicketRow}, not here.
    */
   actions?: React.ReactNode
+  /**
+   * The archive read behind the two corridor modules, fetched by the CALLER.
+   *
+   * A prop rather than a hook here for the same reason `lifecycle` is one: this
+   * component's contract is "given a show, render it", and a network dependency
+   * inside it would make every consumer, including a share-card layout or a
+   * test, need a query client to render a bill.
+   *
+   * Undefined while it is in flight, or when the caller does not fetch it at
+   * all. Both modules self-hide on it, so the header is complete without it.
+   */
+  timeline?: ShowTimelineResponse
 }
 
 /**
@@ -198,7 +214,12 @@ interface ShowHeaderProps {
  * fit into `EntityHeader`'s single-string `title` / subtitle-badge shape.
  * See `docs/research/entity-detail-layout-migration.md` for rationale.
  */
-export function ShowHeader({ show, lifecycle, actions }: ShowHeaderProps) {
+export function ShowHeader({
+  show,
+  lifecycle,
+  actions,
+  timeline,
+}: ShowHeaderProps) {
   // A flyer URL that 404s, or points at a host that blocks hotlinking, is the
   // same situation as no flyer at all, so it collapses the column the same
   // way rather than leaving a broken-image glyph in a reserved gutter.
@@ -230,12 +251,38 @@ export function ShowHeader({ show, lifecycle, actions }: ShowHeaderProps) {
   // a few hundred pixels apart, so a page that resolved the venue's calendar
   // two ways could print two different dates in one screenshot.
   const timing = showTimingInput(show)
+  // The same room `showTimingInput` picked its zone from, so the spine's marker
+  // cannot name one venue while the date beside it is read on another's clock.
+  const venue = show.venues?.[0]
   // Sort the whole bill first so every downstream slice — including the
   // `artists[0]` / `artists.slice(1)` fallback below — is position-ordered.
   const artists = [...show.artists].sort(byBillPosition)
 
   const { headliners: effectiveHeadliners, support: effectiveSupport } =
     splitBill(artists)
+
+  // The show's own stop on its spine, formatted by the same rules as its
+  // neighbours. The zone is `timing`'s, which is the one the date line above
+  // and the status stripe above that are already rendered on.
+  // One derivation, used by every module below. `||` rather than `??`, because
+  // venues.city is free text and a blank string is as absent as a null here.
+  const showCity = venue?.city?.trim() || show.city?.trim() || ''
+  const showState = venue?.state?.trim() || show.state?.trim() || ''
+  const currentStop: TimelineStop = {
+    event_date: show.event_date,
+    timezone: resolveShowTimezone(timing.state, timing.timezone),
+    venue_name: venue?.name,
+    city: showCity,
+    state: showState,
+  }
+  // The act the spine follows, named for its landmark. Resolved from the
+  // payload's own headliner id against the bill already rendered above, so the
+  // name announced is the name printed; the backend picks that id by the same
+  // rule `splitBill` does. Falls back to the lead of the rendered bill, which
+  // is what the reader sees when the payload has not arrived yet.
+  const spineHeadlinerName =
+    artists.find(artist => artist.id === timeline?.headliner_artist_id)?.name ??
+    effectiveHeadliners[0]?.name
 
   return (
     <div
@@ -385,6 +432,25 @@ export function ShowHeader({ show, lifecycle, actions }: ShowHeaderProps) {
             ))}
           </div>
         )}
+
+        {/* SLOT: corridor modules. Both read the same archive fetch and both
+            self-hide, in the mock's order: what this city knows about the acts
+            first, still in the bill's register, then the headliner's route as
+            a banded rule that closes the bill block off from the venue.
+
+            Inside the bill's own slot rather than the venue module's because
+            they are statements ABOUT the bill: one names its acts, the other
+            follows its lead act. */}
+        <ShowBillRecurrence
+          recurrence={timeline?.recurrence ?? []}
+          artists={artists}
+        />
+        <ShowGigTimeline
+          current={currentStop}
+          previous={timeline?.previous ?? null}
+          next={timeline?.next ?? null}
+          headlinerName={spineHeadlinerName}
+        />
 
         {/* SLOT: venue module. The co-primary entity's block, ABOVE the
             ticket module (locked scan order: who → where/when → how much →
