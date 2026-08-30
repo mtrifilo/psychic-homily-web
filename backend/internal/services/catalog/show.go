@@ -287,7 +287,9 @@ func (s *ShowService) determineShowStatus(tx *gorm.DB, venues []contracts.Create
 //
 // CANONICAL rationale for this predicate; pipeline's checkHeadlinerDuplicate and
 // services/catalog/headline_slot.go both point here rather than restating it.
-// That twin is not identical: it also filters out rejected and private shows.
+// checkHeadlinerDuplicate is not identical: it also filters out rejected and
+// private shows. syncShowArtistDedupColumns below carries the third piece, the
+// index's coverage gap, and the two have to move together.
 //
 // Two things refuse a duplicate here, and NEITHER IS A SUPERSET OF THE OTHER.
 // `shows_artist_venue_eventdate_uniq` is UNIQUE (artist_id, venue_id,
@@ -301,8 +303,9 @@ func (s *ShowService) determineShowStatus(tx *gorm.DB, venues []contracts.Create
 //     regardless of set_type or position, and there this guard adds only the
 //     message.
 //   - Where the two resolve to DIFFERENT ids, only this guard fires. Venues may
-//     legally share a name across cities (idx_venues_name_city_unique), and this
-//     guard cannot tell them apart, so that arm also produces false positives.
+//     legally share a name across cities (idx_venues_name_city_unique), and the
+//     venue join carries no city term, so this case refuses real collisions and
+//     same-named venues in other cities alike.
 //   - Where the denorm columns are NULL, or the collision sits at a multi-venue
 //     show's non-lowest venue_id, this guard is the only refusal.
 //
@@ -319,13 +322,21 @@ func (s *ShowService) determineShowStatus(tx *gorm.DB, venues []contracts.Create
 // index is blind to a collision at any other venue of that show. That is what
 // makes the position arm load-bearing rather than redundant.
 //
+// EXPIRES: that argument rests on the coverage gap documented at
+// syncShowArtistDedupColumns. PSY-1979 proposes closing it; if it lands, this
+// paragraph and that note have to be revisited together.
+//
 // Scope, so this is not read as more than it is:
 //
 //   - Of the paths that create shows, only this one and discovery's import run a
 //     guard. admin/data_sync.importShow runs a TITLE-keyed check instead, so an
 //     artist collision under a different title falls to the index alone there,
-//     and cmd/seed writes show_artists directly. UpdateShow re-stamps the dedup
-//     columns without calling any guard.
+//     and cmd/seed writes show_artists directly.
+//   - No update path runs a guard. UpdateShow re-stamps only when event_date
+//     changed and cannot touch the bill at all; UpdateShowWithRelations, which
+//     is what the update handler calls and the only path that can replace the
+//     artists or venues, re-stamps whenever those may have moved. Both leave the
+//     index as the sole refusal, with the gap noted above.
 //   - The message below reaches server logs and in-process callers. The HTTP
 //     surface replaces it with a fixed "Failed to create show", so this copy is
 //     not what an API client reads.

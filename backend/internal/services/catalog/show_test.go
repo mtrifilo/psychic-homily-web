@@ -2317,11 +2317,16 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_DuplicateErrorClaim
 //
 // Because some act is curated, headlineSlotSQL takes its CURATED arm and finds
 // no 'headliner' row, so it reads this bill as having no headline slot. That is
-// what makes this the narrow shape where the two predicates diverge: on a fully
-// uncurated bill headlineSlotSQL falls back to position 0 and agrees with the
-// guard, and the show form always sends a set_type with act one defaulting to
-// 'headliner', so ordinary submissions are curated bills with a real headliner
-// row. This bill is reachable from an API client, not from the form.
+// the shape where the two predicates diverge: on a fully uncurated bill
+// headlineSlotSQL falls back to position 0 and agrees with the guard.
+//
+// Reachability, since it decides how much the divergence matters. The REQUEST
+// shape built here (an act carrying no set_type, whose is_headliner the handler
+// pins false) is API-only, because the form sends a set_type for every act. The
+// STORED bill is not API-only: the form offers every act, including the first,
+// the full role list with "slot unknown" among them, and flyer extraction
+// resolves an act the extractor said nothing about to 'performer'. So a curated
+// bill with no 'headliner' row arrives from ordinary form use too.
 //
 // The position arm is the only reason it is duplicate-checked at all.
 func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_PartiallyCuratedTopActIsStillDuplicateChecked() {
