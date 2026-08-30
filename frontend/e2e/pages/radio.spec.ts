@@ -21,6 +21,18 @@ import { expect } from '@playwright/test'
  * strict mode, link/heading queries are scoped to the page's `<main>`
  * (`page.getByRole('main')`), which excludes the TopBar and Footer.
  *
+ * EXACTNESS NOTE (PSY-1957): Playwright's `name:` option matches by SUBSTRING
+ * with a string argument, so a locator naming an entity also matches every
+ * OTHER control whose accessible name merely contains that entity's name.
+ * The dial's outbound `[listen]` bracket announces "Listen to {channel}
+ * (opens in a new tab)" (PSY-1865 gave it the channel-naming `ariaLabel`;
+ * BracketLink appends the new-tab half), which contains the channel name and
+ * so collided with the channel's own strip link under strict mode. Wherever
+ * the intended target IS the bare entity-name link, these queries pass
+ * `exact: true`. Wherever the target legitimately carries decoration around
+ * the name — the show page's "← {station}" back-link — the substring match
+ * is the point and `exact` must NOT be added; those sites say so inline.
+ *
  * SEED SCOPE (verified against backend/internal/seeddata/radio.go, rendered
  * by cmd/gen-e2e-seed into frontend/e2e/setup-db.sh):
  *   - radio_networks: 1 (wfmu)
@@ -70,15 +82,24 @@ test.describe('Radio browse flow', () => {
     // sub-channels are hidden by isStationVisibleOnIndex per PSY-673; they
     // appear as channel sub-rows under the WFMU strip instead).
     await expect(
-      main.getByRole('link', { name: KEXP_STATION_NAME })
+      main.getByRole('link', { name: KEXP_STATION_NAME, exact: true })
     ).toBeVisible({ timeout: 10_000 })
-    await expect(main.getByRole('link', { name: 'WFMU' })).toBeVisible()
-    await expect(main.getByRole('link', { name: 'NTS Radio' })).toBeVisible()
+    await expect(
+      main.getByRole('link', { name: 'WFMU', exact: true })
+    ).toBeVisible()
+    await expect(
+      main.getByRole('link', { name: 'NTS Radio', exact: true })
+    ).toBeVisible()
 
     // WFMU's channels surface as underlined sub-row links on the flagship
     // strip (seed has 3 wfmu sub-channels; assert one stable example).
+    // `exact: true`: the same row's outbound bracket announces "Listen to
+    // Give the Drummer Radio (opens in a new tab)", which a substring match
+    // also selects. The strip link's whole accessible name is the channel
+    // name, so exactness names the intended element without weakening what
+    // this asserts.
     await expect(
-      main.getByRole('link', { name: 'Give the Drummer Radio' })
+      main.getByRole('link', { name: 'Give the Drummer Radio', exact: true })
     ).toBeVisible()
   })
 
@@ -87,10 +108,12 @@ test.describe('Radio browse flow', () => {
   }) => {
     await page.goto('/radio')
 
-    // Click into KEXP (network-less → 1-segment /radio/kexp URL).
+    // Click into KEXP (network-less → 1-segment /radio/kexp URL). `exact: true`
+    // for the same reason as above — this must be the strip's identity link,
+    // not any control that merely mentions the station in its name.
     const stationLink = page
       .getByRole('main')
-      .getByRole('link', { name: KEXP_STATION_NAME })
+      .getByRole('link', { name: KEXP_STATION_NAME, exact: true })
     await expect(stationLink).toBeVisible({ timeout: 10_000 })
     await stationLink.click()
 
@@ -156,6 +179,9 @@ test.describe('Radio browse flow', () => {
     // reachable via the top-bar Radio link, which lives outside <main>).
     // `name` matching is substring, so KEXP_STATION_NAME matches "← KEXP";
     // `.first()` guards against the station name also appearing in body copy.
+    // PSY-1957: do NOT add `exact: true` here. The target's accessible name is
+    // "← KEXP", not "KEXP" — exactness would match nothing. This is the site
+    // where the substring behavior is load-bearing rather than accidental.
     await expect(
       main.getByRole('link', { name: KEXP_STATION_NAME }).first()
     ).toBeVisible()
