@@ -224,8 +224,11 @@ func (s *EntityRequestService) replacePendingSubmission(
 	// updated_at is set explicitly rather than left to GORM's auto-timestamp so
 	// the returned row can carry the value that was actually stored. It is the
 	// version the decide path claims against, so a guess would be worse than
-	// useless.
-	now := time.Now().UTC()
+	// useless. Truncated to Postgres's own microsecond resolution: on a host where
+	// time.Now() carries nanoseconds the column would round and the returned row
+	// would be up to 999ns ahead of the stored value, which is a landmine the day
+	// a client round-trips this version.
+	now := time.Now().UTC().Truncate(time.Microsecond)
 	newPayload := json.RawMessage(payload)
 	newDetail := nullableJSONB(sourceDetail)
 	updates := map[string]interface{}{
@@ -268,9 +271,10 @@ func (s *EntityRequestService) replacePendingSubmission(
 // the stored row's payload and the candidate payload, so there is no Go-vs-SQL
 // normalization mismatch (e.g. collation-sensitive lowercasing).
 //
-// The row is used only to identify WHICH pending row the resubmission replaces;
-// the refreshed row the caller returns comes from GetRequest, so nothing is
-// preloaded here.
+// Nothing is preloaded: replacePendingSubmission BUILDS the row it returns from
+// this one rather than re-reading, so the associations are whatever this query
+// selects. A future consumer that needs Requester on a replacement's response
+// has to preload it HERE — the row will not acquire it later.
 func (s *EntityRequestService) findPendingDuplicate(entityType string, requesterID uint, payload []byte) (*communitym.EntityRequest, error) {
 	const storedName = "lower(trim(coalesce(payload->>'name', payload->>'title')))"
 	const candidateName = "lower(trim(coalesce(?::jsonb->>'name', ?::jsonb->>'title')))"

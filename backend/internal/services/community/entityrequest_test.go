@@ -454,9 +454,15 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_DuplicatePendi
 }
 
 // An auto-approving tier never replaces: its row is stamped 'approved' before the
-// insert, so it never meets the pending-only dedup index. The same user's earlier
-// PENDING request stays queued with its original payload — which is the shape a
-// trusted_contributor hits by filing unconfirmed and then resubmitting confirmed.
+// insert, so it never meets the pending-only dedup index.
+//
+// The consequence worth pinning is what is LEFT BEHIND: the earlier PENDING
+// request stays queued carrying the payload the requester has since moved on
+// from, beside a new approved row for the same name. An admin who later approves
+// the stale one fulfills it into a duplicate catalog entity, or a 409 and an
+// approved-but-unfulfilled orphan. Reached through the API by any tier whose
+// confirmation state changes between two submissions, not through a particular
+// UI flow — the shipping trusted-tier client confirms before its first POST.
 func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_AutoApprovingTier_DoesNotReplaceItsPendingRow() {
 	user := suite.createUser("trusted-redo", tierTrustedContributor, false)
 

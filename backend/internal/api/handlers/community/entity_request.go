@@ -199,8 +199,10 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 	// PSY-1675: the payload's image_url rides onto a real entity at fulfillment
 	// and is then fetched server-side by the share-card renderer, so it clears
 	// the same SSRF host guard the direct show/venue/label endpoints apply.
-	// Enforced here at queue-create so a hostile value never reaches the queue;
-	// fulfillEntity re-applies it to rows queued before this existed.
+	// Enforced here at queue-create so a hostile value never reaches the queue.
+	// NOTHING re-applies it at fulfillment — validatePayloadImageURL has exactly
+	// two call sites, this one and the decide handler's pre-claim check — which is
+	// why that check's read has to be the one the claim commits against.
 	if err := validatePayloadImageURL(ctx, entityType, req.Body.Payload); err != nil {
 		return nil, err
 	}
@@ -237,13 +239,14 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 	// CreatedEntityID == nil guard keeps an already-fulfilled row from being
 	// fulfilled twice.
 	//
-	// !replaced is load-bearing, not decoration. A replacement only ever writes a
-	// pending row, but the row is re-read in a separate statement, so an admin who
-	// approves in between makes that read return 'approved' with no
-	// created_entity_id yet (RecordFulfillment lands after their catalog create
-	// returns). Without this guard the CONTRIBUTOR's request would then fulfill
-	// the admin's approval, racing them into a duplicate entity or a spurious 409.
-	// A replacement is never an auto-approval, so it never fulfills.
+	// !replaced states the invariant rather than relying on it: a replacement only
+	// ever writes a PENDING row and the service builds the returned row from the
+	// one it matched, so DecisionState is pending by construction and this branch
+	// is already unreachable for a replacement. The guard is what keeps that true
+	// if the service ever re-reads the row again — a read landing after an admin's
+	// approval but before their RecordFulfillment returns 'approved' with no
+	// created_entity_id, and the CONTRIBUTOR's request would fulfill the admin's
+	// approval. A replacement is never an auto-approval, so it never fulfills.
 	if !replaced && created.DecisionState == communitym.EntityRequestStateApproved && created.CreatedEntityID == nil {
 		// nil show-associations: only the admin decide endpoint can supply them
 		// (PSY-1037), so an auto-approved show defers below.
