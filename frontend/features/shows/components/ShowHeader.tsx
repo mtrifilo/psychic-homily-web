@@ -272,16 +272,12 @@ export function ShowHeader({ show, lifecycle, actions }: ShowHeaderProps) {
             {formatShowDate(show.event_date, timing.state, false, timing.timezone)}
           </span>
           {/* Through the shared derivation, not `show.is_sold_out` directly.
-              SOLD OUT is a present-tense claim and this page makes it twice —
-              here, and in the ticket row a few hundred pixels down — so a
-              guard held by only one of them is a guard the other walks
-              straight past. Without the shared rule this badge would print
-              directly above the `NO LONGER AVAILABLE` that this change
-              introduces — and it ALREADY printed over the CANCELLED stripe,
-              which is a real pre-existing bug this retires rather than a
-              hazard it avoids. The flag is still the input; when it may be
-              SAID is `saysSoldOut`'s to answer, and that module records which
-              other surfaces do not yet ask it. */}
+              This page states SOLD OUT twice — here and in the ticket row
+              below — and a present-tense claim guarded in only one of them is
+              a claim the other still makes: the badge would sit above a
+              ticket line that has withdrawn it, or above a CANCELLED stripe.
+              The flag is the input; whether it may be SAID is
+              `saysSoldOut`'s. */}
           {saysSoldOut(show, lifecycle) && (
             <Badge
               variant="secondary"

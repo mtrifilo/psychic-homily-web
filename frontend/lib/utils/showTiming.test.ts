@@ -308,10 +308,10 @@ describe('getShowLifecycleState', () => {
 })
 
 /**
- * The predicate every past-tense CLAIM on a show page branches through. Its two
- * refinements over the raw lifecycle are the whole point of it, and both were
- * live in earlier revisions of the change that introduced it, so they are
- * pinned here rather than only through the components that consume them.
+ * The predicate every past-tense CLAIM on a show page branches through. Its
+ * two refinements over the raw lifecycle — cancellation and an unreadable
+ * date — are the whole point of it, so they are pinned here directly rather
+ * than only through the components that consume them.
  */
 describe('showIsArchived', () => {
   const DATED = '2026-03-15T03:00:00Z'

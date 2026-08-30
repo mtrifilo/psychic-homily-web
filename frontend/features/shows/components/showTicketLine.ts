@@ -118,20 +118,16 @@ function ticketPriceSegments(show: ShowResponse): string[] {
  * AVAILABLE` is the true thing to say about it once the list is shut.
  *
  * THE SOLD-OUT FLAG COUNTS TOO, and it is the input this function most
- * easily forgets because it is not a price and not a link. An ingested show
- * an admin marked sold out may carry neither field, and its line read
- * `8PM · SOLD OUT` right up until the show ended. Without this test it would
- * flip to a bare `8PM`: the register would go from a present-tense claim to
- * SILENCE rather than to the past tense of that claim, losing the most
- * emphatic evidence the show ever had of a sale to close.
+ * easily forgets, being neither a price nor a link. A show marked sold out
+ * can carry neither of the other two, and its line says `SOLD OUT` until the
+ * show is over; without this test that line falls to silence rather than to
+ * the past tense of the claim it was making.
  *
  * BOTH PRICES COUNT: a show sold only at the door still charged for entry.
  *
- * What returns false is the free show with no link and no sold-out flag, and
- * the show carrying none of the three — `NO LONGER AVAILABLE` is the past
- * tense of `ON SALE`, and a line that never said anything has nothing to
- * un-say. Those cases would only restate the stripe's `PAST SHOW` in a
- * register the page has no reason to use.
+ * False for the free show with no link and no sold-out flag, and for the show
+ * carrying none of them: `NO LONGER AVAILABLE` is the past tense of
+ * `ON SALE`, and a line that never said anything has nothing to un-say.
  */
 function hasTicketCommerce(show: ShowResponse): boolean {
   if (storedTicketUrl(show) || show.is_sold_out) return true
@@ -144,24 +140,17 @@ function hasTicketCommerce(show: ShowResponse): boolean {
  * Whether this line speaks in the PAST register at all: {@link showIsArchived}
  * applied to a `ShowResponse`.
  *
- * A thin adapter and nothing more, deliberately. The rule itself (cancelled
- * shows and undateable shows are not archives) is shared with the field-notes
- * section in another feature, and an earlier revision of this change spelled
- * it out here AND there — the two copies then disagreed about cancellation
- * within one commit, which is how a cancelled past show came to be asked what
- * it was like. Add conditions to the shared predicate, never to this wrapper.
+ * A thin adapter and nothing more. The rule has other callers, so conditions
+ * belong in the shared predicate, never here — a condition added to this
+ * wrapper applies to one line and silently not to the rest.
  *
- * There is deliberately NO condition on the venue timezone, and the omission
- * looks wrong at first glance, so here is why. `startTimeFactSegment` two
- * calls up REFUSES to print this show's start time on a guessed zone, because
- * a confidently wrong hour is worse than no hour. That rule does not transfer:
- * a guessed zone can be many hours out, which ruins an hour, but the stripe
- * still prints `PAST SHOW` for the same show on the same guess. Adding the
- * test would make this line MORE conservative than the band it is required to
- * agree with — the page would say PAST SHOW at the top and decline to close
- * the ticket line beneath it. One boundary, one answer, even when the boundary
- * is imperfect; fixing the guess is the timezone backfill's job, not this
- * line's.
+ * NO condition on the venue timezone, which looks wrong beside
+ * {@link startTimeFactSegment} above: that one refuses to print an hour on a
+ * guessed zone, because a confidently wrong hour is worse than none. The rule
+ * does not transfer. A guessed zone ruins an hour but still yields a date, and
+ * the stripe prints its past state from the same guess — testing it here would
+ * leave the page saying PAST SHOW at the top while this line declined to close
+ * beneath it.
  */
 function saysPastRegister(
   show: ShowResponse,

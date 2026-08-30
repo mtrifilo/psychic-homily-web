@@ -200,10 +200,8 @@ describe('FieldNotesSection', () => {
         />
       )
 
-      // Positively, not just the absence of the archive prompt: an assertion
-      // that only rules out "Were you there?" passes on "Attend this show",
-      // which is the bug this ticket exists to remove and which an undateable
-      // show inherited for a whole revision.
+      // Asserted positively: ruling out "Were you there?" alone would pass on
+      // "Attend this show", which is equally wrong for a show nobody can date.
       const empty = screen.getByTestId('field-notes-empty')
       expect(empty).toHaveTextContent('No field notes yet.')
       expect(empty).not.toHaveTextContent('Were you there?')

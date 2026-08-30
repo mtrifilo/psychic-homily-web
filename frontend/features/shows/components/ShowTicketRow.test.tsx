@@ -439,12 +439,9 @@ describe('ShowTicketRow', () => {
     )
   })
 
-  // The past register's row, against the mock: the forward-looking verb goes
-  // and the archive verbs stay (see ShowTicketRow's docstring for why [Save]
-  // is one of the latter). The mock also draws `[I was there]` in the gap the
-  // calendar verb leaves; attendance is an explicit non-goal of this ticket.
-  // Its absence is deliberately NOT asserted: nothing in the tree renders
-  // that string, so the query could never fail and would pin nothing.
+  // The past register's row: the forward-looking verb goes, the archive verbs
+  // stay. Attendance is out of scope and its absence is deliberately NOT
+  // asserted — nothing in this tree renders it, so the query could not fail.
   it('drops the calendar verb on a past show and keeps the archive row', () => {
     // Priced, so the rendered line actually carries the past register rather
     // than testing the archive row beside an empty one.

@@ -38,25 +38,18 @@ interface FieldNotesSectionProps {
    * empty state's tense — never to gate the form, which has its own
    * boundary and a different reason for it (see `isFuture` below).
    *
-   * REQUIRED, though there is one caller. An earlier revision made it
-   * optional and defaulted to the forward-looking copy, which meant a future
-   * edit that dropped the prop would silently restore the exact bug this
-   * section was changed to fix — no type error, no failing test, because the
-   * page-level test mocks this component away. A required prop turns that
-   * regression into a compile error.
+   * REQUIRED despite having one caller: optional-with-a-default, a dropped
+   * prop picks the forward-looking copy for a past show and nothing catches
+   * it, because the page-level test mocks this component away. Required makes
+   * that a compile error.
    */
   lifecycle: ShowLifecycleState
   /**
-   * Cancellation is not derivable from `lifecycle`: the lifecycle knows only
-   * about the calendar, so a cancelled show that has since gone by is `past`
-   * to it.
+   * Cancellation is not derivable from `lifecycle`, which answers only about
+   * the calendar and so calls a cancelled show `past` once its date goes by.
    *
-   * REQUIRED for exactly the reason `lifecycle` is, and it was optional in an
-   * earlier revision of this same change — which is how the argument above
-   * failed to reach the prop added three lines below it. Defaulted to
-   * `false`, a dropped `isCancelled` sends a cancelled past show back to
-   * "Were you there?" with tsc and the whole suite green, because the
-   * page-level test mocks this component away.
+   * REQUIRED for the same reason as `lifecycle`: defaulted to `false`, a
+   * dropped prop puts the archive prompt on a cancelled show silently.
    */
   isCancelled: boolean
 }
@@ -92,18 +85,14 @@ export function FieldNotesSection({
   // card's cache window, not any reader-facing surface.
   const isFuture = !hasShowStarted(showDate)
 
-  // TWO boundaries on this page, and they are not the same one — the whole
-  // reason this prop exists. `isFuture` above opens the FORM at the start
-  // INSTANT, mirroring the API. The archive test turns over at venue-local
-  // MIDNIGHT, which is what the stripe at the top of the page says. Between
-  // those two moments the form is open and the stripe reads TONIGHT, so the
-  // empty state must not ask "were you there?" about a band currently on
-  // stage.
+  // TWO boundaries, and they are not the same one. `isFuture` above opens the
+  // FORM at the start INSTANT, mirroring the API. This turns over at
+  // venue-local MIDNIGHT. Between them the form is open and the show is still
+  // tonight's, so the copy below must not speak about it in the past tense.
   //
-  // Through the SHARED predicate, not a local `lifecycle === 'past'`: the
-  // cancellation and unreadable-date terms live in it, and an earlier
-  // revision that spelled this rule out here instead promptly diverged from
-  // the ticket line's copy of it and asked a cancelled show what it was like.
+  // Through the shared predicate rather than a local `lifecycle === 'past'`,
+  // so the cancellation and unreadable-date terms cannot drift from the other
+  // surfaces that make past-tense claims about the same show.
   const isArchived = showIsArchived(
     { eventDate: showDate, isCancelled },
     lifecycle
@@ -166,14 +155,10 @@ export function FieldNotesSection({
               formatted against the SERVER's clock during SSR and the reader's
               on hydration.
 
-              A CANCELLED show gets no sentence at all, rather than a reworded
-              one. "After the show starts" is a promise about a moment that
-              will never arrive, so it cannot stand — but the positive
-              replacement ("field notes are closed for this show", or
-              whatever it should say) is copy, and copy on this project is a
-              human decision. Saying nothing is the honest interim: the
-              section still renders its heading, and nothing false is
-              asserted. */}
+              A CANCELLED show gets no sentence: "after the show starts" is a
+              promise about a moment that will not arrive. The positive
+              replacement is copy, which is a human decision, so this says
+              nothing rather than guessing. The heading still renders. */}
           {isCancelled
             ? null
             : 'Field notes will be available after the show starts.'}
@@ -232,27 +217,21 @@ export function FieldNotesSection({
               className="text-sm text-muted-foreground py-8 text-center"
               data-testid="field-notes-empty"
             >
-              {/* FOUR states, and every earlier revision of this line covered
-                  fewer than it claimed — including the revision whose comment
-                  said "three".
+              {/* Four states reach this branch, and each needs a different
+                  tense:
 
-                  It read "Attend this show…" unconditionally, which
-                  instructed readers to go to something that had already
-                  happened. Reversing it unconditionally only moved the bug,
-                  since "were you there?" is just as wrong during the show,
-                  when the stripe above says TONIGHT. Both prompts are wrong
-                  for a CANCELLED show, which did not happen and cannot be
-                  attended. And both are wrong again for an UNDATEABLE show:
-                  `hasShowStarted` counts it as started so the composer is
-                  open, while nothing on the page can say when or whether it
-                  happened — telling that reader to attend it is the original
-                  bug surviving on the one input every other surface here
-                  handles explicitly.
+                  - ARCHIVED: the show happened and is over. Ask what it was
+                    like.
+                  - IN PROGRESS: `isFuture` is false from the start instant,
+                    but the show is not archived until venue-local midnight,
+                    so the reader can still go. Invite them.
+                  - CANCELLED: it did not happen and cannot be attended, so
+                    neither prompt is true.
+                  - UNDATEABLE: `hasShowStarted` counts an unparseable date as
+                    started, so the composer opens, but nothing here can say
+                    whether the show happened.
 
-                  Cancelled and undateable therefore share the bare sentence,
-                  which asks nothing. The past phrasing is the locked mock's
-                  own prompt for this act; the in-progress phrasing is the
-                  original, which was always correct in that window. */}
+                  The last two ask nothing rather than guess. */}
               {isArchived
                 ? 'No field notes yet. Were you there? Share what you saw.'
                 : isCancelled || !hasReadableStartDate(showDate)

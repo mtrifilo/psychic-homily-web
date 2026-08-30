@@ -179,19 +179,25 @@ describe('the show OG route', () => {
       expect(bytes.byteLength).toBe(plain.byteLength)
     }, 30000)
 
-    // A venue-less show falls back to the SHOW's own state. Omitting that
-    // fallback silently put this card on Arizona's calendar while the page
-    // used the real one, which is how the two could disagree about `past`.
-    it('reads the venue-less fallback state, not the Arizona default', async () => {
-      vi.setSystemTime(new Date('2026-10-15T12:00:00Z'))
-      const { bytes } = await render({
-        ...soldOut,
+    // A venue-less show is judged on the SHOW's own state. The instant and
+    // clock below are chosen so the two candidate zones DISAGREE, which is
+    // what makes this discriminating: at 12:00Z on Oct 1, an event at
+    // 05:00Z is still `today` in Chicago (00:00 local, same day) but already
+    // `past` in Phoenix (22:00 local the day before). So the badge appears
+    // only if the fallback reaches `state: 'IL'`; on the default zone the
+    // show reads as archived and the badge is withheld.
+    it('judges a venue-less show on its own state, not the default zone', async () => {
+      const atMidnightChicago = {
         venues: [],
         state: 'IL',
-      })
-      const { bytes: plain } = await render({ ...BASE_SHOW, venues: [], state: 'IL' })
+        event_date: '2026-10-01T05:00:00Z',
+      }
+      vi.setSystemTime(new Date('2026-10-01T12:00:00Z'))
 
-      expect(bytes.byteLength).toBe(plain.byteLength)
+      const { bytes } = await render({ ...soldOut, ...atMidnightChicago })
+      const { bytes: plain } = await render({ ...BASE_SHOW, ...atMidnightChicago })
+
+      expect(bytes.byteLength).toBeGreaterThan(plain.byteLength)
     }, 30000)
 
     afterEach(() => {

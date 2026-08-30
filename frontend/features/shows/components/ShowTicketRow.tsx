@@ -38,22 +38,14 @@ interface ShowTicketRowProps {
  * with a warning to check both when moving either; they now share this row,
  * which is the easier invariant to keep.
  *
- * PAST REGISTER: the two forward-looking verbs drop out and the
- * rest of the row stays, which is the locked PAST mock's row minus the
- * attendance affordance it draws in their place. Neither refusal is written
- * here — `[Buy Tickets ↗]` goes via {@link ticketHref} and
- * `[Add to calendar]` via `ShowAddToCalendar`'s own past guard, each beside
- * the thing it governs, so this row states the mock's ORDER and nothing
- * about when a verb applies. Both carry their reason at the definition.
+ * PAST REGISTER: the forward-looking verbs drop out and the archive verbs
+ * stay. Neither refusal is written here — each lives beside the thing it
+ * governs, so this row states ORDER and nothing about when a verb applies.
+ * A refusal added to this JSX instead would apply to this mount alone.
  *
- * `[Save]` deliberately STAYS. A past show is an archive document, demoted
- * rather than deleted, and saving one is how a reader keeps it: the Library
- * page (`app/library/page.tsx`) lists past saves in their own tab, and
- * withdrawing the verb here would orphan every save already made the moment
- * the show ended. The mock's past row shows `[I was there]` in this
- * neighbourhood instead, but attendance is an explicit non-goal (its privacy
- * default is undecided), and its absence is not a reason to withdraw a
- * working affordance beside it.
+ * `[Save]` stays on a past show. A save already made must survive the show
+ * ending, so the verb that creates and clears it cannot disappear underneath
+ * it.
  */
 export function ShowTicketRow({ show, lifecycle }: ShowTicketRowProps) {
   const segments = ticketLineSegments(show, lifecycle)

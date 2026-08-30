@@ -116,25 +116,18 @@ interface ShowAddToCalendarProps {
  * locked show mock's placement — see ShowTicketRow's docstring for the
  * supersession of the earlier meta-row convention).
  *
- * Renders NOTHING for a past show. The refusal lives here rather than in the
- * caller's JSX for the reason `ticketHref` gives for owning the matching Buy
- * Tickets refusal: a rule kept in one caller's markup is a rule the second
- * mount will not inherit, and this one is not obvious enough to rediscover —
- * an appointment booked for a show that is over argues with the page's
- * `PAST SHOW` stripe from inside the reader's calendar app, where the page
- * can no longer correct it.
+ * Renders NOTHING for a past show. The refusal lives here rather than in a
+ * caller's JSX so that every mount inherits it: an appointment booked for a
+ * show that is over lands in the reader's calendar app, where this page
+ * cannot correct it.
  *
  * The boundary is the lifecycle's venue-local midnight, NOT the start
- * instant, so the verb survives the evening of the show itself: between
- * doors and midnight a reader can still decide to go, and the stripe beside
- * it still says TONIGHT. The cost is a calendar entry created an hour or two
- * after the set began, which is merely useless rather than misleading — and
- * the alternative, a page whose stripe says TONIGHT while its calendar verb
- * has quietly vanished, trades that for an inconsistency a reader can see.
+ * instant, so the verb survives the evening of the show: a reader can still
+ * decide to go, and the page still reads as tonight's. The cost is a calendar
+ * entry created after the set began, which is useless rather than misleading.
  *
- * The backend's `.ics` endpoint stays open to a direct request. That is the
- * right split: this component withdraws an AFFORDANCE, and a URL somebody
- * already holds is not one the page is offering.
+ * Withdrawing this affordance is NOT access control — the export endpoint
+ * governs its own access, and a URL somebody already holds still works.
  *
  * Signed-in viewers get an "Also save this show" checkbox, CHECKED by
  * default: the calendar action then also saves the show. The save is

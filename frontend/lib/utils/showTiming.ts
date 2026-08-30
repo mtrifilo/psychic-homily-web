@@ -18,12 +18,7 @@ import { resolveShowTimezone } from './formatters'
  * first kind; a cache lifetime is the second.
  *
  * Where they are used TODAY, so nobody has to grep for it: `hasShowStarted`
- * backs both JSON-LD offer gates and the field-notes FORM gate.
- * `getShowLifecycleState` is computed once per show-page request (and once per
- * share-card request) and threaded down as a prop. `showIsArchived` refines it
- * for every past-tense CLAIM: the ticket line's closing statement and the
- * field-notes empty state. `hasReadableStartDate` backs that predicate and the
- * field-notes copy directly. `isShowPast` has
+ * backs both JSON-LD offer gates and the field-notes form. `isShowPast` has
  * exactly one consumer, the share card's cache window. No listing surface uses
  * it yet: the past/upcoming splits on artist, venue and library pages are
  * partitioned by the API, and the scene pages read backend-computed
@@ -67,15 +62,12 @@ export interface ShowTimingInput {
  * would reintroduce a zone, and subtracting instants would reintroduce DST.
  * Ordering holds because each field occupies a fixed decimal width.
  *
- * Constructs its formatter per call, deliberately. An earlier revision memoized
- * them, which is the right shape for a hot loop, but the callers are per-page,
- * not per-row, so the memo bought nothing and cost a module-level mutable map
- * plus a cap to bound it. The busiest path is the share card, which now asks
- * TWICE — once for the cache window and once for the sold-out badge — so four
- * formatter constructions per request, and up to eight if the card retries.
- * Still not a loop. Add the memo back when a caller arrives that asks this per
- * row; `resolveShowTimezone` builds a throwaway formatter of its own on the
- * same path, so measure both together.
+ * Constructs its formatter per call, deliberately. Memoizing is the right
+ * shape for a hot loop, and this is not one: callers ask per page or per
+ * request, not per row, so a memo buys nothing and costs a module-level
+ * mutable map plus a cap to bound it. Add one when a caller arrives that asks
+ * this per row; `resolveShowTimezone` builds a throwaway formatter of its own
+ * on the same path, so measure both together.
  */
 function venueLocalDayOrdinal(instant: number, timeZone: string): number {
   const parts = new Intl.DateTimeFormat('en-US', {
@@ -97,22 +89,14 @@ function startInstantMs(eventDate: string | null | undefined): number | null {
 /**
  * Whether the show's start instant can be read at all.
  *
- * The check `getShowLifecycleState` demands of every surface that renders
- * WORDS, made callable so a surface can ASK it rather than infer it. (It is
- * not yet the only implementation: `showStatusStripeCopy` still parses the
- * instant itself, because it needs the number rather than the yes/no. Fold
- * that one in here if this ever grows a rule beyond `Date.parse`.) An
- * undateable
- * show comes back `past` from that function, a default inherited from a
- * cache-window caller where "past" only meant "cache it longer" — so a
- * surface that prints the past register without asking this first will put an
- * archive claim over a show whose date nobody could read, on a page that
- * cannot show a date anywhere to justify it.
+ * `getShowLifecycleState` returns `past` for an unreadable date, so a surface
+ * that renders past-tense WORDS must ask this first or it will make an
+ * archive claim about a show whose date nobody can read.
  *
  * Takes the instant field alone: readability is a property of the string, and
- * no timezone can rescue an unparseable one. This is deliberately NOT the
- * same question as "is the venue's timezone known" — a show on a guessed zone
- * still has a real date, and the stripe still says PAST SHOW for it.
+ * no timezone can rescue an unparseable one. Deliberately NOT the same
+ * question as "is the venue's timezone known" — a show on a guessed zone
+ * still has a real date.
  */
 export function hasReadableStartDate(
   eventDate: string | null | undefined
@@ -125,44 +109,33 @@ export type ShowLifecycleState = 'past' | 'today' | 'upcoming'
 /**
  * Whether a surface may speak about this show IN THE PAST TENSE.
  *
- * THE archive predicate. Every past-tense CLAIM — words a reader sees — must
- * branch on this rather than on `lifecycle === 'past'` directly, because the
- * raw lifecycle is wrong for that question in two directions. Both were live
- * in earlier revisions of the change that introduced this function; neither
- * ever reached production, and there is no incident to go looking for.
+ * The predicate a past-tense CLAIM branches on. `lifecycle === 'past'` alone
+ * is not that predicate: it is true in two cases where the past tense is a
+ * lie.
  *
- * REFUSALS are the deliberate exception and must NOT be converted: `ticketHref`
- * and `ShowAddToCalendar` branch on the raw lifecycle on purpose. Withholding
- * is the safe direction, and `ShowAddToCalendar`'s raw branch is load-bearing
- * against a `RangeError` — it must fire for an undateable show, which this
- * predicate deliberately reports as NOT archived.
+ * - A CANCELLED show is `past` once its date goes by, because the lifecycle
+ *   answers only about the calendar. The show did not happen, so nothing may
+ *   describe what it was like.
+ * - An UNDATEABLE show is `past` because that is `getShowLifecycleState`'s
+ *   default for a date it cannot parse. An unparseable date is not evidence
+ *   the show happened.
  *
- * The two directions:
+ * Governs CLAIMS, not REFUSALS. A surface that withholds something may branch
+ * on the raw lifecycle instead, and one that also guards a date-parsing crash
+ * MUST: withholding is the safe direction, and this predicate reports an
+ * undateable show as NOT archived, so a refusal written against it would stop
+ * firing exactly where it is needed.
  *
- * - A CANCELLED show that has since gone by is `past` to the lifecycle, which
- *   knows nothing about cancellation. The stripe says CANCELLED and never
- *   PAST SHOW; a surface answering in the other state's words contradicts the
- *   one fact a reader must not miss.
+ * Governs only the surfaces that call it. It is a predicate, not an
+ * enforcement mechanism, and other copy on the same page may still be
+ * phrased in a tense it would reject.
  *
- *   Scope note, because the obvious stronger claim is NOT true today: this
- *   governs the surfaces that branch on it, not every string on the page. The
- *   field-notes COMPOSER still invites a cancelled show's reader to "share
- *   your experience at this show" — its copy does not consult this predicate,
- *   and rewording it is a copy decision rather than a refactor. Do not read
- *   this function as a guarantee that nothing asks.
- * - An UNDATEABLE show is `past` by a default inherited from a cache-window
- *   caller, where "past" only meant "cache it longer". A page that cannot
- *   print a date cannot assert the show happened either.
+ * Structural input type rather than `ShowResponse`, so a caller outside the
+ * shows feature can ask with the two facts it has.
  *
- * Structural input type, not `ShowResponse`, so a surface outside the shows
- * feature can ask without importing it — the field-notes section lives in
- * `features/comments` and takes exactly these two facts as props.
- *
- * Note this is NOT the boundary for whether the show has BEGUN: that is
- * `hasShowStarted`, the start instant, and it is what the field-notes FORM
- * and the JSON-LD offer gate use. This one turns over at venue-local
- * midnight, so between doors and midnight a show is started but not yet
- * archived — which is the whole evening a page must still read as tonight's.
+ * NOT the boundary for whether the show has BEGUN — that is `hasShowStarted`,
+ * the start instant. This one turns over at venue-local midnight, so between
+ * doors and midnight a show is started and not yet archived.
  */
 export function showIsArchived(
   show: { eventDate: string | null | undefined; isCancelled: boolean },

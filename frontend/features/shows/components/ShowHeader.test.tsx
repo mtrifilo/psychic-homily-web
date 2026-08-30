@@ -143,17 +143,9 @@ describe('ShowHeader SOLD OUT badge', () => {
   })
 
   // The lifecycle calls an undateable show `past` on a default that is not
-  // evidence of anything, so a TRUE sold-out flag still stands: the badge is
-  // what this header rendered before the rule existed.
-  //
-  // The ticket-line segment beside it is a DELIBERATE CHANGE, not a
-  // preservation, and is called out here because the assertion below cannot
-  // tell them apart. The old guard was `lifecycle !== 'past'`, which an
-  // undateable show fails, so the line used to print no sale state while the
-  // badge above it printed SOLD OUT. One derivation now answers for both,
-  // which means this page gained a segment. That is the point: the two were
-  // contradicting each other, and `is_sold_out` is a stored fact that owes
-  // nothing to the calendar.
+  // evidence of anything, so a TRUE sold-out flag still stands. Both the badge
+  // and the ticket-line segment appear, from the one derivation: `is_sold_out`
+  // is a stored fact that owes nothing to the calendar.
   it('keeps the badge when the date cannot be read', () => {
     render(
       <ShowHeader
@@ -170,9 +162,9 @@ describe('ShowHeader SOLD OUT badge', () => {
 })
 
 describe('ShowHeader date register', () => {
-  // One register in every state. The year-on-past variant was tried and
-  // reverted: `formatShowDate`'s include-year path throws on an unparseable
-  // date, and the lifecycle calls exactly that show `past`.
+  // One register in every state. A year-on-past variant would route through
+  // `formatShowDate`'s include-year path, which throws on an unparseable
+  // date — and the lifecycle calls exactly that show `past`.
   it.each(['past', 'today', 'upcoming'] as const)(
     'renders the same unqualified date on a %s show',
     lifecycle => {

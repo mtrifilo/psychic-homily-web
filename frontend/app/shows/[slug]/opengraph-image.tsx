@@ -70,11 +70,9 @@ interface ShowData {
   title?: string
   event_date: string
   /**
-   * The show's OWN state, the fallback when it has no venue row. Declared
-   * here because omitting it silently changed the answer rather than failing:
-   * a venue-less show fell through to the Arizona default, so this card could
-   * date, cache, and badge itself on a different calendar than the page it
-   * unfurls. See {@link showTiming} below.
+   * The show's OWN state, the fallback when it has no venue row. Omitting it
+   * does not fail — it silently resolves to the default timezone, putting this
+   * card on a different calendar than the page it unfurls.
    */
   state?: string | null
   is_sold_out: boolean
@@ -230,13 +228,11 @@ function renderCard(
     show.artists?.find(a => a.is_headliner)?.name || show.artists?.[0]?.name || 'Live Music'
   const venue = show.venues?.[0]
   const venueName = venue?.name || 'TBA'
-  // Which calendar this show is on, derived ONCE. Mirrors the page's own
-  // `showTimingInput` (`features/shows/utils.ts`), including the
-  // `venue?.state ?? show.state` fallback a venue-less show depends on. Three
-  // things read it — the printed date, the cache window, and the sold-out
-  // badge — and when they each spelled it out separately they disagreed:
-  // a venue-less show got Arizona here and its real state on the page, so the
-  // card could keep saying SOLD OUT after the page had withdrawn it.
+  // Which calendar this show is on, derived ONCE and shared by the three
+  // things that need it: the printed date, the cache window, and the sold-out
+  // badge. Spelled out separately they can disagree, and a card that judges
+  // the show differently than the page it unfurls contradicts it. Mirrors
+  // `showTimingInput`, fallback included.
   const showTiming = {
     eventDate: show.event_date,
     state: venue?.state ?? show.state,
@@ -395,11 +391,10 @@ function renderCard(
             >
               {showDate}
             </div>
-            {/* Through the show page's own rule, so the unfurl cannot make a
-                claim the page it links to has retracted. This card is cached
-                for a day once the show settles, with an equal
-                stale-while-revalidate window, so a stale SOLD OUT here
-                outlives the page's correction rather than trailing it. */}
+            {/* Through the page's own rule, so the unfurl cannot make a claim
+                the page it links to has withdrawn. A settled card holds for a
+                day with an equal stale-while-revalidate window, so a wrong
+                badge here outlives a correction rather than trailing it. */}
             {saysSoldOut(show, getShowLifecycleState(showTiming)) && (
               <div
                 style={{
