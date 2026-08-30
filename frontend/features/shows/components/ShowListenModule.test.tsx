@@ -8,6 +8,9 @@ import type { ArtistResponse } from '../types'
 // module rather than the barrel so BracketLink / ShareButton / SectionHeader
 // stay REAL — their accessible names are half of what is under test here.
 vi.mock('@/components/shared/MusicEmbed', () => ({
+  // Re-declared because the barrel re-exports it from this module, and the
+  // module under test sizes its card list from it.
+  BANDCAMP_EMBED_MAX_WIDTH_PX: 700,
   MusicEmbed: ({
     artistName,
     bandcampAlbumUrl,

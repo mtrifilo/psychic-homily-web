@@ -54,6 +54,17 @@ async function resolveBandcampEmbed(albumUrl: string): Promise<BandcampEmbed | n
   return null
 }
 
+/**
+ * How wide the Bandcamp player is allowed to get.
+ *
+ * Exported because it is a constraint on the player, not a preference of this
+ * file: the player's internal layout is fixed, so a container that lets it run
+ * wider ends up framing it with dead space. A caller sizing a card around one
+ * of these should read the number from here rather than restate it, or a change
+ * on this side leaves a silent gutter on the other.
+ */
+export const BANDCAMP_EMBED_MAX_WIDTH_PX = 700
+
 type EmbedState =
   | { type: 'loading' }
   | { type: 'bandcamp'; embedKind: 'album' | 'track'; embedId: string }
@@ -151,7 +162,12 @@ export function MusicEmbed({
         <div className="music-embed-container">
           <iframe
             title={`${artistName} on Bandcamp`}
-            style={{ border: 0, width: '100%', maxWidth: '700px', height: '120px' }}
+            style={{
+              border: 0,
+              width: '100%',
+              maxWidth: BANDCAMP_EMBED_MAX_WIDTH_PX,
+              height: '120px',
+            }}
             src={bandcampEmbedSrc({ kind: embed.embedKind, id: embed.embedId })}
             // Matches the Spotify branch below, which has always had it. It
             // costs nothing on the one-embed pages this component was built for

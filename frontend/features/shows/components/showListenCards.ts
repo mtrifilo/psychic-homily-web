@@ -18,6 +18,11 @@ export interface ListenCard {
    * Outbound purchase target for `[Buy]`, or null when there is nothing to
    * buy. Only a Bandcamp album/track page sells a record; a Spotify embed and
    * a bare Bandcamp profile both get no bracket rather than an invented one.
+   *
+   * Always either `artist.bandcamp_embed_url` or null, so this is that field
+   * under a name that says what it is FOR, not a second source of truth. Read
+   * it rather than re-deriving "is there something to buy" at a render site,
+   * which is where the two would drift.
    */
   buyHref: string | null
 }
@@ -25,14 +30,20 @@ export interface ListenCard {
 /**
  * One card per bill artist who actually has something to play, in bill order.
  *
- * This MIRRORS `MusicEmbed`'s own `deriveEmbedState` priority (bandcamp
- * album/track → spotify → bandcamp fallback link) on purpose, and the mirroring
- * is the point rather than an accident to be refactored away later. `MusicEmbed`
- * renders NOTHING when it can find no source, so a looser gate here would hand
- * the reader an empty bordered card with a meta line and silence under it. The
- * show page's old gate (`bandcamp_embed_url || socials.spotify ||
- * socials.bandcamp`) is exactly that looser gate: an artist whose only music
- * link is an unparseable Spotify URL passes it and renders nothing.
+ * The ladder below MIRRORS `MusicEmbed`'s own `deriveEmbedState` (bandcamp
+ * album/track → spotify → bandcamp fallback link), and that duplication is a
+ * DEBT, not a design. It has to agree, because `MusicEmbed` renders NOTHING
+ * when it can find no source and a looser gate here would hand the reader an
+ * empty bordered card with a meta line and silence under it. The show page's
+ * old gate (`bandcamp_embed_url || socials.spotify || socials.bandcamp`) was
+ * exactly that looser gate: an artist whose only music link is an unparseable
+ * Spotify URL passes it and renders nothing.
+ *
+ * Three other surfaces hand-mirror the same ladder for the same reason
+ * (`ArtistPanel`, `ArtistContextPanel`, and `ShowCard`, the last still on the
+ * loose version). The unification they all want is one exported pure resolver
+ * beside `deriveEmbedState` that every gate calls; it is owed, and it is a
+ * wider change than this surface. Do not add a fifth copy.
  *
  * `parseSpotifyEmbed` is therefore load-bearing, not decorative — it is the
  * same host-anchored validation `MusicEmbed` runs, so the two agree on which

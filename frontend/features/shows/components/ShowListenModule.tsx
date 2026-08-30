@@ -1,7 +1,9 @@
 'use client'
 
+import { useMemo } from 'react'
 import Link from 'next/link'
 import {
+  BANDCAMP_EMBED_MAX_WIDTH_PX,
   BracketLink,
   MusicEmbed,
   SectionHeader,
@@ -35,7 +37,12 @@ interface ShowListenModuleProps {
  * with its outbound verbs.
  */
 export function ShowListenModule({ artists }: ShowListenModuleProps) {
-  const cards = listenCardsForBill(artists)
+  // Memoized for prop identity rather than for the arithmetic: the cards are
+  // fresh objects on every ShowDetail re-render (an edit toggle, a save banner,
+  // an admin status mutation), and a card that changes identity every render
+  // cannot be handed to a memoized child later. Same reason ShowCard memoizes
+  // its `splitBill` call.
+  const cards = useMemo(() => listenCardsForBill(artists), [artists])
 
   // No cards, no header. `listenCardsForBill` mirrors MusicEmbed's own
   // resolution contract precisely so this can be trusted — see its docblock.
@@ -48,13 +55,18 @@ export function ShowListenModule({ artists }: ShowListenModuleProps) {
           about this module before deciding whether to walk it.
 
           The width cap is a deliberate deviation from the mock, which draws
-          full-bleed cards. `MusicEmbed` caps the Bandcamp iframe at 700px
-          because that player's internal layout is fixed and does not stretch,
-          so a full-width card would frame it with a 400px dead zone at 1280.
-          Capping the LIST instead of reaching into the shared primitive keeps
-          every card the same width — which is what the mock is actually
-          saying — and leaves the section label spanning the column. */}
-      <ul className="mt-3 max-w-[700px] space-y-2">
+          full-bleed cards. It is a property of the PLAYERS: the Bandcamp embed
+          has a fixed internal layout and stops at
+          `BANDCAMP_EMBED_MAX_WIDTH_PX`, so a full-bleed card would frame it
+          with a 400px dead zone at 1280, while the Spotify embed has no cap of
+          its own and would stretch to a different width in the card beside it.
+          Capping the LIST is what makes every card the same width, which is
+          what the mock is really saying, and leaves the section label spanning
+          the column. */}
+      <ul
+        className="mt-3 space-y-2"
+        style={{ maxWidth: BANDCAMP_EMBED_MAX_WIDTH_PX }}
+      >
         {cards.map(card => (
           <li key={card.artist.id}>
             <ShowListenCard card={card} />
@@ -76,12 +88,22 @@ export function ShowListenModule({ artists }: ShowListenModuleProps) {
  */
 function ShowListenCard({ card }: { card: ListenCard }) {
   const { artist, source } = card
-  const verbs = listenVerbs(card)
 
-  const segments = [
+  // Segment and key pushed together, the way ShowProvenanceLine builds its
+  // byline: `MiddotSegments` reads the two as parallel arrays, so building them
+  // apart means a segment added in the middle mis-keys everything after it with
+  // nothing to catch the slip.
+  const segments: React.ReactNode[] = []
+  const keys: string[] = []
+  const push = (key: string, segment: React.ReactNode) => {
+    segments.push(segment)
+    keys.push(key)
+  }
+
+  push(
+    'artist',
     artist.slug ? (
       <Link
-        key="artist"
         href={`/artists/${artist.slug}`}
         className="text-foreground transition-colors hover:text-primary"
       >
@@ -91,17 +113,18 @@ function ShowListenCard({ card }: { card: ListenCard }) {
       // `artists.slug` is nullable and the backend flattens null to "", so an
       // empty slug must render as text: `/artists/` resolves to the INDEX, not
       // a 404, and would quietly send the reader to the wrong page.
-      <span key="artist">{artist.name}</span>
-    ),
-    source,
-    ...(verbs ? [verbs] : []),
-  ]
+      <span>{artist.name}</span>
+    )
+  )
+  push('source', source)
+  const verbs = listenVerbs(card)
+  if (verbs) push('verbs', verbs)
 
   return (
     <div className="rounded-sm border border-border/60 px-3 pt-2.5 pb-0.5">
       <MiddotSegments
         segments={segments}
-        keys={['artist', 'source', 'verbs']}
+        keys={keys}
         className="mb-1.5 font-mono text-xs text-muted-foreground"
         data-testid="listen-card-meta"
       />
@@ -140,7 +163,7 @@ function listenVerbs({ artist, source, buyHref }: ListenCard) {
   if (!buyHref && !sharePath) return null
 
   return (
-    <span key="verbs" className="inline-flex items-baseline gap-x-2">
+    <span className="inline-flex items-baseline gap-x-2">
       {buyHref && (
         // Capitalized against the mock's lowercase `[buy]`: `ShareButton` owns
         // its own label and capitalizes it, and two cases in one bracket pair

@@ -60,8 +60,11 @@ vi.mock('next/navigation', () => ({
 // Tabs machinery. ShowDetail renders in flat-layout mode (no `tabs` prop).
 vi.mock('@/components/shared', () => ({
   SaveButton: () => <button data-testid="save-button">Save</button>,
-  SocialLinks: () => <div data-testid="social-links" />,
   MusicEmbed: () => <div data-testid="music-embed" />,
+  // A real constant, not a component: the listen module sizes its card list
+  // from the Bandcamp player's own width cap, so a stub value here would let
+  // the two drift apart without the drift being visible.
+  BANDCAMP_EMBED_MAX_WIDTH_PX: 700,
   AddToCollectionButton: () => <button data-testid="add-to-collection">Collect</button>,
   // aria-label mirrors the real component (ariaLabel ?? label) so a
   // name collision between two Edit affordances cannot hide behind the mock.
@@ -795,7 +798,7 @@ describe('ShowDetail', () => {
 
   // The module's own card rendering is covered in ShowListenModule.test.tsx;
   // these two only pin that the page mounts it in the right slot and lets it
-  // decide whether the section exists at all (PSY-1688).
+  // decide whether the section exists at all.
   describe('listen module', () => {
     it('renders the listen module when a bill artist has something to play', () => {
       mockUseShow.mockReturnValue({

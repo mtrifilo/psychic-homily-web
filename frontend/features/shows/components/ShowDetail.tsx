@@ -213,13 +213,11 @@ export function ShowDetail({ showId, lifecycle }: ShowDetailProps) {
             NOT extended to shows. */}
         <EntitySaveSuccessBanner visible={saveBanner.isVisible} />
 
-        {/* SLOT: listen module (PSY-1688). The mock's `LISTEN / BEFORE YOU GO`
-            dense cards, one per bill artist with something to play. Renders
-            nothing when the bill has no playable act, so no guard here.
+        {/* SLOT: listen module. Self-hiding, so no guard here.
 
-            What this replaced, and why the removals are the mock rather than an
-            oversight: the old block repeated each artist's hometown, which the
-            bill block above already states, and hung a SocialLinks row off every
+            Why the removals here are the mock rather than an oversight: the
+            block this replaced repeated each artist's hometown, which the bill
+            block above already states, and hung a SocialLinks row off every
             card. The mock's card carries the player and two verbs. The socials
             still live one click away on the artist page the card links to. */}
         <ShowListenModule artists={artists} />
