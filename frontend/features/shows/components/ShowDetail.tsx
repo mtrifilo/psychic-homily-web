@@ -220,7 +220,7 @@ export function ShowDetail({ showId, lifecycle }: ShowDetailProps) {
             alongside the player, against the mock, which draws neither (owner
             decision, 2026-08-30). What the module changed from the block it
             replaced is the gate and the chrome, not the facts stated. */}
-        <ShowListenModule artists={artists} />
+        <ShowListenModule artists={artists} lifecycle={lifecycle} />
 
         {/* In Collections */}
         <section className="mb-8">
@@ -247,7 +247,7 @@ export function ShowDetail({ showId, lifecycle }: ShowDetailProps) {
             at this venue", below the embeds and above the footer. Renders
             nothing at all when neither rail has rows, so a quiet night and a
             room with no other dates cost this page no space. */}
-        <ShowDiscoveryRails show={show} />
+        <ShowDiscoveryRails show={show} lifecycle={lifecycle} />
 
         {/* Tags and provenance footer. Both were in the header slot, above the
             fold, competing with the bill for the first thing a reader sees.

@@ -13,11 +13,32 @@ import {
 import { MiddotSegments } from './MiddotSegments'
 import { listenCardsForBill, type ListenCard } from './showListenCards'
 import { billHometown } from '../utils'
+import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import type { ArtistResponse } from '../types'
 
 interface ShowListenModuleProps {
   /** The show's bill, in any order — the module sorts by bill position. */
   artists: ArtistResponse[]
+  /**
+   * Server-computed. Selects the section HEADING's register only; the cards
+   * and their players are identical in every state.
+   */
+  lifecycle: ShowLifecycleState
+}
+
+/**
+ * The section heading: `Listen / Before you go` while the show is ahead of the
+ * reader, bare `Listen` once it is not.
+ *
+ * "Before you go" is an instruction to a reader who can still go, so it cannot
+ * survive the show. Dropping the qualifier is a subtraction rather than new
+ * copy, and it is as far as this module can honestly move: the PAST mock heads
+ * this section `WHAT / THEY PLAYED`, which describes a setlist. These cards are
+ * the bill's RELEASES — what each act has recorded, not what they performed —
+ * so that heading needs the show-to-recording link the schema does not carry.
+ */
+function listenModuleTitle(lifecycle: ShowLifecycleState): string {
+  return lifecycle === 'past' ? 'Listen' : 'Listen / Before you go'
 }
 
 /**
@@ -52,7 +73,10 @@ interface ShowListenModuleProps {
  * own destinations, which is a different thing from the page's player. See
  * {@link ShowListenCard} for where they sit and what that costs in height.
  */
-export function ShowListenModule({ artists }: ShowListenModuleProps) {
+export function ShowListenModule({
+  artists,
+  lifecycle,
+}: ShowListenModuleProps) {
   // Memoized for prop identity rather than for the arithmetic: the cards are
   // fresh objects on every ShowDetail re-render (an edit toggle, a save banner,
   // an admin status mutation), and a card that changes identity every render
@@ -66,7 +90,11 @@ export function ShowListenModule({ artists }: ShowListenModuleProps) {
 
   return (
     <section className="mb-8" data-testid="show-listen-module">
-      <SectionHeader title="Listen / Before you go" as="h2" size="md" />
+      <SectionHeader
+        title={listenModuleTitle(lifecycle)}
+        as="h2"
+        size="md"
+      />
       {/* A real list: the count is the useful thing a screen reader can say
           about this module before deciding whether to walk it.
 

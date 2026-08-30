@@ -510,7 +510,13 @@ describe('ShowDetail', () => {
             makeArtist({
               id: 1,
               name: 'Band',
-              socials: { spotify: 'https://spotify.com/band' },
+              // A URL `parseSpotifyEmbed` actually accepts. A bare
+              // `spotify.com/band` fails its host-anchored parse, so the bill
+              // yields no listen card and the embed this test anchors on never
+              // renders.
+              socials: {
+                spotify: 'https://open.spotify.com/artist/1a2b3c4d5e6f7g8h9i0jkl',
+              },
             }),
           ],
         }),
