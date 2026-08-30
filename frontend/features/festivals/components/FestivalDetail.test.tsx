@@ -309,6 +309,24 @@ describe('FestivalDetail', () => {
     expect(screen.queryByRole('link', { name: 'Buy Tickets' })).toBeNull()
   })
 
+  // The gate and the anchor read the same value: gating the section on the raw
+  // column while rendering a trimmed one (or the reverse) yields either a
+  // heading over nothing or an href="   " that reopens the current page.
+  it('renders no website anchor for a whitespace-only website', () => {
+    mockUseFestival.mockReturnValue({
+      data: makeFestival({
+        website: '   ',
+        ticket_url: 'https://tickets.example/1',
+      }),
+      isLoading: false,
+      error: null,
+    })
+    renderWithProviders(<FestivalDetail idOrSlug="form-arcosanti" />)
+
+    expect(screen.getByRole('link', { name: 'Buy Tickets' })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Official Website' })).toBeNull()
+  })
+
   it('renders no script-bearing ticket href', () => {
     mockUseFestival.mockReturnValue({
       data: makeFestival({ ticket_url: 'javascript:alert(1)' }),

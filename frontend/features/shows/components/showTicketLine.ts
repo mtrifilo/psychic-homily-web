@@ -207,9 +207,10 @@ function saysPastRegister(
  * cancelled or past show makes neither: `SOLD OUT` asserts the event is
  * happening and tickets are gone, `ON SALE` that they can be bought.
  * `SOLD OUT` swaps `ON SALE` per the mock; `ON SALE` requires somewhere to
- * actually buy — it branches on {@link ticketHref}, the same derivation the
- * Buy Tickets bracket renders from, so the words and the affordance cannot
- * drift. The price half is {@link ticketPriceSegments}: one price renders
+ * actually buy — it branches on {@link ticketHref}, the same nullability the
+ * Buy Tickets bracket derives from via {@link buyTicketsLink}, so the words
+ * and the affordance cannot drift. (The bracket renders the TAGGED href;
+ * `ticketHref` answers only whether there is anything to offer.) The price half is {@link ticketPriceSegments}: one price renders
  * bare, an advance/door pair renders as the mock's `$35 ADV · DOOR $40`. The
  * mock's trailing `CASH` is a separate fact with no column and no source that
  * states it reliably, so the line does not claim it. Both numbers are read

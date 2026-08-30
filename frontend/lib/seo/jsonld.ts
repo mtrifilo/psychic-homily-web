@@ -368,8 +368,10 @@ export function generateMusicEventSchema(show: {
   // An affiliate program does NOT by itself reopen this. `lib/tickets/
   // ticketVendors` can now tag a vendor URL, but read its
   // `AffiliateNetwork` docblock before putting one here: the tagger does not
-  // police the stored PATH (a Ticketmaster `/goto/` link is robots-blocked and
-  // would still be tagged), it cannot stop a contributor storing a redirect
+  // police the stored PATH, so for any vendor carrying an affiliate entry a
+  // robots-disallowed path would be tagged like any other (Ticketmaster's
+  // `/goto*` is the live example of such a path, though Ticketmaster carries
+  // no affiliate entry today), it cannot stop a contributor storing a redirect
   // domain that is `Disallow: /` to Googlebot, and Google has no documented
   // way to mark a structured-data URL as sponsored. Those are the gates to
   // clear, not the referral arrangement.

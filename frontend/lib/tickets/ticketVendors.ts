@@ -120,6 +120,22 @@ export const TICKET_VENDORS_BY_DOMAIN: Record<string, TicketVendor> = {
 const ABSOLUTE_HTTP_URL = /^https?:\/\//i
 
 /**
+ * One spelling of a hostname, shared by everything in this module that names
+ * one.
+ *
+ * A single trailing dot is the fully-qualified spelling of the same host
+ * ("ticketweb.com." resolves to TicketWeb), so it must not read as a different
+ * domain. Left in during CLASSIFICATION it silently opts a real vendor URL out
+ * of both its seller name and its affiliate tag; left in on a REPORTED host it
+ * splits one vendor into two identities, evading a host-scoped alert and
+ * taking a second dedupe slot. Both call sites normalize here so the two
+ * cannot disagree about what host a URL is on.
+ */
+function normalizeHost(hostname: string): string {
+  return hostname.toLowerCase().replace(/\.$/, '')
+}
+
+/**
  * The vendor behind a stored ticket URL, or `undefined` when it is not one we
  * recognize.
  *
@@ -143,11 +159,7 @@ export function resolveTicketVendor(
     : `https://${raw.replace(/^\/+/, '')}`
   let host: string
   try {
-    // A single trailing dot is the fully-qualified spelling of the same host
-    // ("ticketweb.com." resolves to TicketWeb), so it must not read as a
-    // different domain: left in, it silently opts a real vendor URL out of
-    // both its seller name and its affiliate tag.
-    host = new URL(candidate).hostname.toLowerCase().replace(/\.$/, '')
+    host = normalizeHost(new URL(candidate).hostname)
   } catch {
     return undefined
   }
@@ -225,6 +237,16 @@ export interface PlantedTicketTag {
   param: string
   /** Hostname the link points at. Never the path, query or fragment. */
   host: string
+  /**
+   * The tag credits an ID this deployment is configured with, so it is our own
+   * link copied back in rather than somebody redirecting our commission.
+   *
+   * Benign, and once the config is flipped it is the LIKELIEST source, because
+   * our own rendered links are the ones in circulation. Separated so the noisy
+   * case cannot bury the one worth acting on. Always false on a build with no
+   * partner ID configured, which has no tag of its own.
+   */
+  matchesConfiguredPartner: boolean
 }
 
 export interface TicketLink {
@@ -326,8 +348,14 @@ const KNOWN_AFFILIATE_PARAMS: ReadonlySet<string> = new Set(
  * pair named `a` and appends ours, delivering two competing IDs to any vendor
  * that splits on `;`. This module already preserves semicolons on the write
  * side because such servers exist, so it cannot also refuse to look behind
- * one. The write-back unit stays the whole `&`-segment, so byte preservation
- * is unaffected.
+ * one.
+ *
+ * MATCHING ONLY, and the asymmetry with removal is deliberate. The write-back
+ * unit is the whole `&`-segment, so a segment cannot be partially rewritten:
+ * dropping `irmp=;x=1` to remove a valueless `irmp` would take `x=1` with it.
+ * {@link ticketLink} therefore refuses to remove any `;`-bearing segment,
+ * which keeps byte preservation absolute at the cost of leaving a valueless
+ * tag in place there.
  */
 function matchableKeys(pair: QueryPair): { key: string; value: string }[] {
   return pair.raw.split(';').map(part => {
@@ -343,6 +371,31 @@ function matchableKeys(pair: QueryPair): { key: string; value: string }[] {
  * or null. Returns the NAME only: the value is a partner's account identifier
  * and never leaves this module.
  */
+/**
+ * Whether the tag in this segment credits an ID this deployment is configured
+ * with, i.e. us.
+ *
+ * Compared against both the raw and the percent-encoded spelling, because the
+ * write side encodes and a copied-back link therefore carries the encoded
+ * form. Returns false when nothing is configured, which is the honest answer:
+ * a build with no partner ID has no tag of its own for this to be.
+ */
+function creditsConfiguredPartner(
+  pair: QueryPair,
+  partnerIds: AffiliatePartnerIds
+): boolean {
+  const ours = Object.values(partnerIds).filter(Boolean)
+  if (ours.length === 0) return false
+
+  return matchableKeys(pair).some(part => {
+    if (part.value === '') return false
+    if (!KNOWN_AFFILIATE_PARAMS.has(affiliateParamKey(part.key))) return false
+    return ours.some(
+      id => part.value === id || part.value === encodeURIComponent(id)
+    )
+  })
+}
+
 function affiliateTagIn(pair: QueryPair): string | null {
   for (const part of matchableKeys(pair)) {
     if (part.value === '') continue
@@ -444,32 +497,48 @@ export function ticketLink(
     plantedTag: null,
   }
 
-  const trimmed = rawUrl.trim()
-  if (!ABSOLUTE_HTTP_URL.test(trimmed)) return passthrough
+  // DETECTION runs on the repaired form, so a stored value that merely lacks a
+  // scheme is still inspected. Scoping it to already-absolute values made the
+  // two safety properties fail together on one input class: a planted tag on
+  // "ticketweb.com/e/2?irmp=..." was neither qualified nor reported, and the
+  // only thing preventing that shipping was every caller happening to repair
+  // first. Detection must not rest on call-site discipline.
+  const inspectable = repairTicketUrl(rawUrl)
+  if (!inspectable) return passthrough
 
-  // Confirms the value is a URL at all, so everything below is total, and
-  // yields the host the planted-tag report names. The rewrite works on the
-  // original text, so nothing is re-encoded.
+  // Control characters are stripped by both `new URL` and the browser before a
+  // request goes out, so a key spelled "ir<TAB>mp" reaches the vendor as
+  // `irmp`. A textual scan that kept them would read it as an unknown
+  // parameter and append ours beside it, delivering two competing IDs.
+  const scannable = inspectable.replace(/[\t\n\r]/g, '')
+
   let parsed: URL
   try {
-    parsed = new URL(trimmed)
+    parsed = new URL(scannable)
   } catch {
     return passthrough
   }
-
-  const { base, pairs, fragment } = splitUrlForTagging(trimmed)
 
   // Qualification comes FIRST, and is not scoped to the matched vendor or to
   // this build's configuration: a planted tag on a vendor we have not
   // onboarded, or on a host not in the table at all, is still a monetized link
   // published on an indexed page.
-  for (const pair of pairs) {
+  for (const pair of splitUrlForTagging(scannable).pairs) {
     const param = affiliateTagIn(pair)
     if (param) {
       return {
         href: rawUrl,
         sponsored: true,
-        plantedTag: { param, host: parsed.hostname.toLowerCase() },
+        plantedTag: {
+          param,
+          host: normalizeHost(parsed.hostname),
+          // Our own rendered links circulate, so a contributor copying one
+          // back in is the most likely source once the config is flipped, and
+          // it is entirely benign. Told apart here so the common case cannot
+          // drown the one that redirects our commission to somebody else. The
+          // boolean ships; the ID never does.
+          matchesConfiguredPartner: creditsConfiguredPartner(pair, partnerIds),
+        },
       }
     }
   }
@@ -480,8 +549,35 @@ export function ticketLink(
   const partnerId = partnerIds[affiliate.network]
   if (!partnerId) return passthrough
 
+  // REWRITING, unlike detection, refuses a value whose scheme it would have to
+  // invent: the href rendered must be the stored string plus a parameter.
+  const trimmed = rawUrl.trim()
+  if (!ABSOLUTE_HTTP_URL.test(trimmed)) return passthrough
+
+  const { base, pairs, fragment } = splitUrlForTagging(trimmed)
+
   const param = affiliateParamKey(affiliate.param)
-  const kept = pairs.filter(pair => affiliateParamKey(pair.key) !== param)
+  const isOurParam = (key: string) => affiliateParamKey(key) === param
+
+  // A valueless occurrence hidden inside a `;`-bearing segment cannot be
+  // removed (see below) and must not be appended beside either: on the very
+  // servers the `;` handling exists for, the result would be `irmp=""` and
+  // `irmp="<ours>"`, and a first-value-wins parser credits nobody while the
+  // page claims a paid placement. Left exactly as stored instead.
+  const hiddenValuelessTag = pairs.some(
+    pair =>
+      pair.raw.includes(';') &&
+      matchableKeys(pair).some(part => isOurParam(part.key) && part.value === '')
+  )
+  if (hiddenValuelessTag) return passthrough
+
+  // Removal works on whole `&`-segments, so it must only claim a segment that
+  // is ENTIRELY the valueless tag. A `;`-bearing segment carries other
+  // parameters (`irmp=;x=1`), and dropping it to clear the tag would delete
+  // them — the one way this function could lose a stored byte.
+  const kept = pairs.filter(
+    pair => pair.raw.includes(';') || !isOurParam(pair.key)
+  )
   const query = [
     ...kept.map(pair => pair.raw),
     `${affiliate.param}=${encodeURIComponent(partnerId)}`,

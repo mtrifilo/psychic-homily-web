@@ -29,9 +29,14 @@ export function usePlantedTicketTagReport(
 ): void {
   const param = tag?.param
   const host = tag?.host
+  const matchesConfiguredPartner = tag?.matchesConfiguredPartner ?? false
 
   useEffect(() => {
     if (!param || !host) return
-    reportPlantedTicketTag({ entityType, entityId, tag: { param, host } })
-  }, [entityType, entityId, param, host])
+    reportPlantedTicketTag({
+      entityType,
+      entityId,
+      tag: { param, host, matchesConfiguredPartner },
+    })
+  }, [entityType, entityId, param, host, matchesConfiguredPartner])
 }

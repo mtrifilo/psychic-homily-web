@@ -404,7 +404,11 @@ describe('ShowTicketRow', () => {
       expect(reportPlantedTicketTag).toHaveBeenCalledWith({
         entityType: 'show',
         entityId: 4242,
-        tag: { param: 'irmp', host: 'www.ticketweb.com' },
+        tag: {
+          param: 'irmp',
+          host: 'www.ticketweb.com',
+          matchesConfiguredPartner: false,
+        },
       })
     })
 

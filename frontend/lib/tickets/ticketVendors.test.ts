@@ -262,18 +262,32 @@ describe('ticketLink with an Impact partner ID configured', () => {
   // silent. These are the spellings a server really does resolve to `irmp`, so
   // ours is withheld: two ids would compete.
   it.each([
-    ['our own id', 'https://www.ticketweb.com/e/2?irmp=1234567'],
-    ["another partner's id", 'https://www.ticketweb.com/e/2?irmp=9999999'],
-    ['a percent-encoded key', 'https://www.ticketweb.com/e/2?%69rmp=9999999'],
-    ['a tag among other params', 'https://www.ticketweb.com/e/2?a=1&irmp=9999999&b=2'],
+    // `mine` is the last field: our OWN rendered link copied back in is the
+    // likeliest source once the config is flipped, and is benign.
+    ['our own id', 'https://www.ticketweb.com/e/2?irmp=1234567', true],
+    ["another partner's id", 'https://www.ticketweb.com/e/2?irmp=9999999', false],
+    ['a percent-encoded key', 'https://www.ticketweb.com/e/2?%69rmp=9999999', false],
+    [
+      'a tag among other params',
+      'https://www.ticketweb.com/e/2?a=1&irmp=9999999&b=2',
+      false,
+    ],
     // Hidden behind a `;`, which some servers split on. A `&`-only scan would
     // miss it and append ours, delivering two ids.
-    ['a tag behind a semicolon', 'https://www.ticketweb.com/e/2?a=1;irmp=9999999'],
-  ])('leaves %s untouched, qualifies and reports it', (_label, url) => {
+    [
+      'a tag behind a semicolon',
+      'https://www.ticketweb.com/e/2?a=1;irmp=9999999',
+      false,
+    ],
+  ])('leaves %s untouched, qualifies and reports it', (_label, url, mine) => {
     expect(ticketLink(url, IMPACT)).toEqual({
       href: url,
       sponsored: true,
-      plantedTag: { param: 'irmp', host: 'www.ticketweb.com' },
+      plantedTag: {
+        param: 'irmp',
+        host: 'www.ticketweb.com',
+        matchesConfiguredPartner: mine,
+      },
     })
   })
 
@@ -301,30 +315,98 @@ describe('ticketLink with an Impact partner ID configured', () => {
       'https://www.ticketweb.com/e/2?irmp=1234567',
       NO_PARTNERS,
       'www.ticketweb.com',
+      // No configured ID means we have no tag of our own for this to be.
+      false,
     ],
     [
       'a vendor with no affiliate entry',
       'https://www.ticketmaster.com/e/1?irmp=9999999',
       IMPACT,
       'www.ticketmaster.com',
+      false,
     ],
     [
       'an unaffiliated table vendor',
       'https://dice.fm/e/1?irmp=9999999',
       IMPACT,
       'dice.fm',
+      false,
     ],
     [
       'a host not in the table',
       'https://tix.some-venue.example/e/1?irmp=9999999',
       IMPACT,
       'tix.some-venue.example',
+      false,
     ],
-  ])('qualifies and reports a planted tag with %s', (_l, url, partners, host) => {
+  ])('qualifies and reports a planted tag with %s', (_l, url, partners, host, mine) => {
     expect(ticketLink(url, partners)).toEqual({
       href: url,
       sponsored: true,
-      plantedTag: { param: 'irmp', host },
+      plantedTag: { param: 'irmp', host, matchesConfiguredPartner: mine },
+    })
+  })
+
+  // A valueless tag hidden inside a `;`-bearing segment can be neither removed
+  // (removal claims whole `&`-segments, so it would take `x=1` with it) nor
+  // appended beside (a `;`-splitting server — the only kind the `;` handling
+  // exists for — would read `irmp=""` first and credit nobody while the page
+  // claimed a paid placement). Left exactly as stored.
+  it.each([
+    'https://www.ticketweb.com/e/2?irmp=;x=1',
+    'https://www.ticketweb.com/e/2?a=1;irmp=',
+  ])('leaves %s untouched rather than appending beside a hidden tag', url => {
+    expectPassthrough(url, IMPACT)
+  })
+
+  // Detection must not depend on every caller having repaired first: the
+  // module's own docblock tells callers they need not, and the next surface
+  // that renders a stored ticket_url would otherwise publish an unqualified
+  // affiliate link with no warning.
+  it.each([
+    ['a scheme-less value', 'ticketweb.com/e/2?irmp=9999999', 'ticketweb.com'],
+    [
+      'a protocol-relative value',
+      '//www.ticketweb.com/e/2?irmp=9999999',
+      'www.ticketweb.com',
+    ],
+    [
+      'a whitespace-padded value',
+      '  https://www.ticketweb.com/e/2?irmp=9999999  ',
+      'www.ticketweb.com',
+    ],
+  ])('qualifies and reports a planted tag on %s', (_label, url, host) => {
+    expect(ticketLink(url, IMPACT)).toEqual({
+      href: url,
+      sponsored: true,
+      plantedTag: { param: 'irmp', host, matchesConfiguredPartner: false },
+    })
+  })
+
+  // A browser and `new URL` both strip these before the request goes out, so
+  // the vendor reads `irmp`. A textual scan that kept them would call it an
+  // unknown parameter and append ours beside it.
+  it.each([
+    'https://www.ticketweb.com/e/2?ir\tmp=9999999',
+    'https://www.ticketweb.com/e/2?ir\nmp=9999999',
+    'https://www.ticketweb.com/e/2?ir\rmp=9999999',
+  ])('sees through a control character in the key of %j', url => {
+    const result = ticketLink(url, IMPACT)
+    expect(result.href).toBe(url)
+    expect(result.sponsored).toBe(true)
+    expect(result.plantedTag?.param).toBe('irmp')
+  })
+
+  // The reported host is spelled the way the classifier spells it, so one
+  // vendor cannot split into two identities that each evade a host-scoped
+  // alert and take their own dedupe slot.
+  it('reports a trailing-dot host under its normalized spelling', () => {
+    expect(
+      ticketLink('https://www.ticketweb.com./e/2?irmp=9999999', IMPACT).plantedTag
+    ).toEqual({
+      param: 'irmp',
+      host: 'www.ticketweb.com',
+      matchesConfiguredPartner: false,
     })
   })
 

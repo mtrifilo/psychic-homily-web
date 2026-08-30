@@ -31,20 +31,36 @@
  * `beforeSend` header scrub in `sentry.server.config.ts` has nothing of ours
  * left to filter.
  *
- * DEDUPING
+ * DEDUPING, AND WHY IT IS NOT JUST A MODULE-LEVEL SET
  *
  * A planted tag is a property of a stored row, not of an event: every viewer
  * of that page, and every re-render, sees the same one. Reporting per
- * occurrence would turn one bad row into unbounded identical events. The key
- * is the row plus what was found, so a second distinct tag on the same show
- * still reports, and the set is bounded so a long-lived tab or server process
- * cannot grow it without limit.
+ * occurrence would turn one bad row into unbounded identical events.
  *
- * Module-level state means per-tab in the browser and per-instance on the
- * server, which is the right granularity for "has this operator-facing warning
- * already been raised in this process". A row that stays broken re-reports on
- * the next deploy or the next visitor's tab, which is the behaviour we want
- * from a signal that should not be ignorable.
+ * The trigger is attacker-chosen, which rules out the obvious implementation.
+ * Any authenticated contributor can store `?irmp=1` on a show that publishes
+ * without review, so this is the first client event class in the app whose
+ * firing condition an untrusted user controls. A module-level `Set` alone is
+ * per-DOCUMENT, so a scripted reload loop resets it and mints one event per
+ * request. Three bounds, because none of them is sufficient alone:
+ *
+ *   1. `sessionStorage`, which SURVIVES reloads for the origin, so the reload
+ *      loop collapses to one event per row per tab. Falls back to memory
+ *      wherever it is unavailable (server rendering, private-mode quota
+ *      failures) rather than failing the report.
+ *   2. A module-level set, which covers the fallback and is the fast path.
+ *   3. A GLOBAL per-process ceiling. The keyed bounds are all keyed on
+ *      dimensions the attacker picks, so "200 distinct keys" is 200 events on
+ *      demand; this one is not keyed on anything and is the real backstop.
+ *
+ * Replay flushing is excluded for this event class in `instrumentation-replay`
+ * — see the note there. Without it, planting a tag chooses which visitors get
+ * session-recorded.
+ *
+ * The right long-term home for this detection is a backend sweep over stored
+ * `ticket_url`s feeding the moderation queue: the finding is a property of a
+ * row and does not need one report per pageview. That is the filed follow-up;
+ * this module should retire when it lands.
  */
 
 import * as Sentry from '@sentry/nextjs'
@@ -61,17 +77,72 @@ export interface PlantedTagReport {
 }
 
 /**
- * Bounded so a pathological input space cannot grow this set without limit.
- * Past the cap reporting stops rather than leaking: the signal is "somebody
- * should look", and by the hundredth distinct planted tag that message has
- * been delivered.
+ * Distinct rows remembered in memory. Bounds the set itself; it does NOT bound
+ * the event count, because the key includes attacker-chosen fields.
  */
-const MAX_REPORTED_TAGS = 200
+const MAX_REMEMBERED_TAGS = 200
 
-const reported = new Set<string>()
+/**
+ * Hard ceiling on events from this module per process, keyed on nothing.
+ *
+ * The one bound an attacker cannot widen by varying the host, the parameter or
+ * the row. Low on purpose: the message is "somebody should look at planted
+ * ticket tags", and it does not become truer the twentieth time. Anything past
+ * this is volume, and volume belongs in the moderation queue.
+ */
+const MAX_REPORTS_PER_PROCESS = 20
+
+/**
+ * Fraction of otherwise-eligible reports actually sent.
+ *
+ * The bounds above are per-document and per-session, so volume still scales
+ * with UNIQUE VISITORS to a page carrying a planted tag — a popular show is
+ * thousands of identical warnings a day, and a contributor picks which show.
+ * Sampling makes the cost scale with a rate we choose instead.
+ *
+ * It does not lose the signal, because the question is "does any page have a
+ * planted tag", asked repeatedly by independent visitors: any page with ~60
+ * views a day surfaces within a day at better than 95%. A page too quiet for
+ * that is also a page nobody is being redirected from at volume.
+ *
+ * Rolled AFTER the dedupe checks and only recorded when a report is actually
+ * sent, so a page that loses the roll simply asks again on the next visit.
+ */
+const REPORT_SAMPLE_RATE = 0.05
+
+const remembered = new Set<string>()
+let reportsSent = 0
+
+const STORAGE_PREFIX = 'ph:planted-tag:'
 
 function reportKey({ entityType, entityId, tag }: PlantedTagReport): string {
   return `${entityType}:${entityId}:${tag.host}:${tag.param}`
+}
+
+/**
+ * Whether this row has already been reported from this browser session.
+ *
+ * `sessionStorage` rather than memory because a reload resets the module but
+ * not the tab, and a reload loop is the cheapest way to turn this signal into
+ * a quota bill. Every access is guarded: it throws on a disabled or full
+ * store, and does not exist at all during server rendering.
+ */
+function alreadyReportedInSession(key: string): boolean {
+  try {
+    if (typeof sessionStorage === 'undefined') return false
+    return sessionStorage.getItem(STORAGE_PREFIX + key) !== null
+  } catch {
+    return false
+  }
+}
+
+function rememberInSession(key: string): void {
+  try {
+    if (typeof sessionStorage === 'undefined') return
+    sessionStorage.setItem(STORAGE_PREFIX + key, '1')
+  } catch {
+    // A disabled or full store just means the in-memory bounds carry it.
+  }
 }
 
 /**
@@ -91,10 +162,16 @@ export function reportPlantedTicketTag(report: PlantedTagReport): void {
 }
 
 function reportPlantedTicketTagUnguarded(report: PlantedTagReport): void {
+  if (reportsSent >= MAX_REPORTS_PER_PROCESS) return
+
   const key = reportKey(report)
-  if (reported.has(key)) return
-  if (reported.size >= MAX_REPORTED_TAGS) return
-  reported.add(key)
+  if (remembered.has(key)) return
+  if (alreadyReportedInSession(key)) return
+  if (Math.random() >= REPORT_SAMPLE_RATE) return
+
+  if (remembered.size < MAX_REMEMBERED_TAGS) remembered.add(key)
+  rememberInSession(key)
+  reportsSent += 1
 
   const { entityType, entityId, tag } = report
   Sentry.captureMessage(
@@ -108,6 +185,9 @@ function reportPlantedTicketTagUnguarded(report: PlantedTagReport): void {
         // being targeted, and so an alert can be scoped to a host.
         ticket_host: tag.host,
         affiliate_param: tag.param,
+        // The filter that keeps the benign case (our own rendered link copied
+        // back in) from burying somebody redirecting our commission.
+        matches_configured_partner: tag.matchesConfiguredPartner,
         runtime: typeof window === 'undefined' ? 'server' : 'browser',
       },
       extra: {
@@ -119,9 +199,4 @@ function reportPlantedTicketTagUnguarded(report: PlantedTagReport): void {
       },
     }
   )
-}
-
-/** Test seam: clears the per-process dedupe set. */
-export function resetPlantedTagReportsForTest(): void {
-  reported.clear()
 }
