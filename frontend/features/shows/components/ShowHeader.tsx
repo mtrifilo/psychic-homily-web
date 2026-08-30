@@ -296,8 +296,9 @@ export function ShowHeader({ show, lifecycle, actions }: ShowHeaderProps) {
               stripe above does for DOORS / MUSIC / TONIGHT.
 
               Whether a guessed day should also be MARKED as one for the reader
-              is a design question with no locked answer (PSY-1696); it is
-              deliberately not invented here. */}
+              is a design question with no locked answer; it is deliberately not
+              invented here. PSY-1964 holds it, and lists the other three date
+              renders on this page any answer has to cover. */}
           <span className="text-lg font-bold text-primary">
             {formatShowDate(show.event_date, timing.state, false, timing.timezone)}
           </span>

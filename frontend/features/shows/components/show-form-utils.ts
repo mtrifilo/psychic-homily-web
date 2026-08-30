@@ -226,7 +226,10 @@ export function showToFormValues(show: ShowResponse): FormValues {
     venue: {
       name: venue?.name || '',
       city: venue?.city || show.city || '',
-      state: venue?.state || show.state || '',
+      // Same expression `showTimingInput` now uses, which is the point: this
+      // field is what the SUBMIT path resolves its zone from, so if the two
+      // spellings diverge a no-op Save rewrites `event_date` (PSY-1696).
+      state: timing.state || '',
       address: venue?.address || '',
     },
     date,

@@ -20,6 +20,7 @@ import {
   FALLBACK_SHOW_TIMEZONE,
   combineDateTimeToUTC,
 } from '@/lib/utils/timeUtils'
+import { resolveShowTimezone } from '@/lib/utils/formatters'
 import type { ShowResponse, VenueResponse } from '../types'
 import type { ExtractedShowData } from '@/lib/types/extraction'
 
@@ -277,6 +278,46 @@ describe('showToFormValues', () => {
 
     expect(result.date).toBe('2026-08-15')
     expect(result.time).toBe('20:00')
+  })
+
+  it('seeds venue.state so a no-op save cannot move event_date', () => {
+    // The read/write pair has to agree on ONE state, and `??` and `||` disagree
+    // on the empty string. `venues.state` is NOT NULL so an international venue
+    // stores `''`, while `shows.state` is a separate nullable column a venue
+    // merge never rewrites — repoint a New York show onto an international
+    // venue and you get exactly this row. The zone read `'' ?? 'NY'` = `''`
+    // (fallback zone) while the form field read `'' || 'NY'` = `'NY'`
+    // (Eastern), so Save recomposed the instant two hours off and wrote `'NY'`
+    // back, moving it again on every subsequent save.
+    const show = makeShowResponse({
+      event_date: combineDateTimeToUTC('2026-08-15', '20:00', FALLBACK_SHOW_TIMEZONE),
+      city: 'Berlin',
+      state: 'NY',
+      venues: [
+        {
+          id: 12,
+          slug: 'hall-ohne-zone',
+          name: 'Hall Ohne Zone',
+          city: 'Berlin',
+          state: '',
+          timezone: null,
+          verified: true,
+        },
+      ],
+    })
+
+    const result = showToFormValues(show)
+
+    // A venue with no state on file does not erase the state we do have.
+    expect(result.venue.state).toBe('NY')
+    // Which means recomposing what the form shows, through the zone the SUBMIT
+    // path derives from that field, returns the untouched instant.
+    const resubmitted = combineDateTimeToUTC(
+      result.date,
+      result.time,
+      resolveShowTimezone(result.venue.state, show.venues[0].timezone)
+    )
+    expect(resubmitted).toBe(show.event_date)
   })
 
   it('returns empty cost when price is null', () => {

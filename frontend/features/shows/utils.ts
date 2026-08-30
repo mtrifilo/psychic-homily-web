@@ -15,6 +15,23 @@ import type { ShowResponse } from './types'
  * this only ever matters for a venue with no resolved `timezone`, since
  * `resolveShowTimezone` consults `state` only as a fallback.
  *
+ * `||`, NOT `??`, and the difference is load-bearing (PSY-1696). `venues.state`
+ * is NOT NULL, so a venue with no state on file stores `''` rather than null —
+ * which means `??` would hand back that empty string and never consult the show
+ * row at all. Two costs, and the second is the reason this is a bug rather than
+ * a preference:
+ *
+ * 1. It throws away the only state we have. A US show repointed onto an
+ *    international venue by a merge (which does not rewrite `shows.state`)
+ *    would be judged on the last-resort fallback zone with `'NY'` sitting
+ *    unread on the row.
+ * 2. `showToFormValues` seeds the edit form's `venue.state` field with `||`,
+ *    and `ShowForm`'s submit resolves its zone from THAT field. Under `??` the
+ *    two disagreed for exactly the rows above: the form opened on a
+ *    fallback-zone wall clock and saved it back through Eastern, moving
+ *    `event_date` on a no-op Save — and moving it again on every save after,
+ *    because the payload wrote the state straight back.
+ *
  * Not the repo-wide rule yet. The show PAGE uses it throughout, but `ShowCard`
  * and the artist / venue list rows still pass `show.state` alongside the
  * venue's timezone, which differs from this for a zone-less venue whose state
@@ -25,7 +42,7 @@ export function showTimingInput(show: ShowResponse): ShowTimingInput {
   const venue = show.venues?.[0]
   return {
     eventDate: show.event_date,
-    state: venue?.state ?? show.state,
+    state: venue?.state || show.state,
     timezone: venue?.timezone,
   }
 }

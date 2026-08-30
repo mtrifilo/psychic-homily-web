@@ -1,6 +1,10 @@
 import { describe, it, expect, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { stubAllImagesLoadState } from '@/test/stubAllImagesLoadState'
+import {
+  FALLBACK_SHOW_TIMEZONE,
+  combineDateTimeToUTC,
+} from '@/lib/utils/timeUtils'
 import type { ArtistResponse, SetType, ShowResponse } from '../types'
 
 vi.mock('@/lib/context/AuthContext', () => ({
@@ -361,11 +365,16 @@ describe('ShowHeader layout', () => {
   // the policy is stated at the call site in ShowHeader: print the date, and
   // nothing that depends on the hour.
   describe('when the venue timezone cannot be resolved', () => {
+    // Composed rather than hardcoded so this fixture and the sibling round-trip
+    // case in show-form-utils.test.ts move together if the constant ever does.
+    // `doors_at` / `music_at` are present ON PURPOSE: without them
+    // `doorsMusicFactSegment` returns null at its own date guard, and the
+    // no-clock assertion below would pass whether or not its zone gate exists.
     const berlinShow = () =>
       makeShow({
-        // What the submit path stored for "Aug 15, 8:00 PM" at a venue with no
-        // resolvable zone: 20:00 in the fallback zone (PSY-1873 pairs the two).
-        event_date: '2026-08-16T03:00:00Z',
+        event_date: combineDateTimeToUTC('2026-08-15', '20:00', FALLBACK_SHOW_TIMEZONE),
+        doors_at: combineDateTimeToUTC('2026-08-15', '19:00', FALLBACK_SHOW_TIMEZONE),
+        music_at: combineDateTimeToUTC('2026-08-15', '20:00', FALLBACK_SHOW_TIMEZONE),
         city: 'Berlin',
         state: '',
         venues: [
@@ -380,7 +389,7 @@ describe('ShowHeader layout', () => {
         ],
       })
 
-    it('renders the date the submitter chose, not the UTC calendar day', () => {
+    it("renders the fallback zone's calendar day, not the UTC one", () => {
       render(<ShowHeader lifecycle="upcoming" show={berlinShow()} />)
 
       expect(screen.getByText(/Sat, Aug 15/)).toBeInTheDocument()
@@ -388,21 +397,26 @@ describe('ShowHeader layout', () => {
     })
 
     it('names no hour anywhere in the header', () => {
-      const { container } = render(
-        <ShowHeader lifecycle="upcoming" show={berlinShow()} />
-      )
+      render(<ShowHeader lifecycle="upcoming" show={berlinShow()} />)
 
-      // The fallback zone is at most a day out on a date and hours out on a
-      // clock, so the page declines to print a clock at all. The start time,
-      // doors and music segments all refuse on the same test one level down
-      // (`startTimeFactSegment`, `doorsMusicFactSegment`).
-      expect(container.textContent).not.toMatch(/\d{1,2}(:\d{2})?\s*(AM|PM)/i)
+      // The fallback zone is at most a day out on a date but hours out on a
+      // clock, so the page declines to print a clock at all: the ticket row's
+      // start time and the venue module's DOORS / MUSIC line both refuse on the
+      // same test one level down (`startTimeFactSegment`,
+      // `doorsMusicFactSegment`).
+      //
+      // Case-SENSITIVE, and per-node rather than over the whole subtree's
+      // concatenated text: `container.textContent` runs siblings together, so a
+      // case-insensitive match would fire on a date abutting any bill entry
+      // beginning "am"/"pm" ("...AUG 15" + "Ambient Rot").
+      expect(screen.queryByText(/\d{1,2}(:\d{2})?(AM|PM)/)).toBeNull()
+      expect(screen.queryByText(/DOORS/)).toBeNull()
     })
 
-    it('still prints a clock once the venue has a resolved timezone', () => {
+    it('still prints the clock and the doors line with a resolved timezone', () => {
       // The refusal has to be caused by the missing zone and nothing else: the
-      // same fixture with a zone must show the time, or the assertion above
-      // would keep passing after the clock stopped rendering for any reason.
+      // same fixture with a zone must show both, or the assertions above would
+      // keep passing after either stopped rendering for any reason.
       const show = berlinShow()
       render(
         <ShowHeader
@@ -414,7 +428,11 @@ describe('ShowHeader layout', () => {
         />
       )
 
-      expect(screen.getByText(/5AM/)).toBeInTheDocument()
+      // Exact, not a substring: the venue module's times line also contains
+      // "5AM", and a loose matcher would pass on that alone even if the ticket
+      // row's start time stopped rendering.
+      expect(screen.getByText('5AM')).toBeInTheDocument()
+      expect(screen.getByText('DOORS 4AM / MUSIC 5AM')).toBeInTheDocument()
     })
   })
 })

@@ -69,6 +69,17 @@ const getShow = cache(async (slug: string): Promise<ShowResponse | null> => {
   return null
 })
 
+/**
+ * A hand-rolled sibling of `lib/utils/formatters.formatShowDate`, kept separate
+ * because the meta description wants the long form ("Saturday, October 24").
+ *
+ * It inherits that helper's missing-timezone policy without saying so, which is
+ * why this pointer exists (PSY-1696): `resolveShowTimezone` ends at
+ * `FALLBACK_SHOW_TIMEZONE`, so for a venue with no geocoded zone and a non-US
+ * state this prints a guessed calendar day, unmarked. Same for the share card's
+ * own copy in `opengraph-image.tsx`. Whether to mark it is PSY-1964, and any
+ * answer has to change all four date renders on this page together.
+ */
 function formatShowDate(
   dateString: string,
   state?: string | null,

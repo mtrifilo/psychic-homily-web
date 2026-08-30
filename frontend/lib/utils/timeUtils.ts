@@ -76,22 +76,34 @@ const STATE_TIMEZONES: Record<string, string> = {
  * no `venues.timezone`, and a `state` this map does not list (blank, or any
  * non-US region).
  *
- * THE ONE PLACE THIS VALUE EXISTS. It used to be spelled twice — here and
- * again as `state || 'AZ'` inside `resolveShowTimezone` — so "the default" was
- * two literals in two files that happened to agree.
+ * The one place this value exists IN THE FRONTEND. It used to be spelled twice
+ * even here — this literal, and again as `state || 'AZ'` inside
+ * `resolveShowTimezone` — so "the default" was two literals in two files that
+ * happened to agree.
+ *
+ * IT IS NOT THE ONLY COPY IN THE REPO, and the others are WRITERS, which is why
+ * this is not a value you can change alone. The same fallback is hardcoded in
+ * `cli/src/lib/timezone.ts:73` and `backend/internal/utils/timezone.go:123`
+ * (note it is the `||` default, not an entry in the state map, so syncing "the
+ * map" does not touch it). Both compose instants: `ph submit-show` through
+ * `resolveVenueTimezone`, and the backend when it anchors a date-only show via
+ * `utils.EventLocation`. `backend/.../catalog/backfill_timezones.go:338` uses it
+ * a third way — to INFER the zone historical rows were written under — and
+ * `backend/.../shared/show_venue_local_sql.go:178` bakes it into a SQL CASE.
+ * PSY-1915 tracks the remaining state-map anchoring on the backend.
  *
  * DO NOT change it to UTC, to the reader's zone, or to anything else without
- * changing the WRITE path in the same commit. This is not a display guess: it
- * is one half of a matched pair. `ShowForm`'s submit composes `event_date`
- * with `combineDateTimeToUTC(date, time, resolveShowTimezone(...))`, and
- * `showToFormValues` reads it back through the same resolver (PSY-1873). For
- * a show written through the app with no resolvable zone, the stored instant
+ * changing every writer in the same commit. This is not a display guess: it is
+ * one half of a matched pair. `ShowForm`'s submit composes `event_date` with
+ * `combineDateTimeToUTC(date, time, resolveShowTimezone(...))`, and
+ * `showToFormValues` reads it back through the same resolver (PSY-1873). For a
+ * show written through the app with no resolvable zone, the stored instant
  * therefore MEANS "this wall clock, read in America/Phoenix", and rendering it
  * here reproduces exactly what the submitter typed. Swapping this constant for
  * a more "honest" zone would keep every stored instant where it is and shift
- * every rendered clock off it — showing a time nobody entered. The CLI's
- * `cli/src/lib/timezone.ts` and the backend's `utils.StateTimezones` are the
- * other two copies of the same map; all three are synced by hand.
+ * every rendered clock off it — showing a time nobody entered. Changing it on
+ * the read side while a writer still uses the old value is the corruption class
+ * `backend/internal/utils/timezone.go` warns about at the top of the file.
  *
  * Arizona rather than UTC for the one case this genuinely guesses at (a US
  * show whose state never reached us): a North American evening crosses UTC
@@ -103,15 +115,26 @@ const STATE_TIMEZONES: Record<string, string> = {
  * `isShowTimezoneResolved`, which wraps it) is how a caller tells a known zone
  * from this one.
  *
- * WHERE THAT IS ENFORCED TODAY, stated narrowly because it is not yet a
- * site-wide rule: the SHOW PAGE asks first, and prints no clock when the answer
- * is no — `startTimeFactSegment` and `doorsMusicFactSegment` in
- * `features/shows/components/showStatusStripeCopy.ts` both return null on a
- * guessed zone, and the stripe drops TONIGHT with them. `formatShowTime` has no
- * such gate, so its ~11 listing call sites (ShowCard, CompactShowRow, the
- * artist/venue show tables, library, the scene panels) and `MusicEvent.startDate`
- * in `lib/seo/jsonld.ts` still name an hour on this guess. Generalizing the
- * refusal to them is PSY-1963.
+ * WHERE THAT IS ENFORCED TODAY, stated narrowly because it is not a site-wide
+ * rule and reads as one if you squint. The SHOW PAGE asks first and prints no
+ * CLOCK when the answer is no: Wave 1A (PSY-1684) put the gate on the stripe,
+ * which drops DOORS, MUSIC and TONIGHT; Wave 1C (PSY-1686) extended it to
+ * `startTimeFactSegment` and `doorsMusicFactSegment` in
+ * `features/shows/components/showStatusStripeCopy.ts`, which both return null.
+ *
+ * Three things on that same page are NOT gated, and each is a separate ticket
+ * because each needs a different decision:
+ * - The DATE renders through the guess unmarked, here and in the stripe, plus
+ *   two hand-rolled copies in `app/shows/[slug]/page.tsx` (meta description)
+ *   and `app/shows/[slug]/opengraph-image.tsx` (share card). Whether to mark it
+ *   is PSY-1964.
+ * - `getShowLifecycleState` (`./showTiming`) resolves through here with no gate,
+ *   so a zone-less venue east of Phoenix keeps ON SALE and [Buy Tickets] live
+ *   past its own midnight — about nine hours for Berlin. See PSY-1963.
+ * - `formatShowTime` has no gate at all, so its 11 listing call sites (ShowCard,
+ *   CompactShowRow, ShowSubmissionsConsole, the artist/venue show tables,
+ *   library, the scene panels, sceneDay) and `MusicEvent.startDate` in
+ *   `lib/seo/jsonld.ts` name an hour on this guess. Also PSY-1963.
  */
 export const FALLBACK_SHOW_TIMEZONE = 'America/Phoenix'
 
