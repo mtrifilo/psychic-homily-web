@@ -65,6 +65,22 @@ func (suite *EntityRequestServiceIntegrationTestSuite) marshalArtist(name string
 	return raw
 }
 
+// requireStored reads a request back through the service, so a test comparing
+// timestamps compares what POSTGRES holds.
+//
+// The trap this exists to close: a row returned straight from a create carries
+// GORM's in-memory time.Now() stamps, which have nanosecond resolution, while a
+// timestamptz column has microsecond resolution. The two are unequal by up to
+// 999ns on any host whose wall clock is finer than a microsecond — Linux — and
+// exactly equal on one whose clock is not — darwin. A timestamp assertion that
+// mixes the two therefore passes every local run and fails every CI run.
+func (suite *EntityRequestServiceIntegrationTestSuite) requireStored(requestID uint) *communitym.EntityRequest {
+	stored, err := suite.service.GetRequest(requestID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(stored)
+	return stored
+}
+
 // marshalShow builds a typed show payload, optionally carrying the bill the
 // contributor knew (PSY-1858). The title is the dedup key for a show request.
 func (suite *EntityRequestServiceIntegrationTestSuite) marshalShow(title string, artists ...communitym.ShowRequestArtist) []byte {
@@ -429,6 +445,10 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_DuplicatePendi
 	suite.Require().Equal(communitym.EntityRequestStatePending, first.DecisionState)
 	suite.Assert().False(replaced, "the first submission files a new row")
 
+	// The timestamp baseline, read back BEFORE the resubmission so it is what
+	// Postgres holds and not what GORM stamped in memory. See the note below.
+	beforeReplace := suite.requireStored(first.ID)
+
 	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
 		suite.marshalArtist("  duplicate band  "), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
@@ -443,9 +463,18 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_DuplicatePendi
 	// updated_at is the only signal that separates a corrected request from an
 	// untouched one, and the admin queue reads it (AdminEntityRequestView). A
 	// refactor that stops bumping it would leave a replacement invisible.
-	suite.Assert().Equal(first.CreatedAt, second.CreatedAt,
+	//
+	// BOTH SIDES of every timestamp comparison must be values Postgres has
+	// stored. A fresh create's timestamps are GORM's in-memory time.Now() stamps,
+	// which never went through the database and so still carry nanoseconds, while
+	// timestamptz holds microseconds. Comparing one against the other is a
+	// platform coin-flip that passes on darwin (its wall clock is already
+	// microsecond-aligned, so the two coincide) and fails on Linux (it is not, so
+	// they never do) — which is exactly how this test passed locally five times
+	// and failed its first CI run by 24ns.
+	suite.Assert().Equal(beforeReplace.CreatedAt, second.CreatedAt,
 		"a replacement keeps the request's place in the queue")
-	suite.Assert().True(second.UpdatedAt.After(first.UpdatedAt),
+	suite.Assert().True(second.UpdatedAt.After(beforeReplace.UpdatedAt),
 		"a replacement must move updated_at, the queue's only sign it happened")
 
 	var count int64
@@ -631,8 +660,13 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestDecide_RefusesARowRev
 		suite.marshalArtist("Boris"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
-	// The admin's pre-claim read happens here; the requester corrects after it.
-	reviewedVersion := reviewed.UpdatedAt
+	// The admin's pre-claim read happens here — through the service, exactly as
+	// AdminDecideEntityRequestHandler does it, so the version under test is the
+	// stored one and not GORM's in-memory stamp (see requireStored). Taking it
+	// off the create's return value would leave this passing for the wrong
+	// reason: the claim would be refused by the nanosecond remainder rather than
+	// by the replacement.
+	reviewedVersion := suite.requireStored(reviewed.ID).UpdatedAt
 	_, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
 		suite.marshalArtist("boris"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
