@@ -8,7 +8,7 @@ const { connection } = vi.hoisted(() => ({ connection: vi.fn() }))
 vi.mock('next/server', () => ({ connection }))
 
 import { hashKey, type DehydratedState } from '@tanstack/react-query'
-import { seedFirstScreen } from './query-hydration'
+import { prefetchEntities, seedFirstScreen } from './query-hydration'
 
 // `getQueryClient()` returns a per-request client on the server but a
 // SINGLETON under jsdom, so a dehydrated state here also carries entries
@@ -59,5 +59,40 @@ describe('seedFirstScreen', () => {
     connection.mockClear()
     await seedFirstScreen([{ queryKey: ['scenes', 'list', 'dynamic'], data: {} }])
     expect(connection).toHaveBeenCalled()
+  })
+})
+
+describe('prefetchEntities', () => {
+  it('seeds every key into ONE dehydrated state', async () => {
+    // A page whose first paint depends on two keys gets one boundary, and one
+    // boundary takes one state; two `prefetchEntity` calls mint two clients.
+    const detailKey = ['shows', 'detail', 'multi-seed']
+    const timelineKey = ['shows', 'timeline', 'multi-seed']
+
+    const state = await prefetchEntities([
+      { queryKey: detailKey, data: { id: 1 } },
+      { queryKey: timelineKey, data: { previous: null, next: null } },
+    ])
+
+    expect(entryFor(state, detailKey)?.state.data).toEqual({ id: 1 })
+    expect(entryFor(state, timelineKey)?.state.data).toEqual({
+      previous: null,
+      next: null,
+    })
+  })
+
+  // A cached empty is indistinguishable from a real one at the client hook, so
+  // a failed server read leaves the key unseeded and the client fetches it.
+  it('skips a null seed and still seeds the rest', async () => {
+    const failedKey = ['shows', 'timeline', 'null-seed']
+    const survivingKey = ['shows', 'detail', 'null-seed']
+
+    const state = await prefetchEntities([
+      { queryKey: failedKey, data: null },
+      { queryKey: survivingKey, data: { id: 2 } },
+    ])
+
+    expect(entryFor(state, failedKey)).toBeUndefined()
+    expect(entryFor(state, survivingKey)?.state.data).toEqual({ id: 2 })
   })
 })

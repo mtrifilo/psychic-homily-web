@@ -264,13 +264,25 @@ export function ShowHeader({
   // The show's own stop on its spine, formatted by the same rules as its
   // neighbours. The zone is `timing`'s, which is the one the date line above
   // and the status stripe above that are already rendered on.
+  // One derivation, used by every module below. `||` rather than `??`, because
+  // venues.city is free text and a blank string is as absent as a null here.
+  const showCity = venue?.city?.trim() || show.city?.trim() || ''
+  const showState = venue?.state?.trim() || show.state?.trim() || ''
   const currentStop: TimelineStop = {
     event_date: show.event_date,
     timezone: resolveShowTimezone(timing.state, timing.timezone),
     venue_name: venue?.name,
-    city: venue?.city ?? show.city,
-    state: venue?.state ?? show.state,
+    city: showCity,
+    state: showState,
   }
+  // The act the spine follows, named for its landmark. Resolved from the
+  // payload's own headliner id against the bill already rendered above, so the
+  // name announced is the name printed; the backend picks that id by the same
+  // rule `splitBill` does. Falls back to the lead of the rendered bill, which
+  // is what the reader sees when the payload has not arrived yet.
+  const spineHeadlinerName =
+    artists.find(artist => artist.id === timeline?.headliner_artist_id)?.name ??
+    effectiveHeadliners[0]?.name
 
   return (
     <div
@@ -432,12 +444,12 @@ export function ShowHeader({
         <ShowBillRecurrence
           recurrence={timeline?.recurrence ?? []}
           artists={artists}
-          city={venue?.city?.trim() || show.city?.trim() || ''}
         />
         <ShowGigTimeline
           current={currentStop}
           previous={timeline?.previous ?? null}
           next={timeline?.next ?? null}
+          headlinerName={spineHeadlinerName}
         />
 
         {/* SLOT: venue module. The co-primary entity's block, ABOVE the

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   lastPlayedLabel,
+  timelineCurrentPlaceLabel,
   timelineDateLabel,
   timelinePlaceLabel,
 } from './showTimelineCopy'
@@ -108,6 +109,31 @@ describe('timelinePlaceLabel', () => {
     expect(
       timelinePlaceLabel({ venue_name: '  ', city: '  ', state: '  ' })
     ).toBe('')
+  })
+})
+
+describe('timelineCurrentPlaceLabel', () => {
+  // The stop the reader is already on. The city is what distinguishes one
+  // neighbour from another; here the venue module below carries the address.
+  it('names the room and drops the city', () => {
+    expect(
+      timelineCurrentPlaceLabel({ venue_name: 'Salt Shed', city: 'Chicago' })
+    ).toBe('SALT SHED')
+  })
+
+  // A room with no name still has to say where it is, so it falls through to
+  // the neighbour rule rather than rendering the date alone.
+  it('falls back to city and state for a room with no name on record', () => {
+    expect(timelineCurrentPlaceLabel({ city: 'Chicago', state: 'IL' })).toBe(
+      'CHICAGO, IL'
+    )
+    expect(
+      timelineCurrentPlaceLabel({
+        venue_name: '   ',
+        city: 'Chicago',
+        state: 'IL',
+      })
+    ).toBe('CHICAGO, IL')
   })
 })
 

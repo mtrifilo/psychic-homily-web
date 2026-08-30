@@ -12,15 +12,10 @@ export interface ShowBillRecurrenceProps {
   recurrence: ShowTimelineRecurrence[]
   /** The bill as rendered above, the source of every name on this line. */
   artists: RecurrenceBillArtist[]
-  /**
-   * The show's own city, as the place these facts are about. Empty for a
-   * venue-less show, which drops the "last played {city}" phrasing.
-   */
-  city: string
 }
 
 /**
- * What this city already knows about tonight's bill, as one line under it:
+ * What this place already knows about tonight's bill, as one line under it:
  * `Modest Mouse last played Chicago: Nov 2023, Aragon Ballroom · Califone:
  * hometown show`.
  *
@@ -32,6 +27,11 @@ export interface ShowBillRecurrenceProps {
  * Chicago band and says nothing: every local band last played their own city.
  * The interesting fact is that they live here, so that is the one stated.
  *
+ * The city named is the one on the ENTRY, never the show's own. The backend
+ * matches these dates across a whole metro, so an Evanston room is a valid
+ * answer for a Chicago show, and naming the show's city would print
+ * "last played Chicago" above a venue that is not in Chicago.
+ *
  * Names come from the BILL, not from the payload, so this line and the heading
  * above it cannot disagree about what an act is called. An entry naming an act
  * that is not on the bill is dropped rather than rendered nameless.
@@ -39,7 +39,6 @@ export interface ShowBillRecurrenceProps {
 export function ShowBillRecurrence({
   recurrence,
   artists,
-  city,
 }: ShowBillRecurrenceProps) {
   const nameById = new Map(artists.map(artist => [artist.id, artist.name]))
 
@@ -50,8 +49,9 @@ export function ShowBillRecurrence({
       return [{ id: entry.artist_id, text: `${name}: hometown show` }]
     }
     if (!entry.last_played) return []
-    // Without a city the sentence has no place to name, so it states the fact
-    // it still has: when and where they were last seen.
+    // A room with no city on record leaves the sentence no place to name, so it
+    // states what it still has: when, and which room.
+    const city = entry.last_played.city?.trim()
     const where = city ? ` ${city}` : ''
     return [
       {

@@ -32,9 +32,9 @@ vi.mock('next/link', () => ({
 
 // Mock useShow hook
 const mockUseShow = vi.fn()
-// The corridor modules' archive read. Defaulted to "nothing yet" so every test
-// that is not about the timeline renders the header exactly as it did before
-// the modules existed; the timeline tests override it.
+// The corridor modules' archive read, stubbed as "nothing yet" so the header
+// renders here exactly as it did before the modules existed. What the modules
+// do with a populated payload is ShowHeader.test.tsx's subject.
 const mockUseShowTimeline = vi.fn(() => ({ data: undefined }))
 vi.mock('../hooks/useShows', () => ({
   useShow: (...args: unknown[]) => mockUseShow(...args),

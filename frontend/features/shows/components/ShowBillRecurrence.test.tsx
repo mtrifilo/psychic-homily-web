@@ -42,7 +42,7 @@ function lineText(): string {
 describe('ShowBillRecurrence', () => {
   it('renders nothing when the archive has nothing to say', () => {
     const { container } = render(
-      <ShowBillRecurrence recurrence={[]} artists={artists} city="Chicago" />
+      <ShowBillRecurrence recurrence={[]} artists={artists} />
     )
 
     expect(container).toBeEmptyDOMElement()
@@ -50,13 +50,7 @@ describe('ShowBillRecurrence', () => {
   })
 
   it('states when and where an act last played this city', () => {
-    render(
-      <ShowBillRecurrence
-        recurrence={[makeEntry()]}
-        artists={artists}
-        city="Chicago"
-      />
-    )
+    render(<ShowBillRecurrence recurrence={[makeEntry()]} artists={artists} />)
 
     expect(lineText()).toBe(
       'Modest Mouse last played Chicago: Nov 2023, Aragon Ballroom'
@@ -72,7 +66,6 @@ describe('ShowBillRecurrence', () => {
           makeEntry({ artist_id: 2, is_hometown: true, last_played: makeStop() }),
         ]}
         artists={artists}
-        city="Chicago"
       />
     )
 
@@ -87,7 +80,6 @@ describe('ShowBillRecurrence', () => {
           makeEntry({ artist_id: 2, is_hometown: true, last_played: null }),
         ]}
         artists={artists}
-        city="Chicago"
       />
     )
 
@@ -102,7 +94,6 @@ describe('ShowBillRecurrence', () => {
           makeEntry({ artist_id: 2, is_hometown: true, last_played: null }),
         ]}
         artists={artists}
-        city="Chicago"
       />
     )
 
@@ -122,7 +113,6 @@ describe('ShowBillRecurrence', () => {
           makeEntry({ artist_id: 405, is_hometown: true }),
         ]}
         artists={artists}
-        city="Chicago"
       />
     )
 
@@ -137,7 +127,6 @@ describe('ShowBillRecurrence', () => {
       <ShowBillRecurrence
         recurrence={[makeEntry({ artist_id: 404 })]}
         artists={artists}
-        city="Chicago"
       />
     )
 
@@ -151,20 +140,43 @@ describe('ShowBillRecurrence', () => {
       <ShowBillRecurrence
         recurrence={[makeEntry({ is_hometown: false, last_played: null })]}
         artists={artists}
-        city="Chicago"
       />
     )
 
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('drops the city clause without a dangling space for a venue-less show', () => {
+  // The backend matches prior dates across a whole METRO, so the room on the
+  // entry can sit in a different city than the show. The city named is the
+  // entry's, or the line claims a date in a city the act did not play.
+  it('names the city on the entry, not the city of the show being read', () => {
     render(
-      <ShowBillRecurrence recurrence={[makeEntry()]} artists={artists} city="" />
+      <ShowBillRecurrence
+        recurrence={[makeEntry({ last_played: makeStop({ city: 'Evanston' }) })]}
+        artists={artists}
+      />
+    )
+
+    expect(lineText()).toBe(
+      'Modest Mouse last played Evanston: Nov 2023, Aragon Ballroom'
+    )
+    expect(lineText()).not.toContain('last played Chicago')
+  })
+
+  it('drops the city clause without a dangling space for a place-less room', () => {
+    render(
+      <ShowBillRecurrence
+        recurrence={[makeEntry({ last_played: makeStop({ city: '' }) })]}
+        artists={artists}
+      />
     )
 
     expect(lineText()).toBe(
       'Modest Mouse last played: Nov 2023, Aragon Ballroom'
     )
+    // The clause is dropped whole: no space left where the city was, and no
+    // colon left standing on its own.
+    expect(lineText()).not.toMatch(/ {2}/)
+    expect(lineText()).not.toContain('played :')
   })
 })

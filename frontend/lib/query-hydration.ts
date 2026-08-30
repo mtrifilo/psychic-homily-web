@@ -58,11 +58,18 @@ export interface QuerySeed {
  *
  * Freshness semantics are `prefetchEntity`'s, NOT `seedFirstScreen`'s: each
  * entry is stamped "fetched now" and the client honours its `staleTime` instead
- * of revalidating on the first commit. Use this for a detail page whose seeds
- * are all anonymous request-time reads of the same entity; use
- * `seedFirstScreen` when a seed comes out of Next's Data Cache, or when a
- * signed-in viewer's payload would differ from the anonymous one the server
- * fetched.
+ * of revalidating on the first commit. Use this when every seed is an ANONYMOUS
+ * read whose payload does not vary by viewer, so a stamp the client trusts
+ * cannot hide a signed-in difference. Use `seedFirstScreen` when a seed's
+ * payload WOULD differ for a signed-in viewer, which is what forces the
+ * immediate revalidation there. (Both are routinely Data-Cached; that alone
+ * does not decide it, since a `[slug]` detail read is the same bytes for
+ * everyone.)
+ *
+ * Callers on a route with no dynamic input of its own must `await connection()`
+ * first, for the reason `seedFirstScreen` documents: `dehydrate()` reads the
+ * clock, and under `cacheComponents` a prerenderable scope may not. A `[slug]`
+ * route has already awaited `params`, which satisfies the guard.
  *
  * A seed whose `data` is null is SKIPPED rather than cached, so a module whose
  * server fetch failed falls through to its own client fetch and its own error

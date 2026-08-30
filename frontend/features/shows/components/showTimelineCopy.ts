@@ -94,6 +94,22 @@ export function timelinePlaceLabel(stop: StopPlace): string {
 }
 
 /**
+ * The same label for the stop the reader is ALREADY on: `SALT SHED`, the room
+ * and nothing else.
+ *
+ * No city, unlike the neighbours. The city is what distinguishes one stop on a
+ * route from another, and for this stop the reader has the venue module a few
+ * lines below carrying the full address. The locked mock states it this way.
+ *
+ * A room with no name on record still needs to say where it is, so it falls
+ * through to the neighbour rule.
+ */
+export function timelineCurrentPlaceLabel(stop: StopPlace): string {
+  const venue = stop.venue_name?.trim()
+  return venue ? venue.toUpperCase() : timelinePlaceLabel(stop)
+}
+
+/**
  * `Nov 2023, Aragon Ballroom`: when and where an act last played here.
  *
  * Month resolution through the same `formatShowMonth` the month-grouped

@@ -179,15 +179,42 @@ func (r *timelineEntryRow) entry() *contracts.ShowTimelineEntry {
 // Two statements rather than `s.id = ? OR s.slug = ?` so the lookups cannot
 // cross-match: a purely numeric slug has to keep meaning the id, as it does on
 // every other /shows/{show_id} route.
+//
+// The room is picked PLACEABLE-FIRST, which is the one place this file departs
+// from shared.PrimaryVenueLateralSQL's lowest-venue-id rule. A show can be
+// billed at more than one room, and this lateral answers "where did this
+// happen" rather than "which room owns this show": under the plain id rule an
+// unplaceable room ("A Secret Location", no city, no metro) with the lower id
+// wins the pick, hasPlace then reports no place, and every act's recurrence is
+// dropped on a show whose other room would have answered.
+// resolveAlsoTonightSubject demotes the same rows for the same reason.
+//
+// Only the PLACE comes from here; the room the page NAMES is the venue module's,
+// so a differing pick cannot put two venue names on one screen.
+//
+// The show row is the fallback for a bill with no room at all. `shows.city` and
+// `shows.state` are denormalized and can lag an edit, so the venue wins wherever
+// both exist, which is the precedence showTimingInput applies on the page.
+// Without it a roomless show has no place at all, which silently empties its
+// recurrence.
 func (s *ShowService) resolveTimelineSubject(idOrSlug string) (*timelineSubject, error) {
+	const placeableVenue = `(
+			SELECT iv.metro, iv.city, iv.state
+			FROM show_venues sv
+			JOIN venues iv ON iv.id = sv.venue_id
+			WHERE sv.show_id = s.id
+			ORDER BY (iv.city IS NULL OR TRIM(iv.city) = '' OR iv.state IS NULL OR TRIM(iv.state) = '') ASC,
+			         sv.venue_id ASC
+			LIMIT 1
+		)`
 	selectSubject := `
 		SELECT s.id AS show_id,
 		       s.event_date,
-		       COALESCE(v.metro, '') AS venue_metro,
-		       COALESCE(v.city, '')  AS venue_city,
-		       COALESCE(v.state, '') AS venue_state
+		       COALESCE(v.metro, '')          AS venue_metro,
+		       COALESCE(v.city, s.city, '')   AS venue_city,
+		       COALESCE(v.state, s.state, '') AS venue_state
 		FROM shows s
-		LEFT JOIN LATERAL ` + shared.PrimaryVenueLateralSQL("iv.metro, iv.city, iv.state", "s.id") + ` v ON TRUE
+		LEFT JOIN LATERAL ` + placeableVenue + ` v ON TRUE
 		WHERE `
 	const (
 		andApproved = ` AND s.status = ? LIMIT 1`
@@ -253,10 +280,15 @@ func (s *ShowService) loadTimelineBill(showID uint) ([]timelineBillArtist, error
 // ordering and the self-exclusion: the subject is neither strictly before nor
 // strictly after itself, so no separate `id <> ?` is needed, and two shows
 // sharing an instant still have a deterministic side.
+//
+// The CTE carries `s.city`/`s.state` so a roomless neighbour still resolves a
+// place and, through it, a clock. Without them EventLocation sees an empty zone
+// AND an empty state and falls to its default, dating that show differently
+// here than its own page dates it from the same show row.
 func (s *ShowService) loadAdjacentShows(artistID uint, subject *timelineSubject) (previous, next *contracts.ShowTimelineEntry, err error) {
 	query := `
 		WITH neighbour AS (
-			(SELECT s.id, COALESCE(s.slug, '') AS slug, s.event_date, 'previous' AS side
+			(SELECT s.id, COALESCE(s.slug, '') AS slug, s.event_date, s.city, s.state, 'previous' AS side
 			   FROM show_artists sa
 			   JOIN shows s ON s.id = sa.show_id
 			  WHERE sa.artist_id = ? AND s.status = ?
@@ -264,7 +296,7 @@ func (s *ShowService) loadAdjacentShows(artistID uint, subject *timelineSubject)
 			  ORDER BY s.event_date DESC, s.id DESC
 			  LIMIT 1)
 			UNION ALL
-			(SELECT s.id, COALESCE(s.slug, '') AS slug, s.event_date, 'next' AS side
+			(SELECT s.id, COALESCE(s.slug, '') AS slug, s.event_date, s.city, s.state, 'next' AS side
 			   FROM show_artists sa
 			   JOIN shows s ON s.id = sa.show_id
 			  WHERE sa.artist_id = ? AND s.status = ?
@@ -276,11 +308,11 @@ func (s *ShowService) loadAdjacentShows(artistID uint, subject *timelineSubject)
 		       n.id   AS show_id,
 		       n.slug AS show_slug,
 		       n.event_date,
-		       COALESCE(v.name, '')     AS venue_name,
-		       COALESCE(v.slug, '')     AS venue_slug,
-		       COALESCE(v.city, '')     AS city,
-		       COALESCE(v.state, '')    AS state,
-		       COALESCE(v.timezone, '') AS timezone
+		       COALESCE(v.name, '')           AS venue_name,
+		       COALESCE(v.slug, '')           AS venue_slug,
+		       COALESCE(v.city, n.city, '')   AS city,
+		       COALESCE(v.state, n.state, '') AS state,
+		       COALESCE(v.timezone, '')       AS timezone
 		FROM neighbour n
 		-- Raw columns, defaulted at the select above: this lateral is LEFT
 		-- joined, so a neighbour with no room matches no lateral row at all and

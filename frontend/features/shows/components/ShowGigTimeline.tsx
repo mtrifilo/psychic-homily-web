@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import {
+  timelineCurrentPlaceLabel,
   timelineDateLabel,
   timelinePlaceLabel,
   timelineYear,
@@ -20,7 +21,7 @@ import type { ShowTimelineEntry } from '../types'
  * group names one show, and splitting it would put two adjacent tab stops on
  * one fact.
  */
-function TimelineStop({
+function SpineStop({
   entry,
   subjectYear,
   direction,
@@ -75,6 +76,18 @@ export interface ShowGigTimelineProps {
   current: TimelineStop
   previous: ShowTimelineEntry | null
   next: ShowTimelineEntry | null
+  /**
+   * The act whose route this is, for the landmark's accessible name.
+   *
+   * Load-bearing on a co-headline bill: the heading above prints every curated
+   * headliner, while these dates belong to exactly ONE of them, and without a
+   * name the reader is invited to read one act's route as the whole show's.
+   * Resolve it from `headliner_artist_id` against the bill, so it is the name
+   * the page already printed rather than a second copy of it.
+   *
+   * Empty when the bill is empty, which falls back to the bare landmark label.
+   */
+  headlinerName?: string
 }
 
 /**
@@ -102,6 +115,7 @@ export function ShowGigTimeline({
   current,
   previous,
   next,
+  headlinerName,
 }: ShowGigTimelineProps) {
   if (!previous && !next) return null
 
@@ -110,28 +124,36 @@ export function ShowGigTimeline({
   // neighbours are what the year rule exists for.
   const currentLabel = [
     timelineDateLabel(current, currentYear),
-    timelinePlaceLabel(current),
+    timelineCurrentPlaceLabel(current),
   ]
     .filter(Boolean)
     .join(' ')
 
   return (
     <nav
-      aria-label="Gig timeline"
+      aria-label={
+        headlinerName ? `Gig timeline for ${headlinerName}` : 'Gig timeline'
+      }
       data-testid="show-gig-timeline"
       className="mt-4 border-y border-border/60 py-2"
     >
       <div className="flex flex-col gap-y-1 font-mono text-xs tracking-wider lg:flex-row lg:items-baseline lg:justify-between lg:gap-x-6">
+        {/* The arrow is INSIDE the guard. Rendered unconditionally it becomes a
+            glyph pointing at nothing whenever a direction has no date, which is
+            the majority state for `next` on a past show, and below `lg` it gets
+            a line of its own. */}
         <span className="flex items-baseline gap-x-2">
-          <span aria-hidden="true" className="text-muted-foreground/60">
-            &larr;
-          </span>
           {previous && (
-            <TimelineStop
-              entry={previous}
-              subjectYear={currentYear}
-              direction="Previous show"
-            />
+            <>
+              <span aria-hidden="true" className="text-muted-foreground/60">
+                &larr;
+              </span>
+              <SpineStop
+                entry={previous}
+                subjectYear={currentYear}
+                direction="Previous show"
+              />
+            </>
           )}
         </span>
 
@@ -155,15 +177,17 @@ export function ShowGigTimeline({
             fragments rather than one route. */}
         <span className="flex items-baseline gap-x-2 lg:justify-end">
           {next && (
-            <TimelineStop
-              entry={next}
-              subjectYear={currentYear}
-              direction="Next show"
-            />
+            <>
+              <SpineStop
+                entry={next}
+                subjectYear={currentYear}
+                direction="Next show"
+              />
+              <span aria-hidden="true" className="text-muted-foreground/60">
+                &rarr;
+              </span>
+            </>
           )}
-          <span aria-hidden="true" className="text-muted-foreground/60">
-            &rarr;
-          </span>
         </span>
       </div>
     </nav>

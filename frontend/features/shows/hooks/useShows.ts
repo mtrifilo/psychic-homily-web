@@ -159,8 +159,13 @@ export const useShowAlsoTonight = (
  * server-side from the same id, so the modules are in the first paint rather
  * than shifting the page when they arrive.
  *
- * A long `staleTime`: this is archive data about dates that have already
- * happened, so it goes stale only when somebody edits a neighbouring show.
+ * `staleTime` matches `useShow`'s rather than running long on the "it is all
+ * archive data" argument, which is false for half the payload: `next` is by
+ * construction a FUTURE date, and a newly announced show ahead of this one
+ * invalidates it with no mutation on this page to observe. It also must not
+ * compound with the route's own `revalidate: 3600`, since the server seed is
+ * stamped "fetched now" and a longer window here would sit on a payload that
+ * was already up to an hour old when it arrived.
  */
 export const useShowTimeline = (showId: number | undefined) => {
   return useQuery({
@@ -172,7 +177,7 @@ export const useShowTimeline = (showId: number | undefined) => {
       )
     },
     enabled: Boolean(showId),
-    staleTime: 60 * 60 * 1000, // 1 hour
+    staleTime: 5 * 60 * 1000, // 5 minutes
   })
 }
 

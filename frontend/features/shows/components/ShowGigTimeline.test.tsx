@@ -28,9 +28,13 @@ function makeEntry(overrides: Partial<ShowTimelineEntry> = {}): ShowTimelineEntr
  * The show being read, as a stop on its own spine. The module formats it with
  * the same helpers it formats the neighbours with, so this is raw payload
  * rather than pre-built label strings: 9:00 PM Aug 12 in Chicago renders as
- * `AUG 12 SALT SHED, CHICAGO`, and its year is what the neighbours' dates are
- * compared against.
+ * `AUG 12 SALT SHED`, and its year is what the neighbours' dates are compared
+ * against.
  */
+/** The glyphs the module paints for each direction, as rendered characters. */
+const LEFT_ARROW = '←'
+const RIGHT_ARROW = '→'
+
 const current = {
   event_date: '2025-08-13T02:00:00Z',
   timezone: 'America/Chicago',
@@ -121,15 +125,17 @@ describe('ShowGigTimeline', () => {
     expect(container.textContent).toContain('AUG 9 METRO, CHICAGO')
   })
 
-  it('renders the current date and place as text, never as a link', () => {
+  // The marker names the room and nothing else: the city is what tells two
+  // neighbours apart, and the venue module below already carries the address.
+  it('renders the current date and room as text, never as a link', () => {
     render(
       <ShowGigTimeline current={current} previous={makeEntry()} next={null} />
     )
 
-    const marker = screen.getByText('AUG 12 SALT SHED, CHICAGO')
+    const marker = screen.getByText('AUG 12 SALT SHED')
     expect(marker.closest('a')).toBeNull()
     expect(
-      screen.queryByRole('link', { name: /AUG 12 SALT SHED, CHICAGO/ })
+      screen.queryByRole('link', { name: /AUG 12 SALT SHED/ })
     ).not.toBeInTheDocument()
   })
 
@@ -173,5 +179,56 @@ describe('ShowGigTimeline', () => {
         name: /^Previous show:\s*DEC 30 2024 EMPTY BOTTLE, CHICAGO$/,
       })
     ).toBeInTheDocument()
+  })
+
+  // Each glyph lives inside its own direction's guard, so a one-sided spine
+  // renders no arrow pointing at a date that is not there.
+  describe('arrows', () => {
+    it('renders no forward arrow when there is no next show', () => {
+      const { container } = render(
+        <ShowGigTimeline current={current} previous={makeEntry()} next={null} />
+      )
+
+      expect(container.textContent).not.toContain(RIGHT_ARROW)
+      expect(container.textContent).toContain(LEFT_ARROW)
+    })
+
+    it('renders no backward arrow when there is no previous show', () => {
+      const { container } = render(
+        <ShowGigTimeline current={current} previous={null} next={makeEntry()} />
+      )
+
+      expect(container.textContent).not.toContain(LEFT_ARROW)
+      expect(container.textContent).toContain(RIGHT_ARROW)
+    })
+  })
+
+  // The heading above prints every curated headliner while these dates belong
+  // to exactly one of them, so the landmark says whose route this is.
+  describe('landmark name', () => {
+    it('names the act the spine follows', () => {
+      render(
+        <ShowGigTimeline
+          current={current}
+          previous={makeEntry()}
+          next={null}
+          headlinerName="Modest Mouse"
+        />
+      )
+
+      expect(
+        screen.getByRole('navigation', { name: 'Gig timeline for Modest Mouse' })
+      ).toBeInTheDocument()
+    })
+
+    it('falls back to the bare landmark label when no act is named', () => {
+      render(
+        <ShowGigTimeline current={current} previous={makeEntry()} next={null} />
+      )
+
+      expect(
+        screen.getByRole('navigation', { name: 'Gig timeline' })
+      ).toBeInTheDocument()
+    })
   })
 })

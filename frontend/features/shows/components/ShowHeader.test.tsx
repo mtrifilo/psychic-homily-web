@@ -5,7 +5,13 @@ import {
   FALLBACK_SHOW_TIMEZONE,
   combineDateTimeToUTC,
 } from '@/lib/utils/timeUtils'
-import type { ArtistResponse, SetType, ShowResponse } from '../types'
+import type {
+  ArtistResponse,
+  SetType,
+  ShowResponse,
+  ShowTimelineEntry,
+  ShowTimelineResponse,
+} from '../types'
 
 vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => ({ isAuthenticated: false, user: undefined }),
@@ -923,5 +929,137 @@ describe('ShowHeader bill rendering', () => {
       expect(supportLineText()).toContain('Just A Band')
       expect(supportLineText()).not.toMatch(/\(/)
     })
+  })
+})
+
+describe('ShowHeader corridor modules', () => {
+  const billedShow = makeShow({
+    artists: [
+      makeArtist({
+        id: 1,
+        name: 'Modest Mouse',
+        slug: 'modest-mouse',
+        set_type: 'headliner',
+        position: 0,
+      }),
+      makeArtist({ id: 2, name: 'Califone', slug: 'califone', position: 1 }),
+    ],
+  })
+
+  function makeNeighbour(
+    overrides: Partial<ShowTimelineEntry> = {}
+  ): ShowTimelineEntry {
+    return {
+      show_id: 9,
+      show_slug: 'metro-aug-9',
+      // 9:00 PM Aug 9 in Chicago.
+      event_date: '2026-08-10T02:00:00Z',
+      timezone: 'America/Chicago',
+      venue_name: 'Metro',
+      venue_slug: 'metro',
+      city: 'Chicago',
+      state: 'IL',
+      ...overrides,
+    }
+  }
+
+  function makeTimeline(
+    overrides: Partial<ShowTimelineResponse> = {}
+  ): ShowTimelineResponse {
+    return {
+      headliner_artist_id: 1,
+      previous: makeNeighbour(),
+      next: null,
+      recurrence: [
+        { artist_id: 1, is_hometown: false, last_played: makeNeighbour() },
+      ],
+      ...overrides,
+    }
+  }
+
+  /** Whether `first` opens before `second` in the rendered document. */
+  function precedes(first: Element, second: Element): boolean {
+    return Boolean(
+      first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING
+    )
+  }
+
+  /** The `w/` grid, which is the block both modules must render after. */
+  function supportBlock(): HTMLElement {
+    const block = screen.getByText('w/').parentElement
+    if (!block) throw new Error('support block not found')
+    return block
+  }
+
+  it('renders both corridor modules for a populated timeline', () => {
+    render(
+      <ShowHeader
+        lifecycle="upcoming"
+        show={billedShow}
+        timeline={makeTimeline()}
+      />
+    )
+
+    expect(screen.getByTestId('show-bill-recurrence')).toBeInTheDocument()
+    expect(screen.getByTestId('show-gig-timeline')).toBeInTheDocument()
+  })
+
+  // Both modules are statements ABOUT the bill, so they close the bill block
+  // off rather than opening the venue's.
+  it('places both modules after the support line and before the venue module', () => {
+    render(
+      <ShowHeader
+        lifecycle="upcoming"
+        show={billedShow}
+        timeline={makeTimeline()}
+      />
+    )
+
+    const support = supportBlock()
+    const recurrence = screen.getByTestId('show-bill-recurrence')
+    const spine = screen.getByTestId('show-gig-timeline')
+    const venue = screen.getByTestId('show-venue-module')
+
+    expect(precedes(support, recurrence)).toBe(true)
+    expect(precedes(recurrence, spine)).toBe(true)
+    expect(precedes(spine, venue)).toBe(true)
+  })
+
+  // The caller may not fetch the archive at all, and it is in flight on the
+  // first paint of every page that does. The header is complete without it.
+  it('renders neither module when there is no timeline', () => {
+    render(<ShowHeader lifecycle="upcoming" show={billedShow} />)
+
+    expect(screen.queryByTestId('show-bill-recurrence')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('show-gig-timeline')).not.toBeInTheDocument()
+  })
+
+  // The marker is dated on the room's clock, the same one the date line above
+  // it uses. A spine that read the wire's clock would print a different day
+  // than the heading a few lines up.
+  it('dates the current marker on the venue calendar, not UTC', () => {
+    const show = makeShow({
+      artists: billedShow.artists,
+      // 7:30 PM Aug 15 in Chicago, already Aug 16 in UTC.
+      event_date: '2026-08-16T00:30:00Z',
+      venues: [
+        {
+          id: 1,
+          slug: 'the-venue',
+          name: 'The Venue',
+          city: 'Chicago',
+          state: 'IL',
+          timezone: 'America/Chicago',
+          verified: true,
+        },
+      ],
+    })
+
+    render(
+      <ShowHeader lifecycle="upcoming" show={show} timeline={makeTimeline()} />
+    )
+
+    expect(screen.getByText('AUG 15 THE VENUE')).toBeInTheDocument()
+    expect(screen.queryByText(/AUG 16/)).not.toBeInTheDocument()
   })
 })

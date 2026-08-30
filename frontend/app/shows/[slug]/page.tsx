@@ -48,11 +48,11 @@ interface ShowPageProps {
  */
 const getShow = cache(async (slug: string): Promise<ShowResponse | null> => {
   try {
-    const res = await fetch(`${API_BASE_URL}/shows/${slug}`, {
+    const res = await fetch(`${API_BASE_URL}/shows/${encodeURIComponent(slug)}`, {
       next: { revalidate: 3600 },
     })
     if (res.ok) {
-      return res.json()
+      return await res.json()
     }
     // Don't report 404s - they're expected for invalid slugs
     if (res.status >= 500) {
@@ -86,6 +86,11 @@ const getShow = cache(async (slug: string): Promise<ShowResponse | null> => {
  * either spelling. The cache key it seeds is still the numeric id, which is
  * available by the time the seed is built.
  *
+ * The slug is `encodeURIComponent`d because Next hands params through
+ * DECODED: `%2F` and `%3F` arrive as live path and query delimiters, which
+ * would otherwise let a caller re-point this server-side fetch at another
+ * backend path and have its body echoed back inside the hydration state.
+ *
  * Not `React.cache`d, unlike `getShow`: it has one caller. `generateMetadata`
  * has no use for it, and adding one would mean a second backend round trip on
  * every request for a title that already has everything it needs.
@@ -94,11 +99,16 @@ async function getShowTimeline(
   slug: string,
 ): Promise<ShowTimelineResponse | null> {
   try {
-    const res = await fetch(`${API_BASE_URL}/shows/${slug}/timeline`, {
-      next: { revalidate: 3600 },
-    })
+    const res = await fetch(
+      `${API_BASE_URL}/shows/${encodeURIComponent(slug)}/timeline`,
+      { next: { revalidate: 3600 } },
+    )
+    // `return await`, not a bare `return`: a bare one hands the caller the
+    // parse promise WITHOUT routing its rejection through the catch below, and
+    // a 200 with a truncated body would then reject after this function has
+    // already returned.
     if (res.ok) {
-      return res.json()
+      return await res.json()
     }
     if (res.status >= 500) {
       Sentry.captureMessage(`Show timeline: API returned ${res.status}`, {
@@ -246,6 +256,11 @@ export default async function ShowPage({ params }: ShowPageProps) {
   // instead of costing two serial round trips on every Data Cache miss. It
   // resolves to null rather than rejecting, so leaving it in flight through the
   // `notFound()` below cannot raise an unhandled rejection.
+  //
+  // The accepted cost is on the path that does NOT render: a bogus slug spends
+  // two backend requests instead of one, neither cacheable, since the Data
+  // Cache drops non-2xx. That is the cheaper side of the trade, because the
+  // rendering path is the common one and the 404 path is a fast backend miss.
   const timelinePromise = getShowTimeline(slug)
   const showData = await getShow(slug)
 

@@ -491,6 +491,37 @@ func (s *ShowTimelineIntegrationTestSuite) TestShowTimeline_HometownIsTheMetroTh
 	})
 }
 
+// Recurrence is emitted in BILL ORDER, headliner first, so the module's rows
+// line up with the bill the page already printed. The curated headliner sits at
+// a LATER position than the support act and both have a prior date here, so a
+// plain position ordering would swap the two rows rather than merely relabel
+// them.
+func (s *ShowTimelineIntegrationTestSuite) TestShowTimeline_RecurrenceIsInBillOrderHeadlinerFirst() {
+	loc := s.loc(timelineChicagoZone)
+	chicago := s.seedChicagoRoom("Empty Bottle", "Chicago")
+	evanston := s.seedChicagoRoom("Space", "Evanston")
+	headliner := s.seedAct("Curated Headliner", "Portland", "OR")
+	support := s.seedAct("Support Act", "Seattle", "WA")
+
+	headlinerPrior := s.seedDate(evanston, time.Date(2026, time.March, 2, 20, 0, 0, 0, loc), catalogm.ShowStatusApproved, headliner)
+	supportPrior := s.seedDate(evanston, time.Date(2026, time.March, 3, 20, 0, 0, 0, loc), catalogm.ShowStatusApproved, support)
+	subject := s.seedDate(chicago, time.Date(2026, time.September, 18, 20, 0, 0, 0, loc), catalogm.ShowStatusApproved)
+	s.billAct(subject, support, 0, contracts.SetTypePerformer)
+	s.billAct(subject, headliner, 4, contracts.SetTypeHeadliner)
+
+	timeline := s.timelineFor(subject)
+	s.Require().Len(timeline.Recurrence, 2, "both acts have a prior date in this metro")
+	s.Equal(headliner.ID, timeline.Recurrence[0].ArtistID,
+		"the curated headliner leads the module however far down it is positioned")
+	s.Equal(support.ID, timeline.Recurrence[1].ArtistID)
+	// Each act's row carries ITS date, so a reordering that kept the ids in place
+	// but moved the payloads would still be caught.
+	s.Require().NotNil(timeline.Recurrence[0].LastPlayed)
+	s.Equal(headlinerPrior.ID, timeline.Recurrence[0].LastPlayed.ShowID)
+	s.Require().NotNil(timeline.Recurrence[1].LastPlayed)
+	s.Equal(supportPrior.ID, timeline.Recurrence[1].LastPlayed.ShowID)
+}
+
 // An entry that states nothing is not a fact a client can render, so acts that
 // are neither home nor returning are dropped. What is left is an empty slice
 // rather than a null, which is also what a show with no bill answers.
@@ -547,10 +578,38 @@ func (s *ShowTimelineIntegrationTestSuite) TestShowTimeline_UnknownAndNonApprove
 	}
 }
 
-// Each module hides itself on its own evidence. A show with no room has no place
-// to ask the archive about, so recurrence is empty even for an act based in the
-// metro its other dates are in. The spine does not depend on a place and is
-// still served.
+// A subject billed at MORE THAN ONE room is placed by a room that can be placed,
+// not by the lowest venue id. The unplaceable room here holds the lower id, and
+// picking it would leave the subject with no place and drop every act's
+// recurrence on a show whose other room answers perfectly well.
+func (s *ShowTimelineIntegrationTestSuite) TestShowTimeline_MultiRoomSubjectIsPlacedByThePlaceableRoom() {
+	loc := s.loc(timelineChicagoZone)
+	// Blank city and state with no metro is the shape an ungeocoded room holds:
+	// venues.city and venues.state are NOT NULL, so blank is as absent as they get.
+	secret := s.seedRoom(timelineRoom{name: "A Secret Location", noMetro: true})
+	s.Require().Nil(secret.Metro)
+	chicago := s.seedChicagoRoom("Empty Bottle", "Chicago")
+	s.Require().Less(secret.ID, chicago.ID,
+		"the unplaceable room must hold the LOWER id, or a plain id ordering would pass this")
+
+	act := s.seedAct("Returning Act", "Portland", "OR")
+	prior := s.seedDate(chicago, time.Date(2026, time.March, 2, 20, 0, 0, 0, loc), catalogm.ShowStatusApproved, act)
+
+	subject := s.seedDate(secret, time.Date(2026, time.September, 18, 20, 0, 0, 0, loc), catalogm.ShowStatusApproved, act)
+	s.Require().NoError(s.db.Create(&catalogm.ShowVenue{ShowID: subject.ID, VenueID: chicago.ID}).Error)
+
+	timeline := s.timelineFor(subject)
+	s.Require().Len(timeline.Recurrence, 1,
+		"the placeable room decides the place, so the archive still has a question to answer")
+	s.Equal(act.ID, timeline.Recurrence[0].ArtistID)
+	s.Require().NotNil(timeline.Recurrence[0].LastPlayed)
+	s.Equal(prior.ID, timeline.Recurrence[0].LastPlayed.ShowID)
+}
+
+// Each module hides itself on its own evidence. A show with no room AND no
+// denormalized city on its own row has no place to ask the archive about, so
+// recurrence is empty even for an act based in the metro its other dates are in.
+// The spine does not depend on a place and is still served.
 func (s *ShowTimelineIntegrationTestSuite) TestShowTimeline_ShowWithNoVenueKeepsTheSpineAndEmptiesRecurrence() {
 	loc := s.loc(timelineChicagoZone)
 	room := s.seedChicagoRoom("Empty Bottle", "Chicago")
@@ -559,6 +618,10 @@ func (s *ShowTimelineIntegrationTestSuite) TestShowTimeline_ShowWithNoVenueKeeps
 
 	prior := s.seedDate(room, time.Date(2026, time.July, 4, 20, 0, 0, 0, loc), catalogm.ShowStatusApproved, act)
 	subject := s.seedDate(nil, time.Date(2026, time.September, 18, 20, 0, 0, 0, loc), catalogm.ShowStatusApproved, act)
+	// The premise: seedDate writes no city or state on the show row either, which
+	// is what leaves this subject with nothing to fall back to.
+	s.Require().Nil(subject.City)
+	s.Require().Nil(subject.State)
 
 	timeline := s.timelineFor(subject)
 	s.Equal(act.ID, timeline.HeadlinerArtistID)
@@ -568,6 +631,32 @@ func (s *ShowTimelineIntegrationTestSuite) TestShowTimeline_ShowWithNoVenueKeeps
 	s.Nil(timeline.Next)
 	s.NotNil(timeline.Recurrence)
 	s.Empty(timeline.Recurrence, "no room means no place, so no act can be home here or returning here")
+}
+
+// A roomless subject that DOES carry a city and state on its own show row is
+// placed from them, so its recurrence module still answers. No venue joins, so
+// venues.metro is absent and the place is the city arm.
+func (s *ShowTimelineIntegrationTestSuite) TestShowTimeline_RoomlessSubjectIsPlacedFromItsOwnShowRow() {
+	loc := s.loc(timelineChicagoZone)
+	room := s.seedChicagoRoom("Empty Bottle", "Chicago")
+	returning := s.seedAct("Returning Act", "Portland", "OR")
+	local := s.seedAct("Chicago Act", "Chicago", "IL")
+
+	prior := s.seedDate(room, time.Date(2026, time.March, 2, 20, 0, 0, 0, loc), catalogm.ShowStatusApproved, returning)
+	subject := s.seedDate(nil, time.Date(2026, time.September, 18, 20, 0, 0, 0, loc),
+		catalogm.ShowStatusApproved, returning, local)
+	s.Require().NoError(s.db.Model(subject).Updates(map[string]any{"city": "Chicago", "state": "IL"}).Error)
+
+	timeline := s.timelineFor(subject)
+	s.Require().Len(timeline.Recurrence, 2, "the show row's city is a place, so both acts have something to say")
+	s.Equal(returning.ID, timeline.Recurrence[0].ArtistID)
+	s.False(timeline.Recurrence[0].IsHometown, "a Portland band is a visitor here")
+	s.Require().NotNil(timeline.Recurrence[0].LastPlayed)
+	s.Equal(prior.ID, timeline.Recurrence[0].LastPlayed.ShowID)
+	s.Equal(local.ID, timeline.Recurrence[1].ArtistID)
+	s.True(timeline.Recurrence[1].IsHometown,
+		"the city arm decides home, because a subject with no room has no metro to match on")
+	s.Nil(timeline.Recurrence[1].LastPlayed)
 }
 
 // The venue lateral is LEFT joined on this path, so a roomless neighbour
@@ -591,4 +680,27 @@ func (s *ShowTimelineIntegrationTestSuite) TestShowTimeline_NeighbourWithNoVenue
 	// A stop with neither a zone nor a state still names one, because every
 	// date has to be read on some clock.
 	s.NotEmpty(timeline.Previous.Timezone)
+}
+
+// A roomless neighbour that carries a city and state on its own show row is
+// placed and dated from them. The zone resolves through the state map, so the
+// entry reads on the same clock the neighbour's own page reads it on rather than
+// on utils.EventLocation's default.
+func (s *ShowTimelineIntegrationTestSuite) TestShowTimeline_RoomlessNeighbourIsDatedOnItsOwnShowRow() {
+	loc := s.loc(timelineChicagoZone)
+	room := s.seedChicagoRoom("Empty Bottle", "Chicago")
+	act := s.seedAct("Roomless Neighbour Act", "Portland", "OR")
+
+	roomless := s.seedDate(nil, time.Date(2026, time.July, 4, 20, 0, 0, 0, loc), catalogm.ShowStatusApproved, act)
+	s.Require().NoError(s.db.Model(roomless).Updates(map[string]any{"city": "Chicago", "state": "IL"}).Error)
+	subject := s.seedDate(room, time.Date(2026, time.September, 18, 20, 0, 0, 0, loc), catalogm.ShowStatusApproved, act)
+
+	timeline := s.timelineFor(subject)
+	s.Require().NotNil(timeline.Previous)
+	s.Equal(roomless.ID, timeline.Previous.ShowID)
+	s.Empty(timeline.Previous.VenueName, "there is still no room to name")
+	s.Equal("Chicago", timeline.Previous.City)
+	s.Equal("IL", timeline.Previous.State)
+	s.Equal(timelineChicagoZone, timeline.Previous.Timezone,
+		"the show row's state decides the clock, not the Arizona default")
 }
