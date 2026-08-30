@@ -18,20 +18,31 @@ afterEach(() => {
   delete process.env.NEXT_PUBLIC_IMPACT_PARTNER_ID
 })
 
-/** A real domain in the table that carries no affiliate program. */
-const unaffiliatedDomain = Object.entries(TICKET_VENDORS_BY_DOMAIN).find(
-  ([, vendor]) => !vendor.affiliate
-)?.[0]
+/**
+ * A real domain in the table that carries no affiliate program.
+ *
+ * Throws rather than degrading: with `?.[0]` this silently became the string
+ * "undefined" once every vendor had a program, and the case it exists to cover
+ * (a recognized vendor is never tagged) stopped being tested while the suite
+ * stayed green.
+ */
+const unaffiliatedDomain = (() => {
+  const found = Object.entries(TICKET_VENDORS_BY_DOMAIN).find(
+    ([, vendor]) => !vendor.affiliate
+  )?.[0]
+  if (!found) {
+    throw new Error(
+      'Every vendor now has an affiliate entry: pick a new NEVER_TAGGABLE fixture.'
+    )
+  }
+  return found
+})()
 
 /**
  * Values that must survive UNTOUCHED whatever is configured: no vendor, no
  * affiliate program, or nothing the builder could rewrite without inventing a
  * scheme. Asserted under both partner-ID states, so "config changes nothing
  * here" is a claim the suite makes rather than two lists that can drift.
- *
- * The unaffiliated entry is read off the table so that giving that vendor a
- * program later fails as "update this list", not as a mysterious violation of
- * a general invariant.
  */
 const NEVER_TAGGABLE = [
   `https://${unaffiliatedDomain}/event/abc`,
@@ -57,6 +68,9 @@ describe('resolveTicketVendor', () => {
     ['https://seetickets.us/event/3', 'See Tickets'],
     ['https://event.etix.com/ticket/4', 'Etix'],
     ['HTTPS://WWW.TICKETWEB.COM/event/5', 'TicketWeb'],
+    // A trailing dot is the fully-qualified spelling of the same host, and
+    // reaches the real vendor.
+    ['https://ticketweb.com./event/6', 'TicketWeb'],
   ])('names the vendor behind %s', (url, expected) => {
     expect(resolveTicketVendor(url)?.name).toBe(expected)
   })
@@ -97,6 +111,21 @@ describe('repairTicketUrl', () => {
       expect(repairTicketUrl(input)).toBeNull()
     }
   )
+
+  // The festival anchor carries its own http(s) floor and must never be handed
+  // a script-bearing scheme. The repair defusing these by prefixing is a
+  // navigation fix, so this pins the SAFETY property separately.
+  it.each([
+    'javascript:alert(1)',
+    'JaVaScRiPt:alert(1)',
+    'data:text/html,<script>alert(1)</script>',
+    'vbscript:msgbox(1)',
+    '  javascript:alert(1)  ',
+  ])('never yields a script-bearing scheme for %s', input => {
+    const repaired = repairTicketUrl(input)
+    expect(repaired).not.toMatch(/^\s*(javascript|data|vbscript):/i)
+    expect(repaired).toMatch(/^https:\/\//i)
+  })
 })
 
 describe('affiliatePartnerIds', () => {
@@ -176,9 +205,17 @@ describe('ticketLink with an Impact partner ID configured', () => {
   })
 
   it('tags a subdomain of a configured vendor', () => {
-    expect(ticketLink('https://tickets.ticketmaster.com/e/1', IMPACT).href).toBe(
-      'https://tickets.ticketmaster.com/e/1?irmp=1234567'
+    expect(ticketLink('https://tickets.ticketweb.com/e/1', IMPACT).href).toBe(
+      'https://tickets.ticketweb.com/e/1?irmp=1234567'
     )
+  })
+
+  // Ticketmaster is in the table as a seller NAME only: whether it has Impact
+  // direct-domain tracking enabled is unverified, so it must not be tagged.
+  it('does not tag a recognized vendor that has no affiliate entry', () => {
+    const url = 'https://www.ticketmaster.com/event/1'
+    expect(ticketLink(url, IMPACT)).toEqual({ href: url, sponsored: false })
+    expect(resolveTicketVendor(url)?.name).toBe('Ticketmaster')
   })
 
   it('is idempotent under re-application', () => {
@@ -187,23 +224,44 @@ describe('ticketLink with an Impact partner ID configured', () => {
     expect(twice).toEqual(once)
   })
 
-  // A contributor-submitted URL may already credit somebody else. Overwriting
-  // their ID would silently redirect their commission to us.
-  it('never overwrites another partner ID, and does not claim it as sponsored', () => {
-    const url = 'https://www.ticketweb.com/e/2?irmp=9999999'
-    expect(ticketLink(url, IMPACT)).toEqual({ href: url, sponsored: false })
+  // The write side percent-encodes the ID; a read side that compared the raw
+  // ID against the stored bytes would report our own link as somebody else's
+  // and render it unqualified.
+  it('is idempotent for a partner ID carrying reserved characters', () => {
+    const partners = { impact: 'a b&c' }
+    const once = ticketLink('https://www.ticketweb.com/e/2', partners)
+    expect(once).toEqual({
+      href: 'https://www.ticketweb.com/e/2?irmp=a%20b%26c',
+      sponsored: true,
+    })
+    expect(ticketLink(once.href, partners)).toEqual(once)
   })
 
-  // The key is theirs whatever its case; appending ours beside it would both
-  // hijack the credit and double-count.
-  it('does not append beside a differently-cased foreign tag', () => {
-    const url = 'https://www.ticketweb.com/e/2?IRMP=9999999'
-    expect(ticketLink(url, IMPACT)).toEqual({ href: url, sponsored: false })
-  })
-
-  it('recognizes our own ID under a different key case as already sponsored', () => {
-    const url = 'https://www.ticketweb.com/e/2?IRMP=1234567'
+  // `show.ticket_url` is open contribution that publishes without review, so a
+  // planted foreign tag is a real input. It is neither rewritten (that would
+  // redirect their commission to us) nor left unqualified (that would publish
+  // an affiliate link on an indexed page with no rel="sponsored").
+  it.each([
+    ['our own id', 'https://www.ticketweb.com/e/2?irmp=1234567'],
+    ["another partner's id", 'https://www.ticketweb.com/e/2?irmp=9999999'],
+    ['an uppercase key', 'https://www.ticketweb.com/e/2?IRMP=9999999'],
+    // Vendors percent-decode parameter NAMES, so these all arrive as `irmp`.
+    // Matching raw text would append ours beside theirs and deliver two ids.
+    ['a percent-encoded key', 'https://www.ticketweb.com/e/2?%69rmp=9999999'],
+    ['a space-padded key', 'https://www.ticketweb.com/e/2?irmp%20=9999999'],
+    // A literal `+` is a form-encoded space, so this key decodes to `irmp`.
+    ['a plus-padded key', 'https://www.ticketweb.com/e/2?+irmp=9999999'],
+    ['a tag among other params', 'https://www.ticketweb.com/e/2?a=1&irmp=9999999&b=2'],
+  ])('leaves %s untouched and qualifies the link', (_label, url) => {
     expect(ticketLink(url, IMPACT)).toEqual({ href: url, sponsored: true })
+  })
+
+  // The qualification describes the LINK, so it cannot depend on whether this
+  // particular build happens to carry an ID. A build deployed without one must
+  // still qualify a URL that already carries somebody's tag.
+  it('qualifies an already-tagged link even with no partner ID configured', () => {
+    const url = 'https://www.ticketweb.com/e/2?irmp=1234567'
+    expect(ticketLink(url, NO_PARTNERS)).toEqual({ href: url, sponsored: true })
   })
 
   // A valueless occurrence credits nobody: it is a truncated paste, and
@@ -268,6 +326,15 @@ describe('ticketLink with an Impact partner ID configured', () => {
   it('encodes a partner ID that carries reserved characters', () => {
     expect(ticketLink('https://www.ticketweb.com/e/2', { impact: 'a b&c' }).href).toBe(
       'https://www.ticketweb.com/e/2?irmp=a%20b%26c'
+    )
+  })
+
+  // The one difference between the branches: pass-through is byte-identical
+  // including padding, tagging trims. Pinned so it stays a stated property
+  // rather than an accident.
+  it('trims surrounding whitespace when it tags', () => {
+    expect(ticketLink('  https://www.ticketweb.com/e/2  ', IMPACT).href).toBe(
+      'https://www.ticketweb.com/e/2?irmp=1234567'
     )
   })
 

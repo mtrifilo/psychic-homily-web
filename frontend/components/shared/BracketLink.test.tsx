@@ -218,6 +218,16 @@ describe('BracketLink', () => {
       expect(link).toHaveAttribute('rel', 'noopener noreferrer')
     })
 
+    // `rel` lives on the external branch only, NOT in the shared anchor-props
+    // bag. Hoisting it there type-checks and renders identically for every
+    // current call site, while telling Google this site's own internal links
+    // are paid placements.
+    it('never puts sponsored on an internal link', () => {
+      render(<BracketLink label="Shows" href="/shows" sponsored />)
+      const link = screen.getByRole('link', { name: 'Shows' })
+      expect(link.getAttribute('rel') ?? '').not.toContain('sponsored')
+    })
+
     // The announcement belongs to the component so that no call site can write
     // it, forget it, or let it drift from the target it describes.
     //

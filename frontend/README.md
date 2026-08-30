@@ -43,6 +43,19 @@ The frontend for [psychichomily.com](https://psychichomily.com) - a platform for
    | `NEXT_PUBLIC_API_URL` | The **data** base (`lib/api-base.ts`). Unset in the browser during development means the same-origin `/api` proxy, which is what lets the SameSite=Lax `auth_token` cookie ride along |
    | `NEXT_PUBLIC_OAUTH_BACKEND_URL` | The **OAuth** base (`lib/api-base.ts`). The Google button is a full-page redirect to the backend's `/auth/login/google`, and that redirect does not survive the proxy, so it needs the backend's own origin. Defaults to `NEXT_PUBLIC_API_URL`, then to `http://localhost:8080` |
 
+   Affiliate variables (optional; unset means every outbound ticket link is
+   emitted exactly as stored):
+
+   | Variable | What reads it |
+   |----------|---------------|
+   | `NEXT_PUBLIC_IMPACT_PARTNER_ID` | `lib/tickets/ticketVendors.ts`. Our impact.com partner ID. Setting it tags outbound links to the configured vendors with `?irmp=<id>` on the vendor's own domain and qualifies them with `rel="sponsored"`. Not a secret: the value rides in public URLs |
+
+   `NEXT_PUBLIC_*` values are inlined at **build** time, so turning affiliate
+   links on is a redeploy, not an environment edit on a running deployment.
+   Setting the variable without rebuilding leaves the shipped bundle carrying
+   the old (empty) value, and the only symptom is that links keep rendering
+   untagged.
+
    Set `NEXT_PUBLIC_OAUTH_BACKEND_URL` only when the data base is *not* the
    backend origin. That is most commonly a backend on a non-default port, where
    `NEXT_PUBLIC_API_URL` points at the proxy. Running the E2E suite that way

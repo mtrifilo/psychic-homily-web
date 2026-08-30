@@ -7,10 +7,16 @@
  * show and festival pages, and the `seller` name in the show's `MusicEvent`
  * JSON-LD, which names the company without linking to it.
  *
- * The one owner of how a vendor URL is TAGGED, not of vendor URLs generally.
- * Repair still lives at the call site that needs it: `ticketHref` in
- * `features/shows/components/showTicketLine` trims the stored value and
- * supplies a missing scheme before this module ever sees it.
+ * It owns classification ({@link resolveTicketVendor}), repair
+ * ({@link repairTicketUrl}) and tagging ({@link ticketLink}). Call sites own
+ * only their own POLICY: `ticketHref` in
+ * `features/shows/components/showTicketLine` layers the show's refusals
+ * (cancelled, sold out, past) on top of the repair.
+ *
+ * {@link ticketLink} must stay TOTAL. Callers are not required to repair
+ * first, and `show.ticket_url` is open contribution that publishes without
+ * review, so junk, relative and protocol-relative values reach it in practice
+ * and take its pass-through branch. Its guards are not dead code.
  */
 
 /**
@@ -78,18 +84,25 @@ const IMPACT_DIRECT_TRACKING: VendorAffiliate = {
  * a vendor here is the whole edit, and the tagged-shape test derives its cases
  * from this object rather than repeating it.
  *
- * `ticketmaster.com` and `ticketweb.com` sit inside one Ticketmaster/Impact
- * program; the same approval also covers Front Gate, Universe, Veeps and
- * Moshtix, which are absent here because naming a vendor is a structured-data
- * claim of its own and none of those has been added as a seller yet.
+ * ONLY `ticketweb.com` carries an affiliate entry, and the omissions are
+ * deliberate rather than unfinished:
+ *
+ *  - `ticketmaster.com` sits in the same Impact program, but whether
+ *    Ticketmaster has Impact's DIRECT-DOMAIN (`irmp`) tracking enabled is
+ *    explicitly unverified: it is a per-advertiser configuration, and the
+ *    affiliate research records it as a question for onboarding. Tagging it on
+ *    that assumption would declare a paid relationship on the table's
+ *    highest-volume vendor while possibly earning nothing. Confirm at
+ *    onboarding, then add the entry.
+ *  - Front Gate, Universe, Veeps and Moshtix ride the same approval but are
+ *    not in the table at all, and a row here is also a claim that we can name
+ *    that company as the `seller` in structured data. Adding them is a
+ *    deliberate follow-up, not a side effect of this change.
  */
 export const TICKET_VENDORS_BY_DOMAIN: Record<string, TicketVendor> = {
   'dice.fm': { name: 'DICE' },
   'eventbrite.com': { name: 'Eventbrite' },
-  'ticketmaster.com': {
-    name: 'Ticketmaster',
-    affiliate: IMPACT_DIRECT_TRACKING,
-  },
+  'ticketmaster.com': { name: 'Ticketmaster' },
   'ticketweb.com': { name: 'TicketWeb', affiliate: IMPACT_DIRECT_TRACKING },
   'seetickets.us': { name: 'See Tickets' },
   'etix.com': { name: 'Etix' },
@@ -128,7 +141,11 @@ export function resolveTicketVendor(
     : `https://${raw.replace(/^\/+/, '')}`
   let host: string
   try {
-    host = new URL(candidate).hostname.toLowerCase()
+    // A single trailing dot is the fully-qualified spelling of the same host
+    // ("ticketweb.com." resolves to TicketWeb), so it must not read as a
+    // different domain: left in, it silently opts a real vendor URL out of
+    // both its seller name and its affiliate tag.
+    host = new URL(candidate).hostname.toLowerCase().replace(/\.$/, '')
   } catch {
     return undefined
   }
@@ -214,6 +231,30 @@ interface QueryPair {
 }
 
 /**
+ * A query-string key reduced to the form a vendor's server will compare on.
+ *
+ * Vendors percent-decode parameter NAMES, so `irmp`, `IRMP`, `%69rmp` and
+ * `irmp%20` all arrive at the advertiser as the same parameter. Matching the
+ * raw text would let any of the encoded spellings pass as "no tag here", and
+ * this module would append ours beside one already present, delivering two
+ * competing partner IDs. Used ONLY for comparison; output always keeps the
+ * stored spelling.
+ *
+ * `+` is a form-encoded space, and a malformed escape makes `decodeURIComponent`
+ * throw, which this module never does.
+ */
+function affiliateParamKey(key: string): string {
+  const spaced = key.replace(/\+/g, ' ')
+  let decoded = spaced
+  try {
+    decoded = decodeURIComponent(spaced)
+  } catch {
+    // Keep the raw spelling: an undecodable key is not a tag we recognize.
+  }
+  return decoded.trim().toLowerCase()
+}
+
+/**
  * A URL split into the three parts tagging cares about, WITHOUT decoding
  * anything.
  *
@@ -261,21 +302,34 @@ function splitUrlForTagging(url: string): {
  * makes turning affiliate links on a config flip: nothing about the markup or
  * the call sites changes when the environment starts carrying an ID.
  *
- * When it DOES tag, the result is the stored string plus one appended
+ * When it DOES tag, the result is the TRIMMED stored string plus one appended
  * parameter, ahead of any fragment. Every other byte of the query survives
  * untouched — see {@link splitUrlForTagging} for why that has to be done
- * textually.
+ * textually. Surrounding whitespace is the one difference between the two
+ * branches, and it is why both call sites run {@link repairTicketUrl} first:
+ * fed an already-repaired value, tagging adds a parameter and nothing else.
  *
  * Never throws. Ticket URLs are contributor-entered paste, so junk, relative
  * and protocol-relative values all take the pass-through branch.
  *
- * A vendor URL that ALREADY credits somebody through this parameter is left
- * exactly as stored, whoever that is: overwriting a tracking ID inside a URL a
- * contributor submitted would silently redirect their commission to us. The
- * key is matched case-insensitively, because `?IRMP=` is another party's
- * credit just as much as `?irmp=` is, and appending ours beside it would both
- * hijack and double-count. It counts as sponsored when our own ID is among
- * those present, which makes this idempotent under re-application.
+ * A vendor URL that ALREADY carries a non-empty value for this parameter is
+ * left exactly as stored and reported as SPONSORED, whoever it credits.
+ *
+ * Both halves of that matter, and neither is about us. `show.ticket_url` is
+ * open contribution that publishes without review, so a contributor can plant
+ * any partner's tag. Rewriting it would silently redirect their commission to
+ * us; leaving it UNQUALIFIED would publish somebody's affiliate link on an
+ * indexed page with no `rel="sponsored"`, which is the link-spam exposure this
+ * whole module exists to avoid. `sponsored` therefore describes the LINK, not
+ * our commercial interest in it: over-qualifying costs nothing, and Google's
+ * policy is about paid placements generally, not about who gets paid. It also
+ * makes the answer independent of build configuration and of how the value was
+ * encoded, which is what keeps this idempotent under re-application.
+ *
+ * The key is normalized before matching (percent-decoded, `+`-to-space,
+ * trimmed, lowercased) because a vendor decodes parameter NAMES too: `?IRMP=`,
+ * `?%69rmp=` and `?irmp%20=` are all somebody's credit, and treating them as
+ * unrecognized would append ours beside theirs and deliver two competing IDs.
  *
  * A VALUELESS occurrence (`?irmp` or `?irmp=`) credits nobody — it is a
  * truncated paste, not a competing partner — so it is dropped in favour of a
@@ -290,9 +344,6 @@ export function ticketLink(
   const affiliate = resolveTicketVendor(rawUrl)?.affiliate
   if (!affiliate) return passthrough
 
-  const partnerId = partnerIds[affiliate.network]
-  if (!partnerId) return passthrough
-
   const trimmed = rawUrl.trim()
   if (!ABSOLUTE_HTTP_URL.test(trimmed)) return passthrough
 
@@ -305,18 +356,20 @@ export function ticketLink(
   }
 
   const { base, pairs, fragment } = splitUrlForTagging(trimmed)
-  const param = affiliate.param.toLowerCase()
-  const credited = pairs.filter(
-    pair => pair.key.toLowerCase() === param && pair.value !== ''
-  )
-  if (credited.length > 0) {
-    return {
-      href: rawUrl,
-      sponsored: credited.some(pair => pair.value === partnerId),
-    }
+  const param = affiliateParamKey(affiliate.param)
+  const isAffiliateParam = (pair: QueryPair) =>
+    affiliateParamKey(pair.key) === param
+
+  // Checked BEFORE the partner ID, so an already-monetized link is qualified
+  // on every build, including one deployed without an ID configured.
+  if (pairs.some(pair => isAffiliateParam(pair) && pair.value !== '')) {
+    return { href: rawUrl, sponsored: true }
   }
 
-  const kept = pairs.filter(pair => pair.key.toLowerCase() !== param)
+  const partnerId = partnerIds[affiliate.network]
+  if (!partnerId) return passthrough
+
+  const kept = pairs.filter(pair => !isAffiliateParam(pair))
   const query = [
     ...kept.map(pair => pair.raw),
     `${affiliate.param}=${encodeURIComponent(partnerId)}`,

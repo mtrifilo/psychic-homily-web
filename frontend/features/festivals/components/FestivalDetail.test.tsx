@@ -277,6 +277,50 @@ describe('FestivalDetail', () => {
     expect(buy).toHaveAttribute('rel', 'noopener noreferrer sponsored')
   })
 
+  // The show page repairs a scheme-less ticket url; this surface had no repair
+  // at all, so the value shipped as a relative href that navigated under
+  // /festivals/ and could never be tagged.
+  it('repairs a scheme-less ticket url instead of rendering it relative', () => {
+    mockUseFestival.mockReturnValue({
+      data: makeFestival({ ticket_url: 'tickets.example/1' }),
+      isLoading: false,
+      error: null,
+    })
+    renderWithProviders(<FestivalDetail idOrSlug="form-arcosanti" />)
+
+    expect(screen.getByRole('link', { name: 'Buy Tickets' })).toHaveAttribute(
+      'href',
+      'https://tickets.example/1'
+    )
+  })
+
+  // A whitespace-only ticket_url is storable (the column is validated for
+  // length only). Gating the section on the raw value while gating the anchor
+  // on the resolved one renders a Links heading over nothing.
+  it('renders no Links section for a whitespace-only ticket url', () => {
+    mockUseFestival.mockReturnValue({
+      data: makeFestival({ ticket_url: '   ', website: null }),
+      isLoading: false,
+      error: null,
+    })
+    renderWithProviders(<FestivalDetail idOrSlug="form-arcosanti" />)
+
+    expect(screen.queryByRole('heading', { name: 'Links' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Buy Tickets' })).toBeNull()
+  })
+
+  it('renders no script-bearing ticket href', () => {
+    mockUseFestival.mockReturnValue({
+      data: makeFestival({ ticket_url: 'javascript:alert(1)' }),
+      isLoading: false,
+      error: null,
+    })
+    renderWithProviders(<FestivalDetail idOrSlug="form-arcosanti" />)
+
+    const buy = screen.queryByRole('link', { name: 'Buy Tickets' })
+    expect(buy?.getAttribute('href') ?? '').not.toMatch(/^javascript:/i)
+  })
+
   it('renders the venues section with venue links', () => {
     mockUseFestival.mockReturnValue({
       data: makeFestival(),

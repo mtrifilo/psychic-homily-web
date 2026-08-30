@@ -157,15 +157,28 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
   const hasDescription = !!festival.description && festival.description.trim().length > 0
   const hasSocialLinks =
     !!festival.social && Object.values(festival.social).some(v => !!v)
-  const hasLinks =
-    !!festival.website || !!festival.ticket_url || hasSocialLinks
   // The same repair and the same vendor table the show page's Buy Tickets
   // bracket reads, so a stored value means one thing on both surfaces: without
   // the repair a scheme-less `ticket_url` rendered as a relative href that
   // navigated under /festivals/, and could never be tagged. A pass-through
   // until a partner ID is configured.
+  //
+  // The http(s) floor is this anchor's own, because it is a raw <a> rather
+  // than a BracketLink (which carries the same floor for the same reason).
+  // `ticket_url` is contributor-supplied and this column is validated for
+  // length only, so a `javascript:` value can reach it; the repair happens to
+  // defuse one by prefixing a scheme, but that is a navigation fix, not a
+  // safety guarantee, and this must not depend on it.
   const repairedTicketUrl = repairTicketUrl(festival.ticket_url)
-  const ticketBuyLink = repairedTicketUrl ? ticketLink(repairedTicketUrl) : null
+  const ticketBuyLink =
+    repairedTicketUrl && /^https?:\/\//i.test(repairedTicketUrl)
+      ? ticketLink(repairedTicketUrl)
+      : null
+  // Derived from the resolved link, not the raw column: a whitespace-only
+  // `ticket_url` is storable, and gating the section on the raw value while
+  // gating the anchor on the resolved one renders a Links heading over
+  // nothing.
+  const hasLinks = !!festival.website || !!ticketBuyLink || hasSocialLinks
 
   const statsItems = [
     { label: 'Artists', value: festival.artist_count },

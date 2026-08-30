@@ -43,13 +43,14 @@ function storedTicketUrl(show: ShowResponse): string | null {
  * page's ticket link so the two surfaces cannot disagree about what a stored
  * value means. This function owns only the refusals above.
  *
- * NOT the href a buy affordance renders. This answers "may this be offered,
- * and at what URL", which is the question the `ON SALE` words ask; the URL it
- * returns is deliberately UNTAGGED, so a second Buy Tickets surface built on
- * it would ship an unmonetized, unqualified link and no test would notice.
- * Render {@link buyTicketsLink}.
+ * NOT the href a buy affordance renders, and NOT exported for exactly that
+ * reason. This answers "may this be offered, and at what URL", which is the
+ * question the `ON SALE` words ask; the URL it returns is UNTAGGED, so a Buy
+ * Tickets surface built on it would ship an unmonetized, unqualified link and
+ * no test would notice. {@link buyTicketsLink} is the exported one, and is
+ * what a new surface should render.
  */
-export function ticketHref(
+function ticketHref(
   show: ShowResponse,
   lifecycle: ShowLifecycleState
 ): string | null {

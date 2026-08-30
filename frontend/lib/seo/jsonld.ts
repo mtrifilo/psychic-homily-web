@@ -359,12 +359,20 @@ export function generateMusicEventSchema(show: {
   // There is deliberately NO `offers.url`. Google documents it as Recommended,
   // not required, and the only thing omitting it costs is the "ticket purchase
   // option" placement — price display and sold-out badging both survive
-  // without it. Neither available value is honest: the vendor's own URL hands
-  // the sale to a company this site has no referral arrangement with, and a
-  // self-referencing URL fails Google's own bar for the field, a "landing page
-  // that clearly and predominantly provides the opportunity to buy". So the
-  // offer says only what it can back up — the price, whether it is sold out,
-  // and who sells it.
+  // without it. Neither available value is honest: a self-referencing URL
+  // fails Google's own bar for the field, a "landing page that clearly and
+  // predominantly provides the opportunity to buy", and the vendor's own URL
+  // hands the sale away. So the offer says only what it can back up — the
+  // price, whether it is sold out, and who sells it.
+  //
+  // An affiliate program does NOT by itself reopen this. `lib/tickets/
+  // ticketVendors` can now tag a vendor URL, but read its
+  // `AffiliateNetwork` docblock before putting one here: the tagger does not
+  // police the stored PATH (a Ticketmaster `/goto/` link is robots-blocked and
+  // would still be tagged), it cannot stop a contributor storing a redirect
+  // domain that is `Disallow: /` to Googlebot, and Google has no documented
+  // way to mark a structured-data URL as sponsored. Those are the gates to
+  // clear, not the referral arrangement.
   //
   // The gate is price-or-sold-out for the same reason: with no url, an offer
   // carrying neither conveys nothing at all.
