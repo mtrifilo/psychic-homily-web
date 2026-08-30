@@ -16,11 +16,6 @@ import {
   SET_TYPE_VALUES,
   type FormArtist,
 } from './show-form-utils'
-import {
-  FALLBACK_SHOW_TIMEZONE,
-  combineDateTimeToUTC,
-} from '@/lib/utils/timeUtils'
-import { resolveShowTimezone } from '@/lib/utils/formatters'
 import type { ShowResponse, VenueResponse } from '../types'
 import type { ExtractedShowData } from '@/lib/types/extraction'
 
@@ -250,14 +245,18 @@ describe('showToFormValues', () => {
     // PSY-1696, the last rung of the chain: no `venues.timezone` AND a state
     // the US map does not list, so `resolveShowTimezone` answers
     // FALLBACK_SHOW_TIMEZONE. This is the case that makes the fallback a
-    // matched write/read PAIR rather than a display default. The submit path
+    // matched write/read PAIR rather than a display default: the submit path
     // composed this instant as 20:00 in that same zone, so reading it back
-    // through the same resolver returns exactly what was typed; swapping the
-    // constant for a "more honest" zone on the read side alone would leave the
-    // instant where it is and show the editor a time nobody entered. Reading it
-    // in UTC, for instance, gives Aug 16 at 03:00.
+    // through the same resolver returns exactly what was typed.
+    //
+    // The expectations are HARDCODED rather than recomputed from the constant.
+    // Composing the fixture with `FALLBACK_SHOW_TIMEZONE` and then asserting
+    // against a value derived from it too would move both sides together and
+    // pass for any zone at all; pinning the literal is what makes a change to
+    // the constant surface here as a failure, which is the entire point of the
+    // test. Reading this same instant in UTC would give Aug 16 at 03:00.
     const show = makeShowResponse({
-      event_date: combineDateTimeToUTC('2026-08-15', '20:00', FALLBACK_SHOW_TIMEZONE),
+      event_date: '2026-08-16T03:00:00Z', // 20:00 Aug 15, America/Phoenix
       city: 'Berlin',
       state: '',
       venues: [
@@ -278,46 +277,6 @@ describe('showToFormValues', () => {
 
     expect(result.date).toBe('2026-08-15')
     expect(result.time).toBe('20:00')
-  })
-
-  it('seeds venue.state so a no-op save cannot move event_date', () => {
-    // The read/write pair has to agree on ONE state, and `??` and `||` disagree
-    // on the empty string. `venues.state` is NOT NULL so an international venue
-    // stores `''`, while `shows.state` is a separate nullable column a venue
-    // merge never rewrites — repoint a New York show onto an international
-    // venue and you get exactly this row. The zone read `'' ?? 'NY'` = `''`
-    // (fallback zone) while the form field read `'' || 'NY'` = `'NY'`
-    // (Eastern), so Save recomposed the instant two hours off and wrote `'NY'`
-    // back, moving it again on every subsequent save.
-    const show = makeShowResponse({
-      event_date: combineDateTimeToUTC('2026-08-15', '20:00', FALLBACK_SHOW_TIMEZONE),
-      city: 'Berlin',
-      state: 'NY',
-      venues: [
-        {
-          id: 12,
-          slug: 'hall-ohne-zone',
-          name: 'Hall Ohne Zone',
-          city: 'Berlin',
-          state: '',
-          timezone: null,
-          verified: true,
-        },
-      ],
-    })
-
-    const result = showToFormValues(show)
-
-    // A venue with no state on file does not erase the state we do have.
-    expect(result.venue.state).toBe('NY')
-    // Which means recomposing what the form shows, through the zone the SUBMIT
-    // path derives from that field, returns the untouched instant.
-    const resubmitted = combineDateTimeToUTC(
-      result.date,
-      result.time,
-      resolveShowTimezone(result.venue.state, show.venues[0].timezone)
-    )
-    expect(resubmitted).toBe(show.event_date)
   })
 
   it('returns empty cost when price is null', () => {
@@ -344,6 +303,11 @@ describe('showToFormValues', () => {
     const result = showToFormValues(show)
 
     expect(result.venue.city).toBe('Tucson')
+    // `||`, which is NOT how `showTimingInput` resolves the zone for this same
+    // row (`??`, so it keeps the venue's blank). That divergence is a real
+    // no-op-Save bug and it is PSY-1965, deliberately not fixed here: both ways
+    // of aligning the two are worse, and the reasons are recorded at the seed
+    // site in show-form-utils.ts.
     expect(result.venue.state).toBe('AZ')
   })
 

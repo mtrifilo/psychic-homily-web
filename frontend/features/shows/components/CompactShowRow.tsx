@@ -109,17 +109,16 @@ export function CompactShowRow({
   secondaryArtists = [],
   secondaryArtistsPrefix = 'w/',
 }: CompactShowRowProps) {
-  // Passed through UNCOALESCED (PSY-1696). This used to read `state || 'AZ'`,
-  // which was a fourth spelling of the fallback and the only one that reached
-  // the state map instead of `resolveShowTimezone`'s own last rung. Two costs:
-  // changing `FALLBACK_SHOW_TIMEZONE` would move every other surface and leave
-  // this row on Phoenix, and, worse, `'AZ'` launders a GUESS into a state the
-  // map knows — `isShowTimezoneResolved('AZ', null)` is `true`, so a Berlin
+  // `state` is passed through UNCOALESCED (PSY-1696). This used to read
+  // `state || 'AZ'`, a third spelling of the fallback and the only one that
+  // reached the state map instead of `resolveShowTimezone`'s own last rung. Two
+  // costs: changing `FALLBACK_SHOW_TIMEZONE` would move every other surface and
+  // leave this row on Phoenix, and, worse, `'AZ'` launders a GUESS into a state
+  // the map knows — `isShowTimezoneResolved('AZ', null)` is `true`, so a Berlin
   // venue would pass the very gate that exists to catch it. `ShowCard` already
   // passes the raw state.
-  const timezoneState = state
   const detailsHref = `/shows/${show.slug || show.id}`
-  const dateBadge = formatShowDateBadge(show.event_date, timezoneState, timezone)
+  const dateBadge = formatShowDateBadge(show.event_date, state, timezone)
 
   return (
     <div className="py-2.5 border-b border-border/30 last:border-b-0">
@@ -184,7 +183,7 @@ export function CompactShowRow({
 
           <div className="text-right text-xs text-muted-foreground shrink-0">
             <div className="font-medium text-foreground/80">
-              {formatShowTime(show.event_date, timezoneState, timezone)}
+              {formatShowTime(show.event_date, state, timezone)}
             </div>
             {show.price != null && <div>{formatPrice(show.price)}</div>}
             {showDetailsLink && (

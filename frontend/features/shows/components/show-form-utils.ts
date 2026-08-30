@@ -226,10 +226,26 @@ export function showToFormValues(show: ShowResponse): FormValues {
     venue: {
       name: venue?.name || '',
       city: venue?.city || show.city || '',
-      // Same expression `showTimingInput` now uses, which is the point: this
-      // field is what the SUBMIT path resolves its zone from, so if the two
-      // spellings diverge a no-op Save rewrites `event_date` (PSY-1696).
-      state: timing.state || '',
+      // KNOWN DIVERGENCE, left alone deliberately — see PSY-1965 before
+      // "fixing" it, because the two obvious fixes are both worse (PSY-1696
+      // tried each). The comment above claims this field is seeded the way the
+      // zone is resolved. It is NOT: `showTimingInput` coalesces with `??` and
+      // this line uses `||`, which differ on the empty string, and
+      // `venues.state` is NOT NULL so an international venue stores `''`.
+      //
+      // For a US show a merge has repointed onto such a venue (a merge does not
+      // rewrite the denormalized `shows.state`), the editor therefore opens on
+      // a fallback-zone wall clock while `ShowForm`'s submit recomposes the
+      // instant from THIS field's `'NY'` — moving `event_date` on a no-op Save.
+      //
+      // Aligning them on `||` makes `isShowTimezoneResolved` answer true for
+      // that Berlin venue, so the page prints a New York clock beside a Berlin
+      // address — the laundering `CompactShowRow` documents. Aligning them on
+      // `??` blanks this field, and the update payload carries no `venue.id`,
+      // so the backend's `FindOrCreateVenue` rejects it outright: "venue state
+      // is required". Date drift is the least bad of the three until the field
+      // stops doing two jobs at once.
+      state: venue?.state || show.state || '',
       address: venue?.address || '',
     },
     date,

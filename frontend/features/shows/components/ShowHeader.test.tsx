@@ -405,10 +405,12 @@ describe('ShowHeader layout', () => {
       // same test one level down (`startTimeFactSegment`,
       // `doorsMusicFactSegment`).
       //
-      // Case-SENSITIVE, and per-node rather than over the whole subtree's
-      // concatenated text: `container.textContent` runs siblings together, so a
+      // Case-SENSITIVE. The clock register is uppercase ("8PM"), and a
       // case-insensitive match would fire on a date abutting any bill entry
-      // beginning "am"/"pm" ("...AUG 15" + "Ambient Rot").
+      // beginning "am"/"pm" ("...AUG 15" + "Ambient Rot") once the matcher
+      // walks an ancestor whose textContent concatenates them. `queryByText`
+      // does test ancestors too, which is why the flag matters here rather
+      // than the query choice.
       expect(screen.queryByText(/\d{1,2}(:\d{2})?(AM|PM)/)).toBeNull()
       expect(screen.queryByText(/DOORS/)).toBeNull()
     })

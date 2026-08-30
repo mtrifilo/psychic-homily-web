@@ -88,13 +88,13 @@ interface ShowData {
  * Abbreviating takes the same row to 563px with the badge, on one line, with no
  * information dropped. At the 300px share size the short form is the more
  * readable of the two anyway.
- */
-/**
- * The share card's own copy of the date formatter. Carries the same unmarked
- * missing-timezone fallback as the page's meta description and the header
- * (PSY-1696): `resolveShowTimezone` ends at `FALLBACK_SHOW_TIMEZONE`, so a
- * venue with no geocoded zone and a non-US state gets a guessed calendar day
- * here with nothing saying so. Whether to mark it is PSY-1964.
+ *
+ * This is the share card's own copy of the date formatter, and it carries the
+ * same unmarked missing-timezone fallback as the page's meta description and
+ * the header (PSY-1696): `resolveShowTimezone` ends at
+ * `FALLBACK_SHOW_TIMEZONE`, so a venue with no geocoded zone and a non-US state
+ * gets a guessed calendar day here with nothing saying so. Whether to mark it
+ * is PSY-1964.
  */
 function formatDate(
   dateString: string,

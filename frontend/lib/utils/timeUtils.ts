@@ -82,15 +82,28 @@ const STATE_TIMEZONES: Record<string, string> = {
  * happened to agree.
  *
  * IT IS NOT THE ONLY COPY IN THE REPO, and the others are WRITERS, which is why
- * this is not a value you can change alone. The same fallback is hardcoded in
- * `cli/src/lib/timezone.ts:73` and `backend/internal/utils/timezone.go:123`
- * (note it is the `||` default, not an entry in the state map, so syncing "the
- * map" does not touch it). Both compose instants: `ph submit-show` through
+ * this is not a value you can change alone. The same fallback is hardcoded as
+ * the `||` default of `getTimezoneForState` in `cli/src/lib/timezone.ts` and of
+ * `utils.GetTimezoneForState` in `backend/internal/utils/timezone.go` — the
+ * DEFAULT, not an entry in the state map, so syncing "the map" does not touch
+ * either. Both compose instants: `ph submit-show` through
  * `resolveVenueTimezone`, and the backend when it anchors a date-only show via
- * `utils.EventLocation`. `backend/.../catalog/backfill_timezones.go:338` uses it
- * a third way — to INFER the zone historical rows were written under — and
- * `backend/.../shared/show_venue_local_sql.go:178` bakes it into a SQL CASE.
- * PSY-1915 tracks the remaining state-map anchoring on the backend.
+ * `utils.EventLocation`. `catalog.backfillTimezones` uses it a third way, to
+ * INFER the zone historical rows were written under. PSY-1915 tracks the
+ * remaining state-map anchoring on the backend.
+ *
+ * (Symbols, not line numbers, on purpose: this is the stop sign in front of a
+ * change that can move stored instants, and a stop sign pointing at the wrong
+ * line is worse than one pointing at a name. Nothing in CI pins them.)
+ *
+ * `shared.showVenueLocalTimezoneSQL` is NOT a fourth copy, and the difference
+ * matters: its CASE reaches this fallback only when the venue's country is
+ * null, blank, or US/USA/UNITED STATES, and every other country falls to
+ * `ELSE 'UTC'`. So for a Berlin venue with `country = 'DE'` and no stored
+ * `timezone` — the exact population this constant exists for — the backend
+ * buckets the show's venue-local day in UTC while this file renders it in
+ * Arizona, up to a calendar day apart. That divergence is real and untracked;
+ * do not assume a sweep of "the constant" reconciles it.
  *
  * DO NOT change it to UTC, to the reader's zone, or to anything else without
  * changing every writer in the same commit. This is not a display guess: it is

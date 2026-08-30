@@ -158,7 +158,7 @@ describe('isShowPast', () => {
     // on Arizona's calendar. This predates the module (every show date on the
     // site already renders through that chain); what is new is that the LISTING
     // boundary now depends on it too.
-    it('falls back to the fallback zone for a non-US venue with no resolved timezone', () => {
+    it('falls back to America/Phoenix for a non-US venue with no resolved timezone', () => {
       const auckland = { eventDate: '2026-03-14T07:00:00Z', timezone: null, state: 'Auckland' }
       // 20:00 Mar 14 Auckland. Its own midnight passed at 11:00 UTC; Phoenix's
       // does not until 07:00 UTC on the 15th, so the listing reads live longer.
