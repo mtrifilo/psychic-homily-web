@@ -59,7 +59,9 @@ import (
 //  1. SQL reads over show_artists that RESOLVE THE ONE headliner row of a
 //     show. They prefer a `set_type = 'headliner'` row and fall back to lowest
 //     position, so they already prefer curation and, unlike a classification
-//     predicate, must always return a row. Four sites, in two shapes:
+//     predicate, name an act whenever the bill has one at all (on an
+//     artist-less show they degrade to '' or omit the show rather than
+//     reporting "no headline slot"). Four sites, in two shapes:
 //
 //     tag_service.enrichShows, explore.headlinerNameByShow, and
 //     show_dedup.RecanonicaliseShowSlug RANK the bill. The required shape is
@@ -116,15 +118,18 @@ import (
 //     not reachable by the SQL rule above and need their own audit. cmd/seed
 //     has two more; it is dev tooling and is not audited here.
 //
-//     NOTE that three of the four -- createShowFromEvent and both data_sync
-//     sites -- take artist[0] by list position and ignore set_type entirely,
-//     even though each has a real role in hand at that moment:
-//     createShowFromEvent computes a per-artist setType a few lines earlier,
-//     and the export payload carries one. So a curated bill can persist a slug
-//     naming the wrong act. That is a live defect rather than a documented
-//     exclusion, it is NOT tracked anywhere as of this writing, and it is not
-//     fixed here because the read-path rule above cannot reach it.
-//     catalog.CreateShow is the one that reads the stated role.
+//     NOTE that three of the four ignore set_type entirely, by two different
+//     mechanisms. createShowFromEvent takes artistEntries[0] by list index.
+//     The two data_sync sites read the EXPORTED Position field and keep the
+//     LAST artist whose Position is 0, falling back to the first in the list
+//     when none is -- so do not go looking for an [0] index there. Either way
+//     the role was in hand: discovery carries it on artistEntries[i].SetType
+//     (a per-artist setType is computed in the loop immediately above the slug
+//     call), and the export payload carries ExportedShowArtist.SetType. So a
+//     curated bill whose headliner is not first can persist a slug naming the
+//     wrong act, and because a slug is written down that outlives any
+//     read-path fix. Left alone here only because the SQL rule above cannot
+//     reach it. catalog.CreateShow is the one that reads the stated role.
 //
 //  3. The duplicate-headliner GUARDS at show.go's checkDuplicateHeadlinerConflicts
 //     and pipeline/discovery.go's checkHeadlinerDuplicate (the latter fed by
@@ -133,11 +138,13 @@ import (
 //     the retired `(set_type = 'headliner' OR position = 0)` disjunction, and
 //     it is NOT equivalent to this rule. They are deliberately left: they are
 //     write-time collision checks where the two error directions are not
-//     symmetric with a chart's, and PSY-1673 added their position arm on
+//     symmetric with a chart's (a false positive blocks a legitimate save; a
+//     false negative admits a duplicate), and the position arm was added on
 //     purpose so a position-inferred headliner is still duplicate-checked.
-//     They inherit the same misread this ticket fixes for charts (a curated
-//     first-billed opener still matches as "the headliner" there), which needs
-//     its own ticket and its own test surface.
+//     They do inherit the same misread the rank rule above avoids: a curated
+//     first-billed opener still matches as "the headliner" there. Realigning
+//     them is a separate change with its own design question and its own test
+//     surface, not an oversight in this one.
 
 // headlineSlotUnknownValues is the SQL literal list of set_type values that
 // mean "slot unknown". A row holding one of these states nothing, so a bill
