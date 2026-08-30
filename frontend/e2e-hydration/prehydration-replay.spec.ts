@@ -344,9 +344,13 @@ test.describe('pre-hydration clicks on a mutation control', () => {
     // code of its own, so if BracketLink stopped providing it this test fails
     // and nothing else would.
     //
-    // Not [Follow]: its bracket renders *disabled* until the follow-status
-    // query resolves, so it only becomes clickable after hydration and is
-    // already protected by that loading state on this page.
+    // Not [Follow] in THIS test: it logs in, and for a signed-in viewer that
+    // bracket renders *disabled* until the follow-status query resolves, so it
+    // only becomes clickable after hydration and is already protected by that
+    // loading state here. The qualifier is real rather than redundant, because a
+    // settled-anonymous viewer now skips the query and DOES get an enabled
+    // bracket in server HTML, and the anonymous arm that proves it is the
+    // next test down, not a gap.
     await login(page)
     await throttle(page)
     await page.goto(`/artists/${ARTIST_SLUG}`, { waitUntil: 'commit' })
@@ -367,6 +371,70 @@ test.describe('pre-hydration clicks on a mutation control', () => {
     await expect(
       page.locator('button[aria-label="Add to Collection"][data-state="open"]')
     ).toBeVisible({ timeout: 20_000 })
+  })
+
+  test('a pre-hydration click on an anonymous [Follow] bracket replays to /auth', async ({
+    page,
+  }) => {
+    // The anonymous arm. No `login(page)`, because every context in this harness
+    // starts signed out (the config declares no `storageState` and no
+    // `globalSetup`), so anonymous is simply the default state.
+    //
+    // This covers a replay surface the settled-anonymous fetch skip CREATED.
+    // A signed-in viewer's [Follow] bracket ships disabled and is unclickable
+    // pre-hydration; an anonymous viewer's now ships enabled, carries
+    // BracketLink's `replayOnHydrate`, and its handler is a router push rather
+    // than an anchor. `lib/hydration/clickReplay.ts` warns specifically that
+    // navigation should be a real anchor, so the one control that breaks that
+    // rule by design needs the end-to-end proof rather than an argument.
+    // The ticket's PRIMARY claim, asserted here against a real network rather
+    // than a mocked hook argument. The unit tests can only prove that
+    // FollowButton passes `enabled: false`; they cannot prove the request is
+    // absent, because the failure mode is cross-component (a sibling observer
+    // sharing the same query key refills it, and each unit test mocks its own
+    // hook). This is the only place both components render together against a
+    // real QueryClient and a real backend, so it is the only place the claim
+    // can actually be checked.
+    const followerRequests: string[] = []
+    page.on('request', request => {
+      if (/\/(artists|venues|labels|festivals)\/[^/]+\/followers/.test(request.url())) {
+        followerRequests.push(request.url())
+      }
+    })
+
+    await throttle(page)
+    await page.goto(`/artists/${ARTIST_SLUG}`, { waitUntil: 'commit' })
+
+    const result = await clickAsSoonAsPainted(
+      page,
+      'button[aria-label="Follow"]'
+    )
+    expect(result.clicked, 'never got a click on [Follow]').toBe(true)
+    expect(
+      result.hydrated,
+      'bracket hydrated before the click landed, raise the throttle'
+    ).toBe(false)
+
+    // NOT asserted here. At this point `result.hydrated` is false, so no client
+    // query has run and the array is empty for any implementation. The
+    // assertion belongs after hydration, below.
+
+    // The replayed click has to survive hydration and land the redirect. If
+    // replay dropped it, the URL simply stays on the artist page.
+    await page.waitForURL(/\/auth\?returnTo=/, { timeout: 20_000 })
+    expect(new URL(page.url()).searchParams.get('returnTo')).toBe(
+      `/artists/${ARTIST_SLUG}`
+    )
+
+    // Now. Replay requires hydration, so reaching this line proves the page
+    // hydrated and both FollowButton and FollowAlertsReveal mounted against the
+    // real QueryClient; a broken skip would have fired before the redirect. The
+    // listener is page-scoped and survives the navigation.
+    await page.waitForLoadState('networkidle')
+    expect(
+      followerRequests,
+      'a settled-anonymous viewer must fire no follower-status request'
+    ).toEqual([])
   })
 
   test('a click after hydration still saves exactly once', async ({ page }) => {

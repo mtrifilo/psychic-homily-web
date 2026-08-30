@@ -2,6 +2,7 @@ export {
   AuthError,
   AuthErrorCode,
   isAuthError,
+  isDefinitiveUnauthenticated,
   getAuthErrorMessage,
   type AuthErrorCodeType,
 } from './authErrors'

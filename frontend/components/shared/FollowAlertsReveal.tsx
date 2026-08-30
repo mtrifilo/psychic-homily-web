@@ -76,8 +76,41 @@ export function FollowAlertsReveal({
   entityName,
   className,
 }: FollowAlertsRevealProps) {
-  const { isAuthenticated } = useAuthContext()
-  const { data: followStatus } = useFollowStatus(entityType, entityId)
+  const { isAuthenticated, authStatus } = useAuthContext()
+  // Gated on the same fact that turns an anonymous viewer away at the
+  // `!isAuthenticated` guard below, so nothing this reads is ever used by one.
+  //
+  // Leaving it ungated is not free, because this observer and the sibling
+  // `<FollowButton>`'s address the SAME query key (entity type, entity id, and
+  // a viewer id that is `undefined` for both when nobody is signed in).
+  //
+  // The consequence differs by which variant the sibling renders, so both
+  // pages that mount this component are worth naming. On the ARTIST page the
+  // sibling is a bracket, which skips its own fetch for a settled-anonymous
+  // viewer; a live observer here refills the key anyway, so the request the
+  // skip saves is merely moved, and the skip becomes a no-op. Worse,
+  // every observer of a query reads the same `fetchStatus`, so this one's fetch
+  // makes the button's DISABLED observer report `isLoading`, and its bracket,
+  // which had shipped enabled in the server HTML, greys itself out for the
+  // length of the round trip and then flips back.
+  //
+  // On the VENUE page the sibling is the button variant, which paints the
+  // follower count and so never skips. There the gate saves nothing the page
+  // was not already spending; it is kept only because this component's own read
+  // is unreachable for an anonymous viewer, and one predicate across both call
+  // sites is easier to keep true than two.
+  // Expressed as `authStatus === 'authenticated'` rather than `isAuthenticated`
+  // so this reads as the same predicate the sibling gate is stated in. The two
+  // are equivalent by construction (`isAuthenticated` is derived from exactly
+  // this comparison), so the change is a naming one; but a rule whose only
+  // worked example is written in a different dialect is the rule people copy
+  // wrong, and the dialect it was written in is the one an earlier attempt was
+  // reverted for.
+  const { data: followStatus } = useFollowStatus(
+    entityType,
+    entityId,
+    authStatus === 'authenticated'
+  )
   const isFollowing = followStatus?.is_following ?? false
   const supported = isAlertCapableFollowType(entityType)
   const isVenue = entityType === 'venues'

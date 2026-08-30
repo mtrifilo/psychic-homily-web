@@ -14,15 +14,27 @@ let mockIsFollowing = true
 let mockAlerts: FollowAlertSettings | undefined
 let mockHomeMetro: string | null = '38060'
 
+// Driven from one variable, mirroring the real context's invariant that
+// `isAuthenticated` is derived from `authStatus`, so no test can assert against
+// a viewer that cannot exist.
 vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => ({
+    authStatus: mockIsAuthenticated ? 'authenticated' : 'anonymous',
     isAuthenticated: mockIsAuthenticated,
     user: { id: 1 },
   }),
 }))
 
+// Captures the `enabled` argument. This observer shares a query key with the
+// sibling <FollowButton>, so whether it is live is not a private detail of this
+// component; see the anonymous-viewer test below.
+const followStatusEnabled = vi.fn()
+
 vi.mock('@/lib/hooks/common/useFollow', () => ({
-  useFollowStatus: () => ({ data: { is_following: mockIsFollowing } }),
+  useFollowStatus: (_type: string, _id: number, enabled = true) => {
+    followStatusEnabled(enabled)
+    return { data: enabled ? { is_following: mockIsFollowing } : undefined }
+  },
   followMutationKey: ['follow-entity'],
 }))
 
@@ -114,9 +126,38 @@ describe('FollowAlertsReveal', () => {
     mockAlertsFailed = false
     mockAlertsErrorStatus = undefined
     mockIsMutating = 0
+    followStatusEnabled.mockReset()
     followAlertsEnabled.mockReset()
     mockRefetchAlerts.mockReset()
     mockRefetchPreferences.mockReset()
+  })
+
+  // ── the follow-status observer is shared, so its enablement is public ──
+  //
+  // This component renders null for an anonymous viewer, which makes it look
+  // as though whether its `useFollowStatus` runs is nobody's business. It is
+  // not: the observer addresses the same query key as the sibling
+  // <FollowButton>'s (same entity, and a viewer id that is `undefined` for
+  // both when nobody is signed in). PSY-1867 disables the button's copy for a
+  // settled-anonymous viewer, and a live observer here would refill that key —
+  // spending the request the skip saves, and pushing a shared `fetchStatus` of
+  // 'fetching' into the button's disabled observer, which greys out a bracket
+  // that had shipped enabled in the server HTML.
+  describe('for an anonymous viewer', () => {
+    it('does not run the shared follow-status query', () => {
+      mockIsAuthenticated = false
+      const { container } = renderArtist()
+
+      expect(followStatusEnabled).toHaveBeenCalledWith(false)
+      expect(container).toBeEmptyDOMElement()
+    })
+
+    it('still runs it for a signed-in viewer', () => {
+      mockIsAuthenticated = true
+      renderArtist()
+
+      expect(followStatusEnabled).toHaveBeenCalledWith(true)
+    })
   })
 
   // FAILED is not PENDING. Rendering null for both means one 4xx (which the

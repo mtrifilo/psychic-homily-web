@@ -98,7 +98,7 @@ export function AddToCollectionButton({
   // any early return. Placing `useState` after the `!isAuthenticated`
   // early return triggered a Rules-of-Hooks violation once the auth
   // profile resolved (PSY-466).
-  const { isAuthenticated } = useAuthContext()
+  const { isAuthenticated, authStatus } = useAuthContext()
   const router = useRouter()
   const pathname = usePathname()
   const queryClient = useQueryClient()
@@ -285,9 +285,17 @@ export function AddToCollectionButton({
         label="Add to collection"
         title={`Add "${entityName}" to a collection`}
         ariaLabel="Add to Collection"
-        onClick={() =>
+        // Disabled while auth is unsettled, for the reason FollowButton and
+        // SaveButton are: `!isAuthenticated` reads true both for a viewer with
+        // no session and for one whose profile has not arrived, this bracket
+        // opts into pre-hydration replay via BracketLink, and its onClick is a
+        // router push. A replayed click in that window sends an
+        // already-signed-in viewer to /auth.
+        disabled={authStatus === 'pending'}
+        onClick={() => {
+          if (authStatus === 'pending') return
           router.push(`/auth?returnTo=${encodeURIComponent(pathname)}`)
-        }
+        }}
       />
     )
   }

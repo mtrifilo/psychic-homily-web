@@ -21,7 +21,12 @@ import {
   resetViewerTierQueries,
 } from '@/lib/queryClient'
 import { authLogger } from '@/lib/utils/authLogger'
-import { AuthError, AuthErrorCode, type AuthErrorCodeType } from '@/lib/errors'
+import {
+  AuthError,
+  AuthErrorCode,
+  isDefinitiveUnauthenticated,
+  type AuthErrorCodeType,
+} from '@/lib/errors'
 import type { NavMode } from '@/lib/nav-mode'
 import type { APIToken } from '../types'
 
@@ -312,6 +317,18 @@ export const useLogout = () => {
 }
 
 // Get user profile query
+// Floor between event-triggered refetches of a FAILING profile query. An
+// errored query has `dataUpdatedAt === 0` and so is permanently stale, which
+// makes an unthrottled refetch fire on every focus or online event.
+const PROFILE_ERROR_REFETCH_FLOOR_MS = 30_000
+
+/** Exported for the options test; see the cells beside `refetchOnWindowFocus`. */
+export const refetchFailedProfileOnly = (query: {
+  state: { status: string; errorUpdatedAt: number }
+}): boolean =>
+  query.state.status === 'error' &&
+  Date.now() - query.state.errorUpdatedAt > PROFILE_ERROR_REFETCH_FLOOR_MS
+
 export const useProfile = () => {
   return useQuery({
     queryKey: queryKeys.auth.profile,
@@ -335,13 +352,36 @@ export const useProfile = () => {
       return response
     },
     staleTime: 5 * 60 * 1000, // 5 minutes
+    // An indeterminate failure reads as 'pending', which gates UI, so this
+    // query's error state must be recoverable. Cells:
+    //   healthy  -> false, matching production's global default
+    //               (`NODE_ENV === 'development'`); repairing an error path is
+    //               no reason to add a per-focus request for every viewer.
+    //   errored  -> true, but not oftener than the floor. An errored query has
+    //               `dataUpdatedAt === 0` and is permanently stale, so an
+    //               unthrottled predicate refires on every event, each starting
+    //               a fresh retry chain against a rate-limited endpoint.
+    // Focus and reconnect share one predicate: the same staleness argument
+    // applies to both, and `refetchOnReconnect` defaults to a bare `true`.
+    refetchOnWindowFocus: refetchFailedProfileOnly,
+    refetchOnReconnect: refetchFailedProfileOnly,
     retry: (failureCount, error) => {
       // Check if it's an AuthError or has status property
       const authError =
         error instanceof AuthError ? error : AuthError.fromUnknown(error)
 
-      // Don't retry on authentication errors
-      if (authError.shouldRedirectToLogin || authError.status === 403) {
+      // Don't retry when the failure is the backend ANSWERING "no session".
+      // Shared with the SSR prefetch and AuthContext so all three agree on
+      // which failures are terminal; this used to be a local code-plus-403
+      // test, which called a bodyless 401 retryable while AuthContext called
+      // the same response definitive.
+      // 403 is tested separately from the identity predicate on purpose: it is
+      // not an answer about who the viewer is (see isDefinitiveUnauthenticated),
+      // but it is still pointless to retry.
+      if (
+        isDefinitiveUnauthenticated(authError.status, authError.code) ||
+        authError.status === 403
+      ) {
         authLogger.debug('Profile fetch auth error, not retrying', {
           code: authError.code,
         })

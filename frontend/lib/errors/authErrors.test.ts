@@ -3,6 +3,7 @@ import {
   AuthError,
   AuthErrorCode,
   isAuthError,
+  isDefinitiveUnauthenticated,
   getAuthErrorMessage,
 } from './authErrors'
 
@@ -282,5 +283,94 @@ describe('getAuthErrorMessage', () => {
 
   it('returns default message for UNKNOWN', () => {
     expect(getAuthErrorMessage(AuthErrorCode.UNKNOWN)).toBe('An error occurred')
+  })
+})
+
+
+// The single decision point four modules now share: the SSR profile prefetch,
+// AuthContext's settled-auth signal, useProfile's retry policy, and the query
+// cache's session-expiry handler. Before this existed each had its own copy and
+// they disagreed about the same response, so the full truth table is pinned
+// here rather than sampled indirectly through consumers.
+describe('isDefinitiveUnauthenticated', () => {
+  it('treats a 401 as definitive even with no recognizable error code', () => {
+    // `apiRequest` falls back to a generic UNAUTHORIZED code when the body
+    // carries none. A code-only test would call this indefinite and strand a
+    // genuinely anonymous viewer as "unknown" forever.
+    expect(isDefinitiveUnauthenticated(401, undefined)).toBe(true)
+    expect(isDefinitiveUnauthenticated(401, AuthErrorCode.UNAUTHORIZED)).toBe(
+      true
+    )
+  })
+
+  it('treats a 401 with any token code as definitive', () => {
+    expect(isDefinitiveUnauthenticated(401, AuthErrorCode.TOKEN_EXPIRED)).toBe(
+      true
+    )
+    expect(isDefinitiveUnauthenticated(401, AuthErrorCode.TOKEN_MISSING)).toBe(
+      true
+    )
+    expect(isDefinitiveUnauthenticated(401, AuthErrorCode.TOKEN_INVALID)).toBe(
+      true
+    )
+  })
+
+  // 403 means authenticated-but-forbidden, which is a different answer, and
+  // /auth/profile never emits it (its JWT middleware writes 401 exclusively).
+  // A 403 here is infrastructure, so reading it as "no session" would settle a
+  // signed-in viewer to anonymous on a proxy misconfiguration.
+  it('does NOT treat a 403 as an answer about identity', () => {
+    expect(isDefinitiveUnauthenticated(403, undefined)).toBe(false)
+    expect(isDefinitiveUnauthenticated(403, AuthErrorCode.UNAUTHORIZED)).toBe(
+      false
+    )
+  })
+
+  it('does not treat server failures as an answer', () => {
+    expect(isDefinitiveUnauthenticated(500, undefined)).toBe(false)
+    expect(isDefinitiveUnauthenticated(503, undefined)).toBe(false)
+    expect(isDefinitiveUnauthenticated(429, undefined)).toBe(false)
+  })
+
+  // A PRESENT status decides, whatever the body carries. `apiRequest` copies an
+  // unrecognized error body wholesale into `details`, so any status can arrive
+  // paired with a token code once a proxy, WAF or future handler is in the
+  // path. These are the rows where the code previously contradicted its own
+  // docstring by promoting the code over the status.
+  it.each([503, 500, 403, 404, 429, 400])(
+    'lets status %s override a token code in the body',
+    status => {
+      expect(
+        isDefinitiveUnauthenticated(status, AuthErrorCode.TOKEN_EXPIRED)
+      ).toBe(false)
+      expect(
+        isDefinitiveUnauthenticated(status, AuthErrorCode.TOKEN_INVALID)
+      ).toBe(false)
+      expect(
+        isDefinitiveUnauthenticated(status, AuthErrorCode.TOKEN_MISSING)
+      ).toBe(false)
+    }
+  )
+
+  // With no status to go on (a raw thrown value from a layer that attaches
+  // none) the token codes are the only remaining evidence, and they are only
+  // ever emitted alongside a real 401.
+  it('falls back to token codes when there is no status', () => {
+    expect(
+      isDefinitiveUnauthenticated(undefined, AuthErrorCode.TOKEN_EXPIRED)
+    ).toBe(true)
+    expect(
+      isDefinitiveUnauthenticated(undefined, AuthErrorCode.TOKEN_MISSING)
+    ).toBe(true)
+    expect(
+      isDefinitiveUnauthenticated(undefined, AuthErrorCode.TOKEN_INVALID)
+    ).toBe(true)
+  })
+
+  it('is not definitive when it knows nothing', () => {
+    expect(isDefinitiveUnauthenticated(undefined, undefined)).toBe(false)
+    expect(isDefinitiveUnauthenticated(undefined, AuthErrorCode.UNKNOWN)).toBe(
+      false
+    )
   })
 })

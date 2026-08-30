@@ -53,61 +53,64 @@ export function FollowButton({
 }: FollowButtonProps) {
   const router = useRouter()
   const pathname = usePathname()
-  const { isAuthenticated } = useAuthContext()
+  const { isAuthenticated, authStatus } = useAuthContext()
   const [isHovering, setIsHovering] = useState(false)
 
-  // Fetch follow status only if not provided via props.
+  // The bracket paints no follower count, and a settled-anonymous viewer's
+  // `is_following` is false by definition, so the whole response is discarded.
   //
-  // A tempting optimization was probed here and REJECTED: skipping this
-  // fetch for anonymous bracket viewers (the bracket shows no count, and an
-  // anonymous viewer's is_following is false by definition). It cannot be
-  // gated safely with what this context exposes — `isAuthenticated` is
-  // false for a LOGGED-IN viewer until the profile round-trip lands, and
-  // `isLoading` is false before that fetch even starts, so every available
-  // predicate misreads "signed in, profile pending" as "anonymous". Acting
-  // on that misreading renders an enabled bracket whose replayed
-  // pre-hydration click bounces a signed-in user to /auth. Revisit only
-  // with a settled-auth signal (tracked separately).
+  // The gate is `authStatus === 'anonymous'`, never `!isAuthenticated` or
+  // `!isLoading`: both of those read "anonymous" for a signed-in viewer whose
+  // profile has not landed, and acting on that misread ships an ENABLED bracket
+  // whose replayed pre-hydration click bounces them to /auth.
+  //
+  // Co-owned: any component observing `queryKeys.follows.entity` for the same
+  // entity must not hold that query open for a viewer this one skips it for,
+  // or the request moves to the sibling and the shared `fetchStatus` reports
+  // `isLoading` here. `<FollowAlertsReveal>` is the only such sibling and gates
+  // on the same fact.
+  const skipAnonymousStatusFetch =
+    variant === 'bracket' && authStatus === 'anonymous'
+
+  // Fetch follow status only if not provided via props.
   const { data: fetchedData, isLoading: statusLoading } = useFollowStatus(
     entityType,
     entityId,
-    !followData
+    !followData && !skipAnonymousStatusFetch
   )
 
   const follow = useFollow()
   const unfollow = useUnfollow()
 
-  // Use pre-fetched data if available, otherwise use query data
+  // Reading `fetchedData` under the skip is safe because `useFollowStatus`
+  // holds the viewer-less key to anonymous data (see its `enabled`). Guarding
+  // the read here instead would cover this component and this variant only.
   const data = followData ?? fetchedData
   const isFollowing = data?.is_following ?? false
   const followerCount = data?.follower_count ?? 0
   const isMutating = follow.isPending || unfollow.isPending
-  const isDisabled = disabled || isMutating
+  // Cells: pending => disabled for EVERY variant. A control that cannot act
+  // must not render actionable; guarding only the click leaves the Button
+  // variants enabled and silently inert.
+  const isDisabled = disabled || isMutating || authStatus === 'pending'
 
-  // Replay coverage here is narrower than it looks, so state it precisely.
-  //
-  // PSY-1610 inferred this control's exposure from SaveButton's rather than
-  // clicking it. Checking the actual server HTML of an authenticated artist
-  // page (production build) showed the BRACKET variant ships from the
-  // `statusLoading` branch below — rendered `disabled`, hence
-  // `pointer-events-none`. No click can land on it during the pre-hydration
-  // window, so nothing is buffered and replay never applies: on entity pages
-  // that variant is protected by its own loading state, not by this primitive.
-  //
-  // The Button variants below do opt in, and are genuinely covered wherever a
-  // caller passes `followData` (the charts pages), because that skips the
-  // loading branch and renders an enabled control at first paint.
-  //
-  // Making the bracket render enabled at first paint would move it under replay
-  // too — `handleClick` already guards on `isDisabled` — but that changes what
-  // the control shows before its status is known, so it is deliberately left
-  // out of PSY-1615's scope. (See also the rejected anonymous-skip above: an
-  // enabled first-paint bracket is exactly the render that turns the
-  // profile-pending window into a wrong /auth redirect.)
+  // Server-HTML cells, verified on a production build:
+  //   signed-in  -> bracket ships from the `statusLoading` branch, `disabled`,
+  //                 `pointer-events-none`; no pre-hydration click can land.
+  //   anonymous  -> bracket ships ENABLED and carries `replayOnHydrate`, so a
+  //                 pre-hydration click replays into `handleClick` and routes
+  //                 to /auth. Intended: that is what Follow does for them.
+  //   pending    -> disabled (see `isDisabled`).
 
   const handleClick = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
+
+    // Unreachable while `isDisabled` includes 'pending'; kept because the
+    // redirect below cannot distinguish "no session" from "profile in flight",
+    // and it sits ahead of the `isDisabled` bail, which runs after the
+    // redirect.
+    if (authStatus === 'pending') return
 
     if (!isAuthenticated) {
       const returnTo = `${pathname}${window.location.search}`
@@ -127,7 +130,11 @@ export function FollowButton({
   // Bracket variant — dense header linkbox. Toggles [Follow] ↔ [Following];
   // ignores `compact` (brackets are already maximally compact).
   if (variant === 'bracket') {
-    if (!followData && statusLoading) {
+    // 'pending' disables regardless of where the data came from. `followData`
+    // does not imply settled: the charts pages pass a truthy zeroed fallback
+    // while their batch query is disabled, so `statusLoading` is false there
+    // and this is the only clause that covers that path.
+    if (authStatus === 'pending' || (!followData && statusLoading)) {
       return <BracketLink label={bracketLabel} disabled className={className} />
     }
     return (

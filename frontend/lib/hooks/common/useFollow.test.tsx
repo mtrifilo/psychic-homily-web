@@ -75,8 +75,14 @@ vi.mock('@/lib/queryClient', () => ({
   }),
 }))
 
+let mockAuthStatus: 'pending' | 'authenticated' | 'anonymous' = 'authenticated'
+
 vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => ({ isAuthenticated: true, user: { id: 1 } }),
+  useAuthContext: () => ({
+    authStatus: mockAuthStatus,
+    isAuthenticated: mockAuthStatus === 'authenticated',
+    user: mockAuthStatus === 'authenticated' ? { id: 1 } : undefined,
+  }),
 }))
 
 import {
@@ -110,6 +116,40 @@ describe('useFollowStatus', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
+    mockAuthStatus = 'authenticated'
+  })
+
+  // Invariant: the viewer-less key holds only anonymous data.
+  //
+  // `viewerId` is `undefined` whenever `isAuthenticated` is false, which
+  // includes the window before a signed-in viewer's profile lands. A fetch
+  // issued then carries their cookie, so the response is THEIR follow state
+  // written under the shared viewer-less key. Session expiry clears no cache,
+  // so it would outlive the session that produced it.
+  it('does not fetch while auth is unsettled', () => {
+    mockAuthStatus = 'pending'
+
+    const { result } = renderHook(() => useFollowStatus('artists', 1), {
+      wrapper: createWrapper(),
+    })
+
+    expect(result.current.fetchStatus).toBe('idle')
+    expect(mockApiRequest).not.toHaveBeenCalled()
+  })
+
+  it('fetches once auth settles anonymous', async () => {
+    mockAuthStatus = 'anonymous'
+    mockApiRequest.mockResolvedValueOnce({
+      follower_count: 3,
+      is_following: false,
+    })
+
+    const { result } = renderHook(() => useFollowStatus('artists', 1), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(mockApiRequest).toHaveBeenCalled()
   })
 
   it('fetches follow status for an entity', async () => {
