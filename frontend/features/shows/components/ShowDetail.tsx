@@ -25,6 +25,7 @@ import { DeleteShowDialog } from './DeleteShowDialog'
 import { ShowHeader } from './ShowHeader'
 import { ShowActions } from './ShowActions'
 import { ShowProvenanceLine } from './ShowProvenanceLine'
+import { ShowDiscoveryRails } from './ShowDiscoveryRails'
 import { ShowStatusStripe } from './ShowStatusStripe'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
@@ -278,9 +279,11 @@ export function ShowDetail({ showId, lifecycle }: ShowDetailProps) {
           />
         </section>
 
-        {/* SLOT: rails row. The "also tonight in this city" and "more at this
-            venue" columns sit here, below the embeds and above the footer.
-            Neither is built; a later wave fills the slot. */}
+        {/* The rails row (PSY-1689): "also tonight in this metro" beside "more
+            at this venue", below the embeds and above the footer. Renders
+            nothing at all when neither rail has rows, so a quiet night and a
+            room with no other dates cost this page no space. */}
+        <ShowDiscoveryRails show={show} />
 
         {/* Tags and provenance footer. Both were in the header slot, above the
             fold, competing with the bill for the first thing a reader sees.

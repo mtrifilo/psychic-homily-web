@@ -14,6 +14,7 @@ import {
   SHOW_CITIES_FIRST_SCREEN_URL,
 } from '@/features/shows/api'
 import type { UpcomingShowsResponse, ShowResponse, ShowCitiesResponse } from '../types'
+import type { ShowAlsoTonightResponse } from '../showRails'
 import { buildCitiesParam } from '@/components/filters/cityParams'
 
 interface UseUpcomingShowsOptions {
@@ -106,6 +107,31 @@ export const useShow = (showId: string | number) => {
       return apiRequest<ShowResponse>(showEndpoints.GET(showId), {
         method: 'GET',
       })
+    },
+    enabled: Boolean(showId),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  })
+}
+
+/**
+ * Hook to fetch the show's also-tonight rail: other shows in this show's metro
+ * on this show's own date (PSY-1683 / PSY-1689).
+ *
+ * A show with no scene to look at answers 200 with an empty rail rather than
+ * 404, so an error here means the request failed, not that the night is quiet —
+ * the rail hides in both cases, and only the empty case is normal.
+ *
+ * Same `staleTime` as the show itself: the rail is a property of the night, and
+ * a reader who leaves the page open is not owed a refetch of what else was on.
+ */
+export const useShowAlsoTonight = (showId: string | number) => {
+  return useQuery({
+    queryKey: showQueryKeys.alsoTonight(String(showId)),
+    queryFn: async (): Promise<ShowAlsoTonightResponse> => {
+      return apiRequest<ShowAlsoTonightResponse>(
+        showEndpoints.ALSO_TONIGHT(showId),
+        { method: 'GET' }
+      )
     },
     enabled: Boolean(showId),
     staleTime: 5 * 60 * 1000, // 5 minutes

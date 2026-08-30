@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
   formatShowDate,
+  formatShowDayMonth,
   formatShowTime,
   formatPrice,
   formatContentDate,
@@ -80,6 +81,29 @@ describe('formatShowDate', () => {
   it('handles null state', () => {
     const result = formatShowDate(utcDate, null)
     expect(result).toContain('Mar')
+  })
+})
+
+describe('formatShowDayMonth', () => {
+  const utcDate = '2026-03-15T02:30:00Z' // Mar 14 7:30 PM in Phoenix
+
+  it('drops the weekday formatShowDate carries', () => {
+    expect(formatShowDayMonth(utcDate, 'AZ')).toBe('Mar 14')
+  })
+
+  it('reads the date on the venue’s clock, not the runtime’s', () => {
+    // The same instant is already Mar 15 in London. A rail beside a venue's
+    // name must print the venue's date or it contradicts the row it labels.
+    expect(formatShowDayMonth(utcDate, null, 'Europe/London')).toBe('Mar 15')
+  })
+
+  it('falls back to the state map when the venue has no resolved zone', () => {
+    // 02:30 UTC is Mar 14 10:30 PM in New York.
+    expect(formatShowDayMonth(utcDate, 'NY')).toBe('Mar 14')
+  })
+
+  it('ignores a malformed zone rather than throwing mid-render', () => {
+    expect(formatShowDayMonth(utcDate, 'AZ', 'Not/AZone')).toBe('Mar 14')
   })
 })
 

@@ -164,6 +164,14 @@ vi.mock('./ReportShowButton', () => ({
   ReportShowButton: () => <button data-testid="report-button">Report</button>,
 }))
 
+// The rails row runs two queries of its own (PSY-1689). Mocked at the component
+// boundary like the other children, so this file stays about the page's own
+// composition; which rows each rail draws, and when it hides, lives in
+// ShowDiscoveryRails.test.tsx.
+vi.mock('./ShowDiscoveryRails', () => ({
+  ShowDiscoveryRails: () => <div data-testid="show-discovery-rails" />,
+}))
+
 vi.mock('@/features/collections', () => ({
   EntityCollections: () => <div data-testid="entity-collections" />,
 }))
@@ -477,6 +485,21 @@ describe('ShowDetail', () => {
       expect(screen.getByTestId('header-slot')).not.toContainElement(
         screen.getByTestId('entity-tag-list')
       )
+    })
+
+    // The slot the mock reserves for the rails row is BETWEEN the page's own
+    // modules and the byline. Position is the claim, so containment alone is
+    // not enough: a rails row rendered after the provenance footer would still
+    // "be on the page" and would still be wrong.
+    it('renders the rails row above the provenance footer', () => {
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
+      const rails = screen.getByTestId('show-discovery-rails')
+      const footer = screen.getByTestId('show-provenance-footer')
+      expect(footer).not.toContainElement(rails)
+      expect(
+        rails.compareDocumentPosition(footer) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
     })
 
     // Position is the whole design claim: one band, at the very top, in every
