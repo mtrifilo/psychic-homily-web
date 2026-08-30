@@ -43,7 +43,9 @@ export interface ShowSubmission {
   event_date: string // ISO 8601 UTC timestamp
   city: string
   state: string
+  // Advance price and door price; omitting one says nothing about the other.
   price?: number
+  door_price?: number
   age_requirement?: string
   description?: string
   venues: SubmitVenue[]

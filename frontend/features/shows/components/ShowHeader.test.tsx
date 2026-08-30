@@ -1,6 +1,10 @@
 import { describe, it, expect, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { stubAllImagesLoadState } from '@/test/stubAllImagesLoadState'
+import {
+  FALLBACK_SHOW_TIMEZONE,
+  combineDateTimeToUTC,
+} from '@/lib/utils/timeUtils'
 import type { ArtistResponse, SetType, ShowResponse } from '../types'
 
 vi.mock('@/lib/context/AuthContext', () => ({
@@ -104,6 +108,72 @@ function layoutGrid(): HTMLElement {
 }
 
 const TWO_COLUMN_CLASS = 'md:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]'
+
+describe('ShowHeader SOLD OUT badge', () => {
+  // `getAllByText`, because an upcoming sold-out show says SOLD OUT TWICE:
+  // the badge here and the ticket line's sale-state segment below it. That
+  // duplication is pre-existing and out of scope; what matters for the shared
+  // derivation is that BOTH appear together and, in the cases below, that
+  // both disappear together.
+  it('prints the badge for a sold-out show that has not happened yet', () => {
+    render(
+      <ShowHeader lifecycle="upcoming" show={makeShow({ is_sold_out: true })} />
+    )
+
+    expect(screen.getAllByText('SOLD OUT')).toHaveLength(2)
+  })
+
+  // SOLD OUT asserts the event is happening and tickets are gone. The page
+  // makes that claim twice — here and in the ticket line — through one
+  // derivation, so the badge cannot survive a state the line refuses:
+  // a past sold-out show would otherwise print the badge directly above
+  // `NO LONGER AVAILABLE`, and a cancelled one above the CANCELLED stripe.
+  it.each([
+    ['a past show', 'past' as const, {}],
+    ['a cancelled show', 'upcoming' as const, { is_cancelled: true }],
+  ])('withholds the badge on %s', (_label, lifecycle, overrides) => {
+    render(
+      <ShowHeader
+        lifecycle={lifecycle}
+        show={makeShow({ is_sold_out: true, ...overrides })}
+      />
+    )
+
+    expect(screen.queryByText('SOLD OUT')).not.toBeInTheDocument()
+  })
+
+  // The lifecycle calls an undateable show `past` on a default that is not
+  // evidence of anything, so a TRUE sold-out flag still stands. Both the badge
+  // and the ticket-line segment appear, from the one derivation: `is_sold_out`
+  // is a stored fact that owes nothing to the calendar.
+  it('keeps the badge when the date cannot be read', () => {
+    render(
+      <ShowHeader
+        lifecycle="past"
+        show={makeShow({ is_sold_out: true, event_date: 'not-a-date' })}
+      />
+    )
+
+    // Badge and ticket-line segment together, the same pair an upcoming
+    // sold-out show renders: both flow from the one predicate, so both stand
+    // or both go.
+    expect(screen.getAllByText('SOLD OUT')).toHaveLength(2)
+  })
+})
+
+describe('ShowHeader date register', () => {
+  // One register in every state. A year-on-past variant would route through
+  // `formatShowDate`'s include-year path, which throws on an unparseable
+  // date — and the lifecycle calls exactly that show `past`.
+  it.each(['past', 'today', 'upcoming'] as const)(
+    'renders the same unqualified date on a %s show',
+    lifecycle => {
+      render(<ShowHeader lifecycle={lifecycle} show={makeShow()} />)
+
+      expect(screen.getByText('Fri, Aug 14')).toBeInTheDocument()
+    }
+  )
+})
 
 describe('ShowHeader layout', () => {
   // The locked decision: no flyer means no reserved gutter. The earlier
@@ -353,6 +423,85 @@ describe('ShowHeader layout', () => {
 
     expect(screen.getByText(/Sat, Aug 15/)).toBeInTheDocument()
     expect(screen.queryByText(/Fri, Aug 14/)).not.toBeInTheDocument()
+  })
+
+  // PSY-1696. The null-timezone path: a venue with no resolved `timezone` AND a
+  // state the US map does not list, which is every non-US venue that has not
+  // geocoded. `resolveShowTimezone` answers FALLBACK_SHOW_TIMEZONE there, and
+  // the policy is stated at the call site in ShowHeader: print the date, and
+  // nothing that depends on the hour.
+  describe('when the venue timezone cannot be resolved', () => {
+    // Composed rather than hardcoded so this fixture and the sibling round-trip
+    // case in show-form-utils.test.ts move together if the constant ever does.
+    // `doors_at` / `music_at` are present ON PURPOSE: without them
+    // `doorsMusicFactSegment` returns null at its own date guard, and the
+    // no-clock assertion below would pass whether or not its zone gate exists.
+    const berlinShow = () =>
+      makeShow({
+        event_date: combineDateTimeToUTC('2026-08-15', '20:00', FALLBACK_SHOW_TIMEZONE),
+        doors_at: combineDateTimeToUTC('2026-08-15', '19:00', FALLBACK_SHOW_TIMEZONE),
+        music_at: combineDateTimeToUTC('2026-08-15', '20:00', FALLBACK_SHOW_TIMEZONE),
+        city: 'Berlin',
+        state: '',
+        venues: [
+          {
+            id: 1,
+            slug: 'the-venue',
+            name: 'The Venue',
+            city: 'Berlin',
+            state: '',
+            verified: true,
+          },
+        ],
+      })
+
+    it("renders the fallback zone's calendar day, not the UTC one", () => {
+      render(<ShowHeader lifecycle="upcoming" show={berlinShow()} />)
+
+      expect(screen.getByText(/Sat, Aug 15/)).toBeInTheDocument()
+      expect(screen.queryByText(/Sun, Aug 16/)).not.toBeInTheDocument()
+    })
+
+    it('names no hour anywhere in the header', () => {
+      render(<ShowHeader lifecycle="upcoming" show={berlinShow()} />)
+
+      // The fallback zone is at most a day out on a date but hours out on a
+      // clock, so the page declines to print a clock at all: the ticket row's
+      // start time and the venue module's DOORS / MUSIC line both refuse on the
+      // same test one level down (`startTimeFactSegment`,
+      // `doorsMusicFactSegment`).
+      //
+      // Case-SENSITIVE. The clock register is uppercase ("8PM"), and a
+      // case-insensitive match would fire on a date abutting any bill entry
+      // beginning "am"/"pm" ("...AUG 15" + "Ambient Rot") once the matcher
+      // walks an ancestor whose textContent concatenates them. `queryByText`
+      // does test ancestors too, which is why the flag matters here rather
+      // than the query choice.
+      expect(screen.queryByText(/\d{1,2}(:\d{2})?(AM|PM)/)).toBeNull()
+      expect(screen.queryByText(/DOORS/)).toBeNull()
+    })
+
+    it('still prints the clock and the doors line with a resolved timezone', () => {
+      // The refusal has to be caused by the missing zone and nothing else: the
+      // same fixture with a zone must show both, or the assertions above would
+      // keep passing after either stopped rendering for any reason.
+      const show = berlinShow()
+      render(
+        <ShowHeader
+          lifecycle="upcoming"
+          show={{
+            ...show,
+            venues: [{ ...show.venues[0], timezone: 'Europe/Berlin' }],
+          }}
+        />
+      )
+
+      // Exact, not a substring: the venue module's times line also contains
+      // "5AM", and a loose matcher would pass on that alone even if the ticket
+      // row's start time stopped rendering.
+      expect(screen.getByText('5AM')).toBeInTheDocument()
+      expect(screen.getByText('DOORS 4AM / MUSIC 5AM')).toBeInTheDocument()
+    })
   })
 })
 

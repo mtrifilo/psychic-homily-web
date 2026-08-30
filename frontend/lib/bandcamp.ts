@@ -34,6 +34,29 @@ export function isAllowedBandcampUrl(url: string): boolean {
   return host === 'bandcamp.com' || host.endsWith('.bandcamp.com')
 }
 
+/**
+ * Is this a Bandcamp URL that names one release, i.e. a page that sells
+ * something?
+ *
+ * Stricter than {@link isAllowedBandcampUrl}, and the extra strictness is for a
+ * different threat. The host anchor above protects a SERVER-side fetch; this
+ * protects an outbound link we put in front of a reader under a "buy" verb.
+ * `artists.bandcamp_embed_url` is a contributor-writable column that the
+ * suggest-edit path does not URL-validate, so "the column says Bandcamp" is not
+ * evidence that the value is a Bandcamp release page. Anything rendered as a
+ * purchase link has to prove it here first.
+ *
+ * The segment test reads `pathname`, never the whole URL: a `/track/` page with
+ * the literal `/album/` in its query string is a track, and a substring test
+ * over the href would also accept an arbitrary host carrying `/album/` in a
+ * path it controls.
+ */
+export function isBandcampReleaseUrl(url: string): boolean {
+  if (!isAllowedBandcampUrl(url)) return false
+  const { pathname } = new URL(url)
+  return pathname.startsWith('/album/') || pathname.startsWith('/track/')
+}
+
 export type BandcampEmbedKind = 'album' | 'track'
 
 export interface BandcampEmbed {

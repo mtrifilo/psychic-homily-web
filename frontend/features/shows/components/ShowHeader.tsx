@@ -4,13 +4,13 @@ import { Fragment, useCallback, useState } from 'react'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
-import { formatLocation } from '@/lib/formatLocation'
 import { formatShowDate } from '@/lib/utils/formatters'
 import { ShowFlyerPlate } from './ShowFlyerPlate'
 import { ShowTicketRow } from './ShowTicketRow'
+import { saysSoldOut } from './showSaleState'
 import { ShowVenueModule } from './ShowVenueModule'
 import { flyerImageSrc, sourceVenueName } from './showFlyer'
-import { showTimingInput, splitBill } from '../utils'
+import { billHometown, byBillPosition, showTimingInput, splitBill } from '../utils'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import type {
   ArtistResponse,
@@ -18,23 +18,6 @@ import type {
   ShowArtistLabel,
   ShowResponse,
 } from '../types'
-
-/**
- * Bill order lives in `show_artists.position`. Every backend read path already
- * sorts by it (`buildShowResponse`, `loadShowArtistResponses`), so this is a
- * defensive re-assertion against a caller, cache layer, or future query handing
- * us a different order.
- *
- * Ties are possible: `idx_show_artists_position` is a plain index, so nothing
- * enforces one position per show, and rows written outside the create path
- * (backfills, seeds) can share position 0. The backend's `ORDER BY position
- * ASC` has no tiebreaker, so Postgres may order tied rows differently between
- * requests. Break the tie on `id` so the rendered bill is at least
- * deterministic client-side.
- */
-function byBillPosition(a: ArtistResponse, b: ArtistResponse): number {
-  return a.position - b.position || a.id - b.id
-}
 
 /**
  * Support-line annotations, keyed by `set_type`.
@@ -144,12 +127,11 @@ function BillLabels({
  * Where an act is from, inline after its labels: `Issaquah, WA`,
  * `Melbourne, Australia`.
  *
- * Delegates to `formatLocation` so the bill obeys the same locked display rule
- * as every other surface: country included UNLESS the state is set and the
- * country is USA/US. An act with nothing placeable renders NO segment. The
- * helper's "Location Unknown" placeholder is designed to stand alone in a
- * location field, and "Modest Mouse [Epic] Location Unknown" states something
- * the bill was not asked to state.
+ * Delegates to `billHometown` so the bill obeys the same locked display rule as
+ * every other surface: country included UNLESS the state is set and the country
+ * is USA/US. An act with nothing placeable renders NO segment, because
+ * "Modest Mouse [Epic] Location Unknown" states something the bill was not
+ * asked to state.
  *
  * Carries the same kind of screen-reader-only connective as {@link BillLabels}
  * and for the same reason: visually a city sits in its own typographic slot,
@@ -162,21 +144,8 @@ function BillHometown({
   artist: ArtistResponse
   className?: string
 }) {
-  // Judged on the PARTS, not on the formatted string. Comparing the result to
-  // `LOCATION_UNKNOWN` would also silence an artist whose city is literally
-  // "Location Unknown", which is exactly the placeholder an extraction run
-  // writes when it does not know.
-  const hasPlaceableLocation = [
-    artist.city,
-    artist.state,
-    artist.country,
-  ].some(part => part?.trim())
-  if (!hasPlaceableLocation) return null
-  const hometown = formatLocation({
-    city: artist.city,
-    state: artist.state,
-    country: artist.country,
-  })
+  const hometown = billHometown(artist)
+  if (!hometown) return null
   return (
     <>
       {' '}
@@ -288,10 +257,28 @@ export function ShowHeader({ show, lifecycle, actions }: ShowHeaderProps) {
       <div className="min-w-0">
         {/* SLOT: header block. Date, bill, sold-out flag. */}
         <div className="flex items-center gap-2 mb-2">
+          {/* A DATE AND NOTHING ELSE. The zone here may be the fallback
+              (`FALLBACK_SHOW_TIMEZONE` in `lib/utils/timeUtils`, which carries
+              why that day is still the best available answer), so this line
+              deliberately builds nothing hour-level on it: the start time moved
+              to `ShowTicketRow` in Wave 1C and refuses on a guessed zone, as the
+              stripe above does for DOORS / MUSIC / TONIGHT.
+
+              Whether a guessed day should also be MARKED as one for the reader
+              is a design question with no locked answer; it is deliberately not
+              invented here. PSY-1964 holds it, and lists the other three date
+              renders on this page any answer has to cover. */}
           <span className="text-lg font-bold text-primary">
             {formatShowDate(show.event_date, timing.state, false, timing.timezone)}
           </span>
-          {show.is_sold_out && (
+          {/* Through the shared derivation, not `show.is_sold_out` directly.
+              This page states SOLD OUT twice — here and in the ticket row
+              below — and a present-tense claim guarded in only one of them is
+              a claim the other still makes: the badge would sit above a
+              ticket line that has withdrawn it, or above a CANCELLED stripe.
+              The flag is the input; whether it may be SAID is
+              `saysSoldOut`'s. */}
+          {saysSoldOut(show, lifecycle) && (
             <Badge
               variant="secondary"
               className="text-xs font-semibold bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400"

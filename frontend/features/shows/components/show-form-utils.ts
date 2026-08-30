@@ -166,7 +166,13 @@ export interface FormValues {
   }
   date: string
   time: string
+  /**
+   * `cost` is the show's price, and the ADVANCE price when `door_cost` is
+   * filled too. Both are free text run through {@link parseCost}; a blank
+   * field makes no claim about the other.
+   */
   cost: string
+  door_cost: string
   ages: string
   description: string
   image_url: string
@@ -186,6 +192,7 @@ export const defaultFormValues: FormValues = {
   date: '',
   time: '20:00',
   cost: '',
+  door_cost: '',
   ages: '',
   description: '',
   image_url: '',
@@ -226,12 +233,32 @@ export function showToFormValues(show: ShowResponse): FormValues {
     venue: {
       name: venue?.name || '',
       city: venue?.city || show.city || '',
+      // KNOWN DIVERGENCE, left alone deliberately — see PSY-1965 before
+      // "fixing" it, because the two obvious fixes are both worse (PSY-1696
+      // tried each). The comment above claims this field is seeded the way the
+      // zone is resolved. It is NOT: `showTimingInput` coalesces with `??` and
+      // this line uses `||`, which differ on the empty string, and
+      // `venues.state` is NOT NULL so an international venue stores `''`.
+      //
+      // For a US show a merge has repointed onto such a venue (a merge does not
+      // rewrite the denormalized `shows.state`), the editor therefore opens on
+      // a fallback-zone wall clock while `ShowForm`'s submit recomposes the
+      // instant from THIS field's `'NY'` — moving `event_date` on a no-op Save.
+      //
+      // Aligning them on `||` makes `isShowTimezoneResolved` answer true for
+      // that Berlin venue, so the page prints a New York clock beside a Berlin
+      // address — the laundering `CompactShowRow` documents. Aligning them on
+      // `??` blanks this field, and the update payload carries no `venue.id`,
+      // so the backend's `FindOrCreateVenue` rejects it outright: "venue state
+      // is required". Date drift is the least bad of the three until the field
+      // stops doing two jobs at once.
       state: venue?.state || show.state || '',
       address: venue?.address || '',
     },
     date,
     time,
     cost: show.price != null ? `$${show.price}` : '',
+    door_cost: show.door_price != null ? `$${show.door_price}` : '',
     ages: show.age_requirement || '',
     description: show.description || '',
     image_url: show.image_url || '',
@@ -346,6 +373,7 @@ export function mergeExtraction(
   if (extraction.date) merged.date = extraction.date
   if (extraction.time) merged.time = extraction.time
   if (extraction.cost) merged.cost = extraction.cost
+  if (extraction.door_cost) merged.door_cost = extraction.door_cost
   if (extraction.ages) merged.ages = extraction.ages
   if (extraction.description) merged.description = extraction.description
 

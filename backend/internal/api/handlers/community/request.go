@@ -650,13 +650,19 @@ func buildRequestResponse(request *communitym.Request, userVote *int) *contracts
 		UpdatedAt:         request.UpdatedAt,
 	}
 
+	// Public chain (PSY-1940): GET /requests and GET /requests/{id} are
+	// optional-auth, so these two bylines are readable logged out, and the
+	// canonical chain's last-resort tier would publish the local part of the
+	// person's email address. Someone with no public name tier reads
+	// "Anonymous" — a request board row needs a requester slot, so this is a
+	// narrowing of the name, not an omission of the row.
 	if request.Requester.ID > 0 {
-		resp.RequesterName = shared.ResolveUserName(&request.Requester)
+		resp.RequesterName = shared.ResolvePublicUserName(&request.Requester)
 		resp.RequesterUsername = shared.ResolveUserUsername(&request.Requester)
 	}
 
 	if request.Fulfiller != nil && request.Fulfiller.ID > 0 {
-		resp.FulfillerName = shared.ResolveUserName(request.Fulfiller)
+		resp.FulfillerName = shared.ResolvePublicUserName(request.Fulfiller)
 		resp.FulfillerUsername = shared.ResolveUserUsername(request.Fulfiller)
 	}
 

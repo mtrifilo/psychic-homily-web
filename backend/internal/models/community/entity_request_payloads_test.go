@@ -75,6 +75,7 @@ func TestRoundTrip_AllFieldsSet(t *testing.T) {
 			City:           strptr("Tucson"),
 			State:          strptr("AZ"),
 			Price:          fltptr(15.5),
+			DoorPrice:      fltptr(20),
 			AgeRequirement: strptr("21+"),
 			Description:    strptr("BYO."),
 			TicketURL:      strptr("https://tix.example/secret"),
@@ -351,6 +352,18 @@ func TestValidateEntityRequestPayload(t *testing.T) {
 	})
 	t.Run("show rejects absurd price", func(t *testing.T) {
 		assert.Error(t, ValidateEntityRequestPayload(EntityRequestShow, json.RawMessage(`{"title":"Boris","event_date":"2026-07-04","price":20000}`)))
+	})
+	// PSY-1864: door_price rides onto the created show the same way price
+	// does, so it needs the same cap. Without its own check a value that
+	// cleared the price gate on the other field would 500 at INSERT.
+	t.Run("show rejects negative door_price", func(t *testing.T) {
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestShow, json.RawMessage(`{"title":"Boris","event_date":"2026-07-04","door_price":-5}`)))
+	})
+	t.Run("show rejects absurd door_price", func(t *testing.T) {
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestShow, json.RawMessage(`{"title":"Boris","event_date":"2026-07-04","door_price":20000}`)))
+	})
+	t.Run("show accepts an advance and door price pair", func(t *testing.T) {
+		assert.NoError(t, ValidateEntityRequestPayload(EntityRequestShow, json.RawMessage(`{"title":"Boris","event_date":"2026-07-04","price":35,"door_price":40}`)))
 	})
 	t.Run("show rejects over-long age_requirement", func(t *testing.T) {
 		long := strings.Repeat("a", 51)

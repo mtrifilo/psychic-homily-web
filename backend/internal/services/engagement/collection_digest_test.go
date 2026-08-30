@@ -1,6 +1,7 @@
 package engagement
 
 import (
+	"encoding/json"
 	"fmt"
 	"sync"
 	"testing"
@@ -23,31 +24,82 @@ import (
 // Unit tests — no DB required
 // =============================================================================
 
+// PSY-1940 repointed this at the canonical public chain. Two behaviour changes
+// are pinned below: display_name now wins (it did not exist when this function
+// was written), and an adder with no public name is "a contributor" rather than
+// the local part of their EMAIL ADDRESS — which used to be mailed to a
+// different person, since the candidate query excludes the recipient from the
+// adders it reports.
 func TestDigestDisplayName(t *testing.T) {
-	user := strPtr("alice")
-	first := strPtr("Alice")
-	email := strPtr("alice@example.com")
-	noLocal := strPtr("@example.com")
+	adder := func(u *authm.User) *authm.User {
+		u.ID = 1
+		return u
+	}
 
-	t.Run("username preferred", func(t *testing.T) {
-		assert.Equal(t, "alice", digestDisplayName(user, first, email))
+	t.Run("display name preferred", func(t *testing.T) {
+		assert.Equal(t, "Alice A.", digestDisplayName(adder(&authm.User{
+			DisplayName: strPtr("Alice A."),
+			Username:    strPtr("alice"),
+			FirstName:   strPtr("Alice"),
+		})))
 	})
-	t.Run("first name fallback", func(t *testing.T) {
-		assert.Equal(t, "Alice", digestDisplayName(nil, first, email))
+	t.Run("username next", func(t *testing.T) {
+		assert.Equal(t, "alice", digestDisplayName(adder(&authm.User{
+			Username:  strPtr("alice"),
+			FirstName: strPtr("Alice"),
+		})))
 	})
-	t.Run("email local-part fallback", func(t *testing.T) {
-		assert.Equal(t, "alice", digestDisplayName(nil, nil, email))
+	t.Run("first and last name fallback", func(t *testing.T) {
+		assert.Equal(t, "Alice Adams", digestDisplayName(adder(&authm.User{
+			FirstName: strPtr("Alice"),
+			LastName:  strPtr("Adams"),
+		})))
 	})
-	t.Run("nil all", func(t *testing.T) {
-		assert.Equal(t, "a contributor", digestDisplayName(nil, nil, nil))
+	t.Run("email is never rendered", func(t *testing.T) {
+		got := digestDisplayName(adder(&authm.User{Email: strPtr("alice@example.com")}))
+		assert.Equal(t, "a contributor", got)
+		assert.NotContains(t, got, "alice", "email local-part leaked into a digest email")
 	})
-	t.Run("empty strings", func(t *testing.T) {
+	// Adding a collection item counts toward TotalContributions on the profile,
+	// so this byline is under the contributions setting — and it mails a third
+	// party's name outward, which makes it the surface where getting that wrong
+	// costs the most.
+	t.Run("hidden contributions are not named", func(t *testing.T) {
+		hidden := contracts.DefaultPrivacySettings()
+		hidden.Contributions = contracts.PrivacyHidden
+		encoded, err := json.Marshal(hidden)
+		require.NoError(t, err)
+		raw := json.RawMessage(encoded)
+
+		got := digestDisplayName(adder(&authm.User{
+			DisplayName:     strPtr("Alice A."),
+			Username:        strPtr("alice"),
+			PrivacySettings: &raw,
+		}))
+		assert.Equal(t, "a contributor", got)
+		assert.NotContains(t, got, "Alice")
+		assert.NotContains(t, got, "alice")
+	})
+	// A real name that happens to BE the chain's terminal. Detecting the
+	// terminal by string-comparing the resolved name would erase this person.
+	t.Run("a user actually named Anonymous is still credited", func(t *testing.T) {
+		assert.Equal(t, "Anonymous", digestDisplayName(adder(&authm.User{
+			DisplayName: strPtr("Anonymous"),
+		})))
+	})
+	t.Run("nil user", func(t *testing.T) {
+		assert.Equal(t, "a contributor", digestDisplayName(nil))
+	})
+	t.Run("adder row is gone", func(t *testing.T) {
+		// A LEFT JOIN that matched nothing: every column NULL.
+		assert.Equal(t, "a contributor", digestDisplayName(adder(&authm.User{})))
+	})
+	t.Run("empty and whitespace strings", func(t *testing.T) {
 		empty := ""
-		assert.Equal(t, "a contributor", digestDisplayName(&empty, &empty, &empty))
-	})
-	t.Run("email with no local-part", func(t *testing.T) {
-		// "@example.com" → loop sees @ at position 0, falls through to default.
-		assert.Equal(t, "a contributor", digestDisplayName(nil, nil, noLocal))
+		blank := "   "
+		assert.Equal(t, "a contributor", digestDisplayName(adder(&authm.User{
+			Username: &empty, DisplayName: &blank, FirstName: &blank,
+		})))
 	})
 }
 
@@ -350,6 +402,57 @@ func (s *CollectionDigestServiceIntegrationSuite) TestDigest_OneItem_OneSubscrib
 	require.Len(s.T(), g.Items, 1)
 	assert.Equal(s.T(), "Artist1", g.Items[0].EntityName)
 	assert.Equal(s.T(), communitym.CollectionEntityArtist, g.Items[0].EntityType)
+	// AddedBy is asserted THROUGH THE REAL QUERY, which is the only thing that
+	// pins the candidate query's column list. Every unit test of
+	// digestDisplayName builds the user in memory, so a mistyped SELECT alias
+	// would scan every identity column as nil and quietly credit "a contributor"
+	// in every outgoing digest, forever, with no error and no failing test.
+	// createUser sets a username, so the resolved credit is that.
+	require.NotNil(s.T(), creator.Username)
+	assert.Equal(s.T(), *creator.Username, g.Items[0].AddedBy,
+		"AddedBy did not resolve — check the added_by_* aliases in queryCandidates")
+}
+
+// The digest names a THIRD PARTY (the join excludes the recipient), and adding
+// a collection item counts toward TotalContributions, so a contributor who hid
+// their contributions must not be named in outgoing email. Asserted through the
+// real query because the gate reads privacy_settings, a column the candidate
+// query has to remember to select — the same fail-open a narrowed Select causes
+// on the revision routes.
+func (s *CollectionDigestServiceIntegrationSuite) TestDigest_HiddenContributorIsNotNamed() {
+	creator := s.createUser("hidden-creator")
+	hidden := contracts.DefaultPrivacySettings()
+	hidden.Contributions = contracts.PrivacyHidden
+	encoded, err := json.Marshal(hidden)
+	s.Require().NoError(err)
+	s.Require().NoError(s.db.Model(&authm.User{}).Where("id = ?", creator.ID).
+		Update("privacy_settings", string(encoded)).Error)
+	// Read back: a fixture that failed to store the setting would make the gate
+	// look correct for the wrong reason.
+	var stored struct{ PrivacySettings *string }
+	s.Require().NoError(s.db.Table("users").
+		Select("privacy_settings::text AS privacy_settings").
+		Where("id = ?", creator.ID).Scan(&stored).Error)
+	s.Require().NotNil(stored.PrivacySettings, "fixture privacy_settings did not store")
+	s.Require().Contains(*stored.PrivacySettings, "hidden", "fixture did not store hidden")
+
+	subscriber := s.createUserWithDigestPref("sub", true)
+	coll := s.createCollection(creator, "C1", "c1")
+	s.subscribe(coll, subscriber, nil, nil)
+
+	a := s.createArtist("Artist1")
+	s.addItem(coll, creator, communitym.CollectionEntityArtist, a.ID, time.Now().Add(-1*time.Hour))
+
+	s.svc.RunDigestCycleNow()
+
+	require.Len(s.T(), s.mock.calls, 1)
+	g := s.mock.calls[0].Groups[0]
+	require.Len(s.T(), g.Items, 1)
+	assert.Equal(s.T(), "a contributor", g.Items[0].AddedBy)
+	require.NotNil(s.T(), creator.Username)
+	assert.NotContains(s.T(), g.Items[0].AddedBy, *creator.Username)
+	// The item itself still goes out. The gate hides the person, not the news.
+	assert.Equal(s.T(), "Artist1", g.Items[0].EntityName)
 }
 
 // TestDigest_AdderExcluded — the user who added the item should not receive

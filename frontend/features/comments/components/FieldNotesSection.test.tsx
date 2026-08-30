@@ -79,14 +79,133 @@ describe('FieldNotesSection', () => {
       })
 
       render(
-        <FieldNotesSection showId={1} showDate={pastDate} artists={mockArtists} />
+        <FieldNotesSection
+          showId={1}
+          showDate={pastDate}
+          lifecycle="past"
+          isCancelled={false}
+          artists={mockArtists}
+        />
       )
 
       expect(screen.getByTestId('field-notes-section')).toBeInTheDocument()
       expect(screen.getByTestId('field-notes-empty')).toBeInTheDocument()
       expect(
-        screen.getByText('No field notes yet. Attend this show and share your experience!')
+        screen.getByText('No field notes yet. Were you there? Share what you saw.')
       ).toBeInTheDocument()
+    })
+
+    // The form's gate opens at the START INSTANT; the lifecycle turns past at
+    // venue-local MIDNIGHT. For the whole evening in between, the page's
+    // stripe says TONIGHT — so the empty state must not ask "were you there?"
+    // about a band currently on stage.
+    it('keeps the present tense while the show is in progress', () => {
+      mockUseAuthContext.mockReturnValue({
+        isAuthenticated: false,
+        user: null,
+      })
+      mockUseFieldNotes.mockReturnValue({
+        data: { comments: [], total: 0, has_more: false },
+        isLoading: false,
+      })
+
+      render(
+        <FieldNotesSection
+          showId={1}
+          showDate={pastDate}
+          lifecycle="today"
+          isCancelled={false}
+          artists={mockArtists}
+        />
+      )
+
+      expect(screen.getByTestId('field-notes-empty')).toHaveTextContent(
+        'Attend this show and share your experience!'
+      )
+    })
+
+    // A cancelled show did not happen, so it can be neither attended nor
+    // remembered. Both prompts are wrong; the bare sentence asks nothing.
+    it('asks nothing about a cancelled show that has passed', () => {
+      mockUseAuthContext.mockReturnValue({
+        isAuthenticated: false,
+        user: null,
+      })
+      mockUseFieldNotes.mockReturnValue({
+        data: { comments: [], total: 0, has_more: false },
+        isLoading: false,
+      })
+
+      render(
+        <FieldNotesSection
+          showId={1}
+          showDate={pastDate}
+          lifecycle="past"
+          isCancelled
+          artists={mockArtists}
+        />
+      )
+
+      const empty = screen.getByTestId('field-notes-empty')
+      expect(empty).toHaveTextContent('No field notes yet.')
+      expect(empty).not.toHaveTextContent('Were you there?')
+      expect(empty).not.toHaveTextContent('Attend this show')
+    })
+
+    // A cancelled show that has not yet started must not be promised that
+    // notes "will be available after the show starts" — it will never start.
+    it('promises nothing about a cancelled show that has not started', () => {
+      mockUseAuthContext.mockReturnValue({
+        isAuthenticated: false,
+        user: null,
+      })
+      mockUseFieldNotes.mockReturnValue({
+        data: { comments: [], total: 0, has_more: false },
+        isLoading: false,
+      })
+
+      render(
+        <FieldNotesSection
+          showId={1}
+          showDate={futureDate}
+          lifecycle="upcoming"
+          isCancelled
+          artists={mockArtists}
+        />
+      )
+
+      expect(screen.getByTestId('future-show-message')).toBeEmptyDOMElement()
+    })
+
+    // `hasShowStarted` counts an undateable show as started and the lifecycle
+    // counts it as past; neither is evidence the show actually happened, so
+    // the archive prompt stays off.
+    it('makes no archive claim for a show whose date cannot be read', () => {
+      mockUseAuthContext.mockReturnValue({
+        isAuthenticated: false,
+        user: null,
+      })
+      mockUseFieldNotes.mockReturnValue({
+        data: { comments: [], total: 0, has_more: false },
+        isLoading: false,
+      })
+
+      render(
+        <FieldNotesSection
+          showId={1}
+          showDate="not-a-date"
+          lifecycle="past"
+          isCancelled={false}
+          artists={mockArtists}
+        />
+      )
+
+      // Asserted positively: ruling out "Were you there?" alone would pass on
+      // "Attend this show", which is equally wrong for a show nobody can date.
+      const empty = screen.getByTestId('field-notes-empty')
+      expect(empty).toHaveTextContent('No field notes yet.')
+      expect(empty).not.toHaveTextContent('Were you there?')
+      expect(empty).not.toHaveTextContent('Attend this show')
     })
 
     it('renders auth gate for unauthenticated users', () => {
@@ -100,7 +219,7 @@ describe('FieldNotesSection', () => {
       })
 
       render(
-        <FieldNotesSection showId={1} showDate={pastDate} artists={mockArtists} />
+        <FieldNotesSection showId={1} showDate={pastDate} lifecycle="past" isCancelled={false} artists={mockArtists} />
       )
 
       expect(screen.getByTestId('field-note-auth-gate')).toBeInTheDocument()
@@ -123,7 +242,7 @@ describe('FieldNotesSection', () => {
       })
 
       render(
-        <FieldNotesSection showId={1} showDate={pastDate} artists={mockArtists} />
+        <FieldNotesSection showId={1} showDate={pastDate} lifecycle="past" isCancelled={false} artists={mockArtists} />
       )
 
       expect(screen.getByTestId('field-note-form')).toBeInTheDocument()
@@ -170,7 +289,7 @@ describe('FieldNotesSection', () => {
       })
 
       render(
-        <FieldNotesSection showId={1} showDate={pastDate} artists={mockArtists} />
+        <FieldNotesSection showId={1} showDate={pastDate} lifecycle="past" isCancelled={false} artists={mockArtists} />
       )
 
       expect(screen.getByText('Field Notes')).toBeInTheDocument()
@@ -219,7 +338,7 @@ describe('FieldNotesSection', () => {
       })
 
       render(
-        <FieldNotesSection showId={1} showDate={pastDate} artists={mockArtists} />
+        <FieldNotesSection showId={1} showDate={pastDate} lifecycle="past" isCancelled={false} artists={mockArtists} />
       )
 
       expect(screen.getByTestId('field-note-card')).toBeInTheDocument()
@@ -237,7 +356,7 @@ describe('FieldNotesSection', () => {
       })
 
       render(
-        <FieldNotesSection showId={1} showDate={pastDate} artists={mockArtists} />
+        <FieldNotesSection showId={1} showDate={pastDate} lifecycle="past" isCancelled={false} artists={mockArtists} />
       )
 
       expect(screen.getByTestId('field-notes-section')).toBeInTheDocument()
@@ -257,7 +376,7 @@ describe('FieldNotesSection', () => {
       })
 
       render(
-        <FieldNotesSection showId={1} showDate={futureDate} artists={mockArtists} />
+        <FieldNotesSection showId={1} showDate={futureDate} lifecycle="upcoming" isCancelled={false} artists={mockArtists} />
       )
 
       expect(screen.getByTestId('future-show-message')).toBeInTheDocument()
@@ -280,7 +399,7 @@ describe('FieldNotesSection', () => {
       })
 
       render(
-        <FieldNotesSection showId={1} showDate={futureDate} artists={mockArtists} />
+        <FieldNotesSection showId={1} showDate={futureDate} lifecycle="upcoming" isCancelled={false} artists={mockArtists} />
       )
 
       expect(screen.queryByTestId('field-note-form')).not.toBeInTheDocument()
@@ -298,7 +417,7 @@ describe('FieldNotesSection', () => {
       })
 
       render(
-        <FieldNotesSection showId={1} showDate={futureDate} artists={mockArtists} />
+        <FieldNotesSection showId={1} showDate={futureDate} lifecycle="upcoming" isCancelled={false} artists={mockArtists} />
       )
 
       expect(screen.queryByTestId('field-note-auth-gate')).not.toBeInTheDocument()
@@ -331,7 +450,9 @@ describe('FieldNotesSection', () => {
       vi.useFakeTimers()
       vi.setSystemTime(new Date('2026-03-15T02:59:00Z'))
 
-      render(<FieldNotesSection showId={1} showDate={showDate} />)
+      render(
+        <FieldNotesSection showId={1} showDate={showDate} lifecycle="today" isCancelled={false} />
+      )
 
       expect(screen.getByTestId('future-show-message')).toBeInTheDocument()
     })
@@ -340,7 +461,9 @@ describe('FieldNotesSection', () => {
       vi.useFakeTimers()
       vi.setSystemTime(new Date('2026-03-15T03:01:00Z')) // 20:01 Mar 14 Phoenix
 
-      render(<FieldNotesSection showId={1} showDate={showDate} />)
+      render(
+        <FieldNotesSection showId={1} showDate={showDate} lifecycle="today" isCancelled={false} />
+      )
 
       expect(screen.queryByTestId('future-show-message')).not.toBeInTheDocument()
       expect(screen.getByTestId('field-note-form')).toBeInTheDocument()
@@ -398,7 +521,7 @@ describe('FieldNotesSection', () => {
       })
 
       render(
-        <FieldNotesSection showId={1} showDate={pastDate} artists={mockArtists} />
+        <FieldNotesSection showId={1} showDate={pastDate} lifecycle="past" isCancelled={false} artists={mockArtists} />
       )
 
       // Empty state visible before submit.
@@ -437,7 +560,7 @@ describe('FieldNotesSection', () => {
       })
 
       render(
-        <FieldNotesSection showId={1} showDate={pastDate} artists={mockArtists} />
+        <FieldNotesSection showId={1} showDate={pastDate} lifecycle="past" isCancelled={false} artists={mockArtists} />
       )
 
       fireEvent.change(screen.getByTestId('field-note-textarea'), {
@@ -476,6 +599,8 @@ describe('FieldNotesSection', () => {
         <FieldNotesSection
           showId={1}
           showDate={pastDate}
+          lifecycle="past"
+          isCancelled={false}
           artists={mockArtists}
         />
       )

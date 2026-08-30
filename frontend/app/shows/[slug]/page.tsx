@@ -69,6 +69,17 @@ const getShow = cache(async (slug: string): Promise<ShowResponse | null> => {
   return null
 })
 
+/**
+ * A hand-rolled sibling of `lib/utils/formatters.formatShowDate`, kept separate
+ * because the meta description wants the long form ("Saturday, October 24").
+ *
+ * It inherits that helper's missing-timezone policy without saying so, which is
+ * why this pointer exists (PSY-1696): `resolveShowTimezone` ends at
+ * `FALLBACK_SHOW_TIMEZONE`, so for a venue with no geocoded zone and a non-US
+ * state this prints a guessed calendar day, unmarked. Same for the share card's
+ * own copy in `opengraph-image.tsx`. Whether to mark it is PSY-1964, and any
+ * answer has to change all four date renders on this page together.
+ */
 function formatShowDate(
   dateString: string,
   state?: string | null,
@@ -222,7 +233,14 @@ export default async function ShowPage({ params }: ShowPageProps) {
           // type without changing the cross-feature type.
           socials: { ...a.socials },
         })),
-        price: showData.price ?? undefined,
+        // Falls back to the door price when there is no advance price
+        // (PSY-1864) — the same "whichever single price we know" rule the
+        // ticket line applies. Without it a door-only show emits NO Offer at
+        // all, because the builder gates the whole block on a price, so a show
+        // with a perfectly well-known $15 door would drop out of search-result
+        // pricing entirely. This changes only which VALUE feeds the offer; the
+        // posture is untouched (price + seller, still no url).
+        price: showData.price ?? showData.door_price ?? undefined,
         // See the builder for why an offer is dropped once the show has
         // happened. Deliberately NOT derived inside the builder: that would
         // make its output depend on the wall clock.

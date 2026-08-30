@@ -193,10 +193,15 @@ describe('RevisionHistory', () => {
     expect(screen.queryByText(/User #/)).not.toBeInTheDocument()
   })
 
-  // Fallback for a defensive payload — if the backend ever omits user_name
-  // entirely, we render "Anonymous" rather than the bare "User #N" debug
-  // string. PSY-560.
-  it('renders "Anonymous" when user_name is missing entirely', async () => {
+  // PSY-1940 REPLACES PSY-560's "Anonymous" fallback here. An absent user_name
+  // is now a deliberate backend decision — the author hid their contributions,
+  // or their only resolvable name would be an email fragment — so the row drops
+  // the byline entirely. A placeholder would assert a person the backend
+  // declined to name.
+  //
+  // The rest of the row survives: history stays auditable, only the person goes
+  // unnamed.
+  it('renders no byline at all when user_name is absent', async () => {
     const user = userEvent.setup()
     mockUseEntityRevisions.mockReturnValue({
       data: {
@@ -205,9 +210,11 @@ describe('RevisionHistory', () => {
             id: 99,
             entity_type: 'artist',
             entity_id: 42,
-            user_id: 99,
-            // user_name and user_username intentionally omitted
+            // user_id, user_name and user_username are withheld together:
+            // the backend suppresses the whole credit, id included, because
+            // the id alone would recover the name off another public payload.
             changes: [{ field: 'x', old_value: 'a', new_value: 'b' }],
+            summary: 'Fixed the city',
             created_at: new Date().toISOString(),
           },
         ],
@@ -219,7 +226,11 @@ describe('RevisionHistory', () => {
     render(<RevisionHistory entityType="artist" entityId={42} />)
 
     await user.click(screen.getByText('History'))
-    expect(screen.getByText('Anonymous')).toBeInTheDocument()
+    expect(screen.queryByText('Anonymous')).not.toBeInTheDocument()
+    expect(screen.queryByText(/User #/)).not.toBeInTheDocument()
+    expect(screen.getByText('just now')).toBeInTheDocument()
+    expect(screen.getByText('Fixed the city')).toBeInTheDocument()
+    expect(screen.getByText('1 field changed')).toBeInTheDocument()
   })
 
   it('shows relative time for recent revisions', async () => {

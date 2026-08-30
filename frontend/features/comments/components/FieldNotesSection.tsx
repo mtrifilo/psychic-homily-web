@@ -8,7 +8,12 @@ import { useAuthContext } from '@/lib/context/AuthContext'
 // every page that renders this section.
 import { SignInPrompt } from '@/features/auth/components/SignInPrompt'
 import { StatusBanner } from '@/components/shared'
-import { hasShowStarted } from '@/lib/utils/showTiming'
+import {
+  hasReadableStartDate,
+  hasShowStarted,
+  showIsArchived,
+} from '@/lib/utils/showTiming'
+import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import {
   useFieldNotes,
   useCreateFieldNote,
@@ -28,9 +33,34 @@ interface FieldNotesSectionProps {
   showId: number
   showDate: string
   artists?: ShowArtist[]
+  /**
+   * Server-computed, threaded from the show route. Used ONLY to pick the
+   * empty state's tense — never to gate the form, which has its own
+   * boundary and a different reason for it (see `isFuture` below).
+   *
+   * REQUIRED despite having one caller: optional-with-a-default, a dropped
+   * prop picks the forward-looking copy for a past show and nothing catches
+   * it, because the page-level test mocks this component away. Required makes
+   * that a compile error.
+   */
+  lifecycle: ShowLifecycleState
+  /**
+   * Cancellation is not derivable from `lifecycle`, which answers only about
+   * the calendar and so calls a cancelled show `past` once its date goes by.
+   *
+   * REQUIRED for the same reason as `lifecycle`: defaulted to `false`, a
+   * dropped prop puts the archive prompt on a cancelled show silently.
+   */
+  isCancelled: boolean
 }
 
-export function FieldNotesSection({ showId, showDate, artists = [] }: FieldNotesSectionProps) {
+export function FieldNotesSection({
+  showId,
+  showDate,
+  artists = [],
+  lifecycle,
+  isCancelled,
+}: FieldNotesSectionProps) {
   const { isAuthenticated } = useAuthContext()
   const { data, isLoading } = useFieldNotes(showId)
   const createMutation = useCreateFieldNote()
@@ -54,6 +84,19 @@ export function FieldNotesSection({ showId, showDate, artists = [] }: FieldNotes
   // boundary. It is the wrong one here and its only consumer is the share
   // card's cache window, not any reader-facing surface.
   const isFuture = !hasShowStarted(showDate)
+
+  // TWO boundaries, and they are not the same one. `isFuture` above opens the
+  // FORM at the start INSTANT, mirroring the API. This turns over at
+  // venue-local MIDNIGHT. Between them the form is open and the show is still
+  // tonight's, so the copy below must not speak about it in the past tense.
+  //
+  // Through the shared predicate rather than a local `lifecycle === 'past'`,
+  // so the cancellation and unreadable-date terms cannot drift from the other
+  // surfaces that make past-tense claims about the same show.
+  const isArchived = showIsArchived(
+    { eventDate: showDate, isCancelled },
+    lifecycle
+  )
 
   const hasCanonicalPending =
     pendingNote !== null && fieldNotes.some((c) => c.id === pendingNote.id)
@@ -110,8 +153,15 @@ export function FieldNotesSection({ showId, showDate, artists = [] }: FieldNotes
 
               This also drops a `toLocaleDateString` with no `timeZone`, which
               formatted against the SERVER's clock during SSR and the reader's
-              on hydration. */}
-          Field notes will be available after the show starts.
+              on hydration.
+
+              A CANCELLED show gets no sentence: "after the show starts" is a
+              promise about a moment that will not arrive. The positive
+              replacement is copy, which is a human decision, so this says
+              nothing rather than guessing. The heading still renders. */}
+          {isCancelled
+            ? null
+            : 'Field notes will be available after the show starts.'}
         </p>
       ) : (
         <>
@@ -167,7 +217,26 @@ export function FieldNotesSection({ showId, showDate, artists = [] }: FieldNotes
               className="text-sm text-muted-foreground py-8 text-center"
               data-testid="field-notes-empty"
             >
-              No field notes yet. Attend this show and share your experience!
+              {/* Four states reach this branch, and each needs a different
+                  tense:
+
+                  - ARCHIVED: the show happened and is over. Ask what it was
+                    like.
+                  - IN PROGRESS: `isFuture` is false from the start instant,
+                    but the show is not archived until venue-local midnight,
+                    so the reader can still go. Invite them.
+                  - CANCELLED: it did not happen and cannot be attended, so
+                    neither prompt is true.
+                  - UNDATEABLE: `hasShowStarted` counts an unparseable date as
+                    started, so the composer opens, but nothing here can say
+                    whether the show happened.
+
+                  The last two ask nothing rather than guess. */}
+              {isArchived
+                ? 'No field notes yet. Were you there? Share what you saw.'
+                : isCancelled || !hasReadableStartDate(showDate)
+                  ? 'No field notes yet.'
+                  : 'No field notes yet. Attend this show and share your experience!'}
             </p>
           ) : (
             <div className="space-y-4">

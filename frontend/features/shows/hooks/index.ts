@@ -1,4 +1,9 @@
-export { useUpcomingShows, useShow, useShowCities } from './useShows'
+export {
+  useUpcomingShows,
+  useShow,
+  useShowCities,
+  useShowAlsoTonight,
+} from './useShows'
 
 export { useShowDelete } from './useShowDelete'
 export { useShowExtraction } from './useShowExtraction'

@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import {
   getShowLifecycleState,
+  hasReadableStartDate,
   isShowPast,
   hasShowStarted,
+  showIsArchived,
 } from './showTiming'
 
 /**
@@ -153,11 +155,11 @@ describe('isShowPast', () => {
 
   describe('zones the fallback chain cannot resolve', () => {
     // Documenting a known-wrong case rather than pretending it does not exist.
-    // `resolveShowTimezone` ends at `getTimezoneForState(state || 'AZ')`, whose
-    // map is US-only and whose default is Phoenix, so a non-US venue with no
-    // backfilled `timezone` is judged on Arizona's calendar. This predates the
-    // module (every show date on the site already renders through that chain);
-    // what is new is that the LISTING boundary now depends on it too.
+    // `resolveShowTimezone` ends at `FALLBACK_SHOW_TIMEZONE`, because the state
+    // map is US-only, so a non-US venue with no backfilled `timezone` is judged
+    // on Arizona's calendar. This predates the module (every show date on the
+    // site already renders through that chain); what is new is that the LISTING
+    // boundary now depends on it too.
     it('falls back to America/Phoenix for a non-US venue with no resolved timezone', () => {
       const auckland = { eventDate: '2026-03-14T07:00:00Z', timezone: null, state: 'Auckland' }
       // 20:00 Mar 14 Auckland. Its own midnight passed at 11:00 UTC; Phoenix's
@@ -302,5 +304,66 @@ describe('getShowLifecycleState', () => {
         new Date('2026-03-15T20:00:00Z')
       )
     ).toBe('today')
+  })
+})
+
+/**
+ * The predicate every past-tense CLAIM on a show page branches through. Its
+ * two refinements over the raw lifecycle — cancellation and an unreadable
+ * date — are the whole point of it, so they are pinned here directly rather
+ * than only through the components that consume them.
+ */
+describe('showIsArchived', () => {
+  const DATED = '2026-03-15T03:00:00Z'
+
+  it('archives a dateable, uncancelled show once its venue-local day has passed', () => {
+    expect(showIsArchived({ eventDate: DATED, isCancelled: false }, 'past')).toBe(
+      true
+    )
+  })
+
+  // The lifecycle knows only about the calendar. A show that did not happen
+  // cannot be remembered, and the stripe says CANCELLED, never PAST SHOW.
+  it('never archives a cancelled show, however long ago it was', () => {
+    expect(showIsArchived({ eventDate: DATED, isCancelled: true }, 'past')).toBe(
+      false
+    )
+  })
+
+  // `getShowLifecycleState` returns `past` for an unreadable date by a default
+  // inherited from a cache-window caller, where "past" only meant "cache it
+  // longer". That is not evidence the show happened.
+  it.each([
+    ['an unparseable date', 'not-a-date'],
+    ['an empty date', ''],
+    ['a null date', null],
+    ['an undefined date', undefined],
+  ])('does not archive a show with %s', (_label, eventDate) => {
+    expect(showIsArchived({ eventDate, isCancelled: false }, 'past')).toBe(false)
+  })
+
+  // The live states, where a past-tense claim would contradict the stripe.
+  it.each(['today', 'upcoming'] as const)(
+    'does not archive a %s show',
+    lifecycle => {
+      expect(
+        showIsArchived({ eventDate: DATED, isCancelled: false }, lifecycle)
+      ).toBe(false)
+    }
+  )
+})
+
+describe('hasReadableStartDate', () => {
+  it('accepts a date the rest of this module can parse', () => {
+    expect(hasReadableStartDate('2026-03-15T03:00:00Z')).toBe(true)
+  })
+
+  it.each([
+    ['unparseable', 'not-a-date'],
+    ['empty', ''],
+    ['null', null],
+    ['undefined', undefined],
+  ])('rejects a %s date', (_label, value) => {
+    expect(hasReadableStartDate(value)).toBe(false)
   })
 })

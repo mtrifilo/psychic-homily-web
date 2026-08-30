@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  FALLBACK_SHOW_TIMEZONE,
   getTimezoneForState,
   combineDateTimeToUTC,
   formatInTimezone,
@@ -65,10 +66,14 @@ describe('getTimezoneForState', () => {
     expect(getTimezoneForState('cA')).toBe('America/Los_Angeles')
   })
 
-  it('defaults to America/Phoenix for unknown states', () => {
-    expect(getTimezoneForState('XX')).toBe('America/Phoenix')
-    expect(getTimezoneForState('ZZ')).toBe('America/Phoenix')
-    expect(getTimezoneForState('')).toBe('America/Phoenix')
+  // Asserted through the exported constant, not a fourth copy of the literal:
+  // the value was once spelled twice (here and as `resolveShowTimezone`'s
+  // `state || 'AZ'`) and the two only happened to agree (PSY-1696).
+  it('defaults to the one fallback constant for unknown states', () => {
+    expect(FALLBACK_SHOW_TIMEZONE).toBe('America/Phoenix')
+    expect(getTimezoneForState('XX')).toBe(FALLBACK_SHOW_TIMEZONE)
+    expect(getTimezoneForState('ZZ')).toBe(FALLBACK_SHOW_TIMEZONE)
+    expect(getTimezoneForState('')).toBe(FALLBACK_SHOW_TIMEZONE)
   })
 })
 

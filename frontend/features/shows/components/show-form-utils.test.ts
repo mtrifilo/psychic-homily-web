@@ -241,6 +241,44 @@ describe('showToFormValues', () => {
     expect(result.time).toBe('20:00')
   })
 
+  it('round-trips a show whose zone resolves to neither venue nor state', () => {
+    // PSY-1696, the last rung of the chain: no `venues.timezone` AND a state
+    // the US map does not list, so `resolveShowTimezone` answers
+    // FALLBACK_SHOW_TIMEZONE. This is the case that makes the fallback a
+    // matched write/read PAIR rather than a display default: the submit path
+    // composed this instant as 20:00 in that same zone, so reading it back
+    // through the same resolver returns exactly what was typed.
+    //
+    // The expectations are HARDCODED rather than recomputed from the constant.
+    // Composing the fixture with `FALLBACK_SHOW_TIMEZONE` and then asserting
+    // against a value derived from it too would move both sides together and
+    // pass for any zone at all; pinning the literal is what makes a change to
+    // the constant surface here as a failure, which is the entire point of the
+    // test. Reading this same instant in UTC would give Aug 16 at 03:00.
+    const show = makeShowResponse({
+      event_date: '2026-08-16T03:00:00Z', // 20:00 Aug 15, America/Phoenix
+      city: 'Berlin',
+      state: '',
+      venues: [
+        {
+          id: 11,
+          slug: 'hall-ohne-zone',
+          name: 'Hall Ohne Zone',
+          city: 'Berlin',
+          state: '',
+          timezone: null,
+          verified: true,
+        },
+      ],
+    })
+    expect(show.event_date).toBe('2026-08-16T03:00:00Z')
+
+    const result = showToFormValues(show)
+
+    expect(result.date).toBe('2026-08-15')
+    expect(result.time).toBe('20:00')
+  })
+
   it('returns empty cost when price is null', () => {
     const show = makeShowResponse({ price: null })
     expect(showToFormValues(show).cost).toBe('')
@@ -256,6 +294,35 @@ describe('showToFormValues', () => {
     expect(showToFormValues(show).cost).toBe('$0')
   })
 
+  // PSY-1864: door_cost round-trips independently of cost. An unrecorded door
+  // price opens the field EMPTY — echoing the advance price back would let a
+  // no-op save invent a door price the source never stated.
+  it('round-trips the door price into its own field', () => {
+    const show = makeShowResponse({ price: 35, door_price: 40 })
+    const result = showToFormValues(show)
+    expect(result.cost).toBe('$35')
+    expect(result.door_cost).toBe('$40')
+  })
+
+  it('returns empty door_cost when no door price is recorded', () => {
+    expect(showToFormValues(makeShowResponse({ price: 35 })).door_cost).toBe('')
+    expect(
+      showToFormValues(makeShowResponse({ price: 35, door_price: null })).door_cost
+    ).toBe('')
+  })
+
+  it('returns "$0" when the door price is 0', () => {
+    const show = makeShowResponse({ price: 35, door_price: 0 })
+    expect(showToFormValues(show).door_cost).toBe('$0')
+  })
+
+  it('round-trips a door price with no advance price', () => {
+    const show = makeShowResponse({ price: null, door_price: 40 })
+    const result = showToFormValues(show)
+    expect(result.cost).toBe('')
+    expect(result.door_cost).toBe('$40')
+  })
+
   it('falls back to show city/state when venue has none', () => {
     const show = makeShowResponse({
       city: 'Tucson',
@@ -265,6 +332,11 @@ describe('showToFormValues', () => {
     const result = showToFormValues(show)
 
     expect(result.venue.city).toBe('Tucson')
+    // `||`, which is NOT how `showTimingInput` resolves the zone for this same
+    // row (`??`, so it keeps the venue's blank). That divergence is a real
+    // no-op-Save bug and it is PSY-1965, deliberately not fixed here: both ways
+    // of aligning the two are worse, and the reasons are recorded at the seed
+    // site in show-form-utils.ts.
     expect(result.venue.state).toBe('AZ')
   })
 
@@ -494,6 +566,31 @@ describe('mergeExtraction', () => {
 
   it('returns the base unchanged when extraction is undefined', () => {
     expect(mergeExtraction(defaultFormValues, undefined)).toBe(defaultFormValues)
+  })
+
+  // PSY-1864: a flyer that states both prices seeds both fields. The
+  // extractor only emits door_cost when the source spelled a separate door
+  // price, so an absent door_cost must leave the field empty rather than
+  // echoing the advance price into it.
+  it('seeds both cost fields when the flyer stated a door price', () => {
+    const result = mergeExtraction(defaultFormValues, {
+      ...fullExtraction,
+      cost: '$20',
+      door_cost: '$25',
+    })
+
+    expect(result.cost).toBe('$20')
+    expect(result.door_cost).toBe('$25')
+  })
+
+  it('leaves door_cost empty when the flyer stated only one price', () => {
+    const result = mergeExtraction(defaultFormValues, {
+      ...fullExtraction,
+      cost: '$20',
+    })
+
+    expect(result.cost).toBe('$20')
+    expect(result.door_cost).toBe('')
   })
 
   it('prefers the extraction set_type over the headliner flag', () => {

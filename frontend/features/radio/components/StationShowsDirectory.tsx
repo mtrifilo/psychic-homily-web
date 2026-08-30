@@ -50,6 +50,12 @@ export function StationShowsDirectory({
   // (seasonal churn, PSY-1152) — "archived" would claim these shows ended.
   const archivedCount = shows.length - activeCount
 
+  // The `aria-label` below is a TEST LOCATOR as well as an a11y name:
+  // e2e/pages/radio.spec.ts scopes to `region "Shows"` to separate these cards
+  // from the on-air box and playlists feed, which link the same show names.
+  // One of those scoped queries clicks. Renaming it to match the visible
+  // SectionHeader title would leave that query matching nothing; rename
+  // SHOWS_REGION in the spec too.
   return (
     <section aria-label="Shows">
       <SectionHeader

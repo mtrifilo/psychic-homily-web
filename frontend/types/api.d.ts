@@ -7609,10 +7609,12 @@ export interface components {
             decision: string;
             /** @description Optional decision note (shown to the requester) */
             note?: string | null;
-            /** @description Artists for fulfilling a show request (required when approving a show; at least one) */
+            /** @description Artists for fulfilling a show request (required when approving a show, unless use_payload_artists adopts the bill the request payload carries) */
             show_artists?: components["schemas"]["ShowArtistInput"][] | null;
             /** @description Venue for fulfilling a show request (required when approving a show) */
             show_venue?: components["schemas"]["ShowVenueInput"];
+            /** @description Approve a show using the artists stored on the request's own payload. Mutually exclusive with show_artists: send one or the other, never both. Omitting both is still a 422, so a bill is never adopted by default. An adopted bill never designates a headliner by list order: an act with no set_type is stored as 'performer', so a bill naming no 'headliner' creates a show with no headliner row. */
+            use_payload_artists?: boolean;
         };
         AdminDecideEntityRequestResponseBody: {
             /**
@@ -7665,10 +7667,12 @@ export interface components {
             action?: string;
             /** @description Optional note (recorded as the decision note when voiding) */
             note?: string;
-            /** @description Artists for fulfilling a show request (required when fulfilling a show; at least one) */
+            /** @description Artists for fulfilling a show request (required when fulfilling a show, unless use_payload_artists adopts the bill the request payload carries) */
             show_artists?: components["schemas"]["ShowArtistInput"][] | null;
             /** @description Venue for fulfilling a show request (required when fulfilling a show) */
             show_venue?: components["schemas"]["ShowVenueInput"];
+            /** @description Fulfill a show using the artists stored on the request's own payload. Mutually exclusive with show_artists: send one or the other, never both. Omitting both is still a 422, so a bill is never adopted by default. An adopted bill never designates a headliner by list order: an act with no set_type is stored as 'performer', so a bill naming no 'headliner' creates a show with no headliner row. */
+            use_payload_artists?: boolean;
         };
         AdminFulfillEntityRequestResponseBody: {
             /**
@@ -9761,7 +9765,7 @@ export interface components {
             confirmed?: boolean;
             /** @description Entity type to request (artist, venue, label, release, show, festival) */
             entity_type: string;
-            /** @description Typed creation payload for the entity_type */
+            /** @description Typed creation payload for the entity_type. A show payload may carry the bill as artists: [{name, set_type?}], name only, no id, at most 50 acts. A payload bill NEVER infers a headliner from list order: an act with no set_type is stored as 'performer', so a bill naming no 'headliner' creates a show with no headliner row. State set_type 'headliner' explicitly when the source names one. When set_type is present it must be one of: headliner,direct_support,opener,special_guest,dj,performer. */
             payload: unknown;
             /** @description How the request originated (ai_extraction, paste_mode, manual); defaults to manual */
             source_context?: string;
@@ -10141,6 +10145,11 @@ export interface components {
             /** @description Show description */
             description?: string;
             /**
+             * Format: double
+             * @description Price at the door
+             */
+            door_price?: number;
+            /**
              * Format: date-time
              * @description When doors open (RFC3339)
              */
@@ -10159,7 +10168,7 @@ export interface components {
             music_at?: string;
             /**
              * Format: double
-             * @description Ticket price
+             * @description Ticket price (advance price when a door price is also given)
              */
             price?: number;
             /** @description State where the show takes place */
@@ -10833,6 +10842,8 @@ export interface components {
         ExportShowData: {
             age_requirement?: string;
             city?: string;
+            /** Format: double */
+            door_price?: number;
             event_date: string;
             /** Format: double */
             price?: number;
@@ -10881,6 +10892,8 @@ export interface components {
             artists: components["schemas"]["ExportedShowArtist"][] | null;
             city?: string;
             description?: string;
+            /** Format: double */
+            doorPrice?: number;
             doorsAt?: string;
             eventDate: string;
             isCancelled: boolean;
@@ -10958,6 +10971,7 @@ export interface components {
             cost?: string;
             date?: string;
             description?: string;
+            door_cost?: string;
             time?: string;
             venue?: components["schemas"]["ExtractedVenue"];
         };
@@ -15365,7 +15379,7 @@ export interface components {
             id: number;
             summary?: string;
             /** Format: int64 */
-            user_id: number;
+            user_id?: number;
             user_name?: string;
             user_username: string | null;
         };
@@ -15431,6 +15445,8 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             description: string | null;
+            /** Format: double */
+            door_price: number | null;
             /** Format: date-time */
             doors_at: string | null;
             /** Format: int64 */
@@ -16425,6 +16441,8 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             description: string | null;
+            /** Format: double */
+            door_price: number | null;
             /** Format: date-time */
             doors_at: string | null;
             /** Format: int64 */
@@ -17417,6 +17435,11 @@ export interface components {
             /** @description Show description */
             description?: string;
             /**
+             * Format: double
+             * @description Price at the door
+             */
+            door_price?: number;
+            /**
              * Format: date-time
              * @description When doors open (RFC3339)
              */
@@ -17435,7 +17458,7 @@ export interface components {
             music_at?: string;
             /**
              * Format: double
-             * @description Ticket price
+             * @description Ticket price (advance price when a door price is also set)
              */
             price?: number;
             /** @description State where the show takes place */
@@ -17462,6 +17485,8 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             description: string | null;
+            /** Format: double */
+            door_price: number | null;
             /** Format: date-time */
             doors_at: string | null;
             /** Format: int64 */

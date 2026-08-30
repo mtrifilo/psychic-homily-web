@@ -314,7 +314,10 @@ func (s *CommentSubscriptionService) loadLastCommenterNames(rows []watchingRow) 
 	for _, a := range authors {
 		userIDs = append(userIDs, a.UserID)
 	}
-	namesByUser, err := shared.BatchResolveUserNames(s.db, userIDs)
+	// Public chain (PSY-1940): these are the names of OTHER people's comments,
+	// rendered on the watching list, and they must read the same as the byline
+	// on the comment itself, which is public.
+	namesByUser, err := shared.BatchResolvePublicUserNames(s.db, userIDs)
 	if err != nil {
 		log.Printf("warning: failed to resolve commenter names for watching list: %v", err)
 		return map[uint]string{}

@@ -13,12 +13,31 @@ interface AttributionLineProps {
  * Displays "Last edited by [username] · [relative time]" for an entity.
  * Fetches the most recent revision and renders a small attribution line.
  * Returns null if no revisions exist or data is still loading.
+ *
+ * Degrades to "Last edited [relative time]" when the backend will not name the
+ * author (a contributor who hid their contributions, or one whose only
+ * resolvable name would be an email fragment — PSY-1940). The middot goes with
+ * the credit: it separates a name from a time, and with no name there is
+ * nothing to separate. The credit is dropped rather than replaced with a
+ * placeholder — the edit is a fact, the person is not ours to publish.
+ *
+ * Gated on the NAME rather than the username, because an account with no
+ * linkable profile is still a person to credit; UserAttribution renders that as
+ * plain text.
  */
 export function AttributionLine({ entityType, entityId }: AttributionLineProps) {
   const { data: attribution } = useEntityAttribution(entityType, entityId)
 
   if (!attribution) {
     return null
+  }
+
+  if (!attribution.user_name) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        Last edited {formatRelativeTime(attribution.created_at)}
+      </p>
+    )
   }
 
   return (

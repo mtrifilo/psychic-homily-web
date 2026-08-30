@@ -1,4 +1,5 @@
 import {
+  FALLBACK_SHOW_TIMEZONE,
   getTimezoneForState,
   hasTimezoneForState,
   formatDateInTimezone,
@@ -10,28 +11,49 @@ import {
 /**
  * Resolve the IANA timezone for rendering a show time. Prefers the venue's
  * resolved `timezone` (PSY-985); falls back to the US state→tz map for venues
- * without one (pre-backfill rows). A malformed/unknown `timezone` string falls
- * through to the state map rather than crashing the render (`Intl` throws a
- * RangeError on a bad zone), mirroring the backend's EventLocation (PSY-996/986).
+ * without one (pre-backfill rows), and finally to
+ * `FALLBACK_SHOW_TIMEZONE` (`./timeUtils`) when the state is blank or non-US. A
+ * malformed/unknown `timezone` string falls through to the state map rather
+ * than crashing the render (`Intl` throws a RangeError on a bad zone),
+ * mirroring the backend's EventLocation (PSY-996/986).
+ *
+ * THE LAST STEP IS NOT A DISPLAY DEFAULT. It is the read half of a round trip
+ * with the submit path, and swapping it here alone would move every rendered
+ * clock off its stored instant. `FALLBACK_SHOW_TIMEZONE` (`./timeUtils`) holds
+ * the whole invariant; read it before touching either end.
  */
 export function resolveShowTimezone(
   state?: string | null,
   timezone?: string | null
 ): string {
   if (timezone && isValidTimeZone(timezone)) return timezone
-  return getTimezoneForState(state || 'AZ')
+  // Spelled as an early return rather than folded into the map lookup so this
+  // function — the one all the policy docs point readers at — actually names
+  // the constant that governs it, and so a grep for FALLBACK_SHOW_TIMEZONE
+  // finds the chain's last rung instead of only its definition.
+  if (!state) return FALLBACK_SHOW_TIMEZONE
+  return getTimezoneForState(state)
 }
 
 /**
  * Whether `resolveShowTimezone` would return a zone it actually KNOWS for this
- * show, rather than the America/Phoenix default it falls back to for anything
- * outside the US state map.
+ * show, rather than `FALLBACK_SHOW_TIMEZONE` (`./timeUtils`), which it falls
+ * back to for anything outside the US state map.
  *
  * Ask this before rendering a clock time or a same-day claim ("tonight") for a
  * venue that may not have a resolved `timezone`: the default is a guess, and a
  * guess that is hours or a calendar day wrong reads as fact once it is printed
  * next to a venue name. Formatting a date is a weaker claim and can live with
  * the fallback; naming an hour cannot.
+ *
+ * That split is the show page's policy, not a per-surface preference. Wave 1A
+ * (PSY-1684) wrote the refusing half into `showStatusStripeCopy` — no DOORS, no
+ * MUSIC, no TONIGHT on a guessed zone — and Wave 1C (PSY-1686) extended it to
+ * the start time and the venue module's times line. The accepting half is every
+ * date render on that page, which prints the fallback's calendar day rather
+ * than printing nothing. `FALLBACK_SHOW_TIMEZONE` (`./timeUtils`) carries why
+ * that day is the best available answer instead of an arbitrary one, and which
+ * surfaces do NOT yet ask this question.
  */
 export function isShowTimezoneResolved(
   state?: string | null,

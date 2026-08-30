@@ -2,16 +2,15 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Loader2, MapPin } from 'lucide-react'
+import { ArrowLeft, Loader2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useShow } from '../hooks/useShows'
 import type { ApiError } from '@/lib/api'
 import { useSetShowSoldOut, useSetShowCancelled } from '@/lib/hooks/admin/useAdminShows'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { queryKeys } from '@/lib/queryClient'
-import type { ArtistResponse } from '../types'
 import { Button } from '@/components/ui/button'
-import { SocialLinks, MusicEmbed, EntityDetailLayout, EntityDetailContainer, RevisionHistory } from '@/components/shared'
+import { EntityDetailLayout, EntityDetailContainer, RevisionHistory } from '@/components/shared'
 import { EntityCollections } from '@/features/collections'
 import { EntityChartRankBadge, useChartEntityRank } from '@/features/charts'
 import { EntityTagList } from '@/features/tags'
@@ -23,8 +22,10 @@ import {
 } from '@/features/contributions'
 import { DeleteShowDialog } from './DeleteShowDialog'
 import { ShowHeader } from './ShowHeader'
+import { ShowListenModule } from './ShowListenModule'
 import { ShowActions } from './ShowActions'
 import { ShowProvenanceLine } from './ShowProvenanceLine'
+import { ShowDiscoveryRails } from './ShowDiscoveryRails'
 import { ShowStatusStripe } from './ShowStatusStripe'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
@@ -33,8 +34,10 @@ interface ShowDetailProps {
   showId: string | number
   /**
    * Where the show sits on the venue's calendar, computed ON THE SERVER (see
-   * the show route) and passed through to {@link ShowStatusStripe}. A prop
-   * rather than a hook because this component runs on the client; see
+   * the show route) and threaded to every module whose register depends on it:
+   * the status stripe, the header (ticket line and sold-out badge), the listen
+   * module's heading, the field notes' empty state, and the discovery rails. A
+   * prop rather than a hook because this component runs on the client; see
    * `getShowLifecycleState` for the boundary and why it is not the reader's.
    *
    * Cancellation is deliberately NOT folded in here. It is a data flag the
@@ -42,14 +45,6 @@ interface ShowDetailProps {
    * immediately while the clock half stays frozen at what the server saw.
    */
   lifecycle: ShowLifecycleState
-}
-
-function artistHasMusic(artist: ArtistResponse): boolean {
-  return !!(
-    artist.bandcamp_embed_url ||
-    artist.socials?.spotify ||
-    artist.socials?.bandcamp
-  )
 }
 
 export function ShowDetail({ showId, lifecycle }: ShowDetailProps) {
@@ -166,7 +161,6 @@ export function ShowDetail({ showId, lifecycle }: ShowDetailProps) {
   }
 
   const artists = show.artists
-  const artistsWithMusic = artists.filter(artistHasMusic)
   const showTitle = showDisplayTitle(show.title, artists.map(a => a.name))
 
   return (
@@ -222,47 +216,13 @@ export function ShowDetail({ showId, lifecycle }: ShowDetailProps) {
             NOT extended to shows. */}
         <EntitySaveSuccessBanner visible={saveBanner.isVisible} />
 
-        {/* Artist Music Section */}
-        {artistsWithMusic.length > 0 && (
-          <section className="mb-8">
-            <h2 className="text-lg font-semibold mb-4">Listen to the Artists</h2>
-            <div className="space-y-6">
-              {artistsWithMusic.map(artist => (
-                <div key={artist.id} className="space-y-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      {artist.slug ? (
-                        <Link
-                          href={`/artists/${artist.slug}`}
-                          className="font-medium hover:text-primary transition-colors"
-                        >
-                          {artist.name}
-                        </Link>
-                      ) : (
-                        <span className="font-medium">{artist.name}</span>
-                      )}
-                      {(artist.city || artist.state) && (
-                        <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
-                          <MapPin className="h-3 w-3" />
-                          <span>
-                            {[artist.city, artist.state].filter(Boolean).join(', ')}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                    <SocialLinks social={artist.socials} className="shrink-0" />
-                  </div>
-                  <MusicEmbed
-                    bandcampAlbumUrl={artist.bandcamp_embed_url}
-                    bandcampProfileUrl={artist.socials?.bandcamp}
-                    spotifyUrl={artist.socials?.spotify}
-                    artistName={artist.name}
-                  />
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
+        {/* SLOT: listen module. Self-hiding, so no guard here.
+
+            The card states the act's hometown and carries its social links
+            alongside the player, against the mock, which draws neither (owner
+            decision, 2026-08-30). What the module changed from the block it
+            replaced is the gate and the chrome, not the facts stated. */}
+        <ShowListenModule artists={artists} lifecycle={lifecycle} />
 
         {/* In Collections */}
         <section className="mb-8">
@@ -271,16 +231,25 @@ export function ShowDetail({ showId, lifecycle }: ShowDetailProps) {
 
         {/* Field Notes */}
         <section className="mb-8">
+          {/* `lifecycle` picks the empty state's TENSE only; the form's own
+              gate stays on the start instant, where the API's boundary is.
+              The two differ for the whole evening of a show, which is why
+              the section needs both rather than re-deriving one from the
+              other. */}
           <FieldNotesSection
             showId={show.id}
             showDate={show.event_date}
+            lifecycle={lifecycle}
+            isCancelled={show.is_cancelled}
             artists={artists.map(a => ({ id: a.id, name: a.name }))}
           />
         </section>
 
-        {/* SLOT: rails row. The "also tonight in this city" and "more at this
-            venue" columns sit here, below the embeds and above the footer.
-            Neither is built; a later wave fills the slot. */}
+        {/* The rails row (PSY-1689): "also tonight in this metro" beside "more
+            at this venue", below the embeds and above the footer. Renders
+            nothing at all when neither rail has rows, so a quiet night and a
+            room with no other dates cost this page no space. */}
+        <ShowDiscoveryRails show={show} lifecycle={lifecycle} />
 
         {/* Tags and provenance footer. Both were in the header slot, above the
             fold, competing with the bill for the first thing a reader sees.

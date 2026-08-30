@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient } from '@tanstack/react-query'
-import { createWrapper, createTestQueryClient } from '@/test/utils'
+import {
+  createWrapper,
+  createWrapperWithClient,
+  createTestQueryClient,
+} from '@/test/utils'
 
 // Create mocks
 const mockApiRequest = vi.fn()
@@ -21,17 +25,19 @@ vi.mock('@/features/shows/api', () => ({
     UPCOMING: '/shows/upcoming',
     CITIES: '/shows/cities',
     GET: (id: string | number) => `/shows/${id}`,
+    ALSO_TONIGHT: (id: string | number) => `/shows/${id}/also-tonight`,
   },
   showQueryKeys: {
     list: (filters?: Record<string, unknown>) => ['shows', 'list', filters],
     detail: (id: string) => ['shows', 'detail', id],
     cities: () => ['shows', 'cities'],
+    alsoTonight: (id: string) => ['shows', 'also-tonight', id],
   },
   SHOW_CITIES_FIRST_SCREEN_URL: '/shows/cities',
 }))
 
 // Import hooks after mocks are set up
-import { useUpcomingShows, useShow } from './useShows'
+import { useUpcomingShows, useShow, useShowAlsoTonight } from './useShows'
 
 
 describe('useShows', () => {
@@ -218,6 +224,78 @@ describe('useShows', () => {
       await waitFor(() => expect(result.current.isError).toBe(true))
 
       expect((result.current.error as Error).message).toBe('Show not found')
+    })
+  })
+
+  describe('useShowAlsoTonight', () => {
+    it('fetches the rail from the show sub-route', async () => {
+      mockApiRequest.mockResolvedValueOnce({ date: '2026-08-12', shows: [] })
+
+      const { result } = renderHook(() => useShowAlsoTonight('desert-doom'), {
+        wrapper: createWrapper(),
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        '/shows/desert-doom/also-tonight',
+        { method: 'GET' }
+      )
+    })
+
+    it('addresses the show by numeric id too', async () => {
+      mockApiRequest.mockResolvedValueOnce({ date: '2026-08-12', shows: [] })
+
+      const { result } = renderHook(() => useShowAlsoTonight(42), {
+        wrapper: createWrapper(),
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      expect(mockApiRequest).toHaveBeenCalledWith('/shows/42/also-tonight', {
+        method: 'GET',
+      })
+    })
+
+    it('does not fetch when showId is falsy', async () => {
+      const { result } = renderHook(() => useShowAlsoTonight(''), {
+        wrapper: createWrapper(),
+      })
+
+      expect(mockApiRequest).not.toHaveBeenCalled()
+      expect(result.current.fetchStatus).toBe('idle')
+    })
+
+    it('lands on the also-tonight key, not the show detail key', async () => {
+      // The two are addressed by the same id and invalidated independently.
+      const queryClient = createTestQueryClient()
+      mockApiRequest.mockResolvedValueOnce({ date: '2026-08-12', shows: [] })
+
+      const { result } = renderHook(() => useShowAlsoTonight('42'), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      expect(
+        queryClient.getQueryData(['shows', 'also-tonight', '42'])
+      ).toBeDefined()
+      expect(queryClient.getQueryData(['shows', 'detail', '42'])).toBeUndefined()
+    })
+
+    it('surfaces a failure rather than pretending the night was quiet', async () => {
+      // The component hides the rail on error, but the hook must still report
+      // one — an empty night is a 200 with an empty list, not an error.
+      const error = new Error('Show not found')
+      Object.assign(error, { status: 404 })
+      mockApiRequest.mockRejectedValueOnce(error)
+
+      const { result } = renderHook(() => useShowAlsoTonight(999), {
+        wrapper: createWrapper(),
+      })
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
+      expect(result.current.data).toBeUndefined()
     })
   })
 })

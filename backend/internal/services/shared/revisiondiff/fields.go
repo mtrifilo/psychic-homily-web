@@ -31,6 +31,7 @@ var (
 		{Name: "city", Path: "City"},
 		{Name: "state", Path: "State"},
 		{Name: "price", Path: "Price"},
+		{Name: "door_price", Path: "DoorPrice"},
 		{Name: "age_requirement", Path: "AgeRequirement"},
 		{Name: "description", Path: "Description"},
 		{Name: "ticket_url", Path: "TicketURL"},

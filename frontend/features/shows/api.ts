@@ -32,6 +32,12 @@ export const showEndpoints = {
   SET_CANCELLED: (showId: string | number) =>
     `${API_BASE_URL}/shows/${showId}/cancelled`,
   MY_SUBMISSIONS: `${API_BASE_URL}/shows/my-submissions`,
+  // The show page's also-tonight rail (PSY-1683 / PSY-1689): other shows in
+  // this show's metro on this show's own date. A sub-route of /shows, but NOT
+  // a frontend ROUTE — it is read by the existing `/shows/[slug]` page, so
+  // `proxy.ts` needs no branch for it (see ShowDiscoveryRails).
+  ALSO_TONIGHT: (showId: string | number) =>
+    `${API_BASE_URL}/shows/${showId}/also-tonight`,
   // Export endpoint (dev only)
   EXPORT: (showId: string | number) =>
     `${API_BASE_URL}/shows/${showId}/export`,
@@ -55,6 +61,10 @@ export const showQueryKeys = {
   // fragment the cache across entries that can only ever hold identical data.
   cities: () => ['shows', 'cities'] as const,
   detail: (id: string) => ['shows', 'detail', id] as const,
+  // No timezone or viewer segment: the rail is about the SHOW's own night, read
+  // on the venue's clock, so every viewer gets the same answer for the same
+  // show (the same contract `cities` states above).
+  alsoTonight: (id: string) => ['shows', 'also-tonight', id] as const,
   userShows: (userId: string) => ['shows', 'user', userId] as const,
   search: (query: string) => ['shows', 'search', query.toLowerCase()] as const,
 } as const

@@ -69,7 +69,11 @@ describe('useEntityAttribution', () => {
     expect(result.current.data).toBeNull()
   })
 
-  it('falls back to "Anonymous" and null username when the revision omits them', async () => {
+  // PSY-1940: an omitted user_name is the backend declining to name the author
+  // (hidden contributions, or an email-only name), not a gap to paper over. It
+  // must arrive as null so consumers render no byline; the old 'Anonymous'
+  // fallback turned "we may not say" into a claim about a person.
+  it('maps an omitted user_name to null rather than "Anonymous"', async () => {
     mockApiRequest.mockResolvedValueOnce({
       revisions: [
         {
@@ -89,11 +93,38 @@ describe('useEntityAttribution', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(result.current.data).toEqual({
-      user_name: 'Anonymous',
+      user_name: null,
       user_username: null,
       created_at: '2026-05-01T00:00:00Z',
       total: 1,
     })
+  })
+
+  // The revision itself still resolves: the edit and its date are facts, only
+  // the person is withheld. A consumer that treated a nameless revision as "no
+  // revision" would drop the edit count and the "updated" date with it.
+  it('still returns the revision when the author is unnamed', async () => {
+    mockApiRequest.mockResolvedValueOnce({
+      revisions: [
+        {
+          id: 1,
+          user_id: 5,
+          user_username: null,
+          created_at: '2026-05-01T00:00:00Z',
+        },
+      ],
+      total: 12,
+    })
+
+    const { result } = renderHook(
+      () => useEntityAttribution('venue', 3),
+      { wrapper: createWrapper() }
+    )
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(result.current.data).not.toBeNull()
+    expect(result.current.data?.total).toBe(12)
+    expect(result.current.data?.created_at).toBe('2026-05-01T00:00:00Z')
   })
 
   // The count is passed through untouched: the contract declares it

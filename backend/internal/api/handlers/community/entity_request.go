@@ -60,8 +60,17 @@ func NewEntityRequestHandler(
 // the handler only enforces it is present + non-empty here.
 type CreateEntityRequestRequest struct {
 	Body struct {
-		EntityType    string                                `json:"entity_type" doc:"Entity type to request (artist, venue, label, release, show, festival)"`
-		Payload       json.RawMessage                       `json:"payload" doc:"Typed creation payload for the entity_type"`
+		EntityType string `json:"entity_type" doc:"Entity type to request (artist, venue, label, release, show, festival)"`
+		// The payload is json.RawMessage, so NOTHING about its shape reaches the
+		// generated OpenAPI document: the doc string is the only contract a
+		// producer author sees. The show bill's headliner rule is stated there
+		// for that reason (PSY-1858) — a producer that assumes bill order names
+		// the headliner, as most sources do, ships shows with none.
+		//
+		// TestCreateEntityRequestPayloadDocMatchesTheRules pins the cap and the
+		// vocabulary this string restates, since a doc tag cannot be built from
+		// constants.
+		Payload       json.RawMessage                       `json:"payload" doc:"Typed creation payload for the entity_type. A show payload may carry the bill as artists: [{name, set_type?}], name only, no id, at most 50 acts. A payload bill NEVER infers a headliner from list order: an act with no set_type is stored as 'performer', so a bill naming no 'headliner' creates a show with no headliner row. State set_type 'headliner' explicitly when the source names one. When set_type is present it must be one of: headliner,direct_support,opener,special_guest,dj,performer."`
 		SourceContext string                                `json:"source_context" required:"false" doc:"How the request originated (ai_extraction, paste_mode, manual); defaults to manual"`
 		SourceDetail  *communitym.EntityRequestSourceDetail `json:"source_detail" required:"false" doc:"Optional origin context (source URL + excerpt), chiefly for AI extraction; shown in the admin moderation queue"`
 		Confirmed     bool                                  `json:"confirmed" required:"false" doc:"FE-side confirm step (only relevant to trusted_contributor tier)"`
@@ -117,6 +126,20 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 	// stored as junk in the queue and failing confusingly on admin approve.
 	if err := communitym.ValidateEntityRequestPayload(entityType, req.Body.Payload); err != nil {
 		return nil, huma.Error422UnprocessableEntity("Invalid payload for " + entityType + ": " + err.Error())
+	}
+
+	// PSY-1858: a show payload may carry the bill the contributor knew. Its roles
+	// are checked against the curated set_type vocabulary HERE, at submit, for
+	// the same reason the admin paths check them pre-claim: a role rejected at
+	// fulfillment is rejected after the row has been claimed, and no endpoint can
+	// edit a queued payload to repair it. The check is not inside
+	// ValidateEntityRequestPayload only because the vocabulary lives in a package
+	// that imports the payload models; see validateShowPayloadBillRoles. The
+	// bill's STRUCTURE was already checked by ValidateEntityRequestPayload above.
+	// Ordered ahead of the image-URL guard because it is a pure in-memory check
+	// and that one can resolve DNS.
+	if err := validateShowPayloadBillRoles(entityType, req.Body.Payload); err != nil {
+		return nil, err
 	}
 
 	// PSY-1675: the payload's image_url rides onto a real entity at fulfillment
@@ -388,7 +411,12 @@ type AdminDecideEntityRequestRequest struct {
 		// the venue + artist associations CreateShow needs); ignored for every
 		// other entity type and for rejections.
 		ShowVenue   *ShowVenueInput   `json:"show_venue,omitempty" required:"false" doc:"Venue for fulfilling a show request (required when approving a show)"`
-		ShowArtists []ShowArtistInput `json:"show_artists,omitempty" required:"false" doc:"Artists for fulfilling a show request (required when approving a show; at least one)"`
+		ShowArtists []ShowArtistInput `json:"show_artists,omitempty" required:"false" doc:"Artists for fulfilling a show request (required when approving a show, unless use_payload_artists adopts the bill the request payload carries)"`
+		// UsePayloadArtists is the admin's affirmative adoption of the bill the
+		// CONTRIBUTOR recorded (PSY-1858). See resolveShowBill for the rule and
+		// why the flag exists rather than an omitted show_artists meaning the
+		// same thing.
+		UsePayloadArtists bool `json:"use_payload_artists,omitempty" required:"false" doc:"Approve a show using the artists stored on the request's own payload. Mutually exclusive with show_artists: send one or the other, never both. Omitting both is still a 422, so a bill is never adopted by default. An adopted bill never designates a headliner by list order: an act with no set_type is stored as 'performer', so a bill naming no 'headliner' creates a show with no headliner row."`
 	}
 }
 
@@ -445,22 +473,15 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 	// PSY-1037: validate + convert admin-supplied show associations BEFORE the
 	// row is claimed, so malformed input is a clean 422 instead of an
 	// approved-but-unfulfilled row. Rejections ignore the association fields
-	// entirely (no spurious 422 for a reject that happens to carry them).
-	var showAssoc *showAssociations
-	if newState == communitym.EntityRequestStateApproved {
-		var aerr error
-		showAssoc, aerr = buildShowAssociations(req.Body.ShowVenue, req.Body.ShowArtists)
-		if aerr != nil {
-			return nil, aerr
-		}
-	}
-
+	// entirely (no spurious 422 for a reject that happens to carry them), and
+	// skip the pre-claim read below along with them.
+	//
 	// PSY-1037: approving a show REQUIRES the associations — guard before the
 	// claim. Decide only operates on pending rows, so a post-claim failure
 	// would leave an approved-but-unfulfilled row no decide call can ever
-	// re-process. Costs one PK read, only on the no-associations approve path.
-	// Scoped to PENDING rows so an already-decided row still gets Decide's
-	// 409 (invalid state), not a misleading missing-associations 422.
+	// re-process. Costs one PK read, only on the approve path. Every check that
+	// reads the stored row is scoped to PENDING rows, so nothing the row contains
+	// can pre-empt Decide's 409 (invalid state) on an already-decided one.
 	//
 	// PSY-1675 rides on the same pre-claim read for the same reason: a stored
 	// image_url pointing at an internal address must not be fulfilled, and a
@@ -469,6 +490,14 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 	// — which discards the contributor's request and their attribution — as the
 	// only way out. Checked here, a hostile flyer is a clean 422 on a row that
 	// is still pending.
+	//
+	// PSY-1858 is why the read now happens BEFORE the association build rather
+	// than after it: an adopted bill is read off the stored payload, so the
+	// conversion needs the row in hand. Nothing else moved. A
+	// read that ERRORS still reports ahead of any complaint about the body, and a
+	// read that finds nothing (GetRequest answers (nil, nil) for a missing row)
+	// still falls through to Decide, which is what turns it into the 404.
+	var showAssoc *showAssociations
 	if newState == communitym.EntityRequestStateApproved {
 		existing, gerr := h.entityRequestService.GetRequest(uint(requestID))
 		if gerr != nil {
@@ -481,12 +510,52 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 			)
 			return nil, huma.Error500InternalServerError("Failed to load request")
 		}
+
+		// eligible is the row when the checks that READ IT may act on it, and nil
+		// otherwise. Decide claims only PENDING rows, so for anything else the
+		// honest answer is its 409 (invalid state); a 422 about a stored payload
+		// the admin never sent would report the wrong problem entirely and read as
+		// though re-sending the request with a bill could fix it. Adoption is
+		// scoped by the same value, which is the whole reason it is one variable.
+		//
+		// This does NOT make an already-decided row immune to every 422: the
+		// admin's own body is still shape-checked first, exactly as it was before
+		// any of this, so an approve supplying a venue and no bill is refused on
+		// its own merits whatever state the row is in. What the gate buys is that
+		// nothing the STORED row contains can produce that refusal.
+		var eligible *communitym.EntityRequest
 		if existing != nil && existing.DecisionState == communitym.EntityRequestStatePending {
-			if showAssoc == nil && existing.EntityType == communitym.EntityRequestShow {
-				return nil, huma.Error422UnprocessableEntity("Approving a show requires show_venue and show_artists")
+			eligible = existing
+		}
+
+		// EVERY pre-claim check is inside this block, so a row Decide cannot act
+		// on skips all of them and gets answered by its own state: 409 for an
+		// already-decided row, 404 for one that is not there.
+		//
+		// The whole block is gated, not just the checks that read the payload,
+		// because use_payload_artists made a body that omits show_artists a
+		// COMPLETE request (PSY-1858). Validating the body's shape here would
+		// refuse a complete adopting approve with "show_artists is missing" on a
+		// row whose real problem is that it was decided a second ago, which is a
+		// message that reads as fixable and is not.
+		if eligible != nil {
+			// PSY-1858: one shared pre-claim admission check with the rescue
+			// endpoint (validate the stored bill, resolve body-vs-flag, build), so
+			// the two admin paths cannot answer the same bill differently.
+			var aerr error
+			showAssoc, aerr = admitShowBill(eligible, req.Body.ShowVenue, req.Body.ShowArtists, req.Body.UsePayloadArtists)
+			if aerr != nil {
+				return nil, aerr
 			}
-			if existing.Payload != nil {
-				if verr := validatePayloadImageURL(ctx, existing.EntityType, *existing.Payload); verr != nil {
+
+			if showAssoc == nil && eligible.EntityType == communitym.EntityRequestShow {
+				return nil, huma.Error422UnprocessableEntity(
+					"Approving a show requires show_venue, and either show_artists or use_payload_artists")
+			}
+			// Last of the pre-claim checks because it is the only one that can
+			// resolve DNS; the in-memory refusals above should not wait on it.
+			if eligible.Payload != nil {
+				if verr := validatePayloadImageURL(ctx, eligible.EntityType, *eligible.Payload); verr != nil {
 					return nil, verr
 				}
 			}
@@ -548,6 +617,19 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 		}
 		if resp.Body.CreatedEntityID != nil {
 			metadata["created_entity_id"] = *resp.Body.CreatedEntityID
+		}
+		// PSY-1858: record WHICH bill was fulfilled, so an approve that adopted the
+		// contributor's stored bill is distinguishable after the fact from one the
+		// admin typed and vetted. Nothing else in the row carries that.
+		//
+		// Gated on the entity type as well as on showAssoc, because a non-show
+		// approve carrying stray show_venue + show_artists still builds a
+		// showAssoc that fulfillEntity then ignores. Recording a bill_source there
+		// would answer "which bill was fulfilled" for an entity that has no bill,
+		// which is worse than staying silent in the one field added to make that
+		// question answerable.
+		if showAssoc != nil && showAssoc.billSource != "" && decided.EntityType == communitym.EntityRequestShow {
+			metadata["bill_source"] = string(showAssoc.billSource)
 		}
 		entityType := decided.EntityType
 		servicesshared.GoSafe(ctx, "audit_log", func() {

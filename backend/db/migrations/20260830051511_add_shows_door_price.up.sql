@@ -1,0 +1,14 @@
+-- PSY-1864: the advance/door price split.
+--
+-- Purely additive, so no backfill: `price` keeps its meaning and every existing
+-- row keeps its value. It is the show's price, and the ADVANCE price on the
+-- rows that also carry a door price.
+--
+-- DECIMAL(10, 2) NULL is byte-for-byte the shape of `price` in
+-- 000001_create_initial_schema -- the two are the same kind of fact. NULL means
+-- "not known", never "free"; a free door is 0, the same distinction `price`
+-- already carries.
+--
+-- Cash-only (`DOOR $40 CASH` in the mock) is a SEPARATE fact, deliberately not
+-- built: no source states it reliably enough to fill a column with.
+ALTER TABLE shows ADD COLUMN door_price DECIMAL(10, 2);

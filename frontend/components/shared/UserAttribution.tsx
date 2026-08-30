@@ -4,9 +4,25 @@ import Link from 'next/link'
 
 export interface UserAttributionProps {
   /**
-   * Display name as resolved by the backend's `ResolveUserName` chain
-   * (PSY-612). Should be non-empty for any user with ID > 0; falls through
-   * to {@link fallback} when undefined or empty.
+   * Display name as resolved by the backend.
+   *
+   * TWO FAMILIES OF CALLER, and they must not be confused (PSY-1940):
+   *
+   * - AUTHORED-CONTENT surfaces (comments, collections, the request board)
+   *   resolve through `shared.ResolvePublicUserName`, which is never empty and
+   *   bottoms out at "Anonymous". Their author slot has to say something, so
+   *   {@link fallback} is a real terminal for them.
+   * - CONTRIBUTION bylines (the show submitter credit, revision attribution)
+   *   resolve through `shared.ResolvePublicContributorCredit`, which returns
+   *   NOTHING for a contributor who hid their contributions or whose only
+   *   resolvable name would come from their email address. Those callers must
+   *   render no byline at all, and so must GUARD ON THE NAME BEFORE REACHING
+   *   THIS COMPONENT — see ShowProvenanceLine's `datedCredit`, AttributionLine,
+   *   and RevisionHistory. Handing an absent contribution name straight to this
+   *   component would print "Anonymous", which asserts a person the backend
+   *   deliberately declined to name.
+   *
+   * The default {@link fallback} therefore serves the first family only.
    */
   name?: string | null
 
@@ -20,7 +36,13 @@ export interface UserAttributionProps {
    */
   username?: string | null
 
-  /** Terminal label when {@link name} is missing. Defaults to "Anonymous". */
+  /**
+   * Terminal label when {@link name} is missing. Defaults to "Anonymous".
+   *
+   * Only meaningful for the authored-content family described on {@link name}.
+   * A contribution byline must never rely on it: for those, an absent name means
+   * "we may not say", and this default would answer with a person instead.
+   */
   fallback?: string
 
   /**
@@ -40,9 +62,13 @@ export interface UserAttributionProps {
 /**
  * Renders a user attribution byline. If `username` is set AND `linkable`
  * (default), renders `<Link href="/users/${username}">name</Link>`; otherwise
- * a plain `<span>`. Never renders `User #${id}` — the backend's canonical
- * resolver guarantees a usable display name, and leaking the internal DB row
- * id reads like placeholder content.
+ * a plain `<span>`. Never renders `User #${id}` — leaking the internal DB row
+ * id reads like placeholder content, and the backend always resolves a label
+ * for the surfaces that use this component's fallback.
+ *
+ * This component never decides whether a person may be NAMED; that is the
+ * backend's call and, for contribution bylines, the caller's guard. See the
+ * two families documented on {@link UserAttributionProps.name}.
  */
 export function UserAttribution({
   name,

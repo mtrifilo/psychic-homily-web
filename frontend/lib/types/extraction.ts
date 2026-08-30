@@ -93,6 +93,12 @@ export interface ExtractedShowData {
   time?: string
   /** Ticket cost as string (e.g., "$20", "Free") */
   cost?: string
+  /**
+   * Door / day-of price as a string, present ONLY when the source stated a
+   * separate one alongside an advance price -- in which case `cost` is the
+   * advance half (PSY-1864). Never derived from `cost`.
+   */
+  door_cost?: string
   /** Age requirement (e.g., "21+", "All Ages") */
   ages?: string
   /** Any additional description or notes */

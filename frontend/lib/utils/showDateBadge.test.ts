@@ -1,28 +1,39 @@
 import { describe, it, expect, vi } from 'vitest'
 
-// Mock the timeUtils module
-vi.mock('./timeUtils', () => ({
-  getTimezoneForState: vi.fn((state: string) => {
-    const map: Record<string, string> = {
-      AZ: 'America/Phoenix',
-      CA: 'America/Los_Angeles',
-      NY: 'America/New_York',
-    }
-    return map[state.toUpperCase()] || 'America/Phoenix'
-  }),
-  // Honor the passed timezone (the real formatInTimezone does) so tests can
-  // verify venue-tz threading, not just the hardcoded-Phoenix path.
-  formatInTimezone: vi.fn(
-    (dateString: string, timezone: string, options: Intl.DateTimeFormatOptions) => {
-      return new Date(dateString).toLocaleString('en-US', {
-        ...options,
-        timeZone: timezone,
-      })
-    }
-  ),
-}))
+// Mock the timeUtils module. The three-state map is the deliberate fake; the
+// MISS branch takes the real `FALLBACK_SHOW_TIMEZONE` so this suite cannot keep
+// asserting Phoenix after the one production constant moves (PSY-1696).
+vi.mock('./timeUtils', async importOriginal => {
+  const { FALLBACK_SHOW_TIMEZONE } =
+    await importOriginal<typeof import('./timeUtils')>()
+  return {
+    FALLBACK_SHOW_TIMEZONE,
+    getTimezoneForState: vi.fn((state: string) => {
+      const map: Record<string, string> = {
+        AZ: 'America/Phoenix',
+        CA: 'America/Los_Angeles',
+        NY: 'America/New_York',
+      }
+      return map[state.toUpperCase()] || FALLBACK_SHOW_TIMEZONE
+    }),
+    // Honor the passed timezone (the real formatInTimezone does) so tests can
+    // verify venue-tz threading, not just the hardcoded-Phoenix path.
+    formatInTimezone: vi.fn(
+      (dateString: string, timezone: string, options: Intl.DateTimeFormatOptions) => {
+        return new Date(dateString).toLocaleString('en-US', {
+          ...options,
+          timeZone: timezone,
+        })
+      }
+    ),
+  }
+})
 
-import { formatShowDateBadge, formatShowMonthDay } from './showDateBadge'
+import {
+  formatShowDateBadge,
+  formatShowMonthDay,
+  formatShowMonthDayPadded,
+} from './showDateBadge'
 import { formatInTimezone } from './timeUtils'
 
 describe('formatShowDateBadge', () => {
@@ -86,6 +97,41 @@ describe('formatShowMonthDay', () => {
       '2026-07-12T19:30:00Z',
       'America/Phoenix',
       { month: 'short', day: 'numeric' }
+    )
+  })
+})
+
+describe('formatShowMonthDayPadded', () => {
+  it('asks Intl for a padded day rather than patching the sibling’s output', () => {
+    // The distinction is the point: the rails' ledger column used to zero-pad
+    // by regex over `formatShowMonthDay`'s return value, which coupled them to
+    // a string shape nothing enforces in a helper serving cards, badges and
+    // the status stripe.
+    vi.mocked(formatInTimezone).mockReturnValueOnce('Sep 04')
+
+    expect(
+      formatShowMonthDayPadded('2026-09-05T01:00:00Z', 'IL', 'America/Chicago')
+    ).toBe('SEP 04')
+    expect(formatInTimezone).toHaveBeenCalledTimes(1)
+    expect(formatInTimezone).toHaveBeenCalledWith(
+      '2026-09-05T01:00:00Z',
+      'America/Chicago',
+      { month: 'short', day: '2-digit' }
+    )
+  })
+
+  it('leaves a two-digit day alone', () => {
+    vi.mocked(formatInTimezone).mockReturnValueOnce('Sep 14')
+    expect(formatShowMonthDayPadded('2026-09-14T19:00:00Z', 'IL')).toBe('SEP 14')
+  })
+
+  it('falls back to the state map when the venue has no resolved zone', () => {
+    vi.mocked(formatInTimezone).mockReturnValueOnce('Sep 04')
+    formatShowMonthDayPadded('2026-09-05T01:00:00Z', 'AZ')
+    expect(formatInTimezone).toHaveBeenCalledWith(
+      '2026-09-05T01:00:00Z',
+      'America/Phoenix',
+      { month: 'short', day: '2-digit' }
     )
   })
 })

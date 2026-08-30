@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import type { ShowResponse } from '../types'
 
 vi.mock('@/lib/context/AuthContext', () => ({
@@ -147,6 +148,52 @@ describe('ticketLineSegments', () => {
     ).not.toContain('SOLD OUT')
   })
 
+  // The locked PAST mock's line: what entry cost, then the closed door,
+  // in that order.
+  it('closes a past line with NO LONGER AVAILABLE after the price', () => {
+    const segments = ticketLineSegments(
+      makeShow({ price: 35, ticket_url: 'https://tix.example/1' }),
+      'past'
+    )
+    expect(segments).toEqual(['8PM', '$35', 'NO LONGER AVAILABLE'])
+  })
+
+  // NO LONGER AVAILABLE is the past tense of ON SALE, so it is said when a
+  // past line has a purchase to close out and stays silent when it does not:
+  // a line that never said ON SALE has nothing to un-say. Every row's reason
+  // is its label.
+  const SOLD = { price: 35, ticket_url: 'https://tix.example/1' }
+  it.each<[string, Partial<ShowResponse>, ShowLifecycleState, boolean]>([
+    ['a stored ticket url alone is a purchase', { ticket_url: 'https://tix.example/1' }, 'past', true],
+    ['a price alone is a purchase', { price: 35 }, 'past', true],
+    ['a free show with no link never opened a sale', { price: 0 }, 'past', false],
+    // A link outranks a zero price: a free RSVP or guestlist IS a reservation
+    // to close out, so this is the one "Free" line that closes.
+    ['a free show with an rsvp link did open one', { price: 0, ticket_url: 'https://rsvp.example/1' }, 'past', true],
+    ['neither field means no commerce to close', {}, 'past', false],
+    // The flag this test matrix most easily forgets: an ingested show an
+    // admin marked sold out can carry no price and no link, and its line read
+    // `8PM · SOLD OUT` until the show ended. It must close, not fall silent.
+    ['a sold-out flag alone is a sale to close', { is_sold_out: true }, 'past', true],
+    // getShowLifecycleState returns 'past' for an unreadable date. The stripe
+    // renders nothing at all for that show, so this line must not announce a
+    // closed door the page cannot date.
+    ['an unreadable date is not evidence of pastness', { ...SOLD, event_date: 'not-a-date' }, 'past', false],
+    ['an empty date is not evidence of pastness', { ...SOLD, event_date: '' }, 'past', false],
+    ['a whitespace-only url is storable, and is not a purchase', { ticket_url: '   ' }, 'past', false],
+    // Cancellation outranks the past register exactly as it outranks the
+    // present-tense pair: the stripe says CANCELLED and never PAST SHOW, so
+    // this line must not answer in the other state's words.
+    ['cancellation outranks the past register', { ...SOLD, is_cancelled: true }, 'past', false],
+    // The closing statement is the PAST register's alone; both live states
+    // still have a sale state of their own to make.
+    ['an upcoming show still has a live sale state', SOLD, 'upcoming', false],
+    ['a show tonight still has a live sale state', SOLD, 'today', false],
+  ])('%s', (_reason, overrides, lifecycle, saysIt) => {
+    const segments = ticketLineSegments(makeShow(overrides), lifecycle)
+    expect(segments.includes('NO LONGER AVAILABLE')).toBe(saysIt)
+  })
+
   // The backend stores the field untrimmed and ingest skips the validator,
   // so a whitespace-only url is storable — and is not somewhere to buy.
   it('never claims ON SALE on a whitespace-only ticket url', () => {
@@ -167,8 +214,106 @@ describe('ticketLineSegments', () => {
   })
 
   it('omits the price segment when no price is known', () => {
-    const segments = ticketLineSegments(makeShow({ price: null }), 'upcoming')
+    const segments = ticketLineSegments(
+      makeShow({ price: null, door_price: null }),
+      'upcoming'
+    )
     expect(segments.join(' ')).not.toContain('$')
+  })
+
+  // PSY-1864: the advance/door split. ADV and DOOR are disambiguators, so
+  // they appear only when there are two numbers to tell apart.
+  it('qualifies the pair as ADV and DOOR when both prices are known', () => {
+    const segments = ticketLineSegments(
+      makeShow({ price: 35, door_price: 40 }),
+      'upcoming'
+    )
+    expect(segments).toContain('$35 ADV')
+    expect(segments).toContain('DOOR $40')
+    // The mock's order: advance leads, door follows.
+    expect(segments.indexOf('$35 ADV')).toBeLessThan(
+      segments.indexOf('DOOR $40')
+    )
+  })
+
+  it('leaves a lone advance price bare', () => {
+    const segments = ticketLineSegments(
+      makeShow({ price: 35, door_price: null }),
+      'upcoming'
+    )
+    expect(segments).toContain('$35')
+    expect(segments.join(' ')).not.toContain('ADV')
+    expect(segments.join(' ')).not.toContain('DOOR')
+  })
+
+  it('leaves a lone door price bare', () => {
+    const segments = ticketLineSegments(
+      makeShow({ price: null, door_price: 40 }),
+      'upcoming'
+    )
+    expect(segments).toContain('$40')
+    expect(segments.join(' ')).not.toContain('DOOR')
+  })
+
+  // Zero is a price, not silence, on either side of the split.
+  it('spells a free advance against a paid door', () => {
+    const segments = ticketLineSegments(
+      makeShow({ price: 0, door_price: 10 }),
+      'upcoming'
+    )
+    expect(segments).toContain('Free ADV')
+    expect(segments).toContain('DOOR $10')
+  })
+
+  it('spells a free door against a paid advance', () => {
+    const segments = ticketLineSegments(
+      makeShow({ price: 10, door_price: 0 }),
+      'upcoming'
+    )
+    expect(segments).toContain('$10 ADV')
+    expect(segments).toContain('DOOR Free')
+  })
+
+  // Nothing stops a curator (or an importer) recording the same number twice.
+  // `$35 ADV · DOOR $35` spends two qualifiers to say one thing.
+  it('collapses an equal advance and door price to one bare segment', () => {
+    const segments = ticketLineSegments(
+      makeShow({ price: 35, door_price: 35 }),
+      'upcoming'
+    )
+    expect(segments).toContain('$35')
+    expect(segments.join(' ')).not.toContain('ADV')
+    expect(segments.join(' ')).not.toContain('DOOR')
+  })
+
+  it('collapses an equal free advance and free door', () => {
+    const segments = ticketLineSegments(
+      makeShow({ price: 0, door_price: 0 }),
+      'upcoming'
+    )
+    expect(segments).toContain('Free')
+    expect(segments.join(' ')).not.toContain('ADV')
+  })
+
+  it('drops the cents on both halves of the split', () => {
+    const segments = ticketLineSegments(
+      makeShow({ price: 12.5, door_price: 15 }),
+      'upcoming'
+    )
+    expect(segments).toContain('$12.50 ADV')
+    expect(segments).toContain('DOOR $15')
+  })
+
+  it('renders the split into the ticket line the page shows', () => {
+    render(
+      <ShowTicketRow
+        show={makeShow({ price: 35, door_price: 40 })}
+        lifecycle="upcoming"
+      />
+    )
+    expect(screen.getByTestId('ticket-line')).toHaveTextContent(
+      '$35 ADV · DOOR $40'
+    )
   })
 
   // The venue facts line owns the age fact, but a venue-less show never
@@ -292,6 +437,23 @@ describe('ShowTicketRow', () => {
       'data-path',
       '/shows/test-show'
     )
+  })
+
+  // The past register's row: the forward-looking verb goes, the archive verbs
+  // stay. Attendance is out of scope and its absence is deliberately NOT
+  // asserted — nothing in this tree renders it, so the query could not fail.
+  it('drops the calendar verb on a past show and keeps the archive row', () => {
+    // Priced, so the rendered line actually carries the past register rather
+    // than testing the archive row beside an empty one.
+    render(<ShowTicketRow lifecycle="past" show={makeShow({ price: 35 })} />)
+
+    expect(screen.getByTestId('ticket-line')).toHaveTextContent(
+      'NO LONGER AVAILABLE'
+    )
+    expect(screen.queryByText('Add to calendar')).not.toBeInTheDocument()
+    expect(screen.getByText('Save')).toBeInTheDocument()
+    expect(screen.getByTestId('add-to-collection')).toBeInTheDocument()
+    expect(screen.getByTestId('share-button')).toBeInTheDocument()
   })
 
   it('names the collection entry from the bill when the show has no title', () => {

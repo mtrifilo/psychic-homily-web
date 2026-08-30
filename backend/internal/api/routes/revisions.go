@@ -33,6 +33,15 @@ func setupRevisionRoutes(rc RouteContext) {
 	// route answers 404 rather than a redacted 200. See
 	// admin/revision_visibility.go.
 	//
+	// A THIRD policy joined them, on the same credential, reading only the admin
+	// bit (PSY-1940): WHO MADE THE EDIT. For the public tier an author who set
+	// privacy_settings.contributions = "hidden", or whose only resolvable name
+	// would come from their email address, is not named at all — the revision is
+	// served, the byline is absent. Admins see the canonical name. Unlike the
+	// other two this one is decided in the HANDLER, because it needs no query and
+	// touches only response strings; see admin/revision.go revisionAuthorCredit
+	// for that argument and services/shared/public_attribution.go for the rule.
+	//
 	// CACHING: these three responses now vary by CREDENTIAL, which they did not
 	// before. Two caches matter, and only one of them is currently safe.
 	//
@@ -41,29 +50,26 @@ func setupRevisionRoutes(rc RouteContext) {
 	// is no CDN on that path. Anything that puts a SHARED cache in front of these
 	// routes has to carry `Vary: Authorization, Cookie` (or mark the responses
 	// private), or it will serve one admin's unmasked history to the next
-	// anonymous reader.
+	// anonymous reader. Note what "unmasked" now covers: not just an unverified
+	// venue's address, but the NAME of every contributor who asked not to be
+	// credited. A leak there discloses a person, not a street.
 	//
-	// The CLIENT cache is a known gap this change does NOT close. The frontend
-	// keys revision queries on entity identity alone — no viewer — with a
-	// 15-minute staleTime, and login neither clears nor invalidates it (only
-	// logout, a failed token refresh, and account deletion call
-	// queryClient.clear()). So a moderator who opens a gated venue's History
-	// while logged out and then signs in WITHOUT a full page load keeps being
-	// served the masked payload, beside a Rollback button that restores the real
-	// value — the state this tier exists to remove, surviving in the client.
-	// It is not revision-specific: follows, tags and comments are all
-	// optional-auth and cached the same way, so the fix is one deliberate
-	// "invalidate credential-varying queries on login" change (invalidateQueries
-	// .revisions() already exists and nothing calls it on login), not a patch
-	// here.
+	// The CLIENT cache was a known gap when the first of these tiers landed, and
+	// it is CLOSED — this comment used to say otherwise and was stale. The
+	// frontend keys revision queries on entity identity with no viewer, but
+	// queryKeys.revisions.all is the first entry in VIEWER_TIER_QUERY_KEYS
+	// (lib/queryClient.ts), which refreshViewerTierQueries drops on every
+	// transition INTO an authenticated session (useAuth's
+	// refreshCachesForNewSession, and both passkey flows). Signing out still runs
+	// queryClient.clear(). So both directions are handled without a page load.
 	//
-	// The show gate widens that gap in one direction and narrows it in another.
-	// It can leave a submitter looking at a cached 404 for their own show's
-	// history after signing in without a page load — annoying rather than
-	// unsafe, and React Query refetches an errored query on the next mount. It
-	// cannot go the other way: a cached 200 is a payload the caller was already
-	// served, and a logged-in reader who signs OUT has queryClient.clear() run
-	// for them.
+	// Anything added to these responses that varies by credential must be
+	// covered by that key list. All three tiers are today.
+	//
+	// The residual is a stale-but-SAFE window, not a leak: a reader whose tier
+	// just narrowed can briefly see a cached richer payload only if they had
+	// already been served it. React Query refetches an errored query on the next
+	// mount, so a submitter who signed in after a cached 404 recovers too.
 	optionalAuthGroup := huma.NewGroup(rc.API, "")
 	optionalAuthGroup.UseMiddleware(middleware.OptionalHumaJWTMiddleware(rc.SC.JWT))
 	huma.Get(optionalAuthGroup, "/revisions/{entity_type}/{entity_id}", revisionHandler.GetEntityHistoryHandler)

@@ -60,8 +60,12 @@ vi.mock('next/navigation', () => ({
 // Tabs machinery. ShowDetail renders in flat-layout mode (no `tabs` prop).
 vi.mock('@/components/shared', () => ({
   SaveButton: () => <button data-testid="save-button">Save</button>,
-  SocialLinks: () => <div data-testid="social-links" />,
   MusicEmbed: () => <div data-testid="music-embed" />,
+  // A value, not a component, and the key has to be here for a mechanical
+  // reason: the listen module reads it for its `maxWidth`, and a barrel mock
+  // missing the export hands it `undefined`. This is a stand-in, not a mirror
+  // of the real constant, and nothing here asserts a width.
+  BANDCAMP_EMBED_MAX_WIDTH_PX: 700,
   AddToCollectionButton: () => <button data-testid="add-to-collection">Collect</button>,
   // aria-label mirrors the real component (ariaLabel ?? label) so a
   // name collision between two Edit affordances cannot hide behind the mock.
@@ -82,6 +86,11 @@ vi.mock('@/components/shared', () => ({
       <button onClick={onClick} aria-label={ariaLabel ?? label}>[{label}]</button>
     ),
   UserAttribution: ({ name }: { name: string }) => <span>{name}</span>,
+  SectionHeader: ({ title }: { title: string }) => <h2>{title}</h2>,
+  // The listen card renders one per act. Its own coverage is in
+  // SocialLinks.test and ShowListenModule.test; here it only has to exist, or
+  // the barrel mock hands the card `undefined` and the page fails to render.
+  SocialLinks: () => <div data-testid="social-links" />,
   // Surfaces `path` so the page-level test can assert WHICH url this show
   // hands out — the primitive's own behaviour is covered in ShareButton.test.
   ShareButton: ({ path }: { path: string }) => (
@@ -162,6 +171,14 @@ vi.mock('./DeleteShowDialog', () => ({
 
 vi.mock('./ReportShowButton', () => ({
   ReportShowButton: () => <button data-testid="report-button">Report</button>,
+}))
+
+// The rails row runs two queries of its own (PSY-1689). Mocked at the component
+// boundary like the other children, so this file stays about the page's own
+// composition; which rows each rail draws, and when it hides, lives in
+// ShowDiscoveryRails.test.tsx.
+vi.mock('./ShowDiscoveryRails', () => ({
+  ShowDiscoveryRails: () => <div data-testid="show-discovery-rails" />,
 }))
 
 vi.mock('@/features/collections', () => ({
@@ -479,6 +496,49 @@ describe('ShowDetail', () => {
       )
     })
 
+    // The slot the mock reserves for the rails row is BETWEEN the page's own
+    // modules and the byline. Position is the claim, so containment alone is
+    // not enough: a rails row rendered after the provenance footer would still
+    // "be on the page" and would still be wrong. Both halves of the claim are
+    // pinned — a row that drifted above the embeds would otherwise ship green.
+    it('renders the rails row below the embeds and above the provenance footer', () => {
+      // A show WITH music, so the embeds half of the claim has something to
+      // anchor on — the default fixture's artists have none.
+      mockUseShow.mockReturnValue({
+        data: makeShow({
+          artists: [
+            makeArtist({
+              id: 1,
+              name: 'Band',
+              // A URL `parseSpotifyEmbed` actually accepts. A bare
+              // `spotify.com/band` fails its host-anchored parse, so the bill
+              // yields no listen card and the embed this test anchors on never
+              // renders.
+              socials: {
+                spotify: 'https://open.spotify.com/artist/1a2b3c4d5e6f7g8h9i0jkl',
+              },
+            }),
+          ],
+        }),
+        isLoading: false,
+        error: null,
+      })
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
+      const rails = screen.getByTestId('show-discovery-rails')
+      const footer = screen.getByTestId('show-provenance-footer')
+      const embeds = screen.getByTestId('music-embed')
+
+      expect(footer).not.toContainElement(rails)
+      expect(
+        embeds.compareDocumentPosition(rails) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+      expect(
+        rails.compareDocumentPosition(footer) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+    })
+
     // Position is the whole design claim: one band, at the very top, in every
     // state, so nothing below it moves. Containment alone would still pass with
     // the band buried under the comment thread.
@@ -792,15 +852,18 @@ describe('ShowDetail', () => {
     })
   })
 
-  describe('artist music section', () => {
-    it('renders music section when artists have music', () => {
+  // The module's own card rendering is covered in ShowListenModule.test.tsx;
+  // these two only pin that the page mounts it in the right slot and lets it
+  // decide whether the section exists at all.
+  describe('listen module', () => {
+    it('renders the listen module when a bill artist has something to play', () => {
       mockUseShow.mockReturnValue({
         data: makeShow({
           artists: [
             makeArtist({
               id: 1,
               name: 'Band',
-              socials: { spotify: 'https://spotify.com/band' },
+              socials: { spotify: 'https://open.spotify.com/artist/1a2b3c4d5e6f7g8h9i0jkl' },
             }),
           ],
         }),
@@ -808,11 +871,12 @@ describe('ShowDetail', () => {
         error: null,
       })
       render(<ShowDetail showId="1" lifecycle="upcoming" />)
-      expect(screen.getByText('Listen to the Artists')).toBeInTheDocument()
+      expect(screen.getByTestId('show-listen-module')).toBeInTheDocument()
+      expect(screen.getByText('Listen / Before you go')).toBeInTheDocument()
       expect(screen.getByTestId('music-embed')).toBeInTheDocument()
     })
 
-    it('does not render music section when no artists have music', () => {
+    it('renders no listen module when no bill artist has a playable source', () => {
       mockUseShow.mockReturnValue({
         data: makeShow({
           artists: [
@@ -823,7 +887,8 @@ describe('ShowDetail', () => {
         error: null,
       })
       render(<ShowDetail showId="1" lifecycle="upcoming" />)
-      expect(screen.queryByText('Listen to the Artists')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('show-listen-module')).not.toBeInTheDocument()
+      expect(screen.queryByText('Listen / Before you go')).not.toBeInTheDocument()
     })
   })
 })

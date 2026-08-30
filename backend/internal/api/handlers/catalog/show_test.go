@@ -207,6 +207,86 @@ func namedVenues(n int) []Venue {
 	return out
 }
 
+// --- Resolve validation: the advance/door price rail (PSY-1864) ---
+
+// messageAt returns the message of the first huma.ErrorDetail at location.
+func messageAt(errs []error, location string) string {
+	for _, e := range errs {
+		var detail *huma.ErrorDetail
+		if errors.As(e, &detail) && detail.Location == location {
+			return detail.Message
+		}
+	}
+	return ""
+}
+
+func priceBody(price, doorPrice *float64) *CreateShowRequestBody {
+	return &CreateShowRequestBody{
+		EventDate: time.Now().UTC().AddDate(0, 0, 7),
+		City:      "Phoenix",
+		State:     "AZ",
+		Venues:    namedVenues(1),
+		Artists:   namedArtists(1),
+		Price:     price,
+		DoorPrice: doorPrice,
+	}
+}
+
+// Both prices ride one shared rail through showPriceFields, which pairs each
+// value with its own wire key and label. That pairing is positional and both
+// params are *float64, so a transposition compiles silently — these tests are
+// what catches it: an out-of-range ADVANCE price must be reported at
+// body.price, never at body.door_price, or the 422 sends a submitter to fix
+// the wrong input.
+func TestResolve_PriceOutOfRangeIsLocatedAndLabelled(t *testing.T) {
+	over := float64(contracts.MaxShowPrice + 1)
+	errs := priceBody(&over, nil).Resolve(nil)
+
+	if !hasErrorAt(errs, "body.price") {
+		t.Fatalf("expected a body.price range error for %v, got: %v", over, errs)
+	}
+	if hasErrorAt(errs, "body.door_price") {
+		t.Errorf("an out-of-range advance price must not be reported at body.door_price: %v", errs)
+	}
+	if got := messageAt(errs, "body.price"); got != "Price must be between 0 and 10000" {
+		t.Errorf("unexpected advance-price message: %q", got)
+	}
+}
+
+func TestResolve_DoorPriceOutOfRangeIsLocatedAndLabelled(t *testing.T) {
+	over := float64(contracts.MaxShowPrice + 1)
+	errs := priceBody(nil, &over).Resolve(nil)
+
+	if !hasErrorAt(errs, "body.door_price") {
+		t.Fatalf("expected a body.door_price range error for %v, got: %v", over, errs)
+	}
+	if hasErrorAt(errs, "body.price") {
+		t.Errorf("an out-of-range door price must not be reported at body.price: %v", errs)
+	}
+	if got := messageAt(errs, "body.door_price"); got != "Door price must be between 0 and 10000" {
+		t.Errorf("unexpected door-price message: %q", got)
+	}
+}
+
+func TestResolve_NegativeDoorPriceRejected(t *testing.T) {
+	under := float64(contracts.MinShowPrice - 1)
+	if !hasErrorAt(priceBody(nil, &under).Resolve(nil), "body.door_price") {
+		t.Errorf("expected a body.door_price range error for %v", under)
+	}
+}
+
+// The rail's endpoints are inclusive, and zero is FREE — a real fact the ticket
+// line prints, not an absent value.
+func TestResolve_PriceRailEndpointsAllowed(t *testing.T) {
+	free := float64(contracts.MinShowPrice)
+	ceiling := float64(contracts.MaxShowPrice)
+	errs := priceBody(&free, &ceiling).Resolve(nil)
+
+	if hasErrorAt(errs, "body.price") || hasErrorAt(errs, "body.door_price") {
+		t.Errorf("prices at the rail endpoints must be allowed, got: %v", errs)
+	}
+}
+
 // TestResolve_TooManyArtists: PSY-1267 — an artist array over the cap is rejected
 // with a field-located error (bounds outbound-enrichment amplification).
 func TestResolve_TooManyArtists(t *testing.T) {

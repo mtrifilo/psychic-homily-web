@@ -502,6 +502,84 @@ func newTestExtractionService(handler http.HandlerFunc) (*ExtractionService, *ht
 	return svc, server
 }
 
+// =============================================================================
+// Advance / door price extraction (PSY-1864)
+// =============================================================================
+
+// extractShowFromModelJSON drives a full ExtractShow through a stubbed
+// Anthropic endpoint that replies with modelJSON, so the assertions cover the
+// real parsed-map-to-ExtractedShowData mapping rather than a hand-built struct.
+func extractShowFromModelJSON(t *testing.T, modelJSON string) *contracts.ExtractedShowData {
+	t.Helper()
+
+	svc, server := newTestExtractionService(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(anthropicResponse{
+			Content: []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			}{
+				{Type: "text", Text: modelJSON},
+			},
+		})
+	})
+	defer server.Close()
+
+	// Nil-DB searchers: matching is not what these tests are about, and both
+	// fakes return an error the matcher already treats as "no matches".
+	svc.artistService = &testArtistSearcher{}
+	svc.venueService = &testVenueSearcher{}
+
+	resp, err := svc.ExtractShow(&contracts.ExtractShowRequest{
+		Type: "text",
+		Text: "a flyer",
+	})
+	require.NoError(t, err)
+	require.True(t, resp.Success, "extraction failed: %s", resp.Error)
+	require.NotNil(t, resp.Data)
+	return resp.Data
+}
+
+// A flyer stating "$20 adv / $25 door" carries two facts, and the advance half
+// belongs in Cost so the door half never overwrites it.
+func TestExtractShow_CarriesAStatedDoorPrice(t *testing.T) {
+	data := extractShowFromModelJSON(t,
+		`{"artists":[{"name":"Duster"}],"date":"2026-03-15","cost":"$20","door_cost":"$25"}`)
+
+	assert.Equal(t, "$20", data.Cost)
+	assert.Equal(t, "$25", data.DoorCost)
+}
+
+// The explicit-only rule: one stated price leaves DoorCost EMPTY. Filling it
+// from Cost would publish an invented door price, which is exactly what the
+// PSY-1699 doors/music extraction refuses to do with times.
+func TestExtractShow_LeavesDoorPriceEmptyWhenOnlyOnePriceIsStated(t *testing.T) {
+	data := extractShowFromModelJSON(t,
+		`{"artists":[{"name":"Duster"}],"date":"2026-03-15","cost":"$20"}`)
+
+	assert.Equal(t, "$20", data.Cost)
+	assert.Empty(t, data.DoorCost, "a door price must never be derived from the advance price")
+}
+
+// A model that answers with a non-string door_cost must not panic the type
+// assertion or smuggle a number through.
+func TestExtractShow_IgnoresANonStringDoorPrice(t *testing.T) {
+	data := extractShowFromModelJSON(t,
+		`{"artists":[{"name":"Duster"}],"date":"2026-03-15","cost":"$20","door_cost":25}`)
+
+	assert.Equal(t, "$20", data.Cost)
+	assert.Empty(t, data.DoorCost)
+}
+
+// The prompt is the only thing steering the model, so the explicit-only rule
+// has to survive edits to it.
+func TestExtractionSystemPrompt_ForbidsInferringADoorPrice(t *testing.T) {
+	assert.Contains(t, extractionSystemPrompt, `"door_cost"`,
+		"the output schema must name door_cost or the model will never emit it")
+	assert.Contains(t, extractionSystemPrompt, "NEVER infer",
+		"the explicit-only rule must stay in the prompt")
+}
+
 func TestCallAnthropic(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		svc, server := newTestExtractionService(func(w http.ResponseWriter, r *http.Request) {

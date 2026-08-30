@@ -14,10 +14,21 @@ export interface RevisionItem {
   id: number
   entity_type: string
   entity_id: number
-  user_id: number
-  /** Resolved display name; never empty (backend resolveUserName chain). */
+  /**
+   * The author's id, ABSENT whenever `user_name` is (PSY-1940). The two are
+   * withheld together on purpose: several public payloads carry an id and a
+   * display name in the same object, so a published id is a lookup key that
+   * recovers the byline the backend just declined to give.
+   */
+  user_id?: number
+  /**
+   * Resolved display name, ABSENT when the backend will not name the author:
+   * they hid their contributions, or their only resolvable name would come
+   * from their email address (PSY-1940). Render no byline in that case rather
+   * than a placeholder — the absence means "we may not say".
+   */
   user_name?: string
-  /** URL-safe username slug; null when the user has no username set. */
+  /** URL-safe username slug; null when there is no profile to link to. */
   user_username?: string | null
   changes: FieldChange[]
   summary?: string

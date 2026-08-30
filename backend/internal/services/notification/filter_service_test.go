@@ -53,6 +53,48 @@ func TestHasAnyCriteria(t *testing.T) {
 	})
 }
 
+// PSY-1864: a price_max_cents filter judges a show by ONE price. A door-only
+// show must not read as "price unknown", because the matching predicate treats
+// unknown as "cannot exclude" and would alert every user regardless of ceiling.
+func TestEffectiveShowPriceCents(t *testing.T) {
+	fl := func(f float64) *float64 { return &f }
+
+	t.Run("no price recorded is genuinely unknown", func(t *testing.T) {
+		assert.Nil(t, effectiveShowPriceCents(&catalogm.Show{}))
+	})
+
+	t.Run("advance price only", func(t *testing.T) {
+		got := effectiveShowPriceCents(&catalogm.Show{Price: fl(12.5)})
+		assert.Equal(t, 1250, *got)
+	})
+
+	t.Run("door price only falls back rather than reading as unknown", func(t *testing.T) {
+		got := effectiveShowPriceCents(&catalogm.Show{DoorPrice: fl(40)})
+		if assert.NotNil(t, got, "a door-only show has a KNOWN price") {
+			assert.Equal(t, 4000, *got)
+		}
+	})
+
+	t.Run("both known keeps the advance price", func(t *testing.T) {
+		got := effectiveShowPriceCents(&catalogm.Show{Price: fl(35), DoorPrice: fl(40)})
+		assert.Equal(t, 3500, *got, "pre-existing behavior; changing it is a product decision")
+	})
+
+	t.Run("a free show is a known zero, not silence", func(t *testing.T) {
+		got := effectiveShowPriceCents(&catalogm.Show{Price: fl(0)})
+		if assert.NotNil(t, got) {
+			assert.Equal(t, 0, *got)
+		}
+	})
+
+	t.Run("a free door is a known zero too", func(t *testing.T) {
+		got := effectiveShowPriceCents(&catalogm.Show{DoorPrice: fl(0)})
+		if assert.NotNil(t, got) {
+			assert.Equal(t, 0, *got)
+		}
+	})
+}
+
 func TestToInt64Array(t *testing.T) {
 	assert.Nil(t, toInt64Array(nil))
 	assert.Nil(t, toInt64Array([]int64{}))

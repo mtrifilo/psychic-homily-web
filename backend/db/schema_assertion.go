@@ -27,10 +27,11 @@ var requiredSchemaColumns = []requiredColumn{
 	// both follow-alert endpoints at once rather than degrading.
 	{Table: "user_preferences", Column: "alert_defaults"},
 	// GORM's Create builds an explicit column list from the model, so these
-	// two appear in every show INSERT. Absent DDL breaks show submission at
+	// three appear in every show INSERT. Absent DDL breaks show submission at
 	// request time rather than at boot, which is exactly what this list is for.
 	{Table: "shows", Column: "doors_at"},
 	{Table: "shows", Column: "music_at"},
+	{Table: "shows", Column: "door_price"},
 	// PSY-1761: shared.VenueTZJoin reads this table on EVERY show-listing
 	// query, so recorded-migration-but-absent-DDL here does not degrade, it
 	// fails every listing surface at once with "relation does not exist" —

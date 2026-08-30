@@ -139,6 +139,23 @@ describe('showTimingInput', () => {
     }
   }
 
+  it('keeps a venue\'s blank state rather than inheriting the show row\'s', () => {
+    // `??`, not `||` (PSY-1696). `venues.state` is NOT NULL, so a venue with no
+    // state on file stores '' — the shape a merge leaves when it repoints a US
+    // show onto an international venue without rewriting the denormalized
+    // `shows.state`. Falling through to 'NY' would hand a Berlin show a zone
+    // the state map KNOWS, so `isShowTimezoneResolved` would answer true and
+    // the page would print a New York clock beside a Berlin address.
+    expect(
+      showTimingInput(
+        makeShow({
+          state: 'NY',
+          venues: [makeVenue({ city: 'Berlin', state: '', timezone: undefined })],
+        })
+      ).state
+    ).toBe('')
+  })
+
   it('takes the zone from the venue the show happens at', () => {
     expect(
       showTimingInput(

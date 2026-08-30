@@ -19,7 +19,7 @@ import (
 // featuredRunRow is the flat scan target for the feature-run + collection join.
 // Creator name/username are resolved in a second batch query (the house
 // user-attribution pattern) rather than joined, so the display logic in
-// shared.ResolveUserName stays the single source of truth.
+// shared.ResolvePublicUserName stays the single source of truth.
 type featuredRunRow struct {
 	RunID               uint    `gorm:"column:run_id"`
 	CollectionID        uint    `gorm:"column:collection_id"`
@@ -140,7 +140,11 @@ func (s *ChartsService) queryFeaturedRuns(openOnly bool, limit, offset int) ([]c
 			creatorIDs = append(creatorIDs, r.CreatorID)
 		}
 	}
-	names, err := shared.BatchResolveUserNames(s.db, creatorIDs)
+	// Public chain (PSY-1940): the featured-collection card is a logged-out
+	// surface, and the canonical chain's last-resort tier would publish the
+	// local part of the curator's email address. A curator with no public name
+	// tier is credited "Anonymous".
+	names, err := shared.BatchResolvePublicUserNames(s.db, creatorIDs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve curator names: %w", err)
 	}
