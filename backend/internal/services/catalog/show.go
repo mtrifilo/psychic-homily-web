@@ -278,10 +278,38 @@ func (s *ShowService) determineShowStatus(tx *gorm.DB, venues []contracts.Create
 	return catalogm.ShowStatusApproved
 }
 
-// checkDuplicateHeadlinerConflicts checks if any headliners are already performing
-// at the same venue on the same date/time.
+// checkDuplicateHeadlinerConflicts refuses a create whose headliner is already
+// on a bill at the same venue at the same exact timestamp.
 // Uses pg_advisory_xact_lock to prevent race conditions where two concurrent
 // requests could both pass the check before either commits.
+//
+// This is a FRIENDLY PRE-CHECK in front of a broader database constraint, not
+// the thing that keeps duplicates out. `shows_artist_venue_eventdate_uniq` is
+// UNIQUE (artist_id, venue_id, event_date) over every show_artists row, with no
+// set_type or position term, and syncShowArtistDedupColumns stamps those columns
+// inside this same transaction. So the index already refuses every collision
+// this guard refuses. What the guard adds is an actionable message in place of a
+// raw driver string.
+//
+// Its predicate is therefore NOT headlineSlotSQL's, and must not be aligned to
+// it. A classifier answers "which row tops this bill"; this guard answers "would
+// this write collide", and it is deliberately BROADER on both axes:
+//
+//   - The position arm (PSY-1673) keeps a position-inferred headliner
+//     duplicate-checked on a bill nobody has described.
+//   - Matching artists and venues by LOWER(name) covers shapes the index keys on
+//     ids cannot see: duplicate venue rows sharing a name, and case-variant
+//     artist names.
+//
+// The gap that makes both arms load-bearing rather than merely redundant:
+// syncShowArtistDedupColumns stamps the LOWEST venue_id when a show has several,
+// so the index covers only one venue of a multi-venue show. On the rest, this
+// guard is the only protection, and narrowing it to the classifier lets a real
+// duplicate through (measured on PSY-1944; the residual index gap is PSY-1979).
+//
+// Consequence accepted on PSY-1944: a curated OPENER at position 0 still trips
+// the guard. The write is refused either way, so the honest fix was the message,
+// which no longer asserts the matched artist is a headliner.
 func (s *ShowService) checkDuplicateHeadlinerConflicts(tx *gorm.DB, req *contracts.CreateShowRequest) error {
 	// Get all headliners from the request.
 	//
@@ -332,9 +360,12 @@ func (s *ShowService) checkDuplicateHeadlinerConflicts(tx *gorm.DB, req *contrac
 		}
 	}
 
-	// Check for conflicts: same headliner + same venue + same exact timestamp
-	// (case-insensitive). Matches headliner by explicit set_type='headliner'
-	// OR position=0 (first billed artist).
+	// Check for conflicts: same artist + same venue + same exact timestamp
+	// (case-insensitive), where the stored row is curated 'headliner' OR sits
+	// at position 0.
+	//
+	// That disjunction is BROADER than headlineSlotSQL's classifier rule, and
+	// deliberately so -- see the guard's docblock. Both arms are load-bearing.
 	for _, headlinerName := range headlinerNames {
 		for _, venueName := range venueNames {
 			var existingShows []catalogm.Show
@@ -354,8 +385,12 @@ func (s *ShowService) checkDuplicateHeadlinerConflicts(tx *gorm.DB, req *contrac
 				return fmt.Errorf("failed to check for duplicate headliner conflicts: %w", err)
 			}
 
+			// States only what was matched: this artist is on a bill at that
+			// venue at that instant. It does NOT call the artist a headliner,
+			// because the matched row may be a curated opener the predicate
+			// reached through its position arm.
 			if len(existingShows) > 0 {
-				return fmt.Errorf("headliner '%s' is already performing at venue '%s' on %s",
+				return fmt.Errorf("'%s' is already performing at venue '%s' on %s",
 					headlinerName, venueName, req.EventDate.Format("2006-01-02 15:04:05 UTC"))
 			}
 		}

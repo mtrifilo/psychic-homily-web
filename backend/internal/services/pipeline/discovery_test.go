@@ -891,6 +891,62 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_HeadlinerDuplicate(
 	suite.Equal(int64(0), count)
 }
 
+// TestImportEvents_DuplicateAgainstCuratedOpenerClaimsNoRole covers the bill the
+// guard's position arm reaches (PSY-1944): the stored show curated this artist as
+// its OPENER at position 0, so the event is still classified a duplicate and the
+// message asserts no role for either side.
+//
+// Classifying it is the correct outcome, not a tolerated false positive: the same
+// artist at the same venue at the same instant is the same event, and letting it
+// through only trades this DUPLICATE tally for a raw unique-violation ERROR.
+func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_DuplicateAgainstCuratedOpenerClaimsNoRole() {
+	curated := contracts.DiscoveredEvent{
+		ID:        "evt-1944a",
+		Title:     "Curated Bill",
+		Date:      "2026-10-04",
+		Venue:     "Valley Bar",
+		VenueSlug: "valley-bar",
+		BillingArtists: []contracts.DiscoveredArtist{
+			{Name: "Opener Act", SetType: "opener", BillingOrder: 1},
+			{Name: "Headline Act", SetType: "headliner", BillingOrder: 2},
+		},
+		ScrapedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+	result1, err := suite.svc.ImportEvents([]contracts.DiscoveredEvent{curated}, false, false, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Require().Equal(1, result1.Imported)
+
+	// The curated opener really did land at position 0 with a non-inferred role,
+	// so this test exercises the position arm rather than the set_type arm.
+	var stored catalogm.ShowArtist
+	suite.Require().NoError(suite.db.Where("position = 0").First(&stored).Error)
+	suite.Equal("opener", stored.SetType)
+
+	rebilled := contracts.DiscoveredEvent{
+		ID:        "evt-1944b",
+		Title:     "Rebilled Show",
+		Date:      "2026-10-04",
+		Venue:     "Valley Bar",
+		VenueSlug: "valley-bar",
+		BillingArtists: []contracts.DiscoveredArtist{
+			{Name: "Opener Act", SetType: "headliner", BillingOrder: 1},
+		},
+		ScrapedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+	result2, err := suite.svc.ImportEvents([]contracts.DiscoveredEvent{rebilled}, false, false, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Equal(1, result2.Duplicates, "the position arm still catches this bill")
+	suite.Equal(0, result2.Errors, "a clean duplicate tally, not a unique-violation error")
+	suite.Require().Len(result2.Messages, 1)
+	suite.Contains(result2.Messages[0], "DUPLICATE:")
+	suite.NotContains(result2.Messages[0], "headliner",
+		"the matched row is a curated opener, so the copy must claim no role")
+
+	var count int64
+	suite.db.Model(&catalogm.Show{}).Where("source_event_id = ?", "evt-1944b").Count(&count)
+	suite.Equal(int64(0), count)
+}
+
 func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_RejectedShowSkipped() {
 	// Create a rejected show at Valley Bar on a specific date
 	venue := &catalogm.Venue{Name: "Valley Bar", City: "Phoenix", State: "AZ"}

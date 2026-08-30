@@ -2256,6 +2256,55 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_NoHeadliner_SameFir
 	suite.Contains(err.Error(), "already performing")
 }
 
+// TestCreateShow_DuplicateErrorClaimsNoRoleForTheMatchedArtist pins the guard's
+// copy on the case that used to misdescribe it (PSY-1944). The existing bill is
+// CURATED and the artist being probed is stored as its OPENER at position 0, so
+// the row the guard reaches through its position arm is not a headliner and the
+// message must not call it one.
+//
+// The guard still fires here on purpose: the write is refused regardless, by
+// shows_artist_venue_eventdate_uniq. Aligning the predicate to headlineSlotSQL
+// would only swap this message for a raw driver string. See the guard docblock.
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_DuplicateErrorClaimsNoRoleForTheMatchedArtist() {
+	user := suite.createTestUser()
+	eventDate := time.Date(2027, 3, 3, 20, 0, 0, 0, time.UTC)
+	venue := []contracts.CreateShowVenue{{Name: "Role Claim Venue", City: "Phoenix", State: "AZ"}}
+
+	_, err := suite.showService.CreateShow(&contracts.CreateShowRequest{
+		Title:     "Curated Bill",
+		EventDate: eventDate,
+		City:      "Phoenix",
+		State:     "AZ",
+		Venues:    venue,
+		Artists: []contracts.CreateShowArtist{
+			{Name: "Role Claim Opener", SetType: strPtr("opener")},
+			{Name: "Role Claim Headliner", SetType: strPtr("headliner")},
+		},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	})
+	suite.Require().NoError(err)
+
+	_, err = suite.showService.CreateShow(&contracts.CreateShowRequest{
+		Title:             "Rebilled Show",
+		EventDate:         eventDate,
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            venue,
+		Artists:           []contracts.CreateShowArtist{{Name: "Role Claim Opener", SetType: strPtr("headliner")}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	})
+
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "'Role Claim Opener' is already performing",
+		"the message names the artist without asserting a role")
+	suite.NotContains(err.Error(), "headliner",
+		"the matched row is a curated opener, so the copy must claim no role")
+	suite.NotContains(strings.ToLower(err.Error()), "duplicate key",
+		"the guard, not the index, is what produced this error")
+}
+
 // =============================================================================
 // Group 4b: Denormalised dedup columns + partial unique index (PSY-576)
 // =============================================================================

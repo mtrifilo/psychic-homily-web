@@ -134,17 +134,14 @@ import (
 //  3. The duplicate-headliner GUARDS at show.go's checkDuplicateHeadlinerConflicts
 //     and pipeline/discovery.go's checkHeadlinerDuplicate (the latter fed by
 //     discovery.resolveHeadlinerName, which unlike its slug-writing sibling
-//     DOES honor set_type). These do still use
-//     the retired `(set_type = 'headliner' OR position = 0)` disjunction, and
-//     it is NOT equivalent to this rule. They are deliberately left: they are
-//     write-time collision checks where the two error directions are not
-//     symmetric with a chart's (a false positive blocks a legitimate save; a
-//     false negative admits a duplicate), and the position arm was added on
-//     purpose so a position-inferred headliner is still duplicate-checked.
-//     They do inherit the same misread the rank rule above avoids: a curated
-//     first-billed opener still matches as "the headliner" there. Realigning
-//     them is a separate change with its own design question and its own test
-//     surface, not an oversight in this one.
+//     DOES honor set_type). They keep the
+//     `(set_type = 'headliner' OR position = 0)` disjunction, which is NOT
+//     equivalent to this rule and is not meant to be. They do not classify a
+//     bill; they ask whether a write would collide, and being BROADER than this
+//     predicate is the point. The error directions stay asymmetric with a
+//     chart's (a false positive blocks a legitimate save; a false negative
+//     admits a duplicate). checkDuplicateHeadlinerConflicts carries the
+//     rationale and the reason not to align them.
 
 // headlineSlotUnknownValues is the SQL literal list of set_type values that
 // mean "slot unknown". A row holding one of these states nothing, so a bill
