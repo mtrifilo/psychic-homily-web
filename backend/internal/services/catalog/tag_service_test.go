@@ -1750,9 +1750,20 @@ func (suite *TagServiceIntegrationTestSuite) TestBulkImportAliases_EmptyList() {
 }
 
 // Guards the NULL-safe rank in enrichShows (see its doc comment for why the
-// CASE form is required). The curated row is given the LOWER position on
-// purpose, so position ordering alone cannot rescue the result; only the
-// NULL-safe rank can.
+// CASE form is required).
+//
+// The bill is deliberately arranged so the rank arm is load-bearing and the
+// row that must win is LAST by position. It fails three ways without the
+// current expression:
+//
+//   - the boolean `(set_type = 'headliner') DESC` form is NULLS FIRST, so the
+//     unslotted act wins;
+//   - deleting the rank and ordering on position alone picks the stated
+//     opener, which is the curated-bill misread that motivated this rule;
+//   - keeping the rank but dropping NULL-safety reintroduces the first case.
+//
+// Only "headliner outranks everything, then lowest position" names the
+// curated headliner.
 func (suite *TagServiceIntegrationTestSuite) TestGetTagEntities_Shows_NullSetTypeDoesNotOutrankCuratedHeadliner() {
 	user := suite.createTestUserWithTier("show-tagger", "contributor")
 	tag := suite.createTag("noise-rock", "genre")
@@ -1772,14 +1783,22 @@ func (suite *TagServiceIntegrationTestSuite) TestGetTagEntities_Shows_NullSetTyp
 
 	headlinerID := suite.createArtist("Curated Headliner")
 	unslottedID := suite.createArtist("Unslotted Act")
+	openerID := suite.createArtist("Stated Opener")
 
+	// First by position, and curated as something other than the headliner:
+	// this is the row that wins if the rank arm is ever dropped.
 	suite.Require().NoError(suite.db.Exec(
-		`INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')`,
-		show.ID, headlinerID).Error)
+		`INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'opener')`,
+		show.ID, openerID).Error)
 	// Explicit NULL: the column is nullable, so a row can carry no role at all.
+	// This is the row that wins under the boolean NULLS FIRST ordering.
 	suite.Require().NoError(suite.db.Exec(
 		`INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 1, NULL)`,
 		show.ID, unslottedID).Error)
+	// Last by position, and the only correct answer.
+	suite.Require().NoError(suite.db.Exec(
+		`INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 2, 'headliner')`,
+		show.ID, headlinerID).Error)
 
 	var storedNulls int64
 	suite.Require().NoError(suite.db.Raw(

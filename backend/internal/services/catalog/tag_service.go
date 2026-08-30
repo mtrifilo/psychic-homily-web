@@ -1553,12 +1553,15 @@ func (s *TagService) enrichReleases(ids []uint) map[uint]contracts.TaggedEntityI
 // is deliberately not catalog/headline_slot.go's classification rule, which
 // may find no headline slot at all on a curated bill.
 //
-// The ordering prefers a set_type='headliner' row, then lowest position. The
-// rank must stay a CASE expression rather than the shorter boolean
+// The ordering is rank, then position, then a stable id. The rank must stay a
+// CASE expression rather than the shorter boolean
 // `(sa.set_type = 'headliner') DESC`: a boolean sort key is NULLS FIRST under
 // DESC in Postgres, so a row whose set_type is NULL would outrank the curated
-// headliner and this surface would name the wrong act. See
-// catalog/headline_slot.go for the other sites that resolve this same slot.
+// headliner and this surface would name the wrong act. The trailing artist_id
+// is not decoration either: position is NOT NULL DEFAULT 0 and ingest paths
+// leave whole bills at 0, so without it a tied bill returns rows in planner
+// order and the named act can change after an unrelated UPDATE rewrites the
+// tuples. See headline_slot.go for the other sites that resolve this slot.
 func (s *TagService) enrichShows(ids []uint) map[uint]contracts.TaggedEntityItem {
 	out := make(map[uint]contracts.TaggedEntityItem, len(ids))
 	type row struct {
@@ -1598,7 +1601,7 @@ func (s *TagService) enrichShows(ids []uint) map[uint]contracts.TaggedEntityItem
 		    FROM show_artists sa
 		    JOIN artists aa ON aa.id = sa.artist_id
 		    WHERE sa.show_id = s.id
-		    ORDER BY CASE WHEN sa.set_type = 'headliner' THEN 0 ELSE 1 END, sa.position ASC
+		    ORDER BY CASE WHEN sa.set_type = 'headliner' THEN 0 ELSE 1 END, sa.position ASC, sa.artist_id ASC
 		    LIMIT 1
 		) a ON true
 		WHERE s.id IN ?

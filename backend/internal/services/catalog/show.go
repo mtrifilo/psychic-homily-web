@@ -1317,19 +1317,26 @@ func (s *ShowService) SearchShows(query string) ([]*contracts.ShowSearchResult, 
 			shows.slug,
 			shows.title,
 			shows.event_date,
+			-- Headliner resolution. The filtered arm is NULL-safe by
+			-- construction: NULL = 'headliner' is NULL, so an unslotted row
+			-- fails the filter rather than sorting ahead of the curated act.
+			-- Do NOT collapse these two arms into one ORDER BY on a bare
+			-- boolean; that form is NULLS FIRST in Postgres. See
+			-- headline_slot.go. The trailing artist_id keeps the winner stable
+			-- on bills left tied at position 0 by ingest.
 			COALESCE(
 				(SELECT a.name
 				 FROM show_artists sa
 				 JOIN artists a ON a.id = sa.artist_id
 				 WHERE sa.show_id = shows.id
 				   AND sa.set_type = 'headliner'
-				 ORDER BY sa.position ASC
+				 ORDER BY sa.position ASC, sa.artist_id ASC
 				 LIMIT 1),
 				(SELECT a.name
 				 FROM show_artists sa
 				 JOIN artists a ON a.id = sa.artist_id
 				 WHERE sa.show_id = shows.id
-				 ORDER BY sa.position ASC
+				 ORDER BY sa.position ASC, sa.artist_id ASC
 				 LIMIT 1),
 				''
 			) AS headliner_name,

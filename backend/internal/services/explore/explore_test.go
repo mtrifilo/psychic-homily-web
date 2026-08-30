@@ -104,8 +104,11 @@ func (s *ExploreServiceIntegrationSuite) createShow(title string, daysFromNow in
 
 // createShowInCity inserts an approved, future-dated show in a specific
 // city/state with no venue/artist joins — the city filter only reads
-// shows.city/state. Also the right seed for any test that wants to attach its
-// own bill, since it leaves show_artists empty.
+// shows.city/state. Also the right seed for a test that wants to attach its
+// own bill, since it leaves show_artists empty. It leaves show_venues empty
+// too, and bill rows a caller inserts are outside the artist/venue/event_date
+// dedup index unless the caller also stamps event_date and venue_id; use
+// createShow instead when either matters.
 func (s *ExploreServiceIntegrationSuite) createShowInCity(title string, daysFromNow int, city, state string) *catalogm.Show {
 	slug := fmt.Sprintf("show-%s-%d", title, time.Now().UnixNano())
 	show := &catalogm.Show{
@@ -378,9 +381,20 @@ func (s *ExploreServiceIntegrationSuite) TestGetShuffleTarget_RespectsApprovedSt
 }
 
 // Guards the NULL-safe rank in headlinerNameByShow (see its doc comment for
-// why the CASE form is required). The curated row is given the LOWER position
-// on purpose, so position ordering alone cannot rescue the result; only the
-// NULL-safe rank can.
+// why the CASE form is required).
+//
+// The bill is deliberately arranged so the rank arm is load-bearing and the
+// row that must win is LAST by position. It fails three ways without the
+// current expression:
+//
+//   - the boolean `(set_type = 'headliner') DESC` form is NULLS FIRST, so the
+//     unslotted act wins;
+//   - deleting the rank and ordering on position alone picks the stated
+//     opener, which is the curated-bill misread that motivated this rule;
+//   - keeping the rank but dropping NULL-safety reintroduces the first case.
+//
+// Only "headliner outranks everything, then lowest position" names the
+// curated headliner.
 func (s *ExploreServiceIntegrationSuite) TestGetUpcomingShows_NullSetTypeDoesNotOutrankCuratedHeadliner() {
 	show := s.createShowInCity("Null Set Type Bill", 10, "Phoenix", "AZ")
 
@@ -392,13 +406,24 @@ func (s *ExploreServiceIntegrationSuite) TestGetUpcomingShows_NullSetTypeDoesNot
 	unslotted := &catalogm.Artist{Name: "Unslotted Act", Slug: &unslottedSlug}
 	s.Require().NoError(s.db.Create(unslotted).Error)
 
+	openerSlug := "stated-opener"
+	opener := &catalogm.Artist{Name: "Stated Opener", Slug: &openerSlug}
+	s.Require().NoError(s.db.Create(opener).Error)
+
+	// First by position, and curated as something other than the headliner:
+	// this is the row that wins if the rank arm is ever dropped.
 	s.Require().NoError(s.db.Exec(
-		`INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')`,
-		show.ID, headliner.ID).Error)
+		`INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'opener')`,
+		show.ID, opener.ID).Error)
 	// Explicit NULL: the column is nullable, so a row can carry no role at all.
+	// This is the row that wins under the boolean NULLS FIRST ordering.
 	s.Require().NoError(s.db.Exec(
 		`INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 1, NULL)`,
 		show.ID, unslotted.ID).Error)
+	// Last by position, and the only correct answer.
+	s.Require().NoError(s.db.Exec(
+		`INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 2, 'headliner')`,
+		show.ID, headliner.ID).Error)
 
 	var storedNulls int64
 	s.Require().NoError(s.db.Raw(

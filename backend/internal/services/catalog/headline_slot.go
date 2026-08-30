@@ -54,27 +54,45 @@ import (
 // states 'headliner'" would also mask it, and would re-introduce the position
 // heuristic on bills whose curator described an opener and no headliner.
 //
-// NOT covered here, deliberately, in two groups:
+// NOT covered here, deliberately, in three groups:
 //
-//  1. Reads that RESOLVE THE ONE headliner row of a show. They prefer a
-//     `set_type = 'headliner'` row and fall back to lowest position, so they
-//     already prefer curation and, unlike a classification predicate, must
-//     always return a row. Four sites do this, in two shapes:
+//  1. SQL reads over show_artists that RESOLVE THE ONE headliner row of a
+//     show. They prefer a `set_type = 'headliner'` row and fall back to lowest
+//     position, so they already prefer curation and, unlike a classification
+//     predicate, must always return a row. Four sites, in two shapes:
 //
-//     tag_service.enrichShows, explore.go, and show_dedup.go RANK the bill
-//     with `CASE WHEN set_type = 'headliner' THEN 0 ELSE 1 END`, which a new
-//     ranking site must copy: the shorter bare-boolean `DESC` form is NULLS
-//     FIRST in Postgres, so a NULL-set_type row would outrank the curated
-//     headliner. show.go's SearchShows instead COALESCEs a filtered subquery
-//     over an unfiltered one, which is NULL-safe for a different reason
+//     tag_service.enrichShows, explore.headlinerNameByShow, and
+//     show_dedup.RecanonicaliseShowSlug RANK the bill. The required shape is
+//     rank, then position, then a stable id:
+//
+//     CASE WHEN set_type = 'headliner' THEN 0 ELSE 1 END, position ASC, <id> ASC
+//
+//     Every part is load-bearing. The shorter bare-boolean `DESC` form is
+//     NULLS FIRST in Postgres, so an unslotted row would outrank the curated
+//     headliner. The id tiebreak matters because position is NOT NULL
+//     DEFAULT 0 and ingest paths leave whole bills at 0, so without it the
+//     winner is planner order and can change after an unrelated UPDATE.
+//
+//     show.SearchShows instead COALESCEs a filtered subquery over an
+//     unfiltered one, which is NULL-safe for a different reason
 //     (`NULL = 'headliner'` is NULL, so the row fails the filter rather than
 //     sorting ahead of the winner).
 //
-//     show_dedup.go resolves this to GENERATE A PERSISTED SLUG rather than to
-//     display a name, so a mis-ranked row there is written down, not merely
-//     rendered.
+//     show_dedup.RecanonicaliseShowSlug resolves this to GENERATE A PERSISTED
+//     SLUG rather than to display a name, so a mis-ranked row there is written
+//     down, not merely rendered.
 //
-//  2. The duplicate-headliner GUARDS at show.go's checkDuplicateHeadlinerConflicts
+//  2. IN-MEMORY resolutions that pick a headliner from a request or export
+//     payload rather than from show_artists, and feed utils.GenerateShowSlug:
+//     catalog.CreateShow, pipeline/discovery.resolveHeadlinerName, and two in
+//     admin/data_sync.go (importShows and backfillShowSlugs). They are not
+//     reachable by the SQL rule above and need their own audit. NOTE that the
+//     data_sync pair is position-only and ignores set_type entirely even
+//     though the export payload carries it, so a curated bill can persist a
+//     slug naming the wrong act. That is a live defect, not a documented
+//     exclusion, and needs its own ticket.
+//
+//  3. The duplicate-headliner GUARDS at show.go's checkDuplicateHeadlinerConflicts
 //     and pipeline/discovery.go's checkHeadlinerDuplicate. These do still use
 //     the retired `(set_type = 'headliner' OR position = 0)` disjunction, and
 //     it is NOT equivalent to this rule. They are deliberately left: they are
