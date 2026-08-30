@@ -55,7 +55,7 @@ type AdminFulfillEntityRequestRequest struct {
 		// lands, so it is the path where a bill can reach fulfillment having
 		// never been seen by an admin. Requiring the flag is what makes that
 		// impossible without one saying so.
-		UsePayloadArtists bool `json:"use_payload_artists,omitempty" required:"false" doc:"Fulfill a show using the artists stored on the request's own payload. Mutually exclusive with show_artists: send one or the other, never both. Omitting both is still a 422, so a bill is never adopted by default."`
+		UsePayloadArtists bool `json:"use_payload_artists,omitempty" required:"false" doc:"Fulfill a show using the artists stored on the request's own payload. Mutually exclusive with show_artists: send one or the other, never both. Omitting both is still a 422, so a bill is never adopted by default. An adopted bill never designates a headliner by list order: an act with no set_type is stored as 'performer', so a bill naming no 'headliner' creates a show with no headliner row."`
 	}
 }
 
@@ -168,7 +168,8 @@ func (h *EntityRequestHandler) AdminFulfillEntityRequestHandler(ctx context.Cont
 		// A show MUST carry associations on the rescue path — the payload alone
 		// can't be fulfilled (the same requirement the decide endpoint enforces).
 		if showAssoc == nil {
-			return nil, huma.Error422UnprocessableEntity("Fulfilling a show requires show_venue and show_artists")
+			return nil, huma.Error422UnprocessableEntity(
+				"Fulfilling a show requires show_venue, and either show_artists or use_payload_artists")
 		}
 	}
 
@@ -236,6 +237,12 @@ func (h *EntityRequestHandler) AdminFulfillEntityRequestHandler(ctx context.Cont
 			"request_id":        reqID,
 			"requester_id":      existing.RequesterID,
 			"created_entity_id": createdID,
+		}
+		// PSY-1858: record WHICH bill was fulfilled. Matters most on this endpoint,
+		// where the row may never have been reviewed by a human, so "who chose
+		// these acts" is the first question a bad-extraction incident asks.
+		if showAssoc != nil && showAssoc.billSource != "" {
+			metadata["bill_source"] = string(showAssoc.billSource)
 		}
 		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(admin.ID, "rescue_fulfill_entity_request", entityType, reqID, metadata)

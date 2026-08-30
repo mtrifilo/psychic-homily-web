@@ -103,11 +103,21 @@ type ShowRequestPayload struct {
 	TicketURL      *string  `json:"ticket_url,omitempty"`
 	ImageURL       *string  `json:"image_url,omitempty"`
 	// Artists is the bill the contributor knew at request time (PSY-1858).
-	// Optional, and PREFILL ONLY: it does not make a show fulfillable on its
-	// own. PSY-1037's posture is unchanged: an admin still confirms the
-	// request and still supplies the venue (which this payload has no field
-	// for), and the admin's submitted bill is authoritative over this one. See
-	// resolveShowBill in the entity-request handlers for the exact rule.
+	// Optional, and it does NOT make a show fulfillable on its own.
+	//
+	// It is fulfilled only when the approving admin ADOPTS it, by sending
+	// use_payload_artists on the decide or fulfill endpoint. Omitting
+	// show_artists does not adopt it: that is still the 422 it always was, and
+	// sending both show_artists and the flag is a 422 too, since they state
+	// contradictory intents. PSY-1037's posture is unchanged, and this is what
+	// keeps it: a human affirms the bill, and still supplies the venue, which
+	// this payload has no field for. See resolveShowBill in the entity-request
+	// handlers for the exact rule.
+	//
+	// A producer should therefore expect the bill to be REVIEWED, not applied.
+	// Note also that an adopted bill never designates a headliner by list order:
+	// an act with no set_type is stored as 'performer', so a bill naming no
+	// 'headliner' creates a show with no headliner row.
 	//
 	// DEPLOY ORDERING, because UnmarshalPayload runs DisallowUnknownFields:
 	// adding this field is backward compatible (every row already queued has no

@@ -7613,7 +7613,7 @@ export interface components {
             show_artists?: components["schemas"]["ShowArtistInput"][] | null;
             /** @description Venue for fulfilling a show request (required when approving a show) */
             show_venue?: components["schemas"]["ShowVenueInput"];
-            /** @description Approve a show using the artists stored on the request's own payload. Mutually exclusive with show_artists: send one or the other, never both. Omitting both is still a 422, so a bill is never adopted by default. */
+            /** @description Approve a show using the artists stored on the request's own payload. Mutually exclusive with show_artists: send one or the other, never both. Omitting both is still a 422, so a bill is never adopted by default. An adopted bill never designates a headliner by list order: an act with no set_type is stored as 'performer', so a bill naming no 'headliner' creates a show with no headliner row. */
             use_payload_artists?: boolean;
         };
         AdminDecideEntityRequestResponseBody: {
@@ -7671,7 +7671,7 @@ export interface components {
             show_artists?: components["schemas"]["ShowArtistInput"][] | null;
             /** @description Venue for fulfilling a show request (required when fulfilling a show) */
             show_venue?: components["schemas"]["ShowVenueInput"];
-            /** @description Fulfill a show using the artists stored on the request's own payload. Mutually exclusive with show_artists: send one or the other, never both. Omitting both is still a 422, so a bill is never adopted by default. */
+            /** @description Fulfill a show using the artists stored on the request's own payload. Mutually exclusive with show_artists: send one or the other, never both. Omitting both is still a 422, so a bill is never adopted by default. An adopted bill never designates a headliner by list order: an act with no set_type is stored as 'performer', so a bill naming no 'headliner' creates a show with no headliner row. */
             use_payload_artists?: boolean;
         };
         AdminFulfillEntityRequestResponseBody: {

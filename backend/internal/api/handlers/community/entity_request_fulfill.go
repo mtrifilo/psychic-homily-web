@@ -181,6 +181,10 @@ func mapFulfillmentError(err error) error {
 type showAssociations struct {
 	venue   contracts.CreateShowVenue
 	artists []contracts.CreateShowArtist
+	// billSource records where the fulfilled bill came from, for the audit row
+	// (PSY-1858). Not used to make any decision; by the time this is set the bill
+	// has already been chosen.
+	billSource billSource
 }
 
 // buildShowAssociations validates + converts the decide endpoint's optional
@@ -204,11 +208,17 @@ func buildShowAssociations(venue *ShowVenueInput, artists []ShowArtistInput, bil
 		return nil, nil
 	}
 	if venue == nil || len(artists) == 0 {
-		// No verb: this same function answers an approve (decide) and a fulfill
-		// (rescue), and a payload bill made this branch newly reachable from the
-		// rescue endpoint, where "Approving" named a call the admin never made.
-		// Each caller phrases its own refusal for the none-supplied case below.
-		return nil, huma.Error422UnprocessableEntity("show_venue and show_artists must be supplied together")
+		// Named separately, because the combined "supply them together" wording
+		// sent an adopting admin into a loop: the venue is the thing they are
+		// missing, but the message told them to add show_artists, and doing so
+		// earns the mutually-exclusive 422 instead. No verb either: this same
+		// function answers an approve (decide) and a fulfill (rescue), and
+		// "Approving" named a call the rescue admin never made.
+		if venue == nil {
+			return nil, huma.Error422UnprocessableEntity("show_venue is required to fulfil a show")
+		}
+		return nil, huma.Error422UnprocessableEntity(
+			"supply show_artists, or set use_payload_artists to adopt the bill on this request's payload")
 	}
 	// Names are validated as a whole bill, BEFORE any conversion work: the cap
 	// exists to stop a runaway script from driving an unbounded number of artist
@@ -306,9 +316,11 @@ func showBillArtists(artists []ShowArtistInput) []communitym.ShowRequestArtist {
 // Sending BOTH is a 422, not a precedence puzzle. The two say contradictory
 // things ("fulfil what the contributor recorded" and "fulfil what I typed"), and
 // the stricter answer is the safe one: refusing costs one retry, while silently
-// picking a winner would fulfil a bill the admin may not have meant. This is
-// also why the flag is not merely advisory, and why "body wins" survives
-// unchanged in the only case where both could be meant at once.
+// picking a winner would fulfil a bill the admin may not have meant.
+//
+// So "body wins" survives only where it still means something: over a STORED
+// bill the admin did not adopt. Body plus the flag is refused outright, not
+// resolved in the body's favour.
 //
 // WHY A FLAG, and not an omitted show_artists (superseded design, recorded so
 // the change is not undone by someone reading only the ticket): an omitted key
@@ -357,11 +369,21 @@ func resolveShowBill(bodyArtists []ShowArtistInput, req *communitym.EntityReques
 		// caller would have to fill in, and the payload is not their input.
 		return nil, billSourceBody, nil
 	}
-	bill := payloadShowBill(req)
+	bill, derr := payloadShowBill(req)
+	if derr != nil {
+		// "Carries no artists" would be a MISDIAGNOSIS here: the payload may hold
+		// a full bill that simply cannot be read, which is exactly the state the
+		// DisallowUnknownFields rollback window produces (see the Artists field's
+		// doc). Report the corruption, in the same words validatePayloadImageURL
+		// uses for it, because on this path that check runs later and on the
+		// rescue path it does not run at all.
+		return nil, billSourcePayload, huma.Error422UnprocessableEntity(
+			fmt.Sprintf("Invalid payload for %s: %v", req.EntityType, derr))
+	}
 	if len(bill) == 0 && req != nil {
-		// Honest about which input is empty. Falling through to "a show requires
-		// show_venue and show_artists" would tell an admin who DID ask for the
-		// payload's bill to go find a field they deliberately left out.
+		// Honest about which input is empty. Falling through to the caller's
+		// "a show needs a venue and a bill" refusal would tell an admin who DID
+		// ask for the payload's bill to go find a field they deliberately left out.
 		return nil, billSourcePayload, huma.Error422UnprocessableEntity(
 			"use_payload_artists was set, but this request's payload carries no artists")
 	}
@@ -384,7 +406,9 @@ func resolveShowBill(bodyArtists []ShowArtistInput, req *communitym.EntityReques
 //     bill of its own, because fulfillEntity re-validates it after the claim,
 //     where a rejection is an orphan instead of a 422.
 //  2. resolve which bill is being fulfilled: the body's, or the payload's when
-//     the admin adopted it with use_payload_artists. Never both, never neither.
+//     the admin adopted it with use_payload_artists. Never both; NEITHER is a
+//     supported input, yielding no bill, which each caller turns into its own
+//     refusal (and for a non-show decide, into a plain (nil, nil)).
 //  3. validate + convert whichever won, naming its source in any 422.
 //
 // Step 1 is deliberately STRUCTURE only. Roles are checked in step 3, against
@@ -410,6 +434,16 @@ func admitShowBill(
 	bodyArtists []ShowArtistInput,
 	adoptPayloadBill bool,
 ) (*showAssociations, error) {
+	// The flag is a SHOW input, ignored for every other entity type exactly as
+	// show_venue and show_artists are (both endpoints' docs promise that). Without
+	// this, a client that sends the flag as a constant, which is the obvious shape
+	// once one checkbox drives a shared form, would hard-block every non-show
+	// approve with a complaint about artists on an entity that has none. Rescue
+	// gates on the type at its call site; this is where decide gets the same
+	// answer, so the two paths cannot diverge on identical input.
+	if eligible != nil && eligible.EntityType != communitym.EntityRequestShow {
+		adoptPayloadBill = false
+	}
 	if eligible != nil && eligible.Payload != nil {
 		if verr := validateStoredShowBill(eligible.EntityType, *eligible.Payload); verr != nil {
 			return nil, verr
@@ -419,31 +453,40 @@ func admitShowBill(
 	if berr != nil {
 		return nil, berr
 	}
-	return buildShowAssociations(venue, bill, source)
+	assoc, aerr := buildShowAssociations(venue, bill, source)
+	if aerr != nil || assoc == nil {
+		return assoc, aerr
+	}
+	// Recorded so the audit row can say WHICH bill was fulfilled. The flag's whole
+	// premise is that adoption is an act with provenance, and after the fact
+	// nothing else distinguishes an admin who typed and vetted a bill from one who
+	// adopted contributor text.
+	assoc.billSource = source
+	return assoc, nil
 }
 
 // payloadShowBill converts a stored show payload's bill into the admin-shaped
-// bill inputs, for adoption (PSY-1858). Nil for a non-show request, a request
-// with no payload, or a payload that does not decode.
+// bill inputs, for adoption (PSY-1858). Empty for a non-show request or a
+// request with no payload; a DECODE failure is returned, not swallowed.
 //
-// A decode failure is deliberately silent rather than an error: the paths that
-// call this then fall through to "no bill", which surfaces as whichever
-// venue-and-bill-required refusal the caller phrases, and fulfillment
-// re-validates the stored payload anyway and reports the decode failure with a
-// far better message than a conversion helper could. Inventing a second error
-// channel here would only give the same corrupt row two different 422s
-// depending on whether the admin also typed a bill.
+// Returning the decode error is the difference between "this payload has no
+// bill" and "this payload cannot be read", which are different problems with
+// different fixes and which an admin adopting a bill must be able to tell apart.
+// Its only caller runs under an explicit adoption request, so there is no
+// fall-through path left to report the corruption later: on decide this now runs
+// before validatePayloadImageURL, and on rescue nothing else decodes the payload
+// at all (PSY-1956).
 //
 // The converted inputs carry no ID (the payload has no ID field: contributors
 // have no artist picker, so fulfillment find-or-creates by name) and no
 // is_headliner (the payload states roles, not flags).
-func payloadShowBill(req *communitym.EntityRequest) []ShowArtistInput {
+func payloadShowBill(req *communitym.EntityRequest) ([]ShowArtistInput, error) {
 	if req == nil || req.Payload == nil {
-		return nil
+		return nil, nil
 	}
 	artists, err := communitym.ShowPayloadArtists(req.EntityType, *req.Payload)
-	if err != nil || len(artists) == 0 {
-		return nil
+	if err != nil {
+		return nil, err
 	}
 	out := make([]ShowArtistInput, 0, len(artists))
 	for i := range artists {
@@ -452,7 +495,7 @@ func payloadShowBill(req *communitym.EntityRequest) []ShowArtistInput {
 			SetType: artists[i].SetType,
 		})
 	}
-	return out
+	return out, nil
 }
 
 // suppressPositionInference pins is_headliner=false on the acts nobody curated.

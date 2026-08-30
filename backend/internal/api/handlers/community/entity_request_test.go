@@ -853,9 +853,14 @@ func TestAdminDecide_ApproveShow_WithAssociations_CreatesShow(t *testing.T) {
 	decided.RequesterID = 7
 	decided.DecisionState = communitym.EntityRequestStateApproved
 
+	pending := pendingRequest(40, "show")
+	pending.Payload = &payload
+	pending.RequesterID = 7
+
 	var got *contracts.CreateShowRequest
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
+			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return pending, nil },
 			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
 				return decided, nil
 			},
@@ -935,9 +940,13 @@ func TestAdminDecide_ApproveShow_DateOnlyAnchorsEveningLocal(t *testing.T) {
 	decided.Payload = &payload
 	decided.DecisionState = communitym.EntityRequestStateApproved
 
+	pending := pendingRequest(41, "show")
+	pending.Payload = &payload
+
 	var got *contracts.CreateShowRequest
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
+			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return pending, nil },
 			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
 				return decided, nil
 			},
@@ -972,8 +981,10 @@ func TestAdminDecide_ApproveShow_DateOnlyAnchorsEveningLocal(t *testing.T) {
 // Decide must not run, so no approved-but-unfulfilled row is left behind.
 func TestAdminDecide_ApproveShow_PartialAssociations422BeforeClaim(t *testing.T) {
 	decideCalled := false
+	pending := pendingRequest(42, "show")
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
+			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return pending, nil },
 			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
 				decideCalled = true
 				return nil, nil
@@ -1002,9 +1013,13 @@ func TestAdminDecide_ApproveShow_MalformedStoredPayloadRejected(t *testing.T) {
 	decided.Payload = &raw
 	decided.DecisionState = communitym.EntityRequestStateApproved
 
+	pending := pendingRequest(43, "show")
+	pending.Payload = &raw
+
 	createCalled := false
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
+			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return pending, nil },
 			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
 				return decided, nil
 			},

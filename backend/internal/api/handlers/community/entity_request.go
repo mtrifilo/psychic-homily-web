@@ -416,7 +416,7 @@ type AdminDecideEntityRequestRequest struct {
 		// CONTRIBUTOR recorded (PSY-1858). See resolveShowBill for the rule and
 		// why the flag exists rather than an omitted show_artists meaning the
 		// same thing.
-		UsePayloadArtists bool `json:"use_payload_artists,omitempty" required:"false" doc:"Approve a show using the artists stored on the request's own payload. Mutually exclusive with show_artists: send one or the other, never both. Omitting both is still a 422, so a bill is never adopted by default."`
+		UsePayloadArtists bool `json:"use_payload_artists,omitempty" required:"false" doc:"Approve a show using the artists stored on the request's own payload. Mutually exclusive with show_artists: send one or the other, never both. Omitting both is still a 422, so a bill is never adopted by default. An adopted bill never designates a headliner by list order: an act with no set_type is stored as 'performer', so a bill naming no 'headliner' creates a show with no headliner row."`
 	}
 }
 
@@ -528,18 +528,29 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 			eligible = existing
 		}
 
-		// PSY-1858: one shared pre-claim admission check with the rescue endpoint
-		// (validate the stored bill, resolve body-vs-payload, build), so the two
-		// admin paths cannot answer the same bill differently.
-		var aerr error
-		showAssoc, aerr = admitShowBill(eligible, req.Body.ShowVenue, req.Body.ShowArtists, req.Body.UsePayloadArtists)
-		if aerr != nil {
-			return nil, aerr
-		}
-
+		// EVERY pre-claim check is inside this block, so a row Decide cannot act
+		// on skips all of them and gets answered by its own state: 409 for an
+		// already-decided row, 404 for one that is not there.
+		//
+		// The whole block is gated, not just the checks that read the payload,
+		// because use_payload_artists made a body that omits show_artists a
+		// COMPLETE request (PSY-1858). Validating the body's shape here would
+		// refuse a complete adopting approve with "show_artists is missing" on a
+		// row whose real problem is that it was decided a second ago, which is a
+		// message that reads as fixable and is not.
 		if eligible != nil {
+			// PSY-1858: one shared pre-claim admission check with the rescue
+			// endpoint (validate the stored bill, resolve body-vs-flag, build), so
+			// the two admin paths cannot answer the same bill differently.
+			var aerr error
+			showAssoc, aerr = admitShowBill(eligible, req.Body.ShowVenue, req.Body.ShowArtists, req.Body.UsePayloadArtists)
+			if aerr != nil {
+				return nil, aerr
+			}
+
 			if showAssoc == nil && eligible.EntityType == communitym.EntityRequestShow {
-				return nil, huma.Error422UnprocessableEntity("Approving a show requires show_venue and show_artists")
+				return nil, huma.Error422UnprocessableEntity(
+					"Approving a show requires show_venue, and either show_artists or use_payload_artists")
 			}
 			// Last of the pre-claim checks because it is the only one that can
 			// resolve DNS; the in-memory refusals above should not wait on it.
@@ -606,6 +617,12 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 		}
 		if resp.Body.CreatedEntityID != nil {
 			metadata["created_entity_id"] = *resp.Body.CreatedEntityID
+		}
+		// PSY-1858: record WHICH bill was fulfilled, so an approve that adopted the
+		// contributor's stored bill is distinguishable after the fact from one the
+		// admin typed and vetted. Nothing else in the row carries that.
+		if showAssoc != nil && showAssoc.billSource != "" {
+			metadata["bill_source"] = string(showAssoc.billSource)
 		}
 		entityType := decided.EntityType
 		servicesshared.GoSafe(ctx, "audit_log", func() {

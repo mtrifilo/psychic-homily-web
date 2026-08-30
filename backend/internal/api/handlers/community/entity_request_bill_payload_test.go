@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,9 +21,10 @@ import (
 )
 
 // PSY-1858: a queued show request can carry its bill, so the admin approving it
-// does not re-type the acts out of the source excerpt. The bill is PREFILL: the
-// admin's submitted body stays authoritative, and nothing is ever fulfilled
-// from the payload alone (the payload has no venue, and an admin still decides).
+// does not re-type the acts out of the source excerpt. That bill is fulfilled
+// only when the admin ADOPTS it with use_payload_artists: omitting show_artists
+// adopts nothing, sending both is a 422, and the admin still supplies the venue,
+// so nothing is ever fulfilled from the payload alone.
 
 // billNames flattens a created bill to (name, role) pairs, with "-" for an act
 // that stated no role, so assertions read as the bill does.
@@ -329,7 +331,7 @@ func TestResolveShowBill(t *testing.T) {
 	})
 
 	t.Run("a body bill is used as-is and acts are never merged", func(t *testing.T) {
-		// The admin's form is prefilled from this same payload, so an act in the
+		// The admin's form is seeded from this same payload, so an act in the
 		// payload and not in the body is an act the admin REMOVED. Resurrecting
 		// it would make a hallucinated act on an AI-extracted bill undeletable.
 		got, field, err := resolveShowBill([]ShowArtistInput{{Name: "Sunn O)))"}}, showReq(), false)
@@ -565,18 +567,15 @@ func TestAdminDecide_ApproveShow_StoredBadRole422BeforeClaim(t *testing.T) {
 	assert.Nil(t, got)
 }
 
-// An already-decided row gets Decide's 409, NOT a 422 about a bill the admin
-// never typed.
+// An already-decided row gets Decide's 409, NOT a 422 about its stored payload.
 //
-// This is the regression the prefill introduced and review caught: with the
-// prefill ungated, a re-decide that sent no show_artists picked up the payload's
-// bill, then failed the venue check pre-claim and reported "approving a show
-// requires both show_venue and show_artists" -- a message implying the call
-// could be fixed by adding a venue, on a row that can never be decided again.
-func TestAdminDecide_ApproveShow_AlreadyDecidedRowWithPayloadBillIs409(t *testing.T) {
-	raw := showRequestPayload(t, "Already Approved",
-		communitym.ShowRequestArtist{Name: "Boris", SetType: shared.PtrString(contracts.SetTypeHeadliner)},
-	)
+// The stored bill here is STRUCTURALLY BROKEN (one act named twice), which on a
+// pending row is a pre-claim 422 from validateStoredShowBill. That is what gives
+// this test teeth: it fails the moment any pre-claim check stops being scoped to
+// a row Decide can act on, which is the regression review caught once already.
+func TestAdminDecide_ApproveShow_AlreadyDecidedRowWithBrokenStoredBillIs409(t *testing.T) {
+	raw := json.RawMessage(`{"title":"Already Approved","event_date":"2026-09-12T21:00:00-07:00",` +
+		`"artists":[{"name":"Boris"},{"name":"boris"}]}`)
 	decided := approvedUnfulfilledRequest(79, communitym.EntityRequestShow)
 	decided.Payload = &raw
 
@@ -603,9 +602,11 @@ func TestAdminDecide_ApproveShow_AlreadyDecidedRowWithPayloadBillIs409(t *testin
 	testhelpers.AssertHumaError(t, err, 409)
 }
 
-// An explicit empty bill on the body is a STATED bill of zero acts, so the
-// payload does not refill it and the approve is refused pre-claim. Only an
-// absent show_artists is a gap the payload may fill.
+// An explicit empty bill is a STATED bill of zero acts, so it CONFLICTS with the
+// flag rather than reading as "no bill given, adopt". Asserted with the flag set,
+// because that is the only branch where the nil-versus-empty distinction decides
+// anything: without it, an absent show_artists reaches the same 422 by another
+// route and this would pass even if the distinction were deleted.
 func TestAdminDecide_ApproveShow_EmptyBodyBillIsStillAStatedBill(t *testing.T) {
 	raw := showRequestPayload(t, "Contributor's Bill",
 		communitym.ShowRequestArtist{Name: "Boris"},
@@ -621,9 +622,12 @@ func TestAdminDecide_ApproveShow_EmptyBodyBillIsStillAStatedBill(t *testing.T) {
 	req.Body.Decision = "approved"
 	req.Body.ShowVenue = &ShowVenueInput{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
 	req.Body.ShowArtists = []ShowArtistInput{}
+	req.Body.UsePayloadArtists = true
 
 	_, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
 	testhelpers.AssertHumaError(t, err, 422)
+	assert.Contains(t, err.Error(), "mutually exclusive",
+		"an emptied bill is a stated bill, so it conflicts with the flag")
 	assert.False(t, decideCalled, "an emptied bill must not claim the row")
 	assert.Nil(t, got)
 }
@@ -776,9 +780,207 @@ func TestAdminDecide_ApproveShow_AlreadyDecidedRowWithFlagIs409(t *testing.T) {
 	req := &AdminDecideEntityRequestRequest{ID: "95"}
 	req.Body.Decision = "approved"
 	req.Body.UsePayloadArtists = true
+	// WITH the venue, which is the only shape a real adopting client sends: the
+	// flag alone is a 422 for want of a venue whatever the row's state, so a test
+	// that omits it would pass without exercising the gate at all.
+	req.Body.ShowVenue = &ShowVenueInput{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
 
 	_, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
 	testhelpers.AssertHumaError(t, err, 409)
+}
+
+// The same guarantee for a row that is not there at all: 404 from Decide, not a
+// 422 about a bill. GetRequest answers (nil, nil) for a missing row, so the
+// pre-claim checks have nothing to act on and must all stand down.
+func TestAdminDecide_ApproveShow_MissingRowWithFlagIs404(t *testing.T) {
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return nil, nil },
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+				return nil, apperrors.ErrEntityRequestNotFound(requestID)
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateShowFn: func(req *contracts.CreateShowRequest) (*contracts.ShowResponse, error) {
+				t.Fatal("a missing row must never be fulfilled")
+				return nil, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	req := &AdminDecideEntityRequestRequest{ID: "404"}
+	req.Body.Decision = "approved"
+	req.Body.UsePayloadArtists = true
+	req.Body.ShowVenue = &ShowVenueInput{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
+
+	_, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 404)
+}
+
+// A stored payload that cannot be DECODED is reported as corruption, not as
+// "carries no artists". They are different problems: one means the bill is
+// absent, the other that it may be complete and unreadable, which is the state
+// a DisallowUnknownFields rollback produces. On this path nothing else decodes
+// the payload first, so this message is the only diagnosis the admin gets.
+func TestAdminDecide_ApproveShow_CorruptPayloadWithFlagNamesTheCorruption(t *testing.T) {
+	corrupt := json.RawMessage(`{"title":`)
+	pending := pendingRequest(96, communitym.EntityRequestShow)
+	pending.Payload = &corrupt
+
+	decideCalled := false
+	var got *contracts.CreateShowRequest
+	h := decideHandler(t, pending, &got, &decideCalled)
+
+	req := &AdminDecideEntityRequestRequest{ID: "96"}
+	req.Body.Decision = "approved"
+	req.Body.ShowVenue = &ShowVenueInput{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
+	req.Body.UsePayloadArtists = true
+
+	_, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 422)
+	assert.Contains(t, err.Error(), "Invalid payload for show",
+		"a payload that cannot be read must not be reported as a payload with no bill")
+	assert.NotContains(t, err.Error(), "carries no artists")
+	assert.False(t, decideCalled)
+	assert.Nil(t, got)
+}
+
+// The flag is a SHOW input. On every other entity type both endpoints ignore it,
+// exactly as they ignore show_venue and show_artists, so a client that sends it
+// as a constant does not hard-block non-show approvals. This is the pair that
+// keeps decide and rescue from answering identical input differently.
+func TestAdminAdoption_NonShowRequestIgnoresTheFlag(t *testing.T) {
+	t.Run("decide", func(t *testing.T) {
+		pending := pendingRequest(97, communitym.EntityRequestArtist)
+		approved := *pending
+		approved.DecisionState = communitym.EntityRequestStateApproved
+
+		created := false
+		h := NewEntityRequestHandler(
+			&testhelpers.MockEntityRequestService{
+				GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return pending, nil },
+				DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+					return &approved, nil
+				},
+			},
+			&testhelpers.MockEntityRequestFulfiller{
+				CreateArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
+					created = true
+					return &contracts.ArtistDetailResponse{ID: 905}, nil
+				},
+			},
+			&testhelpers.MockAuditLogService{},
+		)
+
+		req := &AdminDecideEntityRequestRequest{ID: "97"}
+		req.Body.Decision = "approved"
+		req.Body.UsePayloadArtists = true
+
+		_, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
+		require.NoError(t, err, "the flag must be ignored for an entity type that has no bill")
+		assert.True(t, created)
+	})
+
+	t.Run("rescue", func(t *testing.T) {
+		orphan := approvedUnfulfilledRequest(98, communitym.EntityRequestArtist)
+
+		created := false
+		h := NewEntityRequestHandler(
+			&testhelpers.MockEntityRequestService{
+				GetRequestFn:             func(requestID uint) (*communitym.EntityRequest, error) { return orphan, nil },
+				ClaimRescueFulfillmentFn: func(requestID, createdEntityID uint) (bool, error) { return true, nil },
+			},
+			&testhelpers.MockEntityRequestFulfiller{
+				CreateArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
+					created = true
+					return &contracts.ArtistDetailResponse{ID: 906}, nil
+				},
+			},
+			&testhelpers.MockAuditLogService{},
+		)
+
+		req := &AdminFulfillEntityRequestRequest{ID: "98"}
+		req.Body.UsePayloadArtists = true
+
+		_, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)
+		require.NoError(t, err)
+		assert.True(t, created)
+	})
+}
+
+// An adopting approve that forgets the venue is told about the VENUE. The old
+// combined wording sent the admin into a loop: it named show_artists, and adding
+// that earns the mutually-exclusive 422 instead.
+func TestAdminAdoption_MissingVenueNamesTheVenue(t *testing.T) {
+	raw := showRequestPayload(t, "Adopt Me", communitym.ShowRequestArtist{Name: "Boris"})
+	pending := pendingRequest(99, communitym.EntityRequestShow)
+	pending.Payload = &raw
+
+	decideCalled := false
+	var got *contracts.CreateShowRequest
+	h := decideHandler(t, pending, &got, &decideCalled)
+
+	req := &AdminDecideEntityRequestRequest{ID: "99"}
+	req.Body.Decision = "approved"
+	req.Body.UsePayloadArtists = true
+
+	_, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 422)
+	assert.Contains(t, err.Error(), "show_venue")
+	assert.NotContains(t, err.Error(), "show_artists",
+		"the admin adopted a bill; telling them to send show_artists is a dead end")
+	assert.False(t, decideCalled)
+}
+
+// The audit row records WHICH bill was fulfilled. Without it, an approve that
+// adopted unreviewed contributor text is indistinguishable after the fact from
+// one an admin typed and vetted.
+func TestAdminDecide_ApproveShow_AuditRecordsTheBillSource(t *testing.T) {
+	raw := showRequestPayload(t, "Adopted", communitym.ShowRequestArtist{Name: "Boris"})
+	pending := pendingRequest(100, communitym.EntityRequestShow)
+	pending.Payload = &raw
+	approved := *pending
+	approved.DecisionState = communitym.EntityRequestStateApproved
+
+	// The audit write is fire-and-forget (GoSafe), so it lands on another
+	// goroutine after the handler returns. A channel is the only way to read it
+	// without a sleep that would either flake or slow the suite.
+	logged := make(chan map[string]interface{}, 1)
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return pending, nil },
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+				return &approved, nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateShowFn: func(req *contracts.CreateShowRequest) (*contracts.ShowResponse, error) {
+				return &contracts.ShowResponse{ID: 907}, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{
+			LogActionFn: func(userID uint, action, entityType string, entityID uint, md map[string]interface{}) {
+				logged <- md
+			},
+		},
+	)
+
+	req := &AdminDecideEntityRequestRequest{ID: "100"}
+	req.Body.Decision = "approved"
+	req.Body.ShowVenue = &ShowVenueInput{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
+	req.Body.UsePayloadArtists = true
+
+	_, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
+	require.NoError(t, err)
+
+	select {
+	case metadata := <-logged:
+		assert.Equal(t, string(billSourcePayload), metadata["bill_source"],
+			"an adopted bill must be identifiable in the audit trail")
+	case <-time.After(2 * time.Second):
+		t.Fatal("the approve must write an audit row")
+	}
 }
 
 // A names-only PAYLOAD bill never gets the position-0 headliner guess. The
@@ -884,7 +1086,7 @@ func TestAdminDecide_ApproveShow_StoredOverCapBill422BeforeClaim(t *testing.T) {
 }
 
 // ============================================================================
-// Rescue: the same prefill, on the path that recovers an auto-approved show
+// Rescue: the same adoption, on the path that recovers an auto-approved show
 // ============================================================================
 
 // The rescue path is where an auto-approved show lands (its create could never
@@ -1075,7 +1277,7 @@ func TestAdminFulfill_Show_MissingVenueDoesNotSayApproving(t *testing.T) {
 
 // A non-show rescue is untouched by any of this: nothing looks for a bill, and
 // a stray show_artists on the body is still ignored rather than misread.
-func TestAdminFulfill_NonShow_IgnoresBillPrefill(t *testing.T) {
+func TestAdminFulfill_NonShow_IgnoresStrayShowArtists(t *testing.T) {
 	orphan := approvedUnfulfilledRequest(78, communitym.EntityRequestArtist)
 
 	created := false

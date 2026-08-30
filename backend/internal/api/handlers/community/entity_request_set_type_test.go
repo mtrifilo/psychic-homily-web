@@ -208,9 +208,16 @@ func TestAdminDecide_ApproveShow_CarriesSetType(t *testing.T) {
 	decided.Payload = &payload
 	decided.DecisionState = communitym.EntityRequestStateApproved
 
+	// The pre-claim read must find the row PENDING: every pre-claim check is
+	// scoped to a row Decide can actually act on, so a mock that answers
+	// (nil, nil) here would describe a request that does not exist.
+	pending := pendingRequest(60, "show")
+	pending.Payload = &payload
+
 	var got *contracts.CreateShowRequest
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
+			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return pending, nil },
 			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
 				return decided, nil
 			},
@@ -264,8 +271,10 @@ func TestAdminDecide_ApproveShow_CarriesSetType(t *testing.T) {
 // so a rejection there would strand the request as approved-but-unfulfilled.
 func TestAdminDecide_ApproveShow_InvalidSetType422BeforeClaim(t *testing.T) {
 	decideCalled := false
+	pending := pendingRequest(61, "show")
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
+			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return pending, nil },
 			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
 				decideCalled = true
 				return nil, nil

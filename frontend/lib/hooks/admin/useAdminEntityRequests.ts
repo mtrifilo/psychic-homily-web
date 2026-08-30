@@ -144,6 +144,12 @@ export interface DecideEntityRequestVars {
   /** PSY-1037: required when approving a show request; ignored otherwise. */
   show_venue?: ShowVenueInput
   show_artists?: ShowArtistInput[]
+  /**
+   * PSY-1858: adopt the bill stored on the request's own payload instead of
+   * sending one. Mutually exclusive with show_artists — sending both is a 422,
+   * and sending neither is also a 422, so a bill is never adopted by default.
+   */
+  use_payload_artists?: boolean
 }
 
 /**
@@ -151,6 +157,11 @@ export interface DecideEntityRequestVars {
  * (PSY-1008) and returns created_entity_id; 'rejected' records the note.
  * Show approvals additionally carry the admin-collected venue + artists
  * (PSY-1037) — the payload alone lacks the associations CreateShow needs.
+ *
+ * A show request may carry its own bill on the payload (PSY-1858). To fulfil
+ * THAT bill rather than a typed one, send use_payload_artists and omit
+ * show_artists. No UI does this yet; the moderation form is PSY-1955.
+ *
  * Invalidates the request queue + the entity lists an approval may have grown.
  */
 export function useDecideEntityRequest() {
@@ -158,7 +169,7 @@ export function useDecideEntityRequest() {
   const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
-    mutationFn: async ({ id, decision, note, show_venue, show_artists }: DecideEntityRequestVars) => {
+    mutationFn: async ({ id, decision, note, show_venue, show_artists, use_payload_artists }: DecideEntityRequestVars) => {
       return apiRequest(API_ENDPOINTS.ADMIN.ENTITY_REQUESTS.DECIDE(id), {
         method: 'POST',
         body: JSON.stringify({
@@ -172,6 +183,7 @@ export function useDecideEntityRequest() {
           // them. Adopting the contributor's stored bill is use_payload_artists,
           // never an omitted key.
           ...(show_artists !== undefined ? { show_artists } : {}),
+          ...(use_payload_artists ? { use_payload_artists } : {}),
         }),
       })
     },
@@ -199,6 +211,13 @@ export interface RescueEntityRequestVars {
   /** Required when fulfilling a SHOW request; ignored otherwise. */
   show_venue?: ShowVenueInput
   show_artists?: ShowArtistInput[]
+  /**
+   * PSY-1858: adopt the bill stored on the request's own payload. Same rules as
+   * on decide, and it matters more here — this is where a trusted tier's
+   * auto-approved show lands, so without the flag a bill could be fulfilled
+   * having never been seen by an admin.
+   */
+  use_payload_artists?: boolean
 }
 
 /**
@@ -213,7 +232,7 @@ export function useRescueEntityRequest() {
   const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
-    mutationFn: async ({ id, action, note, show_venue, show_artists }: RescueEntityRequestVars) => {
+    mutationFn: async ({ id, action, note, show_venue, show_artists, use_payload_artists }: RescueEntityRequestVars) => {
       return apiRequest(API_ENDPOINTS.ADMIN.ENTITY_REQUESTS.FULFILL(id), {
         method: 'POST',
         body: JSON.stringify({
@@ -227,6 +246,7 @@ export function useRescueEntityRequest() {
           // them. Adopting the contributor's stored bill is use_payload_artists,
           // never an omitted key.
           ...(show_artists !== undefined ? { show_artists } : {}),
+          ...(use_payload_artists ? { use_payload_artists } : {}),
         }),
       })
     },
