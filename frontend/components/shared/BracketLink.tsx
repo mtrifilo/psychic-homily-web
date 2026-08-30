@@ -97,8 +97,8 @@ export interface BracketLinkProps
    * by default, so an outbound bracket rendered near a link named after the
    * same entity silently makes that entity-name locator ambiguous, and any
    * spec using it dies on a strict-mode violation. That is how PSY-1865 turned
-   * main's E2E red. It is not a reason to change this contract — the
-   * announcement and the context both belong here — but when you add an
+   * main's E2E red. It is not a reason to change this contract (the
+   * announcement and the context both belong here), but when you add an
    * `external` bracket beside a same-named link, check `frontend/e2e/` for a
    * name-matched locator that now needs `exact: true` or a region scope.
    *
