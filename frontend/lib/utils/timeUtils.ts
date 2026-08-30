@@ -72,12 +72,46 @@ const STATE_TIMEZONES: Record<string, string> = {
 }
 
 /**
- * Get the IANA timezone for a US state. Defaults to America/Phoenix (Arizona,
- * no DST) for unknown/international input — callers should prefer a venue's
- * resolved `timezone` and use this only as a fallback.
+ * The zone a show is read on when NOTHING is known about where it happens:
+ * no `venues.timezone`, and a `state` this map does not list (blank, or any
+ * non-US region).
+ *
+ * THE ONE PLACE THIS VALUE EXISTS. It used to be spelled twice — here and
+ * again as `state || 'AZ'` inside `resolveShowTimezone` — so "the default" was
+ * two literals in two files that happened to agree.
+ *
+ * DO NOT change it to UTC, to the reader's zone, or to anything else without
+ * changing the WRITE path in the same commit. This is not a display guess: it
+ * is one half of a matched pair. `ShowForm`'s submit composes `event_date`
+ * with `combineDateTimeToUTC(date, time, resolveShowTimezone(...))`, and
+ * `showToFormValues` reads it back through the same resolver (PSY-1873). For
+ * a show written through the app with no resolvable zone, the stored instant
+ * therefore MEANS "this wall clock, read in America/Phoenix", and rendering it
+ * here reproduces exactly what the submitter typed. Swapping this constant for
+ * a more "honest" zone would keep every stored instant where it is and shift
+ * every rendered clock off it — showing a time nobody entered. The CLI's
+ * `cli/src/lib/timezone.ts` and the backend's `utils.StateTimezones` are the
+ * other two copies of the same map; all three are synced by hand.
+ *
+ * Arizona rather than UTC for the one case this genuinely guesses at (a US
+ * show whose state never reached us): a North American evening crosses UTC
+ * midnight, so reading such an instant in UTC lands it on the WRONG calendar
+ * day, while a UTC-7 zone with no DST lands it on the right one.
+ *
+ * It is still a guess for anything outside the US, and wrong by up to a
+ * calendar day. `hasTimezoneForState` is how a caller tells the two apart;
+ * every surface that would name an HOUR is required to ask first. See
+ * `isShowTimezoneResolved` and `showStatusStripeCopy`.
+ */
+export const FALLBACK_SHOW_TIMEZONE = 'America/Phoenix'
+
+/**
+ * Get the IANA timezone for a US state. Falls back to
+ * {@link FALLBACK_SHOW_TIMEZONE} for unknown/international input — callers
+ * should prefer a venue's resolved `timezone` and use this only as a fallback.
  */
 export function getTimezoneForState(state: string): string {
-  return STATE_TIMEZONES[state.toUpperCase()] || 'America/Phoenix'
+  return STATE_TIMEZONES[state.toUpperCase()] || FALLBACK_SHOW_TIMEZONE
 }
 
 /**

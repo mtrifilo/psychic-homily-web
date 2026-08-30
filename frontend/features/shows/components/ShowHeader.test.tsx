@@ -354,6 +354,69 @@ describe('ShowHeader layout', () => {
     expect(screen.getByText(/Sat, Aug 15/)).toBeInTheDocument()
     expect(screen.queryByText(/Fri, Aug 14/)).not.toBeInTheDocument()
   })
+
+  // PSY-1696. The null-timezone path: a venue with no resolved `timezone` AND a
+  // state the US map does not list, which is every non-US venue that has not
+  // geocoded. `resolveShowTimezone` answers FALLBACK_SHOW_TIMEZONE there, and
+  // the policy is stated at the call site in ShowHeader: print the date, and
+  // nothing that depends on the hour.
+  describe('when the venue timezone cannot be resolved', () => {
+    const berlinShow = () =>
+      makeShow({
+        // What the submit path stored for "Aug 15, 8:00 PM" at a venue with no
+        // resolvable zone: 20:00 in the fallback zone (PSY-1873 pairs the two).
+        event_date: '2026-08-16T03:00:00Z',
+        city: 'Berlin',
+        state: '',
+        venues: [
+          {
+            id: 1,
+            slug: 'the-venue',
+            name: 'The Venue',
+            city: 'Berlin',
+            state: '',
+            verified: true,
+          },
+        ],
+      })
+
+    it('renders the date the submitter chose, not the UTC calendar day', () => {
+      render(<ShowHeader lifecycle="upcoming" show={berlinShow()} />)
+
+      expect(screen.getByText(/Sat, Aug 15/)).toBeInTheDocument()
+      expect(screen.queryByText(/Sun, Aug 16/)).not.toBeInTheDocument()
+    })
+
+    it('names no hour anywhere in the header', () => {
+      const { container } = render(
+        <ShowHeader lifecycle="upcoming" show={berlinShow()} />
+      )
+
+      // The fallback zone is at most a day out on a date and hours out on a
+      // clock, so the page declines to print a clock at all. The start time,
+      // doors and music segments all refuse on the same test one level down
+      // (`startTimeFactSegment`, `doorsMusicFactSegment`).
+      expect(container.textContent).not.toMatch(/\d{1,2}(:\d{2})?\s*(AM|PM)/i)
+    })
+
+    it('still prints a clock once the venue has a resolved timezone', () => {
+      // The refusal has to be caused by the missing zone and nothing else: the
+      // same fixture with a zone must show the time, or the assertion above
+      // would keep passing after the clock stopped rendering for any reason.
+      const show = berlinShow()
+      render(
+        <ShowHeader
+          lifecycle="upcoming"
+          show={{
+            ...show,
+            venues: [{ ...show.venues[0], timezone: 'Europe/Berlin' }],
+          }}
+        />
+      )
+
+      expect(screen.getByText(/5AM/)).toBeInTheDocument()
+    })
+  })
 })
 
 describe('ShowHeader bill rendering', () => {

@@ -10,16 +10,32 @@ import {
 /**
  * Resolve the IANA timezone for rendering a show time. Prefers the venue's
  * resolved `timezone` (PSY-985); falls back to the US state→tz map for venues
- * without one (pre-backfill rows). A malformed/unknown `timezone` string falls
- * through to the state map rather than crashing the render (`Intl` throws a
- * RangeError on a bad zone), mirroring the backend's EventLocation (PSY-996/986).
+ * without one (pre-backfill rows), and finally to
+ * `FALLBACK_SHOW_TIMEZONE` (`./timeUtils`) when the state is blank or non-US. A
+ * malformed/unknown `timezone` string falls through to the state map rather
+ * than crashing the render (`Intl` throws a RangeError on a bad zone),
+ * mirroring the backend's EventLocation (PSY-996/986).
+ *
+ * THE LAST STEP IS NOT A DISPLAY DEFAULT, it is the read half of a round trip.
+ * `ShowForm` composes `event_date` through this same function on submit and
+ * `showToFormValues` reads it back through it (PSY-1873), so for an app-written
+ * show with no resolvable zone the stored instant means "this wall clock, read
+ * in the fallback zone". Changing the fallback on this side alone would leave
+ * every stored instant where it is and move every rendered clock off it. See
+ * `FALLBACK_SHOW_TIMEZONE` (`./timeUtils`) for the whole invariant before touching either
+ * end.
+ *
+ * There is deliberately no second Arizona literal here. `''` is not a state
+ * this map knows, so an absent state reaches the same single fallback that an
+ * unrecognized one does; spelling `state || 'AZ'` made "the default" two
+ * literals in two files that had to be kept in agreement by hand.
  */
 export function resolveShowTimezone(
   state?: string | null,
   timezone?: string | null
 ): string {
   if (timezone && isValidTimeZone(timezone)) return timezone
-  return getTimezoneForState(state || 'AZ')
+  return getTimezoneForState(state ?? '')
 }
 
 /**
@@ -32,6 +48,13 @@ export function resolveShowTimezone(
  * guess that is hours or a calendar day wrong reads as fact once it is printed
  * next to a venue name. Formatting a date is a weaker claim and can live with
  * the fallback; naming an hour cannot.
+ *
+ * That split is the page-wide policy, not a per-surface preference. Wave 1C
+ * wrote the refusing half into `showStatusStripeCopy` (no DOORS, no MUSIC, no
+ * start time, no TONIGHT on a guessed zone); the accepting half is every date
+ * render on the show page, which prints the fallback's calendar day rather than
+ * printing nothing. `FALLBACK_SHOW_TIMEZONE` (`./timeUtils`) carries why that
+ * day is the best available answer instead of an arbitrary one.
  */
 export function isShowTimezoneResolved(
   state?: string | null,
