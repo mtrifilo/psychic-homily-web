@@ -113,10 +113,14 @@ export function ShowDiscoveryRails({ show }: { show: ShowResponse }) {
 function Rail({ rail, testId }: { rail: ShowRail; testId: string }) {
   // A `section` with no accessible name is a generic element, not a `region`,
   // so landmark navigation could not tell the two rails apart — they would be
-  // reachable only by heading. There is no existing labelled-region precedent
-  // in this repo to copy (the nearest, `ShowSubmissionsConsole`, labels an
-  // `article` from a data-derived id and its one `section` by `aria-label`), so
-  // this is the first.
+  // reachable only by heading.
+  //
+  // The repo labels regions both ways: ~20 `<section aria-label>` (see
+  // `GraphPanelShell`, whose landmark is a tested contract) and a handful of
+  // `<section aria-labelledby>`. The closest precedent is `app/library/page.tsx`
+  // — a `section` labelled by a per-instance heading id — and `aria-labelledby`
+  // is the right half of that pair HERE because `showRails.ts` already composes
+  // the heading text; an `aria-label` would restate it and the two would drift.
   //
   // `useId`, NOT the testId: a `data-testid` is a testing affordance, and
   // hanging an accessibility contract off it means a test refactor that renames
@@ -197,10 +201,18 @@ function RailRow({
             proportions overflowed that outright and left the BILL — the one
             cell a reader is scanning for — as a bare ellipsis from `md` up to
             ~1100px. So: the room column, the least load-bearing of the four,
-            waits for `xl`, and the bill keeps `flex-1` everywhere. Budget with
-            the arithmetic, not by eye: lead 64 + figure 64 + gaps 24 = 152 of
-            a 300px column, leaving the bill 148. */}
-        <span className="shrink-0 font-mono text-xs uppercase tabular-nums text-muted-foreground sm:w-16">
+            hides only in the horizontal band, and the bill keeps `flex-1`
+            everywhere.
+
+            Budget with the arithmetic, not by eye. The container caps at
+            `max-w-6xl` (1152), so the narrowest real rail column is ~300px at
+            `lg` with the sidebar and ~364px at `xl` with it. At `lg` the room
+            is hidden: lead 80 + figure 64 + gaps 24 = 168 of 300, bill 132. At
+            `xl` the room is a QUARTER of the column rather than a fixed 128px,
+            so it scales with the space instead of eating a fixed bite out of
+            the narrowest case — 80 + 91 + 64 + 36 = 271 of 364, bill 93; and
+            at 540 (no sidebar) 80 + 135 + 64 + 36 = 315, bill 225. */}
+        <span className="shrink-0 whitespace-nowrap font-mono text-xs uppercase tabular-nums text-muted-foreground sm:w-20">
           {row.lead ?? ''}
         </span>
         <span
@@ -210,10 +222,17 @@ function RailRow({
         >
           {row.title}
         </span>
-        {/* Not `shrink-0`: under pressure this cell yields to the bill rather
+        {/* Visible when STACKED (below `sm`, where every cell is its own
+            full-width line and there is no competition at all) and again from
+            `xl`. Hidden only in the horizontal band between them, where the
+            columns genuinely fight — hiding it on mobile too would leave the
+            metro rail unable to say WHERE, which is most of its answer, on the
+            majority of this site's traffic.
+
+            Not `shrink-0`: under pressure this cell yields to the bill rather
             than pushing it out. */}
         {hasRoomColumn && (
-          <span className="hidden min-w-0 truncate font-mono text-xs text-muted-foreground xl:block xl:w-32">
+          <span className="block min-w-0 truncate font-mono text-xs text-muted-foreground sm:hidden xl:block xl:w-1/4">
             {row.room ?? ''}
           </span>
         )}

@@ -257,7 +257,24 @@ describe('buildMoreAtVenueRail', () => {
       2,
       99
     )
-    expect(rail?.rows[0]?.lead).toBe(`SEP 04 ${String(nextYear).slice(-2)}`)
+    expect(rail?.rows[0]?.lead).toBe(`SEP 04 '${String(nextYear).slice(-2)}`)
+  })
+
+  it('reads the year on the VENUE’s clock, like the date beside it', () => {
+    // 02:00 UTC Jan 1 is still 20:00 Dec 31 in Chicago. Taking the year from
+    // `new Date(x).getFullYear()` reads the RUNTIME's zone instead, which for
+    // a reader east of the venue prints `DEC 31` under a year that has not
+    // started there — a date that does not exist, on one of the year's most
+    // heavily booked nights.
+    const nextYear = new Date().getFullYear() + 1
+    const rail = buildMoreAtVenueRail(
+      makeRailVenue(),
+      [makeVenueShow({ event_date: `${nextYear}-01-01T02:00:00Z` })],
+      2,
+      99
+    )
+    // Chicago says Dec 31 of the year that is ending, not Jan 1 of the next.
+    expect(rail?.rows[0]?.lead).toBe('DEC 31')
   })
 
   it('leaves the year off the current one, which needs no disambiguating', () => {

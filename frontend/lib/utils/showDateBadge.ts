@@ -49,6 +49,26 @@ export function formatShowMonthDayPadded(
 }
 
 /**
+ * The calendar YEAR a show falls in, read on the venue's clock.
+ *
+ * Pairs with {@link formatShowMonthDayPadded}: a caller that decides whether to
+ * print a year by comparing years must resolve BOTH in the same zone, or the
+ * two disagree across the New Year boundary. `new Date(x).getFullYear()` reads
+ * the RUNTIME's zone, so a Chicago show at 20:00 on Dec 31 is "2027" to a
+ * reader in Berlin while its own label says `DEC 31` — the year suffix then
+ * says the opposite of the date beside it, on one of the most heavily booked
+ * nights of the year.
+ */
+export function showYearInZone(
+  dateString: string,
+  state?: string | null,
+  timezone?: string | null
+): number {
+  const tz = resolveShowTimezone(state, timezone)
+  return Number(formatInTimezone(dateString, tz, { year: 'numeric' }))
+}
+
+/**
  * Format a show date into stacked badge parts for the card layout.
  * Returns { dayOfWeek: "TUE", monthDay: "MAR 17" } in the venue's timezone.
  * Pass the venue's `timezone` when available; `state` is the fallback.

@@ -97,10 +97,10 @@ describe('showQueryKeys', () => {
   })
 
   it('shares the shows root, so a show edit invalidates the rail with it', () => {
-    // `invalidateEntity.shows()` invalidates the bare `['shows']` prefix, which
-    // reaches this key. That is correct rather than incidental: editing a show
-    // can move it to a different night or venue, which changes what belongs on
-    // its rail.
+    // `createInvalidateQueries(queryClient).shows()` (lib/queryClient.ts)
+    // invalidates the bare `['shows']` prefix, which reaches this key. That is
+    // correct rather than incidental: editing a show can move it to a different
+    // night or venue, which changes what belongs on its rail.
     expect(showQueryKeys.alsoTonight('42')[0]).toBe(showQueryKeys.all[0])
   })
 

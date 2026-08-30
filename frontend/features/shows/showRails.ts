@@ -7,7 +7,10 @@ import {
 import { isCalendarDate, parseCalendarDate } from '@/features/scenes/sceneWeek'
 import type { SceneShowSummary } from '@/features/scenes/types'
 import { formatPrice } from '@/lib/utils/formatters'
-import { formatShowMonthDayPadded } from '@/lib/utils/showDateBadge'
+import {
+  formatShowMonthDayPadded,
+  showYearInZone,
+} from '@/lib/utils/showDateBadge'
 import type { VenueShow } from '@/features/venues/types'
 import type { VenueResponse } from './types'
 
@@ -460,15 +463,26 @@ function railShowDate(
 
   const label = formatShowMonthDayPadded(eventDate, state, timezone)
 
-  // The year joins the cell when it is not the current one, by the SAME rule
-  // the also-tonight heading applies to its own date — and for a sharper
-  // reason. On an archive show page the two rails sit in different years: the
-  // left one is headed `Also / Thu Aug 15, 2019` while this one lists the
-  // room's UPCOMING dates. A bare `AUG 15` beside that heading reads as 2019,
-  // which inverts the one fact the row exists to convey.
-  const year = new Date(eventDate).getFullYear()
-  if (year === new Date().getFullYear()) return label
-  return `${label} ${String(year).slice(-2)}`
+  // The year joins the cell when it is not the current one, reaching the same
+  // outcome as the also-tonight heading by a DIFFERENT mechanism — worth
+  // stating, because the obvious shortcut here is wrong. The heading reads its
+  // year off `rail.date`, a bare `YYYY-MM-DD` calendar string, so its year and
+  // its chip cannot disagree. This cell has an INSTANT, and the month/day is
+  // resolved on the venue's clock, so the year must be too: `new Date(x)
+  // .getFullYear()` reads the RUNTIME's zone, and a Chicago show at 20:00 on
+  // Dec 31 would print `DEC 31 27` to a reader in Berlin — a date that does not
+  // exist, on one of the year's most heavily booked nights.
+  //
+  // Why the year is here at all: on an archive show page the two rails sit in
+  // different years. The left one is headed `Also / Thu Aug 15, 2019` while
+  // this one lists the room's UPCOMING dates, so a bare `AUG 15` beside that
+  // heading reads as 2019 — inverting the one fact the row exists to convey.
+  const year = showYearInZone(eventDate, state, timezone)
+  const currentYear = showYearInZone(new Date().toISOString(), state, timezone)
+  if (year === currentYear) return label
+  // Apostrophe, not a bare `27`: `SEP 04 27` reads as a date range in an
+  // uppercase mono column.
+  return `${label} '${String(year).slice(-2)}`
 }
 
 /**

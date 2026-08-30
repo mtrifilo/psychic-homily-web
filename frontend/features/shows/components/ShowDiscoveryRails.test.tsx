@@ -153,7 +153,9 @@ describe('ShowDiscoveryRails', () => {
     })
     render(<ShowDiscoveryRails show={makeRailShow()} />)
     const row = screen.getByRole('link', { name: /Dehd \+ Lifeguard/ })
-    expect(row.firstElementChild).toHaveClass('sm:w-16')
+    // Width class, not text: the point is that the cell still OCCUPIES its
+    // column so the bills beneath it stay in line.
+    expect(row.firstElementChild).toHaveClass('sm:w-20')
     expect(row.firstElementChild).toHaveTextContent('')
   })
 
