@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -218,7 +219,7 @@ func TestAdminDecide_ApproveShow_CarriesSetType(t *testing.T) {
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
 			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return pending, nil },
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				return decided, nil
 			},
 		},
@@ -275,7 +276,7 @@ func TestAdminDecide_ApproveShow_InvalidSetType422BeforeClaim(t *testing.T) {
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
 			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return pending, nil },
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				decideCalled = true
 				return nil, nil
 			},

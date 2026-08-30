@@ -1743,7 +1743,7 @@ type MockEntityRequestService struct {
 	GetRequestFn              func(uint) (*communitym.EntityRequest, error)
 	ListPendingFn             func(string, int, int) ([]communitym.EntityRequest, int64, error)
 	ListRequestsFn            func(*contracts.EntityRequestFilters) ([]communitym.EntityRequest, int64, error)
-	DecideFn                  func(uint, uint, communitym.EntityRequestDecisionState, *string) (*communitym.EntityRequest, error)
+	DecideFn                  func(uint, uint, communitym.EntityRequestDecisionState, *string, *time.Time) (*communitym.EntityRequest, error)
 	ClaimRescueFulfillmentFn  func(uint, uint) (bool, error)
 	VoidApprovedUnfulfilledFn func(uint, uint, *string) (bool, error)
 }
@@ -1778,9 +1778,9 @@ func (m *MockEntityRequestService) ListRequests(filters *contracts.EntityRequest
 	}
 	return nil, 0, nil
 }
-func (m *MockEntityRequestService) Decide(requestID uint, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+func (m *MockEntityRequestService) Decide(requestID uint, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 	if m.DecideFn != nil {
-		return m.DecideFn(requestID, adminID, newState, note)
+		return m.DecideFn(requestID, adminID, newState, note, expectedUpdatedAt)
 	}
 	return nil, nil
 }

@@ -426,7 +426,7 @@ func decideHandler(t *testing.T, pending *communitym.EntityRequest, got **contra
 	return NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
 			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return pending, nil },
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				if decideCalled != nil {
 					*decideCalled = true
 				}
@@ -582,7 +582,7 @@ func TestAdminDecide_ApproveShow_AlreadyDecidedRowWithBrokenStoredBillIs409(t *t
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
 			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return decided, nil },
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				return nil, apperrors.ErrEntityRequestInvalidState(requestID, string(communitym.EntityRequestStateApproved))
 			},
 		},
@@ -764,7 +764,7 @@ func TestAdminDecide_ApproveShow_AlreadyDecidedRowWithFlagIs409(t *testing.T) {
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
 			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return decided, nil },
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				return nil, apperrors.ErrEntityRequestInvalidState(requestID, string(communitym.EntityRequestStateApproved))
 			},
 		},
@@ -796,7 +796,7 @@ func TestAdminDecide_ApproveShow_MissingRowWithFlagIs404(t *testing.T) {
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
 			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return nil, nil },
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				return nil, apperrors.ErrEntityRequestNotFound(requestID)
 			},
 		},
@@ -860,7 +860,7 @@ func TestAdminAdoption_NonShowRequestIgnoresTheFlag(t *testing.T) {
 		h := NewEntityRequestHandler(
 			&testhelpers.MockEntityRequestService{
 				GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return pending, nil },
-				DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+				DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 					return &approved, nil
 				},
 			},
@@ -950,7 +950,7 @@ func TestAdminDecide_ApproveShow_AuditRecordsTheBillSource(t *testing.T) {
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
 			GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return pending, nil },
-			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 				return &approved, nil
 			},
 		},

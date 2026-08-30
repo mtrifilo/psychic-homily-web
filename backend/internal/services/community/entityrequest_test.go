@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
+	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
@@ -233,7 +234,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestDecide_ApprovePending
 	suite.Require().Equal(communitym.EntityRequestStatePending, pending.DecisionState)
 
 	note := "looks good"
-	decided, err := suite.service.Decide(pending.ID, admin.ID, communitym.EntityRequestStateApproved, &note)
+	decided, err := suite.service.Decide(pending.ID, admin.ID, communitym.EntityRequestStateApproved, &note, nil)
 	suite.Require().NoError(err)
 	suite.Assert().Equal(communitym.EntityRequestStateApproved, decided.DecisionState)
 	suite.Require().NotNil(decided.DecidedBy)
@@ -252,7 +253,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestDecide_AlreadyResolve
 	suite.Require().NoError(err)
 	suite.Require().Equal(communitym.EntityRequestStateApproved, approved.DecisionState)
 
-	_, err = suite.service.Decide(approved.ID, admin.ID, communitym.EntityRequestStateRejected, nil)
+	_, err = suite.service.Decide(approved.ID, admin.ID, communitym.EntityRequestStateRejected, nil, nil)
 	suite.Require().Error(err)
 }
 
@@ -270,12 +271,12 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestDecide_SecondDecision
 	suite.Require().NoError(err)
 
 	// First decision wins: approve.
-	decided, err := suite.service.Decide(pending.ID, admin.ID, communitym.EntityRequestStateApproved, nil)
+	decided, err := suite.service.Decide(pending.ID, admin.ID, communitym.EntityRequestStateApproved, nil, nil)
 	suite.Require().NoError(err)
 	suite.Require().Equal(communitym.EntityRequestStateApproved, decided.DecisionState)
 
 	// Second decision (reject) must fail and leave the row APPROVED.
-	_, err = suite.service.Decide(pending.ID, admin.ID, communitym.EntityRequestStateRejected, nil)
+	_, err = suite.service.Decide(pending.ID, admin.ID, communitym.EntityRequestStateRejected, nil, nil)
 	suite.Require().Error(err)
 
 	fetched, err := suite.service.GetRequest(pending.ID)
@@ -292,7 +293,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestDecide_InvalidTargetS
 		suite.marshalArtist("X"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
-	_, err = suite.service.Decide(pending.ID, admin.ID, communitym.EntityRequestStatePending, nil)
+	_, err = suite.service.Decide(pending.ID, admin.ID, communitym.EntityRequestStatePending, nil, nil)
 	suite.Require().Error(err)
 }
 
@@ -545,7 +546,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_DuplicateAfter
 		suite.marshalArtist("Reborn Band"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
-	_, err = suite.service.Decide(first.ID, admin.ID, communitym.EntityRequestStateRejected, nil)
+	_, err = suite.service.Decide(first.ID, admin.ID, communitym.EntityRequestStateRejected, nil, nil)
 	suite.Require().NoError(err)
 
 	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
@@ -596,10 +597,10 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestReplacePendingSubmiss
 		suite.marshalArtist("Raced Band"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
-	_, err = suite.service.Decide(queued.ID, admin.ID, communitym.EntityRequestStateApproved, nil)
+	_, err = suite.service.Decide(queued.ID, admin.ID, communitym.EntityRequestStateApproved, nil, nil)
 	suite.Require().NoError(err)
 
-	refreshed, err := suite.service.replacePendingSubmission(queued.ID, user.ID, communitym.EntityRequestArtist,
+	refreshed, err := suite.service.replacePendingSubmission(queued, communitym.EntityRequestArtist,
 		suite.marshalArtist("Raced Band Corrected"), communitym.EntityRequestSourceManual, nil)
 	suite.Require().NoError(err)
 	suite.Assert().Nil(refreshed, "a decided row matches no pending update")
@@ -610,6 +611,64 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestReplacePendingSubmiss
 	suite.Assert().JSONEq(`{"name":"Raced Band"}`, string(*stored.Payload),
 		"the approved row keeps the payload it was approved with")
 	suite.Assert().Equal(communitym.EntityRequestStateApproved, stored.DecisionState)
+}
+
+// The optimistic claim: a decision validated against one payload must not land
+// on a row the requester has since replaced. Without this the approve path's SSRF
+// host guard is bypassable — it runs pre-claim and is deliberately NOT re-run at
+// fulfillment, so a payload swapped in between is fulfilled unchecked.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestDecide_RefusesARowRevisedSinceTheCallersRead() {
+	user := suite.createUser("revise", tierContributor, false)
+	admin := suite.createUser("revise-admin", tierNewUser, true)
+
+	reviewed, _, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+		suite.marshalArtist("Boris"), communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+
+	// The admin's pre-claim read happens here; the requester corrects after it.
+	reviewedVersion := reviewed.UpdatedAt
+	_, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+		suite.marshalArtist("boris"), communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+	suite.Require().True(replaced)
+
+	_, err = suite.service.Decide(reviewed.ID, admin.ID,
+		communitym.EntityRequestStateApproved, nil, &reviewedVersion)
+	suite.Require().Error(err)
+	var reqErr *apperrors.EntityRequestError
+	suite.Require().ErrorAs(err, &reqErr)
+	suite.Assert().Equal(apperrors.CodeEntityRequestStale, reqErr.Code,
+		"a revised row is a distinct conflict from an already-decided one")
+
+	stale, err := suite.service.GetRequest(reviewed.ID)
+	suite.Require().NoError(err)
+	suite.Assert().Equal(communitym.EntityRequestStatePending, stale.DecisionState,
+		"a refused claim leaves the row decidable once the admin re-reads")
+
+	// Re-reading and deciding against the current version succeeds.
+	decided, err := suite.service.Decide(reviewed.ID, admin.ID,
+		communitym.EntityRequestStateApproved, nil, &stale.UpdatedAt)
+	suite.Require().NoError(err)
+	suite.Assert().Equal(communitym.EntityRequestStateApproved, decided.DecisionState)
+}
+
+// An unrevised row still claims cleanly when the caller passes the version it
+// read: the guard must not have closed the ordinary approve path.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestDecide_UnrevisedRowClaimsWithItsVersion() {
+	user := suite.createUser("unrevised", tierContributor, false)
+	admin := suite.createUser("unrevised-admin", tierNewUser, true)
+
+	queued, _, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+		suite.marshalArtist("Earth"), communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+
+	read, err := suite.service.GetRequest(queued.ID)
+	suite.Require().NoError(err)
+
+	decided, err := suite.service.Decide(queued.ID, admin.ID,
+		communitym.EntityRequestStateApproved, nil, &read.UpdatedAt)
+	suite.Require().NoError(err)
+	suite.Assert().Equal(communitym.EntityRequestStateApproved, decided.DecisionState)
 }
 
 // The overwrite is destructive and the superseded payload is unrecoverable, so
@@ -623,7 +682,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestReplacePendingSubmiss
 		suite.marshalArtist("Good Band"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
-	refreshed, err := suite.service.replacePendingSubmission(queued.ID, user.ID, communitym.EntityRequestArtist,
+	refreshed, err := suite.service.replacePendingSubmission(queued, communitym.EntityRequestArtist,
 		[]byte(`{"name":""}`), communitym.EntityRequestSourceManual, nil)
 	suite.Require().Error(err)
 	suite.Assert().Nil(refreshed)

@@ -9756,11 +9756,29 @@ export interface components {
              */
             reply_permission?: string;
         };
-        CreateEntityRequestBody: {
+        CreateEntityRequestRequestBody: {
             /**
              * Format: uri
              * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CreateEntityRequestBody.json
+             * @example https://example.com/schemas/CreateEntityRequestRequestBody.json
+             */
+            readonly $schema?: string;
+            /** @description FE-side confirm step (only relevant to trusted_contributor tier) */
+            confirmed?: boolean;
+            /** @description Entity type to request (artist, venue, label, release, show, festival) */
+            entity_type: string;
+            /** @description Typed creation payload for the entity_type. A show payload may carry the bill as artists: [{name, set_type?}], name only, no id, at most 50 acts. A payload bill NEVER infers a headliner from list order: an act with no set_type is stored as 'performer', so a bill naming no 'headliner' creates a show with no headliner row. State set_type 'headliner' explicitly when the source names one. When set_type is present it must be one of: headliner,direct_support,opener,special_guest,dj,performer. */
+            payload: unknown;
+            /** @description How the request originated (ai_extraction, paste_mode, manual); defaults to manual */
+            source_context?: string;
+            /** @description Optional origin context (source URL + excerpt), chiefly for AI extraction; shown in the admin moderation queue */
+            source_detail?: components["schemas"]["EntityRequestSourceDetail"];
+        };
+        CreateEntityRequestResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/CreateEntityRequestResponseBody.json
              */
             readonly $schema?: string;
             /** Format: date-time */
@@ -9785,24 +9803,6 @@ export interface components {
             source_detail?: unknown;
             /** Format: date-time */
             updated_at: string;
-        };
-        CreateEntityRequestRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CreateEntityRequestRequestBody.json
-             */
-            readonly $schema?: string;
-            /** @description FE-side confirm step (only relevant to trusted_contributor tier) */
-            confirmed?: boolean;
-            /** @description Entity type to request (artist, venue, label, release, show, festival) */
-            entity_type: string;
-            /** @description Typed creation payload for the entity_type. A show payload may carry the bill as artists: [{name, set_type?}], name only, no id, at most 50 acts. A payload bill NEVER infers a headliner from list order: an act with no set_type is stored as 'performer', so a bill naming no 'headliner' creates a show with no headliner row. State set_type 'headliner' explicitly when the source names one. When set_type is present it must be one of: headliner,direct_support,opener,special_guest,dj,performer. */
-            payload: unknown;
-            /** @description How the request originated (ai_extraction, paste_mode, manual); defaults to manual */
-            source_context?: string;
-            /** @description Optional origin context (source URL + excerpt), chiefly for AI extraction; shown in the admin moderation queue */
-            source_detail?: components["schemas"]["EntityRequestSourceDetail"];
         };
         CreateFestivalRequestBody: {
             /**
@@ -28383,7 +28383,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CreateEntityRequestBody"];
+                    "application/json": components["schemas"]["CreateEntityRequestResponseBody"];
                 };
             };
             /** @description Error */

@@ -1,6 +1,8 @@
 package contracts
 
 import (
+	"time"
+
 	authm "psychic-homily-backend/internal/models/auth"
 	communitym "psychic-homily-backend/internal/models/community"
 )
@@ -38,11 +40,15 @@ type EntityRequestServiceInterface interface {
 	// so it files a new approved row and leaves an earlier pending request queued
 	// with its original payload.
 	//
-	// A replacement DESTROYS the stored payload, so the caller still validates
-	// first at the API boundary (that is where a bad payload becomes a 422 rather
-	// than a 500); the service re-checks the payload's structure before the
-	// overwrite and fails closed, so a caller that forgets cannot corrupt a queued
-	// request.
+	// A replacement DESTROYS the stored payload, so the service re-checks the
+	// payload's typed STRUCTURE before the overwrite and fails closed. That is the
+	// only guard it can run: the show bill's set_type vocabulary
+	// (validateShowPayloadBillRoles) and the image_url SSRF host guard
+	// (validatePayloadImageURL) live at the HTTP boundary — the first because the
+	// vocabulary is in a package that imports these models, the second because it
+	// needs a request context — and NEITHER is re-run here. Any caller that is not
+	// the HTTP handler MUST run both itself, or it can queue a payload that 422s
+	// at fulfillment, after the row is claimed and past repair.
 	CreateRequest(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (req *communitym.EntityRequest, replaced bool, err error)
 
 	// RecordFulfillment persists created_entity_id on a request after its
@@ -69,7 +75,15 @@ type EntityRequestServiceInterface interface {
 	// UPDATE guards against concurrent decisions). Marks approved/rejected +
 	// decided_by/at + optional note. Creating the actual entity from the
 	// payload is the HANDLER's responsibility (PSY-997), not the service's.
-	Decide(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error)
+	//
+	// expectedUpdatedAt makes the claim optimistic (PSY-1948). A caller that ran
+	// checks against the stored payload MUST pass the updated_at its read saw:
+	// the requester can replace a pending payload, and the approve path's SSRF
+	// guard and show-bill admission are not re-run at fulfillment, so a claim that
+	// ignores the version can fulfill content nothing validated. A revised row
+	// then fails with ErrEntityRequestStale (409) and stays pending. nil skips the
+	// check and is correct only for a decision that reads nothing off the row.
+	Decide(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error)
 
 	// ClaimRescueFulfillment atomically stamps created_entity_id on an
 	// APPROVED-but-UNFULFILLED row (PSY-1088 rescue path). The conditional

@@ -354,7 +354,8 @@ func MapEntityRequestError(err error) error {
 		case apperrors.CodeEntityRequestNotFound:
 			return huma.Error404NotFound(reqErr.Message)
 		case apperrors.CodeEntityRequestInvalidState,
-			apperrors.CodeEntityRequestNotRescuable:
+			apperrors.CodeEntityRequestNotRescuable,
+			apperrors.CodeEntityRequestStale:
 			return huma.Error409Conflict(reqErr.Message)
 		case apperrors.CodeEntityRequestInvalidType,
 			apperrors.CodeEntityRequestInvalidSource,

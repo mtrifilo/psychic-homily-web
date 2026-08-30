@@ -155,7 +155,7 @@ func (s *EntityRequestService) CreateRequest(
 		// behind a success response.
 		if servicesshared.IsDuplicateKey(err) {
 			if existing, ferr := s.findPendingDuplicate(entityType, user.ID, payload); ferr == nil && existing != nil {
-				refreshed, rerr := s.replacePendingSubmission(existing.ID, user.ID, entityType, payload, sourceContext, sourceDetail)
+				refreshed, rerr := s.replacePendingSubmission(existing, entityType, payload, sourceContext, sourceDetail)
 				if rerr != nil {
 					return nil, false, rerr
 				}
@@ -189,19 +189,26 @@ func (s *EntityRequestService) CreateRequest(
 // decision_state, requester and created_at are untouched, so the row keeps its
 // identity and its place in the moderation queue.
 //
-// The UPDATE carries the whole precondition — still pending, still this
-// requester's — the way Decide and the rescue writers do, so the destructive
-// write is self-guarding rather than trusting its caller's lookup. Conditioning
-// on the state is what makes a replace racing an admin decision lose instead of
-// resurrecting a payload onto a just-decided row. Returns (nil, nil) when no row
-// matched.
+// The UPDATE carries the whole precondition — this row, this entity type, this
+// requester, still pending — the way Decide and the rescue writers do, so the
+// destructive write is self-guarding rather than trusting its caller's lookup.
+// entity_type is in there because it is what decides which payload schema the
+// validation above applies: without it a mismatched (id, entityType) pair would
+// write a well-formed payload of the WRONG type and both guards would pass.
+// Conditioning on the state is what makes a replace racing an admin decision lose
+// instead of resurrecting a payload onto a just-decided row.
+//
+// Returns (nil, nil) ONLY when no row matched, i.e. nothing was written. Once the
+// UPDATE commits this cannot fail: the refreshed row is built from `existing`
+// plus the fields just written, never re-read.
 func (s *EntityRequestService) replacePendingSubmission(
-	requestID, requesterID uint,
+	existing *communitym.EntityRequest,
 	entityType string,
 	payload []byte,
 	sourceContext string,
 	sourceDetail []byte,
 ) (*communitym.EntityRequest, error) {
+	requestID := existing.ID
 	// The write DESTROYS the stored payload, and the superseded one is not
 	// recoverable, so the structure is checked here as well as at the API
 	// boundary: a caller that skipped validation would replace a good queued
@@ -214,15 +221,23 @@ func (s *EntityRequestService) replacePendingSubmission(
 			requestID, entityType, err)
 	}
 
+	// updated_at is set explicitly rather than left to GORM's auto-timestamp so
+	// the returned row can carry the value that was actually stored. It is the
+	// version the decide path claims against, so a guess would be worse than
+	// useless.
+	now := time.Now().UTC()
+	newPayload := json.RawMessage(payload)
+	newDetail := nullableJSONB(sourceDetail)
 	updates := map[string]interface{}{
-		"payload":        json.RawMessage(payload),
+		"payload":        newPayload,
 		"source_context": sourceContext,
-		"source_detail":  nullableJSONB(sourceDetail),
+		"source_detail":  newDetail,
+		"updated_at":     now,
 	}
 
 	result := s.db.Model(&communitym.EntityRequest{}).
-		Where("id = ? AND requester_id = ? AND decision_state = ?",
-			requestID, requesterID, communitym.EntityRequestStatePending).
+		Where("id = ? AND entity_type = ? AND requester_id = ? AND decision_state = ?",
+			requestID, entityType, existing.RequesterID, communitym.EntityRequestStatePending).
 		Updates(updates)
 	if result.Error != nil {
 		return nil, fmt.Errorf("failed to replace pending entity request: %w", result.Error)
@@ -230,7 +245,19 @@ func (s *EntityRequestService) replacePendingSubmission(
 	if result.RowsAffected == 0 {
 		return nil, nil
 	}
-	return s.GetRequest(requestID)
+
+	// The refreshed row is BUILT from the row we matched plus the fields we just
+	// wrote, not re-read. A second statement here would be a second way to fail
+	// AFTER the destructive write committed — reporting a 500 for a correction
+	// that landed, and skipping the audit row that is the only record it landed.
+	// Every column that changed is known here, and no other writer can touch a
+	// pending row's remaining columns.
+	refreshed := *existing
+	refreshed.Payload = &newPayload
+	refreshed.SourceContext = sourceContext
+	refreshed.SourceDetail = newDetail
+	refreshed.UpdatedAt = now
+	return &refreshed, nil
 }
 
 // findPendingDuplicate returns the existing PENDING request that collides with a
@@ -352,10 +379,21 @@ func (s *EntityRequestService) ListPending(entityType string, limit, offset int)
 // the invalid-state conflict instead of silently clobbering the first
 // decision. The pre-read distinguishes not-found from already-decided so the
 // caller gets the right error.
+//
+// expectedUpdatedAt makes the claim OPTIMISTIC (PSY-1948). PSY-1948 made a queued
+// payload mutable by its requester, so a caller that validated the payload before
+// calling here — which the approve path does, and must, because its SSRF host
+// guard and its show-bill admission run pre-claim and are NOT re-run at
+// fulfillment — can otherwise claim a row whose payload changed underneath it and
+// fulfill content nothing validated. Pass the updated_at that read saw and the
+// claim refuses a revised row with ErrEntityRequestStale, leaving it pending for
+// the caller to re-read. nil skips the check, which is correct only for a
+// decision that reads nothing off the row (a rejection creates no entity).
 func (s *EntityRequestService) Decide(
 	requestID, adminID uint,
 	newState communitym.EntityRequestDecisionState,
 	note *string,
+	expectedUpdatedAt *time.Time,
 ) (*communitym.EntityRequest, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -388,20 +426,31 @@ func (s *EntityRequestService) Decide(
 
 	// Conditional update guards the read-modify-write against a concurrent
 	// decision on the same row. WHERE decision_state = 'pending' so only the
-	// first writer flips it; a racing second writer matches 0 rows.
-	result := s.db.Model(&communitym.EntityRequest{}).
-		Where("id = ? AND decision_state = ?", requestID, communitym.EntityRequestStatePending).
-		Updates(updates)
+	// first writer flips it; a racing second writer matches 0 rows. When the
+	// caller supplied one, updated_at joins the condition so a row REVISED since
+	// their read matches 0 rows too.
+	claim := s.db.Model(&communitym.EntityRequest{}).
+		Where("id = ? AND decision_state = ?", requestID, communitym.EntityRequestStatePending)
+	if expectedUpdatedAt != nil {
+		claim = claim.Where("updated_at = ?", *expectedUpdatedAt)
+	}
+	result := claim.Updates(updates)
 	if result.Error != nil {
 		return nil, fmt.Errorf("failed to record decision: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {
-		// Lost the race (or the row was decided between our read and write):
-		// re-read to report the current state. Fall back to the pre-read state
-		// if the re-read fails so we still surface a conflict, not a 500.
+		// Lost the race: re-read to tell the two losses apart. A row that is no
+		// longer pending was decided by someone else; a row that is STILL pending
+		// matched nothing only because its payload was replaced since the caller's
+		// read, which is a different conflict and a different instruction to the
+		// admin (look again, then decide). Fall back to the pre-read state if the
+		// re-read fails so we still surface a conflict, not a 500.
 		current := string(req.DecisionState)
 		if fresh, ferr := s.GetRequest(requestID); ferr == nil && fresh != nil {
 			current = string(fresh.DecisionState)
+		}
+		if current == string(communitym.EntityRequestStatePending) && expectedUpdatedAt != nil {
+			return nil, apperrors.ErrEntityRequestStale(requestID)
 		}
 		return nil, apperrors.ErrEntityRequestInvalidState(requestID, current)
 	}

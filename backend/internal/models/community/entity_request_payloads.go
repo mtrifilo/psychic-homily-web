@@ -145,15 +145,28 @@ type ShowRequestPayload struct {
 	// bill, learns the bill, and resubmits the same title now has the bill
 	// stored on the queued request, and the response says replaced: true.
 	//
-	// Three consequences follow. The replacement is TOTAL, so a resubmission that
-	// drops a field the first one carried drops it from the queued request —
-	// resubmit the complete show, not a patch. The dedup key is the TITLE, so
-	// correcting a misspelled title files a SECOND request rather than fixing the
-	// first; only an admin decision clears the original. And it applies only to
-	// QUEUEING tiers: a submission that auto-approves (admin, local_ambassador, a
-	// confirmed trusted_contributor) is stamped 'approved' before the insert and
-	// so never meets the pending-only dedup index — it files a new approved row
-	// and leaves any earlier pending one queued with its original payload.
+	// Four consequences follow.
+	//
+	// The replacement is TOTAL, so a resubmission that drops a field the first one
+	// carried drops it from the queued request — resubmit the complete show, not
+	// a patch.
+	//
+	// The dedup key is the TITLE ALONE — event_date is NOT in it — which cuts two
+	// ways. Correcting a misspelled title files a SECOND request rather than
+	// fixing the first; only an admin decision clears the original. And two
+	// GENUINELY DIFFERENT shows that share a title, which is exactly what a
+	// residency or a recurring night looks like, collide: queueing "Open Mic" for
+	// October REPLACES a queued September one, date and bill included, and the
+	// September request is gone. Queue the second only after the first is decided,
+	// or title them distinguishably. The pre-PSY-1948 behavior lost a request here
+	// too — it silently discarded the NEW one — so this is the dedup key's
+	// deficiency rather than the replacement's, but the request it loses changed.
+	//
+	// It applies only to QUEUEING tiers: a submission that auto-approves (admin,
+	// local_ambassador, a confirmed trusted_contributor) is stamped 'approved'
+	// before the insert and so never meets the pending-only dedup index — it files
+	// a new approved row and leaves any earlier pending one queued with its
+	// original payload.
 	Artists []ShowRequestArtist `json:"artists,omitempty"`
 }
 
@@ -334,8 +347,9 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		// RFC3339-only (a bare date carries no time of day, the sole thing they
 		// mean), and music cannot precede doors. Deferring either check past the
 		// claim is what produces the approved-but-unfulfilled orphan described
-		// below: the decide call claims the row, fulfillment then 422s, and no
-		// endpoint can edit a queued payload to repair it.
+		// below: the decide call claims the row, fulfillment then 422s, and a
+		// CLAIMED row's payload can no longer be corrected (PSY-1948's
+		// resubmission replaces PENDING rows only).
 		doorsAt, err := optionalRFC3339("show", "doors_at", p.DoorsAt)
 		if err != nil {
 			return err

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"testing"
+	"time"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	authm "psychic-homily-backend/internal/models/auth"
@@ -129,7 +130,7 @@ func TestAdminDecide_RejectsSSRFImageURLBeforeClaiming(t *testing.T) {
 					GetRequestFn: func(uint) (*communitym.EntityRequest, error) {
 						return queued, nil
 					},
-					DecideFn: func(uint, uint, communitym.EntityRequestDecisionState, *string) (*communitym.EntityRequest, error) {
+					DecideFn: func(uint, uint, communitym.EntityRequestDecisionState, *string, *time.Time) (*communitym.EntityRequest, error) {
 						t.Fatal("the row must NOT be claimed when its stored flyer is hostile")
 						return nil, nil
 					},
@@ -166,7 +167,7 @@ func TestAdminDecide_ApprovesPublicImageURL(t *testing.T) {
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
 			GetRequestFn: func(uint) (*communitym.EntityRequest, error) { return queued, nil },
-			DecideFn: func(uint, uint, communitym.EntityRequestDecisionState, *string) (*communitym.EntityRequest, error) {
+			DecideFn: func(uint, uint, communitym.EntityRequestDecisionState, *string, *time.Time) (*communitym.EntityRequest, error) {
 				return decided, nil
 			},
 		},
