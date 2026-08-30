@@ -409,6 +409,32 @@ type filterMatch struct {
 	NotifyInApp bool   `gorm:"column:notify_in_app"`
 }
 
+// effectiveShowPriceCents is the single price a price_max_cents filter judges a
+// show by, in cents, or nil when the show records no price at all.
+//
+// The advance price when there is one, the door price when that is the only
+// price recorded (PSY-1864). The fallback is load-bearing rather than tidy: the
+// matching predicate reads a nil price as "cannot exclude", so without it a
+// door-only show reports "price unknown" and alerts EVERY user whose filter
+// says "max $10", however expensive the door is. shows.door_price is what made
+// that row shape reachable, so the fallback ships alongside it.
+//
+// When BOTH prices are known this stays the ADVANCE price, which is the
+// pre-existing behavior and is deliberately left alone. Whether a user's
+// ceiling should instead apply to the HIGHEST price they could pay is a real
+// product question, and a schema ticket is the wrong place to answer it.
+func effectiveShowPriceCents(show *catalogm.Show) *int {
+	price := show.Price
+	if price == nil {
+		price = show.DoorPrice
+	}
+	if price == nil {
+		return nil
+	}
+	cents := int(*price * 100)
+	return &cents
+}
+
 // MatchAndNotify finds all active filters that match the given show and sends notifications.
 // This is designed to be called fire-and-forget from the show approval handler.
 func (s *NotificationFilterService) MatchAndNotify(show *catalogm.Show) error {
@@ -469,12 +495,7 @@ func (s *NotificationFilterService) MatchAndNotify(show *catalogm.Show) error {
 		})
 	}
 
-	// Get show price in cents (nullable)
-	var priceCents *int
-	if show.Price != nil {
-		cents := int(*show.Price * 100)
-		priceCents = &cents
-	}
+	priceCents := effectiveShowPriceCents(show)
 
 	// Run the matching query
 	matches, err := s.findMatchingFilters(show.ID, showArtistIDs, showVenueIDs, artistLabelIDs, artistTagIDs, cityJSON, priceCents)

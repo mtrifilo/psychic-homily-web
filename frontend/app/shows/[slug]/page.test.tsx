@@ -281,6 +281,38 @@ describe('ShowPage MusicEvent offers', () => {
     })
   })
 
+  // PSY-1864: the builder gates the whole offers block on a price, so a show
+  // priced only at the door would drop out of search-result pricing entirely
+  // unless the door price feeds it. Posture is unchanged — price + seller,
+  // still no url.
+  it('emits an offer from the door price when there is no advance price', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse(
+        buildShow({ event_date: FUTURE_DATE, price: null, door_price: 15 })
+      )
+    )
+
+    const result = await ShowPage({ params: Promise.resolve({ slug: 'test-show' }) })
+    const schema = musicEventSchemaFrom(result)
+
+    expect(schema.offers).toMatchObject({ '@type': 'Offer', price: 15 })
+    expect(schema.offers).not.toHaveProperty('url')
+  })
+
+  // The advance price stays the offer price when both are recorded.
+  it('prefers the advance price over the door price in the offer', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse(
+        buildShow({ event_date: FUTURE_DATE, price: 35, door_price: 40 })
+      )
+    )
+
+    const result = await ShowPage({ params: Promise.resolve({ slug: 'test-show' }) })
+    const schema = musicEventSchemaFrom(result)
+
+    expect(schema.offers).toMatchObject({ '@type': 'Offer', price: 35 })
+  })
+
   /**
    * The show page must not publish a purchase URL — neither the vendor's nor
    * its own. See PSY-1669's Linear thread for the full decision trail: the

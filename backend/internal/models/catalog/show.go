@@ -59,19 +59,23 @@ type Show struct {
 	// silence. Neither is inferred from the other: a show with an advance
 	// price says nothing about what the door costs.
 	//
-	// ONLY THE SHOW DETAIL PAGE renders the split today. Every other price
-	// surface still reads Price alone and therefore shows the ADVANCE half of a
-	// split-price show without saying so — the /shows cards and compact rows,
-	// the venue and artist show tables, the scene day lists, the ICS feed
-	// descriptions, the schema.org Offer, and the notification price-cap
-	// filter. Three of those additionally need the field added to their own
-	// contracts first (VenueShowResponse, ArtistShowResponse,
-	// SceneShowSummary), which is why it was not a sweep.
+	// ONLY THE SHOW DETAIL PAGE renders the split today. Two consumers that
+	// would otherwise treat a door-only show as having NO price were fixed
+	// alongside the column, because for them "which single price do we know" is
+	// not a design question: the notification price-cap filter
+	// (effectiveShowPriceCents) and the schema.org Offer both fall back to the
+	// door price when there is no advance price.
 	//
-	// That is a KNOWN, DEFERRED gap, not an oversight: each surface needs its
-	// own call about how a pair should read in a dense list, and the price-cap
-	// filter needs a decision about which half a user's ceiling applies to.
-	// Do not "fix" one of them in isolation — they should move together.
+	// The rest still read Price alone, so a split-price show shows its ADVANCE
+	// half without saying so: the /shows cards and compact rows, the venue and
+	// artist show tables, the scene day lists, and the ICS feed descriptions.
+	// Three of those need the field added to their own contracts first
+	// (VenueShowResponse, ArtistShowResponse, SceneShowSummary).
+	//
+	// That is a KNOWN, DEFERRED gap, not an oversight. What is left is
+	// genuinely a design question — how a PAIR should read in a dense list —
+	// and it wants one answer applied everywhere, so do not solve it for a
+	// single surface in isolation.
 	Price          *float64
 	DoorPrice      *float64 `gorm:"column:door_price"`
 	AgeRequirement *string
