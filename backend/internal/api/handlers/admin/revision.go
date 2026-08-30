@@ -67,6 +67,13 @@ var validEntityTypes = map[string]bool{
 // creator_id + creator_name), so one anonymous request builds an id-to-name
 // directory and the withheld byline is recovered in the next lookup.
 //
+// Withholding it RAISES THE COST of recovery; it is not the whole control. The
+// author id of a suppressed revision was also recoverable by scanning
+// GET /users/{id}/revisions for a page containing that revision's id, which is
+// why that route now refuses a hidden contributor's listing outright
+// (requireAuthorContributionsVisible). Both halves are needed: this one so the
+// id is not simply handed over, that one so it cannot be searched for.
+//
 // This deliberately does NOT match the show submitter byline, which suppresses
 // submitted_by_name while keeping submitted_by. The difference is that
 // submitted_by is LOAD-BEARING there: the frontend runs ownership checks on it
@@ -380,6 +387,17 @@ func (h *RevisionHandler) GetUserRevisionsHandler(ctx context.Context, req *GetU
 
 	revisions, total, err := h.revisionService.GetUserRevisions(
 		uint(userID), limit, req.Offset, viewer)
+	// A contributor who hid their contributions has no public contributions
+	// page, and this route is one. Same 404, same message, as a user id that
+	// does not exist — mirroring GET /users/{username}/contributions, and
+	// leaving nothing to tell the two apart. Info, not Error: a public route
+	// refusing a public request is routine.
+	if errors.Is(err, contracts.ErrRevisionEntityHidden) {
+		logger.FromContext(ctx).Info("revision_user_contributions_hidden",
+			"user_id", userID,
+		)
+		return nil, huma.Error404NotFound("User not found")
+	}
 	if err != nil {
 		logger.FromContext(ctx).Error("revision_get_user_revisions_failed",
 			"user_id", userID,

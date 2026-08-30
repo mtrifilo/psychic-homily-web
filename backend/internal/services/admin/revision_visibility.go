@@ -1,10 +1,14 @@
 package admin
 
 import (
+	"encoding/json"
+	"errors"
+
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/logger"
 	adminm "psychic-homily-backend/internal/models/admin"
+	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -108,6 +112,61 @@ func (s *RevisionService) requireEntityVisible(entityType string, entityID uint,
 		return nil
 	}
 	return contracts.ErrRevisionEntityHidden
+}
+
+// requireAuthorContributionsVisible reports whether a whole per-AUTHOR revision
+// listing may be served, returning contracts.ErrRevisionEntityHidden when it may
+// not.
+//
+// Only GET /users/{user_id}/revisions calls this, and it is the one read that is
+// indexed BY a person rather than by an entity. That makes it a contributions
+// listing, which is exactly what privacy_settings.contributions governs — and
+// every sibling in that family already refuses it: /users/{username}/contributions
+// 404s for "hidden", the activity heatmap answers empty, the rankings 404, and
+// the leaderboard filters the row out in SQL. This route was the one that did
+// not, reachable by swapping the username in the URL for the numeric id.
+//
+// Suppressing the BYLINE is not enough on its own here, which is why this gate
+// exists rather than leaning on the response mapper. An anonymous caller could
+// read an entity's history, take a revision id whose author was suppressed, and
+// scan this route until a page contained that id — recovering the author id, and
+// from there the name, off any public payload that publishes an id beside a
+// display name. Withholding user_id from the response raises that cost; only
+// refusing the listing removes it.
+//
+// The OWNER always sees their own, and so does an admin. Fails closed on
+// everything else, including a lookup error: a user row we cannot read is one we
+// cannot clear.
+//
+// 404, not an empty 200, to match the profile route's answer for the same
+// setting and to stay indistinguishable from a user id that does not exist.
+func (s *RevisionService) requireAuthorContributionsVisible(userID uint, viewer contracts.RevisionViewer) error {
+	if viewer.IsAdmin || (viewer.UserID != 0 && viewer.UserID == userID) {
+		return nil
+	}
+
+	var author authm.User
+	if err := s.db.Select("id, privacy_settings").First(&author, userID).Error; err != nil {
+		// A missing author has no contributions to list, and a failed read is
+		// not a clearance. Both answer the same 404 the caller would get for a
+		// user id that never existed.
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			logger.Default().Error("revision_author_privacy_lookup_failed",
+				"user_id", userID,
+				"error", err.Error(),
+			)
+		}
+		return contracts.ErrRevisionEntityHidden
+	}
+
+	privacy := contracts.DefaultPrivacySettings()
+	if author.PrivacySettings != nil {
+		_ = json.Unmarshal(*author.PrivacySettings, &privacy)
+	}
+	if privacy.Contributions == contracts.PrivacyHidden {
+		return contracts.ErrRevisionEntityHidden
+	}
+	return nil
 }
 
 // revisionVisibleTo reports whether one already-loaded revision may be served.

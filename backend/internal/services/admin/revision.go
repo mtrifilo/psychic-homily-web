@@ -218,6 +218,14 @@ func (s *RevisionService) GetUserRevisions(userID uint, limit, offset int, viewe
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
+	// This route is indexed by a PERSON, which makes the whole listing a
+	// contributions page and puts it under the setting that governs those. See
+	// requireAuthorContributionsVisible for why suppressing the byline alone
+	// would not have been enough.
+	if err := s.requireAuthorContributionsVisible(userID, viewer); err != nil {
+		return nil, 0, err
+	}
+
 	if limit <= 0 {
 		limit = 20
 	}

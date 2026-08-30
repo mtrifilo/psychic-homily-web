@@ -2,6 +2,7 @@ package engagement
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -141,15 +142,54 @@ type digestCandidate struct {
 	EntityType      string
 	EntityID        uint
 	ItemCreatedAt   time.Time
-	// The adder's identity columns, in the shape shared.ResolvePublicUserName
-	// reads. `email` is deliberately NOT among them (PSY-1940): the name below
-	// belongs to a THIRD PARTY — the join excludes the recipient — so it is
-	// governed by the public rule, and not selecting the column means an
-	// address cannot reach an outgoing email even if that rule were loosened.
+	// The adder's identity, in the shape shared.ResolvePublicContributorCredit
+	// reads (PSY-1940). The name below belongs to a THIRD PARTY — the query's
+	// `ci.added_by_user_id <> cs.user_id` join means the person named is never
+	// the recipient — and adding a collection item COUNTS as a contribution on
+	// the profile (user/contributor_profile.go folds CollectionItemsAdded into
+	// TotalContributions), so this byline is under the contributions setting.
+	//
+	// AddedByUserID is nil when the LEFT JOIN found no row. It is carried rather
+	// than faked because the resolver's nil/ID-0 guard is what turns a missing
+	// adder into the empty-state label, and privacy_settings is what the gate
+	// reads: a fabricated id with no privacy blob would unmarshal to the
+	// DEFAULTS, which have contributions VISIBLE, and quietly name every hidden
+	// contributor in outgoing email.
+	//
+	// `email` is deliberately absent, so an address cannot reach an outgoing
+	// email even if the public rule were later loosened.
+	AddedByUserID      *uint
 	AddedByUsername    *string
 	AddedByDisplayName *string
 	AddedByFirst       *string
 	AddedByLast        *string
+	// Scanned as TEXT, not as *json.RawMessage: this comes back through a Raw
+	// query, and a jsonb column does not scan into json.RawMessage there (it
+	// arrives silently nil, which would unmarshal to the DEFAULTS and defeat the
+	// gate). The cast is in the SELECT and the conversion is in adderUser.
+	AddedByPrivacy *string
+}
+
+// adderUser rebuilds the adder as the resolver's input type.
+//
+// Returns nil when the LEFT JOIN matched nothing, which digestDisplayName turns
+// into the channel's empty-state label.
+func (c digestCandidate) adderUser() *authm.User {
+	if c.AddedByUserID == nil {
+		return nil
+	}
+	user := &authm.User{
+		ID:          *c.AddedByUserID,
+		Username:    c.AddedByUsername,
+		DisplayName: c.AddedByDisplayName,
+		FirstName:   c.AddedByFirst,
+		LastName:    c.AddedByLast,
+	}
+	if c.AddedByPrivacy != nil {
+		raw := json.RawMessage(*c.AddedByPrivacy)
+		user.PrivacySettings = &raw
+	}
+	return user
 }
 
 // runDigestCycle sends one digest email per user with new items in their
@@ -245,18 +285,7 @@ func (s *CollectionDigestService) runDigestCycle() {
 					EntityType: it.EntityType,
 					EntityName: s.resolveEntityName(it.EntityType, it.EntityID),
 					EntityURL:  s.buildEntityURL(it.EntityType, it.EntityID),
-					// ID 1 is a stand-in, not a lookup: the chain's nil/ID-0
-					// guard exists to catch an absent USER, and a LEFT JOIN
-					// that matched gives us the columns without the id. A row
-					// whose adder is gone arrives with all four columns NULL
-					// and still resolves to "a contributor".
-					AddedBy: digestDisplayName(&authm.User{
-						ID:          1,
-						Username:    it.AddedByUsername,
-						DisplayName: it.AddedByDisplayName,
-						FirstName:   it.AddedByFirst,
-						LastName:    it.AddedByLast,
-					}),
+					AddedBy:    digestDisplayName(it.adderUser()),
 				})
 			}
 			groups = append(groups, contracts.CollectionDigestGroup{
@@ -324,18 +353,20 @@ func (s *CollectionDigestService) runDigestCycle() {
 // the cycle itself.
 func (s *CollectionDigestService) queryCandidates(now time.Time) ([]digestCandidate, error) {
 	type row struct {
-		UserID          uint
-		UserEmail       *string
-		CollectionID    uint
-		CollectionTitle string
-		CollectionSlug  string
-		EntityType      string
-		EntityID        uint
-		ItemCreatedAt   time.Time
+		UserID             uint
+		UserEmail          *string
+		CollectionID       uint
+		CollectionTitle    string
+		CollectionSlug     string
+		EntityType         string
+		EntityID           uint
+		ItemCreatedAt      time.Time
+		AddedByUserID      *uint
 		AddedByUsername    *string
 		AddedByDisplayName *string
 		AddedByFirst       *string
 		AddedByLast        *string
+		AddedByPrivacy     *string
 	}
 
 	var rows []row
@@ -361,10 +392,12 @@ func (s *CollectionDigestService) queryCandidates(now time.Time) ([]digestCandid
 			ci.entity_type,
 			ci.entity_id,
 			ci.created_at AS item_created_at,
+			added_by.id AS added_by_user_id,
 			added_by.username AS added_by_username,
 			added_by.display_name AS added_by_display_name,
 			added_by.first_name AS added_by_first,
-			added_by.last_name AS added_by_last
+			added_by.last_name AS added_by_last,
+			added_by.privacy_settings::text AS added_by_privacy
 		FROM collection_subscribers cs
 		JOIN users u ON u.id = cs.user_id
 		JOIN collections c ON c.id = cs.collection_id
@@ -391,18 +424,20 @@ func (s *CollectionDigestService) queryCandidates(now time.Time) ([]digestCandid
 			email = *r.UserEmail
 		}
 		out = append(out, digestCandidate{
-			UserID:          r.UserID,
-			UserEmail:       email,
-			CollectionID:    r.CollectionID,
-			CollectionTitle: r.CollectionTitle,
-			CollectionSlug:  r.CollectionSlug,
-			EntityType:      r.EntityType,
-			EntityID:        r.EntityID,
-			ItemCreatedAt:   r.ItemCreatedAt,
+			UserID:             r.UserID,
+			UserEmail:          email,
+			CollectionID:       r.CollectionID,
+			CollectionTitle:    r.CollectionTitle,
+			CollectionSlug:     r.CollectionSlug,
+			EntityType:         r.EntityType,
+			EntityID:           r.EntityID,
+			ItemCreatedAt:      r.ItemCreatedAt,
+			AddedByUserID:      r.AddedByUserID,
 			AddedByUsername:    r.AddedByUsername,
 			AddedByDisplayName: r.AddedByDisplayName,
 			AddedByFirst:       r.AddedByFirst,
 			AddedByLast:        r.AddedByLast,
+			AddedByPrivacy:     r.AddedByPrivacy,
 		})
 	}
 	return out, nil
@@ -512,29 +547,32 @@ func digestEntityPathAndTable(entityType string) (string, string) {
 
 // digestDisplayName returns a friendly name for the user who added an item.
 //
-// Delegates to the canonical PUBLIC chain (PSY-1940) rather than resolving its
-// own. Until then this function was a third private copy that started at
-// username — so it credited a contributor "mtrifilo" where the collection page
-// beside it said "Matt T" — and fell back to the local part of their EMAIL
-// ADDRESS, which then went out in a digest to somebody else: the query's
-// `ci.added_by_user_id <> cs.user_id` join means the name is provably not the
-// recipient's own.
+// Delegates to the canonical contribution credit (PSY-1940) rather than
+// resolving its own. Until then this function was a third private copy that
+// started at username — so it credited a contributor "mtrifilo" where the
+// collection page beside it said "Matt T" — and fell back to the local part of
+// their EMAIL ADDRESS, which then went out in a digest to somebody else.
 //
-// It kept its own terminal, though. "a contributor" is this channel's empty
+// GATED on privacy_settings.contributions, unlike comment authorship. Adding a
+// collection item is counted as a contribution by the profile itself
+// (user/contributor_profile.go folds CollectionItemsAdded into
+// TotalContributions, the aggregate "hidden" suppresses), so a contributor who
+// hid their contributions must not be named here — least of all on this
+// surface, which pushes the name OUTWARD to every subscriber of a public
+// collection rather than merely rendering it on a page.
+//
+// It keeps its own terminal, though. "a contributor" is this channel's empty
 // state, the way the Discord embed says "Not provided": prose in an email needs
-// a subject, so this family renders a placeholder rather than omitting the
-// credit the way a contribution byline does. AnonymousUserName is the chain's
-// terminal, and it is detected rather than reproduced so the two cannot drift.
-//
-// Deliberately NOT gated on privacy_settings.contributions: this is the
-// authored-content family, and the digest is only sent to people who
-// subscribed to the collection the item was added to.
+// a subject, so a withheld credit becomes a placeholder here rather than
+// vanishing the way a byline does. Asked of Renderable() rather than by
+// comparing the resolved string against a sentinel — a user whose display name
+// really is "Anonymous" would otherwise be demoted to the empty state.
 func digestDisplayName(user *authm.User) string {
-	name := shared.ResolvePublicUserName(user)
-	if name == shared.AnonymousUserName {
+	credit := shared.ResolvePublicContributorCredit(user)
+	if !credit.Renderable() {
 		return "a contributor"
 	}
-	return name
+	return credit.Name
 }
 
 // RunDigestCycleNow runs the digest cycle synchronously (test/admin entry

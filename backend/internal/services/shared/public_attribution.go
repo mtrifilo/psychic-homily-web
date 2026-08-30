@@ -183,9 +183,11 @@ func ContributorProfileLink(user *authm.User) *string {
 //     preserves it rather than deciding. ASK BEFORE CHANGING EITHER WAY, and
 //     note that the same question sits in leaderboard.go's raw SQL, which
 //     likewise tests only for 'hidden'.
+//
 //  2. No public name tier omits the credit — see HasPublicName. This also
 //     swallows the chain's terminal AnonymousUserName, which carried no
 //     information worth a byline anyway.
+//
 //  3. No reachable profile drops the LINK and keeps the name, so the credit
 //     renders as plain text — see ContributorProfileLink, which every tier
 //     shares because a dead link is dead for admins too. Only gate 1 suppresses

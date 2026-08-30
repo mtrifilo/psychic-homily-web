@@ -610,26 +610,58 @@ func TestRevisionAuthorPrivacyEndToEnd(t *testing.T) {
 		assertNamed(t, asAdmin)
 	})
 
-	// The route that names its subject in the PATH. Suppressing the byline here
-	// withholds the NAME, not the fact that this user made these edits — the
-	// caller supplied the id. What it must not do is become the one route where
-	// the name still leaks.
-	t.Run("user revisions", func(t *testing.T) {
-		body := get(t, userPath, "")
-		var parsed adminh.GetUserRevisionsResponse
-		if err := json.Unmarshal(body, &parsed.Body); err != nil {
-			t.Fatalf("parse response: %v; body: %s", err, body)
+	// The route indexed by a PERSON. Suppressing the byline is not enough here,
+	// and an earlier draft of this test asserted that it was — which is what a
+	// test pinning the wrong behaviour looks like.
+	//
+	// Two reasons it has to refuse the listing outright. The listing IS a
+	// contributions page, and every sibling in that family already 404s this
+	// setting. And leaving it open reverses the byline suppression on the OTHER
+	// routes: read an entity's history, take a suppressed revision's id, then
+	// scan /users/{n}/revisions until a page contains it — the path id is the
+	// author, and any public payload that pairs an id with a display name turns
+	// that into the name.
+	t.Run("user revisions are refused, not just unnamed", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, userPath, nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("GET %s (anonymous) = %d, want 404; body: %s", userPath, w.Code, w.Body.String())
 		}
-		if len(parsed.Body.Revisions) != 1 {
-			t.Fatalf("got %d revisions, want 1; body: %s", len(parsed.Body.Revisions), body)
+		// Indistinguishable from a user id that does not exist, so the refusal
+		// is not itself an oracle for "this account hid its contributions".
+		for _, secret := range []string{hiddenDisplayName, hiddenUsername, "hidden", "contributions"} {
+			if strings.Contains(w.Body.String(), secret) {
+				t.Errorf("404 body leaked %q: %s", secret, w.Body.String())
+			}
 		}
-		assertSuppressed(t, body, parsed.Body.Revisions[0])
 
+		// The admin still gets the listing, named.
 		adminBody := get(t, userPath, adminToken)
 		var asAdmin adminh.GetUserRevisionsResponse
 		if err := json.Unmarshal(adminBody, &asAdmin.Body); err != nil {
 			t.Fatalf("parse admin response: %v; body: %s", err, adminBody)
 		}
+		if len(asAdmin.Body.Revisions) != 1 {
+			t.Fatalf("admin got %d revisions, want 1; body: %s", len(asAdmin.Body.Revisions), adminBody)
+		}
 		assertNamed(t, asAdmin.Body.Revisions[0])
+	})
+
+	// The contributor reading their own page. Hiding contributions is a rule
+	// about what the PUBLIC may see, not a lock on your own history.
+	t.Run("the contributor still sees their own", func(t *testing.T) {
+		ownToken, err := sc.JWT.CreateToken(contributor)
+		if err != nil {
+			t.Fatalf("mint contributor token: %v", err)
+		}
+		body := get(t, userPath, ownToken)
+		var own adminh.GetUserRevisionsResponse
+		if err := json.Unmarshal(body, &own.Body); err != nil {
+			t.Fatalf("parse response: %v; body: %s", err, body)
+		}
+		if len(own.Body.Revisions) != 1 {
+			t.Fatalf("owner got %d revisions, want 1; body: %s", len(own.Body.Revisions), body)
+		}
 	})
 }
