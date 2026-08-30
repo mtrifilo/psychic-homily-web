@@ -17,7 +17,6 @@ let mockAuthStatus: 'pending' | 'authenticated' | 'anonymous' = 'authenticated'
 let mockFollowStatusData:
   | { follower_count: number; is_following: boolean }
   | undefined
-let mockStatusLoading = false
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush }),
@@ -70,10 +69,23 @@ vi.mock('@/lib/hooks/common/useFollow', async () => {
     ...actual,
     useFollowStatus: (entityType: string, entityId: number, enabled = true) => {
       followStatusCall.last = { entityType, enabled }
+      // Model the REAL hook, in the two places the obvious mock lied.
+      //
+      // 1. `data` is returned whether or not the query is enabled. A disabled
+      //    TanStack v5 observer does not clear its key; it reports whatever is
+      //    cached there. Returning `undefined` when disabled made the
+      //    anonymous-skip tests assert the mock's behavior instead of the
+      //    component's, and hid the case where a cached entry is painted.
+      // 2. `isLoading` is DERIVED, not stipulated. It is true exactly when an
+      //    enabled query has no data yet, which is the real chain the
+      //    pending-window safety argument depends on. Letting a test set it by
+      //    hand meant `expect(bracket).toBeDisabled()` proved only "the mock
+      //    said loading", so the bracket could ship enabled to a signed-in,
+      //    profile-pending viewer with the suite fully green.
       return useMockedFollowHooks.value
         ? {
-            data: enabled ? mockFollowStatusData : undefined,
-            isLoading: enabled ? mockStatusLoading : false,
+            data: mockFollowStatusData,
+            isLoading: enabled && mockFollowStatusData === undefined,
           }
         : actual.useFollowStatus(entityType, entityId, enabled)
     },
@@ -97,7 +109,6 @@ describe('FollowButton', () => {
     useMockedFollowHooks.value = true
     mockAuthStatus = 'authenticated'
     mockFollowStatusData = { follower_count: 10, is_following: false }
-    mockStatusLoading = false
   })
 
   it('renders "Follow" text in non-compact mode when not following', () => {
@@ -196,7 +207,6 @@ describe('FollowButton', () => {
   })
 
   it('renders loading spinner when status is loading and no followData', () => {
-    mockStatusLoading = true
     mockFollowStatusData = undefined
 
     render(<FollowButton entityType="artists" entityId={1} />, {
@@ -208,7 +218,6 @@ describe('FollowButton', () => {
   })
 
   it('does not show loading spinner when followData is provided', () => {
-    mockStatusLoading = true
     mockFollowStatusData = undefined
 
     render(
@@ -253,7 +262,6 @@ describe('FollowButton — bracket variant (PSY-641)', () => {
     useMockedFollowHooks.value = true
     mockAuthStatus = 'authenticated'
     mockFollowStatusData = { follower_count: 10, is_following: false }
-    mockStatusLoading = false
   })
 
   it('renders [Follow] as a bracket link when not following', () => {
@@ -290,7 +298,6 @@ describe('FollowButton — bracket variant (PSY-641)', () => {
   })
 
   it('renders a disabled [Follow] while follow status is loading', () => {
-    mockStatusLoading = true
     mockFollowStatusData = undefined
     render(
       <FollowButton entityType="artists" entityId={1} variant="bracket" />,
@@ -345,7 +352,6 @@ describe('FollowButton — bracket variant (PSY-641)', () => {
     // The exact trap window: signed in, profile still in flight, so
     // `isAuthenticated` reads false. A skip gated on that would fire here.
     mockAuthStatus = 'pending'
-    mockStatusLoading = true
     mockFollowStatusData = undefined
 
     render(
@@ -357,31 +363,80 @@ describe('FollowButton — bracket variant (PSY-641)', () => {
     expect(screen.getByRole('button', { name: 'Follow' })).toBeDisabled()
   })
 
-  // The disabled render above is the whole pre-hydration safety argument: a
-  // replay is skipped when its target is disabled (consumePendingReplay), and
-  // BracketLink pins the `pointer-events-none` that stops the click landing in
-  // the first place. What this asserts is the half that lives HERE — that the
-  // pending window reaches neither the /auth redirect nor a mutation.
-  it('does not send a signed-in-but-pending viewer to /auth when the bracket is clicked', () => {
+  // The disabled render above is one half of the pre-hydration safety
+  // argument; `handleClick`'s own pending guard is the other. Testing the
+  // first through the second does NOT work, and the earlier version of this
+  // test made exactly that mistake: it clicked the DISABLED bracket, and React
+  // suppresses onClick on a disabled button, so the handler was never invoked
+  // and the assertions below merely restated `toBeDisabled()`. It could not
+  // have failed for the reason it claimed to test.
+  //
+  // So drive the handler on a bracket that really is enabled. `followData`
+  // short-circuits the loading branch, which is precisely the shape the charts
+  // pages produce, and before the guard existed it was the live hole: an
+  // enabled bracket in the pending window whose replayed click pushed a
+  // signed-in viewer to /auth.
+  it('does not send a signed-in-but-pending viewer to /auth when its click handler runs', () => {
     mockAuthStatus = 'pending'
-    mockStatusLoading = true
-    mockFollowStatusData = undefined
+
+    render(
+      <FollowButton
+        entityType="venues"
+        entityId={1}
+        variant="bracket"
+        followData={{ follower_count: 3, is_following: false }}
+      />,
+      { wrapper: createWrapper() }
+    )
+
+    const bracket = screen.getByRole('button', { name: 'Follow' })
+    // fireEvent, not userEvent: a raw dispatch is what `consumePendingReplay`
+    // does, so it is the closer analogue of a replayed click.
+    fireEvent.click(bracket)
+
+    expect(mockPush).not.toHaveBeenCalled()
+    expect(mockFollowMutate).not.toHaveBeenCalled()
+  })
+
+  // AC2: "no enabled bracket ever ships while the viewer's auth state is
+  // unsettled", including down the `followData` path, which the fetch gate
+  // never touches. On the charts pages `useBatchFollowStatus` gets an empty id
+  // list while auth is pending, so it is disabled, its `isLoading` is false,
+  // and the caller passes a truthy zeroed fallback. That combination shipped an
+  // enabled bracket in exactly the window this ticket exists to protect.
+  it('renders the bracket DISABLED while auth is unsettled even when followData is supplied', () => {
+    mockAuthStatus = 'pending'
+
+    render(
+      <FollowButton
+        entityType="venues"
+        entityId={1}
+        variant="bracket"
+        followData={{ follower_count: 0, is_following: false }}
+      />,
+      { wrapper: createWrapper() }
+    )
+
+    expect(screen.getByRole('button', { name: 'Follow' })).toBeDisabled()
+  })
+
+  // A disabled TanStack observer still reports whatever is cached under its
+  // key, so the skip must be safe when the anonymous key is already populated
+  // (a earlier button-variant render on the same page will do it). The bracket
+  // paints no count, so the only thing that can leak through is `is_following`.
+  it('paints a cached anonymous-key entry without re-fetching', () => {
+    mockAuthStatus = 'anonymous'
+    mockFollowStatusData = { follower_count: 7, is_following: false }
 
     render(
       <FollowButton entityType="venues" entityId={1} variant="bracket" />,
       { wrapper: createWrapper() }
     )
 
+    expect(followStatusCall.last?.enabled).toBe(false)
     const bracket = screen.getByRole('button', { name: 'Follow' })
-    expect(bracket).toBeDisabled()
-    // fireEvent, not userEvent: userEvent refuses to click a control with
-    // `pointer-events: none`, which would make this pass for the wrong reason.
-    // A raw dispatch is also what `consumePendingReplay` does, so this is the
-    // closer analogue of a replayed click.
-    fireEvent.click(bracket)
-
-    expect(mockPush).not.toHaveBeenCalled()
-    expect(mockFollowMutate).not.toHaveBeenCalled()
+    expect(bracket).toBeEnabled()
+    expect(screen.queryByText('7')).toBeNull()
   })
 
   it('skips the status fetch for a SETTLED anonymous viewer', () => {
@@ -429,22 +484,43 @@ describe('FollowButton — bracket variant (PSY-641)', () => {
     expect(screen.getByText('10')).toBeInTheDocument()
   })
 
-  it('still skips the fetch when followData is supplied, for every auth state', () => {
-    mockAuthStatus = 'authenticated'
+  // Actually loops the three states, rather than naming them and exercising
+  // one. The enabled-ness deliberately differs by state, and asserting that
+  // difference is the point: only 'pending' may withhold the control.
+  it.each([
+    ['authenticated', false],
+    ['anonymous', false],
+    ['pending', true],
+  ] as const)(
+    'skips the fetch when followData is supplied (authStatus=%s), and disables the bracket only while unsettled',
+    (status, expectDisabled) => {
+      mockAuthStatus = status
 
-    render(
-      <FollowButton
-        entityType="venues"
-        entityId={1}
-        variant="bracket"
-        followData={{ follower_count: 3, is_following: true }}
-      />,
-      { wrapper: createWrapper() }
-    )
+      render(
+        <FollowButton
+          entityType="venues"
+          entityId={1}
+          variant="bracket"
+          followData={{ follower_count: 3, is_following: true }}
+        />,
+        { wrapper: createWrapper() }
+      )
 
-    expect(followStatusCall.last?.enabled).toBe(false)
-    expect(screen.getByRole('button', { name: 'Following' })).toBeEnabled()
-  })
+      expect(followStatusCall.last?.enabled).toBe(false)
+
+      // While unsettled the label falls back to the neutral one: showing
+      // "Following" would assert a relationship we cannot attribute to a
+      // viewer we have not identified.
+      const bracket = screen.getByRole('button', {
+        name: expectDisabled ? 'Follow' : 'Following',
+      })
+      if (expectDisabled) {
+        expect(bracket).toBeDisabled()
+      } else {
+        expect(bracket).toBeEnabled()
+      }
+    }
+  )
 })
 
 // ── Optimistic update + rollback (real hooks, network mocked) ───────

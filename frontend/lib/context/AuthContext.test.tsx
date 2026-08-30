@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createTestQueryClient } from '@/test/utils'
+import { AuthError, AuthErrorCode } from '@/lib/errors'
 
 // Mock the auth hooks
 const mockUseProfile = vi.fn()
@@ -572,12 +573,28 @@ describe('AuthContext', () => {
       expect(result.current.authStatus).toBe('anonymous')
     })
 
-    it('is "anonymous" when the profile query resolves to an error', () => {
+    // REVERSAL of an earlier pin in this same file, recorded deliberately.
+    //
+    // The first version of this test asserted `authStatus === 'anonymous'` for
+    // ANY profile error, using a 401 as the example. Adversarial review showed
+    // that pin encoded a forgeable state: the branch it protected could not
+    // tell a 401 from a 503, so a transient backend failure settled a signed-in
+    // viewer to 'anonymous', and with `refetchOnWindowFocus` off in
+    // production and `AuthProvider` mounted once in the root layout, it stayed
+    // that way for the whole SPA session. The ticket's own acceptance criterion
+    // says no gate may act while auth is unsettled, and a failure that is not
+    // an answer IS unsettled, so the correct reading of a non-definitive error
+    // is 'pending'. The two cases are split below.
+    it('is "anonymous" when the profile query fails DEFINITIVELY (401)', () => {
       mockUseProfile.mockReturnValue({
         data: undefined,
         isPending: false,
         isLoading: false,
-        error: new Error('401'),
+        error: new AuthError(
+          'Authentication required',
+          AuthErrorCode.TOKEN_MISSING,
+          { status: 401 }
+        ),
       })
 
       const { result } = renderHook(() => useAuthContext(), {
@@ -585,6 +602,71 @@ describe('AuthContext', () => {
       })
 
       expect(result.current.authStatus).toBe('anonymous')
+    })
+
+    it('is "pending", NOT "anonymous", when the profile query fails indefinitely (5xx)', () => {
+      // A backend outage is not the backend saying "nobody". Reading it as
+      // anonymous is what let one 5xx hand a signed-in viewer an enabled
+      // bracket whose replayed pre-hydration click bounces them to /auth.
+      mockUseProfile.mockReturnValue({
+        data: undefined,
+        isPending: false,
+        isLoading: false,
+        error: new AuthError(
+          'Service unavailable',
+          AuthErrorCode.SERVICE_UNAVAILABLE,
+          { status: 503 }
+        ),
+      })
+
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      expect(result.current.authStatus).toBe('pending')
+      expect(result.current.isAuthenticated).toBe(false)
+    })
+
+    // The trap that classifying by error CODE alone would have walked into.
+    // `apiRequest` falls back to a generic UNAUTHORIZED code when a 401 body
+    // carries no `error_code`, and `shouldRedirectToLogin` does not cover that
+    // code. Reading it as non-definitive would leave a genuinely anonymous
+    // viewer at 'pending' forever, with a permanently disabled bracket, on any
+    // deployment whose 401 body differs from today's.
+    it('is "anonymous" for a 401 that carries no recognizable auth error code', () => {
+      mockUseProfile.mockReturnValue({
+        data: undefined,
+        isPending: false,
+        isLoading: false,
+        error: new AuthError(
+          'Authentication failed',
+          AuthErrorCode.UNAUTHORIZED,
+          { status: 401 }
+        ),
+      })
+
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      expect(result.current.authStatus).toBe('anonymous')
+    })
+
+    it('is "pending" when the profile query fails with a non-auth error', () => {
+      // Network failure / DNS / abort: `AuthError.fromUnknown` gives UNKNOWN,
+      // which is not definitive, so the conservative reading applies.
+      mockUseProfile.mockReturnValue({
+        data: undefined,
+        isPending: false,
+        isLoading: false,
+        error: new Error('Failed to fetch'),
+      })
+
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      expect(result.current.authStatus).toBe('pending')
     })
 
     it('stays "authenticated" through a background refetch of a cached profile', () => {

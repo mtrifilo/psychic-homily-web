@@ -11,6 +11,7 @@ import {
 import { useProfile, useLogout } from '@/features/auth'
 import type { UserTier } from '@/features/auth'
 import type { NavMode } from '@/lib/nav-mode'
+import { AuthError } from '@/lib/errors'
 
 interface User {
   id: string
@@ -44,11 +45,24 @@ interface User {
  * settled anonymous viewer.
  *
  * Rendering a spinner off that ambiguity is harmless. Changing behavior off it
- * is not: PSY-1686 skipped a request for "anonymous" viewers, which shipped an
- * enabled control during the signed-in-but-pending window and bounced logged-in
- * users to /auth. Anything that acts on "this viewer is anonymous" must gate on
- * `authStatus === 'anonymous'`, which is only reached once the profile query has
- * actually resolved to "no user".
+ * is not: an earlier attempt skipped a request for "anonymous" viewers, which
+ * shipped an enabled control during the signed-in-but-pending window and
+ * bounced logged-in users to /auth. Anything that acts on "this viewer is
+ * anonymous" must gate on `authStatus === 'anonymous'`.
+ *
+ * The guarantee, stated exactly, because a weaker version of this sentence was
+ * wrong once already: 'anonymous' is reached only from a DEFINITIVE answer:
+ * the profile query resolved with no user, or it failed with a 401/403, which
+ * is the backend saying this viewer has no session. A failure that is not an
+ * answer (5xx, network, unknown) reads 'pending', and so does an SSR prefetch
+ * that could not reach the backend, which now seeds nothing rather than
+ * fabricating a logged-out payload (see lib/auth-hydration.ts).
+ *
+ * That distinction is load-bearing rather than pedantic. Anonymous-on-failure
+ * is forgeable by a single transient 5xx, and it does not heal: production has
+ * `refetchOnWindowFocus: false`, and `AuthProvider` mounts once in the root
+ * layout, so a fabricated 'anonymous' would survive for the whole SPA session
+ * and make every gate built on this primitive wrong at once.
  */
 export type AuthStatus = 'pending' | 'authenticated' | 'anonymous'
 
@@ -153,11 +167,48 @@ export function AuthProvider({ children }: AuthProviderProps) {
   //    conservative direction: consumers keep their disabled/loading posture.
   // 3. Only a profile query that has actually resolved without a user yields
   //    'anonymous'.
+  // 4. A profile query that FAILED has not answered either, unless the failure
+  //    is itself the answer. A 401/403 (expired, missing or invalid token) is
+  //    the backend saying "this viewer has no session", which settles to
+  //    'anonymous'. A 5xx, a network failure or an unknown error is the
+  //    backend failing to say anything, and must not be read as "nobody".
+  //    Classified by STATUS first and error code second, and that order is the
+  //    fix for a trap rather than a stylistic choice. `apiRequest` throws
+  //    `AuthError` with `code = errorBody.error_code || UNAUTHORIZED` on a
+  //    401/403, and `shouldRedirectToLogin` only covers the expired / missing /
+  //    invalid token codes. The backend does send TOKEN_MISSING today, so a
+  //    code-only test happens to work, but any 401 without that body (a proxy,
+  //    a gateway, a future handler) would then read as "not definitive" and
+  //    strand a genuinely anonymous viewer at 'pending' forever, with the
+  //    bracket permanently disabled. A 401 or 403 from the profile endpoint IS
+  //    the backend answering "no valid session", whatever it attaches to it.
+  //    `shouldRedirectToLogin` is kept as the second arm so this agrees with the
+  //    predicate `useProfile`'s retry policy uses to call a failure terminal.
+  const profileErrorIsDefinitive = useMemo(() => {
+    if (!profileError) return false
+    const authError =
+      profileError instanceof AuthError
+        ? profileError
+        : AuthError.fromUnknown(profileError)
+    return (
+      authError.status === 401 ||
+      authError.status === 403 ||
+      authError.shouldRedirectToLogin
+    )
+  }, [profileError])
+
   const authStatus: AuthStatus = useMemo(() => {
     if (user) return 'authenticated'
     if (isProfilePending || logoutMutation.isPending) return 'pending'
+    if (profileError && !profileErrorIsDefinitive) return 'pending'
     return 'anonymous'
-  }, [user, isProfilePending, logoutMutation.isPending])
+  }, [
+    user,
+    isProfilePending,
+    logoutMutation.isPending,
+    profileError,
+    profileErrorIsDefinitive,
+  ])
 
   // Derive error from profile error or override
   const error = useMemo(() => {

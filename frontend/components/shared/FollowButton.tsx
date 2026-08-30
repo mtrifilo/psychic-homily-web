@@ -71,12 +71,16 @@ export function FollowButton({
   // resolved to "no user"; while it is 'pending' this stays enabled and the
   // bracket stays disabled, which is PSY-1615's posture unchanged.
   //
-  // Known gap, inherited rather than introduced: if the SSR profile prefetch
-  // fails (backend 5xx), `prefetchAuthProfile` seeds the anonymous sentinel for
-  // a signed-in viewer, so `authStatus` settles 'anonymous' wrongly until
-  // staleTime elapses. That viewer is already treated as logged out by every
-  // other auth-gated control on the page; this makes the bracket agree with them
-  // rather than fetch a status it would then contradict.
+  // This gate is only as trustworthy as the signal under it, and an earlier
+  // draft of this comment described a gap here as harmless and inherited. It
+  // was neither. When the SSR profile prefetch failed, `prefetchAuthProfile`
+  // seeded the unauthenticated sentinel for a viewer holding a valid cookie,
+  // so `authStatus` settled 'anonymous' for someone signed in, and this skip then
+  // shipped them an enabled, replay-covered bracket that bounced them to /auth
+  // on a pre-hydration click, and painted [Follow] for something they follow.
+  // The fix belongs at the source and lives there now: an SSR profile read that
+  // cannot reach the backend seeds NOTHING, so the viewer stays 'pending' and
+  // this gate does not fire. See lib/auth-hydration.ts.
   // Co-owned, not local: this skip only holds if no SIBLING observer keeps the
   // same query key alive for the same viewer. `useFollowStatus` keys on
   // (entityType, entityId, viewerId), and viewerId is `undefined` for every
@@ -84,9 +88,16 @@ export function FollowButton({
   // entity refills the key, which both spends the request and, because all
   // observers of a query share one `fetchStatus`, drives THIS disabled observer
   // to report `isLoading` and grey the bracket out mid-hydration.
-  // `<FollowAlertsReveal>` sits next to the bracket on artist and venue pages
-  // and is gated for that reason; anything new that lands in that row needs the
-  // same treatment.
+  //
+  // State the rule by VARIANT, not by page, because the page list drifts: any
+  // component that shares `queryKeys.follows.entity` with a `variant="bracket"`
+  // FollowButton has to gate itself the same way. Today the brackets are the
+  // show venue module, artist, label and festival pages, and the only sibling
+  // observer that lands beside one is `<FollowAlertsReveal>` on the artist page
+  // (it also appears on the venue page, but that page renders the BUTTON
+  // variant, which never skips, so nothing there depends on the gate).
+  // `SceneNotifyModeToggle` is a third observer of this key family and is
+  // deliberately ungated: scene pages render the button variant too.
   const skipAnonymousStatusFetch =
     variant === 'bracket' && authStatus === 'anonymous'
 
@@ -137,6 +148,21 @@ export function FollowButton({
     e.preventDefault()
     e.stopPropagation()
 
+    // Never route an unsettled viewer. `isAuthenticated` is false both for a
+    // viewer who has no session and for one whose profile has not arrived, and
+    // the redirect below cannot tell them apart, so without this line a
+    // signed-in viewer clicking during the pending window is sent to /auth.
+    //
+    // Deliberately the FIRST statement, ahead of the redirect and ahead of the
+    // `isDisabled` bail. Until now the pending window was survivable only
+    // because every path that could reach this function happened to render a
+    // disabled control first; that made the invariant depend on three other
+    // files (the loading render branch, BracketLink's `pointer-events-none`,
+    // and the replay helper's disabled check) and it did not actually hold on
+    // the `followData` path. Doing nothing is right for a click we cannot yet
+    // interpret: the viewer can click again a moment later.
+    if (authStatus === 'pending') return
+
     if (!isAuthenticated) {
       const returnTo = `${pathname}${window.location.search}`
       router.push(`/auth?returnTo=${encodeURIComponent(returnTo)}`)
@@ -155,7 +181,16 @@ export function FollowButton({
   // Bracket variant — dense header linkbox. Toggles [Follow] ↔ [Following];
   // ignores `compact` (brackets are already maximally compact).
   if (variant === 'bracket') {
-    if (!followData && statusLoading) {
+    // Unsettled auth disables the bracket REGARDLESS of where its data came
+    // from. The `followData` clause below is not a substitute for this, and
+    // that was a real hole: on the charts pages `useBatchFollowStatus` is
+    // handed an empty id list while `isAuthenticated` is false, so the batch
+    // query is disabled, its `isLoading` reads false, and the caller falls back
+    // to a truthy zeroed `followData`. Every one of those brackets therefore
+    // shipped ENABLED during the pending window, and a replayed pre-hydration
+    // click on one sent a signed-in viewer to /auth: the exact failure this
+    // ticket exists to close, on the one path the fetch gate never touched.
+    if (authStatus === 'pending' || (!followData && statusLoading)) {
       return <BracketLink label={bracketLabel} disabled className={className} />
     }
     return (
