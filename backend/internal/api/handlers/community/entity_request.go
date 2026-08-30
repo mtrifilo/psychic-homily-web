@@ -99,7 +99,7 @@ type CreateEntityRequestBody struct {
 	*communitym.EntityRequest
 	// A client that reports "queued" for both a fresh request and a replacement
 	// leaves a contributor unable to tell their correction landed.
-	Replaced bool `json:"replaced" doc:"True when this submission replaced the requester's existing pending request for the same name (a correction) rather than filing a new one. The returned id is that queued request's, and decision_state is still pending."`
+	Replaced bool `json:"replaced" doc:"True when this submission replaced the requester's existing pending request for the same name (a correction) rather than filing a new one. The returned id is that queued request's. Only a PENDING request is ever replaced; read decision_state for the row's state, which an admin can decide the moment the replacement lands."`
 }
 
 // CreateEntityRequestHandler handles POST /entity-requests.
@@ -115,9 +115,22 @@ type CreateEntityRequestBody struct {
 // source_context and source_detail instead of filing a second row, and the
 // response reports replaced: true on the queued row's own id. A resubmission is
 // how a contributor corrects a queued request, and returning the stored payload
-// discarded the correction behind a 2xx. The row stays PENDING throughout: the
-// dedup index is pending-only, so an already-decided request is never rewritten,
-// and a replacement racing an admin's decision loses to it.
+// discarded the correction behind a 2xx.
+//
+// Only a PENDING row is ever written: the dedup index is pending-only and the
+// UPDATE is conditional on the state, so a decided request is never rewritten.
+//
+// What that does NOT buy, stated here because it is the surprising half: a
+// queued payload is now MUTABLE until it is decided, so an admin can review one
+// payload in the queue and approve a later one. That is the intended shape of
+// replace-on-resubmit (the queue is meant to show the correction), and
+// AdminEntityRequestView carries updated_at so a refreshed queue can tell a
+// revised row from an untouched one. It does mean the decide handler's pre-claim
+// checks describe the payload as of its own read; see the note there.
+//
+// Only queueing tiers reach this path at all. An auto-approving tier's row is
+// stamped 'approved' before the INSERT, so it never collides with the
+// pending-only index and never replaces anything.
 func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, req *CreateEntityRequestRequest) (*CreateEntityRequestResponse, error) {
 	user := middleware.GetUserFromContext(ctx)
 	if user == nil {
@@ -203,11 +216,18 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 	// Auto-approve fulfillment (PSY-1008): when a trusted tier's request lands
 	// already-approved (the service stamped it), create the catalog entity now
 	// and stamp created_entity_id onto the returned row so the frontend can
-	// stage the new entity in the same step (true inline create-and-add). A
-	// replaced row never reaches here — the dedup index covers pending rows only
-	// — and the CreatedEntityID == nil guard keeps an already-fulfilled row from
-	// being fulfilled twice.
-	if created.DecisionState == communitym.EntityRequestStateApproved && created.CreatedEntityID == nil {
+	// stage the new entity in the same step (true inline create-and-add). The
+	// CreatedEntityID == nil guard keeps an already-fulfilled row from being
+	// fulfilled twice.
+	//
+	// !replaced is load-bearing, not decoration. A replacement only ever writes a
+	// pending row, but the row is re-read in a separate statement, so an admin who
+	// approves in between makes that read return 'approved' with no
+	// created_entity_id yet (RecordFulfillment lands after their catalog create
+	// returns). Without this guard the CONTRIBUTOR's request would then fulfill
+	// the admin's approval, racing them into a duplicate entity or a spurious 409.
+	// A replacement is never an auto-approval, so it never fulfills.
+	if !replaced && created.DecisionState == communitym.EntityRequestStateApproved && created.CreatedEntityID == nil {
 		// nil show-associations: only the admin decide endpoint can supply them
 		// (PSY-1037), so an auto-approved show defers below.
 		if _, ferr := h.fulfillAndRecord(ctx, created, nil); ferr != nil {
@@ -325,6 +345,11 @@ type AdminEntityRequestView struct {
 	DecisionNote      *string          `json:"decision_note,omitempty"`
 	CreatedEntityID   *uint            `json:"created_entity_id,omitempty"`
 	CreatedAt         time.Time        `json:"created_at"`
+	// UpdatedAt is the only field that distinguishes a request whose payload the
+	// contributor has since corrected from one that still holds what they first
+	// filed (PSY-1948). created_at does not move on a replacement, so a queue
+	// that shows only "filed 2 hours ago" cannot tell the two apart.
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // toAdminEntityRequestView projects a model row onto the admin view, resolving
@@ -344,6 +369,7 @@ func toAdminEntityRequestView(r *communitym.EntityRequest) AdminEntityRequestVie
 		DecisionNote:      r.DecisionNote,
 		CreatedEntityID:   r.CreatedEntityID,
 		CreatedAt:         r.CreatedAt,
+		UpdatedAt:         r.UpdatedAt,
 	}
 }
 
@@ -514,6 +540,15 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 	// approved-but-unfulfilled row. Rejections ignore the association fields
 	// entirely (no spurious 422 for a reject that happens to carry them), and
 	// skip the pre-claim read below along with them.
+	//
+	// SCOPE OF THESE CHECKS, since PSY-1948 made a queued payload mutable: they
+	// describe the payload as of THIS read. A resubmission that lands between the
+	// read and Decide's claim commits first, and Decide re-reads, so the fulfilled
+	// payload can be the newer one. For an adopted show bill that is worse than
+	// stale — showAssoc is built from the payload read here while the scalar
+	// fields come from the re-read — so the created show can mix the two. Closing
+	// it needs an optimistic claim (Decide conditioned on the updated_at this read
+	// saw), which is PSY-1974 rather than a widening of PSY-1948.
 	//
 	// PSY-1037: approving a show REQUIRES the associations — guard before the
 	// claim. Decide only operates on pending rows, so a post-claim failure

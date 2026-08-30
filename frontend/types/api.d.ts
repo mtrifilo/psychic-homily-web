@@ -7655,6 +7655,8 @@ export interface components {
             requester_username: string | null;
             source_context: string;
             source_detail?: unknown;
+            /** Format: date-time */
+            updated_at: string;
         };
         AdminFulfillEntityRequestRequestBody: {
             /**
@@ -9775,7 +9777,7 @@ export interface components {
             /** Format: int64 */
             id: number;
             payload: unknown;
-            /** @description True when this submission replaced the requester's existing pending request for the same name (a correction) rather than filing a new one. The returned id is that queued request's, and decision_state is still pending. */
+            /** @description True when this submission replaced the requester's existing pending request for the same name (a correction) rather than filing a new one. The returned id is that queued request's. Only a PENDING request is ever replaced; read decision_state for the row's state, which an admin can decide the moment the replacement lands. */
             replaced: boolean;
             /** Format: int64 */
             requester_id: number;

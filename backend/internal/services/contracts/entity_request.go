@@ -28,8 +28,15 @@ type EntityRequestServiceInterface interface {
 	// On a duplicate PENDING request (same entity_type + requester + normalized
 	// name) it does NOT error (PSY-1008): the resubmission REPLACES that pending
 	// row's payload, source_context and source_detail, and the refreshed row is
-	// returned with replaced=true (PSY-1948). The row stays pending, so the
-	// caller must not treat a replacement as a fresh decision.
+	// returned with replaced=true (PSY-1948). Only a PENDING row is ever written,
+	// so the caller must not treat a replacement as a fresh decision — and must
+	// not fulfill one, since the row is re-read in a separate statement and can
+	// come back already decided by an admin.
+	//
+	// replaced is always false for an AUTO-APPROVING tier: its row is stamped
+	// 'approved' before the insert and never meets the pending-only dedup index,
+	// so it files a new approved row and leaves an earlier pending request queued
+	// with its original payload.
 	//
 	// A replacement DESTROYS the stored payload, so the caller still validates
 	// first at the API boundary (that is where a bad payload becomes a 422 rather

@@ -255,6 +255,46 @@ func TestCreateEntityRequest_Replaced_AuditsAsAReplacement(t *testing.T) {
 	}
 }
 
+// A replacement never fulfills, whatever state the re-read reports. The write
+// only ever lands on a pending row, but the row is re-read in a separate
+// statement, so an admin approving in that gap makes the read return 'approved'
+// with no created_entity_id yet. Fulfilling there would run the admin's approval
+// on the CONTRIBUTOR's request, racing them into a duplicate entity.
+func TestCreateEntityRequest_Replaced_NeverFulfills(t *testing.T) {
+	// The shape the race produces: replaced, but re-read as already approved.
+	decidedUnderneath := approvedRequest(7, "artist")
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
+				return decidedUnderneath, true, nil
+			},
+			RecordFulfillmentFn: func(requestID, createdEntityID uint) error {
+				t.Fatal("a replacement must not record a fulfillment")
+				return nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
+				t.Fatal("a replacement must not create a catalog entity")
+				return nil, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	req := &CreateEntityRequestRequest{}
+	req.Body.EntityType = "artist"
+	req.Body.Payload = artistPayload(t, "Boris")
+
+	resp, err := h.CreateEntityRequestHandler(erUserCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.CreatedEntityID != nil {
+		t.Errorf("a replacement must not report a created entity, got %d", *resp.Body.CreatedEntityID)
+	}
+}
+
 // A resubmission is validated exactly as a fresh create is, before it can reach
 // the writer: the handler has no resubmission-aware branch, so the existing
 // boundary tests (PayloadMissingRequiredField, PayloadUnknownField,

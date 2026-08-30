@@ -439,9 +439,43 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_DuplicatePendi
 	suite.Assert().JSONEq(`{"name":"  duplicate band  "}`, string(*second.Payload),
 		"the stored payload must be the resubmitted one")
 
+	// updated_at is the only signal that separates a corrected request from an
+	// untouched one, and the admin queue reads it (AdminEntityRequestView). A
+	// refactor that stops bumping it would leave a replacement invisible.
+	suite.Assert().Equal(first.CreatedAt, second.CreatedAt,
+		"a replacement keeps the request's place in the queue")
+	suite.Assert().True(second.UpdatedAt.After(first.UpdatedAt),
+		"a replacement must move updated_at, the queue's only sign it happened")
+
 	var count int64
 	suite.Require().NoError(suite.db.Model(&communitym.EntityRequest{}).Count(&count).Error)
 	suite.Assert().Equal(int64(1), count, "no duplicate row should be created")
+}
+
+// An auto-approving tier never replaces: its row is stamped 'approved' before the
+// insert, so it never meets the pending-only dedup index. The same user's earlier
+// PENDING request stays queued with its original payload — which is the shape a
+// trusted_contributor hits by filing unconfirmed and then resubmitting confirmed.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_AutoApprovingTier_DoesNotReplaceItsPendingRow() {
+	user := suite.createUser("trusted-redo", tierTrustedContributor, false)
+
+	queued, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+		suite.marshalArtist("Boris"), communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+	suite.Require().Equal(communitym.EntityRequestStatePending, queued.DecisionState)
+	suite.Require().False(replaced)
+
+	confirmed, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+		suite.marshalArtist("Boris"), communitym.EntityRequestSourceManual, nil, true)
+	suite.Require().NoError(err)
+	suite.Assert().False(replaced, "an auto-approved submission replaces nothing")
+	suite.Assert().NotEqual(queued.ID, confirmed.ID, "it files its own approved row")
+	suite.Assert().Equal(communitym.EntityRequestStateApproved, confirmed.DecisionState)
+
+	stale, err := suite.service.GetRequest(queued.ID)
+	suite.Require().NoError(err)
+	suite.Assert().Equal(communitym.EntityRequestStatePending, stale.DecisionState,
+		"the earlier request is still queued, carrying its original payload")
 }
 
 // The canonical correction (PSY-1858's bill): a contributor files a show with no
@@ -565,7 +599,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestReplacePendingSubmiss
 	_, err = suite.service.Decide(queued.ID, admin.ID, communitym.EntityRequestStateApproved, nil)
 	suite.Require().NoError(err)
 
-	refreshed, err := suite.service.replacePendingSubmission(queued.ID, communitym.EntityRequestArtist,
+	refreshed, err := suite.service.replacePendingSubmission(queued.ID, user.ID, communitym.EntityRequestArtist,
 		suite.marshalArtist("Raced Band Corrected"), communitym.EntityRequestSourceManual, nil)
 	suite.Require().NoError(err)
 	suite.Assert().Nil(refreshed, "a decided row matches no pending update")
@@ -589,7 +623,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestReplacePendingSubmiss
 		suite.marshalArtist("Good Band"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
-	refreshed, err := suite.service.replacePendingSubmission(queued.ID, communitym.EntityRequestArtist,
+	refreshed, err := suite.service.replacePendingSubmission(queued.ID, user.ID, communitym.EntityRequestArtist,
 		[]byte(`{"name":""}`), communitym.EntityRequestSourceManual, nil)
 	suite.Require().Error(err)
 	suite.Assert().Nil(refreshed)
@@ -626,10 +660,23 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_DuplicateRelea
 	first, _, err := suite.service.CreateRequest(user, communitym.EntityRequestRelease, raw,
 		communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
-	second, _, err := suite.service.CreateRequest(user, communitym.EntityRequestRelease, raw,
+
+	// The corrected resubmission must replace on the TITLE branch of the dedup
+	// key's coalesce, not just the NAME branch the artist tests cover.
+	year := 2026
+	corrected, err := communitym.MarshalPayload(communitym.ReleaseRequestPayload{
+		Title:       "Same Title",
+		ReleaseYear: &year,
+	})
+	suite.Require().NoError(err)
+
+	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestRelease, corrected,
 		communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 	suite.Assert().Equal(first.ID, second.ID, "release dedup keys on title")
+	suite.Assert().True(replaced, "a release resubmission corrects the queued row")
+	suite.Require().NotNil(second.Payload)
+	suite.Assert().JSONEq(string(corrected), string(*second.Payload))
 }
 
 // --- PSY-1008: source_detail persistence ------------------------------------

@@ -145,11 +145,15 @@ type ShowRequestPayload struct {
 	// bill, learns the bill, and resubmits the same title now has the bill
 	// stored on the queued request, and the response says replaced: true.
 	//
-	// Two consequences follow. The replacement is TOTAL, so a resubmission that
+	// Three consequences follow. The replacement is TOTAL, so a resubmission that
 	// drops a field the first one carried drops it from the queued request —
-	// resubmit the complete show, not a patch. And the dedup key is the TITLE, so
+	// resubmit the complete show, not a patch. The dedup key is the TITLE, so
 	// correcting a misspelled title files a SECOND request rather than fixing the
-	// first; only an admin decision clears the original.
+	// first; only an admin decision clears the original. And it applies only to
+	// QUEUEING tiers: a submission that auto-approves (admin, local_ambassador, a
+	// confirmed trusted_contributor) is stamped 'approved' before the insert and
+	// so never meets the pending-only dedup index — it files a new approved row
+	// and leaves any earlier pending one queued with its original payload.
 	Artists []ShowRequestArtist `json:"artists,omitempty"`
 }
 

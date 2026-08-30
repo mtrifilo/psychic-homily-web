@@ -94,7 +94,9 @@ func autoApproves(user *authm.User, confirmed bool) bool {
 // for the audit trail.
 //
 // replaced reports that the submission landed on the requester's EXISTING
-// pending row rather than a new one (PSY-1948); see the dedup branch below.
+// pending row rather than a new one (PSY-1948); see the dedup branch below. It
+// is always false for an auto-approving tier: the row is stamped 'approved'
+// BEFORE the INSERT, so it never collides with the pending-only dedup index.
 func (s *EntityRequestService) CreateRequest(
 	user *authm.User,
 	entityType string,
@@ -153,7 +155,7 @@ func (s *EntityRequestService) CreateRequest(
 		// behind a success response.
 		if servicesshared.IsDuplicateKey(err) {
 			if existing, ferr := s.findPendingDuplicate(entityType, user.ID, payload); ferr == nil && existing != nil {
-				refreshed, rerr := s.replacePendingSubmission(existing.ID, entityType, payload, sourceContext, sourceDetail)
+				refreshed, rerr := s.replacePendingSubmission(existing.ID, user.ID, entityType, payload, sourceContext, sourceDetail)
 				if rerr != nil {
 					return nil, false, rerr
 				}
@@ -187,12 +189,14 @@ func (s *EntityRequestService) CreateRequest(
 // decision_state, requester and created_at are untouched, so the row keeps its
 // identity and its place in the moderation queue.
 //
-// The UPDATE is conditional on the row still being pending — the same discipline
-// Decide uses to claim one — so a replace racing an admin decision loses instead
-// of resurrecting a payload onto a just-decided row. Returns (nil, nil) when no
-// pending row matched.
+// The UPDATE carries the whole precondition — still pending, still this
+// requester's — the way Decide and the rescue writers do, so the destructive
+// write is self-guarding rather than trusting its caller's lookup. Conditioning
+// on the state is what makes a replace racing an admin decision lose instead of
+// resurrecting a payload onto a just-decided row. Returns (nil, nil) when no row
+// matched.
 func (s *EntityRequestService) replacePendingSubmission(
-	requestID uint,
+	requestID, requesterID uint,
 	entityType string,
 	payload []byte,
 	sourceContext string,
@@ -217,7 +221,8 @@ func (s *EntityRequestService) replacePendingSubmission(
 	}
 
 	result := s.db.Model(&communitym.EntityRequest{}).
-		Where("id = ? AND decision_state = ?", requestID, communitym.EntityRequestStatePending).
+		Where("id = ? AND requester_id = ? AND decision_state = ?",
+			requestID, requesterID, communitym.EntityRequestStatePending).
 		Updates(updates)
 	if result.Error != nil {
 		return nil, fmt.Errorf("failed to replace pending entity request: %w", result.Error)
