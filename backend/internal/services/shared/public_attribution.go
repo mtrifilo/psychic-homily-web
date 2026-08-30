@@ -36,18 +36,14 @@ import (
 // person chose as a public identity.
 //
 // False means ResolveUserName would fall through to the email local-part or to
-// AnonymousUserName. Checked on the SOURCE columns rather than by inspecting a
-// resolved string, because an email-derived name is a bare local-part with
-// nothing in it to pattern-match on.
+// AnonymousUserName. Answered by running the public tiers rather than by
+// re-listing them, and asked of the SOURCE columns rather than of a resolved
+// string, because an email-derived name is a bare local-part with nothing in it
+// to pattern-match on.
 //
 // nil-safe: false for a nil or ID-0 user.
 func HasPublicName(user *authm.User) bool {
-	if user == nil || user.ID == 0 {
-		return false
-	}
-	return (user.DisplayName != nil && *user.DisplayName != "") ||
-		(user.Username != nil && *user.Username != "") ||
-		(user.FirstName != nil && *user.FirstName != "")
+	return resolvePublicNameTiers(user) != ""
 }
 
 // ResolvePublicUserName is ResolveUserName with the email tier removed: a user
@@ -59,15 +55,18 @@ func HasPublicName(user *authm.User) bool {
 // messages addressed to the user themselves (an approval email's greeting),
 // where the email tier names somebody who already knows their own address.
 //
+// The two share resolvePublicNameTiers, so this cannot drift into a different
+// ORDERING of the tiers it does publish — only into a different terminal, which
+// is the whole point of the pair.
+//
 // Never empty, so it is a drop-in for the surfaces whose author slot must
 // render something. Surfaces that can OMIT the name instead should use
 // ResolvePublicContributorCredit, which also applies the privacy gate.
 func ResolvePublicUserName(user *authm.User) string {
-	if !HasPublicName(user) {
-		return AnonymousUserName
+	if name := resolvePublicNameTiers(user); name != "" {
+		return name
 	}
-	// Guaranteed by HasPublicName to resolve on one of the first three tiers.
-	return ResolveUserName(user)
+	return AnonymousUserName
 }
 
 // BatchResolvePublicUserNames is BatchResolveUserNames under the public rule:
@@ -120,6 +119,26 @@ type PublicContributorCredit struct {
 // Renderable reports whether the credit may be published at all.
 func (c PublicContributorCredit) Renderable() bool { return c.Name != "" }
 
+// ContributorProfileLink returns the /users/{username} slug to hang a credit on,
+// or nil when there is no profile to link to.
+//
+// Two ways to get nil, and they are the same answer for different reasons: the
+// account has no username, or its profile_visibility is "private".
+//
+// The private case is NOT a privacy grant, and that is why this is a separate
+// function rather than a branch inside ResolvePublicContributorCredit. It is a
+// fact about whether the URL resolves: /users/{username} 404s for a private
+// profile for EVERYONE, admins included (community/contributor_profile.go). So
+// an admin-tier byline that skipped this gate would not be seeing more, it would
+// be getting a link that is guaranteed to break. Every tier that renders a
+// credit calls this; nobody calls ResolveUserUsername directly for a byline.
+func ContributorProfileLink(user *authm.User) *string {
+	if user == nil || user.ProfileVisibility == "private" {
+		return nil
+	}
+	return ResolveUserUsername(user)
+}
+
 // ResolvePublicContributorCredit resolves the credit a PUBLIC contribution
 // byline may publish for user — the show submitter byline (PSY-1866), revision
 // author attribution (PSY-1940), and anything later that names a person for an
@@ -135,10 +154,10 @@ func (c PublicContributorCredit) Renderable() bool { return c.Name != "" }
 //  2. No public name tier omits the credit — see HasPublicName. This also
 //     swallows the chain's terminal AnonymousUserName, which carried no
 //     information worth a byline anyway.
-//  3. profile_visibility = "private" keeps the NAME and drops the username, so
-//     the credit renders as plain text. The profile route 404s a private
-//     profile (community/contributor_profile.go), so linking would be a dead
-//     link. Only gate 1 suppresses the person.
+//  3. No reachable profile drops the LINK and keeps the name, so the credit
+//     renders as plain text — see ContributorProfileLink, which every tier
+//     shares because a dead link is dead for admins too. Only gate 1 suppresses
+//     the person.
 //
 // Deliberately NOT viewer-dependent: the same public rule applies to everyone,
 // the contributor included, and the leaderboard's own gate is likewise
@@ -174,14 +193,10 @@ func ResolvePublicContributorCredit(user *authm.User) PublicContributorCredit {
 		return PublicContributorCredit{}
 	}
 
-	credit := PublicContributorCredit{Name: ResolveUserName(user)}
-
-	// Gate 3. NOTE this return is not like the two above: the name is already
-	// assigned and STAYS. A private profile loses only its link. Do not move
-	// this above the assignment.
-	if user.ProfileVisibility == "private" {
-		return credit
+	// Gate 3. NOTE this is not like the two above: it never clears the name, it
+	// only decides whether there is a link to hang it on.
+	return PublicContributorCredit{
+		Name:     ResolvePublicUserName(user),
+		Username: ContributorProfileLink(user),
 	}
-	credit.Username = ResolveUserUsername(user)
-	return credit
 }

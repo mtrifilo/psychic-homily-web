@@ -12,8 +12,6 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 )
 
-func strPtr(s string) *string { return &s }
-
 // privacyWithContributions builds the stored blob from the real contract type
 // rather than hand-written JSON, so a field rename cannot leave these tests
 // asserting against a key production no longer reads.
@@ -39,15 +37,15 @@ func TestHasPublicName(t *testing.T) {
 	}{
 		{"nil user", nil, false},
 		{"zero id", &authm.User{}, false},
-		{"display name", &authm.User{ID: 1, DisplayName: strPtr("Matt T")}, true},
-		{"username", &authm.User{ID: 1, Username: strPtr("mtrifilo")}, true},
-		{"first name", &authm.User{ID: 1, FirstName: strPtr("Jane")}, true},
+		{"display name", &authm.User{ID: 1, DisplayName: strptr("Matt T")}, true},
+		{"username", &authm.User{ID: 1, Username: strptr("mtrifilo")}, true},
+		{"first name", &authm.User{ID: 1, FirstName: strptr("Jane")}, true},
 		// Last name alone is NOT a public name: the chain never renders it on
 		// its own, so treating it as one would promise a name the resolver
 		// cannot produce.
-		{"last name only", &authm.User{ID: 1, LastName: strPtr("Doe")}, false},
-		{"email only", &authm.User{ID: 1, Email: strPtr("asdf@example.com")}, false},
-		{"empty strings", &authm.User{ID: 1, DisplayName: strPtr(""), Username: strPtr(""), FirstName: strPtr("")}, false},
+		{"last name only", &authm.User{ID: 1, LastName: strptr("Doe")}, false},
+		{"email only", &authm.User{ID: 1, Email: strptr("asdf@example.com")}, false},
+		{"empty strings", &authm.User{ID: 1, DisplayName: strptr(""), Username: strptr(""), FirstName: strptr("")}, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -65,9 +63,9 @@ func TestResolvePublicUserName_MatchesCanonicalChainOnPublicTiers(t *testing.T) 
 	// agree exactly — the narrowing is a cut at the bottom, not a different
 	// ordering. Asserted against ResolveUserName itself so the two cannot drift.
 	users := []*authm.User{
-		{ID: 1, DisplayName: strPtr("Matt T"), Username: strPtr("mtrifilo")},
-		{ID: 1, Username: strPtr("mtrifilo"), FirstName: strPtr("Matt")},
-		{ID: 1, FirstName: strPtr("Jane"), LastName: strPtr("Doe")},
+		{ID: 1, DisplayName: strptr("Matt T"), Username: strptr("mtrifilo")},
+		{ID: 1, Username: strptr("mtrifilo"), FirstName: strptr("Matt")},
+		{ID: 1, FirstName: strptr("Jane"), LastName: strptr("Doe")},
 	}
 	for _, u := range users {
 		assert.Equal(t, ResolveUserName(u), ResolvePublicUserName(u))
@@ -75,7 +73,7 @@ func TestResolvePublicUserName_MatchesCanonicalChainOnPublicTiers(t *testing.T) 
 }
 
 func TestResolvePublicUserName_DropsEmailTier(t *testing.T) {
-	u := &authm.User{ID: 1, Email: strPtr("asdf@example.com")}
+	u := &authm.User{ID: 1, Email: strptr("asdf@example.com")}
 
 	assert.Equal(t, "asdf", ResolveUserName(u), "canonical chain still exposes the local part")
 	got := ResolvePublicUserName(u)
@@ -96,8 +94,8 @@ func TestResolvePublicUserName_NilAndNameless(t *testing.T) {
 func TestResolvePublicContributorCredit_CreditsAPublicContributor(t *testing.T) {
 	credit := ResolvePublicContributorCredit(&authm.User{
 		ID:          5,
-		DisplayName: strPtr("Matt T"),
-		Username:    strPtr("mtrifilo"),
+		DisplayName: strptr("Matt T"),
+		Username:    strptr("mtrifilo"),
 	})
 
 	assert.True(t, credit.Renderable())
@@ -111,8 +109,8 @@ func TestResolvePublicContributorCredit_CreditsAPublicContributor(t *testing.T) 
 func TestResolvePublicContributorCredit_HiddenContributionsSuppressesEverything(t *testing.T) {
 	credit := ResolvePublicContributorCredit(&authm.User{
 		ID:              5,
-		DisplayName:     strPtr("Matt T"),
-		Username:        strPtr("mtrifilo"),
+		DisplayName:     strptr("Matt T"),
+		Username:        strptr("mtrifilo"),
 		PrivacySettings: privacyWithContributions(t, contracts.PrivacyHidden),
 	})
 
@@ -129,7 +127,7 @@ func TestResolvePublicContributorCredit_HiddenContributionsSuppressesEverything(
 func TestResolvePublicContributorCredit_CountOnlyStillCredits(t *testing.T) {
 	credit := ResolvePublicContributorCredit(&authm.User{
 		ID:              5,
-		Username:        strPtr("mtrifilo"),
+		Username:        strptr("mtrifilo"),
 		PrivacySettings: privacyWithContributions(t, contracts.PrivacyCountOnly),
 	})
 
@@ -140,7 +138,7 @@ func TestResolvePublicContributorCredit_CountOnlyStillCredits(t *testing.T) {
 func TestResolvePublicContributorCredit_EmailOnlyContributorIsUncredited(t *testing.T) {
 	credit := ResolvePublicContributorCredit(&authm.User{
 		ID:    5,
-		Email: strPtr("asdf@example.com"),
+		Email: strptr("asdf@example.com"),
 	})
 
 	assert.False(t, credit.Renderable())
@@ -160,7 +158,7 @@ func TestResolvePublicContributorCredit_NamelessContributorIsUncredited(t *testi
 func TestResolvePublicContributorCredit_PrivateProfileKeepsNameDropsLink(t *testing.T) {
 	credit := ResolvePublicContributorCredit(&authm.User{
 		ID:                5,
-		Username:          strPtr("mtrifilo"),
+		Username:          strptr("mtrifilo"),
 		ProfileVisibility: "private",
 	})
 
@@ -184,7 +182,7 @@ func TestResolvePublicContributorCredit_MalformedPrivacyFallsBackToDefaults(t *t
 		t.Run(name, func(t *testing.T) {
 			credit := ResolvePublicContributorCredit(&authm.User{
 				ID:              5,
-				Username:        strPtr("mtrifilo"),
+				Username:        strptr("mtrifilo"),
 				PrivacySettings: settings,
 			})
 			assert.True(t, credit.Renderable())
@@ -196,4 +194,68 @@ func TestResolvePublicContributorCredit_MalformedPrivacyFallsBackToDefaults(t *t
 func TestResolvePublicContributorCredit_NilAndZeroUser(t *testing.T) {
 	assert.False(t, ResolvePublicContributorCredit(nil).Renderable())
 	assert.False(t, ResolvePublicContributorCredit(&authm.User{}).Renderable())
+}
+
+// ---------------------------------------------------------------------------
+// ContributorProfileLink
+// ---------------------------------------------------------------------------
+
+// The link gate is shared by every tier, including admin, because a private
+// profile 404s for everyone. Pinned separately from the credit so a future
+// unmasking tier that reaches for ResolveUserUsername directly has something to
+// fail against.
+func TestContributorProfileLink(t *testing.T) {
+	linked := ContributorProfileLink(&authm.User{ID: 1, Username: strptr("mtrifilo")})
+	require.NotNil(t, linked)
+	assert.Equal(t, "mtrifilo", *linked)
+
+	assert.Nil(t, ContributorProfileLink(nil))
+	assert.Nil(t, ContributorProfileLink(&authm.User{ID: 1}), "no username, no link")
+	assert.Nil(t, ContributorProfileLink(&authm.User{ID: 1, Username: strptr("")}), "empty username is unset")
+	assert.Nil(t,
+		ContributorProfileLink(&authm.User{ID: 1, Username: strptr("mtrifilo"), ProfileVisibility: "private"}),
+		"a private profile 404s, so the link would be dead")
+}
+
+// The tier list itself, guarded end to end rather than by sampling. For every
+// user that HAS a public tier the two chains must agree exactly; for every user
+// that does not, the public chain must refuse to publish whatever the canonical
+// one produced. This is what makes "public is canonical minus the last tier"
+// checkable rather than merely asserted, and it is the test that fails if a
+// future edit inserts a tier into one chain and not the other.
+func TestPublicChainIsCanonicalChainMinusEmailTier(t *testing.T) {
+	cases := []struct {
+		name string
+		user *authm.User
+	}{
+		{"display name", &authm.User{ID: 1, DisplayName: strptr("Matt T"), Username: strptr("mtrifilo"), Email: strptr("m@example.com")}},
+		{"username", &authm.User{ID: 1, Username: strptr("mtrifilo"), FirstName: strptr("Matt"), Email: strptr("m@example.com")}},
+		{"first name", &authm.User{ID: 1, FirstName: strptr("Jane"), Email: strptr("j@example.com")}},
+		{"first and last", &authm.User{ID: 1, FirstName: strptr("Jane"), LastName: strptr("Doe"), Email: strptr("j@example.com")}},
+		{"blank tiers fall through", &authm.User{ID: 1, DisplayName: strptr(""), Username: strptr(""), FirstName: strptr("Jane")}},
+		{"email only", &authm.User{ID: 1, Email: strptr("asdf@example.com")}},
+		{"nothing at all", &authm.User{ID: 1}},
+		{"zero id", &authm.User{}},
+		{"nil", nil},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			canonical := ResolveUserName(tc.user)
+			public := ResolvePublicUserName(tc.user)
+
+			if HasPublicName(tc.user) {
+				assert.Equal(t, canonical, public,
+					"a user with a public tier must resolve identically on both chains")
+				assert.NotEqual(t, AnonymousUserName, public)
+				return
+			}
+			assert.Equal(t, AnonymousUserName, public,
+				"a user with no public tier must not reach the canonical chain's answer")
+			if tc.user != nil && tc.user.Email != nil && *tc.user.Email != "" && tc.user.ID != 0 {
+				assert.NotEqual(t, canonical, public,
+					"the email tier is exactly what the public chain must drop")
+			}
+		})
+	}
 }

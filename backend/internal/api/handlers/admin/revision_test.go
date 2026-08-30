@@ -836,6 +836,34 @@ func TestMapRevisionToResponse_Admin_SeesHiddenContributor(t *testing.T) {
 	}
 }
 
+// What the admin tier unmasks is the NAME, and only the name. The profile LINK
+// is not a privacy grant to waive: /users/{username} 404s for a private profile
+// for everyone, admins included, so an admin byline that kept the link would
+// just be pointing at a guaranteed 404. Both tiers share
+// shared.ContributorProfileLink; this pins that the admin branch did not go
+// around it.
+func TestMapRevisionToResponse_Admin_PrivateProfileStillLosesTheLink(t *testing.T) {
+	username := "mtrifilo"
+	r := adminm.Revision{
+		ID:        1,
+		UserID:    5,
+		CreatedAt: time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC),
+		User: authm.User{
+			ID:                5,
+			Username:          &username,
+			ProfileVisibility: "private",
+		},
+	}
+
+	item := mapRevisionToResponse(r, adminViewer())
+	if item.UserName != "mtrifilo" {
+		t.Errorf("expected an admin to see the name, got %q", item.UserName)
+	}
+	if item.UserUsername != nil {
+		t.Errorf("expected no link to a private profile even for an admin, got %v", *item.UserUsername)
+	}
+}
+
 // The admin tier keeps the canonical chain whole, email tier included: it is
 // the only handle a moderator has on an account that set no public name, and
 // nothing on an admin-only view is being published to the web.

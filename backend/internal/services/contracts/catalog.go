@@ -131,11 +131,19 @@ type ShowResponse struct {
 	// costs a query, and no list card renders a submitter byline. Both carry
 	// omitempty so every list payload's shape is byte-for-byte what it was.
 	//
-	// Read absence as "not looked up, or this show has no submitter", never as
-	// "the submitter has no name": a resolved submitter always has a non-empty
-	// Name (shared.ResolveUserName bottoms out at "Anonymous"). Username is the
-	// /users/:username slug and is absent when the account has none, which the
-	// client must render as unlinked text rather than as a dead link.
+	// ABSENCE IS DELIBERATELY OPAQUE. It means any of: not looked up (a list
+	// payload), this show has no submitter (a scraped listing, or an account
+	// since deleted), or the submitter may not be named here — they hid their
+	// contributions, or their only resolvable name would come from their email
+	// address (shared.ResolvePublicContributorCredit, PSY-1866/PSY-1940). The
+	// response cannot tell those apart, and must not be made to: render no
+	// credit, never a placeholder. "added Jul 12" claims nothing about who,
+	// which is the honest reading of every one of those cases.
+	//
+	// Username is the /users/:username slug. It is absent when the account has
+	// none AND when the profile is private, both of which the client must
+	// render as unlinked text rather than as a dead link. A present Name with
+	// an absent Username is a normal, expected pair.
 	SubmittedByName     *string          `json:"submitted_by_name,omitempty"`
 	SubmittedByUsername *string          `json:"submitted_by_username,omitempty"`
 	RejectionCategory   *string          `json:"rejection_category,omitempty"`

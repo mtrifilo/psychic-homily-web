@@ -33,6 +33,15 @@ func setupRevisionRoutes(rc RouteContext) {
 	// route answers 404 rather than a redacted 200. See
 	// admin/revision_visibility.go.
 	//
+	// A THIRD policy joined them, on the same credential, reading only the admin
+	// bit (PSY-1940): WHO MADE THE EDIT. For the public tier an author who set
+	// privacy_settings.contributions = "hidden", or whose only resolvable name
+	// would come from their email address, is not named at all — the revision is
+	// served, the byline is absent. Admins see the canonical name. Unlike the
+	// other two this one is decided in the HANDLER, because it needs no query and
+	// touches only response strings; see admin/revision.go revisionAuthorCredit
+	// for that argument and services/shared/public_attribution.go for the rule.
+	//
 	// CACHING: these three responses now vary by CREDENTIAL, which they did not
 	// before. Two caches matter, and only one of them is currently safe.
 	//
@@ -41,7 +50,9 @@ func setupRevisionRoutes(rc RouteContext) {
 	// is no CDN on that path. Anything that puts a SHARED cache in front of these
 	// routes has to carry `Vary: Authorization, Cookie` (or mark the responses
 	// private), or it will serve one admin's unmasked history to the next
-	// anonymous reader.
+	// anonymous reader. Note what "unmasked" now covers: not just an unverified
+	// venue's address, but the NAME of every contributor who asked not to be
+	// credited. A leak there discloses a person, not a street.
 	//
 	// The CLIENT cache is a known gap this change does NOT close. The frontend
 	// keys revision queries on entity identity alone — no viewer — with a

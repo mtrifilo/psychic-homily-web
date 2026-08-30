@@ -2467,8 +2467,7 @@ func (s *ShowService) attachSubmitterAttribution(resp *contracts.ShowResponse) {
 	if !credit.Renderable() {
 		return
 	}
-	name := credit.Name
-	resp.SubmittedByName = &name
+	resp.SubmittedByName = &credit.Name
 	resp.SubmittedByUsername = credit.Username
 }
 

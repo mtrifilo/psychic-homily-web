@@ -55,8 +55,36 @@ const AnonymousUserName = "Anonymous"
 // silently disables that branch (the field scans as nil) — this bit two
 // call sites when display_name was added (PSY-1063).
 func ResolveUserName(user *authm.User) string {
+	if name := resolvePublicNameTiers(user); name != "" {
+		return name
+	}
+	if user != nil && user.ID != 0 && user.Email != nil && *user.Email != "" {
+		if idx := strings.Index(*user.Email, "@"); idx > 0 {
+			return (*user.Email)[:idx]
+		}
+	}
+	return AnonymousUserName
+}
+
+// resolvePublicNameTiers walks the tiers of the chain that a PUBLIC surface may
+// render, and returns "" when the user has none of them.
+//
+// This is the primitive, not a copy: ResolveUserName is this plus the email
+// tier plus the terminal, ResolvePublicUserName is this plus the terminal, and
+// HasPublicName is this being non-empty. Spelling the shared prefix ONCE is what
+// makes "the public chain is the canonical chain minus its last tier" true by
+// construction rather than by comment. Two functions each listing the tiers
+// would let a later edit reorder or insert one in a way that silently promotes
+// the email tier above a public one, which is precisely the leak PSY-1940 closed.
+//
+// So: a new tier goes HERE if a logged-out visitor may see it, and in
+// ResolveUserName's own body if not. Nowhere else.
+//
+// nil-safe: returns "" for a nil or ID-0 user, which every caller above turns
+// into its own terminal.
+func resolvePublicNameTiers(user *authm.User) string {
 	if user == nil || user.ID == 0 {
-		return AnonymousUserName
+		return ""
 	}
 	if user.DisplayName != nil && *user.DisplayName != "" {
 		return *user.DisplayName
@@ -71,12 +99,7 @@ func ResolveUserName(user *authm.User) string {
 		}
 		return name
 	}
-	if user.Email != nil && *user.Email != "" {
-		if idx := strings.Index(*user.Email, "@"); idx > 0 {
-			return (*user.Email)[:idx]
-		}
-	}
-	return AnonymousUserName
+	return ""
 }
 
 // ResolveUserUsername returns the user's username for /users/:username links,
@@ -99,31 +122,13 @@ func ResolveUserUsername(user *authm.User) *string {
 	return &username
 }
 
-// BatchResolveUserNames resolves display names for multiple user IDs in a
-// single query. Returns a map keyed by user ID; missing users are absent
-// from the map (callers can default to "Anonymous" via ResolveUserName(nil)
-// or by checking the map directly).
-//
-// Returns an empty map (not nil) when userIDs is empty so callers can index
-// without nil-check guards.
-func BatchResolveUserNames(db *gorm.DB, userIDs []uint) (map[uint]string, error) {
-	result := make(map[uint]string)
-	if len(userIDs) == 0 {
-		return result, nil
-	}
-
-	var users []authm.User
-	if err := db.Select("id, username, display_name, first_name, last_name, email").
-		Where("id IN ?", userIDs).
-		Find(&users).Error; err != nil {
-		return nil, err
-	}
-
-	for i := range users {
-		result[users[i].ID] = ResolveUserName(&users[i])
-	}
-	return result, nil
-}
+// NOTE: there is deliberately no batch form of ResolveUserName. PSY-1940 moved
+// every batch caller to BatchResolvePublicUserNames, and a batch resolver that
+// publishes email local-parts is the most convenient wrong answer for the next
+// list endpoint that needs names — an unused one sitting here would be a trap,
+// not a convenience. If an ADMIN list surface ever needs the canonical chain in
+// bulk, add it then, with its own "not for public responses" warning and a
+// named caller.
 
 // BatchResolveUserUsernames resolves usernames for multiple user IDs in a
 // single query. Map values are nil-pointer when the user has no username —

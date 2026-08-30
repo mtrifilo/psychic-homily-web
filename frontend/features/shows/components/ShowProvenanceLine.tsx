@@ -35,6 +35,48 @@ function shortDate(iso: string): string | null {
     : `${formatted}, ${date.getUTCFullYear()}`
 }
 
+/**
+ * One "{verb} {date} by {who}" fragment of the provenance line, degrading to a
+ * bare "{verb} {date}" when there is no name to publish.
+ *
+ * Both halves of this line render through this one function on purpose. They
+ * resolve through the same backend rule (`shared.ResolvePublicContributorCredit`,
+ * PSY-1940), and spelling the rendering twice is how the two halves drifted
+ * apart the first time. A change to how a credit looks now happens once.
+ *
+ * The name guard is SEPARATE from the date: a listing with no resolvable person
+ * still gets its date, just without a "by". That covers a scraped show, an
+ * account whose row is gone, and the backend's privacy gates (a contributor who
+ * hid their contributions, or one whose only resolvable name would be an email
+ * fragment). All arrive here identically as an absent name, and all must render
+ * as no credit rather than as a placeholder — the absence means "we may not
+ * say", and "by Anonymous" would assert a person.
+ *
+ * Gated on the NAME rather than the username, because an account with no
+ * linkable profile is still a person to credit; UserAttribution renders that as
+ * plain text.
+ */
+function datedCredit(
+  verb: string,
+  date: string,
+  name?: string | null,
+  username?: string | null
+): React.ReactNode {
+  if (!name) {
+    return (
+      <span>
+        {verb} {date}
+      </span>
+    )
+  }
+  return (
+    <span>
+      {verb} {date} by{' '}
+      <UserAttribution name={name} username={username} className="hover:underline" />
+    </span>
+  )
+}
+
 interface ShowProvenanceLineProps {
   show: ShowResponse
   /** Display name for the show, threaded to the report dialog. */
@@ -108,50 +150,15 @@ export function ShowProvenanceLine({
     push('credit', <span>Listing from {credit} calendar</span>)
   }
   if (added) {
-    // The credit is a SEPARATE guard from the date: a listing with no resolved
-    // submitter still gets its "added" date, just without a "by". That covers
-    // a scraped show, an account whose row is gone, and the backend's privacy
-    // gates (a contributor who hid their contributions, or one whose only
-    // resolvable name would be an email fragment) — all arrive here identically
-    // as an absent name, and all must render as no credit rather than as a
-    // placeholder. Gated on the NAME rather than the username, because an
-    // account with no linkable profile is still a person to credit;
-    // UserAttribution renders that as plain text.
     push(
       'added',
-      show.submitted_by_name ? (
-        <span>
-          added {added} by{' '}
-          <UserAttribution
-            name={show.submitted_by_name}
-            username={show.submitted_by_username}
-            className="hover:underline"
-          />
-        </span>
-      ) : (
-        <span>added {added}</span>
-      )
+      datedCredit('added', added, show.submitted_by_name, show.submitted_by_username)
     )
   }
   if (attribution && updated) {
-    // Same NAME-gated shape as the "added" fragment above, and for the same
-    // reasons: a revision whose author the backend will not publish (hidden
-    // contributions, or an email-only name — PSY-1940) renders a bare
-    // "updated Jul 31", never a placeholder.
     push(
       'updated',
-      attribution.user_name ? (
-        <span>
-          updated {updated} by{' '}
-          <UserAttribution
-            name={attribution.user_name}
-            username={attribution.user_username}
-            className="hover:underline"
-          />
-        </span>
-      ) : (
-        <span>updated {updated}</span>
-      )
+      datedCredit('updated', updated, attribution.user_name, attribution.user_username)
     )
     // Guarded on the VALUE, not just the object: the hook's response type is
     // a hand-written mirror of the wire shape, so nothing at build time

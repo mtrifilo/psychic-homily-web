@@ -92,22 +92,27 @@ type RevisionResponseItem struct {
 // A suppressed credit is an ABSENT name, not "Anonymous"; see
 // RevisionResponseItem.
 //
+// What the admin tier unmasks is the NAME, and only the name. The profile link
+// runs through the same ContributorProfileLink both tiers use, because a private
+// profile 404s for admins too — withholding that link is not a privacy rule to
+// waive, it is the difference between a working href and a broken one.
+//
 // This is the ONLY place the two tiers diverge for identity. Content redaction
 // is decided upstream in the service (applyPrivacyRedaction) off the same
 // viewer, so the two policies read the same fact and cannot disagree about who
 // is asking.
 //
-// A revision author is loaded by Preload("User") with no column restriction, so
-// every column the chain and the gates read is present. Do not narrow that
-// preload with a Select without adding privacy_settings and profile_visibility
-// to it: a missing privacy column would unmarshal as the DEFAULTS, which have
-// contributions VISIBLE, and silently re-publish every hidden contributor.
-func revisionAuthorCredit(r adminm.Revision, viewer contracts.RevisionViewer) (string, *string) {
+// Do not narrow this route's Preload("User") with a Select: the gates read
+// columns the chain does not, and a missing privacy column fails OPEN. The
+// column contract is stated once, on ResolvePublicContributorCredit.
+func revisionAuthorCredit(r *adminm.Revision, viewer contracts.RevisionViewer) servicesshared.PublicContributorCredit {
 	if viewer.IsAdmin {
-		return servicesshared.ResolveUserName(&r.User), servicesshared.ResolveUserUsername(&r.User)
+		return servicesshared.PublicContributorCredit{
+			Name:     servicesshared.ResolveUserName(&r.User),
+			Username: servicesshared.ContributorProfileLink(&r.User),
+		}
 	}
-	credit := servicesshared.ResolvePublicContributorCredit(&r.User)
-	return credit.Name, credit.Username
+	return servicesshared.ResolvePublicContributorCredit(&r.User)
 }
 
 // revisionViewer resolves the caller the three read routes serve.
@@ -169,14 +174,14 @@ func revisionViewer(ctx context.Context) contracts.RevisionViewer {
 // gated. Do not add a branch that tries to tell them apart. The whole point is
 // that the response cannot.
 func mapRevisionToResponse(r adminm.Revision, viewer contracts.RevisionViewer) RevisionResponseItem {
-	userName, userUsername := revisionAuthorCredit(r, viewer)
+	credit := revisionAuthorCredit(&r, viewer)
 	item := RevisionResponseItem{
 		ID:           r.ID,
 		EntityType:   r.EntityType,
 		EntityID:     r.EntityID,
 		UserID:       r.UserID,
-		UserName:     userName,
-		UserUsername: userUsername,
+		UserName:     credit.Name,
+		UserUsername: credit.Username,
 		// PSY-604: must convert to UTC before formatting — the literal "Z"
 		// in the layout asserts the value is UTC but Format does not convert.
 		// A local time.Time would otherwise be stamped with "Z" while still
