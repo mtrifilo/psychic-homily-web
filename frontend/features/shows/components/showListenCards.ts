@@ -1,5 +1,6 @@
+import { isBandcampReleaseUrl } from '@/lib/bandcamp'
 import { parseSpotifyEmbed } from '@/lib/spotify'
-import { byBillPosition } from '../utils'
+import { byBillPosition, splitBill } from '../utils'
 import type { ArtistResponse } from '../types'
 
 /**
@@ -15,59 +16,88 @@ export interface ListenCard {
   artist: ArtistResponse
   source: ListenSource
   /**
-   * Outbound purchase target for `[Buy]`, or null when there is nothing to
-   * buy. Only a Bandcamp album/track page sells a record; a Spotify embed and
-   * a bare Bandcamp profile both get no bracket rather than an invented one.
+   * The Bandcamp release page: what `[Buy]` points at, and what the player is
+   * built from. Null exactly when `source` is `Spotify`, which sells nothing
+   * and gets no bracket rather than an invented one.
    *
-   * Always either `artist.bandcamp_embed_url` or null, so this is that field
-   * under a name that says what it is FOR, not a second source of truth. Read
-   * it rather than re-deriving "is there something to buy" at a render site,
-   * which is where the two would drift.
+   * Either `artist.bandcamp_embed_url` or null, never a value derived from
+   * something else, so this is that field under a name that says what it is
+   * FOR. Read it rather than reaching back to the column at a render site: the
+   * column is untrusted and this is the checked copy (see `toListenCard`).
    */
   buyHref: string | null
 }
 
 /**
- * One card per bill artist who actually has something to play, in bill order.
+ * One card per bill artist who has a PLAYER, in the order the bill reads.
  *
- * The ladder below MIRRORS `MusicEmbed`'s own `deriveEmbedState` (bandcamp
- * album/track → spotify → bandcamp fallback link), and that duplication is a
- * DEBT, not a design. It has to agree, because `MusicEmbed` renders NOTHING
- * when it can find no source and a looser gate here would hand the reader an
- * empty bordered card with a meta line and silence under it. The show page's
- * old gate (`bandcamp_embed_url || socials.spotify || socials.bandcamp`) was
- * exactly that looser gate: an artist whose only music link is an unparseable
- * Spotify URL passes it and renders nothing.
+ * "A player" is the whole gate, and it is stricter than "has a music link".
+ * A card here is a stack-mate of two other players and looks exactly like
+ * them, so a card whose body turns out to be a text link out to Bandcamp is
+ * a card that lied about itself. Only an embeddable release URL and a
+ * parseable Spotify URL qualify; a bare Bandcamp PROFILE does not, and neither
+ * does an unparseable Spotify URL. The show page's old gate
+ * (`bandcamp_embed_url || socials.spotify || socials.bandcamp`) accepted all
+ * three, which is why it could render a heading over silence.
  *
- * Three other surfaces hand-mirror the same ladder for the same reason
- * (`ArtistPanel`, `ArtistContextPanel`, and `ShowCard`, the last still on the
- * loose version). The unification they all want is one exported pure resolver
- * beside `deriveEmbedState` that every gate calls; it is owed, and it is a
- * wider change than this surface. Do not add a fifth copy.
+ * Ordering is the two-step the bill block itself uses: sort by
+ * `show_artists.position`, THEN hoist whoever is curated as a headliner. Both
+ * halves are needed, because `set_type` is authoritative at ANY position, so a
+ * bill submitted in stage order has its headliner at the bottom. Sorting alone
+ * would print the header's running order backwards a few hundred pixels below
+ * the header.
  *
- * `parseSpotifyEmbed` is therefore load-bearing, not decorative — it is the
- * same host-anchored validation `MusicEmbed` runs, so the two agree on which
- * Spotify URLs are real.
+ * The source ladder MIRRORS `MusicEmbed`'s own `deriveEmbedState`, and that
+ * duplication is a DEBT, not a design. It has to agree, because `MusicEmbed`
+ * renders NOTHING when it can find no source. Three other surfaces hand-mirror
+ * the same ladder for the same reason (`ArtistPanel`, `ArtistContextPanel`,
+ * and `ShowCard`, the last still on the loose version). The unification they
+ * all want is one exported pure resolver beside `deriveEmbedState` that every
+ * gate calls; it is owed, and it is a wider change than this surface. Do not
+ * add a fifth copy.
  *
- * The one case the two can still disagree on: a stored `bandcamp_embed_url`
- * whose id resolve FAILS at request time falls through to the artist's Spotify
- * embed inside `MusicEmbed`, while this label still says "Bandcamp". The resolve
- * happens over the network after render, so no synchronous predicate can know.
- * The `[Buy]` href stays correct either way (it points at the Bandcamp page we
- * were given), so the mismatch is a stale source WORD during a Bandcamp outage,
- * not a wrong link.
+ * `parseSpotifyEmbed` and `isBandcampReleaseUrl` are therefore load-bearing,
+ * not decorative: they are the same validation the player and the resolver
+ * route run, so the three agree on which URLs are real.
+ *
+ * What no synchronous predicate can settle: a stored release URL whose id
+ * resolve FAILS at request time. `MusicEmbed` then falls through to the
+ * artist's Spotify embed if it has one (the card plays, under a label that
+ * still says "Bandcamp"), and otherwise to its own outbound link to that same
+ * release page (the card does not play, and shows the reader a link one line
+ * under the `[Buy]` bracket pointing at the same place). Both are degraded
+ * states of a real player during a Bandcamp outage rather than a card that
+ * never had one, which is the line this gate draws.
  */
 export function listenCardsForBill(artists: ArtistResponse[]): ListenCard[] {
-  return [...artists]
-    .sort(byBillPosition)
+  const { headliners, support } = splitBill([...artists].sort(byBillPosition))
+  return [...headliners, ...support]
     .map(toListenCard)
     .filter((card): card is ListenCard => card !== null)
 }
 
 function toListenCard(artist: ArtistResponse): ListenCard | null {
-  // Priority 1: an album/track page. The only unit that is both embeddable and
-  // buyable, so it is also the only one that earns a `[Buy]`.
-  if (artist.bandcamp_embed_url) {
+  // Priority 1: a Bandcamp release page. The only unit that is both embeddable
+  // and buyable, so it is also the only one that earns a `[Buy]`.
+  //
+  // The URL has to PROVE it is one, and the whole branch is gated on that
+  // rather than just the bracket. `bandcamp_embed_url` is contributor-writable
+  // and is not URL-checked on write: it sits in the artist edit allowlist with
+  // no entry in the backend's URL field specs, a trusted-tier edit
+  // self-approves, and the entity-request path validates it as any http(s) URL
+  // by its own admission. So the column can hold an arbitrary host.
+  //
+  // An ungated branch would put that host in three places at once: the word
+  // "Bandcamp" in the meta line, a `[Buy]` bracket announced as "on Bandcamp",
+  // and (once the resolve fails) `MusicEmbed`'s own outbound fallback link,
+  // which is the card's entire body. That is the phishing shape. Gating here
+  // instead of at each render site is what makes the claim and the href one
+  // decision, and it lets an artist with a junk Bandcamp value still get their
+  // working Spotify player below.
+  if (
+    artist.bandcamp_embed_url &&
+    isBandcampReleaseUrl(artist.bandcamp_embed_url)
+  ) {
     return {
       artist,
       source: 'Bandcamp',
@@ -83,12 +113,9 @@ function toListenCard(artist: ArtistResponse): ListenCard | null {
     return { artist, source: 'Spotify', buyHref: null }
   }
 
-  // Priority 3: a bare Bandcamp profile. `MusicEmbed` renders its own visible
-  // "Listen to X on Bandcamp" link for this case, so the card carries no
-  // `[Buy]` bracket that would say the same thing twice a line apart.
-  if (artist.socials?.bandcamp) {
-    return { artist, source: 'Bandcamp', buyHref: null }
-  }
-
+  // A bare Bandcamp PROFILE deliberately gets nothing. `MusicEmbed` would
+  // render an outbound text link for it, not a player, and a link wearing the
+  // same border as the two players above it is a card that misrepresents
+  // itself. The artist page still carries the profile link.
   return null
 }

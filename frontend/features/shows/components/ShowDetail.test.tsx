@@ -61,9 +61,10 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/components/shared', () => ({
   SaveButton: () => <button data-testid="save-button">Save</button>,
   MusicEmbed: () => <div data-testid="music-embed" />,
-  // A real constant, not a component: the listen module sizes its card list
-  // from the Bandcamp player's own width cap, so a stub value here would let
-  // the two drift apart without the drift being visible.
+  // A value, not a component, and the key has to be here for a mechanical
+  // reason: the listen module reads it for its `maxWidth`, and a barrel mock
+  // missing the export hands it `undefined`. This is a stand-in, not a mirror
+  // of the real constant, and nothing here asserts a width.
   BANDCAMP_EMBED_MAX_WIDTH_PX: 700,
   AddToCollectionButton: () => <button data-testid="add-to-collection">Collect</button>,
   // aria-label mirrors the real component (ariaLabel ?? label) so a

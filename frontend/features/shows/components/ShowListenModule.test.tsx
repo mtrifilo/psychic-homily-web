@@ -65,6 +65,15 @@ function cards() {
   )
 }
 
+/**
+ * The meta line of one card. Addressed by the artist's id because the testid is
+ * per-card: a bare `getByTestId` would throw the moment a case renders the
+ * two-act bill this module actually exists for.
+ */
+function meta(artistId = 1) {
+  return screen.getByTestId(`listen-card-meta-${artistId}`)
+}
+
 describe('ShowListenModule', () => {
   it('renders nothing when no bill artist has a playable source', () => {
     const { container } = render(<ShowListenModule artists={[makeArtist()]} />)
@@ -96,7 +105,10 @@ describe('ShowListenModule', () => {
     expect(screen.getAllByTestId('music-embed')).toHaveLength(2)
   })
 
-  it('orders cards by bill position, headliner first', () => {
+  // The running order itself (position sort, then the curated-headliner hoist)
+  // is pinned in showListenCards.test.ts. This only checks that the module
+  // renders the cards in the order it is handed them.
+  it('renders cards in the order the bill derivation returns them', () => {
     render(
       <ShowListenModule
         artists={[
@@ -124,14 +136,14 @@ describe('ShowListenModule', () => {
       />
     )
 
-    const meta = screen.getByTestId('listen-card-meta')
+    const card = meta()
     expect(
-      within(meta).getByRole('link', { name: 'Modest Mouse' })
+      within(card).getByRole('link', { name: 'Modest Mouse' })
     ).toHaveAttribute('href', '/artists/modest-mouse')
-    expect(meta).toHaveTextContent('Bandcamp')
+    expect(card).toHaveTextContent('Bandcamp')
 
     // BracketLink owns the outbound announcement; the caller never writes it.
-    const buy = within(meta).getByRole('link', {
+    const buy = within(card).getByRole('link', {
       name: 'Buy Modest Mouse on Bandcamp (opens in a new tab)',
     })
     expect(buy).toHaveAttribute('href', BANDCAMP_ALBUM)
@@ -139,7 +151,7 @@ describe('ShowListenModule', () => {
     expect(buy).toHaveAttribute('rel', 'noopener noreferrer')
 
     expect(
-      within(meta).getByRole('button', { name: 'Share Modest Mouse' })
+      within(card).getByRole('button', { name: 'Share Modest Mouse' })
     ).toBeInTheDocument()
   })
 
@@ -150,26 +162,45 @@ describe('ShowListenModule', () => {
       />
     )
 
-    const meta = screen.getByTestId('listen-card-meta')
-    expect(meta).toHaveTextContent('Spotify')
-    expect(within(meta).queryByRole('link', { name: /^Buy/ })).toBeNull()
+    const card = meta()
+    expect(card).toHaveTextContent('Spotify')
+    expect(within(card).queryByRole('link', { name: /^Buy/ })).toBeNull()
     expect(
-      within(meta).getByRole('button', { name: 'Share Modest Mouse' })
+      within(card).getByRole('button', { name: 'Share Modest Mouse' })
     ).toBeInTheDocument()
   })
 
-  it('offers no buy bracket for a bare Bandcamp profile', () => {
-    render(
+  it('renders no card for a bare Bandcamp profile', () => {
+    // A profile has no player behind it, only an outbound link, and a link
+    // wearing the same border as the players above it is a card that
+    // misrepresents itself.
+    const { container } = render(
       <ShowListenModule
         artists={[
           makeArtist({ socials: { bandcamp: 'https://band.bandcamp.com' } }),
         ]}
       />
     )
+    expect(container).toBeEmptyDOMElement()
+  })
 
-    const meta = screen.getByTestId('listen-card-meta')
-    expect(meta).toHaveTextContent('Bandcamp')
-    expect(within(meta).queryByRole('link', { name: /^Buy/ })).toBeNull()
+  it('drops the whole verb cluster rather than trail a separator', () => {
+    // Neither bracket can render here: Spotify sells nothing, and an empty slug
+    // means ShareButton gets a null path. MiddotSegments puts a separator
+    // BETWEEN whatever it is handed, so a verb segment that renders empty would
+    // leave the line ending in a middot.
+    render(
+      <ShowListenModule
+        artists={[
+          makeArtist({ slug: '', socials: { spotify: SPOTIFY_ARTIST } }),
+        ]}
+      />
+    )
+
+    const card = meta()
+    expect(within(card).queryByRole('link', { name: /^Buy/ })).toBeNull()
+    expect(within(card).queryByRole('button', { name: /^Share/ })).toBeNull()
+    expect(card.textContent?.trim()).toBe('Modest Mouse · Spotify')
   })
 
   it('renders a slugless artist as text and drops its share bracket', () => {
@@ -181,13 +212,13 @@ describe('ShowListenModule', () => {
       />
     )
 
-    const meta = screen.getByTestId('listen-card-meta')
-    expect(within(meta).queryByRole('link', { name: 'Modest Mouse' })).toBeNull()
-    expect(meta).toHaveTextContent('Modest Mouse')
-    expect(within(meta).queryByRole('button', { name: /^Share/ })).toBeNull()
+    const card = meta()
+    expect(within(card).queryByRole('link', { name: 'Modest Mouse' })).toBeNull()
+    expect(card).toHaveTextContent('Modest Mouse')
+    expect(within(card).queryByRole('button', { name: /^Share/ })).toBeNull()
     // The buy bracket is independent of the slug and must survive.
     expect(
-      within(meta).getByRole('link', { name: /^Buy Modest Mouse/ })
+      within(card).getByRole('link', { name: /^Buy Modest Mouse/ })
     ).toBeInTheDocument()
   })
 

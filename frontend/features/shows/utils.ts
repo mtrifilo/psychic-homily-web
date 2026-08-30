@@ -139,9 +139,13 @@ interface OrderedBillArtist {
  *
  * Shared for the same reason `splitBill` is: the header's bill and the listen
  * module's cards are two renderings of ONE running order, and a second copy of
- * the tiebreak rule is exactly the kind of thing that drifts silently — the two
- * lists would disagree only on bills with tied positions, which is the case
- * nobody looks at.
+ * the tiebreak rule is exactly the kind of thing that drifts silently.
+ *
+ * This is HALF of that running order, not all of it. Position is the sequence;
+ * `splitBill` then hoists whoever is curated as a headliner, because `set_type`
+ * is authoritative at any position and a bill entered in stage order puts the
+ * headliner last. A surface that sorts and stops will print a different bill
+ * from one that does both, on exactly the shows where it matters most.
  */
 export function byBillPosition(
   a: OrderedBillArtist,

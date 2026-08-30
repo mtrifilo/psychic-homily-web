@@ -20,14 +20,20 @@ interface ShowListenModuleProps {
 
 /**
  * The mock's `LISTEN / BEFORE YOU GO` module: one dense card per bill artist
- * with something to play, headliner first.
+ * with a player, headliner first.
  *
  * Players load OPEN (locked decision 9). There is no facade, no click-to-load,
  * and no single-top-track reduction: the reader is scanning six or seven
  * unheard bills a night, and a card that costs a click before it can cost a
  * listen is a card they skip. The iframes carry `loading="lazy"` inside
- * `MusicEmbed`, which is a fetch-timing detail the reader never sees — a
- * card on screen is already playable.
+ * `MusicEmbed`, which is a fetch-timing detail the reader never sees.
+ *
+ * Every card mounts a real player. The one state where a card can be on screen
+ * without one is a Bandcamp id resolve that fails at request time for an act
+ * with no Spotify to fall back on; `MusicEmbed` then shows its own link to the
+ * same release page. That is a Bandcamp outage degrading a player, not a card
+ * that never had one. `listenCardsForBill` is what keeps the second case from
+ * existing, and it is the reason a bare Bandcamp profile earns no card.
  *
  * The mock draws each card as artwork + release title + a transport row with a
  * scrubber and a duration. Those four things all live INSIDE the third-party
@@ -87,7 +93,7 @@ export function ShowListenModule({ artists }: ShowListenModuleProps) {
  * className it does not take.
  */
 function ShowListenCard({ card }: { card: ListenCard }) {
-  const { artist, source } = card
+  const { artist, source, buyHref } = card
 
   // Segment and key pushed together, the way ShowProvenanceLine builds its
   // byline: `MiddotSegments` reads the two as parallel arrays, so building them
@@ -126,11 +132,19 @@ function ShowListenCard({ card }: { card: ListenCard }) {
         segments={segments}
         keys={keys}
         className="mb-1.5 font-mono text-xs text-muted-foreground"
-        data-testid="listen-card-meta"
+        // Per CARD, not per page: reach it through `within(card)`, never a bare
+        // `getByTestId`, which throws on any bill with two playable acts.
+        data-testid={`listen-card-meta-${artist.id}`}
       />
       <MusicEmbed
-        bandcampAlbumUrl={artist.bandcamp_embed_url}
-        bandcampProfileUrl={artist.socials?.bandcamp}
+        // The CHECKED copy of the column, not the column. `listenCardsForBill`
+        // has already established that this is a real Bandcamp release page;
+        // handing `MusicEmbed` the raw field would put an unvalidated host into
+        // its outbound fallback link on the resolve-failure path.
+        bandcampAlbumUrl={buyHref}
+        // No `bandcampProfileUrl`: the gate emits no card that could reach
+        // MusicEmbed's profile branch, so passing one would be a prop with no
+        // reachable behaviour and no way to test it.
         spotifyUrl={artist.socials?.spotify}
         artistName={artist.name}
         // Suppresses MusicEmbed's own "Music" heading, which on this page used
