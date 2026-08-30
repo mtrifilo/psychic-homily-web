@@ -2,6 +2,15 @@
 
 import Link from 'next/link'
 import { BracketLink, SectionHeader } from '@/components/shared'
+// NOT the sibling `./ShowStatusBadge`, which is a DIFFERENT component sharing
+// the name three files away in this directory: it takes `{ show }` and paints
+// the header's filled orange badge, while this one takes `{ label }` and paints
+// the mono outline the scene ledgers use. The rails are a ledger, so they take
+// the ledger's badge, and `SceneCalendar` / `SceneDayView` / `SceneWeekView`
+// use it through the identical `label="SOLD OUT"` idiom. A show page therefore
+// carries two SOLD OUT treatments on purpose — page chrome above, ledger rows
+// down here — rather than by oversight.
+//
 // Deep import, not the `features/scenes/components` barrel: that barrel is
 // root-reachable, and merely LISTING an export there puts it in the one client
 // chunk every route loads eagerly (PSY-1772, guarded by
@@ -99,12 +108,20 @@ export function ShowDiscoveryRails({ show }: { show: ShowResponse }) {
  * sit side by side.
  */
 function Rail({ rail, testId }: { rail: ShowRail; testId: string }) {
+  // A `section` with no accessible name is a generic element, not a `region`,
+  // so landmark navigation could not tell the two rails apart — they would be
+  // reachable only by heading. Naming it from its own heading is the shape
+  // `ShowSubmissionsConsole` already uses, and is why `SectionHeader` exposes
+  // `headingProps.id`.
+  const headingId = `${testId}-heading`
+
   return (
-    <section data-testid={testId}>
+    <section data-testid={testId} aria-labelledby={headingId}>
       <SectionHeader
         title={rail.title}
         as="h2"
         size="md"
+        headingProps={{ id: headingId }}
         // Bare bracket on the section header, never another verb in the entity
         // action row (pattern_syndication_affordance_placement). `seeAllHref`
         // is already null unless something is genuinely hidden AND the

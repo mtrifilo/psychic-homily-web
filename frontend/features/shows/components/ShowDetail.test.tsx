@@ -490,12 +490,34 @@ describe('ShowDetail', () => {
     // The slot the mock reserves for the rails row is BETWEEN the page's own
     // modules and the byline. Position is the claim, so containment alone is
     // not enough: a rails row rendered after the provenance footer would still
-    // "be on the page" and would still be wrong.
-    it('renders the rails row above the provenance footer', () => {
+    // "be on the page" and would still be wrong. Both halves of the claim are
+    // pinned — a row that drifted above the embeds would otherwise ship green.
+    it('renders the rails row below the embeds and above the provenance footer', () => {
+      // A show WITH music, so the embeds half of the claim has something to
+      // anchor on — the default fixture's artists have none.
+      mockUseShow.mockReturnValue({
+        data: makeShow({
+          artists: [
+            makeArtist({
+              id: 1,
+              name: 'Band',
+              socials: { spotify: 'https://spotify.com/band' },
+            }),
+          ],
+        }),
+        isLoading: false,
+        error: null,
+      })
       render(<ShowDetail showId="1" lifecycle="upcoming" />)
       const rails = screen.getByTestId('show-discovery-rails')
       const footer = screen.getByTestId('show-provenance-footer')
+      const embeds = screen.getByTestId('music-embed')
+
       expect(footer).not.toContainElement(rails)
+      expect(
+        embeds.compareDocumentPosition(rails) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
       expect(
         rails.compareDocumentPosition(footer) &
           Node.DOCUMENT_POSITION_FOLLOWING

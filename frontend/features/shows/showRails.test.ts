@@ -233,14 +233,42 @@ describe('buildMoreAtVenueRail', () => {
   })
 
   it('does not offer see-all when the room’s only other show is on screen', () => {
-    // total 2 = the one row drawn plus the show being read.
-    const rail = buildMoreAtVenueRail(makeRailVenue(), [makeVenueShow()], 2, 99)
+    // total 2 = the one row drawn plus the show being read, which IS in the
+    // fetched page, so the subject accounts for the difference.
+    const rail = buildMoreAtVenueRail(
+      makeRailVenue(),
+      [makeVenueShow(), makeVenueShow({ id: 99, slug: 'subject' })],
+      2,
+      99
+    )
+    expect(rail?.rows).toHaveLength(1)
     expect(rail?.seeAllHref).toBeNull()
   })
 
   it('offers see-all once rows are hidden', () => {
     const rail = buildMoreAtVenueRail(makeRailVenue(), [makeVenueShow()], 9, 99)
     expect(rail?.seeAllHref).toBe('/venues/salt-shed')
+  })
+
+  it('offers see-all for a PAST subject the venue’s upcoming count never held', () => {
+    // The regression both adversarial reviewers found. A past show's page is
+    // still served, and `total` counts only APPROVED UPCOMING shows, so the
+    // subject was never in it and must not be paid back. Four upcoming dates,
+    // three drawn, one hidden — the rail has to say so.
+    const fetched = [1, 2, 3, 4].map(id =>
+      makeVenueShow({ id, slug: `s${id}` })
+    )
+    const rail = buildMoreAtVenueRail(makeRailVenue(), fetched, 4, 99)
+    expect(rail?.rows).toHaveLength(3)
+    expect(rail?.seeAllHref).toBe('/venues/salt-shed')
+  })
+
+  it('still withholds see-all for a past subject when nothing is hidden', () => {
+    // Same population, three upcoming dates, all three drawn.
+    const fetched = [1, 2, 3].map(id => makeVenueShow({ id, slug: `s${id}` }))
+    const rail = buildMoreAtVenueRail(makeRailVenue(), fetched, 3, 99)
+    expect(rail?.rows).toHaveLength(3)
+    expect(rail?.seeAllHref).toBeNull()
   })
 
   it('never links a venue with no slug — an empty slug resolves to the index', () => {
@@ -283,6 +311,46 @@ describe('alsoTonightRailTitle', () => {
   it('omits a city it does not have rather than guessing one', () => {
     expect(alsoTonightRailTitle(makeAlsoTonightPayload({ city: undefined })))
       .toBe('Also / Tonight')
+  })
+
+  it('dates an archive night with its year, which is not the current one', () => {
+    // `Also / Thu Aug 15` on a 2019 page reads as this August to every reader,
+    // and the rail carries no other full date to correct the impression.
+    expect(
+      alsoTonightRailTitle(
+        makeAlsoTonightPayload({ is_tonight: false, date: '2019-08-15' })
+      )
+    ).toBe('Also / Thu Aug 15, 2019 · Chicago')
+  })
+
+  it('leaves the year off the current one, which needs no disambiguating', () => {
+    const thisYear = new Date().getFullYear()
+    const title = alsoTonightRailTitle(
+      makeAlsoTonightPayload({ is_tonight: false, date: `${thisYear}-08-12` })
+    )
+    expect(title).not.toContain(String(thisYear))
+  })
+
+  it('degrades to the scope alone rather than heading a date it cannot read', () => {
+    // A type is not a runtime guarantee across two independently deployed
+    // services, and `parseCalendarDate` turns junk into a confident wrong date.
+    expect(
+      alsoTonightRailTitle(
+        makeAlsoTonightPayload({ is_tonight: false, date: 'not-a-date' })
+      )
+    ).toBe('Also / Chicago')
+    expect(
+      alsoTonightRailTitle(makeAlsoTonightPayload({ is_tonight: false, date: '' }))
+    ).toBe('Also / Chicago')
+  })
+
+  it('survives a date field the payload omitted entirely', () => {
+    // Absent, not malformed: this used to throw out of `split` and take the
+    // whole show page to its error boundary, not just the rail.
+    const payload = makeAlsoTonightPayload({ is_tonight: false })
+    delete (payload as { date?: string }).date
+    expect(() => alsoTonightRailTitle(payload)).not.toThrow()
+    expect(alsoTonightRailTitle(payload)).toBe('Also / Chicago')
   })
 })
 

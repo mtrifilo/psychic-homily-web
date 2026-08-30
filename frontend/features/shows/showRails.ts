@@ -4,6 +4,7 @@ import {
   formatDayChip,
   formatShowStartTime,
 } from '@/features/scenes/sceneDay'
+import { isCalendarDate, parseCalendarDate } from '@/features/scenes/sceneWeek'
 import type { SceneShowSummary } from '@/features/scenes/types'
 import { formatPrice } from '@/lib/utils/formatters'
 import { formatShowMonthDay } from '@/lib/utils/showDateBadge'
@@ -116,12 +117,30 @@ export function buildAlsoTonightRail(
 /**
  * The more-at-venue rail, or null when the room has no other dates.
  *
- * `total` counts every upcoming show at this room, INCLUDING the one being
- * read, so it has to go back on the drawn side before asking whether anything
- * is hidden. Without that the rail offers "see all" to a venue page holding
- * exactly the rows already on screen. The `+ 1` is unconditional: when the
- * subject show is upcoming it really is in `total`, and when it is not,
- * `total` exceeds the cap by more and the comparison still holds.
+ * The truncation question is "does the venue page hold a show this rail did
+ * not draw", and answering it means reconciling two different populations.
+ * `total` counts the venue's APPROVED UPCOMING shows; `drawn` is this rail's
+ * three, already minus the show being read. Those differ by the subject show
+ * only when the subject is itself approved and upcoming — a PAST show, and the
+ * majority of show pages become past ones, is absent from `total` entirely.
+ *
+ * So the adjustment is conditional on the subject actually having been
+ * removed, not unconditional. Adding 1 either way withheld "see all" from
+ * exactly the case it exists for: a past show at a room with four upcoming
+ * dates draws three, hides one, and `4 > 4` is false.
+ *
+ * `subjectWasRemoved` is read off the fetched page rather than inferred, and
+ * it is trustworthy precisely where it matters. It can only be wrong if the
+ * subject is upcoming but sorted beyond the fetched page — which requires
+ * `total` to exceed the page size, and in that case `hasMore` is already true
+ * by a wide margin and the adjustment cannot change the answer.
+ *
+ * This rail's `[See all]` and `ShowVenueModule`'s `More at {venue} →` point at
+ * the same venue page, which the mock draws BOTH of: the module's link is part
+ * of the venue's own verb cluster beside [Directions] and [Follow venue], and
+ * this one is the rail's own overflow. They are kept because the mock keeps
+ * them, not by oversight — if one is ever cut, cut the module's, since a
+ * bracket that overflows a visible list is the one carrying new information.
  */
 export function buildMoreAtVenueRail(
   venue: VenueResponse | undefined,
@@ -131,12 +150,15 @@ export function buildMoreAtVenueRail(
 ): ShowRail | null {
   if (!venue) return null
 
-  const drawn = (shows ?? [])
+  const fetched = shows ?? []
+  const drawn = fetched
     .filter(show => show.id !== currentShowId)
     .slice(0, SHOW_RAIL_ROW_CAP)
   if (drawn.length === 0) return null
 
-  const hasMore = (total ?? drawn.length) > drawn.length + 1
+  const subjectWasRemoved = fetched.some(show => show.id === currentShowId)
+  const hasMore =
+    (total ?? drawn.length) > drawn.length + (subjectWasRemoved ? 1 : 0)
 
   return {
     title: `More at / ${venue.name}`,
@@ -159,9 +181,33 @@ export function buildMoreAtVenueRail(
  * yesterday's date), because a client computing it from the viewer's device
  * would give a reader in Berlin a different answer than a reader in Chicago
  * for the same Chicago night. Read the flag; never re-derive it.
+ *
+ * The date is SHAPE-CHECKED first, which `parseCalendarDate` requires of any
+ * caller whose field might be absent: it builds its Date component-wise, so
+ * `''` yields a confident `Mon Jan 1 1900` and an absent field throws out of
+ * `split`, which from here would take the whole show page to its error
+ * boundary rather than just dropping a rail. The type says the field is
+ * required, but a type is not a runtime guarantee across two independently
+ * deployed services — the same standard `startInstant` applies to `starts_at`.
+ * `isCalendarDate`, deliberately, not `looksLikeCalendarDate`: the latter also
+ * bounds the year to cap URL cache keys, which applied to a payload field
+ * would blank a legitimately dated old show.
+ *
+ * The year joins the label whenever it is not the current one. A rail headed
+ * `Also / Thu Aug 15` on a 2019 archive page reads as this August to every
+ * reader, and unlike the scene day view there is no full date elsewhere in the
+ * row to correct the impression — the same reasoning, and the same remedy, as
+ * `formatPointerDay`. Comparing against the viewer's clock is safe here
+ * because these rails are client-only and render nothing until their query
+ * resolves, so there is no server pass to disagree with.
  */
-function alsoTonightQualifier(rail: ShowAlsoTonightResponse): string {
-  return rail.is_tonight ? 'Tonight' : formatDayChip(rail.date)
+function alsoTonightQualifier(rail: ShowAlsoTonightResponse): string | null {
+  if (rail.is_tonight) return 'Tonight'
+  if (!isCalendarDate(rail.date ?? '')) return null
+
+  const chip = formatDayChip(rail.date)
+  const year = parseCalendarDate(rail.date).getFullYear()
+  return year === new Date().getFullYear() ? chip : `${chip}, ${year}`
 }
 
 /**
@@ -171,10 +217,15 @@ function alsoTonightQualifier(rail: ShowAlsoTonightResponse): string {
  * Evanston room reads "Chicago" — the scope the rows were actually selected
  * by. It is omitted rather than guessed when the payload has no scene, which
  * is also the case where there are no rows to head.
+ *
+ * Each half degrades independently, so an unusable date still leaves a heading
+ * that names its scope (`Also / Chicago`) rather than a dangling separator.
  */
 export function alsoTonightRailTitle(rail: ShowAlsoTonightResponse): string {
-  const qualifier = alsoTonightQualifier(rail)
-  return rail.city ? `Also / ${qualifier} · ${rail.city}` : `Also / ${qualifier}`
+  const parts = [alsoTonightQualifier(rail), rail.city].filter(
+    (part): part is string => Boolean(part)
+  )
+  return parts.length > 0 ? `Also / ${parts.join(' · ')}` : 'Also'
 }
 
 /**
@@ -262,10 +313,17 @@ export interface RailRow {
  * instead is how a listed time comes to disagree with the heading above it: a
  * reader in Berlin would see a Chicago night set in CEST.
  *
- * No age column, which the mock draws: `SceneShowSummary` carries no age
- * requirement, and the rail is not worth a request per row to invent one. The
- * venue module above states the age rule for the show being read, which is the
- * one a reader on this page is deciding about.
+ * Three deliberate deviations from the locked mock, all of them here:
+ *
+ *  - No age column, which the mock draws (`21+`). `SceneShowSummary` carries no
+ *    age requirement, and the rail is not worth a request per row to invent
+ *    one. The venue module above states the age rule for the show being read,
+ *    which is the one a reader on this page is deciding about.
+ *  - `8:00 PM`, not the mock's `8PM`. `formatShowTime` is the site's one
+ *    show-time format; the mock's sample times all happen to fall on the hour,
+ *    and a 7:30 door cannot be said as "7PM".
+ *  - `$15.00`, not `$15`. Same argument: `formatPrice` is the one money format,
+ *    and forking it here would put two dollar renderings on one page.
  */
 export function alsoTonightRow(
   show: AlsoTonightShow,

@@ -38,6 +38,17 @@ describe('showEndpoints', () => {
     )
   })
 
+  it('builds the also-tonight rail endpoint from a show id or slug', () => {
+    expect(showEndpoints.ALSO_TONIGHT(42)).toBe(
+      `${API_BASE_URL}/shows/42/also-tonight`
+    )
+    // The rails address the show by slug when it has one, so the slug form is
+    // the one actually exercised in the browser.
+    expect(showEndpoints.ALSO_TONIGHT('some-show-slug')).toBe(
+      `${API_BASE_URL}/shows/some-show-slug/also-tonight`
+    )
+  })
+
   it('builds export + report endpoints from a show id', () => {
     expect(showEndpoints.EXPORT(42)).toBe(`${API_BASE_URL}/shows/42/export`)
     expect(showEndpoints.REPORT(42)).toBe(`${API_BASE_URL}/shows/42/report`)
@@ -71,6 +82,26 @@ describe('showQueryKeys', () => {
 
   it('scopes the detail key by id', () => {
     expect(showQueryKeys.detail('42')).toEqual(['shows', 'detail', '42'])
+  })
+
+  // Same no-per-viewer-segment rule as `cities` above, for the same reason:
+  // the rail is about the SHOW's own night read on the venue's clock, so every
+  // viewer of one show gets one answer and a timezone segment could only
+  // fragment the cache across identical entries.
+  it('scopes the also-tonight key by show, and by nothing else', () => {
+    expect(showQueryKeys.alsoTonight('42')).toEqual([
+      'shows',
+      'also-tonight',
+      '42',
+    ])
+  })
+
+  it('keeps the also-tonight key out of the detail key’s namespace', () => {
+    // They are addressed by the same id and invalidated independently — a
+    // shared prefix would make an edit to the show drop the rail too.
+    expect(showQueryKeys.alsoTonight('42')).not.toEqual(
+      showQueryKeys.detail('42')
+    )
   })
 
   it('scopes the userShows key by user id', () => {

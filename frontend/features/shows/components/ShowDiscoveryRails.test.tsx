@@ -97,14 +97,61 @@ describe('ShowDiscoveryRails', () => {
     expect(row).not.toHaveTextContent('SOLD OUT')
   })
 
-  it('renders both rails side by side when both have rows', () => {
+  it('puts also-tonight LEFT of more-at-venue, as the mock sets them', () => {
+    // Which rail sits left is a design claim, and presence alone would pass
+    // with the columns swapped.
     useShowAlsoTonight.mockReturnValue({ data: makeAlsoTonightPayload() })
     useVenueShows.mockReturnValue({
       data: makeVenueShowsResponse([makeVenueShow()]),
     })
     render(<ShowDiscoveryRails show={makeRailShow()} />)
-    expect(screen.getByTestId('also-tonight-rail')).toBeInTheDocument()
-    expect(screen.getByTestId('more-at-venue-rail')).toBeInTheDocument()
+
+    const alsoTonight = screen.getByTestId('also-tonight-rail')
+    const moreAtVenue = screen.getByTestId('more-at-venue-rail')
+    expect(
+      alsoTonight.compareDocumentPosition(moreAtVenue) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  })
+
+  it('names each rail as a landmark so the two can be told apart', () => {
+    useShowAlsoTonight.mockReturnValue({ data: makeAlsoTonightPayload() })
+    useVenueShows.mockReturnValue({
+      data: makeVenueShowsResponse([makeVenueShow()]),
+    })
+    render(<ShowDiscoveryRails show={makeRailShow()} />)
+
+    expect(
+      screen.getByRole('region', { name: 'Also / Tonight · Chicago' })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('region', { name: 'More at / Salt Shed' })
+    ).toBeInTheDocument()
+  })
+
+  it('badges a cancelled also-tonight row, not only a venue row', () => {
+    useShowAlsoTonight.mockReturnValue({
+      data: makeAlsoTonightPayload({
+        shows: [makeAlsoTonightShow({ is_cancelled: true })],
+      }),
+    })
+    render(<ShowDiscoveryRails show={makeRailShow()} />)
+    expect(
+      screen.getByRole('link', { name: /Dehd, Lifeguard/ })
+    ).toHaveTextContent('CANCELLED')
+  })
+
+  it('reserves the lead column for a row with no usable instant', () => {
+    // An undated row must not pull every bill beneath it out of line.
+    useShowAlsoTonight.mockReturnValue({
+      data: makeAlsoTonightPayload({
+        shows: [makeAlsoTonightShow({ starts_at: 'not-a-date' })],
+      }),
+    })
+    render(<ShowDiscoveryRails show={makeRailShow()} />)
+    const row = screen.getByRole('link', { name: /Dehd, Lifeguard/ })
+    expect(row.firstElementChild).toHaveClass('sm:w-16')
+    expect(row.firstElementChild).toHaveTextContent('')
   })
 
   it('draws one rail without the other', () => {
