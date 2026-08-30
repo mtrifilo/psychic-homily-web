@@ -56,9 +56,10 @@ const (
 	// the ticket's scope-deviation note.
 	//
 	// This says NOTHING about what the surface discloses. The comment-
-	// subscription family carries this disposition and DOES publish a gated
-	// show's title and slug through the watching list; that is a known open leak,
-	// not a claim of safety.
+	// subscription family carried this disposition while it DID publish a gated
+	// show's title and slug through the watching list, which was a known open
+	// leak recorded here rather than a claim of safety; PSY-1983 closed it and
+	// moved that family to `gated`. Read the remaining entries the same way.
 	writeOracleDeferred
 	// notShowAddressable: the route takes an {entity_type} segment but its
 	// allowlist does not accept a show, so no show id can reach it. Recorded
@@ -84,6 +85,15 @@ var showAddressableRoutes = map[string]showRouteDisposition{
 	"GET /entities/{entity_type}/{entity_id}/tags":      gated,
 	"GET /collections/entity/{entity_type}/{entity_id}": gated,
 	"GET /crates/entity/{entity_type}/{entity_id}":      gated,
+
+	// The comment-subscription family (PSY-1983). Subscribing is a standing
+	// request for a show's activity, so it takes the same viewer its content
+	// does; the status route answers "not subscribed" rather than refusing,
+	// because refusing would confirm the id while answering truthfully would
+	// publish a live comment count.
+	"POST /entities/{entity_type}/{entity_id}/subscribe":       gated,
+	"GET /entities/{entity_type}/{entity_id}/subscribe/status": gated,
+	"POST /entities/{entity_type}/{entity_id}/mark-read":       gated,
 
 	// Public-tier gates: these answer the same for everyone.
 	"GET /shows/{show_id}/calendar.ics":               gated,
@@ -114,6 +124,11 @@ var showAddressableRoutes = map[string]showRouteDisposition{
 	"POST /shows/{show_id}/publish":      selfScoped,
 	"POST /shows/{show_id}/sold-out":     selfScoped,
 	"POST /shows/{show_id}/cancelled":    selfScoped,
+	// Deliberately NOT gated, and self-scoped is the honest reading: it deletes
+	// the caller's own row and answers the same whether one was there. Gating it
+	// would strand a subscriber whose show was taken private after they
+	// subscribed, with no way to stop the mail (PSY-1983).
+	"DELETE /entities/{entity_type}/{entity_id}/subscribe": selfScoped,
 
 	// The follow family. The ticket names "followers routes" as a leak, and they
 	// are not one: shows are not a followable entity type. validFollowEntityTypes
@@ -143,10 +158,6 @@ var showAddressableRoutes = map[string]showRouteDisposition{
 	"DELETE /entities/{entity_type}/{entity_id}/tags/{tag_id}":       writeOracleDeferred,
 	"POST /tags/{tag_id}/entities/{entity_type}/{entity_id}/votes":   writeOracleDeferred,
 	"DELETE /tags/{tag_id}/entities/{entity_type}/{entity_id}/votes": writeOracleDeferred,
-	"POST /entities/{entity_type}/{entity_id}/subscribe":             writeOracleDeferred,
-	"DELETE /entities/{entity_type}/{entity_id}/subscribe":           writeOracleDeferred,
-	"GET /entities/{entity_type}/{entity_id}/subscribe/status":       writeOracleDeferred,
-	"POST /entities/{entity_type}/{entity_id}/mark-read":             writeOracleDeferred,
 }
 
 // showAddressablePathPattern matches the path shapes a show id can travel in.

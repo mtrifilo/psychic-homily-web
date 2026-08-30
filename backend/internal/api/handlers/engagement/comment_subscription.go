@@ -9,6 +9,7 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
+	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 	servicesshared "psychic-homily-backend/internal/services/shared"
@@ -18,17 +19,41 @@ import (
 type CommentSubscriptionHandler struct {
 	subscriptionService contracts.CommentSubscriptionServiceInterface
 	auditLogService     contracts.AuditLogServiceInterface
+	// showVisibility gates every route on this handler whose entity is a show
+	// on the rule GET /shows/{id} enforces (PSY-1983). Required; see
+	// shared.ShowSubResourceVisible.
+	showVisibility contracts.ShowVisibilityInterface
 }
 
 // NewCommentSubscriptionHandler creates a new CommentSubscriptionHandler.
 func NewCommentSubscriptionHandler(
 	subscriptionService contracts.CommentSubscriptionServiceInterface,
 	auditLogService contracts.AuditLogServiceInterface,
+	showVisibility contracts.ShowVisibilityInterface,
 ) *CommentSubscriptionHandler {
 	return &CommentSubscriptionHandler{
 		subscriptionService: subscriptionService,
 		auditLogService:     auditLogService,
+		showVisibility:      showVisibility,
 	}
+}
+
+// refuseAsMissingEntity is the answer every gated route on this handler gives:
+// the service's own entity-not-found error, so a gated show and an id nobody has
+// ever used produce one response (PSY-1983).
+//
+// Subscribe validated only the entity TYPE before this ticket, so a bogus show
+// id used to succeed. It now refuses, and that is the point: ShowVisibleTo
+// answers false for a missing show as well as for a gated one, which is what
+// collapses the two cases into a single answer instead of leaving the pair as a
+// two-valued oracle over a dense id space.
+func refuseAsMissingEntity(entityType string, entityID uint) error {
+	if mapped := shared.MapCommentError(
+		apperrors.ErrCommentEntityNotFound(entityType, entityID),
+	); mapped != nil {
+		return mapped
+	}
+	return huma.Error404NotFound("Entity not found")
 }
 
 // ============================================================================
@@ -58,6 +83,15 @@ func (h *CommentSubscriptionHandler) SubscribeHandler(ctx context.Context, req *
 	entityID, err := strconv.ParseUint(req.EntityID, 10, 32)
 	if err != nil {
 		return nil, huma.Error400BadRequest("Invalid entity ID")
+	}
+
+	// A subscription is a standing request for a show's activity, so it is
+	// governed by whether the caller may see the show at all (PSY-1983). Without
+	// this, one POST turned a guessed id into a monitored feed: the watching
+	// list published the gated show's title, slug and URL, and every new comment
+	// mailed the caller an excerpt.
+	if !shared.EntitySubResourceVisible(h.showVisibility, req.EntityType, uint(entityID), middleware.GetShowViewerFromContext(ctx)) {
+		return nil, refuseAsMissingEntity(req.EntityType, uint(entityID))
 	}
 
 	err = h.subscriptionService.Subscribe(user.ID, req.EntityType, uint(entityID))
@@ -97,6 +131,14 @@ type UnsubscribeRequest struct {
 }
 
 // UnsubscribeHandler handles DELETE /entities/{entity_type}/{entity_id}/subscribe
+//
+// DELIBERATELY UNGATED, and it is the only route on this handler that is
+// (PSY-1983). It deletes the caller's own row and answers the same whether or
+// not one was there, so it discloses nothing a gate could withhold. Gating it
+// would stand the subscriber up instead: a show subscribed to while it was
+// public and taken private afterwards would keep its row, keep mailing on every
+// comment its submitter writes, and refuse the only request that removes it.
+// Same reasoning as GetUserCollectionsContainingEntity in PSY-1939.
 func (h *CommentSubscriptionHandler) UnsubscribeHandler(ctx context.Context, req *UnsubscribeRequest) (*struct{}, error) {
 	user := middleware.GetUserFromContext(ctx)
 	if user == nil {
@@ -156,6 +198,15 @@ func (h *CommentSubscriptionHandler) SubscriptionStatusHandler(ctx context.Conte
 		return nil, huma.Error400BadRequest("Invalid entity ID")
 	}
 
+	// NOT SUBSCRIBED, not a refusal (PSY-1983). This route reports a live unread
+	// count, which is a running signal of activity on the show, and an id nobody
+	// has ever used already answers `{subscribed:false, unread_count:0}`. So a
+	// gated show answers that too: a 404 here would say the id is real, and the
+	// true answer would say how busy a show the caller cannot see is.
+	if !shared.EntitySubResourceVisible(h.showVisibility, req.EntityType, uint(entityID), middleware.GetShowViewerFromContext(ctx)) {
+		return &SubscriptionStatusResponse{}, nil
+	}
+
 	subscribed, err := h.subscriptionService.IsSubscribed(user.ID, req.EntityType, uint(entityID))
 	if err != nil {
 		if mapped := shared.MapCommentError(err); mapped != nil {
@@ -191,14 +242,20 @@ type ListCommentSubscriptionsResponse struct {
 }
 
 // ListSubscriptionsHandler handles GET /me/comment-subscriptions.
-// Self-scoped: the user ID always comes from the authenticated context.
+//
+// Self-scoped: the viewer always comes from the authenticated context, and it
+// carries both the identity the rows are owned by and the tier they are read at
+// (PSY-1983). The subscribe gate stops new subscriptions to a show the caller
+// cannot see; this is what keeps a show that is taken private AFTER the
+// subscription from publishing itself through a row that was legitimate when it
+// was made.
 func (h *CommentSubscriptionHandler) ListSubscriptionsHandler(ctx context.Context, req *ListCommentSubscriptionsRequest) (*ListCommentSubscriptionsResponse, error) {
 	user := middleware.GetUserFromContext(ctx)
 	if user == nil {
 		return nil, huma.Error401Unauthorized("Authentication required")
 	}
 
-	items, total, err := h.subscriptionService.ListWatching(user.ID, req.Limit, req.Offset)
+	items, total, err := h.subscriptionService.ListWatching(middleware.GetShowViewerFromContext(ctx), req.Limit, req.Offset)
 	if err != nil {
 		requestID := logger.GetRequestID(ctx)
 		return nil, huma.Error500InternalServerError(
@@ -241,6 +298,14 @@ func (h *CommentSubscriptionHandler) MarkReadHandler(ctx context.Context, req *M
 	entityID, err := strconv.ParseUint(req.EntityID, 10, 32)
 	if err != nil {
 		return nil, huma.Error400BadRequest("Invalid entity ID")
+	}
+
+	// The read gate's twin (PSY-1983). MarkRead reads the show's newest comment
+	// id and stores it, so leaving it open lets a caller who is refused the
+	// listing and the status still move a pointer over a gated show's discussion
+	// and, once the show is published again, read off how far it had advanced.
+	if !shared.EntitySubResourceVisible(h.showVisibility, req.EntityType, uint(entityID), middleware.GetShowViewerFromContext(ctx)) {
+		return nil, refuseAsMissingEntity(req.EntityType, uint(entityID))
 	}
 
 	err = h.subscriptionService.MarkRead(user.ID, req.EntityType, uint(entityID))

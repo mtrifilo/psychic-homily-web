@@ -325,7 +325,7 @@ func (s *CommentNotificationService) NotifySubscribers(commentID uint) error {
 		LastNotifiedAt              *time.Time
 	}
 	var rows []row
-	err := s.db.Table("comment_subscriptions cs").
+	q := s.db.Table("comment_subscriptions cs").
 		Select(`cs.user_id,
 			cs.last_notified_at,
 			u.email,
@@ -337,8 +337,9 @@ func (s *CommentNotificationService) NotifySubscribers(commentID uint) error {
 		Where("cs.entity_type = ? AND cs.entity_id = ?", string(comment.EntityType), comment.EntityID).
 		Where("cs.user_id <> ?", comment.UserID).
 		Where("u.is_active = TRUE").
-		Where("u.deleted_at IS NULL").
-		Scan(&rows).Error
+		Where("u.deleted_at IS NULL")
+	q = whereRecipientMaySeeCommentParent(q, comment, "cs.user_id")
+	err := q.Scan(&rows).Error
 	if err != nil {
 		return fmt.Errorf("failed to load subscribers: %w", err)
 	}
@@ -421,6 +422,28 @@ func (s *CommentNotificationService) NotifySubscribers(commentID uint) error {
 	return nil
 }
 
+// whereRecipientMaySeeCommentParent narrows a recipient query to the users who
+// may see the show the comment hangs off, when it hangs off a show at all
+// (PSY-1983).
+//
+// The fan-out is the channel a read-time gate cannot reach. Both callers below
+// send EMAIL carrying the parent's title, the comment's excerpt and a link, and
+// a message already in somebody's mailbox is not withdrawn by a later 404. A
+// stranger who subscribed while the show was public would otherwise keep being
+// mailed its private activity indefinitely.
+//
+// recipientIDExpr names the column holding each candidate's user id, and it is a
+// literal at each call site: the subscriber query joins users through
+// comment_subscriptions, the mention query reads the users table directly, so
+// they name different columns for the same thing.
+func whereRecipientMaySeeCommentParent(q *gorm.DB, comment engagementm.Comment, recipientIDExpr string) *gorm.DB {
+	if string(comment.EntityType) != shared.CommentEntityTypeShow {
+		return q
+	}
+	cond, args := shared.VisibleShowRecipientsSQL(comment.EntityID, recipientIDExpr)
+	return q.Where(cond, args...)
+}
+
 // writeInAppNotification inserts an idempotent in-app notification_log row.
 // Errors are logged but never bubbled — the bell/inbox surface is
 // fire-and-forget alongside the email channel.
@@ -484,7 +507,7 @@ func (s *CommentNotificationService) NotifyMentioned(commentID uint) error {
 		NotifyOnMention bool
 	}
 	var rows []row
-	err := s.db.Table("users u").
+	q := s.db.Table("users u").
 		Select(`u.id AS user_id,
 			u.email,
 			u.username,
@@ -493,8 +516,9 @@ func (s *CommentNotificationService) NotifyMentioned(commentID uint) error {
 		Joins("LEFT JOIN user_preferences up ON up.user_id = u.id").
 		Where("LOWER(u.username) IN ?", mentions).
 		Where("u.is_active = TRUE").
-		Where("u.deleted_at IS NULL").
-		Scan(&rows).Error
+		Where("u.deleted_at IS NULL")
+	q = whereRecipientMaySeeCommentParent(q, comment, "u.id")
+	err := q.Scan(&rows).Error
 	if err != nil {
 		return fmt.Errorf("failed to resolve mentioned users: %w", err)
 	}

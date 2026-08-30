@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"html"
 	"log"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -936,20 +937,23 @@ func (s *NotificationFilterService) sendEmail(to, subject, html, unsubscribeURL 
 // Notification log
 // ──────────────────────────────────────────────
 
-// GetUserNotifications returns the user's INBOX rows, paginated.
+// GetUserNotifications returns viewer's own INBOX rows, paginated.
 //
 // Not every notification_log row for the user: inboxVisibleRows filters out the
-// ones that are not bell entries (see it for which and why). A caller counting
-// rows here against a raw count of the table will disagree, on purpose.
+// ones that are not bell entries (see it for which and why), and
+// visibleShowCommentRows drops the comment-driven rows whose show viewer may no
+// longer see. A caller counting rows here against a raw count of the table will
+// disagree, on purpose.
 //
 // Show-filter and scene-follow rows are returned as-is. Three kinds are enriched
 // in batched follow-up passes so the bell/inbox can render a readable line with
 // a working link target: comment-driven rows (PSY-595), request-fulfillment rows
 // (PSY-890), and artist show-alert rows (PSY-1896).
-func (s *NotificationFilterService) GetUserNotifications(userID uint, limit, offset int) ([]contracts.NotificationLogEntry, error) {
+func (s *NotificationFilterService) GetUserNotifications(viewer contracts.ShowViewer, limit, offset int) ([]contracts.NotificationLogEntry, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
+	userID := viewer.UserID
 
 	var logs []struct {
 		notificationm.NotificationLog
@@ -974,11 +978,13 @@ func (s *NotificationFilterService) GetUserNotifications(userID uint, limit, off
 		WHERE sv.show_id = nl.entity_id
 		LIMIT 1
 	)`
+	visibleShowCommentSQL, visibleShowCommentArgs := visibleShowCommentRows("nl", viewer)
 	err := s.db.Table("notification_log nl").
 		Select("nl.*, COALESCE(nf.name, CASE WHEN nl.entity_type = 'show' AND nl.filter_id IS NULL THEN "+sceneNameSubquery+" END, '') as filter_name").
 		Joins("LEFT JOIN notification_filters nf ON nf.id = nl.filter_id").
 		Where("nl.user_id = ?", userID).
 		Where(inboxVisibleRows("nl")).
+		Where(visibleShowCommentSQL, visibleShowCommentArgs...).
 		Order("nl.sent_at DESC").
 		Limit(limit).
 		Offset(offset).
@@ -1100,6 +1106,52 @@ func inboxVisibleRows(alias string) string {
 		return "1 = 1"
 	}
 	return strings.Join(clauses, " AND ")
+}
+
+// visibleShowCommentRows is the predicate that hides the comment-driven inbox
+// rows whose comment hangs off a show viewer may not see (PSY-1983).
+//
+// Suppression, not de-identification. A row kept and blanked still holds a
+// position in the list and still counts toward the badge, and the recipient
+// knows which show they subscribed to — so the entry's mere presence is the
+// disclosure. The row is left in the table and the gate re-evaluated on every
+// read, so republishing the show restores the entry, unread and in place.
+//
+// Applied to every read of the log that this file applies inboxVisibleRows to,
+// AND to the two mark-read writes, which inboxVisibleRows does not reach. Those
+// two return the number of rows they touched: a mark-all that flipped rows the
+// list never showed publishes the withheld count as arithmetic, which is the
+// leak restated in one integer.
+//
+// The entity-type test is load-bearing and is not a shortcut. entity_id means a
+// different thing per entity_type — a comment id here, a SHOW id on a
+// show-filter row, a VENUE id on a venue alert — so a lookup that skipped it
+// would join a show-filter row's show id against the comments table and decide
+// this row by whatever unrelated comment happened to carry that id.
+//
+// Reads as "no gated parent", so it FAILS CLOSED where it matters and stays
+// permissive where nothing is at stake: a comment row that has been deleted
+// since the notification was minted still passes (the inbox already degrades to
+// a plain "new comment" line for it), while a comment on a show that is gated or
+// gone does not, because VisibleShowExistsSQL answers false for both.
+func visibleShowCommentRows(alias string, viewer contracts.ShowViewer) (string, []interface{}) {
+	if viewer.IsAdmin {
+		return "1 = 1", nil
+	}
+	types := make([]string, 0, len(commentNotificationEntityTypes))
+	for entityType := range commentNotificationEntityTypes {
+		types = append(types, "'"+entityType+"'")
+	}
+	// Sorted so the statement text is stable across map iterations, which keeps
+	// prepared-statement caching and test golden output from depending on it.
+	sort.Strings(types)
+
+	gated, args := shared.VisibleShowExistsSQL("inbox_comment.entity_id", viewer)
+	return "(" + alias + ".entity_type NOT IN (" + strings.Join(types, ", ") + ")" +
+		" OR NOT EXISTS (SELECT 1 FROM comments inbox_comment" +
+		" WHERE inbox_comment.id = " + alias + ".entity_id" +
+		" AND inbox_comment.entity_type = '" + shared.CommentEntityTypeShow + "'" +
+		" AND NOT " + gated + "))", args
 }
 
 // notifiedAboutShow is the predicate for "this user has ALREADY been told about
@@ -1660,33 +1712,43 @@ func (s *NotificationFilterService) formatEntityURL(entityType string, entityID 
 	return url, name
 }
 
-// GetUnreadCount returns the number of unread notifications for a user.
-func (s *NotificationFilterService) GetUnreadCount(userID uint) (int64, error) {
+// GetUnreadCount returns the number of unread notifications for viewer.
+//
+// Carries the same two predicates the list carries, or the badge and the list
+// disagree and the difference is a count of what was withheld.
+func (s *NotificationFilterService) GetUnreadCount(viewer contracts.ShowViewer) (int64, error) {
 	if s.db == nil {
 		return 0, fmt.Errorf("database not initialized")
 	}
 
+	visibleSQL, visibleArgs := visibleShowCommentRows("notification_log", viewer)
 	var count int64
 	err := s.db.Model(&notificationm.NotificationLog{}).
-		Where("user_id = ? AND read_at IS NULL", userID).
+		Where("user_id = ? AND read_at IS NULL", viewer.UserID).
 		Where(inboxVisibleRows("notification_log")).
+		Where(visibleSQL, visibleArgs...).
 		Count(&count).Error
 	return count, err
 }
 
-// MarkNotificationsRead flips read_at on the given IDs for the user.
+// MarkNotificationsRead flips read_at on the given IDs for viewer.
 // Bound by user_id so a user can't mark another user's notifications read.
 // Returns the count actually updated.
-func (s *NotificationFilterService) MarkNotificationsRead(userID uint, ids []uint) (int64, error) {
+//
+// Rows viewer cannot see are skipped, so the returned count cannot be differenced
+// against the list to recover how many were withheld.
+func (s *NotificationFilterService) MarkNotificationsRead(viewer contracts.ShowViewer, ids []uint) (int64, error) {
 	if s.db == nil {
 		return 0, fmt.Errorf("database not initialized")
 	}
 	if len(ids) == 0 {
 		return 0, nil
 	}
+	visibleSQL, visibleArgs := visibleShowCommentRows("notification_log", viewer)
 	now := time.Now().UTC()
 	result := s.db.Model(&notificationm.NotificationLog{}).
-		Where("user_id = ? AND id IN ? AND read_at IS NULL", userID, ids).
+		Where("user_id = ? AND id IN ? AND read_at IS NULL", viewer.UserID, ids).
+		Where(visibleSQL, visibleArgs...).
 		Update("read_at", now)
 	if result.Error != nil {
 		return 0, fmt.Errorf("failed to mark notifications read: %w", result.Error)
@@ -1695,19 +1757,23 @@ func (s *NotificationFilterService) MarkNotificationsRead(userID uint, ids []uin
 }
 
 // MarkAllNotificationsRead flips read_at on every unread notification for
-// the user. Returns the count updated.
-func (s *NotificationFilterService) MarkAllNotificationsRead(userID uint) (int64, error) {
+// viewer. Returns the count updated.
+func (s *NotificationFilterService) MarkAllNotificationsRead(viewer contracts.ShowViewer) (int64, error) {
 	if s.db == nil {
 		return 0, fmt.Errorf("database not initialized")
 	}
+	visibleSQL, visibleArgs := visibleShowCommentRows("notification_log", viewer)
 	now := time.Now().UTC()
 	result := s.db.Model(&notificationm.NotificationLog{}).
-		Where("user_id = ? AND read_at IS NULL", userID).
-		// Same predicate as the list and the count, so "mark all read" clears
+		Where("user_id = ? AND read_at IS NULL", viewer.UserID).
+		// Same predicates as the list and the count, so "mark all read" clears
 		// exactly the rows the user could see and its reported count matches the
-		// badge that prompted the click. Leaving the hidden email-lane rows
-		// unread costs nothing: nothing reads their read_at.
+		// badge that prompted the click. Leaving the hidden email-lane rows and
+		// the gated-show rows unread costs nothing: nothing reads their read_at
+		// while they are hidden, and a republished show hands the recipient the
+		// backlog it withheld rather than a row already marked seen.
 		Where(inboxVisibleRows("notification_log")).
+		Where(visibleSQL, visibleArgs...).
 		Update("read_at", now)
 	if result.Error != nil {
 		return 0, fmt.Errorf("failed to mark all notifications read: %w", result.Error)

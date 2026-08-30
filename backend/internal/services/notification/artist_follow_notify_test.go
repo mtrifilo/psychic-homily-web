@@ -601,18 +601,18 @@ func (s *NotificationFilterSuite) TestArtistAlert_EmailOnlyRowIsNotABellEntry() 
 	s.Require().Len(capture.sent, 1)
 	s.Equal(int64(0), s.inAppAlerts(userID, showID))
 
-	entries, err := s.svc.GetUserNotifications(userID, 20, 0)
+	entries, err := s.svc.GetUserNotifications(inboxViewer(userID), 20, 0)
 	s.Require().NoError(err)
 	s.Empty(entries, "the email-lane row stands for a message already in their mailbox")
 
-	unread, err := s.svc.GetUnreadCount(userID)
+	unread, err := s.svc.GetUnreadCount(inboxViewer(userID))
 	s.Require().NoError(err)
 	s.Equal(int64(0), unread, "a hidden row must not inflate the badge")
 
 	// Mark-all is the third read site, and the predicate's whole point is that
 	// all three agree. A count of 1 here would mean "Catch up" reported clearing
 	// a notification the user was never shown.
-	cleared, err := s.svc.MarkAllNotificationsRead(userID)
+	cleared, err := s.svc.MarkAllNotificationsRead(inboxViewer(userID))
 	s.Require().NoError(err)
 	s.Equal(int64(0), cleared, "mark-all must clear exactly the rows the user could see")
 }
@@ -642,7 +642,7 @@ func (s *NotificationFilterSuite) TestArtistAlert_EachChannelLaneIsDelivered() {
 		"the email must name the follow that actually has email switched on")
 
 	// One bell entry, attributed to the headliner.
-	entries, err := s.svc.GetUserNotifications(userID, 20, 0)
+	entries, err := s.svc.GetUserNotifications(inboxViewer(userID), 20, 0)
 	s.Require().NoError(err)
 	s.Require().Len(entries, 1)
 	s.Equal("Headliner", entries[0].AlertArtistName)
@@ -686,7 +686,7 @@ func (s *NotificationFilterSuite) TestArtistAlert_InboxRowNamesTheArtistAndLinks
 
 	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
 
-	entries, err := s.svc.GetUserNotifications(userID, 20, 0)
+	entries, err := s.svc.GetUserNotifications(inboxViewer(userID), 20, 0)
 	s.Require().NoError(err)
 	s.Require().Len(entries, 1)
 	e := entries[0]
@@ -700,7 +700,7 @@ func (s *NotificationFilterSuite) TestArtistAlert_InboxRowNamesTheArtistAndLinks
 	s.Empty(e.FilterName,
 		"an artist alert must not inherit the scene label the show branch synthesizes for filter_id NULL rows")
 
-	unread, err := s.svc.GetUnreadCount(userID)
+	unread, err := s.svc.GetUnreadCount(inboxViewer(userID))
 	s.Require().NoError(err)
 	s.Equal(int64(1), unread)
 }
@@ -723,7 +723,7 @@ func (s *NotificationFilterSuite) TestArtistAlert_SuppressesTheSceneFollowForThe
 	s.Equal(int64(0), s.sceneLogCount(userID, showID),
 		"a band you follow is a better use of the one slot than something is on in your city")
 
-	entries, err := s.svc.GetUserNotifications(userID, 20, 0)
+	entries, err := s.svc.GetUserNotifications(inboxViewer(userID), 20, 0)
 	s.Require().NoError(err)
 	s.Len(entries, 1)
 }

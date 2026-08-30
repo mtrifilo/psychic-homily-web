@@ -327,12 +327,12 @@ func TestGetNotificationsHandler_NoAuth(t *testing.T) {
 
 func TestGetNotificationsHandler_Success(t *testing.T) {
 	mock := &testhelpers.MockNotificationFilterService{
-		GetUserNotificationsFn: func(userID uint, limit, offset int) ([]contracts.NotificationLogEntry, error) {
+		GetUserNotificationsFn: func(_ contracts.ShowViewer, limit, offset int) ([]contracts.NotificationLogEntry, error) {
 			return []contracts.NotificationLogEntry{
 				{ID: 1, EntityType: "show", EntityID: 42, Channel: "email"},
 			}, nil
 		},
-		GetUnreadCountFn: func(userID uint) (int64, error) {
+		GetUnreadCountFn: func(_ contracts.ShowViewer) (int64, error) {
 			return 3, nil
 		},
 	}
@@ -407,11 +407,11 @@ func TestMarkNotificationsReadHandler_NoAuth(t *testing.T) {
 func TestMarkNotificationsReadHandler_MarkAll(t *testing.T) {
 	var capturedUserID uint
 	mock := &testhelpers.MockNotificationFilterService{
-		MarkAllNotificationsReadFn: func(userID uint) (int64, error) {
-			capturedUserID = userID
+		MarkAllNotificationsReadFn: func(viewer contracts.ShowViewer) (int64, error) {
+			capturedUserID = viewer.UserID
 			return 5, nil
 		},
-		GetUnreadCountFn: func(_ uint) (int64, error) { return 0, nil },
+		GetUnreadCountFn: func(_ contracts.ShowViewer) (int64, error) { return 0, nil },
 	}
 	h := NewNotificationFilterHandler(mock, "test-secret")
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 99})
@@ -435,11 +435,11 @@ func TestMarkNotificationsReadHandler_MarkAll(t *testing.T) {
 func TestMarkNotificationsReadHandler_MarkSpecific(t *testing.T) {
 	var capturedIDs []uint
 	mock := &testhelpers.MockNotificationFilterService{
-		MarkNotificationsReadFn: func(_ uint, ids []uint) (int64, error) {
+		MarkNotificationsReadFn: func(_ contracts.ShowViewer, ids []uint) (int64, error) {
 			capturedIDs = ids
 			return int64(len(ids)), nil
 		},
-		GetUnreadCountFn: func(_ uint) (int64, error) { return 2, nil },
+		GetUnreadCountFn: func(_ contracts.ShowViewer) (int64, error) { return 2, nil },
 	}
 	h := NewNotificationFilterHandler(mock, "test-secret")
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
@@ -463,7 +463,7 @@ func TestMarkNotificationsReadHandler_MarkSpecific(t *testing.T) {
 
 func TestMarkNotificationsReadHandler_ServiceError(t *testing.T) {
 	mock := &testhelpers.MockNotificationFilterService{
-		MarkAllNotificationsReadFn: func(_ uint) (int64, error) {
+		MarkAllNotificationsReadFn: func(_ contracts.ShowViewer) (int64, error) {
 			return 0, fmt.Errorf("db down")
 		},
 	}

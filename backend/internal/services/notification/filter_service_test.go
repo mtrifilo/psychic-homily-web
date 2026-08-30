@@ -19,6 +19,16 @@ import (
 	"psychic-homily-backend/internal/testutil"
 )
 
+// inboxViewer is the ordinary non-admin recipient reading their own inbox — the
+// caller every notification-log test below has always meant.
+//
+// The four log methods take a viewer rather than a user id (PSY-1983), because
+// the row's owner and the tier it is read at are the same fact. Tests that care
+// about the gate build their own viewer; these do not, and say so by using this.
+func inboxViewer(userID uint) contracts.ShowViewer {
+	return contracts.ShowViewer{UserID: userID}
+}
+
 // =============================================================================
 // UNIT TESTS (No Database Required)
 // =============================================================================
@@ -883,7 +893,7 @@ func (s *NotificationFilterSuite) TestGetUserNotifications() {
 		})
 	}
 
-	entries, err := s.svc.GetUserNotifications(userID, 10, 0)
+	entries, err := s.svc.GetUserNotifications(inboxViewer(userID), 10, 0)
 	s.Require().NoError(err)
 	s.Assert().Len(entries, 3)
 }
@@ -910,7 +920,7 @@ func (s *NotificationFilterSuite) TestGetUserNotifications_EnrichesRequestFulfil
 		SentAt:     time.Now().UTC(),
 	}).Error)
 
-	entries, err := s.svc.GetUserNotifications(userID, 10, 0)
+	entries, err := s.svc.GetUserNotifications(inboxViewer(userID), 10, 0)
 	s.Require().NoError(err)
 	s.Require().Len(entries, 1)
 
@@ -936,7 +946,7 @@ func (s *NotificationFilterSuite) TestGetUserNotifications_RequestFulfillment_De
 		SentAt:     time.Now().UTC(),
 	}).Error)
 
-	entries, err := s.svc.GetUserNotifications(userID, 10, 0)
+	entries, err := s.svc.GetUserNotifications(inboxViewer(userID), 10, 0)
 	s.Require().NoError(err)
 	s.Require().Len(entries, 1)
 
@@ -955,7 +965,7 @@ func (s *NotificationFilterSuite) TestGetUnreadCount() {
 	now := time.Now().UTC()
 	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: 3, Channel: "email", SentAt: time.Now().UTC(), ReadAt: &now})
 
-	count, err := s.svc.GetUnreadCount(userID)
+	count, err := s.svc.GetUnreadCount(inboxViewer(userID))
 	s.Require().NoError(err)
 	s.Assert().Equal(int64(2), count)
 }
@@ -969,11 +979,11 @@ func (s *NotificationFilterSuite) TestMarkNotificationsRead_All() {
 	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: 2, Channel: "email", SentAt: now})
 	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: 3, Channel: "email", SentAt: now, ReadAt: &now})
 
-	updated, err := s.svc.MarkAllNotificationsRead(userID)
+	updated, err := s.svc.MarkAllNotificationsRead(inboxViewer(userID))
 	s.Require().NoError(err)
 	s.Assert().Equal(int64(2), updated, "only 2 unread should flip")
 
-	count, err := s.svc.GetUnreadCount(userID)
+	count, err := s.svc.GetUnreadCount(inboxViewer(userID))
 	s.Require().NoError(err)
 	s.Assert().Equal(int64(0), count, "no unread should remain")
 }
@@ -988,18 +998,18 @@ func (s *NotificationFilterSuite) TestMarkNotificationsRead_Specific() {
 	s.db.Create(&row2)
 	s.db.Create(&row3)
 
-	updated, err := s.svc.MarkNotificationsRead(userID, []uint{row1.ID, row2.ID})
+	updated, err := s.svc.MarkNotificationsRead(inboxViewer(userID), []uint{row1.ID, row2.ID})
 	s.Require().NoError(err)
 	s.Assert().Equal(int64(2), updated)
 
-	count, err := s.svc.GetUnreadCount(userID)
+	count, err := s.svc.GetUnreadCount(inboxViewer(userID))
 	s.Require().NoError(err)
 	s.Assert().Equal(int64(1), count, "third row should still be unread")
 }
 
 func (s *NotificationFilterSuite) TestMarkNotificationsRead_Empty() {
 	userID := s.createTestUser()
-	updated, err := s.svc.MarkNotificationsRead(userID, nil)
+	updated, err := s.svc.MarkNotificationsRead(inboxViewer(userID), nil)
 	s.Require().NoError(err)
 	s.Assert().Equal(int64(0), updated)
 }
@@ -1015,12 +1025,12 @@ func (s *NotificationFilterSuite) TestMarkNotificationsRead_OtherUserSkipped() {
 	s.db.Create(&rowB)
 
 	// Try to mark B's row from A's user context — must be a no-op.
-	updated, err := s.svc.MarkNotificationsRead(a, []uint{rowB.ID})
+	updated, err := s.svc.MarkNotificationsRead(inboxViewer(a), []uint{rowB.ID})
 	s.Require().NoError(err)
 	s.Assert().Equal(int64(0), updated)
 
 	// B's unread count untouched.
-	count, err := s.svc.GetUnreadCount(b)
+	count, err := s.svc.GetUnreadCount(inboxViewer(b))
 	s.Require().NoError(err)
 	s.Assert().Equal(int64(1), count)
 }

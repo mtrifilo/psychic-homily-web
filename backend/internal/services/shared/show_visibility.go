@@ -5,6 +5,7 @@ import (
 
 	"psychic-homily-backend/internal/logger"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -32,6 +33,11 @@ import (
 //   - VisibleShowExistsSQL wraps that in a correlated EXISTS, for a query
 //     holding only a show id in some other table's column.
 //   - VisibleShowRevisionsSQL adds the two revision-specific terms.
+//   - VisibleShowCommentEntitySQL is the EXISTS form over a POLYMORPHIC
+//     (entity_type, entity_id) pair, for the comment family's tables, where a
+//     row may name a show or may name an artist.
+//   - VisibleShowRecipientsSQL decides ONE show for MANY viewers at once,
+//     reading the viewer id from a COLUMN, for a fan-out choosing recipients.
 //   - PublicShowPredicateSQL and PublicShowRevisionsSQL are the public tier of
 //     the two predicates with the status inlined, for statement builders that
 //     return a bare string and have no argument list to bind into.
@@ -180,6 +186,65 @@ func showExistsSQL(showIDExpr, showCond string) string {
 	return "EXISTS (SELECT 1 FROM shows " + visibleShowsAlias +
 		" WHERE " + visibleShowsAlias + ".id = " + showIDExpr +
 		" AND " + showCond + ")"
+}
+
+// CommentEntityTypeShow is the polymorphic entity_type value the comment family
+// stores a show under — comments, comment subscriptions, last-read pointers.
+//
+// Read from the model rather than written out, because the rows this gate
+// decides about are written from that constant and the comparison in Postgres is
+// case-sensitive. It is spelled the same as RevisionEntityTypeShow today and
+// deliberately kept separate: they are two vocabularies that happen to agree,
+// and one changing is not the other changing.
+const CommentEntityTypeShow = string(engagementm.CommentEntityShow)
+
+// VisibleShowCommentEntitySQL returns a condition, true for the rows of a
+// POLYMORPHIC (entity_type, entity_id) table that viewer may see, plus its bind
+// arguments.
+//
+// For the comment family's tables — comments, comment_subscriptions,
+// notification rows resolved through a comment — where one column decides
+// whether the id beside it is a show id at all.
+//
+// A row naming any OTHER entity type passes untouched: show is the only comment
+// parent with a read-time visibility rule. A row naming a show that no longer
+// exists does NOT pass, because VisibleShowExistsSQL fails closed on a missing
+// show, which is what lets a caller answer the same for a gated show and a
+// deleted one.
+//
+// Both expressions are SQL the CALLER controls and must be literals in the
+// calling code. Nothing derived from a request may reach them.
+func VisibleShowCommentEntitySQL(entityTypeExpr, entityIDExpr string, viewer contracts.ShowViewer) (string, []interface{}) {
+	if viewer.IsAdmin {
+		return "TRUE", nil
+	}
+	visible, args := VisibleShowExistsSQL(entityIDExpr, viewer)
+	return "(" + entityTypeExpr + " <> '" + CommentEntityTypeShow + "' OR " + visible + ")", args
+}
+
+// VisibleShowRecipientsSQL returns a condition, true for the rows whose
+// recipientIDExpr names a user who may see show showID, plus its bind arguments.
+//
+// The rule INVERTED: every other spelling fixes the viewer and asks about many
+// shows, this one fixes the show and asks about many viewers. A fan-out picking
+// who to notify about one show needs exactly that, and doing it the other way
+// round is one query per recipient.
+//
+// It has NO admin branch, and cannot have one: the branch would need each row's
+// is_admin, which is a second join for a bypass whose only effect is to keep
+// pushing mail about a show that has been taken private. A gated show's fan-out
+// therefore reaches its submitter and nobody else, admin included. That is the
+// recoverable direction — a withheld push is re-sent by the next comment once
+// the show is published again, while a sent one cannot be recalled.
+//
+// recipientIDExpr is SQL the CALLER controls and must be a literal in the
+// calling code. Nothing derived from a request may reach it; showID is bound.
+func VisibleShowRecipientsSQL(showID uint, recipientIDExpr string) (string, []interface{}) {
+	cond := "(" + visibleShowsAlias + ".status = ? OR " +
+		visibleShowsAlias + ".submitted_by = " + recipientIDExpr + ")"
+	// showID binds ahead of the status because showExistsSQL puts the id
+	// comparison first, and the placeholders are positional.
+	return showExistsSQL("?", cond), []interface{}{showID, catalogm.ShowStatusApproved}
 }
 
 // RevisionEntityTypeShow is the polymorphic entity_type value show revisions

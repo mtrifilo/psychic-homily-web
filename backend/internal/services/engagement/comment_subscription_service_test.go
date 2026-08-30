@@ -11,8 +11,19 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	engagementm "psychic-homily-backend/internal/models/engagement"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
+
+// watchingViewer is the ordinary non-admin subscriber reading their own list —
+// the caller every test below has always meant.
+//
+// ListWatching takes a viewer rather than a user id (PSY-1983): the rows' owner
+// and the tier they are read at are the same fact. The tests that exercise the
+// gate build their own viewer; these do not, and say so by using this.
+func watchingViewer(userID uint) contracts.ShowViewer {
+	return contracts.ShowViewer{UserID: userID}
+}
 
 // =============================================================================
 // INTEGRATION TESTS (With Real Database)
@@ -338,7 +349,7 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) createTestCommentAt
 func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestListWatchingEmpty() {
 	user := suite.createTestUser()
 
-	items, total, err := suite.service.ListWatching(user.ID, 20, 0)
+	items, total, err := suite.service.ListWatching(watchingViewer(user.ID), 20, 0)
 	suite.NoError(err)
 	suite.Equal(int64(0), total)
 	suite.Len(items, 0)
@@ -369,7 +380,7 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestListWatchingEnr
 	// (DJ Spectre's), not from MAX(id).
 	suite.createTestCommentAt(user.ID, "artist", artist.ID, base.Add(-time.Minute))
 
-	items, total, err := suite.service.ListWatching(user.ID, 20, 0)
+	items, total, err := suite.service.ListWatching(watchingViewer(user.ID), 20, 0)
 	suite.NoError(err)
 	suite.Equal(int64(3), total)
 	suite.Require().Len(items, 3)
@@ -411,7 +422,7 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestListWatchingUnr
 	suite.createTestComment(user.ID, "show", 2)
 	suite.NoError(suite.service.MarkRead(user.ID, "show", 2))
 
-	items, _, err := suite.service.ListWatching(user.ID, 20, 0)
+	items, _, err := suite.service.ListWatching(watchingViewer(user.ID), 20, 0)
 	suite.NoError(err)
 	suite.Require().Len(items, 2)
 
@@ -424,7 +435,7 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestListWatchingUnr
 
 	// New comment after mark-read flips show 2 back to unread
 	suite.createTestComment(user.ID, "show", 2)
-	items, _, err = suite.service.ListWatching(user.ID, 20, 0)
+	items, _, err = suite.service.ListWatching(watchingViewer(user.ID), 20, 0)
 	suite.NoError(err)
 	for _, item := range items {
 		if item.EntityID == 2 {
@@ -443,7 +454,7 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestListWatchingPag
 	}
 
 	// First page: newest activity first (show 5, show 4)
-	items, total, err := suite.service.ListWatching(user.ID, 2, 0)
+	items, total, err := suite.service.ListWatching(watchingViewer(user.ID), 2, 0)
 	suite.NoError(err)
 	suite.Equal(int64(5), total)
 	suite.Require().Len(items, 2)
@@ -451,13 +462,13 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestListWatchingPag
 	suite.Equal(uint(4), items[1].EntityID)
 
 	// Second page
-	items2, _, err := suite.service.ListWatching(user.ID, 2, 2)
+	items2, _, err := suite.service.ListWatching(watchingViewer(user.ID), 2, 2)
 	suite.NoError(err)
 	suite.Require().Len(items2, 2)
 	suite.Equal(uint(3), items2[0].EntityID)
 
 	// Third page (only 1 remaining)
-	items3, _, err := suite.service.ListWatching(user.ID, 2, 4)
+	items3, _, err := suite.service.ListWatching(watchingViewer(user.ID), 2, 4)
 	suite.NoError(err)
 	suite.Len(items3, 1)
 }
@@ -490,7 +501,7 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestListWatchingCou
 	}
 	suite.Require().NoError(suite.db.Create(fieldNote).Error)
 
-	items, _, err := suite.service.ListWatching(user.ID, 20, 0)
+	items, _, err := suite.service.ListWatching(watchingViewer(user.ID), 20, 0)
 	suite.NoError(err)
 	suite.Require().Len(items, 1)
 	// comment_count covers only visible kind='comment' rows
@@ -509,7 +520,7 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestListWatchingSco
 	suite.NoError(suite.service.Subscribe(user.ID, "show", 1))
 	suite.NoError(suite.service.Subscribe(other.ID, "show", 2))
 
-	items, total, err := suite.service.ListWatching(user.ID, 20, 0)
+	items, total, err := suite.service.ListWatching(watchingViewer(user.ID), 20, 0)
 	suite.NoError(err)
 	suite.Equal(int64(1), total)
 	suite.Require().Len(items, 1)
@@ -608,7 +619,7 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestNilDBGetUnreadC
 
 func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestNilDBListWatching() {
 	svc := &CommentSubscriptionService{db: nil}
-	_, _, err := svc.ListWatching(1, 20, 0)
+	_, _, err := svc.ListWatching(watchingViewer(1), 20, 0)
 	suite.Error(err)
 	suite.Contains(err.Error(), "database not initialized")
 }

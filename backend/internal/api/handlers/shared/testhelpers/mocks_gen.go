@@ -1109,7 +1109,7 @@ type MockCommentSubscriptionService struct {
 	IsSubscribedFn            func(uint, string, uint) (bool, error)
 	MarkReadFn                func(uint, string, uint) error
 	GetUnreadCountFn          func(uint, string, uint) (int, error)
-	ListWatchingFn            func(uint, int, int) ([]contracts.WatchingItem, int64, error)
+	ListWatchingFn            func(contracts.ShowViewer, int, int) ([]contracts.WatchingItem, int64, error)
 	GetSubscribersForEntityFn func(string, uint) ([]uint, error)
 }
 
@@ -1143,9 +1143,9 @@ func (m *MockCommentSubscriptionService) GetUnreadCount(userID uint, entityType 
 	}
 	return 0, nil
 }
-func (m *MockCommentSubscriptionService) ListWatching(userID uint, limit int, offset int) ([]contracts.WatchingItem, int64, error) {
+func (m *MockCommentSubscriptionService) ListWatching(viewer contracts.ShowViewer, limit int, offset int) ([]contracts.WatchingItem, int64, error) {
 	if m.ListWatchingFn != nil {
-		return m.ListWatchingFn(userID, limit, offset)
+		return m.ListWatchingFn(viewer, limit, offset)
 	}
 	return nil, 0, nil
 }
@@ -2385,10 +2385,10 @@ type MockNotificationFilterService struct {
 	QuickCreateFilterFn        func(uint, string, uint) (*notificationm.NotificationFilter, error)
 	MatchAndNotifyFn           func(*catalogm.Show) error
 	MatchAndNotifyBatchFn      func([]catalogm.Show) error
-	GetUserNotificationsFn     func(uint, int, int) ([]contracts.NotificationLogEntry, error)
-	GetUnreadCountFn           func(uint) (int64, error)
-	MarkNotificationsReadFn    func(uint, []uint) (int64, error)
-	MarkAllNotificationsReadFn func(uint) (int64, error)
+	GetUserNotificationsFn     func(contracts.ShowViewer, int, int) ([]contracts.NotificationLogEntry, error)
+	GetUnreadCountFn           func(contracts.ShowViewer) (int64, error)
+	MarkNotificationsReadFn    func(contracts.ShowViewer, []uint) (int64, error)
+	MarkAllNotificationsReadFn func(contracts.ShowViewer) (int64, error)
 	PauseFilterFn              func(uint) error
 }
 
@@ -2440,27 +2440,27 @@ func (m *MockNotificationFilterService) MatchAndNotifyBatch(shows []catalogm.Sho
 	}
 	return nil
 }
-func (m *MockNotificationFilterService) GetUserNotifications(userID uint, limit int, offset int) ([]contracts.NotificationLogEntry, error) {
+func (m *MockNotificationFilterService) GetUserNotifications(viewer contracts.ShowViewer, limit int, offset int) ([]contracts.NotificationLogEntry, error) {
 	if m.GetUserNotificationsFn != nil {
-		return m.GetUserNotificationsFn(userID, limit, offset)
+		return m.GetUserNotificationsFn(viewer, limit, offset)
 	}
 	return nil, nil
 }
-func (m *MockNotificationFilterService) GetUnreadCount(userID uint) (int64, error) {
+func (m *MockNotificationFilterService) GetUnreadCount(viewer contracts.ShowViewer) (int64, error) {
 	if m.GetUnreadCountFn != nil {
-		return m.GetUnreadCountFn(userID)
+		return m.GetUnreadCountFn(viewer)
 	}
 	return 0, nil
 }
-func (m *MockNotificationFilterService) MarkNotificationsRead(userID uint, ids []uint) (int64, error) {
+func (m *MockNotificationFilterService) MarkNotificationsRead(viewer contracts.ShowViewer, ids []uint) (int64, error) {
 	if m.MarkNotificationsReadFn != nil {
-		return m.MarkNotificationsReadFn(userID, ids)
+		return m.MarkNotificationsReadFn(viewer, ids)
 	}
 	return 0, nil
 }
-func (m *MockNotificationFilterService) MarkAllNotificationsRead(userID uint) (int64, error) {
+func (m *MockNotificationFilterService) MarkAllNotificationsRead(viewer contracts.ShowViewer) (int64, error) {
 	if m.MarkAllNotificationsReadFn != nil {
-		return m.MarkAllNotificationsReadFn(userID)
+		return m.MarkAllNotificationsReadFn(viewer)
 	}
 	return 0, nil
 }
