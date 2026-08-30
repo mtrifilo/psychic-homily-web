@@ -63,9 +63,9 @@ func TestCreateEntityRequest_RejectsSSRFImageURL(t *testing.T) {
 			t.Run(entityType+"/"+c.name, func(t *testing.T) {
 				h := NewEntityRequestHandler(
 					&testhelpers.MockEntityRequestService{
-						CreateRequestFn: func(*authm.User, string, []byte, string, []byte, bool) (*communitym.EntityRequest, error) {
+						CreateRequestFn: func(*authm.User, string, []byte, string, []byte, bool) (*communitym.EntityRequest, bool, error) {
 							t.Fatal("service must NOT be called for an SSRF image_url")
-							return nil, nil
+							return nil, false, nil
 						},
 					},
 					nil, nil,
@@ -86,9 +86,9 @@ func TestCreateEntityRequest_AcceptsPublicImageURL(t *testing.T) {
 	called := false
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(*authm.User, string, []byte, string, []byte, bool) (*communitym.EntityRequest, error) {
+			CreateRequestFn: func(*authm.User, string, []byte, string, []byte, bool) (*communitym.EntityRequest, bool, error) {
 				called = true
-				return pendingRequest(9, "artist"), nil
+				return pendingRequest(9, "artist"), false, nil
 			},
 		},
 		nil,
@@ -111,9 +111,10 @@ func TestCreateEntityRequest_AcceptsPublicImageURL(t *testing.T) {
 // The assertion that matters is not just "the approve failed" but WHERE: the
 // check runs BEFORE Decide claims the row. A post-claim rejection would leave
 // the request approved-but-unfulfilled, and since Decide only acts on pending
-// rows and no endpoint can edit a queued payload, the only way out would be to
-// void the request and discard the contributor's attribution. So this asserts a
-// 422 and that Decide was never called.
+// rows and a claimed row's payload can no longer be corrected (PSY-1948's
+// resubmission replaces PENDING rows only), the only way out would be to void
+// the request and discard the contributor's attribution. So this asserts a 422
+// and that Decide was never called.
 func TestAdminDecide_RejectsSSRFImageURLBeforeClaiming(t *testing.T) {
 	for _, c := range ssrfImageURLs {
 		t.Run(c.name, func(t *testing.T) {

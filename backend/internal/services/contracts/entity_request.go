@@ -23,10 +23,17 @@ type EntityRequestServiceInterface interface {
 	// CreateRequest persists a typed entity-creation request, applying
 	// trust-tier gating to decide whether it auto-approves or queues.
 	// sourceDetail is the optional, already-marshalled source-context JSONB
-	// (nil = none). On a duplicate PENDING request (same entity_type +
-	// requester + normalized name), it returns the EXISTING pending row
-	// idempotently rather than erroring (PSY-1008).
-	CreateRequest(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error)
+	// (nil = none).
+	//
+	// On a duplicate PENDING request (same entity_type + requester + normalized
+	// name) it does NOT error (PSY-1008): the resubmission REPLACES that pending
+	// row's payload, source_context and source_detail, and the refreshed row is
+	// returned with replaced=true (PSY-1948). The row stays pending, so the
+	// caller must not treat a replacement as a fresh decision. The CALLER is
+	// responsible for validating the payload first — a replacement writes
+	// whatever it is given, so an unvalidated one overwrites a good queued
+	// payload with a bad one.
+	CreateRequest(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (req *communitym.EntityRequest, replaced bool, err error)
 
 	// RecordFulfillment persists created_entity_id on a request after its
 	// payload has been fulfilled into a real catalog entity (PSY-1008). The

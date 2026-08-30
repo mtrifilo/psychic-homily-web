@@ -64,13 +64,25 @@ func (suite *EntityRequestServiceIntegrationTestSuite) marshalArtist(name string
 	return raw
 }
 
+// marshalShow builds a typed show payload, optionally carrying the bill the
+// contributor knew (PSY-1858). The title is the dedup key for a show request.
+func (suite *EntityRequestServiceIntegrationTestSuite) marshalShow(title string, artists ...communitym.ShowRequestArtist) []byte {
+	raw, err := communitym.MarshalPayload(communitym.ShowRequestPayload{
+		Title:     title,
+		EventDate: "2026-09-12T21:00:00-07:00",
+		Artists:   artists,
+	})
+	suite.Require().NoError(err)
+	return raw
+}
+
 // --- Trust-tier gating -------------------------------------------------------
 
 // new_user → queued for admin (pending), no decision stamped.
 func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_NewUser_Pending() {
 	user := suite.createUser("newbie", tierNewUser, false)
 
-	req, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+	req, _, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
 		suite.marshalArtist("Pending Band"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(req)
@@ -87,7 +99,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_NewUser_Pendin
 func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_Contributor_Pending() {
 	user := suite.createUser("contrib", tierContributor, false)
 
-	req, err := suite.service.CreateRequest(user, communitym.EntityRequestVenue,
+	req, _, err := suite.service.CreateRequest(user, communitym.EntityRequestVenue,
 		mustMarshalVenue(suite, "The Pending Room"), communitym.EntityRequestSourcePasteMode, nil, false)
 	suite.Require().NoError(err)
 
@@ -100,7 +112,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_Contributor_Pe
 func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_Admin_AutoApproved() {
 	user := suite.createUser("boss", tierNewUser, true) // tier irrelevant; IsAdmin wins
 
-	req, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+	req, _, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
 		suite.marshalArtist("Auto Approved Band"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
@@ -114,7 +126,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_Admin_AutoAppr
 func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_LocalAmbassador_AutoApproved() {
 	user := suite.createUser("amb", tierLocalAmbassador, false)
 
-	req, err := suite.service.CreateRequest(user, communitym.EntityRequestLabel,
+	req, _, err := suite.service.CreateRequest(user, communitym.EntityRequestLabel,
 		mustMarshalLabel(suite, "Ambassador Records"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
@@ -127,7 +139,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_LocalAmbassado
 func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_TrustedConfirmed_AutoApproved() {
 	user := suite.createUser("trusted", tierTrustedContributor, false)
 
-	req, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+	req, _, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
 		suite.marshalArtist("Trusted Confirmed Band"), communitym.EntityRequestSourceManual, nil, true)
 	suite.Require().NoError(err)
 
@@ -140,7 +152,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_TrustedConfirm
 func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_TrustedUnconfirmed_Pending() {
 	user := suite.createUser("trusted2", tierTrustedContributor, false)
 
-	req, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+	req, _, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
 		suite.marshalArtist("Trusted Unconfirmed Band"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
@@ -170,7 +182,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestArtistPayload_RoundTr
 	raw, err := communitym.MarshalPayload(full)
 	suite.Require().NoError(err)
 
-	created, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+	created, _, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
 		raw, communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
@@ -189,21 +201,21 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestArtistPayload_RoundTr
 
 func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_InvalidEntityType() {
 	user := suite.createUser("bad", tierNewUser, false)
-	_, err := suite.service.CreateRequest(user, "podcast",
+	_, _, err := suite.service.CreateRequest(user, "podcast",
 		suite.marshalArtist("X"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().Error(err)
 }
 
 func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_InvalidSourceContext() {
 	user := suite.createUser("bad2", tierNewUser, false)
-	_, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+	_, _, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
 		suite.marshalArtist("X"), "telepathy", nil, false)
 	suite.Require().Error(err)
 }
 
 func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_EmptyPayload() {
 	user := suite.createUser("bad3", tierNewUser, false)
-	_, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+	_, _, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
 		nil, communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().Error(err)
 }
@@ -215,7 +227,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestDecide_ApprovePending
 	requester := suite.createUser("req", tierNewUser, false)
 	admin := suite.createUser("mod", tierNewUser, true)
 
-	pending, err := suite.service.CreateRequest(requester, communitym.EntityRequestArtist,
+	pending, _, err := suite.service.CreateRequest(requester, communitym.EntityRequestArtist,
 		suite.marshalArtist("Needs Review"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 	suite.Require().Equal(communitym.EntityRequestStatePending, pending.DecisionState)
@@ -235,7 +247,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestDecide_AlreadyResolve
 	admin := suite.createUser("mod2", tierNewUser, true)
 
 	// Admin-created request is already approved on create.
-	approved, err := suite.service.CreateRequest(admin, communitym.EntityRequestArtist,
+	approved, _, err := suite.service.CreateRequest(admin, communitym.EntityRequestArtist,
 		suite.marshalArtist("Already Approved"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 	suite.Require().Equal(communitym.EntityRequestStateApproved, approved.DecisionState)
@@ -253,7 +265,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestDecide_SecondDecision
 	requester := suite.createUser("req3", tierNewUser, false)
 	admin := suite.createUser("mod4", tierNewUser, true)
 
-	pending, err := suite.service.CreateRequest(requester, communitym.EntityRequestArtist,
+	pending, _, err := suite.service.CreateRequest(requester, communitym.EntityRequestArtist,
 		suite.marshalArtist("Contested"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
@@ -276,7 +288,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestDecide_SecondDecision
 func (suite *EntityRequestServiceIntegrationTestSuite) TestDecide_InvalidTargetState() {
 	requester := suite.createUser("req2", tierNewUser, false)
 	admin := suite.createUser("mod3", tierNewUser, true)
-	pending, err := suite.service.CreateRequest(requester, communitym.EntityRequestArtist,
+	pending, _, err := suite.service.CreateRequest(requester, communitym.EntityRequestArtist,
 		suite.marshalArtist("X"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
@@ -294,13 +306,13 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestListPending_FiltersAn
 
 	// One pending artist (new_user), one pending venue (new_user), one approved
 	// artist (admin auto-approve) that must NOT appear.
-	_, err := suite.service.CreateRequest(newbie, communitym.EntityRequestArtist,
+	_, _, err := suite.service.CreateRequest(newbie, communitym.EntityRequestArtist,
 		suite.marshalArtist("Pending A"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
-	_, err = suite.service.CreateRequest(newbie, communitym.EntityRequestVenue,
+	_, _, err = suite.service.CreateRequest(newbie, communitym.EntityRequestVenue,
 		mustMarshalVenue(suite, "Pending V"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
-	_, err = suite.service.CreateRequest(admin, communitym.EntityRequestArtist,
+	_, _, err = suite.service.CreateRequest(admin, communitym.EntityRequestArtist,
 		suite.marshalArtist("Approved A"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
@@ -324,10 +336,10 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestListRequests_DefaultP
 	newbie := suite.createUser("lr-newbie", tierNewUser, false)
 	admin := suite.createUser("lr-admin", tierNewUser, true)
 
-	_, err := suite.service.CreateRequest(newbie, communitym.EntityRequestArtist,
+	_, _, err := suite.service.CreateRequest(newbie, communitym.EntityRequestArtist,
 		suite.marshalArtist("LR Pending"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
-	_, err = suite.service.CreateRequest(admin, communitym.EntityRequestArtist,
+	_, _, err = suite.service.CreateRequest(admin, communitym.EntityRequestArtist,
 		suite.marshalArtist("LR Approved"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
@@ -341,7 +353,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestListRequests_DefaultP
 // Explicit state=approved returns the approved rows.
 func (suite *EntityRequestServiceIntegrationTestSuite) TestListRequests_StateApproved() {
 	admin := suite.createUser("lr-admin2", tierNewUser, true)
-	_, err := suite.service.CreateRequest(admin, communitym.EntityRequestArtist,
+	_, _, err := suite.service.CreateRequest(admin, communitym.EntityRequestArtist,
 		suite.marshalArtist("LR Approved 2"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
@@ -358,10 +370,10 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestListRequests_StateApp
 func (suite *EntityRequestServiceIntegrationTestSuite) TestListRequests_SourceContextFilter() {
 	newbie := suite.createUser("lr-src", tierNewUser, false)
 
-	_, err := suite.service.CreateRequest(newbie, communitym.EntityRequestArtist,
+	_, _, err := suite.service.CreateRequest(newbie, communitym.EntityRequestArtist,
 		suite.marshalArtist("Manual one"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
-	_, err = suite.service.CreateRequest(newbie, communitym.EntityRequestArtist,
+	_, _, err = suite.service.CreateRequest(newbie, communitym.EntityRequestArtist,
 		suite.marshalArtist("Paste one"), communitym.EntityRequestSourcePasteMode, nil, false)
 	suite.Require().NoError(err)
 
@@ -380,11 +392,11 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestListRequests_EntityTy
 	newbie := suite.createUser("lr-page", tierNewUser, false)
 
 	for i := 0; i < 3; i++ {
-		_, err := suite.service.CreateRequest(newbie, communitym.EntityRequestArtist,
+		_, _, err := suite.service.CreateRequest(newbie, communitym.EntityRequestArtist,
 			suite.marshalArtist(fmt.Sprintf("Page artist %d", i)), communitym.EntityRequestSourceManual, nil, false)
 		suite.Require().NoError(err)
 	}
-	_, err := suite.service.CreateRequest(newbie, communitym.EntityRequestVenue,
+	_, _, err := suite.service.CreateRequest(newbie, communitym.EntityRequestVenue,
 		mustMarshalVenue(suite, "Page venue"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
@@ -401,46 +413,173 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestListRequests_EntityTy
 	}
 }
 
-// --- PSY-1008: dedup of duplicate PENDING requests --------------------------
+// --- PSY-1008 / PSY-1948: a resubmission REPLACES the pending duplicate ------
 
 // A second PENDING request for the same (entity_type, requester, normalized
-// name) returns the EXISTING row idempotently — no error, no duplicate row.
-// Casing + surrounding whitespace are normalized, matching the unique index.
-func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_DuplicatePending_ReturnsExisting() {
+// name) lands on the EXISTING row — no error, no duplicate row — and overwrites
+// its payload with the resubmission's. Casing + surrounding whitespace are
+// normalized, matching the unique index.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_DuplicatePending_ReplacesPayload() {
 	user := suite.createUser("dup", tierContributor, false)
 
-	first, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+	first, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
 		suite.marshalArtist("Duplicate Band"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 	suite.Require().Equal(communitym.EntityRequestStatePending, first.DecisionState)
+	suite.Assert().False(replaced, "the first submission files a new row")
 
-	second, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
 		suite.marshalArtist("  duplicate band  "), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
-	suite.Assert().Equal(first.ID, second.ID, "duplicate pending request must resolve to the existing row")
+	suite.Assert().True(replaced, "a resubmission must report that it corrected the queued row")
+	suite.Assert().Equal(first.ID, second.ID, "a resubmission corrects the queued row, it does not file a second")
+	suite.Assert().Equal(communitym.EntityRequestStatePending, second.DecisionState,
+		"a replacement leaves the row queued, it does not decide it")
+	suite.Require().NotNil(second.Payload)
+	suite.Assert().JSONEq(`{"name":"  duplicate band  "}`, string(*second.Payload),
+		"the stored payload must be the resubmitted one")
 
 	var count int64
 	suite.Require().NoError(suite.db.Model(&communitym.EntityRequest{}).Count(&count).Error)
 	suite.Assert().Equal(int64(1), count, "no duplicate row should be created")
 }
 
+// The canonical correction (PSY-1858's bill): a contributor files a show with no
+// bill, learns the bill, and resubmits the same title. The queued request must
+// carry the corrected bill — the whole reason a payload bill is worth storing.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_ResubmittedShow_CorrectsTheBill() {
+	user := suite.createUser("bill", tierContributor, false)
+
+	first, _, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
+		suite.marshalShow("Doom Night"), communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+
+	headliner := "headliner"
+	corrected, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
+		suite.marshalShow("Doom Night",
+			communitym.ShowRequestArtist{Name: "Boris", SetType: &headliner},
+			communitym.ShowRequestArtist{Name: "Earth"},
+		), communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+	suite.Require().True(replaced)
+	suite.Require().Equal(first.ID, corrected.ID)
+
+	// Read the row back rather than trusting the returned struct: the moderation
+	// queue reads the stored payload, and that is what has to carry the bill.
+	fetched, err := suite.service.GetRequest(first.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(fetched.Payload)
+	var stored communitym.ShowRequestPayload
+	suite.Require().NoError(json.Unmarshal(*fetched.Payload, &stored))
+	suite.Require().Len(stored.Artists, 2, "the corrected bill must reach the queue")
+	suite.Assert().Equal("Boris", stored.Artists[0].Name)
+	suite.Require().NotNil(stored.Artists[0].SetType)
+	suite.Assert().Equal("headliner", *stored.Artists[0].SetType)
+	suite.Assert().Equal("Earth", stored.Artists[1].Name)
+}
+
+// source_context and source_detail describe the SUBMISSION, so they move with
+// the payload. A resubmission carrying no detail clears the stored one rather
+// than leaving a detail that described the superseded payload.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_Resubmission_RefreshesSourceFields() {
+	user := suite.createUser("srcref", tierContributor, false)
+	detail, err := json.Marshal(communitym.EntityRequestSourceDetail{
+		URL: strptr("https://example.com/first"),
+	})
+	suite.Require().NoError(err)
+
+	first, _, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+		suite.marshalArtist("Sourced Correction"), communitym.EntityRequestSourceAIExtraction, detail, false)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(first.SourceDetail)
+
+	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+		suite.marshalArtist("Sourced Correction"), communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+	suite.Require().True(replaced)
+
+	suite.Assert().Equal(communitym.EntityRequestSourceManual, second.SourceContext,
+		"the resubmission's origin replaces the superseded one")
+	suite.Assert().Nil(second.SourceDetail,
+		"a resubmission with no source detail clears the stored one")
+}
+
 // Dedup is PENDING-only: once the prior request is decided, an identical new
-// request creates a fresh row (a user may legitimately re-request).
+// request creates a fresh row (a user may legitimately re-request) and the
+// decided row is left exactly as it was decided.
 func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_DuplicateAfterDecision_CreatesNew() {
 	user := suite.createUser("redup", tierContributor, false)
 	admin := suite.createUser("redup-admin", tierNewUser, true)
 
-	first, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+	first, _, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
 		suite.marshalArtist("Reborn Band"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
 	_, err = suite.service.Decide(first.ID, admin.ID, communitym.EntityRequestStateRejected, nil)
 	suite.Require().NoError(err)
 
-	second, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
-		suite.marshalArtist("Reborn Band"), communitym.EntityRequestSourceManual, nil, false)
+	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+		suite.marshalArtist("REBORN BAND"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
+	suite.Assert().False(replaced, "a decided row is never replaced")
 	suite.Assert().NotEqual(first.ID, second.ID, "after the prior request is decided, a re-request is a new row")
+
+	decided, err := suite.service.GetRequest(first.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(decided.Payload)
+	suite.Assert().JSONEq(`{"name":"Reborn Band"}`, string(*decided.Payload),
+		"the decided row's payload must survive a later resubmission")
+	suite.Assert().Equal(communitym.EntityRequestStateRejected, decided.DecisionState)
+}
+
+// The dedup key is the normalized NAME, so a resubmission that changes it is a
+// different request, not a correction of the queued one. Correcting a misspelled
+// name therefore leaves the original queued — stated here because it is the
+// boundary a contributor is most likely to walk into.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_ResubmissionUnderANewName_FilesASecondRequest() {
+	user := suite.createUser("rename", tierContributor, false)
+
+	first, _, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+		suite.marshalArtist("Borsi"), communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+
+	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+		suite.marshalArtist("Boris"), communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+	suite.Assert().False(replaced, "a different name is a different request")
+	suite.Assert().NotEqual(first.ID, second.ID)
+
+	var count int64
+	suite.Require().NoError(suite.db.Model(&communitym.EntityRequest{}).Count(&count).Error)
+	suite.Assert().Equal(int64(2), count, "the misspelled request stays queued until an admin decides it")
+}
+
+// The race the conditional UPDATE exists for: an admin decides the row between
+// the duplicate lookup and the replacement. Driven directly against the writer,
+// because the window between those two statements cannot be widened from the
+// public API. A payload must never be resurrected onto a decided row.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestReplacePendingSubmission_DecidedRowIsNeverRewritten() {
+	user := suite.createUser("race", tierContributor, false)
+	admin := suite.createUser("race-admin", tierNewUser, true)
+
+	queued, _, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+		suite.marshalArtist("Raced Band"), communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+
+	_, err = suite.service.Decide(queued.ID, admin.ID, communitym.EntityRequestStateApproved, nil)
+	suite.Require().NoError(err)
+
+	refreshed, err := suite.service.replacePendingSubmission(queued.ID,
+		suite.marshalArtist("Raced Band Corrected"), communitym.EntityRequestSourceManual, nil)
+	suite.Require().NoError(err)
+	suite.Assert().Nil(refreshed, "a decided row matches no pending update")
+
+	stored, err := suite.service.GetRequest(queued.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(stored.Payload)
+	suite.Assert().JSONEq(`{"name":"Raced Band"}`, string(*stored.Payload),
+		"the approved row keeps the payload it was approved with")
+	suite.Assert().Equal(communitym.EntityRequestStateApproved, stored.DecisionState)
 }
 
 // Dedup is per-requester: two different users requesting the same name each get
@@ -449,10 +588,10 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_DuplicateAcros
 	u1 := suite.createUser("dup-a", tierContributor, false)
 	u2 := suite.createUser("dup-b", tierContributor, false)
 
-	r1, err := suite.service.CreateRequest(u1, communitym.EntityRequestArtist,
+	r1, _, err := suite.service.CreateRequest(u1, communitym.EntityRequestArtist,
 		suite.marshalArtist("Shared Name"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
-	r2, err := suite.service.CreateRequest(u2, communitym.EntityRequestArtist,
+	r2, _, err := suite.service.CreateRequest(u2, communitym.EntityRequestArtist,
 		suite.marshalArtist("Shared Name"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 	suite.Assert().NotEqual(r1.ID, r2.ID, "different requesters are not duplicates")
@@ -465,10 +604,10 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_DuplicateRelea
 	raw, err := communitym.MarshalPayload(communitym.ReleaseRequestPayload{Title: "Same Title"})
 	suite.Require().NoError(err)
 
-	first, err := suite.service.CreateRequest(user, communitym.EntityRequestRelease, raw,
+	first, _, err := suite.service.CreateRequest(user, communitym.EntityRequestRelease, raw,
 		communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
-	second, err := suite.service.CreateRequest(user, communitym.EntityRequestRelease, raw,
+	second, _, err := suite.service.CreateRequest(user, communitym.EntityRequestRelease, raw,
 		communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 	suite.Assert().Equal(first.ID, second.ID, "release dedup keys on title")
@@ -485,7 +624,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_SourceDetail_R
 	})
 	suite.Require().NoError(err)
 
-	created, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+	created, _, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
 		suite.marshalArtist("Sourced Band"), communitym.EntityRequestSourceAIExtraction, detail, false)
 	suite.Require().NoError(err)
 
@@ -504,7 +643,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_SourceDetail_R
 // No source_detail → the column is NULL (nil), not an empty object.
 func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_NoSourceDetail_StoresNull() {
 	user := suite.createUser("nosd", tierNewUser, false)
-	created, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+	created, _, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
 		suite.marshalArtist("Plain Band"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
@@ -518,7 +657,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_NoSourceDetail
 // RecordFulfillment persists created_entity_id onto the request row.
 func (suite *EntityRequestServiceIntegrationTestSuite) TestRecordFulfillment_PersistsCreatedEntityID() {
 	user := suite.createUser("rf", tierNewUser, false)
-	created, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+	created, _, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
 		suite.marshalArtist("Fulfilled Band"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 	suite.Require().Nil(created.CreatedEntityID)
@@ -545,7 +684,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestRecordFulfillment_Not
 // the row lands exactly in the rescue-target state.
 func (suite *EntityRequestServiceIntegrationTestSuite) newApprovedUnfulfilled(name string) *communitym.EntityRequest {
 	admin := suite.createUser("rescue-admin-"+name, tierNewUser, true)
-	req, err := suite.service.CreateRequest(admin, communitym.EntityRequestArtist,
+	req, _, err := suite.service.CreateRequest(admin, communitym.EntityRequestArtist,
 		suite.marshalArtist(name), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 	suite.Require().Equal(communitym.EntityRequestStateApproved, req.DecisionState)
@@ -611,7 +750,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestClaimRescueFulfillmen
 // rescuable, so a pending row is left untouched.
 func (suite *EntityRequestServiceIntegrationTestSuite) TestClaimRescueFulfillment_PendingNotClaimable() {
 	newbie := suite.createUser("claim-pending", tierNewUser, false)
-	pending, err := suite.service.CreateRequest(newbie, communitym.EntityRequestArtist,
+	pending, _, err := suite.service.CreateRequest(newbie, communitym.EntityRequestArtist,
 		suite.marshalArtist("Still Pending"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
@@ -687,7 +826,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestVoidApprovedUnfulfill
 // via the rescue path; pending rows go through Decide).
 func (suite *EntityRequestServiceIntegrationTestSuite) TestVoidApprovedUnfulfilled_PendingNotVoidable() {
 	newbie := suite.createUser("void-pending", tierNewUser, false)
-	pending, err := suite.service.CreateRequest(newbie, communitym.EntityRequestArtist,
+	pending, _, err := suite.service.CreateRequest(newbie, communitym.EntityRequestArtist,
 		suite.marshalArtist("Pending Void"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 

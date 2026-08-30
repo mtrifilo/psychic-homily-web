@@ -1738,7 +1738,7 @@ func (m *MockEntityRequestFulfiller) CreateShow(req *contracts.CreateShowRequest
 // ============================================================================
 
 type MockEntityRequestService struct {
-	CreateRequestFn           func(*authm.User, string, []byte, string, []byte, bool) (*communitym.EntityRequest, error)
+	CreateRequestFn           func(*authm.User, string, []byte, string, []byte, bool) (*communitym.EntityRequest, bool, error)
 	RecordFulfillmentFn       func(uint, uint) error
 	GetRequestFn              func(uint) (*communitym.EntityRequest, error)
 	ListPendingFn             func(string, int, int) ([]communitym.EntityRequest, int64, error)
@@ -1748,11 +1748,11 @@ type MockEntityRequestService struct {
 	VoidApprovedUnfulfilledFn func(uint, uint, *string) (bool, error)
 }
 
-func (m *MockEntityRequestService) CreateRequest(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
+func (m *MockEntityRequestService) CreateRequest(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
 	if m.CreateRequestFn != nil {
 		return m.CreateRequestFn(user, entityType, payload, sourceContext, sourceDetail, confirmed)
 	}
-	return nil, nil
+	return nil, false, nil
 }
 func (m *MockEntityRequestService) RecordFulfillment(requestID uint, createdEntityID uint) error {
 	if m.RecordFulfillmentFn != nil {

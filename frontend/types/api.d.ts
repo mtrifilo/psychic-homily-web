@@ -9754,6 +9754,36 @@ export interface components {
              */
             reply_permission?: string;
         };
+        CreateEntityRequestBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/CreateEntityRequestBody.json
+             */
+            readonly $schema?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: int64 */
+            created_entity_id?: number;
+            /** Format: date-time */
+            decided_at?: string;
+            /** Format: int64 */
+            decided_by?: number;
+            decision_note?: string;
+            decision_state: string;
+            entity_type: string;
+            /** Format: int64 */
+            id: number;
+            payload: unknown;
+            /** @description True when this submission replaced the requester's existing pending request for the same name (a correction) rather than filing a new one. The returned id is that queued request's. */
+            replaced: boolean;
+            /** Format: int64 */
+            requester_id: number;
+            source_context: string;
+            source_detail?: unknown;
+            /** Format: date-time */
+            updated_at: string;
+        };
         CreateEntityRequestRequestBody: {
             /**
              * Format: uri
@@ -10676,12 +10706,6 @@ export interface components {
             status: string;
         };
         EntityRequest: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/EntityRequest.json
-             */
-            readonly $schema?: string;
             /** Format: date-time */
             created_at: string;
             /** Format: int64 */
@@ -28357,7 +28381,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["EntityRequest"];
+                    "application/json": components["schemas"]["CreateEntityRequestBody"];
                 };
             };
             /** @description Error */

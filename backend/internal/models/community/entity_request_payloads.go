@@ -137,13 +137,19 @@ type ShowRequestPayload struct {
 	// Nothing writes a bill until a producer ships, so this binds at the FIRST
 	// PRODUCER, not here.
 	//
-	// ONE-SHOT PER TITLE, which a producer author will otherwise learn the hard
-	// way: CreateRequest dedups on (entity_type, requester, lower(trim(title)))
-	// and returns the EXISTING pending row on a collision, unchanged. So a
-	// contributor who files a show with no bill, learns the bill, and resubmits
-	// the same title gets a 2xx carrying the old bill-less payload; the new bill
-	// is silently dropped. That is PSY-1948, and this field makes re-submitting
-	// something a producer would now do deliberately.
+	// RESUBMITTING THE SAME TITLE CORRECTS THE QUEUED REQUEST, which is what a
+	// producer author needs to know before writing a retry loop: CreateRequest
+	// dedups on (entity_type, requester, lower(trim(title))), and on a collision
+	// the resubmission REPLACES the pending row's whole payload rather than
+	// filing a second one (PSY-1948). So a contributor who files a show with no
+	// bill, learns the bill, and resubmits the same title now has the bill
+	// stored on the queued request, and the response says replaced: true.
+	//
+	// Two consequences follow. The replacement is TOTAL, so a resubmission that
+	// drops a field the first one carried drops it from the queued request —
+	// resubmit the complete show, not a patch. And the dedup key is the TITLE, so
+	// correcting a misspelled title files a SECOND request rather than fixing the
+	// first; only an admin decision clears the original.
 	Artists []ShowRequestArtist `json:"artists,omitempty"`
 }
 
