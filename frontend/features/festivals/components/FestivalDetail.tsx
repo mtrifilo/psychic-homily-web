@@ -29,7 +29,7 @@ import {
   StatsList,
 } from '@/components/shared'
 import { EntityCollections } from '@/features/collections'
-import { ticketLink as buildTicketLink } from '@/lib/tickets/ticketVendors'
+import { repairTicketUrl, ticketLink } from '@/lib/tickets/ticketVendors'
 import { outboundRel } from '@/lib/outboundRel'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -159,11 +159,13 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
     !!festival.social && Object.values(festival.social).some(v => !!v)
   const hasLinks =
     !!festival.website || !!festival.ticket_url || hasSocialLinks
-  // Same vendor table the show page's Buy Tickets bracket and the show
-  // JSON-LD's seller read; a pass-through until a partner ID is configured.
-  const ticketLink = festival.ticket_url
-    ? buildTicketLink(festival.ticket_url)
-    : null
+  // The same repair and the same vendor table the show page's Buy Tickets
+  // bracket reads, so a stored value means one thing on both surfaces: without
+  // the repair a scheme-less `ticket_url` rendered as a relative href that
+  // navigated under /festivals/, and could never be tagged. A pass-through
+  // until a partner ID is configured.
+  const repairedTicketUrl = repairTicketUrl(festival.ticket_url)
+  const ticketBuyLink = repairedTicketUrl ? ticketLink(repairedTicketUrl) : null
 
   const statsItems = [
     { label: 'Artists', value: festival.artist_count },
@@ -365,11 +367,11 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
                   Official Website
                 </a>
               )}
-              {ticketLink && (
+              {ticketBuyLink && (
                 <a
-                  href={ticketLink.href}
+                  href={ticketBuyLink.href}
                   target="_blank"
-                  rel={outboundRel(ticketLink.sponsored)}
+                  rel={outboundRel(ticketBuyLink.sponsored)}
                   className="flex items-center gap-2 text-primary hover:text-primary/80 transition-colors text-sm"
                 >
                   <Ticket className="h-4 w-4" />

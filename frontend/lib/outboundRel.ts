@@ -9,13 +9,18 @@ const HYGIENE_TOKENS = ['noopener', 'noreferrer']
  * The `rel` for an outbound anchor: the hygiene tokens, plus `sponsored` when
  * the link is monetized.
  *
- * ONE owner for a rule that is set by Google's link-spam policy rather than by
- * this codebase, so the next token it asks for (`nofollow` beside `sponsored`,
- * `ugc` for contributor-submitted destinations) is one edit and not a grep.
- * Two call sites need it and cannot share a component: `BracketLink` is a
- * generic primitive that must not learn what a ticket vendor is, and the
- * festival page's ticket link is an icon-and-text anchor matched to its
- * neighbours rather than a bracket.
+ * One owner for the rule as it applies to MONETIZED links, which is set by
+ * Google's link-spam policy rather than by this codebase. Two call sites need
+ * that and cannot share a component: `BracketLink` is a generic primitive that
+ * must not learn what a ticket vendor is, and the festival page's ticket link
+ * is an icon-and-text anchor matched to its neighbours rather than a bracket.
+ *
+ * NOT yet the owner for outbound `rel` site-wide. Roughly thirty anchors still
+ * hardcode `rel="noopener noreferrer"` — including the "Official Website" link
+ * directly above the festival ticket link, and the radio station/show links,
+ * which are the contributor-submitted destinations a future `ugc` token would
+ * target. Adding such a token is still a grep until those are swept; this
+ * function is where the sweep should land, not evidence that it happened.
  *
  * `sponsored` is ADDITIVE by construction: qualifying a paid link can never
  * cost that link its opener and referrer protection.

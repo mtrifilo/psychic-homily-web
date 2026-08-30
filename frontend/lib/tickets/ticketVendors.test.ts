@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest'
 import {
   TICKET_VENDORS_BY_DOMAIN,
   affiliatePartnerIds,
+  repairTicketUrl,
   resolveTicketVendor,
   ticketLink,
 } from './ticketVendors'
@@ -17,14 +18,23 @@ afterEach(() => {
   delete process.env.NEXT_PUBLIC_IMPACT_PARTNER_ID
 })
 
+/** A real domain in the table that carries no affiliate program. */
+const unaffiliatedDomain = Object.entries(TICKET_VENDORS_BY_DOMAIN).find(
+  ([, vendor]) => !vendor.affiliate
+)?.[0]
+
 /**
  * Values that must survive UNTOUCHED whatever is configured: no vendor, no
  * affiliate program, or nothing the builder could rewrite without inventing a
  * scheme. Asserted under both partner-ID states, so "config changes nothing
  * here" is a claim the suite makes rather than two lists that can drift.
+ *
+ * The unaffiliated entry is read off the table so that giving that vendor a
+ * program later fails as "update this list", not as a mysterious violation of
+ * a general invariant.
  */
 const NEVER_TAGGABLE = [
-  'https://dice.fm/event/abc',
+  `https://${unaffiliatedDomain}/event/abc`,
   'https://tix.some-venue.example/e/1',
   'https://ticketweb.com.evil.test/e/2',
   'ticketweb.com/event/2',
@@ -66,6 +76,27 @@ describe('resolveTicketVendor', () => {
   ])('resolves no vendor for %s', (_label, url) => {
     expect(resolveTicketVendor(url)).toBeUndefined()
   })
+})
+
+describe('repairTicketUrl', () => {
+  it.each([
+    ['https://tix.example/1', 'https://tix.example/1'],
+    ['HTTPS://tix.example/1', 'HTTPS://tix.example/1'],
+    ['  https://tix.example/1  ', 'https://tix.example/1'],
+    ['tix.example/1', 'https://tix.example/1'],
+    ['//tix.example/1', 'https://tix.example/1'],
+    // A prefix-passing non-scheme would otherwise ship as a relative href.
+    ['httpfoo.example/1', 'https://httpfoo.example/1'],
+  ])('repairs %s', (input, expected) => {
+    expect(repairTicketUrl(input)).toBe(expected)
+  })
+
+  it.each<string | null | undefined>(['', '   ', null, undefined])(
+    'returns null for %s',
+    input => {
+      expect(repairTicketUrl(input)).toBeNull()
+    }
+  )
 })
 
 describe('affiliatePartnerIds', () => {
@@ -111,20 +142,25 @@ describe('ticketLink with no partner IDs configured', () => {
 })
 
 describe('ticketLink with an Impact partner ID configured', () => {
-  // One case per configured vendor: the tagged URL keeps the vendor's own host
-  // (never a network redirect domain, which is Disallow: / to Googlebot) and
-  // carries the partner ID as a plain query parameter.
-  it.each([
-    [
-      'https://www.ticketweb.com/event/2',
-      'https://www.ticketweb.com/event/2?irmp=1234567',
-    ],
-    [
-      'https://www.ticketmaster.com/event/1',
-      'https://www.ticketmaster.com/event/1?irmp=1234567',
-    ],
-  ])('tags %s', (input, expected) => {
-    expect(ticketLink(input, IMPACT)).toEqual({ href: expected, sponsored: true })
+  // DERIVED from the table, not a hand-kept list: a vendor given an affiliate
+  // entry gets its tagged shape checked because it was added, not because
+  // somebody remembered to add a case. The shape asserted is the contract —
+  // the vendor's OWN host (never a network redirect domain, which is
+  // Disallow: / to Googlebot) carrying the partner ID as a plain query param.
+  const configuredVendors = Object.entries(TICKET_VENDORS_BY_DOMAIN).filter(
+    ([, vendor]) => vendor.affiliate
+  )
+
+  it('has at least one configured vendor to check', () => {
+    expect(configuredVendors.length).toBeGreaterThan(0)
+  })
+
+  it.each(configuredVendors)('tags %s on its own host', (domain, vendor) => {
+    const { param } = vendor.affiliate!
+    expect(ticketLink(`https://www.${domain}/event/1`, IMPACT)).toEqual({
+      href: `https://www.${domain}/event/1?${param}=1234567`,
+      sponsored: true,
+    })
   })
 
   it('keeps existing query params and appends the tag', () => {
@@ -156,6 +192,83 @@ describe('ticketLink with an Impact partner ID configured', () => {
   it('never overwrites another partner ID, and does not claim it as sponsored', () => {
     const url = 'https://www.ticketweb.com/e/2?irmp=9999999'
     expect(ticketLink(url, IMPACT)).toEqual({ href: url, sponsored: false })
+  })
+
+  // The key is theirs whatever its case; appending ours beside it would both
+  // hijack the credit and double-count.
+  it('does not append beside a differently-cased foreign tag', () => {
+    const url = 'https://www.ticketweb.com/e/2?IRMP=9999999'
+    expect(ticketLink(url, IMPACT)).toEqual({ href: url, sponsored: false })
+  })
+
+  it('recognizes our own ID under a different key case as already sponsored', () => {
+    const url = 'https://www.ticketweb.com/e/2?IRMP=1234567'
+    expect(ticketLink(url, IMPACT)).toEqual({ href: url, sponsored: true })
+  })
+
+  // A valueless occurrence credits nobody: it is a truncated paste, and
+  // treating it as a competing partner would forfeit the tag forever.
+  it.each([
+    ['https://www.ticketweb.com/e/2?irmp', 'https://www.ticketweb.com/e/2?irmp=1234567'],
+    ['https://www.ticketweb.com/e/2?irmp=', 'https://www.ticketweb.com/e/2?irmp=1234567'],
+    [
+      'https://www.ticketweb.com/e/2?a=1&irmp=',
+      'https://www.ticketweb.com/e/2?a=1&irmp=1234567',
+    ],
+  ])('replaces the valueless tag in %s', (input, expected) => {
+    expect(ticketLink(input, IMPACT)).toEqual({ href: expected, sponsored: true })
+  })
+
+  // THE contract of the tagging branch: the stored query survives byte for
+  // byte and one parameter is appended. Round-tripping through URLSearchParams
+  // silently form-encodes all of these, which would break the destination on
+  // the very day the config is flipped.
+  it.each([
+    // A vendor redirect target whose own query would collapse into one value.
+    [
+      'https://www.ticketweb.com/e/2?next=/a/b?c=d',
+      'https://www.ticketweb.com/e/2?next=/a/b?c=d&irmp=1234567',
+    ],
+    // Base64 padding and reserved characters inside a signature.
+    [
+      'https://www.ticketweb.com/e/2?sig=aGVsbG8+d29ybGQ/PQ==',
+      'https://www.ticketweb.com/e/2?sig=aGVsbG8+d29ybGQ/PQ==&irmp=1234567',
+    ],
+    // A percent-encoded space, which form encoding rewrites to "+".
+    [
+      'https://www.ticketweb.com/e/2?q=a%20b',
+      'https://www.ticketweb.com/e/2?q=a%20b&irmp=1234567',
+    ],
+    // A valueless flag that is NOT our param keeps its spelling.
+    [
+      'https://www.ticketweb.com/e/2?flag&x=1',
+      'https://www.ticketweb.com/e/2?flag&x=1&irmp=1234567',
+    ],
+    // Semicolon separators, which some servers split on themselves.
+    [
+      'https://www.ticketweb.com/e/2?a=1;b=2',
+      'https://www.ticketweb.com/e/2?a=1;b=2&irmp=1234567',
+    ],
+    // An empty segment from a doubled ampersand.
+    [
+      'https://www.ticketweb.com/e/2?a=1&&b=2',
+      'https://www.ticketweb.com/e/2?a=1&&b=2&irmp=1234567',
+    ],
+    // Uppercase host and scheme: absolute already, so not ours to restyle.
+    [
+      'HTTPS://WWW.TICKETWEB.COM/e/2',
+      'HTTPS://WWW.TICKETWEB.COM/e/2?irmp=1234567',
+    ],
+    // A bare "?" keeps the path intact.
+    ['https://www.ticketweb.com/e/2?', 'https://www.ticketweb.com/e/2?irmp=1234567'],
+  ])('appends to %s without re-encoding the stored query', (input, expected) => {
+    expect(ticketLink(input, IMPACT).href).toBe(expected)
+  })
+
+  it('encodes a partner ID that carries reserved characters', () => {
+    expect(ticketLink('https://www.ticketweb.com/e/2', { impact: 'a b&c' }).href).toBe(
+      'https://www.ticketweb.com/e/2?irmp=a%20b%26c'
+    )
   })
 
   // The same list the no-config suite walks: an unknown vendor, a lookalike

@@ -116,10 +116,12 @@ export interface BracketLinkProps
    * qualified, and an unqualified affiliate link is the site's own ranking at
    * risk, not the vendor's.
    *
-   * Never hand-set from a call site's own judgement: the one caller derives it
-   * from `ticketLink` in `lib/tickets/ticketVendors`, which knows whether a
-   * partner ID was actually attached. Ignored without `external`, since the
-   * internal `<Link>` branch points inside this site.
+   * Derive it, never assert it: the ticket call site passes what `ticketLink`
+   * in `lib/tickets/ticketVendors` reports, which is the only thing that knows
+   * whether a partner ID was actually attached. A hand-set `sponsored` on a
+   * link carrying no tag is a claim about money that is simply false.
+   * Ignored without `external`, since the internal `<Link>` branch points
+   * inside this site.
    */
   sponsored?: boolean
   /** Visual variant. `danger` is red for destructive actions like [Remove] / [Delete] / [X]. */

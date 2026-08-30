@@ -2,7 +2,7 @@ import { showTimingInput } from '../utils'
 import { startTimeFactSegment } from './showStatusStripeCopy'
 import { saysSoldOut } from './showSaleState'
 import { showIsArchived } from '@/lib/utils/showTiming'
-import { ticketLink } from '@/lib/tickets/ticketVendors'
+import { repairTicketUrl, ticketLink } from '@/lib/tickets/ticketVendors'
 import type { TicketLink } from '@/lib/tickets/ticketVendors'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import type { ShowResponse } from '../types'
@@ -39,11 +39,9 @@ function storedTicketUrl(show: ShowResponse): string | null {
  * branches on it and the Buy Tickets bracket consumes it, so a refusal
  * added here reaches both.
  *
- * Submitters type scheme-less hosts ("tix.example/1") and vendors print
- * uppercase schemes; the scheme test is therefore case-insensitive and
- * anchored (`https?://`), not a bare prefix check — `startsWith('http')`
- * passed "httpfoo.example" through as a RELATIVE href that navigated under
- * /shows/. Protocol-relative values keep their own scheme resolution.
+ * The repair itself is {@link repairTicketUrl}, shared with the festival
+ * page's ticket link so the two surfaces cannot disagree about what a stored
+ * value means. This function owns only the refusals above.
  *
  * NOT the href a buy affordance renders. This answers "may this be offered,
  * and at what URL", which is the question the `ON SALE` words ask; the URL it
@@ -59,9 +57,7 @@ export function ticketHref(
   if (!raw || show.is_cancelled || show.is_sold_out || lifecycle === 'past') {
     return null
   }
-  if (/^https?:\/\//i.test(raw)) return raw
-  if (raw.startsWith('//')) return `https:${raw}`
-  return `https://${raw}`
+  return repairTicketUrl(raw)
 }
 
 /**

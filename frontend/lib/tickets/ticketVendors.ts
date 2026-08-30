@@ -5,8 +5,12 @@
  *
  * Two surfaces read it and must not drift: the visible Buy Tickets link on the
  * show and festival pages, and the `seller` name in the show's `MusicEvent`
- * JSON-LD. The JSON-LD deliberately emits no offer URL at all, so this module
- * is the only thing that ever touches a vendor URL.
+ * JSON-LD, which names the company without linking to it.
+ *
+ * The one owner of how a vendor URL is TAGGED, not of vendor URLs generally.
+ * Repair still lives at the call site that needs it: `ticketHref` in
+ * `features/shows/components/showTicketLine` trims the stored value and
+ * supplies a missing scheme before this module ever sees it.
  */
 
 /**
@@ -16,16 +20,24 @@
  * (`ticketmaster.evyy.net` and `imp.pxf.io` for Impact, CJ's `anrdoezrs.net`,
  * Rakuten's `click.linksynergy.com`, Skimlinks) answers Googlebot with
  * `Disallow: /`, so a link routed through one is uncrawlable and could never
- * be reused as a structured-data URL. The guard is structural rather than
- * advisory: {@link ticketLink} can only append a query parameter to the URL a
- * contributor already stored, and has no way to emit a different host.
+ * be reused as a structured-data URL.
  *
- * The choice of PARAMETER is still per-vendor and still has to be verified
- * against that vendor's robots.txt before the vendor is given an
- * {@link VendorAffiliate} entry, because a vendor can disallow the very shape
- * its tracking produces: Ticketmaster disallows `/goto*` (their redirect
- * links) and AXS disallows `/*referrer=*` (any URL carrying that param).
- * Impact's `irmp` parameter on the advertiser's own domain avoids both.
+ * The guarantee here is narrow, and worth stating narrowly: {@link ticketLink}
+ * only ever appends a query parameter to the URL a contributor already stored,
+ * so IT cannot introduce a redirect domain. It does not make one unreachable —
+ * a contributor who stores `ticketmaster.evyy.net/c/123` gets it rendered
+ * as-is, matching no vendor and carrying no tag. Nor does it police the PATH:
+ * a stored Ticketmaster `/goto/` link (robots-disallowed, and what their share
+ * UI hands out) would be tagged like any other. None of that is load-bearing
+ * while the JSON-LD emits no offer URL; all of it becomes a gate to build if
+ * an affiliate-tagged `offers.url` is ever reconsidered.
+ *
+ * The choice of PARAMETER is per-vendor and has to be verified against that
+ * vendor's robots.txt before the vendor is given an {@link VendorAffiliate}
+ * entry, because a vendor can disallow the very shape its tracking produces:
+ * Ticketmaster disallows `/goto*` and AXS disallows `/*referrer=*` (any URL
+ * carrying that param). Impact's `irmp` on the advertiser's own domain avoids
+ * both.
  */
 export type AffiliateNetwork = 'impact'
 
@@ -52,14 +64,6 @@ export interface TicketVendor {
 }
 
 /**
- * Ticket vendors we recognize, keyed by registrable domain.
- *
- * `ticketmaster.com` and `ticketweb.com` sit inside one Ticketmaster/Impact
- * program; the same approval also covers Front Gate, Universe, Veeps and
- * Moshtix, which are absent here because naming a vendor is a structured-data
- * claim of its own and none of those has been added as a seller yet.
- */
-/**
  * Impact's direct-domain tracking: the partner ID rides on the advertiser's
  * own host as `?irmp=`. Shared by every vendor inside one Impact program, so
  * correcting the parameter is one edit rather than one per vendor.
@@ -69,6 +73,16 @@ const IMPACT_DIRECT_TRACKING: VendorAffiliate = {
   param: 'irmp',
 }
 
+/**
+ * Ticket vendors we recognize, keyed by registrable domain. THE table: adding
+ * a vendor here is the whole edit, and the tagged-shape test derives its cases
+ * from this object rather than repeating it.
+ *
+ * `ticketmaster.com` and `ticketweb.com` sit inside one Ticketmaster/Impact
+ * program; the same approval also covers Front Gate, Universe, Veeps and
+ * Moshtix, which are absent here because naming a vendor is a structured-data
+ * claim of its own and none of those has been added as a seller yet.
+ */
 export const TICKET_VENDORS_BY_DOMAIN: Record<string, TicketVendor> = {
   'dice.fm': { name: 'DICE' },
   'eventbrite.com': { name: 'Eventbrite' },
@@ -125,6 +139,31 @@ export function resolveTicketVendor(
   return domain ? TICKET_VENDORS_BY_DOMAIN[domain] : undefined
 }
 
+/**
+ * A stored ticket URL repaired into something navigable, or null when the
+ * field holds nothing.
+ *
+ * Stored ticket URLs are contributor paste. The backend persists the column
+ * untrimmed and the ingest paths skip the handler's validator, so whitespace
+ * padding, scheme-less hosts ("tix.example/1") and protocol-relative values
+ * all arrive intact. Left alone, a scheme-less value renders as a RELATIVE
+ * href that navigates inside this site instead of out to the vendor.
+ *
+ * The scheme test is anchored and case-insensitive rather than a bare prefix
+ * check: `startsWith('http')` passed "httpfoo.example" through as exactly that
+ * relative href. Vendors do print uppercase schemes, and those are left as
+ * they are — already absolute, and not ours to restyle.
+ */
+export function repairTicketUrl(
+  rawUrl: string | undefined | null
+): string | null {
+  const raw = rawUrl?.trim()
+  if (!raw) return null
+  if (ABSOLUTE_HTTP_URL.test(raw)) return raw
+  if (raw.startsWith('//')) return `https:${raw}`
+  return `https://${raw}`
+}
+
 /** Partner IDs the deployment holds, keyed by network. */
 export type AffiliatePartnerIds = Partial<Record<AffiliateNetwork, string>>
 
@@ -137,6 +176,12 @@ export type AffiliatePartnerIds = Partial<Record<AffiliateNetwork, string>>
  * `NEXT_PUBLIC_` value; it is read here as a literal property access, because
  * a dynamic `process.env[name]` lookup is not inlined into the browser bundle
  * and would read as configured on the server and empty in the client.
+ *
+ * `NEXT_PUBLIC_` values inline at BUILD time, so the flip is a redeploy, not
+ * an env edit on a running deployment: setting the variable without rebuilding
+ * leaves the shipped bundle carrying the old (empty) value. Tests mutate
+ * `process.env` at runtime, which vitest allows and a browser bundle does not,
+ * so they pin this function's LOGIC and not the mechanism production uses.
  */
 export function affiliatePartnerIds(): AffiliatePartnerIds {
   const impact = process.env.NEXT_PUBLIC_IMPACT_PARTNER_ID?.trim()
@@ -155,6 +200,59 @@ export interface TicketLink {
 }
 
 /**
+ * One `&`-separated segment of a query string.
+ *
+ * `raw` is the segment exactly as stored and is what gets written back, so a
+ * segment this module does not remove survives byte-for-byte — including the
+ * spellings a split-and-rejoin would quietly normalize (`flag` vs `flag=`, an
+ * empty segment from a doubled `&`).
+ */
+interface QueryPair {
+  raw: string
+  key: string
+  value: string
+}
+
+/**
+ * A URL split into the three parts tagging cares about, WITHOUT decoding
+ * anything.
+ *
+ * The parse is textual on purpose. Round-tripping through `URL`/
+ * `URLSearchParams` re-serializes the whole query as form-encoded data: it
+ * turns `?q=a%20b` into `?q=a+b`, `?flag` into `?flag=`, and it percent-encodes
+ * the `/`, `?`, `:` and `=` inside values that vendors really do carry —
+ * `?next=/a/b?c=d` collapses into a single opaque value, and a base64 signature
+ * loses its padding. Those are the contributor's bytes, and the destination is
+ * the vendor's to interpret. Appending our parameter must not rewrite them.
+ */
+function splitUrlForTagging(url: string): {
+  base: string
+  pairs: QueryPair[]
+  fragment: string
+} {
+  const hashAt = url.indexOf('#')
+  const fragment = hashAt === -1 ? '' : url.slice(hashAt)
+  const beforeFragment = hashAt === -1 ? url : url.slice(0, hashAt)
+
+  const queryAt = beforeFragment.indexOf('?')
+  if (queryAt === -1) {
+    return { base: beforeFragment, pairs: [], fragment }
+  }
+
+  const query = beforeFragment.slice(queryAt + 1)
+  const base = beforeFragment.slice(0, queryAt)
+  if (query === '') return { base, pairs: [], fragment }
+
+  const pairs = query.split('&').map(raw => {
+    const eq = raw.indexOf('=')
+    return eq === -1
+      ? { raw, key: raw, value: '' }
+      : { raw, key: raw.slice(0, eq), value: raw.slice(eq + 1) }
+  })
+  return { base, pairs, fragment }
+}
+
+/**
  * A stored ticket URL turned into the href the page actually renders.
  *
  * With no partner ID configured for the vendor's network, or for a vendor
@@ -163,14 +261,25 @@ export interface TicketLink {
  * makes turning affiliate links on a config flip: nothing about the markup or
  * the call sites changes when the environment starts carrying an ID.
  *
+ * When it DOES tag, the result is the stored string plus one appended
+ * parameter, ahead of any fragment. Every other byte of the query survives
+ * untouched — see {@link splitUrlForTagging} for why that has to be done
+ * textually.
+ *
  * Never throws. Ticket URLs are contributor-entered paste, so junk, relative
  * and protocol-relative values all take the pass-through branch.
  *
- * A vendor URL that ALREADY carries the affiliate parameter is left exactly as
- * stored, whoever it credits: overwriting someone else's tracking ID inside a
- * URL a contributor submitted would silently redirect their commission to us.
- * It counts as sponsored only when the ID present is our own, which also makes
- * this idempotent under re-application.
+ * A vendor URL that ALREADY credits somebody through this parameter is left
+ * exactly as stored, whoever that is: overwriting a tracking ID inside a URL a
+ * contributor submitted would silently redirect their commission to us. The
+ * key is matched case-insensitively, because `?IRMP=` is another party's
+ * credit just as much as `?irmp=` is, and appending ours beside it would both
+ * hijack and double-count. It counts as sponsored when our own ID is among
+ * those present, which makes this idempotent under re-application.
+ *
+ * A VALUELESS occurrence (`?irmp` or `?irmp=`) credits nobody — it is a
+ * truncated paste, not a competing partner — so it is dropped in favour of a
+ * real tag rather than blocking one forever.
  */
 export function ticketLink(
   rawUrl: string,
@@ -187,18 +296,30 @@ export function ticketLink(
   const trimmed = rawUrl.trim()
   if (!ABSOLUTE_HTTP_URL.test(trimmed)) return passthrough
 
-  let url: URL
+  // Parsed only to confirm the value is a URL at all; the rewrite below works
+  // on the original text so nothing is re-encoded.
   try {
-    url = new URL(trimmed)
+    new URL(trimmed)
   } catch {
     return passthrough
   }
 
-  const existing = url.searchParams.get(affiliate.param)
-  if (existing !== null) {
-    return { href: rawUrl, sponsored: existing === partnerId }
+  const { base, pairs, fragment } = splitUrlForTagging(trimmed)
+  const param = affiliate.param.toLowerCase()
+  const credited = pairs.filter(
+    pair => pair.key.toLowerCase() === param && pair.value !== ''
+  )
+  if (credited.length > 0) {
+    return {
+      href: rawUrl,
+      sponsored: credited.some(pair => pair.value === partnerId),
+    }
   }
 
-  url.searchParams.set(affiliate.param, partnerId)
-  return { href: url.toString(), sponsored: true }
+  const kept = pairs.filter(pair => pair.key.toLowerCase() !== param)
+  const query = [
+    ...kept.map(pair => pair.raw),
+    `${affiliate.param}=${encodeURIComponent(partnerId)}`,
+  ].join('&')
+  return { href: `${base}?${query}${fragment}`, sponsored: true }
 }
