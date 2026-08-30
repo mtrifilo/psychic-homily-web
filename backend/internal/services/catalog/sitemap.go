@@ -507,9 +507,7 @@ type sceneGroupRow struct {
 func (s *SitemapService) listQualifyingScenes(ctx context.Context) ([]sceneGroupRow, error) {
 	var groups []sceneGroupRow
 	err := s.db.WithContext(ctx).Raw(`
-		SELECT COALESCE(MAX(v.metro), '') AS metro,
-		       MIN(v.city)  AS city,
-		       MIN(v.state) AS state
+		SELECT `+sceneGroupIdentitySQL+`
 		FROM venues v
 		LEFT JOIN show_venues sv ON sv.venue_id = v.id
 		LEFT JOIN shows s ON s.id = sv.show_id AND s.status = ?
@@ -538,9 +536,7 @@ func (s *SitemapService) sceneEntries(ctx context.Context) ([]contracts.SitemapE
 	}
 	var rows []row
 	err := s.db.WithContext(ctx).Raw(`
-		SELECT COALESCE(MAX(v.metro), '') AS metro,
-		       MIN(v.city)  AS city,
-		       MIN(v.state) AS state,
+		SELECT `+sceneGroupIdentitySQL+`,
 		       MAX(s.updated_at) AS updated_at
 		FROM venues v
 		JOIN show_venues sv ON sv.venue_id = v.id

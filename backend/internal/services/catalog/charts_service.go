@@ -1738,8 +1738,7 @@ func appendRadioAiredWindow(query string, args []any, now time.Time, bounds char
 //     semantics). NOTE this floor is deliberately lower than the scenes
 //     DIRECTORY's listing thresholds (sceneMinVenues/sceneMinShows): "active
 //     this window" is a different claim than "established enough to list", so
-//     the strip count can exceed the /scenes list length. Only the POPULATION
-//     differs; what a scene IS must not.
+//     the strip count can exceed the /scenes list length.
 //
 // Scene scoping (see the scene-scoping block): shows by venue metro, artists
 // and radio plays by artist home metro, releases by credited-artist home
@@ -1846,26 +1845,26 @@ func (s *ChartsService) getChartsSummaryUncached(window contracts.ChartWindow, s
 		NewArtists  int `gorm:"column:new_artists"`
 		NewReleases int `gorm:"column:new_releases"`
 		RadioPlays  int `gorm:"column:radio_plays"`
+		// Filled in below, not by the statement above, which has no such
+		// column. It stays in this shape so the conversion at the end remains
+		// a compile-time check that the row still matches the summary field
+		// for field — a stat added to one and not the other must not scan as
+		// a silent zero.
+		ActiveScenes int
 	}
 	var row summaryRow
 	if err := s.db.Raw(query, args...).Scan(&row).Error; err != nil {
 		return nil, fmt.Errorf("failed to get charts summary: %w", err)
 	}
 
-	// A second round trip rather than a fifth scalar subquery above: the scene
-	// count is settled in Go, not in SQL (see activeSceneCount).
 	activeScenes, err := s.activeSceneCount(bounds, scene)
 	if err != nil {
 		return nil, err
 	}
+	row.ActiveScenes = activeScenes
 
-	return &contracts.ChartsSummary{
-		ShowsAdded:   row.ShowsAdded,
-		NewArtists:   row.NewArtists,
-		NewReleases:  row.NewReleases,
-		RadioPlays:   row.RadioPlays,
-		ActiveScenes: activeScenes,
-	}, nil
+	summary := contracts.ChartsSummary(row)
+	return &summary, nil
 }
 
 // activeSceneCount is the summary's active-scenes number: how many distinct
@@ -1895,9 +1894,7 @@ func (s *ChartsService) getChartsSummaryUncached(window contracts.ChartWindow, s
 // nil.
 func (s *ChartsService) activeSceneCount(bounds chartBounds, scene string) (int, error) {
 	query := `
-		SELECT COALESCE(MAX(v.metro), '') AS metro,
-		       MIN(v.city)  AS city,
-		       MIN(v.state) AS state
+		SELECT ` + sceneGroupIdentitySQL + `
 		FROM shows s
 		JOIN show_venues sv ON sv.show_id = s.id
 		JOIN venues v ON v.id = sv.venue_id

@@ -119,6 +119,26 @@ func (suite *ChartsServiceIntegrationTestSuite) createVerifiedVenueNullMetro(nam
 	return venue
 }
 
+// assertActiveScenesMatchDirectory is the PSY-1949 invariant, written once: a
+// collision the /scenes directory publishes as one row counts as one scene on
+// the masthead. Each collapse-collision fixture below sets its groups up so the
+// two populations coincide (every show inside the month window, both halves
+// clearing the directory thresholds), which is what makes the two numbers
+// directly comparable — outside such a fixture they legitimately differ.
+func (suite *ChartsServiceIntegrationTestSuite) assertActiveScenesMatchDirectory(wantSlug string) {
+	suite.T().Helper()
+
+	scenes, err := NewSceneService(suite.db).ListScenes()
+	suite.Require().NoError(err)
+	suite.Require().Len(scenes, 1, "the directory publishes one row per slug")
+	suite.Equal(wantSlug, scenes[0].Slug)
+
+	month, err := suite.chartsService.GetChartsSummary(contracts.ChartWindowMonth, "")
+	suite.Require().NoError(err)
+	suite.Equal(len(scenes), month.ActiveScenes, "the masthead count is the directory's row count, not its SQL group count")
+	suite.Equal(1, month.ActiveScenes)
+}
+
 func (suite *ChartsServiceIntegrationTestSuite) createArtist(name string) *catalogm.Artist {
 	artist := &catalogm.Artist{Name: name}
 	err := suite.db.Create(artist).Error
@@ -2294,9 +2314,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetChartsSummary_ActiveScene
 // fallback group, and that group publishes the SAME "phoenix-az" slug as the
 // CBSA group. Counting sceneGroupKeySQL keys made the masthead print 2 beside a
 // directory showing one row; the count runs through the directory's collapse
-// instead. The fixture puts every show inside the window and clears the
-// directory thresholds on both halves, so the two populations coincide and the
-// numbers are directly comparable.
+// instead.
 func (suite *ChartsServiceIntegrationTestSuite) TestGetChartsSummary_ActiveScenesCollapsesDriftedMetro() {
 	now := time.Now().UTC()
 	user := suite.createUser("drifted-scene@test.com")
@@ -2318,15 +2336,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetChartsSummary_ActiveScene
 	suite.createApprovedShow("Drift 2", driftedB.ID, band.ID, user.ID, now.AddDate(0, 0, -4))
 	suite.createApprovedShow("Drift 3", driftedA.ID, band.ID, user.ID, now.AddDate(0, 0, -5))
 
-	scenes, err := NewSceneService(suite.db).ListScenes()
-	suite.Require().NoError(err)
-	suite.Require().Len(scenes, 1, "the directory publishes one row per slug")
-	suite.Equal("phoenix-az", scenes[0].Slug)
-
-	month, err := suite.chartsService.GetChartsSummary(contracts.ChartWindowMonth, "")
-	suite.Require().NoError(err)
-	suite.Equal(len(scenes), month.ActiveScenes, "the masthead count is the directory's row count, not its SQL group count")
-	suite.Equal(1, month.ActiveScenes)
+	suite.assertActiveScenesMatchDirectory("phoenix-az")
 }
 
 // TestGetChartsSummary_ActiveScenesCollapsesSpellingVariants (PSY-1949): the
@@ -2352,15 +2362,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetChartsSummary_ActiveScene
 	suite.createApprovedShow("Hy 2", hyphenB.ID, band.ID, user.ID, now.AddDate(0, 0, -4))
 	suite.createApprovedShow("Hy 3", hyphenA.ID, band.ID, user.ID, now.AddDate(0, 0, -5))
 
-	scenes, err := NewSceneService(suite.db).ListScenes()
-	suite.Require().NoError(err)
-	suite.Require().Len(scenes, 1, "the directory publishes one row per slug")
-	suite.Equal("saint-jerome-qc", scenes[0].Slug)
-
-	month, err := suite.chartsService.GetChartsSummary(contracts.ChartWindowMonth, "")
-	suite.Require().NoError(err)
-	suite.Equal(len(scenes), month.ActiveScenes, "the masthead count is the directory's row count, not its SQL group count")
-	suite.Equal(1, month.ActiveScenes)
+	suite.assertActiveScenesMatchDirectory("saint-jerome-qc")
 }
 
 func (suite *ChartsServiceIntegrationTestSuite) TestGetFreshlyAdded_InterleavedNewestFirst() {

@@ -300,9 +300,7 @@ type TopTag struct {
 // RadioPlays counts plays on aired in-window episodes (pseudo-artist rows
 // excluded, unmatched plays included — logging activity, not match rate);
 // ActiveScenes counts scenes with at least one show played in the window,
-// under the identity the scenes DIRECTORY publishes (one per slug, drifted
-// and misspelled duplicates collapsed) so a scene the directory lists once is
-// never counted twice here.
+// under the identity the scenes directory publishes (one row per slug).
 type ChartsSummary struct {
 	ShowsAdded   int `json:"shows_added"`
 	NewArtists   int `json:"new_artists"`
