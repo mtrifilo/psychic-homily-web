@@ -51,14 +51,23 @@ interface ShowProvenanceLineProps {
 
 /**
  * The provenance footer of the show page, per the locked mock:
- * `Listing from Salt Shed calendar · added Jul 12 · updated Jul 31 by
- * mtrifilo · 3 edits · [Edit] · [Report issue]`.
+ * `Listing from Salt Shed calendar · added Jul 12 by mtrifilo · updated
+ * Jul 31 by mtrifilo · 3 edits · [Edit] · [Report issue]`.
  *
  * Every fragment degrades to omission:
  * - The listing credit resolves `source_venue` the same way the flyer
  *   caption does ({@link sourceVenueName}) and says nothing for
- *   user-submitted shows — the row carries no submitter display name, so
- *   the mock's "added by mtrifilo" has no honest data to render from.
+ *   user-submitted shows.
+ * - "added … by …" credits the submitter from `submitted_by_name` /
+ *   `submitted_by_username`, resolved by the show DETAIL read (PSY-1866). Only
+ *   the detail read carries them — a `ShowResponse` from a list payload has
+ *   neither, and the fragment falls back to a bare "added Jul 12" exactly as it
+ *   did before the fields existed. NOTE the two bylines on this line do not
+ *   resolve identically yet: "added by" uses the backend's canonical chain
+ *   (display_name first), "updated by" uses the revisions endpoint's older
+ *   local copy (username first), so a contributor with a display name can be
+ *   named two ways here. Tracked backend-side; nothing to compensate for in
+ *   this component.
  * - "updated … by …" and the edit count come from the revisions read the
  *   old attribution line already made on this page; zero revisions renders
  *   neither. This is DELIBERATELY human edits only — `show.updated_at`
@@ -100,7 +109,30 @@ export function ShowProvenanceLine({
     push('credit', <span>Listing from {credit} calendar</span>)
   }
   if (added) {
-    push('added', <span>added {added}</span>)
+    // The credit is a SEPARATE guard from the date: a listing with no resolved
+    // submitter still gets its "added" date, just without a "by". That covers
+    // a scraped show, an account whose row is gone, and the backend's privacy
+    // gates (a contributor who hid their contributions, or one whose only
+    // resolvable name would be an email fragment) — all arrive here identically
+    // as an absent name, and all must render as no credit rather than as a
+    // placeholder. Gated on the NAME rather than the username, because an
+    // account with no linkable profile is still a person to credit;
+    // UserAttribution renders that as plain text.
+    push(
+      'added',
+      show.submitted_by_name ? (
+        <span>
+          added {added} by{' '}
+          <UserAttribution
+            name={show.submitted_by_name}
+            username={show.submitted_by_username}
+            className="hover:underline"
+          />
+        </span>
+      ) : (
+        <span>added {added}</span>
+      )
+    )
   }
   if (attribution && updated) {
     push(

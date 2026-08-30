@@ -109,23 +109,40 @@ type ShowResponse struct {
 	// DoorsAt / MusicAt are null when unknown. Emitted unconditionally rather
 	// than with omitempty so a client can tell "not set" from "this response
 	// shape predates the field".
-	DoorsAt           *time.Time       `json:"doors_at"`
-	MusicAt           *time.Time       `json:"music_at"`
-	City              *string          `json:"city"`
-	State             *string          `json:"state"`
-	Price             *float64         `json:"price"`
-	AgeRequirement    *string          `json:"age_requirement"`
-	Description       *string          `json:"description"`
-	TicketURL         *string          `json:"ticket_url,omitempty"`
-	ImageURL          *string          `json:"image_url"` // Optional show flyer (PSY-521)
-	Status            string           `json:"status"`
-	SubmittedBy       *uint            `json:"submitted_by,omitempty"`
-	RejectionReason   *string          `json:"rejection_reason,omitempty"`
-	RejectionCategory *string          `json:"rejection_category,omitempty"`
-	Venues            []VenueResponse  `json:"venues"`
-	Artists           []ArtistResponse `json:"artists"`
-	CreatedAt         time.Time        `json:"created_at"`
-	UpdatedAt         time.Time        `json:"updated_at"`
+	DoorsAt         *time.Time `json:"doors_at"`
+	MusicAt         *time.Time `json:"music_at"`
+	City            *string    `json:"city"`
+	State           *string    `json:"state"`
+	Price           *float64   `json:"price"`
+	AgeRequirement  *string    `json:"age_requirement"`
+	Description     *string    `json:"description"`
+	TicketURL       *string    `json:"ticket_url,omitempty"`
+	ImageURL        *string    `json:"image_url"` // Optional show flyer (PSY-521)
+	Status          string     `json:"status"`
+	SubmittedBy     *uint      `json:"submitted_by,omitempty"`
+	RejectionReason *string    `json:"rejection_reason,omitempty"`
+	// SubmittedByName / SubmittedByUsername are the resolved display identity
+	// of SubmittedBy, so a client can credit the submitter without a second
+	// round trip per show to turn the numeric id into a name.
+	//
+	// DETAIL READS ONLY. Populated by attachSubmitterAttribution, which the two
+	// single-show reads (GetShow / GetShowBySlug) call and nothing else — the
+	// same footing as Labels on ArtistResponse, and for the same reason: it
+	// costs a query, and no list card renders a submitter byline. Both carry
+	// omitempty so every list payload's shape is byte-for-byte what it was.
+	//
+	// Read absence as "not looked up, or this show has no submitter", never as
+	// "the submitter has no name": a resolved submitter always has a non-empty
+	// Name (shared.ResolveUserName bottoms out at "Anonymous"). Username is the
+	// /users/:username slug and is absent when the account has none, which the
+	// client must render as unlinked text rather than as a dead link.
+	SubmittedByName     *string          `json:"submitted_by_name,omitempty"`
+	SubmittedByUsername *string          `json:"submitted_by_username,omitempty"`
+	RejectionCategory   *string          `json:"rejection_category,omitempty"`
+	Venues              []VenueResponse  `json:"venues"`
+	Artists             []ArtistResponse `json:"artists"`
+	CreatedAt           time.Time        `json:"created_at"`
+	UpdatedAt           time.Time        `json:"updated_at"`
 
 	// Status flags (admin-controlled)
 	IsSoldOut   bool `json:"is_sold_out"`

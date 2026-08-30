@@ -96,6 +96,132 @@ describe('ShowProvenanceLine', () => {
     expect(screen.getByText(/added Jul 12(?!,)/)).toBeInTheDocument()
   })
 
+  // PSY-1866. The detail read resolves the submitter's display identity; the
+  // byline credits them. A list payload carries neither field, so the fragment
+  // must still degrade to a bare "added {date}".
+  describe('submitter credit', () => {
+    it('credits the submitter and links their profile', () => {
+      renderLine(
+        makeShow({
+          submitted_by_name: 'mtrifilo',
+          submitted_by_username: 'mtrifilo',
+        })
+      )
+
+      expect(screen.getByText(/added Jul 12 by/)).toBeInTheDocument()
+      expect(
+        screen.getByRole('link', { name: 'mtrifilo' })
+      ).toHaveAttribute('href', '/users/mtrifilo')
+    })
+
+    // No username means no public profile. The person is still credited; the
+    // name must not become a dead /users/ href.
+    it('credits an unlinkable submitter as plain text', () => {
+      renderLine(
+        makeShow({
+          submitted_by_name: 'Jane Doe',
+          submitted_by_username: null,
+        })
+      )
+
+      expect(screen.getByText(/added Jul 12 by/)).toBeInTheDocument()
+      expect(screen.getByText('Jane Doe')).toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: 'Jane Doe' })).toBeNull()
+    })
+
+    it('omits the credit when the payload carries no submitter name', () => {
+      renderLine(makeShow())
+
+      const text =
+        screen.getByTestId('show-provenance-line').textContent ?? ''
+      expect(text).toMatch(/added Jul 12/)
+      expect(text).not.toMatch(/added Jul 12 by/)
+    })
+
+    // The backend fails closed for a contributor who set `contributions:
+    // hidden`, and for an account whose only resolvable name would come from
+    // its email local-part. Both arrive as an absent name, and both must render
+    // as NO credit — never a placeholder, and never a leaked fragment.
+    it('renders no credit when the backend withheld the name for privacy', () => {
+      renderLine(
+        makeShow({
+          submitted_by: 42,
+          submitted_by_name: null,
+          submitted_by_username: null,
+        })
+      )
+
+      const text =
+        screen.getByTestId('show-provenance-line').textContent ?? ''
+      expect(text).toMatch(/added Jul 12/)
+      expect(text).not.toMatch(/added Jul 12 by/)
+      expect(screen.queryByText('Anonymous')).toBeNull()
+      expect(text).not.toMatch(/@/)
+    })
+
+    // Gated on the NAME, not the username: a username with no name is a shape
+    // the backend cannot produce, and rendering a placeholder off a stray
+    // username would invent a claim.
+    it('omits the credit when only a username arrives', () => {
+      renderLine(makeShow({ submitted_by_username: 'mtrifilo' }))
+
+      const text =
+        screen.getByTestId('show-provenance-line').textContent ?? ''
+      expect(text).not.toMatch(/added Jul 12 by/)
+      expect(screen.queryByText('Anonymous')).toBeNull()
+    })
+
+    // An empty string is not a name. It must degrade like an absent one rather
+    // than rendering a dangling "added Jul 12 by".
+    it('omits the credit for an empty submitter name', () => {
+      renderLine(makeShow({ submitted_by_name: '' }))
+
+      const text =
+        screen.getByTestId('show-provenance-line').textContent ?? ''
+      expect(text).not.toMatch(/added Jul 12 by/)
+    })
+
+    // Both bylines resolve through the same backend chain, so they can name the
+    // same person twice on one line. That is the mock, and it must not collapse.
+    it('credits the submitter and the last editor independently', () => {
+      mockUseEntityAttribution.mockReturnValue({
+        data: {
+          user_name: 'editor',
+          user_username: 'editor',
+          created_at: '2026-07-31T12:00:00Z',
+          total: 3,
+        },
+      })
+      renderLine(
+        makeShow({
+          submitted_by_name: 'submitter',
+          submitted_by_username: 'submitter',
+        })
+      )
+
+      expect(screen.getByText(/added Jul 12 by/)).toBeInTheDocument()
+      expect(screen.getByText('submitter')).toBeInTheDocument()
+      expect(screen.getByText(/updated Jul 31 by/)).toBeInTheDocument()
+      expect(screen.getByText('editor')).toBeInTheDocument()
+    })
+
+    // The credit rides INSIDE the 'added' fragment, so an unparseable date must
+    // drop the name with it — a lone "by mtrifilo" is not a provenance claim.
+    it('drops the credit along with an unparseable date', () => {
+      renderLine(
+        makeShow({
+          created_at: 'not-a-date',
+          submitted_by_name: 'mtrifilo',
+          submitted_by_username: 'mtrifilo',
+        })
+      )
+
+      const text =
+        screen.getByTestId('show-provenance-line').textContent ?? ''
+      expect(text).not.toMatch(/mtrifilo/)
+    })
+  })
+
   it('renders the last edit, its editor, and the edit count from the revisions read', () => {
     mockUseEntityAttribution.mockReturnValue({
       data: {

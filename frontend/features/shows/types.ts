@@ -132,6 +132,26 @@ export interface ShowResponse {
   image_url?: string | null
   status: ShowStatus
   submitted_by?: number
+  /**
+   * Resolved display identity of `submitted_by`, so the provenance byline can
+   * credit the submitter without a second round trip (PSY-1866).
+   *
+   * DETAIL READS ONLY (`GET /shows/{id|slug}`). List payloads omit both keys.
+   *
+   * Absence of `submitted_by_name` is deliberately opaque: it means "this show
+   * has no submitter, OR the payload is a list row, OR the backend's privacy
+   * gates withheld the credit". The backend fails closed — it drops the credit
+   * for a contributor who set `contributions: hidden`, and for an account whose
+   * only resolvable name would come from its email local-part. Do NOT try to
+   * distinguish those cases or substitute a placeholder; render no credit.
+   *
+   * `submitted_by_username` is the `/users/:username` slug. It is absent when
+   * the account has no username AND when the profile is private (linking there
+   * would be a dead link), so a name with no username must render as unlinked
+   * text. `UserAttribution` already gates on exactly that.
+   */
+  submitted_by_name?: string | null
+  submitted_by_username?: string | null
   rejection_reason?: string | null
   rejection_category?: string | null
   venues: VenueResponse[]
