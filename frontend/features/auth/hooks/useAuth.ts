@@ -352,16 +352,22 @@ export const useProfile = () => {
     // sets `refetchOnWindowFocus` to development-only, and AuthProvider mounts
     // once in the root layout so nothing remounts it.
     //
-    // Throttled rather than plain `true`, and the difference matters. An
-    // errored query has `dataUpdatedAt === 0`, so it is permanently stale and
-    // a bare `true` refires on EVERY focus event, each starting a fresh chain
-    // of up to three attempts. A viewer alt-tabbing during an incident would
-    // then hammer `/auth/profile`, which is rate-limited per auth cookie, and
-    // could limit themselves out of the recovery this exists to provide. The
-    // predicate form keeps the ordinary behavior for a healthy query and puts
-    // a floor under the retry cadence for a failing one.
+    // Scoped to the FAILING case only, in both directions.
+    //
+    // It returns false for a healthy query, which preserves today's production
+    // behavior exactly: the global default is `NODE_ENV === 'development'`, so
+    // signed-in viewers do not refetch their profile on focus today, and this
+    // fix has no business changing that for everyone to repair an error path.
+    //
+    // And it is throttled rather than a bare `true` for the failing case,
+    // because an errored query has `dataUpdatedAt === 0` and is therefore
+    // permanently stale: an unthrottled predicate refires on EVERY focus event,
+    // each starting a fresh chain of up to three attempts. A viewer alt-tabbing
+    // during an incident would hammer `/auth/profile`, which is rate-limited per
+    // auth cookie, and could limit themselves out of the very recovery this
+    // exists to provide.
     refetchOnWindowFocus: query =>
-      query.state.status !== 'error' ||
+      query.state.status === 'error' &&
       Date.now() - query.state.errorUpdatedAt > PROFILE_ERROR_REFETCH_FLOOR_MS,
     retry: (failureCount, error) => {
       // Check if it's an AuthError or has status property
