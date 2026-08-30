@@ -200,4 +200,39 @@ export function getAuthErrorMessage(code: AuthErrorCodeType): string {
   }
 }
 
+/**
+ * Is this failure the backend ANSWERING "there is no valid session", as opposed
+ * to failing to answer at all?
+ *
+ * One definition, deliberately, because three had already grown and they
+ * disagreed. The SSR profile prefetch classified on raw HTTP status, the auth
+ * context classified on `AuthError` code, and `useProfile`'s retry policy
+ * classified on code plus 403, so the same bodyless 401 could be read as
+ * "definitely logged out" in one place and "keep retrying" in another. That
+ * matters more than it sounds: a failure read as an ANSWER settles a viewer's
+ * auth state, and settling it wrongly is what lets a gate act on a viewer it
+ * has misidentified.
+ *
+ * Status is the primary signal and the code is the fallback, not the reverse.
+ * `apiRequest` builds `code = errorBody.error_code || UNAUTHORIZED`, and
+ * `shouldRedirectToLogin` recognizes only the three token codes, so a 401 from
+ * an edge proxy, an HTML error page, or a future handler would otherwise read
+ * as indefinite and strand a genuinely anonymous viewer as "unknown" forever.
+ *
+ * Takes the raw parts rather than an `AuthError` so the server-side prefetch,
+ * which has a `Response` and a parsed body but no `AuthError`, can call the
+ * same function instead of keeping its own copy.
+ */
+export function isDefinitiveUnauthenticated(
+  status: number | undefined,
+  code: string | undefined
+): boolean {
+  if (status === 401 || status === 403) return true
+  return (
+    code === AuthErrorCode.TOKEN_EXPIRED ||
+    code === AuthErrorCode.TOKEN_MISSING ||
+    code === AuthErrorCode.TOKEN_INVALID
+  )
+}
+
 export default AuthError

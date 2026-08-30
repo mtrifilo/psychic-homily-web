@@ -14,8 +14,12 @@ let mockIsFollowing = true
 let mockAlerts: FollowAlertSettings | undefined
 let mockHomeMetro: string | null = '38060'
 
+// Driven from one variable, mirroring the real context's invariant that
+// `isAuthenticated` is derived from `authStatus`, so no test can assert against
+// a viewer that cannot exist.
 vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => ({
+    authStatus: mockIsAuthenticated ? 'authenticated' : 'anonymous',
     isAuthenticated: mockIsAuthenticated,
     user: { id: 1 },
   }),

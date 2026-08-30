@@ -76,7 +76,7 @@ export function FollowAlertsReveal({
   entityName,
   className,
 }: FollowAlertsRevealProps) {
-  const { isAuthenticated } = useAuthContext()
+  const { isAuthenticated, authStatus } = useAuthContext()
   // Gated on the same fact that turns an anonymous viewer away at the
   // `!isAuthenticated` guard below, so nothing this reads is ever used by one.
   //
@@ -99,10 +99,17 @@ export function FollowAlertsReveal({
   // was not already spending; it is kept only because this component's own read
   // is unreachable for an anonymous viewer, and one predicate across both call
   // sites is easier to keep true than two.
+  // Expressed as `authStatus === 'authenticated'` rather than `isAuthenticated`
+  // so this reads as the same predicate the sibling gate is stated in. The two
+  // are equivalent by construction (`isAuthenticated` is derived from exactly
+  // this comparison), so the change is a naming one; but a rule whose only
+  // worked example is written in a different dialect is the rule people copy
+  // wrong, and the dialect it was written in is the one an earlier attempt was
+  // reverted for.
   const { data: followStatus } = useFollowStatus(
     entityType,
     entityId,
-    isAuthenticated
+    authStatus === 'authenticated'
   )
   const isFollowing = followStatus?.is_following ?? false
   const supported = isAlertCapableFollowType(entityType)

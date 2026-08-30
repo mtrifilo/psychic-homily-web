@@ -21,7 +21,12 @@ import {
   resetViewerTierQueries,
 } from '@/lib/queryClient'
 import { authLogger } from '@/lib/utils/authLogger'
-import { AuthError, AuthErrorCode, type AuthErrorCodeType } from '@/lib/errors'
+import {
+  AuthError,
+  AuthErrorCode,
+  isDefinitiveUnauthenticated,
+  type AuthErrorCodeType,
+} from '@/lib/errors'
 import type { NavMode } from '@/lib/nav-mode'
 import type { APIToken } from '../types'
 
@@ -335,13 +340,32 @@ export const useProfile = () => {
       return response
     },
     staleTime: 5 * 60 * 1000, // 5 minutes
+    // This query's failure state is no longer inert, so it must not be
+    // terminal. Since an indeterminate failure reads as 'pending' rather than
+    // 'anonymous', a viewer whose profile read dies in a deploy window would
+    // otherwise stay unresolved for the whole SPA session: the global defaults
+    // set `refetchOnWindowFocus` to development-only, `refetchOnReconnect`
+    // needs an `online` event that a backend 5xx never fires, and AuthProvider
+    // mounts once in the root layout so nothing remounts it.
+    //
+    // These two overrides give it the ordinary ways back that every other
+    // query has, scoped to the one query whose unresolved state now gates UI.
+    // Both are event-driven; deliberately NOT a refetchInterval, which polls
+    // an already-failing endpoint on a timer and has its own error-state
+    // footgun.
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: 'always',
     retry: (failureCount, error) => {
       // Check if it's an AuthError or has status property
       const authError =
         error instanceof AuthError ? error : AuthError.fromUnknown(error)
 
-      // Don't retry on authentication errors
-      if (authError.shouldRedirectToLogin || authError.status === 403) {
+      // Don't retry when the failure is the backend ANSWERING "no session".
+      // Shared with the SSR prefetch and AuthContext so all three agree on
+      // which failures are terminal; this used to be a local code-plus-403
+      // test, which called a bodyless 401 retryable while AuthContext called
+      // the same response definitive.
+      if (isDefinitiveUnauthenticated(authError.status, authError.code)) {
         authLogger.debug('Profile fetch auth error, not retrying', {
           code: authError.code,
         })

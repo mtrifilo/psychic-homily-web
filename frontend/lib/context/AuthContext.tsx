@@ -11,7 +11,7 @@ import {
 import { useProfile, useLogout } from '@/features/auth'
 import type { UserTier } from '@/features/auth'
 import type { NavMode } from '@/lib/nav-mode'
-import { AuthError } from '@/lib/errors'
+import { AuthError, isDefinitiveUnauthenticated } from '@/lib/errors'
 
 interface User {
   id: string
@@ -172,29 +172,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
   //    the backend saying "this viewer has no session", which settles to
   //    'anonymous'. A 5xx, a network failure or an unknown error is the
   //    backend failing to say anything, and must not be read as "nobody".
-  //    Classified by STATUS first and error code second, and that order is the
-  //    fix for a trap rather than a stylistic choice. `apiRequest` throws
-  //    `AuthError` with `code = errorBody.error_code || UNAUTHORIZED` on a
-  //    401/403, and `shouldRedirectToLogin` only covers the expired / missing /
-  //    invalid token codes. The backend does send TOKEN_MISSING today, so a
-  //    code-only test happens to work, but any 401 without that body (a proxy,
-  //    a gateway, a future handler) would then read as "not definitive" and
-  //    strand a genuinely anonymous viewer at 'pending' forever, with the
-  //    bracket permanently disabled. A 401 or 403 from the profile endpoint IS
-  //    the backend answering "no valid session", whatever it attaches to it.
-  //    `shouldRedirectToLogin` is kept as the second arm so this agrees with the
-  //    predicate `useProfile`'s retry policy uses to call a failure terminal.
+  //    The test for "definitive" is NOT written here. It lives in
+  //    `isDefinitiveUnauthenticated`, which the SSR prefetch and
+  //    `useProfile`'s retry policy call too. Three local copies of this
+  //    decision had already drifted apart once (status-only on the server,
+  //    code-only in the retry policy), so the same bodyless 401 could settle a
+  //    viewer as logged out in one place while another kept retrying it. A
+  //    shared function is what makes them agree; a comment claiming they agree
+  //    is what one of them said while they did not.
   const profileErrorIsDefinitive = useMemo(() => {
     if (!profileError) return false
     const authError =
       profileError instanceof AuthError
         ? profileError
         : AuthError.fromUnknown(profileError)
-    return (
-      authError.status === 401 ||
-      authError.status === 403 ||
-      authError.shouldRedirectToLogin
-    )
+    return isDefinitiveUnauthenticated(authError.status, authError.code)
   }, [profileError])
 
   const authStatus: AuthStatus = useMemo(() => {

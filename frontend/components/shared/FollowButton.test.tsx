@@ -363,40 +363,48 @@ describe('FollowButton — bracket variant (PSY-641)', () => {
     expect(screen.getByRole('button', { name: 'Follow' })).toBeDisabled()
   })
 
-  // The disabled render above is one half of the pre-hydration safety
-  // argument; `handleClick`'s own pending guard is the other. Testing the
-  // first through the second does NOT work, and the earlier version of this
-  // test made exactly that mistake: it clicked the DISABLED bracket, and React
-  // suppresses onClick on a disabled button, so the handler was never invoked
-  // and the assertions below merely restated `toBeDisabled()`. It could not
-  // have failed for the reason it claimed to test.
+  // The actual guarantee, asserted directly instead of through a proxy.
   //
-  // So drive the handler on a bracket that really is enabled. `followData`
-  // short-circuits the loading branch, which is precisely the shape the charts
-  // pages produce, and before the guard existed it was the live hole: an
-  // enabled bracket in the pending window whose replayed click pushed a
-  // signed-in viewer to /auth.
-  it('does not send a signed-in-but-pending viewer to /auth when its click handler runs', () => {
-    mockAuthStatus = 'pending'
+  // This test was wrong twice in opposite directions, which is worth recording
+  // because both failures looked like passes. Version one clicked a DISABLED
+  // bracket; React suppresses onClick there, so the handler never ran and the
+  // assertions merely restated `toBeDisabled()`. Version two supplied
+  // `followData` to get an enabled bracket, but the render gate added in the
+  // same commit returns early on 'pending' regardless of `followData`. Same
+  // tautology, new disguise.
+  //
+  // What settled it is that the guarantee itself changed: 'pending' is now part
+  // of `isDisabled`, so NO variant renders an actionable control while auth is
+  // unsettled. `handleClick`'s own pending guard is therefore unreachable by
+  // construction and kept only as defence in depth. So this asserts the
+  // property that is actually true and load-bearing, across both variants, rather than
+  // reaching for a handler the component correctly refuses to wire up.
+  it.each(['bracket', undefined] as const)(
+    'never presents an actionable control while auth is unsettled (variant=%s)',
+    variant => {
+      mockAuthStatus = 'pending'
 
-    render(
-      <FollowButton
-        entityType="venues"
-        entityId={1}
-        variant="bracket"
-        followData={{ follower_count: 3, is_following: false }}
-      />,
-      { wrapper: createWrapper() }
-    )
+      render(
+        <FollowButton
+          entityType="venues"
+          entityId={1}
+          variant={variant}
+          followData={{ follower_count: 3, is_following: false }}
+        />,
+        { wrapper: createWrapper() }
+      )
 
-    const bracket = screen.getByRole('button', { name: 'Follow' })
-    // fireEvent, not userEvent: a raw dispatch is what `consumePendingReplay`
-    // does, so it is the closer analogue of a replayed click.
-    fireEvent.click(bracket)
+      const control = screen.getByRole('button', { name: /Follow/ })
+      expect(control).toBeDisabled()
+      // fireEvent, not userEvent: a raw dispatch is what `consumePendingReplay`
+      // does, so it is the closer analogue of a replayed click, and unlike
+      // userEvent it is not stopped by `pointer-events: none`.
+      fireEvent.click(control)
 
-    expect(mockPush).not.toHaveBeenCalled()
-    expect(mockFollowMutate).not.toHaveBeenCalled()
-  })
+      expect(mockPush).not.toHaveBeenCalled()
+      expect(mockFollowMutate).not.toHaveBeenCalled()
+    }
+  )
 
   // AC2: "no enabled bracket ever ships while the viewer's auth state is
   // unsettled", including down the `followData` path, which the fetch gate
@@ -420,13 +428,20 @@ describe('FollowButton — bracket variant (PSY-641)', () => {
     expect(screen.getByRole('button', { name: 'Follow' })).toBeDisabled()
   })
 
-  // A disabled TanStack observer still reports whatever is cached under its
-  // key, so the skip must be safe when the anonymous key is already populated
-  // (a earlier button-variant render on the same page will do it). The bracket
-  // paints no count, so the only thing that can leak through is `is_following`.
-  it('paints a cached anonymous-key entry without re-fetching', () => {
+  // A disabled TanStack observer still reports whatever is CACHED under its
+  // key, and the follow-status key collapses to a viewer id of null for anyone
+  // not currently authenticated. A signed-in viewer passing through a 'pending'
+  // window therefore writes their real `is_following: true` into the shared
+  // identity-less entry; if their session then ends without an explicit logout
+  // (expiry clears no cache), this skip fires and there is no enabled query
+  // left that could ever correct it.
+  //
+  // `is_following: true` is the whole point of the fixture. An earlier version
+  // of this test used `false`, which is indistinguishable from the no-cache
+  // case, so it asserted nothing about the leak it was named for.
+  it('ignores a cached anonymous-key follow state instead of painting it', () => {
     mockAuthStatus = 'anonymous'
-    mockFollowStatusData = { follower_count: 7, is_following: false }
+    mockFollowStatusData = { follower_count: 7, is_following: true }
 
     render(
       <FollowButton entityType="venues" entityId={1} variant="bracket" />,
@@ -434,8 +449,11 @@ describe('FollowButton — bracket variant (PSY-641)', () => {
     )
 
     expect(followStatusCall.last?.enabled).toBe(false)
+    // Not [Following]: an anonymous viewer follows nothing by definition, which
+    // is the same premise that makes the request skippable at all.
     const bracket = screen.getByRole('button', { name: 'Follow' })
     expect(bracket).toBeEnabled()
+    expect(screen.queryByRole('button', { name: 'Following' })).toBeNull()
     expect(screen.queryByText('7')).toBeNull()
   })
 

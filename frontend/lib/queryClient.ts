@@ -18,7 +18,11 @@ import {
   QueryCache,
   MutationCache,
 } from '@tanstack/react-query'
-import { AuthError, AuthErrorCode } from './errors'
+import {
+  AuthError,
+  AuthErrorCode,
+  isDefinitiveUnauthenticated,
+} from './errors'
 import type { ApiError } from './api'
 import {
   isRateLimitError,
@@ -161,7 +165,22 @@ function profileAlreadyKnowsAnonymous(
   if (!client) return false
   const state = client.getQueryState(queryKeys.auth.profile)
   if (!state) return false
-  if (state.status === 'error') return true
+  if (state.status === 'error') {
+    // An error only "knows" the viewer is anonymous when it is the backend
+    // ANSWERING that, and this used to treat EVERY error as that answer. Once
+    // AuthContext started reading a 5xx / network failure as 'pending' rather
+    // than 'anonymous', a blanket `true` here made two modules disagree about
+    // the same query, and it disagreed in the expensive direction: this guard
+    // suppresses the profile invalidation, which is the one automatic path
+    // that gets an unresolved profile re-fetched. A viewer stuck 'pending'
+    // after a backend blip would have had that recovery skipped on the very
+    // signal (a sibling 401) that should have triggered it.
+    const authError =
+      state.error instanceof AuthError
+        ? state.error
+        : AuthError.fromUnknown(state.error)
+    return isDefinitiveUnauthenticated(authError.status, authError.code)
+  }
   const data = state.data as { success?: boolean } | undefined
   return data?.success === false
 }

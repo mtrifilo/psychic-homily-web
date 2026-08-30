@@ -36,7 +36,7 @@ import { dehydrate, type DehydratedState } from '@tanstack/react-query'
 import * as Sentry from '@sentry/nextjs'
 import { getQueryClient, queryKeys } from '@/lib/queryClient'
 import { API_BASE_URL } from '@/lib/api-base'
-import { AuthErrorCode } from '@/lib/errors'
+import { AuthErrorCode, isDefinitiveUnauthenticated } from '@/lib/errors'
 
 // Mirror the relevant subset of `UserProfile` from
 // features/auth/hooks/useAuth.ts. Duplicated here (rather than imported)
@@ -85,6 +85,23 @@ const UNAUTHENTICATED_PROFILE: AuthProfilePayload = {
 type AuthProfileResolution =
   | { kind: 'resolved'; profile: AuthProfilePayload }
   | { kind: 'indeterminate' }
+
+/**
+ * Best-effort `error_code` from a failed response, so the shared
+ * `isDefinitiveUnauthenticated` test can see the same two inputs the client
+ * side gives it. A body that will not parse is not an error here: the status
+ * alone already decides every case that matters.
+ */
+async function readErrorCode(
+  response: Response
+): Promise<string | undefined> {
+  try {
+    const body = (await response.json()) as { error_code?: string }
+    return body?.error_code
+  } catch {
+    return undefined
+  }
+}
 
 /**
  * Fetch `/auth/profile` server-side and hydrate the result into a
@@ -169,9 +186,11 @@ const fetchAuthProfile = cache(async (): Promise<AuthProfileResolution> => {
     })
 
     if (!response.ok) {
-      // 401/403 is the backend answering the question: this cookie does not
-      // identify a session. That is definitive, so it settles.
-      if (response.status === 401 || response.status === 403) {
+      // Shared with AuthContext and useProfile's retry policy rather than
+      // re-decided here: a 401/403 (or a token error code) is the backend
+      // ANSWERING that this cookie identifies no session, which settles.
+      const errorCode = await readErrorCode(response)
+      if (isDefinitiveUnauthenticated(response.status, errorCode)) {
         return { kind: 'resolved', profile: UNAUTHENTICATED_PROFILE }
       }
 
@@ -188,10 +207,26 @@ const fetchAuthProfile = cache(async (): Promise<AuthProfileResolution> => {
       return { kind: 'indeterminate' }
     }
 
-    return {
-      kind: 'resolved',
-      profile: (await response.json()) as AuthProfilePayload,
+    // A 2xx is not by itself an answer, so the body is checked rather than
+    // cast. An edge interstitial, an API version change, or a handler that
+    // starts returning `{}` all parse as JSON and would otherwise seed a
+    // payload whose `success` is undefined: the context reads no user, the
+    // query is no longer pending, and a signed-in viewer settles to
+    // 'anonymous'. That is the same fabricated answer the indeterminate branch
+    // above exists to prevent, arriving through the one branch that was not
+    // checking. `success` is the field every consumer keys off, so its
+    // presence is the minimum that makes this a profile.
+    const body: unknown = await response.json()
+    if (typeof (body as AuthProfilePayload)?.success !== 'boolean') {
+      Sentry.captureMessage('SSR auth profile returned an unrecognized body', {
+        level: 'error',
+        tags: { service: 'auth', error_type: 'ssr_prefetch_bad_body' },
+        extra: { status: response.status },
+      })
+      return { kind: 'indeterminate' }
     }
+
+    return { kind: 'resolved', profile: body as AuthProfilePayload }
   } catch (error) {
     // Network failure (backend unreachable from the Next server, DNS, etc.).
     // Also not an answer.

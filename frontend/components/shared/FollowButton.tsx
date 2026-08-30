@@ -81,6 +81,7 @@ export function FollowButton({
   // The fix belongs at the source and lives there now: an SSR profile read that
   // cannot reach the backend seeds NOTHING, so the viewer stays 'pending' and
   // this gate does not fire. See lib/auth-hydration.ts.
+  //
   // Co-owned, not local: this skip only holds if no SIBLING observer keeps the
   // same query key alive for the same viewer. `useFollowStatus` keys on
   // (entityType, entityId, viewerId), and viewerId is `undefined` for every
@@ -89,15 +90,17 @@ export function FollowButton({
   // observers of a query share one `fetchStatus`, drives THIS disabled observer
   // to report `isLoading` and grey the bracket out mid-hydration.
   //
-  // State the rule by VARIANT, not by page, because the page list drifts: any
-  // component that shares `queryKeys.follows.entity` with a `variant="bracket"`
-  // FollowButton has to gate itself the same way. Today the brackets are the
-  // show venue module, artist, label and festival pages, and the only sibling
-  // observer that lands beside one is `<FollowAlertsReveal>` on the artist page
-  // (it also appears on the venue page, but that page renders the BUTTON
-  // variant, which never skips, so nothing there depends on the gate).
-  // `SceneNotifyModeToggle` is a third observer of this key family and is
-  // deliberately ungated: scene pages render the button variant too.
+  // State the rule by VARIANT, not by page, and then actually follow that
+  // advice: an earlier draft gave the rule and immediately appended a page list
+  // that was stale on arrival (it omitted the dozen charts brackets) and so
+  // became the thing readers trusted instead of the rule.
+  //
+  // The rule: any component that observes `queryKeys.follows.entity` for the
+  // same entity as a `variant="bracket"` FollowButton must not hold that query
+  // open for a viewer this one is skipping it for. `<FollowAlertsReveal>` is
+  // the only such sibling today and gates on the same settled-auth fact.
+  // `SceneNotifyModeToggle` also observes this key family but never shares a
+  // page with a bracket, so it needs nothing.
   const skipAnonymousStatusFetch =
     variant === 'bracket' && authStatus === 'anonymous'
 
@@ -111,12 +114,38 @@ export function FollowButton({
   const follow = useFollow()
   const unfollow = useUnfollow()
 
-  // Use pre-fetched data if available, otherwise use query data
-  const data = followData ?? fetchedData
+  // Use pre-fetched data if available, otherwise use query data.
+  //
+  // Skipping the fetch has to skip the READ of that query too, or the skip
+  // quietly becomes a way to paint stale state nothing can correct. Disabling a
+  // TanStack query does not clear its key; the observer still returns whatever
+  // is cached. The follow-status key carries a viewer id that is `null` for
+  // anyone the context does not currently call authenticated, so a signed-in
+  // viewer passing through a 'pending' window writes their real
+  // `is_following: true` into that identity-less entry. If their session then
+  // ends WITHOUT an explicit logout (expiry clears no cache), auth settles
+  // 'anonymous', this skip fires, and the bracket would paint [Following] from
+  // the previous session's row with no enabled query left to fix it.
+  //
+  // Scoped to `fetchedData` only. A caller that passed `followData` supplied an
+  // answer deliberately, and overriding it here would silently blank a state
+  // the caller is responsible for.
+  const data =
+    followData ?? (skipAnonymousStatusFetch ? undefined : fetchedData)
   const isFollowing = data?.is_following ?? false
   const followerCount = data?.follower_count ?? 0
   const isMutating = follow.isPending || unfollow.isPending
-  const isDisabled = disabled || isMutating
+  // `authStatus === 'pending'` belongs HERE rather than only in the bracket's
+  // render branch. An earlier revision guarded `handleClick` on 'pending' for
+  // every variant but disabled only the bracket, which left the Button
+  // variants (scene, venue, tag, scene panel, preview) rendering fully enabled
+  // while silently swallowing every click: no navigation, no mutation, no
+  // message. A control that cannot act must not present itself as actionable,
+  // and "disabled" is the only honest way to say so. The window is normally
+  // imperceptible, because the SSR seed settles auth before first paint; it is
+  // reachable, and can persist, only when the profile genuinely cannot be
+  // resolved, which is exactly when these controls could not work anyway.
+  const isDisabled = disabled || isMutating || authStatus === 'pending'
 
   // Replay coverage here is narrower than it looks, so state it precisely.
   //
@@ -148,19 +177,20 @@ export function FollowButton({
     e.preventDefault()
     e.stopPropagation()
 
-    // Never route an unsettled viewer. `isAuthenticated` is false both for a
-    // viewer who has no session and for one whose profile has not arrived, and
-    // the redirect below cannot tell them apart, so without this line a
-    // signed-in viewer clicking during the pending window is sent to /auth.
+    // Defence in depth, and honestly labelled as such: `isDisabled` now
+    // includes `authStatus === 'pending'`, so no variant renders an actionable
+    // control while auth is unsettled and this line is unreachable by
+    // construction today. It is kept because the cost is one comparison and the
+    // failure it prevents is specific and expensive: `isAuthenticated` reads
+    // false BOTH for a viewer with no session and for one whose profile has not
+    // arrived, and the redirect below cannot tell those apart, so any future
+    // render path that reaches this function while unsettled would send a
+    // signed-in viewer to /auth. That is exactly the bug this ticket exists to
+    // close, and it has already been reintroduced once by a render change.
     //
-    // Deliberately the FIRST statement, ahead of the redirect and ahead of the
-    // `isDisabled` bail. Until now the pending window was survivable only
-    // because every path that could reach this function happened to render a
-    // disabled control first; that made the invariant depend on three other
-    // files (the loading render branch, BracketLink's `pointer-events-none`,
-    // and the replay helper's disabled check) and it did not actually hold on
-    // the `followData` path. Doing nothing is right for a click we cannot yet
-    // interpret: the viewer can click again a moment later.
+    // Placed ahead of the redirect rather than folded into the `isDisabled`
+    // bail below, because that bail sits AFTER the redirect and so would not
+    // stop it.
     if (authStatus === 'pending') return
 
     if (!isAuthenticated) {
