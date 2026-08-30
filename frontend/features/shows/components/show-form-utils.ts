@@ -168,10 +168,8 @@ export interface FormValues {
   time: string
   /**
    * `cost` is the show's price, and the ADVANCE price when `door_cost` is
-   * filled too; `door_cost` is what it costs at the door (PSY-1864). Both are
-   * free text run through {@link parseCost}, matching how `cost` has always
-   * been collected. Empty means "not known" on either — a field left blank
-   * makes no claim about the other.
+   * filled too. Both are free text run through {@link parseCost}; a blank
+   * field makes no claim about the other.
    */
   cost: string
   door_cost: string

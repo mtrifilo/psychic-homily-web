@@ -93,12 +93,10 @@ type ShowRequestPayload struct {
 	EventDate string `json:"event_date"` // RFC3339 / YYYY-MM-DD; parsed at fulfillment
 	// DoorsAt / MusicAt are optional and, unlike EventDate, must be RFC3339:
 	// a bare date carries no time of day, which is the only thing these mean.
-	DoorsAt *string `json:"doors_at,omitempty"`
-	MusicAt *string `json:"music_at,omitempty"`
-	City    *string `json:"city,omitempty"`
-	State   *string `json:"state,omitempty"`
-	// Price is the show's price, and the ADVANCE price when DoorPrice also
-	// arrives; neither is inferred from the other (PSY-1864).
+	DoorsAt        *string  `json:"doors_at,omitempty"`
+	MusicAt        *string  `json:"music_at,omitempty"`
+	City           *string  `json:"city,omitempty"`
+	State          *string  `json:"state,omitempty"`
 	Price          *float64 `json:"price,omitempty"`
 	DoorPrice      *float64 `json:"door_price,omitempty"`
 	AgeRequirement *string  `json:"age_requirement,omitempty"`
@@ -455,6 +453,11 @@ const (
 	// city/state mirror the shows columns (VARCHAR(255)/VARCHAR(10)).
 	maxRequestTitleLen = 255
 	maxRequestAgeLen   = 50
+	// maxRequestPrice deliberately DUPLICATES contracts.MaxShowPrice rather
+	// than importing it: models must not depend on services, and this package
+	// imports nothing from there. Keep the two in sync by hand -- a mismatch
+	// only means the queue accepts a price the direct path would refuse, which
+	// the fulfiller would then hit at INSERT.
 	maxRequestPrice    = 10000
 	maxRequestCityLen  = 255
 	maxRequestStateLen = 10

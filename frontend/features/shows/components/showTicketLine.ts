@@ -50,22 +50,17 @@ function ticketPrice(price: number): string {
 }
 
 /**
- * The price segments of the ticket line: `[]`, `['$35']`, or the mock's split
- * pair `['$35 ADV', 'DOOR $40']` (PSY-1864).
+ * `[]`, `['$35']`, or the mock's split pair `['$35 ADV', 'DOOR $40']`
+ * (PSY-1864).
  *
- * The `ADV` / `DOOR` qualifiers exist to tell two numbers apart, so they are
- * spelled only when there ARE two. One known price is the whole statement and
- * renders bare, exactly as it did before the split shipped — including the
- * door-only case, where `DOOR $40` would be the same number with a word that
- * distinguishes it from nothing. That keeps the overwhelmingly common
- * single-price line untouched, and it is why this returns segments rather than
- * one string: the pair is two middot-separated facts in the mock, not a
- * compound one.
+ * `ADV` / `DOOR` are disambiguators, so they are spelled only when there ARE
+ * two numbers to tell apart. A lone price renders bare — including a lone DOOR
+ * price, where the word would distinguish the number from nothing. Segments
+ * rather than one string because the pair is two middot-separated facts in the
+ * mock, not a compound one.
  *
- * A zero is a price, not silence: `Free` on either side is a fact readers plan
- * around, so the branches test `!= null` and never truthiness. A free advance
- * with a paid door therefore reads `Free ADV · DOOR $10`, which is the honest
- * spelling of a real (if unusual) listing.
+ * Zero is a price ("Free"), not silence, which is why the guards test
+ * `!= null` rather than truthiness.
  */
 function ticketPriceSegments(show: ShowResponse): string[] {
   const advance = show.price
@@ -73,9 +68,8 @@ function ticketPriceSegments(show: ShowResponse): string[] {
   if (advance != null && door != null) {
     return [`${ticketPrice(advance)} ADV`, `DOOR ${ticketPrice(door)}`]
   }
-  if (advance != null) return [ticketPrice(advance)]
-  if (door != null) return [ticketPrice(door)]
-  return []
+  const only = advance ?? door
+  return only != null ? [ticketPrice(only)] : []
 }
 
 /**

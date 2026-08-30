@@ -126,9 +126,7 @@ export interface ShowResponse {
   city?: string | null
   state?: string | null
   // `price` is the show's price, and the ADVANCE price on the shows that also
-  // carry a `door_price`; the two are independent facts and neither is derived
-  // from the other (PSY-1864). Null on either means "not known", zero means
-  // free.
+  // carry a `door_price`. Null means "not known" on either, zero means free.
   price?: number | null
   door_price?: number | null
   age_requirement?: string | null

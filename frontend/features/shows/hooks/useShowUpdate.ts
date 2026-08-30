@@ -59,7 +59,7 @@ export interface ShowUpdate {
   city?: string
   state?: string
   // Advance price and door price. An omitted field leaves the stored value
-  // alone, so clearing one never clears the other (PSY-1864).
+  // alone, so writing one never clears the other.
   price?: number
   door_price?: number
   age_requirement?: string

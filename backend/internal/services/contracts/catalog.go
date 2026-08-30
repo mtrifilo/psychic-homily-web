@@ -52,23 +52,23 @@ type CreateShowArtist struct {
 // CreateShowRequest represents the data needed to create a new show.
 // The service will prevent duplicate headliners at the same venue on the same date/time
 // and reuse existing venues by name and city (venues are unique by name within a city).
+//
+// Price / DoorPrice carry the advance/door split; see catalog.Show for what the
+// pair means and why neither is derived from the other.
 type CreateShowRequest struct {
 	Title     string    `json:"title" validate:"required"`
 	EventDate time.Time `json:"event_date" validate:"required"`
 	// DoorsAt / MusicAt are optional display times. Nil means unknown; they
 	// never substitute for EventDate.
-	DoorsAt *time.Time `json:"doors_at"`
-	MusicAt *time.Time `json:"music_at"`
-	City    string     `json:"city"`
-	State   string     `json:"state"`
-	// Price is the show's price, and the ADVANCE price when DoorPrice is also
-	// supplied. Nil on either means "not known"; zero means free. Neither is
-	// derived from the other (PSY-1864).
-	Price          *float64 `json:"price"`
-	DoorPrice      *float64 `json:"door_price"`
-	AgeRequirement string   `json:"age_requirement"`
-	Description    string   `json:"description"`
-	TicketURL      string   `json:"ticket_url"`
+	DoorsAt        *time.Time `json:"doors_at"`
+	MusicAt        *time.Time `json:"music_at"`
+	City           string     `json:"city"`
+	State          string     `json:"state"`
+	Price          *float64   `json:"price"`
+	DoorPrice      *float64   `json:"door_price"`
+	AgeRequirement string     `json:"age_requirement"`
+	Description    string     `json:"description"`
+	TicketURL      string     `json:"ticket_url"`
 	// ImageURL is populated by the entity_request fulfiller (PSY-1037, the
 	// payload's flyer). The direct create handler does not expose it yet (set
 	// post-create via the update endpoint), so it leaves it nil here.
@@ -93,50 +93,55 @@ type UpdateShowRequest struct {
 	// other field here, so there is no way to clear a previously set time
 	// through this struct. Clearing needs an explicit tri-state signal and no
 	// caller asks for it yet.
-	DoorsAt *time.Time `json:"doors_at"`
-	MusicAt *time.Time `json:"music_at"`
-	City    *string    `json:"city"`
-	State   *string    `json:"state"`
-	// Price / DoorPrice follow the same nil-means-unchanged rule as every
-	// other field here. Writing one leaves the other alone: recording a door
-	// price on a show that already has an advance price must not silently
-	// clear the advance price, and vice versa (PSY-1864).
-	Price          *float64 `json:"price"`
-	DoorPrice      *float64 `json:"door_price"`
-	AgeRequirement *string  `json:"age_requirement"`
-	Description    *string  `json:"description"`
-	TicketURL      *string  `json:"ticket_url"`
-	ImageURL       *string  `json:"image_url"`
+	DoorsAt        *time.Time `json:"doors_at"`
+	MusicAt        *time.Time `json:"music_at"`
+	City           *string    `json:"city"`
+	State          *string    `json:"state"`
+	Price          *float64   `json:"price"`
+	DoorPrice      *float64   `json:"door_price"`
+	AgeRequirement *string    `json:"age_requirement"`
+	Description    *string    `json:"description"`
+	TicketURL      *string    `json:"ticket_url"`
+	ImageURL       *string    `json:"image_url"`
 }
 
-// ShowResponse represents the show data returned to clients
+// ShowResponse represents the show data returned to clients.
+//
+// FOUR hand-maintained builders populate this struct, and a new field has to
+// reach ALL of them or it silently serializes as null on whichever surface was
+// missed:
+//
+//	catalog.CreateShow          (services/catalog/show.go)
+//	catalog.UpdateShow          (services/catalog/show.go)
+//	catalog.assembleShowResponse(services/catalog/show.go -- detail + list reads)
+//	engagement.savedShowResponse(services/engagement/saved_show.go -- saved
+//	                             shows AND the personal ICS feed)
+//
+// The last one is the easy miss: it lives in a different package, so a
+// field-by-field search of services/catalog does not surface it. PSY-1864 added
+// DoorPrice and missed it on the first pass.
 type ShowResponse struct {
 	ID        uint      `json:"id"`
 	Slug      string    `json:"slug"`
 	Title     string    `json:"title"`
 	EventDate time.Time `json:"event_date"`
-	// DoorsAt / MusicAt are null when unknown. Emitted unconditionally rather
-	// than with omitempty so a client can tell "not set" from "this response
-	// shape predates the field".
-	DoorsAt *time.Time `json:"doors_at"`
-	MusicAt *time.Time `json:"music_at"`
-	City    *string    `json:"city"`
-	State   *string    `json:"state"`
-	// Price is the show's price, and the ADVANCE price on the rows that also
-	// carry DoorPrice; the show page's ticket line qualifies the pair as
-	// `$35 ADV · DOOR $40` and prints a lone value bare (PSY-1864). Both are
-	// emitted unconditionally, like DoorsAt / MusicAt above and for the same
-	// reason: null has to be distinguishable from a response shape that
-	// predates the field.
-	Price           *float64 `json:"price"`
-	DoorPrice       *float64 `json:"door_price"`
-	AgeRequirement  *string  `json:"age_requirement"`
-	Description     *string  `json:"description"`
-	TicketURL       *string  `json:"ticket_url,omitempty"`
-	ImageURL        *string  `json:"image_url"` // Optional show flyer (PSY-521)
-	Status          string   `json:"status"`
-	SubmittedBy     *uint    `json:"submitted_by,omitempty"`
-	RejectionReason *string  `json:"rejection_reason,omitempty"`
+	// DoorsAt / MusicAt / Price / DoorPrice are null when unknown. Emitted
+	// unconditionally rather than with omitempty so a client can tell "not set"
+	// from "this response shape predates the field". The show page's ticket line
+	// qualifies a price pair as `$35 ADV · DOOR $40` and prints a lone value bare.
+	DoorsAt         *time.Time `json:"doors_at"`
+	MusicAt         *time.Time `json:"music_at"`
+	City            *string    `json:"city"`
+	State           *string    `json:"state"`
+	Price           *float64   `json:"price"`
+	DoorPrice       *float64   `json:"door_price"`
+	AgeRequirement  *string    `json:"age_requirement"`
+	Description     *string    `json:"description"`
+	TicketURL       *string    `json:"ticket_url,omitempty"`
+	ImageURL        *string    `json:"image_url"` // Optional show flyer (PSY-521)
+	Status          string     `json:"status"`
+	SubmittedBy     *uint      `json:"submitted_by,omitempty"`
+	RejectionReason *string    `json:"rejection_reason,omitempty"`
 	// SubmittedByName / SubmittedByUsername are the resolved display identity
 	// of SubmittedBy, so a client can credit the submitter without a second
 	// round trip per show to turn the numeric id into a name.
@@ -504,6 +509,24 @@ const MaxVenueAgePolicyLength = 100
 const (
 	MinVenueCapacity = 1
 	MaxVenueCapacity = 200000
+)
+
+// MinShowPrice and MaxShowPrice bound both shows.price and shows.door_price.
+// One rail for the pair: an advance price and a door price are the same kind of
+// fact, and a ceiling that admitted one but not the other would be arbitrary.
+//
+// The ceiling is a typo guard, not a domain claim -- it exists so a fat-fingered
+// "3500" instead of "35.00" is rejected at the boundary instead of being
+// published on a show page. Every write path enforces it: the show create
+// resolver, the show update handler, and the entity-request payload validator.
+//
+// NOT registered in NumericEditFieldBounds: that registry is the pending-edit
+// (suggest/approve) pipeline's, its bounds are ints, and shows have no
+// contributor allowlist to route through it. A price is a decimal, so narrowing
+// it to an int there would silently drop the cents.
+const (
+	MinShowPrice = 0
+	MaxShowPrice = 10000
 )
 
 // NumericEditBounds is the accepted range for one whole-number column that the
