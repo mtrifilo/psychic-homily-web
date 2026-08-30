@@ -1848,12 +1848,16 @@ func (s *ChartsService) getChartsSummaryUncached(window contracts.ChartWindow, s
 		// Filled in below, not by the statement above, which has no such
 		// column. It stays in this shape so the conversion at the end remains
 		// a compile-time check that the row still matches the summary field
-		// for field — a stat added to one and not the other must not scan as
-		// a silent zero. `gorm:"-"` because GORM would otherwise derive
-		// `active_scenes` from the field name and start filling it the day
-		// anyone adds a column by that name, which the assignment below would
-		// then silently overwrite.
-		ActiveScenes int `gorm:"-"`
+		// for field.
+		//
+		// Deliberately NOT `gorm:"-"`. Untagged, GORM derives active_scenes
+		// from the field name, so if the count ever moves back into the
+		// statement the column scans into this field and the value is right
+		// either way (the assignment below is a no-op then, writing what was
+		// already scanned). Tagged out, that same edit would leave the field
+		// at zero and the masthead would render "0 active scenes" with no
+		// error — trading a harmless outcome for a silently wrong one.
+		ActiveScenes int
 	}
 	var row summaryRow
 	if err := s.db.Raw(query, args...).Scan(&row).Error; err != nil {
@@ -1897,14 +1901,18 @@ func (s *ChartsService) getChartsSummaryUncached(window contracts.ChartWindow, s
 // DROPS losers rather than summing them, and the number of surviving slugs is
 // the same whichever half of a colliding pair wins.
 //
-// One residual divergence, narrow and NOT closed here: a fallback group's slug
-// is built from MIN(city), which this query takes over the group's in-window
-// venues while ListScenes takes it over all of them. sceneGroupKeySQL trims and
-// buildSceneSlug does not, so a group holding both "Phoenix" and " Phoenix"
-// can slugify differently on the two surfaces depending on which room had the
-// in-window show. The cause is untrimmed city data reaching buildSceneSlug,
-// which is a slug bug for every scene surface — fixing it here would only hide
-// it.
+// One residual divergence, narrow and NOT closed here. Whenever a group's slug
+// comes from MIN(city)/MIN(state) rather than a CBSA principal city, it is
+// computed from a different venue set on the two surfaces: this query's minima
+// are over the group's IN-WINDOW venues, ListScenes' are over all of them. That
+// covers more than fallback groups — metroDisplayIdentity also falls back to
+// the literal minima for a metro group whose CBSA no longer resolves in the
+// embedded dataset, which a delineation revision or an old restore can produce,
+// and a CBSA spans many cities so its minima really can differ. It bites only
+// when the minima disagree at all: sceneGroupKeySQL lower/trims where
+// buildSceneSlug does neither, so "Phoenix" and " Phoenix" are one group with
+// two slugs. The cause is untrimmed city data reaching buildSceneSlug, a slug
+// bug on every scene surface — normalizing it here would only hide it.
 //
 // geo.Default() is the geocoder every production caller of the collapse holds
 // (SceneService injects that same instance) and it is stateless, so this reaches

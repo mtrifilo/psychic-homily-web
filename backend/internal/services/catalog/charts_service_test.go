@@ -127,8 +127,16 @@ func (suite *ChartsServiceIntegrationTestSuite) createVerifiedVenueNullMetro(nam
 // below arranges for their populations to coincide — every show played inside
 // the month window, and every half clearing sceneMinVenues/sceneMinShows.
 // Outside such a fixture the two legitimately differ, since the masthead has no
-// listing floor. The expected slugs are asserted as a list rather than a count
-// so a directory regression names itself instead of surfacing as arithmetic.
+// listing floor.
+//
+// Both assertions are against the EXPECTED slugs, never against each other. The
+// two surfaces share one collapse function, so a regression in it moves both
+// numbers together — comparing them would then agree on the wrong answer and
+// the assertion naming this invariant would pass. The directory list is
+// asserted first and fatally, so a masthead comparison never reports against a
+// baseline already known to be wrong. Membership, not order: ListScenes sorts
+// by show counts alone, so equal-count scenes tie and fall back to Postgres
+// group order.
 func (suite *ChartsServiceIntegrationTestSuite) assertActiveScenesMatchDirectory(wantSlugs ...string) {
 	suite.T().Helper()
 
@@ -138,11 +146,11 @@ func (suite *ChartsServiceIntegrationTestSuite) assertActiveScenesMatchDirectory
 	for _, scene := range scenes {
 		publishedSlugs = append(publishedSlugs, scene.Slug)
 	}
-	suite.Equal(wantSlugs, publishedSlugs, "the directory publishes one row per slug")
+	suite.Require().ElementsMatch(wantSlugs, publishedSlugs, "the directory publishes one row per slug")
 
 	month, err := suite.chartsService.GetChartsSummary(contracts.ChartWindowMonth, "")
 	suite.Require().NoError(err)
-	suite.Equal(len(scenes), month.ActiveScenes, "the masthead counts the scenes the directory publishes, not the SQL groups behind them")
+	suite.Equal(len(wantSlugs), month.ActiveScenes, "the masthead counts the scenes the directory publishes, not the SQL groups behind them")
 }
 
 func (suite *ChartsServiceIntegrationTestSuite) createArtist(name string) *catalogm.Artist {

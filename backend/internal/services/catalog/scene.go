@@ -497,8 +497,10 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 	// Group verified venues by CBSA metro (or by (city,state) when the venue has
 	// no metro), counting distinct venues + approved shows + the upcoming subset
 	// in ONE pass — the FILTER aggregate replaces the former per-scene N+1 query.
-	// sceneGroupIdentitySQL contributes the group's CBSA + literal city/state (a
-	// metro group displays its principal city instead, so its MIN city is unused).
+	// sceneGroupIdentitySQL contributes the group's CBSA + literal city/state. A
+	// metro group displays its principal city instead, so its MIN city goes
+	// unread unless that CBSA no longer resolves in the embedded dataset, which
+	// is metroDisplayIdentity's fallback.
 	// this_week_count is the ≤sceneThisWeekDays slice of the upcoming set
 	// (PSY-1309): it drives the Atlas globe's next-7-days pulse, so it
 	// must share the scene scoping of the other counts — one more FILTER
