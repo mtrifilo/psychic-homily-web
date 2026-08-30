@@ -130,10 +130,13 @@ const sceneVenueEligibilitySQL = `AND v.verified = true
 //
 // Welded to sceneGroupKeySQL, not merely paired with it. MAX(v.metro) is only
 // well defined because that key is the grouping, and MIN(city)/MIN(state) are
-// load-bearing for the collapse: sceneGroupOutranks compares them as the
-// group's own minima under the same collation ParseSceneSlug's ORDER BY uses,
-// so a site that projects the identity differently stops corresponding to the
-// slug it publishes — silently, since the rows still scan.
+// load-bearing for the collapse: sceneGroupOutranks picks a contested slug's
+// winner by comparing them (byte-wise, with the collation caveat that function
+// documents), so a call site projecting the identity differently stops
+// corresponding to the slug it publishes — silently, since the rows still scan.
+//
+// Call sites: ListScenes below, sitemap.go's listQualifyingScenes and
+// sceneEntries, and the charts summary's activeSceneCount.
 const sceneGroupIdentitySQL = `COALESCE(MAX(v.metro), '') AS metro,
 		       MIN(v.city)  AS city,
 		       MIN(v.state) AS state`
@@ -169,6 +172,13 @@ type sceneVenueGroup struct {
 // /shows renders that list keyed by slug and React reconciles the pair
 // undefined (PSY-1831).
 //
+// TWO production callers now, and the second reads only len(): ListScenes
+// publishes the returned rows, while the charts masthead's activeSceneCount
+// counts them (PSY-1949). Any future change to the CARDINALITY of the return —
+// an early return, a skip for groups carrying no counts (which is every group
+// on the charts path, since that caller selects none) — moves a user-visible
+// stat, not just a list. `surface` names the caller in the log below.
+//
 // The survivor is the group ParseSceneSlug resolves the slug to, so the row's
 // counts are the counts its destination page will print. sceneGroupOutranks
 // holds that correspondence and carries a branch per collision shape.
@@ -192,7 +202,7 @@ type sceneVenueGroup struct {
 // venues.metro no longer equals geo.ResolveMetro(city, state), which
 // cmd/backfill-entity-metro repairs. Deduping quietly would leave a fixed
 // symptom sitting on top of a live data fault.
-func collapseSceneGroupsToCanonicalSlug(groups []sceneVenueGroup, g geo.Geocoder) []sceneVenueGroup {
+func collapseSceneGroupsToCanonicalSlug(groups []sceneVenueGroup, g geo.Geocoder, surface string) []sceneVenueGroup {
 	indexesBySlug := make(map[string][]int, len(groups))
 	slugOrder := make([]string, 0, len(groups))
 	for i := range groups {
@@ -236,9 +246,18 @@ func collapseSceneGroupsToCanonicalSlug(groups []sceneVenueGroup, g geo.Geocoder
 	// One line per call, not per collision. ListScenes is uncached and /scenes
 	// also feeds the Atlas globe and the home scene graph, so this repeats until
 	// the data is fixed; that is deliberate, because a once-per-process log goes
-	// quiet after a deploy while the fault is still live.
+	// quiet after a deploy while the fault is still live. The charts caller adds
+	// a slower stream on top (one line per masthead cache miss, ~1/min per key).
+	//
+	// `surface` is not decoration: the two callers see DIFFERENT collision sets.
+	// The directory's is all-time and gated on sceneMinVenues/sceneMinShows, the
+	// masthead's is window-bounded with no floor at all — so it can report a
+	// collision between groups too small to appear on /scenes, and an operator
+	// who checks the directory for it would find one clean row and write the
+	// warning off as noise.
 	slog.Default().Warn(
 		"scene slug collision collapsed; two venue groups publish one scene identity — check venues.metro drift and city spelling variants",
+		"surface", surface,
 		"collisions", contested,
 	)
 	return collapsed
@@ -509,7 +528,7 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 	// same thing when venues.metro has drifted. Collapsing HERE (rather than
 	// after hydration) also keeps the per-scene calendar-week query below to one
 	// per canonical scene, which is why the sitemap collapses at the same point.
-	groups = collapseSceneGroupsToCanonicalSlug(groups, s.geocoder)
+	groups = collapseSceneGroupsToCanonicalSlug(groups, s.geocoder, "scenes-directory")
 
 	results := make([]*contracts.SceneListResponse, 0, len(groups))
 	if len(groups) == 0 {

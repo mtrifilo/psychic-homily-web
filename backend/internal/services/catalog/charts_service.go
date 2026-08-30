@@ -1732,7 +1732,7 @@ func appendRadioAiredWindow(query string, args []any, now time.Time, bounds char
 //   - radio plays share the aired pair + pseudo exclusion with the
 //     on-the-radio module via appendRadioAiredWindow (unmatched plays DO
 //     count here — the strip measures logging activity, not match rate).
-//   - active scenes share the scenes list's whole identity rule
+//   - active scenes share the scenes list's identity rule
 //     (sceneGroupKeySQL/sceneVenueEligibilitySQL plus the slug collapse) and
 //     count scenes with >=1 show played in the window (appendChartShowWindow
 //     semantics). NOTE this floor is deliberately lower than the scenes
@@ -1849,8 +1849,11 @@ func (s *ChartsService) getChartsSummaryUncached(window contracts.ChartWindow, s
 		// column. It stays in this shape so the conversion at the end remains
 		// a compile-time check that the row still matches the summary field
 		// for field — a stat added to one and not the other must not scan as
-		// a silent zero.
-		ActiveScenes int
+		// a silent zero. `gorm:"-"` because GORM would otherwise derive
+		// `active_scenes` from the field name and start filling it the day
+		// anyone adds a column by that name, which the assignment below would
+		// then silently overwrite.
+		ActiveScenes int `gorm:"-"`
 	}
 	var row summaryRow
 	if err := s.db.Raw(query, args...).Scan(&row).Error; err != nil {
@@ -1877,6 +1880,12 @@ func (s *ChartsService) getChartsSummaryUncached(window contracts.ChartWindow, s
 // shows once twice over, so these groups run through the same collapse
 // ListScenes publishes its rows through (PSY-1949).
 //
+// That is why this is a second statement rather than a fifth subquery in the
+// summary above, and why folding it back would be a regression, not a speedup:
+// the collapse resolves a CBSA to its principal city through
+// geo.MetroPrincipalByCBSA, an embedded Go dataset with no table behind it, so
+// the published identity cannot be expressed in SQL at all.
+//
 // What the two share is the IDENTITY rule, not the population: this counts
 // every scene with a show played in the window, while the directory counts
 // scenes clearing sceneMinVenues/sceneMinShows over all time. The numbers may
@@ -1887,6 +1896,15 @@ func (s *ChartsService) getChartsSummaryUncached(window contracts.ChartWindow, s
 // show counts sceneGroupOutranks tie-breaks on stay unselected: the collapse
 // DROPS losers rather than summing them, and the number of surviving slugs is
 // the same whichever half of a colliding pair wins.
+//
+// One residual divergence, narrow and NOT closed here: a fallback group's slug
+// is built from MIN(city), which this query takes over the group's in-window
+// venues while ListScenes takes it over all of them. sceneGroupKeySQL trims and
+// buildSceneSlug does not, so a group holding both "Phoenix" and " Phoenix"
+// can slugify differently on the two surfaces depending on which room had the
+// in-window show. The cause is untrimmed city data reaching buildSceneSlug,
+// which is a slug bug for every scene surface — fixing it here would only hide
+// it.
 //
 // geo.Default() is the geocoder every production caller of the collapse holds
 // (SceneService injects that same instance) and it is stateless, so this reaches
@@ -1910,7 +1928,7 @@ func (s *ChartsService) activeSceneCount(bounds chartBounds, scene string) (int,
 	if err := s.db.Raw(query, args...).Scan(&groups).Error; err != nil {
 		return 0, fmt.Errorf("failed to count active scenes: %w", err)
 	}
-	return len(collapseSceneGroupsToCanonicalSlug(groups, geo.Default())), nil
+	return len(collapseSceneGroupsToCanonicalSlug(groups, geo.Default(), "charts-summary")), nil
 }
 
 // GetCommunityPulse returns the homepage global heartbeat (PSY-1431):

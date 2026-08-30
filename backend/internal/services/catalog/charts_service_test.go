@@ -119,24 +119,30 @@ func (suite *ChartsServiceIntegrationTestSuite) createVerifiedVenueNullMetro(nam
 	return venue
 }
 
-// assertActiveScenesMatchDirectory is the PSY-1949 invariant, written once: a
-// collision the /scenes directory publishes as one row counts as one scene on
-// the masthead. Each collapse-collision fixture below sets its groups up so the
-// two populations coincide (every show inside the month window, both halves
-// clearing the directory thresholds), which is what makes the two numbers
-// directly comparable — outside such a fixture they legitimately differ.
-func (suite *ChartsServiceIntegrationTestSuite) assertActiveScenesMatchDirectory(wantSlug string) {
+// assertActiveScenesMatchDirectory is the PSY-1949 invariant, written once: the
+// masthead's scene count is the number of rows the /scenes directory publishes,
+// not the number of SQL groups behind them.
+//
+// The two are only directly comparable because each collapse-collision fixture
+// below arranges for their populations to coincide — every show played inside
+// the month window, and every half clearing sceneMinVenues/sceneMinShows.
+// Outside such a fixture the two legitimately differ, since the masthead has no
+// listing floor. The expected slugs are asserted as a list rather than a count
+// so a directory regression names itself instead of surfacing as arithmetic.
+func (suite *ChartsServiceIntegrationTestSuite) assertActiveScenesMatchDirectory(wantSlugs ...string) {
 	suite.T().Helper()
 
 	scenes, err := NewSceneService(suite.db).ListScenes()
 	suite.Require().NoError(err)
-	suite.Require().Len(scenes, 1, "the directory publishes one row per slug")
-	suite.Equal(wantSlug, scenes[0].Slug)
+	publishedSlugs := make([]string, 0, len(scenes))
+	for _, scene := range scenes {
+		publishedSlugs = append(publishedSlugs, scene.Slug)
+	}
+	suite.Equal(wantSlugs, publishedSlugs, "the directory publishes one row per slug")
 
 	month, err := suite.chartsService.GetChartsSummary(contracts.ChartWindowMonth, "")
 	suite.Require().NoError(err)
-	suite.Equal(len(scenes), month.ActiveScenes, "the masthead count is the directory's row count, not its SQL group count")
-	suite.Equal(1, month.ActiveScenes)
+	suite.Equal(len(scenes), month.ActiveScenes, "the masthead counts the scenes the directory publishes, not the SQL groups behind them")
 }
 
 func (suite *ChartsServiceIntegrationTestSuite) createArtist(name string) *catalogm.Artist {
@@ -2350,6 +2356,9 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetChartsSummary_ActiveScene
 	band := suite.createArtist("Variant Band")
 	suite.Require().Nil(seedMetro("Saint Jerome", "QC"), "a non-US city must not pin a CBSA — this collision is not metro drift")
 
+	// createApprovedShow stamps every show row Phoenix, AZ. Irrelevant here and
+	// everywhere else on these surfaces: scene grouping reads the VENUE's
+	// city/state, never the show's own.
 	spacedA := suite.createVerifiedVenue("Spaced A", "Saint Jerome", "QC")
 	spacedB := suite.createVerifiedVenue("Spaced B", "Saint Jerome", "QC")
 	hyphenA := suite.createVerifiedVenue("Hyphen A", "Saint-Jerome", "QC")

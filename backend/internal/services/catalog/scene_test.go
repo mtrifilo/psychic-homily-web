@@ -60,7 +60,7 @@ func TestCollapseSceneGroupsToCanonicalSlug(t *testing.T) {
 
 	t.Run("uncontested slugs pass through untouched", func(t *testing.T) {
 		in := []sceneVenueGroup{metroGroup, tucsonGroup}
-		assert.Equal(t, in, collapseSceneGroupsToCanonicalSlug(in, g))
+		assert.Equal(t, in, collapseSceneGroupsToCanonicalSlug(in, g, "test"))
 	})
 
 	t.Run("the group the slug resolves to survives, regardless of input order", func(t *testing.T) {
@@ -68,7 +68,7 @@ func TestCollapseSceneGroupsToCanonicalSlug(t *testing.T) {
 			{metroGroup, driftedGroup, tucsonGroup},
 			{driftedGroup, metroGroup, tucsonGroup},
 		} {
-			out := collapseSceneGroupsToCanonicalSlug(in, g)
+			out := collapseSceneGroupsToCanonicalSlug(in, g, "test")
 			require.Len(t, out, 2)
 			var phoenix sceneVenueGroup
 			for _, grp := range out {
@@ -87,7 +87,7 @@ func TestCollapseSceneGroupsToCanonicalSlug(t *testing.T) {
 			{City: "Montreal", State: "QC", VenueCount: 2, ShowCount: 3},
 			{City: "Toronto", State: "ON", VenueCount: 2, ShowCount: 3},
 		}
-		assert.Equal(t, nonUS, collapseSceneGroupsToCanonicalSlug(nonUS, g))
+		assert.Equal(t, nonUS, collapseSceneGroupsToCanonicalSlug(nonUS, g, "test"))
 	})
 
 	t.Run("two no-CBSA groups collide on spelling, and the lowest literal wins", func(t *testing.T) {
@@ -100,7 +100,7 @@ func TestCollapseSceneGroupsToCanonicalSlug(t *testing.T) {
 		require.Equal(t, sceneGroupSlug(spaced), sceneGroupSlug(hyphenated), "fixture must actually collide")
 
 		for _, in := range [][]sceneVenueGroup{{spaced, hyphenated}, {hyphenated, spaced}} {
-			out := collapseSceneGroupsToCanonicalSlug(in, g)
+			out := collapseSceneGroupsToCanonicalSlug(in, g, "test")
 			require.Len(t, out, 1)
 			assert.Equal(t, spaced, out[0],
 				"the group the slug resolves to wins; the other's larger counts must not buy it the row")
@@ -111,9 +111,9 @@ func TestCollapseSceneGroupsToCanonicalSlug(t *testing.T) {
 		// Without a geocoder no group can match its slug scope, so the tiebreak
 		// carries the choice — it must still be one row, and the same one twice.
 		in := []sceneVenueGroup{driftedGroup, metroGroup}
-		first := collapseSceneGroupsToCanonicalSlug(in, nil)
+		first := collapseSceneGroupsToCanonicalSlug(in, nil, "test")
 		require.Len(t, first, 1)
-		assert.Equal(t, first, collapseSceneGroupsToCanonicalSlug([]sceneVenueGroup{metroGroup, driftedGroup}, nil))
+		assert.Equal(t, first, collapseSceneGroupsToCanonicalSlug([]sceneVenueGroup{metroGroup, driftedGroup}, nil, "test"))
 	})
 }
 
