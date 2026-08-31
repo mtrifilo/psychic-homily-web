@@ -996,12 +996,15 @@ func (s *ShowService) loadShowArtistResponses(tx *gorm.DB, showID uint) ([]contr
 // after Create as well as after any Update that touches the show's
 // event_date or venue associations.
 //
-// The partial unique index is on (artist_id, venue_id, event_date)
-// WHERE event_date IS NOT NULL AND venue_id IS NOT NULL, so a row left
-// with NULL denorm columns inserts but is not covered by the
-// constraint. The application advisory-lock pre-check in
-// checkDuplicateHeadlinerConflicts continues to provide a user-friendly
-// duplicate error before the index ever fires (PSY-576).
+// This is NOT what enforces the dedup key. A show billed at two venues
+// has one show_artists row per artist and therefore room for one venue
+// id, so this index covers the lowest venue of such a bill and no other.
+// show_dedup_keys holds the key at its real grain, one row per (show,
+// artist, venue), maintained by trigger and covering every room; this
+// index is the narrower statement of the same rule, kept because it costs
+// nothing and fails closer to the write. The application advisory-lock
+// pre-check in checkDuplicateHeadlinerConflicts still provides a
+// user-friendly duplicate error before either one fires (PSY-576).
 //
 // Package-level so the show-dedup merge path (show_dedup.go) can call
 // it too after re-pointing show_artists rows between merged shows.

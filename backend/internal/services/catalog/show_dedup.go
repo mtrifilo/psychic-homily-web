@@ -66,14 +66,23 @@ import (
 //     rows. The winner's report wins, matching this function's stated conflict
 //     policy.
 //
-//     show_artists ALSO carries shows_artist_venue_eventdate_uniq, UNIQUE
-//     (artist_id, venue_id, event_date) over its denormalized columns, which the
-//     artist merge has to dedupe against separately (dropCollidingShowArtists).
-//     This merge does not, and cannot need to: it moves a row without touching
-//     any of those three columns, so the only row that could collide with the
-//     moved one is a row the index would already have rejected before the merge
-//     ran. syncShowArtistDedupColumns then re-stamps the winner's rows, because
-//     moved rows arrive carrying the loser's denorm.
+//     show_artists ALSO feeds show_dedup_keys, UNIQUE (artist_id, venue_id,
+//     event_date) over the whole bill, which the artist merge has to dedupe
+//     against separately (dropCollidingShowArtists). This merge does not, and
+//     cannot need to: it moves a row without changing which artist plays which
+//     venue on which date, so the only key that could collide with the moved one
+//     is a key the constraint would already have rejected before the merge ran.
+//     syncShowArtistDedupColumns then re-stamps the winner's denormalized
+//     columns, because moved rows arrive carrying the loser's denorm.
+//
+//   - show_dedup_keys.show_id is DERIVED and gets no re-point at all. Its rows
+//     are rebuilt from show_artists, show_venues and shows.event_date by the
+//     triggers the 20260830224500 migration installs, so the show_artists and
+//     show_venues re-points above already carry it, and the loser's leftovers go
+//     with the loser on CASCADE. Re-pointing it by hand would fight the trigger
+//     for the same rows. It is in this inventory anyway because the guard is a
+//     COMPLETENESS list: an unlisted column is indistinguishable from a
+//     forgotten one.
 //
 //   - enrichment_queue.show_id takes a bare re-point. It has no unique index at
 //     all, so one show legitimately holds several queued jobs.
@@ -123,6 +132,7 @@ import (
 var showFKColumns = []string{
 	"enrichment_queue.show_id",
 	"show_artists.show_id",
+	"show_dedup_keys.show_id",
 	"show_notify_queue.show_id",
 	"show_reports.show_id",
 	"show_venues.show_id",
@@ -158,8 +168,9 @@ func showFKColumnListed(qualified string) bool {
 // violated by someone doing the obvious thing (adding the table to the inventory
 // loop). This makes it a runtime error instead.
 //
-// The two entries are here for DIFFERENT reasons, and both are "moveShowFKRows
-// must not touch this", which is what the list actually enforces:
+// The entries are here for DIFFERENT reasons, and every one of them means
+// "moveShowFKRows must not touch this", which is what the list actually
+// enforces:
 //
 //   - show_notify_queue.show_id must not be MOVED AT ALL. Its disposition is
 //     "drop"; re-pointing it would either abort on UNIQUE (show_id) or let a
@@ -169,7 +180,13 @@ func showFKColumnListed(qualified string) bool {
 //     moveShowFKRows dedupes on exactly ONE partner column, so routing it
 //     through here would miss half the key and abort the merge on a unique
 //     violation. It moves through repointVenueShowAlertBatchShows instead.
+//   - show_dedup_keys.show_id is DERIVED, and the trigger that derives it has
+//     already re-pointed it by the time any hand-written move could run. A
+//     second move would race the trigger for the same rows and could only
+//     produce a key that contradicts the associations it is supposed to
+//     summarize.
 var showFKColumnsNeverRepointed = []string{
+	"show_dedup_keys.show_id",
 	"show_notify_queue.show_id",
 	"venue_show_alert_batch.show_id",
 }

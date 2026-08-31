@@ -94,6 +94,10 @@ var artistFKColumns = []string{
 	"radio_artist_affinity.artist_b_id",
 	"radio_plays.artist_id",
 	"show_artists.artist_id",
+	// show_dedup_keys.artist_id is DERIVED: the trigger on show_artists rebuilds
+	// it, so the show_artists re-point below carries it and no step of this merge
+	// touches it directly. Listed because the guard is a completeness inventory.
+	"show_dedup_keys.artist_id",
 }
 
 // artistUnconstrainedIDColumns is the third class of artist reference, and the
@@ -222,8 +226,8 @@ func reassignArtistEditHistory(tx *gorm.DB, canonicalID, mergeFromID uint) error
 //   - the same SHOW billing both artists, which would violate the
 //     (show_id, artist_id) primary key;
 //   - two DIFFERENT shows at the same venue on the same date, one billing each
-//     artist, which violates shows_artist_venue_eventdate_uniq — UNIQUE
-//     (artist_id, venue_id, event_date) WHERE both are NOT NULL.
+//     artist, which violates show_dedup_keys_artist_venue_date_uniq — UNIQUE
+//     (artist_id, venue_id, event_date) over the materialized bill.
 //
 // The second aborted the entire merge with an opaque 500, on exactly the pairs
 // an admin is most likely to be merging: duplicate ingest produces a duplicate
@@ -246,16 +250,22 @@ func dropCollidingShowArtists(tx *gorm.DB, canonicalID, mergeFromID uint) error 
 		return fmt.Errorf("failed to drop same-show show_artists conflicts: %w", err)
 	}
 
+	// Asked of show_dedup_keys rather than of show_artists' denormalized columns,
+	// so every room of a multi-venue bill is compared and not just its lowest
+	// venue id. A losing billing that collides only at a bill's second room is
+	// invisible to the denormalized columns, and the merge would abort on it.
 	if err := tx.Exec(`
 		DELETE FROM show_artists l
 		WHERE l.artist_id = ?
-		  AND l.venue_id IS NOT NULL
-		  AND l.event_date IS NOT NULL
 		  AND EXISTS (
-		        SELECT 1 FROM show_artists w
-		        WHERE w.artist_id = ?
-		          AND w.venue_id = l.venue_id
-		          AND w.event_date = l.event_date
+		        SELECT 1
+		        FROM show_dedup_keys lk
+		        JOIN show_dedup_keys wk
+		          ON wk.artist_id  = ?
+		         AND wk.venue_id   = lk.venue_id
+		         AND wk.event_date = lk.event_date
+		        WHERE lk.show_id   = l.show_id
+		          AND lk.artist_id = l.artist_id
 		      )
 	`, mergeFromID, canonicalID).Error; err != nil {
 		return fmt.Errorf("failed to drop same-venue-and-date show_artists conflicts: %w", err)

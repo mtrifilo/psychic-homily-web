@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"fmt"
 	"time"
 
 	apperrors "psychic-homily-backend/internal/errors"
@@ -159,15 +160,22 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_NegativePa
 
 // The whole reason the order carries `shows.id ASC`: shows sharing an event_date
 // are exactly where an unstable sort duplicates one row across pages and drops
-// another entirely. An artist double-booked on one night (an early set and a
-// late one) is the ordinary way that happens here. Paging one at a time
-// maximises the number of boundaries that land inside the tied group.
+// another entirely. A festival night, where one act's name sits on four rooms'
+// listings at the same start time, is the ordinary way that happens here. Paging
+// one at a time maximises the number of boundaries that land inside the tied
+// group.
+//
+// One room per show, not four shows in one room: show_dedup_keys makes the
+// latter a duplicate rather than a tie, so a tie has to be built the way a real
+// one occurs.
 func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_PagesStayDisjointAcrossATiedEventDate() {
 	artist := suite.createTestArtist("Tiebreak Artist")
-	venue := suite.createTestVenue("Tiebreak Room", "Phoenix", "AZ")
 	user := suite.createTestUser()
 	sameNight := fixedUTC(2019, time.July, 4, 20)
-	suite.seedShowsForArtist(artist.ID, venue.ID, user.ID, sameNight, sameNight, sameNight, sameNight)
+	for i := 0; i < 4; i++ {
+		room := suite.createTestVenue(fmt.Sprintf("Tiebreak Room %d", i), "Phoenix", "AZ")
+		suite.seedShowsForArtist(artist.ID, room.ID, user.ID, sameNight)
+	}
 
 	seen := map[uint]bool{}
 	for offset := 0; offset < 4; offset++ {

@@ -1406,9 +1406,11 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_PulseShowsTren
 	now := time.Now().UTC()
 	thisMonthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 
-	// 5 shows this month
+	// 5 shows this month, on five different days of it. One shared date would
+	// put the same band in the same room twice on one instant once the venue
+	// cycle wrapped, which show_dedup_keys refuses.
 	for i := 0; i < 5; i++ {
-		showDate := thisMonthStart.AddDate(0, 1, -1)
+		showDate := thisMonthStart.AddDate(0, 1, -1-i)
 		suite.createApprovedShow(
 			fmt.Sprintf("This Month %d", i),
 			[]*catalogm.Venue{v1, v2, v3}[i%3].ID, a.ID, user.ID,

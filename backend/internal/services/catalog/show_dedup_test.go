@@ -85,21 +85,29 @@ func (s *ShowDedupTestSuite) seedVenue(name, city, state string) *catalogm.Venue
 
 // seedShow inserts a show with the given event_date, links artist as
 // headliner and venue. Uses raw SQL so we control created_at exactly.
+//
+// Seeded as LEGACY data, with the show_dedup_keys derivation switched off. This
+// suite's whole subject is duplicate clusters, and show_dedup_keys now forbids
+// creating one, so every cluster it collapses is by definition data that
+// predates the constraint. See seedLegacyShowDuplicate: the guard is back on
+// before any code under test runs.
 func (s *ShowDedupTestSuite) seedShow(title string, eventDate, createdAt time.Time, artistID, venueID uint, state string) uint {
 	var id uint
-	row := s.db.Raw(`
-		INSERT INTO shows (title, event_date, state, status, source, created_at, updated_at, slug)
-		VALUES (?, ?, ?, 'approved', 'user', ?, ?, ?)
-		RETURNING id
-	`, title, eventDate, state, createdAt, createdAt, fmt.Sprintf("%s-%d", title, eventDate.Unix())).Row()
-	s.Require().NoError(row.Scan(&id))
+	seedLegacyShowDuplicate(s.T(), s.db, func() {
+		row := s.db.Raw(`
+			INSERT INTO shows (title, event_date, state, status, source, created_at, updated_at, slug)
+			VALUES (?, ?, ?, 'approved', 'user', ?, ?, ?)
+			RETURNING id
+		`, title, eventDate, state, createdAt, createdAt, fmt.Sprintf("%s-%d", title, eventDate.Unix())).Row()
+		s.Require().NoError(row.Scan(&id))
 
-	s.Require().NoError(s.db.Exec(
-		`INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')`,
-		id, artistID).Error)
-	s.Require().NoError(s.db.Exec(
-		`INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)`,
-		id, venueID).Error)
+		s.Require().NoError(s.db.Exec(
+			`INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')`,
+			id, artistID).Error)
+		s.Require().NoError(s.db.Exec(
+			`INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)`,
+			id, venueID).Error)
+	})
 	return id
 }
 
