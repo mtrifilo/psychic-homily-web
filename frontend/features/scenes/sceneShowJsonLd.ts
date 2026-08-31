@@ -1,5 +1,6 @@
 import { generateMusicEventSchema, type MusicEventSchema } from '@/lib/seo/jsonld'
 import { hasShowStarted } from '@/lib/utils/showTiming'
+import { offerShowPrice } from '@/lib/utils/showPrice'
 import { startInstant, type SceneWeekShow } from './sceneWeek'
 
 /**
@@ -94,7 +95,12 @@ function toMusicEventInput(
       show.artist_names && show.artist_names.length > 0
         ? show.artist_names.map(name => ({ name }))
         : undefined,
-    price: show.price ?? undefined,
+    // Reduced to the one number an Offer can carry, INCLUDING the door
+    // fallback: without it a door-only show emits no Offer at all and drops
+    // out of search-result pricing. The show page's own emitter reduces the
+    // same way, so two MusicEvent schemas for one show cannot disagree
+    // (PSY-1962).
+    price: offerShowPrice(show),
     slug: show.slug,
   }
 }

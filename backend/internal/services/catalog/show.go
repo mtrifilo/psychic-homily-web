@@ -670,37 +670,41 @@ func showUpdatesToMap(req *contracts.UpdateShowRequest) map[string]interface{} {
 }
 
 // putNullableTime and putNullableFloat write one tri-state field into a GORM
-// update map: absent writes nothing, a clear writes a TYPED nil pointer, a value
+// update map: absent writes nothing, a clear writes a nil pointer, a value
 // writes the value.
 //
-// The typed nil is the load-bearing part. GORM's Updates() SKIPS an untyped nil
-// in a map rather than writing NULL, so a clear expressed as a bare nil would be
-// silently dropped — the very no-op this mechanism exists to remove, moved one
-// layer down where no test on the request shape would catch it.
+// PRESENCE IN THE MAP is what makes a clear land, and it is the only part that
+// is load-bearing. GORM's Updates() builds an assignment for every key in a
+// map[string]interface{} with no nil filter (callbacks/update.go), so an
+// untyped nil writes SQL NULL just as a typed one does — verified against
+// gorm v1.30.0 and by running the clear tests both ways. What must never happen
+// is the key being OMITTED, because "absent" is the one state that means leave
+// the column alone.
+//
+// The pointer comes from contracts.Nullable.ValueOrNil, which returns *T. That
+// is for the caller's sake rather than the ORM's: one expression covers both
+// the value and the clear, so neither helper has a branch that could pick the
+// wrong one.
 //
 // Two functions rather than one generic because the time arm normalizes to UTC
 // and the float arm does not; folding them together would need a per-call
-// transform argument to save four lines.
+// transform argument to save three lines.
 func putNullableTime(updates map[string]interface{}, column string, field contracts.Nullable[time.Time]) {
 	if !field.Present() {
 		return
 	}
-	if v, ok := field.Value(); ok {
-		updates[column] = v.UTC()
-		return
+	at := field.ValueOrNil()
+	if at != nil {
+		utc := at.UTC()
+		at = &utc
 	}
-	updates[column] = (*time.Time)(nil)
+	updates[column] = at
 }
 
 func putNullableFloat(updates map[string]interface{}, column string, field contracts.Nullable[float64]) {
-	if !field.Present() {
-		return
+	if field.Present() {
+		updates[column] = field.ValueOrNil()
 	}
-	if v, ok := field.Value(); ok {
-		updates[column] = v
-		return
-	}
-	updates[column] = (*float64)(nil)
 }
 
 func (s *ShowService) UpdateShow(showID uint, req *contracts.UpdateShowRequest) (*contracts.ShowResponse, error) {

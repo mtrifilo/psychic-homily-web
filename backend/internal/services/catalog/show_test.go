@@ -123,15 +123,20 @@ func TestShowUpdatesToMap_OmitsUnsetShowTimes(t *testing.T) {
 	}
 }
 
-// TestShowUpdatesToMap_ClearsWriteTypedNil is the other half of the tri-state
-// contract: a field the caller explicitly CLEARED must reach the map, and must
-// reach it as a TYPED nil pointer (PSY-1961).
+// TestShowUpdatesToMap_ClearsReachTheMap is the other half of the tri-state
+// contract: a field the caller explicitly CLEARED must reach the map (PSY-1961).
 //
-// The typed part is the whole assertion. GORM's Updates() silently skips an
-// untyped nil in a map rather than writing NULL, so a clear built as a bare nil
-// would compile, look right at every layer above, and still be the exact no-op
-// the tri-state signal was added to remove.
-func TestShowUpdatesToMap_ClearsWriteTypedNil(t *testing.T) {
+// PRESENCE is the assertion that matters — an omitted key is the one state that
+// means "leave the column alone", so a clear that never reached the map would
+// compile, look right at every layer above, and still be the exact no-op the
+// tri-state signal was added to remove.
+//
+// The nil is asserted as a TYPED pointer because that is what ValueOrNil
+// produces, not because GORM requires it: an untyped nil in a map writes SQL
+// NULL too (see putNullableFloat). Whether the column really goes NULL is
+// pinned against the database by TestUpdateShow_ClearsNullableFields; this test
+// pins the shape one layer up.
+func TestShowUpdatesToMap_ClearsReachTheMap(t *testing.T) {
 	updates := showUpdatesToMap(&contracts.UpdateShowRequest{
 		Price:     contracts.NullableClear[float64](),
 		DoorPrice: contracts.NullableClear[float64](),

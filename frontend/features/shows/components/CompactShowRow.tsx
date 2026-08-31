@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { formatShowTime } from '@/lib/utils/formatters'
-import { showPriceLabel } from '@/lib/utils/showPrice'
+import { ShowPrice } from '@/components/shared'
 import { formatShowDateBadge } from '@/lib/utils/showDateBadge'
 
 interface CompactShowArtist {
@@ -125,7 +125,6 @@ export function CompactShowRow({
   // passes the raw state.
   const detailsHref = `/shows/${show.slug || show.id}`
   const dateBadge = formatShowDateBadge(show.event_date, state, timezone)
-  const price = showPriceLabel(show)
 
   return (
     <div className="py-2.5 border-b border-border/30 last:border-b-0">
@@ -192,11 +191,7 @@ export function CompactShowRow({
             <div className="font-medium text-foreground/80">
               {formatShowTime(show.event_date, state, timezone)}
             </div>
-            {price && (
-              <div title={price.title} aria-label={price.title}>
-                {price.text}
-              </div>
-            )}
+            <ShowPrice show={show} className="block" />
             {showDetailsLink && (
               <div className="mt-0.5">
                 <Link

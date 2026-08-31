@@ -19,6 +19,8 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { formatAdminDate, formatAdminTime } from '@/lib/utils/formatters'
+import { hasStatedPrice } from '@/lib/utils/showPrice'
+import { ShowPrice } from '@/components/shared'
 import { ApproveShowDialog } from './ApproveShowDialog'
 import { RejectShowDialog } from './RejectShowDialog'
 import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
@@ -166,10 +168,18 @@ export function PendingShowCard({
             </div>
 
             {/* Additional Details */}
-            {(show.price || show.age_requirement) && (
+            {/* hasStatedPrice, not truthiness: a FREE show has price 0, and the
+                old `show.price ||` guard hid the whole row for one — on the
+                queue where an admin approves show data they can only judge by
+                looking at it. It also covers a door-only show, whose `price` is
+                null. The amount renders through the shared derivation, so the
+                moderator sees the same `$35/$40` a reader will (PSY-1962). */}
+            {(hasStatedPrice(show) || show.age_requirement) && (
               <div className="flex flex-wrap gap-2 text-xs">
-                {show.price !== null && show.price !== undefined && (
-                  <Badge variant="secondary">${show.price}</Badge>
+                {hasStatedPrice(show) && (
+                  <Badge variant="secondary">
+                    <ShowPrice show={show} />
+                  </Badge>
                 )}
                 {show.age_requirement && (
                   <Badge variant="secondary">{show.age_requirement}</Badge>

@@ -310,10 +310,19 @@ func diffValue(before, after reflect.Value) (oldVal, newVal interface{}, changed
 // both sides read 0 and the diff recorded NOTHING, so setting a show to free —
 // or retracting that — left no history at all.
 //
-// *string keeps the nil-as-"" rule deliberately. Its columns take the empty
-// string, the surfaces that clear one send "" and normalize it at the service
-// boundary (utils.NilIfEmpty), and nothing distinguishes NULL from "" to a
-// reader. Changing it would rewrite the shape of every text diff to buy nothing.
+// *string keeps the nil-as-"" rule deliberately, and the exception is a claim
+// about THE FIELDS IN fields.go, not about *string in the abstract. Every text
+// field diffed today (image_url, ticket_url, description, address, zipcode,
+// age_policy, the socials) has a column that takes the empty string, a clear
+// gesture that already sends "" and normalizes at the service boundary
+// (utils.NilIfEmpty), and no reader who can tell NULL from "". Changing it would
+// rewrite the shape of every historical text diff to buy nothing.
+//
+// So the thing to check when ADDING a text field to fields.go is whether that
+// list still holds for it. A column where NULL and "" differ — one under a
+// unique index, or read by an `== nil` gate rather than a falsy one — would be
+// flattened here silently, because a rollback writing "" over NULL fails
+// nothing and looks like it worked.
 func diffPtr(before, after reflect.Value, elem reflect.Type) (oldVal, newVal interface{}, changed bool) {
 	if elem == timeType {
 		b, bok := derefTime(before)

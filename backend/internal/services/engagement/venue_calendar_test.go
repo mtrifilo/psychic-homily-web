@@ -391,36 +391,3 @@ func TestVenueFeedCache_ConcurrentAccessIsSafe(t *testing.T) {
 		}
 	}
 }
-
-// A calendar entry persists in a subscriber's phone long after the page view
-// that created it, which is why the advance/door split has to reach it
-// (PSY-1962). The register matches the site's list surfaces exactly, so the
-// number a reader saw on /shows is the number in their calendar.
-func TestFormatEventPrice(t *testing.T) {
-	price := func(v float64) *float64 { return &v }
-
-	tests := []struct {
-		name          string
-		advance, door *float64
-		want          string
-	}{
-		{name: "no recorded price says nothing", want: ""},
-		{name: "advance only renders bare", advance: price(35), want: "$35"},
-		{name: "door only renders bare too", door: price(40), want: "$40"},
-		{name: "a genuine pair renders both", advance: price(35), door: price(40), want: "$35/$40"},
-		// Nothing stops a curator or an importer entering the same number
-		// twice, and "$35/$35" spends two slots saying one thing.
-		{name: "equal prices collapse", advance: price(35), door: price(35), want: "$35"},
-		// Free is a price the site spells out, not an absence.
-		{name: "zero is Free, not silence", advance: price(0), want: "Free"},
-		{name: "a free advance with a paid door keeps both", advance: price(0), door: price(10), want: "Free/$10"},
-		// Cents are noise on a door price; the whole site drops them.
-		{name: "whole dollars", advance: price(12.5), want: "$12"},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, formatEventPrice(tc.advance, tc.door))
-		})
-	}
-}

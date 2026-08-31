@@ -67,7 +67,7 @@ type Show struct {
 	// price renders bare in both, and equal numbers collapse to one.
 	//
 	// A NEW SURFACE MUST USE THE SHARED DERIVATION, not read Price alone.
-	// Frontend: lib/utils/showPrice.ts. Backend: engagement.formatEventPrice.
+	// Frontend: lib/utils/showPrice.ts. Backend: shared.ShowPriceText.
 	// Reading the advance half by itself is not a smaller version of the truth,
 	// it is a wrong number about money — a reader who budgets $35 for a $40 door
 	// was misinformed by the site, not merely under-informed.

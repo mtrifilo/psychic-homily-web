@@ -31,13 +31,23 @@ vi.mock('next/link', () => ({
 }))
 
 // Mock child components to keep tests focused
-vi.mock('@/components/shared', () => ({
-  SaveButton: ({ showId }: { showId: number }) => (
-    <button data-testid="save-button">Save {showId}</button>
-  ),
-  SocialLinks: () => <div data-testid="social-links" />,
-  MusicEmbed: () => <div data-testid="music-embed" />,
-}))
+// The barrel is stubbed to keep unrelated shared components out of this suite,
+// but ShowPrice is spliced back in for REAL: the price assertions below observe
+// the card's behaviour through it, and a stub would pass while the card rendered
+// nothing.
+vi.mock('@/components/shared', async () => {
+  const showPrice = await vi.importActual<
+    typeof import('@/components/shared/ShowPrice')
+  >('@/components/shared/ShowPrice')
+  return {
+    SaveButton: ({ showId }: { showId: number }) => (
+      <button data-testid="save-button">Save {showId}</button>
+    ),
+    SocialLinks: () => <div data-testid="social-links" />,
+    MusicEmbed: () => <div data-testid="music-embed" />,
+    ShowPrice: showPrice.ShowPrice,
+  }
+})
 
 vi.mock('./ShowForm', () => ({
   ShowForm: ({ onCancel }: { onCancel: () => void }) => (
@@ -187,6 +197,20 @@ describe('ShowCard', () => {
     const price = screen.getByText('$35/$40')
     expect(price).toBeInTheDocument()
     expect(price).toHaveAttribute('aria-label', '$35 advance, $40 at the door')
+  })
+
+  // The separator guard has to ask "is a price shown", not "is `price` set".
+  // Spelling it `show.price != null` drops the middot for a door-only show and
+  // the meta row reads "$15 21+".
+  it('keeps the separator between a door-only price and the age requirement', () => {
+    render(
+      <ShowCard
+        show={makeShow({ price: null, door_price: 15, age_requirement: '21+' })}
+        isAdmin={false}
+      />
+    )
+    const meta = screen.getByText('$15').parentElement
+    expect(meta?.textContent).toContain('·')
   })
 
   // A door price with no advance price renders bare: with one number there is

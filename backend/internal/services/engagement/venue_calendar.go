@@ -16,6 +16,7 @@ import (
 	"psychic-homily-backend/db"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -328,7 +329,7 @@ func buildEventDescription(location string, artistNames []string, price, doorPri
 			parts = append(parts, "Artists: "+strings.Join(clean, ", "))
 		}
 	}
-	if priceText := formatEventPrice(price, doorPrice); priceText != "" {
+	if priceText := shared.ShowPriceText(price, doorPrice); priceText != "" {
 		parts = append(parts, "Price: "+priceText)
 	}
 	if ageRequirement != nil {
@@ -344,42 +345,6 @@ func buildEventDescription(location string, artistNames []string, price, doorPri
 	}
 
 	return strings.Join(parts, "\n")
-}
-
-// formatEventPrice renders a show's advance/door pair for a calendar
-// description, in the same register the site's list surfaces use: "$35/$40" for
-// a pair, a bare "$35" or "Free" for a single price, "" for none (PSY-1962).
-//
-// A calendar entry OUTLIVES a page view — it sits in a subscriber's phone until
-// the event passes — so serving the advance half alone was the worst place for
-// the under-report: the reader budgets $35 and pays $40 at the door with no way
-// to have known.
-//
-// The collapse rules mirror the show page's ticket line exactly, and for the
-// same reasons: equal numbers spend two slots saying one thing, and a lone door
-// price renders bare because there is nothing to tell it apart FROM. Zero is a
-// price ("Free"), not silence, which is why the guards test nil rather than
-// truthiness.
-//
-// Whole dollars, matching the site: the cents on a $35.00 door are noise.
-func formatEventPrice(price, doorPrice *float64) string {
-	amount := func(v float64) string {
-		if v == 0 {
-			return "Free"
-		}
-		return fmt.Sprintf("$%.0f", v)
-	}
-	if price != nil && doorPrice != nil && *price != *doorPrice {
-		return amount(*price) + "/" + amount(*doorPrice)
-	}
-	only := price
-	if only == nil {
-		only = doorPrice
-	}
-	if only == nil {
-		return ""
-	}
-	return amount(*only)
 }
 
 // applyEventSummaryAndStatus names the event and sets its STATUS, identically

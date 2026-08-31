@@ -147,7 +147,7 @@ function ticketPriceSegments(show: ShowResponse): string[] {
  */
 function hasTicketCommerce(show: ShowResponse): boolean {
   if (storedTicketUrl(show) || show.is_sold_out) return true
-  // The same zero that {@link ticketPrice} renders as "Free"; keep the two
+  // The same zero that {@link formatPrice} renders as "Free"; keep the two
   // in step if a price ever becomes something other than a plain number.
   return (show.price ?? 0) > 0 || (show.door_price ?? 0) > 0
 }

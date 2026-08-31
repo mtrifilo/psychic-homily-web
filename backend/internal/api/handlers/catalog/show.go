@@ -338,26 +338,7 @@ func effectiveTime(incoming contracts.Nullable[time.Time], stored *time.Time) *t
 	if !incoming.Present() {
 		return stored
 	}
-	if v, ok := incoming.Value(); ok {
-		return &v
-	}
-	return nil
-}
-
-// suppliedPrice is the value a tri-state price field asks to WRITE, or nil when
-// it writes no number: absent leaves the column alone, and a clear removes the
-// number rather than proposing one.
-//
-// It exists so the range rail can be applied to the update path through the same
-// showPriceFields list the create path uses. A clear is deliberately not
-// range-checked -- there is no number to be out of range, and refusing it would
-// make an out-of-range legacy price uncorrectable by the one gesture that
-// removes it.
-func suppliedPrice(field contracts.Nullable[float64]) *float64 {
-	if v, ok := field.Value(); ok {
-		return &v
-	}
-	return nil
+	return incoming.ValueOrNil()
 }
 
 // CreateShowRequest represents the HTTP request for creating a show
@@ -1079,7 +1060,12 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 	if req.Body.AgeRequirement != nil && len(*req.Body.AgeRequirement) > 50 {
 		return nil, huma.Error422UnprocessableEntity("Age requirement must be 50 characters or fewer")
 	}
-	for _, p := range showPriceFields(suppliedPrice(req.Body.Price.Nullable), suppliedPrice(req.Body.DoorPrice.Nullable)) {
+	// ValueOrNil, so the update path runs the same showPriceFields rail the
+	// create path does. A CLEAR reads as nil here and is deliberately not
+	// range-checked: there is no number to be out of range, and refusing it
+	// would make an out-of-range legacy price uncorrectable by the one gesture
+	// that removes it.
+	for _, p := range showPriceFields(req.Body.Price.ValueOrNil(), req.Body.DoorPrice.ValueOrNil()) {
 		if outOfShowPriceRange(p.value) {
 			return nil, huma.Error422UnprocessableEntity(showPriceRangeMessage(p.label))
 		}

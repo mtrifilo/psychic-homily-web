@@ -43,24 +43,32 @@ vi.mock('@/lib/hooks/admin/useAdminShows', () => ({
   useSetShowCancelled: () => ({ mutate: mockSetCancelled, isPending: false }),
 }))
 
-vi.mock('@/components/shared', () => ({
-  BracketLink: ({ label, href }: { label: string; href: string }) => (
-    <a href={href}>{label}</a>
-  ),
-  SaveButton: () => null,
-  SubmissionSuccessDialog: ({
-    open,
-    onOpenChange,
-  }: {
-    open: boolean
-    onOpenChange: (open: boolean) => void
-  }) =>
-    open ? (
-      <div role="dialog" aria-label="Private Show Added">
-        <button onClick={() => onOpenChange(false)}>Got it</button>
-      </div>
-    ) : null,
-}))
+// ShowPrice is spliced in for REAL rather than stubbed: it renders a fact about
+// money, so a stub would let the console silently show no price at all.
+vi.mock('@/components/shared', async () => {
+  const showPrice = await vi.importActual<
+    typeof import('@/components/shared/ShowPrice')
+  >('@/components/shared/ShowPrice')
+  return {
+    BracketLink: ({ label, href }: { label: string; href: string }) => (
+      <a href={href}>{label}</a>
+    ),
+    SaveButton: () => null,
+    ShowPrice: showPrice.ShowPrice,
+    SubmissionSuccessDialog: ({
+      open,
+      onOpenChange,
+    }: {
+      open: boolean
+      onOpenChange: (open: boolean) => void
+    }) =>
+      open ? (
+        <div role="dialog" aria-label="Private Show Added">
+          <button onClick={() => onOpenChange(false)}>Got it</button>
+        </div>
+      ) : null,
+  }
+})
 
 vi.mock('@/features/venues', () => ({
   VenueDeniedDialog: () => null,

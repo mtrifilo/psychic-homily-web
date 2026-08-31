@@ -1,4 +1,5 @@
 import { Suspense, cache } from 'react'
+import { offerShowPrice } from '@/lib/utils/showPrice'
 import { Metadata } from 'next'
 import dynamic from 'next/dynamic'
 import { notFound } from 'next/navigation'
@@ -319,7 +320,7 @@ export default async function ShowPage({ params }: ShowPageProps) {
         // with a perfectly well-known $15 door would drop out of search-result
         // pricing entirely. This changes only which VALUE feeds the offer; the
         // posture is untouched (price + seller, still no url).
-        price: showData.price ?? showData.door_price ?? undefined,
+        price: offerShowPrice(showData),
         // See the builder for why an offer is dropped once the show has
         // happened. Deliberately NOT derived inside the builder: that would
         // make its output depend on the wall clock.

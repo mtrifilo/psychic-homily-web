@@ -57,13 +57,15 @@ export function statedShowPrices(show: ShowPrices): number[] {
  * reader the wrong thing about money, and they found out at the door.
  *
  * `title` is present ONLY for a pair, spelling out which number is which for a
- * reader who cannot infer it from a slash. Rendered as the element's `title`
- * and `aria-label`: the slash form is unambiguous once you know the convention
- * and useless before that, and the detail page is where the pair is qualified
- * in words.
+ * reader who cannot infer it from a slash. The `ShowPrice` component renders it
+ * as both `title` and `aria-label`, so a screen reader is not left announcing a
+ * fact about money as "thirty five slash forty"; the detail page is where the
+ * pair is qualified in words instead.
  *
- * One function returning both so a call site is one call and cannot render the
- * compact form while forgetting the description.
+ * Most callers should render {@link ShowPrice} rather than call this directly —
+ * it is where the a11y half of the decision lives. Reach for this function when
+ * the surface has no element to hang a label on and needs the string alone; use
+ * {@link showPriceText} for that, which says so in its name.
  */
 export interface ShowPriceLabel {
   text: string
@@ -74,9 +76,67 @@ export function showPriceLabel(show: ShowPrices): ShowPriceLabel | null {
   const prices = statedShowPrices(show)
   if (prices.length === 0) return null
   if (prices.length === 1) return { text: formatPrice(prices[0]) }
-  const [advance, door] = prices
+  const [advance, door] = prices.map(formatPrice)
   return {
-    text: `${formatPrice(advance)}/${formatPrice(door)}`,
-    title: `${formatPrice(advance)} advance, ${formatPrice(door)} at the door`,
+    text: `${advance}/${door}`,
+    title: `${advance} advance, ${door} at the door`,
   }
+}
+
+/**
+ * The list register as a bare string: `$35`, `Free`, `$35/$40`, or null.
+ *
+ * For the surfaces that compose their price into a middot-joined line and have
+ * no element of their own to carry a label — the scene day rows, the atlas
+ * venue panel, the discovery rails' figure column. Those callers drop the
+ * spelled-out description because there is nowhere to put it, and this name
+ * says so out loud rather than leaving `showPriceLabel(show)?.text ?? null`
+ * restated at each one.
+ *
+ * A surface that DOES render its own element should use the `ShowPrice`
+ * component instead, which keeps the label.
+ */
+export function showPriceText(show: ShowPrices): string | null {
+  return showPriceLabel(show)?.text ?? null
+}
+
+/**
+ * Whether this show states a price at all — i.e. whether `ShowPrice` will
+ * render anything for it.
+ *
+ * For the SEPARATOR next to a price, which has to appear exactly when the price
+ * does. Spelling that guard as `show.price != null` is the bug this exists to
+ * prevent: a door-only show has a price to show and a null `price`, so the
+ * middot vanishes and the row reads `$15 21+`.
+ *
+ * True for a FREE show. Zero is a price the site prints as "Free", so it needs
+ * its separator like any other.
+ */
+export function hasStatedPrice(show: ShowPrices): boolean {
+  return statedShowPrices(show).length > 0
+}
+
+/**
+ * The ONE number a surface should quote when it can only carry one: the advance
+ * price, falling back to the door price when no advance price is recorded.
+ *
+ * For `schema.org` Offers, which have a single `price` field. Without the
+ * fallback a door-only show emits NO Offer at all — the builder gates the whole
+ * block on a price — so a show with a perfectly well-known $15 door drops out
+ * of search-result pricing entirely.
+ *
+ * The opposite job from {@link showPriceLabel}, and deliberately a separate
+ * function rather than a mode on it: a list has room to state both facts and
+ * should never pick, while an Offer has one slot and must. Folding both shapes
+ * of the question into one function is how a caller ends up quoting the wrong
+ * half.
+ *
+ * `undefined` rather than null, because that is what the JSON-LD builders drop.
+ *
+ * The backend sibling is `effectiveShowPriceCents` in
+ * `internal/services/notification/filter_service.go`, which answers the same
+ * question for the notification price cap and falls back the same way.
+ */
+export function offerShowPrice(show: ShowPrices): number | undefined {
+  return show.price ?? show.door_price ?? undefined
 }

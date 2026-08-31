@@ -23,7 +23,7 @@ import {
   formatShowDate,
   formatShowTime,
 } from '@/lib/utils/formatters'
-import { showPriceLabel } from '@/lib/utils/showPrice'
+import { hasStatedPrice } from '@/lib/utils/showPrice'
 import {
   useSetShowCancelled,
   useSetShowSoldOut,
@@ -39,6 +39,7 @@ import {
 import {
   BracketLink,
   SaveButton,
+  ShowPrice,
   SubmissionSuccessDialog,
 } from '@/components/shared'
 import { VenueDeniedDialog } from '@/features/venues/components/VenueDeniedDialog'
@@ -78,7 +79,6 @@ function SubmissionShowCard({
   const setSoldOutMutation = useSetShowSoldOut()
   const setCancelledMutation = useSetShowCancelled()
   const venue = show.venues[0]
-  const price = showPriceLabel(show)
   const artists = show.artists
   const isOwner =
     currentUserId !== undefined && show.submitted_by === currentUserId
@@ -310,9 +310,9 @@ function SubmissionShowCard({
                   {venue.name}
                 </span>
               ))}
-            {price && (
-              <span title={price.title} aria-label={price.title}>
-                &nbsp;•&nbsp;{price.text}
+            {hasStatedPrice(show) && (
+              <span>
+                &nbsp;•&nbsp;<ShowPrice show={show} />
               </span>
             )}
             {show.age_requirement && (

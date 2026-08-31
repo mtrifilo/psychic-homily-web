@@ -26,12 +26,9 @@ type Nullable[T any] struct {
 	value   *T
 }
 
-// NullableUnset is the zero value spelled out: the field was not mentioned, so
-// the stored value stands. Returned for completeness at call sites that choose
-// between the three states; a zero Nullable means the same thing.
-func NullableUnset[T any]() Nullable[T] {
-	return Nullable[T]{}
-}
+// There is no NullableUnset constructor: the ZERO VALUE is the unset state, so
+// a field nobody mentioned needs no builder at all. Only the two states that
+// carry a request have one.
 
 // NullableClear is an explicit request to write SQL NULL.
 func NullableClear[T any]() Nullable[T] {
@@ -63,6 +60,28 @@ func (n Nullable[T]) Value() (T, bool) {
 func (n Nullable[T]) Present() bool { return n.present }
 
 // Clears reports whether this field is an explicit request for SQL NULL:
-// mentioned, with no value. The one question showUpdatesToMap-style translators
-// ask that neither Present nor Value answers on its own.
+// mentioned, with no value.
+//
+// The third state named directly, so a test or a branch can say which one it
+// means instead of spelling it as `Present() && !ok`. Translators do not need
+// it — they use ValueOrNil below, which folds the same distinction into the
+// value they were going to write anyway.
 func (n Nullable[T]) Clears() bool { return n.present && n.value == nil }
+
+// ValueOrNil is the POINTER this field asks to write: the value when one was
+// given, nil when the field is an explicit clear or was never mentioned.
+//
+// The accessor a translator wants, because the value and the clear become ONE
+// expression instead of a branch that could pick the wrong one. Callers still
+// have to ask Present first: "absent" and "cleared" both answer nil here and
+// mean opposite things, which is the whole distinction this type exists to keep.
+//
+// A fresh pointer, never the stored one, so no caller can reach back in and
+// mutate a Nullable that was handed to it by value.
+func (n Nullable[T]) ValueOrNil() *T {
+	if n.value == nil {
+		return nil
+	}
+	v := *n.value
+	return &v
+}
