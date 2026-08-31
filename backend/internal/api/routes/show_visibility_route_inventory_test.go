@@ -202,7 +202,9 @@ func TestEveryShowAddressableRouteHasADisposition(t *testing.T) {
 			"visibility rule:\n  %v\n\nEvery route that can name a show has to decide whether a "+
 			"caller who cannot see that show may reach it. Add each to showAddressableRoutes with "+
 			"the disposition that is TRUE of it, and if that disposition is `gated`, add the "+
-			"behaviour assertion to show_subresource_visibility_test.go as well.",
+			"behaviour assertion to the matching suite in this package as well: "+
+			"show_subresource_visibility_test.go for routes addressed by a show id, "+
+			"comment_subscription_visibility_test.go for the self-scoped /me/… family.",
 			len(undecided), undecided)
 	}
 }

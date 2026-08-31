@@ -1021,7 +1021,7 @@ func (s *NotificationFilterService) GetUserNotifications(viewer contracts.ShowVi
 	// Enrich comment-driven, request-driven + follow-alert rows in batched passes.
 	s.enrichCommentNotifications(entries)
 	s.enrichRequestNotifications(entries)
-	s.enrichArtistShowAlertNotifications(entries)
+	s.enrichArtistShowAlertNotifications(entries, viewer)
 	s.enrichVenueShowAlertNotifications(userID, entries)
 	return entries, nil
 }
@@ -1144,16 +1144,21 @@ func inboxVisibleRows(alias string) string {
 //
 //   - comment_reply / comment_mention carry a COMMENT id, and the comment names
 //     its own parent. Reached through the comments table.
-//   - artist_show_alert carries a SHOW id directly (artist_follow_notify.go).
-//     Reached with no join at all.
+//   - show, artist_show_alert carry a SHOW id directly — the show-filter matcher
+//     and scene-follow writer for the first (scene_follow_notify.go), the artist
+//     alert fan-out for the second. Reached with no join at all.
+//
+// The show-typed rows matter as much as the rest even though the API sends no
+// title for them: entity_id IS the withdrawn show's id, and for a scene-follow
+// row filter_name is re-derived AT READ TIME from the show's current venues, so
+// the row keeps publishing which metro a private show is in and follows it if
+// the venue changes.
 //
 // NotificationEntityVenueShowAlert MUST NEVER be added to the second arm, for
 // the reason showAlertEntityTypes gives at length: its entity_id is a VENUE id.
 // Its show titles are fenced separately, inside the batch-membership query in
 // enrichVenueShowAlertNotifications, because one venue-day row summarises MANY
-// shows and gating the row would hide the ones that are still public. Show-typed
-// rows (the show-filter and scene-follow families) are NOT covered here — see
-// the PR's disclosure.
+// shows and gating the row would hide the ones that are still public.
 //
 // Each arm FAILS CLOSED on a show that is gated OR gone, because
 // VisibleShowExistsSQL answers false for both — which is what lets a withdrawn
@@ -1176,25 +1181,76 @@ func inboxRowsVisibleTo(alias string, viewer contracts.ShowViewer) (string, []in
 	directGate, directArgs := shared.VisibleShowExistsSQL(alias+".entity_id", viewer)
 	args = append(args, directArgs...)
 
-	commentArm := "(" + alias + ".entity_type NOT IN (" + commentNotificationEntityTypeList + ")" +
-		" OR NOT EXISTS (SELECT 1 FROM comments inbox_comment" +
-		" WHERE inbox_comment.id = " + alias + ".entity_id" +
-		" AND inbox_comment.entity_type = '" + shared.CommentEntityTypeShow + "'" +
-		" AND NOT " + commentGate + "))"
-	directArm := "(" + alias + ".entity_type <> '" +
-		notificationm.NotificationEntityArtistShowAlert + "' OR " + directGate + ")"
+	commentArm := entityTypeArm(alias, commentNotificationEntityTypeList,
+		"NOT EXISTS (SELECT 1 FROM comments inbox_comment"+
+			" WHERE inbox_comment.id = "+alias+".entity_id"+
+			" AND inbox_comment.entity_type = '"+shared.CommentEntityTypeShow+"'"+
+			" AND NOT "+commentGate+")")
+	directArm := entityTypeArm(alias, showIDBearingEntityTypeList, directGate)
 
 	return "(" + commentArm + " AND " + directArm + ")", args
 }
+
+// entityTypeArm builds "this row's entity_type is not one I judge, OR it passes
+// gate", and answers the NO-OP when the type list is empty.
+//
+// The empty case has to be spelled out rather than left to the SQL, because the
+// obvious spelling inverts the meaning. `entity_type NOT IN ()` is a syntax
+// error, and `NOT IN (NULL)` is never TRUE — which does not disable the arm, it
+// applies `gate` to EVERY row regardless of type. For the direct arm that would
+// mean judging a venue alert by whether a show with the venue's id is visible,
+// the exact confusion this file warns "MUST NEVER" happen. So an empty list
+// means "no row is of a type this arm judges", which is TRUE for every row.
+func entityTypeArm(alias, entityTypeList, gate string) string {
+	if entityTypeList == "" {
+		return "1 = 1"
+	}
+	return "(" + alias + ".entity_type NOT IN (" + entityTypeList + ") OR " + gate + ")"
+}
+
+// showIDBearingEntityTypeList is the SQL IN-list of notification entity types
+// whose entity_id is a SHOW id, for inboxRowsVisibleTo's direct arm.
+//
+// Spelled here rather than reusing showAlertEntityTypes, which looks like the
+// same set and is not: that one answers "has this user been told about this
+// show" and excludes NotificationEntityShow because that family needs a channel
+// qualifier it does not. A visibility gate wants every row whose entity_id is a
+// show id, qualifier or no qualifier, so the two lists are genuinely different
+// questions over overlapping members and must not be merged.
+//
+// NotificationEntityVenueShowAlert is absent and must stay absent: its entity_id
+// is a VENUE id, and listing it would gate venue rows on whether a SHOW with the
+// venue's id happens to be visible.
+var showIDBearingEntityTypeList = sqlQuotedList([]string{
+	notificationm.NotificationEntityShow,
+	notificationm.NotificationEntityArtistShowAlert,
+})
 
 // commentNotificationEntityTypeList is commentNotificationEntityTypes as a SQL
 // IN-list, built once.
 //
 // Derived from the map rather than written out, so adding an entity type there
-// reaches this predicate without a second edit. Sorted because Go randomises map
-// iteration, and an unstable statement string would defeat prepared-statement
-// caching and make the SQL differ run to run for no reason.
+// reaches this predicate without a second edit. Sorted so the statement is
+// byte-identical across processes and builds: a query logged on one instance can
+// be matched against another, and a change to the map produces a reviewable
+// diff. Within a single process the string is already stable, since this is
+// computed once at init.
 var commentNotificationEntityTypeList = buildCommentNotificationEntityTypeList()
+
+// sqlQuotedList renders entity-type constants as a sorted, quoted SQL IN-list.
+//
+// The values are package constants, never request data — the same property that
+// lets every other interpolated fragment in this file be interpolated.
+func sqlQuotedList(values []string) string {
+	quoted := make([]string, 0, len(values))
+	for _, v := range values {
+		quoted = append(quoted, "'"+v+"'")
+	}
+	sort.Strings(quoted)
+	// Empty means empty. entityTypeArm turns that into a no-op; emitting a SQL
+	// placeholder here would make the arm judge every row instead of none.
+	return strings.Join(quoted, ", ")
+}
 
 func buildCommentNotificationEntityTypeList() string {
 	types := make([]string, 0, len(commentNotificationEntityTypes))
@@ -1202,15 +1258,7 @@ func buildCommentNotificationEntityTypeList() string {
 		types = append(types, "'"+entityType+"'")
 	}
 	sort.Strings(types)
-	if len(types) == 0 {
-		// `NOT IN (NULL)` is never true, which collapses the arm to its second
-		// half — the correct reading when no entity type carries a comment id.
-		// An empty join would splice `NOT IN ()`, a syntax error that would take
-		// out the list, the badge and both mark-read writes at once, at runtime
-		// rather than at build. inboxVisibleRows guards its own empty case for
-		// the same reason.
-		return "NULL"
-	}
+	// Empty means empty; entityTypeArm is what turns that into a no-op.
 	return strings.Join(types, ", ")
 }
 
@@ -1252,7 +1300,7 @@ func notifiedAboutShow(alias string) string {
 // subject_entity_id resolves the artist and entity_id the show. Either coming
 // back empty (a merged artist, a deleted show) leaves that half blank and the
 // row degrades rather than disappearing — the notification still happened.
-func (s *NotificationFilterService) enrichArtistShowAlertNotifications(entries []contracts.NotificationLogEntry) {
+func (s *NotificationFilterService) enrichArtistShowAlertNotifications(entries []contracts.NotificationLogEntry, viewer contracts.ShowViewer) {
 	showIDs := make([]uint, 0, len(entries))
 	artistIDs := make([]uint, 0, len(entries))
 	seenShow := make(map[uint]struct{}, len(entries))
@@ -1282,10 +1330,19 @@ func (s *NotificationFilterService) enrichArtistShowAlertNotifications(entries [
 		Title string
 		Slug  *string
 	}
+	// FENCED HERE TOO, matching the venue twin below rather than relying on the
+	// row having been dropped upstream (PSY-1983). inboxRowsVisibleTo already
+	// removes these rows from GetUserNotifications, so today no gated id reaches
+	// this query — but the title and URL of a private show are the most
+	// sensitive fields this file writes, and a second reader of these rows (a
+	// digest, an export, an admin view) would otherwise publish them with
+	// nothing here to stop it. One index probe per row is the whole cost.
+	visibleShows, visibleShowArgs := shared.VisibleShowPredicateSQL("shows", viewer)
 	var shows []showRow
 	if err := s.db.Table("shows").
 		Select("id, title, slug").
 		Where("id IN ?", showIDs).
+		Where(visibleShows, visibleShowArgs...).
 		Scan(&shows).Error; err != nil {
 		log.Printf("warning: failed to load shows for inbox enrichment: %v", err)
 		return

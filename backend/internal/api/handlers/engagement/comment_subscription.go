@@ -19,9 +19,16 @@ import (
 type CommentSubscriptionHandler struct {
 	subscriptionService contracts.CommentSubscriptionServiceInterface
 	auditLogService     contracts.AuditLogServiceInterface
-	// showVisibility gates every route on this handler whose entity is a show
-	// on the rule GET /shows/{id} enforces (PSY-1983). Required; see
-	// shared.ShowSubResourceVisible.
+	// showVisibility gates the SUBSCRIBE, STATUS and MARK-READ routes when the
+	// {entity_type} segment names a show, on the rule GET /shows/{id} enforces
+	// (PSY-1983). Not every route on this handler:
+	//   - UnsubscribeHandler is deliberately ungated; its own doc says why.
+	//   - ListSubscriptionsHandler is gated in the SERVICE instead, by the viewer
+	//     it hands ListWatching, because the watching list is addressed by the
+	//     caller rather than by a show id.
+	// Required: a nil checker refuses every gated route rather than serving it.
+	// See shared.EntitySubResourceVisible, which is what the call sites use —
+	// non-show entity types pass through it untouched.
 	showVisibility contracts.ShowVisibilityInterface
 }
 

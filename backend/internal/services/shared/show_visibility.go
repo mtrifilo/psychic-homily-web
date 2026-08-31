@@ -230,32 +230,40 @@ func VisibleShowCommentEntitySQL(entityTypeExpr, entityIDExpr string, viewer con
 // who to notify about one show needs exactly that, and doing it the other way
 // round is one query per recipient.
 //
-// It has NO admin branch, and cannot have one: the branch would need each row's
-// is_admin, which is a second join for a bypass whose only effect is to keep
-// pushing mail about a show that has been taken private. A gated show's fan-out
-// therefore reaches its submitter and nobody else, admin included.
+// recipientIsAdminExpr carries the admin tier the other spellings get from
+// ShowViewer.IsAdmin. It is a COLUMN here for the same reason the viewer id is:
+// the answer differs per row. Both call sites already have the users table in
+// scope, so it costs no extra join — pass "" only where no such column exists,
+// which drops the branch and answers approved-or-submitter.
 //
-// THIS GATE IS FINAL, and it is the one place in PSY-1983 that is. Every other
-// gate the ticket adds suppresses at READ time, so republishing the show brings
-// the withheld rows back. A fan-out that declines to write mints nothing, and
-// nothing is what republication restores: activity during the gated window is
-// never delivered, by any channel, to anyone the gate excluded. That asymmetry
-// is deliberate — a push cannot be recalled, so the write side has to be decided
-// once, at the moment of sending, and the recoverable direction is to withhold.
-// The next comment after republication notifies normally.
+// Keeping the admin branch matters because this gate is FINAL, and it is the one
+// place in PSY-1983 that is. Every other gate the ticket adds suppresses at READ
+// time, so republishing the show brings the withheld rows back. A fan-out that
+// declines to write mints nothing, and nothing is what republication restores:
+// activity during the gated window is never delivered to anyone the gate
+// excluded, ever. A push cannot be recalled, so the write side is decided once,
+// at the moment of sending, and the recoverable direction is to withhold.
 //
-// The admin consequence is worth stating plainly, because it is visible: an
-// admin subscribed to a show that goes private keeps SEEING it (their watching
-// list and the inbox's read gate both grant them the admin tier) while receiving
-// no bell row and no mail for anything posted during the window.
+// That finality is exactly why the admin branch is not optional. Without it an
+// admin's inbox would permanently disagree with what all three READ gates say
+// they are entitled to — on the moderation path, where a pending show's
+// discussion is the thing they are most likely to be watching.
 //
 // recipientIDExpr is SQL the CALLER controls and must be a literal in the
 // calling code. Nothing derived from a request may reach it; showID is bound.
-func VisibleShowRecipientsSQL(showID uint, recipientIDExpr string) (string, []interface{}) {
+func VisibleShowRecipientsSQL(showID uint, recipientIDExpr, recipientIsAdminExpr string) (string, []interface{}) {
 	cond := "(" + visibleShowsAlias + ".status = ? OR " +
-		visibleShowsAlias + ".submitted_by = " + recipientIDExpr + ")"
+		visibleShowsAlias + ".submitted_by = " + recipientIDExpr
+	if recipientIsAdminExpr != "" {
+		cond += " OR " + recipientIsAdminExpr
+	}
+	cond += ")"
 	// showID binds ahead of the status because showExistsSQL puts the id
 	// comparison first, and the placeholders are positional.
+	//
+	// The admin term sits INSIDE the shows EXISTS rather than beside it, so an
+	// admin passes only when the show actually exists. A deleted show reaches
+	// nobody, which is what keeps "gated" and "gone" answering alike here too.
 	return showExistsSQL("?", cond), []interface{}{showID, catalogm.ShowStatusApproved}
 }
 

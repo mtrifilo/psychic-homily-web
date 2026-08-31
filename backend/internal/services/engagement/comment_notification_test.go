@@ -294,6 +294,16 @@ func (m *captureEmailService) commentCallsSorted() []commentEmailCall {
 	return out
 }
 
+// reset clears the captured calls so one test can assert on two fan-outs
+// separately — used where the same comment is delivered before and after a
+// status change.
+func (m *captureEmailService) reset() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.commentCalls = nil
+	m.mentionCalls = nil
+}
+
 func (m *captureEmailService) mentionCallsSorted() []mentionEmailCall {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -548,6 +558,64 @@ func (s *CommentNotificationServiceIntegrationSuite) TestNotifyMentioned_HappyPa
 	s.Assert().Equal("author", calls[0].MentionerName)
 	s.Assert().Contains(calls[0].CommentURL, "#comment-")
 	s.Assert().Contains(calls[0].UnsubscribeURL, "/unsubscribe/mention")
+}
+
+// TestNotifyMentioned_GatedShowReachesOnlyThoseWhoCanSeeIt is the ONLY test that
+// executes the visibility predicate on the mention query (PSY-1983).
+//
+// Every other mention test comments on an ARTIST, so they all short-circuit at
+// whereRecipientMaySeeCommentParent's non-show early return and never reach the
+// SQL. That matters because the mention query is a DIFFERENT STATEMENT from the
+// subscriber one — `FROM users u` after a variadic `IN ?` expansion, rather than
+// a join through comment_subscriptions — so the predicate is spliced into a
+// different shape with different aliases, and nothing else exercises it.
+//
+// The failure mode it guards is silent: CreateComment runs NotifyMentioned in a
+// GoSafe goroutine, so a malformed statement becomes a log line. Mentions would
+// stop working on every show comment with no 5xx and no user-visible signal.
+func (s *CommentNotificationServiceIntegrationSuite) TestNotifyMentioned_GatedShowReachesOnlyThoseWhoCanSeeIt() {
+	submitter := s.createUser("showsubmitter")
+	// Named in the comment body below; the assertions are on who gets mailed,
+	// so the row itself only has to exist.
+	_ = s.createUser("mentionstranger")
+	admin := s.createUser("mentionadmin")
+	s.Require().NoError(s.db.Model(&authm.User{}).Where("id = ?", admin.ID).
+		Update("is_admin", true).Error)
+
+	show := &catalogm.Show{
+		Title:       "Mentioned Private Show",
+		EventDate:   time.Now().UTC().AddDate(0, 0, -1),
+		Status:      catalogm.ShowStatusPrivate,
+		SubmittedBy: &submitter.ID,
+	}
+	s.Require().NoError(s.db.Create(show).Error)
+
+	c := &engagementm.Comment{
+		EntityType: engagementm.CommentEntityShow,
+		EntityID:   show.ID,
+		Kind:       engagementm.CommentKindComment,
+		UserID:     submitter.ID,
+		Body:       "backline notes for @mentionstranger @mentionadmin",
+		BodyHTML:   "<p>backline notes</p>",
+		Visibility: engagementm.CommentVisibilityVisible,
+	}
+	s.Require().NoError(s.db.Create(c).Error)
+	s.Require().NoError(s.svc.NotifyMentioned(c.ID))
+
+	// The admin passes on the is_admin column; the stranger is refused. If the
+	// splice were malformed this would error rather than filter, which is the
+	// other half of what this pins.
+	calls := s.mock.mentionCallsSorted()
+	s.Require().Len(calls, 1, "only the admin may be mailed about a private show")
+	s.Assert().Equal(*admin.Email, calls[0].ToEmail)
+
+	// Republishing lets the stranger through, proving the filter is the show's
+	// status and not something structural about the query.
+	s.mock.reset()
+	s.Require().NoError(s.db.Model(&catalogm.Show{}).Where("id = ?", show.ID).
+		Update("status", catalogm.ShowStatusApproved).Error)
+	s.Require().NoError(s.svc.NotifyMentioned(c.ID))
+	s.Assert().Len(s.mock.mentionCallsSorted(), 2, "an approved show mentions everybody named")
 }
 
 // TestNotifyMentioned_IgnoresEmailAndURLContainingAt

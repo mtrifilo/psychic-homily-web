@@ -670,8 +670,27 @@ func (s *NotificationFilterSuite) TestArtistAlert_PulledShowLeavesTheInboxRow() 
 	s.Require().NoError(err)
 	s.Equal(int64(1), cleared, "mark-all must clear exactly the rows the user could see")
 
+	// The SUBMITTER tier, which is the half of the rule a public-tier fence
+	// could not tell apart. createTestShow leaves submitted_by null, so without
+	// this the submitter term in the direct arm is never exercised and a
+	// regression that reduced it to `status = 'approved'` would pass.
+	s.Require().NoError(s.db.Exec(
+		`UPDATE shows SET submitted_by = ? WHERE id = ?`, userID, pulled).Error)
+	entries, err = s.svc.GetUserNotifications(inboxViewer(userID), 20, 0)
+	s.Require().NoError(err)
+	s.Require().Len(entries, 2, "the submitter reads their own withdrawn show, as the detail route grants it")
+
+	// ...and an ADMIN, the other bypass, which reaches the predicate by a
+	// different branch entirely (it short-circuits to a constant).
+	s.Require().NoError(s.db.Exec(
+		`UPDATE shows SET submitted_by = NULL WHERE id = ?`, pulled).Error)
+	adminEntries, err := s.svc.GetUserNotifications(
+		contracts.ShowViewer{UserID: userID, IsAdmin: true}, 20, 0)
+	s.Require().NoError(err)
+	s.Require().Len(adminEntries, 2, "an admin reads the withdrawn show")
+
 	// Suppression, not deletion: the row was never removed, so republishing
-	// restores it.
+	// restores it for everybody.
 	s.Require().NoError(s.db.Exec(
 		`UPDATE shows SET status = 'approved' WHERE id = ?`, pulled).Error)
 	entries, err = s.svc.GetUserNotifications(inboxViewer(userID), 20, 0)

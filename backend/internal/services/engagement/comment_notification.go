@@ -338,7 +338,7 @@ func (s *CommentNotificationService) NotifySubscribers(commentID uint) error {
 		Where("cs.user_id <> ?", comment.UserID).
 		Where("u.is_active = TRUE").
 		Where("u.deleted_at IS NULL")
-	q = whereRecipientMaySeeCommentParent(q, &comment, "cs.user_id")
+	q = whereRecipientMaySeeCommentParent(q, &comment, "cs.user_id", "u.is_admin")
 	err := q.Scan(&rows).Error
 	if err != nil {
 		return fmt.Errorf("failed to load subscribers: %w", err)
@@ -435,15 +435,20 @@ func (s *CommentNotificationService) NotifySubscribers(commentID uint) error {
 // recipientIDExpr names the column holding each candidate's user id, and it is a
 // literal at each call site: the subscriber query joins users through
 // comment_subscriptions, the mention query reads the users table directly, so
-// they name different columns for the same thing.
+// they name different columns for the same thing. Both already have the users
+// table in scope, which is why the admin tier is read from u.is_admin rather
+// than dropped: this gate is FINAL, so an admin left out of a fan-out never
+// receives that activity at all, and their inbox would permanently disagree with
+// what all three read gates say they may see.
+//
 // Takes the comment by POINTER: both callers hold one with its User association
 // preloaded, and a value parameter copies that whole graph on every fan-out to
 // read two fields off it.
-func whereRecipientMaySeeCommentParent(q *gorm.DB, comment *engagementm.Comment, recipientIDExpr string) *gorm.DB {
+func whereRecipientMaySeeCommentParent(q *gorm.DB, comment *engagementm.Comment, recipientIDExpr, recipientIsAdminExpr string) *gorm.DB {
 	if string(comment.EntityType) != shared.CommentEntityTypeShow {
 		return q
 	}
-	cond, args := shared.VisibleShowRecipientsSQL(comment.EntityID, recipientIDExpr)
+	cond, args := shared.VisibleShowRecipientsSQL(comment.EntityID, recipientIDExpr, recipientIsAdminExpr)
 	return q.Where(cond, args...)
 }
 
@@ -520,7 +525,7 @@ func (s *CommentNotificationService) NotifyMentioned(commentID uint) error {
 		Where("LOWER(u.username) IN ?", mentions).
 		Where("u.is_active = TRUE").
 		Where("u.deleted_at IS NULL")
-	q = whereRecipientMaySeeCommentParent(q, &comment, "u.id")
+	q = whereRecipientMaySeeCommentParent(q, &comment, "u.id", "u.is_admin")
 	err := q.Scan(&rows).Error
 	if err != nil {
 		return fmt.Errorf("failed to resolve mentioned users: %w", err)

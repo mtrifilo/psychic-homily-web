@@ -426,16 +426,28 @@ func TestCommentSubscriptionsMirrorTheDetailRoute(t *testing.T) {
 	// The fan-out is the channel a read-time gate cannot reach: it sends EMAIL
 	// carrying the title, an excerpt and a link, and a message already delivered
 	// is not withdrawn by a later 404.
+	//
+	// It is also the one gate in this ticket that is FINAL — a row not written is
+	// not restored by republishing — which is why the admin case is asserted
+	// POSITIVELY here rather than merely left un-failing. All three read gates
+	// grant an admin the gated show; if the fan-out did not, their inbox would
+	// permanently disagree with what those gates say they may see, on the
+	// moderation path where they are most likely to be watching.
 	t.Run("the fan-out stops reaching viewers who lost the show", func(t *testing.T) {
 		// Only the submitter may comment on their own gated show now, which is
 		// PSY-1939's gate; so the submitter is who writes it.
 		laterID := seedComment(t, seeder, submitter.ID, gated.ID, watchLaterComment)
 		fanOut(t, sc, laterID)
 
-		for _, u := range []*authm.User{stranger, admin} {
-			if got := notificationRowsFor(t, td.DB, u.ID, laterID); got != 0 {
-				t.Errorf("the fan-out delivered a gated show's comment to user %d (%d rows)", u.ID, got)
-			}
+		if got := notificationRowsFor(t, td.DB, stranger.ID, laterID); got != 0 {
+			t.Errorf("the fan-out delivered a gated show's comment to a stranger (%d rows)", got)
+		}
+		if got := notificationRowsFor(t, td.DB, quitter.ID, laterID); got != 0 {
+			t.Errorf("the fan-out delivered a gated show's comment to the unsubscribed quitter (%d rows)", got)
+		}
+		if got := notificationRowsFor(t, td.DB, admin.ID, laterID); got != 1 {
+			t.Errorf("the fan-out withheld a gated show's comment from an ADMIN (%d rows, want 1) — "+
+				"this gate is final, so withholding here is permanent and would disagree with every read gate", got)
 		}
 
 		// The control, and it is what separates "the filter works" from "the

@@ -882,12 +882,14 @@ func (s *NotificationFilterSuite) TestMatchAndNotifyBatch() {
 func (s *NotificationFilterSuite) TestGetUserNotifications() {
 	userID := s.createTestUser()
 
-	// Insert some notification log entries directly
+	// Insert some notification log entries directly, against REAL approved
+	// shows: a show-typed row whose entity_id names no visible show is
+	// suppressed at read time now (PSY-1983), so bare ids would read back empty.
 	for i := 0; i < 3; i++ {
 		s.db.Create(&notificationm.NotificationLog{
 			UserID:     userID,
 			EntityType: "show",
-			EntityID:   uint(i + 1),
+			EntityID:   s.createTestShow(fmt.Sprintf("Inbox Show %d", i), nil, nil),
 			Channel:    "email",
 			SentAt:     time.Now().UTC(),
 		})
@@ -896,6 +898,62 @@ func (s *NotificationFilterSuite) TestGetUserNotifications() {
 	entries, err := s.svc.GetUserNotifications(inboxViewer(userID), 10, 0)
 	s.Require().NoError(err)
 	s.Assert().Len(entries, 3)
+}
+
+// TestShowFilterRow_PulledShowLeavesTheInbox covers the third and last
+// show-carrying row family: entity_type='show', written by the show-filter
+// matcher and the scene-follow fan-out with the SHOW id in entity_id (PSY-1983).
+//
+// The API sends no title for these rows, which is why they are easy to dismiss.
+// They still carry the withdrawn show's id, and for a scene-follow row
+// filter_name is re-derived AT READ TIME from the show's current venues — so an
+// ungated row keeps publishing which metro a private show is in, and follows it
+// if the venue changes. GET /shows/{id} 404s the same caller, so leaving this
+// open makes the two surfaces disagree about whether the show exists.
+func (s *NotificationFilterSuite) TestShowFilterRow_PulledShowLeavesTheInbox() {
+	userID := s.createTestUser()
+	keep := s.createTestShow("Filter Still On", nil, nil)
+	pulled := s.createTestShow("Filter Withdrawn", nil, nil)
+
+	now := time.Now().UTC()
+	s.Require().NoError(s.db.Create(&notificationm.NotificationLog{
+		UserID: userID, EntityType: notificationm.NotificationEntityShow,
+		EntityID: keep, Channel: "email", SentAt: now,
+	}).Error)
+	s.Require().NoError(s.db.Create(&notificationm.NotificationLog{
+		UserID: userID, EntityType: notificationm.NotificationEntityShow,
+		EntityID: pulled, Channel: "email", SentAt: now,
+	}).Error)
+
+	entries, err := s.svc.GetUserNotifications(inboxViewer(userID), 20, 0)
+	s.Require().NoError(err)
+	s.Require().Len(entries, 2, "both rows are legitimate while the shows are approved")
+
+	s.Require().NoError(s.db.Exec(
+		`UPDATE shows SET status = 'private' WHERE id = ?`, pulled).Error)
+
+	entries, err = s.svc.GetUserNotifications(inboxViewer(userID), 20, 0)
+	s.Require().NoError(err)
+	s.Require().Len(entries, 1, "the withdrawn show's row must drop out of the inbox")
+	s.Equal(keep, entries[0].EntityID, "and it must be the withdrawn one that went")
+
+	// The badge and mark-all are the other read sites; all three must agree or
+	// the difference between them is a count of what was withheld.
+	unread, err := s.svc.GetUnreadCount(inboxViewer(userID))
+	s.Require().NoError(err)
+	s.Equal(int64(1), unread)
+
+	cleared, err := s.svc.MarkAllNotificationsRead(inboxViewer(userID))
+	s.Require().NoError(err)
+	s.Equal(int64(1), cleared)
+
+	// The submitter still reads their own withdrawn show, matching the detail
+	// route, and republishing restores the row for everyone.
+	s.Require().NoError(s.db.Exec(
+		`UPDATE shows SET submitted_by = ? WHERE id = ?`, userID, pulled).Error)
+	entries, err = s.svc.GetUserNotifications(inboxViewer(userID), 20, 0)
+	s.Require().NoError(err)
+	s.Require().Len(entries, 2, "the submitter reads their own withdrawn show")
 }
 
 // TestGetUserNotifications_EnrichesRequestFulfillment verifies request-driven
@@ -958,12 +1016,18 @@ func (s *NotificationFilterSuite) TestGetUserNotifications_RequestFulfillment_De
 
 func (s *NotificationFilterSuite) TestGetUnreadCount() {
 	userID := s.createTestUser()
+	// Real APPROVED shows, because a show-typed row whose entity_id names no
+	// visible show is suppressed at read time now (PSY-1983). Bare ids used to
+	// work only because nothing checked.
+	showA := s.createTestShow("Unread A", nil, nil)
+	showB := s.createTestShow("Unread B", nil, nil)
+	showC := s.createTestShow("Unread C", nil, nil)
 
 	// 2 unread, 1 read
-	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: 1, Channel: "email", SentAt: time.Now().UTC()})
-	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: 2, Channel: "email", SentAt: time.Now().UTC()})
+	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: showA, Channel: "email", SentAt: time.Now().UTC()})
+	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: showB, Channel: "email", SentAt: time.Now().UTC()})
 	now := time.Now().UTC()
-	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: 3, Channel: "email", SentAt: time.Now().UTC(), ReadAt: &now})
+	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: showC, Channel: "email", SentAt: time.Now().UTC(), ReadAt: &now})
 
 	count, err := s.svc.GetUnreadCount(inboxViewer(userID))
 	s.Require().NoError(err)
@@ -975,9 +1039,12 @@ func (s *NotificationFilterSuite) TestGetUnreadCount() {
 func (s *NotificationFilterSuite) TestMarkNotificationsRead_All() {
 	userID := s.createTestUser()
 	now := time.Now().UTC()
-	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: 1, Channel: "email", SentAt: now})
-	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: 2, Channel: "email", SentAt: now})
-	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: 3, Channel: "email", SentAt: now, ReadAt: &now})
+	showA := s.createTestShow("Mark All A", nil, nil)
+	showB := s.createTestShow("Mark All B", nil, nil)
+	showC := s.createTestShow("Mark All C", nil, nil)
+	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: showA, Channel: "email", SentAt: now})
+	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: showB, Channel: "email", SentAt: now})
+	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: showC, Channel: "email", SentAt: now, ReadAt: &now})
 
 	updated, err := s.svc.MarkAllNotificationsRead(inboxViewer(userID))
 	s.Require().NoError(err)
@@ -991,9 +1058,9 @@ func (s *NotificationFilterSuite) TestMarkNotificationsRead_All() {
 func (s *NotificationFilterSuite) TestMarkNotificationsRead_Specific() {
 	userID := s.createTestUser()
 	now := time.Now().UTC()
-	row1 := notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: 1, Channel: "email", SentAt: now}
-	row2 := notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: 2, Channel: "email", SentAt: now}
-	row3 := notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: 3, Channel: "email", SentAt: now}
+	row1 := notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: s.createTestShow("Specific A", nil, nil), Channel: "email", SentAt: now}
+	row2 := notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: s.createTestShow("Specific B", nil, nil), Channel: "email", SentAt: now}
+	row3 := notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: s.createTestShow("Specific C", nil, nil), Channel: "email", SentAt: now}
 	s.db.Create(&row1)
 	s.db.Create(&row2)
 	s.db.Create(&row3)
@@ -1019,8 +1086,8 @@ func (s *NotificationFilterSuite) TestMarkNotificationsRead_OtherUserSkipped() {
 	b := s.createTestUser()
 	now := time.Now().UTC()
 
-	rowA := notificationm.NotificationLog{UserID: a, EntityType: "show", EntityID: 1, Channel: "email", SentAt: now}
-	rowB := notificationm.NotificationLog{UserID: b, EntityType: "show", EntityID: 2, Channel: "email", SentAt: now}
+	rowA := notificationm.NotificationLog{UserID: a, EntityType: "show", EntityID: s.createTestShow("Other A", nil, nil), Channel: "email", SentAt: now}
+	rowB := notificationm.NotificationLog{UserID: b, EntityType: "show", EntityID: s.createTestShow("Other B", nil, nil), Channel: "email", SentAt: now}
 	s.db.Create(&rowA)
 	s.db.Create(&rowB)
 

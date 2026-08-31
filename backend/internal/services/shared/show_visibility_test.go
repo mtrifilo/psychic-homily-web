@@ -83,6 +83,10 @@ func TestShowVisibilitySpellingsAgree(t *testing.T) {
 	viewerID := testhelpers.CreateTestUser(td.DB).ID
 	otherID := testhelpers.CreateTestUser(td.DB).ID
 	strangerID := testhelpers.CreateTestUser(td.DB).ID
+	// A REAL admin row. VisibleShowRecipientsSQL reads the admin tier from the
+	// users table rather than from a ShowViewer, so a viewer struct claiming
+	// IsAdmin cannot exercise that branch — only a row with is_admin set can.
+	adminID := testhelpers.CreateAdminUser(td.DB).ID
 
 	viewers := []struct {
 		name   string
@@ -160,22 +164,40 @@ func TestShowVisibilitySpellingsAgree(t *testing.T) {
 					t.Errorf("VisibleShowCommentEntitySQL withheld an ARTIST row from %s", v.name)
 				}
 
-				// The recipient form fixes the show and varies the viewer, so it
-				// is checked against the SUBMITTER-facing half of the truth
-				// table: it has no admin branch, and the admin viewer here owns
-				// nothing, so its expected answer is the stranger's.
+				// The recipient form fixes the show and varies the viewer, and it
+				// reads BOTH viewer facts out of the row rather than out of a
+				// ShowViewer. So the expected answer here is driven by what the
+				// USERS TABLE says, not by what v.viewer claims: all three users
+				// in this matrix are ordinary rows, so even the viewer that
+				// carries IsAdmin gets the non-admin answer. The real admin row
+				// is checked separately below.
 				//
 				// The anonymous viewer is skipped rather than expected to fail:
 				// this form reads a user id out of a row, and there is no row
 				// for nobody. A fan-out has recipients or it does not run.
 				if v.viewer.UserID != 0 {
-					recipientSQL, recipientArgs := shared.VisibleShowRecipientsSQL(show.ID, "users.id")
+					recipientSQL, recipientArgs := shared.VisibleShowRecipientsSQL(show.ID, "users.id", "users.is_admin")
 					wantRecipient := wantVisible(c, v.isSelf, false)
 					if got := countUsersMatching(t, td.DB, v.viewer.UserID, recipientSQL, recipientArgs); (got > 0) != wantRecipient {
 						t.Errorf("VisibleShowRecipientsSQL for %s matched %d rows, want visible=%v",
 							v.name, got, wantRecipient)
 					}
 				}
+			}
+
+			// The admin ROW: is_admin comes off the users table, so this is the
+			// only way to exercise that branch. An admin is a recipient for every
+			// show state, which is what keeps a fan-out from permanently
+			// disagreeing with the read gates that do grant them the show.
+			recipientSQL, recipientArgs := shared.VisibleShowRecipientsSQL(show.ID, "users.id", "users.is_admin")
+			if got := countUsersMatching(t, td.DB, adminID, recipientSQL, recipientArgs); got != 1 {
+				t.Errorf("VisibleShowRecipientsSQL withheld a %s show from an ADMIN recipient", c.name)
+			}
+			// ...and with no admin expression the branch disappears entirely,
+			// which is what a call site with no users table in scope gets.
+			noAdminSQL, noAdminArgs := shared.VisibleShowRecipientsSQL(show.ID, "users.id", "")
+			if got := countUsersMatching(t, td.DB, adminID, noAdminSQL, noAdminArgs); (got > 0) != wantVisible(c, false, false) {
+				t.Errorf("VisibleShowRecipientsSQL with no admin expression matched %d rows for %s", got, c.name)
 			}
 
 			// The two inlined public-tier forms take no viewer, so they are
