@@ -304,27 +304,22 @@ func (s *RevisionService) Rollback(revisionID uint, adminUserID uint) error {
 	// stored, and history can hold values that predate a bound, so refusing them
 	// would break undo for precisely the rows most likely to need it.
 	//
-	// SEPARATE, PRE-EXISTING, not fixed here: revisiondiff flattens a nil *int
-	// to 0 when it records a diff (derefInt), so an ADMIN edit that set a
-	// previously-NULL integer column writes old_value 0, and rolling it back
-	// restores 0 rather than NULL. Contributor edits are unaffected because
-	// their revisions are recorded from the raw field_changes, which carry a
-	// true null. Fixing that means teaching revisiondiff to emit null, which
-	// changes the shape of every historical *int diff.
+	// A nil OldValue means the column was NULL before the edit, and it has to
+	// land as SQL NULL for the undo to be faithful. NarrowNumericUpdates turns a
+	// REGISTERED field's nil into a typed (*int)(nil) for exactly that reason;
+	// the unregistered nullable columns here (both prices, both timestamps) pass
+	// through as an untyped nil, which GORM already writes as NULL.
 	//
-	// *float64 has the SAME defect (derefFloat64), and for shows.price and
-	// shows.door_price a restored 0 is not merely wrong, it is a false public
-	// claim: the ticket line renders 0 as "Free". door_price makes the trigger
-	// routine rather than rare -- the column ships NULL on every existing row
-	// (PSY-1864), so the FIRST door-price edit on any show records old_value 0,
-	// and rolling that edit back publishes "DOOR Free". Worse, NULL is then
-	// unreachable: no product surface can clear the column back (PSY-1961), so
-	// an undo creates a false price claim that cannot itself be undone.
-	//
-	// TRACKED IN PSY-1960, deliberately not fixed here: the fix is an
-	// optionalFloatValue mirroring optionalTimeValue, and it changes the shape
-	// of every historical *float64 diff -- its own change, not a rider on a
-	// schema ticket.
+	// revisiondiff emits that nil for every nullable numeric kind as of PSY-1960.
+	// Before it did, an admin edit that populated a previously-NULL number
+	// recorded old_value 0, so the undo restored a number nobody had entered --
+	// for a price a false PUBLIC claim rather than a wrong value, since the
+	// ticket line renders 0 as "Free". Rows written before that fix still hold
+	// the 0 and are deliberately NOT backfilled; the reasoning is on the
+	// revisiondiff package doc. Rolling one of those back therefore still writes
+	// 0, and what makes that recoverable now is that the show edit form can
+	// clear a price back to NULL (PSY-1961), which no surface could when the
+	// defect was found.
 	if err := NarrowNumericUpdates(updates); err != nil {
 		return err
 	}

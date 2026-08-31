@@ -12,18 +12,32 @@
 //
 //   - string            → compare with ==, emit string
 //   - *string           → deref or "" (matches the old ptrToStr helper)
-//   - *float64          → deref or 0, emit float64
+//   - *float64          → emit float64, or nil when unset
 //   - int               → compare with ==, emit int
-//   - *int              → deref or 0, emit int (both-nil counts as equal)
+//   - *int              → emit int, or nil when unset
 //   - time.Time         → compare with Equal, emit RFC3339 string
 //   - *time.Time        → compare with Equal, emit RFC3339 string or nil
 //
-// The unset sentinel differs by type on purpose. The pre-existing pointer
-// kinds emit a zero value ("" / 0) because that is what their hand-written
-// predecessors did and their columns accept it. *time.Time emits nil instead:
-// Rollback feeds these values straight back into a GORM update map, and ""
-// is not a valid TIMESTAMPTZ, so a zero-value sentinel would make any
-// revision touching a nullable timestamp permanently unrollbackable.
+// Every nullable kind except *string emits nil for unset, because Rollback
+// feeds these values straight back into a GORM update map: the sentinel IS what
+// the column is restored to. *string is the exception on its own merits, argued
+// at diffPtr along with the rest of the rule.
+//
+// This was NOT always true, and the history is the argument for the rule.
+// *time.Time got nil first because "" is not a valid TIMESTAMPTZ, so the zero
+// sentinel made any revision touching doors_at unrollbackable — a loud failure.
+// *float64 and *int carried the same defect silently until PSY-1960, since 0 is
+// perfectly writable to those columns: the rollback succeeded and restored a
+// number nobody had ever entered.
+//
+// NO BACKFILL of the rows written before that fix (decision recorded PSY-1960).
+// A stored old_value of 0 is byte-identical whether it means "was unset" or
+// "was genuinely free", so rewriting them would be guessing, and guessing wrong
+// turns a recoverable wrong number into a destroyed record of a real $0 show.
+// Rolling back a PRE-fix revision therefore still restores 0. What bounds the
+// exposure is that the surfaces which can now CLEAR a price back to NULL
+// (PSY-1961) make such a row correctable, which is exactly what it was not when
+// the defect was found.
 //
 // The per-entity field lists — not the contributor allowlist — are the source
 // of truth for which fields appear in revision history. They intentionally
@@ -277,15 +291,29 @@ func diffValue(before, after reflect.Value) (oldVal, newVal interface{}, changed
 }
 
 // diffPtr handles the pointer field types the compute*Changes helpers used:
-// *string (deref or ""), *float64 (deref or 0), *int (deref or 0). A nil
-// pointer is treated as the zero value, matching ptrToStr / shared.Deref /
-// intPtrVal so a nil↔value transition is a change and nil↔nil is not.
+// *string (deref or ""), *time.Time, *float64 and *int.
 //
-// *time.Time is the exception to the nil-as-zero rule: a set value emits the
-// same RFC3339 string the non-pointer time.Time case emits, but unset emits
-// nil, not "". Rollback writes these values back into the column verbatim, and
-// "" is not a valid TIMESTAMPTZ; nil restores SQL NULL, which is the state the
-// field actually had.
+// Every kind except *string distinguishes unset from its zero value and emits
+// nil for unset. Rollback writes these values back into the column verbatim, so
+// the emitted sentinel IS the value the column is restored to: a zero sentinel
+// restores a number nobody chose, and the pointer kinds are pointers precisely
+// because their columns are nullable.
+//
+// *time.Time was the first to need it — "" is not a valid TIMESTAMPTZ, so the
+// zero sentinel made any revision that first populated doors_at permanently
+// unrollbackable, a loud failure. *float64 and *int had the same defect quietly
+// (PSY-1960): 0 IS writable to those columns, so the rollback succeeded and
+// restored a fabricated zero. For a price that zero is a false PUBLIC claim, not
+// merely a wrong number, because the ticket line renders 0 as "Free".
+//
+// Emitting nil is what makes an unset↔zero transition visible too. Flattened,
+// both sides read 0 and the diff recorded NOTHING, so setting a show to free —
+// or retracting that — left no history at all.
+//
+// *string keeps the nil-as-"" rule deliberately. Its columns take the empty
+// string, the surfaces that clear one send "" and normalize it at the service
+// boundary (utils.NilIfEmpty), and nothing distinguishes NULL from "" to a
+// reader. Changing it would rewrite the shape of every text diff to buy nothing.
 func diffPtr(before, after reflect.Value, elem reflect.Type) (oldVal, newVal interface{}, changed bool) {
 	if elem == timeType {
 		b, bok := derefTime(before)
@@ -300,18 +328,32 @@ func diffPtr(before, after reflect.Value, elem reflect.Type) (oldVal, newVal int
 		return b, a, b != a
 
 	case reflect.Float64:
-		b := derefFloat64(before)
-		a := derefFloat64(after)
-		return b, a, b != a
+		b, bok := derefFloat64(before)
+		a, aok := derefFloat64(after)
+		return optionalValue(b, bok), optionalValue(a, aok), bok != aok || (bok && b != a)
 
 	case reflect.Int:
-		b := derefInt(before)
-		a := derefInt(after)
-		return b, a, b != a
+		b, bok := derefInt(before)
+		a, aok := derefInt(after)
+		return optionalValue(b, bok), optionalValue(a, aok), bok != aok || (bok && b != a)
 
 	default:
 		panic(fmt.Sprintf("revisiondiff: unsupported pointer element kind %s", elem.Kind()))
 	}
+}
+
+// optionalValue returns nil for unset so Rollback restores SQL NULL rather than
+// the type's zero value. The numeric counterpart of optionalTimeValue, and
+// generic only because *float64 and *int need the identical treatment; the time
+// case stays separate because it formats rather than passing the value through.
+//
+// The interface{} return type is load-bearing, exactly as it is there: a typed
+// zero here is what publishes "DOOR Free" for a price nobody recorded.
+func optionalValue[T float64 | int](v T, set bool) interface{} {
+	if !set {
+		return nil
+	}
+	return v
 }
 
 // derefTime reports the pointed-to instant and whether the pointer was set.
@@ -342,16 +384,20 @@ func derefString(p reflect.Value) string {
 	return p.Elem().String()
 }
 
-func derefFloat64(p reflect.Value) float64 {
+// derefFloat64 and derefInt report the pointed-to number and whether the
+// pointer was set, mirroring derefTime. The bool is what separates "unset" from
+// a genuine zero, which for a price is the difference between silence and the
+// word "Free".
+func derefFloat64(p reflect.Value) (float64, bool) {
 	if p.IsNil() {
-		return 0
+		return 0, false
 	}
-	return p.Elem().Float()
+	return p.Elem().Float(), true
 }
 
-func derefInt(p reflect.Value) int {
+func derefInt(p reflect.Value) (int, bool) {
 	if p.IsNil() {
-		return 0
+		return 0, false
 	}
-	return int(p.Elem().Int())
+	return int(p.Elem().Int()), true
 }

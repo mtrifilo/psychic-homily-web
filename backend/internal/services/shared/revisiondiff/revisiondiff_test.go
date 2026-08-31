@@ -186,6 +186,126 @@ func TestCompare_ReleaseIntPointers(t *testing.T) {
 	}
 }
 
+// TestCompare_ShowOptionalPrices is the *float64 half of the same rule
+// TestCompare_ShowOptionalTimes states for *time.Time: unset reads as nil, so
+// Rollback restores SQL NULL rather than a number nobody chose (PSY-1960).
+//
+// Zero is a real price the ticket line renders as "Free", which is what makes
+// this a false PUBLIC claim rather than a wrong internal number: flattening an
+// unset door_price to 0 and rolling that edit back publishes "DOOR Free" for a
+// show whose door price was simply never recorded. Every transition a nullable
+// price can make is asserted, including the two that must emit nothing, so a
+// future change cannot buy the nil sentinel at the cost of a phantom diff.
+func TestCompare_ShowOptionalPrices(t *testing.T) {
+	tests := []struct {
+		name         string
+		old, updated *contracts.ShowResponse
+		want         []adminm.FieldChange
+	}{
+		{
+			name:    "unset to set records nil, not zero",
+			old:     &contracts.ShowResponse{},
+			updated: &contracts.ShowResponse{DoorPrice: f64Ptr(40)},
+			want: []adminm.FieldChange{
+				{Field: "door_price", OldValue: nil, NewValue: float64(40)},
+			},
+		},
+		{
+			name:    "set to unset records nil as the new value",
+			old:     &contracts.ShowResponse{Price: f64Ptr(35)},
+			updated: &contracts.ShowResponse{},
+			want: []adminm.FieldChange{
+				{Field: "price", OldValue: float64(35), NewValue: nil},
+			},
+		},
+		{
+			name:    "unset to free is a real change to zero",
+			old:     &contracts.ShowResponse{},
+			updated: &contracts.ShowResponse{Price: f64Ptr(0)},
+			want: []adminm.FieldChange{
+				{Field: "price", OldValue: nil, NewValue: float64(0)},
+			},
+		},
+		{
+			name:    "free to unset is a real change from zero",
+			old:     &contracts.ShowResponse{DoorPrice: f64Ptr(0)},
+			updated: &contracts.ShowResponse{},
+			want: []adminm.FieldChange{
+				{Field: "door_price", OldValue: float64(0), NewValue: nil},
+			},
+		},
+		{
+			name:    "both unset emits nothing",
+			old:     &contracts.ShowResponse{},
+			updated: &contracts.ShowResponse{},
+			want:    nil,
+		},
+		{
+			name:    "unchanged emits nothing",
+			old:     &contracts.ShowResponse{Price: f64Ptr(35), DoorPrice: f64Ptr(40)},
+			updated: &contracts.ShowResponse{Price: f64Ptr(35), DoorPrice: f64Ptr(40)},
+			want:    nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Compare(tc.old, tc.updated, ShowFields)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("price diff mismatch:\n got=%#v\nwant=%#v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestCompare_VenueOptionalCapacity is the *int half of PSY-1960, on the field
+// that had the defect long before a price did. capacity is registered in
+// NumericEditFieldBounds, so a nil recorded here reaches Rollback and is turned
+// into a typed (*int)(nil) by NarrowNumericUpdates rather than a 0.
+//
+// A separate test from the price one because the two pointer kinds are separate
+// branches in diffPtr: fixing float64 and leaving int flattened would pass
+// TestCompare_ShowOptionalPrices unchanged.
+func TestCompare_VenueOptionalCapacity(t *testing.T) {
+	tests := []struct {
+		name         string
+		old, updated *contracts.VenueDetailResponse
+		want         []adminm.FieldChange
+	}{
+		{
+			name:    "unset to set records nil, not zero",
+			old:     &contracts.VenueDetailResponse{},
+			updated: &contracts.VenueDetailResponse{Capacity: intPtr(250)},
+			want: []adminm.FieldChange{
+				{Field: "capacity", OldValue: nil, NewValue: 250},
+			},
+		},
+		{
+			name:    "set to unset records nil as the new value",
+			old:     &contracts.VenueDetailResponse{Capacity: intPtr(250)},
+			updated: &contracts.VenueDetailResponse{},
+			want: []adminm.FieldChange{
+				{Field: "capacity", OldValue: 250, NewValue: nil},
+			},
+		},
+		{
+			name:    "both unset emits nothing",
+			old:     &contracts.VenueDetailResponse{},
+			updated: &contracts.VenueDetailResponse{},
+			want:    nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Compare(tc.old, tc.updated, VenueFields)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("capacity diff mismatch:\n got=%#v\nwant=%#v", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestCompare_FestivalNonPtrInt covers the non-pointer int field (edition_year)
 // and the non-pointer string fields (status, series_slug, start_date).
 func TestCompare_FestivalNonPtrInt(t *testing.T) {
