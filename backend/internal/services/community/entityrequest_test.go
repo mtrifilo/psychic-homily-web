@@ -715,9 +715,16 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_SameTitleSameD
 }
 
 // The occurrence term of the key normalizes the way the name term does: a
-// resubmission whose date carries surrounding whitespace still matches, because
-// both sides are trimmed. A date the payload validator accepts (it trims before
-// parsing) must not become a second request on whitespace alone.
+// resubmission whose date carries surrounding SPACES still matches, because both
+// sides are trimmed. A date the payload validator accepts must not become a
+// second request on spacing alone.
+//
+// Spaces specifically, because SQL trim() strips only those while the validator's
+// strings.TrimSpace strips every Unicode space character. A tab-padded date would
+// validate and then key differently, filing a second request. That asymmetry is
+// the name term's too and predates this key — the point here is that both terms
+// normalize the SAME way, not that either normalizes exhaustively. It costs a
+// duplicate row an admin rejects, never a destroyed one.
 func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_SameDateWithSurroundingSpace_StillReplaces() {
 	user := suite.createUser("spacedate", tierContributor, false)
 
