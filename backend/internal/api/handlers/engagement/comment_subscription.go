@@ -26,7 +26,11 @@ type CommentSubscriptionHandler struct {
 	//   - ListSubscriptionsHandler is gated in the SERVICE instead, by the viewer
 	//     it hands ListWatching, because the watching list is addressed by the
 	//     caller rather than by a show id.
-	// Required: a nil checker refuses every gated route rather than serving it.
+	// Required, but note what a nil checker actually does: it answers false for
+	// every show, so subscribe and mark-read 404 while STATUS returns a bare
+	// {subscribed:false, unread_count:0} with a 200. That last one is a
+	// fail-QUIET — the toggle would read "not subscribed" site-wide with no log
+	// line — so a construction bug here is not self-announcing on every route.
 	// See shared.EntitySubResourceVisible, which is what the call sites use —
 	// non-show entity types pass through it untouched.
 	showVisibility contracts.ShowVisibilityInterface

@@ -1019,7 +1019,7 @@ func (s *NotificationFilterService) GetUserNotifications(viewer contracts.ShowVi
 	}
 
 	// Enrich comment-driven, request-driven + follow-alert rows in batched passes.
-	s.enrichCommentNotifications(entries)
+	s.enrichCommentNotifications(entries, viewer)
 	s.enrichRequestNotifications(entries)
 	s.enrichArtistShowAlertNotifications(entries, viewer)
 	s.enrichVenueShowAlertNotifications(userID, entries)
@@ -1160,6 +1160,13 @@ func inboxVisibleRows(alias string) string {
 // enrichVenueShowAlertNotifications, because one venue-day row summarises MANY
 // shows and gating the row would hide the ones that are still public.
 //
+// That fence is deliberately the PUBLIC TIER for every caller, unlike the arms
+// here, which carry the viewer. A venue-day summary is a listing that merely
+// CONTAINS shows rather than a show's own surface, and services/shared's rule
+// puts those on the public tier so their contents do not vary by credential. The
+// consequence is narrower than the detail route and fails closed: a submitter
+// sees their own withdrawn show at /shows/{id} but not in that summary's count.
+//
 // Each arm FAILS CLOSED on a show that is gated OR gone, because
 // VisibleShowExistsSQL answers false for both — which is what lets a withdrawn
 // show and a deleted one answer alike. The comment arm stays deliberately
@@ -1175,24 +1182,35 @@ func inboxRowsVisibleTo(alias string, viewer contracts.ShowViewer) (string, []in
 	if viewer.IsAdmin {
 		return "1 = 1", nil
 	}
-	// Argument order follows the statement text: the comment arm is written
-	// first, so its binds come first.
-	commentGate, args := shared.VisibleShowExistsSQL("inbox_comment.entity_id", viewer)
-	directGate, directArgs := shared.VisibleShowExistsSQL(alias+".entity_id", viewer)
-	args = append(args, directArgs...)
+	commentGate, commentGateArgs := shared.VisibleShowExistsSQL("inbox_comment.entity_id", viewer)
+	directGate, directGateArgs := shared.VisibleShowExistsSQL(alias+".entity_id", viewer)
 
-	commentArm := entityTypeArm(alias, commentNotificationEntityTypeList,
+	commentArm, commentArgs := entityTypeArm(alias, commentNotificationEntityTypeList,
 		"NOT EXISTS (SELECT 1 FROM comments inbox_comment"+
 			" WHERE inbox_comment.id = "+alias+".entity_id"+
 			" AND inbox_comment.entity_type = '"+shared.CommentEntityTypeShow+"'"+
-			" AND NOT "+commentGate+")")
-	directArm := entityTypeArm(alias, showIDBearingEntityTypeList, directGate)
+			" AND NOT "+commentGate+")", commentGateArgs)
+	directArm, directArgs := entityTypeArm(alias, showIDBearingEntityTypeList, directGate, directGateArgs)
 
+	// Argument order follows the statement text: the comment arm is written
+	// first, so its binds come first. Each arm reports its OWN args, because an
+	// arm that drops its gate must drop that gate's binds with it.
+	args := make([]interface{}, 0, len(commentArgs)+len(directArgs))
+	args = append(args, commentArgs...)
+	args = append(args, directArgs...)
 	return "(" + commentArm + " AND " + directArm + ")", args
 }
 
 // entityTypeArm builds "this row's entity_type is not one I judge, OR it passes
 // gate", and answers the NO-OP when the type list is empty.
+//
+// It returns the arm's ARGUMENTS as well as its SQL, and that is the whole point
+// of the signature: the no-op branch discards `gate`, so it must discard
+// gateArgs too. Computing the args beside the gate and appending them
+// unconditionally would leave the statement two placeholders short of its bind
+// list, and Postgres rejects the whole query — "bind message supplies 4
+// parameters, but the prepared statement requires 2" — on all four log methods
+// at once. A guard meant to make the empty case safe would have made it fatal.
 //
 // The empty case has to be spelled out rather than left to the SQL, because the
 // obvious spelling inverts the meaning. `entity_type NOT IN ()` is a syntax
@@ -1201,11 +1219,11 @@ func inboxRowsVisibleTo(alias string, viewer contracts.ShowViewer) (string, []in
 // mean judging a venue alert by whether a show with the venue's id is visible,
 // the exact confusion this file warns "MUST NEVER" happen. So an empty list
 // means "no row is of a type this arm judges", which is TRUE for every row.
-func entityTypeArm(alias, entityTypeList, gate string) string {
+func entityTypeArm(alias, entityTypeList, gate string, gateArgs []interface{}) (string, []interface{}) {
 	if entityTypeList == "" {
-		return "1 = 1"
+		return "1 = 1", nil
 	}
-	return "(" + alias + ".entity_type NOT IN (" + entityTypeList + ") OR " + gate + ")"
+	return "(" + alias + ".entity_type NOT IN (" + entityTypeList + ") OR " + gate + ")", gateArgs
 }
 
 // showIDBearingEntityTypeList is the SQL IN-list of notification entity types
@@ -1235,7 +1253,17 @@ var showIDBearingEntityTypeList = sqlQuotedList([]string{
 // be matched against another, and a change to the map produces a reviewable
 // diff. Within a single process the string is already stable, since this is
 // computed once at init.
-var commentNotificationEntityTypeList = buildCommentNotificationEntityTypeList()
+var commentNotificationEntityTypeList = sqlQuotedList(commentNotificationEntityTypeKeys())
+
+// commentNotificationEntityTypeKeys is the map's key set. Extracted rather than
+// written out so the list and the writers cannot drift.
+func commentNotificationEntityTypeKeys() []string {
+	types := make([]string, 0, len(commentNotificationEntityTypes))
+	for entityType := range commentNotificationEntityTypes {
+		types = append(types, entityType)
+	}
+	return types
+}
 
 // sqlQuotedList renders entity-type constants as a sorted, quoted SQL IN-list.
 //
@@ -1250,16 +1278,6 @@ func sqlQuotedList(values []string) string {
 	// Empty means empty. entityTypeArm turns that into a no-op; emitting a SQL
 	// placeholder here would make the arm judge every row instead of none.
 	return strings.Join(quoted, ", ")
-}
-
-func buildCommentNotificationEntityTypeList() string {
-	types := make([]string, 0, len(commentNotificationEntityTypes))
-	for entityType := range commentNotificationEntityTypes {
-		types = append(types, "'"+entityType+"'")
-	}
-	sort.Strings(types)
-	// Empty means empty; entityTypeArm is what turns that into a no-op.
-	return strings.Join(types, ", ")
 }
 
 // notifiedAboutShow is the predicate for "this user has ALREADY been told about
@@ -1684,7 +1702,7 @@ type entityNameRow = shared.EntityNameRow
 // — grouped by table so each table is hit at most once. Missing comments
 // (deleted after the row was minted) leave the entry's enrichment fields
 // empty; the UI degrades to a plain "new comment" line.
-func (s *NotificationFilterService) enrichCommentNotifications(entries []contracts.NotificationLogEntry) {
+func (s *NotificationFilterService) enrichCommentNotifications(entries []contracts.NotificationLogEntry, viewer contracts.ShowViewer) {
 	if len(entries) == 0 {
 		return
 	}
@@ -1711,7 +1729,7 @@ func (s *NotificationFilterService) enrichCommentNotifications(entries []contrac
 	names, _ := shared.BatchResolvePublicUserNames(s.db, userIDs)
 	usernames, _ := shared.BatchResolveUserUsernames(s.db, userIDs)
 
-	entitiesByTypeID := s.loadParentEntitiesByType(commentsByID)
+	entitiesByTypeID := s.loadParentEntitiesByType(commentsByID, viewer)
 
 	for i := range entries {
 		e := &entries[i]
@@ -1779,7 +1797,7 @@ func (s *NotificationFilterService) loadCommentRows(commentIDs []uint) (map[uint
 // loaded comments by table and fires one batch SELECT per table — so the
 // inbox enrichment runs in O(distinct-entity-tables) DB roundtrips, not
 // O(rows). Returns nested map[entityType]map[entityID]entityNameRow.
-func (s *NotificationFilterService) loadParentEntitiesByType(comments map[uint]commentRow) map[string]map[uint]entityNameRow {
+func (s *NotificationFilterService) loadParentEntitiesByType(comments map[uint]commentRow, viewer contracts.ShowViewer) map[string]map[uint]entityNameRow {
 	idsByType := make(map[string]map[uint]struct{})
 	for _, c := range comments {
 		if _, _, _, ok := commentEntityPathAndTable(c.EntityType); !ok {
@@ -1801,7 +1819,7 @@ func (s *NotificationFilterService) loadParentEntitiesByType(comments map[uint]c
 		}
 		idListByType[entityType] = ids
 	}
-	return shared.LoadCommentEntityNames(s.db, idListByType)
+	return shared.LoadCommentEntityNames(s.db, idListByType, viewer)
 }
 
 // formatEntityURL builds the (URL, display-name) pair for a comment's

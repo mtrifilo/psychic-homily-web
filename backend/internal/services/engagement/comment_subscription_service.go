@@ -281,7 +281,7 @@ func (s *CommentSubscriptionService) ListWatching(viewer contracts.ShowViewer, l
 		return nil, 0, fmt.Errorf("failed to fetch watching list: %w", err)
 	}
 
-	entities := s.loadWatchingEntities(rows)
+	entities := s.loadWatchingEntities(rows, viewer)
 	commenterNames := s.loadLastCommenterNames(rows)
 
 	items := make([]contracts.WatchingItem, len(rows))
@@ -306,7 +306,7 @@ func (s *CommentSubscriptionService) ListWatching(viewer contracts.ShowViewer, l
 
 // loadWatchingEntities batch-loads (id, name, slug) for the page's
 // entities, one SELECT per distinct entity table.
-func (s *CommentSubscriptionService) loadWatchingEntities(rows []watchingRow) map[string]map[uint]shared.EntityNameRow {
+func (s *CommentSubscriptionService) loadWatchingEntities(rows []watchingRow, viewer contracts.ShowViewer) map[string]map[uint]shared.EntityNameRow {
 	idsByType := make(map[string][]uint)
 	seen := make(map[string]map[uint]struct{})
 	for _, r := range rows {
@@ -321,7 +321,7 @@ func (s *CommentSubscriptionService) loadWatchingEntities(rows []watchingRow) ma
 		set[r.EntityID] = struct{}{}
 		idsByType[r.EntityType] = append(idsByType[r.EntityType], r.EntityID)
 	}
-	return shared.LoadCommentEntityNames(s.db, idsByType)
+	return shared.LoadCommentEntityNames(s.db, idsByType, viewer)
 }
 
 // loadLastCommenterNames batch-resolves the display name of each

@@ -201,7 +201,6 @@ func TestCommentSubscriptionsMirrorTheDetailRoute(t *testing.T) {
 		t.Run("the "+w.name+" route refuses like a missing show", func(t *testing.T) {
 			for _, c := range callers {
 				gatedCode, gatedBody := do(t, http.MethodPost, w.path(gated.ID), c.token, nil)
-				absentCode, absentBody := do(t, http.MethodPost, w.path(absentShowID), c.token, nil)
 
 				if c.mayRead {
 					if gatedCode != http.StatusOK {
@@ -214,6 +213,12 @@ func TestCommentSubscriptionsMirrorTheDetailRoute(t *testing.T) {
 					t.Errorf("POST %s on the gated show as %s = %d, want a refusal; body: %s",
 						w.name, c.name, gatedCode, gatedBody)
 				}
+				// Issued only HERE, not above: Subscribe has no existence check, so
+				// posting the absent id as a caller who is allowed through would
+				// leave real subscription and last-read rows for show 99999999 in
+				// the fixture, inside a file whose subtests share mutable state.
+				absentCode, absentBody := do(t, http.MethodPost, w.path(absentShowID), c.token, nil)
+
 				// The caller's own id is echoed into one of these messages, and
 				// echoing a caller's own input discloses nothing. Normalised out
 				// so the comparison is about everything else: any OTHER

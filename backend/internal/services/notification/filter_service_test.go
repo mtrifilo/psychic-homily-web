@@ -947,6 +947,24 @@ func (s *NotificationFilterSuite) TestShowFilterRow_PulledShowLeavesTheInbox() {
 	s.Require().NoError(err)
 	s.Equal(int64(1), cleared)
 
+	// MarkNotificationsRead(ids) is a DIFFERENT statement shape from mark-all —
+	// an UPDATE whose WHERE carries the correlated EXISTS — so it can break on
+	// its own. Naming the suppressed row's id explicitly must still be refused:
+	// otherwise updated_count becomes an integer oracle for how many gated rows
+	// the account holds, and the row is marked read, defeating the "republish
+	// restores them UNREAD" promise this ticket chose as its disposition.
+	var pulledRow notificationm.NotificationLog
+	s.Require().NoError(s.db.Where("user_id = ? AND entity_id = ?", userID, pulled).
+		First(&pulledRow).Error)
+	updated, err := s.svc.MarkNotificationsRead(inboxViewer(userID), []uint{pulledRow.ID})
+	s.Require().NoError(err)
+	s.Equal(int64(0), updated, "naming a suppressed row by id must not flip it or count it")
+
+	var stillUnread int64
+	s.Require().NoError(s.db.Model(&notificationm.NotificationLog{}).
+		Where("id = ? AND read_at IS NULL", pulledRow.ID).Count(&stillUnread).Error)
+	s.Equal(int64(1), stillUnread, "the suppressed row must still be unread when the show returns")
+
 	// The submitter still reads their own withdrawn show, matching the detail
 	// route, and republishing restores the row for everyone.
 	s.Require().NoError(s.db.Exec(

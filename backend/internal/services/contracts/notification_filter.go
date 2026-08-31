@@ -168,10 +168,12 @@ type NotificationFilterServiceInterface interface {
 	// self-scoped, so the viewer names both the account whose rows these are
 	// and the tier they are read at (PSY-1983), and passing one value rather
 	// than a user id beside a viewer carrying the same id keeps the two from
-	// disagreeing. Rows leading to a show the viewer may not see — comment
-	// replies and mentions, and artist show alerts — are dropped from the list,
-	// the unread count and both mark-read writes together, so no pair of them
-	// can be differenced.
+	// disagreeing. Rows leading to a show the viewer may not see are dropped
+	// from the list, the unread count and both mark-read writes together, so no
+	// pair of them can be differenced. inboxRowsVisibleTo is the authority on
+	// WHICH rows those are — today the comment replies and mentions, the artist
+	// show alerts, and the show-filter / scene-follow rows that carry a show id
+	// directly — and restating its list here is how the two drift apart.
 	//
 	// All four REJECT the zero viewer. ShowViewer{} is the deliberate spelling
 	// for the public tier on the listing gates, and these are self-scoped, so
