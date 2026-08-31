@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"regexp"
-	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -768,6 +768,63 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_FestivalEditio
 	suite.Assert().Equal(int64(1), count, "one row; the 2026 edition's request is gone")
 }
 
+// The residual SHOW collision, pinned because it is the ticket's own harm class
+// left standing: same title, same date, different venue. The payload has no venue
+// field and city/state are optional, so the key cannot separate these two. A
+// franchise night running two cities the same evening is the real case.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_SameTitleSameDateDifferentCity_StillCollides() {
+	user := suite.createUser("franchise", tierContributor, false)
+
+	phoenix, err := communitym.MarshalPayload(communitym.ShowRequestPayload{
+		Title: "Emo Night", EventDate: "2026-09-03T20:00:00-07:00", City: strptr("Phoenix"),
+	})
+	suite.Require().NoError(err)
+	tucson, err := communitym.MarshalPayload(communitym.ShowRequestPayload{
+		Title: "Emo Night", EventDate: "2026-09-03T20:00:00-07:00", City: strptr("Tucson"),
+	})
+	suite.Require().NoError(err)
+
+	first, _, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
+		phoenix, communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+
+	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
+		tucson, communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+	suite.Assert().True(replaced, "UNFIXED: the Tucson night replaces the Phoenix one")
+	suite.Assert().Equal(first.ID, second.ID)
+
+	stored := suite.requireStored(first.ID)
+	suite.Require().NotNil(stored.Payload)
+	suite.Assert().JSONEq(string(tucson), string(*stored.Payload), "the Phoenix request is gone")
+}
+
+// The venue gap, pinned like the other two. city and state are both REQUIRED for
+// a venue, so this is the most fixable of the unfixed collisions; what blocks it
+// is that dedupOccurrenceJSONKey names ONE key and a venue needs two.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_SameVenueNameDifferentCity_StillCollides() {
+	user := suite.createUser("chain", tierContributor, false)
+
+	sf, err := communitym.MarshalPayload(communitym.VenueRequestPayload{
+		Name: "The Fillmore", City: "San Francisco", State: "CA",
+	})
+	suite.Require().NoError(err)
+	philly, err := communitym.MarshalPayload(communitym.VenueRequestPayload{
+		Name: "The Fillmore", City: "Philadelphia", State: "PA",
+	})
+	suite.Require().NoError(err)
+
+	first, _, err := suite.service.CreateRequest(user, communitym.EntityRequestVenue,
+		sf, communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+
+	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestVenue,
+		philly, communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+	suite.Assert().True(replaced, "UNFIXED: two different Fillmores are one request")
+	suite.Assert().Equal(first.ID, second.ID)
+}
+
 // The same unfixed collision for releases, which the ticket named explicitly
 // (self-titled, "Untitled", "Live at X"). release_date is OPTIONAL, so it cannot
 // be the occurrence term without turning "queued without a date, resubmitted with
@@ -832,13 +889,18 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_SameInstantDif
 	suite.Assert().NotEqual(first.ID, third.ID)
 }
 
-// An event_date long enough to blow the btree index-row limit reaches the INSERT
-// and fails with SQLSTATE 54000, which is NOT a duplicate-key error — so the
-// dedup branch never fires and the contributor gets a 500 for their own input.
-// The boundary refuses it first (TestValidateShow_OversizedEventDate in the
-// models package); this pins what happens if it ever stops doing so, and that the
-// failure is at least a clean error rather than a written row.
-func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_OversizedEventDate_FailsWithoutWriting() {
+// The index must be able to store a row whose event_date is far too long for a
+// btree key. This is the property the up migration's "the build cannot fail on
+// existing data" claim rests on: rows queued BEFORE maxRequestDateLen existed can
+// hold a multi-kilobyte event_date, and the migration has to index them.
+//
+// The service is used deliberately rather than a raw INSERT, because it is the
+// index — not the boundary — that this pins: CreateRequest does not validate
+// payloads (that is the HTTP layer's job), so this is exactly the shape a legacy
+// row has. Without left(..., 64) on the term, Postgres answers SQLSTATE 54000,
+// which is not a duplicate-key error, so the dedup branch would not fire and the
+// contributor would get a 500.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_OversizedEventDate_IsStillIndexable() {
 	user := suite.createUser("longdate", tierContributor, false)
 
 	// The digits must be INCOMPRESSIBLE. Postgres TOAST-compresses an oversized
@@ -854,15 +916,18 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_OversizedEvent
 
 	_, parseErr := time.Parse(time.RFC3339, oversized)
 	suite.Require().NoError(parseErr,
-		"the fixture must still PARSE, or it is not testing the gap the length cap exists for")
+		"the fixture must still PARSE, or it is not the shape a legacy row has")
 
-	_, _, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
+	stored, _, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
 		suite.marshalShowOn("Long Night", oversized), communitym.EntityRequestSourceManual, nil, false)
-	suite.Require().Error(err, "the index cannot store it")
+	suite.Require().NoError(err, "the truncated term keeps an oversized event_date indexable")
+	suite.Require().NotNil(stored)
 
-	var count int64
-	suite.Require().NoError(suite.db.Model(&communitym.EntityRequest{}).Count(&count).Error)
-	suite.Assert().Equal(int64(0), count, "nothing is written")
+	// Truncation is only about what the INDEX stores. The payload is untouched.
+	fetched := suite.requireStored(stored.ID)
+	suite.Require().NotNil(fetched.Payload)
+	suite.Assert().Contains(string(*fetched.Payload), oversized,
+		"the stored payload keeps the full value; only the key is truncated")
 }
 
 // The race the conditional UPDATE exists for: an admin decides the row between
@@ -1266,33 +1331,34 @@ func mustMarshalLabel(suite *EntityRequestServiceIntegrationTestSuite, name stri
 	return raw
 }
 
-// PSY-1977: the candidate expressions interpolate the payload once per JSON key
-// they read, so their placeholder count changes whenever the key list does.
-// Binding the wrong number of args is not a silent mismatch — Postgres refuses
-// the statement outright ("could not determine data type of parameter $N") and
-// the dedup lookup fails, turning a correction into a duplicate-key 500. This
-// caught exactly that during PSY-1977, when narrowing the occurrence coalesce
-// from two keys to one left the call sites passing two args.
-func TestDedupKeyArgsMatchesPlaceholderCount(t *testing.T) {
-	name, occurrence := dedupKeyExprs(dedupCandidatePayload)
-	for _, expr := range []string{name, occurrence} {
-		args := dedupKeyArgs(expr, "{}")
-		if got, want := len(args), strings.Count(expr, "?"); got != want {
-			t.Errorf("dedupKeyArgs bound %d args for %d placeholders in %s", got, want, expr)
-		}
-		for i, arg := range args {
-			if arg != "{}" {
-				t.Errorf("arg %d is %v, want the candidate payload", i, arg)
-			}
-		}
-	}
-
-	// The stored side reads the column, never a placeholder — if it ever grows
-	// one, both call sites are binding args for the wrong expression.
+// PSY-1977: the two sides of the comparison are asymmetric, and only one of them
+// may carry placeholders. The stored side reads the column; the candidate side
+// interpolates the payload once per JSON key it reads.
+//
+// Asserting the candidate side's arity here would be tautological — dedupKeyArgs
+// derives the count from the same expression — and that is the point: the arity
+// bug this had (narrowing the coalesce to one key while both call sites still
+// passed two args, which Postgres refuses with "could not determine data type of
+// parameter $N") is now unrepresentable because nothing writes the count down.
+// The statements themselves are exercised by the integration tests, which is the
+// only place a binding error can actually surface.
+//
+// What IS worth asserting is the asymmetry, because it is an assumption both call
+// sites make silently: they bind args for the CANDIDATE expression only.
+func TestDedupKeyStoredSideCarriesNoPlaceholder(t *testing.T) {
 	storedName, storedOccurrence := dedupKeyExprs(dedupStoredPayload)
 	for _, expr := range []string{storedName, storedOccurrence} {
 		if strings.Contains(expr, "?") {
-			t.Errorf("the stored-side expression must not carry a placeholder: %s", expr)
+			t.Errorf("the stored-side expression must not carry a placeholder, "+
+				"or every call site is binding one arg too few: %s", expr)
+		}
+	}
+
+	candidateName, candidateOccurrence := dedupKeyExprs(dedupCandidatePayload)
+	for _, expr := range []string{candidateName, candidateOccurrence} {
+		if !strings.Contains(expr, "?") {
+			t.Errorf("the candidate-side expression must carry a placeholder, "+
+				"or the payload is being compared against nothing: %s", expr)
 		}
 	}
 }
@@ -1330,42 +1396,54 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestDedupOccurrenceMatche
 	suite.Require().NotEmpty(declared,
 		"no payload type declares an occurrence key; the dedup key lost its date term")
 
-	_, occurrence := dedupKeyExprs(dedupStoredPayload)
-	exprKeys := dedupKeyJSONKeys(occurrence)
+	// BOTH terms, not just the occurrence. The name term is the older and larger
+	// half of the key and already carries two coexisting keys ('name', 'title'),
+	// so it is the half where a widening edit or a reordered coalesce is most
+	// likely — and a query wider than the index is the drift that picks the wrong
+	// row rather than erroring.
+	name, occurrence := dedupKeyExprs(dedupStoredPayload)
+	occurrenceKeys := dedupKeyJSONKeys(occurrence)
+	exprKeys := append(dedupKeyJSONKeys(name), occurrenceKeys...)
 	indexKeys := dedupKeyJSONKeys(indexDef)
 
 	// Postgres rewrites the expression (trim becomes btrim, ::text casts appear),
-	// so compare the quoted key literals rather than the whole expression. The
-	// index also carries the name/title terms, which are not occurrence keys.
+	// so compare the quoted key literals rather than the whole expression.
 	for _, key := range declared {
-		suite.Assert().Contains(exprKeys, key,
+		suite.Assert().Contains(occurrenceKeys, key,
 			"payload registry declares occurrence key %q but dedupKeyExprs does not read it", key)
 		suite.Assert().Contains(indexKeys, key,
 			"payload registry declares occurrence key %q but uq_entity_requests_pending_dedup does not read it;\n"+
 				"add it to the index in a NEW migration, in the same order as dedupKeyExprs", key)
 	}
 
-	// The reverse direction: a key the expression reads that no type declares is a
-	// typo or a leftover, and either one silently splits a dedup bucket.
-	for _, key := range exprKeys {
+	// The reverse direction, for the occurrence term only: a date key the
+	// expression reads that no type declares is a typo or a leftover, and either
+	// one silently splits a dedup bucket. The name term has no registry to check
+	// against — 'name'/'title' are the schema, not a per-type declaration.
+	for _, key := range occurrenceKeys {
 		suite.Assert().Contains(declared, key,
 			"dedupKeyExprs reads %q, which no payload type declares as its occurrence key", key)
-		suite.Assert().Contains(indexKeys, key,
-			"dedupKeyExprs reads %q but the index does not; the query is WIDER than the index,\n"+
-				"which is the drift direction that picks the wrong row instead of erroring", key)
 	}
 
-	// Order is load-bearing the day two keys coexist in the coalesce: whichever
-	// comes first wins for a payload carrying both. Assert the index agrees with
-	// the expression on order, restricted to the occurrence keys.
-	var indexOccurrence []string
-	for _, key := range indexKeys {
-		if slices.Contains(exprKeys, key) {
-			indexOccurrence = append(indexOccurrence, key)
-		}
-	}
-	suite.Assert().Equal(exprKeys, indexOccurrence,
-		"the index reads the occurrence keys in a different order than dedupKeyExprs")
+	// EXACT equality, in order, in both directions. Subset checks are what let the
+	// two dangerous edits through: an index that reads a key the expression does
+	// not (query WIDER than index, which picks the wrong row instead of erroring),
+	// and a reordered coalesce, where whichever key comes first wins for a payload
+	// carrying both.
+	suite.Assert().Equal(exprKeys, indexKeys,
+		"dedupKeyExprs and uq_entity_requests_pending_dedup read different payload keys, "+
+			"or read them in a different order.\nGo: %v\nindex: %v\n"+
+			"They must be edited as a pair, in a NEW migration.", exprKeys, indexKeys)
+
+	// The truncation WIDTH is part of the key too, and a bare integer in three
+	// files is exactly the kind of thing that drifts silently: a narrower index
+	// than the query folds two distinct dates into one bucket.
+	suite.Assert().Contains(indexDef, strconv.Itoa(dedupOccurrenceTruncation),
+		"the index does not truncate the occurrence term at %d; dedupKeyExprs does",
+		dedupOccurrenceTruncation)
+	suite.Assert().Equal(dedupOccurrenceTruncation, communitym.MaxRequestDateLen(),
+		"the occurrence truncation and the API boundary's event_date cap must be equal, "+
+			"or the index keys a prefix of a value the boundary accepted whole")
 }
 
 func TestEntityRequestServiceIntegrationTestSuite(t *testing.T) {

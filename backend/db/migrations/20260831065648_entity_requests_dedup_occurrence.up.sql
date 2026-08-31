@@ -45,11 +45,46 @@
 -- string collapses them all into one bucket, which is exactly the title-only key
 -- they had before.
 --
--- EXISTING ROWS: none need resolving. The new key is strictly WIDER than the old
--- one, so every set of rows that satisfied the old index satisfies this one; the
--- build cannot fail on data that is already there. What survives is rows that
--- were previously prevented — none exist yet, because the old index prevented
--- them.
+-- EXISTING ROWS: uniqueness needs no resolution, but SIZE needs a preflight.
+-- Read both.
+--
+-- UNIQUENESS cannot fail. The new key is strictly WIDER than the old one, so
+-- every set of rows that satisfied the old index satisfies this one. What
+-- survives is rows that were previously prevented, and none exist yet, because
+-- the old index prevented them.
+--
+-- SIZE CAN FAIL, and this file will not pretend otherwise. A btree index tuple
+-- has a hard ~2704-byte limit, and this migration ADDS A COLUMN to that tuple, so
+-- "it fit the old index" is not a bound on whether it fits this one. Verified
+-- against a live Postgres: a pending artist row with a 2676-byte incompressible
+-- name is accepted by the old index and makes this CREATE abort with SQLSTATE
+-- 54000. Such a name is reachable today because name/title is length-capped only
+-- on show titles; requireField checks non-empty and nothing else.
+--
+-- The occurrence term is truncated (left(..., 64)) so the term this migration
+-- INTRODUCES can never be the cause: event_date was neither indexed nor capped
+-- before, so a row queued earlier may hold a multi-kilobyte value. 64 matches the
+-- API boundary's cap (maxRequestDateLen), so it never folds two legal dates
+-- together. Keep the two numbers equal. The name term is left untruncated
+-- deliberately: shortening it would change the semantics of a key that has been
+-- in production since PSY-1008 and could make two previously-distinct rows
+-- collide, trading a detectable failure for a silent one.
+--
+-- PREFLIGHT before deploying this, and resolve anything it returns by shortening
+-- or deciding the row:
+--
+--   SELECT id, entity_type, requester_id,
+--          octet_length(lower(trim(coalesce(payload->>'name', payload->>'title')))) AS name_bytes
+--     FROM entity_requests
+--    WHERE decision_state = 'pending'
+--      AND octet_length(lower(trim(coalesce(payload->>'name', payload->>'title')))) > 2400
+--    ORDER BY name_bytes DESC;
+--
+-- If it fails anyway, the multi-statement transaction rolls back (no data lost)
+-- and golang-migrate leaves schema_migrations dirty at THIS migration's own
+-- version: recover with `migrate force 20260830051511` and then `up`. The real
+-- fix is capping name/title on the five types that lack it, which is a boundary
+-- change with its own product call and is not made here.
 --
 -- ROLLING THIS BACK: run the down migration and deploy the pre-PSY-1977 build
 -- TOGETHER. A pre-PSY-1977 binary against this WIDE index is a broken pair: its
@@ -70,6 +105,6 @@ CREATE UNIQUE INDEX uq_entity_requests_pending_dedup
         entity_type,
         requester_id,
         (lower(trim(coalesce(payload->>'name', payload->>'title')))),
-        (trim(coalesce(payload->>'event_date', '')))
+        (left(trim(coalesce(payload->>'event_date', '')), 64))
     )
     WHERE decision_state = 'pending';

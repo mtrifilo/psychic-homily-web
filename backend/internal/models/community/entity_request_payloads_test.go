@@ -464,11 +464,33 @@ func TestValidateShow_OversizedEventDate(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "event_date must be 64 characters or fewer")
 
-	// The cap must not reject anything legal. RFC3339 with 9 fractional digits is
-	// the longest legal spelling at 35 characters.
+	// UNICODE WHITESPACE must not smuggle a huge value past the cap. Go's
+	// strings.TrimSpace strips 25 space runes; SQL trim() strips ASCII 0x20 only,
+	// so a value padded with U+3000 trims to 10 bytes in Go while the full 40 KB
+	// goes to the payload column. The index survives it regardless (the key term
+	// is truncated), so what this pins is the BOUNDARY measuring the untrimmed
+	// value, which is what keeps the stored payload sane.
+	padded := "2026-09-03" + strings.Repeat("　", 4000)
+	require.Equal(t, "2026-09-03", strings.TrimSpace(padded),
+		"the fixture must LOOK short to Go, or it is not testing the bypass")
+	paddedRaw, err := MarshalPayload(ShowRequestPayload{Title: "Padded", EventDate: padded})
+	require.NoError(t, err)
+	err = ValidateEntityRequestPayload(EntityRequestShow, paddedRaw)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "event_date must be 64 characters or fewer")
+
+	// The cap must not reject anything legal. 35 characters is the longest
+	// spelling Go preserves: RFC 3339 permits more fractional digits, but
+	// time.Parse truncates past 9.
 	longestLegal := "2026-09-03T20:00:00.123456789-07:00"
 	require.LessOrEqual(t, len(longestLegal), maxRequestDateLen)
 	okRaw, err := MarshalPayload(ShowRequestPayload{Title: "Long Night", EventDate: longestLegal})
 	require.NoError(t, err)
 	assert.NoError(t, ValidateEntityRequestPayload(EntityRequestShow, okRaw))
+
+	// A legal value with ordinary surrounding spaces still validates: the cap is
+	// generous enough that padding does not turn a legal date into a 422.
+	spacedRaw, err := MarshalPayload(ShowRequestPayload{Title: "Spaced", EventDate: "  2026-09-03  "})
+	require.NoError(t, err)
+	assert.NoError(t, ValidateEntityRequestPayload(EntityRequestShow, spacedRaw))
 }

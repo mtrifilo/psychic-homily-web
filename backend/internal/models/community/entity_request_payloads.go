@@ -59,10 +59,12 @@ type EntityRequestPayload interface {
 	// method to compile. Be clear about how much that buys: the compiler forces a
 	// method, NOT a correct answer, and "" is both a legitimate answer and the
 	// easiest one to copy from the neighbours. It puts the question in front of
-	// the author; it does not answer it for them. Four of the six types answer ""
-	// today and only ONE of those four (artist) is uncontested — read each one's
-	// comment before copying it, because three of them document a destructive
-	// collision this key does not fix.
+	// the author; it does not answer it for them.
+	//
+	// FIVE of the six types answer "" today. Two of those (artist, label) are
+	// uncontested. The other three (release, venue, festival) each document a
+	// destructive collision this key does NOT fix, so read the comment before
+	// copying the answer.
 	//
 	// Only a REQUIRED field belongs here. An optional one turns "queued without a
 	// date, resubmitted with one" into a second request rather than the correction
@@ -220,6 +222,15 @@ type ShowRequestPayload struct {
 	// VENUE-LOCAL at fulfillment and the venue is not known at submit, so it
 	// cannot simply be normalized to an instant. That decision is open, not made.
 	//
+	// SHOWS ARE NOT FULLY FIXED. Same title, same date, DIFFERENT VENUE still
+	// collides destructively, and the second submission still answers replaced:
+	// true. A franchise night running two cities the same evening is the real
+	// case. The key cannot close it: this payload has no venue field at all (the
+	// approving admin supplies the venue at fulfillment), and city/state are
+	// OPTIONAL, which disqualifies them under the same rule that disqualifies
+	// release_date. Title the two distinguishably, or queue the second after the
+	// first is decided.
+	//
 	// It applies only to QUEUEING tiers: a submission that auto-approves (admin,
 	// local_ambassador, a confirmed trusted_contributor) is stamped 'approved'
 	// before the insert and so never meets the pending-only dedup index — it files
@@ -275,7 +286,7 @@ type VenueRequestPayload struct {
 
 func (VenueRequestPayload) entityRequestType() string { return EntityRequestVenue }
 
-// UNFIXED, and the weakest of the four empty answers: chain and franchise venue
+// UNFIXED, and the weakest of the five empty answers: chain and franchise venue
 // names repeat across cities (The Fillmore, House of Blues), so two requests for
 // one name are frequently two venues, and the second still destroys the first.
 //
@@ -334,6 +345,12 @@ var payloadRegistry = map[string]EntityRequestPayload{
 	EntityRequestVenue:    VenueRequestPayload{},
 	EntityRequestFestival: FestivalRequestPayload{},
 }
+
+// MaxRequestDateLen exposes the event_date cap so the service holding the dedup
+// SQL can assert its truncation width against it (PSY-1977). The two must be
+// equal: a truncation shorter than the cap would key a prefix of a value the
+// boundary accepted whole, folding two legal dates into one bucket.
+func MaxRequestDateLen() int { return maxRequestDateLen }
 
 // DedupOccurrenceJSONKeys returns, sorted and deduplicated, every JSON key the
 // registered payloads name as their occurrence term (PSY-1977). It is what the
@@ -794,17 +811,31 @@ const (
 	// maxRequestDateLen bounds a date/timestamp field that feeds the pending-dedup
 	// INDEX (PSY-1977). It is a hard boundary check, not a formatting preference:
 	// time.Parse accepts an RFC3339 value with an arbitrarily long fractional
-	// second — it truncates past 10 digits instead of rejecting — so a 3 KB
-	// event_date parses cleanly, reaches the INSERT, and blows the btree's 2704-
-	// byte index-row limit. That error is SQLSTATE 54000, which GORM does not
-	// translate to ErrDuplicatedKey, so CreateRequest's dedup branch does not fire
-	// and a contributor turns their own bad input into a 500 plus a Sentry event.
-	// 64 is comfortably above the longest legal RFC3339 (35, with 9 fractional
-	// digits) and far below the index limit.
+	// second (it truncates past 9 digits instead of rejecting), so a multi-KB
+	// event_date parses cleanly, reaches the INSERT, and blows the btree index-row
+	// limit. That error is SQLSTATE 54000, which GORM does not translate to
+	// ErrDuplicatedKey, so CreateRequest's dedup branch does not fire and a
+	// contributor turns their own input into a 500 plus a Sentry event.
 	//
-	// It bounds ONLY what the index reads. The name/title terms have been in that
-	// index since PSY-1008 and are still uncapped on five of the six types, which
-	// is the same 500 by a different door and wants its own ticket.
+	// 64 is comfortably above the longest spelling Go PRESERVES (35, with 9
+	// fractional digits). RFC 3339 itself permits more — time-secfrac is
+	// "." 1*DIGIT with no upper bound — and those longer values are rejected here,
+	// which is the intent: Go would truncate them anyway.
+	//
+	// The index ALSO truncates to this same number (dedupKeyExprs), and THAT is
+	// what makes the term index-safe, including for rows queued before this cap
+	// existed. Keep the two equal. This check is the boundary half: it keeps junk
+	// out of the stored payload and refuses the value rather than silently
+	// indexing a prefix of it.
+	//
+	// It bounds ONLY what the index newly reads. The name/title terms have been in
+	// that index since PSY-1008 and are still uncapped on five of the six types.
+	// That is the same contributor-triggerable 500 on INSERT by a different door,
+	// AND — verified against a live Postgres — it can abort the index build in the
+	// PSY-1977 migration, because that migration adds a column to the same tuple
+	// and "it fit the old index" stops being a bound. See that migration's
+	// preflight. Capping those five is a boundary change with its own product call
+	// about limits and is not made here.
 	maxRequestDateLen = 64
 )
 
@@ -854,10 +885,20 @@ func requireDateTimeOrDate(entityType, field, value string) error {
 	if trimmed == "" {
 		return fmt.Errorf("%s payload: %s is required", entityType, field)
 	}
-	// Length BEFORE parse: time.Parse would accept an arbitrarily long fractional
+	// Length BEFORE parse, and on the UNTRIMMED value. Both halves matter.
+	//
+	// Before parse, because time.Parse would accept an arbitrarily long fractional
 	// second and hand the oversized string to an index that cannot store it.
-	// See maxRequestDateLen.
-	if len(trimmed) > maxRequestDateLen {
+	//
+	// Untrimmed, because the two trims do not agree: Go's strings.TrimSpace strips
+	// 25 Unicode space runes while SQL trim() strips ASCII 0x20 only. Measuring the
+	// trimmed value would let "2026-09-03" padded with U+3000 pass at 10 bytes
+	// while a 40 KB string goes into the payload column. The INDEX survives that
+	// either way (dedupKeyExprs truncates), so this is not the index guard — it is
+	// what keeps the stored payload from carrying kilobytes of whitespace, and
+	// what keeps this check independent of SQL's trim semantics. See
+	// maxRequestDateLen.
+	if len(value) > maxRequestDateLen {
 		return fmt.Errorf("%s payload: %s must be %d characters or fewer", entityType, field, maxRequestDateLen)
 	}
 	if _, err := time.Parse(time.RFC3339, trimmed); err == nil {
