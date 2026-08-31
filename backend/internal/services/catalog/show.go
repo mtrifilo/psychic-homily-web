@@ -1000,11 +1000,16 @@ func (s *ShowService) loadShowArtistResponses(tx *gorm.DB, showID uint) ([]contr
 // has one show_artists row per artist and therefore room for one venue
 // id, so this index covers the lowest venue of such a bill and no other.
 // show_dedup_keys holds the key at its real grain, one row per (show,
-// artist, venue), maintained by trigger and covering every room; this
-// index is the narrower statement of the same rule, kept because it costs
-// nothing and fails closer to the write. The application advisory-lock
-// pre-check in checkDuplicateHeadlinerConflicts still provides a
-// user-friendly duplicate error before either one fires (PSY-576).
+// artist, venue), maintained by trigger and covering every room.
+//
+// This index is the narrower statement of the same rule and nothing reads
+// the columns behind it any more. Retiring them is a follow-up rather than
+// free: the write sites are this function's callers plus the venue merge,
+// the seed and admin data sync, and a DROP COLUMN has to be sequenced
+// after the last binary that writes them. Until then it costs about one
+// statement per show write. The application advisory-lock pre-check in
+// checkDuplicateHeadlinerConflicts still provides a user-friendly
+// duplicate error before either constraint fires (PSY-576).
 //
 // Package-level so the show-dedup merge path (show_dedup.go) can call
 // it too after re-pointing show_artists rows between merged shows.

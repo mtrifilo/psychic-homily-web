@@ -45,13 +45,13 @@ var errPreviewRollback = errors.New("venue merge preview rollback")
 var venueFKTables = []string{
 	"festival_artists",
 	"festival_venues",
+	"show_artists",
 	// show_dedup_keys is DERIVED, and the only entry here that takes no explicit
 	// step: its rows are rebuilt from show_venues by trigger, so re-pointing
 	// show_venues below already re-points it. It is listed because this is a
 	// completeness inventory, where an unlisted table and a forgotten one look
 	// the same.
 	"show_dedup_keys",
-	"show_artists",
 	"show_venues",
 	"venue_confirmations",
 	// venue_show_alert_batch (PSY-1895) cascades too, and losing it is quiet in

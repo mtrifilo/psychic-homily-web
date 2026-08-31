@@ -69,10 +69,16 @@ import (
 //     show_artists ALSO feeds show_dedup_keys, UNIQUE (artist_id, venue_id,
 //     event_date) over the whole bill, which the artist merge has to dedupe
 //     against separately (dropCollidingShowArtists). This merge does not, and
-//     cannot need to: it moves a row without changing which artist plays which
-//     venue on which date, so the only key that could collide with the moved one
-//     is a key the constraint would already have rejected before the merge ran.
-//     syncShowArtistDedupColumns then re-stamps the winner's denormalized
+//     what makes that safe is an ordering rather than an absence: a re-pointed
+//     bill row DOES mint a key on the winner, and the winner and loser of a
+//     cluster share that key by construction. The trigger rebuilds the OLD show
+//     before the NEW one, so the loser's copy is gone before the winner's is
+//     inserted. That order is stated in the 20260830224500 migration and is what
+//     this claim rests on.
+//
+//     One case the ordering does not cover: a winner billed at a room the loser
+//     does not play mints a key at that room too, which can collide with a third
+//     show. syncShowArtistDedupColumns then re-stamps the winner's denormalized
 //     columns, because moved rows arrive carrying the loser's denorm.
 //
 //   - show_dedup_keys.show_id is DERIVED and gets no re-point at all. Its rows

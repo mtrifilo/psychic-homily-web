@@ -37,8 +37,8 @@ func (suite *ShowServiceIntegrationTestSuite) TestMultiVenueDedup_SecondVenueIsC
 			{Name: "Dedup Venue B", City: "Phoenix", State: "AZ"},
 		},
 		Artists: []contracts.CreateShowArtist{
-			{Name: "Dedup Opener", SetType: strPtr("opener")},
-			{Name: "Dedup Headliner", SetType: strPtr("headliner")},
+			{Name: "Dedup Opener", SetType: strPtr(contracts.SetTypeOpener)},
+			{Name: "Dedup Headliner", SetType: strPtr(contracts.SetTypeHeadliner)},
 		},
 		SubmittedByUserID: &user.ID, SubmitterIsAdmin: true,
 	})
@@ -47,7 +47,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestMultiVenueDedup_SecondVenueIsC
 	_, err = suite.showService.CreateShow(&contracts.CreateShowRequest{
 		Title: "Multi Venue Duplicate", EventDate: eventDate, City: "Phoenix", State: "AZ",
 		Venues:            []contracts.CreateShowVenue{{Name: "Dedup Venue B", City: "Phoenix", State: "AZ"}},
-		Artists:           []contracts.CreateShowArtist{{Name: "Dedup Opener", SetType: strPtr("headliner")}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Dedup Opener", SetType: strPtr(contracts.SetTypeHeadliner)}},
 		SubmittedByUserID: &user.ID, SubmitterIsAdmin: true,
 	})
 	suite.Require().Error(err, "a second show at the multi-venue bill's other venue must be refused")
@@ -70,8 +70,8 @@ func (suite *ShowServiceIntegrationTestSuite) TestMultiVenueDedup_RefusedWithout
 			{Name: "Bypass Venue B", City: "Phoenix", State: "AZ"},
 		},
 		Artists: []contracts.CreateShowArtist{
-			{Name: "Bypass Opener", SetType: strPtr("opener")},
-			{Name: "Bypass Headliner", SetType: strPtr("headliner")},
+			{Name: "Bypass Opener", SetType: strPtr(contracts.SetTypeOpener)},
+			{Name: "Bypass Headliner", SetType: strPtr(contracts.SetTypeHeadliner)},
 		},
 		SubmittedByUserID: &user.ID, SubmitterIsAdmin: true,
 	})
@@ -128,8 +128,8 @@ func (suite *ShowServiceIntegrationTestSuite) TestMultiVenueDedup_FirstVenueStay
 			{Name: "First Venue B", City: "Phoenix", State: "AZ"},
 		},
 		Artists: []contracts.CreateShowArtist{
-			{Name: "First Opener", SetType: strPtr("opener")},
-			{Name: "First Headliner", SetType: strPtr("headliner")},
+			{Name: "First Opener", SetType: strPtr(contracts.SetTypeOpener)},
+			{Name: "First Headliner", SetType: strPtr(contracts.SetTypeHeadliner)},
 		},
 		SubmittedByUserID: &user.ID, SubmitterIsAdmin: true,
 	})
@@ -138,7 +138,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestMultiVenueDedup_FirstVenueStay
 	_, err = suite.showService.CreateShow(&contracts.CreateShowRequest{
 		Title: "First Venue Duplicate", EventDate: eventDate, City: "Phoenix", State: "AZ",
 		Venues:            []contracts.CreateShowVenue{{Name: "First Venue A", City: "Phoenix", State: "AZ"}},
-		Artists:           []contracts.CreateShowArtist{{Name: "First Opener", SetType: strPtr("headliner")}},
+		Artists:           []contracts.CreateShowArtist{{Name: "First Opener", SetType: strPtr(contracts.SetTypeHeadliner)}},
 		SubmittedByUserID: &user.ID, SubmitterIsAdmin: true,
 	})
 	suite.Require().Error(err)
@@ -159,8 +159,8 @@ func (suite *ShowServiceIntegrationTestSuite) TestMultiVenueDedup_DistinctVenueS
 			{Name: "Distinct Venue B", City: "Phoenix", State: "AZ"},
 		},
 		Artists: []contracts.CreateShowArtist{
-			{Name: "Distinct Opener", SetType: strPtr("opener")},
-			{Name: "Distinct Headliner", SetType: strPtr("headliner")},
+			{Name: "Distinct Opener", SetType: strPtr(contracts.SetTypeOpener)},
+			{Name: "Distinct Headliner", SetType: strPtr(contracts.SetTypeHeadliner)},
 		},
 		SubmittedByUserID: &user.ID, SubmitterIsAdmin: true,
 	})
@@ -169,24 +169,25 @@ func (suite *ShowServiceIntegrationTestSuite) TestMultiVenueDedup_DistinctVenueS
 	_, err = suite.showService.CreateShow(&contracts.CreateShowRequest{
 		Title: "Distinct Elsewhere", EventDate: eventDate, City: "Phoenix", State: "AZ",
 		Venues:            []contracts.CreateShowVenue{{Name: "Distinct Venue C", City: "Phoenix", State: "AZ"}},
-		Artists:           []contracts.CreateShowArtist{{Name: "Distinct Opener", SetType: strPtr("headliner")}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Distinct Opener", SetType: strPtr(contracts.SetTypeHeadliner)}},
 		SubmittedByUserID: &user.ID, SubmitterIsAdmin: true,
 	})
 	suite.Require().NoError(err, "a different venue on the same night is a different show")
 	suite.Require().EqualValues(2, suite.countShows())
 }
 
-// dedupKeysFor reads back the derived key rows for one show.
-func (suite *ShowServiceIntegrationTestSuite) dedupKeysFor(showID uint) []struct {
+// dedupKeyRow is one derived row of show_dedup_keys. Declared here rather than
+// in the model package on purpose: no Go code writes this table, and a model
+// would invite someone to.
+type dedupKeyRow struct {
 	ArtistID  uint      `gorm:"column:artist_id"`
 	VenueID   uint      `gorm:"column:venue_id"`
 	EventDate time.Time `gorm:"column:event_date"`
-} {
-	var rows []struct {
-		ArtistID  uint      `gorm:"column:artist_id"`
-		VenueID   uint      `gorm:"column:venue_id"`
-		EventDate time.Time `gorm:"column:event_date"`
-	}
+}
+
+// dedupKeysFor reads back the derived key rows for one show.
+func (suite *ShowServiceIntegrationTestSuite) dedupKeysFor(showID uint) []dedupKeyRow {
+	var rows []dedupKeyRow
 	suite.Require().NoError(suite.db.Raw(
 		`SELECT artist_id, venue_id, event_date FROM show_dedup_keys WHERE show_id = ? ORDER BY artist_id, venue_id`,
 		showID).Scan(&rows).Error)
@@ -209,8 +210,8 @@ func (suite *ShowServiceIntegrationTestSuite) TestMultiVenueDedup_KeysAreDerived
 			{Name: "Derivation Venue B", City: "Phoenix", State: "AZ"},
 		},
 		Artists: []contracts.CreateShowArtist{
-			{Name: "Derivation Opener", SetType: strPtr("opener")},
-			{Name: "Derivation Headliner", SetType: strPtr("headliner")},
+			{Name: "Derivation Opener", SetType: strPtr(contracts.SetTypeOpener)},
+			{Name: "Derivation Headliner", SetType: strPtr(contracts.SetTypeHeadliner)},
 		},
 		SubmittedByUserID: &user.ID, SubmitterIsAdmin: true,
 	})
@@ -254,7 +255,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestMultiVenueDedup_MatineeAndEven
 			{Name: "Matinee Venue A", City: "Phoenix", State: "AZ"},
 			{Name: "Matinee Venue B", City: "Phoenix", State: "AZ"},
 		},
-		Artists:           []contracts.CreateShowArtist{{Name: "Matinee Act", SetType: strPtr("headliner")}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Matinee Act", SetType: strPtr(contracts.SetTypeHeadliner)}},
 		SubmittedByUserID: &user.ID, SubmitterIsAdmin: true,
 	})
 	suite.Require().NoError(err)
@@ -262,7 +263,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestMultiVenueDedup_MatineeAndEven
 	_, err = suite.showService.CreateShow(&contracts.CreateShowRequest{
 		Title: "Evening", EventDate: evening, City: "Phoenix", State: "AZ",
 		Venues:            []contracts.CreateShowVenue{{Name: "Matinee Venue B", City: "Phoenix", State: "AZ"}},
-		Artists:           []contracts.CreateShowArtist{{Name: "Matinee Act", SetType: strPtr("headliner")}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Matinee Act", SetType: strPtr(contracts.SetTypeHeadliner)}},
 		SubmittedByUserID: &user.ID, SubmitterIsAdmin: true,
 	})
 	suite.Require().NoError(err, "a later set the same day is a different show")

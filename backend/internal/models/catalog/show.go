@@ -129,12 +129,15 @@ func (Show) TableName() string {
 // ShowArtist represents the junction table with ordering information.
 //
 // EventDate + VenueID are denormalized from the parent show + show_venues
-// rows so a partial unique index can structurally enforce the
-// (artist_id, venue_id, event_date) show dedup key (PSY-576). Both
-// columns are nullable to keep the bulk-insert path graceful — the
-// partial unique index excludes NULL, so an unpopulated row inserts but
-// is not covered by the constraint. ShowService.CreateShow and
-// UpdateShow populate and cascade-update these.
+// rows, and are NOT what enforces the show dedup key. This row can hold one
+// venue id, so for a show billed at two venues the stamping picks the lowest
+// and the index over these columns covers that venue alone. The key is
+// enforced by the show_dedup_keys table, which holds one row per (show,
+// artist, venue) and is derived by trigger; these columns are the narrower
+// statement of the same rule, kept until their retirement can be sequenced
+// against a deploy. Both are nullable, and the partial index excludes NULL,
+// so an unpopulated row inserts uncovered. ShowService.CreateShow and
+// UpdateShow populate and cascade-update them.
 type ShowArtist struct {
 	ShowID    uint       `gorm:"primaryKey;column:show_id"`
 	ArtistID  uint       `gorm:"primaryKey;column:artist_id"`
