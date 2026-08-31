@@ -74,7 +74,7 @@ func TestShowUpdatesToMap_NormalizesShowTimesToUTC(t *testing.T) {
 	doors := time.Date(2026, 6, 15, 19, 0, 0, 0, eastern)
 	music := time.Date(2026, 6, 15, 20, 0, 0, 0, eastern)
 
-	updates := showUpdatesToMap(&contracts.UpdateShowRequest{DoorsAt: &doors, MusicAt: &music})
+	updates := showUpdatesToMap(&contracts.UpdateShowRequest{DoorsAt: contracts.NullableSet(doors), MusicAt: contracts.NullableSet(music)})
 
 	for _, tc := range []struct {
 		column string
@@ -114,6 +114,67 @@ func TestShowUpdatesToMap_OmitsUnsetShowTimes(t *testing.T) {
 	}
 	if _, ok := updates["music_at"]; ok {
 		t.Error("music_at must be absent when not supplied")
+	}
+	if _, ok := updates["price"]; ok {
+		t.Error("price must be absent when not supplied")
+	}
+	if _, ok := updates["door_price"]; ok {
+		t.Error("door_price must be absent when not supplied")
+	}
+}
+
+// TestShowUpdatesToMap_ClearsWriteTypedNil is the other half of the tri-state
+// contract: a field the caller explicitly CLEARED must reach the map, and must
+// reach it as a TYPED nil pointer (PSY-1961).
+//
+// The typed part is the whole assertion. GORM's Updates() silently skips an
+// untyped nil in a map rather than writing NULL, so a clear built as a bare nil
+// would compile, look right at every layer above, and still be the exact no-op
+// the tri-state signal was added to remove.
+func TestShowUpdatesToMap_ClearsWriteTypedNil(t *testing.T) {
+	updates := showUpdatesToMap(&contracts.UpdateShowRequest{
+		Price:     contracts.NullableClear[float64](),
+		DoorPrice: contracts.NullableClear[float64](),
+		DoorsAt:   contracts.NullableClear[time.Time](),
+		MusicAt:   contracts.NullableClear[time.Time](),
+	})
+
+	for _, column := range []string{"price", "door_price"} {
+		raw, ok := updates[column]
+		if !ok {
+			t.Fatalf("%s must be present in the map when cleared", column)
+		}
+		typed, isTyped := raw.(*float64)
+		if !isTyped || typed != nil {
+			t.Errorf("%s: expected a typed nil *float64, got %#v", column, raw)
+		}
+	}
+	for _, column := range []string{"doors_at", "music_at"} {
+		raw, ok := updates[column]
+		if !ok {
+			t.Fatalf("%s must be present in the map when cleared", column)
+		}
+		typed, isTyped := raw.(*time.Time)
+		if !isTyped || typed != nil {
+			t.Errorf("%s: expected a typed nil *time.Time, got %#v", column, raw)
+		}
+	}
+}
+
+// Zero is a price the site renders as "Free", so it must be written as the
+// number 0 and never be mistaken for the clear gesture. The distinction is the
+// reason contracts.Nullable exists rather than a truthiness check.
+func TestShowUpdatesToMap_ZeroPriceIsAValue(t *testing.T) {
+	updates := showUpdatesToMap(&contracts.UpdateShowRequest{
+		Price: contracts.NullableSet(0.0),
+	})
+
+	raw, ok := updates["price"]
+	if !ok {
+		t.Fatal("a zero price must be written, not skipped")
+	}
+	if v, isFloat := raw.(float64); !isFloat || v != 0 {
+		t.Errorf("expected the number 0, got %#v", raw)
 	}
 }
 
@@ -1483,8 +1544,8 @@ func (suite *ShowServiceIntegrationTestSuite) TestUpdateShow_ShowTimes() {
 	music := time.Date(2026, 6, 15, 20, 0, 0, 0, eastern)
 
 	resp, err := suite.showService.UpdateShow(created.ID, &contracts.UpdateShowRequest{
-		DoorsAt: &doors,
-		MusicAt: &music,
+		DoorsAt: contracts.NullableSet(doors),
+		MusicAt: contracts.NullableSet(music),
 	})
 	suite.Require().NoError(err)
 	suite.Require().NotNil(resp.DoorsAt)
@@ -1568,7 +1629,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestUpdateShow_PricesAreIndependen
 	})
 
 	resp, err := suite.showService.UpdateShow(created.ID, &contracts.UpdateShowRequest{
-		DoorPrice: float64Ptr(45),
+		DoorPrice: contracts.NullableSet(45.0),
 	})
 	suite.Require().NoError(err)
 	suite.Require().NotNil(resp.Price)
@@ -1577,7 +1638,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestUpdateShow_PricesAreIndependen
 	suite.InDelta(45.0, *resp.DoorPrice, 0.001)
 
 	resp, err = suite.showService.UpdateShow(created.ID, &contracts.UpdateShowRequest{
-		Price: float64Ptr(30),
+		Price: contracts.NullableSet(30.0),
 	})
 	suite.Require().NoError(err)
 	suite.Require().NotNil(resp.Price)
@@ -1596,6 +1657,84 @@ func (suite *ShowServiceIntegrationTestSuite) TestUpdateShow_PricesAreIndependen
 	suite.InDelta(45.0, *resp.DoorPrice, 0.001)
 }
 
+// TestUpdateShow_ClearsNullableFields is the round trip PSY-1961 exists for:
+// a recorded value can be RETRACTED, not merely overwritten.
+//
+// Against the real column rather than the update map, because the map assertion
+// above cannot see the layer that actually decides — GORM drops an untyped nil
+// instead of writing NULL, so the write-through is where a clear either lands or
+// silently does not.
+//
+// All four fields together, because the mechanism is shared: covering only
+// door_price would leave the twin it was designed to keep symmetrical unpinned.
+func (suite *ShowServiceIntegrationTestSuite) TestUpdateShow_ClearsNullableFields() {
+	created := suite.createTestShow(func(req *contracts.CreateShowRequest) {
+		req.Price = float64Ptr(35)
+		req.DoorPrice = float64Ptr(40)
+	})
+	doors := created.EventDate.Add(-time.Hour)
+	music := created.EventDate
+	_, err := suite.showService.UpdateShow(created.ID, &contracts.UpdateShowRequest{
+		DoorsAt: contracts.NullableSet(doors),
+		MusicAt: contracts.NullableSet(music),
+	})
+	suite.Require().NoError(err)
+
+	resp, err := suite.showService.UpdateShow(created.ID, &contracts.UpdateShowRequest{
+		Price:     contracts.NullableClear[float64](),
+		DoorPrice: contracts.NullableClear[float64](),
+		DoorsAt:   contracts.NullableClear[time.Time](),
+		MusicAt:   contracts.NullableClear[time.Time](),
+	})
+	suite.Require().NoError(err)
+	suite.Nil(resp.Price, "an explicit clear must write SQL NULL, not leave the stored price")
+	suite.Nil(resp.DoorPrice)
+	suite.Nil(resp.DoorsAt)
+	suite.Nil(resp.MusicAt)
+
+	// Re-read, so this covers the column rather than the builder's echo.
+	fetched, err := suite.showService.GetShow(created.ID)
+	suite.Require().NoError(err)
+	suite.Nil(fetched.Price)
+	suite.Nil(fetched.DoorPrice)
+	suite.Nil(fetched.DoorsAt)
+	suite.Nil(fetched.MusicAt)
+}
+
+// Clearing one price must not disturb the other, exactly as SETTING one does
+// not. The clear branch is new code on a shared update map, which is where that
+// independence is easiest to lose.
+func (suite *ShowServiceIntegrationTestSuite) TestUpdateShow_ClearingOnePriceLeavesTheOther() {
+	created := suite.createTestShow(func(req *contracts.CreateShowRequest) {
+		req.Price = float64Ptr(35)
+		req.DoorPrice = float64Ptr(40)
+	})
+
+	resp, err := suite.showService.UpdateShow(created.ID, &contracts.UpdateShowRequest{
+		DoorPrice: contracts.NullableClear[float64](),
+	})
+	suite.Require().NoError(err)
+	suite.Nil(resp.DoorPrice, "the cleared price must be NULL")
+	suite.Require().NotNil(resp.Price, "clearing the door price must not clear the advance price")
+	suite.InDelta(35.0, *resp.Price, 0.001)
+}
+
+// A show can be marked FREE, which is a different fact from having no recorded
+// price and is spelled differently on the page ("Free" against silence). Zero
+// therefore has to survive the write path as a number.
+func (suite *ShowServiceIntegrationTestSuite) TestUpdateShow_ZeroPriceIsStoredNotCleared() {
+	created := suite.createTestShow(func(req *contracts.CreateShowRequest) {
+		req.Price = float64Ptr(35)
+	})
+
+	resp, err := suite.showService.UpdateShow(created.ID, &contracts.UpdateShowRequest{
+		Price: contracts.NullableSet(0.0),
+	})
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.Price, "a free show stores 0, it does not store NULL")
+	suite.InDelta(0.0, *resp.Price, 0.001)
+}
+
 // UpdateShow has no non-test callers; the PUT handler runs through
 // UpdateShowWithRelations, so the write-through is pinned there too.
 func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_WritesDoorPrice() {
@@ -1605,7 +1744,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_Writes
 
 	resp, _, err := suite.showService.UpdateShowWithRelations(
 		created.ID,
-		&contracts.UpdateShowRequest{DoorPrice: float64Ptr(25)},
+		&contracts.UpdateShowRequest{DoorPrice: contracts.NullableSet(25.0)},
 		nil,
 		nil,
 		true,
@@ -1655,7 +1794,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_SetsSh
 	music := time.Date(2026, 6, 15, 20, 0, 0, 0, time.UTC)
 
 	resp, _, err := suite.showService.UpdateShowWithRelations(created.ID,
-		&contracts.UpdateShowRequest{DoorsAt: &doors, MusicAt: &music}, nil, nil, true)
+		&contracts.UpdateShowRequest{DoorsAt: contracts.NullableSet(doors), MusicAt: contracts.NullableSet(music)}, nil, nil, true)
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(resp.DoorsAt)

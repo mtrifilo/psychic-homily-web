@@ -1134,13 +1134,13 @@ describe('ShowForm: bill role selector', () => {
     expect(call.updates.price).toBe(25)
   })
 
-  // Documents a KNOWN LIMITATION rather than desired behavior: blanking the
-  // field omits the key, and the backend reads an omitted key as "unchanged",
-  // so a recorded door price cannot be retracted through this form.
+  // The retraction gesture (PSY-1961). Blanking the field sends an explicit
+  // null, which the API reads as "clear this column" rather than as silence.
   //
-  // PSY-1961 is the fix. When its tri-state clear signal lands, this test
-  // SHOULD fail — rewrite it to assert door_price: null, do not delete it.
-  it('cannot clear a recorded door price by blanking the field (known limitation)', async () => {
+  // This test previously pinned the OPPOSITE, as a documented known limitation:
+  // the key was dropped, the backend read that as "unchanged", and the edit
+  // reported success while changing nothing.
+  it('clears a recorded door price by blanking the field', async () => {
     mockShowUpdate.mutate.mockImplementation((_vars, opts) => {
       opts?.onSuccess?.({ id: 42 })
     })
@@ -1155,8 +1155,59 @@ describe('ShowForm: bill role selector', () => {
     await waitFor(() => expect(mockShowUpdate.mutate).toHaveBeenCalledTimes(1))
 
     const call = mockShowUpdate.mutate.mock.calls[0][0] as {
-      updates: { door_price?: number }
+      updates: { price?: number | null; door_price?: number | null }
     }
-    expect(call.updates.door_price).toBeUndefined()
+    expect(call.updates.door_price).toBeNull()
+    // The advance price is a separate fact and must not be retracted with it.
+    expect(call.updates.price).toBe(25)
+  })
+
+  // The advance price takes the same gesture. Asymmetry here is what the
+  // mechanism was made uniform to avoid: a form where one price clears and its
+  // twin silently does not is a worse surface than either consistent choice.
+  it('clears the advance price by blanking the cost field', async () => {
+    mockShowUpdate.mutate.mockImplementation((_vars, opts) => {
+      opts?.onSuccess?.({ id: 42 })
+    })
+    const user = userEvent.setup()
+    renderWithProviders(
+      <ShowForm mode="edit" initialData={makeShow({ price: 25, door_price: 30 })} />
+    )
+
+    await user.clear(screen.getByLabelText(/^cost \(optional\)$/i))
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => expect(mockShowUpdate.mutate).toHaveBeenCalledTimes(1))
+
+    const call = mockShowUpdate.mutate.mock.calls[0][0] as {
+      updates: { price?: number | null; door_price?: number | null }
+    }
+    expect(call.updates.price).toBeNull()
+    expect(call.updates.door_price).toBe(30)
+  })
+
+  // "Free" is a price, not an absence, so it must submit as 0 and never as the
+  // null that means "there is no recorded price". The show page spells the two
+  // differently: "Free" against no price segment at all.
+  it('submits a free show as 0, not as a clear', async () => {
+    mockShowUpdate.mutate.mockImplementation((_vars, opts) => {
+      opts?.onSuccess?.({ id: 42 })
+    })
+    const user = userEvent.setup()
+    renderWithProviders(
+      <ShowForm mode="edit" initialData={makeShow({ price: 25, door_price: 30 })} />
+    )
+
+    const cost = screen.getByLabelText(/^cost \(optional\)$/i)
+    await user.clear(cost)
+    await user.type(cost, 'Free')
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => expect(mockShowUpdate.mutate).toHaveBeenCalledTimes(1))
+
+    const call = mockShowUpdate.mutate.mock.calls[0][0] as {
+      updates: { price?: number | null }
+    }
+    expect(call.updates.price).toBe(0)
   })
 })

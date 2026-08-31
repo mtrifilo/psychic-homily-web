@@ -11,6 +11,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/stretchr/testify/suite"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
@@ -405,8 +406,8 @@ func (s *ShowHandlerIntegrationSuite) TestUpdateShow_CarriesShowTimes() {
 
 	ctx := testhelpers.CtxWithUser(user)
 	req := &UpdateShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
-	req.Body.DoorsAt = &doors
-	req.Body.MusicAt = &music
+	req.Body.DoorsAt = shared.NullableInputSet(doors)
+	req.Body.MusicAt = shared.NullableInputSet(music)
 
 	resp, err := s.handler.UpdateShowHandler(ctx, req)
 	s.Require().NoError(err)
@@ -424,6 +425,68 @@ func (s *ShowHandlerIntegrationSuite) TestUpdateShow_CarriesShowTimes() {
 	s.Equal(doors.Unix(), resp.Body.DoorsAt.Unix(), "omitted doors_at must survive an unrelated edit")
 }
 
+// TestUpdateShow_ClearsDoorPrice walks the whole product gesture: record a door
+// price, then retract it (PSY-1961). Before the tri-state signal, blanking the
+// field dropped the key and the backend read that as "unchanged", so the edit
+// reported success and changed nothing.
+//
+// Through the HANDLER rather than the service, because the handler is where a
+// clear could still be lost: the price range rail runs here, and a check that
+// treated the absent value as out of range would refuse the one gesture that
+// removes a price.
+func (s *ShowHandlerIntegrationSuite) TestUpdateShow_ClearsDoorPrice() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Priced Show")
+	ctx := testhelpers.CtxWithUser(user)
+
+	set := &UpdateShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
+	set.Body.Price = shared.NullableInputSet(35.0)
+	set.Body.DoorPrice = shared.NullableInputSet(40.0)
+	resp, err := s.handler.UpdateShowHandler(ctx, set)
+	s.Require().NoError(err)
+	s.Require().NotNil(resp.Body.DoorPrice)
+
+	clear := &UpdateShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
+	clear.Body.DoorPrice = shared.NullableInputClear[float64]()
+	resp, err = s.handler.UpdateShowHandler(ctx, clear)
+	s.Require().NoError(err)
+	s.Nil(resp.Body.DoorPrice, "an explicit null must clear the door price")
+	s.Require().NotNil(resp.Body.Price, "clearing one price must leave the other alone")
+	s.InDelta(35.0, *resp.Body.Price, 0.001)
+
+	// An edit that mentions neither price leaves the cleared state alone rather
+	// than resurrecting the old number.
+	newTitle := "Retitled After Clear"
+	titleOnly := &UpdateShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
+	titleOnly.Body.Title = &newTitle
+	resp, err = s.handler.UpdateShowHandler(ctx, titleOnly)
+	s.Require().NoError(err)
+	s.Nil(resp.Body.DoorPrice)
+}
+
+// Clearing doors_at must not be judged against the music_at it leaves behind:
+// an unknown door time cannot be late for anything, and refusing the clear would
+// leave a show stuck with a time it cannot remove.
+func (s *ShowHandlerIntegrationSuite) TestUpdateShow_ClearingDoorsPassesTimeOrderCheck() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Timed Show")
+	ctx := testhelpers.CtxWithUser(user)
+
+	doors := show.EventDate.Add(-time.Hour)
+	set := &UpdateShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
+	set.Body.DoorsAt = shared.NullableInputSet(doors)
+	set.Body.MusicAt = shared.NullableInputSet(show.EventDate)
+	_, err := s.handler.UpdateShowHandler(ctx, set)
+	s.Require().NoError(err)
+
+	clear := &UpdateShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
+	clear.Body.DoorsAt = shared.NullableInputClear[time.Time]()
+	resp, err := s.handler.UpdateShowHandler(ctx, clear)
+	s.Require().NoError(err, "clearing doors_at must not be rejected by the order check")
+	s.Nil(resp.Body.DoorsAt)
+	s.Require().NotNil(resp.Body.MusicAt, "clearing doors must not clear music")
+}
+
 // TestUpdateShow_RejectsMusicBeforeStoredDoors covers the partial-update case:
 // the body carries only music_at, and it must be judged against the doors_at
 // already on the row.
@@ -434,13 +497,13 @@ func (s *ShowHandlerIntegrationSuite) TestUpdateShow_RejectsMusicBeforeStoredDoo
 	doors := show.EventDate
 	ctx := testhelpers.CtxWithUser(user)
 	setDoors := &UpdateShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
-	setDoors.Body.DoorsAt = &doors
+	setDoors.Body.DoorsAt = shared.NullableInputSet(doors)
 	_, err := s.handler.UpdateShowHandler(ctx, setDoors)
 	s.Require().NoError(err)
 
 	earlierMusic := doors.Add(-time.Hour)
 	bad := &UpdateShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
-	bad.Body.MusicAt = &earlierMusic
+	bad.Body.MusicAt = shared.NullableInputSet(earlierMusic)
 	_, err = s.handler.UpdateShowHandler(ctx, bad)
 	s.Require().Error(err, "music before the stored doors_at must be rejected")
 }
@@ -476,7 +539,7 @@ func (s *ShowHandlerIntegrationSuite) TestUpdateShow_StoredDisorderDoesNotBlockU
 	// Touching a time on the same row is still validated.
 	worse := doors.Add(-3 * time.Hour)
 	bad := &UpdateShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
-	bad.Body.MusicAt = &worse
+	bad.Body.MusicAt = shared.NullableInputSet(worse)
 	_, err = s.handler.UpdateShowHandler(ctx, bad)
 	s.Require().Error(err, "a request that does touch a show time is still checked")
 }

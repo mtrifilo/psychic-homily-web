@@ -288,6 +288,29 @@ export function parseCost(cost: string): number | undefined {
 }
 
 /**
+ * A parsed price turned into the EDIT payload's tri-state: a number stays a
+ * number, and a blank field becomes an explicit `null`, which the API reads as
+ * "clear this column" (PSY-1961).
+ *
+ * FOR EDIT MODE ONLY. On a create there is nothing to retract, so a blank field
+ * stays `undefined` and the key is simply omitted. Using this on the submission
+ * payload would send `price: null` on every priceless show and turn an
+ * unrecorded price into an asserted absence.
+ *
+ * Blanking is treated as intent to clear WITHOUT consulting what the show
+ * currently stores. The alternative — send `null` only when a value was
+ * previously recorded — needs `initialData` to be current, and a clear written
+ * against a stale snapshot is a silent no-op, which is the failure this
+ * replaces. Clearing an already-empty column is a write of NULL over NULL:
+ * no diff, so no revision is recorded either.
+ *
+ * `??`, not truthiness: 0 is the price of a free show and must survive as 0.
+ */
+export function clearedIfBlank(price: number | undefined): number | null {
+  return price ?? null
+}
+
+/**
  * Remove an artist at the given index. If the removed artist was the headliner,
  * promote the first remaining artist to headliner.
  * Returns null if removal would leave zero artists.

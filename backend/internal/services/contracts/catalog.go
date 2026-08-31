@@ -89,20 +89,33 @@ type CreateShowRequest struct {
 type UpdateShowRequest struct {
 	Title     *string    `json:"title"`
 	EventDate *time.Time `json:"event_date"`
-	// DoorsAt / MusicAt follow the same nil-means-unchanged rule as every
-	// other field here, so there is no way to clear a previously set time
-	// through this struct. Clearing needs an explicit tri-state signal and no
-	// caller asks for it yet.
-	DoorsAt        *time.Time `json:"doors_at"`
-	MusicAt        *time.Time `json:"music_at"`
-	City           *string    `json:"city"`
-	State          *string    `json:"state"`
-	Price          *float64   `json:"price"`
-	DoorPrice      *float64   `json:"door_price"`
-	AgeRequirement *string    `json:"age_requirement"`
-	Description    *string    `json:"description"`
-	TicketURL      *string    `json:"ticket_url"`
-	ImageURL       *string    `json:"image_url"`
+	// The four NULLABLE-AND-CLEARABLE fields. A *T here would mean a value can
+	// be replaced but never RETRACTED, because a nil pointer reads the same
+	// whether the caller omitted the key or asked for NULL; Nullable keeps the
+	// two apart (PSY-1961). Read them with Present / Clears / Value, never by
+	// comparing to nil.
+	//
+	// All four rather than door_price alone, which is the field that forced the
+	// question: door_price is the OPT-IN half of the advance/door split, so
+	// removing one is routine curation. But a form where one price clears and
+	// its twin silently does not is a worse surface than either consistent
+	// choice, and doors_at/music_at have the identical shape, so one mechanism
+	// covers the set.
+	//
+	// The remaining nullable fields on this struct are TEXT, and they already
+	// have a clear gesture: send "", which the service normalizes to SQL NULL
+	// through utils.NilIfEmpty. A number has no empty spelling, which is why
+	// these four needed a signal of their own rather than a shared convention.
+	DoorsAt        Nullable[time.Time] `json:"doors_at"`
+	MusicAt        Nullable[time.Time] `json:"music_at"`
+	City           *string             `json:"city"`
+	State          *string             `json:"state"`
+	Price          Nullable[float64]   `json:"price"`
+	DoorPrice      Nullable[float64]   `json:"door_price"`
+	AgeRequirement *string             `json:"age_requirement"`
+	Description    *string             `json:"description"`
+	TicketURL      *string             `json:"ticket_url"`
+	ImageURL       *string             `json:"image_url"`
 }
 
 // ShowResponse represents the show data returned to clients.
