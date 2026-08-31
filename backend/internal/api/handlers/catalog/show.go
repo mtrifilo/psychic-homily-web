@@ -477,8 +477,9 @@ type UpdateShowRequest struct {
 		// The four TRI-STATE fields: omitting one leaves the stored value alone
 		// (so an edit that records a door price never disturbs the advance
 		// price), and sending an explicit null CLEARS it to SQL NULL. Nothing
-		// else on this body distinguishes the two, and nothing else needs to:
-		// the nullable text fields clear by sending "".
+		// else on this body distinguishes the two. The nullable TEXT fields have
+		// no equivalent gesture and are a known remaining gap, argued on
+		// contracts.UpdateShowRequest rather than repeated here.
 		//
 		// Declared by value, not as pointers -- see shared.NullableInput, where a
 		// pointer would put back exactly the ambiguity these remove.

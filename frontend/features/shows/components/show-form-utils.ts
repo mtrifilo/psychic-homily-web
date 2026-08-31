@@ -288,26 +288,48 @@ export function parseCost(cost: string): number | undefined {
 }
 
 /**
- * A parsed price turned into the EDIT payload's tri-state: a number stays a
- * number, and a blank field becomes an explicit `null`, which the API reads as
- * "clear this column" (PSY-1961).
+ * A cost field turned into the EDIT payload's tri-state (PSY-1961): a number
+ * writes that number, a blank field RETRACTS a price the form was opened with,
+ * and everything else is left out of the payload so the stored value stands.
  *
  * FOR EDIT MODE ONLY. On a create there is nothing to retract, so a blank field
  * stays `undefined` and the key is simply omitted. Using this on the submission
- * payload would send `price: null` on every priceless show and turn an
+ * payload would send `price: null` for every priceless show and turn an
  * unrecorded price into an asserted absence.
  *
- * Blanking is treated as intent to clear WITHOUT consulting what the show
- * currently stores. The alternative — send `null` only when a value was
- * previously recorded — needs `initialData` to be current, and a clear written
- * against a stale snapshot is a silent no-op, which is the failure this
- * replaces. Clearing an already-empty column is a write of NULL over NULL:
- * no diff, so no revision is recorded either.
+ * IT TAKES THE RAW STRING, because {@link parseCost} returns `undefined` for a
+ * blank field AND for any string it cannot read a number out of — "TBA",
+ * "donation", "sliding scale", "pwyc", a lone "$". Deciding from the parsed
+ * value alone reads "donation" as "delete the price", which is data loss on a
+ * free-text field that openly invites non-numeric answers. Unparseable input
+ * therefore drops the key: the edit fails to capture what the curator meant,
+ * but a price nobody could parse is not evidence that the price is gone.
  *
- * `??`, not truthiness: 0 is the price of a free show and must survive as 0.
+ * IT TAKES THE STORED VALUE, because a blank field is only evidence of intent
+ * when there was something there to remove. `stored` comes from the snapshot the
+ * form was seeded with, and the difference matters when that snapshot is STALE:
+ * React Query serves show payloads for minutes, so an editor can open a card
+ * whose price was recorded after their copy was cached. Without this argument, a
+ * TITLE-ONLY edit on that card sends `price: null` and destroys a price its
+ * author never saw, never touched, and is not told about.
+ *
+ * Reading it the other way costs only a NO-OP: a curator who blanks a field the
+ * stale snapshot also thought was empty gets no clear, sees the price still
+ * sitting there, and tries again. A no-op the user can see beats a deletion they
+ * cannot, so the tie breaks toward doing nothing.
+ *
+ * `!= null`, not truthiness, on the stored value: a show already recorded as
+ * FREE stores 0, and blanking that field is a real retraction.
  */
-export function clearedIfBlank(price: number | undefined): number | null {
-  return price ?? null
+export function priceUpdateValue(
+  raw: string,
+  parsed: number | undefined,
+  stored: number | null | undefined
+): number | null | undefined {
+  // `parsed !== undefined`, not truthiness: 0 is the price of a free show.
+  if (parsed !== undefined) return parsed
+  if (raw.trim() !== '') return undefined
+  return stored != null ? null : undefined
 }
 
 /**

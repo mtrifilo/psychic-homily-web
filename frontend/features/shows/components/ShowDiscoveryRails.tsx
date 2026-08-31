@@ -265,9 +265,27 @@ function RailRow({
         )}
         {/* Uppercased here rather than in the policy, so `Free` reaches the
             mock's `FREE` and `Sold out` reaches `SOLD OUT` without forking
-            `formatPrice`, which serves the whole site. */}
-        <span className="shrink-0 font-mono text-xs uppercase tabular-nums text-muted-foreground sm:w-16">
-          {row.figure ?? ''}
+            `formatPrice`, which serves the whole site.
+
+            `figureLabel` is set only for a SPLIT price, where the visible
+            `$35/$40` would otherwise be read out as punctuation. Same mechanism
+            as the `ShowPrice` component — hide the glyphs, offer the spelling —
+            and for the same reason it cannot be `aria-label`: a bare span is
+            role `generic`, which prohibits an author name. This column cannot
+            use that component itself because it also holds status tokens, which
+            are not prices. */}
+        <span
+          className="shrink-0 font-mono text-xs uppercase tabular-nums text-muted-foreground sm:w-16"
+          title={row.figureLabel ?? undefined}
+        >
+          {row.figureLabel ? (
+            <>
+              <span aria-hidden="true">{row.figure}</span>
+              <span className="sr-only">{row.figureLabel}</span>
+            </>
+          ) : (
+            (row.figure ?? '')
+          )}
         </span>
       </Link>
     </li>

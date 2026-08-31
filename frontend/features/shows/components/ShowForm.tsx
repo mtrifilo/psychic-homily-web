@@ -61,7 +61,7 @@ import {
   defaultFormValues,
   showToFormValues,
   parseCost,
-  clearedIfBlank,
+  priceUpdateValue,
   removeArtistAtIndex,
   isVenueLocationEditable as computeVenueEditable,
   makeFormArtist,
@@ -270,8 +270,12 @@ export function ShowForm({
           event_date: eventDate,
           city: value.venue.city,
           state: value.venue.state,
-          price: clearedIfBlank(price),
-          door_price: clearedIfBlank(doorPrice),
+          price: priceUpdateValue(value.cost, price, initialData.price),
+          door_price: priceUpdateValue(
+            value.door_cost,
+            doorPrice,
+            initialData.door_price
+          ),
           age_requirement: value.ages || undefined,
           description: value.description || undefined,
           image_url: value.image_url || undefined,

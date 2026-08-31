@@ -543,8 +543,12 @@ describe('ArtistPastShows — rows', () => {
     })
     renderList()
     const table = screen.getByRole('table', { name: 'Past shows' })
-    const price = within(table).getByText('$35/$40')
-    expect(price).toHaveAttribute('aria-label', '$35 advance, $40 at the door')
+    // The spelling a screen reader reaches, not an attribute: `aria-label` on
+    // a bare span is ARIA-prohibited and silently ignored.
+    expect(within(table).getByText('$35/$40')).toBeInTheDocument()
+    expect(
+      within(table).getByText('$35 advance, $40 at the door')
+    ).toBeInTheDocument()
   })
 
   it('groups past rows under month headings in each venue-local month', () => {

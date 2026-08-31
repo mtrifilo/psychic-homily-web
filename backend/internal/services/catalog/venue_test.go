@@ -917,6 +917,40 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_Upcoming() {
 	suite.Equal("Future Show", resp[0].Title)
 }
 
+// The venue archive renders the advance/door pair, so the contract has to carry
+// both halves or the table quotes the advance price for a show whose door costs
+// more (PSY-1962). Its twin is TestGetShowsForArtist_CarriesBothPrices.
+//
+// Asserted rather than assumed because the failure is quiet: a builder that
+// drops the column serves door_price: null, which reads as "this show has no
+// door price" instead of failing. That is exactly how PSY-1864 missed the
+// saved-shows mapper.
+func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_CarriesBothPrices() {
+	venue := suite.createTestVenue("Priced Venue", "Phoenix", "AZ", true)
+	user := suite.createTestUser()
+
+	show := &catalogm.Show{
+		Title:       "Split Price Show",
+		EventDate:   time.Now().UTC().AddDate(0, 0, 7),
+		City:        stringPtr("Phoenix"),
+		State:       stringPtr("AZ"),
+		Status:      catalogm.ShowStatusApproved,
+		SubmittedBy: &user.ID,
+	}
+	suite.Require().NoError(suite.db.Create(show).Error)
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: venue.ID}).Error)
+	suite.Require().NoError(suite.db.Model(show).
+		Updates(map[string]interface{}{"price": 35.0, "door_price": 40.0}).Error)
+
+	resp, _, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", contracts.VenueShowsQuery{TimeFilter: "upcoming", Limit: 10})
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 1)
+	suite.Require().NotNil(resp[0].Price, "venue shows must carry price")
+	suite.Require().NotNil(resp[0].DoorPrice, "venue shows must carry door_price, not drop it")
+	suite.InDelta(35.0, *resp[0].Price, 0.001)
+	suite.InDelta(40.0, *resp[0].DoorPrice, 0.001)
+}
+
 func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_Past() {
 	venue := suite.createTestVenue("Past Venue", "Phoenix", "AZ", true)
 	user := suite.createTestUser()

@@ -194,9 +194,11 @@ describe('ShowCard', () => {
     render(
       <ShowCard show={makeShow({ price: 35, door_price: 40 })} isAdmin={false} />
     )
-    const price = screen.getByText('$35/$40')
-    expect(price).toBeInTheDocument()
-    expect(price).toHaveAttribute('aria-label', '$35 advance, $40 at the door')
+    expect(screen.getByText('$35/$40')).toBeInTheDocument()
+    // The spelling a screen reader reaches. `aria-label` on a bare span is
+    // ARIA-prohibited, so asserting the attribute would pass against a version
+    // that announces "thirty five slash forty".
+    expect(screen.getByText('$35 advance, $40 at the door')).toBeInTheDocument()
   })
 
   // The separator guard has to ask "is a price shown", not "is `price` set".

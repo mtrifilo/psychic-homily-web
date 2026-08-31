@@ -879,10 +879,16 @@ func (s *NotificationFilterService) showEmailContent(show *catalogm.Show) showEm
 		showURL = fmt.Sprintf("%s/shows/%d", s.frontendURL, show.ID)
 	}
 
-	priceText := ""
-	if show.Price != nil {
-		priceText = fmt.Sprintf("$%.0f", *show.Price)
-	}
+	// Through the shared derivation, like every other read surface (PSY-1962).
+	// This one line feeds THREE emails -- the filter alert, the scene-follow
+	// alert and the artist-follow alert -- and it used to render show.Price
+	// alone with "$%.0f", so a door-only show emailed no price at all, a
+	// $35/$40 show emailed "$35", and a FREE show emailed "$0".
+	//
+	// An email is the ICS feed's twin for the reason that made this urgent: it
+	// lands in an inbox and stays there, so the number in it outlives the page
+	// view that produced it and is what the reader budgets against.
+	priceText := shared.ShowPriceText(show.Price, show.DoorPrice)
 
 	return showEmailContentParts{
 		date:       show.EventDate.In(utils.EventLocation(venueTZ, venueState)).Format("Monday, January 2, 2006"),

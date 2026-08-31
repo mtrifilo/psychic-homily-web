@@ -304,7 +304,12 @@ func (h *AdminShowHandler) ApproveShowHandler(ctx context.Context, req *ApproveS
 	// Fire-and-forget: match notification filters for this newly approved show
 	if h.notificationFilterService != nil {
 		servicesshared.GoSafe(ctx, "notification_filter_match", func() {
-			showModel := &catalogm.Show{ID: uint(showID), Title: show.Title, EventDate: show.EventDate, Price: show.Price, Slug: shared.PtrString(show.Slug)}
+			// DoorPrice rides along, or the price-cap filter's door fallback never
+			// fires on this path: effectiveShowPriceCents reads a door price only
+			// when Price is nil, so a synthetic model that omits the column makes
+			// a door-only show look priceless -- which alerts EVERY subscriber
+			// whose ceiling is "max $10", however expensive the door (PSY-1962).
+			showModel := &catalogm.Show{ID: uint(showID), Title: show.Title, EventDate: show.EventDate, Price: show.Price, DoorPrice: show.DoorPrice, Slug: shared.PtrString(show.Slug)}
 			if show.City != nil {
 				showModel.City = show.City
 			}
@@ -404,7 +409,8 @@ func (h *AdminShowHandler) BatchApproveShowsHandler(ctx context.Context, req *Ba
 				if err != nil || show == nil {
 					continue
 				}
-				showModel := &catalogm.Show{ID: showID, Title: show.Title, EventDate: show.EventDate, Price: show.Price, Slug: shared.PtrString(show.Slug)}
+				// DoorPrice for the same reason as the approve path above.
+				showModel := &catalogm.Show{ID: showID, Title: show.Title, EventDate: show.EventDate, Price: show.Price, DoorPrice: show.DoorPrice, Slug: shared.PtrString(show.Slug)}
 				if show.City != nil {
 					showModel.City = show.City
 				}

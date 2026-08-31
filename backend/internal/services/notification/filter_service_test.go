@@ -286,6 +286,46 @@ func (s *NotificationFilterSuite) createTestShow(title string, artistIDs []uint,
 	return show.ID
 }
 
+// The price line in an ALERT EMAIL, which one function feeds to three of them:
+// the filter alert, the scene-follow alert and the artist-follow alert
+// (PSY-1962).
+//
+// It used to render show.Price alone with "$%.0f", so a $35/$40 show emailed
+// "$35", a door-only show emailed no price at all, and a FREE show emailed "$0".
+// An email is the ICS feed's twin for the reason that made this urgent: it lands
+// in an inbox and stays there, so its number outlives the page view and is what
+// the reader budgets against.
+//
+// This is price DATA formatting, not alert promise copy: the surrounding
+// sentences the alerts-program tests pin are untouched.
+func (s *NotificationFilterSuite) TestShowEmailContent_RendersTheAdvanceDoorSplit() {
+	price := func(v float64) *float64 { return &v }
+
+	cases := []struct {
+		name          string
+		advance, door *float64
+		want          string
+	}{
+		{name: "a split price shows both halves", advance: price(35), door: price(40), want: "$35/$40"},
+		{name: "a door-only show is not priceless", door: price(15), want: "$15"},
+		{name: "a free show says Free, not $0", advance: price(0), want: "Free"},
+		{name: "no recorded price claims nothing", want: ""},
+	}
+
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			showID := s.createTestShow("Email Price "+tc.name, nil, nil)
+			s.Require().NoError(s.db.Model(&catalogm.Show{}).Where("id = ?", showID).
+				Updates(map[string]interface{}{"price": tc.advance, "door_price": tc.door}).Error)
+
+			var show catalogm.Show
+			s.Require().NoError(s.db.First(&show, showID).Error)
+
+			s.Equal(tc.want, s.svc.showEmailContent(&show).priceText)
+		})
+	}
+}
+
 // --- CRUD Tests ---
 
 func (s *NotificationFilterSuite) TestCreateFilter() {

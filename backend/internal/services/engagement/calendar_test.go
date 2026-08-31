@@ -102,6 +102,49 @@ func TestGenerateICSFeed_Format(t *testing.T) {
 	assert.Equal(t, "Test Show", parsed.Events()[0].GetProperty(ics.ComponentPropertySummary).Value)
 }
 
+// The advance/door split has to reach the DESCRIPTION, not just the helper that
+// formats it (PSY-1962). A calendar entry sits in a subscriber's phone until the
+// show happens, so a price that under-reports there is the one a reader budgets
+// against and finds wrong at the door.
+//
+// Through GenerateICSFeed rather than through ShowPriceText, because the wiring
+// is what was missing: the helper had tests from the day it was written while
+// buildEventDescription's price line had none, in either shape.
+func TestGenerateICSFeed_CarriesTheAdvanceDoorSplit(t *testing.T) {
+	show := func(price, doorPrice *float64) *contracts.SavedShowResponse {
+		return &contracts.SavedShowResponse{
+			ShowResponse: contracts.ShowResponse{
+				ID: 1, Slug: "test-show", Title: "Test Show",
+				EventDate: time.Now().Add(24 * time.Hour),
+				Status:    "approved",
+				Price:     price,
+				DoorPrice: doorPrice,
+			},
+		}
+	}
+	price := func(v float64) *float64 { return &v }
+
+	describe := func(s *contracts.SavedShowResponse) string {
+		svc := &CalendarService{db: &gorm.DB{}, savedShowSvc: &mockSavedShowSvc{
+			shows: []*contracts.SavedShowResponse{s}, total: 1,
+		}}
+		data, err := svc.GenerateICSFeed(1, "https://psychichomily.com")
+		assert.NoError(t, err)
+		// Unfold RFC 5545 line folding before matching, or a long DESCRIPTION
+		// splits the price across a CRLF and the assertion misses it.
+		return strings.ReplaceAll(strings.ReplaceAll(string(data), "\r\n ", ""), "\n ", "")
+	}
+
+	assert.Contains(t, describe(show(price(35), price(40))), "Price: $35/$40",
+		"a split price must reach the calendar, not just its advance half")
+	assert.Contains(t, describe(show(nil, price(15))), "Price: $15",
+		"a door-only show has a known price and must not read as priceless")
+	assert.Contains(t, describe(show(price(0), nil)), "Price: Free",
+		"a free show says Free, the same word the site prints, not $0")
+	assert.NotContains(t, describe(show(nil, nil)), "Price:",
+		"a show with no recorded price claims nothing")
+}
+
 func TestGenerateICSFeed_VenueLocalTime(t *testing.T) {
 	nyLoc, err := time.LoadLocation("America/New_York")
 	assert.NoError(t, err)

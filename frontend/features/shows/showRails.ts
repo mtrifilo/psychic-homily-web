@@ -406,10 +406,11 @@ function railFigure(show: {
   is_sold_out: boolean
   price?: number | null
   door_price?: number | null
-}): string | null {
-  if (show.is_cancelled) return 'Cancelled'
-  if (show.is_sold_out) return 'Sold out'
-  return showPriceLabel(show)?.text ?? null
+}): { figure: string | null; figureLabel: string | null } {
+  if (show.is_cancelled) return { figure: 'Cancelled', figureLabel: null }
+  if (show.is_sold_out) return { figure: 'Sold out', figureLabel: null }
+  const price = showPriceLabel(show)
+  return { figure: price?.text ?? null, figureLabel: price?.title ?? null }
 }
 
 /**
@@ -522,6 +523,20 @@ export interface RailRowData {
    * printing both is how the two facts start arguing.
    */
   figure: string | null
+  /**
+   * The spelled-out reading of `figure` when it is a SPLIT PRICE, for a screen
+   * reader; null otherwise.
+   *
+   * `$35/$40` is announced as "thirty five slash forty" — punctuation, for a
+   * fact about money — so the pair carries the same description the
+   * `ShowPrice` component attaches on every other list surface. The rails
+   * cannot use that component (this column also holds `SOLD OUT` and
+   * `CANCELLED`, which are not prices), so the label rides on the row instead.
+   *
+   * Null for a lone price, which has nothing to be told apart from, and for a
+   * status token, whose text already reads correctly.
+   */
+  figureLabel: string | null
 }
 
 /**
@@ -561,7 +576,7 @@ export function alsoTonightRow(
     title: railBillLine(show.artist_names ?? [], show.title),
     isCancelled: show.is_cancelled,
     room: show.venue_name?.trim() || null,
-    figure: railFigure(show),
+    ...railFigure(show),
   }
 }
 
@@ -585,6 +600,6 @@ export function moreAtVenueRow(show: VenueShow, venue: VenueResponse): RailRowDa
     isCancelled: show.is_cancelled,
     // No room column: every row on this rail is at the room in the heading.
     room: null,
-    figure: railFigure(show),
+    ...railFigure(show),
   }
 }

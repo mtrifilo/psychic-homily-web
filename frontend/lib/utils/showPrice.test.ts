@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { statedShowPrices, showPriceLabel } from './showPrice'
 
@@ -64,5 +66,43 @@ describe('showPriceLabel', () => {
 
   it('spells cents when a price really has them', () => {
     expect(showPriceLabel({ price: 12.5, door_price: null })).toEqual({ text: '$12.50' })
+  })
+})
+
+// The SHARED vector table, read by this suite and by Go's
+// TestShowPriceText_SharedVectors from the same JSON file.
+//
+// It is what actually holds the two renderings together. They are hand-written
+// twins with no compiler between them, and they drifted on day one: the Go side
+// rendered every amount as whole dollars, so $12.50 read as `$12` and a
+// fifty-cent door as `$0` — free, in a subscriber's calendar. Prose
+// cross-references did not catch that.
+//
+// Add a case to the JSON, never to one suite.
+describe('the shared Go/TypeScript price vectors', () => {
+  const vectors = JSON.parse(
+    readFileSync(
+      resolve(
+        __dirname,
+        '../../../backend/internal/services/shared/testdata/show_price_vectors.json'
+      ),
+      'utf8'
+    )
+  ) as {
+    cases: Array<{
+      name: string
+      advance: number | null
+      door: number | null
+      text: string
+    }>
+  }
+
+  it('has cases to check', () => {
+    expect(vectors.cases.length).toBeGreaterThan(0)
+  })
+
+  it.each(vectors.cases)('$name', ({ advance, door, text }) => {
+    const label = showPriceLabel({ price: advance, door_price: door })
+    expect(label?.text ?? '').toBe(text)
   })
 })

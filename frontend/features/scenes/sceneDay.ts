@@ -1,6 +1,5 @@
 import type { components } from '@/types/api'
 import { formatShowTime } from '@/lib/utils/formatters'
-import { showPriceLabel } from '@/lib/utils/showPrice'
 import {
   parseCalendarDate,
   startInstant,
@@ -136,20 +135,6 @@ export function formatShowStartTime(
   const raw = startInstant(show)
   if (raw === null) return null
   return formatShowTime(raw, show.venue_state, show.venue_timezone || sceneTimezone)
-}
-
-/**
- * The row's price, or null when the show has none recorded: `$35`, `Free`, or
- * the split `$35/$40` (PSY-1962).
- *
- * A thin adapter over the site-wide {@link showPriceLabel}, so a scene day list
- * spells a price exactly as /shows and the show page do. It drops the
- * spelled-out `title` because the callers render into a joined middot string
- * with no element to hang it on -- worth revisiting if a scene row ever renders
- * its price as its own node.
- */
-export function formatShowPrice(show: SceneDayShow): string | null {
-  return showPriceLabel(show)?.text ?? null
 }
 
 /**

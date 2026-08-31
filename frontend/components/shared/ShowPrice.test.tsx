@@ -7,18 +7,25 @@ describe('ShowPrice', () => {
     render(<ShowPrice show={{ price: 35, door_price: null }} />)
     const price = screen.getByText('$35')
     expect(price).toBeInTheDocument()
-    expect(price).not.toHaveAttribute('aria-label')
     expect(price).not.toHaveAttribute('title')
   })
 
   // The a11y half of the register decision, and the reason this is a component
   // rather than a span per surface: a screen reader announces "$35/$40" as
   // punctuation unless the pair is spelled out for it.
+  //
+  // Asserted through the TEXT a screen reader would reach, not through an
+  // attribute. The first implementation used `aria-label`, which a bare span
+  // (role `generic`) is forbidden to take — so an attribute assertion passed
+  // while browsers went on reading "thirty five slash forty".
   it('spells a split price out for a screen reader and on hover', () => {
     render(<ShowPrice show={{ price: 35, door_price: 40 }} />)
-    const price = screen.getByText('$35/$40')
-    expect(price).toHaveAttribute('aria-label', '$35 advance, $40 at the door')
-    expect(price).toHaveAttribute('title', '$35 advance, $40 at the door')
+    expect(screen.getByText('$35 advance, $40 at the door')).toBeInTheDocument()
+    expect(screen.getByTitle('$35 advance, $40 at the door')).toBeInTheDocument()
+    // The glyphs are still what a sighted reader sees, and are hidden from the
+    // accessibility tree rather than removed.
+    const glyphs = screen.getByText('$35/$40')
+    expect(glyphs).toHaveAttribute('aria-hidden', 'true')
   })
 
   it('renders the fallback when no price is recorded', () => {

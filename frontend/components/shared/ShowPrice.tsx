@@ -19,9 +19,25 @@ export interface ShowPriceProps {
  * ONE component rather than a span per surface, because the a11y half of the
  * decision is easy to forget and impossible to notice missing. A screen reader
  * announces `$35/$40` as "thirty five slash forty" — a fact about money read
- * out as punctuation — so the pair carries a spelled-out `aria-label`, and
- * `title` gives a sighted reader the same thing on hover. That pairing was
- * open-coded at seven call sites before this existed; it is now stated once.
+ * out as punctuation — so the pair hides the glyphs from the accessibility tree
+ * and offers the spelled-out reading instead, while `title` gives a sighted
+ * reader the same thing on hover.
+ *
+ * A VISUALLY-HIDDEN SIBLING, not `aria-label`. That was the first attempt and it
+ * does not work: a bare `<span>` has the `generic` role, for which ARIA
+ * PROHIBITS a name from the author, so browsers ignore the attribute and read
+ * the visible glyphs anyway — the failure this component exists to prevent,
+ * silently un-prevented. `aria-hidden` plus `sr-only` is the pattern the rest of
+ * this codebase uses (Pagination, BottomTabBar) and it needs no role to work.
+ *
+ * Assert it with `toHaveAccessibleName`, never with `toHaveAttribute`: an
+ * attribute assertion passes against exactly the broken version.
+ *
+ * BOTH the split register and that label are NEW (PSY-1962). Before them these
+ * surfaces rendered `formatPrice(show.price)` with no label and no second
+ * number, so this is not a de-duplication of something that already worked —
+ * it is the one place a brand-new rule is written down, before it can be
+ * restated eight times and forgotten on the ninth.
  *
  * The label is present ONLY for a pair. A lone price has nothing to be
  * disambiguated from, and an `aria-label` restating the visible text would make
@@ -34,9 +50,11 @@ export interface ShowPriceProps {
 export function ShowPrice({ show, fallback, className }: ShowPriceProps) {
   const price = showPriceLabel(show)
   if (!price) return <>{fallback ?? null}</>
+  if (!price.title) return <span className={cn(className)}>{price.text}</span>
   return (
-    <span className={cn(className)} title={price.title} aria-label={price.title}>
-      {price.text}
+    <span className={cn(className)} title={price.title}>
+      <span aria-hidden="true">{price.text}</span>
+      <span className="sr-only">{price.title}</span>
     </span>
   )
 }

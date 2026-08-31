@@ -166,9 +166,16 @@ func TestShowUpdatesToMap_ClearsReachTheMap(t *testing.T) {
 	}
 }
 
-// Zero is a price the site renders as "Free", so it must be written as the
-// number 0 and never be mistaken for the clear gesture. The distinction is the
-// reason contracts.Nullable exists rather than a truthiness check.
+// Zero is a price the site renders as "Free", so it must be written as zero and
+// never be mistaken for the clear gesture. The distinction is the reason
+// contracts.Nullable exists rather than a truthiness check.
+//
+// The assertion is that the map carries a NON-NIL zero, not that it carries any
+// particular Go type: whether the value arrives as float64 or *float64 is
+// showUpdatesToMap's business and GORM writes either as 0. This test asserted
+// the concrete float64 until ValueOrNil changed the shape, and failed for a
+// reason with no behavioural meaning — the kind of test that makes a correct
+// refactor look like a regression.
 func TestShowUpdatesToMap_ZeroPriceIsAValue(t *testing.T) {
 	updates := showUpdatesToMap(&contracts.UpdateShowRequest{
 		Price: contracts.NullableSet(0.0),
@@ -178,8 +185,20 @@ func TestShowUpdatesToMap_ZeroPriceIsAValue(t *testing.T) {
 	if !ok {
 		t.Fatal("a zero price must be written, not skipped")
 	}
-	if v, isFloat := raw.(float64); !isFloat || v != 0 {
-		t.Errorf("expected the number 0, got %#v", raw)
+	switch v := raw.(type) {
+	case float64:
+		if v != 0 {
+			t.Errorf("expected zero, got %v", v)
+		}
+	case *float64:
+		if v == nil {
+			t.Fatal("a zero price must not be written as a clear")
+		}
+		if *v != 0 {
+			t.Errorf("expected zero, got %v", *v)
+		}
+	default:
+		t.Errorf("expected a numeric zero, got %#v", raw)
 	}
 }
 
@@ -1665,10 +1684,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestUpdateShow_PricesAreIndependen
 // TestUpdateShow_ClearsNullableFields is the round trip PSY-1961 exists for:
 // a recorded value can be RETRACTED, not merely overwritten.
 //
-// Against the real column rather than the update map, because the map assertion
-// above cannot see the layer that actually decides — GORM drops an untyped nil
-// instead of writing NULL, so the write-through is where a clear either lands or
-// silently does not.
+// Against the real COLUMN rather than the update map, because the map assertion
+// above only proves the key was set — whether the write-through then lands as
+// SQL NULL is a question about GORM and Postgres that no shape assertion can
+// answer. This is also the test that keeps Rollback honest: it passes an UNTYPED
+// nil for these same unregistered columns, so if that ever stopped writing NULL,
+// undo would break here first.
 //
 // All four fields together, because the mechanism is shared: covering only
 // door_price would leave the twin it was designed to keep symmetrical unpinned.

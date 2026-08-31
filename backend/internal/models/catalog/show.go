@@ -59,23 +59,36 @@ type Show struct {
 	// silence. Neither is inferred from the other: a show with an advance
 	// price says nothing about what the door costs.
 	//
-	// EVERY read surface renders the split (PSY-1962). Two registers, one rule:
-	// the show detail page qualifies the pair as `$35 ADV · DOOR $40`, and every
-	// dense list — /shows cards and compact rows, the venue and artist show
-	// tables, the scene day lists, the discovery rails, the submissions console
-	// and the ICS feed descriptions — spells it `$35/$40`, advance first. A lone
-	// price renders bare in both, and equal numbers collapse to one.
+	// EVERY WEB, EMAIL AND CALENDAR SURFACE renders the split (PSY-1962). Two
+	// registers, one rule: the show detail page qualifies the pair as
+	// `$35 ADV · DOOR $40`, and everything denser — /shows cards and compact
+	// rows, the venue and artist show tables, the scene day and calendar lists,
+	// the atlas venue panel, the discovery rails, the submissions console, the
+	// admin pending queue, the ICS feed descriptions and the three alert
+	// emails — spells it `$35/$40`, advance first. A lone price renders bare in
+	// both, and equal numbers collapse to one.
 	//
 	// A NEW SURFACE MUST USE THE SHARED DERIVATION, not read Price alone.
-	// Frontend: lib/utils/showPrice.ts. Backend: shared.ShowPriceText.
-	// Reading the advance half by itself is not a smaller version of the truth,
-	// it is a wrong number about money — a reader who budgets $35 for a $40 door
-	// was misinformed by the site, not merely under-informed.
+	// Frontend: lib/utils/showPrice.ts (or the ShowPrice component, which also
+	// carries the accessible reading of the pair). Backend:
+	// internal/services/shared.ShowPriceText — the SERVICES shared package, not
+	// api/handlers/shared. Reading the advance half by itself is not a smaller
+	// version of the truth, it is a wrong number about money: a reader who
+	// budgets $35 for a $40 door was misinformed by the site, not merely
+	// under-informed.
 	//
-	// Two consumers answer a different question and are NOT list registers:
-	// the notification price-cap filter (effectiveShowPriceCents) and the
-	// schema.org Offer each need ONE number, and both fall back to the door
-	// price only when no advance price is recorded.
+	// THREE consumers answer a different question and are NOT list registers.
+	// Each has to reduce the pair to ONE number, and each falls back to the door
+	// price only when no advance price is recorded: the notification price-cap
+	// filter (effectiveShowPriceCents), the schema.org Offer (offerShowPrice on
+	// the frontend), and the data-quality "missing price" report, which asks
+	// whether the site knows the cost AT ALL and so accepts either column.
+	//
+	// STILL UNSWEPT, and deliberately out of PSY-1962's scope rather than
+	// forgotten: the `ph` CLI and the iOS client carry no DoorPrice at all, the
+	// dev-seed exemplars never produce a split price, and a discovery re-scrape
+	// discards an extracted door price. All four are PSY-1864 leftovers on
+	// non-web clients; follow-ups are filed rather than folded in here.
 	Price          *float64
 	DoorPrice      *float64 `gorm:"column:door_price"`
 	AgeRequirement *string

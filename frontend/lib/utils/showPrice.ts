@@ -7,6 +7,14 @@ import { formatPrice } from './formatters'
  * pair arrives on `ShowResponse`, `VenueShowResponse`, `ArtistShowResponse`,
  * `SceneShowSummary` and the rails' own row type, and a shared derivation that
  * named one of them would have to be re-plumbed for every new list surface.
+ *
+ * THE COST, stated rather than hidden: both fields are OPTIONAL, so a payload
+ * type carrying no `door_price` at all satisfies this interface and renders the
+ * advance half alone — the exact under-reporting the shared derivation exists
+ * to prevent, with no compile error. `door_price?` cannot be made required
+ * because `SceneShowSummary` serializes it with `omitempty`. So adding a new
+ * list contract means checking that it actually SERVES the column; the type
+ * will not check it for you.
  */
 export interface ShowPrices {
   price?: number | null
@@ -86,15 +94,18 @@ export function showPriceLabel(show: ShowPrices): ShowPriceLabel | null {
 /**
  * The list register as a bare string: `$35`, `Free`, `$35/$40`, or null.
  *
- * For the surfaces that compose their price into a middot-joined line and have
- * no element of their own to carry a label — the scene day rows, the atlas
- * venue panel, the discovery rails' figure column. Those callers drop the
- * spelled-out description because there is nowhere to put it, and this name
- * says so out loud rather than leaving `showPriceLabel(show)?.text ?? null`
- * restated at each one.
+ * For a surface that composes its price into a joined line and genuinely has
+ * no element of its own to carry a label. The atlas venue panel is the only
+ * one: it middot-joins time and price into a single string.
  *
- * A surface that DOES render its own element should use the `ShowPrice`
- * component instead, which keeps the label.
+ * THAT IS A NARROW CASE, and it was briefly written down as a wider one. The
+ * scene day rows, the scene calendar and the discovery rails all render the
+ * price into their own `<span>`, so they carry the label after all — the first
+ * two through `ShowPrice`, the rails through `RailRowData.figureLabel`,
+ * because that column also holds status tokens that are not prices.
+ *
+ * So: reach for this ONLY when there is no element. If there is one, use the
+ * `ShowPrice` component, which keeps the label.
  */
 export function showPriceText(show: ShowPrices): string | null {
   return showPriceLabel(show)?.text ?? null

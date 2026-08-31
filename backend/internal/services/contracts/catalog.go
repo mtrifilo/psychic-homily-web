@@ -102,10 +102,18 @@ type UpdateShowRequest struct {
 	// choice, and doors_at/music_at have the identical shape, so one mechanism
 	// covers the set.
 	//
-	// The remaining nullable fields on this struct are TEXT, and they already
-	// have a clear gesture: send "", which the service normalizes to SQL NULL
-	// through utils.NilIfEmpty. A number has no empty spelling, which is why
-	// these four needed a signal of their own rather than a shared convention.
+	// The remaining nullable fields on this struct are TEXT, and they are left
+	// alone here for a narrower reason than "they already have a gesture".
+	// image_url does: showUpdatesToMap normalizes "" to SQL NULL through
+	// utils.NilIfEmpty. age_requirement, description and ticket_url do NOT --
+	// they store the empty string, and ShowForm sends `undefined` for a blank
+	// one anyway, so blanking them is the same silent no-op PSY-1961 removed
+	// for prices. That is a REAL remaining gap, not a solved one.
+	//
+	// It is out of scope here because "" and NULL are indistinguishable to every
+	// reader of those three columns (each render guard is a falsy check), so the
+	// no-op costs an edit rather than publishing a false fact. A number has no
+	// empty spelling at all, which is why these four could not wait.
 	DoorsAt        Nullable[time.Time] `json:"doors_at"`
 	MusicAt        Nullable[time.Time] `json:"music_at"`
 	City           *string             `json:"city"`

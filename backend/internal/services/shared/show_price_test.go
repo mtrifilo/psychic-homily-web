@@ -1,9 +1,13 @@
 package shared
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // The dense-money register, pinned where every backend surface can reach it.
@@ -47,6 +51,38 @@ func TestShowPriceText(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.want, ShowPriceText(tc.advance, tc.door))
+		})
+	}
+}
+
+// The SHARED vector table, read by this suite and by
+// frontend/lib/utils/showPrice.test.ts from the same file. It is what actually
+// holds the Go and TypeScript renderings together: they are hand-written twins
+// with no compiler between them, and they drifted on day one (whole-dollar
+// rounding turned $12.50 into "$12" and a fifty-cent door into "$0"). A prose
+// cross-reference did not catch that; a shared table does.
+//
+// Add a case to the JSON, never to one suite.
+func TestShowPriceText_SharedVectors(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "show_price_vectors.json"))
+	require.NoError(t, err)
+
+	var table struct {
+		Cases []struct {
+			Name    string   `json:"name"`
+			Advance *float64 `json:"advance"`
+			Door    *float64 `json:"door"`
+			Text    string   `json:"text"`
+		} `json:"cases"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &table))
+	require.NotEmpty(t, table.Cases, "the shared vector file must not be empty")
+
+	for _, tc := range table.Cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			assert.Equal(t, tc.Text, ShowPriceText(tc.Advance, tc.Door),
+				"Go and TypeScript must render this case identically; "+
+					"if this is a deliberate change, update the shared vectors and both suites")
 		})
 	}
 }

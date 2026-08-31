@@ -34,10 +34,18 @@
 // A stored old_value of 0 is byte-identical whether it means "was unset" or
 // "was genuinely free", so rewriting them would be guessing, and guessing wrong
 // turns a recoverable wrong number into a destroyed record of a real $0 show.
-// Rolling back a PRE-fix revision therefore still restores 0. What bounds the
-// exposure is that the surfaces which can now CLEAR a price back to NULL
-// (PSY-1961) make such a row correctable, which is exactly what it was not when
-// the defect was found.
+// Rolling back a PRE-fix revision therefore still restores 0.
+//
+// What bounds the exposure is that a bad 0 is now CORRECTABLE -- but only on
+// the two prices, and that limit is worth stating rather than implying. The
+// show edit form can clear price/door_price back to NULL (PSY-1961), which it
+// could not when this defect was found. venues.capacity, labels.founded_year
+// and releases.release_year have no clear gesture on any surface: their update
+// requests are still plain *int, so a pre-fix 0 on one of them stays until
+// somebody writes SQL. Rarer (each needs an edit that first populated a NULL
+// column, then a rollback of that edit) and less harmful (a wrong capacity is
+// not a false price claim), which is why it is recorded here rather than
+// blocking, but it is not zero.
 //
 // The per-entity field lists — not the contributor allowlist — are the source
 // of truth for which fields appear in revision history. They intentionally
@@ -313,10 +321,14 @@ func diffValue(before, after reflect.Value) (oldVal, newVal interface{}, changed
 // *string keeps the nil-as-"" rule deliberately, and the exception is a claim
 // about THE FIELDS IN fields.go, not about *string in the abstract. Every text
 // field diffed today (image_url, ticket_url, description, address, zipcode,
-// age_policy, the socials) has a column that takes the empty string, a clear
-// gesture that already sends "" and normalizes at the service boundary
-// (utils.NilIfEmpty), and no reader who can tell NULL from "". Changing it would
+// age_policy, the socials) has a column that takes the empty string and no
+// reader who can tell NULL from "" — every render guard on them is a falsy
+// check, so the two states are indistinguishable downstream. Changing it would
 // rewrite the shape of every historical text diff to buy nothing.
+//
+// Note the rule is "indistinguishable", NOT "they already normalize to NULL":
+// only image_url does that (utils.NilIfEmpty in showUpdatesToMap). The others
+// really do store "".
 //
 // So the thing to check when ADDING a text field to fields.go is whether that
 // list still holds for it. A column where NULL and "" differ — one under a

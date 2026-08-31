@@ -2,7 +2,10 @@
 
 import Link from 'next/link'
 import { formatShowTime } from '@/lib/utils/formatters'
-import { ShowPrice } from '@/components/shared'
+// Deep import, not the barrel: `@/components/shared` pulls ~30 components
+// into the chunk of every route that renders a compact row (PSY-1772), and the
+// scene surfaces next door deep-import this same component for that reason.
+import { ShowPrice } from '@/components/shared/ShowPrice'
 import { formatShowDateBadge } from '@/lib/utils/showDateBadge'
 
 interface CompactShowArtist {

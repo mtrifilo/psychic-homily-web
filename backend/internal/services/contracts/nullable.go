@@ -19,8 +19,15 @@ package contracts
 // spelled on the wire is the boundary's problem.
 //
 // The fields are unexported so the invalid fourth state — "absent, but with a
-// value" — cannot be written. Build one with the three constructors, read it
-// with Present and Value.
+// value" — cannot be written. Build one with NullableClear or NullableSet (the
+// zero value is the third state), read it with Present, Value and ValueOrNil.
+//
+// THE TRAP, since nothing in the type can stop it: reading ValueOrNil WITHOUT
+// asking Present first treats an absent field as a clear, and a translator that
+// does so wipes a column on every request that never mentioned it. The mirror
+// mistake — branching on Value alone — drops the clear and silently restores
+// the write-only behavior this type was added to remove. Both are quiet. Ask
+// Present first, always.
 type Nullable[T any] struct {
 	present bool
 	value   *T
