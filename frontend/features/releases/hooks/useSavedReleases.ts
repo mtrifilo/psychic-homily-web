@@ -78,9 +78,14 @@ export function useReleaseSaveCountBatch(
       return response.saves
     },
     // Same viewer-keyed hazard as the single-item read, on the highest-traffic
-    // path: a list holds one of these for every row on screen. While the batch
-    // is disabled `batchedSaveFor` reports 'pending', so no row falls back to
-    // its own request.
+    // path: a list holds one of these for every row on screen.
+    //
+    // Disabling it cannot start a per-row request storm: every caller passes
+    // `saveData` as either a `batchedSaveFor` result (which maps an absent entry
+    // to 'pending') or a truthy zeroed fallback (ReleaseList, the chart pages),
+    // and `resolveBatchedSaveData` reports `shouldSelfFetch: false` for both. A
+    // NEW caller passing a bare `data?.[id]` would break that, which is why the
+    // two safe shapes are named.
     enabled: releaseIds.length > 0 && authStatus !== 'pending',
     staleTime: 2 * 60 * 1000,
   })

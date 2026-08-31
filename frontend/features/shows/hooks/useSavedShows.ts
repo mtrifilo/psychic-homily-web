@@ -166,9 +166,14 @@ export const useShowSaveCountBatch = (
       return response.saves
     },
     // Same viewer-keyed hazard as the single-item read, on the highest-traffic
-    // path: a list holds one of these for every row on screen. While the batch
-    // is disabled `batchedSaveFor` reports 'pending', so no row falls back to
-    // its own request.
+    // path: a list holds one of these for every row on screen.
+    //
+    // Disabling it cannot start a per-row request storm, by either of the two
+    // routes a caller takes to `saveData`: `batchedSaveFor` maps an absent
+    // result to 'pending' (ShowList, HomeShowList), and the chart call sites
+    // pass a truthy zeroed fallback instead of undefined. `resolveBatchedSaveData`
+    // reports `shouldSelfFetch: false` for both. A NEW caller that passes a bare
+    // `data?.[id]` would break that, which is why the two safe shapes are named.
     enabled:
       showIds.length > 0 &&
       authStatus !== 'pending' &&
