@@ -379,6 +379,14 @@ func deleteDuplicateShows(tx *gorm.DB) error {
 
 	// KNOWN GAP, recorded rather than implied (PSY-1868).
 	//
+	// It reaches further now than it used to, which is worth saying plainly.
+	// buildDuplicateShowMap reads show_dedup_keys, so it finds collisions at
+	// every room of a bill where it used to see only the lowest. Those pairs
+	// previously aborted the merge on the constraint; now they resolve, and
+	// resolving means the losing show arrives HERE and strands its references
+	// like any other. Wider coverage is the point of the change, and this is its
+	// cost until the gap below is closed.
+	//
 	// PSY-1868 wired sweepEntityRefsForDelete into the six delete methods for the
 	// six INVENTORIED catalog entity types (venue, artist, show, release, label,
 	// festival). This set-based delete is not one of them, so every

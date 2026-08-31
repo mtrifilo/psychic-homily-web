@@ -77,11 +77,19 @@ $$;
 -- show_artists and show_venues both carry show_id, and an UPDATE can move a row
 -- between shows, so a move rebuilds both the old show and the new one.
 --
--- THE OLD SHOW IS REBUILT FIRST, AND THAT ORDER IS LOAD-BEARING. A show merge
--- re-points a bill row from the loser onto the winner, and the pair shares a key
--- by construction. Rebuilding the winner first would insert that key while the
--- loser's copy of it still stood, and the merge would abort on the unique
--- constraint. Reversing these two statements breaks MergeDuplicateShow.
+-- THE OLD SHOW IS REBUILT FIRST, AND THAT ORDER IS LOAD-BEARING. Moving a bill
+-- row between two shows that play the same room on the same night mints, on the
+-- new show, the very key the old one still holds. Rebuilding the new show first
+-- inserts that key before the old show's copy is retired, and the move aborts on
+-- the unique constraint; retiring the old one first cannot fail, because a
+-- rebuild only ever deletes keys the associations no longer support.
+--
+-- MergeDuplicateShow happens NOT to depend on this today, and the reason is
+-- incidental rather than reassuring: it re-points show_venues before
+-- show_artists, and a duplicate cluster shares its venue, so the loser is left
+-- with no rooms and no keys before any bill row moves. Reorder that loop and
+-- this order becomes the only thing holding the merge up. Pinned directly by
+-- TestShowDedupKeys_MoveBetweenShowsSharingARoom.
 CREATE OR REPLACE FUNCTION show_dedup_keys_sync_link()
 RETURNS trigger
 LANGUAGE plpgsql

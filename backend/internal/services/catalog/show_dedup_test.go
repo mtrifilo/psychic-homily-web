@@ -172,6 +172,97 @@ func (s *ShowDedupTestSuite) TestFindClusters_DifferentVenues() {
 	s.Empty(clusters)
 }
 
+// TestShowDedupKeys_MoveBetweenShowsSharingARoom pins the rebuild ORDER inside
+// show_dedup_keys_sync_link, directly and without a merge in the way.
+//
+// Two shows share a room and a night while billing different acts, which the
+// constraint permits. Moving one act's bill row across mints, on the receiving
+// show, the exact key the departing show still holds. The trigger rebuilds the
+// OLD show before the NEW one, so that key is retired before it is re-inserted;
+// reverse the two PERFORM statements in the migration and this move aborts on
+// show_dedup_keys_artist_venue_date_uniq.
+//
+// Asserted here rather than through MergeDuplicateShow because that merge does
+// not currently reach this case: it re-points show_venues first, which strips the
+// loser's keys before any bill row moves. That insulation is a property of the
+// merge's step order, not of the trigger, and this test holds the trigger's end
+// of the contract whatever the merge does later.
+func (s *ShowDedupTestSuite) TestShowDedupKeys_MoveBetweenShowsSharingARoom() {
+	staying := s.seedArtist("Staying Act")
+	moving := s.seedArtist("Moving Act")
+	v := s.seedVenue("Shared Room", "Phoenix", "AZ")
+	eventDate := time.Date(2026, 6, 3, 3, 0, 0, 0, time.UTC)
+	t1 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+
+	receiving := s.seedShow("Receiving", eventDate, t1, staying.ID, v.ID, "AZ")
+	departing := s.seedShow("Departing", eventDate, t2, moving.ID, v.ID, "AZ")
+
+	// Both keys are live, and they do not collide: different acts.
+	s.Require().Equal(int64(1), s.dedupKeyCount(receiving, staying.ID, v.ID))
+	s.Require().Equal(int64(1), s.dedupKeyCount(departing, moving.ID, v.ID))
+
+	err := s.db.Exec(`UPDATE show_artists SET show_id = ? WHERE show_id = ? AND artist_id = ?`,
+		receiving, departing, moving.ID).Error
+	s.Require().NoError(err,
+		"the departing show's key must be retired before the receiving show mints it")
+
+	s.Equal(int64(1), s.dedupKeyCount(receiving, moving.ID, v.ID), "the key follows the act")
+	s.Zero(s.dedupKeyCount(departing, moving.ID, v.ID), "and does not linger on the old show")
+}
+
+// TestMergeDuplicateShow_MovesASupportActHoldingItsOwnKey covers the merge shape
+// the faithful legacy fixture made reachable: a losing show holding a LIVE key
+// for an act the winner does not bill.
+//
+// The migration's backfill skips only the billing that actually collided, so
+// everything else on the loser keeps a key. Those are the keys a merge has to
+// carry across, and seeding a cluster with no keys at all never exercised them.
+func (s *ShowDedupTestSuite) TestMergeDuplicateShow_MovesASupportActHoldingItsOwnKey() {
+	headliner := s.seedArtist("Shared Headliner")
+	support := s.seedArtist("Loser Only Support")
+	v := s.seedVenue("Order Hall", "Phoenix", "AZ")
+	eventDate := time.Date(2026, 6, 2, 3, 0, 0, 0, time.UTC)
+	t1 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+
+	winner := s.seedShow("Order First", eventDate, t1, headliner.ID, v.ID, "AZ")
+	loser := s.seedShow("Order Second", eventDate, t2, headliner.ID, v.ID, "AZ")
+	s.billLegacyAct(loser, support.ID, 1)
+
+	// The premise: the loser really does hold that key, and the winner does not.
+	s.Equal(int64(1), s.dedupKeyCount(loser, support.ID, v.ID),
+		"the backfill derives a key for an act nothing else collides with")
+	s.Zero(s.dedupKeyCount(winner, support.ID, v.ID))
+
+	summary := &ShowDedupSummary{}
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		return MergeDuplicateShow(tx, winner, loser, summary)
+	})
+	s.Require().NoError(err, "moving an act that holds its own key must not collide")
+
+	s.Equal(int64(1), s.dedupKeyCount(winner, support.ID, v.ID),
+		"the key follows the act onto the surviving show")
+}
+
+// billLegacyAct adds one more act to an existing bill, with the derivation off
+// and the backfill replayed, matching how seedShow writes legacy rows.
+func (s *ShowDedupTestSuite) billLegacyAct(showID, artistID uint, position int) {
+	seedLegacyShowDuplicate(s.T(), s.db, func() {
+		s.Require().NoError(s.db.Exec(
+			`INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, ?, 'performer')`,
+			showID, artistID, position).Error)
+	})
+}
+
+func (s *ShowDedupTestSuite) dedupKeyCount(showID, artistID, venueID uint) int64 {
+	var n int64
+	s.Require().NoError(s.db.Raw(
+		`SELECT count(*) FROM show_dedup_keys WHERE show_id = ? AND artist_id = ? AND venue_id = ?`,
+		showID, artistID, venueID).Scan(&n).Error)
+	return n
+}
+
 // TestMergeDuplicateShow_BasicMerge runs the full merge and confirms
 // the loser is gone, the winner is preserved.
 func (s *ShowDedupTestSuite) TestMergeDuplicateShow_BasicMerge() {
