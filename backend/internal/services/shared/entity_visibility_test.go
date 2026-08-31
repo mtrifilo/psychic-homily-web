@@ -111,8 +111,8 @@ func TestCollectionGatesAgreeAcrossSpellings(t *testing.T) {
 	stranger := testhelpers.CreateTestUser(td.DB)
 	gate := shared.NewShowVisibilityService(td.DB)
 
-	private := createTestCollection(t, td.DB, creator.ID, "agreement-private", false)
-	public := createTestCollection(t, td.DB, creator.ID, "agreement-public", true)
+	private := testhelpers.CreateCollection(t, td.DB, creator.ID, "Agreement Private", "agreement-private", false).ID
+	public := testhelpers.CreateCollection(t, td.DB, creator.ID, "Agreement Public", "agreement-public", true).ID
 
 	for _, c := range []struct {
 		name         string

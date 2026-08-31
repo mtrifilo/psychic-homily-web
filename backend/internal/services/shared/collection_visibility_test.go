@@ -95,25 +95,9 @@ func TestCollectionVisibilitySpellingsAgree(t *testing.T) {
 			if c.byCreator {
 				creator = viewerID
 			}
-			collection := &communitym.Collection{
-				Title:     fmt.Sprintf("Matrix Collection %d", i),
-				Slug:      fmt.Sprintf("matrix-collection-%d", i),
-				CreatorID: creator,
-				IsPublic:  c.isPublic,
-			}
-			// Written through a map on the boolean for the GORM gotcha this
-			// codebase records: false is a zero value, GORM omits it on Create,
-			// and the column's DEFAULT true would win. A fixture that silently
-			// stayed public would make every private row below pass for the
-			// wrong reason.
-			if err := td.DB.Create(collection).Error; err != nil {
-				t.Fatalf("create collection: %v", err)
-			}
-			if err := td.DB.Model(&communitym.Collection{}).Where("id = ?", collection.ID).
-				Update("is_public", c.isPublic).Error; err != nil {
-				t.Fatalf("set is_public: %v", err)
-			}
-			assertCollectionIsPublic(t, td.DB, collection.ID, c.isPublic)
+			collection := testhelpers.CreateCollection(t, td.DB, creator,
+				fmt.Sprintf("Matrix Collection %d", i),
+				fmt.Sprintf("matrix-collection-%d", i), c.isPublic)
 
 			for _, v := range viewers {
 				want := wantCollectionVisible(c, v.isSelf)
@@ -228,33 +212,6 @@ func TestCollectionVisibilityFailsClosedWithoutADatabase(t *testing.T) {
 	}
 }
 
-// createTestCollection writes one collection and returns its id, with is_public
-// applied through a map update and read back.
-//
-// Both steps are load-bearing. GORM omits a false boolean on Create because
-// false is the zero value, so `IsPublic: false` alone leaves the column at its
-// DEFAULT true — a fixture that silently stayed public would make a privacy
-// assertion pass for the wrong reason. The read-back is what turns that from a
-// thing the writer believes into a thing the database confirms.
-func createTestCollection(t *testing.T, db *gorm.DB, creatorID uint, slug string, isPublic bool) uint {
-	t.Helper()
-	collection := &communitym.Collection{
-		Title:     "Collection " + slug,
-		Slug:      slug,
-		CreatorID: creatorID,
-		IsPublic:  isPublic,
-	}
-	if err := db.Create(collection).Error; err != nil {
-		t.Fatalf("create collection %q: %v", slug, err)
-	}
-	if err := db.Model(&communitym.Collection{}).Where("id = ?", collection.ID).
-		Update("is_public", isPublic).Error; err != nil {
-		t.Fatalf("set is_public on %q: %v", slug, err)
-	}
-	assertCollectionIsPublic(t, db, collection.ID, isPublic)
-	return collection.ID
-}
-
 func countCollectionsMatching(t *testing.T, db *gorm.DB, collectionID uint, cond string, args []interface{}) int64 {
 	t.Helper()
 	var count int64
@@ -263,18 +220,4 @@ func countCollectionsMatching(t *testing.T, db *gorm.DB, collectionID uint, cond
 		t.Fatalf("count collections with %q: %v", cond, err)
 	}
 	return count
-}
-
-// assertCollectionIsPublic reads the flag back out of the database rather than
-// trusting the write, for the GORM boolean reason the fixture above gives.
-func assertCollectionIsPublic(t *testing.T, db *gorm.DB, collectionID uint, want bool) {
-	t.Helper()
-	var got bool
-	if err := db.Model(&communitym.Collection{}).Where("id = ?", collectionID).
-		Select("is_public").Scan(&got).Error; err != nil {
-		t.Fatalf("read back is_public: %v", err)
-	}
-	if got != want {
-		t.Fatalf("collection %d has is_public=%v, want %v — the fixture did not take", collectionID, got, want)
-	}
 }

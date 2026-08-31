@@ -180,12 +180,11 @@ func VisibleShowExistsSQL(showIDExpr string, viewer contracts.ShowViewer) (strin
 }
 
 // showExistsSQL wraps a shows-table condition in the correlated EXISTS both
-// tiers use. The subquery shape lives here once so the bound and inlined forms
-// cannot correlate on different columns.
+// tiers use. Named here so the bound and inlined forms cannot correlate on
+// different columns, and delegating to entityExistsSQL so the shows rule and the
+// collections rule cannot correlate on different SHAPES.
 func showExistsSQL(showIDExpr, showCond string) string {
-	return "EXISTS (SELECT 1 FROM shows " + visibleShowsAlias +
-		" WHERE " + visibleShowsAlias + ".id = " + showIDExpr +
-		" AND " + showCond + ")"
+	return entityExistsSQL("shows", visibleShowsAlias, showIDExpr, showCond)
 }
 
 // CommentEntityTypeShow is the polymorphic entity_type value the comment family
@@ -219,7 +218,7 @@ func VisibleShowCommentEntitySQL(entityTypeExpr, entityIDExpr string, viewer con
 		return "TRUE", nil
 	}
 	visible, args := VisibleShowExistsSQL(entityIDExpr, viewer)
-	return "(" + entityTypeExpr + " <> '" + CommentEntityTypeShow + "' OR " + visible + ")", args
+	return commentEntityArmSQL(entityTypeExpr, CommentEntityTypeShow, visible), args
 }
 
 // VisibleShowRecipientsSQL returns a condition, true for the rows whose

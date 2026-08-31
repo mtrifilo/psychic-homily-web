@@ -48,8 +48,14 @@ import (
 
 // entityVisibilityRule names WHICH rule decides one entity type.
 //
-// A closed set, deliberately: adding a member forces every switch over it to be
-// revisited, which is the compile-time half of what this file is for.
+// Go does not check a switch over this for exhaustiveness and this repo enables
+// no linter that would (.golangci.yml), so adding a member is NOT caught by the
+// compiler. Every switch below therefore ends in a refusal rather than a
+// fall-through, and VisibleCommentEntitySQL derives its arms from the registry
+// rather than naming them, so a rule added without its spellings withholds rows
+// instead of publishing them. The loud half is
+// TestOnlyShowsAndCollectionsAreGated, which fails until the new member is
+// dispositioned by hand.
 type entityVisibilityRule int
 
 const (
@@ -94,41 +100,32 @@ var entityVisibilityRules = map[string]entityVisibilityRule{
 	CommentEntityTypeCollection: ruleCollection,
 }
 
-// entityTypeAliases maps the plural spelling of each registered type to the
-// canonical singular one, for the GO side only.
-//
-// Built from the registry rather than hand-listed so a new type gets its alias
-// for free. The reason the plurals are recognised at all is the one PSY-1939
-// gave for `shows`: an {entity_type} path segment is caller-supplied text, the
-// codebase uses plurals for the same concept elsewhere
-// (catalog.EntityExistenceService), and a gate that a spelling slips past is not
-// a gate. Under a fail-closed default the cost of NOT recognising them changed
-// sign — an unrecognised plural now refuses a legitimate read rather than waving
-// a gated one through — which is a second, independent reason to keep them.
-//
-// The SQL side has no equivalent and must not grow one: it compares against
-// STORED values, and the writers store the canonical spelling.
-var entityTypeAliases = buildEntityTypeAliases()
-
-func buildEntityTypeAliases() map[string]string {
-	aliases := make(map[string]string, len(entityVisibilityRules))
-	for entityType := range entityVisibilityRules {
-		aliases[entityType+"s"] = entityType
-	}
-	return aliases
-}
-
 // entityVisibilityRuleFor resolves an {entity_type} segment to its rule.
 //
 // Case is folded and surrounding space trimmed for the reason PSY-1939 gave: a
 // gate that `show` passes but `Show` slips through is not a gate. ok is false
 // for anything not registered, and every caller treats that as "not visible".
+//
+// The PLURAL spelling resolves to the singular, on a second lookup that only an
+// unregistered spelling ever reaches. Plurals are recognised for the reason
+// PSY-1939 gave for `shows`: an {entity_type} path segment is caller-supplied
+// text, the codebase uses plurals for the same concept elsewhere
+// (catalog.EntityExistenceService), and a gate that a spelling slips past is not
+// a gate. Under a fail-closed default the cost of NOT recognising them changed
+// sign — an unrecognised plural now refuses a legitimate read rather than waving
+// a gated one through — which is a second, independent reason to keep them.
+//
+// Stripping the suffix admits nothing new: the stem has to be a registered type
+// for the lookup to succeed, and stem+"s" IS its plural by construction.
+//
+// The SQL side has no equivalent and must not grow one: it compares against
+// STORED values, and the writers store the canonical spelling.
 func entityVisibilityRuleFor(entityType string) (entityVisibilityRule, bool) {
 	normalized := strings.ToLower(strings.TrimSpace(entityType))
-	if canonical, isAlias := entityTypeAliases[normalized]; isAlias {
-		normalized = canonical
+	if rule, ok := entityVisibilityRules[normalized]; ok {
+		return rule, true
 	}
-	rule, ok := entityVisibilityRules[normalized]
+	rule, ok := entityVisibilityRules[strings.TrimSuffix(normalized, "s")]
 	return rule, ok
 }
 
@@ -169,14 +166,18 @@ func EntityVisibleTo(checker contracts.ShowVisibilityInterface, entityType strin
 // comments table, comment_subscriptions, and the notification rows resolved
 // through a comment — where one column decides what kind of id sits beside it.
 //
-// Three parts, and the FIRST is the one PSY-1987 adds:
+// Two parts, and BOTH are derived from the registry rather than written out:
 //
-//   - an allowlist: a row whose entity_type is not registered above is not
-//     visible. This is the fail-closed default in its SQL form, and it is what
-//     stops an eighth entity type from being served by rows written before
-//     anybody decided whether it should be.
-//   - the show arm, unchanged.
-//   - the collection arm.
+//   - an ALLOWLIST: a row whose entity_type is not registered is not visible.
+//     This is the fail-closed default in its SQL form, and it is what stops an
+//     eighth entity type from being served by rows written before anybody
+//     decided whether it should be.
+//   - one ARM PER GATED TYPE, walked in sorted order off the registry. Naming
+//     the arms here instead would reopen the defect one level up: adding
+//     `"radio_show": ruleRadioShow` puts that value into the allowlist for free
+//     while no arm judges it, so the SQL would serve rows the Go gate refuses —
+//     the two spellings disagreeing, in the leaking direction. Derived, a rule
+//     with no arm yet REFUSES every row of its type instead.
 //
 // A row naming a show or a collection that no longer exists does NOT pass,
 // because both EXISTS forms fail closed on a missing row — which is what lets a
@@ -191,21 +192,58 @@ func EntityVisibleTo(checker contracts.ShowVisibilityInterface, entityType strin
 // Both expressions are SQL the CALLER controls and must be literals in the
 // calling code. Nothing derived from a request may reach them.
 func VisibleCommentEntitySQL(entityTypeExpr, entityIDExpr string, viewer contracts.ShowViewer) (string, []interface{}) {
-	// The two per-type arms are the SAME functions the spellings-agree test
-	// checks one by one, spliced rather than re-spelled. A composite that wrote
-	// its own `<> 'show' OR EXISTS (…)` would be a third copy of the show rule,
-	// which is the drift these files exist to remove.
-	showArm, showArgs := VisibleShowCommentEntitySQL(entityTypeExpr, entityIDExpr, viewer)
-	collectionArm, collectionArgs := VisibleCollectionCommentEntitySQL(entityTypeExpr, entityIDExpr, viewer)
+	conds := []string{entityTypeExpr + " IN (" + registeredEntityTypeList + ")"}
+	var args []interface{}
+	// SORTED, so the emitted statement is byte-identical across processes and
+	// builds — and so the bind order is a property of the registry rather than of
+	// Go's map iteration, which is randomised. Placeholders in a raw statement
+	// bind by POSITION, so an order that varied per call would bind a viewer id
+	// into the wrong arm.
+	for _, entityType := range gatedEntityTypes() {
+		arm, armArgs := commentEntityArmFor(entityType, entityTypeExpr, entityIDExpr, viewer)
+		conds = append(conds, arm)
+		args = append(args, armArgs...)
+	}
+	return "(" + strings.Join(conds, " AND ") + ")", args
+}
 
-	// Argument order follows the statement text: placeholders in a raw statement
-	// bind by POSITION, and the show arm is written before the collection arm.
-	args := make([]interface{}, 0, len(showArgs)+len(collectionArgs))
-	args = append(args, showArgs...)
-	args = append(args, collectionArgs...)
+// commentEntityArmFor returns the polymorphic arm that judges ONE gated entity
+// type, plus its bind arguments.
+//
+// The per-type spellings are the SAME functions the spellings-agree tests check
+// one by one, spliced rather than re-written: a composite that wrote its own
+// `<> 'show' OR EXISTS (…)` would be a third copy of the show rule, which is the
+// drift these files exist to remove.
+//
+// A gated rule with no arm here EXCLUDES every row of its type. That is the
+// fail-closed answer to a half-finished rule: withholding is recoverable and a
+// disposition test says so loudly, while passing the rows through would be this
+// ticket's own defect, reintroduced by whoever adds the eighth type.
+func commentEntityArmFor(entityType, entityTypeExpr, entityIDExpr string, viewer contracts.ShowViewer) (string, []interface{}) {
+	switch entityVisibilityRules[entityType] {
+	case ruleShow:
+		return VisibleShowCommentEntitySQL(entityTypeExpr, entityIDExpr, viewer)
+	case ruleCollection:
+		return VisibleCollectionCommentEntitySQL(entityTypeExpr, entityIDExpr, viewer)
+	}
+	return "(" + entityTypeExpr + " <> '" + entityType + "')", nil
+}
 
-	return "(" + entityTypeExpr + " IN (" + registeredEntityTypeList + ")" +
-		" AND " + showArm + " AND " + collectionArm + ")", args
+// gatedEntityTypes is the sorted set of registered types that are NOT
+// alwaysVisible — the ones VisibleCommentEntitySQL needs an arm for.
+//
+// Computed per call rather than at init because it is a seven-entry scan behind
+// a database round trip, and a package var would be a second thing to keep in
+// step with the registry.
+func gatedEntityTypes() []string {
+	gated := make([]string, 0, len(entityVisibilityRules))
+	for entityType, rule := range entityVisibilityRules {
+		if rule != ruleAlwaysVisible {
+			gated = append(gated, entityType)
+		}
+	}
+	sort.Strings(gated)
+	return gated
 }
 
 // CommentEntityRecipientsSQL returns a condition, true for the rows whose
@@ -244,7 +282,7 @@ func CommentEntityRecipientsSQL(entityType string, entityID uint, recipientIDExp
 
 // EntityIdentityFenceSQL returns the predicate an ENRICHMENT pass must add when
 // it resolves one entity type's name and slug out of that type's own table, plus
-// its bind arguments, plus whether a predicate applies at all.
+// its bind arguments.
 //
 // The fence is not an alternative to the row gates the listings apply, and the
 // two are not redundant. The row gates are what remove the SIGNAL: a
@@ -253,24 +291,72 @@ func CommentEntityRecipientsSQL(entityType string, entityID uint, recipientIDExp
 // view — from resolving a private entity's identity with nothing in the path to
 // stop it.
 //
+// ALWAYS RETURNS A CONDITION, so the caller splices it in unconditionally and
+// cannot forget it: `TRUE` where no rule applies, `FALSE` for an unregistered
+// type. That is VisibleShowPredicateSQL's convention for its admin tier and the
+// reasoning is the same one — an omitted clause is a branch at every call site,
+// and a branch on a security boundary is a branch somebody drops.
+//
 // alias is the table alias the enclosing query uses and is a literal in the
-// calling code. An unregistered entity type fences to FALSE rather than passing.
-func EntityIdentityFenceSQL(entityType, alias string, viewer contracts.ShowViewer) (string, []interface{}, bool) {
+// calling code.
+func EntityIdentityFenceSQL(entityType, alias string, viewer contracts.ShowViewer) (string, []interface{}) {
 	rule, ok := entityVisibilityRuleFor(entityType)
 	if !ok {
-		return "FALSE", nil, true
+		return "FALSE", nil
 	}
 	switch rule {
 	case ruleAlwaysVisible:
-		return "", nil, false
+		return "TRUE", nil
 	case ruleShow:
-		cond, args := VisibleShowPredicateSQL(alias, viewer)
-		return cond, args, true
+		return VisibleShowPredicateSQL(alias, viewer)
 	case ruleCollection:
-		cond, args := VisibleCollectionPredicateSQL(alias, viewer)
-		return cond, args, true
+		return VisibleCollectionPredicateSQL(alias, viewer)
 	}
-	return "FALSE", nil, true
+	return "FALSE", nil
+}
+
+// =============================================================================
+// THE TWO SQL SKELETONS EVERY PER-TYPE RULE IS BUILT FROM
+// =============================================================================
+//
+// Both gated rules assemble the same two shapes, and they live here once because
+// the invariants that make them safe are shared. Two hand-maintained copies is
+// two places each invariant has to keep holding.
+
+// entityExistsSQL wraps a table condition in a correlated EXISTS.
+//
+// The shape every "this row names an id in some other table" gate uses: one
+// index probe on that table's primary key per row considered, not a join that
+// multiplies rows. It fails closed on a missing row by construction, which is
+// what lets a caller answer the same for a gated entity and a deleted one.
+//
+// alias MUST be a name no enclosing query uses. An alias declared in this
+// subquery SHADOWS an outer one of the same name, so an idExpr qualified with a
+// colliding alias would self-correlate — `x.id = x.id` — and the EXISTS would be
+// true whenever any visible row exists at all, opening the gate completely. Each
+// rule owns its own alias constant for that reason, and callers never pass an
+// expression qualified with it.
+//
+// table, alias, idExpr and cond are all SQL the CALLER controls and must be
+// literals in the calling code.
+func entityExistsSQL(table, alias, idExpr, cond string) string {
+	return "EXISTS (SELECT 1 FROM " + table + " " + alias +
+		" WHERE " + alias + ".id = " + idExpr +
+		" AND " + cond + ")"
+}
+
+// commentEntityArmSQL builds "this row is not of the type I judge, OR it passes
+// visible".
+//
+// The polymorphic arm shape. It reads entity_type before it trusts entity_id,
+// which is the whole point: entity_id means a DIFFERENT THING per entity_type,
+// so an arm that skipped the type test would decide a row by whatever unrelated
+// record happened to share that number.
+//
+// entityType is a package constant, never request data, which is what lets it be
+// interpolated rather than bound.
+func commentEntityArmSQL(entityTypeExpr, entityType, visible string) string {
+	return "(" + entityTypeExpr + " <> '" + entityType + "' OR " + visible + ")"
 }
 
 // registeredEntityTypeList is the SQL IN-list of every entity_type with a
@@ -278,18 +364,41 @@ func EntityIdentityFenceSQL(entityType, alias string, viewer contracts.ShowViewe
 //
 // Derived from the registry rather than written out, so a type added there
 // reaches the allowlist without a second edit — the drift that produced this
-// ticket. Sorted so the emitted statement is byte-identical across processes and
-// builds: a query logged on one instance can be matched against another, and a
-// change to the registry produces a reviewable diff.
+// ticket.
+var registeredEntityTypeList = SQLQuotedList(registeredEntityTypes())
+
+func registeredEntityTypes() []string {
+	types := make([]string, 0, len(entityVisibilityRules))
+	for entityType := range entityVisibilityRules {
+		types = append(types, entityType)
+	}
+	return types
+}
+
+// SQLQuotedList renders entity-type constants as a sorted, quoted SQL IN-list.
+//
+// Shared by every gate predicate that decides rows by entity_type — this
+// package's allowlist and the notification inbox's two arms — because they are
+// one encoder and a second copy is one place a change to quoting or to the empty
+// case would not reach.
+//
+// SORTED so the emitted statement is byte-identical across processes and builds:
+// a query logged on one instance can be matched against another, and a change to
+// the underlying set produces a reviewable diff. Within a single process the
+// string is already stable, since every caller computes it once at init.
+//
+// EMPTY MEANS EMPTY. Callers must handle that themselves and must NOT emit a
+// placeholder for it: `IN ()` is a syntax error and `NOT IN (NULL)` is never
+// true, which does not disable a type test — it applies the gate beside it to
+// every row regardless of type. See notification.entityTypeArm, which turns the
+// empty string into a no-op arm and drops that arm's bind arguments with it.
 //
 // The values are package constants, never request data, which is what lets them
 // be interpolated at all.
-var registeredEntityTypeList = registeredEntityTypesSQL()
-
-func registeredEntityTypesSQL() string {
-	quoted := make([]string, 0, len(entityVisibilityRules))
-	for entityType := range entityVisibilityRules {
-		quoted = append(quoted, "'"+entityType+"'")
+func SQLQuotedList(values []string) string {
+	quoted := make([]string, 0, len(values))
+	for _, v := range values {
+		quoted = append(quoted, "'"+v+"'")
 	}
 	sort.Strings(quoted)
 	return strings.Join(quoted, ", ")

@@ -1,9 +1,12 @@
 package shared
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	communitym "psychic-homily-backend/internal/models/community"
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -35,6 +38,33 @@ func TestEveryCommentEntityTypeHasAVisibilityRule(t *testing.T) {
 				"that decides it now refuses it. Add the disposition — `ruleAlwaysVisible` only if "+
 				"the model genuinely carries no read-time visibility rule, and say which in the "+
 				"comment beside it", entityType)
+		}
+	}
+}
+
+// THE OTHER TWO VOCABULARIES that reach this gate must also be covered.
+//
+// The registry is keyed on the COMMENT entity types, but three call-site
+// families reach it and they enumerate their types separately: the tag route
+// walks catalogm.TagEntityTypes, and the collection-backlinks route walks a set
+// that communitym.AllCollectionEntityTypes mirrors. Today the comment set is a
+// superset of both, and this test is what keeps that true — a type added to
+// tagging alone would otherwise be refused at the gate with nothing saying why,
+// which is a broken route rather than a leak, but broken quietly.
+func TestEveryGatedVocabularyIsCoveredByTheRegistry(t *testing.T) {
+	for _, v := range []struct {
+		name  string
+		types []string
+	}{
+		{"catalogm.TagEntityTypes", catalogm.TagEntityTypes},
+		{"communitym.AllCollectionEntityTypes", communitym.AllCollectionEntityTypes},
+	} {
+		for _, entityType := range v.types {
+			if _, ok := entityVisibilityRules[entityType]; !ok {
+				t.Errorf("%s contains %q, which has no entry in entityVisibilityRules — "+
+					"the gate refuses it, so that route answers empty for every caller",
+					v.name, entityType)
+			}
 		}
 	}
 }
@@ -95,16 +125,91 @@ func TestRegisteredEntityTypesReachTheEmittedSQL(t *testing.T) {
 	}
 }
 
-// Every registered type has its plural alias, because the aliases are built from
-// the registry and a build that stopped doing that would refuse a legitimate
-// path segment rather than wave a gated one through — a failure that looks like
-// a product bug.
-func TestEveryRegisteredEntityTypeHasItsPluralAlias(t *testing.T) {
-	for entityType := range entityVisibilityRules {
-		canonical, ok := entityTypeAliases[entityType+"s"]
-		if !ok || canonical != entityType {
-			t.Errorf("the plural of %q does not resolve back to it (got %q, present=%v)",
-				entityType, canonical, ok)
+// `ruleAlwaysVisible` is a CLAIM about a model, and this is what keeps it
+// honest.
+//
+// Every alwaysVisible entry says, in prose, that its model carries no read-time
+// visibility rule. Prose does not fail. The day somebody adds `is_private` to
+// artists, or turns `label.status` into a moderation state, five gates keep
+// answering true and nothing moves — which is this ticket's own defect one level
+// down, and the reason to spend a test on it.
+//
+// It is a NAME-BASED heuristic over the GORM struct, not a proof: it catches a
+// column whose name is in the privacy vocabulary below, and it cannot catch a
+// rule expressed some other way. What it does buy is that the common shape —
+// a boolean or enum column arriving on a model these gates wave through — stops
+// being silent.
+//
+// Fields that DO match and are genuinely not visibility rules carry a waiver
+// with the reason. A waiver is a decision, so adding one is the moment somebody
+// reads what it is for.
+func TestAlwaysVisibleModelsHaveNoPrivacyColumn(t *testing.T) {
+	models := map[string]interface{}{
+		string(engagementm.CommentEntityArtist):   catalogm.Artist{},
+		string(engagementm.CommentEntityVenue):    catalogm.Venue{},
+		string(engagementm.CommentEntityRelease):  catalogm.Release{},
+		string(engagementm.CommentEntityLabel):    catalogm.Label{},
+		string(engagementm.CommentEntityFestival): catalogm.Festival{},
+	}
+
+	// Waivers, keyed "entityType.FieldName". Each says why the field is not a
+	// read-time visibility rule.
+	waived := map[string]string{
+		"label.Status":    "active/inactive/defunct — whether the label still operates; every listing serves all three",
+		"festival.Status": "announced/confirmed/cancelled/completed — the event's lifecycle, not who may read it",
+		"venue.Verified":  "gates the street ADDRESS at field level (Venue.PublicAddress), never the row",
+	}
+
+	// The shapes a read-time rule arrives in. Substring-matched against the field
+	// name so `IsPublic`, `PublicationStatus` and `DeletedAt` all land.
+	privacyVocabulary := []string{
+		"Public", "Private", "Visib", "Deleted", "Published", "Status", "Verified", "Moderat",
+	}
+
+	// Every alwaysVisible type must appear above, or the sweep silently covers
+	// less than the registry does.
+	for entityType, rule := range entityVisibilityRules {
+		if rule != ruleAlwaysVisible {
+			continue
+		}
+		if _, ok := models[entityType]; !ok {
+			t.Errorf("%q is recorded alwaysVisible but this test has no model for it, so the "+
+				"claim that its model carries no privacy column is unchecked", entityType)
+		}
+	}
+
+	usedWaivers := make(map[string]bool, len(waived))
+	for entityType, model := range models {
+		modelType := reflect.TypeOf(model)
+		for i := 0; i < modelType.NumField(); i++ {
+			field := modelType.Field(i)
+			matched := ""
+			for _, term := range privacyVocabulary {
+				if strings.Contains(field.Name, term) {
+					matched = term
+					break
+				}
+			}
+			if matched == "" {
+				continue
+			}
+			key := entityType + "." + field.Name
+			if _, ok := waived[key]; ok {
+				usedWaivers[key] = true
+				continue
+			}
+			t.Errorf("%s.%s looks like a read-time visibility rule (matched %q), but %q is "+
+				"registered ruleAlwaysVisible — every gate in this package serves it to "+
+				"everybody. Give the entity type a real rule, or add a waiver saying why "+
+				"this field is not one.", entityType, field.Name, matched, entityType)
+		}
+	}
+
+	// A waiver for a field that no longer exists is a claim about nothing, and it
+	// hides the removal of the field it was excusing.
+	for key := range waived {
+		if !usedWaivers[key] {
+			t.Errorf("waiver %q matches no field — remove it, or say what it now excuses", key)
 		}
 	}
 }
@@ -145,10 +250,9 @@ func TestEntityVisibleToFailsClosedOnAnUnregisteredType(t *testing.T) {
 			if cond != "1 = 0" || args != nil {
 				t.Errorf("CommentEntityRecipientsSQL for unregistered type %q = %q, want a refusal", entityType, cond)
 			}
-			fence, _, fenced := EntityIdentityFenceSQL(entityType, "t", v.viewer)
-			if !fenced || fence != "FALSE" {
-				t.Errorf("EntityIdentityFenceSQL for unregistered type %q = (%q, fenced=%v), want a closed fence",
-					entityType, fence, fenced)
+			if fence, _ := EntityIdentityFenceSQL(entityType, "t", v.viewer); fence != "FALSE" {
+				t.Errorf("EntityIdentityFenceSQL for unregistered type %q = %q, want a closed fence",
+					entityType, fence)
 			}
 		}
 	}

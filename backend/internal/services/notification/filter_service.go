@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"html"
 	"log"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -1262,7 +1261,7 @@ func entityTypeArm(alias, entityTypeList, gate string, gateArgs []interface{}) (
 // NotificationEntityVenueShowAlert is absent and must stay absent: its entity_id
 // is a VENUE id, and listing it would gate venue rows on whether a SHOW with the
 // venue's id happens to be visible.
-var showIDBearingEntityTypeList = sqlQuotedList([]string{
+var showIDBearingEntityTypeList = shared.SQLQuotedList([]string{
 	notificationm.NotificationEntityShow,
 	notificationm.NotificationEntityArtistShowAlert,
 })
@@ -1271,12 +1270,10 @@ var showIDBearingEntityTypeList = sqlQuotedList([]string{
 // IN-list, built once.
 //
 // Derived from the map rather than written out, so adding an entity type there
-// reaches this predicate without a second edit. Sorted so the statement is
-// byte-identical across processes and builds: a query logged on one instance can
-// be matched against another, and a change to the map produces a reviewable
-// diff. Within a single process the string is already stable, since this is
-// computed once at init.
-var commentNotificationEntityTypeList = sqlQuotedList(commentNotificationEntityTypeKeys())
+// reaches this predicate without a second edit. shared.SQLQuotedList carries the
+// sorting and the empty-list contract that both this list and the one above
+// depend on.
+var commentNotificationEntityTypeList = shared.SQLQuotedList(commentNotificationEntityTypeKeys())
 
 // commentNotificationEntityTypeKeys is the map's key set. Extracted rather than
 // written out so the list and the writers cannot drift.
@@ -1286,21 +1283,6 @@ func commentNotificationEntityTypeKeys() []string {
 		types = append(types, entityType)
 	}
 	return types
-}
-
-// sqlQuotedList renders entity-type constants as a sorted, quoted SQL IN-list.
-//
-// The values are package constants, never request data — the same property that
-// lets every other interpolated fragment in this file be interpolated.
-func sqlQuotedList(values []string) string {
-	quoted := make([]string, 0, len(values))
-	for _, v := range values {
-		quoted = append(quoted, "'"+v+"'")
-	}
-	sort.Strings(quoted)
-	// Empty means empty. entityTypeArm turns that into a no-op; emitting a SQL
-	// placeholder here would make the arm judge every row instead of none.
-	return strings.Join(quoted, ", ")
 }
 
 // notifiedAboutShow is the predicate for "this user has ALREADY been told about

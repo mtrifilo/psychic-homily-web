@@ -1,20 +1,15 @@
 package routes
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
-	"gorm.io/gorm"
-
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	authm "psychic-homily-backend/internal/models/auth"
-	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -76,42 +71,22 @@ func TestCollectionSubscriptionsMirrorTheDetailRoute(t *testing.T) {
 	// BOTH PUBLIC to begin with: the reported repro is a collection that was
 	// public when it was subscribed to, and the subscribe gate alone would leave
 	// every row made before this ticket shipped still leaking.
-	gated := createCollectionFixture(t, td.DB, creator.ID, watchGatedCollectionTitle, watchGatedCollectionSlug, true)
-	open := createCollectionFixture(t, td.DB, creator.ID, watchOpenCollectionTitle, watchOpenCollectionSlug, true)
+	gated := testhelpers.CreateCollection(t, td.DB, creator.ID, watchGatedCollectionTitle, watchGatedCollectionSlug, true).ID
+	open := testhelpers.CreateCollection(t, td.DB, creator.ID, watchOpenCollectionTitle, watchOpenCollectionSlug, true).ID
 
 	seeder := newCommentSeeder(td.DB)
 	gatedCommentID := seedEntityComment(t, seeder, commenter.ID, "collection", gated, gatedCollectionComment)
 	openCommentID := seedEntityComment(t, seeder, commenter.ID, "collection", open, openCollectionComment)
 
-	token := func(u *authm.User) string {
-		t.Helper()
-		tok, err := sc.JWT.CreateToken(u)
-		if err != nil {
-			t.Fatalf("mint token for user %d: %v", u.ID, err)
-		}
-		return tok
-	}
+	token := func(u *authm.User) string { return mintToken(t, sc, u) }
 
-	// Credentials ride the cookie, which is the carrier the product uses.
+	// Bound to this test's router; the carrier and the raw-body contract live
+	// in routes_test.go, shared with the sibling matrices.
 	do := func(t *testing.T, method, path, credential string, body []byte) (int, []byte) {
-		t.Helper()
-		var req *http.Request
-		if body == nil {
-			req = httptest.NewRequest(method, path, nil)
-		} else {
-			req = httptest.NewRequest(method, path, bytes.NewReader(body))
-			req.Header.Set("Content-Type", "application/json")
-		}
-		if credential != "" {
-			req.AddCookie(&http.Cookie{Name: "auth_token", Value: credential})
-		}
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
-		return w.Code, w.Body.Bytes()
+		return doRequest(t, router, method, path, credential, body)
 	}
 	get := func(t *testing.T, path, credential string) (int, []byte) {
-		t.Helper()
-		return do(t, http.MethodGet, path, credential, nil)
+		return getRequest(t, router, path, credential)
 	}
 	subscribePath := func(collectionID uint) string {
 		return fmt.Sprintf("/entities/collection/%d/subscribe", collectionID)
@@ -140,9 +115,7 @@ func TestCollectionSubscriptionsMirrorTheDetailRoute(t *testing.T) {
 	// Now take the subject private, and read the flag back rather than trust the
 	// update: GORM omits a false boolean on Create, and a fixture left public
 	// would make every assertion below pass for the wrong reason.
-	setCollectionPublic(t, td.DB, gated, false)
-	assertCollectionPublic(t, td.DB, gated, false)
-	assertCollectionPublic(t, td.DB, open, true)
+	testhelpers.SetCollectionPublic(t, td.DB, gated, false)
 
 	// mayRead is the CREATOR only. Not the admin: no collection read path in this
 	// codebase grants one, so a gate that did would be more permissive than the
@@ -240,9 +213,8 @@ func TestCollectionSubscriptionsMirrorTheDetailRoute(t *testing.T) {
 		// silently take out the fan-out subtest's seed further down, and the
 		// failure would surface as a wrong inbox count three subtests away from
 		// its cause.
-		writable := createCollectionFixture(t, td.DB, creator.ID,
-			"Notes I Have Not Shared", "notes-i-have-not-shared", false)
-		assertCollectionPublic(t, td.DB, writable, false)
+		writable := testhelpers.CreateCollection(t, td.DB, creator.ID,
+			"Notes I Have Not Shared", "notes-i-have-not-shared", false).ID
 		writablePath := fmt.Sprintf("/entities/collection/%d/comments", writable)
 		if code, body := do(t, http.MethodPost, writablePath, token(creator), postBody); code != http.StatusOK {
 			t.Errorf("the creator could not comment on their own private collection: %d; body: %s", code, body)
@@ -544,8 +516,7 @@ func TestCollectionSubscriptionsMirrorTheDetailRoute(t *testing.T) {
 	// It does NOT restore what the fan-out declined to write, and the counts
 	// below are asserted with that in mind.
 	t.Run("republishing restores the entry and its backlog", func(t *testing.T) {
-		setCollectionPublic(t, td.DB, gated, true)
-		assertCollectionPublic(t, td.DB, gated, true)
+		testhelpers.SetCollectionPublic(t, td.DB, gated, true)
 
 		items, total, body := watchingList(t, get, token(stranger))
 		if !hasWatchingEntryOfType(items, "collection", gated) {
@@ -570,48 +541,4 @@ func TestCollectionSubscriptionsMirrorTheDetailRoute(t *testing.T) {
 			t.Errorf("the inbox did not restore the republished collection's comment; body: %s", restored)
 		}
 	})
-}
-
-// createCollectionFixture writes one collection and returns its id.
-func createCollectionFixture(t *testing.T, db *gorm.DB, creatorID uint, title, slug string, isPublic bool) uint {
-	t.Helper()
-	collection := &communitym.Collection{
-		Title:     title,
-		Slug:      slug,
-		CreatorID: creatorID,
-		IsPublic:  isPublic,
-	}
-	if err := db.Create(collection).Error; err != nil {
-		t.Fatalf("create collection %q: %v", slug, err)
-	}
-	setCollectionPublic(t, db, collection.ID, isPublic)
-	return collection.ID
-}
-
-// setCollectionPublic writes is_public through a map update.
-//
-// GORM omits a false boolean on Create because false is the zero value, so the
-// column's DEFAULT true wins — the codebase's own CreateCollection has the same
-// two-step for the same reason. A fixture that silently stayed public would make
-// every privacy assertion in this file pass for the wrong reason.
-func setCollectionPublic(t *testing.T, db *gorm.DB, collectionID uint, isPublic bool) {
-	t.Helper()
-	if err := db.Model(&communitym.Collection{}).Where("id = ?", collectionID).
-		Update("is_public", isPublic).Error; err != nil {
-		t.Fatalf("set is_public on collection %d: %v", collectionID, err)
-	}
-}
-
-// assertCollectionPublic reads the flag back out of the database, so a fixture
-// that did not take is a loud failure here rather than a quiet pass later.
-func assertCollectionPublic(t *testing.T, db *gorm.DB, collectionID uint, want bool) {
-	t.Helper()
-	var got bool
-	if err := db.Model(&communitym.Collection{}).Where("id = ?", collectionID).
-		Select("is_public").Scan(&got).Error; err != nil {
-		t.Fatalf("read back is_public for collection %d: %v", collectionID, err)
-	}
-	if got != want {
-		t.Fatalf("collection %d has is_public=%v, want %v — the fixture did not take", collectionID, got, want)
-	}
 }

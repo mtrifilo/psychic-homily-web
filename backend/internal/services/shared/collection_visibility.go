@@ -154,13 +154,12 @@ func VisibleCollectionExistsSQL(collectionIDExpr string, viewer contracts.ShowVi
 }
 
 // collectionExistsSQL wraps a collections-table condition in the correlated
-// EXISTS every spelling uses. The subquery shape lives here once so the
-// viewer-facing and recipient-facing forms cannot correlate on different
-// columns.
+// EXISTS every spelling uses. Named here so the viewer-facing and
+// recipient-facing forms cannot correlate on different columns, and delegating
+// to entityExistsSQL so this rule and the shows rule cannot correlate on
+// different SHAPES.
 func collectionExistsSQL(collectionIDExpr, collectionCond string) string {
-	return "EXISTS (SELECT 1 FROM collections " + visibleCollectionsAlias +
-		" WHERE " + visibleCollectionsAlias + ".id = " + collectionIDExpr +
-		" AND " + collectionCond + ")"
+	return entityExistsSQL("collections", visibleCollectionsAlias, collectionIDExpr, collectionCond)
 }
 
 // VisibleCollectionCommentEntitySQL returns a condition, true for the rows of a
@@ -178,7 +177,7 @@ func collectionExistsSQL(collectionIDExpr, collectionCond string) string {
 // calling code.
 func VisibleCollectionCommentEntitySQL(entityTypeExpr, entityIDExpr string, viewer contracts.ShowViewer) (string, []interface{}) {
 	visible, args := VisibleCollectionExistsSQL(entityIDExpr, viewer)
-	return "(" + entityTypeExpr + " <> '" + CommentEntityTypeCollection + "' OR " + visible + ")", args
+	return commentEntityArmSQL(entityTypeExpr, CommentEntityTypeCollection, visible), args
 }
 
 // VisibleCollectionRecipientsSQL returns a condition, true for the rows whose

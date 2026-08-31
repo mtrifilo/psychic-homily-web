@@ -11,6 +11,7 @@ import (
 	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
+	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
 	servicesshared "psychic-homily-backend/internal/services/shared"
 )
@@ -948,11 +949,11 @@ func (h *CollectionHandler) GetEntityCollectionsHandler(ctx context.Context, req
 		return nil, huma.Error400BadRequest("Invalid entity ID")
 	}
 
-	validTypes := map[string]bool{
-		"artist": true, "release": true, "label": true,
-		"show": true, "venue": true, "festival": true,
-	}
-	if !validTypes[req.EntityType] {
+	// The MODEL's enumeration, not a hand-copied literal. AllCollectionEntityTypes'
+	// own doc comment says anything reasoning about the set must iterate it rather
+	// than re-list the constants, and a second copy here would be one more place a
+	// seventh type has to be remembered.
+	if !communitym.IsValidCollectionEntityType(req.EntityType) {
 		return nil, huma.Error422UnprocessableEntity("Invalid entity type")
 	}
 
@@ -964,8 +965,9 @@ func (h *CollectionHandler) GetEntityCollectionsHandler(ctx context.Context, req
 	// Which collections an entity sits in is that entity's own sub-resource,
 	// reached by the id its detail route refuses, so it answers to the same viewer
 	// rule (PSY-1939, PSY-1987). An entity type with no registered rule is refused
-	// rather than waved through; this route's own allowlist above rejects the six
-	// it accepts down to types that all have one.
+	// rather than waved through, so this route's safety does not rest on the check
+	// above having the same members as the registry — the gate refuses anything
+	// the registry has not dispositioned, whatever reaches it.
 	//
 	// The EMPTY LIST, not a 404: an entity in no collections already answers
 	// that way and the two must be indistinguishable.

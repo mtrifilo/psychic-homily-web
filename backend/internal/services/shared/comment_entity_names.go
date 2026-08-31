@@ -70,10 +70,11 @@ func LoadCommentEntityNames(db *gorm.DB, idsByType map[string][]uint, viewer con
 		q := db.Table(table).
 			Select(fmt.Sprintf("id, %s AS name, slug", nameCol)).
 			Where("id IN ?", ids)
-		// The table name is the alias here: this query has no AS clause.
-		if cond, args, fenced := EntityIdentityFenceSQL(entityType, table, viewer); fenced {
-			q = q.Where(cond, args...)
-		}
+		// The table name is the alias here: this query has no AS clause. Spliced
+		// unconditionally — the fence answers TRUE where no rule applies, so
+		// there is no branch here to forget.
+		fence, fenceArgs := EntityIdentityFenceSQL(entityType, table, viewer)
+		q = q.Where(fence, fenceArgs...)
 		err := q.Scan(&rows).Error
 		if err != nil {
 			log.Printf("warning: failed to load parent entities for table %s: %v", table, err)

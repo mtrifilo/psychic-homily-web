@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -22,8 +23,64 @@ import (
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services"
 )
+
+// =============================================================================
+// DRIVING THE BUILT ROUTER
+// =============================================================================
+//
+// The three visibility matrices (show_subresource_visibility_test.go,
+// comment_subscription_visibility_test.go, collection_subscription_visibility_test.go)
+// all do the same thing: mint a real JWT and send it through the real router on
+// the real carrier. These helpers are that, once (PSY-1987).
+//
+// The CARRIER is the load-bearing detail and the reason this is shared rather
+// than re-typed per file: credentials ride the `auth_token` COOKIE, not an
+// Authorization header, and a matrix that got that wrong would see every caller
+// as anonymous — which reads as "the gate works" on every single assertion.
+// One spelling, so a change to the carrier fails all three files at once.
+
+// mintToken issues a real session token for u through the container's JWT
+// service, so the middleware validates it exactly as it validates a browser's.
+func mintToken(t *testing.T, sc *services.ServiceContainer, u *authm.User) string {
+	t.Helper()
+	tok, err := sc.JWT.CreateToken(u)
+	if err != nil {
+		t.Fatalf("mint token for user %d: %v", u.ID, err)
+	}
+	return tok
+}
+
+// doRequest sends one request through the built router and returns the status
+// and raw body.
+//
+// The RAW body, because the assertions search it rather than decoded fields: a
+// field-by-field check passes if a future writer echoes a withheld title under
+// another key or into an error message.
+func doRequest(t *testing.T, router http.Handler, method, path, credential string, body []byte) (int, []byte) {
+	t.Helper()
+	var req *http.Request
+	if body == nil {
+		req = httptest.NewRequest(method, path, nil)
+	} else {
+		req = httptest.NewRequest(method, path, bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if credential != "" {
+		req.AddCookie(&http.Cookie{Name: "auth_token", Value: credential})
+	}
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	return w.Code, w.Body.Bytes()
+}
+
+// getRequest is doRequest for the GET case, which is most of them.
+func getRequest(t *testing.T, router http.Handler, path, credential string) (int, []byte) {
+	t.Helper()
+	return doRequest(t, router, http.MethodGet, path, credential, nil)
+}
 
 func testConfig() *config.Config {
 	return &config.Config{

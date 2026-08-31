@@ -1,11 +1,9 @@
 package routes
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -88,35 +86,15 @@ func TestCommentSubscriptionsMirrorTheDetailRoute(t *testing.T) {
 	gatedCommentID := seedComment(t, seeder, commenter.ID, gated.ID, watchGatedComment)
 	openCommentID := seedComment(t, seeder, commenter.ID, open.ID, watchOpenComment)
 
-	token := func(u *authm.User) string {
-		t.Helper()
-		tok, err := sc.JWT.CreateToken(u)
-		if err != nil {
-			t.Fatalf("mint token for user %d: %v", u.ID, err)
-		}
-		return tok
-	}
+	token := func(u *authm.User) string { return mintToken(t, sc, u) }
 
-	// Credentials ride the cookie, which is the carrier the product uses.
+	// Bound to this test's router; the carrier and the raw-body contract live
+	// in routes_test.go, shared with the sibling matrices.
 	do := func(t *testing.T, method, path, credential string, body []byte) (int, []byte) {
-		t.Helper()
-		var req *http.Request
-		if body == nil {
-			req = httptest.NewRequest(method, path, nil)
-		} else {
-			req = httptest.NewRequest(method, path, bytes.NewReader(body))
-			req.Header.Set("Content-Type", "application/json")
-		}
-		if credential != "" {
-			req.AddCookie(&http.Cookie{Name: "auth_token", Value: credential})
-		}
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
-		return w.Code, w.Body.Bytes()
+		return doRequest(t, router, method, path, credential, body)
 	}
 	get := func(t *testing.T, path, credential string) (int, []byte) {
-		t.Helper()
-		return do(t, http.MethodGet, path, credential, nil)
+		return getRequest(t, router, path, credential)
 	}
 	subscribePath := func(showID uint) string {
 		return fmt.Sprintf("/entities/show/%d/subscribe", showID)
