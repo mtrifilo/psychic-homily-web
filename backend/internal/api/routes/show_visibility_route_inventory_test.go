@@ -45,6 +45,17 @@ import (
 // All three have leaked in practice. Extending the guard to them means driving it
 // off the handler set rather than the path, which is the follow-up this paragraph
 // exists to name.
+//
+// A FOURTH BLIND SPOT was closed elsewhere rather than here, and naming it keeps
+// this file honest about what it is: an inventory keyed on SHOWS cannot see a
+// route that leaks a different entity type. Every `/entities/{entity_type}/…`
+// row below reads `gated`, and that was TRUE of shows and false of collections
+// at the same time — the gate those routes call recognised one and waved the
+// other through. Path shape could never have caught it. What does is
+// services/shared/entity_visibility.go's registry and its disposition test,
+// which enumerates the model's own entity types instead of a hand-written list
+// (PSY-1987). Read `gated` here as "this route calls the gate", and that file as
+// "and the gate has an answer for every type".
 
 // showRouteDisposition records why a show-addressable operation is safe.
 type showRouteDisposition int

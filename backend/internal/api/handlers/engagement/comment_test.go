@@ -69,7 +69,37 @@ func TestListComments_InvalidEntityID(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 400)
 }
 
-func TestListComments_UnsupportedEntityType(t *testing.T) {
+// An entity type with no registered visibility rule reads as an EMPTY thread,
+// not as an error, because that is the shape this route already answers for an
+// id with no comments and the two must be indistinguishable (PSY-1987).
+func TestListComments_UnregisteredEntityTypeReadsEmpty(t *testing.T) {
+	serviceCalled := false
+	mock := &testhelpers.MockCommentService{
+		ListCommentsForEntityFn: func(entityType string, entityID uint, filters contracts.CommentListFilters) (*contracts.CommentListResponse, error) {
+			serviceCalled = true
+			return nil, nil
+		},
+	}
+	h := NewCommentHandler(mock, mock, nil, nil, testhelpers.AllShowsVisible())
+	resp, err := h.ListCommentsHandler(context.Background(), &ListCommentsRequest{
+		EntityType: "invalid_type",
+		EntityID:   "1",
+	})
+	if err != nil {
+		t.Fatalf("listing an unregistered entity type errored: %v", err)
+	}
+	if len(resp.Body.Comments) != 0 || resp.Body.Total != 0 {
+		t.Errorf("listing an unregistered entity type returned %d comments / total %d",
+			len(resp.Body.Comments), resp.Body.Total)
+	}
+	if serviceCalled {
+		t.Error("the comment service ran for an unregistered entity type — the gate did not refuse it")
+	}
+}
+
+// The service's invalid-entity-type error still maps to 400, through a type the
+// gate recognises.
+func TestListComments_InvalidEntityTypeFromTheService(t *testing.T) {
 	mock := &testhelpers.MockCommentService{
 		ListCommentsForEntityFn: func(entityType string, entityID uint, filters contracts.CommentListFilters) (*contracts.CommentListResponse, error) {
 			return nil, apperrors.ErrCommentInvalidEntityType(entityType)
@@ -77,7 +107,7 @@ func TestListComments_UnsupportedEntityType(t *testing.T) {
 	}
 	h := NewCommentHandler(mock, mock, nil, nil, testhelpers.AllShowsVisible())
 	_, err := h.ListCommentsHandler(context.Background(), &ListCommentsRequest{
-		EntityType: "invalid_type",
+		EntityType: "artist",
 		EntityID:   "1",
 	})
 	testhelpers.AssertHumaError(t, err, 400)
@@ -398,14 +428,36 @@ func TestCreateComment_EmptyBody(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 400)
 }
 
-func TestCreateComment_UnsupportedEntityType(t *testing.T) {
+// Posting to an entity type with no registered visibility rule is refused as a
+// missing entity, at the gate, before the writer runs (PSY-1987).
+func TestCreateComment_UnregisteredEntityTypeIsRefusedAtTheGate(t *testing.T) {
+	serviceCalled := false
 	mock := &testhelpers.MockCommentService{
 		CreateCommentFn: func(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
-			return nil, apperrors.ErrCommentInvalidEntityType("nope")
+			serviceCalled = true
+			return nil, nil
 		},
 	}
 	h := NewCommentHandler(mock, mock, nil, nil, testhelpers.AllShowsVisible())
 	req := &CreateCommentRequest{EntityType: "nope", EntityID: "1"}
+	req.Body.Body = "Hello"
+	_, err := h.CreateCommentHandler(commentUserCtx(), req)
+	testhelpers.AssertHumaError(t, err, 404)
+	if serviceCalled {
+		t.Error("the comment writer ran for an unregistered entity type — the gate did not refuse it")
+	}
+}
+
+// The writer's invalid-entity-type error still maps to 400, through a type the
+// gate recognises.
+func TestCreateComment_InvalidEntityTypeFromTheService(t *testing.T) {
+	mock := &testhelpers.MockCommentService{
+		CreateCommentFn: func(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
+			return nil, apperrors.ErrCommentInvalidEntityType(req.EntityType)
+		},
+	}
+	h := NewCommentHandler(mock, mock, nil, nil, testhelpers.AllShowsVisible())
+	req := &CreateCommentRequest{EntityType: "artist", EntityID: "1"}
 	req.Body.Body = "Hello"
 	_, err := h.CreateCommentHandler(commentUserCtx(), req)
 	testhelpers.AssertHumaError(t, err, 400)

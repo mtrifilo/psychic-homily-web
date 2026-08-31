@@ -74,8 +74,8 @@ func CtxWithUser(user *authm.User) context.Context {
 	return context.WithValue(context.Background(), middleware.UserContextKey, user)
 }
 
-// AllShowsVisible returns a show-visibility gate that grants every show to
-// every caller.
+// AllShowsVisible returns an entity-visibility gate that grants every GATED
+// entity — shows and collections alike — to every caller.
 //
 // For handler tests whose subject is NOT the visibility rule. Named rather than
 // spelled inline at each call site so a reader can see at a glance which tests
@@ -85,8 +85,16 @@ func CtxWithUser(user *authm.User) context.Context {
 // The zero MockShowVisibility answers false for everything, which is the right
 // default for a security boundary. This is the opt-out, and it exists as an
 // explicit call precisely so nothing is accidentally permissive.
+//
+// EVERY method must be filled in here, not just the ones a given test needs.
+// The helper's meaning is "this test is not about the gate", and a method left
+// nil would quietly refuse one entity type while granting the rest — a test
+// failure that reads as a product bug. The name predates the collection arm
+// (PSY-1987) and is left alone for the reason contracts.ShowVisibilityInterface
+// gives.
 func AllShowsVisible() *MockShowVisibility {
 	return &MockShowVisibility{
-		ShowVisibleToFn: func(uint, contracts.ShowViewer) bool { return true },
+		ShowVisibleToFn:       func(uint, contracts.ShowViewer) bool { return true },
+		CollectionVisibleToFn: func(uint, contracts.ShowViewer) bool { return true },
 	}
 }

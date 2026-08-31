@@ -40,7 +40,10 @@ const (
 	// gatedByShowID: entity_id IS a show id, so the direct arm gates the row.
 	gatedByShowID inboxEntityDisposition = iota
 	// gatedByCommentParent: entity_id is a COMMENT id whose parent may be a
-	// show, so the comment arm gates the row through the comments table.
+	// gated entity, so the comment arm gates the row through the comments
+	// table. Which parents are gated is shared.VisibleCommentEntitySQL's
+	// decision — a show, a collection, or a type nobody dispositioned — and this
+	// arm carries no copy of that list (PSY-1987).
 	gatedByCommentParent
 	// fencedElsewhere: the row reaches a show, but not through entity_id, so
 	// gating the ROW would be wrong. Its show data is fenced at its own
@@ -71,6 +74,14 @@ var inboxEntityTypeDispositions = map[string]inboxEntityDisposition{
 
 	// entity_id = request id.
 	notificationm.NotificationEntityRequestFulfillmentProposed: reachesNoShow,
+
+	// NO ENTITY TYPE HERE CARRIES A COLLECTION ID, which is why the direct arm
+	// stays show-only after PSY-1987. Collection activity reaches this table
+	// only as comment_reply / comment_mention, through the comment arm. A future
+	// notification family whose entity_id IS a collection id — a collection
+	// follow, a collaborator invite — would need a THIRD arm and a disposition
+	// of its own, and would be caught by this map's completeness check rather
+	// than by an audit.
 }
 
 func TestEveryInboxEntityTypeHasADisposition(t *testing.T) {
@@ -188,9 +199,28 @@ func TestEntityTypeArmDropsArgsWithItsGate(t *testing.T) {
 	}
 }
 
+// An admin gets a REAL predicate, not a blanket bypass (PSY-1987).
+//
+// This used to answer `1 = 1` for an admin, which was right while every arm
+// judged shows. The comment arm now also judges COLLECTIONS, and no collection
+// read path grants an admin a private one, so a blanket bypass would make the
+// moderation inbox the one surface that publishes them. Pinned here because the
+// bypass is the tidier-looking code and a later edit will want it back.
+func TestInboxPredicateHasNoBlanketAdminBypass(t *testing.T) {
+	sql, _ := inboxRowsVisibleTo("nl", contracts.ShowViewer{UserID: 7, IsAdmin: true})
+	if sql == "1 = 1" || sql == "TRUE" {
+		t.Fatalf("the inbox predicate answers %q for an admin — a private collection's "+
+			"comment activity is published to every admin inbox", sql)
+	}
+	if !strings.Contains(sql, "collections") {
+		t.Errorf("the admin predicate does not reach the collections table: %s", sql)
+	}
+}
+
 // The two lists must agree with the emitted SQL's placeholder count, per viewer
-// tier. An admin short-circuits to a constant with no binds; everyone else gets
-// one bind per gate per arm.
+// tier. Every tier gets one bind per gate per arm; the admin tier's show arms
+// fold to constants while its collection arm does not, so its count differs from
+// the others and must still match its own statement.
 func TestInboxPredicatePlaceholdersMatchArgs(t *testing.T) {
 	for _, tc := range []struct {
 		name   string

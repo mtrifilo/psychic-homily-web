@@ -528,16 +528,24 @@ func newCommentSeeder(db *gorm.DB) *engagement.CommentService {
 	return engagement.NewCommentService(db, utils.NewMarkdownRenderer())
 }
 
-// seedComment writes one comment and returns its id, without fanning it out.
+// seedComment writes one comment on a SHOW and returns its id, without fanning
+// it out.
 func seedComment(t *testing.T, seeder *engagement.CommentService, authorID, showID uint, body string) uint {
 	t.Helper()
+	return seedEntityComment(t, seeder, authorID, "show", showID, body)
+}
+
+// seedEntityComment is seedComment for any comment parent, for the sibling
+// matrix that gates collections (PSY-1987).
+func seedEntityComment(t *testing.T, seeder *engagement.CommentService, authorID uint, entityType string, entityID uint, body string) uint {
+	t.Helper()
 	comment, err := seeder.CreateComment(authorID, &contracts.CreateCommentRequest{
-		EntityType: "show",
-		EntityID:   showID,
+		EntityType: entityType,
+		EntityID:   entityID,
 		Body:       body,
 	})
 	if err != nil {
-		t.Fatalf("seed comment on show %d: %v", showID, err)
+		t.Fatalf("seed comment on %s %d: %v", entityType, entityID, err)
 	}
 	return comment.ID
 }
@@ -574,8 +582,18 @@ func watchingList(t *testing.T, get func(*testing.T, string, string) (int, []byt
 // hasWatchingEntry reports whether the list names the given show id on a
 // show-typed row.
 func hasWatchingEntry(items []contracts.WatchingItem, showID uint) bool {
+	return hasWatchingEntryOfType(items, "show", showID)
+}
+
+// hasWatchingEntryOfType is hasWatchingEntry for any comment parent.
+//
+// The TYPE is compared as well as the id, and that is not defensive tidiness:
+// entity_id means a different thing per entity_type, so a show and a collection
+// routinely share a number and a check on the id alone would report the wrong
+// row present.
+func hasWatchingEntryOfType(items []contracts.WatchingItem, entityType string, entityID uint) bool {
 	for _, item := range items {
-		if item.EntityType == "show" && item.EntityID == showID {
+		if item.EntityType == entityType && item.EntityID == entityID {
 			return true
 		}
 	}

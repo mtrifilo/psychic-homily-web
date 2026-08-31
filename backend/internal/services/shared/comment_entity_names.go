@@ -25,9 +25,11 @@ type EntityNameRow struct {
 // is logged and skipped so callers degrade to their fallback rendering.
 // Returns nested map[entityType]map[entityID]EntityNameRow.
 //
-// SHOW-typed ids are FENCED HERE, against viewer, as well as by the row gates
-// the callers apply upstream (PSY-1983). The two are not redundant and are not
-// alternatives:
+// GATED ids are FENCED HERE, against viewer, as well as by the row gates the
+// callers apply upstream (PSY-1983, PSY-1987). Which types those are is
+// EntityIdentityFenceSQL's decision, not a list repeated here, so a type that
+// gains a rule gains this fence in the same edit. The two mechanisms are not
+// redundant and are not alternatives:
 //
 //   - The callers' row gates are what remove the SIGNAL. Suppressing the entry
 //     AND its count is the only thing that does; a de-identified row is still a
@@ -36,20 +38,25 @@ type EntityNameRow struct {
 //     exists.
 //   - This fence is what stops the NEXT caller. A digest, an export or an admin
 //     view that assembles rows differently would otherwise resolve a private
-//     show's title and slug with nothing in the path to stop it, and the failure
-//     would be silent.
+//     entity's title and slug with nothing in the path to stop it, and the
+//     failure would be silent.
 //
-// So: every enrichment pass that resolves a show's identity fences itself, and
-// every listing that renders one drops the row first. A new caller inherits the
-// first for free and still owes the second.
+// So: every enrichment pass that resolves a gated entity's identity fences
+// itself, and every listing that renders one drops the row first. A new caller
+// inherits the first for free and still owes the second.
 //
-// COLLECTION-typed rows are NOT fenced, by either mechanism, and that is a KNOWN
-// OPEN LEAK rather than a claim of safety: collections have a read-time rule of
-// their own (is_public OR the owner, services/community/collection.go) which
-// neither this function nor its callers consult, so a subscription to a guessed
-// private-collection id renders its name, slug and comment activity. Pre-existing,
-// out of PSY-1983's scope, which was shows. Disclosed rather than inherited in
-// silence.
+// THE COLLECTION FENCE CANNOT FIRE TODAY, and saying so is the point of this
+// paragraph. engagementm.CommentEntityPathAndTable returns "name" as the
+// collection display column, and the collections table's column is `title` — so
+// the SELECT below fails with an undefined-column error for every collection
+// batch, is logged and skipped, and both callers fall back to rendering
+// "collection #<id>". The fence is added anyway, and it is not decoration: the
+// column bug is a display defect somebody will fix, and fixing it must not be
+// the edit that starts publishing private collections' titles. Deliberately NOT
+// fixed here, because widening a disclosure path is not something a privacy
+// change should do on the way past; PSY-1987's PR body files it as a follow-up.
+// The row gates upstream are what actually close the leak, and they do not
+// depend on this.
 func LoadCommentEntityNames(db *gorm.DB, idsByType map[string][]uint, viewer contracts.ShowViewer) map[string]map[uint]EntityNameRow {
 	out := make(map[string]map[uint]EntityNameRow, len(idsByType))
 	for entityType, ids := range idsByType {
@@ -63,9 +70,8 @@ func LoadCommentEntityNames(db *gorm.DB, idsByType map[string][]uint, viewer con
 		q := db.Table(table).
 			Select(fmt.Sprintf("id, %s AS name, slug", nameCol)).
 			Where("id IN ?", ids)
-		if entityType == CommentEntityTypeShow {
-			// The table name is the alias here: this query has no AS clause.
-			cond, args := VisibleShowPredicateSQL(table, viewer)
+		// The table name is the alias here: this query has no AS clause.
+		if cond, args, fenced := EntityIdentityFenceSQL(entityType, table, viewer); fenced {
 			q = q.Where(cond, args...)
 		}
 		err := q.Scan(&rows).Error

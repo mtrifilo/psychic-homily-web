@@ -34,13 +34,37 @@ type ShowViewer struct {
 // drift apart without a compile error.
 type RevisionViewer = ShowViewer
 
-// ShowVisibilityInterface answers the show detail route's question for one
-// show: may this viewer see it at all.
+// ShowVisibilityInterface answers, for ONE already-identified entity, the
+// question its own detail route answers: may this viewer see it at all.
 //
 // The narrow contract a HANDLER depends on. Handlers hold service interfaces
-// rather than a database, so the gate reaches them as this one method; the rule
-// itself lives in services/shared/show_visibility.go and is shared with the
-// callers that express it as SQL instead.
+// rather than a database, so the gates reach them as these methods; the rules
+// themselves live in services/shared/show_visibility.go and
+// services/shared/collection_visibility.go, shared with the callers that
+// express them as SQL instead.
+//
+// ONE METHOD PER ENTITY TYPE THAT HAS A RULE, rather than a single
+// EntityVisibleTo(entityType, id, viewer). The polymorphic dispatch belongs in
+// services/shared, where the type registry is (entity_visibility.go), and it
+// must fail closed on a type nobody dispositioned — a single method taking a
+// type string would put that decision behind an implementation this interface
+// cannot see, and every mock would get a vote on it.
+//
+// The name is PSY-1939's and is now narrower than what the interface answers:
+// CollectionVisibleTo joined it in PSY-1987 because the two gates are the same
+// object at every call site (one *gorm.DB, one field, one construction). It is
+// left alone deliberately — renaming it and its generated mock rewrites 178
+// references across 15 test files in packages three open branches are editing,
+// and that churn does not belong in a privacy fix. A rename is worth doing on
+// its own.
 type ShowVisibilityInterface interface {
+	// ShowVisibleTo mirrors GET /shows/{id}: approved, or the submitter's own,
+	// or an admin. See services/shared.ShowVisibleTo.
 	ShowVisibleTo(showID uint, viewer ShowViewer) bool
+
+	// CollectionVisibleTo mirrors GET /collections/{slug}: public, or the
+	// creator's own. NOT admins — no collection read path in this codebase has
+	// an admin tier, and a gate more permissive than the route it mirrors is
+	// the leak, not the fix. See services/shared.CollectionVisibleTo.
+	CollectionVisibleTo(collectionID uint, viewer ShowViewer) bool
 }

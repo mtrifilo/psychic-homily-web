@@ -150,14 +150,48 @@ func TestSubscribe_InvalidEntityID(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 400)
 }
 
-func TestSubscribe_InvalidEntityType(t *testing.T) {
+// An entity type with no registered visibility rule is refused AT THE GATE, as
+// a missing entity, before the service that used to name it runs (PSY-1987).
+//
+// The service is not merely un-consulted, it is asserted un-consulted: the
+// refusal has to come from the gate, or a later edit could restore the
+// default-open and this test would still pass on the service's error.
+//
+// It answers 404 where it used to answer 400. That is the fail-closed default,
+// and it also closes a small oracle: the old pair of answers told a caller which
+// entity types the vocabulary contains. The service's own invalid-type error
+// still maps to 400 — see the registered-type case below, and
+// shared.TestMapCommentError.
+func TestSubscribe_UnregisteredEntityTypeIsRefusedAtTheGate(t *testing.T) {
+	serviceCalled := false
+	h := NewCommentSubscriptionHandler(&testhelpers.MockCommentSubscriptionService{
+		SubscribeFn: func(userID uint, entityType string, entityID uint) error {
+			serviceCalled = true
+			return nil
+		},
+	}, nil, testhelpers.AllShowsVisible())
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &SubscribeRequest{EntityType: "invalid", EntityID: "1"}
+
+	_, err := h.SubscribeHandler(ctx, req)
+	testhelpers.AssertHumaError(t, err, 404)
+	if serviceCalled {
+		t.Error("the subscribe service ran for an unregistered entity type — the gate did not refuse it")
+	}
+}
+
+// The service's invalid-entity-type error still maps to 400, reached through an
+// entity type the gate DOES recognise. Without this arm, moving the refusal to
+// the gate would have silently deleted the only coverage of that mapping on this
+// route.
+func TestSubscribe_InvalidEntityTypeFromTheService(t *testing.T) {
 	h := NewCommentSubscriptionHandler(&testhelpers.MockCommentSubscriptionService{
 		SubscribeFn: func(userID uint, entityType string, entityID uint) error {
 			return apperrors.ErrCommentInvalidEntityType(entityType)
 		},
 	}, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
-	req := &SubscribeRequest{EntityType: "invalid", EntityID: "1"}
+	req := &SubscribeRequest{EntityType: "artist", EntityID: "1"}
 
 	_, err := h.SubscribeHandler(ctx, req)
 	testhelpers.AssertHumaError(t, err, 400)
@@ -312,14 +346,44 @@ func TestSubscriptionStatus_InvalidEntityID(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 400)
 }
 
-func TestSubscriptionStatus_InvalidEntityType(t *testing.T) {
+// The status route is the one gated route that must NOT refuse, so an
+// unregistered entity type gets the same quiet `{subscribed:false,
+// unread_count:0}` a gated show gets — not a 400 naming the vocabulary
+// (PSY-1987).
+func TestSubscriptionStatus_UnregisteredEntityTypeAnswersNotSubscribed(t *testing.T) {
+	serviceCalled := false
+	h := NewCommentSubscriptionHandler(&testhelpers.MockCommentSubscriptionService{
+		IsSubscribedFn: func(userID uint, entityType string, entityID uint) (bool, error) {
+			serviceCalled = true
+			return true, nil
+		},
+	}, nil, testhelpers.AllShowsVisible())
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &SubscriptionStatusRequest{EntityType: "invalid", EntityID: "1"}
+
+	resp, err := h.SubscriptionStatusHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("the status route refused an unregistered entity type: %v", err)
+	}
+	if resp.Body.Subscribed || resp.Body.UnreadCount != 0 {
+		t.Errorf("the status route answered subscribed=%v unread=%d for an unregistered entity type",
+			resp.Body.Subscribed, resp.Body.UnreadCount)
+	}
+	if serviceCalled {
+		t.Error("the subscription service ran for an unregistered entity type — the gate did not refuse it")
+	}
+}
+
+// The service's invalid-entity-type error still maps to 400, through a type the
+// gate recognises.
+func TestSubscriptionStatus_InvalidEntityTypeFromTheService(t *testing.T) {
 	h := NewCommentSubscriptionHandler(&testhelpers.MockCommentSubscriptionService{
 		IsSubscribedFn: func(userID uint, entityType string, entityID uint) (bool, error) {
 			return false, apperrors.ErrCommentInvalidEntityType(entityType)
 		},
 	}, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
-	req := &SubscriptionStatusRequest{EntityType: "invalid", EntityID: "1"}
+	req := &SubscriptionStatusRequest{EntityType: "artist", EntityID: "1"}
 
 	_, err := h.SubscriptionStatusHandler(ctx, req)
 	testhelpers.AssertHumaError(t, err, 400)
@@ -464,14 +528,37 @@ func TestMarkRead_InvalidEntityID(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 400)
 }
 
-func TestMarkRead_InvalidEntityType(t *testing.T) {
+// Mark-read is a WRITE that advances a pointer over an entity's discussion, so
+// an unregistered entity type is refused as a missing entity, exactly as
+// subscribe is (PSY-1987).
+func TestMarkRead_UnregisteredEntityTypeIsRefusedAtTheGate(t *testing.T) {
+	serviceCalled := false
+	h := NewCommentSubscriptionHandler(&testhelpers.MockCommentSubscriptionService{
+		MarkReadFn: func(userID uint, entityType string, entityID uint) error {
+			serviceCalled = true
+			return nil
+		},
+	}, nil, testhelpers.AllShowsVisible())
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &MarkReadRequest{EntityType: "invalid", EntityID: "1"}
+
+	_, err := h.MarkReadHandler(ctx, req)
+	testhelpers.AssertHumaError(t, err, 404)
+	if serviceCalled {
+		t.Error("the mark-read service ran for an unregistered entity type — the gate did not refuse it")
+	}
+}
+
+// The service's invalid-entity-type error still maps to 400, through a type the
+// gate recognises.
+func TestMarkRead_InvalidEntityTypeFromTheService(t *testing.T) {
 	h := NewCommentSubscriptionHandler(&testhelpers.MockCommentSubscriptionService{
 		MarkReadFn: func(userID uint, entityType string, entityID uint) error {
 			return apperrors.ErrCommentInvalidEntityType(entityType)
 		},
 	}, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
-	req := &MarkReadRequest{EntityType: "invalid", EntityID: "1"}
+	req := &MarkReadRequest{EntityType: "artist", EntityID: "1"}
 
 	_, err := h.MarkReadHandler(ctx, req)
 	testhelpers.AssertHumaError(t, err, 400)

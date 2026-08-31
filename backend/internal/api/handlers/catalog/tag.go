@@ -328,9 +328,11 @@ func (h *TagHandler) ListEntityTagsHandler(ctx context.Context, req *ListEntityT
 		return nil, huma.Error400BadRequest("Invalid entity ID")
 	}
 
-	// A show's tags are the show's own sub-resource, reached by the id GET
-	// /shows/{id} refuses for a non-approved show, so they answer to the same
-	// viewer rule (PSY-1939). Other entity types pass untouched.
+	// An entity's tags are that entity's own sub-resource, reached by the id its
+	// detail route refuses, so they answer to the same viewer rule (PSY-1939,
+	// PSY-1987). Which entity types have such a rule, and which are genuinely
+	// public, is services/shared/entity_visibility.go's register — an entity type
+	// with no entry there is refused, not waved through.
 	//
 	// The EMPTY LIST, not a 404: an untagged entity already answers that way and
 	// the two must be indistinguishable. The array is allocated, never nil, so

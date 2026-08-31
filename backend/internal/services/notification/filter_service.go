@@ -1125,18 +1125,18 @@ func inboxVisibleRows(alias string) string {
 	return strings.Join(clauses, " AND ")
 }
 
-// inboxRowsVisibleTo is the predicate that hides the inbox rows which lead to a
-// show viewer may not see (PSY-1983).
+// inboxRowsVisibleTo is the predicate that hides the inbox rows which lead to an
+// entity viewer may not see (PSY-1983, PSY-1987).
 //
 // Suppression, not de-identification. A row kept and blanked still holds a
 // position in the list and still counts toward the badge, and the recipient
-// knows which shows they follow — so the entry's mere presence is the
-// disclosure. The rows are left in the table and the gate re-evaluated on every
-// read, so republishing the show brings them back, unread and in place.
+// knows what they follow — so the entry's mere presence is the disclosure. The
+// rows are left in the table and the gate re-evaluated on every read, so
+// republishing the entity brings them back, unread and in place.
 //
 // That restoration covers the rows that EXIST. It is not a promise that the
 // inbox is complete: the comment fan-out refuses to write a row for a recipient
-// who cannot see the show (VisibleShowRecipientsSQL), so activity during the
+// who cannot see the parent (CommentEntityRecipientsSQL), so activity during the
 // gated window was never minted and republication has nothing to restore for it.
 // Read-time suppression is reversible; the write-time gate is not.
 //
@@ -1148,16 +1148,22 @@ func inboxVisibleRows(alias string) string {
 // explicitly-named email-lane id still flips and still counts. Out of scope here,
 // and named so it is not mistaken for coverage.)
 //
-// TWO FAMILIES OF ROW reach a show, and they reach it differently. Getting the
-// entity_type test wrong is not a style matter: entity_id means a DIFFERENT
-// THING per entity_type, so a lookup that skipped it would decide a row by
-// whatever unrelated record happened to share that number.
+// TWO FAMILIES OF ROW reach a gated entity, and they reach it differently.
+// Getting the entity_type test wrong is not a style matter: entity_id means a
+// DIFFERENT THING per entity_type, so a lookup that skipped it would decide a
+// row by whatever unrelated record happened to share that number.
 //
 //   - comment_reply / comment_mention carry a COMMENT id, and the comment names
-//     its own parent. Reached through the comments table.
+//     its own parent — which may be a show, a collection, or an entity type with
+//     no rule at all. Reached through the comments table, and judged by
+//     shared.VisibleCommentEntitySQL rather than by a show test written here, so
+//     this arm cannot fall behind the registry the way it did for collections.
 //   - show, artist_show_alert carry a SHOW id directly — the show-filter matcher
 //     and scene-follow writer for the first (scene_follow_notify.go), the artist
-//     alert fan-out for the second. Reached with no join at all.
+//     alert fan-out for the second. Reached with no join at all. No
+//     notification entity type carries a COLLECTION id, which is why this arm
+//     stays show-only; TestEveryInboxEntityTypeHasADisposition is what keeps
+//     that true.
 //
 // The show-typed rows matter as much as the rest even though the API sends no
 // title for them: entity_id IS the withdrawn show's id, and for a scene-follow
@@ -1178,28 +1184,34 @@ func inboxVisibleRows(alias string) string {
 // consequence is narrower than the detail route and fails closed: a submitter
 // sees their own withdrawn show at /shows/{id} but not in that summary's count.
 //
-// Each arm FAILS CLOSED on a show that is gated OR gone, because
-// VisibleShowExistsSQL answers false for both — which is what lets a withdrawn
-// show and a deleted one answer alike. The comment arm stays deliberately
-// permissive in the one place nothing is at stake: a comment row deleted since
-// the notification was minted still passes, and the inbox already degrades to a
-// plain "new comment" line for it.
+// Each arm FAILS CLOSED on an entity that is gated OR gone, because both EXISTS
+// forms answer false for a missing row — which is what lets a withdrawn show and
+// a deleted one answer alike, and a private collection and a hard-deleted one
+// likewise. The comment arm stays deliberately permissive in the one place
+// nothing is at stake: a comment row deleted since the notification was minted
+// still passes, and the inbox already degrades to a plain "new comment" line for
+// it. A comment that DOES exist and names an entity type nobody dispositioned
+// does not pass, because the composite's allowlist refuses it.
 //
-// It is an ADAPTER, not a second rule: the visibility decision is
-// shared.VisibleShowExistsSQL's, and what this adds is the walk from a
-// notification row to the show. That vocabulary belongs to this package's table,
-// which is why the adapter lives here rather than beside the rule.
+// It is an ADAPTER, not a second rule: the visibility decisions are
+// services/shared's, and what this adds is the walk from a notification row to
+// the entity. That vocabulary belongs to this package's table, which is why the
+// adapter lives here rather than beside the rules.
 func inboxRowsVisibleTo(alias string, viewer contracts.ShowViewer) (string, []interface{}) {
-	if viewer.IsAdmin {
-		return "1 = 1", nil
-	}
-	commentGate, commentGateArgs := shared.VisibleShowExistsSQL("inbox_comment.entity_id", viewer)
+	// NO ADMIN SHORT-CIRCUIT. This used to answer `1 = 1` for an admin, which was
+	// right while every arm judged shows: an admin sees every show. The comment
+	// arm now also judges COLLECTIONS, and no collection read path grants an
+	// admin a private one (services/shared/collection_visibility.go), so a
+	// blanket bypass here would have made the moderation inbox the one surface
+	// that publishes them. The show arms still short-circuit internally, so an
+	// admin's statement is the same shape it was plus the collection probe.
+	commentGate, commentGateArgs := shared.VisibleCommentEntitySQL(
+		"inbox_comment.entity_type", "inbox_comment.entity_id", viewer)
 	directGate, directGateArgs := shared.VisibleShowExistsSQL(alias+".entity_id", viewer)
 
 	commentArm, commentArgs := entityTypeArm(alias, commentNotificationEntityTypeList,
 		"NOT EXISTS (SELECT 1 FROM comments inbox_comment"+
 			" WHERE inbox_comment.id = "+alias+".entity_id"+
-			" AND inbox_comment.entity_type = '"+shared.CommentEntityTypeShow+"'"+
 			" AND NOT "+commentGate+")", commentGateArgs)
 	directArm, directArgs := entityTypeArm(alias, showIDBearingEntityTypeList, directGate, directGateArgs)
 

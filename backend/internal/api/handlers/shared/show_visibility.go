@@ -1,9 +1,8 @@
 package shared
 
 import (
-	"strings"
-
 	"psychic-homily-backend/internal/services/contracts"
+	servicesshared "psychic-homily-backend/internal/services/shared"
 )
 
 // =============================================================================
@@ -22,31 +21,6 @@ import (
 // response here: the caller answers with ITS OWN no-data shape, which is why
 // each gated route below returns its empty list or zero count rather than
 // calling a helper that decides the status code for it.
-
-// showEntityTypes are the spellings of "show" this gate recognises in an
-// {entity_type} path segment.
-//
-// Every gated route today emits the SINGULAR: the comment, tag and collection
-// allowlists all spell it "show". The plural is here anyway because the codebase
-// uses it elsewhere for the same concept (catalog.EntityExistenceService keys on
-// "shows"), so a route wired to that vocabulary would otherwise reach a gate
-// that silently waves it through. Recognising a spelling no route emits costs
-// nothing; failing to recognise one that does costs the whole gate.
-//
-// Case is folded rather than compared exactly for the same reason: an
-// entity_type is caller-supplied text, and a gate that "show" passes but "Show"
-// slips through is not a gate. The underlying queries are case-sensitive and
-// would return nothing for the odd spelling anyway; this makes that a property
-// of the gate rather than a lucky property of Postgres.
-var showEntityTypes = map[string]bool{
-	"show":  true,
-	"shows": true,
-}
-
-// isShowEntityType reports whether an {entity_type} path segment names a show.
-func isShowEntityType(entityType string) bool {
-	return showEntityTypes[strings.ToLower(strings.TrimSpace(entityType))]
-}
 
 // ShowSubResourceVisible reports whether a show-scoped sub-resource read may be
 // answered with real data for viewer.
@@ -73,12 +47,24 @@ func ShowSubResourceVisible(checker contracts.ShowVisibilityInterface, showID ui
 // EntitySubResourceVisible is ShowSubResourceVisible for a polymorphic route,
 // where the entity may not be a show at all.
 //
-// Non-show entity types pass untouched. That is a deliberate default-open on
-// entity types that have no read-time visibility rule of their own; adding one
-// means adding it here, beside this sentence, not at each caller.
+// The one call every gated polymorphic route makes. It is a thin delegation to
+// services/shared.EntityVisibleTo, which owns the per-entity-type registry, and
+// it is thin ON PURPOSE: the rule that decides an entity_type must be the same
+// object the SQL spellings derive their allowlist from, or the handler gate and
+// the row gates can disagree about what an entity type means.
+//
+// AN ENTITY TYPE WITH NO REGISTERED RULE IS NOT VISIBLE (PSY-1987). This used to
+// pass everything that was not a show, which is how `collection` — a type with a
+// real read-time rule of its own — reached six surfaces ungated. What a caller
+// does with a refusal is still the caller's own no-data shape, per this file's
+// header: the empty list, or the entity-not-found error a never-used id gets.
+//
+// One consequence worth stating because it is a contract change: a route that
+// used to answer "invalid entity type" for a junk {entity_type} segment now
+// refuses it as a missing entity, at the gate, before the service that produced
+// that message runs. That is the fail-closed default doing its job, and it also
+// removes a small oracle — the old pair of answers published which entity types
+// the vocabulary contains.
 func EntitySubResourceVisible(checker contracts.ShowVisibilityInterface, entityType string, entityID uint, viewer contracts.ShowViewer) bool {
-	if !isShowEntityType(entityType) {
-		return true
-	}
-	return ShowSubResourceVisible(checker, entityID, viewer)
+	return servicesshared.EntityVisibleTo(checker, entityType, entityID, viewer)
 }

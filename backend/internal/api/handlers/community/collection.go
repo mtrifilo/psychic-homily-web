@@ -961,9 +961,11 @@ func (h *CollectionHandler) GetEntityCollectionsHandler(ctx context.Context, req
 		limit = 10
 	}
 
-	// Which collections a show sits in is the show's own sub-resource, reached
-	// by the id GET /shows/{id} refuses for a non-approved show, so it answers
-	// to the same viewer rule (PSY-1939). Other entity types pass untouched.
+	// Which collections an entity sits in is that entity's own sub-resource,
+	// reached by the id its detail route refuses, so it answers to the same viewer
+	// rule (PSY-1939, PSY-1987). An entity type with no registered rule is refused
+	// rather than waved through; this route's own allowlist above rejects the six
+	// it accepts down to types that all have one.
 	//
 	// The EMPTY LIST, not a 404: an entity in no collections already answers
 	// that way and the two must be indistinguishable.

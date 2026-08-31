@@ -147,9 +147,10 @@ func (h *CommentHandler) ListCommentsHandler(ctx context.Context, req *ListComme
 		return nil, huma.Error400BadRequest("Invalid entity ID")
 	}
 
-	// Discussion on a show is the show's own sub-resource, reached by the id GET
-	// /shows/{id} refuses for a non-approved show, so it answers to the same
-	// viewer rule (PSY-1939). Other entity types pass untouched.
+	// Discussion on an entity is that entity's own sub-resource, reached by the id
+	// its detail route refuses, so it answers to the same viewer rule (PSY-1939,
+	// PSY-1987). An entity type with no registered rule is refused rather than
+	// waved through.
 	//
 	// The EMPTY LIST, not a 404: an entity id with no comments already answers
 	// that way and the two must be indistinguishable. Total 0 comes with it, or
