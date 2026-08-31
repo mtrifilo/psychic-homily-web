@@ -203,11 +203,24 @@ export function formatShowTime(
 }
 
 /**
- * Format price for display. Shows "Free" for $0, otherwise "$XX.XX".
+ * The site's ONE money register: `Free` for $0, `$35` for a whole amount,
+ * `$12.50` when there really are cents.
+ *
+ * Whole dollars drop the `.00` (user decision, PSY-1962). Almost every price
+ * in this catalog is a round number, so `$25.00` spent three characters per row
+ * on zeroes — and the show detail page had already dropped them for the locked
+ * mock's `$35 ADV`, leaving the site spelling one price two ways depending on
+ * which page you were looking at. This function is now the only spelling, and
+ * the show page's local copy was deleted rather than kept in step.
+ *
+ * A price of 0 is a FACT the site asserts ("this show is free"), which is why
+ * it has a word rather than falling to silence. Absence is the caller's
+ * business: every call site guards on `!= null` rather than truthiness, or a
+ * free show renders as nothing.
  */
 export function formatPrice(price: number): string {
   if (price === 0) return 'Free'
-  return `$${price.toFixed(2)}`
+  return Number.isInteger(price) ? `$${price}` : `$${price.toFixed(2)}`
 }
 
 /**

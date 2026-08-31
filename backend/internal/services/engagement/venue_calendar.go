@@ -291,7 +291,7 @@ func (s *VenueCalendarService) buildCalendar(
 		}
 		showURL := showPageURL(frontendURL, slug, show.ID)
 		event.SetDescription(buildEventDescription(
-			location, artistsByShow[show.ID], show.Price, show.AgeRequirement, show.IsCancelled, showURL))
+			location, artistsByShow[show.ID], show.Price, show.DoorPrice, show.AgeRequirement, show.IsCancelled, showURL))
 		if showURL != "" {
 			event.SetURL(showURL)
 		}
@@ -311,7 +311,7 @@ func (s *VenueCalendarService) buildCalendar(
 // describes an event identically: the venue feed reads model-shaped shows,
 // while the per-show download and the personal saved-shows feed read
 // response-shaped ones.
-func buildEventDescription(location string, artistNames []string, price *float64, ageRequirement *string, isCancelled bool, showURL string) string {
+func buildEventDescription(location string, artistNames []string, price, doorPrice *float64, ageRequirement *string, isCancelled bool, showURL string) string {
 	var parts []string
 
 	if location != "" {
@@ -328,8 +328,8 @@ func buildEventDescription(location string, artistNames []string, price *float64
 			parts = append(parts, "Artists: "+strings.Join(clean, ", "))
 		}
 	}
-	if price != nil {
-		parts = append(parts, fmt.Sprintf("Price: $%.0f", *price))
+	if priceText := formatEventPrice(price, doorPrice); priceText != "" {
+		parts = append(parts, "Price: "+priceText)
 	}
 	if ageRequirement != nil {
 		if ages := sanitizeICSText(*ageRequirement); ages != "" {
@@ -344,6 +344,42 @@ func buildEventDescription(location string, artistNames []string, price *float64
 	}
 
 	return strings.Join(parts, "\n")
+}
+
+// formatEventPrice renders a show's advance/door pair for a calendar
+// description, in the same register the site's list surfaces use: "$35/$40" for
+// a pair, a bare "$35" or "Free" for a single price, "" for none (PSY-1962).
+//
+// A calendar entry OUTLIVES a page view — it sits in a subscriber's phone until
+// the event passes — so serving the advance half alone was the worst place for
+// the under-report: the reader budgets $35 and pays $40 at the door with no way
+// to have known.
+//
+// The collapse rules mirror the show page's ticket line exactly, and for the
+// same reasons: equal numbers spend two slots saying one thing, and a lone door
+// price renders bare because there is nothing to tell it apart FROM. Zero is a
+// price ("Free"), not silence, which is why the guards test nil rather than
+// truthiness.
+//
+// Whole dollars, matching the site: the cents on a $35.00 door are noise.
+func formatEventPrice(price, doorPrice *float64) string {
+	amount := func(v float64) string {
+		if v == 0 {
+			return "Free"
+		}
+		return fmt.Sprintf("$%.0f", v)
+	}
+	if price != nil && doorPrice != nil && *price != *doorPrice {
+		return amount(*price) + "/" + amount(*doorPrice)
+	}
+	only := price
+	if only == nil {
+		only = doorPrice
+	}
+	if only == nil {
+		return ""
+	}
+	return amount(*only)
 }
 
 // applyEventSummaryAndStatus names the event and sets its STATUS, identically

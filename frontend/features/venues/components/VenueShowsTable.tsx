@@ -9,10 +9,10 @@ import { DenseTable, DenseTableGroupHeader } from '@/components/shared'
 // deep-imports VenueInput). See features/venues/components/index.ts.
 import { ShowBill } from '@/features/shows/components/ShowBill'
 import {
-  formatPrice,
   formatShowDate,
   formatShowTime,
 } from '@/lib/utils/formatters'
+import { showPriceLabel } from '@/lib/utils/showPrice'
 import { EN_DASH, type MonthGroup } from '@/features/shows/showArchive'
 import { groupByMonth } from '../showArchive'
 import type { VenueShow, VenueShowZone } from '../types'
@@ -22,6 +22,28 @@ const COLUMN_COUNT = 4
 
 /** Stands in for a price nobody has recorded. */
 const ABSENT = EN_DASH
+
+/**
+ * The row's price: `$35`, `Free`, the split `$35/$40`, or an en dash when
+ * nobody recorded one.
+ *
+ * The pair is derived by {@link showPriceLabel}, shared with every other list
+ * on the site and with the show page's own ticket line, so a reader who scans
+ * this table and opens a show is never shown two different prices for it.
+ *
+ * The spelled-out `title` rides along for the split only. It is set as
+ * `aria-label` too, because "$35 slash $40" is what a screen reader otherwise
+ * announces for a fact about money.
+ */
+function PriceCell({ show }: { show: { price: number | null; door_price: number | null } }) {
+  const price = showPriceLabel(show)
+  if (!price) return <>{ABSENT}</>
+  return (
+    <span title={price.title} aria-label={price.title}>
+      {price.text}
+    </span>
+  )
+}
 
 function ShowRow({
   show,
@@ -52,7 +74,7 @@ function ShowRow({
         />
       </td>
       <td className="whitespace-nowrap text-right font-mono text-xs text-muted-foreground">
-        {typeof show.price === 'number' ? formatPrice(show.price) : ABSENT}
+        <PriceCell show={show} />
       </td>
       <td className="whitespace-nowrap text-right text-muted-foreground">
         {formatShowTime(show.event_date, state, zone.venueTimezone)}

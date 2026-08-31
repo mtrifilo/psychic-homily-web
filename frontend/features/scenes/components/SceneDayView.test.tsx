@@ -174,7 +174,7 @@ describe('SceneDayView — a night with shows', () => {
 
   it('renders a price when the show has one', () => {
     render(<SceneDayView day={day({ shows: [show({ price: 22 })] })} />)
-    expect(screen.getByText('$22.00')).toBeInTheDocument()
+    expect(screen.getByText('$22')).toBeInTheDocument()
   })
 
   it('renders no price when the show has none recorded', () => {

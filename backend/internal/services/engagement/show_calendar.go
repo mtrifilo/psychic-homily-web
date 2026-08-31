@@ -155,7 +155,7 @@ func applyShowEventContent(event *ics.VEvent, show *contracts.ShowResponse, fron
 
 	showURL := showPageURL(frontendURL, show.Slug, show.ID)
 	event.SetDescription(buildEventDescription(
-		location, artistNames, show.Price, show.AgeRequirement, show.IsCancelled, showURL))
+		location, artistNames, show.Price, show.DoorPrice, show.AgeRequirement, show.IsCancelled, showURL))
 	if showURL != "" {
 		event.SetURL(showURL)
 	}

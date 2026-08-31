@@ -59,23 +59,23 @@ type Show struct {
 	// silence. Neither is inferred from the other: a show with an advance
 	// price says nothing about what the door costs.
 	//
-	// ONLY THE SHOW DETAIL PAGE renders the split today. Two consumers that
-	// would otherwise treat a door-only show as having NO price were fixed
-	// alongside the column, because for them "which single price do we know" is
-	// not a design question: the notification price-cap filter
-	// (effectiveShowPriceCents) and the schema.org Offer both fall back to the
-	// door price when there is no advance price.
+	// EVERY read surface renders the split (PSY-1962). Two registers, one rule:
+	// the show detail page qualifies the pair as `$35 ADV · DOOR $40`, and every
+	// dense list — /shows cards and compact rows, the venue and artist show
+	// tables, the scene day lists, the discovery rails, the submissions console
+	// and the ICS feed descriptions — spells it `$35/$40`, advance first. A lone
+	// price renders bare in both, and equal numbers collapse to one.
 	//
-	// The rest still read Price alone, so a split-price show shows its ADVANCE
-	// half without saying so: the /shows cards and compact rows, the venue and
-	// artist show tables, the scene day lists, and the ICS feed descriptions.
-	// Three of those need the field added to their own contracts first
-	// (VenueShowResponse, ArtistShowResponse, SceneShowSummary).
+	// A NEW SURFACE MUST USE THE SHARED DERIVATION, not read Price alone.
+	// Frontend: lib/utils/showPrice.ts. Backend: engagement.formatEventPrice.
+	// Reading the advance half by itself is not a smaller version of the truth,
+	// it is a wrong number about money — a reader who budgets $35 for a $40 door
+	// was misinformed by the site, not merely under-informed.
 	//
-	// That is a KNOWN, DEFERRED gap TRACKED IN PSY-1962, not an oversight. What
-	// is left is genuinely a design question — how a PAIR should read in a
-	// dense list — and it wants one answer applied everywhere, so do not solve
-	// it for a single surface in isolation.
+	// Two consumers answer a different question and are NOT list registers:
+	// the notification price-cap filter (effectiveShowPriceCents) and the
+	// schema.org Offer each need ONE number, and both fall back to the door
+	// price only when no advance price is recorded.
 	Price          *float64
 	DoorPrice      *float64 `gorm:"column:door_price"`
 	AgeRequirement *string

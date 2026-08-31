@@ -414,7 +414,7 @@ func buildSceneCalendar(
 
 		showURL := showPageURL(frontendURL, show.Slug, show.ID)
 		event.SetDescription(buildEventDescription(
-			location, show.ArtistNames, show.Price, revision.AgeRequirement, show.IsCancelled, showURL))
+			location, show.ArtistNames, show.Price, show.DoorPrice, revision.AgeRequirement, show.IsCancelled, showURL))
 		if showURL != "" {
 			event.SetURL(showURL)
 		}

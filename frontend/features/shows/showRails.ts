@@ -6,7 +6,7 @@ import {
 } from '@/features/scenes/sceneDay'
 import { isCalendarDate, parseCalendarDate } from '@/features/scenes/sceneWeek'
 import type { SceneShowSummary } from '@/features/scenes/types'
-import { formatPrice } from '@/lib/utils/formatters'
+import { showPriceLabel } from '@/lib/utils/showPrice'
 import {
   formatShowMonthDayPadded,
   showYearInZone,
@@ -405,10 +405,11 @@ function railFigure(show: {
   is_cancelled: boolean
   is_sold_out: boolean
   price?: number | null
+  door_price?: number | null
 }): string | null {
   if (show.is_cancelled) return 'Cancelled'
   if (show.is_sold_out) return 'Sold out'
-  return typeof show.price === 'number' ? formatPrice(show.price) : null
+  return showPriceLabel(show)?.text ?? null
 }
 
 /**
@@ -539,13 +540,16 @@ export interface RailRowData {
  *    age requirement, and the rail is not worth a request per row to invent
  *    one. The venue module above states the age rule for the show being read,
  *    which is the one a reader on this page is deciding about.
- *  - `8:00 PM`, not the mock's `8PM`, and `$15.00`, not `$15`. `formatShowTime`
- *    and `formatPrice` are the site's single time and money formats, and
- *    forking them here would put two renderings of each on one page; a 7:30
- *    door also cannot be said as "7PM". This one is NOT settled — it is a
- *    divergence from a locked mock with a real width cost in these columns, so
- *    PSY-1970 is filed to take the design call rather than leaving it decided
- *    by a comment.
+ *  - `8:00 PM`, not the mock's `8PM`. `formatShowTime` is the site's single
+ *    time format and forking it here would put two renderings on one page; a
+ *    7:30 door also cannot be said as "7PM". NOT settled — a divergence from a
+ *    locked mock with a real width cost in these columns, so PSY-1970 holds the
+ *    design call rather than leaving it decided by a comment.
+ *
+ *    The PRICE half of that ticket is settled and no longer diverges: the whole
+ *    site moved to the mock's compact form (PSY-1962), so this column now reads
+ *    `$15` and `FREE` through the shared `formatPrice`, not through a fork.
+ *    What is left for PSY-1970 is the time register alone.
  */
 export function alsoTonightRow(
   show: AlsoTonightShow,

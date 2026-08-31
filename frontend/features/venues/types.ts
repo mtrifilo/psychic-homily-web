@@ -191,7 +191,13 @@ export interface VenueShow {
   event_date: string
   city: string | null
   state: string | null
+  /**
+   * The advance/door pair. Both are served so a row can render the split
+   * (PSY-1962); showing the advance half alone told a reader $35 for a show
+   * whose door is $40. Null means "not recorded"; zero means free.
+   */
   price: number | null
+  door_price: number | null
   age_requirement: string | null
   /** Show was called off. Renders as a destructive badge on the bill. */
   is_cancelled: boolean

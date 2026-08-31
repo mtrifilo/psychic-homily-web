@@ -140,6 +140,7 @@ function makeShow(overrides: Partial<VenueShow> = {}): VenueShow {
     city: 'Phoenix',
     state: 'AZ',
     price: 15,
+    door_price: null,
     age_requirement: null,
     is_cancelled: false,
     is_sold_out: false,
@@ -565,9 +566,22 @@ describe('VenuePastShows — rows', () => {
     })
     renderList()
     const table = screen.getByRole('table', { name: 'Past shows' })
-    expect(within(table).getByText('$22.00')).toBeInTheDocument()
+    expect(within(table).getByText('$22')).toBeInTheDocument()
     expect(within(table).getAllByText('–').length).toBeGreaterThan(0)
     expect(within(table).queryByText('—')).not.toBeInTheDocument()
+  })
+
+  // The archive shows both halves rather than quoting the advance price for a
+  // show whose door costs more (PSY-1962).
+  it('renders a split price as the pair', () => {
+    setPast({
+      shows: [makeShow({ id: 7, price: 35, door_price: 40 })],
+      total: 1,
+    })
+    renderList()
+    const table = screen.getByRole('table', { name: 'Past shows' })
+    const price = within(table).getByText('$35/$40')
+    expect(price).toHaveAttribute('aria-label', '$35 advance, $40 at the door')
   })
 
   it('groups past rows under month headings, skipping months with no shows', () => {

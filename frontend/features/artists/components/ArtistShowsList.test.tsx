@@ -107,6 +107,7 @@ function makeShow(overrides: Partial<ArtistShow> = {}): ArtistShow {
     title: 'Test Show',
     event_date: '2025-06-15T20:00:00Z',
     price: 15,
+    door_price: null,
     age_requirement: null,
     is_cancelled: false,
     is_sold_out: false,
@@ -528,9 +529,22 @@ describe('ArtistPastShows — rows', () => {
     })
     renderList()
     const table = screen.getByRole('table', { name: 'Past shows' })
-    expect(within(table).getByText('$22.00')).toBeInTheDocument()
+    expect(within(table).getByText('$22')).toBeInTheDocument()
     expect(within(table).getAllByText('–').length).toBeGreaterThan(0)
     expect(within(table).queryByText('—')).not.toBeInTheDocument()
+  })
+
+  // The artist archive is the venue archive's twin and moves with it, so the
+  // two cannot end up spelling one show's price differently (PSY-1962).
+  it('renders a split price as the pair', () => {
+    setPast({
+      shows: [makeShow({ id: 7, price: 35, door_price: 40 })],
+      total: 1,
+    })
+    renderList()
+    const table = screen.getByRole('table', { name: 'Past shows' })
+    const price = within(table).getByText('$35/$40')
+    expect(price).toHaveAttribute('aria-label', '$35 advance, $40 at the door')
   })
 
   it('groups past rows under month headings in each venue-local month', () => {

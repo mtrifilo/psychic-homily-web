@@ -20,10 +20,10 @@ import {
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { queryKeys } from '@/lib/queryClient'
 import {
-  formatPrice,
   formatShowDate,
   formatShowTime,
 } from '@/lib/utils/formatters'
+import { showPriceLabel } from '@/lib/utils/showPrice'
 import {
   useSetShowCancelled,
   useSetShowSoldOut,
@@ -78,6 +78,7 @@ function SubmissionShowCard({
   const setSoldOutMutation = useSetShowSoldOut()
   const setCancelledMutation = useSetShowCancelled()
   const venue = show.venues[0]
+  const price = showPriceLabel(show)
   const artists = show.artists
   const isOwner =
     currentUserId !== undefined && show.submitted_by === currentUserId
@@ -309,8 +310,10 @@ function SubmissionShowCard({
                   {venue.name}
                 </span>
               ))}
-            {show.price != null && (
-              <span>&nbsp;•&nbsp;{formatPrice(show.price)}</span>
+            {price && (
+              <span title={price.title} aria-label={price.title}>
+                &nbsp;•&nbsp;{price.text}
+              </span>
             )}
             {show.age_requirement && (
               <span>&nbsp;•&nbsp;{show.age_requirement}</span>

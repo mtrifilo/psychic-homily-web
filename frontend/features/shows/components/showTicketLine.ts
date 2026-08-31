@@ -2,6 +2,8 @@ import { showTimingInput } from '../utils'
 import { startTimeFactSegment } from './showStatusStripeCopy'
 import { saysSoldOut } from './showSaleState'
 import { showIsArchived } from '@/lib/utils/showTiming'
+import { formatPrice } from '@/lib/utils/formatters'
+import { statedShowPrices } from '@/lib/utils/showPrice'
 import { repairTicketUrl, ticketLink } from '@/lib/tickets/ticketVendors'
 import type { TicketLink } from '@/lib/tickets/ticketVendors'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
@@ -85,47 +87,33 @@ export function buyTicketsLink(
 }
 
 /**
- * The ticket line's price register: `$35`, `$12.50`, `Free`. Whole dollars
- * drop the cents — the locked mock's line reads `$35 ADV`, and `.00` on a
- * tabular mono line is noise. Local to this line on purpose; the app-wide
- * `formatPrice` keeps its two-decimal form for the surfaces built on it,
- * which means a /shows card ($25.00) and the page it opens ($25) currently
- * spell one price two ways — a known register split, named here so the
- * card-side conversion is a deliberate follow-up rather than a drift.
- */
-function ticketPrice(price: number): string {
-  if (price === 0) return 'Free'
-  return Number.isInteger(price) ? `$${price}` : `$${price.toFixed(2)}`
-}
-
-/**
  * `[]`, `['$35']`, or the mock's split pair `['$35 ADV', 'DOOR $40']`
  * (PSY-1864).
  *
+ * WHICH prices there are to spell is {@link statedShowPrices}, shared with
+ * every dense list on the site, so the page and the card a reader arrived from
+ * cannot disagree about whether this show has one price or two. The collapse
+ * rules and the reasoning behind them live there. This function owns only the
+ * DETAIL register: the mock's qualified pair.
+ *
  * `ADV` / `DOOR` are disambiguators, so they are spelled only when there ARE
- * two DIFFERENT numbers to tell apart. A lone price renders bare — including a
+ * two different numbers to tell apart. A lone price renders bare — including a
  * lone DOOR price, where the word would distinguish the number from nothing.
  * Segments rather than one string because the pair is two middot-separated
- * facts in the mock, not a compound one.
+ * facts in the mock, not a compound one; a dense list has no room for that and
+ * renders `$35/$40` instead ({@link showPriceLabel}).
  *
- * Equal prices collapse to one bare segment. Nothing stops a curator entering
- * the same number twice (the door field's own placeholder says "only if it
- * differs", but that is a hint, not a constraint, and an importer has no hint
- * at all), and `$35 ADV · DOOR $35` spends two segments and two qualifiers to
- * say one thing — it reads as a rendering bug, and it would make this function
- * contradict the rule stated one paragraph above.
- *
- * Zero is a price ("Free"), not silence, which is why the guards test
- * `!= null` rather than truthiness.
+ * The amounts themselves go through the site-wide {@link formatPrice}. This
+ * line used to carry its own whole-dollar copy of it, which is how a /shows
+ * card ($25.00) and the page it opened ($25) came to spell one price two ways.
  */
 function ticketPriceSegments(show: ShowResponse): string[] {
-  const advance = show.price
-  const door = show.door_price
-  if (advance != null && door != null && advance !== door) {
-    return [`${ticketPrice(advance)} ADV`, `DOOR ${ticketPrice(door)}`]
+  const prices = statedShowPrices(show)
+  if (prices.length === 2) {
+    const [advance, door] = prices
+    return [`${formatPrice(advance)} ADV`, `DOOR ${formatPrice(door)}`]
   }
-  const only = advance ?? door
-  return only != null ? [ticketPrice(only)] : []
+  return prices.map(formatPrice)
 }
 
 /**

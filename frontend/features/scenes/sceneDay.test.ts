@@ -166,7 +166,7 @@ describe('formatShowStartTime', () => {
 
 describe('formatShowPrice', () => {
   it('uses the site-wide price format', () => {
-    expect(formatShowPrice(show({ price: 22 }))).toBe('$22.00')
+    expect(formatShowPrice(show({ price: 22 }))).toBe('$22')
     expect(formatShowPrice(show({ price: 0 }))).toBe('Free')
   })
 

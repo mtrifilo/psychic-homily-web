@@ -1,7 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { formatPrice, formatShowTime } from '@/lib/utils/formatters'
+import { formatShowTime } from '@/lib/utils/formatters'
+import { showPriceLabel } from '@/lib/utils/showPrice'
 import { formatShowDateBadge } from '@/lib/utils/showDateBadge'
 
 interface CompactShowArtist {
@@ -14,7 +15,12 @@ interface CompactShowData {
   id: number
   slug?: string | null
   event_date: string
+  /**
+   * The advance/door pair. Both, because a row showing the advance half alone
+   * quoted $35 for a show whose door is $40 (PSY-1962).
+   */
   price?: number | null
+  door_price?: number | null
   artists: CompactShowArtist[]
 }
 
@@ -119,6 +125,7 @@ export function CompactShowRow({
   // passes the raw state.
   const detailsHref = `/shows/${show.slug || show.id}`
   const dateBadge = formatShowDateBadge(show.event_date, state, timezone)
+  const price = showPriceLabel(show)
 
   return (
     <div className="py-2.5 border-b border-border/30 last:border-b-0">
@@ -185,7 +192,11 @@ export function CompactShowRow({
             <div className="font-medium text-foreground/80">
               {formatShowTime(show.event_date, state, timezone)}
             </div>
-            {show.price != null && <div>{formatPrice(show.price)}</div>}
+            {price && (
+              <div title={price.title} aria-label={price.title}>
+                {price.text}
+              </div>
+            )}
             {showDetailsLink && (
               <div className="mt-0.5">
                 <Link

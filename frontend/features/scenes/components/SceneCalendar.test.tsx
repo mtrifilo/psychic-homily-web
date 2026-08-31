@@ -228,8 +228,8 @@ describe('SceneCalendar', () => {
       expect(screen.getByText('Destruction Unit')).toBeInTheDocument()
       expect(screen.getByText('8:00 PM')).toBeInTheDocument()
       expect(screen.getByText('9:30 PM')).toBeInTheDocument()
-      expect(screen.getByText('$28.00')).toBeInTheDocument()
-      expect(screen.getByText('$12.00')).toBeInTheDocument()
+      expect(screen.getByText('$28')).toBeInTheDocument()
+      expect(screen.getByText('$12')).toBeInTheDocument()
     })
 
     // The sub-locality is what lets a metro scene read as a region.

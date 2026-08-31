@@ -165,8 +165,11 @@ describe('isShowTimezoneResolved', () => {
 })
 
 describe('formatPrice', () => {
+  // Whole dollars drop the cents (PSY-1962). This asserted "$20.00" until the
+  // register was unified: the show detail page had already dropped them for the
+  // locked mock, so a card and the page it opened spelled one price two ways.
   it('formats integer price', () => {
-    expect(formatPrice(20)).toBe('$20.00')
+    expect(formatPrice(20)).toBe('$20')
   })
 
   it('formats decimal price', () => {
@@ -178,7 +181,7 @@ describe('formatPrice', () => {
   })
 
   it('formats large price', () => {
-    expect(formatPrice(150)).toBe('$150.00')
+    expect(formatPrice(150)).toBe('$150')
   })
 })
 

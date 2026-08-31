@@ -12,10 +12,8 @@ import {
   ExternalLink,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import {
-  formatShowTime,
-  formatPrice,
-} from '@/lib/utils/formatters'
+import { formatShowTime } from '@/lib/utils/formatters'
+import { showPriceLabel } from '@/lib/utils/showPrice'
 import { formatShowDateBadge } from '@/lib/utils/showDateBadge'
 import { Button } from '@/components/ui/button'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
@@ -167,6 +165,12 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
     [show.event_date, show.state, show.venues]
   )
 
+  // Derived ONCE for all three densities. Each renders the card differently and
+  // each used to read `show.price` on its own, which is how the compact row
+  // could have drifted from the comfortable one; a card's price is one fact
+  // whatever size the card is.
+  const price = showPriceLabel(show)
+
   const handleEditSuccess = () => {
     setIsEditing(false)
   }
@@ -238,9 +242,13 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
         </span>
 
         {/* Price */}
-        {show.price != null && (
-          <span className="text-xs text-muted-foreground shrink-0 hidden md:inline tabular-nums">
-            {formatPrice(show.price)}
+        {price && (
+          <span
+            className="text-xs text-muted-foreground shrink-0 hidden md:inline tabular-nums"
+            title={price.title}
+            aria-label={price.title}
+          >
+            {price.text}
           </span>
         )}
       </article>
@@ -317,10 +325,12 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
                     {formatShowTime(show.event_date, show.state, show.venues?.[0]?.timezone)}
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {show.price != null && (
-                      <span>{formatPrice(show.price)}</span>
+                    {price && (
+                      <span title={price.title} aria-label={price.title}>
+                        {price.text}
+                      </span>
                     )}
-                    {show.price != null && show.age_requirement && (
+                    {price && show.age_requirement && (
                       <span> &middot; </span>
                     )}
                     {show.age_requirement && (
@@ -555,10 +565,12 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
                   {formatShowTime(show.event_date, show.state, show.venues?.[0]?.timezone)}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {show.price != null && (
-                    <span>{formatPrice(show.price)}</span>
+                  {price && (
+                    <span title={price.title} aria-label={price.title}>
+                      {price.text}
+                    </span>
                   )}
-                  {show.price != null && show.age_requirement && (
+                  {price && show.age_requirement && (
                     <span> &middot; </span>
                   )}
                   {show.age_requirement && (

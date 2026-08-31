@@ -54,7 +54,7 @@ describe('ShowDiscoveryRails', () => {
     // Venue-local: 01:00 UTC Aug 13 is 8PM Aug 12 in Chicago.
     expect(row).toHaveTextContent('8:00 PM')
     expect(row).toHaveTextContent('Empty Bottle')
-    expect(row).toHaveTextContent('$15.00')
+    expect(row).toHaveTextContent('$15')
   })
 
   it('draws the venue rail date-first, status in the figure column', () => {

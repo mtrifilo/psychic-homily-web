@@ -174,7 +174,31 @@ describe('ShowCard', () => {
 
   it('renders price', () => {
     render(<ShowCard show={makeShow()} isAdmin={false} />)
-    expect(screen.getByText('$20.00')).toBeInTheDocument()
+    expect(screen.getByText('$20')).toBeInTheDocument()
+  })
+
+  // A card that showed only the advance half told a reader $35 for a show whose
+  // door is $40 (PSY-1962). The compact register is the slash pair; the
+  // qualified `$35 ADV · DOOR $40` belongs to the detail page, which has room.
+  it('renders both halves of a split price, with the pair spelled out for a screen reader', () => {
+    render(
+      <ShowCard show={makeShow({ price: 35, door_price: 40 })} isAdmin={false} />
+    )
+    const price = screen.getByText('$35/$40')
+    expect(price).toBeInTheDocument()
+    expect(price).toHaveAttribute('aria-label', '$35 advance, $40 at the door')
+  })
+
+  // A door price with no advance price renders bare: with one number there is
+  // nothing to tell it apart from.
+  it('renders a door-only price bare', () => {
+    render(
+      <ShowCard
+        show={makeShow({ price: null, door_price: 40 })}
+        isAdmin={false}
+      />
+    )
+    expect(screen.getByText('$40')).toBeInTheDocument()
   })
 
   it('renders age requirement', () => {
