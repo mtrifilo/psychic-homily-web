@@ -356,6 +356,11 @@ type CommentSubscriptionServiceInterface interface {
 	// user id beside a viewer carrying the same id, which is derivable state on
 	// a security boundary — the shape whose failure mode is serving one
 	// account's subscriptions under another's clearance.
+	//
+	// REJECTS the zero viewer. ShowViewer{} is the deliberate spelling for the
+	// public tier on the listing gates, and this is self-scoped, so the idiom
+	// that is correct there would mean "user 0" here; it errors rather than
+	// answer emptily.
 	ListWatching(viewer ShowViewer, limit, offset int) ([]WatchingItem, int64, error)
 
 	// GetSubscribersForEntity returns user IDs of all subscribers for an entity.

@@ -134,11 +134,15 @@ type UnsubscribeRequest struct {
 //
 // DELIBERATELY UNGATED, and it is the only route on this handler that is
 // (PSY-1983). It deletes the caller's own row and answers the same whether or
-// not one was there, so it discloses nothing a gate could withhold. Gating it
-// would stand the subscriber up instead: a show subscribed to while it was
-// public and taken private afterwards would keep its row, keep mailing on every
-// comment its submitter writes, and refuse the only request that removes it.
-// Same reasoning as GetUserCollectionsContainingEntity in PSY-1939.
+// not one was there — no body, no rows-affected count — so there is nothing for
+// a gate to withhold and no oracle for one to close. Gating it would add a
+// failure mode and remove the last direct path to a row the watching list
+// already hides. Same reasoning as GetUserCollectionsContainingEntity in
+// PSY-1939.
+//
+// It does NOT rest on "otherwise the mail keeps coming": the fan-out gate in
+// this same ticket already stops that. The row simply persists, invisible, and
+// this is what removes it.
 func (h *CommentSubscriptionHandler) UnsubscribeHandler(ctx context.Context, req *UnsubscribeRequest) (*struct{}, error) {
 	user := middleware.GetUserFromContext(ctx)
 	if user == nil {

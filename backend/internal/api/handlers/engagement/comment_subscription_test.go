@@ -19,6 +19,117 @@ func testCommentSubscriptionHandler() *CommentSubscriptionHandler {
 }
 
 // ============================================================================
+// The gate's DENY side (PSY-1983)
+// ============================================================================
+//
+// Every other test in this file opts out with testhelpers.AllShowsVisible(),
+// because the gate is not their subject. That makes this the only place in the
+// FAST suite where the refusal branches are executed at all: the end-to-end
+// matrix in api/routes needs Postgres and skips under -short, so without these a
+// refactor that inverted the condition, dropped the `!`, or wired a nil checker
+// into a new route would pass the whole handler suite.
+//
+// The mock denies everything, which is the zero value's behaviour anyway; it is
+// spelled out so the intent is legible beside its AllShowsVisible() neighbours.
+func denyingSubscriptionHandler(svc *testhelpers.MockCommentSubscriptionService) *CommentSubscriptionHandler {
+	return NewCommentSubscriptionHandler(svc, nil, &testhelpers.MockShowVisibility{
+		ShowVisibleToFn: func(uint, contracts.ShowViewer) bool { return false },
+	})
+}
+
+// A refused subscribe must not reach the service, or the row is written and only
+// the response is withheld.
+func TestSubscribe_GatedShowRefusesWithoutTouchingTheService(t *testing.T) {
+	called := false
+	h := denyingSubscriptionHandler(&testhelpers.MockCommentSubscriptionService{
+		SubscribeFn: func(uint, string, uint) error {
+			called = true
+			return nil
+		},
+	})
+
+	_, err := h.SubscribeHandler(
+		testhelpers.CtxWithUser(&authm.User{ID: 1}),
+		&SubscribeRequest{EntityType: "show", EntityID: "42"},
+	)
+	testhelpers.AssertHumaError(t, err, 404)
+	if called {
+		t.Error("the subscription was created for a show the caller cannot see")
+	}
+}
+
+func TestMarkRead_GatedShowRefusesWithoutTouchingTheService(t *testing.T) {
+	called := false
+	h := denyingSubscriptionHandler(&testhelpers.MockCommentSubscriptionService{
+		MarkReadFn: func(uint, string, uint) error {
+			called = true
+			return nil
+		},
+	})
+
+	_, err := h.MarkReadHandler(
+		testhelpers.CtxWithUser(&authm.User{ID: 1}),
+		&MarkReadRequest{EntityType: "show", EntityID: "42"},
+	)
+	testhelpers.AssertHumaError(t, err, 404)
+	if called {
+		t.Error("the last-read pointer moved on a show the caller cannot see")
+	}
+}
+
+// The status route is the one that must NOT refuse: it answers exactly as it
+// does for a show nobody is subscribed to, so a 404 cannot confirm the id and a
+// truthful count cannot report activity.
+func TestSubscriptionStatus_GatedShowAnswersNotSubscribed(t *testing.T) {
+	h := denyingSubscriptionHandler(&testhelpers.MockCommentSubscriptionService{
+		IsSubscribedFn: func(uint, string, uint) (bool, error) { return true, nil },
+		GetUnreadCountFn: func(uint, string, uint) (int, error) {
+			return 7, nil
+		},
+	})
+
+	resp, err := h.SubscriptionStatusHandler(
+		testhelpers.CtxWithUser(&authm.User{ID: 1}),
+		&SubscriptionStatusRequest{EntityType: "show", EntityID: "42"},
+	)
+	if err != nil {
+		t.Fatalf("the status route refused instead of answering: %v", err)
+	}
+	if resp.Body.Subscribed {
+		t.Error("the status route confirmed a subscription to a show the caller cannot see")
+	}
+	if resp.Body.UnreadCount != 0 {
+		t.Errorf("unread_count = %d, want 0 — a live count is a running activity signal",
+			resp.Body.UnreadCount)
+	}
+}
+
+// The gate is show-scoped, and its pass-through for other entity types is a
+// deliberate default-open, not an oversight. Pinned here so a future edit that
+// makes the gate refuse everything is caught as a behaviour change rather than
+// shipped as a silent lockout of artist and venue subscriptions.
+func TestSubscribe_NonShowEntityIsNotRefusedByTheShowGate(t *testing.T) {
+	called := false
+	h := denyingSubscriptionHandler(&testhelpers.MockCommentSubscriptionService{
+		SubscribeFn: func(uint, string, uint) error {
+			called = true
+			return nil
+		},
+	})
+
+	_, err := h.SubscribeHandler(
+		testhelpers.CtxWithUser(&authm.User{ID: 1}),
+		&SubscribeRequest{EntityType: "artist", EntityID: "42"},
+	)
+	if err != nil {
+		t.Fatalf("the show gate refused an ARTIST subscription: %v", err)
+	}
+	if !called {
+		t.Error("the artist subscription never reached the service")
+	}
+}
+
+// ============================================================================
 // SubscribeHandler Tests
 // ============================================================================
 

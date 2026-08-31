@@ -181,10 +181,22 @@ type watchingRow struct {
 //
 // Suppression, not deletion. The row stays, the gate is re-evaluated on every
 // read, and republishing the show brings the entry back with its unread count
-// intact.
+// intact — the unread count reads the comments table directly, so it recovers
+// even for comments posted while the show was gated. The NOTIFICATIONS about
+// those comments do not: the fan-out declined to mint them and nothing restores
+// what was never written (see VisibleShowRecipientsSQL).
 func (s *CommentSubscriptionService) ListWatching(viewer contracts.ShowViewer, limit, offset int) ([]contracts.WatchingItem, int64, error) {
 	if s.db == nil {
 		return nil, 0, errors.New("database not initialized")
+	}
+	// The zero viewer is a construction bug here, and it must not answer quietly.
+	// ShowViewer{} is the codebase's deliberate spelling for the PUBLIC TIER on
+	// the listing gates (see services/shared/show_visibility.go), so a caller
+	// following that idiom onto this self-scoped method would otherwise get a
+	// silent, permanent "you are watching nothing" instead of an error. Loud, for
+	// the same reason the nil handle above is loud.
+	if viewer.UserID == 0 {
+		return nil, 0, errors.New("ListWatching is self-scoped: the viewer carries no user id")
 	}
 
 	if limit <= 0 {

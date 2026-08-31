@@ -24,16 +24,26 @@ type EntityNameRow struct {
 // is logged and skipped so callers degrade to their fallback rendering.
 // Returns nested map[entityType]map[entityID]EntityNameRow.
 //
-// NO VISIBILITY RULE IS APPLIED HERE, and a caller passing a show id gets that
-// show's title and slug whatever its status. That is the caller's to decide, and
-// both callers decide it the same way: they drop the ROW before they get here,
-// rather than asking for a name and hiding it (PSY-1983). Suppressing the entry
-// and suppressing its count is the only thing that removes the signal —
-// a de-identified row is still a row, and its position in a list is the
-// disclosure restated.
+// NO VISIBILITY RULE IS APPLIED HERE, for any entity type. A caller passing a
+// show id gets that show's title and slug whatever its status, and a caller
+// passing a collection id gets a PRIVATE collection's name and slug.
 //
-// So a new caller must gate its ids first. shared.VisibleShowCommentEntitySQL is
-// the condition both existing ones use.
+// For SHOW-typed rows that is the caller's to decide, and both callers decide it
+// the same way: they drop the ROW before they get here, rather than asking for a
+// name and hiding it (PSY-1983). Suppressing the entry and suppressing its count
+// is the only thing that removes the signal — a de-identified row is still a
+// row, and its position in a list is the disclosure restated.
+//
+// For COLLECTION-typed rows NOTHING gates them, and that is a KNOWN OPEN LEAK
+// rather than a claim of safety: collections have a read-time rule of their own
+// (is_public OR the owner, services/community/collection.go) which neither
+// caller consults, so a subscription to a guessed private-collection id renders
+// its name, slug and comment activity. Pre-existing, not closed by PSY-1983,
+// which scoped itself to shows. Disclosed rather than silently inherited.
+//
+// So a new caller must gate its ids first, and must not assume the existing
+// callers gate anything but shows. shared.VisibleShowCommentEntitySQL is the
+// condition both use.
 func LoadCommentEntityNames(db *gorm.DB, idsByType map[string][]uint) map[string]map[uint]EntityNameRow {
 	out := make(map[string]map[uint]EntityNameRow, len(idsByType))
 	for entityType, ids := range idsByType {

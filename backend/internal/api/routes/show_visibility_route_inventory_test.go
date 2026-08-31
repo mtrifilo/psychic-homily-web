@@ -28,14 +28,23 @@ import (
 // these are locked".
 //
 // KNOWN LIMIT, stated so nobody reads this as an exhaustive sweep: it matches on
-// PATH SHAPE, so it sees only routes that carry a show id in the path. Two other
-// families reach a show and are invisible here — routes addressed by a
-// SUB-RESOURCE id whose handler resolves the show from it (/comments/{id},
-// /comments/{id}/replies, /collections/{slug}), and routes that take the entity
-// type as a QUERY parameter (/tags/{id}/entities?entity_type=show,
-// /auth/collections/contains). Both families have leaked in practice. Extending
-// the guard to them means driving it off the handler set rather than the path,
-// which is the follow-up this paragraph exists to name.
+// PATH SHAPE, so it sees only routes that carry a show id in the path. THREE
+// other families reach a show and are invisible here:
+//
+//   - routes addressed by a SUB-RESOURCE id whose handler resolves the show from
+//     it (/comments/{id}, /comments/{id}/replies, /collections/{slug});
+//   - routes that take the entity type as a QUERY parameter
+//     (/tags/{id}/entities?entity_type=show, /auth/collections/contains);
+//   - SELF-SCOPED routes addressed by the CALLER, which name no entity at all in
+//     the path and yet enumerate shows in their payload — /me/comment-subscriptions,
+//     /me/notifications, /me/notifications/mark-read. PSY-1983 is this family's
+//     first recorded instance, and it is the one this guard is least able to
+//     anticipate: the next /me/… surface that renders show titles (a digest, an
+//     activity feed, an export) will trip nothing here.
+//
+// All three have leaked in practice. Extending the guard to them means driving it
+// off the handler set rather than the path, which is the follow-up this paragraph
+// exists to name.
 
 // showRouteDisposition records why a show-addressable operation is safe.
 type showRouteDisposition int
@@ -125,9 +134,9 @@ var showAddressableRoutes = map[string]showRouteDisposition{
 	"POST /shows/{show_id}/sold-out":     selfScoped,
 	"POST /shows/{show_id}/cancelled":    selfScoped,
 	// Deliberately NOT gated, and self-scoped is the honest reading: it deletes
-	// the caller's own row and answers the same whether one was there. Gating it
-	// would strand a subscriber whose show was taken private after they
-	// subscribed, with no way to stop the mail (PSY-1983).
+	// the caller's own row and answers identically whether one was there, so it
+	// publishes nothing and offers no oracle. Gating it would only remove the
+	// last direct path to a row the watching list already hides (PSY-1983).
 	"DELETE /entities/{entity_type}/{entity_id}/subscribe": selfScoped,
 
 	// The follow family. The ticket names "followers routes" as a leak, and they

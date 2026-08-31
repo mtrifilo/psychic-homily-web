@@ -233,9 +233,21 @@ func VisibleShowCommentEntitySQL(entityTypeExpr, entityIDExpr string, viewer con
 // It has NO admin branch, and cannot have one: the branch would need each row's
 // is_admin, which is a second join for a bypass whose only effect is to keep
 // pushing mail about a show that has been taken private. A gated show's fan-out
-// therefore reaches its submitter and nobody else, admin included. That is the
-// recoverable direction — a withheld push is re-sent by the next comment once
-// the show is published again, while a sent one cannot be recalled.
+// therefore reaches its submitter and nobody else, admin included.
+//
+// THIS GATE IS FINAL, and it is the one place in PSY-1983 that is. Every other
+// gate the ticket adds suppresses at READ time, so republishing the show brings
+// the withheld rows back. A fan-out that declines to write mints nothing, and
+// nothing is what republication restores: activity during the gated window is
+// never delivered, by any channel, to anyone the gate excluded. That asymmetry
+// is deliberate — a push cannot be recalled, so the write side has to be decided
+// once, at the moment of sending, and the recoverable direction is to withhold.
+// The next comment after republication notifies normally.
+//
+// The admin consequence is worth stating plainly, because it is visible: an
+// admin subscribed to a show that goes private keeps SEEING it (their watching
+// list and the inbox's read gate both grant them the admin tier) while receiving
+// no bell row and no mail for anything posted during the window.
 //
 // recipientIDExpr is SQL the CALLER controls and must be a literal in the
 // calling code. Nothing derived from a request may reach it; showID is bound.

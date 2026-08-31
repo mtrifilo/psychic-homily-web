@@ -161,6 +161,13 @@ func TestCommentSubscriptionsMirrorTheDetailRoute(t *testing.T) {
 		{"an admin", token(admin), true},
 	}
 
+	// THE SUBTESTS BELOW SHARE MUTABLE STATE AND MUST RUN IN ORDER. mark-all
+	// writes read_at, and the fan-out subtest seeds two more comments; both are
+	// preconditions of the republication assertion's row and unread counts. Go
+	// runs subtests in declaration order, so this holds by default — but `-run`
+	// on a single subtest will fail, and the failure will look like a product
+	// bug rather than an isolation artefact. Run the whole test.
+
 	// The route every gate below mirrors, pinned here as well as in the sibling
 	// file: these two files gate different surfaces on one rule, and a change to
 	// the rule must fail in both rather than leave them describing different
@@ -242,12 +249,14 @@ func TestCommentSubscriptionsMirrorTheDetailRoute(t *testing.T) {
 				}
 				continue
 			}
-			// Two assertions, and the second is not redundant. Matching the
-			// absent id is the no-oracle property, but a prior subtest that
-			// subscribed or marked-read the absent id could make BOTH answers
-			// wrong in the same way and the comparison would still hold. So the
-			// content is pinned outright as well: the answer is the one an
-			// unsubscribed caller gets, whatever else has happened.
+			// Two assertions, and the CONTENT PIN is the load-bearing one.
+			//
+			// The absent-id comparison holds largely BY CONSTRUCTION: ShowVisibleTo
+			// fails closed on a missing show, so a gated id and an unused one leave
+			// the handler from the same line. That makes it a cheap regression
+			// guard against someone giving the gated path its own answer — not
+			// proof of anything on its own, since both sides would leak together.
+			// The pin below can actually fail, so it carries the property.
 			if gatedCode == http.StatusOK {
 				var parsed contracts.SubscriptionStatusResponse
 				if err := json.Unmarshal(gatedBody, &parsed); err != nil {
@@ -321,40 +330,77 @@ func TestCommentSubscriptionsMirrorTheDetailRoute(t *testing.T) {
 	// The notification inbox, fed by the same enrichment. The rows here were
 	// minted while the show was public and legitimate at the time, which is what
 	// the subscribe gate alone cannot reach.
+	// ALL FOUR TIERS, because the admin tier is the only one with a bypass
+	// branch of its own in the predicate (`if viewer.IsAdmin`), and a branch no
+	// test reads is a branch a later edit can delete or invert for free.
 	t.Run("the notification inbox suppresses the entry and its unread count", func(t *testing.T) {
-		strangerBody := assertInbox(t, get, token(stranger), "after the show is gated", 1, 1)
-		if strings.Contains(string(strangerBody), watchGatedTitle) ||
-			strings.Contains(string(strangerBody), watchGatedComment) {
-			t.Errorf("the inbox published the gated show to a stranger; body: %s", strangerBody)
+		for _, c := range callers {
+			if c.token == "" {
+				if code, _ := get(t, "/me/notifications?limit=100", ""); code != http.StatusUnauthorized {
+					t.Errorf("the inbox answered anonymous %d, want 401", code)
+				}
+				continue
+			}
+			// Everyone was subscribed to both shows and both comments were fanned
+			// out, so the tiers differ only in whether the gated show's row
+			// survives: two rows for those the detail route grants it, one for
+			// those it does not.
+			wantRows, wantUnread := 1, int64(1)
+			if c.mayRead {
+				wantRows, wantUnread = 2, 2
+			}
+			body := assertInbox(t, get, c.token, "the inbox for "+c.name, wantRows, wantUnread)
+
+			if c.mayRead {
+				if !strings.Contains(string(body), watchGatedTitle) {
+					t.Errorf("the inbox withheld the gated show from %s, who may read it; body: %s", c.name, body)
+				}
+			} else if strings.Contains(string(body), watchGatedTitle) ||
+				strings.Contains(string(body), watchGatedComment) {
+				t.Errorf("the inbox published the gated show to %s; body: %s", c.name, body)
+			}
+			if !strings.Contains(string(body), watchOpenTitle) {
+				t.Errorf("the inbox dropped the APPROVED show's row for %s; body: %s", c.name, body)
+			}
 		}
-		if !strings.Contains(string(strangerBody), watchOpenTitle) {
-			t.Errorf("the inbox dropped the APPROVED show's row too; body: %s", strangerBody)
-		}
-		// The submitter's own inbox is the control on the other side: their two
-		// rows both survive, because the detail route grants them the show.
-		assertInbox(t, get, token(submitter), "the submitter's inbox", 2, 2)
 	})
 
 	// The counted write. Mark-all reports how many rows it flipped, so a run
 	// that touched the hidden rows would publish the withheld count as one
 	// integer, whatever the list showed.
+	//
+	// The stranger and the admin are run as a PAIR, because one number alone
+	// proves nothing: 1 is only meaningful beside the 2 the same call returns to
+	// somebody who can see both rows.
 	t.Run("mark-all counts only what the inbox showed", func(t *testing.T) {
-		code, body := do(t, http.MethodPost, "/me/notifications/mark-read", token(stranger), []byte(`{}`))
-		if code != http.StatusOK {
-			t.Fatalf("mark-all as a stranger = %d; body: %s", code, body)
+		markAll := func(t *testing.T, credential, who string) (int64, int64) {
+			t.Helper()
+			code, body := do(t, http.MethodPost, "/me/notifications/mark-read", credential, []byte(`{}`))
+			if code != http.StatusOK {
+				t.Fatalf("mark-all as %s = %d; body: %s", who, code, body)
+			}
+			var parsed struct {
+				UpdatedCount int64 `json:"updated_count"`
+				UnreadCount  int64 `json:"unread_count"`
+			}
+			if err := json.Unmarshal(body, &parsed); err != nil {
+				t.Fatalf("parse mark-all response for %s: %v; body: %s", who, err, body)
+			}
+			return parsed.UpdatedCount, parsed.UnreadCount
 		}
-		var parsed struct {
-			UpdatedCount int64 `json:"updated_count"`
-			UnreadCount  int64 `json:"unread_count"`
+
+		// The admin first: they see both rows, so they flip both. Doing this
+		// before the stranger also proves the two accounts' rows are independent.
+		if updated, unread := markAll(t, token(admin), "an admin"); updated != 2 || unread != 0 {
+			t.Errorf("mark-all for an admin = %d flipped / %d unread, want 2/0", updated, unread)
 		}
-		if err := json.Unmarshal(body, &parsed); err != nil {
-			t.Fatalf("parse mark-all response: %v; body: %s", err, body)
+
+		updated, unread := markAll(t, token(stranger), "a stranger")
+		if updated != 1 {
+			t.Errorf("mark-all flipped %d rows for a stranger who could see 1 — the count names the hidden row", updated)
 		}
-		if parsed.UpdatedCount != 1 {
-			t.Errorf("mark-all flipped %d rows for a stranger who could see 1 — the count names the hidden row", parsed.UpdatedCount)
-		}
-		if parsed.UnreadCount != 0 {
-			t.Errorf("unread after mark-all = %d, want 0", parsed.UnreadCount)
+		if unread != 0 {
+			t.Errorf("unread after mark-all = %d, want 0", unread)
 		}
 	})
 
@@ -402,10 +448,16 @@ func TestCommentSubscriptionsMirrorTheDetailRoute(t *testing.T) {
 		}
 	})
 
-	// Suppression, not deletion. The rows were never removed, the gate is
-	// re-evaluated on every read, and publishing the show again restores the
-	// entry with the unread count it was withheld with — which is why mark-all
-	// above was not allowed to mark it seen.
+	// Suppression, not deletion — for the rows that EXIST. The gate is
+	// re-evaluated on every read, so publishing the show again restores them
+	// still unread, which is why mark-all above was not allowed to mark them
+	// seen.
+	//
+	// It does NOT restore what the fan-out declined to write. The subtest above
+	// proved no row was minted for the stranger for the comment posted during
+	// the gated window, and nothing backfills it: read-time suppression is
+	// reversible, the write-time gate is final. The counts below are asserted
+	// with that in mind.
 	t.Run("republishing restores the entry and its backlog", func(t *testing.T) {
 		if err := td.DB.Model(&catalogm.Show{}).Where("id = ?", gated.ID).
 			Update("status", catalogm.ShowStatusApproved).Error; err != nil {
@@ -420,9 +472,17 @@ func TestCommentSubscriptionsMirrorTheDetailRoute(t *testing.T) {
 			t.Errorf("after republication total=%d beside %d rows", total, len(items))
 		}
 
-		// Two rows again — the one minted before it was gated and the one minted
-		// while it was — and both still unread, because mark-all was not allowed
-		// to touch what the inbox had not shown.
+		// THREE rows, and naming them is the point, because the obvious reading
+		// of this number is wrong:
+		//   1. the gated show's comment from BEFORE it was gated — restored,
+		//      still unread, because mark-all could not touch what it could not
+		//      see;
+		//   2. the open show's first comment — read, by that same mark-all;
+		//   3. the open show's later comment — unread.
+		// So two unread. The gated show's DURING-window comment is absent and
+		// always will be: the fan-out never wrote it. If a future change makes
+		// this 4, that is not "the backlog arrived", it is the write gate having
+		// been removed.
 		restored := assertInbox(t, get, token(stranger), "after republication", 3, 2)
 		if !strings.Contains(string(restored), watchGatedTitle) {
 			t.Errorf("the inbox did not restore the republished show's title; body: %s", restored)
