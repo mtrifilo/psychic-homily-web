@@ -1134,24 +1134,39 @@ func inboxVisibleRows(alias string) string {
 // since the notification was minted still passes (the inbox already degrades to
 // a plain "new comment" line for it), while a comment on a show that is gated or
 // gone does not, because VisibleShowExistsSQL answers false for both.
+// It is an ADAPTER, not a second rule: the visibility decision is
+// shared.VisibleShowExistsSQL's, and what this adds is the walk from a
+// notification row to the show — which entity types carry a comment id, and how
+// a comment names its parent. That vocabulary belongs to this package's table,
+// which is why the adapter lives here rather than beside the rule.
 func visibleShowCommentRows(alias string, viewer contracts.ShowViewer) (string, []interface{}) {
 	if viewer.IsAdmin {
 		return "1 = 1", nil
 	}
-	types := make([]string, 0, len(commentNotificationEntityTypes))
-	for entityType := range commentNotificationEntityTypes {
-		types = append(types, "'"+entityType+"'")
-	}
-	// Sorted so the statement text is stable across map iterations, which keeps
-	// prepared-statement caching and test golden output from depending on it.
-	sort.Strings(types)
-
 	gated, args := shared.VisibleShowExistsSQL("inbox_comment.entity_id", viewer)
-	return "(" + alias + ".entity_type NOT IN (" + strings.Join(types, ", ") + ")" +
+	return "(" + alias + ".entity_type NOT IN (" + commentNotificationEntityTypeList + ")" +
 		" OR NOT EXISTS (SELECT 1 FROM comments inbox_comment" +
 		" WHERE inbox_comment.id = " + alias + ".entity_id" +
 		" AND inbox_comment.entity_type = '" + shared.CommentEntityTypeShow + "'" +
 		" AND NOT " + gated + "))", args
+}
+
+// commentNotificationEntityTypeList is commentNotificationEntityTypes as a SQL
+// IN-list, built once.
+//
+// Derived from the map rather than written out, so adding an entity type there
+// reaches this predicate without a second edit. Sorted because Go randomises map
+// iteration, and an unstable statement string would defeat prepared-statement
+// caching and make the SQL differ run to run for no reason.
+var commentNotificationEntityTypeList = buildCommentNotificationEntityTypeList()
+
+func buildCommentNotificationEntityTypeList() string {
+	types := make([]string, 0, len(commentNotificationEntityTypes))
+	for entityType := range commentNotificationEntityTypes {
+		types = append(types, "'"+entityType+"'")
+	}
+	sort.Strings(types)
+	return strings.Join(types, ", ")
 }
 
 // notifiedAboutShow is the predicate for "this user has ALREADY been told about

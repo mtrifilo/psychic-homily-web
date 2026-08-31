@@ -338,7 +338,7 @@ func (s *CommentNotificationService) NotifySubscribers(commentID uint) error {
 		Where("cs.user_id <> ?", comment.UserID).
 		Where("u.is_active = TRUE").
 		Where("u.deleted_at IS NULL")
-	q = whereRecipientMaySeeCommentParent(q, comment, "cs.user_id")
+	q = whereRecipientMaySeeCommentParent(q, &comment, "cs.user_id")
 	err := q.Scan(&rows).Error
 	if err != nil {
 		return fmt.Errorf("failed to load subscribers: %w", err)
@@ -436,7 +436,10 @@ func (s *CommentNotificationService) NotifySubscribers(commentID uint) error {
 // literal at each call site: the subscriber query joins users through
 // comment_subscriptions, the mention query reads the users table directly, so
 // they name different columns for the same thing.
-func whereRecipientMaySeeCommentParent(q *gorm.DB, comment engagementm.Comment, recipientIDExpr string) *gorm.DB {
+// Takes the comment by POINTER: both callers hold one with its User association
+// preloaded, and a value parameter copies that whole graph on every fan-out to
+// read two fields off it.
+func whereRecipientMaySeeCommentParent(q *gorm.DB, comment *engagementm.Comment, recipientIDExpr string) *gorm.DB {
 	if string(comment.EntityType) != shared.CommentEntityTypeShow {
 		return q
 	}
@@ -517,7 +520,7 @@ func (s *CommentNotificationService) NotifyMentioned(commentID uint) error {
 		Where("LOWER(u.username) IN ?", mentions).
 		Where("u.is_active = TRUE").
 		Where("u.deleted_at IS NULL")
-	q = whereRecipientMaySeeCommentParent(q, comment, "u.id")
+	q = whereRecipientMaySeeCommentParent(q, &comment, "u.id")
 	err := q.Scan(&rows).Error
 	if err != nil {
 		return fmt.Errorf("failed to resolve mentioned users: %w", err)
