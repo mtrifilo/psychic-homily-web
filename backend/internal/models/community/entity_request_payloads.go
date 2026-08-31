@@ -137,13 +137,14 @@ type ShowRequestPayload struct {
 	// Nothing writes a bill until a producer ships, so this binds at the FIRST
 	// PRODUCER, not here.
 	//
-	// RESUBMITTING THE SAME TITLE CORRECTS THE QUEUED REQUEST, which is what a
-	// producer author needs to know before writing a retry loop: CreateRequest
-	// dedups on (entity_type, requester, lower(trim(title))), and on a collision
-	// the resubmission REPLACES the pending row's whole payload rather than
-	// filing a second one (PSY-1948). So a contributor who files a show with no
-	// bill, learns the bill, and resubmits the same title now has the bill
-	// stored on the queued request, and the response says replaced: true.
+	// RESUBMITTING THE SAME TITLE ON THE SAME DATE CORRECTS THE QUEUED REQUEST,
+	// which is what a producer author needs to know before writing a retry loop:
+	// CreateRequest dedups on (entity_type, requester, lower(trim(title)),
+	// trim(event_date)), and on a collision the resubmission REPLACES the pending
+	// row's whole payload rather than filing a second one (PSY-1948). So a
+	// contributor who files a show with no bill, learns the bill, and resubmits
+	// the same title and date now has the bill stored on the queued request, and
+	// the response says replaced: true.
 	//
 	// Four consequences follow.
 	//
@@ -151,16 +152,17 @@ type ShowRequestPayload struct {
 	// carried drops it from the queued request — resubmit the complete show, not
 	// a patch.
 	//
-	// The dedup key is the TITLE ALONE — event_date is NOT in it — which cuts two
-	// ways. Correcting a misspelled title files a SECOND request rather than
-	// fixing the first; only an admin decision clears the original. And two
-	// GENUINELY DIFFERENT shows that share a title, which is exactly what a
-	// residency or a recurring night looks like, collide: queueing "Open Mic" for
-	// October REPLACES a queued September one, date and bill included, and the
-	// September request is gone. Queue the second only after the first is decided,
-	// or title them distinguishably. The pre-PSY-1948 behavior lost a request here
-	// too — it silently discarded the NEW one — so this is the dedup key's
-	// deficiency rather than the replacement's, but the request it loses changed.
+	// A resubmission that CHANGES either half of the key files a SECOND request
+	// rather than fixing the first, and only an admin decision clears the
+	// original. That covers correcting a misspelled title, and also correcting the
+	// date or the time of day — the whole event_date string is the key's
+	// occurrence term, matching the catalog's own show dedup key, which is the
+	// full timestamp so a matinee and an evening set stay distinct (PSY-559).
+	// Nothing is destroyed either way; the cost is a stale row an admin must
+	// reject. Two same-titled shows on different dates, which is exactly what a
+	// residency or a recurring night looks like, are therefore two queued requests
+	// (PSY-1977). Before that they collided, and queueing "Open Mic" for October
+	// destroyed a queued September one, date and bill included.
 	//
 	// It applies only to QUEUEING tiers: a submission that auto-approves (admin,
 	// local_ambassador, a confirmed trusted_contributor) is stamped 'approved'

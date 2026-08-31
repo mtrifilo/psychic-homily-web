@@ -28,7 +28,9 @@ type EntityRequestServiceInterface interface {
 	// (nil = none).
 	//
 	// On a duplicate PENDING request (same entity_type + requester + normalized
-	// name) it does NOT error (PSY-1008): the resubmission REPLACES that pending
+	// name + occurrence date, the last being a show's event_date or a festival's
+	// start_date — PSY-1977) it does NOT error (PSY-1008): the resubmission
+	// REPLACES that pending
 	// row's payload, source_context and source_detail, and the refreshed row is
 	// returned with replaced=true (PSY-1948). Only a PENDING row is ever written,
 	// so the caller must not treat a replacement as a fresh decision — and must

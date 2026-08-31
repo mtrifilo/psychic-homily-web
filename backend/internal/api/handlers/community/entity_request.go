@@ -114,7 +114,7 @@ type CreateEntityRequestResponseBody struct {
 	*EntityRequestFields
 	// A client that reports "queued" for both a fresh request and a replacement
 	// leaves a contributor unable to tell their correction landed.
-	Replaced bool `json:"replaced" doc:"True when this submission replaced the requester's existing pending request for the same name (a correction) rather than filing a new one. The returned id is that queued request's. Only a PENDING request is ever replaced; read decision_state for the row's state, which an admin can decide the moment the replacement lands."`
+	Replaced bool `json:"replaced" doc:"True when this submission replaced the requester's existing pending request (a correction) rather than filing a new one. A request matches an existing one when the name (or title) AND the occurrence date match; a show or festival on a different date is a different request and files its own row. The returned id is the queued request's. Only a PENDING request is ever replaced; read decision_state for the row's state, which an admin can decide the moment the replacement lands."`
 }
 
 // CreateEntityRequestHandler handles POST /entity-requests.
@@ -126,11 +126,15 @@ type CreateEntityRequestResponseBody struct {
 // auto-approve. This handler is a thin validator + pass-through.
 //
 // PSY-1948 — RESUBMISSION REPLACES: a request matching an existing PENDING one
-// on (entity_type, requester, normalized name) overwrites that row's payload,
-// source_context and source_detail instead of filing a second row, and the
-// response reports replaced: true on the queued row's own id. A resubmission is
-// how a contributor corrects a queued request, and returning the stored payload
-// discarded the correction behind a 2xx.
+// on (entity_type, requester, normalized name, occurrence) overwrites that row's
+// payload, source_context and source_detail instead of filing a second row, and
+// the response reports replaced: true on the queued row's own id. A resubmission
+// is how a contributor corrects a queued request, and returning the stored
+// payload discarded the correction behind a 2xx.
+//
+// PSY-1977 — the occurrence is the payload's own date (a show's event_date, a
+// festival's start_date), and it is in the key so that a recurring night queued
+// twice is two requests. Without it the second submission destroyed the first.
 //
 // Only a PENDING row is ever written: the dedup index is pending-only and the
 // UPDATE is conditional on the state, so a decided request is never rewritten.

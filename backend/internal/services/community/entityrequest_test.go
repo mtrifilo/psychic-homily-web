@@ -81,13 +81,34 @@ func (suite *EntityRequestServiceIntegrationTestSuite) requireStored(requestID u
 	return stored
 }
 
-// marshalShow builds a typed show payload, optionally carrying the bill the
-// contributor knew (PSY-1858). The title is the dedup key for a show request.
+// marshalShow builds a typed show payload on a fixed date, optionally carrying
+// the bill the contributor knew (PSY-1858). Title AND event_date together are
+// the dedup key for a show request (PSY-1977), so a test that varies only the
+// bill must hold the date fixed — which this does.
 func (suite *EntityRequestServiceIntegrationTestSuite) marshalShow(title string, artists ...communitym.ShowRequestArtist) []byte {
+	return suite.marshalShowOn(title, "2026-09-12T21:00:00-07:00", artists...)
+}
+
+// marshalShowOn builds a typed show payload on a caller-chosen event_date, for
+// the tests that exercise the date half of the dedup key.
+func (suite *EntityRequestServiceIntegrationTestSuite) marshalShowOn(title, eventDate string, artists ...communitym.ShowRequestArtist) []byte {
 	raw, err := communitym.MarshalPayload(communitym.ShowRequestPayload{
 		Title:     title,
-		EventDate: "2026-09-12T21:00:00-07:00",
+		EventDate: eventDate,
 		Artists:   artists,
+	})
+	suite.Require().NoError(err)
+	return raw
+}
+
+// marshalFestival builds a typed festival payload. start_date is the festival's
+// half of the dedup key's occurrence term (PSY-1977).
+func (suite *EntityRequestServiceIntegrationTestSuite) marshalFestival(name string, editionYear int, startDate, endDate string) []byte {
+	raw, err := communitym.MarshalPayload(communitym.FestivalRequestPayload{
+		Name:        name,
+		EditionYear: editionYear,
+		StartDate:   startDate,
+		EndDate:     endDate,
 	})
 	suite.Require().NoError(err)
 	return raw
@@ -618,6 +639,136 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_ResubmissionUn
 	var count int64
 	suite.Require().NoError(suite.db.Model(&communitym.EntityRequest{}).Count(&count).Error)
 	suite.Assert().Equal(int64(2), count, "the misspelled request stays queued until an admin decides it")
+}
+
+// PSY-1977: a recurring night is the domain's normal case, not an edge one. Two
+// same-titled shows on DIFFERENT dates from one requester are two distinct
+// requests, so both must survive as separate pending rows. Before the date
+// joined the dedup key the second submission REPLACED the first, and the
+// September request was gone.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_SameTitleDifferentDate_FilesASecondRequest() {
+	user := suite.createUser("recurring", tierContributor, false)
+
+	september, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
+		suite.marshalShowOn("Open Mic", "2026-09-03T20:00:00-07:00"),
+		communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+	suite.Require().False(replaced)
+
+	october, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
+		suite.marshalShowOn("Open Mic", "2026-10-01T20:00:00-07:00"),
+		communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+	suite.Assert().False(replaced, "a different date is a different show, not a correction")
+	suite.Assert().NotEqual(september.ID, october.ID, "it files its own row")
+
+	// The September request must still hold the September date. Read it back
+	// rather than trusting the returned struct: the destruction this guards was a
+	// write to the STORED payload.
+	stored := suite.requireStored(september.ID)
+	suite.Require().NotNil(stored.Payload)
+	suite.Assert().JSONEq(string(suite.marshalShowOn("Open Mic", "2026-09-03T20:00:00-07:00")), string(*stored.Payload),
+		"the earlier request survives untouched")
+	suite.Assert().Equal(communitym.EntityRequestStatePending, stored.DecisionState)
+
+	var count int64
+	suite.Require().NoError(suite.db.Model(&communitym.EntityRequest{}).Count(&count).Error)
+	suite.Assert().Equal(int64(2), count, "both nights are queued")
+}
+
+// The replace-on-resubmit contract (PSY-1948) is unchanged for a TRUE match: the
+// same title on the same date is the same request, and resubmitting it corrects
+// the queued row rather than filing a second one.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_SameTitleSameDate_StillReplaces() {
+	user := suite.createUser("samenight", tierContributor, false)
+
+	first, _, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
+		suite.marshalShowOn("Open Mic", "2026-09-03T20:00:00-07:00"),
+		communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+
+	corrected := suite.marshalShowOn("  open mic  ", "2026-09-03T20:00:00-07:00",
+		communitym.ShowRequestArtist{Name: "Boris"})
+	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
+		corrected, communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+	suite.Assert().True(replaced, "the same night resubmitted is a correction")
+	suite.Assert().Equal(first.ID, second.ID)
+
+	stored := suite.requireStored(first.ID)
+	suite.Require().NotNil(stored.Payload)
+	suite.Assert().JSONEq(string(corrected), string(*stored.Payload))
+
+	var count int64
+	suite.Require().NoError(suite.db.Model(&communitym.EntityRequest{}).Count(&count).Error)
+	suite.Assert().Equal(int64(1), count)
+}
+
+// The occurrence term of the key normalizes the way the name term does: a
+// resubmission whose date carries surrounding whitespace still matches, because
+// both sides are trimmed. A date the payload validator accepts (it trims before
+// parsing) must not become a second request on whitespace alone.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_SameDateWithSurroundingSpace_StillReplaces() {
+	user := suite.createUser("spacedate", tierContributor, false)
+
+	first, _, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
+		suite.marshalShowOn("Emo Night", "2026-09-03T20:00:00-07:00"),
+		communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+
+	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
+		suite.marshalShowOn("Emo Night", " 2026-09-03T20:00:00-07:00 "),
+		communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+	suite.Assert().True(replaced, "whitespace around the date is not a different night")
+	suite.Assert().Equal(first.ID, second.ID)
+}
+
+// A festival's occurrence term is start_date, which is required exactly as a
+// show's event_date is (PSY-1977). Two editions of one festival share a name and
+// must both stay queued.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_FestivalEditions_AreSeparateRequests() {
+	user := suite.createUser("fest", tierContributor, false)
+
+	first, _, err := suite.service.CreateRequest(user, communitym.EntityRequestFestival,
+		suite.marshalFestival("Psycho Las Vegas", 2026, "2026-08-14", "2026-08-16"),
+		communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+
+	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestFestival,
+		suite.marshalFestival("Psycho Las Vegas", 2027, "2027-08-13", "2027-08-15"),
+		communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+	suite.Assert().False(replaced, "a different edition is a different festival request")
+	suite.Assert().NotEqual(first.ID, second.ID)
+
+	stored := suite.requireStored(first.ID)
+	suite.Require().NotNil(stored.Payload)
+	suite.Assert().JSONEq(string(suite.marshalFestival("Psycho Las Vegas", 2026, "2026-08-14", "2026-08-16")),
+		string(*stored.Payload), "the 2026 edition survives untouched")
+}
+
+// The types with NO occurrence field keep the title-only key they have always
+// had: their occurrence term is the empty string for every row, so it never
+// discriminates. Pinned because the term is NOT NULL by construction — a NULL
+// there would make every row distinct under Postgres's unique-index semantics
+// and silently disable dedup for artist, venue, label and release.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_TypeWithoutADate_StillDedupsOnNameAlone() {
+	user := suite.createUser("nodate", tierContributor, false)
+
+	first, _, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+		suite.marshalArtist("Sleep"), communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+
+	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+		suite.marshalArtist("SLEEP"), communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+	suite.Assert().True(replaced, "an artist request still dedups on the name alone")
+	suite.Assert().Equal(first.ID, second.ID)
+
+	var count int64
+	suite.Require().NoError(suite.db.Model(&communitym.EntityRequest{}).Count(&count).Error)
+	suite.Assert().Equal(int64(1), count)
 }
 
 // The race the conditional UPDATE exists for: an admin decides the row between

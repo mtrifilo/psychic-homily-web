@@ -144,9 +144,16 @@ func (s *EntityRequestService) CreateRequest(
 
 	if err := s.db.Create(req).Error; err != nil {
 		// Dedup (PSY-1008): the partial unique index blocks a second PENDING
-		// request for the same (entity_type, requester, normalized name). The
-		// index is partial on decision_state='pending', so only pending rows can
-		// collide; this never masks a clash on an already-decided row.
+		// request for the same (entity_type, requester, normalized name,
+		// occurrence). The index is partial on decision_state='pending', so only
+		// pending rows can collide; this never masks a clash on an already-decided
+		// row.
+		//
+		// PSY-1977: the occurrence — the payload's own event_date, or a festival's
+		// start_date — joined the key so that two genuinely different requests
+		// sharing a name, which is what a recurring night or a festival's next
+		// edition looks like, are two requests rather than one destroying the
+		// other.
 		//
 		// PSY-1948: the collision REPLACES that pending row's submission rather
 		// than returning it untouched. A resubmission is the requester's current
@@ -188,6 +195,12 @@ func (s *EntityRequestService) CreateRequest(
 //
 // decision_state, requester and created_at are untouched, so the row keeps its
 // identity and its place in the moderation queue.
+//
+// The UPDATE cannot itself violate the dedup index, however many terms that key
+// grows: the row being written is the one whose key EQUALS the new payload's, so
+// the write leaves the key exactly where it was. A resubmission that changes any
+// term of the key is a different request and never reaches here — its INSERT
+// simply succeeds.
 //
 // The UPDATE carries the whole precondition — this row, this entity type, this
 // requester, still pending — the way Decide and the rescue writers do, so the
@@ -265,11 +278,16 @@ func (s *EntityRequestService) replacePendingSubmission(
 
 // findPendingDuplicate returns the existing PENDING request that collides with a
 // would-be-new request on the dedup key (entity_type, requester, normalized
-// name), or (nil, nil) if none. The name comparison uses the SAME Postgres
-// expression as the uq_entity_requests_pending_dedup index —
-// lower(trim(coalesce(payload->>'name', payload->>'title'))) — applied to BOTH
-// the stored row's payload and the candidate payload, so there is no Go-vs-SQL
-// normalization mismatch (e.g. collation-sensitive lowercasing).
+// name, occurrence), or (nil, nil) if none. Both payload-derived terms use the
+// SAME Postgres expressions as the uq_entity_requests_pending_dedup index,
+// applied to BOTH the stored row's payload and the candidate payload, so there
+// is no Go-vs-SQL normalization mismatch (e.g. collation-sensitive lowercasing).
+// The index is what the two must agree on; the migration comment carries the
+// reasoning behind each term.
+//
+// EDIT THESE AS A PAIR WITH THE INDEX. A query narrower than the index answers a
+// unique violation with "no duplicate found" and turns a correction into a 500;
+// a query wider than the index replaces a row the insert never collided with.
 //
 // Nothing is preloaded: replacePendingSubmission BUILDS the row it returns from
 // this one rather than re-reading, so the associations are whatever this query
@@ -278,6 +296,8 @@ func (s *EntityRequestService) replacePendingSubmission(
 func (s *EntityRequestService) findPendingDuplicate(entityType string, requesterID uint, payload []byte) (*communitym.EntityRequest, error) {
 	const storedName = "lower(trim(coalesce(payload->>'name', payload->>'title')))"
 	const candidateName = "lower(trim(coalesce(?::jsonb->>'name', ?::jsonb->>'title')))"
+	const storedOccurrence = "trim(coalesce(payload->>'event_date', payload->>'start_date', ''))"
+	const candidateOccurrence = "trim(coalesce(?::jsonb->>'event_date', ?::jsonb->>'start_date', ''))"
 	candidate := string(payload)
 
 	var existing communitym.EntityRequest
@@ -285,6 +305,7 @@ func (s *EntityRequestService) findPendingDuplicate(entityType string, requester
 		Where("entity_type = ? AND requester_id = ? AND decision_state = ?",
 			entityType, requesterID, communitym.EntityRequestStatePending).
 		Where(storedName+" = "+candidateName, candidate, candidate).
+		Where(storedOccurrence+" = "+candidateOccurrence, candidate, candidate).
 		First(&existing).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
