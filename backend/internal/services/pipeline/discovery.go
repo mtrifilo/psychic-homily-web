@@ -182,10 +182,23 @@ func (s *DiscoveryService) ImportFromJSON(filepath string, dryRun bool) (*contra
 	return result, nil
 }
 
-// checkHeadlinerDuplicate checks if there's an existing non-rejected show with the same
-// headliner at the same venue at the same exact event_date. Returns the matching show or nil.
+// checkHeadlinerDuplicate reports whether the act resolveHeadlinerName picked for
+// this event is already on a bill at the same venue at the same exact event_date,
+// ignoring rejected and private shows. Neither side of the match is necessarily a
+// headliner. Returns the matching show or nil.
 // The dedup key is the FULL event_date timestamp (PSY-559) — matinee and evening sets at
 // the same venue are distinct shows, not duplicates.
+//
+// The stored row matches on curated 'headliner' OR position 0, deliberately broader
+// than catalog's headlineSlotSQL. checkDuplicateHeadlinerConflicts, in
+// internal/services/catalog/show.go, carries the rationale and the reason not to
+// align it.
+//
+// Local consequence: a hit tallies the event as DUPLICATE and skips it, while a miss
+// falls through to the import, where the dedup index refuses a single-venue collision
+// as a raw error instead. Narrowing this predicate turns clean DUPLICATE tallies into
+// ERRORs there, and on a multi-venue show admits the duplicate outright. The status
+// filter above already produces that raw-error outcome for a private colliding show.
 func (s *DiscoveryService) checkHeadlinerDuplicate(headlinerName, venueName string, eventDate time.Time) *catalogm.Show {
 	var existingShow catalogm.Show
 	err := s.db.
@@ -296,7 +309,9 @@ func (s *DiscoveryService) importEvent(event *contracts.DiscoveredEvent, dryRun 
 			event.Title, rejectedShow.ID, venueConfig.Name, eventDate.Format("2006-01-02 15:04")), "rejected"
 	}
 
-	// Check for duplicate: same headliner + venue + date as an existing show.
+	// Check for duplicate: this event's headliner is already on a bill at the
+	// same venue on the same exact date. The stored row it matches need not be
+	// a headliner.
 	// Determine the headliner name from billing data (preferred) or artist list.
 	headlinerName := s.resolveHeadlinerName(event)
 	if headlinerName != "" {
