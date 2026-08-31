@@ -98,7 +98,18 @@ const usCountry = "US"
 // the CBSA metro when the venue rolls up to one, else a (city,state) fallback
 // key. Shared by the scenes list (ListScenes) and the charts summary's
 // active-scenes count — two surfaces disagreeing on what a scene IS would
-// show contradictory scene counts. NOTE the ARTIST-side scene key
+// show contradictory scene counts.
+//
+// Two use modes, and only one of them may stop here. KEYING a batched lookup by
+// group (sceneTimezonesByKey, sceneCalendarWeekCounts; Go-side twin
+// sceneKeyForGroup) wants this key raw, because a group's own key is what those
+// maps are keyed by. ENUMERATING scenes must not: the key is FINER than the
+// published slug, so a drifted venues.metro or a second spelling of one city is
+// two rows for one scene. ListScenes and the charts active-scenes count settle
+// that through collapseSceneGroupsToCanonicalSlug; sitemap.go's sceneEntries
+// and sceneWeekEntries still dedupe by slug inline, with their own winner rules.
+//
+// NOTE the ARTIST-side scene key
 // (sceneGenreCounts) is a separate inline expression with subtly different
 // semantics — it NULLIFs an empty-string metro into the fallback, this one
 // does not (venues get metro from the geocoder, never ''); an identity
@@ -111,6 +122,24 @@ const sceneGroupKeySQL = `COALESCE(v.metro, LOWER(TRIM(v.city)) || '|' || LOWER(
 const sceneVenueEligibilitySQL = `AND v.verified = true
 		  AND v.city IS NOT NULL AND v.city != ''
 		  AND v.state IS NOT NULL AND v.state != ''`
+
+// sceneGroupIdentitySQL projects the three columns that MAKE a sceneVenueGroup
+// out of a `GROUP BY sceneGroupKeySQL` over venues aliased v: the group's CBSA
+// (empty for a fallback group) and its literal city/state. Callers needing
+// further aggregates append them after a comma.
+//
+// Welded to sceneGroupKeySQL, not merely paired with it. MAX(v.metro) is only
+// well defined because that key is the grouping, and MIN(city)/MIN(state) are
+// load-bearing for the collapse: sceneGroupOutranks picks a contested slug's
+// winner by comparing them (byte-wise, with the collation caveat that function
+// documents), so a call site projecting the identity differently stops
+// corresponding to the slug it publishes — silently, since the rows still scan.
+//
+// Call sites: ListScenes below, sitemap.go's listQualifyingScenes and
+// sceneEntries, and the charts summary's activeSceneCount.
+const sceneGroupIdentitySQL = `COALESCE(MAX(v.metro), '') AS metro,
+		       MIN(v.city)  AS city,
+		       MIN(v.state) AS state`
 
 // sceneVenueGroup is one row of the sceneGroupKeySQL grouping: the group's CBSA
 // (empty for a fallback group), its literal city/state, and the counts
@@ -143,6 +172,13 @@ type sceneVenueGroup struct {
 // /shows renders that list keyed by slug and React reconciles the pair
 // undefined (PSY-1831).
 //
+// TWO production callers now, and the second reads only len(): ListScenes
+// publishes the returned rows, while the charts masthead's activeSceneCount
+// counts them (PSY-1949). Any future change to the CARDINALITY of the return —
+// an early return, a skip for groups carrying no counts (which is every group
+// on the charts path, since that caller selects none) — moves a user-visible
+// stat, not just a list. `surface` names the caller in the log below.
+//
 // The survivor is the group ParseSceneSlug resolves the slug to, so the row's
 // counts are the counts its destination page will print. sceneGroupOutranks
 // holds that correspondence and carries a branch per collision shape.
@@ -166,7 +202,7 @@ type sceneVenueGroup struct {
 // venues.metro no longer equals geo.ResolveMetro(city, state), which
 // cmd/backfill-entity-metro repairs. Deduping quietly would leave a fixed
 // symptom sitting on top of a live data fault.
-func collapseSceneGroupsToCanonicalSlug(groups []sceneVenueGroup, g geo.Geocoder) []sceneVenueGroup {
+func collapseSceneGroupsToCanonicalSlug(groups []sceneVenueGroup, g geo.Geocoder, surface string) []sceneVenueGroup {
 	indexesBySlug := make(map[string][]int, len(groups))
 	slugOrder := make([]string, 0, len(groups))
 	for i := range groups {
@@ -210,9 +246,18 @@ func collapseSceneGroupsToCanonicalSlug(groups []sceneVenueGroup, g geo.Geocoder
 	// One line per call, not per collision. ListScenes is uncached and /scenes
 	// also feeds the Atlas globe and the home scene graph, so this repeats until
 	// the data is fixed; that is deliberate, because a once-per-process log goes
-	// quiet after a deploy while the fault is still live.
+	// quiet after a deploy while the fault is still live. The charts caller adds
+	// a slower stream on top (one line per masthead cache miss, ~1/min per key).
+	//
+	// `surface` is not decoration: the two callers see DIFFERENT collision sets.
+	// The directory's is all-time and gated on sceneMinVenues/sceneMinShows, the
+	// masthead's is window-bounded with no floor at all — so it can report a
+	// collision between groups too small to appear on /scenes, and an operator
+	// who checks the directory for it would find one clean row and write the
+	// warning off as noise.
 	slog.Default().Warn(
 		"scene slug collision collapsed; two venue groups publish one scene identity — check venues.metro drift and city spelling variants",
+		"surface", surface,
 		"collisions", contested,
 	)
 	return collapsed
@@ -452,10 +497,10 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 	// Group verified venues by CBSA metro (or by (city,state) when the venue has
 	// no metro), counting distinct venues + approved shows + the upcoming subset
 	// in ONE pass — the FILTER aggregate replaces the former per-scene N+1 query.
-	// COALESCE(MAX(v.metro), '') is the group's CBSA (all rows in a metro group
-	// share it; '' for a fallback group); MIN(city)/MIN(state) is the literal
-	// city/state of a fallback group (a metro group displays its principal city
-	// instead, so its MIN city is unused).
+	// sceneGroupIdentitySQL contributes the group's CBSA + literal city/state. A
+	// metro group displays its principal city instead, so its MIN city goes
+	// unread unless that CBSA no longer resolves in the embedded dataset, which
+	// is metroDisplayIdentity's fallback.
 	// this_week_count is the ≤sceneThisWeekDays slice of the upcoming set
 	// (PSY-1309): it drives the Atlas globe's next-7-days pulse, so it
 	// must share the scene scoping of the other counts — one more FILTER
@@ -463,9 +508,7 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 	weekAhead := now.AddDate(0, 0, sceneThisWeekDays)
 	var groups []sceneVenueGroup
 	err := s.db.Raw(`
-		SELECT COALESCE(MAX(v.metro), '') AS metro,
-		       MIN(v.city)  AS city,
-		       MIN(v.state) AS state,
+		SELECT `+sceneGroupIdentitySQL+`,
 		       COUNT(DISTINCT v.id) AS venue_count,
 		       COUNT(DISTINCT s.id) AS show_count,
 		       COUNT(DISTINCT s.id) FILTER (WHERE s.event_date >= ?) AS upcoming_count,
@@ -487,7 +530,7 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 	// same thing when venues.metro has drifted. Collapsing HERE (rather than
 	// after hydration) also keeps the per-scene calendar-week query below to one
 	// per canonical scene, which is why the sitemap collapses at the same point.
-	groups = collapseSceneGroupsToCanonicalSlug(groups, s.geocoder)
+	groups = collapseSceneGroupsToCanonicalSlug(groups, s.geocoder, "scenes-directory")
 
 	results := make([]*contracts.SceneListResponse, 0, len(groups))
 	if len(groups) == 0 {
