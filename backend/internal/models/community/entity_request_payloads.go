@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -47,6 +48,23 @@ type EntityRequestPayload interface {
 	// package — a new entity_type must add a struct here, which the CI
 	// parity check enforces against the migration's CHECK constraint.
 	entityRequestType() string
+
+	// dedupOccurrenceJSONKey returns the JSON key of the payload field that
+	// distinguishes two requests sharing a name, or "" for a type that has none
+	// (PSY-1977). It is the occurrence term of the pending-request dedup key:
+	// without it, one requester's two "Open Mic" shows collide and the second
+	// submission destroys the first.
+	//
+	// It is on the INTERFACE so that a seventh payload type cannot compile
+	// without stating its answer. Answering "" is a legitimate answer and the
+	// right one for a type whose only date is optional — see ReleaseRequestPayload
+	// — but it has to be a decision rather than an omission, because an omission
+	// silently reinstates the destructive collision.
+	//
+	// Only a REQUIRED field belongs here. An optional one turns "queued without a
+	// date, resubmitted with one" into a second request rather than the correction
+	// it is.
+	dedupOccurrenceJSONKey() string
 }
 
 // ArtistRequestPayload carries the user-supplied fields to create an artist.
@@ -62,6 +80,9 @@ type ArtistRequestPayload struct {
 
 func (ArtistRequestPayload) entityRequestType() string { return EntityRequestArtist }
 
+// An artist is not an occurrence; two requests for one name are one request.
+func (ArtistRequestPayload) dedupOccurrenceJSONKey() string { return "" }
+
 // ReleaseRequestPayload carries the user-supplied fields to create a release.
 type ReleaseRequestPayload struct {
 	Title       string  `json:"title"`
@@ -73,6 +94,13 @@ type ReleaseRequestPayload struct {
 }
 
 func (ReleaseRequestPayload) entityRequestType() string { return EntityRequestRelease }
+
+// release_date is OPTIONAL, so it cannot be the occurrence term: a release
+// queued without a date and resubmitted with one would file a second request
+// instead of correcting the first. Two same-titled releases from one requester
+// therefore still collide. Promoting release_date to required is what would make
+// it eligible — revisit the dedup index in the same change.
+func (ReleaseRequestPayload) dedupOccurrenceJSONKey() string { return "" }
 
 // LabelRequestPayload carries the user-supplied fields to create a label.
 type LabelRequestPayload struct {
@@ -86,6 +114,9 @@ type LabelRequestPayload struct {
 }
 
 func (LabelRequestPayload) entityRequestType() string { return EntityRequestLabel }
+
+// A label is not an occurrence; two requests for one name are one request.
+func (LabelRequestPayload) dedupOccurrenceJSONKey() string { return "" }
 
 // ShowRequestPayload carries the user-supplied fields to create a show.
 type ShowRequestPayload struct {
@@ -174,6 +205,11 @@ type ShowRequestPayload struct {
 
 func (ShowRequestPayload) entityRequestType() string { return EntityRequestShow }
 
+// A recurring night is the domain's normal case, so a show's date is what
+// separates two requests sharing a title. event_date is required, so the term is
+// present on every show request.
+func (ShowRequestPayload) dedupOccurrenceJSONKey() string { return "event_date" }
+
 // ShowRequestArtist is one act on the bill a contributor recorded with a show
 // request (PSY-1858).
 //
@@ -214,6 +250,9 @@ type VenueRequestPayload struct {
 
 func (VenueRequestPayload) entityRequestType() string { return EntityRequestVenue }
 
+// A venue is not an occurrence; two requests for one name are one request.
+func (VenueRequestPayload) dedupOccurrenceJSONKey() string { return "" }
+
 // FestivalRequestPayload carries the user-supplied fields to create a festival.
 type FestivalRequestPayload struct {
 	Name         string  `json:"name"`
@@ -232,6 +271,11 @@ type FestivalRequestPayload struct {
 
 func (FestivalRequestPayload) entityRequestType() string { return EntityRequestFestival }
 
+// Editions of one festival share a name, so start_date separates them. It is
+// required, so the term is present on every festival request. edition_year would
+// do as well but is optional (0 derives it from start_date at fulfillment).
+func (FestivalRequestPayload) dedupOccurrenceJSONKey() string { return "start_date" }
+
 // payloadRegistry is the authoritative map from entity_type discriminator to
 // a zero-value of its payload struct. It is the runtime mirror of the
 // migration's CHECK constraint and the anchor for the CI parity check
@@ -245,6 +289,30 @@ var payloadRegistry = map[string]EntityRequestPayload{
 	EntityRequestShow:     ShowRequestPayload{},
 	EntityRequestVenue:    VenueRequestPayload{},
 	EntityRequestFestival: FestivalRequestPayload{},
+}
+
+// DedupOccurrenceJSONKeys returns, sorted and deduplicated, every JSON key the
+// registered payloads name as their occurrence term (PSY-1977). It is what the
+// pending-request dedup key's occurrence expression must read, in both the
+// uq_entity_requests_pending_dedup index and the query that mirrors it.
+//
+// Exported so the service holding that SQL can assert against it. That assertion
+// is the point: the interface method makes a new payload type STATE whether it
+// has an occurrence, and this turns a stated key the SQL does not read into a
+// test failure rather than a silent return of the destructive collision.
+func DedupOccurrenceJSONKeys() []string {
+	seen := make(map[string]struct{}, len(payloadRegistry))
+	for _, p := range payloadRegistry {
+		if key := p.dedupOccurrenceJSONKey(); key != "" {
+			seen[key] = struct{}{}
+		}
+	}
+	keys := make([]string, 0, len(seen))
+	for key := range seen {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // IsValidEntityRequestType reports whether entityType has a registered payload

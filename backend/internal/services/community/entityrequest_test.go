@@ -3,6 +3,9 @@ package community
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -457,6 +460,13 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestListRequests_EntityTy
 // name) lands on the EXISTING row — no error, no duplicate row — and overwrites
 // its payload with the resubmission's. Casing + surrounding whitespace are
 // normalized, matching the unique index.
+//
+// This is also what pins the occurrence term to the empty string rather than
+// NULL for a type whose payload carries no date (PSY-1977). An artist has no
+// occurrence, so both rows key on the empty string and collide exactly as they
+// always did. Were the term NULL instead, Postgres's unique-index semantics
+// would make every row DISTINCT, this second submission would file its own row,
+// and all three assertions below would fail.
 func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_DuplicatePending_ReplacesPayload() {
 	user := suite.createUser("dup", tierContributor, false)
 
@@ -746,29 +756,6 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_FestivalEditio
 	suite.Require().NotNil(stored.Payload)
 	suite.Assert().JSONEq(string(suite.marshalFestival("Psycho Las Vegas", 2026, "2026-08-14", "2026-08-16")),
 		string(*stored.Payload), "the 2026 edition survives untouched")
-}
-
-// The types with NO occurrence field keep the title-only key they have always
-// had: their occurrence term is the empty string for every row, so it never
-// discriminates. Pinned because the term is NOT NULL by construction — a NULL
-// there would make every row distinct under Postgres's unique-index semantics
-// and silently disable dedup for artist, venue, label and release.
-func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_TypeWithoutADate_StillDedupsOnNameAlone() {
-	user := suite.createUser("nodate", tierContributor, false)
-
-	first, _, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
-		suite.marshalArtist("Sleep"), communitym.EntityRequestSourceManual, nil, false)
-	suite.Require().NoError(err)
-
-	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
-		suite.marshalArtist("SLEEP"), communitym.EntityRequestSourceManual, nil, false)
-	suite.Require().NoError(err)
-	suite.Assert().True(replaced, "an artist request still dedups on the name alone")
-	suite.Assert().Equal(first.ID, second.ID)
-
-	var count int64
-	suite.Require().NoError(suite.db.Model(&communitym.EntityRequest{}).Count(&count).Error)
-	suite.Assert().Equal(int64(1), count)
 }
 
 // The race the conditional UPDATE exists for: an admin decides the row between
@@ -1170,6 +1157,37 @@ func mustMarshalLabel(suite *EntityRequestServiceIntegrationTestSuite, name stri
 	raw, err := communitym.MarshalPayload(communitym.LabelRequestPayload{Name: name})
 	suite.Require().NoError(err)
 	return raw
+}
+
+// PSY-1977: every occurrence key a payload type declares has to be READ by the
+// dedup key's SQL. The payload interface already forces a new type to state
+// whether it has an occurrence; this is the other half — a type that states one
+// the expression does not read gets title-only dedup, which is the destructive
+// collision this ticket removed, returning silently.
+//
+// A plain unit test: it needs no database, only the two declarations.
+func TestDedupOccurrenceExprReadsEveryRegisteredKey(t *testing.T) {
+	_, occurrence := dedupKeyExprs(dedupStoredPayload)
+
+	declared := communitym.DedupOccurrenceJSONKeys()
+	if len(declared) == 0 {
+		t.Fatal("no payload type declares an occurrence key; the dedup key lost its date term")
+	}
+	for _, key := range declared {
+		if !strings.Contains(occurrence, "'"+key+"'") {
+			t.Errorf("payload registry declares occurrence key %q but the dedup expression does not read it: %s\n"+
+				"add it to dedupKeyExprs AND to the uq_entity_requests_pending_dedup index, in the same order",
+				key, occurrence)
+		}
+	}
+
+	// The reverse direction: an expression reading a key no type declares is
+	// either a typo or a leftover, and both silently split a dedup bucket.
+	for _, match := range regexp.MustCompile(`'([a-z_]+)'`).FindAllStringSubmatch(occurrence, -1) {
+		if !slices.Contains(declared, match[1]) {
+			t.Errorf("the dedup expression reads %q, which no payload type declares as its occurrence key", match[1])
+		}
+	}
 }
 
 func TestEntityRequestServiceIntegrationTestSuite(t *testing.T) {

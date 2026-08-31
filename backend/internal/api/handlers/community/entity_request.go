@@ -132,9 +132,9 @@ type CreateEntityRequestResponseBody struct {
 // is how a contributor corrects a queued request, and returning the stored
 // payload discarded the correction behind a 2xx.
 //
-// PSY-1977 — the occurrence is the payload's own date (a show's event_date, a
-// festival's start_date), and it is in the key so that a recurring night queued
-// twice is two requests. Without it the second submission destroyed the first.
+// PSY-1977 — the occurrence is the payload's own date, so a recurring night
+// queued twice is two requests; each payload type names its own occurrence field
+// (EntityRequestPayload.dedupOccurrenceJSONKey).
 //
 // Only a PENDING row is ever written: the dedup index is pending-only and the
 // UPDATE is conditional on the state, so a decided request is never rewritten.

@@ -149,11 +149,9 @@ func (s *EntityRequestService) CreateRequest(
 		// pending rows can collide; this never masks a clash on an already-decided
 		// row.
 		//
-		// PSY-1977: the occurrence — the payload's own event_date, or a festival's
-		// start_date — joined the key so that two genuinely different requests
-		// sharing a name, which is what a recurring night or a festival's next
-		// edition looks like, are two requests rather than one destroying the
-		// other.
+		// PSY-1977: the occurrence joined the key so that two genuinely different
+		// requests sharing a name — a recurring night, a festival's next edition —
+		// are two requests rather than one destroying the other.
 		//
 		// PSY-1948: the collision REPLACES that pending row's submission rather
 		// than returning it untouched. A resubmission is the requester's current
@@ -276,6 +274,33 @@ func (s *EntityRequestService) replacePendingSubmission(
 	return &refreshed, nil
 }
 
+// The two payload sources the dedup key is read from: the stored row's column,
+// and the candidate payload bound as a parameter.
+const (
+	dedupStoredPayload    = "payload"
+	dedupCandidatePayload = "?::jsonb"
+)
+
+// dedupKeyExprs renders the two payload-derived terms of the pending-request
+// dedup key as SQL reading from source. ONE literal renders both sides of the
+// comparison, so the stored and candidate expressions cannot drift apart — which
+// they silently could while each was written out by hand.
+//
+// They must still match uq_entity_requests_pending_dedup, and that pairing is
+// the one this function cannot enforce; see findPendingDuplicate. The occurrence
+// term's keys are pinned against the payload registry by
+// TestDedupOccurrenceExprReadsEveryRegisteredKey.
+//
+// The occurrence coalesces to the empty string rather than falling through to
+// NULL: a NULL key column makes every row DISTINCT under a Postgres unique index,
+// so a NULL here would disable dedup entirely for the types whose payloads carry
+// no date.
+func dedupKeyExprs(source string) (name, occurrence string) {
+	name = "lower(trim(coalesce(" + source + "->>'name', " + source + "->>'title')))"
+	occurrence = "trim(coalesce(" + source + "->>'event_date', " + source + "->>'start_date', ''))"
+	return name, occurrence
+}
+
 // findPendingDuplicate returns the existing PENDING request that collides with a
 // would-be-new request on the dedup key (entity_type, requester, normalized
 // name, occurrence), or (nil, nil) if none. Both payload-derived terms use the
@@ -294,10 +319,8 @@ func (s *EntityRequestService) replacePendingSubmission(
 // selects. A future consumer that needs Requester on a replacement's response
 // has to preload it HERE — the row will not acquire it later.
 func (s *EntityRequestService) findPendingDuplicate(entityType string, requesterID uint, payload []byte) (*communitym.EntityRequest, error) {
-	const storedName = "lower(trim(coalesce(payload->>'name', payload->>'title')))"
-	const candidateName = "lower(trim(coalesce(?::jsonb->>'name', ?::jsonb->>'title')))"
-	const storedOccurrence = "trim(coalesce(payload->>'event_date', payload->>'start_date', ''))"
-	const candidateOccurrence = "trim(coalesce(?::jsonb->>'event_date', ?::jsonb->>'start_date', ''))"
+	storedName, storedOccurrence := dedupKeyExprs(dedupStoredPayload)
+	candidateName, candidateOccurrence := dedupKeyExprs(dedupCandidatePayload)
 	candidate := string(payload)
 
 	var existing communitym.EntityRequest

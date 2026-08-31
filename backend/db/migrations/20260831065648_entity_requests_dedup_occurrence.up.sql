@@ -10,11 +10,11 @@
 --
 -- The occurrence term is the payload's REQUIRED date field, coalesced across the
 -- two entity types that have one: show carries event_date, festival carries
--- start_date. Both are required at the API boundary, so the term is present for
--- every row of those types — which is what makes it safe to put in the key.
--- release_date is deliberately NOT in the coalesce: it is OPTIONAL on a release
--- payload, so adding it would make "queued without a date, resubmitted with one"
--- a second request rather than the correction it is.
+-- start_date. Each payload type NAMES its own occurrence field in Go, on the
+-- closed EntityRequestPayload interface (dedupOccurrenceJSONKey), which is where
+-- the per-type reasoning lives and why release_date is deliberately absent from
+-- the coalesce below. Those declarations and this expression are pinned to each
+-- other by TestDedupOccurrenceExprReadsEveryRegisteredKey.
 --
 -- The venue does NOT discriminate, and cannot: ShowRequestPayload has no venue
 -- field at all (the approving admin supplies the venue at fulfillment), so there
