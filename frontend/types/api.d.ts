@@ -9812,7 +9812,7 @@ export interface components {
             /** Format: int64 */
             id: number;
             payload: unknown;
-            /** @description True when this submission replaced the requester's existing pending request (a correction) rather than filing a new one. A request matches an existing one when the name (or title) AND the occurrence date match; a show or festival on a different date is a different request and files its own row. The returned id is the queued request's. Only a PENDING request is ever replaced; read decision_state for the row's state, which an admin can decide the moment the replacement lands. */
+            /** @description True when this submission replaced the requester's existing pending request (a correction) rather than filing a new one. Matching is per entity_type. For 'show' the key is the title AND the event_date string, compared exactly, so a show on a different date files its own row and two spellings of one moment do NOT match — resend the event_date string you sent the first time. For 'artist', 'venue', 'label', 'release' and 'festival' the name (or title) alone is the whole key, so a second pending request under that name replaces the first even when the two describe different things. The returned id is the queued request's. Only a PENDING request is ever replaced; read decision_state for the row's state, which an admin can decide the moment the replacement lands. */
             replaced: boolean;
             /** Format: int64 */
             requester_id: number;

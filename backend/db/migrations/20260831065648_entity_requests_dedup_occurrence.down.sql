@@ -6,11 +6,25 @@
 -- sharing a name and differing only by date, the unique index cannot be built.
 -- Those rows exist only because the wide key allowed them.
 --
+-- ORDER: run this migration and the pre-PSY-1977 deploy TOGETHER. Unlike the
+-- usual convention in this directory (roll the app back first), the old binary
+-- is the half that is incompatible with the NEW schema: against the wide index
+-- its name-only lookup can select a row the INSERT never collided with, and the
+-- replacement it attempts then violates the wide index, so a contributor's
+-- correction 500s deterministically. It does not destroy the other row (verified
+-- against a live Postgres), but the endpoint is unusable for that name until the
+-- rows are resolved. The new binary, by contrast, works correctly against the
+-- narrow index this file restores — its extra key term only narrows the lookup.
+-- So: resolve the rows, then migrate down, then deploy the old build.
+--
 -- The operator's remedy is to resolve the collision EXPLICITLY before rolling
 -- back, never to let a rollback pick a winner: decide (approve or reject) all
 -- but one of each colliding group, since the index is partial on
--- decision_state = 'pending' and a decided row no longer participates. Find them
--- with:
+-- decision_state = 'pending' and a decided row no longer participates. Be honest
+-- about what that costs — these rows are NOT duplicates. They are the distinct
+-- requests the up migration exists to preserve, so rejecting one discards a real
+-- contributor submission. Tell the requester, or approve it, rather than
+-- treating it as queue cleanup. Find the groups with:
 --
 --   SELECT entity_type, requester_id,
 --          lower(trim(coalesce(payload->>'name', payload->>'title'))) AS key,

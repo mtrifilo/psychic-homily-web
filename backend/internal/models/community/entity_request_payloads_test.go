@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -439,4 +440,35 @@ func TestPayloadImageURL_CoversEveryRegisteredType(t *testing.T) {
 		_, err := PayloadImageURL(entityType, json.RawMessage(raw))
 		assert.NoErrorf(t, err, "PayloadImageURL has no branch for registered entity type %q", entityType)
 	}
+}
+
+// PSY-1977: event_date feeds a btree index, so its LENGTH is a trust-boundary
+// concern and not a formatting one. time.Parse accepts an arbitrarily long
+// fractional second — it truncates past 10 digits rather than rejecting — so
+// without this cap a multi-kilobyte event_date parses cleanly, reaches the
+// INSERT, and blows the btree's index-row limit. That is SQLSTATE 54000, which is
+// not a duplicate-key error, so the dedup branch never fires and a contributor
+// converts their own input into a 500.
+func TestValidateShow_OversizedEventDate(t *testing.T) {
+	oversized := "2026-09-03T20:00:00." + strings.Repeat("1", 3000) + "-07:00"
+
+	// The premise: this value is NOT rejected by parsing, which is why a separate
+	// length check has to exist.
+	_, parseErr := time.Parse(time.RFC3339, oversized)
+	require.NoError(t, parseErr, "if this ever fails to parse, the length cap's rationale changed")
+
+	raw, err := MarshalPayload(ShowRequestPayload{Title: "Long Night", EventDate: oversized})
+	require.NoError(t, err)
+
+	err = ValidateEntityRequestPayload(EntityRequestShow, raw)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "event_date must be 64 characters or fewer")
+
+	// The cap must not reject anything legal. RFC3339 with 9 fractional digits is
+	// the longest legal spelling at 35 characters.
+	longestLegal := "2026-09-03T20:00:00.123456789-07:00"
+	require.LessOrEqual(t, len(longestLegal), maxRequestDateLen)
+	okRaw, err := MarshalPayload(ShowRequestPayload{Title: "Long Night", EventDate: longestLegal})
+	require.NoError(t, err)
+	assert.NoError(t, ValidateEntityRequestPayload(EntityRequestShow, okRaw))
 }

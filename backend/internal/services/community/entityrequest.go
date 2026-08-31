@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -168,14 +169,23 @@ func (s *EntityRequestService) CreateRequest(
 					return refreshed, true, nil
 				}
 			}
-			// Three cases fall through to the wrapped duplicate-key error, and
+			// Four cases fall through to the wrapped duplicate-key error, and
 			// none of them writes anything: the lookup errored, or the colliding
 			// row was decided between the constraint violation and the lookup (so
 			// the lookup finds nothing — the partial index no longer covers it),
 			// or between the lookup and the conditional update (so the update
-			// matches no row). The last two are narrow races that leave a rare
+			// matches no row). Those last two are narrow races that leave a rare
 			// transient error the caller can simply retry, since a retry now
 			// inserts a fresh pending row, not a data fault.
+			//
+			// The fourth is NOT transient and a retry does not clear it: the
+			// lookup returned a row whose dedup key differs from this payload's,
+			// so the update's key precondition matches nothing. That means the
+			// query and the index disagree — the shape a pre-PSY-1977 binary has
+			// against the widened index — and every retry fails the same way until
+			// the two are back in step. It is a deterministic 500 on one
+			// requester's name rather than a destroyed request, which is the trade
+			// the key precondition buys; see replacePendingSubmission.
 		}
 		return nil, false, fmt.Errorf("failed to create entity request: %w", err)
 	}
@@ -194,20 +204,34 @@ func (s *EntityRequestService) CreateRequest(
 // decision_state, requester and created_at are untouched, so the row keeps its
 // identity and its place in the moderation queue.
 //
-// The UPDATE cannot itself violate the dedup index, however many terms that key
-// grows: the row being written is the one whose key EQUALS the new payload's, so
-// the write leaves the key exactly where it was. A resubmission that changes any
-// term of the key is a different request and never reaches here — its INSERT
-// simply succeeds.
-//
 // The UPDATE carries the whole precondition — this row, this entity type, this
-// requester, still pending — the way Decide and the rescue writers do, so the
-// destructive write is self-guarding rather than trusting its caller's lookup.
+// requester, still pending, and the DEDUP KEY ITSELF — the way Decide and the
+// rescue writers do, so the destructive write is self-guarding rather than
+// trusting its caller's lookup.
 // entity_type is in there because it is what decides which payload schema the
 // validation above applies: without it a mismatched (id, entityType) pair would
 // write a well-formed payload of the WRONG type and both guards would pass.
 // Conditioning on the state is what makes a replace racing an admin decision lose
 // instead of resurrecting a payload onto a just-decided row.
+//
+// The KEY is in there (PSY-1977) because it is the only precondition that says
+// "this is the row the INSERT actually collided with". The lookup selects with
+// LIMIT 1, so if its predicate is ever WIDER than the index — the drift direction
+// that does not announce itself, since a too-narrow one merely 500s — it returns
+// the lowest-id row sharing the wider key, which can be a DIFFERENT request. This
+// write would then destroy a row nothing collided with, report success, and the
+// superseded payload is not recoverable. That is the exact loss PSY-1977 exists to
+// remove, and it is reachable without any code change: deploy this, let a
+// requester queue two same-titled shows on different dates, then roll the BINARY
+// back while the wide index stands, and the old name-only lookup hands this
+// function the wrong row. With the key in the WHERE, that write matches nothing
+// and falls into the RowsAffected == 0 path instead of destroying data.
+//
+// The condition also makes the earlier claim true by construction rather than by
+// coincidence: the row being written is the one whose key EQUALS the new
+// payload's, so the write leaves the key where it was and cannot violate the
+// index. A resubmission that changes any term of the key is a different request
+// and never reaches here — its INSERT simply succeeds.
 //
 // Returns (nil, nil) ONLY when no row matched, i.e. nothing was written. Once the
 // UPDATE commits this cannot fail: the refreshed row is built from `existing`
@@ -249,9 +273,15 @@ func (s *EntityRequestService) replacePendingSubmission(
 		"updated_at":     now,
 	}
 
+	storedName, storedOccurrence := dedupKeyExprs(dedupStoredPayload)
+	candidateName, candidateOccurrence := dedupKeyExprs(dedupCandidatePayload)
+	candidate := string(payload)
+
 	result := s.db.Model(&communitym.EntityRequest{}).
 		Where("id = ? AND entity_type = ? AND requester_id = ? AND decision_state = ?",
 			requestID, entityType, existing.RequesterID, communitym.EntityRequestStatePending).
+		Where(storedName+" = "+candidateName, dedupKeyArgs(candidateName, candidate)...).
+		Where(storedOccurrence+" = "+candidateOccurrence, dedupKeyArgs(candidateOccurrence, candidate)...).
 		Updates(updates)
 	if result.Error != nil {
 		return nil, fmt.Errorf("failed to replace pending entity request: %w", result.Error)
@@ -286,10 +316,10 @@ const (
 // comparison, so the stored and candidate expressions cannot drift apart — which
 // they silently could while each was written out by hand.
 //
-// They must still match uq_entity_requests_pending_dedup, and that pairing is
-// the one this function cannot enforce; see findPendingDuplicate. The occurrence
-// term's keys are pinned against the payload registry by
-// TestDedupOccurrenceExprReadsEveryRegisteredKey.
+// They must also match uq_entity_requests_pending_dedup, and that pairing IS
+// enforced: TestDedupOccurrenceMatchesTheIndex reads the index definition back
+// out of a real Postgres that ran the real migrations, and asserts it against
+// both this expression and the payload registry's declarations.
 //
 // The occurrence coalesces to the empty string rather than falling through to
 // NULL: a NULL key column makes every row DISTINCT under a Postgres unique index,
@@ -297,8 +327,24 @@ const (
 // no date.
 func dedupKeyExprs(source string) (name, occurrence string) {
 	name = "lower(trim(coalesce(" + source + "->>'name', " + source + "->>'title')))"
-	occurrence = "trim(coalesce(" + source + "->>'event_date', " + source + "->>'start_date', ''))"
+	occurrence = "trim(coalesce(" + source + "->>'event_date', ''))"
 	return name, occurrence
+}
+
+// dedupKeyArgs binds candidate once per placeholder in expr.
+//
+// The count is DERIVED, never written down, because writing it down is a live
+// footgun: the candidate expressions interpolate the payload once per JSON key
+// they read, so changing the key list changes the arity. Passing one arg too many
+// is not a silent mismatch either — Postgres refuses the statement with "could not
+// determine data type of parameter $N" (SQLSTATE 42P18), which surfaces as the
+// dedup lookup failing and a correction turning into a duplicate-key 500.
+func dedupKeyArgs(expr, candidate string) []interface{} {
+	args := make([]interface{}, strings.Count(expr, "?"))
+	for i := range args {
+		args[i] = candidate
+	}
+	return args
 }
 
 // findPendingDuplicate returns the existing PENDING request that collides with a
@@ -310,9 +356,13 @@ func dedupKeyExprs(source string) (name, occurrence string) {
 // The index is what the two must agree on; the migration comment carries the
 // reasoning behind each term.
 //
-// EDIT THESE AS A PAIR WITH THE INDEX. A query narrower than the index answers a
-// unique violation with "no duplicate found" and turns a correction into a 500;
-// a query wider than the index replaces a row the insert never collided with.
+// EDIT THESE AS A PAIR WITH THE INDEX; TestDedupOccurrenceMatchesTheIndex fails
+// if you do not. The two drift directions are not equally loud. A query NARROWER
+// than the index answers a unique violation with "no duplicate found" and turns a
+// correction into a 500 — noisy, and nothing is lost. A query WIDER than the
+// index selects the lowest-id row sharing the wider key, which can be a different
+// request; that one is silent, and it is why replacePendingSubmission re-asserts
+// the key in its own WHERE rather than trusting this lookup.
 //
 // Nothing is preloaded: replacePendingSubmission BUILDS the row it returns from
 // this one rather than re-reading, so the associations are whatever this query
@@ -327,8 +377,8 @@ func (s *EntityRequestService) findPendingDuplicate(entityType string, requester
 	err := s.db.
 		Where("entity_type = ? AND requester_id = ? AND decision_state = ?",
 			entityType, requesterID, communitym.EntityRequestStatePending).
-		Where(storedName+" = "+candidateName, candidate, candidate).
-		Where(storedOccurrence+" = "+candidateOccurrence, candidate, candidate).
+		Where(storedName+" = "+candidateName, dedupKeyArgs(candidateName, candidate)...).
+		Where(storedOccurrence+" = "+candidateOccurrence, dedupKeyArgs(candidateOccurrence, candidate)...).
 		First(&existing).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

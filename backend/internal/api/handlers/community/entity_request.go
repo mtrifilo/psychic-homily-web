@@ -114,7 +114,7 @@ type CreateEntityRequestResponseBody struct {
 	*EntityRequestFields
 	// A client that reports "queued" for both a fresh request and a replacement
 	// leaves a contributor unable to tell their correction landed.
-	Replaced bool `json:"replaced" doc:"True when this submission replaced the requester's existing pending request (a correction) rather than filing a new one. A request matches an existing one when the name (or title) AND the occurrence date match; a show or festival on a different date is a different request and files its own row. The returned id is the queued request's. Only a PENDING request is ever replaced; read decision_state for the row's state, which an admin can decide the moment the replacement lands."`
+	Replaced bool `json:"replaced" doc:"True when this submission replaced the requester's existing pending request (a correction) rather than filing a new one. Matching is per entity_type. For 'show' the key is the title AND the event_date string, compared exactly, so a show on a different date files its own row and two spellings of one moment do NOT match — resend the event_date string you sent the first time. For 'artist', 'venue', 'label', 'release' and 'festival' the name (or title) alone is the whole key, so a second pending request under that name replaces the first even when the two describe different things. The returned id is the queued request's. Only a PENDING request is ever replaced; read decision_state for the row's state, which an admin can decide the moment the replacement lands."`
 }
 
 // CreateEntityRequestHandler handles POST /entity-requests.
@@ -132,9 +132,12 @@ type CreateEntityRequestResponseBody struct {
 // is how a contributor corrects a queued request, and returning the stored
 // payload discarded the correction behind a 2xx.
 //
-// PSY-1977 — the occurrence is the payload's own date, so a recurring night
-// queued twice is two requests; each payload type names its own occurrence field
-// (EntityRequestPayload.dedupOccurrenceJSONKey).
+// PSY-1977 — the occurrence is a show's own event_date, so a recurring night
+// queued twice is two requests. SHOWS ONLY: every other type declares no
+// occurrence and still matches on the name alone, three of them with a
+// destructive collision left unfixed. Each type states its answer on
+// EntityRequestPayload.dedupOccurrenceJSONKey; read those before assuming this
+// endpoint dedups the way a given type needs.
 //
 // Only a PENDING row is ever written: the dedup index is pending-only and the
 // UPDATE is conditional on the state, so a decided request is never rewritten.
