@@ -304,11 +304,13 @@ func (h *AdminShowHandler) ApproveShowHandler(ctx context.Context, req *ApproveS
 	// Fire-and-forget: match notification filters for this newly approved show
 	if h.notificationFilterService != nil {
 		servicesshared.GoSafe(ctx, "notification_filter_match", func() {
-			// DoorPrice rides along, or the price-cap filter's door fallback never
-			// fires on this path: effectiveShowPriceCents reads a door price only
-			// when Price is nil, so a synthetic model that omits the column makes
-			// a door-only show look priceless -- which alerts EVERY subscriber
-			// whose ceiling is "max $10", however expensive the door (PSY-1962).
+			// This literal carries an ID and a courtesy copy of the fields, not the
+			// data the fan-out matches on: MatchAndNotify re-reads the canonical row
+			// (filter_service.go, "canonical, err := s.loadShowForAlert") and
+			// overwrites everything here before any price or visibility logic runs.
+			// That re-read is the control that keeps an unapproved show out of
+			// strangers' inboxes, so it stays even though both of today's callers
+			// pass an approved show. Adding a field here fixes nothing on its own.
 			showModel := &catalogm.Show{ID: uint(showID), Title: show.Title, EventDate: show.EventDate, Price: show.Price, DoorPrice: show.DoorPrice, Slug: shared.PtrString(show.Slug)}
 			if show.City != nil {
 				showModel.City = show.City
@@ -409,7 +411,8 @@ func (h *AdminShowHandler) BatchApproveShowsHandler(ctx context.Context, req *Ba
 				if err != nil || show == nil {
 					continue
 				}
-				// DoorPrice for the same reason as the approve path above.
+				// Same courtesy copy as the single-approve path above; the canonical
+				// re-read inside MatchAndNotify is what the fan-out actually reads.
 				showModel := &catalogm.Show{ID: showID, Title: show.Title, EventDate: show.EventDate, Price: show.Price, DoorPrice: show.DoorPrice, Slug: shared.PtrString(show.Slug)}
 				if show.City != nil {
 					showModel.City = show.City

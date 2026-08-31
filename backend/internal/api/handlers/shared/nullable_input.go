@@ -61,6 +61,26 @@ func (n *NullableInput[T]) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// MarshalJSON mirrors UnmarshalJSON so the type round-trips through the schema
+// Schema advertises: a set field writes its value, and a cleared one writes
+// `null`. Without it `encoding/json` would reach for the embedded contract's
+// unexported fields, find none exported, and emit `{}` against a
+// number-or-null schema — a body that validates nowhere and reads as an empty
+// object to every client.
+//
+// ABSENCE DOES NOT SURVIVE THE ROUND TRIP, and cannot: `omitempty` never omits
+// a struct, so an unmentioned field marshals as `null` and would come back as
+// an explicit clear. That is harmless for the request bodies this type exists
+// for, since a body is decoded and read, not re-encoded. A RESPONSE field that
+// needs "this column has no value" wants a plain *T; reach for this type only
+// where the three-state distinction is the point.
+func (n NullableInput[T]) MarshalJSON() ([]byte, error) {
+	if v, ok := n.Value(); ok {
+		return json.Marshal(v)
+	}
+	return []byte("null"), nil
+}
+
 // Schema publishes T's own schema, marked nullable, so the OpenAPI document
 // describes `door_price` as a number-or-null rather than as the two-field
 // struct huma would otherwise generate from the Go type. It is also what makes

@@ -83,6 +83,27 @@ func TestNullableInput_UnmarshalThreeStates(t *testing.T) {
 	})
 }
 
+// Encoding has to land inside the schema Schema publishes. Left to struct
+// reflection the type marshals as `{}` -- the embedded contract keeps its state
+// unexported -- which is an empty object where the document promises a number
+// or null, so this asserts the spelling rather than the state.
+func TestNullableInput_MarshalMatchesSchema(t *testing.T) {
+	set, err := json.Marshal(NullableInputSet(35.0))
+	require.NoError(t, err)
+	assert.Equal(t, "35", string(set))
+
+	cleared, err := json.Marshal(NullableInputClear[float64]())
+	require.NoError(t, err)
+	assert.Equal(t, "null", string(cleared))
+
+	// Absence has no spelling: `omitempty` does not omit a struct, so an
+	// unmentioned field encodes as an explicit clear. Documented rather than
+	// fixed, because a response field wanting "no value" should use a plain *T.
+	absent, err := json.Marshal(NullableInput[float64]{})
+	require.NoError(t, err)
+	assert.Equal(t, "null", string(absent))
+}
+
 // The generated schema is what huma VALIDATES against, before UnmarshalJSON is
 // reached. Without SchemaProvider the Go type would publish an object schema and
 // every real number would be refused as the wrong type, so this asserts the
