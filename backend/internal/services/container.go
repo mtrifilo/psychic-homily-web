@@ -37,6 +37,11 @@ type ServiceContainer struct {
 	APIToken               *adminsvc.APITokenService
 	DataQuality            *adminsvc.DataQualityService
 	Revision               *adminsvc.RevisionService
+	// ShowVisibility answers "may this caller see this show at all" for every
+	// route that serves a show's content by id. One instance, so the rule the
+	// detail route enforces and the rule its sub-resources enforce cannot drift
+	// (PSY-1939).
+	ShowVisibility *shared.ShowVisibilityService
 	PendingEdit            *adminsvc.PendingEditService
 	Charts                 *catalog.ChartsService
 	Artist                 *catalog.ArtistService
@@ -311,6 +316,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		APIToken:               adminsvc.NewAPITokenService(database),
 		DataQuality:            adminsvc.NewDataQualityService(database),
 		Revision:               revisionSvc,
+		ShowVisibility:         shared.NewShowVisibilityService(database),
 		PendingEdit:            pendingEditSvc,
 		Charts:                 catalog.NewChartsService(database),
 		Artist:                 artist,

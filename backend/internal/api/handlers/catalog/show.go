@@ -34,6 +34,9 @@ type ShowHandler struct {
 	// path (PSY-563). May be nil in tests; production wiring lives in
 	// routes/shows.go and admin/shows.go.
 	revisionService contracts.RevisionServiceInterface
+	// showVisibility gates the markdown export on the same rule GET /shows/{id}
+	// enforces (PSY-1939). Required; see shared.ShowSubResourceVisible.
+	showVisibility contracts.ShowVisibilityInterface
 }
 
 // NewShowHandler creates a new show handler
@@ -45,6 +48,7 @@ func NewShowHandler(
 	discordService contracts.DiscordServiceInterface,
 	extractionService contracts.ExtractionServiceInterface,
 	revisionService contracts.RevisionServiceInterface,
+	showVisibility contracts.ShowVisibilityInterface,
 ) *ShowHandler {
 	return &ShowHandler{
 		showService:       showService,
@@ -54,6 +58,7 @@ func NewShowHandler(
 		discordService:    discordService,
 		extractionService: extractionService,
 		revisionService:   revisionService,
+		showVisibility:    showVisibility,
 	}
 }
 
@@ -1624,6 +1629,28 @@ func (h *ShowHandler) ExportShowHandler(ctx context.Context, req *ExportShowRequ
 	logger.FromContext(ctx).Debug("show_export_attempt",
 		"show_id", showID,
 	)
+
+	// The export streams a show's whole contents, so it answers the detail
+	// route's visibility question first: a show whose status is not approved is
+	// not exported, and a caller asking for one gets the SAME 404 an unknown
+	// show id gets.
+	//
+	// PUBLIC tier for every caller, admins included. This route carries no auth
+	// middleware and is not registered on an optional-auth group
+	// (routes/shows.go), so there is no viewer to resolve and no admin or
+	// submitter arm to take (PSY-1939).
+	//
+	// One indexed COUNT, not a load. Reading the status off a full GetShow would
+	// run the venue and artist preloads, the bill-label attach and the submitter
+	// attribution, then discard all of it and let ExportShowToMarkdown run the
+	// same preloads again.
+	if !shared.ShowSubResourceVisible(h.showVisibility, uint(showID), contracts.ShowViewer{}) {
+		logger.FromContext(ctx).Warn("show_export_not_visible",
+			"show_id", showID,
+			"request_id", requestID,
+		)
+		return nil, huma.Error404NotFound("Show not found")
+	}
 
 	// Export show to markdown
 	content, filename, err := h.showImportService.ExportShowToMarkdown(uint(showID))

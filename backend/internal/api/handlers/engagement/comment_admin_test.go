@@ -339,7 +339,7 @@ func TestCreateComment_RateLimitError(t *testing.T) {
 			return nil, apperrors.ErrCommentRateLimitedEntity()
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, nil)
+	h := NewCommentHandler(mock, mock, nil, nil, testhelpers.AllShowsVisible())
 	req := &CreateCommentRequest{EntityType: "show", EntityID: "1"}
 	req.Body.Body = "Hello"
 	_, err := h.CreateCommentHandler(commentUserCtx(), req)
@@ -353,7 +353,7 @@ func TestCreateComment_HourlyLimitError(t *testing.T) {
 			return nil, apperrors.ErrCommentRateLimitedHourly(5, "new")
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, nil)
+	h := NewCommentHandler(mock, mock, nil, nil, testhelpers.AllShowsVisible())
 	req := &CreateCommentRequest{EntityType: "show", EntityID: "1"}
 	req.Body.Body = "Hello"
 	_, err := h.CreateCommentHandler(commentUserCtx(), req)
@@ -372,7 +372,7 @@ func TestCreateReply_RateLimitError_HasRetryAfter(t *testing.T) {
 			return nil, apperrors.ErrCommentRateLimitedEntity()
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, nil)
+	h := NewCommentHandler(mock, mock, nil, nil, testhelpers.AllShowsVisible())
 	req := &CreateReplyRequest{CommentID: "5"}
 	req.Body.Body = "Hello"
 	_, err := h.CreateReplyHandler(commentUserCtx(), req)

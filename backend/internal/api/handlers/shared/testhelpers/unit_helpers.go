@@ -18,6 +18,7 @@ import (
 
 	"psychic-homily-backend/internal/api/middleware"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // humaErrorModel asserts err is a *huma.ErrorModel with the expected
@@ -71,4 +72,21 @@ func AssertHumaErrorWithDetail(t *testing.T, err error, expectedStatus int, expe
 // without spinning up the middleware stack.
 func CtxWithUser(user *authm.User) context.Context {
 	return context.WithValue(context.Background(), middleware.UserContextKey, user)
+}
+
+// AllShowsVisible returns a show-visibility gate that grants every show to
+// every caller.
+//
+// For handler tests whose subject is NOT the visibility rule. Named rather than
+// spelled inline at each call site so a reader can see at a glance which tests
+// have deliberately switched the gate off, and so the tests that DO exercise it
+// stand out by passing their own MockShowVisibility instead.
+//
+// The zero MockShowVisibility answers false for everything, which is the right
+// default for a security boundary. This is the opt-out, and it exists as an
+// explicit call precisely so nothing is accidentally permissive.
+func AllShowsVisible() *MockShowVisibility {
+	return &MockShowVisibility{
+		ShowVisibleToFn: func(uint, contracts.ShowViewer) bool { return true },
+	}
 }

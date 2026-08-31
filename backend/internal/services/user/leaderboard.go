@@ -8,6 +8,7 @@ import (
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // LeaderboardService computes contributor leaderboards across multiple dimensions.
@@ -220,12 +221,17 @@ func (s *LeaderboardService) buildOverallQuery(periodFilter string, limit int) (
 func buildCountSubquery(dimension string, periodFilter string) string {
 	switch dimension {
 	case "shows":
+		// Approved shows only, for every caller including the ranked user and an
+		// admin (PSY-1939). A public ranking is one shared number: it must not
+		// vary by credential, and a rank that counts a submission nobody else can
+		// see is a hidden show published as a position. The rule is
+		// services/shared/show_visibility.go; this is its public tier.
 		return fmt.Sprintf(`
 			SELECT submitted_by AS user_id, COUNT(*) AS count
 			FROM shows
-			WHERE submitted_by IS NOT NULL %s
+			WHERE submitted_by IS NOT NULL AND %s %s
 			GROUP BY submitted_by
-		`, periodFilter)
+		`, shared.PublicShowPredicateSQL("shows"), periodFilter)
 	case "venues":
 		return fmt.Sprintf(`
 			SELECT submitted_by AS user_id, COUNT(*) AS count
@@ -241,7 +247,12 @@ func buildCountSubquery(dimension string, periodFilter string) string {
 			GROUP BY added_by_user_id
 		`, periodFilter)
 	case "edits":
-		// Combine approved pending edits + revisions
+		// Combine approved pending edits + revisions.
+		//
+		// The revisions arm counts only edits on shows the public can see, for
+		// the reason the shows dimension gives (PSY-1939). Non-show revisions
+		// count whatever their entity: show is the only entity type with a
+		// read-time visibility rule.
 		return fmt.Sprintf(`
 			SELECT user_id, SUM(count) AS count FROM (
 				SELECT submitted_by AS user_id, COUNT(*) AS count
@@ -251,11 +262,11 @@ func buildCountSubquery(dimension string, periodFilter string) string {
 				UNION ALL
 				SELECT user_id, COUNT(*) AS count
 				FROM revisions
-				WHERE 1=1 %s
+				WHERE %s %s
 				GROUP BY user_id
 			) combined
 			GROUP BY user_id
-		`, periodFilter, periodFilter)
+		`, periodFilter, shared.PublicShowRevisionsSQL(shared.RevisionsTable), periodFilter)
 	case "requests":
 		return fmt.Sprintf(`
 			SELECT fulfiller_id AS user_id, COUNT(*) AS count

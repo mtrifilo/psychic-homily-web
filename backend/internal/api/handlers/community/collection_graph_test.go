@@ -35,7 +35,7 @@ type CollectionGraphHandlerSuite struct {
 
 func (s *CollectionGraphHandlerSuite) SetupSuite() {
 	s.deps = testhelpers.SetupIntegrationDeps(s.T())
-	s.handler = NewCollectionHandler(s.deps.CollectionService, s.deps.AuditLogService)
+	s.handler = NewCollectionHandler(s.deps.CollectionService, s.deps.AuditLogService, testhelpers.AllShowsVisible())
 }
 
 func (s *CollectionGraphHandlerSuite) TearDownTest() {

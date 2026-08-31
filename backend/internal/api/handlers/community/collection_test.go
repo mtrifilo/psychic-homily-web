@@ -16,13 +16,13 @@ import (
 // ============================================================================
 
 func TestUpdateItem_NoAuth(t *testing.T) {
-	h := NewCollectionHandler(&testhelpers.MockCollectionService{}, nil)
+	h := NewCollectionHandler(&testhelpers.MockCollectionService{}, nil, testhelpers.AllShowsVisible())
 	_, err := h.UpdateItemHandler(context.Background(), &UpdateItemHandlerRequest{Slug: "mix", ItemID: "1"})
 	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestUpdateItem_InvalidItemID(t *testing.T) {
-	h := NewCollectionHandler(&testhelpers.MockCollectionService{}, nil)
+	h := NewCollectionHandler(&testhelpers.MockCollectionService{}, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	_, err := h.UpdateItemHandler(ctx, &UpdateItemHandlerRequest{Slug: "mix", ItemID: "abc"})
 	testhelpers.AssertHumaError(t, err, 400)
@@ -38,7 +38,7 @@ func TestUpdateItem_Success(t *testing.T) {
 			return &contracts.CollectionItemResponse{ID: 5, Notes: req.Notes}, nil
 		},
 	}
-	h := NewCollectionHandler(mock, nil)
+	h := NewCollectionHandler(mock, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &UpdateItemHandlerRequest{Slug: "mix", ItemID: "5"}
 	req.Body.Notes = &notes
@@ -59,7 +59,7 @@ func TestUpdateItem_NotFoundMapsThroughCollectionError(t *testing.T) {
 			return nil, apperrors.ErrCollectionItemNotFound(5)
 		},
 	}
-	h := NewCollectionHandler(mock, nil)
+	h := NewCollectionHandler(mock, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	_, err := h.UpdateItemHandler(ctx, &UpdateItemHandlerRequest{Slug: "mix", ItemID: "5"})
 	testhelpers.AssertHumaError(t, err, 404)
@@ -72,7 +72,7 @@ func TestUpdateItem_ServiceError(t *testing.T) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
-	h := NewCollectionHandler(mock, nil)
+	h := NewCollectionHandler(mock, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	_, err := h.UpdateItemHandler(ctx, &UpdateItemHandlerRequest{Slug: "mix", ItemID: "5"})
 	testhelpers.AssertHumaError(t, err, 500)
@@ -91,7 +91,7 @@ func TestGetEntityCollections_Success(t *testing.T) {
 			return []*contracts.CollectionListResponse{{Slug: "mix"}}, nil
 		},
 	}
-	h := NewCollectionHandler(mock, nil)
+	h := NewCollectionHandler(mock, nil, testhelpers.AllShowsVisible())
 	resp, err := h.GetEntityCollectionsHandler(context.Background(), &GetEntityCollectionsHandlerRequest{EntityType: "artist", EntityID: "42"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -102,13 +102,13 @@ func TestGetEntityCollections_Success(t *testing.T) {
 }
 
 func TestGetEntityCollections_InvalidEntityID(t *testing.T) {
-	h := NewCollectionHandler(&testhelpers.MockCollectionService{}, nil)
+	h := NewCollectionHandler(&testhelpers.MockCollectionService{}, nil, testhelpers.AllShowsVisible())
 	_, err := h.GetEntityCollectionsHandler(context.Background(), &GetEntityCollectionsHandlerRequest{EntityType: "artist", EntityID: "abc"})
 	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestGetEntityCollections_InvalidEntityType(t *testing.T) {
-	h := NewCollectionHandler(&testhelpers.MockCollectionService{}, nil)
+	h := NewCollectionHandler(&testhelpers.MockCollectionService{}, nil, testhelpers.AllShowsVisible())
 	_, err := h.GetEntityCollectionsHandler(context.Background(), &GetEntityCollectionsHandlerRequest{EntityType: "comment", EntityID: "1"})
 	testhelpers.AssertHumaError(t, err, 422)
 }
@@ -119,7 +119,7 @@ func TestGetEntityCollections_ServiceError(t *testing.T) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
-	h := NewCollectionHandler(mock, nil)
+	h := NewCollectionHandler(mock, nil, testhelpers.AllShowsVisible())
 	_, err := h.GetEntityCollectionsHandler(context.Background(), &GetEntityCollectionsHandlerRequest{EntityType: "artist", EntityID: "42"})
 	testhelpers.AssertHumaError(t, err, 500)
 }
@@ -141,7 +141,7 @@ func TestGetUserPublicCollections_Success(t *testing.T) {
 			return []*contracts.CollectionListResponse{{Slug: "mix"}}, 1, nil
 		},
 	}
-	h := NewCollectionHandler(mock, nil)
+	h := NewCollectionHandler(mock, nil, testhelpers.AllShowsVisible())
 	resp, err := h.GetUserPublicCollectionsHandler(context.Background(), &GetUserPublicCollectionsHandlerRequest{Username: "johndoe", Limit: 0})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -157,7 +157,7 @@ func TestGetUserPublicCollections_ServiceError(t *testing.T) {
 			return nil, 0, fmt.Errorf("db error")
 		},
 	}
-	h := NewCollectionHandler(mock, nil)
+	h := NewCollectionHandler(mock, nil, testhelpers.AllShowsVisible())
 	_, err := h.GetUserPublicCollectionsHandler(context.Background(), &GetUserPublicCollectionsHandlerRequest{Username: "johndoe"})
 	testhelpers.AssertHumaError(t, err, 500)
 }

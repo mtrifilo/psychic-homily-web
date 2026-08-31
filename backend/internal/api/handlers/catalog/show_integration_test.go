@@ -32,6 +32,7 @@ func (s *ShowHandlerIntegrationSuite) SetupSuite() {
 		s.deps.DiscordService,
 		s.deps.ExtractionService,
 		nil, // revisionService — not exercised in integration tests
+		testhelpers.AllShowsVisible(),
 	)
 }
 

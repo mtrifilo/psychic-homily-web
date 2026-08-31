@@ -377,17 +377,28 @@ type UserServiceInterface interface {
 
 // ContributorProfileServiceInterface defines the contract for contributor profile operations.
 type ContributorProfileServiceInterface interface {
-	GetPublicProfile(username string, viewerID *uint) (*PublicProfileResponse, error)
-	GetOwnProfile(userID uint) (*PublicProfileResponse, error)
-	GetContributionStats(userID uint) (*ContributionStats, error)
-	GetContributionHistory(userID uint, limit, offset int, entityType string) ([]*ContributionEntry, int64, error)
+	// The four reads that publish a user's catalogue work take the caller they
+	// are answered for, and narrow every show-derived row and count to what that
+	// caller may see (PSY-1939). ShowViewer{} is the anonymous tier; see
+	// contracts/show_visibility.go.
+	//
+	// The viewer is not an optimisation. These numbers are public, and an
+	// unfiltered one differenced against a filtered sibling is a count of a
+	// user's edits and submissions on hidden shows.
+	GetPublicProfile(username string, viewer ShowViewer) (*PublicProfileResponse, error)
+	GetOwnProfile(viewer ShowViewer) (*PublicProfileResponse, error)
+	GetContributionStats(userID uint, viewer ShowViewer) (*ContributionStats, error)
+	GetContributionHistory(userID uint, limit, offset int, entityType string, viewer ShowViewer) ([]*ContributionEntry, int64, error)
 	UpdatePrivacySettings(userID uint, settings PrivacySettings) (*PrivacySettings, error)
 	GetUserSections(userID uint) ([]*ProfileSectionResponse, error)
 	GetOwnSections(userID uint) ([]*ProfileSectionResponse, error)
 	CreateSection(userID uint, title string, content string, position int) (*ProfileSectionResponse, error)
 	UpdateSection(userID uint, sectionID uint, updates map[string]interface{}) (*ProfileSectionResponse, error)
 	DeleteSection(userID uint, sectionID uint) error
-	GetActivityHeatmap(userID uint) (*ActivityHeatmapResponse, error)
+	GetActivityHeatmap(userID uint, viewer ShowViewer) (*ActivityHeatmapResponse, error)
+	// GetPercentileRankings takes no viewer: a percentile is a position in one
+	// shared cohort, so it reads the public tier for everybody, the same tier
+	// the leaderboard it ranks against reads.
 	GetPercentileRankings(userID uint) (*PercentileRankings, error)
 }
 

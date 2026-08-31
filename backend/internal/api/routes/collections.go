@@ -12,7 +12,7 @@ import (
 // Public endpoints use optional auth (for private collection access checks).
 // CRUD, item management, and subscription endpoints require authentication.
 func setupCollectionRoutes(rc RouteContext) {
-	collectionHandler := communityh.NewCollectionHandler(rc.SC.Collection, rc.SC.AuditLog)
+	collectionHandler := communityh.NewCollectionHandler(rc.SC.Collection, rc.SC.AuditLog, rc.SC.ShowVisibility)
 
 	// Public collection endpoints with optional auth
 	optionalAuthGroup := huma.NewGroup(rc.API, "")

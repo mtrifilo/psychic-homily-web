@@ -1204,41 +1204,41 @@ func (m *MockCommentVoteService) GetCommentVoteCounts(commentID uint) (int, int,
 // ============================================================================
 
 type MockContributorProfileService struct {
-	GetPublicProfileFn       func(string, *uint) (*contracts.PublicProfileResponse, error)
-	GetOwnProfileFn          func(uint) (*contracts.PublicProfileResponse, error)
-	GetContributionStatsFn   func(uint) (*contracts.ContributionStats, error)
-	GetContributionHistoryFn func(uint, int, int, string) ([]*contracts.ContributionEntry, int64, error)
+	GetPublicProfileFn       func(string, contracts.ShowViewer) (*contracts.PublicProfileResponse, error)
+	GetOwnProfileFn          func(contracts.ShowViewer) (*contracts.PublicProfileResponse, error)
+	GetContributionStatsFn   func(uint, contracts.ShowViewer) (*contracts.ContributionStats, error)
+	GetContributionHistoryFn func(uint, int, int, string, contracts.ShowViewer) ([]*contracts.ContributionEntry, int64, error)
 	UpdatePrivacySettingsFn  func(uint, contracts.PrivacySettings) (*contracts.PrivacySettings, error)
 	GetUserSectionsFn        func(uint) ([]*contracts.ProfileSectionResponse, error)
 	GetOwnSectionsFn         func(uint) ([]*contracts.ProfileSectionResponse, error)
 	CreateSectionFn          func(uint, string, string, int) (*contracts.ProfileSectionResponse, error)
 	UpdateSectionFn          func(uint, uint, map[string]interface{}) (*contracts.ProfileSectionResponse, error)
 	DeleteSectionFn          func(uint, uint) error
-	GetActivityHeatmapFn     func(uint) (*contracts.ActivityHeatmapResponse, error)
+	GetActivityHeatmapFn     func(uint, contracts.ShowViewer) (*contracts.ActivityHeatmapResponse, error)
 	GetPercentileRankingsFn  func(uint) (*contracts.PercentileRankings, error)
 }
 
-func (m *MockContributorProfileService) GetPublicProfile(username string, viewerID *uint) (*contracts.PublicProfileResponse, error) {
+func (m *MockContributorProfileService) GetPublicProfile(username string, viewer contracts.ShowViewer) (*contracts.PublicProfileResponse, error) {
 	if m.GetPublicProfileFn != nil {
-		return m.GetPublicProfileFn(username, viewerID)
+		return m.GetPublicProfileFn(username, viewer)
 	}
 	return nil, nil
 }
-func (m *MockContributorProfileService) GetOwnProfile(userID uint) (*contracts.PublicProfileResponse, error) {
+func (m *MockContributorProfileService) GetOwnProfile(viewer contracts.ShowViewer) (*contracts.PublicProfileResponse, error) {
 	if m.GetOwnProfileFn != nil {
-		return m.GetOwnProfileFn(userID)
+		return m.GetOwnProfileFn(viewer)
 	}
 	return nil, nil
 }
-func (m *MockContributorProfileService) GetContributionStats(userID uint) (*contracts.ContributionStats, error) {
+func (m *MockContributorProfileService) GetContributionStats(userID uint, viewer contracts.ShowViewer) (*contracts.ContributionStats, error) {
 	if m.GetContributionStatsFn != nil {
-		return m.GetContributionStatsFn(userID)
+		return m.GetContributionStatsFn(userID, viewer)
 	}
 	return nil, nil
 }
-func (m *MockContributorProfileService) GetContributionHistory(userID uint, limit int, offset int, entityType string) ([]*contracts.ContributionEntry, int64, error) {
+func (m *MockContributorProfileService) GetContributionHistory(userID uint, limit int, offset int, entityType string, viewer contracts.ShowViewer) ([]*contracts.ContributionEntry, int64, error) {
 	if m.GetContributionHistoryFn != nil {
-		return m.GetContributionHistoryFn(userID, limit, offset, entityType)
+		return m.GetContributionHistoryFn(userID, limit, offset, entityType, viewer)
 	}
 	return nil, 0, nil
 }
@@ -1278,9 +1278,9 @@ func (m *MockContributorProfileService) DeleteSection(userID uint, sectionID uin
 	}
 	return nil
 }
-func (m *MockContributorProfileService) GetActivityHeatmap(userID uint) (*contracts.ActivityHeatmapResponse, error) {
+func (m *MockContributorProfileService) GetActivityHeatmap(userID uint, viewer contracts.ShowViewer) (*contracts.ActivityHeatmapResponse, error) {
 	if m.GetActivityHeatmapFn != nil {
-		return m.GetActivityHeatmapFn(userID)
+		return m.GetActivityHeatmapFn(userID, viewer)
 	}
 	return nil, nil
 }
@@ -3766,6 +3766,21 @@ func (m *MockShowStateService) SetShowCancelled(showID uint, isCancelled bool) (
 }
 
 // ============================================================================
+// Mock: ShowVisibilityInterface
+// ============================================================================
+
+type MockShowVisibility struct {
+	ShowVisibleToFn func(uint, contracts.ShowViewer) bool
+}
+
+func (m *MockShowVisibility) ShowVisibleTo(showID uint, viewer contracts.ShowViewer) bool {
+	if m.ShowVisibleToFn != nil {
+		return m.ShowVisibleToFn(showID, viewer)
+	}
+	return false
+}
+
+// ============================================================================
 // Mock: StreamingWorklistServiceInterface
 // ============================================================================
 
@@ -4756,6 +4771,7 @@ var _ contracts.ShowImportServiceInterface = (*MockShowImportService)(nil)
 var _ contracts.ShowReportServiceInterface = (*MockShowReportService)(nil)
 var _ contracts.ShowServiceInterface = (*MockShowService)(nil)
 var _ contracts.ShowStateServiceInterface = (*MockShowStateService)(nil)
+var _ contracts.ShowVisibilityInterface = (*MockShowVisibility)(nil)
 var _ contracts.StreamingWorklistServiceInterface = (*MockStreamingWorklistService)(nil)
 var _ contracts.TagServiceInterface = (*MockTagService)(nil)
 var _ contracts.UserServiceInterface = (*MockUserService)(nil)

@@ -10,6 +10,7 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
+	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	authm "psychic-homily-backend/internal/models/auth"
 	engagementm "psychic-homily-backend/internal/models/engagement"
@@ -49,16 +50,41 @@ type CommentHandler struct {
 	writer          CommentWriter
 	voteReader      CommentVoteReader
 	auditLogService contracts.AuditLogServiceInterface
+	// showVisibility gates every read whose entity is a show on the rule GET
+	// /shows/{id} enforces (PSY-1939). Required; see
+	// shared.ShowSubResourceVisible.
+	showVisibility contracts.ShowVisibilityInterface
 }
 
 // NewCommentHandler creates a new CommentHandler. voteReader may be nil
 // in tests that don't exercise the authenticated-read path.
-func NewCommentHandler(reader CommentReader, writer CommentWriter, voteReader CommentVoteReader, auditLogService contracts.AuditLogServiceInterface) *CommentHandler {
+func NewCommentHandler(
+	reader CommentReader,
+	writer CommentWriter,
+	voteReader CommentVoteReader,
+	auditLogService contracts.AuditLogServiceInterface,
+	showVisibility contracts.ShowVisibilityInterface,
+) *CommentHandler {
 	return &CommentHandler{
 		reader:          reader,
 		writer:          writer,
 		voteReader:      voteReader,
 		auditLogService: auditLogService,
+		showVisibility:  showVisibility,
+	}
+}
+
+// emptyCommentList is the answer a gated show gives on BOTH comment listings,
+// the discussion route and the field-note route, which share this response type.
+//
+// It must stay byte-identical to what the service returns for an entity with no
+// rows: an empty (never null) array, a zero total, and has_more false. A gated
+// show and an entity nobody has written about are one response.
+func emptyCommentList() *contracts.CommentListResponse {
+	return &contracts.CommentListResponse{
+		Comments: []*contracts.CommentResponse{},
+		Total:    0,
+		HasMore:  false,
 	}
 }
 
@@ -119,6 +145,17 @@ func (h *CommentHandler) ListCommentsHandler(ctx context.Context, req *ListComme
 	entityID, err := strconv.ParseUint(req.EntityID, 10, 32)
 	if err != nil {
 		return nil, huma.Error400BadRequest("Invalid entity ID")
+	}
+
+	// Discussion on a show is the show's own sub-resource, reached by the id GET
+	// /shows/{id} refuses for a non-approved show, so it answers to the same
+	// viewer rule (PSY-1939). Other entity types pass untouched.
+	//
+	// The EMPTY LIST, not a 404: an entity id with no comments already answers
+	// that way and the two must be indistinguishable. Total 0 comes with it, or
+	// the withheld count is the leak restated.
+	if !shared.EntitySubResourceVisible(h.showVisibility, req.EntityType, uint(entityID), middleware.GetShowViewerFromContext(ctx)) {
+		return &ListCommentsResponse{Body: emptyCommentList()}, nil
 	}
 
 	limit := req.Limit
@@ -184,6 +221,18 @@ func (h *CommentHandler) GetCommentHandler(ctx context.Context, req *GetCommentR
 		return nil, huma.Error500InternalServerError("Failed to fetch comment")
 	}
 
+	// Gated after the load, because the comment is what names its entity
+	// (PSY-1939). Comment ids are dense and sequential, so a caller refused the
+	// listing can otherwise walk them until one lands on the show. The answer is
+	// the service's own not-found error, so a comment on a gated show and a
+	// comment id that never existed are one response.
+	if comment == nil || !shared.EntitySubResourceVisible(h.showVisibility, comment.EntityType, comment.EntityID, middleware.GetShowViewerFromContext(ctx)) {
+		if mapped := shared.MapCommentError(apperrors.ErrCommentNotFound()); mapped != nil {
+			return nil, mapped
+		}
+		return nil, huma.Error404NotFound("Comment not found")
+	}
+
 	h.populateUserVotes(ctx, middleware.GetUserFromContext(ctx), []*contracts.CommentResponse{comment})
 
 	return &GetCommentResponse{Body: comment}, nil
@@ -218,6 +267,20 @@ func (h *CommentHandler) GetThreadHandler(ctx context.Context, req *GetThreadReq
 			return nil, mapped
 		}
 		return nil, huma.Error500InternalServerError("Failed to fetch thread")
+	}
+
+	// Every comment in a thread shares the root's entity, so the root decides
+	// for all of them (PSY-1939). An empty thread has no entity to read and
+	// nothing to disclose, so it passes.
+	//
+	// The answer is the service's own root-not-found error: a thread on a gated
+	// show is indistinguishable from a root id that never existed.
+	if len(comments) > 0 && comments[0] != nil &&
+		!shared.EntitySubResourceVisible(h.showVisibility, comments[0].EntityType, comments[0].EntityID, middleware.GetShowViewerFromContext(ctx)) {
+		if mapped := shared.MapCommentError(apperrors.ErrCommentThreadRootNotFound()); mapped != nil {
+			return nil, mapped
+		}
+		return nil, huma.Error404NotFound("Thread root not found")
 	}
 
 	h.populateUserVotes(ctx, middleware.GetUserFromContext(ctx), comments)
@@ -262,6 +325,20 @@ func (h *CommentHandler) CreateCommentHandler(ctx context.Context, req *CreateCo
 		return nil, huma.Error400BadRequest("Comment body is required")
 	}
 
+	// The read gate's twin (PSY-1939). The service validates that the entity
+	// EXISTS, so without this a caller refused the listing still learns a gated
+	// show id is real from the difference between "entity not found" and a
+	// successful post, and can attach content to it. The answer is the service's
+	// own entity-not-found error, so the two cases are one response.
+	if !shared.EntitySubResourceVisible(h.showVisibility, req.EntityType, uint(entityID), middleware.GetShowViewerFromContext(ctx)) {
+		if mapped := shared.MapCommentError(
+			apperrors.ErrCommentEntityNotFound(req.EntityType, uint(entityID)),
+		); mapped != nil {
+			return nil, mapped
+		}
+		return nil, huma.Error404NotFound("Entity not found")
+	}
+
 	serviceReq := &contracts.CreateCommentRequest{
 		EntityType:      req.EntityType,
 		EntityID:        uint(entityID),
@@ -280,11 +357,18 @@ func (h *CommentHandler) CreateCommentHandler(ctx context.Context, req *CreateCo
 		)
 	}
 
-	// Audit log (fire and forget)
+	// Audit log (fire and forget).
+	//
+	// entity_id is the ENTITY the comment is about, which is what entity_type
+	// names. It used to be the comment's own id, so a show-typed row carried a
+	// comment id, and the contributions timeline both mislabels such a row and
+	// gates it on the wrong id (PSY-1939). comment_id moves to metadata, which is
+	// where a secondary identifier belongs.
 	if h.auditLogService != nil {
 		servicesshared.GoSafe(ctx, "audit_log", func() {
-			h.auditLogService.LogAction(user.ID, "create_comment", req.EntityType, comment.ID, map[string]interface{}{
-				"entity_id": uint(entityID),
+			h.auditLogService.LogAction(user.ID, "create_comment", req.EntityType, uint(entityID), map[string]interface{}{
+				"entity_id":  uint(entityID),
+				"comment_id": comment.ID,
 			})
 		})
 	}
@@ -335,6 +419,25 @@ func (h *CommentHandler) CreateReplyHandler(ctx context.Context, req *CreateRepl
 		return nil, huma.Error500InternalServerError("Failed to fetch parent comment")
 	}
 
+	// A reply is addressed by the PARENT's id, so it reaches the same show the
+	// single-comment route gates, and without this it walks straight past that
+	// gate (PSY-1939). The response carries entity_type and entity_id, so a 201
+	// here hands back the gated show's id; and a nonexistent comment id already
+	// 404s, which makes the pair a clean two-valued oracle over a dense id space.
+	//
+	// Same answer as the single-comment route: the service's own not-found error,
+	// so a reply target on a gated show is indistinguishable from one that never
+	// existed.
+	if parent == nil || !shared.EntitySubResourceVisible(
+		h.showVisibility, parent.EntityType, parent.EntityID,
+		middleware.GetShowViewerFromContext(ctx),
+	) {
+		if mapped := shared.MapCommentError(apperrors.ErrCommentNotFound()); mapped != nil {
+			return nil, mapped
+		}
+		return nil, huma.Error404NotFound("Comment not found")
+	}
+
 	parentIDUint := uint(parentID)
 	serviceReq := &contracts.CreateCommentRequest{
 		EntityType:      parent.EntityType,
@@ -358,9 +461,10 @@ func (h *CommentHandler) CreateReplyHandler(ctx context.Context, req *CreateRepl
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
 		servicesshared.GoSafe(ctx, "audit_log", func() {
-			h.auditLogService.LogAction(user.ID, "create_comment", parent.EntityType, comment.ID, map[string]interface{}{
-				"entity_id": parent.EntityID,
-				"parent_id": parentIDUint,
+			h.auditLogService.LogAction(user.ID, "create_comment", parent.EntityType, parent.EntityID, map[string]interface{}{
+				"entity_id":  parent.EntityID,
+				"comment_id": comment.ID,
+				"parent_id":  parentIDUint,
 			})
 		})
 	}

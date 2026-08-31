@@ -17,6 +17,7 @@ import (
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 	svcsengagement "psychic-homily-backend/internal/services/engagement"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -109,7 +110,7 @@ var moderationActions = map[string]bool{
 // =============================================================================
 
 // GetPublicProfile returns a user's public profile with privacy-gated fields.
-func (s *ContributorProfileService) GetPublicProfile(username string, viewerID *uint) (*contracts.PublicProfileResponse, error) {
+func (s *ContributorProfileService) GetPublicProfile(username string, viewer contracts.ShowViewer) (*contracts.PublicProfileResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -123,7 +124,7 @@ func (s *ContributorProfileService) GetPublicProfile(username string, viewerID *
 		return nil, fmt.Errorf("failed to find user: %w", err)
 	}
 
-	isOwner := viewerID != nil && *viewerID == user.ID
+	isOwner := viewer.UserID != 0 && viewer.UserID == user.ID
 
 	// Private profile check: only the owner can view
 	if user.ProfileVisibility == "private" && !isOwner {
@@ -155,7 +156,7 @@ func (s *ContributorProfileService) GetPublicProfile(username string, viewerID *
 		resp.PrivacySettings = &privacy
 		resp.LastActive = &user.UpdatedAt
 
-		stats, err := s.GetContributionStats(user.ID)
+		stats, err := s.GetContributionStats(user.ID, viewer)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get contribution stats: %w", err)
 		}
@@ -173,13 +174,13 @@ func (s *ContributorProfileService) GetPublicProfile(username string, viewerID *
 	// Non-owner: apply privacy gating
 	switch privacy.Contributions {
 	case contracts.PrivacyVisible:
-		stats, err := s.GetContributionStats(user.ID)
+		stats, err := s.GetContributionStats(user.ID, viewer)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get contribution stats: %w", err)
 		}
 		resp.Stats = stats
 	case contracts.PrivacyCountOnly:
-		stats, err := s.GetContributionStats(user.ID)
+		stats, err := s.GetContributionStats(user.ID, viewer)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get contribution stats: %w", err)
 		}
@@ -202,11 +203,19 @@ func (s *ContributorProfileService) GetPublicProfile(username string, viewerID *
 	return resp, nil
 }
 
-// GetOwnProfile returns the authenticated user's own profile, bypassing visibility checks.
-func (s *ContributorProfileService) GetOwnProfile(userID uint) (*contracts.PublicProfileResponse, error) {
+// GetOwnProfile returns the authenticated caller's own profile, bypassing
+// visibility checks.
+//
+// Takes only the viewer: the subject and the caller are the same person here, so
+// a separate id parameter would be derivable state, and the failure mode of
+// letting the two disagree is serving one account's profile under another's
+// clearance.
+func (s *ContributorProfileService) GetOwnProfile(viewer contracts.ShowViewer) (*contracts.PublicProfileResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
+
+	userID := viewer.UserID
 
 	var user authm.User
 	err := s.db.First(&user, userID).Error
@@ -217,7 +226,7 @@ func (s *ContributorProfileService) GetOwnProfile(userID uint) (*contracts.Publi
 		return nil, fmt.Errorf("failed to find user: %w", err)
 	}
 
-	stats, err := s.GetContributionStats(user.ID)
+	stats, err := s.GetContributionStats(user.ID, viewer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get contribution stats: %w", err)
 	}
@@ -283,8 +292,29 @@ func (s *ContributorProfileService) UpdatePrivacySettings(userID uint, settings 
 // Contribution Stats
 // =============================================================================
 
-// GetContributionStats computes aggregate contribution counts for a user.
-func (s *ContributorProfileService) GetContributionStats(userID uint) (*contracts.ContributionStats, error) {
+// GetContributionStats computes aggregate contribution counts for a user, as
+// the caller in viewer is allowed to see them.
+//
+// TWO counts are narrowed to the shows viewer may see, and they are the two with
+// a filtered public sibling to be differenced against: shows_submitted (against
+// the contributions timeline) and revisions_made (against the total
+// GET /users/{id}/revisions reports). A public number differenced against a
+// filtered one is a count of hidden shows published as arithmetic. The zero
+// viewer is the anonymous tier.
+//
+// The other show-derived counts here are deliberately NOT narrowed, and a new
+// one should not assume it is covered: moderation_actions (approve_show /
+// reject_show over audit_logs), collection_items_added, reports_filed and
+// reports_resolved all still count rows naming shows the viewer cannot see.
+// They are left whole because each would need its own filtered sibling to be a
+// usable oracle, and because moderation counts in particular describe the
+// MODERATOR rather than the show. That is a judgement, not an oversight, and the
+// next person to add a show-derived counter has to make it again.
+//
+// The counts a viewer is allowed to see therefore differ per caller, and the
+// owner and an admin see their own totals unchanged. Nothing about this
+// response may be cached across credentials.
+func (s *ContributorProfileService) GetContributionStats(userID uint, viewer contracts.ShowViewer) (*contracts.ContributionStats, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -292,7 +322,11 @@ func (s *ContributorProfileService) GetContributionStats(userID uint) (*contract
 	stats := &contracts.ContributionStats{}
 
 	// Count submissions from entity tables
-	s.db.Model(&catalogm.Show{}).Where("submitted_by = ?", userID).Count(&stats.ShowsSubmitted)
+	showsVisible, showsVisibleArgs := shared.VisibleShowPredicateSQL("shows", viewer)
+	s.db.Model(&catalogm.Show{}).
+		Where("submitted_by = ?", userID).
+		Where(showsVisible, showsVisibleArgs...).
+		Count(&stats.ShowsSubmitted)
 	s.db.Model(&catalogm.Venue{}).Where("submitted_by = ?", userID).Count(&stats.VenuesSubmitted)
 	s.db.Table("pending_entity_edits").
 		Where("submitted_by = ? AND entity_type = ?", userID, adminm.PendingEditEntityVenue).
@@ -359,21 +393,21 @@ func (s *ContributorProfileService) GetContributionStats(userID uint) (*contract
 		}
 	}
 
-	// Revisions made.
+	// Revisions made, counting only revisions on shows viewer may see.
 	//
-	// KNOWN GAP (PSY-1715), stated here so it is discoverable from this side as
-	// well as from admin/revision_visibility.go. This count is UNFILTERED, while
-	// GET /users/{id}/revisions now suppresses revisions on shows the caller
-	// cannot see and reports a total that matches its page. Both numbers are
-	// public, so differencing them tells an anonymous reader how many of this
-	// author's edits sit on non-approved shows.
+	// This number and the total GET /users/{id}/revisions reports are the same
+	// number, and they have to stay that way: both are public, so a difference
+	// between them is a count of the author's edits on hidden shows, published
+	// as arithmetic. The gate there is admin/revision_visibility.go and the rule
+	// under both is services/shared/show_visibility.go.
 	//
-	// Not fixed with the gate itself because closing it means threading the
-	// viewer through GetContributionStats and the leaderboard's ranking
-	// subquery, which is a change to this service's contract rather than to
-	// revision history. Whoever does it should take the percentile count below
-	// and services/user/leaderboard.go in the same pass.
-	s.db.Model(&adminm.Revision{}).Where("user_id = ?", userID).Count(&stats.RevisionsMade)
+	// Non-show revisions are counted whatever their entity, matching that
+	// listing: show is the only entity type with a read-time visibility rule.
+	revisionsVisible, revisionsVisibleArgs := shared.VisibleShowRevisionsSQL(shared.RevisionsTable, viewer)
+	s.db.Model(&adminm.Revision{}).
+		Where("user_id = ?", userID).
+		Where(revisionsVisible, revisionsVisibleArgs...).
+		Count(&stats.RevisionsMade)
 
 	// Pending entity edits submitted
 	s.db.Model(&adminm.PendingEntityEdit{}).Where("submitted_by = ?", userID).Count(&stats.PendingEditsSubmitted)
@@ -438,8 +472,30 @@ func (s *ContributorProfileService) GetContributionStats(userID uint) (*contract
 // Contribution History
 // =============================================================================
 
-// GetContributionHistory returns a paginated, unified contribution timeline for a user.
-func (s *ContributorProfileService) GetContributionHistory(userID uint, limit, offset int, entityType string) ([]*contracts.ContributionEntry, int64, error) {
+// contributionShowEntityTypes are the entity_type discriminators a contribution
+// row carries when it names a show: the plain type on a submission, an audit row
+// and a direct-edit audit row, and the synthetic "<type>_edit" the
+// pending_entity_edits union emits.
+//
+// Both are gated. A "show_edit" row resolves to no name today, which makes it
+// look harmless, but it publishes the show's ID, and an id is the whole of what
+// an enumeration oracle needs.
+var contributionShowEntityTypes = []string{"show", "show_edit"}
+
+// GetContributionHistory returns a paginated, unified contribution timeline for
+// a user, containing only what the caller in viewer is allowed to see.
+//
+// Rows naming a show the viewer may not see are dropped, and dropped INSIDE the
+// union rather than after it, so the total this reports counts the same rows the
+// page contains. Filtering afterwards would return a short page beside a total
+// announcing how many rows were withheld, which is the same disclosure stated as
+// a number.
+//
+// The filter is on the unified result, not on the shows subquery alone, because
+// four of the five sources can name a show: a submission names the show it
+// created, and an audit row, a pending edit and an edit audit each carry a show
+// entity_id.
+func (s *ContributorProfileService) GetContributionHistory(userID uint, limit, offset int, entityType string, viewer contracts.ShowViewer) ([]*contracts.ContributionEntry, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -474,9 +530,21 @@ func (s *ContributorProfileService) GetContributionHistory(userID uint, limit, o
 	unionSQL := fmt.Sprintf("(%s) UNION ALL (%s) UNION ALL (%s) UNION ALL (%s) UNION ALL (%s)",
 		auditQuery, showQuery, venueQuery, entityEditQuery, entityEditAuditQuery)
 
-	entityFilter := ""
+	// The visibility gate, applied to the unified result so one condition covers
+	// every source. contributionShowEntityTypes are the two discriminators a
+	// show row can carry; anything else passes, show being the only entity type
+	// with a read-time visibility rule.
+	//
+	// Parentheses written out rather than left to the driver, and the entity-type
+	// filter ANDed after: the binding this pins is
+	// `(not a show OR visible) AND type = x`, never `not a show OR (visible AND
+	// type = x)`, which would publish every gated show row.
+	visibleShows, visibleShowsArgs := shared.VisibleShowExistsSQL("unified.entity_id", viewer)
+	entityFilter := fmt.Sprintf(" WHERE (unified.entity_type NOT IN ? OR %s)", visibleShows)
+	args = append(args, contributionShowEntityTypes)
+	args = append(args, visibleShowsArgs...)
 	if entityType != "" {
-		entityFilter = " WHERE entity_type = ?"
+		entityFilter += " AND unified.entity_type = ?"
 		args = append(args, entityType)
 	}
 
@@ -516,7 +584,7 @@ func (s *ContributorProfileService) GetContributionHistory(userID uint, limit, o
 		entries[i] = entry
 	}
 
-	s.enrichEntityNames(entries)
+	s.enrichEntityNames(entries, viewer)
 
 	return entries, total, nil
 }
@@ -525,15 +593,30 @@ func (s *ContributorProfileService) GetContributionHistory(userID uint, limit, o
 // Activity Heatmap
 // =============================================================================
 
-// GetActivityHeatmap returns daily contribution counts for the last 365 days.
+// GetActivityHeatmap returns daily contribution counts for the last 365 days, as
+// the caller in viewer is allowed to see them.
 // It aggregates activity across audit_logs, shows, venues, pending_entity_edits, and revisions.
 // Only days with count > 0 are returned; the frontend fills in gaps.
-func (s *ContributorProfileService) GetActivityHeatmap(userID uint) (*contracts.ActivityHeatmapResponse, error) {
+//
+// The SHOW and REVISION arms are narrowed to what viewer may see: a per-day count
+// is a public number, and a day this route counts while the contributions
+// timeline does not is a hidden show located to the day it was submitted.
+//
+// The audit_logs, pending_entity_edits and entity_edit_audit_logs arms are NOT
+// narrowed. Show-typed audit rows (approve_show, reject_show, create_comment,
+// create_field_note) therefore still contribute a day count that the timeline
+// filters, which leaves a coarser version of the same signal open. Narrowing
+// them is the follow-up this comment exists to name, not something already
+// done.
+func (s *ContributorProfileService) GetActivityHeatmap(userID uint, viewer contracts.ShowViewer) (*contracts.ActivityHeatmapResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	query := `
+	heatmapShowsVisible, heatmapShowsArgs := shared.VisibleShowPredicateSQL("shows", viewer)
+	heatmapRevisionsVisible, heatmapRevisionsArgs := shared.VisibleShowRevisionsSQL(shared.RevisionsTable, viewer)
+
+	query := fmt.Sprintf(`
 		SELECT activity_date, SUM(cnt) AS total_count
 		FROM (
 			SELECT DATE(created_at) AS activity_date, COUNT(*) AS cnt
@@ -546,6 +629,7 @@ func (s *ContributorProfileService) GetActivityHeatmap(userID uint) (*contracts.
 			SELECT DATE(created_at) AS activity_date, COUNT(*) AS cnt
 			FROM shows
 			WHERE submitted_by = ? AND created_at >= NOW() - INTERVAL '365 days'
+			  AND %s
 			GROUP BY DATE(created_at)
 
 			UNION ALL
@@ -567,6 +651,7 @@ func (s *ContributorProfileService) GetActivityHeatmap(userID uint) (*contracts.
 			SELECT DATE(created_at) AS activity_date, COUNT(*) AS cnt
 			FROM revisions
 			WHERE user_id = ? AND created_at >= NOW() - INTERVAL '365 days'
+			  AND %s
 			GROUP BY DATE(created_at)
 
 			UNION ALL
@@ -581,15 +666,25 @@ func (s *ContributorProfileService) GetActivityHeatmap(userID uint) (*contracts.
 		) AS combined
 		GROUP BY activity_date
 		ORDER BY activity_date ASC
-	`
+	`, heatmapShowsVisible, heatmapRevisionsVisible)
 
 	type dayRow struct {
 		ActivityDate time.Time `gorm:"column:activity_date"`
 		TotalCount   int       `gorm:"column:total_count"`
 	}
 
+	// Argument order follows the placeholders left to right through the unioned
+	// arms: audit_logs, shows (+ its visibility args), venues,
+	// pending_entity_edits, revisions (+ its visibility args),
+	// entity_edit_audit_logs.
+	heatmapArgs := []interface{}{userID, userID}
+	heatmapArgs = append(heatmapArgs, heatmapShowsArgs...)
+	heatmapArgs = append(heatmapArgs, userID, userID, userID)
+	heatmapArgs = append(heatmapArgs, heatmapRevisionsArgs...)
+	heatmapArgs = append(heatmapArgs, userID)
+
 	var rows []dayRow
-	err := s.db.Raw(query, userID, userID, userID, userID, userID, userID).Scan(&rows).Error
+	err := s.db.Raw(query, heatmapArgs...).Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get activity heatmap: %w", err)
 	}
@@ -815,9 +910,23 @@ func (s *ContributorProfileService) GetPercentileRankings(userID uint) (*contrac
 	// Get user's counts for each dimension
 	userCounts := make(map[string]int64)
 
-	// shows_submitted
+	// The public tier, expressed with binds because these are GORM Where calls
+	// and can carry arguments. The inlined spellings exist for the leaderboard's
+	// string builders, which cannot.
+	percentileShowsVisible, percentileShowsArgs := shared.VisibleShowPredicateSQL("shows", contracts.ShowViewer{})
+	percentileRevisionsVisible, percentileRevisionsArgs := shared.VisibleShowRevisionsSQL(shared.RevisionsTable, contracts.ShowViewer{})
+
+	// shows_submitted, and edits_approved below, count the PUBLIC tier only for
+	// every caller (PSY-1939). A percentile is a position in one shared cohort:
+	// the leaderboard it ranks against reads approved-only, so a percentile
+	// computed over a wider count would place the user against a population
+	// nobody else is measured in, and the gap between the two numbers would be a
+	// count of their hidden shows.
 	var showCount int64
-	s.db.Model(&catalogm.Show{}).Where("submitted_by = ?", userID).Count(&showCount)
+	s.db.Model(&catalogm.Show{}).
+		Where("submitted_by = ?", userID).
+		Where(percentileShowsVisible, percentileShowsArgs...).
+		Count(&showCount)
 	userCounts["shows_submitted"] = showCount
 
 	// venues_submitted
@@ -836,7 +945,10 @@ func (s *ContributorProfileService) GetPercentileRankings(userID uint) (*contrac
 		Where("submitted_by = ? AND status = ?", userID, adminm.PendingEditStatusApproved).
 		Count(&pendingEditsApproved)
 	var revisionCount int64
-	s.db.Model(&adminm.Revision{}).Where("user_id = ?", userID).Count(&revisionCount)
+	s.db.Model(&adminm.Revision{}).
+		Where("user_id = ?", userID).
+		Where(percentileRevisionsVisible, percentileRevisionsArgs...).
+		Count(&revisionCount)
 	userCounts["edits_approved"] = pendingEditsApproved + revisionCount
 
 	// requests_fulfilled
@@ -858,11 +970,16 @@ func (s *ContributorProfileService) GetPercentileRankings(userID uint) (*contrac
 
 		switch dim.key {
 		case "shows_submitted":
+			// The COHORT reads the same public tier the subject's own count does.
+			// Comparing a filtered numerator against an unfiltered population
+			// would rank a user with hidden submissions BELOW peers whose
+			// unfiltered totals are counted whole, which is not a percentile of
+			// anything (PSY-1939).
 			s.db.Raw(`
 				SELECT COUNT(*) FROM (
 					SELECT u.id, COUNT(s.id) AS cnt
 					FROM users u
-					LEFT JOIN shows s ON s.submitted_by = u.id
+					LEFT JOIN shows s ON s.submitted_by = u.id AND `+shared.PublicShowPredicateSQL("s")+`
 					WHERE u.is_active = true
 					GROUP BY u.id
 				) sub WHERE sub.cnt < ?
@@ -892,7 +1009,7 @@ func (s *ContributorProfileService) GetPercentileRankings(userID uint) (*contrac
 				SELECT COUNT(*) FROM (
 					SELECT u.id,
 						COALESCE((SELECT COUNT(*) FROM pending_entity_edits pe WHERE pe.submitted_by = u.id AND pe.status = 'approved'), 0) +
-						COALESCE((SELECT COUNT(*) FROM revisions r WHERE r.user_id = u.id), 0) AS cnt
+						COALESCE((SELECT COUNT(*) FROM revisions r WHERE r.user_id = u.id AND `+shared.PublicShowRevisionsSQL("r")+`), 0) AS cnt
 					FROM users u
 					WHERE u.is_active = true
 				) sub WHERE sub.cnt < ?
@@ -940,7 +1057,14 @@ func (s *ContributorProfileService) GetPercentileRankings(userID uint) (*contrac
 // Entity Name Enrichment
 // =============================================================================
 
-func (s *ContributorProfileService) enrichEntityNames(entries []*contracts.ContributionEntry) {
+func (s *ContributorProfileService) enrichEntityNames(entries []*contracts.ContributionEntry, viewer contracts.ShowViewer) {
+	// The show lookup repeats the visibility gate the union already applied.
+	// Deliberate belt and braces on a security boundary, and it costs no extra
+	// query: a title is the payload GET /shows/{id}'s 404 withholds, and this is
+	// the one place in this file that reads one. A row that slipped past the
+	// union keeps its id here but gains no name.
+	showsVisible, showsVisibleArgs := shared.VisibleShowPredicateSQL("shows", viewer)
+
 	idsByType := make(map[string][]uint)
 	for _, e := range entries {
 		idsByType[e.EntityType] = append(idsByType[e.EntityType], e.EntityID)
@@ -962,7 +1086,11 @@ func (s *ContributorProfileService) enrichEntityNames(entries []*contracts.Contr
 				ID    uint
 				Title string
 			}
-			s.db.Table("shows").Select("id, title").Where("id IN ?", ids).Scan(&results)
+			s.db.Table("shows").
+				Select("id, title").
+				Where("id IN ?", ids).
+				Where(showsVisible, showsVisibleArgs...).
+				Scan(&results)
 			for _, r := range results {
 				names[r.ID] = r.Title
 			}

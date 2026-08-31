@@ -28,7 +28,7 @@ func TestListTagEntities_ByID(t *testing.T) {
 			return []contracts.TaggedEntityItem{{EntityType: "artist", EntityID: 1, Name: "Band"}}, 1, nil
 		},
 	}
-	h := NewTagHandler(mock, nil)
+	h := NewTagHandler(mock, nil, testhelpers.AllShowsVisible())
 	resp, err := h.ListTagEntitiesHandler(context.Background(), &ListTagEntitiesRequest{TagID: "3"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -50,7 +50,7 @@ func TestListTagEntities_BySlug(t *testing.T) {
 			return nil, 0, nil
 		},
 	}
-	h := NewTagHandler(mock, nil)
+	h := NewTagHandler(mock, nil, testhelpers.AllShowsVisible())
 	resp, err := h.ListTagEntitiesHandler(context.Background(), &ListTagEntitiesRequest{TagID: "post-punk"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -67,7 +67,7 @@ func TestListTagEntities_TagNotFound(t *testing.T) {
 			return nil, fmt.Errorf("not found")
 		},
 	}
-	h := NewTagHandler(mock, nil)
+	h := NewTagHandler(mock, nil, testhelpers.AllShowsVisible())
 	_, err := h.ListTagEntitiesHandler(context.Background(), &ListTagEntitiesRequest{TagID: "ghost"})
 	testhelpers.AssertHumaError(t, err, 404)
 }
@@ -81,7 +81,7 @@ func TestListTagEntities_ServiceError(t *testing.T) {
 			return nil, 0, fmt.Errorf("db error")
 		},
 	}
-	h := NewTagHandler(mock, nil)
+	h := NewTagHandler(mock, nil, testhelpers.AllShowsVisible())
 	_, err := h.ListTagEntitiesHandler(context.Background(), &ListTagEntitiesRequest{TagID: "3"})
 	testhelpers.AssertHumaError(t, err, 500)
 }
@@ -93,7 +93,7 @@ func TestListTagEntities_ServiceError(t *testing.T) {
 func TestGetTagIntersection_NoTags(t *testing.T) {
 	// Empty/whitespace tags param resolves to zero distinct slugs → below the
 	// minimum of 1 → 400 before the service is touched.
-	h := NewTagHandler(&testhelpers.MockTagService{}, nil)
+	h := NewTagHandler(&testhelpers.MockTagService{}, nil, testhelpers.AllShowsVisible())
 	_, err := h.GetTagIntersectionHandler(context.Background(), &GetTagIntersectionRequest{Tags: " , "})
 	testhelpers.AssertHumaError(t, err, 400)
 }
@@ -111,7 +111,7 @@ func TestGetTagIntersection_SingleTagAllowed(t *testing.T) {
 			return &contracts.TagIntersectionResponse{TagMatch: "all"}, nil
 		},
 	}
-	h := NewTagHandler(mock, nil)
+	h := NewTagHandler(mock, nil, testhelpers.AllShowsVisible())
 	_, err := h.GetTagIntersectionHandler(context.Background(), &GetTagIntersectionRequest{Tags: "shoegaze,shoegaze"})
 	if err != nil {
 		t.Fatalf("unexpected error for single-tag intersection: %v", err)
@@ -124,7 +124,7 @@ func TestGetTagIntersection_SingleTagAllowed(t *testing.T) {
 func TestGetTagIntersection_TooManyTags(t *testing.T) {
 	// More than intersectionMaxTags (10) distinct slugs → 400 before the service
 	// is touched, bounding fan-out on this public endpoint.
-	h := NewTagHandler(&testhelpers.MockTagService{}, nil)
+	h := NewTagHandler(&testhelpers.MockTagService{}, nil, testhelpers.AllShowsVisible())
 	_, err := h.GetTagIntersectionHandler(context.Background(), &GetTagIntersectionRequest{
 		Tags: "t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11",
 	})
@@ -139,7 +139,7 @@ func TestGetTagIntersection_UnknownTag(t *testing.T) {
 			return nil, &contracts.UnknownTagSlugError{Slug: "ghost"}
 		},
 	}
-	h := NewTagHandler(mock, nil)
+	h := NewTagHandler(mock, nil, testhelpers.AllShowsVisible())
 	_, err := h.GetTagIntersectionHandler(context.Background(), &GetTagIntersectionRequest{Tags: "shoegaze,ghost"})
 	testhelpers.AssertHumaError(t, err, 400)
 }
@@ -152,7 +152,7 @@ func TestGetTagIntersection_PreviewLimitClampedToMax(t *testing.T) {
 			return &contracts.TagIntersectionResponse{TagMatch: "all"}, nil
 		},
 	}
-	h := NewTagHandler(mock, nil)
+	h := NewTagHandler(mock, nil, testhelpers.AllShowsVisible())
 	_, err := h.GetTagIntersectionHandler(context.Background(), &GetTagIntersectionRequest{
 		Tags:         "shoegaze,ambient",
 		PreviewLimit: 999,
@@ -175,7 +175,7 @@ func TestGetTagIntersection_DefaultPreviewLimitAndMatch(t *testing.T) {
 			return &contracts.TagIntersectionResponse{TagMatch: "all"}, nil
 		},
 	}
-	h := NewTagHandler(mock, nil)
+	h := NewTagHandler(mock, nil, testhelpers.AllShowsVisible())
 	_, err := h.GetTagIntersectionHandler(context.Background(), &GetTagIntersectionRequest{Tags: "shoegaze,ambient"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -196,7 +196,7 @@ func TestGetTagIntersection_AnyMatch(t *testing.T) {
 			return &contracts.TagIntersectionResponse{TagMatch: "any"}, nil
 		},
 	}
-	h := NewTagHandler(mock, nil)
+	h := NewTagHandler(mock, nil, testhelpers.AllShowsVisible())
 	_, err := h.GetTagIntersectionHandler(context.Background(), &GetTagIntersectionRequest{Tags: "shoegaze,ambient", TagMatch: "any"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -212,7 +212,7 @@ func TestGetTagIntersection_ServiceError(t *testing.T) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
-	h := NewTagHandler(mock, nil)
+	h := NewTagHandler(mock, nil, testhelpers.AllShowsVisible())
 	_, err := h.GetTagIntersectionHandler(context.Background(), &GetTagIntersectionRequest{Tags: "shoegaze,ambient"})
 	testhelpers.AssertHumaError(t, err, 500)
 }
@@ -231,7 +231,7 @@ func TestGetGenreHierarchy_Success(t *testing.T) {
 			}, nil
 		},
 	}
-	h := NewTagHandler(mock, nil)
+	h := NewTagHandler(mock, nil, testhelpers.AllShowsVisible())
 	resp, err := h.GetGenreHierarchyHandler(context.Background(), &struct{}{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -250,7 +250,7 @@ func TestGetGenreHierarchy_ServiceError(t *testing.T) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
-	h := NewTagHandler(mock, nil)
+	h := NewTagHandler(mock, nil, testhelpers.AllShowsVisible())
 	_, err := h.GetGenreHierarchyHandler(context.Background(), &struct{}{})
 	testhelpers.AssertHumaError(t, err, 500)
 }
@@ -269,7 +269,7 @@ func TestSetTagParent_Success(t *testing.T) {
 			return nil
 		},
 	}
-	h := NewTagHandler(mock, nil)
+	h := NewTagHandler(mock, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 7, IsAdmin: true})
 	req := &SetTagParentRequest{TagID: "2"}
 	req.Body.ParentID = &newParent
@@ -281,7 +281,7 @@ func TestSetTagParent_Success(t *testing.T) {
 }
 
 func TestSetTagParent_InvalidID(t *testing.T) {
-	h := NewTagHandler(&testhelpers.MockTagService{}, nil)
+	h := NewTagHandler(&testhelpers.MockTagService{}, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 7, IsAdmin: true})
 	_, err := h.SetTagParentHandler(ctx, &SetTagParentRequest{TagID: "abc"})
 	testhelpers.AssertHumaError(t, err, 400)
@@ -294,7 +294,7 @@ func TestSetTagParent_CycleMapsToTagError(t *testing.T) {
 			return apperrors.ErrTagHierarchyCycle("parent is a descendant")
 		},
 	}
-	h := NewTagHandler(mock, nil)
+	h := NewTagHandler(mock, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 7, IsAdmin: true})
 	_, err := h.SetTagParentHandler(ctx, &SetTagParentRequest{TagID: "2"})
 	testhelpers.AssertHumaError(t, err, 422)
@@ -307,7 +307,7 @@ func TestSetTagParent_ServiceError(t *testing.T) {
 			return fmt.Errorf("db error")
 		},
 	}
-	h := NewTagHandler(mock, nil)
+	h := NewTagHandler(mock, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 7, IsAdmin: true})
 	_, err := h.SetTagParentHandler(ctx, &SetTagParentRequest{TagID: "2"})
 	testhelpers.AssertHumaError(t, err, 500)

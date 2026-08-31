@@ -12,7 +12,7 @@ import (
 // Protected routes require authentication.
 // Admin routes require admin privileges.
 func setupCommentRoutes(rc RouteContext) {
-	commentHandler := engagementh.NewCommentHandler(rc.SC.Comment, rc.SC.Comment, rc.SC.CommentVote, rc.SC.AuditLog)
+	commentHandler := engagementh.NewCommentHandler(rc.SC.Comment, rc.SC.Comment, rc.SC.CommentVote, rc.SC.AuditLog, rc.SC.ShowVisibility)
 	commentAdminHandler := engagementh.NewCommentAdminHandler(rc.SC.Comment, rc.SC.AuditLog)
 
 	// Public: list comments, get comment, get thread
@@ -67,7 +67,7 @@ func setupCommentSubscriptionRoutes(rc RouteContext) {
 
 // setupFieldNoteRoutes configures field note endpoints on shows.
 func setupFieldNoteRoutes(rc RouteContext) {
-	fieldNoteHandler := engagementh.NewFieldNoteHandler(rc.SC.Comment, rc.SC.Comment, rc.SC.AuditLog)
+	fieldNoteHandler := engagementh.NewFieldNoteHandler(rc.SC.Comment, rc.SC.Comment, rc.SC.AuditLog, rc.SC.ShowVisibility)
 
 	// Public: list field notes for a show
 	optionalAuthGroup := huma.NewGroup(rc.API, "")

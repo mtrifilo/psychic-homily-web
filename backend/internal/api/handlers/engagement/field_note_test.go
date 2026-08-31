@@ -18,7 +18,7 @@ import (
 // ============================================================================
 
 func testFieldNoteHandler() *FieldNoteHandler {
-	return NewFieldNoteHandler(nil, nil, nil)
+	return NewFieldNoteHandler(nil, nil, nil, testhelpers.AllShowsVisible())
 }
 
 func makeFieldNoteResponse(id uint, showID uint, userID uint) *contracts.CommentResponse {
@@ -83,7 +83,7 @@ func TestCreateFieldNote_ShowNotFound(t *testing.T) {
 			return nil, apperrors.ErrFieldNoteShowNotFound()
 		},
 	}
-	h := NewFieldNoteHandler(mock, mock, nil)
+	h := NewFieldNoteHandler(mock, mock, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 10})
 	req := &CreateFieldNoteRequest{ShowID: "999"}
 	req.Body.Body = "test note"
@@ -97,7 +97,7 @@ func TestCreateFieldNote_FutureShow(t *testing.T) {
 			return nil, apperrors.ErrFieldNoteShowFuture()
 		},
 	}
-	h := NewFieldNoteHandler(mock, mock, nil)
+	h := NewFieldNoteHandler(mock, mock, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 10})
 	req := &CreateFieldNoteRequest{ShowID: "1"}
 	req.Body.Body = "test note"
@@ -111,7 +111,7 @@ func TestCreateFieldNote_SoundQualityInvalid(t *testing.T) {
 			return nil, apperrors.ErrCommentFieldValidation("sound_quality must be between 1 and 5")
 		},
 	}
-	h := NewFieldNoteHandler(mock, mock, nil)
+	h := NewFieldNoteHandler(mock, mock, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 10})
 	req := &CreateFieldNoteRequest{ShowID: "1"}
 	req.Body.Body = "test note"
@@ -127,7 +127,7 @@ func TestCreateFieldNote_CrowdEnergyInvalid(t *testing.T) {
 			return nil, apperrors.ErrCommentFieldValidation("crowd_energy must be between 1 and 5")
 		},
 	}
-	h := NewFieldNoteHandler(mock, mock, nil)
+	h := NewFieldNoteHandler(mock, mock, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 10})
 	req := &CreateFieldNoteRequest{ShowID: "1"}
 	req.Body.Body = "test note"
@@ -143,7 +143,7 @@ func TestCreateFieldNote_ArtistNotOnShow(t *testing.T) {
 			return nil, apperrors.ErrFieldNoteArtistNotOnBill()
 		},
 	}
-	h := NewFieldNoteHandler(mock, mock, nil)
+	h := NewFieldNoteHandler(mock, mock, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 10})
 	req := &CreateFieldNoteRequest{ShowID: "1"}
 	req.Body.Body = "test note"
@@ -159,7 +159,7 @@ func TestCreateFieldNote_RateLimited(t *testing.T) {
 			return nil, apperrors.ErrCommentRateLimitedEntity()
 		},
 	}
-	h := NewFieldNoteHandler(mock, mock, nil)
+	h := NewFieldNoteHandler(mock, mock, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 10})
 	req := &CreateFieldNoteRequest{ShowID: "1"}
 	req.Body.Body = "test note"
@@ -183,7 +183,7 @@ func TestCreateFieldNote_Success(t *testing.T) {
 			return expected, nil
 		},
 	}
-	h := NewFieldNoteHandler(mock, mock, nil)
+	h := NewFieldNoteHandler(mock, mock, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 10})
 	req := &CreateFieldNoteRequest{ShowID: "42"}
 	req.Body.Body = "Great show!"
@@ -228,7 +228,7 @@ func TestCreateFieldNote_PassesAllFields(t *testing.T) {
 			return makeFieldNoteResponse(1, 42, 10), nil
 		},
 	}
-	h := NewFieldNoteHandler(mock, mock, nil)
+	h := NewFieldNoteHandler(mock, mock, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 10})
 	req := &CreateFieldNoteRequest{ShowID: "42"}
 	req.Body.Body = "note"
@@ -275,7 +275,7 @@ func TestListFieldNotes_DefaultPagination(t *testing.T) {
 			}, nil
 		},
 	}
-	h := NewFieldNoteHandler(mock, mock, nil)
+	h := NewFieldNoteHandler(mock, mock, nil, testhelpers.AllShowsVisible())
 	resp, err := h.ListFieldNotesHandler(context.Background(), &ListFieldNotesRequest{
 		ShowID: "42",
 	})
@@ -300,7 +300,7 @@ func TestListFieldNotes_LimitCapped(t *testing.T) {
 			}, nil
 		},
 	}
-	h := NewFieldNoteHandler(mock, mock, nil)
+	h := NewFieldNoteHandler(mock, mock, nil, testhelpers.AllShowsVisible())
 	_, err := h.ListFieldNotesHandler(context.Background(), &ListFieldNotesRequest{
 		ShowID: "42",
 		Limit:  500,
@@ -321,7 +321,7 @@ func TestListFieldNotes_Success(t *testing.T) {
 			}, nil
 		},
 	}
-	h := NewFieldNoteHandler(mock, mock, nil)
+	h := NewFieldNoteHandler(mock, mock, nil, testhelpers.AllShowsVisible())
 	resp, err := h.ListFieldNotesHandler(context.Background(), &ListFieldNotesRequest{
 		ShowID: "42",
 	})
@@ -342,7 +342,7 @@ func TestListFieldNotes_ServerError(t *testing.T) {
 			return nil, fmt.Errorf("database error")
 		},
 	}
-	h := NewFieldNoteHandler(mock, mock, nil)
+	h := NewFieldNoteHandler(mock, mock, nil, testhelpers.AllShowsVisible())
 	_, err := h.ListFieldNotesHandler(context.Background(), &ListFieldNotesRequest{
 		ShowID: "42",
 	})
@@ -384,7 +384,7 @@ func TestListVenueFieldNotes_Success(t *testing.T) {
 			}, nil
 		},
 	}
-	h := NewFieldNoteHandler(mock, mock, nil)
+	h := NewFieldNoteHandler(mock, mock, nil, testhelpers.AllShowsVisible())
 	resp, err := h.ListVenueFieldNotesHandler(context.Background(), &ListVenueFieldNotesRequest{
 		VenueID: "42",
 	})
@@ -438,7 +438,7 @@ func TestListVenueFieldNotes_DefaultAndCappedLimit(t *testing.T) {
 					}, nil
 				},
 			}
-			h := NewFieldNoteHandler(mock, mock, nil)
+			h := NewFieldNoteHandler(mock, mock, nil, testhelpers.AllShowsVisible())
 			if _, err := h.ListVenueFieldNotesHandler(context.Background(), &ListVenueFieldNotesRequest{
 				VenueID: "42",
 				Limit:   tc.limit,
@@ -459,7 +459,7 @@ func TestListVenueFieldNotes_EmptyIsNotAnError(t *testing.T) {
 			}, nil
 		},
 	}
-	h := NewFieldNoteHandler(mock, mock, nil)
+	h := NewFieldNoteHandler(mock, mock, nil, testhelpers.AllShowsVisible())
 	resp, err := h.ListVenueFieldNotesHandler(context.Background(), &ListVenueFieldNotesRequest{
 		VenueID: "42",
 	})
@@ -477,7 +477,7 @@ func TestListVenueFieldNotes_ServerError(t *testing.T) {
 			return nil, fmt.Errorf("database error")
 		},
 	}
-	h := NewFieldNoteHandler(mock, mock, nil)
+	h := NewFieldNoteHandler(mock, mock, nil, testhelpers.AllShowsVisible())
 	_, err := h.ListVenueFieldNotesHandler(context.Background(), &ListVenueFieldNotesRequest{
 		VenueID: "42",
 	})

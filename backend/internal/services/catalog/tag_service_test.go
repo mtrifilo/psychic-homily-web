@@ -1821,6 +1821,53 @@ func (suite *TagServiceIntegrationTestSuite) TestGetTagEntities_Shows_NullSetTyp
 		"a NULL set_type row must not outrank the curated headliner")
 }
 
+// GET /tags/{tag_id}/entities is fully anonymous, so a tagged show whose status
+// is not approved publishes nothing through it: not its title, not its slug,
+// not its date, city, venue or headliner. It leaves the listing by the same
+// door a tagged id with no show row leaves by, and by the same door PSY-553
+// gave a private collection.
+//
+// The approved show is tagged in the same run so a regression that empties the
+// whole show branch cannot pass this as a success. Both fixtures state their
+// status explicitly: the shows column defaults to 'approved', so an omitted one
+// would silently make this test unable to fail (PSY-1939).
+func (suite *TagServiceIntegrationTestSuite) TestGetTagEntities_Shows_GatedShowIsNotPublished() {
+	user := suite.createTestUserWithTier("gate-tagger", "contributor")
+	tag := suite.createTag("basement-show", "genre")
+
+	makeShow := func(title, slug string, status catalogm.ShowStatus) *catalogm.Show {
+		s := slug
+		show := &catalogm.Show{
+			Title:     title,
+			Slug:      &s,
+			EventDate: time.Now().UTC().AddDate(0, 0, 14),
+			Status:    status,
+		}
+		suite.Require().NoError(suite.db.Create(show).Error)
+		return show
+	}
+
+	approved := makeShow("Approved Bill", "gate-approved-bill", catalogm.ShowStatusApproved)
+	pending := makeShow("Pending Bill", "gate-pending-bill", catalogm.ShowStatusPending)
+	rejected := makeShow("Rejected Bill", "gate-rejected-bill", catalogm.ShowStatusRejected)
+
+	for _, show := range []*catalogm.Show{approved, pending, rejected} {
+		_, err := suite.tagService.AddTagToEntity(tag.ID, "", catalogm.TagEntityShow, show.ID, user.ID, "")
+		suite.Require().NoError(err)
+	}
+
+	items, _, err := suite.tagService.GetTagEntities(tag.ID, catalogm.TagEntityShow, 50, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(items, 1, "only the approved show is published by the anonymous tag listing")
+	suite.Assert().Equal(approved.ID, items[0].EntityID)
+	suite.Assert().Equal("Approved Bill", items[0].Name)
+
+	for _, item := range items {
+		suite.Assert().NotEqual(pending.ID, item.EntityID)
+		suite.Assert().NotEqual(rejected.ID, item.EntityID)
+	}
+}
+
 // NOTE on the trailing `sa.artist_id ASC` tiebreak in enrichShows: it is NOT
 // pinned by a test here, deliberately. A tied-bill fixture was written and
 // removed because it passed with the tiebreak deleted, on every run. The

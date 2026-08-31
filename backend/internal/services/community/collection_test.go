@@ -3701,3 +3701,140 @@ func (suite *CollectionServiceIntegrationTestSuite) TestResolveCollectionItems_U
 	suite.Empty(resp.Resolved)
 	suite.Require().Len(resp.Unresolved, 2)
 }
+
+// =============================================================================
+// PSY-1939: show visibility across the collection hydration sites
+// =============================================================================
+
+// createTestShowWithStatus creates a show carrying an explicit status.
+//
+// The status is always stated, never defaulted: the shows column defaults to
+// 'approved', so a fixture that omits it silently produces the visible case and
+// a gate test written that way would pass with the gate deleted.
+func (suite *CollectionServiceIntegrationTestSuite) createTestShowWithStatus(title string, status catalogm.ShowStatus) *catalogm.Show {
+	slug := fmt.Sprintf("%s-%d", strings.ToLower(strings.ReplaceAll(title, " ", "-")), time.Now().UnixNano())
+	show := &catalogm.Show{
+		Title:     title,
+		Slug:      &slug,
+		EventDate: time.Now().Add(21 * 24 * time.Hour),
+		Status:    status,
+	}
+	suite.Require().NoError(suite.db.Create(show).Error)
+	return show
+}
+
+// A show whose status is not approved is not published by ANY collection
+// surface, and answers exactly as a show that does not exist: absent from the
+// resolver's Resolved partition, blank in the item response, no graph node,
+// "Unknown" from the single-row resolver, and an empty containing-collections
+// slice.
+//
+// The five hydration sites share one helper (scopeToVisibleShows), so they are
+// pinned in one test: a regression that drops the helper from any one of them
+// fails here, beside the approved control that must still resolve on every
+// surface.
+func (suite *CollectionServiceIntegrationTestSuite) TestCollectionShowHydration_GatedShowAnswersLikeMissing() {
+	user := suite.createTestUser("ShowGateCurator")
+	coll := suite.createPublicCollection(user, "Show Gate")
+
+	approved := suite.createTestShowWithStatus("Approved Bill", catalogm.ShowStatusApproved)
+	gated := suite.createTestShowWithStatus("Pending Bill", catalogm.ShowStatusPending)
+
+	suite.addNonArtistItemToCollection(coll.ID, approved.ID, user.ID, communitym.CollectionEntityShow)
+	suite.addNonArtistItemToCollection(coll.ID, gated.ID, user.ID, communitym.CollectionEntityShow)
+
+	// Site 1: fillResolvedBySlug. A gated slug lands in Unresolved, the same
+	// partition a slug matching no show at all lands in.
+	resolveResp, err := suite.collectionService.ResolveCollectionItems(&contracts.ResolveCollectionItemsRequest{
+		Entries: []contracts.ResolveCollectionItemEntry{
+			{EntityType: communitym.CollectionEntityShow, Slug: *approved.Slug},
+			{EntityType: communitym.CollectionEntityShow, Slug: *gated.Slug},
+			{EntityType: communitym.CollectionEntityShow, Slug: "no-show-carries-this-slug"},
+		},
+	})
+	suite.Require().NoError(err)
+	suite.Require().Len(resolveResp.Resolved, 1, "only the approved show resolves by slug")
+	suite.Equal(*approved.Slug, resolveResp.Resolved[0].Slug)
+	unresolvedSlugs := []string{}
+	for _, e := range resolveResp.Unresolved {
+		unresolvedSlugs = append(unresolvedSlugs, e.Slug)
+	}
+	suite.ElementsMatch([]string{*gated.Slug, "no-show-carries-this-slug"}, unresolvedSlugs,
+		"a gated slug and an unknown slug leave by the same door")
+
+	// Site 2: batchResolveEntityNames, through the collection detail response.
+	// The item is DROPPED, not emitted nameless. Withholding only the title
+	// would still publish the gated show's ID, and a blank name beside a real id
+	// positively marks it — "a show is here and you may not see it" — which is a
+	// louder signal than the title was.
+	detail, err := suite.collectionService.GetBySlug(coll.Slug, 0)
+	suite.Require().NoError(err)
+	byEntityID := map[uint]contracts.CollectionItemResponse{}
+	for _, it := range detail.Items {
+		byEntityID[it.EntityID] = it
+	}
+	suite.Require().Contains(byEntityID, approved.ID)
+	suite.Equal("Approved Bill", byEntityID[approved.ID].EntityName)
+	suite.NotContains(byEntityID, gated.ID,
+		"a gated show's id must not reach a public collection at all")
+
+	// Site 3: loadEntityDetailsForGraph. No node at all for the gated show.
+	graph, err := suite.collectionService.GetCollectionGraph(coll.Slug, 0, nil)
+	suite.Require().NoError(err)
+	// Nodes are keyed by collection_item id, not entity id, so the show is
+	// identified here by the name the node would publish.
+	graphShowNames := []string{}
+	for _, n := range graph.Nodes {
+		if n.EntityType == communitym.CollectionEntityShow {
+			graphShowNames = append(graphShowNames, n.Name)
+		}
+	}
+	suite.ElementsMatch([]string{"Approved Bill"}, graphShowNames,
+		"the graph names only the shows the public tier may see")
+
+	// Site 4: resolveEntityNameAndSlug, through AddItem's response. The gated
+	// show takes the trailing ("Unknown", "") every unresolvable entity takes.
+	other := suite.createPublicCollection(user, "Show Gate Second")
+	addedApproved, err := suite.collectionService.AddItem(other.Slug, user.ID, &contracts.AddCollectionItemRequest{
+		EntityType: communitym.CollectionEntityShow,
+		EntityID:   approved.ID,
+	})
+	suite.Require().NoError(err)
+	suite.Equal("Approved Bill", addedApproved.EntityName)
+
+	addedGated, err := suite.collectionService.AddItem(other.Slug, user.ID, &contracts.AddCollectionItemRequest{
+		EntityType: communitym.CollectionEntityShow,
+		EntityID:   gated.ID,
+	})
+	suite.Require().NoError(err)
+	suite.Equal("Unknown", addedGated.EntityName)
+	suite.Empty(addedGated.EntitySlug)
+
+	addedMissing, err := suite.collectionService.AddItem(other.Slug, user.ID, &contracts.AddCollectionItemRequest{
+		EntityType: communitym.CollectionEntityShow,
+		EntityID:   gated.ID + 100000,
+	})
+	suite.Require().NoError(err)
+	suite.Equal(addedMissing.EntityName, addedGated.EntityName,
+		"a gated show and a nonexistent one must read identically here")
+
+	// Site 5: GetUserCollectionsContainingEntity is deliberately NOT gated, and
+	// the gated show must still be found. This lookup is scoped to the CALLER's
+	// own collections, so everything it reports is something the caller put there
+	// themselves and it discloses nothing to anyone else.
+	//
+	// Asserted rather than left to the code, because gating it looks like the
+	// consistent thing to do and is a bug: the owner's popover would render the
+	// collection unchecked, clicking it would hit the uniqueness constraint, and
+	// the item could not be removed either.
+	containingApproved, err := suite.collectionService.GetUserCollectionsContainingEntity(
+		user.ID, communitym.CollectionEntityShow, approved.ID)
+	suite.Require().NoError(err)
+	suite.NotEmpty(containingApproved, "the approved show is still found in the caller's collections")
+
+	containingGated, err := suite.collectionService.GetUserCollectionsContainingEntity(
+		user.ID, communitym.CollectionEntityShow, gated.ID)
+	suite.Require().NoError(err)
+	suite.NotEmpty(containingGated,
+		"the owner must still see their own collection holding a gated show, or they cannot curate it")
+}

@@ -14,7 +14,7 @@ import (
 // Public endpoints for browsing tags. Optional auth for entity tags (user's vote).
 // Protected endpoints for tagging and voting. Admin endpoints for tag CRUD and aliases.
 func setupTagRoutes(rc RouteContext) {
-	tagHandler := catalogh.NewTagHandler(rc.SC.Tag, rc.SC.AuditLog)
+	tagHandler := catalogh.NewTagHandler(rc.SC.Tag, rc.SC.AuditLog, rc.SC.ShowVisibility)
 
 	// Public tag endpoints
 	huma.Get(rc.API, "/tags", tagHandler.ListTagsHandler)

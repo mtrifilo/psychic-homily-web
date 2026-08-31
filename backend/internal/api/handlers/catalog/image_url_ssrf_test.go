@@ -66,7 +66,7 @@ func TestUpdateShowHandler_RejectsSSRFImageURL(t *testing.T) {
 					return nil, nil, nil
 				},
 			}
-			h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
+			h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 			req := &UpdateShowRequest{ShowID: "1"}
 			value := c.value
 			req.Body.ImageURL = &value
@@ -91,7 +91,7 @@ func TestUpdateShowHandler_AcceptsPublicImageURL(t *testing.T) {
 			return &contracts.ShowResponse{ID: showID}, nil, nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
 	req := &UpdateShowRequest{ShowID: "1"}
 	flyer := "https://example.com/flyer.jpg"
 	req.Body.ImageURL = &flyer

@@ -9,8 +9,8 @@ import (
 	"psychic-homily-backend/internal/logger"
 	adminm "psychic-homily-backend/internal/models/admin"
 	authm "psychic-homily-backend/internal/models/auth"
-	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // =============================================================================
@@ -45,17 +45,19 @@ import (
 // change to what "visible" means has one obvious second site rather than a rule
 // that silently drifts out of agreement.
 //
-// It is spelled in THREE functions in this file, and a change to the policy has
-// to touch all three or the routes will disagree with each other:
-// requireEntityVisible (the entity-history route's 404), revisionVisibleTo (the
-// single-revision route), and visibleRevisionsOnly (the SQL both listings
-// filter with). TestTheGoPredicateAndTheSQLFilterAgree pins the last two
-// against each other; nothing but this sentence pins the first.
+// This file decides WHERE the rule is applied, never what it says. The rule
+// itself lives in services/shared/show_visibility.go, shared with every other
+// route that serves a show's content by id, so a change to what "visible" means
+// is made once, there.
 //
-// The mirror also stops at revision history. Other public routes that serve a
-// show's content by id — field notes, comments, tags, collections, followers —
-// do NOT consult shows.status today. This file closes the revision half of that
-// gap, not the whole of it.
+// THREE functions apply it: requireEntityVisible (the entity-history route's
+// 404), revisionVisibleTo (the single-revision route), and visibleRevisionsOnly
+// (the SQL both listings filter with).
+// TestTheGoPredicateAndTheSQLFilterAgree pins the last two against each other;
+// nothing but this sentence pins the first.
+//
+// What is SPECIFIC to revisions and therefore stays here: which reads gate, what
+// a gated read answers, and the merge provenance stamp below.
 //
 // It fails closed at every step. A missing show row, a nil db and a failed
 // lookup all resolve to "not visible" for a non-admin, which withholds history
@@ -84,17 +86,6 @@ import (
 // handled by a provenance stamp rather than by this lookup. See
 // adminm.Revision.FromGatedShow and catalog.MergeDuplicateShow.
 
-// entityTypeShow is the polymorphic entity_type value show revisions are stored
-// under. Named so the gate and the query it filters cannot drift onto different
-// spellings.
-//
-// Case matters and needs no defence: revisions are written with this exact
-// value, the entity_type comparison in Postgres is case-sensitive, and a caller
-// passing "Show" is rejected by the handler's entity-type allowlist before it
-// reaches here. Were it not, it would select zero rows rather than bypass the
-// gate.
-const entityTypeShow = "show"
-
 // requireEntityVisible reports whether a whole entity's revision history may be
 // served to viewer, returning contracts.ErrRevisionEntityHidden when it may not.
 //
@@ -105,7 +96,7 @@ func (s *RevisionService) requireEntityVisible(entityType string, entityID uint,
 	if viewer.IsAdmin {
 		return nil
 	}
-	if entityType != entityTypeShow {
+	if entityType != shared.RevisionEntityTypeShow {
 		return nil
 	}
 	if s.showVisibleTo(entityID, viewer) {
@@ -178,7 +169,7 @@ func (s *RevisionService) revisionVisibleTo(r *adminm.Revision, viewer contracts
 	if viewer.IsAdmin {
 		return true
 	}
-	if r.EntityType != entityTypeShow {
+	if r.EntityType != shared.RevisionEntityTypeShow {
 		return true
 	}
 	if r.FromGatedShow {
@@ -194,14 +185,13 @@ func (s *RevisionService) revisionVisibleTo(r *adminm.Revision, viewer contracts
 // after the fact would return a short page beside a total that announces how
 // many rows were withheld, which is this leak stated as a number.
 //
-// KNOWN GAP, and the reason that sentence says "this leak" and not "the leak":
-// the same number is still derivable elsewhere. user.ContributorProfileService
-// counts revisions_made as an unfiltered COUNT(*) over revisions.user_id and
-// serves it on the public profile, so differencing it against this total yields
-// how many of an author's edits sit on shows the caller cannot see. Closing that
-// means threading a viewer through the profile stats, which is a change to a
-// different service's contract and is deliberately not made here. The
-// counterpart note lives at that count.
+// The total is only worth filtering while its PUBLIC SIBLINGS are filtered too.
+// user.ContributorProfileService serves revisions_made on the public profile
+// over the same rows, so a difference between that count and this total is a
+// count of an author's edits on shows the caller cannot see, published as
+// arithmetic. Both read shared.VisibleShowRevisionsSQL for exactly that reason,
+// and a change to either that does not move the other reopens the leak
+// (PSY-1939). The percentile rankings and the leaderboard read it as well.
 //
 // The condition is the SQL spelling of revisionVisibleTo, and the two have to
 // stay in agreement. It is one correlated EXISTS on the shows primary key, so
@@ -216,27 +206,12 @@ func visibleRevisionsOnly(q *gorm.DB, viewer contracts.RevisionViewer) *gorm.DB 
 		return q
 	}
 
-	// Built by concatenation rather than written whole because the submitter
-	// branch must disappear for an anonymous caller instead of comparing
-	// against user id 0. No caller input reaches the string; the only variable
-	// part is whether one fixed fragment is present.
-	//
-	// The OUTER parentheses are written here rather than left to the query
-	// builder, and showVisibleTo does the same. GORM does wrap raw conditions
-	// containing OR today, so neither is a workaround: they are a refusal to let
-	// a security boundary rest on framework behaviour that could change. Written
-	// out, the binding this pins is `author = x AND (type <> 'show' OR <visible
-	// show>)` — never `author = x AND type <> 'show' OR <visible show>`, which
-	// would serve every visible show revision by every author.
-	cond := "(revisions.entity_type <> ? OR (" +
-		"revisions.from_gated_show = FALSE AND EXISTS (" +
-		"SELECT 1 FROM shows s WHERE s.id = revisions.entity_id AND (s.status = ?"
-	args := []interface{}{entityTypeShow, catalogm.ShowStatusApproved}
-	if viewer.UserID != 0 {
-		cond += " OR s.submitted_by = ?"
-		args = append(args, viewer.UserID)
-	}
-	cond += "))))"
+	// The condition is the shared one, and it is shared precisely so the total
+	// this listing reports and the revisions_made count on the public profile
+	// are the same number. See shared.VisibleShowRevisionsSQL for the three
+	// terms and for why the parentheses are written rather than left to the
+	// query builder.
+	cond, args := shared.VisibleShowRevisionsSQL(shared.RevisionsTable, viewer)
 
 	return q.Where(cond, args...)
 }
@@ -244,37 +219,9 @@ func visibleRevisionsOnly(q *gorm.DB, viewer contracts.RevisionViewer) *gorm.DB 
 // showVisibleTo answers the detail route's question for one show: may this
 // viewer see it at all.
 //
-// Callers have already established that viewer is not an admin. Returns false
-// when the show does not exist, which is the same answer GET /shows/{id} gives
-// by 404ing, and false on any lookup failure.
+// A one-line delegation to the shared rule, kept as a named method so the two
+// call sites above read as one gate rather than as two spellings of a database
+// lookup.
 func (s *RevisionService) showVisibleTo(showID uint, viewer contracts.RevisionViewer) bool {
-	if s.db == nil || showID == 0 {
-		return false
-	}
-
-	// One condition carrying its own parentheses, for the same reason
-	// visibleRevisionsOnly writes its own: GORM does parenthesize a raw
-	// condition containing OR today, so this is a deliberate refusal to let a
-	// security boundary rest on framework behaviour, not a workaround for a bug.
-	// Written out, the binding this pins is `id = X AND (status = 'approved' OR
-	// submitted_by = Y)` — never `id = X AND status = 'approved' OR
-	// submitted_by = Y`, which would answer yes for a gated show whenever the
-	// caller submitted ANY show at all.
-	q := s.db.Model(&catalogm.Show{})
-	if viewer.UserID != 0 {
-		q = q.Where("id = ? AND (status = ? OR submitted_by = ?)",
-			showID, catalogm.ShowStatusApproved, viewer.UserID)
-	} else {
-		q = q.Where("id = ? AND status = ?", showID, catalogm.ShowStatusApproved)
-	}
-
-	var count int64
-	if err := q.Count(&count).Error; err != nil {
-		logger.Default().Error("revision_visibility_show_lookup_failed",
-			"show_id", showID,
-			"error", err.Error(),
-		)
-		return false
-	}
-	return count > 0
+	return shared.ShowVisibleTo(s.db, showID, viewer)
 }
