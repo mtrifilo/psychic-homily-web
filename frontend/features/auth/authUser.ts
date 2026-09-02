@@ -5,9 +5,8 @@ import type { NavMode } from '@/lib/nav-mode'
  * The viewer identity every consumer of `useAuthContext()` reads.
  *
  * Reached only through {@link toAuthUser}, which `AuthProvider` runs on both
- * the profile query's payload and the object handed to `setUser`, so the
- * profile and the in-session override cannot describe the same viewer
- * differently.
+ * the profile query's payload and the object handed to `setUser`, so the two
+ * sources produce the same shape from the same fields.
  */
 export interface User {
   id: string
@@ -36,17 +35,20 @@ export interface User {
  * `/auth/profile` and every endpoint that establishes a session (password
  * login, registration, magic-link verification, account recovery, passkey
  * login, passkey signup) serialize the same backend user model, so one shape
- * and one mapper cover all of them. Fields are optional because this is also
- * the read contract for cached payloads written by older builds.
+ * and one mapper cover all of them.
  *
- * Two fields are declared narrower than the wire actually carries, inherited
- * from the per-endpoint types this replaced: `id` is a JSON number and `email`
- * is nullable (`components['schemas']['User']` in types/api.d.ts, generated
- * from the backend model). The values pass through unconverted, so consumers
- * that need a number call `Number(user.id)`.
+ * This is a hand-written mirror of `components['schemas']['User']` in
+ * types/api.d.ts and does not match it: `id` is a JSON number there, `email`
+ * and the seven other string fields are nullable, and every field the backend
+ * declares non-pointer arrives on every response rather than being optional.
+ * The shape is inherited verbatim from the per-endpoint types it replaced and
+ * the values pass through unconverted, which is why consumers that need a
+ * numeric id call `Number(user.id)`. Deriving it from the generated schema
+ * instead is a change with its own blast radius, not a rename.
  *
  * `user_tier` is a bare string rather than {@link UserTier}: the value is a
- * server-controlled enum, and the cast to it happens in {@link toAuthUser}.
+ * server-controlled enum, and {@link toAuthUser} asserts the union without
+ * validating it.
  */
 export interface AuthApiUser {
   id: string
@@ -68,9 +70,11 @@ export interface AuthApiUser {
  * The single adapter from an auth API payload to the context {@link User}.
  *
  * Fields are enumerated rather than spread: the backend serializes its whole
- * user model on these endpoints, including `preferences`, `privacy_settings`
- * and `is_active`, none of which belongs in the context value every
- * auth-consuming component re-renders on. The list is the allowlist.
+ * user model on these endpoints, and the fields below are the ones the context
+ * exposes. Everything else it sends (`preferences`, `privacy_settings`,
+ * `is_active`, `profile_visibility`, `created_at`, `updated_at`,
+ * `oauth_accounts`, `passkey_credentials`) stays out of the context value that
+ * every auth-consuming component re-renders on. The list is the allowlist.
  */
 export function toAuthUser(apiUser: AuthApiUser): User {
   return {

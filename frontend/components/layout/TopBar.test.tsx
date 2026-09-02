@@ -31,20 +31,22 @@ type MockAuthContextValue = {
   logout: () => void
 }
 
-// One fixture builder rather than a literal per test: `authStatus` is what the
-// account cluster gates on, and deriving `isAuthenticated` from it keeps a test
-// from asserting against a viewer the context cannot produce.
+// One fixture builder rather than a literal per test. `isAuthenticated` is
+// derived from `authStatus` and cannot be overridden, so no test can assert
+// against a viewer the context could not produce; `isLoading` seeds from
+// `authStatus` but IS overridable, because the two cells that matter here
+// differ only in it.
 function authFixture(
-  overrides: Partial<MockAuthContextValue> = {}
+  overrides: Partial<Omit<MockAuthContextValue, 'isAuthenticated'>> = {}
 ): MockAuthContextValue {
   const authStatus = overrides.authStatus ?? 'anonymous'
   return {
     user: null,
-    isAuthenticated: authStatus === 'authenticated',
     authStatus,
     isLoading: authStatus === 'pending',
     logout: mockLogout,
     ...overrides,
+    isAuthenticated: authStatus === 'authenticated',
   }
 }
 
@@ -195,12 +197,17 @@ describe('TopBar', () => {
       expect(screen.getByRole('link', { name: '+ Submit' })).toHaveAttribute('href', '/shows/submit')
     })
 
-    // PSY-1986. 'pending' covers both the ordinary pre-profile window and the
-    // terminal one a non-definitive failure (5xx, network, 403) leaves behind,
-    // which is where the bar used to claim the viewer was anonymous beside
-    // bracket controls that correctly rendered disabled.
-    it('claims no identity at all while auth is unsettled', () => {
-      mockAuthContext.mockReturnValue(authFixture({ authStatus: 'pending' }))
+    // PSY-1986. Both pending cells, because they differ in the signal the bar
+    // used to read: the ordinary pre-profile window has `isLoading` true, and
+    // the terminal window a non-definitive failure (5xx, network, 403) leaves
+    // behind has it false. That second cell is where the bar claimed the
+    // viewer was anonymous beside bracket controls that rendered disabled, so
+    // a regression to an `isLoading` gate has to fail here.
+    it.each([
+      ['while the profile is in flight', true],
+      ['after the profile failed without settling', false],
+    ])('claims no identity %s', (_label, isLoading) => {
+      mockAuthContext.mockReturnValue(authFixture({ authStatus: 'pending', isLoading }))
       render(<TopBar />)
       expect(screen.queryByText('login / sign-up')).not.toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'User menu' })).not.toBeInTheDocument()

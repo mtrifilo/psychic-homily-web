@@ -126,8 +126,8 @@ interface RefreshTokenResponse {
  * registration, magic-link sign-in, email verification, and account recovery.
  *
  * The profile refetch is awaited because the rest of the app reads identity
- * from that one query, and the login response is a thinner payload than
- * `/auth/profile` returns.
+ * from that one query: it outranks the in-session claim `setUser` makes, so
+ * until it lands the new session's identity is only provisional.
  *
  * The viewer-tier refresh is deliberately NOT awaited. Any panel already on
  * screen whose payload depends on privilege (revision history, comments)

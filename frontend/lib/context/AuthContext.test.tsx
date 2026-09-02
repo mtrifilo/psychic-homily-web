@@ -285,7 +285,7 @@ describe('AuthContext', () => {
       expect(result.current.isAuthenticated).toBe(true)
     })
 
-    it('user override takes precedence over profile data', () => {
+    it('profile data takes precedence over a user override', () => {
       mockUseProfile.mockReturnValue({
         data: {
           success: true,
@@ -311,18 +311,26 @@ describe('AuthContext', () => {
         })
       })
 
-      expect(result.current.user?.id).toBe('override-user')
+      expect(result.current.user?.id).toBe('profile-user')
     })
 
-    it('backfills nav_mode from the profile when the override omits it (PSY-1117)', () => {
+    // The override is cleared only by logout, so anything it states outranking
+    // the profile would be pinned for the whole SPA session. These are the
+    // three fields that change under the viewer mid-session: the appearance
+    // toggle PATCHes nav_mode (PSY-1117), tier promotion lands server-side,
+    // and verifying an email flips the submission gate.
+    it.each([
+      ['nav_mode', 'top', 'side'],
+      ['user_tier', 'new_user', 'trusted_contributor'],
+    ])('lets a refetched profile correct a stale override %s', (field, stale, fresh) => {
       mockUseProfile.mockReturnValue({
         data: {
           success: true,
           user: {
-            id: 'profile-user',
-            email: 'profile@example.com',
+            id: 'user-1',
+            email: 'user@example.com',
             email_verified: true,
-            nav_mode: 'side',
+            [field]: fresh,
           },
         },
         isLoading: false,
@@ -333,26 +341,78 @@ describe('AuthContext', () => {
         wrapper: createWrapperWithClient(queryClient),
       })
 
-      // An override that carries no nav_mode of its own.
+      act(() => {
+        result.current.setUser({
+          id: 'user-1',
+          email: 'user@example.com',
+          email_verified: true,
+          [field]: stale,
+        })
+      })
+
+      expect(result.current.user?.[field as 'nav_mode' | 'user_tier']).toBe(fresh)
+    })
+
+    it('lets a refetched profile correct a stale override email_verified', () => {
+      mockUseProfile.mockReturnValue({
+        data: {
+          success: true,
+          user: {
+            id: 'user-1',
+            email: 'user@example.com',
+            email_verified: true,
+          },
+        },
+        isLoading: false,
+        error: null,
+      })
+
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      act(() => {
+        result.current.setUser({
+          id: 'user-1',
+          email: 'user@example.com',
+          email_verified: false,
+        })
+      })
+
+      expect(result.current.user?.email_verified).toBe(true)
+    })
+
+    it('reads the override while the profile has no user of its own', () => {
+      mockUseProfile.mockReturnValue({
+        data: { success: true },
+        isPending: false,
+        isLoading: false,
+        error: null,
+      })
+
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
       act(() => {
         result.current.setUser({
           id: 'override-user',
           email: 'override@example.com',
           email_verified: true,
+          nav_mode: 'side',
         })
       })
 
-      // Identity comes from the override; nav_mode is backfilled from the
-      // profile so the appearance control seeds from the saved preference
-      // rather than the default within the SPA session.
       expect(result.current.user?.id).toBe('override-user')
       expect(result.current.user?.nav_mode).toBe('side')
+      expect(result.current.authStatus).toBe('authenticated')
     })
 
     // PSY-1945: an admin signing in with a password reached the context
     // without `is_admin`, so the admin-only controls stayed hidden until a
     // reload replaced the override with the real profile.
     it('exposes the privilege fields of an override built from a login response', () => {
+      // No profile answer yet: this is the window the override exists for.
       const { result } = renderHook(() => useAuthContext(), {
         wrapper: createWrapperWithClient(queryClient),
       })
@@ -374,36 +434,7 @@ describe('AuthContext', () => {
       expect(result.current.authStatus).toBe('authenticated')
     })
 
-    it('keeps the override nav_mode when the override sets one (override wins)', () => {
-      mockUseProfile.mockReturnValue({
-        data: {
-          success: true,
-          user: {
-            id: 'profile-user',
-            email: 'profile@example.com',
-            email_verified: true,
-            nav_mode: 'top',
-          },
-        },
-        isLoading: false,
-        error: null,
-      })
 
-      const { result } = renderHook(() => useAuthContext(), {
-        wrapper: createWrapperWithClient(queryClient),
-      })
-
-      act(() => {
-        result.current.setUser({
-          id: 'override-user',
-          email: 'override@example.com',
-          email_verified: true,
-          nav_mode: 'side',
-        })
-      })
-
-      expect(result.current.user?.nav_mode).toBe('side')
-    })
   })
 
   describe('setError and clearError', () => {

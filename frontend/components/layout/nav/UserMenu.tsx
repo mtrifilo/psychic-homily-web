@@ -36,8 +36,9 @@ export function UserMenu() {
   // Nothing renders in the unsettled slot, and no spinner either: a viewer
   // whose profile fetch failed on a non-definitive error stays 'pending' for
   // the rest of the SPA session, so a spinner would promise an arrival that is
-  // not coming. The box keeps the avatar trigger's height so the settled
-  // controls drop into the same row geometry.
+  // not coming. The box holds the avatar trigger's height; the row's width
+  // still changes when auth settles, because the two settled states are a text
+  // link and a three-control cluster.
   if (authStatus === 'pending') {
     return <div aria-hidden="true" className="size-9 shrink-0" />
   }

@@ -85,11 +85,12 @@ interface AuthState {
 
 interface AuthContextType extends AuthState {
   /**
-   * Claim an authenticated viewer from a session-entry response, ahead of the
-   * profile query. Takes the API payload, not a context {@link User}: the
-   * mapping runs here so no call site can assemble a narrower object and have
-   * it outrank the profile for the rest of the SPA session (PSY-1945).
-   * `null` releases the claim.
+   * Claim an authenticated viewer from a session-entry response, for the window
+   * before the profile query answers. Takes the API payload rather than a
+   * context {@link User} so the mapping runs in one place; the claim is read
+   * only while the profile has no user of its own, so a call site that passes
+   * a thin object no longer pins what it omitted (PSY-1945). `null` releases
+   * the claim.
    */
   setUser: (user: AuthApiUser | null) => void
   setError: (error: string | null) => void
@@ -162,23 +163,24 @@ export function AuthProvider({ children }: AuthProviderProps) {
       return null
     }
 
-    // If there's an explicit user override (truthy), use it.
-    // Note: null means "no override" - logout clears via queryClient.clear().
-    // The override wins for every field it sets; `nav_mode` falls back to the
-    // profile when it carries none, so the appearance settings control
-    // (PSY-1117) seeds from the saved preference rather than the default.
-    if (userOverride) {
-      return {
-        ...userOverride,
-        nav_mode: userOverride.nav_mode ?? profileData?.user?.nav_mode,
-      }
-    }
-
-    // Otherwise derive from profile data. Same mapper the session-entry paths
-    // run on their own responses, so an override and the profile it precedes
-    // describe the viewer identically.
+    // The profile outranks the override once it has an answer, because the
+    // override is a bridge and not a second source of truth: it is set by every
+    // in-session login and cleared only by `logout()`, while the profile is
+    // refetched by the mutations that change what it says. Reading the override
+    // first pins whatever it holds for the rest of the SPA session, so a saved
+    // nav_mode (PSY-1117), a tier promotion, and an email verification would
+    // each land in the profile and never reach a consumer.
+    //
+    // Same mapper on both sides, so the two cannot describe the viewer in
+    // different shapes.
     if (profileData?.success && profileData?.user) {
       return toAuthUser(profileData.user)
+    }
+
+    // No profile answer yet. `null` means "no override"; logout clears it
+    // alongside the query cache.
+    if (userOverride) {
+      return userOverride
     }
 
     return null
