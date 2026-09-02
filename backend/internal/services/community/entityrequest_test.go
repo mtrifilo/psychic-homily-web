@@ -3,6 +3,10 @@ package community
 import (
 	"encoding/json"
 	"fmt"
+	"math/rand"
+	"regexp"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -81,13 +85,34 @@ func (suite *EntityRequestServiceIntegrationTestSuite) requireStored(requestID u
 	return stored
 }
 
-// marshalShow builds a typed show payload, optionally carrying the bill the
-// contributor knew (PSY-1858). The title is the dedup key for a show request.
+// marshalShow builds a typed show payload on a fixed date, optionally carrying
+// the bill the contributor knew (PSY-1858). Title AND event_date together are
+// the dedup key for a show request (PSY-1977), so a test that varies only the
+// bill must hold the date fixed — which this does.
 func (suite *EntityRequestServiceIntegrationTestSuite) marshalShow(title string, artists ...communitym.ShowRequestArtist) []byte {
+	return suite.marshalShowOn(title, "2026-09-12T21:00:00-07:00", artists...)
+}
+
+// marshalShowOn builds a typed show payload on a caller-chosen event_date, for
+// the tests that exercise the date half of the dedup key.
+func (suite *EntityRequestServiceIntegrationTestSuite) marshalShowOn(title, eventDate string, artists ...communitym.ShowRequestArtist) []byte {
 	raw, err := communitym.MarshalPayload(communitym.ShowRequestPayload{
 		Title:     title,
-		EventDate: "2026-09-12T21:00:00-07:00",
+		EventDate: eventDate,
 		Artists:   artists,
+	})
+	suite.Require().NoError(err)
+	return raw
+}
+
+// marshalFestival builds a typed festival payload. start_date is the festival's
+// half of the dedup key's occurrence term (PSY-1977).
+func (suite *EntityRequestServiceIntegrationTestSuite) marshalFestival(name string, editionYear int, startDate, endDate string) []byte {
+	raw, err := communitym.MarshalPayload(communitym.FestivalRequestPayload{
+		Name:        name,
+		EditionYear: editionYear,
+		StartDate:   startDate,
+		EndDate:     endDate,
 	})
 	suite.Require().NoError(err)
 	return raw
@@ -436,6 +461,13 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestListRequests_EntityTy
 // name) lands on the EXISTING row — no error, no duplicate row — and overwrites
 // its payload with the resubmission's. Casing + surrounding whitespace are
 // normalized, matching the unique index.
+//
+// This is also what pins the occurrence term to the empty string rather than
+// NULL for a type whose payload carries no date (PSY-1977). An artist has no
+// occurrence, so both rows key on the empty string and collide exactly as they
+// always did. Were the term NULL instead, Postgres's unique-index semantics
+// would make every row DISTINCT, this second submission would file its own row,
+// and all three assertions below would fail.
 func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_DuplicatePending_ReplacesPayload() {
 	user := suite.createUser("dup", tierContributor, false)
 
@@ -618,6 +650,284 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_ResubmissionUn
 	var count int64
 	suite.Require().NoError(suite.db.Model(&communitym.EntityRequest{}).Count(&count).Error)
 	suite.Assert().Equal(int64(2), count, "the misspelled request stays queued until an admin decides it")
+}
+
+// PSY-1977: a recurring night is the domain's normal case, not an edge one. Two
+// same-titled shows on DIFFERENT dates from one requester are two distinct
+// requests, so both must survive as separate pending rows. Before the date
+// joined the dedup key the second submission REPLACED the first, and the
+// September request was gone.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_SameTitleDifferentDate_FilesASecondRequest() {
+	user := suite.createUser("recurring", tierContributor, false)
+
+	september, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
+		suite.marshalShowOn("Open Mic", "2026-09-03T20:00:00-07:00"),
+		communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+	suite.Require().False(replaced)
+
+	october, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
+		suite.marshalShowOn("Open Mic", "2026-10-01T20:00:00-07:00"),
+		communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+	suite.Assert().False(replaced, "a different date is a different show, not a correction")
+	suite.Assert().NotEqual(september.ID, october.ID, "it files its own row")
+
+	// The September request must still hold the September date. Read it back
+	// rather than trusting the returned struct: the destruction this guards was a
+	// write to the STORED payload.
+	stored := suite.requireStored(september.ID)
+	suite.Require().NotNil(stored.Payload)
+	suite.Assert().JSONEq(string(suite.marshalShowOn("Open Mic", "2026-09-03T20:00:00-07:00")), string(*stored.Payload),
+		"the earlier request survives untouched")
+	suite.Assert().Equal(communitym.EntityRequestStatePending, stored.DecisionState)
+
+	var count int64
+	suite.Require().NoError(suite.db.Model(&communitym.EntityRequest{}).Count(&count).Error)
+	suite.Assert().Equal(int64(2), count, "both nights are queued")
+}
+
+// The replace-on-resubmit contract (PSY-1948) is unchanged for a TRUE match: the
+// same title on the same date is the same request, and resubmitting it corrects
+// the queued row rather than filing a second one.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_SameTitleSameDate_StillReplaces() {
+	user := suite.createUser("samenight", tierContributor, false)
+
+	first, _, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
+		suite.marshalShowOn("Open Mic", "2026-09-03T20:00:00-07:00"),
+		communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+
+	corrected := suite.marshalShowOn("  open mic  ", "2026-09-03T20:00:00-07:00",
+		communitym.ShowRequestArtist{Name: "Boris"})
+	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
+		corrected, communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+	suite.Assert().True(replaced, "the same night resubmitted is a correction")
+	suite.Assert().Equal(first.ID, second.ID)
+
+	stored := suite.requireStored(first.ID)
+	suite.Require().NotNil(stored.Payload)
+	suite.Assert().JSONEq(string(corrected), string(*stored.Payload))
+
+	var count int64
+	suite.Require().NoError(suite.db.Model(&communitym.EntityRequest{}).Count(&count).Error)
+	suite.Assert().Equal(int64(1), count)
+}
+
+// The occurrence term of the key normalizes the way the name term does: a
+// resubmission whose date carries surrounding SPACES still matches, because both
+// sides are trimmed. A date the payload validator accepts must not become a
+// second request on spacing alone.
+//
+// Spaces specifically, because SQL trim() strips only those while the validator's
+// strings.TrimSpace strips every Unicode space character. A tab-padded date would
+// validate and then key differently, filing a second request. That asymmetry is
+// the name term's too and predates this key — the point here is that both terms
+// normalize the SAME way, not that either normalizes exhaustively. It costs a
+// duplicate row an admin rejects, never a destroyed one.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_SameDateWithSurroundingSpace_StillReplaces() {
+	user := suite.createUser("spacedate", tierContributor, false)
+
+	first, _, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
+		suite.marshalShowOn("Emo Night", "2026-09-03T20:00:00-07:00"),
+		communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+
+	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
+		suite.marshalShowOn("Emo Night", " 2026-09-03T20:00:00-07:00 "),
+		communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+	suite.Assert().True(replaced, "whitespace around the date is not a different night")
+	suite.Assert().Equal(first.ID, second.ID)
+}
+
+// PSY-1977 is scoped to SHOWS. A festival declares no occurrence term, so two
+// editions of one festival still collide and the second still destroys the first.
+// Pinned deliberately, so reversing it is a decision rather than an accident:
+// start_date is finer than the catalog's (series_slug, edition_year) uniqueness,
+// so keying on it would trade this destroyed request for an approved-but-
+// unfulfilled orphan. See FestivalRequestPayload.dedupOccurrenceJSONKey.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_FestivalEditions_StillCollide() {
+	user := suite.createUser("fest", tierContributor, false)
+
+	first, _, err := suite.service.CreateRequest(user, communitym.EntityRequestFestival,
+		suite.marshalFestival("Psycho Las Vegas", 2026, "2026-08-14", "2026-08-16"),
+		communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+
+	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestFestival,
+		suite.marshalFestival("Psycho Las Vegas", 2027, "2027-08-13", "2027-08-15"),
+		communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+	suite.Assert().True(replaced, "UNFIXED: the 2027 edition replaces the 2026 one")
+	suite.Assert().Equal(first.ID, second.ID)
+
+	var count int64
+	suite.Require().NoError(suite.db.Model(&communitym.EntityRequest{}).Count(&count).Error)
+	suite.Assert().Equal(int64(1), count, "one row; the 2026 edition's request is gone")
+}
+
+// The residual SHOW collision, pinned because it is the ticket's own harm class
+// left standing: same title, same date, different venue. The payload has no venue
+// field and city/state are optional, so the key cannot separate these two. A
+// franchise night running two cities the same evening is the real case.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_SameTitleSameDateDifferentCity_StillCollides() {
+	user := suite.createUser("franchise", tierContributor, false)
+
+	phoenix, err := communitym.MarshalPayload(communitym.ShowRequestPayload{
+		Title: "Emo Night", EventDate: "2026-09-03T20:00:00-07:00", City: strptr("Phoenix"),
+	})
+	suite.Require().NoError(err)
+	tucson, err := communitym.MarshalPayload(communitym.ShowRequestPayload{
+		Title: "Emo Night", EventDate: "2026-09-03T20:00:00-07:00", City: strptr("Tucson"),
+	})
+	suite.Require().NoError(err)
+
+	first, _, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
+		phoenix, communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+
+	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
+		tucson, communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+	suite.Assert().True(replaced, "UNFIXED: the Tucson night replaces the Phoenix one")
+	suite.Assert().Equal(first.ID, second.ID)
+
+	stored := suite.requireStored(first.ID)
+	suite.Require().NotNil(stored.Payload)
+	suite.Assert().JSONEq(string(tucson), string(*stored.Payload), "the Phoenix request is gone")
+}
+
+// The venue gap, pinned like the other two. city and state are both REQUIRED for
+// a venue, so this is the most fixable of the unfixed collisions; what blocks it
+// is that dedupOccurrenceJSONKey names ONE key and a venue needs two.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_SameVenueNameDifferentCity_StillCollides() {
+	user := suite.createUser("chain", tierContributor, false)
+
+	sf, err := communitym.MarshalPayload(communitym.VenueRequestPayload{
+		Name: "The Fillmore", City: "San Francisco", State: "CA",
+	})
+	suite.Require().NoError(err)
+	philly, err := communitym.MarshalPayload(communitym.VenueRequestPayload{
+		Name: "The Fillmore", City: "Philadelphia", State: "PA",
+	})
+	suite.Require().NoError(err)
+
+	first, _, err := suite.service.CreateRequest(user, communitym.EntityRequestVenue,
+		sf, communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+
+	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestVenue,
+		philly, communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+	suite.Assert().True(replaced, "UNFIXED: two different Fillmores are one request")
+	suite.Assert().Equal(first.ID, second.ID)
+}
+
+// The same unfixed collision for releases, which the ticket named explicitly
+// (self-titled, "Untitled", "Live at X"). release_date is OPTIONAL, so it cannot
+// be the occurrence term without turning "queued without a date, resubmitted with
+// one" into a second request instead of the correction it is. Pinned so that
+// promoting release_date to required forces a look at this key.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_ReleasesWithDifferentDates_StillCollide() {
+	user := suite.createUser("rel", tierContributor, false)
+
+	early, err := communitym.MarshalPayload(communitym.ReleaseRequestPayload{
+		Title: "Untitled", ReleaseDate: strptr("1994-03-01"),
+	})
+	suite.Require().NoError(err)
+	late, err := communitym.MarshalPayload(communitym.ReleaseRequestPayload{
+		Title: "Untitled", ReleaseDate: strptr("2011-09-20"),
+	})
+	suite.Require().NoError(err)
+
+	first, _, err := suite.service.CreateRequest(user, communitym.EntityRequestRelease,
+		early, communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+
+	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestRelease,
+		late, communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+	suite.Assert().True(replaced, "UNFIXED: two distinct releases sharing a title still collide")
+	suite.Assert().Equal(first.ID, second.ID)
+}
+
+// Two spellings of ONE moment are two requests, because the occurrence term is
+// the event_date STRING compared byte for byte, not the instant it denotes. This
+// is the cost of not canonicalizing at the boundary, and it is pinned rather than
+// left to be discovered: a producer re-serializing from a JS Date emits the Z
+// form every time and will land here. See ShowRequestPayload's doc block.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_SameInstantDifferentSpelling_FilesASecondRequest() {
+	user := suite.createUser("spelling", tierContributor, false)
+
+	local := "2026-09-03T20:00:00-07:00"
+	utc := "2026-09-04T03:00:00Z"
+	parsedLocal, err := time.Parse(time.RFC3339, local)
+	suite.Require().NoError(err)
+	parsedUTC, err := time.Parse(time.RFC3339, utc)
+	suite.Require().NoError(err)
+	suite.Require().True(parsedLocal.Equal(parsedUTC), "the fixture must be the same instant")
+
+	first, _, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
+		suite.marshalShowOn("Emo Night", local), communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+
+	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
+		suite.marshalShowOn("Emo Night", utc), communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+	suite.Assert().False(replaced, "byte-different spellings do not match, so this is not a correction")
+	suite.Assert().NotEqual(first.ID, second.ID)
+
+	// The date-only form is the same trap on the more common path: it is anchored
+	// at 20:00 venue-local at fulfillment, so for an Arizona venue it denotes this
+	// same evening, and it still files its own row.
+	third, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
+		suite.marshalShowOn("Emo Night", "2026-09-03"), communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+	suite.Assert().False(replaced)
+	suite.Assert().NotEqual(first.ID, third.ID)
+}
+
+// The index must be able to store a row whose event_date is far too long for a
+// btree key. This is the property the up migration's "the build cannot fail on
+// existing data" claim rests on: rows queued BEFORE maxRequestDateLen existed can
+// hold a multi-kilobyte event_date, and the migration has to index them.
+//
+// The service is used deliberately rather than a raw INSERT, because it is the
+// index — not the boundary — that this pins: CreateRequest does not validate
+// payloads (that is the HTTP layer's job), so this is exactly the shape a legacy
+// row has. Without left(..., 64) on the term, Postgres answers SQLSTATE 54000,
+// which is not a duplicate-key error, so the dedup branch would not fire and the
+// contributor would get a 500.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_OversizedEventDate_IsStillIndexable() {
+	user := suite.createUser("longdate", tierContributor, false)
+
+	// The digits must be INCOMPRESSIBLE. Postgres TOAST-compresses an oversized
+	// index value before measuring it, so a run of one repeated digit fits
+	// comfortably and proves nothing; a pseudo-random run does not. Seeded, so the
+	// fixture is the same on every run.
+	digits := make([]byte, 3000)
+	rng := rand.New(rand.NewSource(1977))
+	for i := range digits {
+		digits[i] = byte('0' + rng.Intn(10))
+	}
+	oversized := "2026-09-03T20:00:00." + string(digits) + "-07:00"
+
+	_, parseErr := time.Parse(time.RFC3339, oversized)
+	suite.Require().NoError(parseErr,
+		"the fixture must still PARSE, or it is not the shape a legacy row has")
+
+	stored, _, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
+		suite.marshalShowOn("Long Night", oversized), communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err, "the truncated term keeps an oversized event_date indexable")
+	suite.Require().NotNil(stored)
+
+	// Truncation is only about what the INDEX stores. The payload is untouched.
+	fetched := suite.requireStored(stored.ID)
+	suite.Require().NotNil(fetched.Payload)
+	suite.Assert().Contains(string(*fetched.Payload), oversized,
+		"the stored payload keeps the full value; only the key is truncated")
 }
 
 // The race the conditional UPDATE exists for: an admin decides the row between
@@ -1019,6 +1329,121 @@ func mustMarshalLabel(suite *EntityRequestServiceIntegrationTestSuite, name stri
 	raw, err := communitym.MarshalPayload(communitym.LabelRequestPayload{Name: name})
 	suite.Require().NoError(err)
 	return raw
+}
+
+// PSY-1977: the two sides of the comparison are asymmetric, and only one of them
+// may carry placeholders. The stored side reads the column; the candidate side
+// interpolates the payload once per JSON key it reads.
+//
+// Asserting the candidate side's arity here would be tautological — dedupKeyArgs
+// derives the count from the same expression — and that is the point: the arity
+// bug this had (narrowing the coalesce to one key while both call sites still
+// passed two args, which Postgres refuses with "could not determine data type of
+// parameter $N") is now unrepresentable because nothing writes the count down.
+// The statements themselves are exercised by the integration tests, which is the
+// only place a binding error can actually surface.
+//
+// What IS worth asserting is the asymmetry, because it is an assumption both call
+// sites make silently: they bind args for the CANDIDATE expression only.
+func TestDedupKeyStoredSideCarriesNoPlaceholder(t *testing.T) {
+	storedName, storedOccurrence := dedupKeyExprs(dedupStoredPayload)
+	for _, expr := range []string{storedName, storedOccurrence} {
+		if strings.Contains(expr, "?") {
+			t.Errorf("the stored-side expression must not carry a placeholder, "+
+				"or every call site is binding one arg too few: %s", expr)
+		}
+	}
+
+	candidateName, candidateOccurrence := dedupKeyExprs(dedupCandidatePayload)
+	for _, expr := range []string{candidateName, candidateOccurrence} {
+		if !strings.Contains(expr, "?") {
+			t.Errorf("the candidate-side expression must carry a placeholder, "+
+				"or the payload is being compared against nothing: %s", expr)
+		}
+	}
+}
+
+// dedupKeyJSONKeys pulls the payload keys an expression reads, in the order it
+// reads them. The character class is deliberately wider than today's keys
+// (digits and capitals included) so a key like `date_2` cannot slip past the
+// reverse check by not matching.
+func dedupKeyJSONKeys(expr string) []string {
+	var keys []string
+	for _, match := range regexp.MustCompile(`->>\s*'([A-Za-z0-9_]+)'`).FindAllStringSubmatch(expr, -1) {
+		keys = append(keys, match[1])
+	}
+	return keys
+}
+
+// PSY-1977: the dedup key lives in THREE places that must agree — the payload
+// registry's per-type declarations, dedupKeyExprs, and the
+// uq_entity_requests_pending_dedup index. This reads the index back out of
+// Postgres, so the pairing the Go code cannot enforce on its own is enforced
+// here, against the schema the real migrations actually built.
+//
+// It matters most in the direction that is silent. An expression NARROWER than
+// the index 500s loudly. An expression WIDER selects the lowest-id row sharing
+// the wider key, which can be a different request — and before
+// replacePendingSubmission re-asserted the key, that destroyed it.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestDedupOccurrenceMatchesTheIndex() {
+	var indexDef string
+	suite.Require().NoError(suite.db.Raw(
+		"SELECT indexdef FROM pg_indexes WHERE indexname = 'uq_entity_requests_pending_dedup'",
+	).Scan(&indexDef).Error)
+	suite.Require().NotEmpty(indexDef, "the dedup index must exist; the migrations build it")
+
+	declared := communitym.DedupOccurrenceJSONKeys()
+	suite.Require().NotEmpty(declared,
+		"no payload type declares an occurrence key; the dedup key lost its date term")
+
+	// BOTH terms, not just the occurrence. The name term is the older and larger
+	// half of the key and already carries two coexisting keys ('name', 'title'),
+	// so it is the half where a widening edit or a reordered coalesce is most
+	// likely — and a query wider than the index is the drift that picks the wrong
+	// row rather than erroring.
+	name, occurrence := dedupKeyExprs(dedupStoredPayload)
+	occurrenceKeys := dedupKeyJSONKeys(occurrence)
+	exprKeys := append(dedupKeyJSONKeys(name), occurrenceKeys...)
+	indexKeys := dedupKeyJSONKeys(indexDef)
+
+	// Postgres rewrites the expression (trim becomes btrim, ::text casts appear),
+	// so compare the quoted key literals rather than the whole expression.
+	for _, key := range declared {
+		suite.Assert().Contains(occurrenceKeys, key,
+			"payload registry declares occurrence key %q but dedupKeyExprs does not read it", key)
+		suite.Assert().Contains(indexKeys, key,
+			"payload registry declares occurrence key %q but uq_entity_requests_pending_dedup does not read it;\n"+
+				"add it to the index in a NEW migration, in the same order as dedupKeyExprs", key)
+	}
+
+	// The reverse direction, for the occurrence term only: a date key the
+	// expression reads that no type declares is a typo or a leftover, and either
+	// one silently splits a dedup bucket. The name term has no registry to check
+	// against — 'name'/'title' are the schema, not a per-type declaration.
+	for _, key := range occurrenceKeys {
+		suite.Assert().Contains(declared, key,
+			"dedupKeyExprs reads %q, which no payload type declares as its occurrence key", key)
+	}
+
+	// EXACT equality, in order, in both directions. Subset checks are what let the
+	// two dangerous edits through: an index that reads a key the expression does
+	// not (query WIDER than index, which picks the wrong row instead of erroring),
+	// and a reordered coalesce, where whichever key comes first wins for a payload
+	// carrying both.
+	suite.Assert().Equal(exprKeys, indexKeys,
+		"dedupKeyExprs and uq_entity_requests_pending_dedup read different payload keys, "+
+			"or read them in a different order.\nGo: %v\nindex: %v\n"+
+			"They must be edited as a pair, in a NEW migration.", exprKeys, indexKeys)
+
+	// The truncation WIDTH is part of the key too, and a bare integer in three
+	// files is exactly the kind of thing that drifts silently: a narrower index
+	// than the query folds two distinct dates into one bucket.
+	suite.Assert().Contains(indexDef, strconv.Itoa(dedupOccurrenceTruncation),
+		"the index does not truncate the occurrence term at %d; dedupKeyExprs does",
+		dedupOccurrenceTruncation)
+	suite.Assert().Equal(dedupOccurrenceTruncation, communitym.MaxRequestDateLen(),
+		"the occurrence truncation and the API boundary's event_date cap must be equal, "+
+			"or the index keys a prefix of a value the boundary accepted whole")
 }
 
 func TestEntityRequestServiceIntegrationTestSuite(t *testing.T) {

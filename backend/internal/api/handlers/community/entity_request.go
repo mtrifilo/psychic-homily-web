@@ -114,7 +114,7 @@ type CreateEntityRequestResponseBody struct {
 	*EntityRequestFields
 	// A client that reports "queued" for both a fresh request and a replacement
 	// leaves a contributor unable to tell their correction landed.
-	Replaced bool `json:"replaced" doc:"True when this submission replaced the requester's existing pending request for the same name (a correction) rather than filing a new one. The returned id is that queued request's. Only a PENDING request is ever replaced; read decision_state for the row's state, which an admin can decide the moment the replacement lands."`
+	Replaced bool `json:"replaced" doc:"True when this submission replaced the requester's existing pending request (a correction) rather than filing a new one. Matching is per entity_type. For 'show' the key is the case-folded, trimmed title AND the trimmed event_date string, the latter compared byte for byte: a show on a different date files its own row, and two spellings of one moment (a bare date vs a timestamp, or an offset vs the equivalent Z) do NOT match, so resend the event_date string you sent the first time. Two shows sharing a title AND a date still match even if they are at different venues, because the payload has no venue field. For 'artist', 'venue', 'label', 'release' and 'festival' the name (or title) alone is the whole key, so a second pending request under that name replaces the first even when the two describe different things. The returned id is the queued request's. Only a PENDING request is ever replaced; read decision_state for the row's state, which an admin can decide the moment the replacement lands."`
 }
 
 // CreateEntityRequestHandler handles POST /entity-requests.
@@ -126,11 +126,20 @@ type CreateEntityRequestResponseBody struct {
 // auto-approve. This handler is a thin validator + pass-through.
 //
 // PSY-1948 — RESUBMISSION REPLACES: a request matching an existing PENDING one
-// on (entity_type, requester, normalized name) overwrites that row's payload,
-// source_context and source_detail instead of filing a second row, and the
-// response reports replaced: true on the queued row's own id. A resubmission is
-// how a contributor corrects a queued request, and returning the stored payload
-// discarded the correction behind a 2xx.
+// on (entity_type, requester, normalized name, occurrence) overwrites that row's
+// payload, source_context and source_detail instead of filing a second row, and
+// the response reports replaced: true on the queued row's own id. A resubmission
+// is how a contributor corrects a queued request, and returning the stored
+// payload discarded the correction behind a 2xx.
+//
+// PSY-1977 — the occurrence is a show's own event_date, so a recurring night
+// queued twice is two requests. SHOWS ONLY: every other type declares no
+// occurrence and still matches on the name alone, and three of those (release,
+// venue, festival) carry a destructive collision left unfixed. Shows are not
+// fully fixed either — same title, same date, different venue still collides,
+// because the payload has no venue field. Each type states its answer on
+// EntityRequestPayload.dedupOccurrenceJSONKey; read those before assuming this
+// endpoint dedups the way a given type needs.
 //
 // Only a PENDING row is ever written: the dedup index is pending-only and the
 // UPDATE is conditional on the state, so a decided request is never rewritten.

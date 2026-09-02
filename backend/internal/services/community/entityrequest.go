@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -144,9 +146,14 @@ func (s *EntityRequestService) CreateRequest(
 
 	if err := s.db.Create(req).Error; err != nil {
 		// Dedup (PSY-1008): the partial unique index blocks a second PENDING
-		// request for the same (entity_type, requester, normalized name). The
-		// index is partial on decision_state='pending', so only pending rows can
-		// collide; this never masks a clash on an already-decided row.
+		// request for the same (entity_type, requester, normalized name,
+		// occurrence). The index is partial on decision_state='pending', so only
+		// pending rows can collide; this never masks a clash on an already-decided
+		// row.
+		//
+		// PSY-1977: the occurrence joined the key so that two genuinely different
+		// requests sharing a name — a recurring night, a festival's next edition —
+		// are two requests rather than one destroying the other.
 		//
 		// PSY-1948: the collision REPLACES that pending row's submission rather
 		// than returning it untouched. A resubmission is the requester's current
@@ -171,6 +178,17 @@ func (s *EntityRequestService) CreateRequest(
 			// matches no row). The last two are narrow races that leave a rare
 			// transient error the caller can simply retry, since a retry now
 			// inserts a fresh pending row, not a data fault.
+			//
+			// One shape reaching here is NOT transient and no retry clears it:
+			// THIS binary running against the OLD, narrow index, which is what the
+			// down migration leaves behind if it is run without also rolling the
+			// binary back. The narrow index collides on the title alone; this
+			// binary's lookup also requires the event_date to match, so it finds
+			// nothing, and every retry fails identically until the two are back in
+			// step. A deterministic 500 on one requester's title, not a destroyed
+			// request. The up migration's rollback note covers the mirror image
+			// (old binary, new index), which surfaces one branch above as a failed
+			// UPDATE rather than here.
 		}
 		return nil, false, fmt.Errorf("failed to create entity request: %w", err)
 	}
@@ -190,13 +208,46 @@ func (s *EntityRequestService) CreateRequest(
 // identity and its place in the moderation queue.
 //
 // The UPDATE carries the whole precondition — this row, this entity type, this
-// requester, still pending — the way Decide and the rescue writers do, so the
-// destructive write is self-guarding rather than trusting its caller's lookup.
+// requester, still pending, and the DEDUP KEY ITSELF — the way Decide and the
+// rescue writers do, so the destructive write is self-guarding rather than
+// trusting its caller's lookup.
 // entity_type is in there because it is what decides which payload schema the
 // validation above applies: without it a mismatched (id, entityType) pair would
 // write a well-formed payload of the WRONG type and both guards would pass.
 // Conditioning on the state is what makes a replace racing an admin decision lose
 // instead of resurrecting a payload onto a just-decided row.
+//
+// The KEY is in there (PSY-1977) as DEFENCE IN DEPTH, and it is worth being
+// precise about how little it is load-bearing today, because a comment that
+// overstates a guard is how the guard survives the edit that makes it necessary.
+//
+// What actually refuses a wrong-row replace is the unique index: the row this
+// writes would take the key of a row that already holds it, so Postgres rejects
+// the UPDATE. That protection holds with or without this WHERE, and it is what
+// makes a pre-PSY-1977 binary running against the widened index 500 rather than
+// destroy data (see the up migration).
+//
+// What the WHERE adds is narrower than it looks, and saying so plainly is the
+// point: it closes the window between the LOOKUP and this UPDATE. If any writer
+// ever changes a pending row's key-bearing payload fields between those two
+// statements, this write matches nothing instead of overwriting a row that is no
+// longer the one that collided. Nothing does that today — this function is the
+// only writer of a pending row's payload, and it preserves the key — so the guard
+// is dormant, and it is here because the cost of it being dormant is one cheap
+// predicate while the cost of its absence, the day a second writer appears, is an
+// unrecoverable payload.
+//
+// What it does NOT do, so nobody trusts it for this: catch dedupKeyExprs drifting
+// wider than the index. The lookup and this UPDATE render the predicate from the
+// same helper, so a widening edit widens both, the UPDATE matches the same wrong
+// row the lookup returned, and only the unique index refuses the write.
+// TestDedupOccurrenceMatchesTheIndex is what guards that direction.
+//
+// The condition also makes the earlier claim true by construction rather than by
+// coincidence: the row being written is the one whose key EQUALS the new
+// payload's, so the write leaves the key where it was. A resubmission that changes
+// any term of the key is a different request and never reaches here — its INSERT
+// simply succeeds.
 //
 // Returns (nil, nil) ONLY when no row matched, i.e. nothing was written. Once the
 // UPDATE commits this cannot fail: the refreshed row is built from `existing`
@@ -238,9 +289,15 @@ func (s *EntityRequestService) replacePendingSubmission(
 		"updated_at":     now,
 	}
 
+	storedName, storedOccurrence := dedupKeyExprs(dedupStoredPayload)
+	candidateName, candidateOccurrence := dedupKeyExprs(dedupCandidatePayload)
+	candidate := string(payload)
+
 	result := s.db.Model(&communitym.EntityRequest{}).
 		Where("id = ? AND entity_type = ? AND requester_id = ? AND decision_state = ?",
 			requestID, entityType, existing.RequesterID, communitym.EntityRequestStatePending).
+		Where(storedName+" = "+candidateName, dedupKeyArgs(candidateName, candidate)...).
+		Where(storedOccurrence+" = "+candidateOccurrence, dedupKeyArgs(candidateOccurrence, candidate)...).
 		Updates(updates)
 	if result.Error != nil {
 		return nil, fmt.Errorf("failed to replace pending entity request: %w", result.Error)
@@ -263,28 +320,99 @@ func (s *EntityRequestService) replacePendingSubmission(
 	return &refreshed, nil
 }
 
+// The two payload sources the dedup key is read from: the stored row's column,
+// and the candidate payload bound as a parameter.
+const (
+	dedupStoredPayload    = "payload"
+	dedupCandidatePayload = "?::jsonb"
+)
+
+// dedupOccurrenceTruncation is how many characters of the occurrence term the
+// dedup key keeps. It MUST equal the number in uq_entity_requests_pending_dedup
+// and communitym's maxRequestDateLen; TestDedupOccurrenceMatchesTheIndex asserts
+// the first of those against the live index definition. See dedupKeyExprs for why
+// the term is truncated at all.
+const dedupOccurrenceTruncation = 64
+
+// dedupKeyExprs renders the two payload-derived terms of the pending-request
+// dedup key as SQL reading from source. ONE literal renders both sides of the
+// comparison, so the stored and candidate expressions cannot drift apart — which
+// they silently could while each was written out by hand.
+//
+// They must also match uq_entity_requests_pending_dedup, and that pairing IS
+// enforced: TestDedupOccurrenceMatchesTheIndex reads the index definition back
+// out of a real Postgres that ran the real migrations, and asserts it against
+// both this expression and the payload registry's declarations.
+//
+// The occurrence coalesces to the empty string rather than falling through to
+// NULL: a NULL key column makes every row DISTINCT under a Postgres unique index,
+// so a NULL here would disable dedup entirely for the types whose payloads carry
+// no date.
+//
+// It is also TRUNCATED to 64, which is what makes the term index-safe by
+// construction. A btree index row has a hard size limit, and exceeding it is
+// SQLSTATE 54000 — not a duplicate-key error, so the dedup branch would not fire
+// and a contributor's own input would surface as a 500. The API boundary already
+// caps event_date at the same 64 (maxRequestDateLen), so this truncation is a
+// no-op for anything that came through it; it exists for the values that did not,
+// namely rows queued BEFORE that cap existed, which the migration has to index.
+// Keep the two numbers equal — a truncation shorter than the cap would fold two
+// legal, distinct dates into one bucket.
+func dedupKeyExprs(source string) (name, occurrence string) {
+	name = "lower(trim(coalesce(" + source + "->>'name', " + source + "->>'title')))"
+	occurrence = "left(trim(coalesce(" + source + "->>'event_date', '')), " +
+		strconv.Itoa(dedupOccurrenceTruncation) + ")"
+	return name, occurrence
+}
+
+// dedupKeyArgs binds candidate once per placeholder in expr.
+//
+// The count is DERIVED, never written down, because writing it down is a live
+// footgun: the candidate expressions interpolate the payload once per JSON key
+// they read, so changing the key list changes the arity. Passing one arg too many
+// is not a silent mismatch either — Postgres refuses the statement with "could not
+// determine data type of parameter $N" (SQLSTATE 42P18), which surfaces as the
+// dedup lookup failing and a correction turning into a duplicate-key 500.
+func dedupKeyArgs(expr, candidate string) []interface{} {
+	args := make([]interface{}, strings.Count(expr, "?"))
+	for i := range args {
+		args[i] = candidate
+	}
+	return args
+}
+
 // findPendingDuplicate returns the existing PENDING request that collides with a
 // would-be-new request on the dedup key (entity_type, requester, normalized
-// name), or (nil, nil) if none. The name comparison uses the SAME Postgres
-// expression as the uq_entity_requests_pending_dedup index —
-// lower(trim(coalesce(payload->>'name', payload->>'title'))) — applied to BOTH
-// the stored row's payload and the candidate payload, so there is no Go-vs-SQL
-// normalization mismatch (e.g. collation-sensitive lowercasing).
+// name, occurrence), or (nil, nil) if none. Both payload-derived terms use the
+// SAME Postgres expressions as the uq_entity_requests_pending_dedup index,
+// applied to BOTH the stored row's payload and the candidate payload, so there
+// is no Go-vs-SQL normalization mismatch (e.g. collation-sensitive lowercasing).
+// The index is what the two must agree on; the migration comment carries the
+// reasoning behind each term.
+//
+// EDIT THESE AS A PAIR WITH THE INDEX; TestDedupOccurrenceMatchesTheIndex fails
+// if you do not. The two drift directions are not equally loud. A query NARROWER
+// than the index answers a unique violation with "no duplicate found" and turns a
+// correction into a 500 — noisy, and nothing is lost. A query WIDER than the
+// index selects the lowest-id row sharing the wider key, which can be a different
+// request; that one is silent, and it is why replacePendingSubmission re-asserts
+// the key in its own WHERE rather than trusting this lookup.
 //
 // Nothing is preloaded: replacePendingSubmission BUILDS the row it returns from
 // this one rather than re-reading, so the associations are whatever this query
 // selects. A future consumer that needs Requester on a replacement's response
 // has to preload it HERE — the row will not acquire it later.
 func (s *EntityRequestService) findPendingDuplicate(entityType string, requesterID uint, payload []byte) (*communitym.EntityRequest, error) {
-	const storedName = "lower(trim(coalesce(payload->>'name', payload->>'title')))"
-	const candidateName = "lower(trim(coalesce(?::jsonb->>'name', ?::jsonb->>'title')))"
+	storedName, storedOccurrence := dedupKeyExprs(dedupStoredPayload)
+	candidateName, candidateOccurrence := dedupKeyExprs(dedupCandidatePayload)
 	candidate := string(payload)
 
 	var existing communitym.EntityRequest
 	err := s.db.
 		Where("entity_type = ? AND requester_id = ? AND decision_state = ?",
 			entityType, requesterID, communitym.EntityRequestStatePending).
-		Where(storedName+" = "+candidateName, candidate, candidate).
+		Where(storedName+" = "+candidateName, dedupKeyArgs(candidateName, candidate)...).
+		Where(storedOccurrence+" = "+candidateOccurrence, dedupKeyArgs(candidateOccurrence, candidate)...).
 		First(&existing).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

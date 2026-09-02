@@ -28,8 +28,9 @@ type EntityRequestServiceInterface interface {
 	// (nil = none).
 	//
 	// On a duplicate PENDING request (same entity_type + requester + normalized
-	// name) it does NOT error (PSY-1008): the resubmission REPLACES that pending
-	// row's payload, source_context and source_detail, and the refreshed row is
+	// name + occurrence, the key uq_entity_requests_pending_dedup enforces) it
+	// does NOT error (PSY-1008): the resubmission REPLACES that pending row's
+	// payload, source_context and source_detail, and the refreshed row is
 	// returned with replaced=true (PSY-1948). Only a PENDING row is ever written,
 	// so the caller must not treat a replacement as a fresh decision — and must
 	// not fulfill one, since the row is re-read in a separate statement and can

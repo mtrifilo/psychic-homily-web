@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -47,6 +48,32 @@ type EntityRequestPayload interface {
 	// package — a new entity_type must add a struct here, which the CI
 	// parity check enforces against the migration's CHECK constraint.
 	entityRequestType() string
+
+	// dedupOccurrenceJSONKey returns the JSON key of the payload field that
+	// distinguishes two requests sharing a name, or "" for a type that has none
+	// (PSY-1977). It is the occurrence term of the pending-request dedup key:
+	// without it, one requester's two "Open Mic" shows collide and the second
+	// submission destroys the first.
+	//
+	// It is on the INTERFACE so that a seventh payload type has to write this
+	// method to compile. Be clear about how much that buys: the compiler forces a
+	// method, NOT a correct answer, and "" is both a legitimate answer and the
+	// easiest one to copy from the neighbours. It puts the question in front of
+	// the author; it does not answer it for them.
+	//
+	// FIVE of the six types answer "" today. Two of those (artist, label) are
+	// uncontested. The other three (release, venue, festival) each document a
+	// destructive collision this key does NOT fix, so read the comment before
+	// copying the answer.
+	//
+	// Only a REQUIRED field belongs here. An optional one turns "queued without a
+	// date, resubmitted with one" into a second request rather than the correction
+	// it is — that is what rules out release_date.
+	//
+	// One key, not a list. That is a real limit, not a simplification: a venue
+	// needs city AND state together and therefore cannot be expressed here at all.
+	// See VenueRequestPayload.
+	dedupOccurrenceJSONKey() string
 }
 
 // ArtistRequestPayload carries the user-supplied fields to create an artist.
@@ -62,6 +89,9 @@ type ArtistRequestPayload struct {
 
 func (ArtistRequestPayload) entityRequestType() string { return EntityRequestArtist }
 
+// An artist is not an occurrence; two requests for one name are one request.
+func (ArtistRequestPayload) dedupOccurrenceJSONKey() string { return "" }
+
 // ReleaseRequestPayload carries the user-supplied fields to create a release.
 type ReleaseRequestPayload struct {
 	Title       string  `json:"title"`
@@ -73,6 +103,13 @@ type ReleaseRequestPayload struct {
 }
 
 func (ReleaseRequestPayload) entityRequestType() string { return EntityRequestRelease }
+
+// release_date is OPTIONAL, so it cannot be the occurrence term: a release
+// queued without a date and resubmitted with one would file a second request
+// instead of correcting the first. Two same-titled releases from one requester
+// therefore still collide. Promoting release_date to required is what would make
+// it eligible — revisit the dedup index in the same change.
+func (ReleaseRequestPayload) dedupOccurrenceJSONKey() string { return "" }
 
 // LabelRequestPayload carries the user-supplied fields to create a label.
 type LabelRequestPayload struct {
@@ -86,6 +123,9 @@ type LabelRequestPayload struct {
 }
 
 func (LabelRequestPayload) entityRequestType() string { return EntityRequestLabel }
+
+// A label is not an occurrence; two requests for one name are one request.
+func (LabelRequestPayload) dedupOccurrenceJSONKey() string { return "" }
 
 // ShowRequestPayload carries the user-supplied fields to create a show.
 type ShowRequestPayload struct {
@@ -137,13 +177,14 @@ type ShowRequestPayload struct {
 	// Nothing writes a bill until a producer ships, so this binds at the FIRST
 	// PRODUCER, not here.
 	//
-	// RESUBMITTING THE SAME TITLE CORRECTS THE QUEUED REQUEST, which is what a
-	// producer author needs to know before writing a retry loop: CreateRequest
-	// dedups on (entity_type, requester, lower(trim(title))), and on a collision
-	// the resubmission REPLACES the pending row's whole payload rather than
-	// filing a second one (PSY-1948). So a contributor who files a show with no
-	// bill, learns the bill, and resubmits the same title now has the bill
-	// stored on the queued request, and the response says replaced: true.
+	// RESUBMITTING THE SAME TITLE ON THE SAME DATE CORRECTS THE QUEUED REQUEST,
+	// which is what a producer author needs to know before writing a retry loop:
+	// CreateRequest dedups on (entity_type, requester, lower(trim(title)),
+	// trim(event_date)), and on a collision the resubmission REPLACES the pending
+	// row's whole payload rather than filing a second one (PSY-1948). So a
+	// contributor who files a show with no bill, learns the bill, and resubmits
+	// the same title and date now has the bill stored on the queued request, and
+	// the response says replaced: true.
 	//
 	// Four consequences follow.
 	//
@@ -151,16 +192,44 @@ type ShowRequestPayload struct {
 	// carried drops it from the queued request — resubmit the complete show, not
 	// a patch.
 	//
-	// The dedup key is the TITLE ALONE — event_date is NOT in it — which cuts two
-	// ways. Correcting a misspelled title files a SECOND request rather than
-	// fixing the first; only an admin decision clears the original. And two
-	// GENUINELY DIFFERENT shows that share a title, which is exactly what a
-	// residency or a recurring night looks like, collide: queueing "Open Mic" for
-	// October REPLACES a queued September one, date and bill included, and the
-	// September request is gone. Queue the second only after the first is decided,
-	// or title them distinguishably. The pre-PSY-1948 behavior lost a request here
-	// too — it silently discarded the NEW one — so this is the dedup key's
-	// deficiency rather than the replacement's, but the request it loses changed.
+	// A resubmission that CHANGES either half of the key files a SECOND request
+	// rather than fixing the first, and only an admin decision clears the
+	// original. That covers correcting a misspelled title, and also correcting the
+	// date or the time of day. Two same-titled shows on different dates, which is
+	// exactly what a residency or a recurring night looks like, are therefore two
+	// queued requests (PSY-1977). Before that they collided, and queueing "Open
+	// Mic" for October destroyed a queued September one, date and bill included.
+	//
+	// THE OCCURRENCE TERM IS THIS STRING, COMPARED BYTE FOR BYTE after trimming —
+	// not the instant it denotes. Do not confuse it with the catalog's show dedup
+	// key, which IS an instant (PSY-559) and therefore ignores spelling. Because
+	// this field accepts both RFC3339 and a bare date, ONE moment has several
+	// spellings, and they are different requests here:
+	//
+	//	"2026-09-03"                  vs "2026-09-03T20:00:00-07:00"
+	//	"2026-09-03T20:00:00-07:00"   vs "2026-09-04T03:00:00Z"
+	//
+	// A producer that re-serializes from a JS Date hits the second one every time,
+	// because toISOString() always emits Z. So a retry loop that changes spelling
+	// files a new row instead of correcting, and never sees replaced: true. Send
+	// the event_date string you sent the first time.
+	//
+	// The cost is normally a stale row an admin rejects. It is worse if the admin
+	// approves BOTH: they fulfill to the same instant, so the catalog's duplicate
+	// check fails the second one after its row is already claimed, leaving an
+	// approved-but-unfulfilled row for the rescue flow. Canonicalizing event_date
+	// at the boundary would close this, but a date-only value is anchored at 20:00
+	// VENUE-LOCAL at fulfillment and the venue is not known at submit, so it
+	// cannot simply be normalized to an instant. That decision is open, not made.
+	//
+	// SHOWS ARE NOT FULLY FIXED. Same title, same date, DIFFERENT VENUE still
+	// collides destructively, and the second submission still answers replaced:
+	// true. A franchise night running two cities the same evening is the real
+	// case. The key cannot close it: this payload has no venue field at all (the
+	// approving admin supplies the venue at fulfillment), and city/state are
+	// OPTIONAL, which disqualifies them under the same rule that disqualifies
+	// release_date. Title the two distinguishably, or queue the second after the
+	// first is decided.
 	//
 	// It applies only to QUEUEING tiers: a submission that auto-approves (admin,
 	// local_ambassador, a confirmed trusted_contributor) is stamped 'approved'
@@ -171,6 +240,11 @@ type ShowRequestPayload struct {
 }
 
 func (ShowRequestPayload) entityRequestType() string { return EntityRequestShow }
+
+// A recurring night is the domain's normal case, so a show's date is what
+// separates two requests sharing a title. event_date is required, so the term is
+// present on every show request.
+func (ShowRequestPayload) dedupOccurrenceJSONKey() string { return "event_date" }
 
 // ShowRequestArtist is one act on the bill a contributor recorded with a show
 // request (PSY-1858).
@@ -212,6 +286,18 @@ type VenueRequestPayload struct {
 
 func (VenueRequestPayload) entityRequestType() string { return EntityRequestVenue }
 
+// UNFIXED, and the weakest of the five empty answers: chain and franchise venue
+// names repeat across cities (The Fillmore, House of Blues), so two requests for
+// one name are frequently two venues, and the second still destroys the first.
+//
+// city and state are both REQUIRED here, so unlike release_date they clear the
+// eligibility rule above. What blocks them is the shape of this method: it names
+// ONE key, and a venue needs city AND state together — either alone puts two
+// different venues in one bucket. Widening the method to a key LIST is the fix,
+// and it is a change to every implementation, so PSY-1977 left it rather than
+// half-doing it for one type.
+func (VenueRequestPayload) dedupOccurrenceJSONKey() string { return "" }
+
 // FestivalRequestPayload carries the user-supplied fields to create a festival.
 type FestivalRequestPayload struct {
 	Name         string  `json:"name"`
@@ -230,6 +316,21 @@ type FestivalRequestPayload struct {
 
 func (FestivalRequestPayload) entityRequestType() string { return EntityRequestFestival }
 
+// UNFIXED, and deliberately so: two editions of one festival share a name and
+// still collide destructively.
+//
+// start_date is required and looks like the obvious term, but it is FINER than
+// the catalog's own uniqueness, which is (series_slug, edition_year) — see
+// CreateFestival. Two pending rows differing only in start_date within one year
+// are two requests here and one festival there, so an admin approving both gets
+// a 409 on the second AFTER the row is claimed: an approved-but-unfulfilled row
+// needing the rescue flow. Trading a destroyed request for an orphaned one is not
+// obviously the better deal, and PSY-1977 was scoped to shows, so this stays as
+// it is until someone decides it. An edition-derived term is the candidate:
+// edition_year is optional (0 derives it from start_date at fulfillment), so it
+// would have to be coalesced with start_date's year rather than used directly.
+func (FestivalRequestPayload) dedupOccurrenceJSONKey() string { return "" }
+
 // payloadRegistry is the authoritative map from entity_type discriminator to
 // a zero-value of its payload struct. It is the runtime mirror of the
 // migration's CHECK constraint and the anchor for the CI parity check
@@ -243,6 +344,37 @@ var payloadRegistry = map[string]EntityRequestPayload{
 	EntityRequestShow:     ShowRequestPayload{},
 	EntityRequestVenue:    VenueRequestPayload{},
 	EntityRequestFestival: FestivalRequestPayload{},
+}
+
+// MaxRequestDateLen exposes the event_date cap so the service holding the dedup
+// SQL can assert its truncation width against it (PSY-1977). The two must be
+// equal: a truncation shorter than the cap would key a prefix of a value the
+// boundary accepted whole, folding two legal dates into one bucket.
+func MaxRequestDateLen() int { return maxRequestDateLen }
+
+// DedupOccurrenceJSONKeys returns, sorted and deduplicated, every JSON key the
+// registered payloads name as their occurrence term (PSY-1977). It is what the
+// pending-request dedup key's occurrence expression must read, in the
+// uq_entity_requests_pending_dedup index and in the query that mirrors it.
+//
+// Exported so the service holding that SQL can assert against it, against the
+// index as Postgres actually built it, or both — which is the point. The
+// interface method makes a new payload type STATE whether it has an occurrence;
+// this is what turns a stated key the SQL does not read into a test failure
+// rather than a silent return of the destructive collision.
+func DedupOccurrenceJSONKeys() []string {
+	seen := make(map[string]struct{}, len(payloadRegistry))
+	for _, p := range payloadRegistry {
+		if key := p.dedupOccurrenceJSONKey(); key != "" {
+			seen[key] = struct{}{}
+		}
+	}
+	keys := make([]string, 0, len(seen))
+	for key := range seen {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // IsValidEntityRequestType reports whether entityType has a registered payload
@@ -676,6 +808,35 @@ const (
 	maxRequestPrice    = 10000
 	maxRequestCityLen  = 255
 	maxRequestStateLen = 10
+	// maxRequestDateLen bounds a date/timestamp field that feeds the pending-dedup
+	// INDEX (PSY-1977). It is a hard boundary check, not a formatting preference:
+	// time.Parse accepts an RFC3339 value with an arbitrarily long fractional
+	// second (it truncates past 9 digits instead of rejecting), so a multi-KB
+	// event_date parses cleanly, reaches the INSERT, and blows the btree index-row
+	// limit. That error is SQLSTATE 54000, which GORM does not translate to
+	// ErrDuplicatedKey, so CreateRequest's dedup branch does not fire and a
+	// contributor turns their own input into a 500 plus a Sentry event.
+	//
+	// 64 is comfortably above the longest spelling Go PRESERVES (35, with 9
+	// fractional digits). RFC 3339 itself permits more — time-secfrac is
+	// "." 1*DIGIT with no upper bound — and those longer values are rejected here,
+	// which is the intent: Go would truncate them anyway.
+	//
+	// The index ALSO truncates to this same number (dedupKeyExprs), and THAT is
+	// what makes the term index-safe, including for rows queued before this cap
+	// existed. Keep the two equal. This check is the boundary half: it keeps junk
+	// out of the stored payload and refuses the value rather than silently
+	// indexing a prefix of it.
+	//
+	// It bounds ONLY what the index newly reads. The name/title terms have been in
+	// that index since PSY-1008 and are still uncapped on five of the six types.
+	// That is the same contributor-triggerable 500 on INSERT by a different door,
+	// AND — verified against a live Postgres — it can abort the index build in the
+	// PSY-1977 migration, because that migration adds a column to the same tuple
+	// and "it fit the old index" stops being a bound. See that migration's
+	// preflight. Capping those five is a boundary change with its own product call
+	// about limits and is not made here.
+	maxRequestDateLen = 64
 )
 
 // Bill limits (PSY-1858). Both are read ONLY by ValidateShowBill, which is the
@@ -723,6 +884,22 @@ func requireDateTimeOrDate(entityType, field, value string) error {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
 		return fmt.Errorf("%s payload: %s is required", entityType, field)
+	}
+	// Length BEFORE parse, and on the UNTRIMMED value. Both halves matter.
+	//
+	// Before parse, because time.Parse would accept an arbitrarily long fractional
+	// second and hand the oversized string to an index that cannot store it.
+	//
+	// Untrimmed, because the two trims do not agree: Go's strings.TrimSpace strips
+	// 25 Unicode space runes while SQL trim() strips ASCII 0x20 only. Measuring the
+	// trimmed value would let "2026-09-03" padded with U+3000 pass at 10 bytes
+	// while a 40 KB string goes into the payload column. The INDEX survives that
+	// either way (dedupKeyExprs truncates), so this is not the index guard — it is
+	// what keeps the stored payload from carrying kilobytes of whitespace, and
+	// what keeps this check independent of SQL's trim semantics. See
+	// maxRequestDateLen.
+	if len(value) > maxRequestDateLen {
+		return fmt.Errorf("%s payload: %s must be %d characters or fewer", entityType, field, maxRequestDateLen)
 	}
 	if _, err := time.Parse(time.RFC3339, trimmed); err == nil {
 		return nil

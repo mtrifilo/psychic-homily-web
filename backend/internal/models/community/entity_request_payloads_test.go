@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -439,4 +440,57 @@ func TestPayloadImageURL_CoversEveryRegisteredType(t *testing.T) {
 		_, err := PayloadImageURL(entityType, json.RawMessage(raw))
 		assert.NoErrorf(t, err, "PayloadImageURL has no branch for registered entity type %q", entityType)
 	}
+}
+
+// PSY-1977: event_date feeds a btree index, so its LENGTH is a trust-boundary
+// concern and not a formatting one. time.Parse accepts an arbitrarily long
+// fractional second — it truncates past 10 digits rather than rejecting — so
+// without this cap a multi-kilobyte event_date parses cleanly, reaches the
+// INSERT, and blows the btree's index-row limit. That is SQLSTATE 54000, which is
+// not a duplicate-key error, so the dedup branch never fires and a contributor
+// converts their own input into a 500.
+func TestValidateShow_OversizedEventDate(t *testing.T) {
+	oversized := "2026-09-03T20:00:00." + strings.Repeat("1", 3000) + "-07:00"
+
+	// The premise: this value is NOT rejected by parsing, which is why a separate
+	// length check has to exist.
+	_, parseErr := time.Parse(time.RFC3339, oversized)
+	require.NoError(t, parseErr, "if this ever fails to parse, the length cap's rationale changed")
+
+	raw, err := MarshalPayload(ShowRequestPayload{Title: "Long Night", EventDate: oversized})
+	require.NoError(t, err)
+
+	err = ValidateEntityRequestPayload(EntityRequestShow, raw)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "event_date must be 64 characters or fewer")
+
+	// UNICODE WHITESPACE must not smuggle a huge value past the cap. Go's
+	// strings.TrimSpace strips 25 space runes; SQL trim() strips ASCII 0x20 only,
+	// so a value padded with U+3000 trims to 10 bytes in Go while the full 40 KB
+	// goes to the payload column. The index survives it regardless (the key term
+	// is truncated), so what this pins is the BOUNDARY measuring the untrimmed
+	// value, which is what keeps the stored payload sane.
+	padded := "2026-09-03" + strings.Repeat("　", 4000)
+	require.Equal(t, "2026-09-03", strings.TrimSpace(padded),
+		"the fixture must LOOK short to Go, or it is not testing the bypass")
+	paddedRaw, err := MarshalPayload(ShowRequestPayload{Title: "Padded", EventDate: padded})
+	require.NoError(t, err)
+	err = ValidateEntityRequestPayload(EntityRequestShow, paddedRaw)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "event_date must be 64 characters or fewer")
+
+	// The cap must not reject anything legal. 35 characters is the longest
+	// spelling Go preserves: RFC 3339 permits more fractional digits, but
+	// time.Parse truncates past 9.
+	longestLegal := "2026-09-03T20:00:00.123456789-07:00"
+	require.LessOrEqual(t, len(longestLegal), maxRequestDateLen)
+	okRaw, err := MarshalPayload(ShowRequestPayload{Title: "Long Night", EventDate: longestLegal})
+	require.NoError(t, err)
+	assert.NoError(t, ValidateEntityRequestPayload(EntityRequestShow, okRaw))
+
+	// A legal value with ordinary surrounding spaces still validates: the cap is
+	// generous enough that padding does not turn a legal date into a 422.
+	spacedRaw, err := MarshalPayload(ShowRequestPayload{Title: "Spaced", EventDate: "  2026-09-03  "})
+	require.NoError(t, err)
+	assert.NoError(t, ValidateEntityRequestPayload(EntityRequestShow, spacedRaw))
 }
