@@ -480,11 +480,6 @@ var payloadRegistry = map[string]EntityRequestPayload{
 // boundary accepted whole, folding two legal dates into one bucket.
 func MaxRequestDateLen() int { return maxRequestDateLen }
 
-// MaxRequestNameLen exposes the cap on the payload field the dedup key's NAME
-// term reads (PSY-1990), so tests outside this package can pin the boundary that
-// keeps that term index-safe.
-func MaxRequestNameLen() int { return maxRequestNameLen }
-
 // MaxRequestCityLen exposes the city cap for the same reason MaxRequestDateLen
 // exists: a venue's city is an occurrence term, and the index's truncation of it
 // must equal this cap (PSY-1989).
@@ -594,8 +589,8 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		if err := requireBoundedField("venue", "name", p.Name, maxRequestNameLen); err != nil {
 			return err
 		}
-		// city and state are the venue's OCCURRENCE terms (PSY-1989), so these two
-		// caps bound index terms, not just the venues.city/venues.state columns.
+		// city is the venue's OCCURRENCE term (PSY-1989), so its cap bounds an index
+		// term and not just the venues.city column. state is column parity only.
 		if err := requireBoundedField("venue", "city", p.City, maxRequestCityLen); err != nil {
 			return err
 		}
@@ -918,13 +913,15 @@ func requireField(entityType, field, value string) error {
 	return nil
 }
 
-// requireBoundedField is requireField plus a length ceiling, for a required
-// field whose value reaches a bounded destination column, the pending-dedup
-// INDEX, or both.
+// requireBoundedField is requireField plus optionalMaxLen's ceiling, for a
+// required field whose value reaches a bounded destination column, the
+// pending-dedup INDEX, or both. It delegates to both rather than restating
+// either, so an oversized required field and an oversized optional one answer in
+// the same words.
 //
-// The length is measured on the UNTRIMMED value, and that is the load-bearing
-// half. Go's strings.TrimSpace strips 25 Unicode space runes while SQL trim()
-// strips ASCII 0x20 only, so a name measured after Go's trim can be 4 bytes here
+// optionalMaxLen measures the UNTRIMMED value, and that is the load-bearing half
+// here. Go's strings.TrimSpace strips 25 Unicode space runes while SQL trim()
+// strips ASCII 0x20 only, so a name measured after Go's trim can be 5 bytes here
 // and kilobytes in the expression Postgres indexes. Measuring the raw value is
 // stricter than either trim and independent of both, so no future change to
 // either one can open a gap. Same rule, same reason, as requireDateTimeOrDate.
@@ -941,10 +938,7 @@ func requireBoundedField(entityType, field, value string, max int) error {
 	if err := requireField(entityType, field, value); err != nil {
 		return err
 	}
-	if len(value) > max {
-		return fmt.Errorf("%s payload: %s must be %d characters or fewer", entityType, field, max)
-	}
-	return nil
+	return optionalMaxLen(entityType, field, &value, max)
 }
 
 // optionalHTTPURL validates an optional URL field: nil/empty is allowed, but a
@@ -1052,11 +1046,14 @@ const (
 	// and the venue payload's required pair (venues.city VARCHAR(255),
 	// venues.state VARCHAR(10)).
 	//
-	// On a VENUE they are also dedup-key terms (PSY-1989), so there they are index
-	// bounds as well as column bounds, and DedupOccurrenceTermWidths pairs each
-	// with the width the index truncates that term to. Keep those equal: a
-	// truncation shorter than the cap keys a prefix of a value the boundary
-	// accepted whole, folding two distinct cities into one bucket.
+	// maxRequestCityLen is ALSO an index bound, and only on a venue: city is the
+	// venue's dedup occurrence term (PSY-1989), and that term's Width must equal
+	// this cap. A width below it keys a prefix of a value the boundary accepted
+	// whole, folding two distinct cities into one bucket.
+	//
+	// maxRequestStateLen is column parity only. A venue's state is deliberately
+	// NOT in the dedup key, because the catalog's constraint is
+	// (LOWER(name), LOWER(city)).
 	maxRequestCityLen  = 255
 	maxRequestStateLen = 10
 	// maxRequestDateLen bounds a date/timestamp field that feeds the pending-dedup
@@ -1079,14 +1076,11 @@ const (
 	// out of the stored payload and refuses the value rather than silently
 	// indexing a prefix of it.
 	//
-	// It bounds ONLY what the index newly reads. The name/title terms have been in
-	// that index since PSY-1008 and are still uncapped on five of the six types.
-	// That is the same contributor-triggerable 500 on INSERT by a different door,
-	// AND — verified against a live Postgres — it can abort the index build in the
-	// PSY-1977 migration, because that migration adds a column to the same tuple
-	// and "it fit the old index" stops being a bound. See that migration's
-	// preflight. Capping those five is a boundary change with its own product call
-	// about limits and is not made here.
+	// The name/title term is bounded by maxRequestNameLen, which is the same rule
+	// one door over: that term is indexed UNTRUNCATED, so the boundary cap is the
+	// only thing keeping it index-safe, and it does not reach rows queued before
+	// the cap existed. A dedup migration that widens the index tuple can therefore
+	// still abort on an old row, which is why each of them carries a preflight.
 	maxRequestDateLen = 64
 )
 

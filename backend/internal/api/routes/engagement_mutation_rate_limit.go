@@ -20,9 +20,11 @@ import (
 // independently. It keys per USER (not IP), so shared-IP logged-in users never
 // collide.
 //
-// The name says engagement because that is what the env var says, and renaming a
-// flag that is set per environment is a deploy-ordering hazard for a cosmetic
-// gain. The scope is the path list below.
+// Everything here is named for engagement because ENABLE_ENGAGEMENT_MUTATION_RATE_LIMITS
+// is, and that flag is set per environment, so renaming it is a deploy-ordering
+// hazard for a cosmetic gain. The Go identifiers could be renamed freely and are
+// deliberately not, to stay in step with the flag. The scope is the path list
+// below, not the name.
 
 // EnableEngagementMutationRateLimitsEnvVar is an OPT-IN flag: the limiter is a
 // pass-through noop unless this is set to "1". Opt-in (not a default-on

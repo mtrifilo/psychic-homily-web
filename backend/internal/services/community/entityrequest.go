@@ -344,9 +344,17 @@ const (
 // entityType MUST be a registered type; an unregistered one renders the
 // empty-occurrence expression, which is what a type declaring no term gets.
 func dedupKeyExprs(source, entityType string) (name, occurrence string) {
-	name = "lower(trim(coalesce(" + source + "->>'name', " + source + "->>'title')))"
-	occurrence = dedupOccurrenceExpr(source, communitym.DedupOccurrenceTermFor(entityType))
-	return name, occurrence
+	return dedupNameExpr(source), dedupOccurrenceExpr(source, communitym.DedupOccurrenceTermFor(entityType))
+}
+
+// dedupNameExpr renders the NAME term of the pending-request dedup key.
+//
+// It takes no entity type: 'name' and 'title' are the two spellings the payload
+// SCHEMA uses, not a per-type declaration, so one expression covers every type
+// and the coalesce order is the whole rule. That is why the payload registry has
+// nothing to say about this half, and why only the occurrence is per type.
+func dedupNameExpr(source string) string {
+	return "lower(trim(coalesce(" + source + "->>'name', " + source + "->>'title')))"
 }
 
 // dedupOccurrenceExpr renders one payload type's occurrence term as SQL reading
@@ -378,17 +386,16 @@ func dedupOccurrenceExpr(source string, term communitym.DedupOccurrenceTerm) str
 	var b strings.Builder
 	b.WriteString("left(coalesce(")
 	for i, key := range term.JSONKeys {
-		read := "trim(" + source + "->>'" + key + "')"
 		// The empty value always means absent, so every key is nullif'd against it.
 		// A type's own sentinel nests INSIDE that, since both spellings mean absent
 		// and nullif takes one comparand. It applies to the FIRST key only: that is
 		// the STATED value, and the keys after it are the derivation that runs when
 		// nothing was stated.
+		read := "nullif(trim(" + source + "->>'" + key + "'), '')"
 		if i == 0 && term.AbsentAs != "" {
-			b.WriteString("nullif(nullif(" + read + ", ''), '" + term.AbsentAs + "'), ")
-			continue
+			read = "nullif(" + read + ", '" + term.AbsentAs + "')"
 		}
-		b.WriteString("nullif(" + read + ", ''), ")
+		b.WriteString(read + ", ")
 	}
 	b.WriteString("''), " + strconv.Itoa(term.Width) + ")")
 	if term.CaseFold {

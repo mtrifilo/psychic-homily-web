@@ -93,10 +93,10 @@ func TestValidatePayload_NameLengthCappedOnEveryType(t *testing.T) {
 	}
 }
 
-// PSY-1990: a venue's city and state are its dedup-key occurrence terms
-// (PSY-1989), so they are index terms and capped for the same reason the name
-// is. Values exactly at the caps must be accepted, because the index truncates
-// each term to that same width.
+// PSY-1990: a venue's city is its dedup-key occurrence term (PSY-1989), so it is
+// an index term and capped for the same reason the name is; its state is column
+// parity only and deliberately not in the key. A city exactly at the cap must be
+// accepted, because the index truncates that term to the same width.
 func TestValidateVenue_CityAndStateCapped(t *testing.T) {
 	base := VenueRequestPayload{Name: "The Fillmore", City: "Phoenix", State: "AZ"}
 
@@ -125,10 +125,62 @@ func TestValidateVenue_CityAndStateCapped(t *testing.T) {
 		"values exactly at the caps are legal, and the index must not truncate them")
 }
 
+// occurrenceKeyBounds records, for every JSON key an occurrence term may read,
+// what bounds the value that key puts in the index. A key is either capped at the
+// API boundary — in which case the term's truncation width must EQUAL that cap,
+// so the index never keys a prefix of a value the boundary accepted whole — or
+// its term is truncated for a SEMANTIC reason, where the width is the meaning
+// (four digits of a year) rather than a safety bound.
+//
+// Adding an entity type with a new occurrence key without adding it here fails
+// the test below, which is the point: an occurrence term reading an UNBOUNDED
+// payload field is the SQLSTATE 54000 that PSY-1990 exists to prevent — a 500 on
+// a contributor's own input, and an index build that aborts on it.
+var occurrenceKeyBounds = map[string]struct {
+	cap      int
+	semantic bool
+}{
+	"event_date":   {cap: maxRequestDateLen},
+	"city":         {cap: maxRequestCityLen},
+	"edition_year": {semantic: true},
+	"start_date":   {semantic: true},
+}
+
+func TestDedupOccurrenceTermsAreBoundedAtTheBoundary(t *testing.T) {
+	declared := 0
+	for _, entityType := range ValidEntityRequestTypes() {
+		term := DedupOccurrenceTermFor(entityType)
+		if len(term.JSONKeys) == 0 {
+			continue
+		}
+		declared++
+		t.Run(entityType, func(t *testing.T) {
+			require.NotZero(t, term.Width, "an occurrence term with no width is an untruncated index term")
+			for _, key := range term.JSONKeys {
+				bound, known := occurrenceKeyBounds[key]
+				require.Truef(t, known,
+					"occurrence key %q is not recorded in occurrenceKeyBounds: state whether the "+
+						"API boundary caps it, and pair the term's width with that cap", key)
+				if bound.semantic {
+					continue
+				}
+				assert.Equalf(t, bound.cap, term.Width,
+					"the occurrence term reading %q truncates at %d but the boundary caps it at %d; "+
+						"a width below the cap keys a prefix of a value the boundary accepted whole",
+					key, term.Width, bound.cap)
+			}
+		})
+	}
+	require.NotZero(t, declared, "no type declares an occurrence term; the dedup key lost its occurrence half")
+}
+
 // PSY-1990: the cap exists to bound the value POSTGRES INDEXES, and SQL's trim
 // is not Go's. This pins the property the index depends on — an ACCEPTED
 // payload's name term is within the cap under either trim — rather than
-// restating the check.
+// restating the check. It is not a tautology: a cap that started measuring the
+// TRIMMED value would accept the U+3000-padded fixture below, and the SQL-trimmed
+// length of that value is kilobytes, so this fails on exactly the regression it
+// exists to catch.
 func TestAcceptedNameIsIndexTermSafe(t *testing.T) {
 	// sqlTrim mirrors Postgres trim(): ASCII space only, both ends.
 	sqlTrim := func(s string) string { return strings.Trim(s, " ") }

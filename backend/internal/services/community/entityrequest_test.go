@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -1508,6 +1509,49 @@ func mustMarshalLabel(suite *EntityRequestServiceIntegrationTestSuite, name stri
 //
 // What IS worth asserting is the asymmetry, because it is an assumption both call
 // sites make silently: they bind args for the CANDIDATE expression only.
+// dedupIndexMigration is the migration that currently defines
+// uq_entity_requests_pending_dedup. A migration that redefines that index must
+// move this pointer, which is the same "edit them as a pair" discipline the
+// index-vs-Go tests exist to enforce.
+const dedupIndexMigration = "../../../db/migrations/20260902223753_entity_requests_dedup_per_type_occurrence.up.sql"
+
+// PSY-1989: the migration's CASE and dedupOccurrenceIndexExpr must be the SAME
+// expression, character for character modulo whitespace.
+//
+// TestDedupOccurrenceMatchesTheIndex compares against the index Postgres actually
+// built, which is the stronger claim but a lossy one: pg_indexes rewrites the
+// expression, so that test can only compare the literals and widths Postgres
+// preserves. Everything between them is invisible there — the venue term's
+// lower(), a re-nested coalesce or nullif — and dropping the lower() alone would
+// leave the query case-folding a term the index does not, which selects the wrong
+// row rather than erroring.
+//
+// This closes that gap, and needs no database, so the structural half of the pair
+// fails in `go test` rather than only under an integration run.
+func TestDedupOccurrenceIndexExprMatchesTheMigration(t *testing.T) {
+	sqlBytes, err := os.ReadFile(dedupIndexMigration)
+	if err != nil {
+		t.Fatalf("reading %s: %v (a migration that redefines the index must move dedupIndexMigration)", dedupIndexMigration, err)
+	}
+	sql := string(sqlBytes)
+
+	start := strings.Index(sql, "CASE entity_type")
+	end := strings.LastIndex(sql, "END")
+	if start < 0 || end < start {
+		t.Fatalf("%s no longer contains a CASE entity_type ... END block; it must, or this index is not built from the payload registry", dedupIndexMigration)
+	}
+
+	collapse := regexp.MustCompile(`\s+`)
+	fromFile := collapse.ReplaceAllString(strings.TrimSpace(sql[start:end+len("END")]), " ")
+	fromGo := collapse.ReplaceAllString(dedupOccurrenceIndexExpr(dedupStoredPayload), " ")
+
+	if fromFile != fromGo {
+		t.Errorf("the migration's occurrence expression and dedupOccurrenceIndexExpr differ.\n"+
+			"migration: %s\nGo:        %s\n"+
+			"They must be edited as a pair, in a NEW migration.", fromFile, fromGo)
+	}
+}
+
 func TestDedupKeyStoredSideCarriesNoPlaceholder(t *testing.T) {
 	for _, entityType := range communitym.ValidEntityRequestTypes() {
 		t.Run(entityType, func(t *testing.T) {
@@ -1569,11 +1613,9 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestDedupOccurrenceMatche
 	// likely — and a query wider than the index is the drift that picks the wrong
 	// row rather than erroring.
 	//
-	// The name half is rendered per type but is identical for every type, so any
-	// registered type renders it; the occurrence half is the CASE the index has to
-	// carry, which is what dedupOccurrenceIndexExpr renders.
-	name, _ := dedupKeyExprs(dedupStoredPayload, communitym.EntityRequestShow)
-	goExpr := name + " " + dedupOccurrenceIndexExpr(dedupStoredPayload)
+	// The name half takes no entity type; the occurrence half is the CASE the index
+	// has to carry, which is what dedupOccurrenceIndexExpr renders.
+	goExpr := dedupNameExpr(dedupStoredPayload) + " " + dedupOccurrenceIndexExpr(dedupStoredPayload)
 
 	// Postgres rewrites the expression (trim becomes btrim, ::text casts appear,
 	// CASE is re-spaced), so compare the SINGLE-QUOTED LITERALS it preserves
