@@ -114,7 +114,7 @@ type CreateEntityRequestResponseBody struct {
 	*EntityRequestFields
 	// A client that reports "queued" for both a fresh request and a replacement
 	// leaves a contributor unable to tell their correction landed.
-	Replaced bool `json:"replaced" doc:"True when this submission replaced the requester's existing pending request (a correction) rather than filing a new one. Matching is per entity_type. For 'show' the key is the case-folded, trimmed title AND the trimmed event_date string, the latter compared byte for byte: a show on a different date files its own row, and two spellings of one moment (a bare date vs a timestamp, or an offset vs the equivalent Z) do NOT match, so resend the event_date string you sent the first time. Two shows sharing a title AND a date still match even if they are at different venues, because the payload has no venue field. For 'artist', 'venue', 'label', 'release' and 'festival' the name (or title) alone is the whole key, so a second pending request under that name replaces the first even when the two describe different things. The returned id is the queued request's. Only a PENDING request is ever replaced; read decision_state for the row's state, which an admin can decide the moment the replacement lands."`
+	Replaced bool `json:"replaced" doc:"True when this submission replaced the requester's existing pending request (a correction) rather than filing a new one. Matching is per entity_type, and every key starts with the case-folded, trimmed name (or title). For 'show' the key adds the trimmed event_date string, compared byte for byte: a show on a different date files its own row, and two spellings of one moment (a bare date vs a timestamp, or an offset vs the equivalent Z) do NOT match, so resend the event_date string you sent the first time. Two shows sharing a title AND a date still match even if they are at different venues, because the payload has no venue field. For 'venue' the key adds the case-folded city, matching the catalog's own uniqueness, so one name in two cities is two requests but one name and city in two states is one. For 'festival' the key adds the edition year: the stated edition_year, or the year of start_date when none is stated. For 'artist', 'label' and 'release' the name (or title) alone is the whole key, so a second pending request under that name replaces the first; for an artist that matches the catalog, which holds one artist per name, while a label or a release really can be two things sharing a name and the second still replaces the first. The returned id is the queued request's. Only a PENDING request is ever replaced; read decision_state for the row's state, which an admin can decide the moment the replacement lands."`
 }
 
 // CreateEntityRequestHandler handles POST /entity-requests.
@@ -132,13 +132,15 @@ type CreateEntityRequestResponseBody struct {
 // is how a contributor corrects a queued request, and returning the stored
 // payload discarded the correction behind a 2xx.
 //
-// PSY-1977 — the occurrence is a show's own event_date, so a recurring night
-// queued twice is two requests. SHOWS ONLY: every other type declares no
-// occurrence and still matches on the name alone, and three of those (release,
-// venue, festival) carry a destructive collision left unfixed. Shows are not
-// fully fixed either — same title, same date, different venue still collides,
-// because the payload has no venue field. Each type states its answer on
-// EntityRequestPayload.dedupOccurrenceJSONKey; read those before assuming this
+// PSY-1977/PSY-1989 — the occurrence is PER TYPE, and each type's term is read
+// off the catalog constraint its fulfilled entity meets: a show's event_date, a
+// venue's city (venues are unique on name+city), a festival's edition year
+// (festivals are unique on series+edition_year). artist, label and release
+// declare none. For an artist that is correct, since the catalog holds one artist
+// per name; for a label or a release it is a destructive collision left unfixed.
+// Shows are not fully fixed either — same title, same date, different venue still
+// collides, because the payload has no venue field. Each type states its answer
+// on EntityRequestPayload.dedupOccurrenceTerm; read those before assuming this
 // endpoint dedups the way a given type needs.
 //
 // Only a PENDING row is ever written: the dedup index is pending-only and the
