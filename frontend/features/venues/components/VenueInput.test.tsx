@@ -143,3 +143,56 @@ describe('VenueInput ARIA combobox attributes', () => {
     }
   })
 })
+
+// The venue selection the form is holding is the id and the IANA zone the show
+// edit payload is built from. A blur that re-resolves the name is only correct
+// when the user actually changed it.
+describe('VenueInput blur confirm', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockSearchData = undefined
+  })
+
+  function SeededVenueInput({
+    onVenueSelect,
+  }: {
+    onVenueSelect: (venue: unknown) => void
+  }) {
+    const form = useForm({ defaultValues: { venue: 'Hall Ohne Zone' } })
+    return (
+      <form.Field name="venue">
+        {field => <VenueInput field={field} onVenueSelect={onVenueSelect} />}
+      </form.Field>
+    )
+  }
+
+  // `useVenueSearch` is disabled for an empty query, so there are no results to
+  // match a name the user never typed into. Re-resolving it can therefore only
+  // ever clear the selection.
+  it('leaves the selection alone when the field is blurred without being typed into', async () => {
+    const onVenueSelect = vi.fn()
+    const user = userEvent.setup()
+    renderWithProviders(<SeededVenueInput onVenueSelect={onVenueSelect} />)
+
+    await user.click(screen.getByPlaceholderText('Enter venue name'))
+    await user.tab()
+    // Past the 150ms confirm delay the blur schedules.
+    await new Promise(resolve => setTimeout(resolve, 300))
+
+    expect(onVenueSelect).not.toHaveBeenCalled()
+  })
+
+  it('still reports a typed name that matches no venue as a new one', async () => {
+    const onVenueSelect = vi.fn()
+    const user = userEvent.setup()
+    renderWithProviders(<SeededVenueInput onVenueSelect={onVenueSelect} />)
+
+    const input = screen.getByPlaceholderText('Enter venue name')
+    await user.clear(input)
+    await user.type(input, 'Somewhere Else')
+    await user.tab()
+    await new Promise(resolve => setTimeout(resolve, 300))
+
+    expect(onVenueSelect).toHaveBeenCalledWith(null)
+  })
+})

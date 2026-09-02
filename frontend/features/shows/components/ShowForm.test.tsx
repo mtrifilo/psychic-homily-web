@@ -888,21 +888,16 @@ describe('ShowForm — edit mode pre-fills from initialData', () => {
   })
 })
 
-// An edit names the venue by id when the show has one and by name/city/state
-// when it does not. Asserted at the SUBMIT boundary rather than on
-// showToFormValues, because the payload and the composed event_date are what
-// the backend acts on.
-describe('ShowForm: create mode still states the venue state outright', () => {
+// A blank venue state is exempted for ONE venue: the state-less one an edit
+// opened on. These pin the cases that are not that venue.
+describe('ShowForm: a blank venue state is otherwise still rejected', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     resetMockState()
   })
 
-  // The conditional rule belongs to EDIT alone. A create has no stored instant
-  // to round-trip against, and a matched venue reaches the form through
-  // extractedVenueToSelected, which carries no `timezone` - so letting a blank
-  // state through here would compose event_date in the fallback zone with
-  // nothing on screen saying so.
+  // A create has no stored instant to round-trip against, so no venue is
+  // exempt here however it was named.
   it('blocks a submission whose venue state is blank even when a venue id is set', async () => {
     mockVenueSearch.venues = [
       {
@@ -935,6 +930,77 @@ describe('ShowForm: create mode still states the venue state outright', () => {
 
     expect(await screen.findByText('State is required')).toBeInTheDocument()
     expect(mockShowSubmit.mutate).not.toHaveBeenCalled()
+  })
+
+  // Clearing the field is not the same as opening on a venue that has no
+  // state. The show's date and time were read in America/New_York here, and a
+  // blank state resolves FALLBACK_SHOW_TIMEZONE, so accepting this would move
+  // event_date 3 hours with nothing left in any column to show it happened.
+  it('blocks an edit whose state the user cleared, even though the venue is named by id', async () => {
+    const user = userEvent.setup()
+    mockAuth.user = { id: 1, is_admin: true }
+    renderWithProviders(
+      <ShowForm
+        mode="edit"
+        initialData={makeShow({
+          event_date: '2099-06-15T00:00:00Z', // 20:00 Jun 14, America/New_York
+          city: 'Brooklyn',
+          state: 'NY',
+          venues: [
+            {
+              id: 88,
+              slug: 'union-pool',
+              name: 'Union Pool',
+              address: null,
+              city: 'Brooklyn',
+              state: 'NY',
+              timezone: null,
+              verified: true,
+            },
+          ],
+        })}
+      />
+    )
+
+    await user.clear(screen.getByLabelText(/^State$/i))
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    expect(await screen.findByText('State is required')).toBeInTheDocument()
+    expect(mockShowUpdate.mutate).not.toHaveBeenCalled()
+  })
+
+  // Nor is picking a DIFFERENT state-less venue mid-edit. The date and time on
+  // screen were read in the venue the form opened on, so composing them
+  // against the new venue's blank state would silently re-anchor the show.
+  it('blocks an edit that swaps in a different state-less venue', async () => {
+    mockVenueSearch.venues = [
+      {
+        id: 210,
+        slug: 'hall-ohne-zone',
+        name: 'Hall Ohne Zone',
+        address: null,
+        city: 'Berlin',
+        state: '',
+        timezone: null,
+        verified: true,
+      },
+    ]
+    const user = userEvent.setup()
+    mockAuth.user = { id: 1, is_admin: true }
+    renderWithProviders(<ShowForm mode="edit" initialData={makeShow()} />)
+
+    const venueInput = screen.getByLabelText(/^Venue$/i)
+    await user.clear(venueInput)
+    await user.type(venueInput, 'Hall')
+    await user.click(await screen.findByText('Hall Ohne Zone'))
+
+    // The picker carried the new venue's own blank state into the field.
+    expect(screen.getByLabelText(/^State$/i)).toHaveValue('')
+
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    expect(await screen.findByText('State is required')).toBeInTheDocument()
+    expect(mockShowUpdate.mutate).not.toHaveBeenCalled()
   })
 })
 

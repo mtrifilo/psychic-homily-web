@@ -1809,8 +1809,11 @@ func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_VenueB
 	suite.Equal(venue.ID, resp.Venues[0].ID, "the ID names the venue, so no lookup by name can substitute another")
 	suite.False(*resp.Venues[0].IsNewVenue, "the ID branch resolves an existing row rather than creating one")
 
-	// Same payload without the ID: the fallback is what rejects the empty
-	// state, which is the half the form's conditional rule mirrors.
+	// Same payload without the ID. FindOrCreateVenue checks the state BEFORE
+	// it looks the venue up by (name, city), so the fallback rejects this even
+	// though the row exists. That ordering is what makes the ID branch the only
+	// way to name a state-less venue, and it is the half the form's rule
+	// mirrors.
 	_, _, err = suite.showService.UpdateShowWithRelations(
 		created.ID,
 		&contracts.UpdateShowRequest{},

@@ -54,14 +54,20 @@ export function VenueInput({
     // Nothing typed since the field was seeded or a venue was picked, so there
     // is no new name to resolve and the standing selection is still correct.
     //
-    // Returning early is load-bearing, not an optimization. `useVenueSearch` is
-    // disabled for an empty query, so `filteredVenues` is empty here and the
-    // exact-match lookup below CANNOT succeed for a name the user never
-    // changed. Falling through would call `onVenueSelect(null)` on a bare
+    // Returning early is load-bearing, not an optimization. `useVenueSearch`
+    // runs `enabled: query.length > 0` (see `createSearchHook` in
+    // lib/hooks/factories.ts), so `filteredVenues` is empty here and the
+    // exact-match lookup below cannot succeed for a name the user never
+    // changed. Falling through calls `onVenueSelect(null)` on a bare
     // focus-then-blur, dropping the venue's id and its IANA zone from a form
     // the user only looked at.
+    //
+    // This closes the zero-typing case only. A retype whose search has not
+    // resolved before the blur timer fires still finds no match and clears the
+    // selection.
     if (!searchValue.trim()) {
       setIsOpen(false)
+      setSearchValue('')
       return
     }
 

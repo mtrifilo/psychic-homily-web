@@ -240,6 +240,11 @@ export function showToFormValues(show: ShowResponse): FormValues {
       // picked venue and clears it on `VenueInput`'s null signal, which fires
       // on the first keystroke in the venue name field, so an edit that names
       // a different venue resolves that one instead.
+      //
+      // While the id stands, the payload's name/city/state/address are inert:
+      // the by-id branch associates the row and never writes to it. Editing
+      // the location fields therefore changes only the SHOW's denormalized
+      // city and state, not the venue.
       id: venue?.id,
       name: venue?.name || '',
       // City keeps the show-row fallback and state does not, because only

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm } from '@tanstack/react-form'
 import { z } from 'zod'
@@ -80,49 +80,11 @@ const venueFields = z.object({
   id: z.number().optional(),
   name: z.string().min(1, 'Venue name is required'),
   city: z.string().min(1, 'City is required'),
-  // Required by one of the two rules below, never here, because the two modes
-  // answer "is a state required" differently.
+  // Required by the rule in makeShowFormSchema, never here, because whether a
+  // blank state is acceptable depends on WHICH venue the payload names.
   state: z.string(),
   address: z.string(),
 })
-
-const STATE_REQUIRED = { message: 'State is required', path: ['state'] }
-
-/**
- * The state a venue is in, as the CREATE path demands it: always.
- *
- * A create has no stored instant to round-trip against, so nothing here
- * constrains what the field may hold, and dropping the rule would only widen
- * what can be submitted. It would also let an AI extraction that matched a
- * venue with no state on file through, and `extractedVenueToSelected` carries
- * no `timezone`, so that show's event_date would be composed in
- * FALLBACK_SHOW_TIMEZONE with nothing on screen saying so.
- */
-const createVenueSchema = venueFields.refine(
-  venue => venue.state !== '',
-  STATE_REQUIRED
-)
-
-/**
- * The same question on the EDIT path, where the answer is "only when the
- * payload names no venue id".
- *
- * That is exactly where the backend needs it: `associateVenues` resolves a
- * venue carrying an id by primary key, and only its (name, city, state)
- * fallback, `VenueService.FindOrCreateVenue` in
- * backend/internal/services/catalog/venue.go, rejects an empty state. Asking
- * unconditionally makes a show at a venue with no state on file unsavable,
- * and that field is disabled for a non-admin on a verified venue, so there is
- * no way out of the error from inside the form.
- *
- * Attached to the venue object rather than the state field so the predicate
- * can read the id; `path` puts the message back on the state field, which is
- * where the user can act on it.
- */
-const editVenueSchema = venueFields.refine(
-  venue => venue.id !== undefined || venue.state !== '',
-  STATE_REQUIRED
-)
 
 const showFormFields = {
   title: z.string(),
@@ -158,15 +120,43 @@ const showFormFields = {
     .max(2048, 'Image URL must be 2048 characters or fewer'),
 }
 
-const createFormSchema = z.object({
-  ...showFormFields,
-  venue: createVenueSchema,
-})
-
-const editFormSchema = z.object({
-  ...showFormFields,
-  venue: editVenueSchema,
-})
+/**
+ * The form's rules, with the ONE venue that may be saved without naming a
+ * state supplied by the caller.
+ *
+ * A blank state field is an exemption, not a mode. The submit resolves the
+ * event_date timezone from that field, and `resolveShowTimezone` answers
+ * FALLBACK_SHOW_TIMEZONE for a blank one, so a blank state that is not the
+ * value the instant was READ in silently recomposes the show hours away. The
+ * only venue for which the two agree is the one the form opened on when that
+ * venue has no state on file, which `zonelessVenueId` names.
+ *
+ * Everything else keeps the plain requirement: a state the user cleared, a
+ * different venue picked mid-edit, and every create. Those are also the cases
+ * the backend cares about, since `associateVenues` resolves a venue carrying
+ * an id by primary key and only its (name, city, state) fallback,
+ * `VenueService.FindOrCreateVenue` in
+ * backend/internal/services/catalog/venue.go, rejects an empty state.
+ *
+ * The rule sits on the venue object rather than the state field so it can read
+ * the id; `path` puts the message back on the state field, which is where the
+ * user can act on it.
+ *
+ * KNOWN GAP, unchanged by this rule: a state the US map does not list resolves
+ * to the same fallback, so a venue with `state: 'England'` and no `timezone`
+ * still composes in it. Naming a state is not the same as naming a zone.
+ */
+function makeShowFormSchema(zonelessVenueId: number | undefined) {
+  return z.object({
+    ...showFormFields,
+    venue: venueFields.refine(
+      venue =>
+        venue.state !== '' ||
+        (zonelessVenueId !== undefined && venue.id === zonelessVenueId),
+      { message: 'State is required', path: ['state'] }
+    ),
+  })
+}
 
 /** Pre-filled venue data for locking venue selection */
 interface PrefilledVenue {
@@ -277,6 +267,24 @@ export function ShowForm({
     return mergeExtraction(defaultFormValues, initialExtraction)
   })()
 
+  // The venue this form opened on, when it has no state on file and so seeded
+  // the state field blank. That venue is the only one a save may name without
+  // a state, because it is the only one whose zone the date and time fields
+  // were already read in.
+  //
+  // Gated on `initialData` rather than on `isEditMode` alone so it decides on
+  // the same condition the submit branch below does; `mode="edit"` without
+  // initialData builds a CREATE payload, which the exemption must not cover.
+  const zonelessVenueId =
+    isEditMode && initialData && initialFormValues.venue.state === ''
+      ? initialFormValues.venue.id
+      : undefined
+
+  const formSchema = useMemo(
+    () => makeShowFormSchema(zonelessVenueId),
+    [zonelessVenueId]
+  )
+
   // Track venue name for showing/hiding the "new venue" warning. Seed it from
   // the extraction so the new/verified-venue banners render correctly on the
   // first paint after a remount (mirrors the prior effect's setVenueName).
@@ -324,15 +332,17 @@ export function ShowForm({
           // A BLANK state field omits the key, which the API reads as "leave
           // this column alone", rather than writing an empty string.
           //
-          // The field is blank exactly when the venue names no state, and that
-          // is a gap in the VENUE's record, not evidence about the show's own
-          // denormalized state. Writing the gap through would destroy a value
-          // the editor never saw or touched: `shows.state` is read by
-          // state-filtered listings, the shows-cities aggregation (which drops
-          // rows where it is empty), tag city/state pairs, alert filter
-          // matching, and ShowCard's own zone fallback. The same reasoning
-          // priceUpdateValue is built on applies, and so does its tie-break: a
-          // no-op the user can see beats a deletion they cannot.
+          // The form's venue rule only lets the field be blank for the show's
+          // OWN state-less venue, so a blank here is always a gap in that
+          // VENUE's record rather than a claim about the show. Writing it
+          // through would destroy a value the editor never saw or touched:
+          // `shows.state` is read by state-filtered listings, the shows-cities
+          // aggregation (which drops rows where it is empty), tag city/state
+          // pairs, alert filter matching, and ShowCard's own zone fallback.
+          //
+          // This is not a tri-state like the price fields: there is no gesture
+          // that clears `shows.state` from here, and there was none before the
+          // field could be blank at all.
           state: value.venue.state || undefined,
           price: priceUpdateValue(value.cost, price, initialData.price),
           door_price: priceUpdateValue(
@@ -419,7 +429,7 @@ export function ShowForm({
       }
     },
     validators: {
-      onSubmit: isEditMode ? editFormSchema : createFormSchema,
+      onSubmit: formSchema,
     },
   })
 
