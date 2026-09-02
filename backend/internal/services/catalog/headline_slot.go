@@ -44,14 +44,15 @@ import (
 // re-introduce the position heuristic on bills whose curator described an opener
 // and no headliner, which is exactly what the curated arm exists to stop.
 //
-// Which bills arrive in that shape is a write-path question. The show service's
-// create and update paths no longer produce it from silence: an act that states
-// neither set_type nor is_headliner keeps its "caller stated nothing" signal, so
-// resolveArtistRole's position-0 fallback still names a headliner on a bill
-// where nobody else claims the slot (suppressPositionInferenceWhenHeadlinerNamed).
-// A bill still reaches this shape when a caller explicitly pins its top act off
-// the headline slot (set_type 'performer', or is_headliner false), which the
-// community fulfiller and ConfirmShowImport both do for silent acts.
+// Which bills arrive in that shape is a write-path question. On the show
+// service's create and update paths, an act that states neither set_type nor
+// is_headliner keeps its "caller stated nothing" signal, so resolveArtistRole's
+// position-0 fallback names a headliner on any bill where no other act claims
+// the slot (suppressPositionInferenceWhenHeadlinerNamed). A bill reaches this
+// shape when its top act is pinned off the headline slot instead: by its own
+// caller (set_type 'performer', or is_headliner false), by ConfirmShowImport,
+// which pins every frontmatter entry, or by the community fulfiller, which pins
+// the acts an admin left silent on a bill that states any set_type.
 //
 // NOT covered here, deliberately, in three groups:
 //

@@ -963,6 +963,65 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_RejectedShowSkipped
 	suite.Contains(result.Messages[0], "REJECTED")
 }
 
+// The rejected-show gate is scoped to (name, city) like every other venue match
+// on this path: a rejection at a same-named room in ANOTHER metro must not skip
+// a legitimate import here.
+func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_RejectedShowInAnotherCityDoesNotSkip() {
+	// Same venue NAME as the configured valley-bar, different city.
+	twin := &catalogm.Venue{Name: "Valley Bar", City: "Tucson", State: "AZ"}
+	suite.Require().NoError(suite.db.Create(twin).Error)
+
+	rejected := &catalogm.Show{
+		Title:     "Rejected In Another City",
+		EventDate: time.Date(2026, 10, 4, 3, 0, 0, 0, time.UTC),
+		Status:    catalogm.ShowStatusRejected,
+		Source:    catalogm.ShowSourceUser,
+	}
+	suite.Require().NoError(suite.db.Create(rejected).Error)
+	suite.Require().NoError(suite.db.Exec(
+		"INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", rejected.ID, twin.ID).Error)
+
+	events := []contracts.DiscoveredEvent{
+		suite.makeEvent("evt-rejected-other-city", "Legit Phoenix Band", "valley-bar", "2026-10-03", []string{"Legit Phoenix Band"}),
+	}
+
+	result, err := suite.svc.ImportEvents(events, false, false, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Equal(0, result.Rejected, result.Messages)
+	suite.Equal(1, result.Imported, result.Messages)
+}
+
+// The duplicate-headliner gate, same scoping: an existing show for this act at a
+// same-named room in another metro is a different event.
+func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_HeadlinerInAnotherCityIsNotADuplicate() {
+	twin := &catalogm.Venue{Name: "Valley Bar", City: "Flagstaff", State: "AZ"}
+	suite.Require().NoError(suite.db.Create(twin).Error)
+	artist := &catalogm.Artist{Name: "Cross Metro Act"}
+	suite.Require().NoError(suite.db.Create(artist).Error)
+
+	existing := &catalogm.Show{
+		Title:     "Same Act In Flagstaff",
+		EventDate: time.Date(2026, 10, 6, 3, 0, 0, 0, time.UTC),
+		Status:    catalogm.ShowStatusApproved,
+		Source:    catalogm.ShowSourceUser,
+	}
+	suite.Require().NoError(suite.db.Create(existing).Error)
+	suite.Require().NoError(suite.db.Exec(
+		"INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", existing.ID, twin.ID).Error)
+	suite.Require().NoError(suite.db.Exec(
+		"INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')",
+		existing.ID, artist.ID).Error)
+
+	events := []contracts.DiscoveredEvent{
+		suite.makeEvent("evt-dup-other-city", "Cross Metro Act", "valley-bar", "2026-10-05", []string{"Cross Metro Act"}),
+	}
+
+	result, err := suite.svc.ImportEvents(events, false, false, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Equal(0, result.Duplicates, result.Messages)
+	suite.Equal(1, result.Imported, result.Messages)
+}
+
 func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_DryRun() {
 	events := []contracts.DiscoveredEvent{
 		suite.makeEvent("evt-006", "Dry Run Band", "valley-bar", "2026-11-01", []string{"Dry Run Band"}),
@@ -1115,6 +1174,35 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_SlugNamesTheCurated
 	suite.Require().NotNil(show.Slug)
 	suite.Contains(*show.Slug, "discovery-slug-headliner", "the curated headliner names the slug")
 	suite.NotContains(*show.Slug, "discovery-slug-opener")
+}
+
+// The uncurated arm of the same slug rule. billing_order is 1-based and decides
+// position, so a scrape that lists the acts out of billing order still dates its
+// slug from the act billed first, not the one listed first.
+func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_UncuratedSlugNamesTheLowestBillingOrder() {
+	events := []contracts.DiscoveredEvent{
+		{
+			ID:        "evt-uncurated-slug-1",
+			Title:     "Uncurated Slug Bill",
+			Date:      "2026-12-18",
+			Venue:     "Valley Bar",
+			VenueSlug: "valley-bar",
+			BillingArtists: []contracts.DiscoveredArtist{
+				{Name: "Discovery Uncurated Second", SetType: "performer", BillingOrder: 2},
+				{Name: "Discovery Uncurated First", SetType: "performer", BillingOrder: 1},
+			},
+			ScrapedAt: time.Now().UTC().Format(time.RFC3339),
+		},
+	}
+
+	result, err := suite.svc.ImportEvents(events, false, false, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Require().Equal(1, result.Imported, result.Messages)
+
+	var show catalogm.Show
+	suite.Require().NoError(suite.db.Where("source_event_id = ?", "evt-uncurated-slug-1").First(&show).Error)
+	suite.Require().NotNil(show.Slug)
+	suite.Contains(*show.Slug, "discovery-uncurated-first", "position, not list order, decides an uncurated bill")
 }
 
 func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_FallbackWithoutBillingArtists() {

@@ -301,12 +301,14 @@ func (s *DiscoveryService) importEvent(event *contracts.DiscoveredEvent, dryRun 
 	// Check if there's a rejected show at the same venue at the same exact
 	// event_date. This prevents re-importing events that were previously
 	// rejected. Keyed on the FULL event_date timestamp (PSY-559) so a rejected
-	// matinee does not block a legitimate evening import at the same venue.
+	// matinee does not block a legitimate evening import at the same venue, and
+	// on (name, city) so a rejection at a same-named room in another metro does
+	// not skip a legitimate import here.
 	var rejectedShow catalogm.Show
 	err = s.db.Joins("JOIN show_venues ON shows.id = show_venues.show_id").
 		Joins("JOIN venues ON show_venues.venue_id = venues.id").
-		Where("LOWER(venues.name) = LOWER(?) AND shows.event_date = ? AND shows.status = ?",
-			venueConfig.Name, eventDate, catalogm.ShowStatusRejected).
+		Where("LOWER(venues.name) = LOWER(?) AND LOWER(venues.city) = LOWER(?) AND shows.event_date = ? AND shows.status = ?",
+			venueConfig.Name, venueConfig.City, eventDate, catalogm.ShowStatusRejected).
 		First(&rejectedShow).Error
 	if err == nil {
 		return fmt.Sprintf("REJECTED: %s matches previously rejected show #%d at %s on %s",
@@ -1182,11 +1184,13 @@ func (s *DiscoveryService) CheckEvents(events []contracts.CheckEventInput) (*con
 		// an hour either side of it.
 		endOfDay := startOfDay.AddDate(0, 0, 1)
 
+		// Scoped to (name, city), the pair venues are unique on, so a show at a
+		// same-named room in another metro is never reported as this event.
 		var matchedShow catalogm.Show
 		err = s.db.Joins("JOIN show_venues ON show_venues.show_id = shows.id").
 			Joins("JOIN venues ON show_venues.venue_id = venues.id").
-			Where("LOWER(venues.name) = LOWER(?) AND shows.event_date >= ? AND shows.event_date < ?",
-				venueConfig.Name, startOfDay, endOfDay).
+			Where("LOWER(venues.name) = LOWER(?) AND LOWER(venues.city) = LOWER(?) AND shows.event_date >= ? AND shows.event_date < ?",
+				venueConfig.Name, venueConfig.City, startOfDay, endOfDay).
 			Select("shows.id, shows.source_venue, shows.source_event_id, shows.status, shows.price, shows.age_requirement, shows.description, shows.event_date, shows.is_sold_out, shows.is_cancelled").
 			First(&matchedShow).Error
 		if err != nil {

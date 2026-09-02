@@ -473,18 +473,21 @@ type ShowVenueInput struct {
 // It is authoritative over is_headliner when present (the show service derives
 // the headliner flag from it).
 //
-// The one place bill ORDER still has a say: on a bill where no entry states
-// EITHER field, the first act is read as the headliner. Two rules can settle
-// that, and their triggers differ:
+// Bill ORDER can still have a say: an entry that states neither field is read as
+// the headliner when it is first on the bill. Three things narrow that, and only
+// the last two apply to an ADMIN-supplied bill like this one:
 //
-//   - buildShowAssociations suppresses it for the whole bill as soon as any
-//     entry states a set_type (see suppressPositionInference), because a stated
-//     bill is a complete statement and first-in-list is not a second opinion. So
-//     "omit set_type" means 'performer' on a curated bill.
-//   - The show service suppresses it once any entry NAMES the headline slot, by
+//   - A bill adopted from the request PAYLOAD is suppressed whole, whatever it
+//     states, because a contributor's list order is not evidence of billing.
+//   - buildShowAssociations suppresses an admin-typed bill as soon as any entry
+//     states a set_type (see suppressPositionInference), because a stated bill is
+//     a complete statement and first-in-list is not a second opinion. So "omit
+//     set_type" means 'performer' on a curated bill.
+//   - The show service suppresses once any entry NAMES the headline slot, by
 //     either spelling. A bill stated purely through the legacy flag --
-//     [{Earth}, {Boris, is_headliner:true}] -- reaches the handler rule untouched
-//     and is settled there, so it still writes exactly one 'headliner' row.
+//     [{Earth}, {Boris, is_headliner:true}] -- states no set_type, so it reaches
+//     the service untouched by the rule above and is settled there instead,
+//     writing exactly one 'headliner' row.
 type ShowArtistInput struct {
 	ID          *uint   `json:"id,omitempty" required:"false" doc:"Existing artist ID (optional)"`
 	Name        string  `json:"name" doc:"Artist name (required)"`

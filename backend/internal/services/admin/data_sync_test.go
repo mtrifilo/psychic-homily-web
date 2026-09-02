@@ -719,6 +719,30 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_Duplicate() {
 	suite.Contains(result.Shows.Messages[0], "DUPLICATE")
 }
 
+// The import's title+venue duplicate gate is scoped to (name, city), the pair
+// venues are unique on and the pair FindOrCreateVenue resolves below it. A tour
+// playing the same-named room in two cities on one night is two shows.
+func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_SameNamedVenueInAnotherCityIsNotADuplicate() {
+	venue := suite.createVenue("Twin Name Room", "NYC", "NY", true)
+	eventDate := time.Date(2027, 4, 9, 20, 0, 0, 0, time.UTC)
+	suite.createShow("Twin Name Show", eventDate, catalogm.ShowStatusApproved, venue)
+
+	result, err := suite.service.ImportData(contracts.DataImportRequest{
+		Shows: []contracts.ExportedShow{
+			{
+				Title:     "Twin Name Show",
+				EventDate: eventDate.Format(time.RFC3339),
+				Status:    "approved",
+				Venues:    []contracts.ExportedVenue{{Name: "Twin Name Room", City: "Boston", State: "MA"}},
+				Artists:   []contracts.ExportedShowArtist{{Name: "Twin Name Act", Position: 0, SetType: "headliner"}},
+			},
+		},
+	})
+	suite.Require().NoError(err)
+	suite.Equal(0, result.Shows.Duplicates, result.Shows.Messages)
+	suite.Equal(1, result.Shows.Imported, result.Shows.Messages)
+}
+
 func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_SameDayDifferentTime_NotDuplicate() {
 	// A matinee and an evening show with the same title+venue on the same calendar
 	// day differ only in time-of-day. They are distinct shows, not duplicates: the

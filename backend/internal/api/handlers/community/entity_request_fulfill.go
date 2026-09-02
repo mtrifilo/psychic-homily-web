@@ -570,9 +570,10 @@ func payloadShowBill(req *communitym.EntityRequest) ([]ShowArtistInput, error) {
 // rather than a handler, by catalog.suppressPositionInferenceWhenHeadlinerNamed.
 // That one arms only when some act NAMES itself the headliner, rather than on
 // any stated role, because suppressing on a described bill where nobody claims
-// the top makes the shape PSY-1704 calls a write-path defect routine; see its
-// doc comment for the rule those two paths share. The product's own show form is
-// unaffected either way because it derives an explicit is_headliner per act.
+// the top makes the shape PSY-1704 calls a write-path defect routine; that
+// function's doc comment carries the rule its two paths share. The product's own
+// show form is unaffected either way because it derives an explicit is_headliner
+// per act.
 //
 // buildShowAssociations arms billIsCurated from a stated set_type ALONE and
 // never reads IsHeadliner, so a bill stated only through the legacy flag --
@@ -583,13 +584,12 @@ func payloadShowBill(req *communitym.EntityRequest) ([]ShowArtistInput, error) {
 //
 // Scoped deliberately: acts that state their own set_type or is_headliner are
 // left untouched, so this never overwrites a caller's own claim. For an
-// ADMIN-typed bill the
-// caller adds a second narrowing, leaving a bill where NOBODY states anything
-// untouched as a whole, so no caller that predates set_type on this endpoint can
-// see a different outcome; pinning those unconditionally would turn an
-// undescribed admin bill into a bill with no headliner at all. A PAYLOAD bill
-// gets exactly that outcome on purpose, because there the alternative is
-// asserting a headliner nobody chose.
+// ADMIN-typed bill the caller adds a second narrowing, leaving a bill where
+// NOBODY states anything untouched as a whole, so no caller that predates
+// set_type on this endpoint can see a different outcome; pinning those
+// unconditionally would turn an undescribed admin bill into a bill with no
+// headliner at all. A PAYLOAD bill gets exactly that outcome on purpose, because
+// there the alternative is asserting a headliner nobody chose.
 //
 // A bill that ends up with no headliner row is still safe, and is sometimes the
 // honest answer (an admin who states only "performer" and "dj" has not named a

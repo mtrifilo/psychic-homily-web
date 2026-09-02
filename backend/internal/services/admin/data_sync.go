@@ -629,10 +629,13 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 		return fmt.Sprintf("ERROR: Invalid musicAt '%s': %v", *show.MusicAt, err), "error"
 	}
 
-	// Get venue name for deduplication
-	venueName := ""
+	// Get venue identity for deduplication. Name and city together, because that
+	// is the pair venues are unique on and the pair FindOrCreateVenue resolves
+	// below; a name alone reaches same-named rooms in other cities.
+	venueName, venueCity := "", ""
 	if len(show.Venues) > 0 {
 		venueName = show.Venues[0].Name
+		venueCity = show.Venues[0].City
 	}
 
 	// Check for duplicate: same title + venue + event_date. The dedup key is the
@@ -643,8 +646,8 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 		var existingShow catalogm.Show
 		err := s.db.Joins("JOIN show_venues ON shows.id = show_venues.show_id").
 			Joins("JOIN venues ON show_venues.venue_id = venues.id").
-			Where("LOWER(shows.title) = LOWER(?) AND LOWER(venues.name) = LOWER(?) AND shows.event_date = ?",
-				show.Title, venueName, eventDate).
+			Where("LOWER(shows.title) = LOWER(?) AND LOWER(venues.name) = LOWER(?) AND LOWER(venues.city) = LOWER(?) AND shows.event_date = ?",
+				show.Title, venueName, venueCity, eventDate).
 			First(&existingShow).Error
 		if err == nil {
 			// Backfill slugs for the existing show and its associated entities

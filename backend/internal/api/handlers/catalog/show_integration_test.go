@@ -369,9 +369,6 @@ func (s *ShowHandlerIntegrationSuite) TestCreateShow_CarriesShowTimes() {
 	s.Equal(music.Unix(), resp.Body.MusicAt.Unix())
 }
 
-// TestCreateShow_RejectsMusicBeforeDoors pins the one ordering rule that is
-// true by definition. Any window against event_date is deliberately not
-// enforced.
 // PSY-1943 through the create endpoint as Huma runs it: Resolve first, then the
 // handler. A bill that curates an opener and says nothing about the top act must
 // still name a headliner, which is what a defaulted is_headliner destroyed.
@@ -410,6 +407,9 @@ func (s *ShowHandlerIntegrationSuite) TestCreateShowEndpoint_PartiallyCuratedBil
 	s.Equal([]string{"headliner", "opener"}, setTypes)
 }
 
+// TestCreateShow_RejectsMusicBeforeDoors pins the one ordering rule that is
+// true by definition. Any window against event_date is deliberately not
+// enforced.
 func (s *ShowHandlerIntegrationSuite) TestCreateShow_RejectsMusicBeforeDoors() {
 	eventDate := time.Now().UTC().AddDate(0, 0, 14)
 	doors := eventDate

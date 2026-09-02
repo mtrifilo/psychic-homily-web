@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -857,22 +858,22 @@ func (suite *ShowServiceIntegrationTestSuite) uniqueEventDate() time.Time {
 
 var setTypeTestDateOffset int
 
-// The duplicate-headliner pre-check must see EVERY row that will be written as
-// a headliner, including one the caller never flagged and never named a slot
-// for -- associateArtists infers that row from position 0, so a pre-check that
-// did not would lock and probe a different set than it writes.
+// The duplicate pre-check must see the act at POSITION 0 whatever role that act
+// ends up storing, because the stored-row half of the guard matches position 0.
 //
-// The bill describes a support act and names no headliner, which is exactly the
-// shape that keeps the position-0 inference armed. Only the top act repeats
-// across the two bookings, so the refusal below can come from the pre-check
-// alone; the message assertion is what proves it did, rather than the unique
+// The bill names a headliner further down, so the top act is suppressed to
+// 'performer' and its own signal claims nothing: the ONLY thing that puts it in
+// the probe set is its bill index. Delete that arm and this case is the one that
+// notices, because the "no headliners stated" fallback cannot cover for it here.
+// Only the top act repeats across the two bookings, so the refusal can come from
+// the pre-check alone; the message assertions prove it did rather than the unique
 // index catching the same collision as a driver error.
 func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_PositionZeroWithNoSignalIsDuplicateChecked() {
 	user := suite.createTestUser()
 	eventDate := suite.uniqueEventDate()
 	venue := contracts.CreateShowVenue{Name: "Inferred Headliner Room", City: "Phoenix", State: "AZ"}
 
-	build := func(title, supportName string) *contracts.CreateShowRequest {
+	build := func(title, headlinerName string) *contracts.CreateShowRequest {
 		return &contracts.CreateShowRequest{
 			Title:     title,
 			EventDate: eventDate,
@@ -880,24 +881,25 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_PositionZeroWithNoS
 			State:     "AZ",
 			Venues:    []contracts.CreateShowVenue{venue},
 			Artists: []contracts.CreateShowArtist{
-				// No set_type and no is_headliner: resolved to headliner from
-				// position 0 alone.
+				// No set_type and no is_headliner.
 				{Name: "Inferred Headliner"},
-				{Name: supportName, SetType: strPtr(contracts.SetTypeOpener)},
+				{Name: headlinerName, SetType: strPtr(contracts.SetTypeHeadliner)},
 			},
 			SubmittedByUserID: &user.ID,
 			SubmitterIsAdmin:  true,
 		}
 	}
 
-	first, err := suite.showService.CreateShow(build("First Inferred Booking", "Inferred Support A"))
+	first, err := suite.showService.CreateShow(build("First Inferred Booking", "Named Headliner A"))
 	suite.Require().NoError(err)
-	suite.Equal([]string{contracts.SetTypeHeadliner, contracts.SetTypeOpener}, suite.storedSetTypes(first.ID))
+	suite.Equal([]string{contracts.SetTypePerformer, contracts.SetTypeHeadliner}, suite.storedSetTypes(first.ID),
+		"the top act stores 'performer', which is what makes its probe index-driven")
 
-	_, err = suite.showService.CreateShow(build("Second Inferred Booking", "Inferred Support B"))
-	suite.Require().Error(err, "the position-inferred headliner must be duplicate-checked too")
+	_, err = suite.showService.CreateShow(build("Second Inferred Booking", "Named Headliner B"))
+	suite.Require().Error(err, "the position-0 act must be duplicate-checked too")
 	suite.Contains(err.Error(), "'Inferred Headliner' is already performing",
 		"the pre-check refused this, so the unique index never had to")
+	suite.NotContains(strings.ToLower(err.Error()), "duplicated key")
 }
 
 // ConfirmShowImport carries curated roles through from the export frontmatter
