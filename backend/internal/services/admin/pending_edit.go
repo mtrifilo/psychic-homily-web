@@ -445,11 +445,16 @@ var shapedURLFields = map[string]struct {
 // It is keyed on FIELD NAME, so it covers artist, venue, label and festival
 // alike — the allowlists share these names.
 //
-// It is the union of the URL-bearing entries across ArtistAllowedEditFields,
-// VenueAllowedEditFields, LabelAllowedEditFields, FestivalAllowedEditFields and
-// ReleaseAllowedEditFields — every URL a rollback can actually write. Only the
-// platform fields carry a host anchor; the rest get the scheme rule, which is
-// still the difference between restoring a link and restoring "javascript:...".
+// It covers every URL field the shared registry knows, which is a SUPERSET of
+// what today's *AllowedEditFields maps expose — cover_image_url, for instance,
+// belongs to collections and is not editable through this pipeline at all. A
+// superset on purpose: an entry costs one map lookup on a field that never
+// appears, and a field added to an allowlist later is guarded on arrival rather
+// than on someone remembering this file.
+//
+// Only the platform fields carry a host anchor; the rest get the scheme rule,
+// which is still the difference between restoring a link and restoring
+// "javascript:..." into a rendered attribute.
 //
 // image_url is HERE for its scheme rule but its host is NOT resolved: the SSRF
 // guard needs a context.Context this function does not take. That residue is
