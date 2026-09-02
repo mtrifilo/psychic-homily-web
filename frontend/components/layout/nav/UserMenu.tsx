@@ -33,12 +33,17 @@ export function UserMenu() {
   // The `login / sign-up` link below is an identity claim about the viewer, so
   // the gate is `authStatus` per the rule stated on the AuthStatus type.
   //
-  // Nothing renders in the unsettled slot, and no spinner either: a viewer
-  // whose profile fetch failed on a non-definitive error stays 'pending' for
-  // the rest of the SPA session, so a spinner would promise an arrival that is
-  // not coming. The box holds the avatar trigger's height; the row's width
-  // still changes when auth settles, because the two settled states are a text
-  // link and a three-control cluster.
+  // The unsettled slot renders neither that link nor a spinner. Pending covers
+  // two windows: the profile in flight, which resolves in a moment, and a
+  // profile that failed on a non-definitive error, which resolves only on the
+  // throttled focus/reconnect refetch `useProfile` arms. So the slot can stay
+  // empty for a long time, and while it does this bar offers no route to
+  // /auth; typing the URL still works, and /auth redirects a viewer who turns
+  // out to be signed in.
+  //
+  // The box holds the avatar trigger's height. The row's width still changes
+  // when auth settles, because the two settled states are a text link and a
+  // three-control cluster.
   if (authStatus === 'pending') {
     return <div aria-hidden="true" className="size-9 shrink-0" />
   }

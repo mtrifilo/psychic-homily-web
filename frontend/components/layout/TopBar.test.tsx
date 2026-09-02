@@ -31,11 +31,11 @@ type MockAuthContextValue = {
   logout: () => void
 }
 
-// One fixture builder rather than a literal per test. `isAuthenticated` is
-// derived from `authStatus` and cannot be overridden, so no test can assert
-// against a viewer the context could not produce; `isLoading` seeds from
-// `authStatus` but IS overridable, because the two cells that matter here
-// differ only in it.
+// One fixture builder rather than a literal per test. It pins one coupling:
+// `isAuthenticated` derives from `authStatus` and cannot be overridden, so no
+// test asserts against a viewer whose two auth signals disagree. `user` and
+// `isLoading` stay overridable, because the cells that matter here differ in
+// them.
 function authFixture(
   overrides: Partial<Omit<MockAuthContextValue, 'isAuthenticated'>> = {}
 ): MockAuthContextValue {
@@ -213,9 +213,8 @@ describe('TopBar', () => {
       expect(screen.queryByRole('button', { name: 'User menu' })).not.toBeInTheDocument()
       expect(screen.queryByRole('link', { name: '+ Submit' })).not.toBeInTheDocument()
       expect(screen.queryByTestId('notification-bell')).not.toBeInTheDocument()
-      // No spinner either: the terminal case can outlive the SPA session, so a
-      // progress affordance would promise an arrival that is not coming.
-      expect(screen.queryByRole('status')).not.toBeInTheDocument()
+      // No spinner either. Lucide's Loader2 renders a bare svg with no role,
+      // so the class is what this assertion has to look for.
       expect(document.querySelector('.animate-spin')).toBeNull()
     })
 

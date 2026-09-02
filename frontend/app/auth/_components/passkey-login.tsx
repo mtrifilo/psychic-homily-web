@@ -8,8 +8,10 @@ import { Fingerprint, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import type { AuthResponse } from '@/features/auth/hooks/useAuth'
-import { refreshViewerTierQueries } from '@/lib/queryClient'
+import {
+  refreshCachesForNewSession,
+  type AuthResponse,
+} from '@/features/auth/hooks/useAuth'
 import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
@@ -83,9 +85,10 @@ export function PasskeyLoginButton({
       }
 
       // This path establishes a session with a raw fetch rather than the
-      // `useLogin` mutation, so nothing else drops the caches whose payload
-      // depends on the viewer's privilege tier (PSY-1857).
-      void refreshViewerTierQueries(queryClient)
+      // `useLogin` mutation, so nothing else refetches the profile the auth
+      // context reads as its source of truth, or drops the caches whose
+      // payload depends on the viewer's privilege tier (PSY-1857).
+      await refreshCachesForNewSession(queryClient)
 
       router.push(returnTo)
     } catch (error) {

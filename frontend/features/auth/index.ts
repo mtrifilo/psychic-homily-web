@@ -1,9 +1,5 @@
 // Public API for the auth feature module
 
-// Types — viewer identity
-export { toAuthUser } from './authUser'
-export type { AuthApiUser, User } from './authUser'
-
 // Types
 export type {
   ProfileVisibility,

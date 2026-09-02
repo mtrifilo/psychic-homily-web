@@ -126,8 +126,10 @@ interface RefreshTokenResponse {
  * registration, magic-link sign-in, email verification, and account recovery.
  *
  * The profile refetch is awaited because the rest of the app reads identity
- * from that one query: it outranks the in-session claim `setUser` makes, so
- * until it lands the new session's identity is only provisional.
+ * from that one query: it outranks the in-session claim `setUser` makes for
+ * the same viewer, so until it lands the new session's identity rests on that
+ * claim alone. Every path that establishes a session calls this, the two
+ * passkey components included.
  *
  * The viewer-tier refresh is deliberately NOT awaited. Any panel already on
  * screen whose payload depends on privilege (revision history, comments)
@@ -136,7 +138,7 @@ interface RefreshTokenResponse {
  * dimension. Refreshing them is a background correction, so the sign-in flow
  * must not block on it.
  */
-async function refreshCachesForNewSession(queryClient: QueryClient) {
+export async function refreshCachesForNewSession(queryClient: QueryClient) {
   await queryClient.refetchQueries({ queryKey: queryKeys.auth.profile })
   void refreshViewerTierQueries(queryClient)
 }

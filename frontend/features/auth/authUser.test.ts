@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { toAuthUser, type AuthApiUser } from './authUser'
 
-// The payload shape the auth API returns on /auth/profile and on every
-// endpoint that establishes a session.
+// A payload in the shape `AuthApiUser` declares. That declaration is narrower
+// than the wire (see the type's doc: `id` arrives as a number, the nullable
+// strings as null), so these fixtures pin the mapping, not the contract.
 const apiUser: AuthApiUser = {
   id: 'user-1',
   email: 'admin@test.local',

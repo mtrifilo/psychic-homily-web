@@ -84,13 +84,16 @@ interface AuthState {
 }
 
 interface AuthContextType extends AuthState {
-  /**
-   * Claim an authenticated viewer from a session-entry response, for the window
-   * before the profile query answers. Takes the API payload rather than a
-   * context {@link User} so the mapping runs in one place; the claim is read
-   * only while the profile has no user of its own, so a call site that passes
-   * a thin object no longer pins what it omitted (PSY-1945). `null` releases
-   * the claim.
+   /**
+   * Claim an authenticated viewer from a session-entry response. Takes the API
+   * payload rather than a context {@link User} so the mapping runs in one
+   * place, which is what stops a call site pinning the fields it omitted
+   * (PSY-1945).
+   *
+   * The claim is read while the profile names no viewer, and while it names a
+   * different one. It is discarded outright once the profile query fails
+   * definitively (a 401), since that is the backend answering that the caller
+   * has no session. `null` releases the claim.
    */
   setUser: (user: AuthApiUser | null) => void
   setError: (error: string | null) => void
@@ -163,22 +166,33 @@ export function AuthProvider({ children }: AuthProviderProps) {
       return null
     }
 
-    // The profile outranks the override once it has an answer, because the
-    // override is a bridge and not a second source of truth: it is set by every
-    // in-session login and cleared only by `logout()`, while the profile is
-    // refetched by the mutations that change what it says. Reading the override
-    // first pins whatever it holds for the rest of the SPA session, so a saved
-    // nav_mode (PSY-1117), a tier promotion, and an email verification would
-    // each land in the profile and never reach a consumer.
+    // Which source wins turns on whether the two name the SAME viewer.
     //
-    // Same mapper on both sides, so the two cannot describe the viewer in
-    // different shapes.
+    // For one viewer the profile is fresher for every field: the override is
+    // set by every in-session login and cleared only by `logout()`, while the
+    // profile is refetched by the mutations that change what it says. Letting
+    // the override win there pins whatever it held for the rest of the SPA
+    // session, so a saved nav_mode (PSY-1117), a tier promotion and an email
+    // verification each land in the profile and never reach a consumer.
+    //
+    // For DIFFERENT viewers the override is the newer session and the profile
+    // is a payload TanStack retained from the previous one. `/auth/magic-link`
+    // and `/auth/recover` accept a token for another account with a session
+    // already open, and the profile refetch their mutations await resolves
+    // rather than throwing, so a 5xx or 429 there leaves the old viewer's
+    // payload in place. Reading it would run the app as the previous account.
+    //
+    // Same mapper on both sides, so the two describe a viewer in one shape.
     if (profileData?.success && profileData?.user) {
-      return toAuthUser(profileData.user)
+      const profileUser = toAuthUser(profileData.user)
+      if (userOverride && userOverride.id !== profileUser.id) {
+        return userOverride
+      }
+      return profileUser
     }
 
-    // No profile answer yet. `null` means "no override"; logout clears it
-    // alongside the query cache.
+    // No profile answer yet, or one that names no viewer. `null` means "no
+    // override"; logout clears it alongside the query cache.
     if (userOverride) {
       return userOverride
     }

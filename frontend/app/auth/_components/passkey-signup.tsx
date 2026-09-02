@@ -20,8 +20,10 @@ import {
 } from '@/components/ui/dialog'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import type { AuthResponse } from '@/features/auth/hooks/useAuth'
-import { refreshViewerTierQueries } from '@/lib/queryClient'
+import {
+  refreshCachesForNewSession,
+  type AuthResponse,
+} from '@/features/auth/hooks/useAuth'
 import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION, MIN_SIGNUP_AGE } from '@/lib/legal'
 import { BackupAuthPrompt } from './backup-auth-prompt'
@@ -146,9 +148,10 @@ export function PasskeySignupButton({
       }
 
       // This path establishes a session with a raw fetch rather than the
-      // `useRegister` mutation, so nothing else drops the caches whose payload
-      // depends on the viewer's privilege tier (PSY-1857).
-      void refreshViewerTierQueries(queryClient)
+      // `useRegister` mutation, so nothing else refetches the profile the auth
+      // context reads as its source of truth, or drops the caches whose
+      // payload depends on the viewer's privilege tier (PSY-1857).
+      await refreshCachesForNewSession(queryClient)
 
       // Close signup dialog and show backup prompt
       setIsDialogOpen(false)
