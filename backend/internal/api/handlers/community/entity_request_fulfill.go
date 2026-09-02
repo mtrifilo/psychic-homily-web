@@ -574,13 +574,12 @@ func payloadShowBill(req *communitym.EntityRequest) ([]ShowArtistInput, error) {
 // doc comment for the rule those two paths share. The product's own show form is
 // unaffected either way because it derives an explicit is_headliner per act.
 //
-// KNOWN GAP on THIS endpoint, not fixed by that ticket: buildShowAssociations
-// arms billIsCurated from a stated set_type ALONE and never reads IsHeadliner,
-// so a bill stated only through the legacy flag -- [{Earth}, {Boris,
-// is_headliner:true}] -- never reaches this function and still writes two
-// set_type='headliner' rows. That is the same corruption PSY-1860 fixed next
-// door. The ShowArtistInput doc tags disclose the gap rather than promising the
-// fix, so what remains is the code change and its test.
+// buildShowAssociations arms billIsCurated from a stated set_type ALONE and
+// never reads IsHeadliner, so a bill stated only through the legacy flag --
+// [{Earth}, {Boris, is_headliner:true}] -- does not reach this function at all.
+// It is caught downstream instead: the fulfiller calls ShowService.CreateShow,
+// whose own suppression reads both spellings of the claim, so such a bill still
+// writes exactly one set_type='headliner' row.
 //
 // Scoped deliberately: acts that state their own set_type or is_headliner are
 // left untouched, so this never overwrites a caller's own claim. For an

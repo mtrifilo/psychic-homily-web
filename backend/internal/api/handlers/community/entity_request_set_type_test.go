@@ -90,8 +90,9 @@ func TestBuildShowAssociations_SetType(t *testing.T) {
 	})
 
 	// Named for set_type specifically: the legacy is_headliner flag does NOT arm
-	// this suppression (billIsCurated never reads it), which is a known gap
-	// recorded on suppressPositionInference and reported as a follow-up.
+	// this handler-level suppression, because billIsCurated never reads it. The
+	// show service's own suppression does read it, which
+	// TestFulfillShow_LegacyFlagAloneStillWritesOneHeadliner pins end to end.
 	t.Run("stating a set_type anywhere suppresses the position-0 headliner guess", func(t *testing.T) {
 		// The regression this guards: resolveArtistRole reads position 0 as the
 		// headliner for an act with no signal at all. An admin who marks the
@@ -530,6 +531,33 @@ func (s *EntityRequestSetTypeIntegrationSuite) TestFulfillShow_CuratedHeadlinerI
 		Order("show_artists.position ASC").
 		Scan(&headlinerNames).Error)
 	s.Equal([]string{"Boris"}, headlinerNames)
+}
+
+// The same bill stated only through the LEGACY FLAG. buildShowAssociations does
+// not arm on it (billIsCurated reads set_type alone), so this bill reaches the
+// show service untouched by the handler and is caught there instead: CreateShow
+// suppresses position inference once any act names the headline slot, by either
+// spelling.
+func (s *EntityRequestSetTypeIntegrationSuite) TestFulfillShow_LegacyFlagAloneStillWritesOneHeadliner() {
+	h := s.rescueHandler(s.showOrphan("Legacy Flag Billed Second"))
+
+	isHeadliner := true
+
+	req := &AdminFulfillEntityRequestRequest{ID: "1"}
+	req.Body.ShowVenue = &ShowVenueInput{Name: "Crescent Ballroom", City: "Phoenix", State: "AZ"}
+	req.Body.ShowArtists = []ShowArtistInput{
+		{Name: "Earth"},
+		{Name: "Boris", IsHeadliner: &isHeadliner},
+	}
+
+	resp, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)
+	s.Require().NoError(err)
+	s.Require().NotNil(resp.Body.CreatedEntityID)
+
+	got := s.setTypesByPosition(*resp.Body.CreatedEntityID)
+	s.Equal(contracts.SetTypePerformer, got[0],
+		"the silent first act must not be inferred as a second headliner")
+	s.Equal(contracts.SetTypeHeadliner, got[1])
 }
 
 // An admin who states only non-headliner roles has not named a headliner, and

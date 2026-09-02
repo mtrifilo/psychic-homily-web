@@ -194,12 +194,16 @@ func (s *DiscoveryService) ImportFromJSON(filepath string, dryRun bool) (*contra
 // internal/services/catalog/show.go, carries the rationale and the reason not to
 // align it.
 //
+// The venue match is scoped to (name, city), the pair venues are unique on, so a
+// same-named room in another metro is a different room here as it is there.
+// VenueConfig is the only source of both halves on this path.
+//
 // Local consequence: a hit tallies the event as DUPLICATE and skips it, while a miss
 // falls through to the import, where the dedup index refuses a single-venue collision
 // as a raw error instead. Narrowing this predicate turns clean DUPLICATE tallies into
 // ERRORs there, and on a multi-venue show admits the duplicate outright. The status
 // filter above already produces that raw-error outcome for a private colliding show.
-func (s *DiscoveryService) checkHeadlinerDuplicate(headlinerName, venueName string, eventDate time.Time) *catalogm.Show {
+func (s *DiscoveryService) checkHeadlinerDuplicate(headlinerName, venueName, venueCity string, eventDate time.Time) *catalogm.Show {
 	var existingShow catalogm.Show
 	err := s.db.
 		Joins("JOIN show_artists ON shows.id = show_artists.show_id").
@@ -208,7 +212,7 @@ func (s *DiscoveryService) checkHeadlinerDuplicate(headlinerName, venueName stri
 		Joins("JOIN venues ON show_venues.venue_id = venues.id").
 		Where("LOWER(artists.name) = LOWER(?)", headlinerName).
 		Where("(show_artists.set_type = ? OR show_artists.position = 0)", "headliner").
-		Where("LOWER(venues.name) = LOWER(?)", venueName).
+		Where("LOWER(venues.name) = LOWER(?) AND LOWER(venues.city) = LOWER(?)", venueName, venueCity).
 		Where("shows.event_date = ?", eventDate).
 		Where("shows.status NOT IN ?", []catalogm.ShowStatus{catalogm.ShowStatusRejected, catalogm.ShowStatusPrivate}).
 		First(&existingShow).Error
@@ -315,7 +319,7 @@ func (s *DiscoveryService) importEvent(event *contracts.DiscoveredEvent, dryRun 
 	// Determine the headliner name from billing data (preferred) or artist list.
 	headlinerName := s.resolveHeadlinerName(event)
 	if headlinerName != "" {
-		if dupShow := s.checkHeadlinerDuplicate(headlinerName, venueConfig.Name, eventDate); dupShow != nil {
+		if dupShow := s.checkHeadlinerDuplicate(headlinerName, venueConfig.Name, venueConfig.City, eventDate); dupShow != nil {
 			return fmt.Sprintf("DUPLICATE: %s at %s on %s (matches existing show #%d: %s)",
 				event.Title, venueConfig.Name, eventDate.Format("2006-01-02 15:04"), dupShow.ID, dupShow.Title), "duplicate"
 		}
@@ -479,7 +483,7 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 		// Built from the loop below rather than from artistEntries, so the slug
 		// ranks exactly the rows this import writes: same sanitized name, same
 		// resolved position, same resolved set_type, and skipped entries absent.
-		var billForSlug []catalog.HeadlineCandidate
+		billForSlug := make([]catalog.HeadlineCandidate, 0, len(artistEntries))
 
 		for idx, entry := range artistEntries {
 			// Sanitize at the boundary — this covers all three sources above

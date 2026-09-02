@@ -16395,12 +16395,12 @@ export interface components {
              * @description Existing artist ID (optional)
              */
             id?: number;
-            /** @description Headliner flag. Ignored when set_type is present, which is authoritative. On a bill where no entry states either field, the first entry is read as the headliner. Stating this flag alone does NOT stop that inference (known gap): only a stated set_type settles the bill. */
+            /** @description Headliner flag. Ignored when set_type is present, which is authoritative. On a bill where no entry states either field, the first entry is read as the headliner. Naming a headliner with this flag stops that inference for the other entries, which then store 'performer'. */
             is_headliner?: boolean;
             /** @description Artist name (required) */
             name: string;
             /**
-             * @description Curated bill role, authoritative over is_headliner. Omit the key when the slot is not known: the act then stores 'performer', meaning 'on the bill, slot unknown', which must not be rendered as a role. Do NOT send an empty string; only an absent key means unknown. Stating this field on any entry settles the whole bill, so no other entry is then inferred from list position; stating is_headliner alone does not.
+             * @description Curated bill role, authoritative over is_headliner. Omit the key when the slot is not known: the act then stores 'performer', meaning 'on the bill, slot unknown', which must not be rendered as a role. Do NOT send an empty string; only an absent key means unknown. Stating this field on any entry settles the whole bill, so no other entry is then inferred from list position.
              * @enum {string}
              */
             set_type?: "headliner" | "direct_support" | "opener" | "special_guest" | "dj" | "performer";

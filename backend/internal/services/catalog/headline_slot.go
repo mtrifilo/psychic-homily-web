@@ -116,20 +116,21 @@ import (
 //     internal/api/handlers/admin, which is NOT where this lives.) cmd/seed has
 //     two more; it is dev tooling and is not audited here.
 //
-//     ResolveHeadlinerName below is that group's shared rule, and the three
-//     that read a payload call it. It has to be a separate function rather than
-//     headlineSlotSQL because the rows it ranks do not exist to query yet, and
-//     because a slug needs a name even from a bill that names no headliner.
-//     catalog.CreateShow is the exception that needs no call: it resolves after
-//     associateArtists has written the rows, so it reads the stored
-//     is_headliner. A slug is written down and outlives any read-path fix,
-//     which is why this group ranks on the curated role rather than on list
-//     position.
+//     ResolveHeadlinerName below is that group's shared rule and all four call
+//     it. It has to be a separate function rather than headlineSlotSQL because
+//     the rows it ranks may not exist to query yet, and because a slug needs a
+//     name even from a bill that names no headliner. A slug is written down and
+//     outlives any read-path fix, which is why this group ranks on the curated
+//     role rather than on list position.
 //
 //  3. The duplicate-headliner GUARDS at show.go's checkDuplicateHeadlinerConflicts
-//     and pipeline/discovery.go's checkHeadlinerDuplicate (the latter fed by
-//     discovery.resolveHeadlinerName, which unlike its slug-writing sibling
-//     DOES honor set_type). They keep the
+//     and pipeline/discovery.go's checkHeadlinerDuplicate. The act each one
+//     PROBES is resolved separately from the slug: catalog's by
+//     probedHeadlinerNames off the request, discovery's by its own
+//     resolveHeadlinerName off the scraped payload, which ranks a curated
+//     headliner first and then the lowest 1-based billing_order. That is the
+//     same ordering ResolveHeadlinerName encodes on a different position
+//     convention, so the two are not interchangeable as written. They keep the
 //     `(set_type = 'headliner' OR position = 0)` disjunction, which is NOT
 //     equivalent to this rule and is deliberately broader: they ask whether a
 //     write would collide, not which row tops a bill. The error directions stay
@@ -199,26 +200,47 @@ type HeadlineCandidate struct {
 // because discovery derives position from billing_order and the data-sync import
 // carries an exported Position that need not match list order.
 func ResolveHeadlinerName(bill []HeadlineCandidate) string {
-	best := -1
-	for i, act := range bill {
-		if best < 0 || headlineRankLess(act, bill[best]) {
-			best = i
-		}
-	}
-	if best < 0 {
+	if len(bill) == 0 {
 		return ""
 	}
-	return bill[best].Name
+
+	// Comparisons are strict, so an act that ties the incumbent leaves it in
+	// place and bill order is the final tiebreak.
+	best := bill[0]
+	bestCurated := claimsHeadlinerRole(best)
+	for _, act := range bill[1:] {
+		curated := claimsHeadlinerRole(act)
+		if curated != bestCurated {
+			if curated {
+				best, bestCurated = act, curated
+			}
+			continue
+		}
+		if act.Position < best.Position {
+			best = act
+		}
+	}
+	return best.Name
 }
 
-// headlineRankLess reports whether `a` outranks `b` for the headline slot.
-// Strict, so equal-ranking acts leave the earlier one in place and bill order
-// breaks the tie.
-func headlineRankLess(a, b HeadlineCandidate) bool {
-	aCurated := contracts.NormalizeSetType(a.SetType) == contracts.SetTypeHeadliner
-	bCurated := contracts.NormalizeSetType(b.SetType) == contracts.SetTypeHeadliner
-	if aCurated != bCurated {
-		return aCurated
+// claimsHeadlinerRole reports whether this act's stated role is the headline
+// slot. Normalized rather than compared raw, so a caller may pass the label its
+// payload carried.
+func claimsHeadlinerRole(act HeadlineCandidate) bool {
+	return contracts.NormalizeSetType(act.SetType) == contracts.SetTypeHeadliner
+}
+
+// storedBillCandidates maps the rows a create just wrote onto the shape
+// ResolveHeadlinerName ranks, so the slug reads the stored set_type and position
+// rather than response order.
+func storedBillCandidates(artists []contracts.ArtistResponse) []HeadlineCandidate {
+	bill := make([]HeadlineCandidate, 0, len(artists))
+	for _, artist := range artists {
+		bill = append(bill, HeadlineCandidate{
+			Name:     artist.Name,
+			SetType:  artist.SetType,
+			Position: artist.Position,
+		})
 	}
-	return a.Position < b.Position
+	return bill
 }

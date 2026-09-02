@@ -378,7 +378,7 @@ func (s *ShowHandlerIntegrationSuite) TestCreateShow_CarriesShowTimes() {
 //
 // Resolve is called explicitly because these suites invoke the handler function
 // directly; without it the request never passes through the code this pins.
-func (s *ShowHandlerIntegrationSuite) TestCreateShow_PartiallyCuratedBillKeepsAHeadlineSlot() {
+func (s *ShowHandlerIntegrationSuite) TestCreateShowEndpoint_PartiallyCuratedBillKeepsAHeadlineSlot() {
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Partial Curation Room", "Phoenix", "AZ")
 
@@ -768,22 +768,22 @@ func (s *ShowHandlerIntegrationSuite) TestUpdateShow_RejectsURLShapedInstagramHa
 	s.Equal(int64(0), count)
 }
 
-// PSY-1860 at the endpoint the ticket names. UpdateShow has no Resolve, so
-// initializeArtist never runs and a nil is_headliner reaches resolveArtistRole,
-// whose position-0 fallback used to promote the act the caller said nothing
-// about -- giving the show TWO set_type='headliner' rows, with the undesignated
-// one winning every `ORDER BY position ASC LIMIT 1` headliner read.
+// PSY-1860 at the endpoint the ticket names. A nil is_headliner reaches
+// resolveArtistRole, whose position-0 fallback used to promote the act the
+// caller said nothing about -- giving the show TWO set_type='headliner' rows,
+// with the undesignated one winning every `ORDER BY position ASC LIMIT 1`
+// headliner read.
 //
 // Asserted through the HTTP handler rather than the service alone to cover the
 // endpoint the ticket actually names, end to end: the handler's artist mapping,
 // the service rule, and the stored rows.
 //
 // It does NOT by itself guard the handler mapping. Its pair below
-// (TestUpdateShow_UndescribedBillStillInfersPositionZero) is what catches the
-// tempting "default the flag like create does" edit here: such an edit leaves
-// THIS test green (every act would then state a role, so the service skips
-// suppression and still writes one headliner) while silently killing position
-// inference on undescribed bills. The two are only a guard together.
+// (TestUpdateShow_UndescribedBillStillInfersPositionZero) is what catches an
+// edit that defaults the flag in this handler: such an edit leaves THIS test
+// green (every act would then state a role, so the service skips suppression and
+// still writes one headliner) while silently killing position inference on
+// undescribed bills. The two are only a guard together.
 func (s *ShowHandlerIntegrationSuite) TestUpdateShow_StatedBillDoesNotInferASecondHeadliner() {
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Stated Bill Show")
