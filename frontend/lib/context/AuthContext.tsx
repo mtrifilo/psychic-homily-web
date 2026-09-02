@@ -12,30 +12,8 @@ import {
 // lives in that barrel and reads this context, so the barrel import would close
 // a cycle through it.
 import { useProfile, useLogout } from '@/features/auth/hooks/useAuth'
-import type { UserTier } from '@/features/auth/types'
-import type { NavMode } from '@/lib/nav-mode'
+import { toAuthUser, type AuthApiUser, type User } from '@/features/auth/authUser'
 import { AuthError, isDefinitiveUnauthenticated } from '@/lib/errors'
-
-interface User {
-  id: string
-  email: string
-  username?: string
-  display_name?: string
-  first_name?: string
-  last_name?: string
-  bio?: string
-  // Free-text "City, state" (PSY-1416). Optional on the public profile meta line.
-  location?: string
-  // OAuth / profile avatar URL (PSY-1488). Passed through from /auth/profile.
-  avatar_url?: string
-  email_verified: boolean
-  is_admin?: boolean
-  user_tier?: UserTier
-  // Saved nav-style preference (PSY-1117). Read by the appearance settings
-  // toggle to seed its control; the server shell (AppShell) reads it directly
-  // from the profile for first-paint rendering.
-  nav_mode?: NavMode
-}
 
 /**
  * Whether the viewer's identity is KNOWN yet, and what it turned out to be.
@@ -106,7 +84,19 @@ interface AuthState {
 }
 
 interface AuthContextType extends AuthState {
-  setUser: (user: User | null) => void
+  /**
+   * Claim an authenticated viewer from a session-entry response. Takes the API
+   * payload rather than a context {@link User}, so the mapping runs in one
+   * place and every claim has the same fields (PSY-1945).
+   *
+   * The claim is read while the profile names no viewer, and while it names a
+   * different one; for the same viewer the profile wins, and a definitive
+   * failure outranks it entirely. Only `logout()` and `null` remove it, so a
+   * claim outlives a session expiry that is later healed by a profile naming
+   * someone else. Telling that apart wants a recency signal rather than the id
+   * comparison below.
+   */
+  setUser: (user: AuthApiUser | null) => void
   setError: (error: string | null) => void
   clearError: () => void
   logout: () => void
@@ -177,37 +167,39 @@ export function AuthProvider({ children }: AuthProviderProps) {
       return null
     }
 
-    // If there's an explicit user override (truthy), use it.
-    // Note: null means "no override" - logout clears via queryClient.clear().
-    // Login/signup build the override from the minimal auth response, which
-    // omits nav_mode; backfill it from the full profile so the appearance
-    // settings control (PSY-1117) seeds from the saved preference for the rest
-    // of the SPA session, not the default. The override still wins for every
-    // field it actually sets.
-    if (userOverride) {
-      return {
-        ...userOverride,
-        nav_mode: userOverride.nav_mode ?? profileData?.user?.nav_mode,
+    // Which source wins turns on whether the two name the SAME viewer.
+    //
+    // For one viewer the profile is the fresher source: it is refetched on
+    // every session entry and by `useUpdateProfile`, while the override is set
+    // once at login and cleared only by logout or a definitive failure.
+    // Letting the override win pins whatever it held, so a saved nav_mode
+    // (PSY-1117), a tier change and an email verification could each land in
+    // the profile and never reach a consumer.
+    //
+    // For DIFFERENT viewers the override is the newer session and the profile
+    // is a payload TanStack retained from the previous one. `/auth/magic-link`
+    // and `/auth/recover` accept a token for another account with a session
+    // already open, and the profile refetch their mutations await resolves
+    // rather than throwing, so a 5xx or 429 there leaves the old viewer's
+    // payload in place. Reading it would run the app as the previous account.
+    //
+    // Same mapper on both sides, so the two describe a viewer in one shape.
+    if (profileData?.success && profileData?.user) {
+      const profileUser = toAuthUser(profileData.user)
+      // Compared as strings because the declared `id: string` is narrower than
+      // the wire, which sends a number (see AuthApiUser): both sides pass
+      // through `toAuthUser` unconverted today, and a future normalization on
+      // one side alone would otherwise make every id look different.
+      if (userOverride && String(userOverride.id) !== String(profileUser.id)) {
+        return userOverride
       }
+      return profileUser
     }
 
-    // Otherwise derive from profile data
-    if (profileData?.success && profileData?.user) {
-      return {
-        id: profileData.user.id,
-        email: profileData.user.email,
-        username: profileData.user.username,
-        display_name: profileData.user.display_name,
-        first_name: profileData.user.first_name,
-        last_name: profileData.user.last_name,
-        bio: profileData.user.bio,
-        location: profileData.user.location,
-        avatar_url: profileData.user.avatar_url,
-        email_verified: profileData.user.email_verified ?? false,
-        is_admin: profileData.user.is_admin,
-        user_tier: profileData.user.user_tier as UserTier | undefined,
-        nav_mode: profileData.user.nav_mode,
-      }
+    // No profile answer yet, or one that names no viewer. `null` means "no
+    // override"; logout clears it alongside the query cache.
+    if (userOverride) {
+      return userOverride
     }
 
     return null
@@ -261,8 +253,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return null
   }, [profileError, errorOverride])
 
-  const setUser = useCallback((newUser: User | null) => {
-    setUserOverride(newUser)
+  const setUser = useCallback((newUser: AuthApiUser | null) => {
+    setUserOverride(newUser ? toAuthUser(newUser) : null)
     setErrorOverride(null)
   }, [])
 

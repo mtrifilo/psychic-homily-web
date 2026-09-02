@@ -31,8 +31,12 @@ vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => mockAuthState,
 }))
 
+// Captures the per-call options `LoginForm` hands `useLogin().mutate`, so a
+// test can drive the success callback with a real login payload.
+const mockLoginMutate = vi.fn()
+
 vi.mock('@/features/auth', () => ({
-  useLogin: () => ({ mutate: vi.fn(), isPending: false, error: null as Error | null }),
+  useLogin: () => ({ mutate: mockLoginMutate, isPending: false, error: null as Error | null }),
   useRegister: () => ({ mutate: vi.fn(), isPending: false, error: null as Error | null }),
   useSendMagicLink: () => ({ mutate: vi.fn(), isPending: false }),
   // Pulled in by the check-your-inbox interstitial (PSY-1900). Mocking the
@@ -80,6 +84,7 @@ describe('AuthPage', () => {
   beforeEach(() => {
     mockPush.mockReset()
     mockReplace.mockReset()
+    mockLoginMutate.mockReset()
     passkeyLoginProps.mockReset()
     passkeySignupProps.mockReset()
     mockSearchParams = new URLSearchParams()
@@ -306,6 +311,63 @@ describe('AuthPage', () => {
       expect(mockPush).not.toHaveBeenCalled()
       // Loading branch shows a spinner, not the tabs.
       expect(screen.queryByRole('tab', { name: 'Sign in' })).not.toBeInTheDocument()
+    })
+  })
+
+  // PSY-1945. The login site used to assemble the context user by hand from a
+  // handful of response fields, dropping `is_admin` and stating a placeholder
+  // for `email_verified`. The override outranks the profile query for the rest
+  // of the SPA session, so an admin lost their admin UI until a hard reload.
+  describe('password login handoff to auth context', () => {
+    async function submitLogin() {
+      const user = userEvent.setup()
+      renderWithProviders(<AuthPage />)
+
+      await user.type(screen.getByLabelText('Email'), 'admin@test.local')
+      await user.type(screen.getByLabelText('Password'), 'e2e-test-password-123')
+      await user.click(screen.getByRole('button', { name: 'Sign in' }))
+
+      await waitFor(() => {
+        expect(mockLoginMutate).toHaveBeenCalled()
+      })
+
+      return mockLoginMutate.mock.calls[0][1] as {
+        onSuccess: (data: unknown) => void
+      }
+    }
+
+    it('hands the whole response user to setUser, privilege fields included', async () => {
+      const callbacks = await submitLogin()
+
+      callbacks.onSuccess({
+        success: true,
+        user: {
+          id: '7',
+          email: 'admin@test.local',
+          username: 'reggie',
+          first_name: 'Reg',
+          last_name: 'Gie',
+          is_admin: true,
+          email_verified: true,
+          user_tier: 'trusted_contributor',
+          nav_mode: 'top',
+        },
+      })
+
+      // The whole payload, unnarrowed: `AuthProvider` is what maps it, and the
+      // bug was this site handing over a subset with the privilege fields cut.
+      expect(mockAuthState.setUser).toHaveBeenCalledWith({
+        id: '7',
+        email: 'admin@test.local',
+        username: 'reggie',
+        first_name: 'Reg',
+        last_name: 'Gie',
+        is_admin: true,
+        email_verified: true,
+        user_tier: 'trusted_contributor',
+        nav_mode: 'top',
+      })
+      expect(mockPush).toHaveBeenCalledWith('/')
     })
   })
 })

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { TopBar } from './TopBar'
+import type { AuthStatus } from '@/lib/context/AuthContext'
 
 let mockPathname = '/'
 vi.mock('next/navigation', () => ({
@@ -25,15 +26,31 @@ type MockAuthContextValue = {
     is_admin: boolean
   } | null
   isAuthenticated: boolean
+  authStatus: AuthStatus
   isLoading: boolean
   logout: () => void
 }
-const mockAuthContext = vi.fn<() => MockAuthContextValue>(() => ({
-  user: null,
-  isAuthenticated: false,
-  isLoading: false,
-  logout: mockLogout,
-}))
+
+// One fixture builder rather than a literal per test. It pins one coupling:
+// `isAuthenticated` derives from `authStatus` and cannot be overridden, so no
+// test asserts against a viewer whose two auth signals disagree. `user` and
+// `isLoading` stay overridable, because the cells that matter here differ in
+// them.
+function authFixture(
+  overrides: Partial<Omit<MockAuthContextValue, 'isAuthenticated'>> = {}
+): MockAuthContextValue {
+  const authStatus = overrides.authStatus ?? 'anonymous'
+  return {
+    user: null,
+    authStatus,
+    isLoading: authStatus === 'pending',
+    logout: mockLogout,
+    ...overrides,
+    isAuthenticated: authStatus === 'authenticated',
+  }
+}
+
+const mockAuthContext = vi.fn<() => MockAuthContextValue>(() => authFixture())
 vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => mockAuthContext(),
 }))
@@ -60,12 +77,7 @@ describe('TopBar', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockPathname = '/'
-    mockAuthContext.mockReturnValue({
-      user: null,
-      isAuthenticated: false,
-      isLoading: false,
-      logout: mockLogout,
-    })
+    mockAuthContext.mockReturnValue(authFixture())
   })
 
   describe('brand', () => {
@@ -175,12 +187,9 @@ describe('TopBar', () => {
     })
 
     it('shows the + Submit CTA, avatar, and notification bell when authenticated', () => {
-      mockAuthContext.mockReturnValue({
-        user: { email: 'test@test.com', first_name: 'John', last_name: 'Doe', is_admin: false },
-        isAuthenticated: true,
-        isLoading: false,
-        logout: mockLogout,
-      })
+      mockAuthContext.mockReturnValue(
+        authFixture({ user: { email: 'test@test.com', first_name: 'John', last_name: 'Doe', is_admin: false }, authStatus: 'authenticated' })
+      )
       render(<TopBar />)
       expect(screen.getByRole('button', { name: 'User menu' })).toBeInTheDocument()
       expect(screen.getByText('JD')).toBeInTheDocument()
@@ -188,27 +197,47 @@ describe('TopBar', () => {
       expect(screen.getByRole('link', { name: '+ Submit' })).toHaveAttribute('href', '/shows/submit')
     })
 
-    it('hides the Submit CTA, bell + avatar while auth is loading', () => {
-      mockAuthContext.mockReturnValue({
-        user: null,
-        isAuthenticated: false,
-        isLoading: true,
-        logout: mockLogout,
-      })
+    // PSY-1986. Both pending cells, because they differ in the signal the bar
+    // used to read: the ordinary pre-profile window has `isLoading` true, and
+    // the terminal window a non-definitive failure (5xx, network, 403) leaves
+    // behind has it false. That second cell is where the bar claimed the
+    // viewer was anonymous beside bracket controls that rendered disabled, so
+    // a regression to an `isLoading` gate has to fail here.
+    it.each([
+      ['while the profile is in flight', true],
+      ['after the profile failed without settling', false],
+    ])('claims no identity %s', (_label, isLoading) => {
+      mockAuthContext.mockReturnValue(authFixture({ authStatus: 'pending', isLoading }))
       render(<TopBar />)
-      expect(screen.queryByRole('button', { name: 'User menu' })).not.toBeInTheDocument()
-      expect(screen.queryByTestId('notification-bell')).not.toBeInTheDocument()
-      expect(screen.queryByRole('link', { name: '+ Submit' })).not.toBeInTheDocument()
       expect(screen.queryByText('login / sign-up')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'User menu' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: '+ Submit' })).not.toBeInTheDocument()
+      expect(screen.queryByTestId('notification-bell')).not.toBeInTheDocument()
+      // No spinner either. Lucide's Loader2 renders a bare svg with no role,
+      // so the class is what this assertion has to look for.
+      expect(document.querySelector('.animate-spin')).toBeNull()
+    })
+
+    // The override built at login makes the viewer authenticated before the
+    // profile query resolves, with `isLoading` still true. Gating on that
+    // would hold the signed-in cluster back until the profile landed.
+    it('shows the authenticated cluster as soon as auth settles, even mid-fetch', () => {
+      mockAuthContext.mockReturnValue(
+        authFixture({
+          user: { email: 'test@test.com', first_name: 'John', last_name: 'Doe', is_admin: false },
+          authStatus: 'authenticated',
+          isLoading: true,
+        })
+      )
+      render(<TopBar />)
+      expect(screen.getByRole('button', { name: 'User menu' })).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: '+ Submit' })).toBeInTheDocument()
     })
 
     it('opens the account dropdown with profile, admin, and sign out for an admin', async () => {
-      mockAuthContext.mockReturnValue({
-        user: { email: 'admin@test.com', first_name: 'Ada', last_name: 'Min', is_admin: true },
-        isAuthenticated: true,
-        isLoading: false,
-        logout: mockLogout,
-      })
+      mockAuthContext.mockReturnValue(
+        authFixture({ user: { email: 'admin@test.com', first_name: 'Ada', last_name: 'Min', is_admin: true }, authStatus: 'authenticated' })
+      )
       const user = userEvent.setup()
       render(<TopBar />)
       await user.click(screen.getByRole('button', { name: 'User menu' }))
@@ -221,12 +250,9 @@ describe('TopBar', () => {
     })
 
     it('does not show the Admin item for a non-admin', async () => {
-      mockAuthContext.mockReturnValue({
-        user: { email: 'user@test.com', first_name: 'Reg', is_admin: false },
-        isAuthenticated: true,
-        isLoading: false,
-        logout: mockLogout,
-      })
+      mockAuthContext.mockReturnValue(
+        authFixture({ user: { email: 'user@test.com', first_name: 'Reg', is_admin: false }, authStatus: 'authenticated' })
+      )
       const user = userEvent.setup()
       render(<TopBar />)
       await user.click(screen.getByRole('button', { name: 'User menu' }))
@@ -237,12 +263,9 @@ describe('TopBar', () => {
     // PSY-1025: "Profile" lands the user on their OWN public identity view,
     // not the settings form.
     it('points "Profile" at the user public identity page when they have a username', async () => {
-      mockAuthContext.mockReturnValue({
-        user: { email: 'user@test.com', username: 'reggie', is_admin: false },
-        isAuthenticated: true,
-        isLoading: false,
-        logout: mockLogout,
-      })
+      mockAuthContext.mockReturnValue(
+        authFixture({ user: { email: 'user@test.com', username: 'reggie', is_admin: false }, authStatus: 'authenticated' })
+      )
       const user = userEvent.setup()
       render(<TopBar />)
       await user.click(screen.getByRole('button', { name: 'User menu' }))
@@ -254,12 +277,9 @@ describe('TopBar', () => {
       // PSY-1045: previously fell back to /profile (settings); now lands on
       // the claim-username self view so the user still gets the profile
       // experience before picking a handle.
-      mockAuthContext.mockReturnValue({
-        user: { email: 'user@test.com', is_admin: false },
-        isAuthenticated: true,
-        isLoading: false,
-        logout: mockLogout,
-      })
+      mockAuthContext.mockReturnValue(
+        authFixture({ user: { email: 'user@test.com', is_admin: false }, authStatus: 'authenticated' })
+      )
       const user = userEvent.setup()
       render(<TopBar />)
       await user.click(screen.getByRole('button', { name: 'User menu' }))
@@ -269,12 +289,9 @@ describe('TopBar', () => {
 
     // PSY-1486: desktop UserMenu Settings → /profile (parity with the retired hamburger sheet).
     it('points "Settings" at the /profile editor', async () => {
-      mockAuthContext.mockReturnValue({
-        user: { email: 'user@test.com', username: 'reggie', is_admin: false },
-        isAuthenticated: true,
-        isLoading: false,
-        logout: mockLogout,
-      })
+      mockAuthContext.mockReturnValue(
+        authFixture({ user: { email: 'user@test.com', username: 'reggie', is_admin: false }, authStatus: 'authenticated' })
+      )
       const user = userEvent.setup()
       render(<TopBar />)
       await user.click(screen.getByRole('button', { name: 'User menu' }))
@@ -295,12 +312,9 @@ describe('TopBar', () => {
 
     it('renders no admin drawer trigger even for an admin on /admin', () => {
       mockPathname = '/admin'
-      mockAuthContext.mockReturnValue({
-        user: { email: 'admin@test.com', is_admin: true },
-        isAuthenticated: true,
-        isLoading: false,
-        logout: mockLogout,
-      })
+      mockAuthContext.mockReturnValue(
+        authFixture({ user: { email: 'admin@test.com', is_admin: true }, authStatus: 'authenticated' })
+      )
       render(<TopBar />)
       expect(screen.queryByRole('button', { name: 'Open admin menu' })).not.toBeInTheDocument()
     })

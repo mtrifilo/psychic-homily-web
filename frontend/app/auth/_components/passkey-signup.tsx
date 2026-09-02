@@ -20,7 +20,10 @@ import {
 } from '@/components/ui/dialog'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { refreshViewerTierQueries } from '@/lib/queryClient'
+import {
+  refreshCachesForNewSession,
+  type AuthResponse,
+} from '@/features/auth/hooks/useAuth'
 import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION, MIN_SIGNUP_AGE } from '@/lib/legal'
 import { BackupAuthPrompt } from './backup-auth-prompt'
@@ -133,7 +136,7 @@ export function PasskeySignupButton({
         }),
       })
 
-      const finishData = await finishResponse.json()
+      const finishData: AuthResponse = await finishResponse.json()
 
       if (!finishData.success) {
         throw new Error(finishData.message || 'Failed to complete passkey signup')
@@ -141,19 +144,20 @@ export function PasskeySignupButton({
 
       // Success - update auth context
       if (finishData.user) {
-        setUser({
-          id: finishData.user.id,
-          email: finishData.user.email,
-          first_name: finishData.user.first_name,
-          last_name: finishData.user.last_name,
-          email_verified: finishData.user.email_verified,
-        })
+        setUser(finishData.user)
       }
 
       // This path establishes a session with a raw fetch rather than the
-      // `useRegister` mutation, so nothing else drops the caches whose payload
-      // depends on the viewer's privilege tier (PSY-1857).
-      void refreshViewerTierQueries(queryClient)
+      // `useRegister` mutation, so nothing else refetches the profile the auth
+      // context reads as its source of truth, or drops the caches whose
+      // payload depends on the viewer's privilege tier (PSY-1857).
+      //
+      // Not awaited. The profile query retries a failure twice, and a 429
+      // waits out its Retry-After, so awaiting would hold this flow behind a
+      // refetch for as long as that takes. `setUser` above already carries the
+      // whole payload, so nothing here needs the profile to have landed; the
+      // refetch is what lets a later change to the viewer reach the context.
+      void refreshCachesForNewSession(queryClient)
 
       // Close signup dialog and show backup prompt
       setIsDialogOpen(false)

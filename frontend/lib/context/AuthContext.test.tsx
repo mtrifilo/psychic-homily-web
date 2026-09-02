@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderHook, waitFor, act } from '@testing-library/react'
+import { renderHook, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createTestQueryClient } from '@/test/utils'
 import { AuthError, AuthErrorCode } from '@/lib/errors'
@@ -285,13 +285,152 @@ describe('AuthContext', () => {
       expect(result.current.isAuthenticated).toBe(true)
     })
 
-    it('user override takes precedence over profile data', () => {
+    it('profile data takes precedence over an override for the same viewer', () => {
       mockUseProfile.mockReturnValue({
         data: {
           success: true,
           user: {
-            id: 'profile-user',
-            email: 'profile@example.com',
+            id: 'user-1',
+            email: 'fresh@example.com',
+            email_verified: true,
+          },
+        },
+        isPending: false,
+        isLoading: false,
+        error: null,
+      })
+
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      act(() => {
+        result.current.setUser({
+          id: 'user-1',
+          email: 'stale@example.com',
+          email_verified: true,
+        })
+      })
+
+      expect(result.current.user?.email).toBe('fresh@example.com')
+    })
+
+    // The override is cleared only by logout, so anything it states outranking
+    // the profile for the SAME viewer would be pinned for the whole SPA
+    // session. Each field below changes under the viewer mid-session: the
+    // appearance toggle PATCHes nav_mode (PSY-1117), tier promotion and admin
+    // demotion land server-side, and verifying an email flips the submission
+    // gate (email_verified is booleans, so it has its own case below).
+    it.each([
+      ['nav_mode', 'top', 'side'],
+      ['user_tier', 'new_user', 'trusted_contributor'],
+    ])('lets a refetched profile correct a stale override %s', (field, stale, fresh) => {
+      mockUseProfile.mockReturnValue({
+        data: {
+          success: true,
+          user: {
+            id: 'user-1',
+            email: 'user@example.com',
+            email_verified: true,
+            [field]: fresh,
+          },
+        },
+        isLoading: false,
+        error: null,
+      })
+
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      act(() => {
+        result.current.setUser({
+          id: 'user-1',
+          email: 'user@example.com',
+          email_verified: true,
+          [field]: stale,
+        })
+      })
+
+      expect(result.current.user?.[field as 'nav_mode' | 'user_tier']).toBe(fresh)
+    })
+
+    it('lets a refetched profile revoke a stale override is_admin', () => {
+      mockUseProfile.mockReturnValue({
+        data: {
+          success: true,
+          user: {
+            id: 'user-1',
+            email: 'user@example.com',
+            email_verified: true,
+            is_admin: false,
+          },
+        },
+        isPending: false,
+        isLoading: false,
+        error: null,
+      })
+
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      act(() => {
+        result.current.setUser({
+          id: 'user-1',
+          email: 'user@example.com',
+          email_verified: true,
+          is_admin: true,
+        })
+      })
+
+      expect(result.current.user?.is_admin).toBe(false)
+    })
+
+    // The other direction: a DIFFERENT id means the override is the newer
+    // session and the profile payload is the one TanStack retained from the
+    // previous one, which is what a magic-link or recovery token for another
+    // account produces when its profile refetch fails without settling.
+    it('keeps an override that names a different viewer than the profile', () => {
+      mockUseProfile.mockReturnValue({
+        data: {
+          success: true,
+          user: {
+            id: 'previous-user',
+            email: 'previous@example.com',
+            email_verified: true,
+            is_admin: true,
+          },
+        },
+        isPending: false,
+        isLoading: false,
+        error: null,
+      })
+
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      act(() => {
+        result.current.setUser({
+          id: 'incoming-user',
+          email: 'incoming@example.com',
+          email_verified: true,
+          is_admin: false,
+        })
+      })
+
+      expect(result.current.user?.id).toBe('incoming-user')
+      expect(result.current.user?.is_admin).toBe(false)
+    })
+
+    it('lets a refetched profile correct a stale override email_verified', () => {
+      mockUseProfile.mockReturnValue({
+        data: {
+          success: true,
+          user: {
+            id: 'user-1',
+            email: 'user@example.com',
             email_verified: true,
           },
         },
@@ -305,65 +444,23 @@ describe('AuthContext', () => {
 
       act(() => {
         result.current.setUser({
-          id: 'override-user',
-          email: 'override@example.com',
-          email_verified: true,
+          id: 'user-1',
+          email: 'user@example.com',
+          email_verified: false,
         })
       })
 
-      expect(result.current.user?.id).toBe('override-user')
+      expect(result.current.user?.email_verified).toBe(true)
     })
 
-    it('backfills nav_mode from the profile when the login override omits it (PSY-1117)', () => {
+    it('reads the override while the profile has no user of its own', () => {
       mockUseProfile.mockReturnValue({
-        data: {
-          success: true,
-          user: {
-            id: 'profile-user',
-            email: 'profile@example.com',
-            email_verified: true,
-            nav_mode: 'side',
-          },
-        },
+        data: { success: true },
+        isPending: false,
         isLoading: false,
         error: null,
       })
 
-      const { result } = renderHook(() => useAuthContext(), {
-        wrapper: createWrapperWithClient(queryClient),
-      })
-
-      // Login overrides carry identity but not nav_mode (the auth response
-      // omits it).
-      act(() => {
-        result.current.setUser({
-          id: 'override-user',
-          email: 'override@example.com',
-          email_verified: true,
-        })
-      })
-
-      // Identity comes from the override; nav_mode is backfilled from the
-      // profile so the appearance control seeds from the saved preference
-      // rather than the default within the SPA session.
-      expect(result.current.user?.id).toBe('override-user')
-      expect(result.current.user?.nav_mode).toBe('side')
-    })
-
-    it('keeps the override nav_mode when the override sets one (override wins)', () => {
-      mockUseProfile.mockReturnValue({
-        data: {
-          success: true,
-          user: {
-            id: 'profile-user',
-            email: 'profile@example.com',
-            email_verified: true,
-            nav_mode: 'top',
-          },
-        },
-        isLoading: false,
-        error: null,
-      })
 
       const { result } = renderHook(() => useAuthContext(), {
         wrapper: createWrapperWithClient(queryClient),
@@ -378,7 +475,43 @@ describe('AuthContext', () => {
         })
       })
 
+      expect(result.current.user?.id).toBe('override-user')
       expect(result.current.user?.nav_mode).toBe('side')
+      expect(result.current.authStatus).toBe('authenticated')
+    })
+
+    // PSY-1945: an admin signing in with a password reached the context
+    // without `is_admin`, so the admin-only controls stayed hidden until a
+    // reload replaced the override with the real profile.
+    it('exposes the privilege fields of an override built from a login response', () => {
+      // The query has not resolved, which is the window the override exists
+      // for. `isPending` is what the provider reads for it.
+      mockUseProfile.mockReturnValue({
+        data: null,
+        isPending: true,
+        isLoading: true,
+        error: null,
+      })
+
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      act(() => {
+        result.current.setUser({
+          id: 'admin-1',
+          email: 'admin@test.local',
+          is_admin: true,
+          email_verified: true,
+          user_tier: 'trusted_contributor',
+        })
+      })
+
+      expect(result.current.user?.is_admin).toBe(true)
+      expect(result.current.user?.email_verified).toBe(true)
+      expect(result.current.user?.user_tier).toBe('trusted_contributor')
+      expect(result.current.isAuthenticated).toBe(true)
+      expect(result.current.authStatus).toBe('authenticated')
     })
   })
 
@@ -685,19 +818,28 @@ describe('AuthContext', () => {
       expect(result.current.user).toBeNull()
     })
 
-    // The override survives an expiry (nothing clears it but logout), so it has
-    // to yield to a definitive failure the same way retained data does.
-    // Otherwise anyone who signed in during this SPA session is exempt from the
-    // demotion above, which is the more common signed-in population.
+    // A definitive failure both outranks the claim and clears it. One hook
+    // instance throughout: the claim has to be set on the same provider the
+    // 401 then reaches, or the assertion passes against a fresh provider whose
+    // override was never set.
     it('is "anonymous" when a login override is followed by a 401', () => {
-      mockUseProfile.mockReturnValue({
+      const pendingProfile = {
         data: undefined,
         isPending: false,
         isLoading: false,
         error: null,
-      })
+      }
+      const expiredProfile = {
+        data: undefined,
+        isPending: false,
+        isLoading: false,
+        error: new AuthError('Token expired', AuthErrorCode.TOKEN_EXPIRED, {
+          status: 401,
+        }),
+      }
+      mockUseProfile.mockReturnValue(pendingProfile)
 
-      const { result } = renderHook(() => useAuthContext(), {
+      const { result, rerender } = renderHook(() => useAuthContext(), {
         wrapper: createWrapperWithClient(queryClient),
       })
 
@@ -710,22 +852,14 @@ describe('AuthContext', () => {
       })
       expect(result.current.authStatus).toBe('authenticated')
 
-      // Session ends elsewhere; this tab's next profile read 401s.
-      mockUseProfile.mockReturnValue({
-        data: undefined,
-        isPending: false,
-        isLoading: false,
-        error: new AuthError('Token expired', AuthErrorCode.TOKEN_EXPIRED, {
-          status: 401,
-        }),
+      // The session ends elsewhere; this tab's next profile read 401s.
+      mockUseProfile.mockReturnValue(expiredProfile)
+      act(() => {
+        rerender()
       })
 
-      const { result: after } = renderHook(() => useAuthContext(), {
-        wrapper: createWrapperWithClient(queryClient),
-      })
-
-      expect(after.current.authStatus).toBe('anonymous')
-      expect(after.current.user).toBeNull()
+      expect(result.current.authStatus).toBe('anonymous')
+      expect(result.current.user).toBeNull()
     })
 
     it('stays "anonymous" when a settled anonymous profile is followed by a 5xx', () => {

@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { Loader2, LogOut } from 'lucide-react'
+import { LogOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -28,13 +28,27 @@ import { NotificationBell } from '@/features/notifications'
 // reachable through the bottom tab bar's Browse sheet (Contribute group,
 // PSY-1020), which also mirrors these account entries in its Account sheet.
 export function UserMenu() {
-  const { user, isAuthenticated, isLoading, logout } = useAuthContext()
+  const { user, authStatus, logout } = useAuthContext()
 
-  if (isLoading) {
-    return <Loader2 className="size-4 animate-spin text-muted-foreground" />
+  // The `login / sign-up` link below is an identity claim about the viewer, so
+  // the gate is `authStatus` per the rule stated on the AuthStatus type.
+  //
+  // The unsettled slot renders neither that link nor a spinner. Pending covers
+  // two windows: the profile in flight, which resolves in a moment, and a
+  // profile that failed on a non-definitive error, which resolves only on the
+  // throttled focus/reconnect refetch `useProfile` arms. So the slot can stay
+  // empty for a long time, and while it does this bar offers no route to
+  // /auth; typing the URL still works, and /auth redirects a viewer who turns
+  // out to be signed in.
+  //
+  // The box is the avatar trigger's size. The row still reflows when auth
+  // settles, because the two settled states are a text link and a
+  // three-control cluster.
+  if (authStatus === 'pending') {
+    return <div aria-hidden="true" className="size-9 shrink-0" />
   }
 
-  if (isAuthenticated && user) {
+  if (authStatus === 'authenticated' && user) {
     // The canonical account destination list (navData, PSY-1821) — Profile's
     // username-aware href, the Profile/Settings split, and each entry's icon
     // are all decided at that table, shared with the mobile Account sheet.

@@ -168,13 +168,7 @@ function TokenConfirmation({ token }: { token: string }) {
     confirmRecovery(token)
       .then(data => {
         if (data.user) {
-          setUser({
-            id: data.user.id,
-            email: data.user.email,
-            first_name: data.user.first_name,
-            last_name: data.user.last_name,
-            email_verified: false,
-          })
+          setUser(data.user)
         }
         router.push('/')
       })

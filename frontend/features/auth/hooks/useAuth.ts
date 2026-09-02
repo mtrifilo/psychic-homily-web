@@ -28,6 +28,7 @@ import {
   type AuthErrorCodeType,
 } from '@/lib/errors'
 import type { NavMode } from '@/lib/nav-mode'
+import type { AuthApiUser } from '../authUser'
 import type { APIToken } from '../types'
 
 // Types
@@ -49,19 +50,20 @@ interface RegisterCredentials {
   min_age_attested: number
 }
 
-interface AuthResponse {
+/**
+ * The envelope every auth endpoint answers with.
+ *
+ * `user` is the full viewer payload, not a login-sized subset: the backend
+ * serializes the same user model here as it does on /auth/profile. Exported
+ * because the passkey components establish their session with a raw `fetch`
+ * rather than a mutation, and read the same envelope.
+ */
+export interface AuthResponse {
   success: boolean
   message: string
   error_code?: AuthErrorCodeType
   request_id?: string
-  user?: {
-    id: string
-    email: string
-    name?: string
-    first_name?: string
-    last_name?: string
-    is_admin?: boolean
-  }
+  user?: AuthApiUser
 }
 
 interface FavoriteCity {
@@ -100,28 +102,11 @@ interface UserProfile {
   message: string
   error_code?: AuthErrorCodeType
   request_id?: string
-  user?: {
-    id: string
-    email: string
-    username?: string
+  // The shared payload plus the fields only the profile endpoint's consumers
+  // read. Declaring the shared part once is what lets `toAuthUser` map this
+  // payload and a session-entry payload with the same code.
+  user?: AuthApiUser & {
     name?: string
-    display_name?: string
-    first_name?: string
-    last_name?: string
-    bio?: string
-    // Free-text "City, state" (PSY-1416). Optional; empty omits the public
-    // profile meta-line segment.
-    location?: string
-    // OAuth / profile avatar (PSY-1488 claim-state header). Backend User
-    // always includes the field; optional here for legacy cached payloads.
-    avatar_url?: string
-    is_admin?: boolean
-    email_verified?: boolean
-    user_tier?: string
-    // Global nav chrome preference (PSY-1115 backend; PSY-1117 toggle). Backend
-    // always sends this (column default 'top'), but typed optional so the
-    // unauthenticated sentinel and legacy cached payloads stay valid.
-    nav_mode?: NavMode
     created_at: string
     updated_at: string
     preferences?: UserPreferencesData
@@ -141,8 +126,10 @@ interface RefreshTokenResponse {
  * registration, magic-link sign-in, email verification, and account recovery.
  *
  * The profile refetch is awaited because the rest of the app reads identity
- * from that one query, and the login response is a thinner payload than
- * `/auth/profile` returns.
+ * from that one query: it outranks the in-session claim `setUser` makes for
+ * the same viewer, so until it lands the new session's identity rests on that
+ * claim alone. The two passkey components call it too, unawaited, since they
+ * establish their session with a raw fetch.
  *
  * The viewer-tier refresh is deliberately NOT awaited. Any panel already on
  * screen whose payload depends on privilege (revision history, comments)
@@ -151,7 +138,7 @@ interface RefreshTokenResponse {
  * dimension. Refreshing them is a background correction, so the sign-in flow
  * must not block on it.
  */
-async function refreshCachesForNewSession(queryClient: QueryClient) {
+export async function refreshCachesForNewSession(queryClient: QueryClient) {
   await queryClient.refetchQueries({ queryKey: queryKeys.auth.profile })
   void refreshViewerTierQueries(queryClient)
 }
@@ -213,9 +200,9 @@ export const useLogin = () => {
       if (data.success && data.user) {
         authLogger.loginSuccess(data.user.id, data.request_id)
 
-        // Refetch profile to ensure we have complete user data including is_admin
-        // This is more reliable than caching the login response since the profile
-        // endpoint returns the full user object from the database
+        // The response already carries the whole user model, which `setUser`
+        // claims for the window before this lands. Refetching makes the profile
+        // query — the source every consumer reads — agree with it.
         await refreshCachesForNewSession(queryClient)
       }
     },
@@ -525,14 +512,7 @@ interface VerifyMagicLinkResponse {
   message: string
   error_code?: string
   request_id?: string
-  user?: {
-    id: string
-    email: string
-    name?: string
-    first_name?: string
-    last_name?: string
-    is_admin?: boolean
-  }
+  user?: AuthApiUser
 }
 
 // Send verification email mutation
@@ -736,7 +716,8 @@ export const useVerifyMagicLink = () => {
           { userId: data.user.id },
           data.request_id
         )
-        // Refetch profile to get complete user data
+        // Bring the profile query, which every consumer reads, up to date
+        // with the session this response just established.
         await refreshCachesForNewSession(queryClient)
       }
     },
@@ -1160,14 +1141,7 @@ interface RecoverAccountRequest {
 interface RecoverAccountResponse {
   success: boolean
   message: string
-  user?: {
-    id: string
-    email: string
-    name?: string
-    first_name?: string
-    last_name?: string
-    is_admin?: boolean
-  }
+  user?: AuthApiUser
   error_code?: AuthErrorCodeType
   request_id?: string
 }
@@ -1190,14 +1164,7 @@ interface RequestAccountRecoveryResponse {
 interface ConfirmAccountRecoveryResponse {
   success: boolean
   message: string
-  user?: {
-    id: string
-    email: string
-    name?: string
-    first_name?: string
-    last_name?: string
-    is_admin?: boolean
-  }
+  user?: AuthApiUser
   error_code?: AuthErrorCodeType
   request_id?: string
 }
@@ -1252,7 +1219,8 @@ export const useRecoverAccount = () => {
           { userId: data.user.id },
           data.request_id
         )
-        // Refetch profile to get complete user data
+        // Bring the profile query, which every consumer reads, up to date
+        // with the session this response just established.
         await refreshCachesForNewSession(queryClient)
       }
     },
@@ -1333,7 +1301,8 @@ export const useConfirmAccountRecovery = () => {
           { userId: data.user.id },
           data.request_id
         )
-        // Refetch profile to get complete user data
+        // Bring the profile query, which every consumer reads, up to date
+        // with the session this response just established.
         await refreshCachesForNewSession(queryClient)
       }
     },

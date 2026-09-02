@@ -8,7 +8,10 @@ import { Fingerprint, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { refreshViewerTierQueries } from '@/lib/queryClient'
+import {
+  refreshCachesForNewSession,
+  type AuthResponse,
+} from '@/features/auth/hooks/useAuth'
 import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
@@ -70,7 +73,7 @@ export function PasskeyLoginButton({
         }),
       })
 
-      const finishData = await finishResponse.json()
+      const finishData: AuthResponse = await finishResponse.json()
 
       if (!finishData.success) {
         throw new Error(finishData.message || 'Failed to complete passkey login')
@@ -78,20 +81,20 @@ export function PasskeyLoginButton({
 
       // Success - update auth context and redirect
       if (finishData.user) {
-        setUser({
-          id: finishData.user.id,
-          email: finishData.user.email,
-          first_name: finishData.user.first_name,
-          last_name: finishData.user.last_name,
-          email_verified: finishData.user.email_verified,
-          is_admin: finishData.user.is_admin,
-        })
+        setUser(finishData.user)
       }
 
       // This path establishes a session with a raw fetch rather than the
-      // `useLogin` mutation, so nothing else drops the caches whose payload
-      // depends on the viewer's privilege tier (PSY-1857).
-      void refreshViewerTierQueries(queryClient)
+      // `useLogin` mutation, so nothing else refetches the profile the auth
+      // context reads as its source of truth, or drops the caches whose
+      // payload depends on the viewer's privilege tier (PSY-1857).
+      //
+      // Not awaited. The profile query retries a failure twice, and a 429
+      // waits out its Retry-After, so awaiting would hold this flow behind a
+      // refetch for as long as that takes. `setUser` above already carries the
+      // whole payload, so nothing here needs the profile to have landed; the
+      // refetch is what lets a later change to the viewer reach the context.
+      void refreshCachesForNewSession(queryClient)
 
       router.push(returnTo)
     } catch (error) {

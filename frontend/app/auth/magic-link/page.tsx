@@ -47,14 +47,7 @@ function MagicLinkContent() {
     verifyMagicLink.mutate(token, {
       onSuccess: data => {
         if (data.user) {
-          setUser({
-            id: data.user.id,
-            email: data.user.email,
-            first_name: data.user.first_name,
-            last_name: data.user.last_name,
-            email_verified: true,
-            is_admin: data.user.is_admin,
-          })
+          setUser(data.user)
         }
         // Redirect after short delay to show success message.
         redirectTimerRef.current = setTimeout(() => {

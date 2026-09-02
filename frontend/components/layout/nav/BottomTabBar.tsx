@@ -363,9 +363,14 @@ export function BottomTabBar() {
         {/* Account — auth-aware */}
         {isLoading ? (
           // Inert placeholder during auth hydration so the 5-tab grid doesn't
-          // jump (grid stability — NOT parity with the top bar, whose UserMenu
-          // shows a spinner while loading). aria-hidden: it looks tappable but
-          // is deliberately inert until auth settles.
+          // jump: this cell is one of five equal columns, so it has to occupy
+          // its column whatever the viewer turns out to be. aria-hidden: it
+          // looks tappable but is deliberately inert until auth settles.
+          //
+          // The gate is the context's `isLoading`, which is false both before
+          // the profile fetch starts and after it fails. In either window this
+          // cell falls through to the anonymous Account link below and states
+          // an identity the context has not settled.
           <div aria-hidden className={tabClassName(false)}>
             <User className="size-5" />
             Account

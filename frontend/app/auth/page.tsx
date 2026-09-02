@@ -86,13 +86,7 @@ function LoginForm({ returnTo }: { returnTo: string }) {
       loginMutation.mutate(value, {
         onSuccess: data => {
           if (data.user) {
-            setUser({
-              id: data.user.id,
-              email: data.user.email,
-              first_name: data.user.first_name,
-              last_name: data.user.last_name,
-              email_verified: false,
-            })
+            setUser(data.user)
           }
           router.push(returnTo)
         },
@@ -379,13 +373,7 @@ function SignupForm({ returnTo, onHandoffChange }: SignupFormProps) {
               return
             }
 
-            setUser({
-              id: data.user.id,
-              email: data.user.email,
-              first_name: data.user.first_name,
-              last_name: data.user.last_name,
-              email_verified: false,
-            })
+            setUser(data.user)
             onHandoffChange({
               status: 'complete',
               email: data.user.email || value.email,
