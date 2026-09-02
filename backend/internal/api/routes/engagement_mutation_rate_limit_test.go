@@ -71,6 +71,14 @@ func TestIsEngagementMutationRequest(t *testing.T) {
 		{http.MethodPost, "/venues/42/confirm", true},
 		{http.MethodPost, "/artists/42/confirm", false},
 		{http.MethodGet, "/venues/42/confirm", false},
+		// PSY-1991 entity-request creation. Anchored to the exact collection
+		// path, so the admin moderation endpoints below it are not metered on a
+		// contributor budget (an admin bypasses the limiter anyway).
+		{http.MethodPost, "/entity-requests", true},
+		{http.MethodGet, "/entity-requests", false},
+		{http.MethodGet, "/admin/entity-requests", false},
+		{http.MethodPost, "/admin/entity-requests/7/decide", false},
+		{http.MethodPost, "/admin/entity-requests/7/fulfill", false},
 		// Reads and read-shaped helpers are NOT mutations.
 		{http.MethodGet, "/saved-shows/42", false},
 		{http.MethodGet, "/saved-shows", false},
@@ -252,6 +260,62 @@ func TestEngagementMutationRateLimiter_UnrelatedWritesNotLimited(t *testing.T) {
 		if rr.Code != http.StatusOK {
 			t.Fatalf("unrelated write %d: status = %d, want 200 (not an engagement mutation)", i, rr.Code)
 		}
+	}
+}
+
+// PSY-1991: POST /entity-requests had NO ceiling, so one authenticated account
+// could queue moderation rows without bound. It now spends the same per-user
+// budget as the engagement toggles, 429s with a usable Retry-After past the
+// burst cap, and the window's expiry lets the next request through.
+func TestEngagementMutationRateLimiter_EntityRequestCreateIsLimited(t *testing.T) {
+	jwtService := newEngagementJWTService()
+	token := engagementToken(t, jwtService, 1)
+	mw := EngagementMutationRateLimiter(jwtService, enableEngagementEnv)
+	handler := mw(okRoutesHandler())
+
+	queue := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/entity-requests", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.RemoteAddr = "7.7.7.13:100"
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		return rr
+	}
+
+	for i := 0; i < middleware.EngagementMutationBurstPerMinute; i++ {
+		if rr := queue(); rr.Code != http.StatusOK {
+			t.Fatalf("queue %d within cap: status = %d, want 200", i, rr.Code)
+		}
+	}
+
+	rr := queue()
+	if rr.Code != http.StatusTooManyRequests {
+		t.Errorf("queue past the burst cap: status = %d, want 429", rr.Code)
+	}
+	if rr.Header().Get("Retry-After") != "60" {
+		t.Errorf("Retry-After = %q, want 60 (the client surfaces this via ApiError.retryAfter)", rr.Header().Get("Retry-After"))
+	}
+
+	// Shared budget, in both directions: a follow from the same user is rejected
+	// now too, so a requester cannot exhaust one allowance and start on another.
+	followReq := httptest.NewRequest(http.MethodPost, "/artists/5/follow", nil)
+	followReq.Header.Set("Authorization", "Bearer "+token)
+	followReq.RemoteAddr = "7.7.7.13:100"
+	followRR := httptest.NewRecorder()
+	handler.ServeHTTP(followRR, followReq)
+	if followRR.Code != http.StatusTooManyRequests {
+		t.Errorf("follow after queue budget exhausted: status = %d, want 429 (one shared counter)", followRR.Code)
+	}
+
+	// A DIFFERENT user is untouched: the budget keys per user, not per IP, so a
+	// shared address cannot make one requester throttle another.
+	otherReq := httptest.NewRequest(http.MethodPost, "/entity-requests", nil)
+	otherReq.Header.Set("Authorization", "Bearer "+engagementToken(t, jwtService, 2))
+	otherReq.RemoteAddr = "7.7.7.13:100"
+	otherRR := httptest.NewRecorder()
+	handler.ServeHTTP(otherRR, otherReq)
+	if otherRR.Code != http.StatusOK {
+		t.Errorf("a second user on the same IP: status = %d, want 200", otherRR.Code)
 	}
 }
 
