@@ -556,6 +556,41 @@ func (s *GraphOverviewSuite) TestBuild_GrowthKeepsExistingNodesInPlace() {
 	s.Assert().InDelta(neighborPos[1], newcomerPos[1], 2, "a new node seeds at its placed neighbour's barycenter")
 }
 
+// The playable flag draws a "this dot plays something" marker, and the panel it
+// opens refuses to render a value it cannot prove is Bandcamp (PSY-1966). So
+// non-emptiness is the wrong question, and this is the case that fails if
+// nodeFlags reverts to `*meta.BandcampEmbedURL != ""` — the sibling test above
+// seeds an apex EmbeddedPlayer URL, which IS renderable, so it cannot catch it.
+func (s *GraphOverviewSuite) TestBuild_FlagsIgnoreUnrenderableBandcampEmbed() {
+	artists := s.seedScene()
+
+	s.Require().NoError(s.db.Model(&catalogm.Artist{}).
+		Where("id = ?", artists[1].ID).
+		Update("bandcamp_embed_url", "https://evil.test/album/checkout").Error)
+	s.Require().NoError(s.db.Model(&catalogm.Artist{}).
+		Where("id = ?", artists[3].ID).
+		Update("bandcamp_embed_url", "https://real.bandcamp.com/album/x").Error)
+
+	_, err := s.build(&stubLayoutRunner{}, time.Date(2026, 8, 2, 3, 0, 0, 0, time.UTC))
+	s.Require().NoError(err)
+	payload := s.newestPayload()
+
+	flagOf := func(target uint) uint8 {
+		for i, id := range payload.Nodes.ID {
+			if id == target && payload.Nodes.Kind[i] == contracts.GraphOverviewNodeArtist {
+				return payload.Nodes.Flags[i]
+			}
+		}
+		s.Require().Fail("artist not on the map", "id %d", target)
+		return 0
+	}
+
+	s.Assert().Zero(flagOf(artists[1].ID)&contracts.GraphOverviewFlagPlayableAudio,
+		"a stored value nothing can render must not be marked playable")
+	s.Assert().NotZero(flagOf(artists[3].ID)&contracts.GraphOverviewFlagPlayableAudio,
+		"a real release page must still be marked playable")
+}
+
 func (s *GraphOverviewSuite) TestBuild_FlagsMarkPlayableAudioAndUpcomingShows() {
 	artists := s.seedScene()
 

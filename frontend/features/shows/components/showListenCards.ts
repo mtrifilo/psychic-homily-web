@@ -51,14 +51,12 @@ export interface ListenCard {
  * duplication is a DEBT, not a design. It has to agree, because `MusicEmbed`
  * renders NOTHING when it can find no source.
  *
- * The surfaces that used to hand-mirror this ladder (`ArtistPanel`,
- * `ArtistContextPanel`, `ShowCard`, `ArtistDetail`, `ScenePreviewContent`) now
- * call `hasRenderableMusic` in `lib/musicAvailability` instead — the shared
- * predicate the old note here asked for. This surface deliberately does NOT use
- * it, because it asks a stricter question: `hasRenderableMusic` answers "will
- * the player render anything", while a "Buy" card promises ONE release, which is
+ * Every OTHER surface that decides whether to open a music section asks
+ * `hasRenderableMusic` (`lib/musicAvailability`). This one deliberately does
+ * not, because it asks a stricter question: that predicate answers "will the
+ * player render anything", while a "Buy" card promises ONE release, which is
  * `isBandcampReleaseUrl`. So `https://band.bandcamp.com/music` opens a music
- * block and produces no Buy card, and that is correct rather than drift.
+ * block and produces no Buy card — correct, not drift.
  *
  * What remains owed is the ladder itself: an exported pure resolver beside
  * `deriveEmbedState` that this function calls instead of restating. Do not add

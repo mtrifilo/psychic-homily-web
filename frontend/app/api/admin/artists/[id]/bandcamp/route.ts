@@ -40,6 +40,16 @@ async function validateBandcampUrl(
     }
   }
 
+  // The backend stores only artist-subdomain release pages, so the apex is
+  // refused HERE rather than after a wasted page fetch and a backend 422 whose
+  // message is about neither. Releases always live on <artist>.bandcamp.com.
+  if (new URL(url).hostname.toLowerCase() === 'bandcamp.com') {
+    return {
+      valid: false,
+      error: 'URL must be on the artist subdomain, e.g. https://artist.bandcamp.com/album/title',
+    }
+  }
+
   const result = await resolveBandcampEmbed(url)
   if (!result.ok) {
     return { valid: false, error: result.error }

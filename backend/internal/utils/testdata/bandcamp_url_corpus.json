@@ -1,0 +1,124 @@
+{
+  "_comment": [
+    "Shared cross-language corpus for the bandcamp_embed_url gates (PSY-1966).",
+    "",
+    "THE CONTRACT: anything the Go write gate stores must be renderable by the",
+    "frontend read gate. Nothing may be storable and unrenderable, or a curator's",
+    "save silently produces no link.",
+    "",
+    "Go reads this file in utils.TestBandcampURLCorpus; TypeScript reads the same",
+    "file in frontend/lib/bandcamp.test.ts. Both assert their own half, so a",
+    "change to either predicate that breaks the contract fails on that side and",
+    "names the value. Editing one language's rules without editing this file is",
+    "what the two tests are here to catch — a hand-copied list in one test file",
+    "could not, and missed the backslash divergence until a review found it.",
+    "",
+    "storable  = utils.IsValidBandcampEmbedURL accepts; isBandcampReleaseUrl must",
+    "            also accept (the contract direction).",
+    "rejected  = utils.IsValidBandcampEmbedURL refuses. `alsoRejectedByReader`",
+    "            marks the ones the reader must ALSO refuse, i.e. the parser",
+    "            divergences that made this contract non-obvious. The rest are",
+    "            cases where the writer is deliberately the stricter side."
+  ],
+  "storable": [
+    "https://artificialgo.bandcamp.com/album/triple-ones",
+    "https://artificialgo.bandcamp.com/track/one-song",
+    "https://kingbuffalo.bandcamp.com/album/regenerator",
+    "https://x.bandcamp.com/track/leyenda",
+    "https://x.bandcamp.com/track/t?ref=/album/a",
+    "https://x.bandcamp.com/album/caf%C3%A9",
+    "https://a.b.bandcamp.com/album/deep-subdomain"
+  ],
+  "rejected": [
+    {
+      "url": "https://x.bandcamp.com/%61lbum/y",
+      "why": "percent-encoded first segment; Go's decoded Path would say /album/y",
+      "alsoRejectedByReader": true
+    },
+    {
+      "url": "https://x.bandcamp.com/album%2Fy",
+      "why": "encoded slash; decoded it looks like a release path",
+      "alsoRejectedByReader": true
+    },
+    {
+      "url": "https://x.bandcamp.com/album/../../evil",
+      "why": "dot segments the browser resolves to /evil",
+      "alsoRejectedByReader": true
+    },
+    {
+      "url": "https://x.bandcamp.com/album/regenerator\\..\\..\\gift-card",
+      "why": "backslash is a segment delimiter to WHATWG, an ordinary byte to Go; browser resolves to /gift-card",
+      "alsoRejectedByReader": true
+    },
+    {
+      "url": "https://x.bandcamp.com/album/%2e%2e\\evil",
+      "why": "encoded dot-dot behind a backslash",
+      "alsoRejectedByReader": true
+    },
+    {
+      "url": "https://evil.test/album/checkout",
+      "why": "foreign host wearing a release-shaped path",
+      "alsoRejectedByReader": true
+    },
+    {
+      "url": "https://bandcamp.com.attacker.test/album/x",
+      "why": "lookalike suffix",
+      "alsoRejectedByReader": true
+    },
+    {
+      "url": "https://evilbandcamp.com/album/x",
+      "why": "lookalike prefix",
+      "alsoRejectedByReader": true
+    },
+    {
+      "url": "https://x.bandcamp.com@evil.test/album/y",
+      "why": "userinfo spoofing the host",
+      "alsoRejectedByReader": true
+    },
+    {
+      "url": "https://evil.test/?next=https://x.bandcamp.com/album/y",
+      "why": "open redirect carrying a real release URL",
+      "alsoRejectedByReader": true
+    },
+    {
+      "url": "https://x.bandcamp.com",
+      "why": "profile root, not a release",
+      "alsoRejectedByReader": true
+    },
+    {
+      "url": "https://x.bandcamp.com/merch/shirt?ref=/album/x",
+      "why": "on-platform, but the release segment is only in the query",
+      "alsoRejectedByReader": true
+    },
+    {
+      "url": "http://x.bandcamp.com/album/y",
+      "why": "http renders nothing: neither the resolver nor the link gate accepts it",
+      "alsoRejectedByReader": true
+    },
+    {
+      "url": "javascript:alert(1)//bandcamp.com/album/x",
+      "why": "non-http scheme",
+      "alsoRejectedByReader": true
+    },
+    {
+      "url": "   ",
+      "why": "whitespace-only would be stored blank-but-not-null",
+      "alsoRejectedByReader": true
+    },
+    {
+      "url": "https://bandcamp.com/album/x",
+      "why": "the apex is not an artist page. The READER accepts it, deliberately, so a legacy row still renders; this is the one delta where the read gate is the lenient side",
+      "alsoRejectedByReader": false
+    },
+    {
+      "url": " https://x.bandcamp.com/album/y",
+      "why": "leading space; the browser strips it, so the reader accepts. Refused on write so the stored string is exactly what was validated",
+      "alsoRejectedByReader": false
+    },
+    {
+      "url": "https://x.bandcamp.com/album/y ",
+      "why": "trailing space; survives url.Parse and would otherwise be stored, then never equal the trimmed URL the release-derived recompute produces",
+      "alsoRejectedByReader": false
+    }
+  ]
+}

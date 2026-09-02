@@ -425,20 +425,25 @@ func (s *DataSyncService) importArtist(artist *contracts.ExportedArtist, dryRun 
 	// so it is a write boundary like any other and the embed URL meets the same
 	// shape rule the artist endpoints enforce (PSY-1966).
 	//
-	// AFTER the duplicate probe, not before, and the ordering is load-bearing in
-	// two ways. ExportData emits this column, so an export → import round trip —
-	// the tool's whole purpose — carries every existing artist's stored value
-	// back in; checking first would fail each legacy row that was storable under
-	// the old rule, on a branch that writes nothing anyway, and would skip the
-	// slug backfill that branch performs. And a refused row is not simply
-	// skipped: the show pass later recreates the artist by name through
-	// FindOrCreateArtistTx with a nil initializer, so a rejected create loses the
-	// location and all eight social links too, not just the embed.
+	// AFTER the duplicate probe, not before. ExportData emits this column, so an
+	// export → import round trip — the tool's whole purpose — carries every
+	// existing artist's stored value back in; checking first would fail each
+	// legacy row that was storable under the old rule, on a branch that writes
+	// nothing anyway, and would skip the slug backfill that branch performs.
 	//
-	// Refusing the create rather than blanking the field is still the right call
-	// there: a silently blanked embed would report the artist as imported while
-	// quietly losing what the operator meant to move, and the per-row result
-	// already exists to say why one failed.
+	// That ordering only helps when the target already HAS the artist. Seeding a
+	// fresh or partial environment takes the create branch below, where a legacy
+	// row is refused outright — and a refused row is not merely skipped, because
+	// the show pass later recreates the artist by name through
+	// FindOrCreateArtistTx with a nil initializer, losing its location and all
+	// eight social links too. An operator seeding an empty DB from an export
+	// containing legacy values will see those rows reported as errors and must
+	// fix them at the source.
+	//
+	// Refusing rather than blanking the field is still the right call: a silently
+	// blanked embed would report the artist as imported while quietly losing what
+	// the operator meant to move, and the per-row result already says why one
+	// failed.
 	if artist.BandcampEmbedURL != nil {
 		if err := utils.ValidateBandcampEmbedURL(*artist.BandcampEmbedURL, utils.BandcampEmbedURLLabel); err != nil {
 			return fmt.Sprintf("ERROR: Artist '%s': %v", artist.Name, err), "error"

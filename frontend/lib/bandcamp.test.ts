@@ -1,3 +1,5 @@
+import corpusFixture from '../../backend/internal/utils/testdata/bandcamp_url_corpus.json'
+
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import {
   parseBandcampEmbedId,
@@ -287,38 +289,52 @@ describe('resolveBandcampEmbed', () => {
 
 // The store-subset-of-render contract, from the READ side (PSY-1966).
 //
-// The write half is utils.IsValidBandcampEmbedURL in the Go backend. Nothing can
-// make one language import the other, so this is the tripwire instead: the
-// corpus below is the set of shapes the Go predicate ACCEPTS, copied from
-// TestIsValidBandcampEmbedURL, and every one of them must render here. If a
-// change to either side breaks the containment, this fails and names the value.
+// THE CONTRACT: anything the Go write gate (utils.IsValidBandcampEmbedURL) will
+// store must be renderable here. Nothing may be storable and unrenderable, or a
+// curator's save silently produces no link and nobody can see why.
 //
-// The direction is what matters. This gate may be MORE lenient than the write
-// gate (it accepts the bandcamp.com apex, which the write gate refuses, so a
-// legacy row still renders). It may never be stricter, or a curator's save would
-// silently produce no link.
-describe('mirrors the Go write gate (store is a subset of render)', () => {
-  const storableByTheBackend = [
-    'https://kingbuffalo.bandcamp.com/album/regenerator',
-    'https://x.bandcamp.com/track/leyenda',
-    'https://x.bandcamp.com/track/t?ref=/album/a',
-    // A percent-encoded character inside the slug is ordinary and storable.
-    'https://x.bandcamp.com/album/caf%C3%A9',
-  ]
+// Both halves read ONE shared corpus, checked in beside the Go test. That file
+// is the tripwire: a hand-copied list in this file could only fail for shapes
+// someone had already thought of, and did in fact miss the backslash divergence
+// (`/album/x\..\..\evil` — a segment delimiter to this parser, an ordinary
+// byte to Go) until a review found it. Adding a case now obliges both languages
+// to agree about it.
+//
+// The reverse direction does NOT hold and the corpus records where: the Go gate
+// is deliberately the stricter side on the bandcamp.com apex and on surrounding
+// whitespace, both of which this parser accepts.
+describe('cross-language corpus (store is a subset of render)', () => {
+  const corpus = corpusFixture as {
+    storable: string[]
+    rejected: { url: string; why: string; alsoRejectedByReader: boolean }[]
+  }
 
-  it.each(storableByTheBackend)('renders anything the backend will store: %s', (url) => {
+  it('has entries on both sides', () => {
+    expect(corpus.storable.length).toBeGreaterThan(0)
+    expect(corpus.rejected.length).toBeGreaterThan(0)
+  })
+
+  it.each(corpus.storable)('renders anything the backend will store: %s', (url) => {
     expect(isBandcampReleaseUrl(url)).toBe(true)
   })
 
-  // The shapes Go refuses BECAUSE this parser reads them differently. Each was a
-  // real divergence: Go's u.Path is percent-decoded and un-normalized, so
-  // without EscapedPath and the dot-segment rule these were storable there and
-  // unrenderable here.
-  it.each([
-    'https://x.bandcamp.com/%61lbum/y',
-    'https://x.bandcamp.com/album%2Fy',
-    'https://x.bandcamp.com/album/../../evil',
-  ])('agrees with the backend on parser-divergent paths: %s', (url) => {
-    expect(isBandcampReleaseUrl(url)).toBe(false)
-  })
+  const mustAlsoReject = corpus.rejected.filter((c) => c.alsoRejectedByReader)
+  it.each(mustAlsoReject.map((c) => [c.url, c.why] as const))(
+    'refuses %s (%s)',
+    (url) => {
+      expect(isBandcampReleaseUrl(url)).toBe(false)
+    }
+  )
+
+  // The deltas the corpus marks as writer-only strictness. Asserting they render
+  // is what keeps "the read gate is the lenient side here" honest rather than
+  // aspirational — if one of these ever stopped rendering, a legacy row would
+  // lose its link with nothing to say so.
+  const readerAccepts = corpus.rejected.filter((c) => !c.alsoRejectedByReader)
+  it.each(readerAccepts.map((c) => [c.url, c.why] as const))(
+    'still renders %s, where the writer is deliberately stricter (%s)',
+    (url) => {
+      expect(isBandcampReleaseUrl(url)).toBe(true)
+    }
+  )
 })

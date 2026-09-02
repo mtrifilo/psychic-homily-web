@@ -247,6 +247,44 @@ func TestGetSceneActiveArtists_ServiceError(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 500)
 }
 
+// A page row holding a value nothing can render must not be nominated
+// (PSY-1966). The preview gates its Listen heading on renderability, so
+// nominating one no longer degrades to a plain link — it suppresses the block,
+// and the next band that DOES have a working embed never gets its turn.
+//
+// This is the case that fails if the page loop reverts to `*a.BandcampEmbedURL != ""`.
+func TestGetSceneActiveArtists_RepresentativeEmbedSkipsUnrenderable(t *testing.T) {
+	junk := "https://evil.test/album/checkout"
+	good := "https://band-b.bandcamp.com/album/y"
+	mock := &testhelpers.MockSceneService{
+		ParseSceneSlugFn: func(slug string) (string, string, error) {
+			return "Phoenix", "AZ", nil
+		},
+		GetActiveArtistsFn: func(city, state string, periodDays, limit, offset int) ([]*contracts.SceneArtistResponse, int64, error) {
+			return []*contracts.SceneArtistResponse{
+				{ID: 1, Slug: "band-junk", Name: "Band Junk", BandcampEmbedURL: &junk},
+				{ID: 2, Slug: "band-b", Name: "Band B", BandcampEmbedURL: &good},
+			}, 2, nil
+		},
+		GetRepresentativeEmbedFn: func(city, state string, activeWindowDays int) (*contracts.SceneRepresentativeEmbed, error) {
+			t.Fatal("a renderable embed exists on the page; no fallback query should run")
+			return nil, nil
+		},
+	}
+	h := NewSceneHandler(mock)
+	req := &GetSceneActiveArtistsRequest{Slug: "phoenix-az", Period: 90, Limit: 20}
+	resp, err := h.GetSceneActiveArtistsHandler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.RepresentativeEmbed == nil {
+		t.Fatal("the junk row must not suppress the page-derived embed")
+	}
+	if resp.Body.RepresentativeEmbed.EmbedURL != good {
+		t.Errorf("expected the renderable band to be nominated, got %q", resp.Body.RepresentativeEmbed.EmbedURL)
+	}
+}
+
 // PSY-1294 page-first: the representative embed is the top embed-having band
 // already in the fetched roster page — derived from the page, so no full-roster
 // fallback query runs.

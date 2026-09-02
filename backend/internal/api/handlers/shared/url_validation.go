@@ -4,9 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"net/url"
 	"sort"
-	"strings"
 	"unicode/utf8"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -241,57 +239,23 @@ func ValidateURLField(ctx context.Context, fieldName string, value *string) erro
 	return validateFetchHost(ctx, fieldName, *value)
 }
 
-// socialHostSuffixes anchors each platform social field to its known hosts, so
-// a hostile value (e.g. https://evil.test/artist/x in the spotify field, which
-// renders as a SocialLinks href / embed source) can't be stored (PSY-1113). A
-// field absent here (website) accepts any host. A host matches when it equals a
-// base or is a subdomain of it — covering open.spotify.com, <artist>.bandcamp.com,
-// m.facebook.com, music.youtube.com, www.*, etc.
+// validateSocialHost rejects a social-platform URL whose host isn't on that
+// platform's allowlist, as a huma 422.
+//
+// The allowlist and the matching rule live in utils.SocialHostSuffixes /
+// utils.ValidateSocialHost, because the rollback gate in internal/services/admin
+// needs the same rule and cannot import a handler package. This is the HTTP
+// wrapper; the policy is one table.
 //
 // This is a broad HOST floor for the free-form social fields. The stricter,
 // path-aware rules are utils.ValidateBandcampEmbedURL (the `shape` rule on
 // bandcamp_embed_url above) and isValidSpotifyURL (catalog/artist.go) — change
 // platform-host rules with all of them in mind.
-//
-// Redirector / short-link hosts (fb.me, t.co, youtube-nocookie.com) are
-// intentionally excluded: they can't be statically verified to land on-platform,
-// which is the point of the anchor. `website` is the escape hatch for any host.
-var socialHostSuffixes = map[string][]string{
-	"instagram":  {"instagram.com"},
-	"facebook":   {"facebook.com", "fb.com"},
-	"twitter":    {"twitter.com", "x.com"},
-	"youtube":    {"youtube.com", "youtu.be"},
-	"spotify":    {"spotify.com"},
-	"soundcloud": {"soundcloud.com"},
-	"bandcamp":   {"bandcamp.com"},
-}
-
-// validateSocialHost rejects a social-platform URL whose host isn't on that
-// platform's allowlist. Fields not in socialHostSuffixes (website, image_url,
-// ...) are unrestricted. Assumes `value` already passed the scheme check, so a
-// parse failure here just means "skip" (the scheme check already rejected it).
 func validateSocialHost(field, value string) error {
-	bases, restricted := socialHostSuffixes[field]
-	if !restricted || strings.TrimSpace(value) == "" {
-		return nil
+	if err := utils.ValidateSocialHost(field, urlFieldSpecs[field].displayName, value); err != nil {
+		return huma.Error422UnprocessableEntity(err.Error())
 	}
-	u, err := url.Parse(strings.TrimSpace(value))
-	if err != nil {
-		return nil
-	}
-	host := strings.ToLower(u.Hostname())
-	for _, base := range bases {
-		if host == base || strings.HasSuffix(host, "."+base) {
-			return nil
-		}
-	}
-	return huma.Error422UnprocessableEntity(
-		fmt.Sprintf(
-			"%s must be a link on %s",
-			urlFieldSpecs[field].displayName,
-			strings.Join(bases, " or "),
-		),
-	)
+	return nil
 }
 
 // validateShape applies a field's `shape` rule, and is a no-op for every field

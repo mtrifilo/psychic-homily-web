@@ -811,7 +811,9 @@ func optionalBandcampEmbedURL(entityType string, value *string, maxLen int) erro
 	if value == nil {
 		return nil
 	}
-	if err := utils.ValidateBandcampEmbedURL(*value, utils.BandcampEmbedURLField); err != nil {
+	// The LABEL, not the field name, so the submit refusal and the pre-claim
+	// approve refusal (validatePayloadBandcampEmbedURL) read as one sentence.
+	if err := utils.ValidateBandcampEmbedURL(*value, utils.BandcampEmbedURLLabel); err != nil {
 		return fmt.Errorf("%s payload: %w", entityType, err)
 	}
 	return nil

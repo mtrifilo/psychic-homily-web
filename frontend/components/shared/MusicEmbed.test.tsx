@@ -447,27 +447,45 @@ describe('MusicEmbed', () => {
     // "cannot drift" claim is carried by prose alone: every caller test mocks
     // the component away, and musicAvailability.test.ts exercises the predicate
     // in isolation.
-    it.each([
-      'https://evil.test/album/checkout',
-      'https://bandcamp.com.attacker.test/album/x',
-      'http://band.bandcamp.com/album/test',
-      'https://evil.test/?next=https://band.bandcamp.com/album/y',
-      '   ',
-    ])('renders nothing whenever hasRenderableMusic is false: %s', async (url) => {
-      expect(hasRenderableMusic({ bandcampAlbumUrl: url })).toBe(false)
+    //
+    // ALL THREE arms, not just the album URL: the predicate answers a question
+    // about the whole input, so a source added to deriveEmbedState without
+    // adding it there would silently hide sections that do render.
+    const unrenderable: [string, Record<string, string>][] = [
+      ['album: foreign host', { bandcampAlbumUrl: 'https://evil.test/album/checkout' }],
+      ['album: lookalike host', { bandcampAlbumUrl: 'https://bandcamp.com.attacker.test/album/x' }],
+      ['album: http', { bandcampAlbumUrl: 'http://band.bandcamp.com/album/test' }],
+      [
+        'album: open redirect',
+        { bandcampAlbumUrl: 'https://evil.test/?next=https://band.bandcamp.com/album/y' },
+      ],
+      ['album: blank', { bandcampAlbumUrl: '   ' }],
+      ['profile: foreign host', { bandcampProfileUrl: 'https://evil.test/band' }],
+      ['profile: http', { bandcampProfileUrl: 'http://band.bandcamp.com' }],
+      ['spotify: unparseable id', { spotifyUrl: 'https://open.spotify.com/playlist/abc' }],
+      [
+        'spotify: foreign host',
+        { spotifyUrl: 'https://evil.test/artist/4Z8W4fKeB5YxbusRsdQVPb' },
+      ],
+    ]
 
-      const fetchSpy = vi.spyOn(global, 'fetch')
-      const { container } = render(
-        <MusicEmbed bandcampAlbumUrl={url} artistName="Test Artist" />
-      )
+    it.each(unrenderable)(
+      'renders nothing whenever hasRenderableMusic is false: %s',
+      async (_name, props) => {
+        expect(hasRenderableMusic(props)).toBe(false)
 
-      await waitFor(() => {
-        expect(container.querySelector('section')).not.toBeInTheDocument()
-      })
-      // And it never asked the resolver: a URL the route would 400 must not cost
-      // a round trip or hold the loading placeholder open on the way to nothing.
-      expect(fetchSpy).not.toHaveBeenCalled()
-    })
+        const fetchSpy = vi.spyOn(global, 'fetch')
+        const { container } = render(<MusicEmbed {...props} artistName="Test Artist" />)
+
+        await waitFor(() => {
+          expect(container.querySelector('section')).not.toBeInTheDocument()
+        })
+        // And it never asked the resolver: a URL the route would 400 must not
+        // cost a round trip or hold the loading placeholder open on the way to
+        // nothing.
+        expect(fetchSpy).not.toHaveBeenCalled()
+      }
+    )
 
     // The iframe branch is unaffected: its src is built from a resolved numeric
     // id, never from the stored string, so a rejected URL that DOES resolve

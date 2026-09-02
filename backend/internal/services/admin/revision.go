@@ -342,12 +342,25 @@ func (s *RevisionService) Rollback(revisionID uint, adminUserID uint) error {
 	// A legacy row's correction therefore cannot be rolled back, and that is the
 	// intended outcome: un-fixing a bad URL is not an operation worth having.
 	//
-	// SCOPE, stated plainly: this covers the `shape` rules only. The SSRF host
-	// guard (revalidateFetchedURLs) has the identical hole on this path for
-	// image_url, which IS fetched server-side, and closing it needs a
-	// context.Context threaded through Rollback. That is its own change, not a
-	// rider here.
+	// SCOPE, stated plainly, because the hole is wider than the field this ticket
+	// came for. Rollback can write ANY field in the entity's edit allowlist, and
+	// none of their forward rules ran on OldValue. Both checks below are needed:
+	// the shape rules for bandcamp_embed_url, and the scheme + platform-host
+	// rules for the nine other URL fields, every one of which SocialLinks or a
+	// ticket link renders as an href under a trusted label.
+	//
+	// What is still NOT covered: image_url. Its rule is the SSRF host guard,
+	// which resolves DNS and needs a context.Context this function does not take,
+	// so that field remains reachable by the same OldValue trick. Threading a
+	// context through Rollback is its own change.
+	//
+	// The root fix for all of it is that OldValue should be derived from the
+	// entity at submit time instead of accepted from the client. That is a change
+	// to the pending-edit contract and its diff previews, not a rider here.
 	if err := revalidateShapedURLs(updates); err != nil {
+		return err
+	}
+	if err := validateRollbackURLs(updates); err != nil {
 		return err
 	}
 

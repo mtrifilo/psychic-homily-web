@@ -429,6 +429,75 @@ var shapedURLFields = map[string]struct {
 	},
 }
 
+// rollbackURLFields is every field a rollback may write whose value is a URL
+// somebody will click, with the label a refusal names it by.
+//
+// It exists because Rollback is the one write path that takes its value from
+// FieldChange.OldValue, and OldValue is contributor input that NOTHING
+// validates: the submit handler checks NewValue only, and approve copies the
+// pair verbatim into revisions.field_changes. So every forward gate — scheme,
+// social host anchor, release shape — is bypassed by going backwards, for every
+// field in the table, not just the one PSY-1966 set out to fix. A contributor
+// pairs a real Spotify NewValue with `https://spotify-verify.evil.test/` as the
+// OldValue, an admin later presses rollback, and SocialLinks renders that host
+// under the Spotify glyph.
+//
+// It is keyed on FIELD NAME, so it covers artist, venue, label and festival
+// alike — the allowlists share these names.
+//
+// Deliberately NOT the whole urlFieldSpecs registry: image_url is absent because
+// its rule is the SSRF host guard, which resolves DNS and needs a
+// context.Context this function does not have. That gap is real and is called
+// out on validateRollbackURLs.
+var rollbackURLFields = map[string]string{
+	"instagram":  "Instagram URL",
+	"facebook":   "Facebook URL",
+	"twitter":    "Twitter URL",
+	"youtube":    "YouTube URL",
+	"spotify":    "Spotify URL",
+	"soundcloud": "SoundCloud URL",
+	"bandcamp":   "Bandcamp URL",
+	"website":    "Website URL",
+	"ticket_url": "Ticket URL",
+}
+
+// validateRollbackURLs re-runs the forward paths' URL rules over the values a
+// rollback is about to write, and reports one that must not go live.
+//
+// WHY THIS IS NOT PARANOIA: see rollbackURLFields. OldValue is unvalidated
+// contributor input that reaches the column through an admin's undo button.
+//
+// It refuses the WHOLE rollback rather than dropping the offending field, which
+// has a cost worth naming: a revision records every field of one contributor
+// edit, so a single planted OldValue makes that revision permanently
+// un-rollbackable, including the undo of unrelated fields recorded beside it. A
+// contributor can therefore deny undo on their own edit. That is accepted here
+// as the lesser harm — the alternative writes an attacker-chosen href under a
+// trusted platform label, and admins retain direct-edit paths — but a partial
+// rollback that skips only the refused field is the better long-term answer and
+// is left as its own change, because it alters what an admin sees "rollback" do.
+//
+// `website` is host-unrestricted by design (it is the any-host escape hatch), so
+// for that field this is the scheme check alone.
+func validateRollbackURLs(updates map[string]interface{}) error {
+	for field, displayName := range rollbackURLFields {
+		value, present, err := updateStringValue(updates, field, displayName)
+		if err != nil {
+			return err
+		}
+		if !present {
+			continue
+		}
+		if err := utils.ValidateHTTPURL(value, displayName); err != nil {
+			return err
+		}
+		if err := utils.ValidateSocialHost(field, displayName, value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // revalidateFetchedURLs re-runs the SSRF host guard over the values an approval
 // is about to apply, and reports one that must not go live.
 //
@@ -665,6 +734,16 @@ func (s *PendingEditService) ApprovePendingEdit(ctx context.Context, editID uint
 	// PSY-1966. Kept a separate call rather than folded into the block above
 	// because the two answer different questions (where a host POINTS vs what
 	// shape a URL has) and only one of them resolves DNS.
+	// The clear gesture arrives as "" and must land as NULL, not as a blank
+	// string: a blank row is skipped by every `IS NULL` repair path forever while
+	// rendering nothing. Runs after the gate, on the same map Updates() writes,
+	// so what is normalized is what is stored.
+	for field := range shapedURLFields {
+		if raw, ok := updates[field]; ok {
+			updates[field] = utils.BlankBandcampEmbedToNil(raw)
+		}
+	}
+
 	if err := revalidateShapedURLs(updates); err != nil {
 		slog.Default().Warn("pending_edit_blocked_url_shape",
 			"edit_id", edit.ID,

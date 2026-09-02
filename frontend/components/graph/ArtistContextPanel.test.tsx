@@ -114,6 +114,27 @@ describe('ArtistContextPanel', () => {
     ).toBeTruthy()
   })
 
+  // PSY-1966. The same dead-affordance rule as the unparseable-Spotify case
+  // below, for the Bandcamp side: a stored value MusicEmbed refuses to render
+  // must not open a headed Listen row. This is the case that fails if the gate
+  // reverts to Boolean(card.bandcamp_embed_url).
+  it.each([
+    'https://evil.test/album/checkout',
+    'https://bandcamp.com.attacker.test/album/x',
+    'http://lightningbolt.bandcamp.com/album/wonderful-rainbow',
+  ])('shows no dead "Listen" row for an unrenderable embed URL: %s', (url) => {
+    render(
+      <ArtistContextPanel
+        artistName="Lightning Bolt"
+        artistSlug="lightning-bolt"
+        card={{ ...CARD, bandcamp_embed_url: url, spotify: null }}
+        onClose={onClose}
+      />,
+    )
+    expect(screen.queryByTestId('music-embed')).toBeNull()
+    expect(screen.queryByText('Listen')).toBeNull()
+  })
+
   it('falls back to the Spotify URL when there is no Bandcamp embed (PSY-1302)', () => {
     render(
       <ArtistContextPanel

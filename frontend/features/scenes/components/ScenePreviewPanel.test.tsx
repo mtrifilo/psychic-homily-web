@@ -231,6 +231,33 @@ describe('ScenePreviewPanel', () => {
     expect(screen.getByText(/no artists based here yet/i)).toBeInTheDocument()
   })
 
+  // PSY-1966: the backend picker now filters unrenderable candidates, so this
+  // should not arrive — but the heading is rendered HERE, and a heading over
+  // nothing is the failure this whole family guards against. The case that fails
+  // if the gate reverts to a bare {embed && ...}.
+  it.each([
+    'https://evil.test/album/checkout',
+    'https://bandcamp.com.attacker.test/album/x',
+    'http://band-a.bandcamp.com/album/x',
+  ])('renders no Listen heading for an unrenderable representative embed: %s', (url) => {
+    mockUseSceneArtists.mockReturnValue({
+      data: {
+        artists: [{ id: 1, slug: 'band-a', name: 'Band A', is_active: true }],
+        total: 1,
+        representative_embed: {
+          embed_url: url,
+          artist_name: 'Band A',
+          artist_slug: 'band-a',
+        },
+      },
+      isLoading: false,
+    })
+    renderWithProviders(<ScenePreviewPanel scene={scene} onClose={() => {}} />)
+
+    expect(screen.queryByRole('heading', { name: 'Listen' })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('music-embed')).not.toBeInTheDocument()
+  })
+
   // PSY-1224/PSY-1294: the "instant payoff" — the preview plays the scene's
   // representative embed, chosen by the BACKEND over the full metro roster. The
   // component just renders whatever `representative_embed` the response carries;

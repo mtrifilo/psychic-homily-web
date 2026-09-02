@@ -436,10 +436,16 @@ func TestIsResolvableBandcampURL(t *testing.T) {
 	}
 }
 
-// The two predicates form a ladder: anything STORABLE must also be RESOLVABLE,
-// or a value the write gate accepts would light no affordance and render
-// nothing. This is the Go half of the store-subset-of-render contract; the
-// cross-language half is pinned in frontend/lib/bandcamp.test.ts.
+// The two GO predicates form a ladder: anything STORABLE must also be
+// RESOLVABLE, or a value the write gate accepts would light no playable dot and
+// be skipped by the scene picker.
+//
+// This is NOT the store-subset-of-render contract — that one spans languages and
+// is pinned by the shared corpus (TestBandcampURLCorpus here,
+// frontend/lib/bandcamp.test.ts there). This is the weaker in-language ladder,
+// and it is close to true by construction; it earns its place by failing loudly
+// if someone ever makes the write gate accept a host the read-side predicate
+// does not.
 func TestStorableImpliesResolvable(t *testing.T) {
 	for _, value := range []string{
 		"https://x.bandcamp.com/album/y",

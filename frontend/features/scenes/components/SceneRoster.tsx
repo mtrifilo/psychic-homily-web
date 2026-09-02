@@ -5,6 +5,7 @@ import { useState } from 'react'
 // SceneRooms.tsx and features/scenes/components/index.ts (PSY-1772).
 import { BracketLink } from '@/components/shared/BracketLink'
 import { MusicEmbed } from '@/components/shared/MusicEmbed'
+import { hasRenderableMusic } from '@/lib/musicAvailability'
 import { useSceneArtists } from '../hooks'
 import { plural } from '../sceneCalendar'
 import { EntityNameLink, SceneSectionHeading } from './sceneChrome'
@@ -86,8 +87,11 @@ function RosterRow({ artist }: { artist: SceneArtist }) {
 
       {/* OPEN, never collapsed. `MusicEmbed` renders nothing at all when the
           band has no embeddable URL, so a roster of bands without music stays a
-          plain list rather than a column of empty player frames. */}
-      {artist.bandcamp_embed_url && (
+          plain list rather than a column of empty player frames.
+          Gated on what it will actually produce, not on the column being set:
+          otherwise an unrenderable value leaves this wrapper's margin behind as
+          a phantom gap between rows (PSY-1966). */}
+      {hasRenderableMusic({ bandcampAlbumUrl: artist.bandcamp_embed_url }) && (
         <div className="mt-2 max-w-2xl">
           <MusicEmbed
             bandcampAlbumUrl={artist.bandcamp_embed_url}

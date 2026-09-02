@@ -316,11 +316,12 @@ function deriveEmbedState({
   // Priority 3: Bandcamp fallback links.
   //
   // Both URLs are proven Bandcamp before either becomes an href, and this is the
-  // only place that check is COMPLETE: every surface that mounts this component
-  // hands it a raw contributor-writable column, so a gate at the call sites is a
-  // gate the next caller silently skips. The iframe branches above need no such
-  // gate — their src is built from a resolved numeric id, never from the stored
-  // string.
+  // only place that check is COMPLETE: nearly every surface that mounts this
+  // component hands it a raw contributor-writable column (ShowListenModule is
+  // the exception — its href is already proven by listenCardsForBill), so a gate
+  // at the call sites is a gate the next caller silently skips. The iframe
+  // branches above need no such gate — their src is built from a resolved
+  // numeric id, never from the stored string.
   //
   // The album URL has already cleared the host anchor before it reaches this
   // function (see resolvableAlbumUrl at the call site); what is left to prove is

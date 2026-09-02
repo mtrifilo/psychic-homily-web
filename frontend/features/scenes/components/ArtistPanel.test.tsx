@@ -156,6 +156,23 @@ describe('ArtistPanel', () => {
       )
     })
 
+    // PSY-1966: a stored value MusicEmbed refuses to render must not open the
+    // headed LISTEN block. The case that fails if the gate reverts to
+    // Boolean(card.bandcamp_embed_url).
+    it.each([
+      'https://evil.test/album/checkout',
+      'https://bandcamp.com.attacker.test/album/x',
+      'http://diespitz.bandcamp.com/album/x',
+    ])('renders no LISTEN block for an unrenderable embed URL: %s', (url) => {
+      mockUseArtistGraphCard.mockReturnValue({
+        data: card({ bandcamp_embed_url: url, spotify: null }),
+        isError: false,
+      })
+      renderPanel()
+      expect(screen.queryByTestId('artist-panel-listen')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('music-embed')).not.toBeInTheDocument()
+    })
+
     it('renders a player for an embeddable Spotify link', () => {
       mockUseArtistGraphCard.mockReturnValue({
         data: card({

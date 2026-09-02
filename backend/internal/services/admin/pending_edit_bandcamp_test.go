@@ -153,8 +153,17 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_AppliesB
 }
 
 // TestApprovePendingEdit_ClearsBandcampEmbed pins the clear-the-field gesture:
-// an empty string is how a contributor removes a stale embed, and the gate must
-// not turn that into an unapprovable row.
+// an empty string is how a contributor removes a stale embed, the gate must not
+// turn that into an unapprovable row, and it must land as NULL.
+//
+// NULL, not "", is the load-bearing half. A blank-but-not-null value is what
+// every `bandcamp_embed_url IS NULL` repair path skips — the profile resolver,
+// the release-derived fill, cmd/backfill-artist-bandcamp-embeds,
+// cmd/sweep-link-suggestions — so storing "" here would clear the embed and
+// simultaneously make the artist permanently un-repairable by any automated
+// path, while rendering exactly the same as NULL. That is the state the
+// whitespace refusal exists to prevent, reached through the one input the
+// validator has to allow.
 func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_ClearsBandcampEmbed() {
 	user := s.createTestUser()
 	reviewer := s.createTestUser()
@@ -181,6 +190,6 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_ClearsBa
 	var applied struct{ BandcampEmbedURL *string }
 	s.Require().NoError(s.db.Table("artists").
 		Select("bandcamp_embed_url").Where("id = ?", artist.ID).Scan(&applied).Error)
-	s.Require().NotNil(applied.BandcampEmbedURL)
-	s.Equal("", *applied.BandcampEmbedURL)
+	s.Nil(applied.BandcampEmbedURL,
+		"the clear gesture must reach NULL, not a blank string every IS NULL repair path skips")
 }
