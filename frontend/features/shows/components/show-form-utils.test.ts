@@ -108,7 +108,6 @@ describe('showToFormValues', () => {
     expect(result.venue.address).toBe('123 Main St')
   })
 
-
   it('maps artists with their stored bill role', () => {
     const show = makeShowResponse()
     const result = showToFormValues(show)
@@ -749,7 +748,6 @@ describe('extractedVenueToSelected', () => {
   })
 })
 
-
 // --- set_type vocabulary (PSY-1673) ---
 
 describe('SET_TYPE_OPTIONS', () => {
@@ -875,7 +873,6 @@ describe('toArtistPayloads', () => {
     })
   })
 })
-
 
 // --- resolveFormSetType (PSY-1673) ---
 

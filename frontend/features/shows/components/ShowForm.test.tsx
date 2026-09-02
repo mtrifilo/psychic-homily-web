@@ -892,7 +892,53 @@ describe('ShowForm — edit mode pre-fills from initialData', () => {
 // when it does not. Asserted at the SUBMIT boundary rather than on
 // showToFormValues, because the payload and the composed event_date are what
 // the backend acts on.
-describe('ShowForm — edit mode venue resolution + event_date round trip', () => {
+describe('ShowForm: create mode still states the venue state outright', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetMockState()
+  })
+
+  // The conditional rule belongs to EDIT alone. A create has no stored instant
+  // to round-trip against, and a matched venue reaches the form through
+  // extractedVenueToSelected, which carries no `timezone` - so letting a blank
+  // state through here would compose event_date in the fallback zone with
+  // nothing on screen saying so.
+  it('blocks a submission whose venue state is blank even when a venue id is set', async () => {
+    mockVenueSearch.venues = [
+      {
+        id: 210,
+        slug: 'hall-ohne-zone',
+        name: 'Hall Ohne Zone',
+        address: null,
+        city: 'Berlin',
+        state: '',
+        timezone: null,
+        verified: true,
+      },
+    ]
+    const user = userEvent.setup()
+    mockAuth.user = { id: 1, is_admin: true }
+    renderWithProviders(<ShowForm mode="create" redirectOnCreate={false} />)
+
+    await user.type(
+      screen.getByPlaceholderText('Enter artist name'),
+      'Headliner Band'
+    )
+    await user.type(screen.getByLabelText(/^Venue$/i), 'Hall')
+    await user.click(await screen.findByText('Hall Ohne Zone'))
+    fireSet(screen.getByLabelText(/^Date$/i) as HTMLInputElement, futureDate())
+
+    // The picker filled the id and the venue's own blank state.
+    expect(screen.getByLabelText(/^State$/i)).toHaveValue('')
+
+    await user.click(screen.getByRole('button', { name: /submit show/i }))
+
+    expect(await screen.findByText('State is required')).toBeInTheDocument()
+    expect(mockShowSubmit.mutate).not.toHaveBeenCalled()
+  })
+})
+
+describe('ShowForm: edit mode venue resolution + event_date round trip', () => {
   /** The shape of the one argument the update mutation is called with. */
   type UpdateCall = {
     updates: {
@@ -964,7 +1010,43 @@ describe('ShowForm — edit mode venue resolution + event_date round trip', () =
     // The id is what keeps the blank state resolvable on the backend.
     expect(call.updates.venues[0].id).toBe(77)
     expect(call.updates.venues[0].state).toBe('')
-    expect(call.updates.state).toBe('')
+    // The show row's own state is left alone rather than cleared: the blank
+    // field is a gap in the VENUE's record, and shows.state is read by
+    // state-filtered listings, the cities aggregation and alert matching.
+    expect(call.updates.state).toBeUndefined()
+  })
+
+  // The venue id has to survive a user who focuses the venue field and moves
+  // on. VenueInput's blur runs its confirm path, which cannot match a name the
+  // user never changed because the search hook is disabled for an empty query;
+  // clearing the selection there drops the id and the venue's IANA zone, and
+  // on a state-less venue then blocks the save outright.
+  //
+  // The blur handler fires on a 150ms timer, so the wait is what makes this a
+  // regression test rather than a race the assertions win by default.
+  it('keeps the venue id when the venue field is focused and blurred untouched', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <ShowForm mode="edit" initialData={makeZonelessVenueShow()} />
+    )
+
+    await user.click(screen.getByLabelText(/^Venue$/i))
+    await user.tab()
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 300))
+    })
+
+    // The banner a cleared selection would surface for this non-admin. Its
+    // absence is the precondition the payload assertions hang on.
+    expect(screen.queryByText('New Venue')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => expect(mockShowUpdate.mutate).toHaveBeenCalledTimes(1))
+
+    const call = firstUpdate()
+    expect(call.updates.venues[0].id).toBe(77)
+    expect(call.updates.event_date).toBe('2099-06-15T03:00:00Z')
   })
 
   it("sends the show's own venue id on an unrelated edit", async () => {
@@ -1055,6 +1137,12 @@ describe('ShowForm — edit mode venue resolution + event_date round trip', () =
     await user.click(screen.getByRole('button', { name: /save changes/i }))
 
     expect(await screen.findByText('State is required')).toBeInTheDocument()
+    // On the field the user can act on, not merely somewhere on the page:
+    // that association is the whole reason the rule carries a `path`.
+    expect(screen.getByLabelText(/^State$/i)).toHaveAttribute(
+      'aria-invalid',
+      'true'
+    )
     expect(mockShowUpdate.mutate).not.toHaveBeenCalled()
   })
 

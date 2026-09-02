@@ -51,6 +51,20 @@ export function VenueInput({
 
   // Handle confirming current input value (new venue)
   const handleConfirm = () => {
+    // Nothing typed since the field was seeded or a venue was picked, so there
+    // is no new name to resolve and the standing selection is still correct.
+    //
+    // Returning early is load-bearing, not an optimization. `useVenueSearch` is
+    // disabled for an empty query, so `filteredVenues` is empty here and the
+    // exact-match lookup below CANNOT succeed for a name the user never
+    // changed. Falling through would call `onVenueSelect(null)` on a bare
+    // focus-then-blur, dropping the venue's id and its IANA zone from a form
+    // the user only looked at.
+    if (!searchValue.trim()) {
+      setIsOpen(false)
+      return
+    }
+
     const value = field.state.value?.trim()
     if (value) {
       // Check for exact match and use proper casing

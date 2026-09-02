@@ -76,7 +76,55 @@ const SUCCESS_NOTIFY_DELAY_MS = 1500
 // How long the success flash shows before redirecting to the submissions list.
 const SUCCESS_REDIRECT_DELAY_MS = 2000
 
-const showFormSchema = z.object({
+const venueFields = z.object({
+  id: z.number().optional(),
+  name: z.string().min(1, 'Venue name is required'),
+  city: z.string().min(1, 'City is required'),
+  // Required by one of the two rules below, never here, because the two modes
+  // answer "is a state required" differently.
+  state: z.string(),
+  address: z.string(),
+})
+
+const STATE_REQUIRED = { message: 'State is required', path: ['state'] }
+
+/**
+ * The state a venue is in, as the CREATE path demands it: always.
+ *
+ * A create has no stored instant to round-trip against, so nothing here
+ * constrains what the field may hold, and dropping the rule would only widen
+ * what can be submitted. It would also let an AI extraction that matched a
+ * venue with no state on file through, and `extractedVenueToSelected` carries
+ * no `timezone`, so that show's event_date would be composed in
+ * FALLBACK_SHOW_TIMEZONE with nothing on screen saying so.
+ */
+const createVenueSchema = venueFields.refine(
+  venue => venue.state !== '',
+  STATE_REQUIRED
+)
+
+/**
+ * The same question on the EDIT path, where the answer is "only when the
+ * payload names no venue id".
+ *
+ * That is exactly where the backend needs it: `associateVenues` resolves a
+ * venue carrying an id by primary key, and only its (name, city, state)
+ * fallback, `VenueService.FindOrCreateVenue` in
+ * backend/internal/services/catalog/venue.go, rejects an empty state. Asking
+ * unconditionally makes a show at a venue with no state on file unsavable,
+ * and that field is disabled for a non-admin on a verified venue, so there is
+ * no way out of the error from inside the form.
+ *
+ * Attached to the venue object rather than the state field so the predicate
+ * can read the id; `path` puts the message back on the state field, which is
+ * where the user can act on it.
+ */
+const editVenueSchema = venueFields.refine(
+  venue => venue.id !== undefined || venue.state !== '',
+  STATE_REQUIRED
+)
+
+const showFormFields = {
   title: z.string(),
   artists: z
     .array(
@@ -90,31 +138,6 @@ const showFormSchema = z.object({
       })
     )
     .min(1, 'At least one artist is required'),
-  venue: z
-    .object({
-      id: z.number().optional(),
-      name: z.string().min(1, 'Venue name is required'),
-      city: z.string().min(1, 'City is required'),
-      // Required CONDITIONALLY, by the rule below, not here.
-      state: z.string(),
-      address: z.string(),
-    })
-    // Required exactly where the backend requires it, which is the branch this
-    // predicate mirrors: `associateVenues` resolves a venue carrying an id by
-    // primary key, and only its (name, city, state) fallback,
-    // `VenueService.FindOrCreateVenue` in
-    // backend/internal/services/catalog/venue.go, rejects an empty state.
-    // Requiring it unconditionally makes a venue with no state on file
-    // unsavable, and that field is disabled for a non-admin on a verified
-    // venue, so there is no way out of the error from inside the form.
-    //
-    // Attached to the venue object rather than the state field so the
-    // predicate can read the id; `path` puts the message back on the state
-    // field, which is where the user can act on it.
-    .refine(venue => venue.id !== undefined || venue.state !== '', {
-      message: 'State is required',
-      path: ['state'],
-    }),
   date: z.string().min(1, 'Date is required').refine(
     (val) => {
       if (!val) return true
@@ -133,6 +156,16 @@ const showFormSchema = z.object({
   image_url: z
     .string()
     .max(2048, 'Image URL must be 2048 characters or fewer'),
+}
+
+const createFormSchema = z.object({
+  ...showFormFields,
+  venue: createVenueSchema,
+})
+
+const editFormSchema = z.object({
+  ...showFormFields,
+  venue: editVenueSchema,
 })
 
 /** Pre-filled venue data for locking venue selection */
@@ -288,12 +321,19 @@ export function ShowForm({
           title: value.title || undefined,
           event_date: eventDate,
           city: value.venue.city,
-          // The show row's denormalized location follows the venue fields, so
-          // saving a show at a venue with no state on file CLEARS this rather
-          // than keeping a state the venue contradicts. That is a filter
-          // column: the show stops matching state-filtered listings, which is
-          // the honest answer for a row whose venue names no state.
-          state: value.venue.state,
+          // A BLANK state field omits the key, which the API reads as "leave
+          // this column alone", rather than writing an empty string.
+          //
+          // The field is blank exactly when the venue names no state, and that
+          // is a gap in the VENUE's record, not evidence about the show's own
+          // denormalized state. Writing the gap through would destroy a value
+          // the editor never saw or touched: `shows.state` is read by
+          // state-filtered listings, the shows-cities aggregation (which drops
+          // rows where it is empty), tag city/state pairs, alert filter
+          // matching, and ShowCard's own zone fallback. The same reasoning
+          // priceUpdateValue is built on applies, and so does its tie-break: a
+          // no-op the user can see beats a deletion they cannot.
+          state: value.venue.state || undefined,
           price: priceUpdateValue(value.cost, price, initialData.price),
           door_price: priceUpdateValue(
             value.door_cost,
@@ -379,7 +419,7 @@ export function ShowForm({
       }
     },
     validators: {
-      onSubmit: showFormSchema,
+      onSubmit: isEditMode ? editFormSchema : createFormSchema,
     },
   })
 

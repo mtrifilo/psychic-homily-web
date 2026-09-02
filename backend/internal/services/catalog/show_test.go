@@ -1782,6 +1782,46 @@ func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_Writes
 	suite.InDelta(20.0, *resp.Price, 0.001)
 }
 
+// A venue named by ID is resolved by primary key, so its State on the payload
+// is never validated and never written.
+//
+// The show edit form depends on this: it seeds the venue.state field from the
+// venue's own value so the submitted event_date is composed in the same zone
+// the stored instant was read in, and venues.state is NOT NULL, so a venue
+// with no state on file supplies "". Without the ID branch that payload takes
+// the (name, city, state) fallback, which rejects an empty state outright.
+// Nothing on the frontend can fail if that contract moves, so it is pinned
+// here.
+func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_VenueByIDAcceptsEmptyState() {
+	created := suite.createTestShow()
+	venue := suite.createTestVenue("Hall Ohne Zone", "Berlin", "", true)
+
+	resp, _, err := suite.showService.UpdateShowWithRelations(
+		created.ID,
+		&contracts.UpdateShowRequest{},
+		[]contracts.CreateShowVenue{{ID: &venue.ID, Name: "Hall Ohne Zone", City: "Berlin", State: ""}},
+		nil,
+		true,
+	)
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp.Venues, 1)
+	suite.Equal(venue.ID, resp.Venues[0].ID, "the ID names the venue, so no lookup by name can substitute another")
+	suite.False(*resp.Venues[0].IsNewVenue, "the ID branch resolves an existing row rather than creating one")
+
+	// Same payload without the ID: the fallback is what rejects the empty
+	// state, which is the half the form's conditional rule mirrors.
+	_, _, err = suite.showService.UpdateShowWithRelations(
+		created.ID,
+		&contracts.UpdateShowRequest{},
+		[]contracts.CreateShowVenue{{Name: "Hall Ohne Zone", City: "Berlin", State: ""}},
+		nil,
+		true,
+	)
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "venue state is required")
+}
+
 // TestCreateShow_RejectsMusicBeforeDoors covers the storage chokepoint, which
 // is what protects the create callers that never run the handler's Resolve.
 func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_RejectsMusicBeforeDoors() {

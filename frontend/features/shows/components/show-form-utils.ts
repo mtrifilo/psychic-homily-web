@@ -212,10 +212,10 @@ export function showToFormValues(show: ShowResponse): FormValues {
   //
   // Going through showTimingInput rather than re-spelling its two fields is
   // what keeps the form and the page from drifting: it carries the
-  // `venue?.state ?? show.state` fallback, which the write path below also
-  // applies (the venue.state form field is seeded from this same value).
-  // Spelling only `venue?.state` here would read a venue-less show in Phoenix
-  // and write it back in its own state, shifting event_date on a no-op save.
+  // `venue?.state ?? show.state` fallback, and the venue.state form field
+  // below is seeded from that same value. Spelling only `venue?.state` here
+  // would open a venue-less New York show on a Phoenix wall clock while the
+  // show page renders it in Eastern.
   const timing = showTimingInput(show)
   const venueTz = resolveShowTimezone(timing.state, timing.timezone)
   const { date, time } = parseISOToDateAndTime(show.event_date, venueTz)
@@ -234,14 +234,18 @@ export function showToFormValues(show: ShowResponse): FormValues {
       // The show's existing venue, addressed by id, which is what lets the
       // state field below be blank: `associateVenues` resolves a venue
       // carrying an id by primary key, and only its (name, city, state)
-      // fallback demands a state. The id is not sticky, so an edit that names
-      // a different venue still resolves that one: `VenueInput` clears it as
-      // soon as the venue name is typed into, and the picker sets it.
+      // fallback demands a state.
+      //
+      // The id is not sticky. `ShowForm`'s `handleVenueSelect` sets it to a
+      // picked venue and clears it on `VenueInput`'s null signal, which fires
+      // on the first keystroke in the venue name field, so an edit that names
+      // a different venue resolves that one instead.
       id: venue?.id,
       name: venue?.name || '',
-      // City keeps the show-row fallback because it is a display and payload
-      // value only. The state does not, because the submit resolves the
-      // timezone from it.
+      // City keeps the show-row fallback and state does not, because only
+      // state decides the zone the submit recomposes event_date in. City is
+      // still load-bearing on the no-id branch, where `FindOrCreateVenue`
+      // matches on (name, city); a wrong one there resolves the wrong room.
       city: venue?.city || show.city || '',
       // `timing.state` verbatim, the invariant `showTimingInput` documents:
       // the submit recomposes event_date from this field, so any spelling that
