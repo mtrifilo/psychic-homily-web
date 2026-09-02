@@ -781,6 +781,43 @@ func (s *ArtistMergeIntegrationSuite) TestMergeSurvivesSameVenueAndDateOnDiffere
 	s.Zero(stranded, "no bill entry may be left on the merged-away artist")
 }
 
+// The same collision, but reached only at a bill's SECOND room. The canonical
+// artist's show is listed at two venues; show_artists' denormalized columns name
+// only the lowest of them, so a conflict delete keyed on those columns cannot
+// see a losing billing that collides at the other one and the merge aborts.
+//
+// The shared room is created SECOND so it holds the higher id, which is
+// precisely the venue the denormalized stamping never picks.
+func (s *ArtistMergeIntegrationSuite) TestMergeSurvivesACollisionAtABillsSecondRoom() {
+	canonical := s.createArtist("Canonical Band")
+	loser := s.createArtist("Dupe Band")
+	firstRoom := s.createVenue("Crescent Ballroom Lounge")
+	sharedRoom := s.createVenue("Crescent Ballroom")
+	date := time.Date(2026, 9, 3, 20, 0, 0, 0, time.UTC)
+
+	canonicalShow := s.seedShowAt(canonical.ID, firstRoom.ID, date)
+	s.Require().NoError(s.db.Create(
+		&catalogm.ShowVenue{ShowID: canonicalShow.ID, VenueID: sharedRoom.ID}).Error)
+	loserShow := s.seedShowAt(loser.ID, sharedRoom.ID, date)
+	s.Require().NotEqual(canonicalShow.ID, loserShow.ID)
+
+	_, err := s.svc.MergeArtists(canonical.ID, loser.ID)
+	s.Require().NoError(err,
+		"a collision at the bill's second room must not abort the merge")
+
+	var billings int64
+	s.Require().NoError(s.db.Raw(`
+		SELECT COUNT(*) FROM show_dedup_keys
+		WHERE artist_id = ? AND venue_id = ? AND event_date = ?
+	`, canonical.ID, sharedRoom.ID, date).Scan(&billings).Error)
+	s.Equal(int64(1), billings, "exactly one key may survive at the shared room")
+
+	var stranded int64
+	s.Require().NoError(s.db.Raw(
+		"SELECT COUNT(*) FROM show_artists WHERE artist_id = ?", loser.ID).Scan(&stranded).Error)
+	s.Zero(stranded, "no bill entry may be left on the merged-away artist")
+}
+
 // The pre-existing same-show conflict still has to be dropped: one show billing
 // both artists would violate the (show_id, artist_id) primary key.
 func (s *ArtistMergeIntegrationSuite) TestMergeDropsSameShowBillingConflicts() {

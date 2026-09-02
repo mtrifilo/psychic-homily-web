@@ -320,11 +320,16 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetTrendingShows_BookmarkedR
 	venue := suite.createVenue("Rank Venue", "Phoenix", "AZ")
 	artist := suite.createArtist("Rank Band")
 
+	// Two rooms, because the ranking claim needs the two shows to share an
+	// event_date and show_dedup_keys reads one artist twice at one venue on one
+	// instant as a duplicate rather than a tie.
+	otherVenue := suite.createVenue("Rank Venue Annex", "Phoenix", "AZ")
+
 	future := time.Now().UTC().AddDate(0, 0, 7)
 	// Show with no bookmarks (further future date)
 	unbookmarked := suite.createApprovedShow("Unbookmarked", venue.ID, artist.ID, user.ID, future.AddDate(0, 0, 10))
 	// Show with bookmarks (same date)
-	bookmarked := suite.createApprovedShow("Bookmarked", venue.ID, artist.ID, user.ID, future.AddDate(0, 0, 10))
+	bookmarked := suite.createApprovedShow("Bookmarked", otherVenue.ID, artist.ID, user.ID, future.AddDate(0, 0, 10))
 	suite.createBookmark(user.ID, engagementm.BookmarkEntityShow, bookmarked.ID, engagementm.BookmarkActionSave)
 
 	shows, err := suite.chartsService.GetTrendingShows(20)
@@ -2975,14 +2980,19 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetBusiestVenues_PaginationR
 // headlining) paged with continuous ranks and a consistent post-HAVING total.
 func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_PaginationRanksAndTotal() {
 	user := suite.createUser("openers-paged@test.com")
-	venue := suite.createVenue("Opener Hall", "Phoenix", "AZ")
 	headliner := suite.createArtist("Perma Headliner")
 	past := time.Now().UTC().AddDate(0, 0, -10)
 
 	// Three openers with 3/2/1 support slots (position 1 = support; the
 	// headliner occupies position 0 on every bill).
+	//
+	// A room per opener, because the bills share dates and the headliner is on
+	// all of them: one room would make bill n of opener A and bill n of opener B
+	// the same artist at the same venue on the same instant, which
+	// show_dedup_keys refuses.
 	for i, name := range []string{"Opener A", "Opener B", "Opener C"} {
 		opener := suite.createArtist(name)
+		venue := suite.createVenue(fmt.Sprintf("Opener Hall %s", name), "Phoenix", "AZ")
 		for n := 0; n < 3-i; n++ {
 			show := suite.createApprovedShow(fmt.Sprintf("%s bill %d", name, n), venue.ID, headliner.ID, user.ID, past.AddDate(0, 0, n))
 			err := suite.db.Create(&catalogm.ShowArtist{ShowID: show.ID, ArtistID: opener.ID, Position: 1}).Error

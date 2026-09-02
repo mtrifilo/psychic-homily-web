@@ -28,7 +28,7 @@ const AuditActionMergeVenues = "merge_venues"
 // returned at the end. That is the point: the alternative — a second set of
 // COUNT queries mirroring each mutation — is two implementations of one rule
 // that drift apart the moment either side is edited, and the count that matters
-// most here (which shows collide on shows_artist_venue_eventdate_uniq) is
+// most here (which shows collide on show_dedup_keys_artist_venue_date_uniq) is
 // exactly the one whose definition must not drift from the mutation it guards.
 var errPreviewRollback = errors.New("venue merge preview rollback")
 
@@ -46,6 +46,12 @@ var venueFKTables = []string{
 	"festival_artists",
 	"festival_venues",
 	"show_artists",
+	// show_dedup_keys is DERIVED, and the only entry here that takes no explicit
+	// step: its rows are rebuilt from show_venues by trigger, so re-pointing
+	// show_venues below already re-points it. It is listed because this is a
+	// completeness inventory, where an unlisted table and a forgotten one look
+	// the same.
+	"show_dedup_keys",
 	"show_venues",
 	"venue_confirmations",
 	// venue_show_alert_batch (PSY-1895) cascades too, and losing it is quiet in
@@ -233,22 +239,25 @@ func lockMergeVenues(tx *gorm.DB, canonicalID, mergeFromID uint) (*catalogm.Venu
 // buildDuplicateShowMap materializes, for each show on the losing venue, the
 // show on the canonical venue that it duplicates.
 //
-// "Duplicate" is defined to match shows_artist_venue_eventdate_uniq exactly — a
-// losing show collides if any of its (artist_id, event_date) pairs already
-// exists on the canonical venue. That is precisely the condition that would
-// make the venue_id reassignment below violate the index, so the mapping and
-// the constraint cannot drift apart.
+// "Duplicate" is defined to match show_dedup_keys_artist_venue_date_uniq exactly
+// — a losing show collides if any of its (artist_id, event_date) pairs already
+// exists on the canonical venue. That is precisely the condition that would make
+// the venue_id reassignment below violate the constraint, so the mapping and the
+// constraint cannot drift apart.
+//
+// Read from show_dedup_keys and not from show_artists' denormalized columns,
+// which name only the LOWEST venue of a multi-venue bill: mapped from those, a
+// show listed at the losing venue as its second room is invisible here and its
+// collision surfaces as an aborted merge instead of a merged pair.
 //
 // DISTINCT ON picks one winner deterministically when the canonical venue has
 // more than one show on the same date.
 //
-// The `wsa.show_id <> lsa.show_id` guard is belt-and-braces against the one
-// catastrophic outcome available here: a show mapped as its own duplicate would
-// be DELETED as the loser while also being treated as the survivor. The
-// show_artists primary key (show_id, artist_id) already makes that impossible —
-// one row cannot carry both venue ids — but the reasoning is subtle enough, and
-// the failure destructive enough, that the invariant is stated in the query
-// rather than left to be re-derived.
+// The `w.show_id <> l.show_id` guard is load-bearing rather than defensive: a
+// show listed at BOTH venues holds a key row at each, so without it that show
+// maps as its own duplicate and is DELETED as the loser while also being treated
+// as the survivor. reassignShows collapses such a show onto the canonical venue
+// on its own, which is why matching it here is not merely unnecessary but wrong.
 //
 // ON COMMIT DROP ties the temp table's lifetime to this transaction, so it
 // cannot leak onto the pooled connection whether the merge commits or a preview
@@ -256,18 +265,17 @@ func lockMergeVenues(tx *gorm.DB, canonicalID, mergeFromID uint) (*catalogm.Venu
 func buildDuplicateShowMap(tx *gorm.DB, canonicalID, mergeFromID uint) error {
 	err := tx.Exec(`
 		CREATE TEMP TABLE venue_merge_dup ON COMMIT DROP AS
-		SELECT DISTINCT ON (lsa.show_id)
-		       lsa.show_id AS loser_show,
-		       wsa.show_id AS winner_show
-		FROM show_artists lsa
-		JOIN show_artists wsa
-		  ON wsa.artist_id  = lsa.artist_id
-		 AND wsa.event_date = lsa.event_date
-		 AND wsa.venue_id   = ?
-		 AND wsa.show_id   <> lsa.show_id
-		WHERE lsa.venue_id = ?
-		  AND lsa.event_date IS NOT NULL
-		ORDER BY lsa.show_id, wsa.show_id
+		SELECT DISTINCT ON (l.show_id)
+		       l.show_id AS loser_show,
+		       w.show_id AS winner_show
+		FROM show_dedup_keys l
+		JOIN show_dedup_keys w
+		  ON w.artist_id  = l.artist_id
+		 AND w.event_date = l.event_date
+		 AND w.venue_id   = ?
+		 AND w.show_id   <> l.show_id
+		WHERE l.venue_id = ?
+		ORDER BY l.show_id, w.show_id
 	`, canonicalID, mergeFromID).Error
 	if err != nil {
 		return fmt.Errorf("failed to build duplicate show map: %w", err)
@@ -284,10 +292,19 @@ func buildDuplicateShowMap(tx *gorm.DB, canonicalID, mergeFromID uint) error {
 // non-colliding artist moves across first.
 //
 // Both guards are load-bearing: the first keeps the move from violating
-// shows_artist_venue_eventdate_uniq, the second from violating the
+// show_dedup_keys_artist_venue_date_uniq, the second from violating the
 // (show_id, artist_id) primary key. Position is offset rather than reused so
 // rescued acts append after the surviving bill instead of competing with it for
 // ordering.
+//
+// The first guard asks about every room the surviving show plays, not just the
+// canonical venue, because arriving on that bill gives the rescued act a key at
+// each of them, dated by the SURVIVING show rather than by the denormalized
+// column on the row being moved — that column is nullable, and a NULL there
+// would make the guard match nothing and wave the collision through. It excludes
+// the two shows in the pair itself: the loser's own keys leave with the loser,
+// and a key already held by the winner means the winner already bills this act,
+// which the second guard is what refuses.
 func rescueSupportActs(tx *gorm.DB, canonicalID uint, result *contracts.MergeVenueResult) error {
 	r := tx.Exec(`
 		UPDATE show_artists sa
@@ -295,19 +312,24 @@ func rescueSupportActs(tx *gorm.DB, canonicalID uint, result *contracts.MergeVen
 		    venue_id = ?,
 		    position = 100 + sa.position
 		FROM venue_merge_dup d
+		JOIN shows ws ON ws.id = d.winner_show
 		WHERE sa.show_id = d.loser_show
 		  AND NOT EXISTS (
-		        SELECT 1 FROM show_artists w
-		        WHERE w.artist_id  = sa.artist_id
-		          AND w.venue_id   = ?
-		          AND w.event_date = sa.event_date
+		        SELECT 1
+		        FROM show_venues wv
+		        JOIN show_dedup_keys k
+		          ON k.artist_id  = sa.artist_id
+		         AND k.venue_id   = wv.venue_id
+		         AND k.event_date = ws.event_date
+		        WHERE wv.show_id = d.winner_show
+		          AND k.show_id NOT IN (d.loser_show, d.winner_show)
 		      )
 		  AND NOT EXISTS (
 		        SELECT 1 FROM show_artists w2
 		        WHERE w2.show_id   = d.winner_show
 		          AND w2.artist_id = sa.artist_id
 		      )
-	`, canonicalID, canonicalID)
+	`, canonicalID)
 	if r.Error != nil {
 		return fmt.Errorf("failed to rescue support acts: %w", r.Error)
 	}
@@ -356,6 +378,14 @@ func deleteDuplicateShows(tx *gorm.DB) error {
 	}
 
 	// KNOWN GAP, recorded rather than implied (PSY-1868).
+	//
+	// It reaches further now than it used to, which is worth saying plainly.
+	// buildDuplicateShowMap reads show_dedup_keys, so it finds collisions at
+	// every room of a bill where it used to see only the lowest. Those pairs
+	// previously aborted the merge on the constraint; now they resolve, and
+	// resolving means the losing show arrives HERE and strands its references
+	// like any other. Wider coverage is the point of the change, and this is its
+	// cost until the gap below is closed.
 	//
 	// PSY-1868 wired sweepEntityRefsForDelete into the six delete methods for the
 	// six INVENTORIED catalog entity types (venue, artist, show, release, label,

@@ -184,7 +184,11 @@ func (s *ShowTimelineIntegrationTestSuite) TestShowTimeline_AdjacentDatesFlankTh
 	nearestPrevious := s.seedDate(room, time.Date(2026, time.July, 4, 20, 0, 0, 0, loc), catalogm.ShowStatusApproved, act)
 	subjectAt := time.Date(2026, time.September, 18, 20, 0, 0, 0, loc)
 	subject := s.seedDate(room, subjectAt, catalogm.ShowStatusApproved, act)
-	sameInstant := s.seedDate(room, subjectAt, catalogm.ShowStatusApproved, act)
+	// The tie lands in a SECOND room. Adjacency is an instant comparison and not
+	// a venue-local one, so a different room still ties; the same room would be
+	// the same act at one venue on one instant, which show_dedup_keys refuses.
+	sameInstant := s.seedDate(
+		s.seedChicagoRoom("Thalia Hall", "Chicago"), subjectAt, catalogm.ShowStatusApproved, act)
 	s.seedDate(room, time.Date(2027, time.March, 1, 20, 0, 0, 0, loc), catalogm.ShowStatusApproved, act)
 
 	timeline := s.timelineFor(subject)
@@ -559,13 +563,15 @@ func (s *ShowTimelineIntegrationTestSuite) TestShowTimeline_UnknownAndNonApprove
 	room := s.seedChicagoRoom("Empty Bottle", "Chicago")
 	act := s.seedAct("Hidden Act", "Portland", "OR")
 
+	// A day apart per status: show_dedup_keys covers every status, so three
+	// hidden shows on one instant in one room would be three duplicates.
 	addresses := []string{"999999", "no-such-show"}
-	for _, status := range []catalogm.ShowStatus{
+	for day, status := range []catalogm.ShowStatus{
 		catalogm.ShowStatusPending,
 		catalogm.ShowStatusPrivate,
 		catalogm.ShowStatusRejected,
 	} {
-		hidden := s.seedDate(room, time.Date(2026, time.September, 18, 20, 0, 0, 0, loc), status, act)
+		hidden := s.seedDate(room, time.Date(2026, time.September, 18+day, 20, 0, 0, 0, loc), status, act)
 		addresses = append(addresses, fmt.Sprint(hidden.ID), *hidden.Slug)
 	}
 

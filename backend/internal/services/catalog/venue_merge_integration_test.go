@@ -237,6 +237,65 @@ func (s *VenueMergeIntegrationSuite) TestMergeDeduplicatesCollidingShows() {
 	s.Zero(orphans, "no show_artists row may still point at the merged-from venue")
 }
 
+// TestMergeDeduplicatesAShowCollidingAtItsSecondRoom is the collision the
+// denormalized columns could not see. The surviving show is billed at TWO
+// venues; those columns hold only the lowest of them, so a losing show that
+// collides at the OTHER one was invisible to the duplicate map and the merge
+// aborted on the constraint instead of collapsing the pair.
+//
+// The canonical venue is created SECOND so it holds the higher id and is
+// therefore never the venue the old stamping would have picked.
+func (s *VenueMergeIntegrationSuite) TestMergeDeduplicatesAShowCollidingAtItsSecondRoom() {
+	firstRoom := s.createVenue("Metro Downstairs")
+	canonical := s.createVenue("Metro")
+	loser := s.createVenue("The Metro")
+	artist := s.createArtist("Two Room Band")
+	date := time.Date(2026, 4, 18, 20, 0, 0, 0, time.UTC)
+
+	winnerShow := s.createShow("two room night", firstRoom, date, artist)
+	s.Require().NoError(s.db.Create(&catalogm.ShowVenue{ShowID: winnerShow.ID, VenueID: canonical.ID}).Error)
+	loserShow := s.createShow("duplicate night", loser, date, artist)
+
+	result, err := s.svc.MergeVenues(canonical.ID, loser.ID, 0)
+	s.Require().NoError(err, "merge must not abort on show_dedup_keys_artist_venue_date_uniq")
+
+	s.Equal(int64(1), result.DuplicateShows, "the colliding show must be counted as a duplicate")
+	s.True(s.showExists(winnerShow.ID), "the multi-room show survives")
+	s.False(s.showExists(loserShow.ID), "the duplicate show is deleted")
+
+	var n int64
+	s.Require().NoError(s.db.Raw(
+		`SELECT count(*) FROM show_dedup_keys WHERE artist_id = ? AND venue_id = ? AND event_date = ?`,
+		artist.ID, canonical.ID, date).Scan(&n).Error)
+	s.Equal(int64(1), n, "exactly one key must remain at the canonical venue")
+}
+
+// TestMergeDoesNotTreatAMultiRoomShowAsItsOwnDuplicate covers the mapping hazard
+// the widened key introduces: a show billed at BOTH the canonical and the losing
+// venue now holds a key row at each, so an unguarded duplicate map pairs it with
+// itself and deletes the show it is also keeping. reassignShows collapses such a
+// show onto the canonical venue on its own.
+func (s *VenueMergeIntegrationSuite) TestMergeDoesNotTreatAMultiRoomShowAsItsOwnDuplicate() {
+	canonical := s.createVenue("Empty Bottle")
+	loser := s.createVenue("The Empty Bottle")
+	artist := s.createArtist("Both Rooms Band")
+	date := time.Date(2026, 5, 9, 20, 0, 0, 0, time.UTC)
+
+	show := s.createShow("listed at both", canonical, date, artist)
+	s.Require().NoError(s.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: loser.ID}).Error)
+
+	result, err := s.svc.MergeVenues(canonical.ID, loser.ID, 0)
+	s.Require().NoError(err)
+
+	s.Zero(result.DuplicateShows, "a show listed at both venues is not its own duplicate")
+	s.True(s.showExists(show.ID), "it must survive the merge")
+
+	var venueIDs []uint
+	s.Require().NoError(s.db.Raw(
+		`SELECT venue_id FROM show_venues WHERE show_id = ?`, show.ID).Scan(&venueIDs).Error)
+	s.Equal([]uint{canonical.ID}, venueIDs, "the two listings collapse onto the canonical venue")
+}
+
 // TestMergeWithManyCollisions exercises the shape that broke the one-off
 // migration at scale: every show on the losing venue collides.
 func (s *VenueMergeIntegrationSuite) TestMergeWithManyCollisions() {
