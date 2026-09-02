@@ -99,24 +99,21 @@ const showFormSchema = z.object({
       state: z.string(),
       address: z.string(),
     })
-    // The state is required exactly when the payload has no venue id, because
-    // that is exactly when the backend needs it: `associateVenues` resolves an
-    // id by primary key, and only the (name, city, state) fallback rejects an
-    // empty state. Requiring it unconditionally makes a venue with no state on
-    // file unsavable, and its state field is disabled for a non-admin on a
-    // verified venue, so there is no way out of the error from inside the form.
+    // Required exactly where the backend requires it, which is the branch this
+    // predicate mirrors: `associateVenues` resolves a venue carrying an id by
+    // primary key, and only its (name, city, state) fallback,
+    // `VenueService.FindOrCreateVenue` in
+    // backend/internal/services/catalog/venue.go, rejects an empty state.
+    // Requiring it unconditionally makes a venue with no state on file
+    // unsavable, and that field is disabled for a non-admin on a verified
+    // venue, so there is no way out of the error from inside the form.
     //
-    // Attached to the venue object rather than the state field so it can read
-    // the id; `path` puts the message back on the state field, which is where
-    // the user can act on it.
-    .superRefine((venue, ctx) => {
-      if (venue.id === undefined && venue.state.length === 0) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['state'],
-          message: 'State is required',
-        })
-      }
+    // Attached to the venue object rather than the state field so the
+    // predicate can read the id; `path` puts the message back on the state
+    // field, which is where the user can act on it.
+    .refine(venue => venue.id !== undefined || venue.state !== '', {
+      message: 'State is required',
+      path: ['state'],
     }),
   date: z.string().min(1, 'Date is required').refine(
     (val) => {
@@ -291,6 +288,11 @@ export function ShowForm({
           title: value.title || undefined,
           event_date: eventDate,
           city: value.venue.city,
+          // The show row's denormalized location follows the venue fields, so
+          // saving a show at a venue with no state on file CLEARS this rather
+          // than keeping a state the venue contradicts. That is a filter
+          // column: the show stops matching state-filtered listings, which is
+          // the honest answer for a row whose venue names no state.
           state: value.venue.state,
           price: priceUpdateValue(value.cost, price, initialData.price),
           door_price: priceUpdateValue(

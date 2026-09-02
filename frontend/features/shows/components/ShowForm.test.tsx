@@ -888,20 +888,34 @@ describe('ShowForm — edit mode pre-fills from initialData', () => {
   })
 })
 
-// How an edit names the show's venue, asserted at the SUBMIT boundary rather
-// than on showToFormValues, because the payload and the composed event_date
-// are what the backend acts on.
-//
-// The show's own venue rides on the payload as an ID, which `associateVenues`
-// resolves by primary key. That is what lets the state field carry the same
-// value the instant was READ in: only the (name, city, state) fallback rejects
-// an empty state, and a venue with no state on file has nothing else to give.
-// The id is not sticky, so an edit that names a different venue still resolves
-// that venue instead of the old one.
+// An edit names the venue by id when the show has one and by name/city/state
+// when it does not. Asserted at the SUBMIT boundary rather than on
+// showToFormValues, because the payload and the composed event_date are what
+// the backend acts on.
 describe('ShowForm — edit mode venue resolution + event_date round trip', () => {
+  /** The shape of the one argument the update mutation is called with. */
+  type UpdateCall = {
+    updates: {
+      event_date: string
+      state?: string
+      venues: Array<{
+        id?: number
+        name?: string
+        city?: string
+        state?: string
+      }>
+    }
+  }
+
+  const firstUpdate = () =>
+    mockShowUpdate.mutate.mock.calls[0][0] as UpdateCall
+
   beforeEach(() => {
     vi.clearAllMocks()
     resetMockState()
+    mockShowUpdate.mutate.mockImplementation((_vars, opts) => {
+      opts?.onSuccess?.({ id: 42 })
+    })
   })
 
   /**
@@ -931,9 +945,6 @@ describe('ShowForm — edit mode venue resolution + event_date round trip', () =
   }
 
   it('saves a show at a state-less venue without moving event_date', async () => {
-    mockShowUpdate.mutate.mockImplementation((_vars, opts) => {
-      opts?.onSuccess?.({ id: 42 })
-    })
     const show = makeZonelessVenueShow()
     const user = userEvent.setup()
     renderWithProviders(<ShowForm mode="edit" initialData={show} />)
@@ -946,13 +957,7 @@ describe('ShowForm — edit mode venue resolution + event_date round trip', () =
 
     await waitFor(() => expect(mockShowUpdate.mutate).toHaveBeenCalledTimes(1))
 
-    const call = mockShowUpdate.mutate.mock.calls[0][0] as {
-      updates: {
-        event_date: string
-        state?: string
-        venues: Array<{ id?: number; name?: string; state?: string }>
-      }
-    }
+    const call = firstUpdate()
     // Byte-identical: a save that changes nothing must write back the instant
     // it read. Composing from 'NY' would give 2099-06-15T00:00:00Z.
     expect(call.updates.event_date).toBe('2099-06-15T03:00:00Z')
@@ -963,9 +968,6 @@ describe('ShowForm — edit mode venue resolution + event_date round trip', () =
   })
 
   it("sends the show's own venue id on an unrelated edit", async () => {
-    mockShowUpdate.mutate.mockImplementation((_vars, opts) => {
-      opts?.onSuccess?.({ id: 42 })
-    })
     const user = userEvent.setup()
     renderWithProviders(<ShowForm mode="edit" initialData={makeShow()} />)
 
@@ -974,9 +976,7 @@ describe('ShowForm — edit mode venue resolution + event_date round trip', () =
 
     await waitFor(() => expect(mockShowUpdate.mutate).toHaveBeenCalledTimes(1))
 
-    const call = mockShowUpdate.mutate.mock.calls[0][0] as {
-      updates: { venues: Array<{ id?: number; name?: string }> }
-    }
+    const call = firstUpdate()
     expect(call.updates.venues[0].id).toBe(5)
     expect(call.updates.venues[0].name).toBe('Valley Bar')
   })
@@ -994,9 +994,6 @@ describe('ShowForm — edit mode venue resolution + event_date round trip', () =
         verified: true,
       },
     ]
-    mockShowUpdate.mutate.mockImplementation((_vars, opts) => {
-      opts?.onSuccess?.({ id: 42 })
-    })
     const user = userEvent.setup()
     renderWithProviders(<ShowForm mode="edit" initialData={makeShow()} />)
 
@@ -1009,9 +1006,7 @@ describe('ShowForm — edit mode venue resolution + event_date round trip', () =
 
     await waitFor(() => expect(mockShowUpdate.mutate).toHaveBeenCalledTimes(1))
 
-    const call = mockShowUpdate.mutate.mock.calls[0][0] as {
-      updates: { venues: Array<{ id?: number; name?: string; state?: string }> }
-    }
+    const call = firstUpdate()
     // The picked venue, not the one the form opened on.
     expect(call.updates.venues[0].id).toBe(160)
     expect(call.updates.venues[0].name).toBe('Boom Leeds')
@@ -1019,9 +1014,6 @@ describe('ShowForm — edit mode venue resolution + event_date round trip', () =
   })
 
   it('drops the venue id when a brand new venue name is typed', async () => {
-    mockShowUpdate.mutate.mockImplementation((_vars, opts) => {
-      opts?.onSuccess?.({ id: 42 })
-    })
     const user = userEvent.setup()
     // Admin so the city/state fields stay editable on a verified venue.
     mockAuth.user = { id: 1, is_admin: true }
@@ -1036,16 +1028,7 @@ describe('ShowForm — edit mode venue resolution + event_date round trip', () =
 
     await waitFor(() => expect(mockShowUpdate.mutate).toHaveBeenCalledTimes(1))
 
-    const call = mockShowUpdate.mutate.mock.calls[0][0] as {
-      updates: {
-        venues: Array<{
-          id?: number
-          name?: string
-          city?: string
-          state?: string
-        }>
-      }
-    }
+    const call = firstUpdate()
     // No id, so the backend resolves this by (name, city, state) and creates
     // the room when it does not already exist.
     expect(call.updates.venues[0].id).toBeUndefined()
@@ -1055,9 +1038,6 @@ describe('ShowForm — edit mode venue resolution + event_date round trip', () =
   })
 
   it('blocks a new venue with no state at the form instead of at the backend', async () => {
-    mockShowUpdate.mutate.mockImplementation((_vars, opts) => {
-      opts?.onSuccess?.({ id: 42 })
-    })
     const user = userEvent.setup()
     mockAuth.user = { id: 1, is_admin: true }
     renderWithProviders(
@@ -1079,9 +1059,6 @@ describe('ShowForm — edit mode venue resolution + event_date round trip', () =
   })
 
   it('leaves a show with no venue on the name/city/state path', async () => {
-    mockShowUpdate.mutate.mockImplementation((_vars, opts) => {
-      opts?.onSuccess?.({ id: 42 })
-    })
     const show = makeShow({
       event_date: '2099-01-16T01:00:00Z', // 20:00 Jan 15, America/New_York
       city: 'Brooklyn',
@@ -1097,12 +1074,7 @@ describe('ShowForm — edit mode venue resolution + event_date round trip', () =
 
     await waitFor(() => expect(mockShowUpdate.mutate).toHaveBeenCalledTimes(1))
 
-    const call = mockShowUpdate.mutate.mock.calls[0][0] as {
-      updates: {
-        event_date: string
-        venues: Array<{ id?: number; state?: string }>
-      }
-    }
+    const call = firstUpdate()
     expect(call.updates.venues[0].id).toBeUndefined()
     // The show row's own state still resolves the zone when there is no venue
     // to prefer, so the instant round-trips.

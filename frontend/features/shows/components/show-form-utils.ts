@@ -231,29 +231,23 @@ export function showToFormValues(show: ShowResponse): FormValues {
       })
     ),
     venue: {
-      // The show's existing venue, addressed by id. `associateVenues` resolves
-      // a venue carrying an id by primary key and only falls back to
-      // `FindOrCreateVenue`'s (name, city, state) lookup when the id is absent,
-      // so an id here is what makes the state field below free to be blank:
-      // "venue state is required" is raised on the by-name branch alone.
-      //
-      // The id is not sticky. `VenueInput` clears it as soon as the venue NAME
-      // is typed into, and the picker sets it to whatever was chosen, so an
-      // edit that repoints the show still resolves the venue the form shows.
+      // The show's existing venue, addressed by id, which is what lets the
+      // state field below be blank: `associateVenues` resolves a venue
+      // carrying an id by primary key, and only its (name, city, state)
+      // fallback demands a state. The id is not sticky, so an edit that names
+      // a different venue still resolves that one: `VenueInput` clears it as
+      // soon as the venue name is typed into, and the picker sets it.
       id: venue?.id,
       name: venue?.name || '',
+      // City keeps the show-row fallback because it is a display and payload
+      // value only. The state does not, because the submit resolves the
+      // timezone from it.
       city: venue?.city || show.city || '',
-      // The SAME value `timing.state` carries, because `ShowForm`'s submit
-      // recomposes event_date from this field. Any spelling that differs from
-      // `showTimingInput`'s opens the editor on one wall clock and saves
-      // through another, moving event_date on a no-op Save and again on every
-      // save after.
-      //
-      // `venues.state` is NOT NULL, so a venue with no state on file carries
-      // `''` and this field is blank rather than falling through to the show
-      // row's own state. Falling through is what would move the instant: the
-      // show page reads such a show in the fallback zone, and a state the US
-      // map knows composes the save in a different one.
+      // `timing.state` verbatim, the invariant `showTimingInput` documents:
+      // the submit recomposes event_date from this field, so any spelling that
+      // differs from the one the instant was READ in moves the row. Blank for
+      // a venue with no state on file, since `venues.state` is NOT NULL and
+      // stores `''` rather than null.
       state: timing.state ?? '',
       address: venue?.address || '',
     },

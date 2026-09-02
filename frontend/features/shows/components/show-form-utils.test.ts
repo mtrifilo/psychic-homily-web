@@ -108,40 +108,6 @@ describe('showToFormValues', () => {
     expect(result.venue.address).toBe('123 Main St')
   })
 
-  it('leaves venue.id undefined for a show with no venue row', () => {
-    // Nothing to address by id, so the update payload has to describe the
-    // venue by name/city/state and the state field is required again.
-    const result = showToFormValues(makeShowResponse({ venues: [] }))
-
-    expect(result.venue.id).toBeUndefined()
-  })
-
-  it("seeds venue.state from the venue's own blank state, not the show row's", () => {
-    // A venue with no state on file stores '' rather than null, so the field
-    // opens blank. Seeding it from the show row instead would compose the save
-    // in a zone the US state map knows while the instant was read in the
-    // fallback zone, moving event_date on a no-op Save.
-    const show = makeShowResponse({
-      city: 'Berlin',
-      state: 'NY',
-      venues: [
-        {
-          id: 77,
-          slug: 'hall-ohne-zone',
-          name: 'Hall Ohne Zone',
-          city: 'Berlin',
-          state: '',
-          timezone: null,
-          verified: true,
-        },
-      ],
-    })
-    const result = showToFormValues(show)
-
-    expect(result.venue.state).toBe('')
-    // And the id that keeps that blank state resolvable on the write path.
-    expect(result.venue.id).toBe(77)
-  })
 
   it('maps artists with their stored bill role', () => {
     const show = makeShowResponse()
@@ -384,6 +350,9 @@ describe('showToFormValues', () => {
     expect(result.venue.name).toBe('')
     expect(result.venue.city).toBe('Mesa')
     expect(result.venue.state).toBe('AZ')
+    // Nothing to address by id, so the payload describes the venue by
+    // name/city/state and the state field is required again.
+    expect(result.venue.id).toBeUndefined()
   })
 
   it('handles null description, age_requirement, title', () => {
