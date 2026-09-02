@@ -367,8 +367,8 @@ export function BottomTabBar() {
           // its column whatever the viewer turns out to be. aria-hidden: it
           // looks tappable but is deliberately inert until auth settles.
           //
-          // `isLoading` is `isPending && isFetching`, so it is false both
-          // before the fetch starts and after it fails. In either window this
+          // The gate is the context's `isLoading`, which is false both before
+          // the profile fetch starts and after it fails. In either window this
           // cell falls through to the anonymous Account link below and states
           // an identity the context has not settled.
           <div aria-hidden className={tabClassName(false)}>

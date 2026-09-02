@@ -41,8 +41,7 @@ describe('toAuthUser', () => {
 
   // The regression this function exists for: a hand-mapped session-entry
   // response reached the context with `is_admin` dropped and `email_verified`
-  // stated as a placeholder, and the override outranks the profile for the
-  // rest of the SPA session. The `true` direction is covered above.
+  // stated as a placeholder. The `true` direction is covered above.
   it('reports a non-admin unverified viewer as exactly that', () => {
     const mapped = toAuthUser({ ...apiUser, is_admin: false, email_verified: false })
     expect(mapped.is_admin).toBe(false)

@@ -128,8 +128,8 @@ interface RefreshTokenResponse {
  * The profile refetch is awaited because the rest of the app reads identity
  * from that one query: it outranks the in-session claim `setUser` makes for
  * the same viewer, so until it lands the new session's identity rests on that
- * claim alone. Every path that establishes a session calls this, the two
- * passkey components included.
+ * claim alone. The two passkey components call it too, unawaited, since they
+ * establish their session with a raw fetch.
  *
  * The viewer-tier refresh is deliberately NOT awaited. Any panel already on
  * screen whose payload depends on privilege (revision history, comments)
@@ -200,9 +200,9 @@ export const useLogin = () => {
       if (data.success && data.user) {
         authLogger.loginSuccess(data.user.id, data.request_id)
 
-        // Refetch profile to ensure we have complete user data including is_admin
-        // This is more reliable than caching the login response since the profile
-        // endpoint returns the full user object from the database
+        // The response already carries the whole user model, which `setUser`
+        // claims for the window before this lands. Refetching makes the profile
+        // query — the source every consumer reads — agree with it.
         await refreshCachesForNewSession(queryClient)
       }
     },
@@ -716,7 +716,8 @@ export const useVerifyMagicLink = () => {
           { userId: data.user.id },
           data.request_id
         )
-        // Refetch profile to get complete user data
+        // Bring the profile query, which every consumer reads, up to date
+        // with the session this response just established.
         await refreshCachesForNewSession(queryClient)
       }
     },
@@ -1218,7 +1219,8 @@ export const useRecoverAccount = () => {
           { userId: data.user.id },
           data.request_id
         )
-        // Refetch profile to get complete user data
+        // Bring the profile query, which every consumer reads, up to date
+        // with the session this response just established.
         await refreshCachesForNewSession(queryClient)
       }
     },
@@ -1299,7 +1301,8 @@ export const useConfirmAccountRecovery = () => {
           { userId: data.user.id },
           data.request_id
         )
-        // Refetch profile to get complete user data
+        // Bring the profile query, which every consumer reads, up to date
+        // with the session this response just established.
         await refreshCachesForNewSession(queryClient)
       }
     },

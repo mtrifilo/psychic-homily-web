@@ -41,8 +41,8 @@ export function UserMenu() {
   // /auth; typing the URL still works, and /auth redirects a viewer who turns
   // out to be signed in.
   //
-  // The box holds the avatar trigger's height. The row's width still changes
-  // when auth settles, because the two settled states are a text link and a
+  // The box is the avatar trigger's size. The row still reflows when auth
+  // settles, because the two settled states are a text link and a
   // three-control cluster.
   if (authStatus === 'pending') {
     return <div aria-hidden="true" className="size-9 shrink-0" />

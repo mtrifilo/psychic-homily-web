@@ -151,7 +151,13 @@ export function PasskeySignupButton({
       // `useRegister` mutation, so nothing else refetches the profile the auth
       // context reads as its source of truth, or drops the caches whose
       // payload depends on the viewer's privilege tier (PSY-1857).
-      await refreshCachesForNewSession(queryClient)
+      //
+      // Not awaited. The profile query retries a failure twice, and a 429
+      // waits out its Retry-After, so awaiting would hold this flow behind a
+      // refetch for as long as that takes. `setUser` above already carries the
+      // whole payload, so nothing here needs the profile to have landed; the
+      // refetch is what lets a later change to the viewer reach the context.
+      void refreshCachesForNewSession(queryClient)
 
       // Close signup dialog and show backup prompt
       setIsDialogOpen(false)

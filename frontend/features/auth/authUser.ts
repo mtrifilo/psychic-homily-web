@@ -4,9 +4,9 @@ import type { NavMode } from '@/lib/nav-mode'
 /**
  * The viewer identity every consumer of `useAuthContext()` reads.
  *
- * Reached only through {@link toAuthUser}, which `AuthProvider` runs on both
- * the profile query's payload and the object handed to `setUser`, so the two
- * sources produce the same shape from the same fields.
+ * `AuthProvider` builds it with {@link toAuthUser} on both the profile query's
+ * payload and the object handed to `setUser`, so the two sources produce the
+ * same shape from the same fields.
  */
 export interface User {
   id: string
@@ -48,7 +48,8 @@ export interface User {
  *
  * `user_tier` is a bare string rather than {@link UserTier}: the value is a
  * server-controlled enum, and {@link toAuthUser} asserts the union without
- * validating it.
+ * validating it. `nav_mode` is declared as its union here and is asserted the
+ * same way, without a validating parse.
  */
 export interface AuthApiUser {
   id: string
@@ -71,9 +72,9 @@ export interface AuthApiUser {
  *
  * Fields are enumerated rather than spread: the backend serializes its whole
  * user model on these endpoints, and the fields below are the ones the context
- * exposes. Everything else it sends (`preferences`, `privacy_settings`,
- * `is_active`, `profile_visibility`, `created_at`, `updated_at`,
- * `oauth_accounts`, `passkey_credentials`) stays out of the context value that
+ * exposes. The rest of what it sends — `preferences`, `privacy_settings`,
+ * `is_active`, `profile_visibility`, `created_at`, `updated_at`, `deleted_at`,
+ * `oauth_accounts`, `passkey_credentials` — stays out of the context value
  * every auth-consuming component re-renders on. The list is the allowlist.
  */
 export function toAuthUser(apiUser: AuthApiUser): User {

@@ -818,19 +818,28 @@ describe('AuthContext', () => {
       expect(result.current.user).toBeNull()
     })
 
-    // The override survives an expiry (nothing clears it but logout), so it has
-    // to yield to a definitive failure the same way retained data does.
-    // Otherwise anyone who signed in during this SPA session is exempt from the
-    // demotion above, which is the more common signed-in population.
+    // A definitive failure both outranks the claim and clears it. One hook
+    // instance throughout: the claim has to be set on the same provider the
+    // 401 then reaches, or the assertion passes against a fresh provider whose
+    // override was never set.
     it('is "anonymous" when a login override is followed by a 401', () => {
-      mockUseProfile.mockReturnValue({
+      const pendingProfile = {
         data: undefined,
         isPending: false,
         isLoading: false,
         error: null,
-      })
+      }
+      const expiredProfile = {
+        data: undefined,
+        isPending: false,
+        isLoading: false,
+        error: new AuthError('Token expired', AuthErrorCode.TOKEN_EXPIRED, {
+          status: 401,
+        }),
+      }
+      mockUseProfile.mockReturnValue(pendingProfile)
 
-      const { result } = renderHook(() => useAuthContext(), {
+      const { result, rerender } = renderHook(() => useAuthContext(), {
         wrapper: createWrapperWithClient(queryClient),
       })
 
@@ -843,22 +852,14 @@ describe('AuthContext', () => {
       })
       expect(result.current.authStatus).toBe('authenticated')
 
-      // Session ends elsewhere; this tab's next profile read 401s.
-      mockUseProfile.mockReturnValue({
-        data: undefined,
-        isPending: false,
-        isLoading: false,
-        error: new AuthError('Token expired', AuthErrorCode.TOKEN_EXPIRED, {
-          status: 401,
-        }),
+      // The session ends elsewhere; this tab's next profile read 401s.
+      mockUseProfile.mockReturnValue(expiredProfile)
+      act(() => {
+        rerender()
       })
 
-      const { result: after } = renderHook(() => useAuthContext(), {
-        wrapper: createWrapperWithClient(queryClient),
-      })
-
-      expect(after.current.authStatus).toBe('anonymous')
-      expect(after.current.user).toBeNull()
+      expect(result.current.authStatus).toBe('anonymous')
+      expect(result.current.user).toBeNull()
     })
 
     it('stays "anonymous" when a settled anonymous profile is followed by a 5xx', () => {
