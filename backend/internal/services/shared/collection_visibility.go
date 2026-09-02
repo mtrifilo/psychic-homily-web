@@ -67,21 +67,20 @@ import (
 //     here is the viewer's own id. Nothing derived from a request is ever
 //     interpolated.
 //
-// CREATOR-ONLY, NOT CONTRIBUTOR-ONLY. On a collaborative collection AddItem and
-// BulkAddItems admit any authenticated caller (services/community/collection.go),
-// so a contributor to a PRIVATE collaborative collection can add items to it and
-// still not see its comments, its watching-list entry or its digest. That is the
-// detail route's answer, not a narrowing invented here: GetBySlug already
-// refuses that caller, so the collection they contribute to is already
-// unreadable to them. Widening the gate to contributors would make these
-// surfaces more permissive than the route they mirror, so what "private plus
-// collaborative" should mean is a product question rather than a code one.
+// CREATOR-ONLY, NOT CONTRIBUTOR-ONLY. `collaborative` opens a collection's item
+// and tag writes to any authenticated caller, and it is the model default, so
+// every write path tests VISIBILITY before it considers `collaborative`: a
+// caller who may not read the collection may not write to it either. That is the
+// detail route's answer rather than a narrowing invented here, and it is what
+// stops a bulk add from reporting a per-row duplicate for each entity already in
+// a collection the caller cannot see.
 //
-// The two sides of that gap are not symmetric today and the asymmetry is
-// deliberate: canEditCollectionTags refuses a contributor the TAG write on a
-// private collaborative collection, because that write returns the collection's
-// tag list and is therefore a read; AddItem and BulkAddItems still admit them,
-// because those return only the item they wrote.
+// The consequence is that a contributor to a PRIVATE collaborative collection
+// can do nothing with it at all, which is consistent (GetBySlug already refuses
+// them) but is probably not what "private plus collaborative" is meant to mean.
+// Widening the gate to contributors would make these surfaces more permissive
+// than the route they mirror, so that is a product question rather than a code
+// one.
 //
 // EVERY spelling fails closed, on the same terms show_visibility.go states: a
 // missing collection row, a nil db, a zero id and a failed lookup all resolve to
@@ -222,29 +221,34 @@ func VisibleCollectionItemExistsSQL(itemIDExpr string, viewer contracts.ShowView
 		" AND " + inner + ")", args
 }
 
-// visibleCollectionSlugAlias is the alias VisibleCollectionSlugExistsSQL binds
-// the collections table to. Distinct from every other alias here, for the reason
-// visibleCollectionsAlias gives.
-const visibleCollectionSlugAlias = "visible_collection_slug"
+// visibleCollectionTextIDAlias is the alias VisibleCollectionTextIDExistsSQL
+// binds the collections table to. Distinct from every other alias here, for the
+// reason visibleCollectionsAlias gives.
+const visibleCollectionTextIDAlias = "visible_collection_text_id"
 
-// VisibleCollectionSlugExistsSQL returns a correlated EXISTS condition, true
-// when the collection NAMED BY SLUG in slugExpr is one viewer may see, plus its
-// bind arguments.
+// VisibleCollectionTextIDExistsSQL returns a correlated EXISTS condition, true
+// when the collection whose id is written as TEXT in idExpr is one viewer may
+// see, plus its bind arguments.
 //
-// For a caller holding a slug rather than an id: an audit row's metadata records
-// the slug the collection carried when the action happened. A slug that matches
-// no collection is NOT visible, so a renamed or deleted collection answers the
-// same as a private one.
+// For a caller holding a collection id inside a JSON document rather than in a
+// typed column: an audit row's metadata records the parent a polymorphic
+// entity_id cannot name. The comparison is `id::text = idExpr` rather than a
+// cast of idExpr, so a value that is not a number answers false instead of
+// raising.
 //
-// The slug is the DISCLOSURE this decides, not merely a way to find the row. A
-// caller who may not see the collection may not read the slug that names it,
-// whichever collection holds that slug now.
+// A SLUG WOULD NOT DO. Renaming a collection regenerates its slug and deleting
+// one frees the string, so a later collection can take that name and a slug
+// match would republish the original's rows. Ids come from a sequence and are
+// never reissued.
 //
-// slugExpr is SQL the CALLER controls and must be a literal in the calling code.
-func VisibleCollectionSlugExistsSQL(slugExpr string, viewer contracts.ShowViewer) (string, []interface{}) {
-	inner, args := VisibleCollectionPredicateSQL(visibleCollectionSlugAlias, viewer)
-	return "EXISTS (SELECT 1 FROM collections " + visibleCollectionSlugAlias +
-		" WHERE " + visibleCollectionSlugAlias + ".slug = " + slugExpr +
+// A row whose idExpr matches no collection is NOT visible, so a deleted parent
+// answers the same as a private one.
+//
+// idExpr is SQL the CALLER controls and must be a literal in the calling code.
+func VisibleCollectionTextIDExistsSQL(idExpr string, viewer contracts.ShowViewer) (string, []interface{}) {
+	inner, args := VisibleCollectionPredicateSQL(visibleCollectionTextIDAlias, viewer)
+	return "EXISTS (SELECT 1 FROM collections " + visibleCollectionTextIDAlias +
+		" WHERE " + visibleCollectionTextIDAlias + ".id::text = " + idExpr +
 		" AND " + inner + ")", args
 }
 

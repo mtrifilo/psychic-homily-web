@@ -40,6 +40,7 @@ const (
 	watchGatedCollectionSlug  = "tapes-from-the-ice-house-basement"
 	watchOpenCollectionSlug   = "records-i-keep-lending-out"
 	gatedCollectionComment    = "side b is the one with the false ending"
+	gatedCollectionTag        = "ice-house-basement-tape"
 	openCollectionComment     = "the reissue has a different mastering"
 	laterCollectionComment    = "posting this while the collection is private, nobody should see it"
 )
@@ -72,6 +73,11 @@ func TestCollectionSubscriptionsMirrorTheDetailRoute(t *testing.T) {
 	// alone leaves every row made before the flip still leaking.
 	gated := testhelpers.CreateCollection(t, td.DB, creator.ID, watchGatedCollectionTitle, watchGatedCollectionSlug, true).ID
 	open := testhelpers.CreateCollection(t, td.DB, creator.ID, watchOpenCollectionTitle, watchOpenCollectionSlug, true).ID
+
+	// A tag ON the gated collection, so the tag arm below has something to
+	// withhold. Without it the assertion is satisfied by an empty list whatever
+	// the gate does.
+	seedEntityTag(t, td.DB, "collection", gated, gatedCollectionTag, creator.ID)
 
 	seeder := newCommentSeeder(td.DB)
 	gatedCommentID := seedEntityComment(t, seeder, commenter.ID, "collection", gated, gatedCollectionComment)
@@ -133,20 +139,58 @@ func TestCollectionSubscriptionsMirrorTheDetailRoute(t *testing.T) {
 
 	// The route every gate below mirrors.
 	//
-	// It answers 403 with the slug echoed rather than 404, which IS an
-	// enumeration oracle and is NOT closed here: it is the collection detail
-	// route's own pre-existing behaviour, out of a ticket scoped to
-	// subscriptions, and changing a public route's status code is an API change
-	// that needs its own decision. Pinned rather than asserted-as-correct, so
-	// that closing it later fails here and gets read.
+	// NOT FOUND, not forbidden, and the same answer for a slug nobody has used.
+	// The route is reachable by a dense integer id as well as by the slug
+	// (GetCollectionHandler parses the segment as a uint first), so a 403 that
+	// echoed the resolved slug would publish the title of every private
+	// collection to a caller counting upward.
 	t.Run("the detail route it mirrors", func(t *testing.T) {
 		for _, c := range callers {
-			want := http.StatusForbidden
+			want := http.StatusNotFound
 			if c.mayRead {
 				want = http.StatusOK
 			}
-			if code, body := get(t, "/collections/"+watchGatedCollectionSlug, c.token); code != want {
+			code, body := get(t, "/collections/"+watchGatedCollectionSlug, c.token)
+			if code != want {
 				t.Errorf("GET the private collection as %s = %d, want %d; body: %s", c.name, code, want, body)
+			}
+			if c.mayRead {
+				continue
+			}
+			// The refusal must not carry the title, and it must be the answer a
+			// slug nobody has used gets.
+			if strings.Contains(string(body), watchGatedCollectionTitle) {
+				t.Errorf("the detail route's refusal published the private collection's title to %s: %s",
+					c.name, body)
+			}
+			missingCode, _ := get(t, "/collections/a-slug-nobody-has-ever-used", c.token)
+			if missingCode != code {
+				t.Errorf("the detail route answers %d for a private collection but %d for a slug "+
+					"nobody has used, as %s", code, missingCode, c.name)
+			}
+		}
+	})
+
+	// THE NUMERIC-ID SPELLING OF THE SAME ROUTE, which is the one an enumerator
+	// walks. It must answer the id back, never the slug it resolved.
+	t.Run("the detail route by numeric id", func(t *testing.T) {
+		for _, c := range callers {
+			want := http.StatusNotFound
+			if c.mayRead {
+				want = http.StatusOK
+			}
+			code, body := get(t, fmt.Sprintf("/collections/%d", gated), c.token)
+			if code != want {
+				t.Errorf("GET the private collection by id as %s = %d, want %d; body: %s",
+					c.name, code, want, body)
+			}
+			if c.mayRead {
+				continue
+			}
+			if strings.Contains(string(body), watchGatedCollectionSlug) ||
+				strings.Contains(string(body), watchGatedCollectionTitle) {
+				t.Errorf("the id route resolved and published the private collection's identity to %s: %s",
+					c.name, body)
 			}
 		}
 	})
@@ -178,8 +222,17 @@ func TestCollectionSubscriptionsMirrorTheDetailRoute(t *testing.T) {
 				t.Errorf("the thread published a private collection's comment body to %s; body: %s", c.name, body)
 			}
 
-			if code, body := get(t, fmt.Sprintf("/entities/collection/%d/tags", gated), c.token); code != http.StatusOK {
-				t.Errorf("GET the private collection's tags as %s = %d; body: %s", c.name, code, body)
+			tagCode, tagBody := get(t, fmt.Sprintf("/entities/collection/%d/tags", gated), c.token)
+			if tagCode != http.StatusOK {
+				t.Errorf("GET the private collection's tags as %s = %d; body: %s", c.name, tagCode, tagBody)
+			}
+			if c.mayRead {
+				if !strings.Contains(string(tagBody), gatedCollectionTag) {
+					t.Errorf("the tag list withheld the private collection's tags from %s, who may read it; body: %s",
+						c.name, tagBody)
+				}
+			} else if strings.Contains(string(tagBody), gatedCollectionTag) {
+				t.Errorf("the tag list published a private collection's tag to %s; body: %s", c.name, tagBody)
 			}
 		}
 

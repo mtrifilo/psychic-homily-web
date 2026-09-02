@@ -39,16 +39,19 @@ type collectionRouteDisposition int
 
 const (
 	// collectionGated: the route consults the collection's visibility before
-	// answering.
+	// answering, and refuses a private collection as a MISSING one.
 	//
-	// The SLUG-addressed routes refuse with the detail route's own 403, which is
-	// what GET /collections/{slug} answers for a private collection, so the
-	// family is internally consistent; a slug is not a dense space to walk. The
-	// ID-addressed routes refuse as a MISSING entity, because an integer id is.
+	// Not-found rather than forbidden across the whole family, including the
+	// slug-addressed routes. A slug is derived from the title, so "you may not
+	// see X" over a guessable name discloses the name, and the detail route is
+	// reachable by a dense integer id as well as by the slug
+	// (GetCollectionHandler parses the segment as a uint first), which makes the
+	// 403/404 pair walkable.
 	collectionGated collectionRouteDisposition = iota
 	// collectionCreatorOnly: the route is a write that already refuses anybody
-	// but the creator (or, on a PUBLIC collaborative collection, a contributor),
-	// so a private collection is unreachable through it for everyone else.
+	// but the creator, or a contributor on a collaborative collection. The
+	// collaborative branch carries no visibility test of its own, which is the
+	// divergence the map's item-write entries name below.
 	collectionCreatorOnly
 	// collectionSelfScoped: the route answers only about the CALLER's own
 	// relationship to the collection and publishes no collection content.
@@ -116,9 +119,8 @@ var collectionAddressableRoutes = map[string]collectionRouteDisposition{
 	"DELETE /crates/{slug}/subscribe":      collectionSelfScoped,
 
 	// Owner writes. Each refuses a caller who is neither the creator nor, on a
-	// collaborative collection, a contributor. AddItem and BulkAddItems admit a
-	// contributor to a PRIVATE collaborative collection, which is the divergence
-	// services/shared/collection_visibility.go names and leaves open.
+	// collaborative collection, a contributor, and each refuses a collection the
+	// caller cannot see before it considers `collaborative`.
 	"PUT /collections/{slug}":                    collectionCreatorOnly,
 	"PUT /crates/{slug}":                         collectionCreatorOnly,
 	"DELETE /collections/{slug}":                 collectionCreatorOnly,
@@ -218,20 +220,29 @@ func TestCollectionRouteInventoryHasNoStaleEntries(t *testing.T) {
 // disposition recorded for one and not the other is a claim that two spellings
 // of one route behave differently.
 func TestCollectionAndCrateRoutesAgree(t *testing.T) {
+	// BOTH DIRECTIONS. Walking only the collections spellings would miss a
+	// crates-only entry whose collections twin is recorded differently, which is
+	// the same drift seen from the other side.
 	for key, disposition := range collectionAddressableRoutes {
-		twin := strings.Replace(key, "/collections/", "/crates/", 1)
-		if twin == key {
+		var twin string
+		switch {
+		case strings.Contains(key, "/collections/"):
+			twin = strings.Replace(key, "/collections/", "/crates/", 1)
+		case strings.Contains(key, "/crates/"):
+			twin = strings.Replace(key, "/crates/", "/collections/", 1)
+		default:
 			continue
 		}
 		twinDisposition, ok := collectionAddressableRoutes[twin]
 		if !ok {
-			// The report route has no crate spelling; only flag a genuine
-			// mismatch, which the stale-entry test above would already catch.
+			// Not every route has a twin: the report route is registered under
+			// /collections only. A twin that should exist and does not is the
+			// stale-entry test's business, not this one's.
 			continue
 		}
 		if twinDisposition != disposition {
-			t.Errorf("%q is recorded %v but its crate spelling %q is recorded %v; they are "+
-				"one handler and must answer alike", key, disposition, twin, twinDisposition)
+			t.Errorf("%q is recorded %v but its twin %q is recorded %v; they are one handler "+
+				"and must answer alike", key, disposition, twin, twinDisposition)
 		}
 	}
 }

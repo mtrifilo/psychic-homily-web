@@ -2079,9 +2079,9 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	suite.auditLog.LogAction(actor.ID, "create_collection", "collection", shutColl.ID,
 		map[string]interface{}{"slug": shutColl.Slug})
 	suite.auditLog.LogAction(actor.ID, "add_collection_item", "collection", openItem.ID,
-		map[string]interface{}{"slug": openColl.Slug})
+		map[string]interface{}{"slug": openColl.Slug, "collection_id": openColl.ID})
 	suite.auditLog.LogAction(actor.ID, "add_collection_item", "collection", shutItem.ID,
-		map[string]interface{}{"slug": shutColl.Slug})
+		map[string]interface{}{"slug": shutColl.Slug, "collection_id": shutColl.ID})
 
 	strangerView := contracts.ShowViewer{UserID: stranger.ID}
 	entries, total, err := suite.profileService.GetContributionHistory(actor.ID, 50, 0, "", strangerView)
@@ -2136,17 +2136,17 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	}
 }
 
-// A REMOVED ITEM'S AUDIT ROW IS DECIDED BY THE PARENT ITS METADATA NAMES.
+// A REMOVED ITEM'S AUDIT ROW IS DECIDED BY THE PARENT ID ITS METADATA RECORDS.
 //
-// remove_collection_item stores the deleted item's id, collection_items are
-// hard-deleted, and the row's metadata carries the parent's slug. The slug is
-// what the row discloses, so it is what the row is decided against: the
-// contribution survives for a parent the viewer may see and is withheld for one
-// they may not.
+// remove_collection_item stores the deleted item's id and collection_items are
+// hard-deleted, so the metadata's collection_id is the only durable reference
+// left. It is an id rather than the slug beside it because a rename frees the
+// slug and a later collection can take that string, which would republish the
+// original's rows.
 //
-// A row whose slug resolves to nothing is withheld from everyone, which is the
-// same answer a private parent gets.
-func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_RemovedItemRowsDecidedByMetadataSlug() {
+// A row whose collection_id resolves to nothing is withheld from everyone,
+// which is the same answer a private parent gets.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_RemovedItemRowsDecidedByMetadataParentID() {
 	actor := suite.createTestUser("removalactor")
 	stranger := suite.createTestUser("removalstranger")
 
@@ -2157,11 +2157,11 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 		itemID := item.ID
 		suite.Require().NoError(suite.db.Delete(&communitym.CollectionItem{}, itemID).Error)
 		suite.auditLog.LogAction(actor.ID, "remove_collection_item", "collection", itemID,
-			map[string]interface{}{"slug": c.Slug})
+			map[string]interface{}{"slug": c.Slug, "collection_id": c.ID})
 	}
-	// A row whose recorded slug names no collection at all.
+	// A row whose recorded parent id names no collection at all.
 	suite.auditLog.LogAction(actor.ID, "remove_collection_item", "collection", 987654,
-		map[string]interface{}{"slug": "a-slug-that-never-existed"})
+		map[string]interface{}{"slug": "a-slug-that-never-existed", "collection_id": 987654321})
 
 	entries, total, err := suite.profileService.GetContributionHistory(
 		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: stranger.ID})
@@ -2238,4 +2238,107 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	suite.Require().Len(own, 1)
 	suite.Equal(source.Slug, own[0].Metadata["source_slug"],
 		"the creator keeps the attribution to their own private source")
+}
+
+// THE PROFILE'S COLLECTION COUNTS ARE NARROWED TOO, because they sit on the same
+// public profile as the timeline that now filters the matching rows.
+//
+// A whole count differenced against a filtered listing is a count of the private
+// collections this user contributes to, arrived at by subtraction. The owner's
+// own numbers are unchanged, which is what makes this about the viewer rather
+// than about the counts having broken.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionStats_NarrowsCollectionCounts() {
+	actor := suite.createTestUser("statsactor")
+	stranger := suite.createTestUser("statsstranger")
+
+	openColl := suite.createCollectionForHistory(actor.ID, "Stats Open", "stats-open-history", true)
+	shutColl := suite.createCollectionForHistory(actor.ID, "Stats Shut", "stats-shut-history", false)
+	suite.createCollectionItemForHistory(openColl.ID, actor.ID)
+	suite.createCollectionItemForHistory(shutColl.ID, actor.ID)
+	for _, c := range []*communitym.Collection{openColl, shutColl} {
+		suite.Require().NoError(suite.db.Create(&communitym.CollectionSubscriber{
+			CollectionID: c.ID,
+			UserID:       actor.ID,
+			CreatedAt:    time.Now().UTC(),
+		}).Error)
+	}
+
+	strangerStats, err := suite.profileService.GetContributionStats(actor.ID, contracts.ShowViewer{UserID: stranger.ID})
+	suite.Require().NoError(err)
+	suite.EqualValues(1, strangerStats.CollectionItemsAdded,
+		"a stranger must not count items added to a private collection")
+	suite.EqualValues(1, strangerStats.CollectionSubscriptions,
+		"nor subscriptions to one")
+
+	ownStats, err := suite.profileService.GetContributionStats(actor.ID, contracts.ShowViewer{UserID: actor.ID})
+	suite.Require().NoError(err)
+	suite.EqualValues(2, ownStats.CollectionItemsAdded)
+	suite.EqualValues(2, ownStats.CollectionSubscriptions)
+}
+
+// A RENAMED PARENT DOES NOT CHANGE THE ANSWER, and a collection that takes the
+// freed slug does not inherit the old one's rows.
+//
+// The item branch is decided against the metadata's collection_id, not the slug
+// beside it, precisely because a rename regenerates the slug and frees the old
+// string for anyone to claim with a public collection.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_AFreedSlugDoesNotRepublishItemRows() {
+	actor := suite.createTestUser("slugactor")
+	stranger := suite.createTestUser("slugstranger")
+	claimer := suite.createTestUser("slugclaimer")
+
+	shut := suite.createCollectionForHistory(actor.ID, "Freed Slug", "freed-slug-history", false)
+	item := suite.createCollectionItemForHistory(shut.ID, actor.ID)
+	suite.auditLog.LogAction(actor.ID, "add_collection_item", "collection", item.ID,
+		map[string]interface{}{"slug": shut.Slug, "collection_id": shut.ID})
+
+	// The private collection lets its slug go, and somebody else takes it with a
+	// PUBLIC collection.
+	suite.Require().NoError(suite.db.Model(shut).Update("slug", "freed-slug-history-renamed").Error)
+	suite.createCollectionForHistory(claimer.ID, "Claimed", "freed-slug-history", true)
+
+	entries, total, err := suite.profileService.GetContributionHistory(
+		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: stranger.ID})
+	suite.Require().NoError(err)
+	suite.EqualValues(len(entries), total)
+	suite.Empty(entries,
+		"a public collection holding the freed slug must not republish the private parent's rows")
+
+	// The creator still sees it, so the assertion above is about the slug rather
+	// than about the row having been lost.
+	own, _, err := suite.profileService.GetContributionHistory(
+		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: actor.ID})
+	suite.Require().NoError(err)
+	suite.Len(own, 1)
+}
+
+// THE COMMENT AND SUBSCRIPTION AUDIT FAMILIES ARE COLLECTION-TYPED TOO, and an
+// action missing from the disposition map is dropped from every timeline
+// including its own author's.
+//
+// These three are written by handlers outside community/collection.go with
+// whatever entity type the caller named, so a collection produces a
+// collection-typed row that the CASE has to have an answer for.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_CommentAndSubscriptionActionsSurvive() {
+	actor := suite.createTestUser("crossactor")
+	stranger := suite.createTestUser("crossstranger")
+
+	openColl := suite.createCollectionForHistory(actor.ID, "Cross Open", "cross-open-history", true)
+	shutColl := suite.createCollectionForHistory(actor.ID, "Cross Shut", "cross-shut-history", false)
+	for _, action := range []string{"create_comment", "subscribe_comments", "unsubscribe_comments", "report_collection"} {
+		suite.auditLog.LogAction(actor.ID, action, "collection", openColl.ID, nil)
+		suite.auditLog.LogAction(actor.ID, action, "collection", shutColl.ID, nil)
+	}
+
+	entries, total, err := suite.profileService.GetContributionHistory(
+		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: stranger.ID})
+	suite.Require().NoError(err)
+	suite.EqualValues(len(entries), total)
+	suite.Len(entries, 4, "the public collection's rows survive for a stranger")
+
+	own, ownTotal, err := suite.profileService.GetContributionHistory(
+		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: actor.ID})
+	suite.Require().NoError(err)
+	suite.EqualValues(len(own), ownTotal)
+	suite.Len(own, 8, "the creator sees both collections' rows")
 }

@@ -123,7 +123,9 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_Priva
 	suite.Nil(graph)
 	var collErr *apperrors.CollectionError
 	suite.Require().ErrorAs(err, &collErr)
-	suite.Equal(apperrors.CodeCollectionForbidden, collErr.Code)
+	// NOT FOUND, on the terms GetBySlug states: a private collection and a slug
+	// nobody has used answer alike.
+	suite.Equal(apperrors.CodeCollectionNotFound, collErr.Code)
 }
 
 func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_PrivateAllowedForCreator() {

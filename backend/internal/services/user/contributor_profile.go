@@ -526,7 +526,16 @@ const (
 )
 
 // contributionCollectionActions is the disposition of every audit action written
-// with entity_type "collection" (handlers/community/collection.go).
+// with entity_type "collection". FOUR handlers write that discriminator:
+// community/collection.go for the collection's own lifecycle,
+// community/entity_report.go for the report actions, engagement/comment.go for
+// create_comment and engagement/comment_subscription.go for the subscribe pair.
+// The last three all store whatever entity type the caller named, so any of them
+// produces a collection-typed row.
+//
+// AN ACTION MISSING HERE IS DROPPED FROM EVERY TIMELINE, including its own
+// author's and on public collections, so the map being short is a data-loss bug
+// as well as an over-withholding one.
 //
 // TWO KINDS OF ID UNDER ONE DISCRIMINATOR is the fact this map exists to record.
 // A gate that read entity_id one way for all of them would judge the item
@@ -554,6 +563,18 @@ var contributionCollectionActions = map[string]contributionCollectionIDKind{
 	"bulk_add_collection_items": collectionIDIsCollection,
 	"add_collection_tag":        collectionIDIsCollection,
 	"remove_collection_tag":     collectionIDIsCollection,
+
+	// handlers/community/entity_report.go. Each stores the REPORTED entity's
+	// type and id, so a reported collection produces a collection-typed row.
+	"report_collection":     collectionIDIsCollection,
+	"resolve_entity_report": collectionIDIsCollection,
+	"dismiss_entity_report": collectionIDIsCollection,
+
+	// handlers/engagement. Both families store the COMMENTED-ON or SUBSCRIBED-TO
+	// entity's type and id, so a collection produces a collection-typed row.
+	"create_comment":       collectionIDIsCollection,
+	"subscribe_comments":   collectionIDIsCollection,
+	"unsubscribe_comments": collectionIDIsCollection,
 
 	"add_collection_item":    collectionIDIsItem,
 	"update_collection_item": collectionIDIsItem,
@@ -651,10 +672,12 @@ func (s *ContributorProfileService) GetContributionHistory(userID uint, limit, o
 	// judged against the other's table, and an action with NO disposition answers
 	// FALSE rather than falling into whichever branch is written last.
 	//
-	// The item branch also accepts the parent named by the metadata SLUG, because
-	// collection_items are hard-deleted and a remove_collection_item row names an
-	// item that no longer exists. The slug is the identity these rows disclose, so
-	// deciding the row against it is deciding it against what it publishes.
+	// The item branch also accepts the parent named by the metadata's
+	// collection_id, because collection_items are hard-deleted and a
+	// remove_collection_item row names an item that no longer exists. An id is
+	// never reissued, so that reference stays true; the metadata SLUG is not
+	// usable for this, because a rename frees the string and a later collection
+	// can take it.
 	//
 	// Parentheses written out rather than left to the driver, and the entity-type
 	// filter ANDed after: the binding this pins is
@@ -666,7 +689,8 @@ func (s *ContributorProfileService) GetContributionHistory(userID uint, limit, o
 	// statement order.
 	visibleShows, visibleShowsArgs := shared.VisibleShowExistsSQL("unified.entity_id", viewer)
 	visibleItemParents, visibleItemParentArgs := shared.VisibleCollectionItemExistsSQL("unified.entity_id", viewer)
-	visibleBySlug, visibleBySlugArgs := shared.VisibleCollectionSlugExistsSQL("unified.metadata->>'slug'", viewer)
+	visibleByParentID, visibleByParentIDArgs := shared.VisibleCollectionTextIDExistsSQL(
+		"unified.metadata->>'collection_id'", viewer)
 	visibleCollections, visibleCollectionArgs := shared.VisibleCollectionExistsSQL("unified.entity_id", viewer)
 	entityFilter := fmt.Sprintf(
 		" WHERE (unified.entity_type NOT IN ? OR %s)"+
@@ -674,13 +698,13 @@ func (s *ContributorProfileService) GetContributionHistory(userID uint, limit, o
 			" OR (CASE WHEN unified.action IN ? THEN (%s OR %s)"+
 			" WHEN unified.action IN ? THEN %s"+
 			" ELSE FALSE END))",
-		visibleShows, visibleItemParents, visibleBySlug, visibleCollections)
+		visibleShows, visibleItemParents, visibleByParentID, visibleCollections)
 	args = append(args, contributionShowEntityTypes)
 	args = append(args, visibleShowsArgs...)
 	args = append(args, contributionCollectionEntityType)
 	args = append(args, contributionCollectionActionsOfKind(collectionIDIsItem))
 	args = append(args, visibleItemParentArgs...)
-	args = append(args, visibleBySlugArgs...)
+	args = append(args, visibleByParentIDArgs...)
 	args = append(args, contributionCollectionActionsOfKind(collectionIDIsCollection))
 	args = append(args, visibleCollectionArgs...)
 	if entityType != "" {
@@ -751,20 +775,21 @@ func (s *ContributorProfileService) scrubCloneSourceMetadata(entries []*contract
 			sourceIDs = append(sourceIDs, id)
 		}
 	}
-	if len(sourceIDs) == 0 {
-		return
-	}
-
-	visible, visibleArgs := shared.VisibleCollectionPredicateSQL("collections", viewer)
-	var rows []struct{ ID uint }
-	s.db.Table("collections").
-		Select("id").
-		Where("id IN ?", sourceIDs).
-		Where(visible, visibleArgs...).
-		Scan(&rows)
-	visibleIDs := make(map[uint]bool, len(rows))
-	for _, r := range rows {
-		visibleIDs[r.ID] = true
+	// The QUERY is skipped when no row names a source id; the delete loop below
+	// is not, because a row can carry source_slug with no usable source_id and
+	// the slug is the disclosure.
+	visibleIDs := make(map[uint]bool)
+	if len(sourceIDs) > 0 {
+		visible, visibleArgs := shared.VisibleCollectionPredicateSQL("collections", viewer)
+		var rows []struct{ ID uint }
+		s.db.Table("collections").
+			Select("id").
+			Where("id IN ?", sourceIDs).
+			Where(visible, visibleArgs...).
+			Scan(&rows)
+		for _, r := range rows {
+			visibleIDs[r.ID] = true
+		}
 	}
 
 	for _, e := range entries {

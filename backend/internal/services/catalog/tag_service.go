@@ -229,14 +229,25 @@ func (s *TagService) computeEntityTypeTagCounts(entityType string, tagIDs []uint
 		return CountTransitiveArtistTagUsage(s.db, "festival_artists", "festival_id", "artist_id", tagIDs)
 	}
 	// Default: direct count against entity_tags for the given entity type.
+	//
+	// GATED FOR COLLECTIONS. This count is rendered on the same anonymous tag
+	// listing whose per-tag membership GetTagEntities now filters, so counting
+	// private collections here would report, by subtraction, how many carry each
+	// tag. Public tier, matching the listing it is read beside.
 	type countRow struct {
 		TagID uint
 		Count int64
 	}
 	var rows []countRow
-	err := s.db.Table("entity_tags").
+	query := s.db.Table("entity_tags").
 		Select("tag_id, COUNT(*) AS count").
-		Where("entity_type = ? AND tag_id IN ?", entityType, tagIDs).
+		Where("entity_type = ? AND tag_id IN ?", entityType, tagIDs)
+	if entityType == catalogm.TagEntityCollection {
+		visible, visibleArgs := shared.VisibleCollectionExistsSQL(
+			"entity_tags.entity_id", contracts.ShowViewer{})
+		query = query.Where(visible, visibleArgs...)
+	}
+	err := query.
 		Group("tag_id").
 		Scan(&rows).Error
 	if err != nil {
@@ -1830,11 +1841,20 @@ func (s *TagService) GetTagDetail(tagID uint) (*contracts.TagDetailResponse, err
 		Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("failed to compute usage breakdown: %w", err)
 	}
+	var visibleUsage int64
 	for _, r := range rows {
 		if _, ok := resp.UsageBreakdown[r.EntityType]; ok {
 			resp.UsageBreakdown[r.EntityType] = r.Count
+			visibleUsage += r.Count
 		}
 	}
+	// usage_count is a denormalised column incremented once per entity_tags row
+	// with no visibility term, and it is rendered on the same response as the
+	// breakdown above. Left whole it would report, by subtraction, exactly the
+	// gated shows and private collections the breakdown withholds. The detail
+	// response therefore carries the gated sum; the column itself is untouched,
+	// because ordering and popularity ranking read it directly.
+	resp.UsageCount = int(visibleUsage)
 
 	// Top contributors: top 5 users by tag application count.
 	type contribRow struct {
@@ -1842,11 +1862,23 @@ func (s *TagService) GetTagDetail(tagID uint) (*contracts.TagDetailResponse, err
 		Username *string
 		Count    int64
 	}
+	// GATED ON THE SAME TERMS as the breakdown above. A contributor's count is
+	// per-user, so an unfenced one attributes the withheld rows to a NAMED
+	// person: "alice applied this tag five times, two are visible" says alice has
+	// three gated shows or private collections carrying it.
+	contribShows, contribShowArgs := shared.VisibleShowExistsSQL(
+		"et.entity_id", contracts.ShowViewer{})
+	contribCollections, contribCollectionArgs := shared.VisibleCollectionExistsSQL(
+		"et.entity_id", contracts.ShowViewer{})
 	var contribRows []contribRow
 	if err := s.db.Table("entity_tags AS et").
 		Select("et.added_by_user_id AS user_id, u.username AS username, COUNT(*) AS count").
 		Joins("LEFT JOIN users u ON u.id = et.added_by_user_id").
 		Where("et.tag_id = ?", tagID).
+		Where("(et.entity_type <> ? OR "+contribShows+")",
+			append([]interface{}{catalogm.TagEntityShow}, contribShowArgs...)...).
+		Where("(et.entity_type <> ? OR "+contribCollections+")",
+			append([]interface{}{catalogm.TagEntityCollection}, contribCollectionArgs...)...).
 		Group("et.added_by_user_id, u.username").
 		Order("count DESC, et.added_by_user_id ASC").
 		Limit(5).

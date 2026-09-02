@@ -464,13 +464,18 @@ func (h *CollectionHandler) AddItemHandler(ctx context.Context, req *AddItemHand
 		)
 	}
 
-	// Audit log (fire and forget)
+	// Audit log (fire and forget). collection_id is the DURABLE parent
+	// reference: entity_id on this row is the ITEM's id, and items are
+	// hard-deleted, so nothing else on the row survives to decide it against
+	// once the item is gone.
 	if h.auditLogService != nil {
+		collectionID := h.resolveCollectionIDForAudit(ctx, req.Slug, "add_collection_item")
 		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "add_collection_item", "collection", item.ID, map[string]interface{}{
-				"slug":        req.Slug,
-				"entity_type": req.Body.EntityType,
-				"entity_id":   req.Body.EntityID,
+				"slug":          req.Slug,
+				"collection_id": collectionID,
+				"entity_type":   req.Body.EntityType,
+				"entity_id":     req.Body.EntityID,
 			})
 		})
 	}
@@ -613,11 +618,14 @@ func (h *CollectionHandler) UpdateItemHandler(ctx context.Context, req *UpdateIt
 		)
 	}
 
-	// Audit log (fire and forget)
+	// Audit log (fire and forget). collection_id is the durable parent
+	// reference; see the add path.
 	if h.auditLogService != nil {
+		collectionID := h.resolveCollectionIDForAudit(ctx, req.Slug, "update_collection_item")
 		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "update_collection_item", "collection", item.ID, map[string]interface{}{
-				"slug": req.Slug,
+				"slug":          req.Slug,
+				"collection_id": collectionID,
 			})
 		})
 	}
@@ -666,11 +674,16 @@ func (h *CollectionHandler) RemoveItemHandler(ctx context.Context, req *RemoveIt
 		)
 	}
 
-	// Audit log (fire and forget)
+	// Audit log (fire and forget). collection_id is the DURABLE parent
+	// reference: entity_id on this row is the item's id and the item has just
+	// been hard-deleted, so nothing else on the row survives to decide it
+	// against. Resolved from the slug, which the service has already accepted.
 	if h.auditLogService != nil {
+		collectionID := h.resolveCollectionIDForAudit(ctx, req.Slug, "remove_collection_item")
 		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "remove_collection_item", "collection", uint(itemID), map[string]interface{}{
-				"slug": req.Slug,
+				"slug":          req.Slug,
+				"collection_id": collectionID,
 			})
 		})
 	}

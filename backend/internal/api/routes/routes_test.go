@@ -19,11 +19,13 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	"github.com/go-chi/chi/v5"
+	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
 	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services"
 )
 
@@ -1016,5 +1018,25 @@ func TestReportSubmitRateLimitIsPerIP(t *testing.T) {
 
 	if code := send("198.51.100.2:5000"); code == http.StatusTooManyRequests {
 		t.Error("a different IP was rate limited by the first client's budget; KeyByIP did not survive the move")
+	}
+}
+
+// seedEntityTag applies a tag to a polymorphic entity, so a matrix that asserts
+// a tag list is WITHHELD has something to withhold. An empty list satisfies that
+// assertion whatever the gate does.
+func seedEntityTag(t *testing.T, db *gorm.DB, entityType string, entityID uint, tagName string, addedBy uint) {
+	t.Helper()
+	tag := catalogm.Tag{Name: tagName, Slug: tagName, Category: "other"}
+	if err := db.Create(&tag).Error; err != nil {
+		t.Fatalf("create tag %q: %v", tagName, err)
+	}
+	link := catalogm.EntityTag{
+		TagID:         tag.ID,
+		EntityType:    entityType,
+		EntityID:      entityID,
+		AddedByUserID: addedBy,
+	}
+	if err := db.Create(&link).Error; err != nil {
+		t.Fatalf("tag %s %d with %q: %v", entityType, entityID, tagName, err)
 	}
 }

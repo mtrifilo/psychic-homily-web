@@ -390,7 +390,10 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_PrivateCollect
 	suite.Nil(resp)
 	var collErr *apperrors.CollectionError
 	suite.ErrorAs(err, &collErr)
-	suite.Equal(apperrors.CodeCollectionForbidden, collErr.Code)
+	// NOT FOUND: a private collection and a slug nobody has used answer alike,
+	// because the slug is derived from the title and the route is also reachable
+	// by a dense integer id.
+	suite.Equal(apperrors.CodeCollectionNotFound, collErr.Code)
 }
 
 func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_PublicCollectionByAnonymous() {
@@ -1309,7 +1312,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_CollaborativeByO
 	creator := suite.createTestUser("CollabOwner")
 	collaborator := suite.createTestUser("Collaborator")
 
-	req := &contracts.CreateCollectionRequest{Title: "Collab Collection", IsPublic: false, Collaborative: true}
+	req := &contracts.CreateCollectionRequest{Title: "Collab Collection", IsPublic: true, Collaborative: true}
 	coll, err := suite.collectionService.CreateCollection(creator.ID, req)
 	suite.Require().NoError(err)
 
@@ -1326,7 +1329,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_NonCollaborative
 	creator := suite.createTestUser("SoloOwner")
 	other := suite.createTestUser("Outsider")
 
-	req := &contracts.CreateCollectionRequest{Title: "Solo Collection", IsPublic: false, Collaborative: false}
+	req := &contracts.CreateCollectionRequest{Title: "Solo Collection", IsPublic: true, Collaborative: false}
 	coll, err := suite.collectionService.CreateCollection(creator.ID, req)
 	suite.Require().NoError(err)
 
@@ -1377,7 +1380,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestRemoveItem_ByItemAdder()
 	creator := suite.createTestUser("RemoveOwner")
 	adder := suite.createTestUser("ItemAdderRemover")
 
-	req := &contracts.CreateCollectionRequest{Title: "Collab Remove", IsPublic: false, Collaborative: true}
+	req := &contracts.CreateCollectionRequest{Title: "Collab Remove", IsPublic: true, Collaborative: true}
 	coll, _ := suite.collectionService.CreateCollection(creator.ID, req)
 
 	artist := suite.createTestArtist("Adder Artist")
@@ -1395,7 +1398,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestRemoveItem_Forbidden() {
 	adder := suite.createTestUser("RemoveAdder")
 	other := suite.createTestUser("RemoveOther")
 
-	req := &contracts.CreateCollectionRequest{Title: "Remove Forbidden", IsPublic: false, Collaborative: true}
+	req := &contracts.CreateCollectionRequest{Title: "Remove Forbidden", IsPublic: true, Collaborative: true}
 	coll, _ := suite.collectionService.CreateCollection(creator.ID, req)
 
 	artist := suite.createTestArtist("Forbidden Remove Artist")
@@ -1547,7 +1550,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestSubscribe_PrivateCollect
 	suite.Require().Error(err)
 	var collErr *apperrors.CollectionError
 	suite.ErrorAs(err, &collErr)
-	suite.Equal(apperrors.CodeCollectionForbidden, collErr.Code)
+	suite.Equal(apperrors.CodeCollectionNotFound, collErr.Code)
 }
 
 func (suite *CollectionServiceIntegrationTestSuite) TestUnsubscribe_Success() {
@@ -1958,7 +1961,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_ContributorCou
 	collab1 := suite.createTestUser("Contrib1")
 	collab2 := suite.createTestUser("Contrib2")
 
-	req := &contracts.CreateCollectionRequest{Title: "Contrib Count", IsPublic: false, Collaborative: true}
+	req := &contracts.CreateCollectionRequest{Title: "Contrib Count", IsPublic: true, Collaborative: true}
 	coll, _ := suite.collectionService.CreateCollection(creator.ID, req)
 
 	a1 := suite.createTestArtist("Contrib Artist 1")
@@ -2209,7 +2212,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestLike_PrivateCollection_O
 	suite.Require().Error(err)
 	var collErr *apperrors.CollectionError
 	suite.ErrorAs(err, &collErr)
-	suite.Equal(apperrors.CodeCollectionForbidden, collErr.Code)
+	suite.Equal(apperrors.CodeCollectionNotFound, collErr.Code)
 }
 
 // TestUnlike_Success verifies that unliking decrements the count.
@@ -2817,8 +2820,8 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddTagToCollection_NonOw
 	stranger := suite.createTestUser("Stranger")
 	suite.promoteContributor(stranger)
 
-	coll := suite.createBasicCollection(creator, "Solo Curator")
-	suite.Require().False(coll.Collaborative, "expected default Collaborative=false from createBasicCollection")
+	coll := suite.createPublicCollection(creator, "Solo Curator")
+	suite.Require().False(coll.Collaborative, "expected default Collaborative=false")
 
 	_, err := suite.collectionService.AddTagToCollection(coll.Slug, stranger.ID,
 		&contracts.AddCollectionTagRequest{TagName: "intruder-tag"})
@@ -2908,7 +2911,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestRemoveTagFromCollection_
 	stranger := suite.createTestUser("Stranger")
 	suite.promoteContributor(creator)
 
-	coll := suite.createBasicCollection(creator, "Solo Curator Removal")
+	coll := suite.createPublicCollection(creator, "Solo Curator Removal")
 	suite.Require().False(coll.Collaborative, "expected default Collaborative=false")
 
 	resp, err := suite.collectionService.AddTagToCollection(coll.Slug, creator.ID,
@@ -3527,7 +3530,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestBulkAddItems_RejectsOver
 func (suite *CollectionServiceIntegrationTestSuite) TestBulkAddItems_Forbidden() {
 	owner := suite.createTestUser("OwnerBulk")
 	stranger := suite.createTestUser("StrangerBulk")
-	coll := suite.createBasicCollection(owner, "Locked Down")
+	coll := suite.createPublicCollection(owner, "Locked Down")
 	a := suite.createTestArtist("Forbidden A")
 
 	_, err := suite.collectionService.BulkAddItems(coll.Slug, stranger.ID, &contracts.BulkAddCollectionItemsRequest{

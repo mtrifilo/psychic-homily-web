@@ -444,12 +444,21 @@ func (s *CollectionService) GetByID(id uint, viewerID uint) (*contracts.Collecti
 	}
 
 	var collection communitym.Collection
-	err := s.db.Select("slug").Where("id = ?", id).First(&collection).Error
+	err := s.db.Select("id, slug, is_public, creator_id").Where("id = ?", id).First(&collection).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrCollectionNotFound(strconv.FormatUint(uint64(id), 10))
 		}
 		return nil, fmt.Errorf("failed to get collection: %w", err)
+	}
+
+	// GATED HERE, not by the delegation below. The refusal message names the
+	// identifier the CALLER supplied, and this route is addressed by a dense
+	// integer id, so handing back the resolved slug would publish the title of
+	// every private collection to whoever counts upward. A gated collection and
+	// an id nobody has used answer alike.
+	if !collection.IsPublic && collection.CreatorID != viewerID {
+		return nil, apperrors.ErrCollectionNotFound(strconv.FormatUint(uint64(id), 10))
 	}
 
 	return s.GetBySlug(collection.Slug, viewerID)
@@ -491,9 +500,14 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 		return nil, fmt.Errorf("failed to get collection: %w", err)
 	}
 
-	// Check access: private collections are only visible to the creator
+	// Check access: private collections are only visible to the creator.
+	//
+	// NOT FOUND, not forbidden. A slug is derived from the title, so "you may not
+	// see X" over a guessable name is a disclosure in itself, and the pair
+	// 403-for-private / 404-for-missing sorts real collections from invented
+	// ones. One answer for both. The message echoes the caller's own slug.
 	if !collection.IsPublic && collection.CreatorID != viewerID {
-		return nil, apperrors.ErrCollectionForbidden(slug)
+		return nil, apperrors.ErrCollectionNotFound(slug)
 	}
 
 	// Load creator name
@@ -529,7 +543,16 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 	// `ON DELETE SET NULL`. We never snapshot the source title at fork time
 	// (per product decision); the frontend renders fallback copy in that
 	// case.
+	// A FENCED SOURCE ANSWERS LIKE A DELETED ONE, so the raw FK goes with the
+	// snapshot: `ON DELETE SET NULL` leaves a deleted source's FK null, and
+	// keeping a gated source's id would restore the pair as "this id exists and
+	// you may not see it". The listing responses still carry the raw FK, which is
+	// an id with no name or slug beside it and is recorded as a follow-up.
 	forkedFrom := s.resolveForkedFromInfo(collection.ForkedFromCollectionID, viewerID)
+	forkedFromID := collection.ForkedFromCollectionID
+	if forkedFrom == nil {
+		forkedFromID = nil
+	}
 
 	// Check if viewer is subscribed
 	isSubscribed := false
@@ -599,7 +622,7 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 		SubscriberCount:        int(subscriberCount),
 		ContributorCount:       int(contributorCount),
 		ForksCount:             int(forksCount),
-		ForkedFromCollectionID: collection.ForkedFromCollectionID,
+		ForkedFromCollectionID: forkedFromID,
 		ForkedFrom:             forkedFrom,
 		Items:                  itemResponses,
 		IsSubscribed:           isSubscribed,
@@ -1075,6 +1098,14 @@ func (s *CollectionService) AddItem(slug string, userID uint, req *contracts.Add
 	}
 
 	// Check permission: creator or (collaborative and authenticated)
+	// A COLLECTION THE CALLER CANNOT READ IS NOT ONE THEY MAY WRITE TO, whatever
+	// `collaborative` says, and `collaborative` is the model default. Without
+	// this, a bulk add reports a per-row duplicate for every entity already in a
+	// private collection, which enumerates its contents 200 at a time.
+	if !collection.IsPublic && collection.CreatorID != userID {
+		return nil, apperrors.ErrCollectionNotFound(slug)
+	}
+
 	if collection.CreatorID != userID && !collection.Collaborative {
 		return nil, apperrors.ErrCollectionForbidden(slug)
 	}
@@ -1181,6 +1212,14 @@ func (s *CollectionService) BulkAddItems(slug string, userID uint, req *contract
 		}
 		return nil, fmt.Errorf("failed to get collection: %w", err)
 	}
+	// A COLLECTION THE CALLER CANNOT READ IS NOT ONE THEY MAY WRITE TO, whatever
+	// `collaborative` says, and `collaborative` is the model default. Without
+	// this, a bulk add reports a per-row duplicate for every entity already in a
+	// private collection, which enumerates its contents 200 at a time.
+	if !collection.IsPublic && collection.CreatorID != userID {
+		return nil, apperrors.ErrCollectionNotFound(slug)
+	}
+
 	if collection.CreatorID != userID && !collection.Collaborative {
 		return nil, apperrors.ErrCollectionForbidden(slug)
 	}
@@ -1719,9 +1758,9 @@ func (s *CollectionService) Subscribe(slug string, userID uint) error {
 		return fmt.Errorf("failed to get collection: %w", err)
 	}
 
-	// Check if collection is accessible
+	// Invisible answers as missing, on the terms GetBySlug states.
 	if !collection.IsPublic && collection.CreatorID != userID {
-		return apperrors.ErrCollectionForbidden(slug)
+		return apperrors.ErrCollectionNotFound(slug)
 	}
 
 	now := time.Now()
@@ -1790,7 +1829,8 @@ func (s *CollectionService) Like(slug string, userID uint) (*contracts.Collectio
 	}
 
 	if !collection.IsPublic && collection.CreatorID != userID {
-		return nil, apperrors.ErrCollectionForbidden(slug)
+		// Invisible answers as missing, on the terms GetBySlug states.
+		return nil, apperrors.ErrCollectionNotFound(slug)
 	}
 
 	// Idempotent insert. ON CONFLICT DO NOTHING is the canonical pattern
@@ -1824,7 +1864,8 @@ func (s *CollectionService) Unlike(slug string, userID uint) (*contracts.Collect
 	}
 
 	if !collection.IsPublic && collection.CreatorID != userID {
-		return nil, apperrors.ErrCollectionForbidden(slug)
+		// Invisible answers as missing, on the terms GetBySlug states.
+		return nil, apperrors.ErrCollectionNotFound(slug)
 	}
 
 	if err := s.db.Where("user_id = ? AND collection_id = ?", userID, collection.ID).
@@ -1905,7 +1946,7 @@ func (s *CollectionService) GetStats(slug string, viewerID uint) (*contracts.Col
 		return nil, fmt.Errorf("failed to get collection: %w", err)
 	}
 
-	if !collection.IsPublic && collection.CreatorID != viewerID {
+	if !shared.CollectionVisibleTo(s.db, collection.ID, contracts.ShowViewer{UserID: viewerID}) {
 		return nil, apperrors.ErrCollectionNotFound(slug)
 	}
 
@@ -2972,7 +3013,8 @@ func (s *CollectionService) canEditCollectionTags(collection *communitym.Collect
 	// collection's tag set: the write lands on the creator's page, counts toward
 	// the per-collection cap, and AddTagToCollection returns the post-mutation
 	// tag list, which is a read of gated content. The polymorphic tag routes
-	// refuse the same write on the same rule.
+	// apply the same VISIBILITY rule; the `collaborative` test below is this
+	// route family's alone, so the two are not interchangeable.
 	if !collection.IsPublic {
 		return false
 	}
@@ -3011,6 +3053,12 @@ func (s *CollectionService) AddTagToCollection(slug string, userID uint, req *co
 	}
 
 	if !s.canEditCollectionTags(&collection, userID) {
+		if !collection.IsPublic && collection.CreatorID != userID {
+			// Invisible answers as missing, on the terms GetBySlug states; the
+			// forbidden case below is a PUBLIC collection the caller may see and
+			// may not edit.
+			return nil, apperrors.ErrCollectionNotFound(slug)
+		}
 		return nil, apperrors.ErrCollectionForbidden(slug)
 	}
 
@@ -3066,6 +3114,10 @@ func (s *CollectionService) RemoveTagFromCollection(slug string, tagID uint, use
 	}
 
 	if !s.canEditCollectionTags(&collection, userID) {
+		if !collection.IsPublic && collection.CreatorID != userID {
+			// Invisible answers as missing; see the add path.
+			return apperrors.ErrCollectionNotFound(slug)
+		}
 		return apperrors.ErrCollectionForbidden(slug)
 	}
 
@@ -3409,7 +3461,8 @@ func (s *CollectionService) GetCollectionGraph(slug string, viewerID uint, types
 	}
 
 	if !collection.IsPublic && collection.CreatorID != viewerID {
-		return nil, apperrors.ErrCollectionForbidden(slug)
+		// Invisible answers as missing, on the terms GetBySlug states.
+		return nil, apperrors.ErrCollectionNotFound(slug)
 	}
 
 	resolvedTypes := resolveCollectionEdgeTypes(types)

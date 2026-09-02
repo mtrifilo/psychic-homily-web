@@ -27,6 +27,29 @@ func NewEntityReportService(database *gorm.DB) *EntityReportService {
 	return &EntityReportService{db: database}
 }
 
+// commentParentVisible reports whether viewer may see the entity comment
+// commentID hangs off.
+//
+// A comment that does not exist answers false, which is what lets a gated parent
+// and a missing comment id produce one response. Which entity types have a rule
+// is services/shared's registry, so a comment on an always-visible parent passes
+// without a second lookup.
+func (s *EntityReportService) commentParentVisible(commentID uint, viewer contracts.ShowViewer) bool {
+	var parent struct {
+		EntityType string
+		EntityID   uint
+	}
+	err := s.db.Table("comments").
+		Select("entity_type, entity_id").
+		Where("id = ?", commentID).
+		Scan(&parent).Error
+	if err != nil || parent.EntityType == "" {
+		return false
+	}
+	return shared.EntityVisibleTo(
+		shared.NewShowVisibilityService(s.db), parent.EntityType, parent.EntityID, viewer)
+}
+
 // CreateEntityReport submits a new report for an entity.
 func (s *EntityReportService) CreateEntityReport(req *contracts.CreateEntityReportRequest) (*contracts.EntityReportResponse, error) {
 	if s.db == nil {
@@ -53,11 +76,22 @@ func (s *EntityReportService) CreateEntityReport(req *contracts.CreateEntityRepo
 	// list because refusing a report on a gated show would remove the only way
 	// the submitter can report their own withdrawn show; that trade does not
 	// arise for collections, whose creator is the one person who can see them.
-	if req.EntityType == "collection" {
-		if !shared.CollectionVisibleTo(s.db, req.EntityID, contracts.ShowViewer{UserID: req.UserID}) {
+	//
+	// A COMMENT is decided by its PARENT, because that is where the rule lives
+	// and because the response resolves a comment's name as the first 60
+	// characters of its body. Comment ids are dense, so an ungated probe is both
+	// a content disclosure and an enumeration primitive.
+	viewer := contracts.ShowViewer{UserID: req.UserID}
+	switch req.EntityType {
+	case "collection":
+		if !shared.CollectionVisibleTo(s.db, req.EntityID, viewer) {
 			return nil, apperrors.ErrEntityReportEntityNotFound(req.EntityType, req.EntityID)
 		}
-	} else {
+	case "comment":
+		if !s.commentParentVisible(req.EntityID, viewer) {
+			return nil, apperrors.ErrEntityReportEntityNotFound(req.EntityType, req.EntityID)
+		}
+	default:
 		tableName := req.EntityType + "s"
 		// Comments table is already plural
 		if req.EntityType == "comment" {

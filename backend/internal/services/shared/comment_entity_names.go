@@ -46,11 +46,11 @@ type EntityNameRow struct {
 // inherits the first for free and still owes the second.
 //
 // THE COLLECTION FENCE CANNOT FIRE TODAY, and saying so is the point of this
-// paragraph. engagementm.CommentEntityPathAndTable returns "name" as the
-// collection display column, and the collections table's column is `title` — so
-// the SELECT below fails with an undefined-column error for every collection
-// batch, is logged and skipped, and both callers fall back to rendering
-// "collection #<id>". The fence is added anyway, and it is not decoration: the
+// paragraph. engagementm.CommentEntityPathAndTable returns "name" as the display
+// column for both `collection` and `release`, and both tables spell it `title` —
+// so the SELECT below fails with an undefined-column error for every batch of
+// either type, is logged and skipped, and both callers fall back to rendering
+// "<type> #<id>". Whoever fixes the column has TWO types to fix. The fence is added anyway, and it is not decoration: the
 // column bug is a display defect somebody will fix, and fixing it must not be
 // the edit that starts publishing private collections' titles. The fence is
 // therefore in place BEFORE the column is corrected, and the row gates upstream

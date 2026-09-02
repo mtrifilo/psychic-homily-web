@@ -178,11 +178,15 @@ func (s *CollectionHandlerIntegrationSuite) TestGetCollection_ByNumericID_Privat
 	viewer := testhelpers.CreateTestUser(s.deps.DB)
 	coll := s.createCollectionViaService(owner, "Private By ID", false)
 
-	// ID lookups must enforce the same privacy gate as slug lookups.
+	// ID lookups must enforce the same privacy gate as slug lookups, and answer
+	// NOT FOUND: this route is walkable by a dense integer, so a refusal that
+	// resolved and echoed the slug would publish the title of every private
+	// collection.
 	ctx := testhelpers.CtxWithUser(viewer)
 	req := &GetCollectionHandlerRequest{Slug: fmt.Sprintf("%d", coll.ID)}
 	_, err := s.handler.GetCollectionHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 403)
+	testhelpers.AssertHumaError(s.T(), err, 404)
+	s.NotContains(err.Error(), coll.Slug, "the refusal resolved and published the private slug")
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestGetCollection_ByNumericID_PrivateVisibleToOwner() {
@@ -1610,9 +1614,9 @@ func (s *CollectionHandlerIntegrationSuite) TestAddCollectionTag_NonOwner_Forbid
 	owner := testhelpers.CreateTestUser(s.deps.DB)
 	stranger := testhelpers.CreateTestUser(s.deps.DB)
 	s.promoteContributorForTags(stranger)
-	coll := s.createCollectionViaService(owner, "Solo Owner", false)
-	// createCollectionViaService leaves Collaborative=false (CreateCollection's
-	// GORM-bool dance), so the stranger cannot tag the collection.
+	// PUBLIC and non-collaborative: the visibility test runs first, so a private
+	// fixture would stop exercising the collaborative branch this test is about.
+	coll := s.createCollectionViaService(owner, "Solo Owner", true)
 
 	ctx := testhelpers.CtxWithUser(stranger)
 	req := &AddCollectionTagHandlerRequest{Slug: coll.Slug}

@@ -163,21 +163,32 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddTagToCollection_Refus
 	suite.Require().NoError(err)
 
 	// The control: a stranger may tag a PUBLIC collaborative collection.
-	_, err = suite.collectionService.AddTagToCollection(open.Slug, stranger.ID, &contracts.AddCollectionTagRequest{
-		TagName: "public-collab-tag",
-	})
+	tagged, err := suite.collectionService.AddTagToCollection(open.Slug, stranger.ID,
+		&contracts.AddCollectionTagRequest{TagName: "public-collab-tag"})
 	suite.Require().NoError(err)
+	suite.Require().Len(tagged.Tags, 1)
+	tagID := tagged.Tags[0].TagID
 
 	suite.Require().NoError(suite.db.Table("collections").
 		Where("id = ?", open.ID).Update("is_public", false).Error)
 
-	_, err = suite.collectionService.AddTagToCollection(open.Slug, stranger.ID, &contracts.AddCollectionTagRequest{
-		TagName: "private-collab-tag",
-	})
+	_, err = suite.collectionService.AddTagToCollection(open.Slug, stranger.ID,
+		&contracts.AddCollectionTagRequest{TagName: "private-collab-tag"})
 	suite.Require().Error(err, "a stranger may not tag a private collaborative collection")
+	var addErr *apperrors.CollectionError
+	suite.Require().True(stderrors.As(err, &addErr))
+	// NOT FOUND, on the terms GetBySlug states: an invisible collection and one
+	// that does not exist answer alike.
+	suite.Equal(apperrors.CodeCollectionNotFound, addErr.Code)
 
-	err = suite.collectionService.RemoveTagFromCollection(open.Slug, stranger.ID, 1)
+	// RemoveTagFromCollection takes (slug, tagID, userID), the opposite argument
+	// order to AddTagToCollection. Passing a tag that IS on the collection is
+	// what makes this about the gate rather than about a missing tag.
+	err = suite.collectionService.RemoveTagFromCollection(open.Slug, tagID, stranger.ID)
 	suite.Require().Error(err, "nor remove one")
+	var removeErr *apperrors.CollectionError
+	suite.Require().True(stderrors.As(err, &removeErr))
+	suite.Equal(apperrors.CodeCollectionNotFound, removeErr.Code)
 
 	// The creator still can, so the gate did not break the feature.
 	_, err = suite.collectionService.AddTagToCollection(open.Slug, creator.ID, &contracts.AddCollectionTagRequest{
