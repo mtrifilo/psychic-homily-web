@@ -445,20 +445,30 @@ var shapedURLFields = map[string]struct {
 // It is keyed on FIELD NAME, so it covers artist, venue, label and festival
 // alike — the allowlists share these names.
 //
-// Deliberately NOT the whole urlFieldSpecs registry: image_url is absent because
-// its rule is the SSRF host guard, which resolves DNS and needs a
-// context.Context this function does not have. That gap is real and is called
-// out on validateRollbackURLs.
+// It is the union of the URL-bearing entries across ArtistAllowedEditFields,
+// VenueAllowedEditFields, LabelAllowedEditFields, FestivalAllowedEditFields and
+// ReleaseAllowedEditFields — every URL a rollback can actually write. Only the
+// platform fields carry a host anchor; the rest get the scheme rule, which is
+// still the difference between restoring a link and restoring "javascript:...".
+//
+// image_url is HERE for its scheme rule but its host is NOT resolved: the SSRF
+// guard needs a context.Context this function does not take. That residue is
+// stated on validateRollbackURLs and is the one part of the forward contract
+// this path still cannot reproduce.
 var rollbackURLFields = map[string]string{
-	"instagram":  "Instagram URL",
-	"facebook":   "Facebook URL",
-	"twitter":    "Twitter URL",
-	"youtube":    "YouTube URL",
-	"spotify":    "Spotify URL",
-	"soundcloud": "SoundCloud URL",
-	"bandcamp":   "Bandcamp URL",
-	"website":    "Website URL",
-	"ticket_url": "Ticket URL",
+	"instagram":       "Instagram URL",
+	"facebook":        "Facebook URL",
+	"twitter":         "Twitter URL",
+	"youtube":         "YouTube URL",
+	"spotify":         "Spotify URL",
+	"soundcloud":      "SoundCloud URL",
+	"bandcamp":        "Bandcamp URL",
+	"website":         "Website URL",
+	"ticket_url":      "Ticket URL",
+	"cover_art_url":   "Cover art URL",
+	"cover_image_url": "Cover image URL",
+	"flyer_url":       "Flyer URL",
+	"image_url":       "Image URL",
 }
 
 // validateRollbackURLs re-runs the forward paths' URL rules over the values a
@@ -478,7 +488,14 @@ var rollbackURLFields = map[string]string{
 // is left as its own change, because it alters what an admin sees "rollback" do.
 //
 // `website` is host-unrestricted by design (it is the any-host escape hatch), so
-// for that field this is the scheme check alone.
+// for that field this is the scheme check alone — as it is for the image and
+// flyer fields, which have no platform to anchor to.
+//
+// image_url gets its SCHEME rule here but not its host guard: that resolves DNS
+// and needs a context.Context Rollback does not take. So a rollback can still
+// restore an image_url pointing at an internal address, which is the one part of
+// the forward contract this path cannot yet reproduce. Threading a context
+// through Rollback is its own change.
 func validateRollbackURLs(updates map[string]interface{}) error {
 	for field, displayName := range rollbackURLFields {
 		value, present, err := updateStringValue(updates, field, displayName)

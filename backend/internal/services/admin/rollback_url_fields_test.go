@@ -28,6 +28,12 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_RefusesHostileOldValu
 		// website is host-unrestricted by design, so only the scheme rule guards
 		// it — but that rule must still run on the way back.
 		{"website", "javascript:alert(1)", "https://realband.example.org"},
+		// No platform to anchor to, so the scheme rule is the whole guard — and
+		// it is still the difference between restoring a link and restoring a
+		// javascript: or data: URL into a rendered attribute.
+		{"image_url", "javascript:alert(1)", "https://cdn.example.org/a.jpg"},
+		{"cover_art_url", "data:text/html,evil", "https://cdn.example.org/c.jpg"},
+		{"flyer_url", "javascript:alert(1)", "https://cdn.example.org/f.jpg"},
 	}
 
 	for _, c := range cases {
