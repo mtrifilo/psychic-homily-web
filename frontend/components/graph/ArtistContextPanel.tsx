@@ -96,8 +96,9 @@ export function ArtistContextPanel({
         card.connections.shared_labels > 0 && `${card.connections.shared_labels} label ties`,
       ].filter((part): part is string => Boolean(part))
     : []
-  // Whether the Listen row will actually render a player. Asked of MusicEmbed
-  // rather than restated here, so the headed row never strands empty (PSY-1302).
+  // Whether the Listen row will actually render a player. One shared predicate,
+  // gating on the same host anchor MusicEmbed does, so the headed row never
+  // strands empty (PSY-1302).
   const hasPlayableAudio = card
     ? hasRenderableMusic({
         bandcampAlbumUrl: card.bandcamp_embed_url,

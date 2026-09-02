@@ -310,7 +310,10 @@ func TestIsValidBandcampEmbedURL(t *testing.T) {
 		// http is refused even on a real release page: both renderers require
 		// https, so an http row shows neither an embed nor a link.
 		{"http scheme rejected", "http://artificialgo.bandcamp.com/album/x", false},
-		{"leading/trailing whitespace trimmed", "  https://x.bandcamp.com/album/y  ", true},
+		// NOT trimmed. Callers store the string they hand in, so a validator that
+		// trimmed would pass this and put a leading space in the column, where the
+		// browser's parser refuses it.
+		{"leading/trailing whitespace rejected", "  https://x.bandcamp.com/album/y  ", false},
 
 		// Rejected: not an album/track path.
 		{"bare profile root", "https://artificialgo.bandcamp.com", false},
@@ -334,6 +337,22 @@ func TestIsValidBandcampEmbedURL(t *testing.T) {
 		{"userinfo spoofing the host", "https://x.bandcamp.com@evil.test/album/y", false},
 		{"release path on a subdomain of a lookalike", "https://x.bandcamp.com.evil.test/album/y", false},
 		{"album segment only in the query of a foreign host", "https://evil.test/checkout?ref=/album/x", false},
+
+		// Rejected because the BROWSER reads these paths differently than Go's
+		// decoded u.Path does. Each would otherwise be storable and unrenderable,
+		// which is the one direction the store-subset-of-render contract forbids.
+		{"percent-encoded first segment", "https://x.bandcamp.com/%61lbum/y", false},
+		{"encoded slash hiding the real segment", "https://x.bandcamp.com/album%2Fy", false},
+		{"dot segments the browser resolves away", "https://x.bandcamp.com/album/../../evil", false},
+		{"single dot segment", "https://x.bandcamp.com/album/./y", false},
+		{"encoded dot-dot segment", "https://x.bandcamp.com/album/%2E%2E/evil", false},
+		// A percent-encoded character LATER in the slug is ordinary and stays valid.
+		{"encoded character inside the slug", "https://x.bandcamp.com/album/caf%C3%A9", true},
+
+		// Whitespace-only would otherwise be stored blank-but-not-null: "has an
+		// embed" to every IS NULL backfill, nothing at all to a reader.
+		{"whitespace only", "   ", false},
+		{"non-breaking space prefix", " https://x.bandcamp.com/album/y", false},
 	}
 
 	for _, tc := range tests {
@@ -348,9 +367,21 @@ func TestValidateBandcampEmbedURL(t *testing.T) {
 		assert.NoError(t, ValidateBandcampEmbedURL("https://x.bandcamp.com/album/y", BandcampEmbedURLLabel))
 	})
 
-	t.Run("empty and whitespace clear the field", func(t *testing.T) {
+	t.Run("only the empty string clears the field", func(t *testing.T) {
 		assert.NoError(t, ValidateBandcampEmbedURL("", BandcampEmbedURLLabel))
-		assert.NoError(t, ValidateBandcampEmbedURL("   ", BandcampEmbedURLLabel))
+		// Whitespace-only is NOT a clear gesture. Accepting it would store a
+		// blank-but-not-null value: excluded from every IS NULL backfill and the
+		// link sweep forever, counted as "has an embed" by the playable-audio
+		// flags, and rendered as nothing.
+		assert.Error(t, ValidateBandcampEmbedURL("   ", BandcampEmbedURLLabel))
+		assert.Error(t, ValidateBandcampEmbedURL("\t\n", BandcampEmbedURLLabel))
+	})
+
+	t.Run("caps length so every boundary agrees on what fits", func(t *testing.T) {
+		long := "https://x.bandcamp.com/album/" + strings.Repeat("a", MaxBandcampEmbedURLLen)
+		err := ValidateBandcampEmbedURL(long, BandcampEmbedURLLabel)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "characters or fewer")
 	})
 
 	t.Run("refusal names the field and shows an accepted example", func(t *testing.T) {
@@ -367,6 +398,59 @@ func TestValidateBandcampEmbedURL(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "bandcamp_embed_url")
 	})
+}
+
+// IsResolvableBandcampURL answers a DIFFERENT question from the write gate:
+// "can this row produce anything on screen", which is what the backend's
+// playable-audio flags and the scene representative-embed picker need so they do
+// not promise a player that never appears. It is the Go mirror of
+// isAllowedBandcampUrl in frontend/lib/bandcamp.ts.
+func TestIsResolvableBandcampURL(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		// Looser than the write gate on purpose: a non-release page on Bandcamp
+		// can still resolve to a playable id, and the apex is accepted because
+		// the frontend predicate it mirrors accepts it.
+		{"release page", "https://x.bandcamp.com/album/y", true},
+		{"profile root", "https://x.bandcamp.com", true},
+		{"non-release on-platform page", "https://x.bandcamp.com/music", true},
+		{"apex", "https://bandcamp.com/album/x", true},
+
+		// Anything the resolver would refuse to fetch.
+		{"http", "http://x.bandcamp.com/album/y", false},
+		{"foreign host", "https://evil.test/album/y", false},
+		{"lookalike suffix", "https://bandcamp.com.evil.test/album/y", false},
+		{"lookalike prefix", "https://evilbandcamp.com/album/y", false},
+		{"userinfo spoofing the host", "https://x.bandcamp.com@evil.test/album/y", false},
+		{"empty", "", false},
+		{"whitespace only", "   ", false},
+		{"not a url", "not a url", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, IsResolvableBandcampURL(tc.input))
+		})
+	}
+}
+
+// The two predicates form a ladder: anything STORABLE must also be RESOLVABLE,
+// or a value the write gate accepts would light no affordance and render
+// nothing. This is the Go half of the store-subset-of-render contract; the
+// cross-language half is pinned in frontend/lib/bandcamp.test.ts.
+func TestStorableImpliesResolvable(t *testing.T) {
+	for _, value := range []string{
+		"https://x.bandcamp.com/album/y",
+		"https://x.bandcamp.com/track/y",
+		"https://x.bandcamp.com/album/caf%C3%A9",
+		"https://x.bandcamp.com/track/t?ref=/album/a",
+	} {
+		require.True(t, IsValidBandcampEmbedURL(value), "fixture must be storable: %s", value)
+		assert.True(t, IsResolvableBandcampURL(value),
+			"a storable value must be resolvable, or it renders nothing: %s", value)
+	}
 }
 
 func TestIsBandcampAlbumURL(t *testing.T) {

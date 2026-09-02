@@ -6,6 +6,7 @@ import { screen, waitFor } from '@testing-library/react'
 // keeps the `mockRejectedValueOnce` error-path tests deterministic.
 import { render } from '../../test/utils'
 import { MusicEmbed } from './MusicEmbed'
+import { hasRenderableMusic } from '@/lib/musicAvailability'
 
 
 describe('MusicEmbed', () => {
@@ -438,6 +439,34 @@ describe('MusicEmbed', () => {
           'https://band.bandcamp.com/track/leyenda'
         )
       })
+    })
+
+    // The tripwire for the claim that hasRenderableMusic is a NECESSARY
+    // condition for this component rendering anything. It is a restatement of
+    // MusicEmbed's entry conditions, not a call into it, so without this the
+    // "cannot drift" claim is carried by prose alone: every caller test mocks
+    // the component away, and musicAvailability.test.ts exercises the predicate
+    // in isolation.
+    it.each([
+      'https://evil.test/album/checkout',
+      'https://bandcamp.com.attacker.test/album/x',
+      'http://band.bandcamp.com/album/test',
+      'https://evil.test/?next=https://band.bandcamp.com/album/y',
+      '   ',
+    ])('renders nothing whenever hasRenderableMusic is false: %s', async (url) => {
+      expect(hasRenderableMusic({ bandcampAlbumUrl: url })).toBe(false)
+
+      const fetchSpy = vi.spyOn(global, 'fetch')
+      const { container } = render(
+        <MusicEmbed bandcampAlbumUrl={url} artistName="Test Artist" />
+      )
+
+      await waitFor(() => {
+        expect(container.querySelector('section')).not.toBeInTheDocument()
+      })
+      // And it never asked the resolver: a URL the route would 400 must not cost
+      // a round trip or hold the loading placeholder open on the way to nothing.
+      expect(fetchSpy).not.toHaveBeenCalled()
     })
 
     // The iframe branch is unaffected: its src is built from a resolved numeric

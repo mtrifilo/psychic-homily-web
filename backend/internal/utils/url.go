@@ -74,8 +74,15 @@ func IsBandcampArtistHost(host string) bool {
 // exists to keep a legacy row renderable; nothing may be STORED that the
 // renderer would refuse, or a curator's save would silently produce no link.
 //
-// Three rules, each load-bearing:
+// Five rules, each load-bearing:
 //
+//   - The value is judged EXACTLY as it will be stored. Nothing is trimmed or
+//     normalized first, because every caller stores the string it handed in: a
+//     validator that trims passes " https://…/album/x" and then a leading space
+//     goes into the column, where the browser's parser refuses it. Same reason a
+//     whitespace-only value is refused rather than treated as empty — it would
+//     otherwise be STORED as blank-but-not-null, which reads as "has an embed"
+//     to every IS NULL backfill and renders as nothing.
 //   - https only. The value's whole purpose is to be rendered, and both
 //     renderers refuse http: the resolver that turns it into an iframe fetches
 //     it through isAllowedBandcampUrl (https), and the link fallback gates on
@@ -84,19 +91,28 @@ func IsBandcampArtistHost(host string) bool {
 //   - Host anchored on the parsed hostname, never a substring of the URL, so
 //     "http://169.254.169.254/album/x?bandcamp.com", "bandcamp.com.evil.test"
 //     and "evilbandcamp.com" are all rejected.
-//   - Path prefix on the parsed path, never a substring, so a foreign host
-//     carrying "/album/" in a query string it controls does not qualify.
+//   - Path prefix on the ESCAPED path, never on the decoded one and never on a
+//     substring of the URL. Decoded would accept "/%61lbum/y" and "/album%2Fx",
+//     which the browser's `pathname` — the thing the read gate reads — spells
+//     differently and refuses. Escaped is what the two layers agree on.
+//   - No "." or ".." path segment. Go leaves them in place and the browser
+//     resolves them away, so "/album/../../evil" is a release page to one layer
+//     and an arbitrary path to the other. A real release page has neither.
 //
 // The column is not fetched by us at write time, so the win here is keeping a
 // hostile or foreign host out of a value that later renders BOTH as an iframe
 // and as an outbound link wearing a Bandcamp label (PSY-1966); it is not SSRF.
 //
+// What it does NOT prove, stated so nobody reads more into it: bandcamp.com
+// subdomains are handed out on signup, so this establishes "a Bandcamp release
+// page", never "a page this artist controls". The surface is narrowed to
+// Bandcamp's own abuse handling, not closed.
+//
 // This is the STRICT embed gate (it requires the /album|/track path), distinct
 // from the looser per-platform host floor the social-link validators apply to
 // social.bandcamp, which holds a profile root rather than a release.
 func IsValidBandcampEmbedURL(rawURL string) bool {
-	trimmed := strings.TrimSpace(rawURL)
-	u, err := url.Parse(trimmed)
+	u, err := url.Parse(rawURL)
 	if err != nil {
 		return false
 	}
@@ -108,8 +124,54 @@ func IsValidBandcampEmbedURL(rawURL string) bool {
 	if !IsBandcampArtistHost(u.Hostname()) {
 		return false
 	}
+	path := u.EscapedPath()
+	if hasDotSegment(path) {
+		return false
+	}
 	// Album or track page, not a bare profile.
-	return strings.HasPrefix(u.Path, "/album/") || strings.HasPrefix(u.Path, "/track/")
+	return strings.HasPrefix(path, "/album/") || strings.HasPrefix(path, "/track/")
+}
+
+// hasDotSegment reports whether path contains a "." or ".." segment, in either
+// its literal or percent-encoded spelling. Those are the segments a browser
+// resolves away before it decides what the path is, so a check that ignored them
+// would answer a different question than the renderer does.
+func hasDotSegment(path string) bool {
+	for _, segment := range strings.Split(path, "/") {
+		decoded, err := url.PathUnescape(segment)
+		if err != nil {
+			// Unescapable input is not a segment we can reason about; treat it
+			// as suspect, which the caller turns into a rejection.
+			return true
+		}
+		if decoded == "." || decoded == ".." {
+			return true
+		}
+	}
+	return false
+}
+
+// IsResolvableBandcampURL reports whether rawURL is a Bandcamp page the embed
+// resolver will even attempt: https on bandcamp.com or one of its subdomains.
+//
+// Looser than IsValidBandcampEmbedURL, and for a different question. That one
+// decides what may be STORED; this one answers "can this row produce anything
+// on screen", which is the question the backend's playable-audio flags and the
+// scene representative-embed picker have to answer to avoid promising a player
+// that never appears.
+//
+// It is the Go mirror of isAllowedBandcampUrl in frontend/lib/bandcamp.ts, which
+// is the precondition /api/bandcamp/album-id enforces before it fetches. It
+// accepts the apex because that predicate does: the two must agree, and being
+// the more lenient of the two costs nothing here (a page that is on Bandcamp but
+// carries no player still renders nothing; it just is not predicted).
+func IsResolvableBandcampURL(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Scheme != "https" {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	return host == "bandcamp.com" || IsBandcampArtistHost(host)
 }
 
 // BandcampEmbedURLField is the artists column that holds a Bandcamp release
@@ -124,6 +186,9 @@ func IsValidBandcampEmbedURL(rawURL string) bool {
 const (
 	BandcampEmbedURLField = "bandcamp_embed_url"
 	BandcampEmbedURLLabel = "Bandcamp embed URL"
+	// MaxBandcampEmbedURLLen sizes the column-shaped cap the queues already
+	// applied, so every boundary onto this TEXT column agrees on what fits.
+	MaxBandcampEmbedURLLen = 2048
 )
 
 // ValidateBandcampEmbedURL is IsValidBandcampEmbedURL as a write-boundary
@@ -137,16 +202,25 @@ const (
 // seeing the form of URL that works, and one message covers every way the value
 // can be wrong.
 //
-// An empty or whitespace-only value passes: it is the clear-the-field gesture,
-// and the column is nullable. Callers that do not accept a clear must reject
-// empty themselves.
+// ONLY the empty string passes as the clear-the-field gesture. A whitespace-only
+// value is refused, because it would otherwise be stored blank-but-not-null:
+// "has an embed" to every IS NULL backfill and the playable-audio flags, and
+// nothing at all to a reader.
+//
+// The length cap is here rather than at each boundary because this is the only
+// check the direct admin endpoint runs (its request struct carries no maxLength,
+// and huma's validate tags are inert in this codebase), while both queues cap at
+// 2048. Without it the three write paths disagree about what fits.
 //
 // fieldName is the user-facing label. It is a parameter rather than a constant
 // because the entity-request queue names the field as it appears in the stored
 // payload, while the direct endpoints name it as the form labels it.
 func ValidateBandcampEmbedURL(value, fieldName string) error {
-	if strings.TrimSpace(value) == "" {
+	if value == "" {
 		return nil
+	}
+	if len(value) > MaxBandcampEmbedURLLen {
+		return fmt.Errorf("%s must be %d characters or fewer", fieldName, MaxBandcampEmbedURLLen)
 	}
 	if !IsValidBandcampEmbedURL(value) {
 		return fmt.Errorf(

@@ -175,10 +175,10 @@ export function ArtistPanel({
   const artistSlug = card?.slug || current.artistSlug
   const identity = card ? artistIdentityLine(card) : ''
   const connections = card ? artistConnectionsLine(card) : ''
-  // Whether the LISTEN block will actually render a player. Asked of MusicEmbed
-  // rather than restated here, so this cannot drift from what that component
-  // does: a headed LISTEN section with no player under it is the failure mode
-  // this gate exists to prevent (PSY-1302).
+  // Whether the LISTEN block will actually render a player. One shared
+  // predicate, gating on the same host anchor MusicEmbed does, rather than a
+  // local restatement: a headed LISTEN section with no player under it is the
+  // failure mode this gate exists to prevent (PSY-1302).
   const hasPlayableAudio = card
     ? hasRenderableMusic({
         bandcampAlbumUrl: card.bandcamp_embed_url,

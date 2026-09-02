@@ -687,6 +687,64 @@ describe('ArtistDetail', () => {
       expect(screen.queryByTestId('music-embed')).not.toBeInTheDocument()
     })
 
+    // PSY-1966. The sidebar heads its own "Top tracks" section, so it has to
+    // predict what MusicEmbed will do. A stored value that is not provably
+    // Bandcamp renders no player and no link, so the section must not open at
+    // all — reverting this gate to a truthiness test would strand the heading
+    // over nothing, which is what PSY-1302 exists to prevent.
+    it.each([
+      'https://evil.test/album/checkout',
+      'https://bandcamp.com.attacker.test/album/x',
+      'http://artist.bandcamp.com/album/test',
+    ])('hides the music embed for an unrenderable stored value: %s', (url) => {
+      mockUseArtist.mockReturnValue({
+        data: makeArtist({ bandcamp_embed_url: url }),
+        isLoading: false,
+        error: null,
+      })
+
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      expect(screen.queryByTestId('music-embed')).not.toBeInTheDocument()
+    })
+
+    it('still shows the music embed for a real release URL', () => {
+      mockUseArtist.mockReturnValue({
+        data: makeArtist({
+          bandcamp_embed_url: 'https://artist.bandcamp.com/album/test',
+        }),
+        isLoading: false,
+        error: null,
+      })
+
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      expect(screen.getByTestId('music-embed')).toBeInTheDocument()
+    })
+
+    // The Spotify half of the same gate moved from truthiness to
+    // parseSpotifyEmbed: a URL the player cannot turn into an embed id must not
+    // open the section either.
+    it('hides the music embed for an unparseable Spotify URL', () => {
+      mockUseArtist.mockReturnValue({
+        data: makeArtist({
+          social: {
+            instagram: null,
+            facebook: null,
+            twitter: null,
+            youtube: null,
+            spotify: 'https://open.spotify.com/playlist/4Z8W4fKeB5YxbusRsdQVPb',
+            soundcloud: null,
+            bandcamp: null,
+            website: null,
+          },
+        }),
+        isLoading: false,
+        error: null,
+      })
+
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      expect(screen.queryByTestId('music-embed')).not.toBeInTheDocument()
+    })
+
     it('renders Top tracks FIRST in the sidebar, before Statistics (PSY-1065)', () => {
       // Listening is the fastest way to judge an unfamiliar band — the
       // embed leads the column.

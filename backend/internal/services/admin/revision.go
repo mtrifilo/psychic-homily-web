@@ -324,6 +324,33 @@ func (s *RevisionService) Rollback(revisionID uint, adminUserID uint) error {
 		return err
 	}
 
+	// PSY-1966: a rollback is a WRITE of a contributor-supplied value, not a
+	// restore of something this system vetted.
+	//
+	// That distinction is the whole finding. FieldChange.OldValue arrives on the
+	// suggest-edit body and nothing ever compares it to the entity's actual
+	// current value — the submit handler validates NewValue only, and
+	// ApprovePendingEdit copies the pair verbatim into revisions.field_changes.
+	// So a contributor can submit a legitimate NewValue alongside an arbitrary
+	// OldValue, wait for the approve, and have this function write the OldValue
+	// live. Every gate on the forward paths is bypassed by going backwards.
+	//
+	// Refusing the whole rollback, rather than dropping the offending field, is
+	// the same call ApprovePendingEdit makes: a partial undo is not the undo the
+	// admin asked for, and the message names what is wrong.
+	//
+	// A legacy row's correction therefore cannot be rolled back, and that is the
+	// intended outcome: un-fixing a bad URL is not an operation worth having.
+	//
+	// SCOPE, stated plainly: this covers the `shape` rules only. The SSRF host
+	// guard (revalidateFetchedURLs) has the identical hole on this path for
+	// image_url, which IS fetched server-side, and closing it needs a
+	// context.Context threaded through Rollback. That is its own change, not a
+	// rider here.
+	if err := revalidateShapedURLs(updates); err != nil {
+		return err
+	}
+
 	// A rollback that restores city/state must re-derive whatever the system
 	// derives FROM that location, or the entity lands back in its old city still
 	// carrying what was resolved for the city it was moved away from. Shared with

@@ -286,9 +286,9 @@ function ArtistSidebar({
     : []
 
   const hasSocialLinks = !!artist.social && hasAnySocialLink(artist.social)
-  // Asked of MusicEmbed rather than restated here: since PSY-1966 a stored
-  // Bandcamp URL no longer guarantees content, so a truthiness test would head
-  // a "Top tracks" section with nothing under it.
+  // Whether MusicEmbed will render anything, which a stored Bandcamp URL no
+  // longer implies on its own. One shared predicate rather than a local
+  // truthiness test, so this section cannot head an empty sidebar.
   const hasMusicLink = hasRenderableMusic({
     bandcampAlbumUrl: artist.bandcamp_embed_url,
     bandcampProfileUrl: artist.social?.bandcamp,

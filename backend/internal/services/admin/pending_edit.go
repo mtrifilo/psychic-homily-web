@@ -462,10 +462,10 @@ var shapedURLFields = map[string]struct {
 func revalidateFetchedURLs(ctx context.Context, updates map[string]interface{}) error {
 	for field, displayName := range fetchedURLFields {
 		value, present, err := updateStringValue(updates, field, displayName)
-		if err != nil || !present {
-			if err != nil {
-				return err
-			}
+		if err != nil {
+			return err
+		}
+		if !present {
 			continue
 		}
 		if err := urlguard.Default.Validate(ctx, value, displayName); err != nil {

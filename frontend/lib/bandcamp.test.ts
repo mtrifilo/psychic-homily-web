@@ -284,3 +284,41 @@ describe('resolveBandcampEmbed', () => {
     })
   })
 })
+
+// The store-subset-of-render contract, from the READ side (PSY-1966).
+//
+// The write half is utils.IsValidBandcampEmbedURL in the Go backend. Nothing can
+// make one language import the other, so this is the tripwire instead: the
+// corpus below is the set of shapes the Go predicate ACCEPTS, copied from
+// TestIsValidBandcampEmbedURL, and every one of them must render here. If a
+// change to either side breaks the containment, this fails and names the value.
+//
+// The direction is what matters. This gate may be MORE lenient than the write
+// gate (it accepts the bandcamp.com apex, which the write gate refuses, so a
+// legacy row still renders). It may never be stricter, or a curator's save would
+// silently produce no link.
+describe('mirrors the Go write gate (store is a subset of render)', () => {
+  const storableByTheBackend = [
+    'https://kingbuffalo.bandcamp.com/album/regenerator',
+    'https://x.bandcamp.com/track/leyenda',
+    'https://x.bandcamp.com/track/t?ref=/album/a',
+    // A percent-encoded character inside the slug is ordinary and storable.
+    'https://x.bandcamp.com/album/caf%C3%A9',
+  ]
+
+  it.each(storableByTheBackend)('renders anything the backend will store: %s', (url) => {
+    expect(isBandcampReleaseUrl(url)).toBe(true)
+  })
+
+  // The shapes Go refuses BECAUSE this parser reads them differently. Each was a
+  // real divergence: Go's u.Path is percent-decoded and un-normalized, so
+  // without EscapedPath and the dot-segment rule these were storable there and
+  // unrenderable here.
+  it.each([
+    'https://x.bandcamp.com/%61lbum/y',
+    'https://x.bandcamp.com/album%2Fy',
+    'https://x.bandcamp.com/album/../../evil',
+  ])('agrees with the backend on parser-divergent paths: %s', (url) => {
+    expect(isBandcampReleaseUrl(url)).toBe(false)
+  })
+})

@@ -30,9 +30,9 @@ import { splitBill } from '../utils'
 import type { ShowResponse, ArtistResponse } from '../types'
 
 /**
- * Whether an artist's music block will render anything. Asked of MusicEmbed
- * rather than restated here: since PSY-1966 a stored Bandcamp URL no longer
- * guarantees content, and a truthiness test would open the block on nothing.
+ * Whether an artist's music block will render anything. A stored Bandcamp URL
+ * no longer implies that on its own, so this asks the shared predicate rather
+ * than testing the column, or the expand button would open onto nothing.
  */
 function artistHasMusic(artist: ArtistResponse): boolean {
   return hasRenderableMusic({

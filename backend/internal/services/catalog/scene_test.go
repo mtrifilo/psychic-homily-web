@@ -2067,6 +2067,83 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetRepresentativeEmbed_PicksE
 	suite.Equal("zzz-with-embed", embed.ArtistSlug)
 }
 
+// A stored value nothing can render must not WIN the pick (PSY-1966).
+//
+// This is the regression the gate would otherwise cause. The preview now heads
+// its Listen block on what the player will actually produce, so nominating an
+// unrenderable row no longer degrades to a plain link — it suppresses the whole
+// block for the metro, and the next band that has a working embed never gets its
+// turn. One junk row must not silence a scene.
+func (suite *SceneServiceIntegrationTestSuite) TestGetRepresentativeEmbed_SkipsUnrenderableEmbed() {
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("RE Junk V1", "Phoenix", "AZ")
+	v2 := suite.createVerifiedVenue("RE Junk V2", "Phoenix", "AZ")
+
+	// Top-ranked active band holds a value the renderer refuses.
+	topJunk := &catalogm.Artist{
+		Name:             "AAA Top Junk Embed",
+		Slug:             stringPtr("aaa-top-junk-embed"),
+		City:             stringPtr("Phoenix"),
+		State:            stringPtr("AZ"),
+		Metro:            seedMetro("Phoenix", "AZ"),
+		BandcampEmbedURL: stringPtr("https://evil.test/album/checkout"),
+	}
+	suite.Require().NoError(suite.db.Create(topJunk).Error)
+
+	const goodURL = "https://good.bandcamp.com/album/x"
+	good := &catalogm.Artist{
+		Name:             "ZZZ Good Embed",
+		Slug:             stringPtr("zzz-good-embed"),
+		City:             stringPtr("Phoenix"),
+		State:            stringPtr("AZ"),
+		Metro:            seedMetro("Phoenix", "AZ"),
+		BandcampEmbedURL: stringPtr(goodURL),
+	}
+	suite.Require().NoError(suite.db.Create(good).Error)
+
+	future := time.Now().UTC().AddDate(0, 0, 7)
+	suite.createApprovedShow("J1", v1.ID, topJunk.ID, user.ID, future)
+	suite.createApprovedShow("J2", v2.ID, topJunk.ID, user.ID, future.AddDate(0, 0, 1))
+	suite.createApprovedShow("G1", v1.ID, good.ID, user.ID, future.AddDate(0, 0, 2))
+
+	embed, err := suite.sceneService.GetRepresentativeEmbed("Phoenix", "AZ", 180)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(embed, "the junk row must not suppress the metro's player")
+	suite.Equal(goodURL, embed.EmbedURL)
+	suite.Equal("ZZZ Good Embed", embed.ArtistName)
+}
+
+// When every candidate is unrenderable there IS no player, and the preview
+// shows no Listen block at all rather than a heading over nothing.
+func (suite *SceneServiceIntegrationTestSuite) TestGetRepresentativeEmbed_NilWhenAllUnrenderable() {
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("RE AllJunk V1", "Phoenix", "AZ")
+	// A scene needs sceneMinVenues verified rooms before it exists at all.
+	suite.createVerifiedVenue("RE AllJunk V2", "Phoenix", "AZ")
+
+	for i, junk := range []string{
+		"https://evil.test/album/checkout",
+		"http://x.bandcamp.com/album/y",
+		"   ",
+	} {
+		a := &catalogm.Artist{
+			Name:             fmt.Sprintf("All Junk Band %d", i),
+			Slug:             stringPtr(fmt.Sprintf("all-junk-band-%d", i)),
+			City:             stringPtr("Phoenix"),
+			State:            stringPtr("AZ"),
+			Metro:            seedMetro("Phoenix", "AZ"),
+			BandcampEmbedURL: stringPtr(junk),
+		}
+		suite.Require().NoError(suite.db.Create(a).Error)
+		suite.createApprovedShow(
+			fmt.Sprintf("AJ%d", i), v1.ID, a.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7+i))
+	}
+
+	embed, err := suite.sceneService.GetRepresentativeEmbed("Phoenix", "AZ", 180)
+	suite.Require().NoError(err)
+	suite.Nil(embed, "no renderable embed exists, so the preview must show no player")
+}
+
 // Active-first: with two embed-having bands, the ACTIVE one wins even when the
 // inactive one sorts first alphabetically.
 func (suite *SceneServiceIntegrationTestSuite) TestGetRepresentativeEmbed_PrefersActiveBand() {

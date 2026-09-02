@@ -93,10 +93,11 @@ export function ScenePreviewContent({
         <FollowButton entityType="scenes" entityId={scene.slug} compact />
         <SceneNotifyModeToggle slug={scene.slug} />
       </div>
-      {/* The heading is gated on what MusicEmbed will actually produce, not on
-          the row existing: since PSY-1966 a stored Bandcamp URL no longer
-          guarantees content, and a bare "Listen" over nothing is worse than no
-          section at all. */}
+      {/* Gated on what MusicEmbed will actually produce, not on the row
+          existing: a stored Bandcamp URL no longer implies content, and a bare
+          "Listen" over nothing is worse than no section at all. The backend
+          picker applies the same rule, so a metro whose top band holds an
+          unrenderable value still gets the next band's player. */}
       {embed && hasRenderableMusic({ bandcampAlbumUrl: embed.embed_url }) && (
         <div>
           <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">

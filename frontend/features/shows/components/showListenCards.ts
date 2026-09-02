@@ -49,12 +49,20 @@ export interface ListenCard {
  *
  * The source ladder MIRRORS `MusicEmbed`'s own `deriveEmbedState`, and that
  * duplication is a DEBT, not a design. It has to agree, because `MusicEmbed`
- * renders NOTHING when it can find no source. Three other surfaces hand-mirror
- * the same ladder for the same reason (`ArtistPanel`, `ArtistContextPanel`,
- * and `ShowCard`, the last still on the loose version). The unification they
- * all want is one exported pure resolver beside `deriveEmbedState` that every
- * gate calls; it is owed, and it is a wider change than this surface. Do not
- * add a fifth copy.
+ * renders NOTHING when it can find no source.
+ *
+ * The surfaces that used to hand-mirror this ladder (`ArtistPanel`,
+ * `ArtistContextPanel`, `ShowCard`, `ArtistDetail`, `ScenePreviewContent`) now
+ * call `hasRenderableMusic` in `lib/musicAvailability` instead — the shared
+ * predicate the old note here asked for. This surface deliberately does NOT use
+ * it, because it asks a stricter question: `hasRenderableMusic` answers "will
+ * the player render anything", while a "Buy" card promises ONE release, which is
+ * `isBandcampReleaseUrl`. So `https://band.bandcamp.com/music` opens a music
+ * block and produces no Buy card, and that is correct rather than drift.
+ *
+ * What remains owed is the ladder itself: an exported pure resolver beside
+ * `deriveEmbedState` that this function calls instead of restating. Do not add
+ * another copy of the ladder.
  *
  * `parseSpotifyEmbed` and `isBandcampReleaseUrl` are therefore load-bearing,
  * not decorative: they are the same validation the player and the resolver

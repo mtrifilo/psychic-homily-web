@@ -123,17 +123,31 @@ export function MusicEmbed({
   artistName,
   compact = false,
 }: MusicEmbedProps) {
+  // The album URL only as far as it can go: `/api/bandcamp/album-id` refuses
+  // anything failing this same host anchor with a 400 before it fetches, so a
+  // value that cannot clear it is not "an album URL we have not resolved yet",
+  // it is one the resolver will never accept. Treating it as absent for the
+  // WHOLE ladder — the query and the branches below — is what keeps a junk row
+  // from paying a round trip, holding the 120px loading placeholder open, and
+  // then collapsing to nothing.
+  //
+  // It also makes hasRenderableMusic (lib/musicAvailability) an exact necessary
+  // condition rather than an approximate one: that predicate asks this same
+  // question, so whatever it calls unrenderable reaches `none` here.
+  const resolvableAlbumUrl =
+    bandcampAlbumUrl && isAllowedBandcampUrl(bandcampAlbumUrl) ? bandcampAlbumUrl : null
+
   // The bandcamp resolve is the only async dependency. Keying on the album URL
   // dedups the `/api/bandcamp/album-id` request across the many MusicEmbed
   // instances a list page mounts and caches the result across nav/remount.
-  // Disabled when there's no album URL so Spotify-only / fallback-only embeds
-  // resolve synchronously without a wasted request. The empty-string fallback
-  // key is never fetched (the query is disabled in that case).
+  // Disabled when there's no resolvable album URL so Spotify-only /
+  // fallback-only embeds resolve synchronously without a wasted request. The
+  // empty-string fallback key is never fetched (the query is disabled then).
   const bandcampQuery = useQuery({
-    queryKey: queryKeys.bandcamp.embed(bandcampAlbumUrl ?? ''),
+    queryKey: queryKeys.bandcamp.embed(resolvableAlbumUrl ?? ''),
     queryFn: async () => {
       try {
-        return await resolveBandcampEmbed(bandcampAlbumUrl as string)
+        return await resolveBandcampEmbed(resolvableAlbumUrl as string)
       } catch (error) {
         Sentry.captureException(error, {
           // Being rate-limited is expected weather, not a defect, and it
@@ -153,7 +167,7 @@ export function MusicEmbed({
         throw error
       }
     },
-    enabled: Boolean(bandcampAlbumUrl),
+    enabled: Boolean(resolvableAlbumUrl),
     // The embed is a best-effort enhancement: a failed resolve should fall
     // through to the Spotify / fallback link immediately. Without this, a
     // network-level fetch rejection would inherit the global 3x retry-with-
@@ -163,7 +177,7 @@ export function MusicEmbed({
   })
 
   const embed = deriveEmbedState({
-    bandcampAlbumUrl,
+    bandcampAlbumUrl: resolvableAlbumUrl,
     bandcampProfileUrl,
     spotifyUrl,
     artistName,
@@ -302,16 +316,17 @@ function deriveEmbedState({
   // Priority 3: Bandcamp fallback links.
   //
   // Both URLs are proven Bandcamp before either becomes an href, and this is the
-  // only place that check is COMPLETE: nine surfaces mount this component and
-  // hand it the raw contributor-writable column, so a gate at the call sites is
-  // a gate a tenth caller silently skips. The iframe branches above need no such
+  // only place that check is COMPLETE: every surface that mounts this component
+  // hands it a raw contributor-writable column, so a gate at the call sites is a
+  // gate the next caller silently skips. The iframe branches above need no such
   // gate — their src is built from a resolved numeric id, never from the stored
   // string.
   //
-  // Two rules because the two fields hold two things. An embed URL names ONE
-  // release, so it must be a /album|/track page (see isBandcampReleaseUrl for
-  // the mirrored write gate); a profile URL is a bare artist root, so the host
-  // anchor is the whole rule.
+  // The album URL has already cleared the host anchor before it reaches this
+  // function (see resolvableAlbumUrl at the call site); what is left to prove is
+  // that it names ONE release, which is what a "Listen to X on Bandcamp" link
+  // promises. A profile URL is a bare artist root, so its host anchor is the
+  // whole rule.
   //
   // Fail CLOSED, to 'none'. Falling through to the profile when the album URL is
   // rejected is deliberate: the artist may still have a good profile link, and
