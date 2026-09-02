@@ -363,9 +363,9 @@ export function BottomTabBar() {
         {/* Account — auth-aware */}
         {isLoading ? (
           // Inert placeholder during auth hydration so the 5-tab grid doesn't
-          // jump (grid stability — NOT parity with the top bar, whose UserMenu
-          // shows a spinner while loading). aria-hidden: it looks tappable but
-          // is deliberately inert until auth settles.
+          // jump: this cell is one of five equal columns, so it has to occupy
+          // its column whatever the viewer turns out to be. aria-hidden: it
+          // looks tappable but is deliberately inert until auth settles.
           <div aria-hidden className={tabClassName(false)}>
             <User className="size-5" />
             Account

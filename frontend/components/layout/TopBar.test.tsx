@@ -25,12 +25,17 @@ type MockAuthContextValue = {
     is_admin: boolean
   } | null
   isAuthenticated: boolean
+  // The settled-auth signal UserMenu actually gates on. Stated in every
+  // fixture below rather than defaulted, so no test in this file depends on
+  // `undefined` falling through to the anonymous branch.
+  authStatus: 'pending' | 'authenticated' | 'anonymous'
   isLoading: boolean
   logout: () => void
 }
 const mockAuthContext = vi.fn<() => MockAuthContextValue>(() => ({
   user: null,
   isAuthenticated: false,
+  authStatus: 'anonymous',
   isLoading: false,
   logout: mockLogout,
 }))
@@ -63,6 +68,7 @@ describe('TopBar', () => {
     mockAuthContext.mockReturnValue({
       user: null,
       isAuthenticated: false,
+      authStatus: 'anonymous',
       isLoading: false,
       logout: mockLogout,
     })
@@ -178,6 +184,7 @@ describe('TopBar', () => {
       mockAuthContext.mockReturnValue({
         user: { email: 'test@test.com', first_name: 'John', last_name: 'Doe', is_admin: false },
         isAuthenticated: true,
+        authStatus: 'authenticated',
         isLoading: false,
         logout: mockLogout,
       })
@@ -188,10 +195,11 @@ describe('TopBar', () => {
       expect(screen.getByRole('link', { name: '+ Submit' })).toHaveAttribute('href', '/shows/submit')
     })
 
-    it('hides the Submit CTA, bell + avatar while auth is loading', () => {
+    it('hides the Submit CTA, bell + avatar while auth is unsettled', () => {
       mockAuthContext.mockReturnValue({
         user: null,
         isAuthenticated: false,
+        authStatus: 'pending',
         isLoading: true,
         logout: mockLogout,
       })
@@ -202,10 +210,50 @@ describe('TopBar', () => {
       expect(screen.queryByText('login / sign-up')).not.toBeInTheDocument()
     })
 
+    // PSY-1986. A profile fetch that fails on a non-definitive error (5xx,
+    // network, 403) leaves `authStatus` at 'pending' with `isLoading` false —
+    // the window where the bar used to claim the viewer was anonymous beside
+    // bracket controls that correctly rendered disabled.
+    it('renders neither identity claim while auth is terminally unsettled', () => {
+      mockAuthContext.mockReturnValue({
+        user: null,
+        isAuthenticated: false,
+        authStatus: 'pending',
+        isLoading: false,
+        logout: mockLogout,
+      })
+      render(<TopBar />)
+      expect(screen.queryByText('login / sign-up')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'User menu' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: '+ Submit' })).not.toBeInTheDocument()
+      expect(screen.queryByTestId('notification-bell')).not.toBeInTheDocument()
+      // No spinner either: this state can outlive the SPA session, so a
+      // progress affordance would promise an arrival that is not coming.
+      expect(screen.queryByRole('status')).not.toBeInTheDocument()
+      expect(document.querySelector('.animate-spin')).toBeNull()
+    })
+
+    // The override built at login makes `user` truthy before the profile query
+    // resolves; `isLoading` is still true in that window. Gating on it would
+    // hold the signed-in cluster back until the profile landed.
+    it('shows the authenticated cluster as soon as auth settles, even mid-fetch', () => {
+      mockAuthContext.mockReturnValue({
+        user: { email: 'test@test.com', first_name: 'John', last_name: 'Doe', is_admin: false },
+        isAuthenticated: true,
+        authStatus: 'authenticated',
+        isLoading: true,
+        logout: mockLogout,
+      })
+      render(<TopBar />)
+      expect(screen.getByRole('button', { name: 'User menu' })).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: '+ Submit' })).toBeInTheDocument()
+    })
+
     it('opens the account dropdown with profile, admin, and sign out for an admin', async () => {
       mockAuthContext.mockReturnValue({
         user: { email: 'admin@test.com', first_name: 'Ada', last_name: 'Min', is_admin: true },
         isAuthenticated: true,
+        authStatus: 'authenticated',
         isLoading: false,
         logout: mockLogout,
       })
@@ -224,6 +272,7 @@ describe('TopBar', () => {
       mockAuthContext.mockReturnValue({
         user: { email: 'user@test.com', first_name: 'Reg', is_admin: false },
         isAuthenticated: true,
+        authStatus: 'authenticated',
         isLoading: false,
         logout: mockLogout,
       })
@@ -240,6 +289,7 @@ describe('TopBar', () => {
       mockAuthContext.mockReturnValue({
         user: { email: 'user@test.com', username: 'reggie', is_admin: false },
         isAuthenticated: true,
+        authStatus: 'authenticated',
         isLoading: false,
         logout: mockLogout,
       })
@@ -257,6 +307,7 @@ describe('TopBar', () => {
       mockAuthContext.mockReturnValue({
         user: { email: 'user@test.com', is_admin: false },
         isAuthenticated: true,
+        authStatus: 'authenticated',
         isLoading: false,
         logout: mockLogout,
       })
@@ -272,6 +323,7 @@ describe('TopBar', () => {
       mockAuthContext.mockReturnValue({
         user: { email: 'user@test.com', username: 'reggie', is_admin: false },
         isAuthenticated: true,
+        authStatus: 'authenticated',
         isLoading: false,
         logout: mockLogout,
       })
@@ -298,6 +350,7 @@ describe('TopBar', () => {
       mockAuthContext.mockReturnValue({
         user: { email: 'admin@test.com', is_admin: true },
         isAuthenticated: true,
+        authStatus: 'authenticated',
         isLoading: false,
         logout: mockLogout,
       })
