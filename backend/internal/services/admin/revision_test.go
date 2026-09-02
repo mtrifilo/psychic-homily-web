@@ -572,7 +572,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_NullablePriceBackToNu
 	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "show", show.ID).
 		First(&revision).Error)
 
-	s.Require().NoError(s.svc.Rollback(revision.ID, adminUser.ID))
+	s.Require().NoError(s.svc.Rollback(context.Background(), revision.ID, adminUser.ID))
 
 	var restored catalogm.Show
 	s.Require().NoError(s.db.First(&restored, show.ID).Error)
@@ -605,7 +605,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_NullableCapacityBackT
 	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "venue", venue.ID).
 		First(&revision).Error)
 
-	s.Require().NoError(s.svc.Rollback(revision.ID, adminUser.ID))
+	s.Require().NoError(s.svc.Rollback(context.Background(), revision.ID, adminUser.ID))
 
 	var restored catalogm.Venue
 	s.Require().NoError(s.db.First(&restored, venue.ID).Error)
