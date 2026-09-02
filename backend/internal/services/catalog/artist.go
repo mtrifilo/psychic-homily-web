@@ -169,7 +169,14 @@ func validateBandcampEmbedOnWrite(value *string) error {
 	if value == nil {
 		return nil
 	}
-	return utils.ValidateBandcampEmbedURL(*value, utils.BandcampEmbedURLLabel)
+	if err := utils.ValidateBandcampEmbedURL(*value, utils.BandcampEmbedURLLabel); err != nil {
+		// An ArtistError, not a bare one: every handler maps a bare error from
+		// these methods to a generic 500 and logs the detail, so the sentence
+		// telling the submitter what shape to use would be swallowed by the one
+		// caller this gate exists for — the next one.
+		return apperrors.ErrArtistInvalidField(err)
+	}
+	return nil
 }
 
 // CreateArtist creates a new artist
@@ -198,7 +205,14 @@ func (s *ArtistService) CreateArtist(req *contracts.CreateArtistRequest) (*contr
 		// (metro is derived from this location by the create funnel — PSY-1255 step B.)
 		a.Description = req.Description
 		a.ImageURL = req.ImageURL
+		// NilIfBlank for the same reason UpdateArtist uses it: the validator
+		// passes "" as the clear gesture, and an entity-request payload carrying
+		// one would otherwise land blank-but-not-null with a NULL provenance —
+		// permanently unrepairable by every `IS NULL` path, rendering nothing.
 		a.BandcampEmbedURL = req.BandcampEmbedURL
+		if req.BandcampEmbedURL != nil {
+			a.BandcampEmbedURL = utils.NilIfBlank(*req.BandcampEmbedURL)
+		}
 		// Stamp provenance whenever this create sets an embed (a human/admin/AI
 		// value): "manual" so the PSY-1189 keep-fresh hook never auto-refreshes a
 		// curated embed. nil when no embed is supplied so the source isn't falsely

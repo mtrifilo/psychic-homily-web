@@ -457,7 +457,14 @@ func (s *DataSyncService) importArtist(artist *contracts.ExportedArtist, dryRun 
 	newArtist, _, ferr := catalog.FindOrCreateArtistTx(s.db, artist.Name, func(a *catalogm.Artist) {
 		a.City = artist.City
 		a.State = artist.State
+		// NilIfBlank for the same invariant CreateArtist and UpdateArtist keep:
+		// the validator passes "" as the clear gesture, and storing it raw leaves
+		// the column blank-but-not-null — skipped by every `IS NULL` repair path
+		// forever while rendering nothing.
 		a.BandcampEmbedURL = artist.BandcampEmbedURL
+		if artist.BandcampEmbedURL != nil {
+			a.BandcampEmbedURL = utils.NilIfBlank(*artist.BandcampEmbedURL)
+		}
 		a.Social = catalogm.Social{
 			Instagram:  artist.Instagram,
 			Facebook:   artist.Facebook,

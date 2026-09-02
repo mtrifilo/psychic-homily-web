@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -43,7 +44,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_RefusesHostileOldValu
 			s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "artist", artist.ID).
 				Order("id DESC").First(&revision).Error)
 
-			err := s.svc.Rollback(revision.ID, admin.ID)
+			err := s.svc.Rollback(context.Background(), revision.ID, admin.ID)
 			s.Require().Error(err, "rollback must refuse to write %q", hostile)
 
 			var applied struct{ BandcampEmbedURL *string }
@@ -76,7 +77,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_RestoresValidEmbed() 
 	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "artist", artist.ID).
 		Order("id DESC").First(&revision).Error)
 
-	s.Require().NoError(s.svc.Rollback(revision.ID, admin.ID))
+	s.Require().NoError(s.svc.Rollback(context.Background(), revision.ID, admin.ID))
 
 	var applied struct{ BandcampEmbedURL *string }
 	s.Require().NoError(s.db.Table("artists").
@@ -105,7 +106,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_RestoresNullEmbed() {
 	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "artist", artist.ID).
 		Order("id DESC").First(&revision).Error)
 
-	s.Require().NoError(s.svc.Rollback(revision.ID, admin.ID))
+	s.Require().NoError(s.svc.Rollback(context.Background(), revision.ID, admin.ID))
 
 	var applied struct{ BandcampEmbedURL *string }
 	s.Require().NoError(s.db.Table("artists").

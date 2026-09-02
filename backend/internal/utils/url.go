@@ -106,10 +106,17 @@ func IsBandcampArtistHost(host string) bool {
 //   - Host anchored on the parsed hostname, never a substring of the URL, so
 //     "http://169.254.169.254/album/x?bandcamp.com", "bandcamp.com.evil.test"
 //     and "evilbandcamp.com" are all rejected.
-//   - Path prefix on the ESCAPED path, never on the decoded one and never on a
-//     substring of the URL. Decoded would accept "/%61lbum/y" and "/album%2Fx",
-//     which the browser's `pathname` — the thing the read gate reads — spells
-//     differently and refuses. Escaped is what the two layers agree on.
+//   - Path prefix on the path AS WRITTEN in the input, never on anything Go
+//     derived from it. Go's u.Path is percent-DECODED, which would accept
+//     "/%61lbum/y" and "/album%2Fx" — spellings the browser's `pathname`, the
+//     thing the read gate reads, keeps encoded and refuses. u.EscapedPath() is
+//     not a fix either: it returns RawPath only while RawPath is a valid
+//     encoding of Path, and ANY space or non-ASCII byte in the path invalidates
+//     that, at which point Go silently re-escapes the DECODED path and hands
+//     back "/album/..." for both. A Bandcamp slug with an accent or a CJK
+//     character is entirely ordinary, so that fallback is the common case, not
+//     an exotic one. rawPath below reads the bytes between the authority and
+//     the query, which is what the browser reads too.
 //   - No "." or ".." path segment, and no backslash anywhere in the path. Go
 //     leaves dot segments in place and treats "\\" as an ordinary character; the
 //     browser resolves the first away and treats the second as a segment
@@ -147,12 +154,47 @@ func IsValidBandcampEmbedURL(rawURL string) bool {
 	if !IsBandcampArtistHost(u.Hostname()) {
 		return false
 	}
-	path := u.EscapedPath()
+	path := rawPath(rawURL)
 	if hasTraversalSegment(path) {
 		return false
 	}
 	// Album or track page, not a bare profile.
 	return strings.HasPrefix(path, "/album/") || strings.HasPrefix(path, "/track/")
+}
+
+// rawPath returns the path exactly as written in rawURL: the bytes after the
+// authority, up to the query or fragment. Empty when there is no path.
+//
+// It exists because neither of Go's two answers is the browser's. u.Path is
+// percent-decoded, so "/%61lbum/y" reads as "/album/y". u.EscapedPath() looks
+// like the right answer and is not: it returns the original RawPath only while
+// RawPath round-trips through Go's own escaping rules, and a space or any
+// non-ASCII byte breaks that, whereupon it re-escapes the DECODED path — so
+// "/%61lbum/caf\u00e9" comes back "/album/caf%C3%A9" and passes a prefix test
+// the browser fails. Reading the input directly has no such fallback.
+//
+// The caller compares only an ASCII prefix ("/album/", "/track/"), so the one
+// remaining difference from the browser's `pathname` — which percent-encodes
+// non-ASCII bytes it was handed literally — cannot change the answer. Dot
+// segments and backslashes, the other things a browser resolves before deciding
+// what a path is, are rejected outright by hasTraversalSegment.
+//
+// Safe on input url.Parse already accepted: the scheme is http or https, so the
+// "://" split below cannot land inside a path or a query.
+func rawPath(rawURL string) string {
+	rest := rawURL
+	if i := strings.Index(rest, "://"); i >= 0 {
+		rest = rest[i+3:]
+	}
+	// A "?" or "#" before the first "/" means the URL has no path at all.
+	if i := strings.IndexAny(rest, "?#"); i >= 0 {
+		rest = rest[:i]
+	}
+	i := strings.Index(rest, "/")
+	if i < 0 {
+		return ""
+	}
+	return rest[i:]
 }
 
 // hasTraversalSegment reports whether path contains anything a browser would
@@ -284,7 +326,7 @@ func ValidateBandcampEmbedURL(value, fieldName string) error {
 	return nil
 }
 
-// SocialHostSuffixes anchors each platform social field to its known hosts, so a
+// socialHostSuffixes anchors each platform social field to its known hosts, so a
 // hostile value (https://evil.test/artist/x in the spotify field, which renders
 // as a SocialLinks href) cannot be stored (PSY-1113). A field absent here
 // (website) accepts any host. A host matches when it equals a base or is a
@@ -299,7 +341,11 @@ func ValidateBandcampEmbedURL(value, fieldName string) error {
 // because PSY-1966 gave it a SECOND consumer that cannot import a handler
 // package: the rollback gate in internal/services/admin. Copying it there would
 // have made a third spelling of a security allowlist. One table, two callers.
-var SocialHostSuffixes = map[string][]string{
+//
+// UNEXPORTED on purpose. Only ValidateSocialHost below is exported, so a
+// security allowlist in a leaf package everything imports cannot be reached —
+// or mutated from some package's init — by anything but the rule that owns it.
+var socialHostSuffixes = map[string][]string{
 	"instagram":  {"instagram.com"},
 	"facebook":   {"facebook.com", "fb.com"},
 	"twitter":    {"twitter.com", "x.com"},
@@ -318,7 +364,7 @@ var SocialHostSuffixes = map[string][]string{
 // on instagram.com" for a value that is not a URL at all would report the wrong
 // problem.
 func ValidateSocialHost(field, fieldName, value string) error {
-	bases, restricted := SocialHostSuffixes[field]
+	bases, restricted := socialHostSuffixes[field]
 	if !restricted || strings.TrimSpace(value) == "" {
 		return nil
 	}

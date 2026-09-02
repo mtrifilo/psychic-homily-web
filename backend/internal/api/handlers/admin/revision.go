@@ -434,7 +434,7 @@ func (h *RevisionHandler) RollbackRevisionHandler(ctx context.Context, req *Roll
 		return nil, huma.Error400BadRequest("Invalid revision ID")
 	}
 
-	if err := h.revisionService.Rollback(uint(revisionID), user.ID); err != nil {
+	if err := h.revisionService.Rollback(ctx, uint(revisionID), user.ID); err != nil {
 		logger.FromContext(ctx).Error("revision_rollback_failed",
 			"revision_id", revisionID,
 			"admin_id", user.ID,

@@ -106,6 +106,21 @@ var urlFieldSpecs = map[string]urlFieldSpec{
 	},
 }
 
+// URLFieldNames returns every field this registry treats as a URL.
+//
+// Exported so internal/services/admin can ask "is this field a URL?" without
+// restating the answer. Its rollback gate has to cover every URL field the
+// per-entity edit allowlists expose, and a test that decided for itself what
+// counted as a URL would drift from this registry the moment one changed.
+func URLFieldNames() []string {
+	names := make([]string, 0, len(urlFieldSpecs))
+	for field := range urlFieldSpecs {
+		names = append(names, field)
+	}
+	sort.Strings(names)
+	return names
+}
+
 // ShapeRuledURLFieldNames returns the field names carrying a `shape` rule: the
 // URL fields whose stored value must take a particular FORM, beyond being a URL.
 //

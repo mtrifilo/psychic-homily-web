@@ -1,6 +1,7 @@
 package contracts
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -463,7 +464,7 @@ type RevisionServiceInterface interface {
 	GetEntityHistory(entityType string, entityID uint, limit, offset int, viewer RevisionViewer) ([]adminm.Revision, int64, error)
 	GetRevision(revisionID uint, viewer RevisionViewer) (*adminm.Revision, error)
 	GetUserRevisions(userID uint, limit, offset int, viewer RevisionViewer) ([]adminm.Revision, int64, error)
-	Rollback(revisionID uint, adminUserID uint) error
+	Rollback(ctx context.Context, revisionID uint, adminUserID uint) error
 }
 
 // BandcampProfileFillerInterface is the narrow contract the pending-edit approval

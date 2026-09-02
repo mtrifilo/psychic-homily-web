@@ -27,7 +27,9 @@
     "https://x.bandcamp.com/track/leyenda",
     "https://x.bandcamp.com/track/t?ref=/album/a",
     "https://x.bandcamp.com/album/caf%C3%A9",
-    "https://a.b.bandcamp.com/album/deep-subdomain"
+    "https://a.b.bandcamp.com/album/deep-subdomain",
+    "https://x.bandcamp.com/album/café-society",
+    "https://x.bandcamp.com/track/あの曲"
   ],
   "rejected": [
     {
@@ -119,6 +121,31 @@
       "url": "https://x.bandcamp.com/album/y ",
       "why": "trailing space; survives url.Parse and would otherwise be stored, then never equal the trimmed URL the release-derived recompute produces",
       "alsoRejectedByReader": false
+    },
+    {
+      "url": "https://x.bandcamp.com/%61lbum/café",
+      "why": "encoded 'a' plus a non-ASCII slug: EscapedPath re-escapes to /album/caf%C3%A9 and would pass; browser pathname keeps /%61lbum/",
+      "alsoRejectedByReader": true
+    },
+    {
+      "url": "https://x.bandcamp.com/%61lbum/x y",
+      "why": "encoded 'a' plus a space: same EscapedPath fallback",
+      "alsoRejectedByReader": true
+    },
+    {
+      "url": "https://x.bandcamp.com/album%2Fcafé",
+      "why": "encoded slash plus a non-ASCII slug: the fallback turns %2F back into a real /",
+      "alsoRejectedByReader": true
+    },
+    {
+      "url": "https://x.bandcamp.com/album%2Fx y",
+      "why": "encoded slash plus a space: same fallback",
+      "alsoRejectedByReader": true
+    },
+    {
+      "url": "https://x.bandcamp.com/%61%6c%62%75%6d/x y",
+      "why": "fully encoded 'album' plus a space",
+      "alsoRejectedByReader": true
     }
   ]
 }

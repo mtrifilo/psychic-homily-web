@@ -594,6 +594,29 @@ func updateStringValue(updates map[string]interface{}, field, displayName string
 	return s, true, nil
 }
 
+// normalizeBlankShapedURLs turns the clear-the-field gesture into the value the
+// column must actually hold for it: NULL, not "".
+//
+// AFTER the gate, never before, and the ordering is the whole correctness
+// argument. ValidateBandcampEmbedURL refuses a whitespace-only value and passes
+// only the empty string; normalizing first would turn "   " into nil and the
+// gate would then skip it, silently accepting an input the rule says to refuse.
+// Validate what arrived, then normalize what survived.
+//
+// Why NULL matters: a blank-but-not-null row is invisible to every
+// `bandcamp_embed_url IS NULL` gate — the profile resolver, the release-derived
+// fill, cmd/backfill-artist-bandcamp-embeds, cmd/sweep-link-suggestions — so the
+// artist can never be repaired by any automated path again, while rendering
+// exactly the same as NULL.
+//
+// Driven by shapedURLFields but delegating per field, so a future shape field
+// whose blank is NOT a clear gesture does not silently inherit this.
+func normalizeBlankShapedURLs(updates map[string]interface{}) {
+	if raw, ok := updates[utils.BandcampEmbedURLField]; ok {
+		updates[utils.BandcampEmbedURLField] = utils.BlankBandcampEmbedToNil(raw)
+	}
+}
+
 // revalidateShapedURLs re-runs the FORM rules over the values an approval is
 // about to apply, and reports one that must not go live.
 //
@@ -756,16 +779,6 @@ func (s *PendingEditService) ApprovePendingEdit(ctx context.Context, editID uint
 	// PSY-1966. Kept a separate call rather than folded into the block above
 	// because the two answer different questions (where a host POINTS vs what
 	// shape a URL has) and only one of them resolves DNS.
-	// The clear gesture arrives as "" and must land as NULL, not as a blank
-	// string: a blank row is skipped by every `IS NULL` repair path forever while
-	// rendering nothing. Runs after the gate, on the same map Updates() writes,
-	// so what is normalized is what is stored.
-	for field := range shapedURLFields {
-		if raw, ok := updates[field]; ok {
-			updates[field] = utils.BlankBandcampEmbedToNil(raw)
-		}
-	}
-
 	if err := revalidateShapedURLs(updates); err != nil {
 		slog.Default().Warn("pending_edit_blocked_url_shape",
 			"edit_id", edit.ID,
@@ -777,6 +790,8 @@ func (s *PendingEditService) ApprovePendingEdit(ctx context.Context, editID uint
 		)
 		return nil, apperrors.ErrPendingEditInvalidRequest(fmt.Sprintf("cannot approve: %s", err))
 	}
+
+	normalizeBlankShapedURLs(updates)
 
 	// PSY-985: a venue location edit through the contribution flow bypasses
 	// VenueService, so the system-derived columns have to be maintained here too.

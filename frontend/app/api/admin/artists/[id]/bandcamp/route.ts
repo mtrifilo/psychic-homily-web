@@ -74,7 +74,14 @@ export async function POST(
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
-  const { bandcamp_url } = body
+  // Trimmed HERE, at the boundary. `new URL()` and `fetch()` both ignore
+  // surrounding whitespace, so an untrimmed value validates and resolves
+  // happily and is then refused by the backend — which deliberately stores only
+  // what it validated — with a message about the URL shape that says nothing
+  // about the invisible characters actually at fault. The admin UI already
+  // trims; this covers direct API callers.
+  const bandcamp_url =
+    typeof body.bandcamp_url === 'string' ? body.bandcamp_url.trim() : body.bandcamp_url
   if (!bandcamp_url) {
     return NextResponse.json(
       { error: 'bandcamp_url is required' },
