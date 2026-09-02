@@ -19,6 +19,7 @@ vi.mock('@/features/auth/hooks/useAuth', () => ({
 
 // Import after mocks are set up
 import { AuthProvider, useAuthContext } from './AuthContext'
+import { toAuthUser } from './authUser'
 
 // Helper to create wrapper with specific query client
 function createWrapperWithClient(queryClient: QueryClient) {
@@ -314,7 +315,7 @@ describe('AuthContext', () => {
       expect(result.current.user?.id).toBe('override-user')
     })
 
-    it('backfills nav_mode from the profile when the login override omits it (PSY-1117)', () => {
+    it('backfills nav_mode from the profile when the override omits it (PSY-1117)', () => {
       mockUseProfile.mockReturnValue({
         data: {
           success: true,
@@ -333,8 +334,7 @@ describe('AuthContext', () => {
         wrapper: createWrapperWithClient(queryClient),
       })
 
-      // Login overrides carry identity but not nav_mode (the auth response
-      // omits it).
+      // An override that carries no nav_mode of its own.
       act(() => {
         result.current.setUser({
           id: 'override-user',
@@ -348,6 +348,33 @@ describe('AuthContext', () => {
       // rather than the default within the SPA session.
       expect(result.current.user?.id).toBe('override-user')
       expect(result.current.user?.nav_mode).toBe('side')
+    })
+
+    // PSY-1945: an admin signing in with a password reached the context
+    // without `is_admin`, so the admin-only controls stayed hidden until a
+    // reload replaced the override with the real profile.
+    it('exposes the privilege fields of an override built from a login response', () => {
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      act(() => {
+        result.current.setUser(
+          toAuthUser({
+            id: 'admin-1',
+            email: 'admin@test.local',
+            is_admin: true,
+            email_verified: true,
+            user_tier: 'trusted_contributor',
+          })
+        )
+      })
+
+      expect(result.current.user?.is_admin).toBe(true)
+      expect(result.current.user?.email_verified).toBe(true)
+      expect(result.current.user?.user_tier).toBe('trusted_contributor')
+      expect(result.current.isAuthenticated).toBe(true)
+      expect(result.current.authStatus).toBe('authenticated')
     })
 
     it('keeps the override nav_mode when the override sets one (override wins)', () => {

@@ -28,6 +28,7 @@ import {
   type AuthErrorCodeType,
 } from '@/lib/errors'
 import type { NavMode } from '@/lib/nav-mode'
+import type { AuthApiUser } from '@/lib/context/authUser'
 import type { APIToken } from '../types'
 
 // Types
@@ -54,14 +55,13 @@ interface AuthResponse {
   message: string
   error_code?: AuthErrorCodeType
   request_id?: string
-  user?: {
-    id: string
-    email: string
-    name?: string
-    first_name?: string
-    last_name?: string
-    is_admin?: boolean
-  }
+  /**
+   * The full viewer payload, not a login-sized subset: the backend serializes
+   * the same user model here as it does on /auth/profile. Call sites hand it
+   * to `toAuthUser` so the in-session override carries every field the profile
+   * would have carried, `is_admin` and `email_verified` included.
+   */
+  user?: AuthApiUser
 }
 
 interface FavoriteCity {

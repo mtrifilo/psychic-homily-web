@@ -8,6 +8,7 @@ import { Fingerprint, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { toAuthUser, type AuthApiUser } from '@/lib/context/authUser'
 import { refreshViewerTierQueries } from '@/lib/queryClient'
 import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
 
@@ -70,7 +71,14 @@ export function PasskeyLoginButton({
         }),
       })
 
-      const finishData = await finishResponse.json()
+      // Annotated rather than left as `any`: this path builds the session
+      // override by hand, so the payload's shape is the contract that keeps
+      // `toAuthUser` fed with every field the context exposes.
+      const finishData: {
+        success?: boolean
+        message?: string
+        user?: AuthApiUser
+      } = await finishResponse.json()
 
       if (!finishData.success) {
         throw new Error(finishData.message || 'Failed to complete passkey login')
@@ -78,14 +86,7 @@ export function PasskeyLoginButton({
 
       // Success - update auth context and redirect
       if (finishData.user) {
-        setUser({
-          id: finishData.user.id,
-          email: finishData.user.email,
-          first_name: finishData.user.first_name,
-          last_name: finishData.user.last_name,
-          email_verified: finishData.user.email_verified,
-          is_admin: finishData.user.is_admin,
-        })
+        setUser(toAuthUser(finishData.user))
       }
 
       // This path establishes a session with a raw fetch rather than the

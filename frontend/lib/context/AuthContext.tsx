@@ -12,30 +12,10 @@ import {
 // lives in that barrel and reads this context, so the barrel import would close
 // a cycle through it.
 import { useProfile, useLogout } from '@/features/auth/hooks/useAuth'
-import type { UserTier } from '@/features/auth/types'
-import type { NavMode } from '@/lib/nav-mode'
 import { AuthError, isDefinitiveUnauthenticated } from '@/lib/errors'
+import { toAuthUser, type User } from './authUser'
 
-interface User {
-  id: string
-  email: string
-  username?: string
-  display_name?: string
-  first_name?: string
-  last_name?: string
-  bio?: string
-  // Free-text "City, state" (PSY-1416). Optional on the public profile meta line.
-  location?: string
-  // OAuth / profile avatar URL (PSY-1488). Passed through from /auth/profile.
-  avatar_url?: string
-  email_verified: boolean
-  is_admin?: boolean
-  user_tier?: UserTier
-  // Saved nav-style preference (PSY-1117). Read by the appearance settings
-  // toggle to seed its control; the server shell (AppShell) reads it directly
-  // from the profile for first-paint rendering.
-  nav_mode?: NavMode
-}
+export type { User }
 
 /**
  * Whether the viewer's identity is KNOWN yet, and what it turned out to be.
@@ -179,11 +159,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     // If there's an explicit user override (truthy), use it.
     // Note: null means "no override" - logout clears via queryClient.clear().
-    // Login/signup build the override from the minimal auth response, which
-    // omits nav_mode; backfill it from the full profile so the appearance
-    // settings control (PSY-1117) seeds from the saved preference for the rest
-    // of the SPA session, not the default. The override still wins for every
-    // field it actually sets.
+    // The override wins for every field it sets; `nav_mode` falls back to the
+    // profile when it carries none, so the appearance settings control
+    // (PSY-1117) seeds from the saved preference rather than the default.
     if (userOverride) {
       return {
         ...userOverride,
@@ -191,23 +169,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
     }
 
-    // Otherwise derive from profile data
+    // Otherwise derive from profile data. Same mapper the session-entry paths
+    // run on their own responses, so an override and the profile it precedes
+    // describe the viewer identically.
     if (profileData?.success && profileData?.user) {
-      return {
-        id: profileData.user.id,
-        email: profileData.user.email,
-        username: profileData.user.username,
-        display_name: profileData.user.display_name,
-        first_name: profileData.user.first_name,
-        last_name: profileData.user.last_name,
-        bio: profileData.user.bio,
-        location: profileData.user.location,
-        avatar_url: profileData.user.avatar_url,
-        email_verified: profileData.user.email_verified ?? false,
-        is_admin: profileData.user.is_admin,
-        user_tier: profileData.user.user_tier as UserTier | undefined,
-        nav_mode: profileData.user.nav_mode,
-      }
+      return toAuthUser(profileData.user)
     }
 
     return null

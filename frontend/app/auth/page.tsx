@@ -8,6 +8,7 @@ import { z } from 'zod'
 import { AlertCircle, Loader2, Mail, Lock, User, Eye, EyeOff, Send, CheckCircle2 } from 'lucide-react'
 import { useLogin, useRegister, useSendMagicLink } from '@/features/auth'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { toAuthUser } from '@/lib/context/authUser'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -86,13 +87,7 @@ function LoginForm({ returnTo }: { returnTo: string }) {
       loginMutation.mutate(value, {
         onSuccess: data => {
           if (data.user) {
-            setUser({
-              id: data.user.id,
-              email: data.user.email,
-              first_name: data.user.first_name,
-              last_name: data.user.last_name,
-              email_verified: false,
-            })
+            setUser(toAuthUser(data.user))
           }
           router.push(returnTo)
         },
@@ -379,13 +374,7 @@ function SignupForm({ returnTo, onHandoffChange }: SignupFormProps) {
               return
             }
 
-            setUser({
-              id: data.user.id,
-              email: data.user.email,
-              first_name: data.user.first_name,
-              last_name: data.user.last_name,
-              email_verified: false,
-            })
+            setUser(toAuthUser(data.user))
             onHandoffChange({
               status: 'complete',
               email: data.user.email || value.email,

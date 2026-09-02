@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { Loader2, CheckCircle2, AlertCircle, Mail, ServerCrash } from 'lucide-react'
 import { useVerifyMagicLink } from '@/features/auth'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { toAuthUser } from '@/lib/context/authUser'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
@@ -47,14 +48,7 @@ function MagicLinkContent() {
     verifyMagicLink.mutate(token, {
       onSuccess: data => {
         if (data.user) {
-          setUser({
-            id: data.user.id,
-            email: data.user.email,
-            first_name: data.user.first_name,
-            last_name: data.user.last_name,
-            email_verified: true,
-            is_admin: data.user.is_admin,
-          })
+          setUser(toAuthUser(data.user))
         }
         // Redirect after short delay to show success message.
         redirectTimerRef.current = setTimeout(() => {

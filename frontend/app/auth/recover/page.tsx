@@ -8,6 +8,7 @@ import { z } from 'zod'
 import { AlertCircle, Loader2, Mail, CheckCircle2, RefreshCw, ArrowLeft } from 'lucide-react'
 import { useRequestAccountRecovery, useConfirmAccountRecovery } from '@/features/auth'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { toAuthUser } from '@/lib/context/authUser'
 import { getUniqueErrors } from '@/lib/utils/formErrors'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -168,13 +169,7 @@ function TokenConfirmation({ token }: { token: string }) {
     confirmRecovery(token)
       .then(data => {
         if (data.user) {
-          setUser({
-            id: data.user.id,
-            email: data.user.email,
-            first_name: data.user.first_name,
-            last_name: data.user.last_name,
-            email_verified: false,
-          })
+          setUser(toAuthUser(data.user))
         }
         router.push('/')
       })
