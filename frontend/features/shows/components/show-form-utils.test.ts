@@ -101,10 +101,46 @@ describe('showToFormValues', () => {
     const show = makeShowResponse()
     const result = showToFormValues(show)
 
+    expect(result.venue.id).toBe(10)
     expect(result.venue.name).toBe('The Venue')
     expect(result.venue.city).toBe('Phoenix')
     expect(result.venue.state).toBe('AZ')
     expect(result.venue.address).toBe('123 Main St')
+  })
+
+  it('leaves venue.id undefined for a show with no venue row', () => {
+    // Nothing to address by id, so the update payload has to describe the
+    // venue by name/city/state and the state field is required again.
+    const result = showToFormValues(makeShowResponse({ venues: [] }))
+
+    expect(result.venue.id).toBeUndefined()
+  })
+
+  it("seeds venue.state from the venue's own blank state, not the show row's", () => {
+    // A venue with no state on file stores '' rather than null, so the field
+    // opens blank. Seeding it from the show row instead would compose the save
+    // in a zone the US state map knows while the instant was read in the
+    // fallback zone, moving event_date on a no-op Save.
+    const show = makeShowResponse({
+      city: 'Berlin',
+      state: 'NY',
+      venues: [
+        {
+          id: 77,
+          slug: 'hall-ohne-zone',
+          name: 'Hall Ohne Zone',
+          city: 'Berlin',
+          state: '',
+          timezone: null,
+          verified: true,
+        },
+      ],
+    })
+    const result = showToFormValues(show)
+
+    expect(result.venue.state).toBe('')
+    // And the id that keeps that blank state resolvable on the write path.
+    expect(result.venue.id).toBe(77)
   })
 
   it('maps artists with their stored bill role', () => {
@@ -323,7 +359,7 @@ describe('showToFormValues', () => {
     expect(result.door_cost).toBe('$40')
   })
 
-  it('falls back to show city/state when venue has none', () => {
+  it('falls back to the show city when the venue has none, but not to its state', () => {
     const show = makeShowResponse({
       city: 'Tucson',
       state: 'AZ',
@@ -331,13 +367,14 @@ describe('showToFormValues', () => {
     })
     const result = showToFormValues(show)
 
+    // City is a display and payload field only, so the show row still fills it.
     expect(result.venue.city).toBe('Tucson')
-    // `||`, which is NOT how `showTimingInput` resolves the zone for this same
-    // row (`??`, so it keeps the venue's blank). That divergence is a real
-    // no-op-Save bug and it is PSY-1965, deliberately not fixed here: both ways
-    // of aligning the two are worse, and the reasons are recorded at the seed
-    // site in show-form-utils.ts.
-    expect(result.venue.state).toBe('AZ')
+    // The state is not, because the submit resolves the timezone from it.
+    // `showTimingInput` keeps the venue's blank for this row, and the field
+    // has to name the same zone the instant was read in.
+    expect(result.venue.state).toBe('')
+    // The id is what keeps that blank payload resolvable on the backend.
+    expect(result.venue.id).toBe(1)
   })
 
   it('handles empty venues array gracefully', () => {

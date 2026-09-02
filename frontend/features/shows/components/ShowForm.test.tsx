@@ -888,6 +888,229 @@ describe('ShowForm — edit mode pre-fills from initialData', () => {
   })
 })
 
+// How an edit names the show's venue, asserted at the SUBMIT boundary rather
+// than on showToFormValues, because the payload and the composed event_date
+// are what the backend acts on.
+//
+// The show's own venue rides on the payload as an ID, which `associateVenues`
+// resolves by primary key. That is what lets the state field carry the same
+// value the instant was READ in: only the (name, city, state) fallback rejects
+// an empty state, and a venue with no state on file has nothing else to give.
+// The id is not sticky, so an edit that names a different venue still resolves
+// that venue instead of the old one.
+describe('ShowForm — edit mode venue resolution + event_date round trip', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetMockState()
+  })
+
+  /**
+   * A show whose venue has no state on file and no resolved zone, carrying a
+   * US state on the show row itself. `showTimingInput` reads it in
+   * America/Phoenix (the venue's '' state resolves no zone), so composing the
+   * save from 'NY' instead would land the instant 3 hours away.
+   */
+  function makeZonelessVenueShow() {
+    return makeShow({
+      event_date: '2099-06-15T03:00:00Z', // 20:00 Jun 14, America/Phoenix
+      city: 'Berlin',
+      state: 'NY',
+      venues: [
+        {
+          id: 77,
+          slug: 'hall-ohne-zone',
+          name: 'Hall Ohne Zone',
+          address: null,
+          city: 'Berlin',
+          state: '',
+          timezone: null,
+          verified: true,
+        },
+      ],
+    })
+  }
+
+  it('saves a show at a state-less venue without moving event_date', async () => {
+    mockShowUpdate.mutate.mockImplementation((_vars, opts) => {
+      opts?.onSuccess?.({ id: 42 })
+    })
+    const show = makeZonelessVenueShow()
+    const user = userEvent.setup()
+    renderWithProviders(<ShowForm mode="edit" initialData={show} />)
+
+    // The precondition the payload assertions hang on: the field opens blank,
+    // matching the venue rather than the show row's 'NY'.
+    expect(screen.getByLabelText(/^State$/i)).toHaveValue('')
+
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => expect(mockShowUpdate.mutate).toHaveBeenCalledTimes(1))
+
+    const call = mockShowUpdate.mutate.mock.calls[0][0] as {
+      updates: {
+        event_date: string
+        state?: string
+        venues: Array<{ id?: number; name?: string; state?: string }>
+      }
+    }
+    // Byte-identical: a save that changes nothing must write back the instant
+    // it read. Composing from 'NY' would give 2099-06-15T00:00:00Z.
+    expect(call.updates.event_date).toBe('2099-06-15T03:00:00Z')
+    // The id is what keeps the blank state resolvable on the backend.
+    expect(call.updates.venues[0].id).toBe(77)
+    expect(call.updates.venues[0].state).toBe('')
+    expect(call.updates.state).toBe('')
+  })
+
+  it("sends the show's own venue id on an unrelated edit", async () => {
+    mockShowUpdate.mutate.mockImplementation((_vars, opts) => {
+      opts?.onSuccess?.({ id: 42 })
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<ShowForm mode="edit" initialData={makeShow()} />)
+
+    await user.type(screen.getByLabelText(/^show title/i), ' (rescheduled)')
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => expect(mockShowUpdate.mutate).toHaveBeenCalledTimes(1))
+
+    const call = mockShowUpdate.mutate.mock.calls[0][0] as {
+      updates: { venues: Array<{ id?: number; name?: string }> }
+    }
+    expect(call.updates.venues[0].id).toBe(5)
+    expect(call.updates.venues[0].name).toBe('Valley Bar')
+  })
+
+  it('sends the picked venue id when the venue is changed from the picker', async () => {
+    mockVenueSearch.venues = [
+      {
+        id: 160,
+        slug: 'boom-leeds-leeds-england',
+        name: 'Boom Leeds',
+        address: null,
+        city: 'Leeds',
+        state: 'England',
+        timezone: 'Europe/London',
+        verified: true,
+      },
+    ]
+    mockShowUpdate.mutate.mockImplementation((_vars, opts) => {
+      opts?.onSuccess?.({ id: 42 })
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<ShowForm mode="edit" initialData={makeShow()} />)
+
+    const venueInput = screen.getByLabelText(/^Venue$/i)
+    await user.clear(venueInput)
+    await user.type(venueInput, 'Boom')
+    await user.click(await screen.findByText('Boom Leeds'))
+
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => expect(mockShowUpdate.mutate).toHaveBeenCalledTimes(1))
+
+    const call = mockShowUpdate.mutate.mock.calls[0][0] as {
+      updates: { venues: Array<{ id?: number; name?: string; state?: string }> }
+    }
+    // The picked venue, not the one the form opened on.
+    expect(call.updates.venues[0].id).toBe(160)
+    expect(call.updates.venues[0].name).toBe('Boom Leeds')
+    expect(call.updates.venues[0].state).toBe('England')
+  })
+
+  it('drops the venue id when a brand new venue name is typed', async () => {
+    mockShowUpdate.mutate.mockImplementation((_vars, opts) => {
+      opts?.onSuccess?.({ id: 42 })
+    })
+    const user = userEvent.setup()
+    // Admin so the city/state fields stay editable on a verified venue.
+    mockAuth.user = { id: 1, is_admin: true }
+    renderWithProviders(<ShowForm mode="edit" initialData={makeShow()} />)
+
+    const venueInput = screen.getByLabelText(/^Venue$/i)
+    await user.clear(venueInput)
+    await user.type(venueInput, 'Some Brand New Room')
+    await user.tab()
+
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => expect(mockShowUpdate.mutate).toHaveBeenCalledTimes(1))
+
+    const call = mockShowUpdate.mutate.mock.calls[0][0] as {
+      updates: {
+        venues: Array<{
+          id?: number
+          name?: string
+          city?: string
+          state?: string
+        }>
+      }
+    }
+    // No id, so the backend resolves this by (name, city, state) and creates
+    // the room when it does not already exist.
+    expect(call.updates.venues[0].id).toBeUndefined()
+    expect(call.updates.venues[0].name).toBe('Some Brand New Room')
+    expect(call.updates.venues[0].city).toBe('Phoenix')
+    expect(call.updates.venues[0].state).toBe('AZ')
+  })
+
+  it('blocks a new venue with no state at the form instead of at the backend', async () => {
+    mockShowUpdate.mutate.mockImplementation((_vars, opts) => {
+      opts?.onSuccess?.({ id: 42 })
+    })
+    const user = userEvent.setup()
+    mockAuth.user = { id: 1, is_admin: true }
+    renderWithProviders(
+      <ShowForm mode="edit" initialData={makeZonelessVenueShow()} />
+    )
+
+    // Typing a fresh venue name clears the id, so the payload has to describe
+    // the venue by name/city/state again and the blank state is now a gap the
+    // backend would reject with a generic failure.
+    const venueInput = screen.getByLabelText(/^Venue$/i)
+    await user.clear(venueInput)
+    await user.type(venueInput, 'Another New Room')
+    await user.tab()
+
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    expect(await screen.findByText('State is required')).toBeInTheDocument()
+    expect(mockShowUpdate.mutate).not.toHaveBeenCalled()
+  })
+
+  it('leaves a show with no venue on the name/city/state path', async () => {
+    mockShowUpdate.mutate.mockImplementation((_vars, opts) => {
+      opts?.onSuccess?.({ id: 42 })
+    })
+    const show = makeShow({
+      event_date: '2099-01-16T01:00:00Z', // 20:00 Jan 15, America/New_York
+      city: 'Brooklyn',
+      state: 'NY',
+      venues: [],
+    })
+    const user = userEvent.setup()
+    mockAuth.user = { id: 1, is_admin: true }
+    renderWithProviders(<ShowForm mode="edit" initialData={show} />)
+
+    await user.type(screen.getByLabelText(/^Venue$/i), 'Union Pool')
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => expect(mockShowUpdate.mutate).toHaveBeenCalledTimes(1))
+
+    const call = mockShowUpdate.mutate.mock.calls[0][0] as {
+      updates: {
+        event_date: string
+        venues: Array<{ id?: number; state?: string }>
+      }
+    }
+    expect(call.updates.venues[0].id).toBeUndefined()
+    // The show row's own state still resolves the zone when there is no venue
+    // to prefer, so the instant round-trips.
+    expect(call.updates.venues[0].state).toBe('NY')
+    expect(call.updates.event_date).toBe('2099-01-16T01:00:00Z')
+  })
+})
+
 describe('ShowForm — private-show toggle visibility (create vs edit)', () => {
   beforeEach(() => {
     vi.clearAllMocks()

@@ -213,9 +213,9 @@ export function showToFormValues(show: ShowResponse): FormValues {
   // Going through showTimingInput rather than re-spelling its two fields is
   // what keeps the form and the page from drifting: it carries the
   // `venue?.state ?? show.state` fallback, which the write path below also
-  // applies (the venue.state form field is seeded the same way). Spelling only
-  // `venue?.state` here would read a venue-less show in Phoenix and write it
-  // back in its own state, shifting event_date on a no-op save.
+  // applies (the venue.state form field is seeded from this same value).
+  // Spelling only `venue?.state` here would read a venue-less show in Phoenix
+  // and write it back in its own state, shifting event_date on a no-op save.
   const timing = showTimingInput(show)
   const venueTz = resolveShowTimezone(timing.state, timing.timezone)
   const { date, time } = parseISOToDateAndTime(show.event_date, venueTz)
@@ -231,28 +231,30 @@ export function showToFormValues(show: ShowResponse): FormValues {
       })
     ),
     venue: {
+      // The show's existing venue, addressed by id. `associateVenues` resolves
+      // a venue carrying an id by primary key and only falls back to
+      // `FindOrCreateVenue`'s (name, city, state) lookup when the id is absent,
+      // so an id here is what makes the state field below free to be blank:
+      // "venue state is required" is raised on the by-name branch alone.
+      //
+      // The id is not sticky. `VenueInput` clears it as soon as the venue NAME
+      // is typed into, and the picker sets it to whatever was chosen, so an
+      // edit that repoints the show still resolves the venue the form shows.
+      id: venue?.id,
       name: venue?.name || '',
       city: venue?.city || show.city || '',
-      // KNOWN DIVERGENCE, left alone deliberately — see PSY-1965 before
-      // "fixing" it, because the two obvious fixes are both worse (PSY-1696
-      // tried each). The comment above claims this field is seeded the way the
-      // zone is resolved. It is NOT: `showTimingInput` coalesces with `??` and
-      // this line uses `||`, which differ on the empty string, and
-      // `venues.state` is NOT NULL so an international venue stores `''`.
+      // The SAME value `timing.state` carries, because `ShowForm`'s submit
+      // recomposes event_date from this field. Any spelling that differs from
+      // `showTimingInput`'s opens the editor on one wall clock and saves
+      // through another, moving event_date on a no-op Save and again on every
+      // save after.
       //
-      // For a US show a merge has repointed onto such a venue (a merge does not
-      // rewrite the denormalized `shows.state`), the editor therefore opens on
-      // a fallback-zone wall clock while `ShowForm`'s submit recomposes the
-      // instant from THIS field's `'NY'` — moving `event_date` on a no-op Save.
-      //
-      // Aligning them on `||` makes `isShowTimezoneResolved` answer true for
-      // that Berlin venue, so the page prints a New York clock beside a Berlin
-      // address — the laundering `CompactShowRow` documents. Aligning them on
-      // `??` blanks this field, and the update payload carries no `venue.id`,
-      // so the backend's `FindOrCreateVenue` rejects it outright: "venue state
-      // is required". Date drift is the least bad of the three until the field
-      // stops doing two jobs at once.
-      state: venue?.state || show.state || '',
+      // `venues.state` is NOT NULL, so a venue with no state on file carries
+      // `''` and this field is blank rather than falling through to the show
+      // row's own state. Falling through is what would move the instant: the
+      // show page reads such a show in the fallback zone, and a state the US
+      // map knows composes the save in a different one.
+      state: timing.state ?? '',
       address: venue?.address || '',
     },
     date,

@@ -90,12 +90,34 @@ const showFormSchema = z.object({
       })
     )
     .min(1, 'At least one artist is required'),
-  venue: z.object({
-    name: z.string().min(1, 'Venue name is required'),
-    city: z.string().min(1, 'City is required'),
-    state: z.string().min(1, 'State is required'),
-    address: z.string(),
-  }),
+  venue: z
+    .object({
+      id: z.number().optional(),
+      name: z.string().min(1, 'Venue name is required'),
+      city: z.string().min(1, 'City is required'),
+      // Required CONDITIONALLY, by the rule below, not here.
+      state: z.string(),
+      address: z.string(),
+    })
+    // The state is required exactly when the payload has no venue id, because
+    // that is exactly when the backend needs it: `associateVenues` resolves an
+    // id by primary key, and only the (name, city, state) fallback rejects an
+    // empty state. Requiring it unconditionally makes a venue with no state on
+    // file unsavable, and its state field is disabled for a non-admin on a
+    // verified venue, so there is no way out of the error from inside the form.
+    //
+    // Attached to the venue object rather than the state field so it can read
+    // the id; `path` puts the message back on the state field, which is where
+    // the user can act on it.
+    .superRefine((venue, ctx) => {
+      if (venue.id === undefined && venue.state.length === 0) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['state'],
+          message: 'State is required',
+        })
+      }
+    }),
   date: z.string().min(1, 'Date is required').refine(
     (val) => {
       if (!val) return true
