@@ -250,9 +250,9 @@ func buildCountSubquery(dimension string, periodFilter string) string {
 		// Combine approved pending edits + revisions.
 		//
 		// The revisions arm counts only edits on shows the public can see, for
-		// the reason the shows dimension gives (PSY-1939). Non-show revisions
-		// count whatever their entity: show is the only entity type with a
-		// read-time visibility rule.
+		// the reason the shows dimension gives. Non-show revisions count
+		// whatever their entity: the revisions table carries no collection
+		// entity_type, so `show` is the only gated type that reaches it.
 		return fmt.Sprintf(`
 			SELECT user_id, SUM(count) AS count FROM (
 				SELECT submitted_by AS user_id, COUNT(*) AS count

@@ -68,15 +68,39 @@ func TestEveryGatedVocabularyIsCoveredByTheRegistry(t *testing.T) {
 	}
 }
 
-// The registry must not outlive the model. An entry for a type nothing can
-// comment on is a rule with no rows, and it puts a value into the SQL allowlist
-// that no writer produces — harmless today, misleading to the next reader, and
-// the shape a rename leaves behind.
+// gatedVocabularies is the union of every vocabulary that reaches this registry.
+//
+// THE UNION, not the comment set. The registry is keyed on the comment entity
+// types because those are the values the comment family's rows carry, but the
+// tag routes and the collection-backlinks route walk their own sets, and a type
+// that is taggable without being commentable is a legitimate thing to add. A
+// staleness check written against the comment set alone would force such a type
+// to become commentable, or force the guard to be loosened, and the guard is
+// the security half.
+func gatedVocabularies() map[string]bool {
+	all := make(map[string]bool)
+	for entityType := range engagementm.ValidCommentEntityTypes {
+		all[string(entityType)] = true
+	}
+	for _, entityType := range catalogm.TagEntityTypes {
+		all[entityType] = true
+	}
+	for _, entityType := range communitym.AllCollectionEntityTypes {
+		all[entityType] = true
+	}
+	return all
+}
+
+// The registry must not outlive the vocabularies. An entry for a type nothing
+// can comment on, tag or collect is a rule with no rows, and it puts a value
+// into the SQL allowlist that no writer produces: harmless today, misleading to
+// the next reader, and the shape a rename leaves behind.
 func TestEntityVisibilityRegistryHasNoStaleEntries(t *testing.T) {
+	known := gatedVocabularies()
 	for entityType := range entityVisibilityRules {
-		if _, ok := engagementm.ValidCommentEntityTypes[engagementm.CommentEntityType(entityType)]; !ok {
-			t.Errorf("entityVisibilityRules records %q, which is not a valid comment entity type — "+
-				"remove it, or say why a rule outlives its rows", entityType)
+		if !known[entityType] {
+			t.Errorf("entityVisibilityRules records %q, which appears in no vocabulary that "+
+				"reaches this gate. Remove it, or say why a rule outlives its rows", entityType)
 		}
 	}
 }
@@ -341,10 +365,11 @@ func TestGateVocabularyMatchesTheCommentServiceVocabulary(t *testing.T) {
 				"refuses a type the service would have served", entityType)
 		}
 	}
+	known := gatedVocabularies()
 	for entityType := range entityVisibilityRules {
-		if _, ok := engagementm.ValidCommentEntityTypes[engagementm.CommentEntityType(entityType)]; !ok {
-			t.Errorf("the gate resolves %q but the service rejects it, so the two answer "+
-				"differently for the same id", entityType)
+		if !known[entityType] {
+			t.Errorf("the gate resolves %q but no service vocabulary accepts it, so the two "+
+				"answer differently for the same id", entityType)
 		}
 	}
 }

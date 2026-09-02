@@ -951,7 +951,8 @@ func (s *NotificationFilterService) sendEmail(to, subject, html, unsubscribeURL 
 //
 // Not every notification_log row for the user: inboxVisibleRows filters out the
 // ones that are not bell entries (see it for which and why), and
-// inboxRowsVisibleTo drops the rows leading to a show viewer may no longer see.
+// inboxRowsVisibleTo drops the rows leading to an entity viewer may no longer
+// see: a withdrawn show, and a collection turned private.
 // A caller counting rows here against a raw count of the table will
 // disagree, on purpose.
 //
@@ -994,13 +995,13 @@ func (s *NotificationFilterService) GetUserNotifications(viewer contracts.ShowVi
 		WHERE sv.show_id = nl.entity_id
 		LIMIT 1
 	)`
-	visibleShowCommentSQL, visibleShowCommentArgs := inboxRowsVisibleTo("nl", viewer)
+	inboxVisibleSQL, inboxVisibleArgs := inboxRowsVisibleTo("nl", viewer)
 	err := s.db.Table("notification_log nl").
 		Select("nl.*, COALESCE(nf.name, CASE WHEN nl.entity_type = 'show' AND nl.filter_id IS NULL THEN "+sceneNameSubquery+" END, '') as filter_name").
 		Joins("LEFT JOIN notification_filters nf ON nf.id = nl.filter_id").
 		Where("nl.user_id = ?", userID).
 		Where(inboxVisibleRows("nl")).
-		Where(visibleShowCommentSQL, visibleShowCommentArgs...).
+		Where(inboxVisibleSQL, inboxVisibleArgs...).
 		Order("nl.sent_at DESC").
 		Limit(limit).
 		Offset(offset).

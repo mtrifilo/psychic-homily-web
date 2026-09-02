@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"gorm.io/gorm"
@@ -295,21 +296,23 @@ func (s *ContributorProfileService) UpdatePrivacySettings(userID uint, settings 
 // GetContributionStats computes aggregate contribution counts for a user, as
 // the caller in viewer is allowed to see them.
 //
-// TWO counts are narrowed to the shows viewer may see, and they are the two with
-// a filtered public sibling to be differenced against: shows_submitted (against
-// the contributions timeline) and revisions_made (against the total
-// GET /users/{id}/revisions reports). A public number differenced against a
-// filtered one is a count of hidden shows published as arithmetic. The zero
-// viewer is the anonymous tier.
+// FOUR counts are narrowed to what viewer may see, and they are the four with a
+// filtered public sibling to be differenced against: shows_submitted (against
+// the contributions timeline), revisions_made (against the total
+// GET /users/{id}/revisions reports), collection_items_added (against the
+// add_collection_item rows in that same timeline) and collection_subscriptions
+// (against GET /auth/collections). A whole number differenced against a filtered
+// one is a count of withheld rows published as arithmetic. The zero viewer is
+// the anonymous tier.
 //
-// The other show-derived counts here are deliberately NOT narrowed, and a new
-// one should not assume it is covered: moderation_actions (approve_show /
-// reject_show over audit_logs), collection_items_added, reports_filed and
-// reports_resolved all still count rows naming shows the viewer cannot see.
-// They are left whole because each would need its own filtered sibling to be a
-// usable oracle, and because moderation counts in particular describe the
-// MODERATOR rather than the show. That is a judgement, not an oversight, and the
-// next person to add a show-derived counter has to make it again.
+// The remaining gated-entity counts here are deliberately NOT narrowed, and a
+// new one should not assume it is covered: moderation_actions (approve_show /
+// reject_show over audit_logs), reports_filed and reports_resolved all still
+// count rows naming entities the viewer cannot see. They are left whole because
+// none has a filtered sibling to be differenced against, and because moderation
+// counts in particular describe the MODERATOR rather than the entity. That is a
+// judgement, not an oversight, and the next person to add a counter over a gated
+// entity has to make it again.
 //
 // The counts a viewer is allowed to see therefore differ per caller, and the
 // owner and an admin see their own totals unchanged. Nothing about this
@@ -402,7 +405,8 @@ func (s *ContributorProfileService) GetContributionStats(userID uint, viewer con
 	// under both is services/shared/show_visibility.go.
 	//
 	// Non-show revisions are counted whatever their entity, matching that
-	// listing: show is the only entity type with a read-time visibility rule.
+	// listing: the revisions table carries no collection entity_type, so `show`
+	// is the only gated type that reaches this count.
 	revisionsVisible, revisionsVisibleArgs := shared.VisibleShowRevisionsSQL(shared.RevisionsTable, viewer)
 	s.db.Model(&adminm.Revision{}).
 		Where("user_id = ?", userID).
@@ -417,9 +421,25 @@ func (s *ContributorProfileService) GetContributionStats(userID uint, viewer con
 	s.db.Model(&catalogm.ArtistRelationshipVote{}).Where("user_id = ?", userID).Count(&stats.RelationshipVotesCast)
 	s.db.Model(&communitym.RequestVote{}).Where("user_id = ?", userID).Count(&stats.RequestVotesCast)
 
-	// Community participation: collections
-	s.db.Model(&communitym.CollectionItem{}).Where("added_by_user_id = ?", userID).Count(&stats.CollectionItemsAdded)
-	s.db.Model(&communitym.CollectionSubscriber{}).Where("user_id = ?", userID).Count(&stats.CollectionSubscriptions)
+	// Community participation: collections, narrowed to the collections viewer
+	// may see.
+	//
+	// Both have a filtered public sibling on the same profile: the
+	// add_collection_item rows in GetContributionHistory, and the collections
+	// GET /auth/collections lists. A whole number differenced against a filtered
+	// one is a count of private collections published as arithmetic, which is the
+	// disclosure the timeline's gate exists to prevent.
+	collectionsVisible, collectionsVisibleArgs := shared.VisibleCollectionPredicateSQL("collections", viewer)
+	s.db.Model(&communitym.CollectionItem{}).
+		Joins("JOIN collections ON collections.id = collection_items.collection_id").
+		Where("collection_items.added_by_user_id = ?", userID).
+		Where(collectionsVisible, collectionsVisibleArgs...).
+		Count(&stats.CollectionItemsAdded)
+	s.db.Model(&communitym.CollectionSubscriber{}).
+		Joins("JOIN collections ON collections.id = collection_subscribers.collection_id").
+		Where("collection_subscribers.user_id = ?", userID).
+		Where(collectionsVisible, collectionsVisibleArgs...).
+		Count(&stats.CollectionSubscriptions)
 
 	// Reports filed (entity_reports + show_reports + artist_reports)
 	var entityReportsFiled, showReportsFiled, artistReportsFiled int64
@@ -489,36 +509,88 @@ var contributionShowEntityTypes = []string{"show", "show_edit"}
 // emits never says collection.
 const contributionCollectionEntityType = "collection"
 
-// contributionCollectionItemActions are the audit actions whose entity_id is a
-// collection_items row id even though their entity_type says "collection".
+// contributionCollectionIDKind says WHICH id an audit action stores under
+// entity_type "collection".
+type contributionCollectionIDKind int
+
+const (
+	// collectionIDUndecided is the ZERO VALUE and is never stored. An action
+	// with no entry resolves to it, and the gate refuses that row, so a writer
+	// added without a disposition withholds rows instead of judging them against
+	// the wrong table.
+	collectionIDUndecided contributionCollectionIDKind = iota
+	// collectionIDIsCollection: entity_id is a collections row id.
+	collectionIDIsCollection
+	// collectionIDIsItem: entity_id is a collection_items row id.
+	collectionIDIsItem
+)
+
+// contributionCollectionActions is the disposition of every audit action written
+// with entity_type "collection" (handlers/community/collection.go).
 //
-// The audit writers store two different kinds of id under one discriminator
-// (handlers/community/collection.go), so a gate that read entity_id as a
-// collections id for every one of them would judge these three against whatever
-// collection happens to share the item's number. Each carries the parent's slug
-// in its metadata, so the row discloses the collection's identity whichever id
-// it holds and has to be decided against the parent.
+// TWO KINDS OF ID UNDER ONE DISCRIMINATOR is the fact this map exists to record.
+// A gate that read entity_id one way for all of them would judge the item
+// actions against whatever collection happens to share the item's number, and
+// every one of these rows carries the parent's slug in its metadata, so the row
+// discloses the collection's identity whichever id it holds.
 //
-// A removed item resolves to no parent and the row is withheld, because
-// collection_items are hard-deleted. Withholding a contribution the viewer may
-// in fact be entitled to is the recoverable direction; the alternative reads a
-// slug out of a private collection.
-var contributionCollectionItemActions = []string{
-	"add_collection_item",
-	"update_collection_item",
-	"remove_collection_item",
+// An action missing from this map is refused, which is the same fail-closed
+// default the entity registry in services/shared uses. Adding a writer is one
+// line here plus the judgement it forces.
+//
+// A ROW WHOSE COLLECTION OR ITEM NO LONGER EXISTS is withheld from everyone,
+// including its own author. Collections and collection_items are both
+// hard-deleted and neither the id nor the recorded slug resolves afterwards, so
+// deleting your own collection erases its rows from your own timeline. That is
+// the same answer the show arm gives for a deleted show, and it is the
+// recoverable direction: the alternative reads a slug out of a private
+// collection.
+var contributionCollectionActions = map[string]contributionCollectionIDKind{
+	"create_collection":         collectionIDIsCollection,
+	"update_collection":         collectionIDIsCollection,
+	"delete_collection":         collectionIDIsCollection,
+	"clone_collection":          collectionIDIsCollection,
+	"set_collection_featured":   collectionIDIsCollection,
+	"bulk_add_collection_items": collectionIDIsCollection,
+	"add_collection_tag":        collectionIDIsCollection,
+	"remove_collection_tag":     collectionIDIsCollection,
+
+	"add_collection_item":    collectionIDIsItem,
+	"update_collection_item": collectionIDIsItem,
+	"remove_collection_item": collectionIDIsItem,
+}
+
+// contributionCollectionActionsOfKind is the sorted list of actions with one
+// disposition, for the SQL IN-lists. Sorted so the emitted statement is
+// byte-identical across processes, since Go randomises map iteration and the
+// bind order has to be a property of the map rather than of the walk.
+func contributionCollectionActionsOfKind(kind contributionCollectionIDKind) []string {
+	if kind == collectionIDUndecided {
+		// The zero value is never stored, so asking for its members would build
+		// an IN-list that matches every unregistered action and hand it a branch.
+		return nil
+	}
+	actions := make([]string, 0, len(contributionCollectionActions))
+	for action, k := range contributionCollectionActions {
+		if k == kind {
+			actions = append(actions, action)
+		}
+	}
+	sort.Strings(actions)
+	return actions
 }
 
 // isCollectionItemAction reports whether an action's entity_id is a
 // collection_items id rather than a collections id.
 func isCollectionItemAction(action string) bool {
-	for _, a := range contributionCollectionItemActions {
-		if a == action {
-			return true
-		}
-	}
-	return false
+	return contributionCollectionActions[action] == collectionIDIsItem
 }
+
+// contributionCloneSourceKeys are the metadata keys clone_collection writes to
+// name the collection that was forked. The clone itself is public, so the ROW
+// passes the gate on its own id while these two keys can still name a source the
+// viewer may not see; they are removed rather than the row being withheld.
+var contributionCloneSourceKeys = []string{"source_slug", "source_id"}
 
 // GetContributionHistory returns a paginated, unified contribution timeline for
 // a user, containing only what the caller in viewer is allowed to see.
@@ -574,11 +646,15 @@ func (s *ContributorProfileService) GetContributionHistory(userID uint, limit, o
 	// carry, and "collection" is the third. Anything else passes.
 	//
 	// The collection arm reads entity_id TWO WAYS because the audit writers store
-	// two kinds of id under that discriminator: the item actions name a
-	// collection_items row and everything else names the collection itself. The
-	// CASE picks per row, so neither family is judged against the other's table.
-	// Both are gated rather than only the ids, because every collection audit row
-	// carries the parent's slug in its metadata.
+	// two kinds of id under that discriminator, and contributionCollectionActions
+	// is the disposition of each. The CASE picks per row, so neither family is
+	// judged against the other's table, and an action with NO disposition answers
+	// FALSE rather than falling into whichever branch is written last.
+	//
+	// The item branch also accepts the parent named by the metadata SLUG, because
+	// collection_items are hard-deleted and a remove_collection_item row names an
+	// item that no longer exists. The slug is the identity these rows disclose, so
+	// deciding the row against it is deciding it against what it publishes.
 	//
 	// Parentheses written out rather than left to the driver, and the entity-type
 	// filter ANDed after: the binding this pins is
@@ -590,16 +666,22 @@ func (s *ContributorProfileService) GetContributionHistory(userID uint, limit, o
 	// statement order.
 	visibleShows, visibleShowsArgs := shared.VisibleShowExistsSQL("unified.entity_id", viewer)
 	visibleItemParents, visibleItemParentArgs := shared.VisibleCollectionItemExistsSQL("unified.entity_id", viewer)
+	visibleBySlug, visibleBySlugArgs := shared.VisibleCollectionSlugExistsSQL("unified.metadata->>'slug'", viewer)
 	visibleCollections, visibleCollectionArgs := shared.VisibleCollectionExistsSQL("unified.entity_id", viewer)
 	entityFilter := fmt.Sprintf(
 		" WHERE (unified.entity_type NOT IN ? OR %s)"+
-			" AND (unified.entity_type <> ? OR (CASE WHEN unified.action IN ? THEN %s ELSE %s END))",
-		visibleShows, visibleItemParents, visibleCollections)
+			" AND (unified.entity_type <> ?"+
+			" OR (CASE WHEN unified.action IN ? THEN (%s OR %s)"+
+			" WHEN unified.action IN ? THEN %s"+
+			" ELSE FALSE END))",
+		visibleShows, visibleItemParents, visibleBySlug, visibleCollections)
 	args = append(args, contributionShowEntityTypes)
 	args = append(args, visibleShowsArgs...)
 	args = append(args, contributionCollectionEntityType)
-	args = append(args, contributionCollectionItemActions)
+	args = append(args, contributionCollectionActionsOfKind(collectionIDIsItem))
 	args = append(args, visibleItemParentArgs...)
+	args = append(args, visibleBySlugArgs...)
+	args = append(args, contributionCollectionActionsOfKind(collectionIDIsCollection))
 	args = append(args, visibleCollectionArgs...)
 	if entityType != "" {
 		entityFilter += " AND unified.entity_type = ?"
@@ -643,8 +725,73 @@ func (s *ContributorProfileService) GetContributionHistory(userID uint, limit, o
 	}
 
 	s.enrichEntityNames(entries, viewer)
+	s.scrubCloneSourceMetadata(entries, viewer)
 
 	return entries, total, nil
+}
+
+// scrubCloneSourceMetadata removes the forked-from keys from clone_collection
+// rows whose SOURCE viewer may not see.
+//
+// The clone is a collection of its own and CloneCollection creates it public, so
+// the row passes the gate on its own id. Its metadata names the source, which
+// may since have gone private, and the timeline is anonymous-readable. The row
+// stays and the two keys go, because the contribution itself is public and only
+// the attribution is gated.
+//
+// One batched lookup for the whole page, filtered by the same predicate every
+// other collection read uses.
+func (s *ContributorProfileService) scrubCloneSourceMetadata(entries []*contracts.ContributionEntry, viewer contracts.ShowViewer) {
+	sourceIDs := make([]uint, 0)
+	for _, e := range entries {
+		if e.Metadata == nil {
+			continue
+		}
+		if id, ok := metadataUint(e.Metadata["source_id"]); ok {
+			sourceIDs = append(sourceIDs, id)
+		}
+	}
+	if len(sourceIDs) == 0 {
+		return
+	}
+
+	visible, visibleArgs := shared.VisibleCollectionPredicateSQL("collections", viewer)
+	var rows []struct{ ID uint }
+	s.db.Table("collections").
+		Select("id").
+		Where("id IN ?", sourceIDs).
+		Where(visible, visibleArgs...).
+		Scan(&rows)
+	visibleIDs := make(map[uint]bool, len(rows))
+	for _, r := range rows {
+		visibleIDs[r.ID] = true
+	}
+
+	for _, e := range entries {
+		if e.Metadata == nil {
+			continue
+		}
+		id, ok := metadataUint(e.Metadata["source_id"])
+		if ok && visibleIDs[id] {
+			continue
+		}
+		// An unreadable source id is removed on the same terms as a missing one,
+		// so a source that was deleted and one that went private answer alike.
+		for _, key := range contributionCloneSourceKeys {
+			delete(e.Metadata, key)
+		}
+	}
+}
+
+// metadataUint reads an id out of a decoded JSON metadata value. encoding/json
+// decodes every number into float64, so the numeric case is the one that
+// matters; the rest are refused rather than coerced.
+func metadataUint(v interface{}) (uint, bool) {
+	f, ok := v.(float64)
+	if !ok || f <= 0 {
+		return 0, false
+	}
+	return uint(f), true
 }
 
 // =============================================================================
@@ -662,10 +809,12 @@ func (s *ContributorProfileService) GetContributionHistory(userID uint, limit, o
 //
 // The audit_logs, pending_entity_edits and entity_edit_audit_logs arms are NOT
 // narrowed. Show-typed audit rows (approve_show, reject_show, create_comment,
-// create_field_note) therefore still contribute a day count that the timeline
-// filters, which leaves a coarser version of the same signal open. Narrowing
-// them is the follow-up this comment exists to name, not something already
-// done.
+// create_field_note) AND collection-typed ones (every action in
+// contributionCollectionActions) therefore still contribute a day count that the
+// timeline filters, which leaves a coarser version of the same signal open:
+// a hidden show or a private collection located to the day it was touched.
+// Narrowing them is the follow-up this comment exists to name, not something
+// already done.
 func (s *ContributorProfileService) GetActivityHeatmap(userID uint, viewer contracts.ShowViewer) (*contracts.ActivityHeatmapResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")

@@ -529,7 +529,7 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 	// `ON DELETE SET NULL`. We never snapshot the source title at fork time
 	// (per product decision); the frontend renders fallback copy in that
 	// case.
-	forkedFrom := s.resolveForkedFromInfo(collection.ForkedFromCollectionID)
+	forkedFrom := s.resolveForkedFromInfo(collection.ForkedFromCollectionID, viewerID)
 
 	// Check if viewer is subscribed
 	isSubscribed := false
@@ -614,19 +614,29 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 // resolveForkedFromInfo loads the minimal source-collection snapshot for
 // inline attribution. Returns nil when:
 //   - This collection wasn't forked (FK is nil), OR
-//   - The source was deleted (FK was set to NULL by ON DELETE SET NULL).
+//   - The source was deleted (FK was set to NULL by ON DELETE SET NULL), OR
+//   - The source is one viewerID may not see.
 //
 // The frontend renders fallback copy ("Forked from a deleted collection")
 // based on whether the FK is set but the snapshot is nil.
-func (s *CollectionService) resolveForkedFromInfo(forkedFromID *uint) *contracts.ForkedFromInfo {
+//
+// THE FENCE IS NOT OPTIONAL HERE. A fork is public independently of its source,
+// and CloneCollection creates the clone public whatever the source was, so this
+// lookup resolves the title, slug and curator of a collection the caller may
+// have no right to read. A source that went private answers the same as a
+// deleted one, which is the answer the fallback copy already renders.
+func (s *CollectionService) resolveForkedFromInfo(forkedFromID *uint, viewerID uint) *contracts.ForkedFromInfo {
 	if forkedFromID == nil || *forkedFromID == 0 {
 		return nil
 	}
+	visible, visibleArgs := shared.VisibleCollectionPredicateSQL("collections", contracts.ShowViewer{UserID: viewerID})
 	var source communitym.Collection
 	err := s.db.Select("id, title, slug, creator_id").
-		Where("id = ?", *forkedFromID).First(&source).Error
+		Where("id = ?", *forkedFromID).
+		Where(visible, visibleArgs...).
+		First(&source).Error
 	if err != nil {
-		// Source missing despite FK — treat as deleted.
+		// Source missing, or gated: one answer for both.
 		return nil
 	}
 	return &contracts.ForkedFromInfo{
@@ -1876,8 +1886,12 @@ func (s *CollectionService) MarkVisited(slug string, userID uint) error {
 	return nil
 }
 
-// GetStats retrieves statistics for a collection
-func (s *CollectionService) GetStats(slug string) (*contracts.CollectionStatsResponse, error) {
+// GetStats retrieves statistics for a collection, as viewerID may see it.
+//
+// The counts ARE the collection's activity: how many items it holds, how many
+// people watch it, how many have contributed. A private collection answers the
+// not-found error a slug nobody has used gets, so the pair is one response.
+func (s *CollectionService) GetStats(slug string, viewerID uint) (*contracts.CollectionStatsResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -1889,6 +1903,10 @@ func (s *CollectionService) GetStats(slug string) (*contracts.CollectionStatsRes
 			return nil, apperrors.ErrCollectionNotFound(slug)
 		}
 		return nil, fmt.Errorf("failed to get collection: %w", err)
+	}
+
+	if !collection.IsPublic && collection.CreatorID != viewerID {
+		return nil, apperrors.ErrCollectionNotFound(slug)
 	}
 
 	// Item count
@@ -1944,8 +1962,20 @@ func (s *CollectionService) GetUserCollections(userID uint, search string, limit
 		Select("collection_id").
 		Where("user_id = ?", userID)
 
+	// A SUBSCRIPTION IS NOT A GRANT. Subscribing is allowed while a collection
+	// is public and the row survives the creator turning it private, so the
+	// subscribed branch has to carry the detail route's rule or this listing
+	// serves the title, description, cover, counts and per-viewer activity of a
+	// collection GET /collections/{slug} refuses the same caller.
+	//
+	// ANDed as a separate condition rather than folded into the OR above: the
+	// creator branch of the visibility predicate already re-admits the caller's
+	// own private collections, so scope and visibility stay two readable terms
+	// instead of one expression that has to be parenthesised correctly.
+	visible, visibleArgs := shared.VisibleCollectionPredicateSQL("collections", contracts.ShowViewer{UserID: userID})
 	query := s.db.Model(&communitym.Collection{}).
-		Where("creator_id = ? OR id IN (?)", userID, subQuery)
+		Where("creator_id = ? OR id IN (?)", userID, subQuery).
+		Where(visible, visibleArgs...)
 
 	// PSY-580: Yours tab now honours the search box. Reuse the public-browse
 	// field expansion (title / description / item notes / tag name+aliases —
@@ -2068,12 +2098,13 @@ func (s *CollectionService) GetUserCollectionsContainingEntity(userID uint, enti
 		return []contracts.ContainingCollectionItem{}, nil
 	}
 
-	// NOT gated on show visibility, deliberately (PSY-1939).
+	// NOT gated on the ENTITY's visibility, deliberately.
 	//
 	// This lookup is scoped to the CALLER's own collections and answers one
-	// question: which of your collections already hold this entity. Everything it
-	// can report is something the caller put there themselves, so it discloses
-	// nothing about the show to anyone else, and there is no oracle to close.
+	// question: which of your collections already hold this entity. What it
+	// reports about the entity is something the caller put there themselves, so
+	// it discloses nothing about the show to anyone else, and there is no oracle
+	// to close.
 	//
 	// Gating it would create a bug rather than fix one. A show that is
 	// unpublished after being added would stop pre-checking in the popover, so
@@ -2087,19 +2118,22 @@ func (s *CollectionService) GetUserCollectionsContainingEntity(userID uint, enti
 	// actually looks.
 
 	// Mirror GetUserCollections's scope: collections the user CREATED or
-	// is SUBSCRIBED to. The popover only adds to creator-owned collections
-	// today, but collaborative collections shown in the user's library
-	// should also pre-check correctly.
+	// is SUBSCRIBED to, and the same visibility rule on top. The subscribed
+	// branch reaches a collection the caller did not create, so without the rule
+	// this confirms the membership of a private collection somebody subscribed to
+	// while it was public.
 	subQuery := s.db.Model(&communitym.CollectionSubscriber{}).
 		Select("collection_id").
 		Where("user_id = ?", userID)
 
+	visible, visibleArgs := shared.VisibleCollectionPredicateSQL("collections", contracts.ShowViewer{UserID: userID})
 	items := []contracts.ContainingCollectionItem{}
 	err := s.db.Model(&communitym.CollectionItem{}).
 		Select("collection_items.collection_id AS collection_id, collection_items.id AS item_id").
 		Joins("JOIN collections ON collections.id = collection_items.collection_id").
 		Where("collection_items.entity_type = ? AND collection_items.entity_id = ?", entityType, entityID).
 		Where("collections.creator_id = ? OR collections.id IN (?)", userID, subQuery).
+		Where(visible, visibleArgs...).
 		Scan(&items).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to look up containing collections: %w", err)
@@ -2931,6 +2965,16 @@ func (s *CollectionService) canEditCollectionTags(collection *communitym.Collect
 	}
 	if collection.CreatorID == userID {
 		return true
+	}
+	// A COLLECTION THE CALLER CANNOT READ IS NOT ONE THEY MAY TAG, whatever
+	// `collaborative` says. Collaborative is the model default, so without this
+	// the slug routes would admit any authenticated caller to a private
+	// collection's tag set: the write lands on the creator's page, counts toward
+	// the per-collection cap, and AddTagToCollection returns the post-mutation
+	// tag list, which is a read of gated content. The polymorphic tag routes
+	// refuse the same write on the same rule.
+	if !collection.IsPublic {
+		return false
 	}
 	return collection.Collaborative
 }

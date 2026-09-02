@@ -196,7 +196,13 @@ type GetCollectionStatsHandlerResponse struct {
 
 // GetCollectionStatsHandler handles GET /collections/{slug}/stats
 func (h *CollectionHandler) GetCollectionStatsHandler(ctx context.Context, req *GetCollectionStatsHandlerRequest) (*GetCollectionStatsHandlerResponse, error) {
-	stats, err := h.collectionService.GetStats(req.Slug)
+	// The viewer is optional-auth here, so an anonymous caller passes 0 and gets
+	// the public answer.
+	var viewerID uint
+	if user := middleware.GetUserFromContext(ctx); user != nil {
+		viewerID = user.ID
+	}
+	stats, err := h.collectionService.GetStats(req.Slug, viewerID)
 	if err != nil {
 		return nil, shared.MapCollectionError(err)
 	}

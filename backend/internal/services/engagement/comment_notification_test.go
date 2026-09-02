@@ -13,6 +13,7 @@ import (
 
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	communitym "psychic-homily-backend/internal/models/community"
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
@@ -616,6 +617,54 @@ func (s *CommentNotificationServiceIntegrationSuite) TestNotifyMentioned_GatedSh
 		Update("status", catalogm.ShowStatusApproved).Error)
 	s.Require().NoError(s.svc.NotifyMentioned(c.ID))
 	s.Assert().Len(s.mock.mentionCallsSorted(), 2, "an approved show mentions everybody named")
+}
+
+// The COLLECTION arm of the mention query, which the show test above cannot
+// reach.
+//
+// The two arms differ where it matters most: an admin passes the show arm and
+// must NOT pass the collection arm, because no collection read grants an admin a
+// private one. A "make it consistent" edit that unified the two would look tidy
+// and would mail a private collection's mention to every admin.
+func (s *CommentNotificationServiceIntegrationSuite) TestNotifyMentioned_PrivateCollectionReachesOnlyItsCreator() {
+	creator := s.createUser("collectioncreator")
+	_ = s.createUser("collectionstranger")
+	admin := s.createUser("collectionadmin")
+	s.Require().NoError(s.db.Model(&authm.User{}).Where("id = ?", admin.ID).
+		Update("is_admin", true).Error)
+
+	collection := &communitym.Collection{
+		Title:     "Mentioned Private Collection",
+		Slug:      "mentioned-private-collection",
+		CreatorID: creator.ID,
+		IsPublic:  true,
+	}
+	s.Require().NoError(s.db.Create(collection).Error)
+	// GORM skips a false bool on Create, so private is an update.
+	s.Require().NoError(s.db.Model(collection).Update("is_public", false).Error)
+
+	c := &engagementm.Comment{
+		EntityType: engagementm.CommentEntityCollection,
+		EntityID:   collection.ID,
+		Kind:       engagementm.CommentKindComment,
+		UserID:     creator.ID,
+		Body:       "list notes for @collectionstranger @collectionadmin",
+		BodyHTML:   "<p>list notes</p>",
+		Visibility: engagementm.CommentVisibilityVisible,
+	}
+	s.Require().NoError(s.db.Create(c).Error)
+	s.Require().NoError(s.svc.NotifyMentioned(c.ID))
+
+	s.Assert().Empty(s.mock.mentionCallsSorted(),
+		"neither a stranger nor an admin may be mailed about a private collection")
+
+	// Republishing lets both through, proving the filter is the collection's
+	// is_public flag and not something structural about the query.
+	s.mock.reset()
+	s.Require().NoError(s.db.Model(&communitym.Collection{}).Where("id = ?", collection.ID).
+		Update("is_public", true).Error)
+	s.Require().NoError(s.svc.NotifyMentioned(c.ID))
+	s.Assert().Len(s.mock.mentionCallsSorted(), 2, "a public collection mentions everybody named")
 }
 
 // TestNotifyMentioned_IgnoresEmailAndURLContainingAt

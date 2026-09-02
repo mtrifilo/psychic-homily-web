@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
+	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	communitym "psychic-homily-backend/internal/models/community"
@@ -163,6 +165,7 @@ func (s *EntityReportServiceIntegrationTestSuite) TearDownTest() {
 	sqlDB, err := s.db.DB()
 	s.Require().NoError(err)
 	_, _ = sqlDB.Exec("DELETE FROM entity_reports")
+	_, _ = sqlDB.Exec("DELETE FROM collections")
 	_, _ = sqlDB.Exec("DELETE FROM artists")
 	_, _ = sqlDB.Exec("DELETE FROM venues")
 	_, _ = sqlDB.Exec("DELETE FROM festivals")
@@ -884,4 +887,64 @@ func (s *EntityReportServiceIntegrationTestSuite) TestReviewerName_Included() {
 	// PSY-619: ReviewerUsername populated for admins who set a username.
 	s.Require().NotNil(resolved.ReviewerUsername)
 	s.Equal(*admin.Username, *resolved.ReviewerUsername)
+}
+
+// A PRIVATE COLLECTION IS NOT REPORTABLE BY SOMEBODY WHO CANNOT SEE IT, and it
+// answers exactly as a collection id nobody has used.
+//
+// The report response carries the entity's resolved title and slug, so an
+// existence probe on its own would hand a private collection's identity to
+// whoever guesses its integer id. Collections are the only reportable type with
+// a read-time rule that this refusal costs nothing: their creator is the one
+// person who can see them, and they are the one person the refusal does not
+// apply to.
+func (s *EntityReportServiceIntegrationTestSuite) TestCreateEntityReport_PrivateCollectionAnswersLikeAMissingOne() {
+	creator := s.createTestUser()
+	stranger := s.createTestUser()
+
+	shut := &communitym.Collection{
+		Title:     "Reportable Shut",
+		Slug:      fmt.Sprintf("reportable-shut-%d", time.Now().UnixNano()),
+		CreatorID: creator.ID,
+		IsPublic:  true,
+	}
+	s.Require().NoError(s.db.Create(shut).Error)
+	s.Require().NoError(s.db.Model(shut).Update("is_public", false).Error)
+
+	report := func(userID uint, collectionID uint) (*contracts.EntityReportResponse, error) {
+		return s.svc.CreateEntityReport(&contracts.CreateEntityReportRequest{
+			EntityType: "collection",
+			EntityID:   collectionID,
+			UserID:     userID,
+			ReportType: "spam",
+			Details:    stringPtr("repro"),
+		})
+	}
+
+	_, gatedErr := report(stranger.ID, shut.ID)
+	s.Require().Error(gatedErr)
+	_, missingErr := report(stranger.ID, 99999999)
+	s.Require().Error(missingErr)
+	var gated, missing *apperrors.EntityReportError
+	s.Require().True(errors.As(gatedErr, &gated))
+	s.Require().True(errors.As(missingErr, &missing))
+	s.Equal(missing.Code, gated.Code,
+		"a private collection and an id nobody has used must answer alike")
+
+	// The creator can still report their own, and the response is where the
+	// title and slug would have leaked, so it is asserted rather than assumed.
+	resp, err := report(creator.ID, shut.ID)
+	s.Require().NoError(err)
+	s.Equal("Reportable Shut", resp.EntityName)
+
+	// The control: a PUBLIC collection is reportable by anyone.
+	open := &communitym.Collection{
+		Title:     "Reportable Open",
+		Slug:      fmt.Sprintf("reportable-open-%d", time.Now().UnixNano()),
+		CreatorID: creator.ID,
+		IsPublic:  true,
+	}
+	s.Require().NoError(s.db.Create(open).Error)
+	_, err = report(stranger.ID, open.ID)
+	s.Require().NoError(err)
 }

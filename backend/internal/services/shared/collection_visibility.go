@@ -23,13 +23,13 @@ import (
 //
 // WHAT IT IS NOT THE SINGLE DEFINITION OF: the PUBLIC-TIER sites, which decide a
 // collection the same way for everybody and spell `is_public = true` by hand.
-// catalog/tag_service.go's enrichCollections, catalog/scene_collections.go and
-// catalog/tag_intersection.go each carry their own literal, as do the
-// `!IsPublic && CreatorID != userID` tests inside
-// services/community/collection.go. Migrating them onto the spellings here is a
-// separate change: it is a refactor of routes this file does not otherwise
-// touch, and doing it under a privacy fix would put untested churn beside the
-// gates.
+// catalog/tag_service.go's enrichCollections, catalog/scene_collections.go,
+// catalog/tag_intersection.go and catalog/charts_featured_collection.go each
+// carry their own literal, as do the `!IsPublic && CreatorID != userID` tests
+// inside services/community/collection.go. Migrating them onto the spellings
+// here is a separate change: it is a refactor of routes this file does not
+// otherwise touch, and doing it under a privacy fix would put untested churn
+// beside the gates.
 //
 // TWO WAYS THIS RULE DIFFERS FROM THE SHOW RULE, and both are load-bearing:
 //
@@ -43,17 +43,18 @@ import (
 //     `viewer.IsAdmin` is deliberately UNREAD by everything here;
 //     TestCollectionVisibilitySpellingsAgree pins that with a real admin row.
 //
-//     TWO SURFACES DO SERVE AN ADMIN A PRIVATE COLLECTION, and they are
+//     THREE SURFACES DO SERVE AN ADMIN A PRIVATE COLLECTION, and they are
 //     exceptions with a reason rather than counter-examples:
 //     GET /admin/comments/pending serves the moderation queue every pending
 //     comment's body and (entity_type, entity_id) regardless of the parent's
-//     visibility, and PUT /collections/{slug} takes `isAdmin` and returns the
-//     updated detail, so an admin can both read and republish a private
-//     collection through it. Both are moderation powers on the admin group. The
-//     rule this file states is about the tiers a NON-admin surface answers for,
-//     and adding an admin tier here would extend those two powers to the
-//     watching list, the inbox and the comment fan-out, which is not what
-//     moderation trust was granted for.
+//     visibility; GET /admin/entity-reports and its detail route resolve a
+//     reported collection's title and slug the same way; and
+//     PUT /collections/{slug} takes `isAdmin` and returns the updated detail, so
+//     an admin can both read and republish a private collection through it. All
+//     three are moderation powers on the admin group. The rule this file states
+//     is about the tiers a NON-admin surface answers for, and adding an admin
+//     tier here would extend those powers to the watching list, the inbox and
+//     the comment fan-out, which is not what moderation trust was granted for.
 //
 //     This propagates. VisibleCommentEntitySQL cannot take the admin
 //     short-circuit its show-only predecessor took, and the notification
@@ -74,7 +75,13 @@ import (
 // refuses that caller, so the collection they contribute to is already
 // unreadable to them. Widening the gate to contributors would make these
 // surfaces more permissive than the route they mirror, so what "private plus
-// collaborative" should mean is a product question and is filed as one.
+// collaborative" should mean is a product question rather than a code one.
+//
+// The two sides of that gap are not symmetric today and the asymmetry is
+// deliberate: canEditCollectionTags refuses a contributor the TAG write on a
+// private collaborative collection, because that write returns the collection's
+// tag list and is therefore a read; AddItem and BulkAddItems still admit them,
+// because those return only the item they wrote.
 //
 // EVERY spelling fails closed, on the same terms show_visibility.go states: a
 // missing collection row, a nil db, a zero id and a failed lookup all resolve to
@@ -212,6 +219,32 @@ func VisibleCollectionItemExistsSQL(itemIDExpr string, viewer contracts.ShowView
 		" JOIN collections " + visibleCollectionsAlias +
 		" ON " + visibleCollectionsAlias + ".id = " + visibleCollectionItemsAlias + ".collection_id" +
 		" WHERE " + visibleCollectionItemsAlias + ".id = " + itemIDExpr +
+		" AND " + inner + ")", args
+}
+
+// visibleCollectionSlugAlias is the alias VisibleCollectionSlugExistsSQL binds
+// the collections table to. Distinct from every other alias here, for the reason
+// visibleCollectionsAlias gives.
+const visibleCollectionSlugAlias = "visible_collection_slug"
+
+// VisibleCollectionSlugExistsSQL returns a correlated EXISTS condition, true
+// when the collection NAMED BY SLUG in slugExpr is one viewer may see, plus its
+// bind arguments.
+//
+// For a caller holding a slug rather than an id: an audit row's metadata records
+// the slug the collection carried when the action happened. A slug that matches
+// no collection is NOT visible, so a renamed or deleted collection answers the
+// same as a private one.
+//
+// The slug is the DISCLOSURE this decides, not merely a way to find the row. A
+// caller who may not see the collection may not read the slug that names it,
+// whichever collection holds that slug now.
+//
+// slugExpr is SQL the CALLER controls and must be a literal in the calling code.
+func VisibleCollectionSlugExistsSQL(slugExpr string, viewer contracts.ShowViewer) (string, []interface{}) {
+	inner, args := VisibleCollectionPredicateSQL(visibleCollectionSlugAlias, viewer)
+	return "EXISTS (SELECT 1 FROM collections " + visibleCollectionSlugAlias +
+		" WHERE " + visibleCollectionSlugAlias + ".slug = " + slugExpr +
 		" AND " + inner + ")", args
 }
 

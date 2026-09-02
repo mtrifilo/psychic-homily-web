@@ -53,13 +53,17 @@ func ShowSubResourceVisible(checker contracts.ShowVisibilityInterface, showID ui
 // the SQL spellings derive their allowlist from, or the handler gate and the row
 // gates can disagree about what an entity type means.
 //
-// AN ENTITY TYPE WITH NO REGISTERED RULE IS NOT VISIBLE, and a junk
+// AN ENTITY TYPE WITH NO REGISTERED RULE IS NOT VISIBLE, so a junk
 // {entity_type} segment is refused here rather than reaching the service that
 // would have answered "invalid entity type". What a caller does with a refusal
 // is still the caller's own no-data shape, per this file's header: the empty
 // list, or the entity-not-found error a never-used id gets. One answer for a
 // gated entity, a missing one and an unknown type is the point: the pairs that
 // differ are the oracle.
+//
+// A CALLER THAT VALIDATES THE VOCABULARY FIRST answers its own error before this
+// runs, and community.GetEntityCollectionsHandler does exactly that with a 422.
+// That is its own contract, not this one.
 func EntitySubResourceVisible(checker contracts.ShowVisibilityInterface, entityType string, entityID uint, viewer contracts.ShowViewer) bool {
 	return servicesshared.EntityVisibleTo(checker, entityType, entityID, viewer)
 }

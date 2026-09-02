@@ -203,7 +203,7 @@ func (s *CollectionHandlerIntegrationSuite) TestGetCollection_ByNumericID_Privat
 
 func (s *CollectionHandlerIntegrationSuite) TestGetCollectionStats_Success() {
 	user := testhelpers.CreateTestUser(s.deps.DB)
-	coll := s.createCollectionViaService(user, "Stats Collection", false)
+	coll := s.createCollectionViaService(user, "Stats Collection", true)
 
 	// Add an artist item
 	artist := testhelpers.CreateArtist(s.deps.DB, "Stats Artist")
@@ -218,6 +218,22 @@ func (s *CollectionHandlerIntegrationSuite) TestGetCollectionStats_Success() {
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(1, resp.Body.ItemCount)
+}
+
+// The counts ARE the collection's activity, so a private collection answers the
+// same not-found a slug nobody has used gets. Its creator still gets the real
+// numbers, which is what makes this about visibility rather than a broken route.
+func (s *CollectionHandlerIntegrationSuite) TestGetCollectionStats_PrivateCollectionAnswersLikeAMissingOne() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	coll := s.createCollectionViaService(user, "Private Stats Collection", false)
+
+	req := &GetCollectionStatsHandlerRequest{Slug: coll.Slug}
+	_, err := s.handler.GetCollectionStatsHandler(context.Background(), req)
+	testhelpers.AssertHumaError(s.T(), err, 404)
+
+	resp, err := s.handler.GetCollectionStatsHandler(testhelpers.CtxWithUser(user), req)
+	s.Require().NoError(err)
+	s.NotNil(resp)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestGetCollectionStats_NotFound() {

@@ -2136,26 +2136,106 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	}
 }
 
-// A REMOVED ITEM'S AUDIT ROW IS WITHHELD FROM EVERYONE, including the actor.
+// A REMOVED ITEM'S AUDIT ROW IS DECIDED BY THE PARENT ITS METADATA NAMES.
 //
 // remove_collection_item stores the deleted item's id, collection_items are
-// hard-deleted, and the row's metadata still carries the parent's slug. With no
-// parent left to decide against, the gate fails closed. Pinned here because it
-// is a deliberate loss of a contribution row rather than an oversight, and
-// because the fix is on the audit WRITER rather than in this file.
-func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_RemovedItemRowsFailClosed() {
+// hard-deleted, and the row's metadata carries the parent's slug. The slug is
+// what the row discloses, so it is what the row is decided against: the
+// contribution survives for a parent the viewer may see and is withheld for one
+// they may not.
+//
+// A row whose slug resolves to nothing is withheld from everyone, which is the
+// same answer a private parent gets.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_RemovedItemRowsDecidedByMetadataSlug() {
 	actor := suite.createTestUser("removalactor")
-	openColl := suite.createCollectionForHistory(actor.ID, "Removal Picks", "removal-picks-history", true)
-	item := suite.createCollectionItemForHistory(openColl.ID, actor.ID)
-	itemID := item.ID
-	suite.Require().NoError(suite.db.Delete(&communitym.CollectionItem{}, itemID).Error)
+	stranger := suite.createTestUser("removalstranger")
 
-	suite.auditLog.LogAction(actor.ID, "remove_collection_item", "collection", itemID,
+	openColl := suite.createCollectionForHistory(actor.ID, "Removal Open", "removal-open-history", true)
+	shutColl := suite.createCollectionForHistory(actor.ID, "Removal Shut", "removal-shut-history", false)
+	for _, c := range []*communitym.Collection{openColl, shutColl} {
+		item := suite.createCollectionItemForHistory(c.ID, actor.ID)
+		itemID := item.ID
+		suite.Require().NoError(suite.db.Delete(&communitym.CollectionItem{}, itemID).Error)
+		suite.auditLog.LogAction(actor.ID, "remove_collection_item", "collection", itemID,
+			map[string]interface{}{"slug": c.Slug})
+	}
+	// A row whose recorded slug names no collection at all.
+	suite.auditLog.LogAction(actor.ID, "remove_collection_item", "collection", 987654,
+		map[string]interface{}{"slug": "a-slug-that-never-existed"})
+
+	entries, total, err := suite.profileService.GetContributionHistory(
+		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: stranger.ID})
+	suite.Require().NoError(err)
+	suite.EqualValues(len(entries), total)
+	suite.Require().Len(entries, 1, "a stranger sees only the public parent's removal")
+	suite.Equal(openColl.Slug, entries[0].Metadata["slug"])
+
+	own, ownTotal, err := suite.profileService.GetContributionHistory(
+		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: actor.ID})
+	suite.Require().NoError(err)
+	suite.EqualValues(len(own), ownTotal)
+	suite.Len(own, 2, "the creator sees both real removals and neither the unresolvable one")
+}
+
+// AN AUDIT ACTION WITH NO DISPOSITION IS REFUSED, not judged against whichever
+// table the last branch happens to name.
+//
+// contributionCollectionActions is hand-maintained against the writers in
+// handlers/community/collection.go. A twelfth writer added without an entry
+// here withholds its rows, which is recoverable and loud on a profile page; the
+// alternative reads the row's entity_id as a collections id and publishes the
+// parent slug of whatever collection shares that number.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_UndispositionedCollectionActionIsRefused() {
+	actor := suite.createTestUser("undispositionedactor")
+	openColl := suite.createCollectionForHistory(actor.ID, "Undispositioned", "undispositioned-history", true)
+
+	// A public collection and its own creator: everything except the missing
+	// disposition says this row should be served.
+	suite.auditLog.LogAction(actor.ID, "reorder_collection_items", "collection", openColl.ID,
 		map[string]interface{}{"slug": openColl.Slug})
 
 	entries, total, err := suite.profileService.GetContributionHistory(
 		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: actor.ID})
 	suite.Require().NoError(err)
 	suite.EqualValues(len(entries), total)
-	suite.Empty(entries, "an audit row naming a deleted item has no parent to be decided against")
+	suite.Empty(entries, "an action with no entry in contributionCollectionActions must be refused")
+
+	// The control: the same row with a dispositioned action is served.
+	suite.auditLog.LogAction(actor.ID, "update_collection", "collection", openColl.ID, nil)
+	entries, _, err = suite.profileService.GetContributionHistory(
+		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: actor.ID})
+	suite.Require().NoError(err)
+	suite.Require().Len(entries, 1)
+	suite.Equal("update_collection", entries[0].Action)
+}
+
+// A CLONE'S ROW SURVIVES; ITS SOURCE ATTRIBUTION DOES NOT, when the source is
+// one the viewer may not see.
+//
+// CloneCollection creates the clone public whatever the source was, so the row
+// passes the gate on its own id while its metadata still names the source.
+// Removing the two keys keeps the public contribution and drops the private
+// attribution.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_ScrubsPrivateCloneSource() {
+	actor := suite.createTestUser("cloneactor")
+	stranger := suite.createTestUser("clonestranger")
+
+	source := suite.createCollectionForHistory(actor.ID, "Clone Source", "clone-source-history", false)
+	clone := suite.createCollectionForHistory(actor.ID, "Clone Result", "clone-result-history", true)
+	suite.auditLog.LogAction(actor.ID, "clone_collection", "collection", clone.ID,
+		map[string]interface{}{"source_slug": source.Slug, "source_id": source.ID})
+
+	entries, _, err := suite.profileService.GetContributionHistory(
+		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: stranger.ID})
+	suite.Require().NoError(err)
+	suite.Require().Len(entries, 1, "the clone is public, so the contribution stays")
+	suite.NotContains(entries[0].Metadata, "source_slug")
+	suite.NotContains(entries[0].Metadata, "source_id")
+
+	own, _, err := suite.profileService.GetContributionHistory(
+		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: actor.ID})
+	suite.Require().NoError(err)
+	suite.Require().Len(own, 1)
+	suite.Equal(source.Slug, own[0].Metadata["source_slug"],
+		"the creator keeps the attribution to their own private source")
 }

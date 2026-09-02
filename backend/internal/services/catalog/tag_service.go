@@ -1809,10 +1809,23 @@ func (s *TagService) GetTagDetail(tagID uint) (*contracts.TagDetailResponse, err
 		EntityType string
 		Count      int64
 	}
+	// GATED THE SAME WAY GetTagEntities IS, and for the same reason. This count
+	// and that listing's total are rendered on one page, so a breakdown that
+	// counted rows the listing withholds would report how many gated shows and
+	// private collections carry this tag: the withheld rows published as
+	// arithmetic. Public tier for both, because the tag page is anonymous.
+	breakdownShows, breakdownShowArgs := shared.VisibleShowExistsSQL(
+		"entity_tags.entity_id", contracts.ShowViewer{})
+	breakdownCollections, breakdownCollectionArgs := shared.VisibleCollectionExistsSQL(
+		"entity_tags.entity_id", contracts.ShowViewer{})
 	var rows []breakdownRow
 	if err := s.db.Model(&catalogm.EntityTag{}).
 		Select("entity_type, COUNT(*) AS count").
 		Where("tag_id = ?", tagID).
+		Where("(entity_tags.entity_type <> ? OR "+breakdownShows+")",
+			append([]interface{}{catalogm.TagEntityShow}, breakdownShowArgs...)...).
+		Where("(entity_tags.entity_type <> ? OR "+breakdownCollections+")",
+			append([]interface{}{catalogm.TagEntityCollection}, breakdownCollectionArgs...)...).
 		Group("entity_type").
 		Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("failed to compute usage breakdown: %w", err)

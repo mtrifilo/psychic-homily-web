@@ -33,7 +33,8 @@ type TagHandler struct {
 //
 // It is what the remove and vote routes already answer for a pair that does not
 // exist, so a gated entity and an untagged one produce one response. The message
-// echoes only the caller's own path parameters.
+// echoes only the caller's own request parameters, and 0 where the add route's
+// caller named a tag by name rather than by id.
 //
 // The gate refuses a MISSING show or collection on the same terms it refuses a
 // gated one, so closing these routes adds no oracle in the other direction: the

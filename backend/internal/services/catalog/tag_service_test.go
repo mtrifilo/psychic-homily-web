@@ -1272,6 +1272,16 @@ func (suite *TagServiceIntegrationTestSuite) TestGetTagEntities_Collections_Publ
 	suite.Assert().Len(afterDelete, 1, "a deleted collection must not appear")
 	suite.Assert().EqualValues(len(afterDelete), afterDeleteTotal,
 		"the total must not count a collection that no longer exists")
+
+	// THE USAGE BREAKDOWN IS RENDERED BESIDE THAT LISTING on the same public tag
+	// page, so a breakdown that counted the rows the listing withholds would
+	// report how many private collections carry this tag: the same number,
+	// arrived at by subtraction.
+	detail, err := suite.tagService.GetTagDetail(tag.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(detail)
+	suite.Assert().EqualValues(afterDeleteTotal, detail.UsageBreakdown[catalogm.TagEntityCollection],
+		"usage_breakdown must count the same collection rows GetTagEntities serves")
 }
 
 func (suite *TagServiceIntegrationTestSuite) TestGetTagDetail_NotFound() {

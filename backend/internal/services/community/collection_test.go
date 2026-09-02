@@ -1631,7 +1631,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetStats_Success() {
 	})
 	suite.Require().NoError(err)
 
-	stats, err := suite.collectionService.GetStats(coll.Slug)
+	stats, err := suite.collectionService.GetStats(coll.Slug, coll.CreatorID)
 
 	suite.Require().NoError(err)
 	suite.Equal(3, stats.ItemCount)
@@ -1645,7 +1645,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetStats_EmptyCollection
 	user := suite.createTestUser("EmptyStatsUser")
 	coll := suite.createBasicCollection(user, "Empty Stats")
 
-	stats, err := suite.collectionService.GetStats(coll.Slug)
+	stats, err := suite.collectionService.GetStats(coll.Slug, coll.CreatorID)
 
 	suite.Require().NoError(err)
 	suite.Equal(0, stats.ItemCount)
@@ -1655,7 +1655,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetStats_EmptyCollection
 }
 
 func (suite *CollectionServiceIntegrationTestSuite) TestGetStats_NotFound() {
-	resp, err := suite.collectionService.GetStats("nonexistent-slug")
+	resp, err := suite.collectionService.GetStats("nonexistent-slug", 0)
 	suite.Require().Error(err)
 	suite.Nil(resp)
 }
@@ -2047,10 +2047,13 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_NonSubscriber_
 func (suite *CollectionServiceIntegrationTestSuite) TestGetUserCollections_NewSinceLastVisit_CountsItemsAfterLastVisit() {
 	creator := suite.createTestUser("Creator")
 	subscriber := suite.createTestUser("Subscriber")
-	// Use a collaborative collection so the subscriber can also add items.
+	// Use a PUBLIC collaborative collection: the subscriber has to be able to
+	// add items AND to see the collection in their library, and the library
+	// listing applies the detail route's visibility rule to the subscribed
+	// branch.
 	collResp, err := suite.collectionService.CreateCollection(creator.ID, &contracts.CreateCollectionRequest{
 		Title:         "Tracked Collection",
-		IsPublic:      false,
+		IsPublic:      true,
 		Collaborative: true,
 	})
 	suite.Require().NoError(err)
@@ -2110,7 +2113,9 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetUserCollections_NewSi
 func (suite *CollectionServiceIntegrationTestSuite) TestGetUserCollections_NewSinceLastVisit_NeverVisited_FallsBackToSubscriptionStart() {
 	creator := suite.createTestUser("Creator")
 	subscriber := suite.createTestUser("Sub")
-	coll := suite.createBasicCollection(creator, "Coll")
+	// PUBLIC: the library listing applies the detail route's visibility rule to
+	// the subscribed branch, so a subscriber only sees what they may read.
+	coll := suite.createPublicCollection(creator, "Coll")
 
 	// Subscribe the second user with NULL last_visited_at.
 	sub := &communitym.CollectionSubscriber{
@@ -2824,16 +2829,21 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddTagToCollection_NonOw
 }
 
 // TestAddTagToCollection_Collaborator_Allowed verifies the open path: any
-// authenticated user can tag a collaborative collection. createBasicCollection
-// defaults to Collaborative=false (per CreateCollection's GORM-bool dance);
-// flip it explicitly with UpdateCollection so the test exercises the
-// collaborative branch of canEditCollectionTags.
+// authenticated user can tag a PUBLIC collaborative collection.
+// createPublicCollection defaults to Collaborative=false (per CreateCollection's
+// GORM-bool dance); flip it explicitly with UpdateCollection so the test
+// exercises the collaborative branch of canEditCollectionTags.
+//
+// PUBLIC is load-bearing: canEditCollectionTags refuses a collection the caller
+// cannot read before it considers `collaborative`, because the write returns the
+// collection's tag list and is therefore also a read. The private case is
+// collection_privacy_test.go's.
 func (suite *CollectionServiceIntegrationTestSuite) TestAddTagToCollection_Collaborator_Allowed() {
 	creator := suite.createTestUser("Owner")
 	collaborator := suite.createTestUser("Helper")
 	suite.promoteContributor(collaborator)
 
-	coll := suite.createBasicCollection(creator, "Collab Curator")
+	coll := suite.createPublicCollection(creator, "Collab Curator")
 	collab := true
 	_, err := suite.collectionService.UpdateCollection(coll.Slug, creator.ID, false,
 		&contracts.UpdateCollectionRequest{Collaborative: &collab})

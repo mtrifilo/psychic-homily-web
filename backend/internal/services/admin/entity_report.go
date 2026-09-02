@@ -40,18 +40,36 @@ func (s *EntityReportService) CreateEntityReport(req *contracts.CreateEntityRepo
 		return nil, apperrors.ErrEntityReportInvalidReportType(req.ReportType, req.EntityType)
 	}
 
-	// Verify the entity exists
-	tableName := req.EntityType + "s"
-	// Comments table is already plural
-	if req.EntityType == "comment" {
-		tableName = "comments"
-	}
-	var count int64
-	if err := s.db.Table(tableName).Where("id = ?", req.EntityID).Count(&count).Error; err != nil {
-		return nil, apperrors.ErrEntityReportInternal(fmt.Errorf("failed to verify entity: %w", err))
-	}
-	if count == 0 {
-		return nil, apperrors.ErrEntityReportEntityNotFound(req.EntityType, req.EntityID)
+	// Verify the entity exists AND that the reporter may see it.
+	//
+	// The existence probe alone is an oracle over a dense id space, and the
+	// response this call returns carries the entity's resolved name and slug
+	// (toResponse), so a bare probe hands a private collection's identity to
+	// whoever guesses its id. A collection the reporter may not see answers
+	// exactly as one that does not exist.
+	//
+	// A COLLECTION is the only reportable type with a read-time rule of its own
+	// today. shows have one too, and their report route stays on the deferred
+	// list because refusing a report on a gated show would remove the only way
+	// the submitter can report their own withdrawn show; that trade does not
+	// arise for collections, whose creator is the one person who can see them.
+	if req.EntityType == "collection" {
+		if !shared.CollectionVisibleTo(s.db, req.EntityID, contracts.ShowViewer{UserID: req.UserID}) {
+			return nil, apperrors.ErrEntityReportEntityNotFound(req.EntityType, req.EntityID)
+		}
+	} else {
+		tableName := req.EntityType + "s"
+		// Comments table is already plural
+		if req.EntityType == "comment" {
+			tableName = "comments"
+		}
+		var count int64
+		if err := s.db.Table(tableName).Where("id = ?", req.EntityID).Count(&count).Error; err != nil {
+			return nil, apperrors.ErrEntityReportInternal(fmt.Errorf("failed to verify entity: %w", err))
+		}
+		if count == 0 {
+			return nil, apperrors.ErrEntityReportEntityNotFound(req.EntityType, req.EntityID)
+		}
 	}
 
 	// Check for existing pending report from this user for this entity

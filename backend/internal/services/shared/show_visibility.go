@@ -33,9 +33,10 @@ import (
 //   - VisibleShowExistsSQL wraps that in a correlated EXISTS, for a query
 //     holding only a show id in some other table's column.
 //   - VisibleShowRevisionsSQL adds the two revision-specific terms.
-//   - VisibleShowCommentEntitySQL is the EXISTS form over a POLYMORPHIC
-//     (entity_type, entity_id) pair, for the comment family's tables, where a
-//     row may name a show or may name an artist.
+//   - VisibleShowCommentEntitySQL is the SHOW ARM of a polymorphic
+//     (entity_type, entity_id) predicate. It is not a gate on its own: it lets
+//     every non-show row through, and shared.VisibleCommentEntitySQL is what
+//     composes it with the other arms and the allowlist.
 //   - VisibleShowRecipientsSQL decides ONE show for MANY viewers at once,
 //     reading the viewer id from a COLUMN, for a fan-out choosing recipients.
 //   - PublicShowPredicateSQL and PublicShowRevisionsSQL are the public tier of
@@ -201,15 +202,17 @@ const CommentEntityTypeShow = string(engagementm.CommentEntityShow)
 // POLYMORPHIC (entity_type, entity_id) table that viewer may see, plus its bind
 // arguments.
 //
-// For the comment family's tables — comments, comment_subscriptions,
-// notification rows resolved through a comment — where one column decides
-// whether the id beside it is a show id at all.
+// THIS IS ONE ARM, NOT A GATE. It judges rows whose entity_type is `show` and
+// lets every other row through untouched, because it knows nothing about the
+// other entity types. Splicing it into a polymorphic query on its own serves
+// every private collection's rows. The gate is
+// VisibleCommentEntitySQL in entity_visibility.go: it composes this arm with
+// one arm per other gated type and with the allowlist that refuses a type
+// nobody has dispositioned.
 //
-// A row naming any OTHER entity type passes untouched: show is the only comment
-// parent with a read-time visibility rule. A row naming a show that no longer
-// exists does NOT pass, because VisibleShowExistsSQL fails closed on a missing
-// show, which is what lets a caller answer the same for a gated show and a
-// deleted one.
+// A row naming a show that no longer exists does NOT pass, because
+// VisibleShowExistsSQL fails closed on a missing show, which is what lets a
+// caller answer the same for a gated show and a deleted one.
 //
 // Both expressions are SQL the CALLER controls and must be literals in the
 // calling code. Nothing derived from a request may reach them.

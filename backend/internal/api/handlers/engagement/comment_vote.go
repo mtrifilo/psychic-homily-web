@@ -9,21 +9,64 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
+	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
 // CommentVoteHandler handles comment vote API requests.
 type CommentVoteHandler struct {
 	voteService contracts.CommentVoteServiceInterface
+	// reader resolves the comment's parent entity, because a vote route is
+	// addressed by a COMMENT id and the visibility rule belongs to the entity
+	// the comment hangs off.
+	reader CommentReader
+	// showVisibility gates both vote routes on the parent entity's rule.
+	// Required; a nil checker refuses every gated parent.
+	showVisibility contracts.ShowVisibilityInterface
 }
 
 // NewCommentVoteHandler creates a new handler.
 func NewCommentVoteHandler(
 	voteService contracts.CommentVoteServiceInterface,
+	reader CommentReader,
+	showVisibility contracts.ShowVisibilityInterface,
 ) *CommentVoteHandler {
 	return &CommentVoteHandler{
-		voteService: voteService,
+		voteService:    voteService,
+		reader:         reader,
+		showVisibility: showVisibility,
 	}
+}
+
+// refuseVoteAsMissingComment is the answer both vote routes give for a comment
+// whose parent the caller may not see: the vote service's own
+// comment-not-found error, so a gated parent and a comment id nobody has used
+// are one response.
+func refuseVoteAsMissingComment() error {
+	if mapped := shared.MapCommentVoteError(apperrors.ErrCommentVoteCommentNotFound()); mapped != nil {
+		return mapped
+	}
+	return huma.Error404NotFound("Comment not found")
+}
+
+// voteParentVisible reports whether the caller may see the entity comment
+// commentID hangs off.
+//
+// A vote is a WRITE on a comment inside that entity's discussion and the
+// response carries the comment's live score, so it takes the same viewer the
+// thread does. Gated after the load, because the comment is what names its
+// entity; comment ids are dense, so a caller refused the listing would
+// otherwise walk them.
+func (h *CommentVoteHandler) voteParentVisible(ctx context.Context, commentID uint) bool {
+	if h.reader == nil {
+		return false
+	}
+	comment, err := h.reader.GetComment(commentID)
+	if err != nil || comment == nil {
+		return false
+	}
+	return shared.EntitySubResourceVisible(
+		h.showVisibility, comment.EntityType, comment.EntityID, middleware.GetShowViewerFromContext(ctx))
 }
 
 // ============================================================================
@@ -57,6 +100,10 @@ func (h *CommentVoteHandler) VoteCommentHandler(ctx context.Context, req *VoteCo
 
 	if req.Body.Direction != 1 && req.Body.Direction != -1 {
 		return nil, huma.Error400BadRequest("Direction must be 1 (upvote) or -1 (downvote)")
+	}
+
+	if !h.voteParentVisible(ctx, uint(commentID)) {
+		return nil, refuseVoteAsMissingComment()
 	}
 
 	err = h.voteService.Vote(user.ID, uint(commentID), req.Body.Direction)
@@ -94,6 +141,10 @@ func (h *CommentVoteHandler) UnvoteCommentHandler(ctx context.Context, req *Unvo
 	commentID, err := strconv.ParseUint(req.CommentID, 10, 32)
 	if err != nil {
 		return nil, huma.Error400BadRequest("Invalid comment ID")
+	}
+
+	if !h.voteParentVisible(ctx, uint(commentID)) {
+		return nil, refuseVoteAsMissingComment()
 	}
 
 	err = h.voteService.Unvote(user.ID, uint(commentID))

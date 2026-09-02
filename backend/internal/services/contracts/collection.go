@@ -528,7 +528,11 @@ type CollectionServiceInterface interface {
 	// Unlike removes a user's like on the collection. Idempotent — calling
 	// when the like doesn't exist is a no-op. PSY-352.
 	Unlike(slug string, userID uint) (*CollectionLikeResponse, error)
-	GetStats(slug string) (*CollectionStatsResponse, error)
+	// GetStats returns a collection's counts for viewerID, and refuses a
+	// collection viewerID may not see with the same not-found error a slug
+	// nobody has used gets. The counts are the collection's activity, so the
+	// route takes the detail route's rule.
+	GetStats(slug string, viewerID uint) (*CollectionStatsResponse, error)
 	// GetUserCollections returns the user's own + subscribed-to collections.
 	// `search` is optional (PSY-580); empty/whitespace disables the predicate
 	// and returns the full library. When set, it expands across title,

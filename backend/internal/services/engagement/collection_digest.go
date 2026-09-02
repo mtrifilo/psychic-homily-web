@@ -469,45 +469,57 @@ func (s *CollectionDigestService) markDigested(userID uint, collectionIDs []uint
 	})
 }
 
+// pluckFenced reads one column of one row, with the identity fence for that
+// entity type spliced in.
+//
+// The fence answers TRUE for a type with no read-time rule, so it is applied
+// unconditionally and there is no branch here to forget. A gated row plucks the
+// empty string, and every caller below falls back to the "<type> #<id>" form.
+//
+// table and column are package constants, never request data.
+func (s *CollectionDigestService) pluckFenced(table, column, entityType string, entityID uint) string {
+	fence, fenceArgs := shared.EntityIdentityFenceSQL(entityType, table, contracts.ShowViewer{})
+	var value string
+	_ = s.db.Table(table).
+		Where("id = ?", entityID).
+		Where(fence, fenceArgs...).
+		Pluck(column, &value).Error
+	return value
+}
+
 // resolveEntityName returns a display name for a collection item entity.
 // Mirrors collection.go's resolveEntityNameAndSlug, but only returns the name
 // since URL building is centralized below.
+//
+// A GATED ITEM RESOLVES TO NOTHING and the caller renders the fallback. A
+// collection can hold a show that was withdrawn after it was added, and mail is
+// final: a title already in a mailbox is not withdrawn by a later 404. The
+// PUBLIC tier is the right one here, matching every listing that merely CONTAINS
+// an entity rather than being that entity's own surface.
 func (s *CollectionDigestService) resolveEntityName(entityType string, entityID uint) string {
 	switch entityType {
 	case communitym.CollectionEntityArtist:
-		var name string
-		_ = s.db.Table("artists").Where("id = ?", entityID).Pluck("name", &name).Error
-		if name != "" {
+		if name := s.pluckFenced("artists", "name", entityType, entityID); name != "" {
 			return name
 		}
 	case communitym.CollectionEntityVenue:
-		var name string
-		_ = s.db.Table("venues").Where("id = ?", entityID).Pluck("name", &name).Error
-		if name != "" {
+		if name := s.pluckFenced("venues", "name", entityType, entityID); name != "" {
 			return name
 		}
 	case communitym.CollectionEntityShow:
-		var title string
-		_ = s.db.Table("shows").Where("id = ?", entityID).Pluck("title", &title).Error
-		if title != "" {
+		if title := s.pluckFenced("shows", "title", entityType, entityID); title != "" {
 			return title
 		}
 	case communitym.CollectionEntityRelease:
-		var title string
-		_ = s.db.Table("releases").Where("id = ?", entityID).Pluck("title", &title).Error
-		if title != "" {
+		if title := s.pluckFenced("releases", "title", entityType, entityID); title != "" {
 			return title
 		}
 	case communitym.CollectionEntityLabel:
-		var name string
-		_ = s.db.Table("labels").Where("id = ?", entityID).Pluck("name", &name).Error
-		if name != "" {
+		if name := s.pluckFenced("labels", "name", entityType, entityID); name != "" {
 			return name
 		}
 	case communitym.CollectionEntityFestival:
-		var name string
-		_ = s.db.Table("festivals").Where("id = ?", entityID).Pluck("name", &name).Error
-		if name != "" {
+		if name := s.pluckFenced("festivals", "name", entityType, entityID); name != "" {
 			return name
 		}
 	}
@@ -521,8 +533,9 @@ func (s *CollectionDigestService) buildEntityURL(entityType string, entityID uin
 	if tableName == "" {
 		return s.frontendURL
 	}
-	var slug string
-	_ = s.db.Table(tableName).Where("id = ?", entityID).Pluck("slug", &slug).Error
+	// Fenced on the same terms as resolveEntityName: a gated item's slug is its
+	// identity, and a link is a disclosure even when the target refuses.
+	slug := s.pluckFenced(tableName, "slug", entityType, entityID)
 	if slug != "" {
 		return fmt.Sprintf("%s/%s/%s", s.frontendURL, pathSegment, slug)
 	}
