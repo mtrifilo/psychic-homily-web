@@ -9,6 +9,7 @@ import {
 } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys, createInvalidateQueries } from '@/lib/queryClient'
+import { useAuthContext } from '@/lib/context/AuthContext'
 // Note: useSavedShows uses SAVED_SHOWS endpoints from lib/api (not show-specific)
 import type {
   SavedShowsListResponse,
@@ -110,6 +111,7 @@ export const useShowSaveCount = (
   enabled: boolean = true,
   userId?: string | number
 ) => {
+  const { authStatus } = useAuthContext()
   return useQuery({
     queryKey: queryKeys.savedShows.count(
       showId,
@@ -121,8 +123,14 @@ export const useShowSaveCount = (
         method: 'GET',
       })
     },
+    // The count itself is public, so a settled-anonymous viewer still fetches;
+    // this control paints what comes back. The pending term is the write-side
+    // rule (see AuthStatus in lib/context/AuthContext).
     enabled:
-      showId > 0 && enabled && (!isAuthenticated || userId !== undefined),
+      showId > 0 &&
+      enabled &&
+      authStatus !== 'pending' &&
+      (!isAuthenticated || userId !== undefined),
     staleTime: 2 * 60 * 1000,
   })
 }
@@ -140,6 +148,7 @@ export const useShowSaveCountBatch = (
   isAuthenticated: boolean,
   userId?: string | number
 ) => {
+  const { authStatus } = useAuthContext()
   return useQuery({
     queryKey: queryKeys.savedShows.countBatch(
       showIds,
@@ -156,7 +165,19 @@ export const useShowSaveCountBatch = (
       )
       return response.saves
     },
-    enabled: showIds.length > 0 && (!isAuthenticated || userId !== undefined),
+    // Same viewer-keyed hazard as the single-item read, on the highest-traffic
+    // path: a list holds one of these for every row on screen.
+    //
+    // Disabling it cannot start a per-row request storm, by either of the two
+    // routes a caller takes to `saveData`: `batchedSaveFor` maps an absent
+    // result to 'pending' (ShowList, HomeShowList), and the chart call sites
+    // pass a truthy zeroed fallback instead of undefined. `resolveBatchedSaveData`
+    // reports `shouldSelfFetch: false` for both. A NEW caller that passes a bare
+    // `data?.[id]` would break that, which is why the two safe shapes are named.
+    enabled:
+      showIds.length > 0 &&
+      authStatus !== 'pending' &&
+      (!isAuthenticated || userId !== undefined),
     staleTime: 2 * 60 * 1000,
   })
 }

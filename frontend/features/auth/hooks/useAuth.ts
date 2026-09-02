@@ -484,22 +484,8 @@ export const useRefreshToken = () => {
   })
 }
 
-// Check if user is authenticated
-export const useIsAuthenticated = () => {
-  const { data: profile, isLoading, error } = useProfile()
-
-  if (error) {
-    authLogger.error('Error checking authentication', error)
-  }
-
-  return {
-    isAuthenticated:
-      Boolean(profile?.success) && Boolean(profile?.user) && !error,
-    isLoading,
-    user: profile?.user,
-    error,
-  }
-}
+// `useIsAuthenticated` lives in ./useIsAuthenticated: it reads AuthContext,
+// which imports this module.
 
 // Email verification types
 interface VerificationResponse {

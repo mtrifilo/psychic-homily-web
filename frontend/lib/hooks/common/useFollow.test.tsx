@@ -198,6 +198,21 @@ describe('useBatchFollowStatus', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
+    mockAuthStatus = 'authenticated'
+  })
+
+  // Same viewer-keyed hazard as the single-entity read, on the path that
+  // carries the most traffic: the charts pages hold one of these per column.
+  it('does not fetch while auth is unsettled', () => {
+    mockAuthStatus = 'pending'
+
+    const { result } = renderHook(
+      () => useBatchFollowStatus('artists', [1, 2]),
+      { wrapper: createWrapper() }
+    )
+
+    expect(result.current.fetchStatus).toBe('idle')
+    expect(mockApiRequest).not.toHaveBeenCalled()
   })
 
   it('fetches batch follow status via POST', async () => {

@@ -54,6 +54,8 @@ export function SaveButton({
   // flight the prop is 'pending', which suppresses the per-item request instead
   // of racing it.
   const { value: batched, shouldSelfFetch } = resolveBatchedSaveData(saveData)
+  // The unsettled-window gate lives inside the hook, beside the key it
+  // protects (see AuthStatus in lib/context/AuthContext).
   const { data: single } = useShowSaveCount(
     showId,
     isAuthenticated,
@@ -70,14 +72,10 @@ export function SaveButton({
     isSaved,
     user?.id
   )
-  // `authStatus === 'pending'` for the same reason FollowButton includes it:
-  // this control ships ENABLED in server HTML and opts into pre-hydration click
-  // replay, and its click handler routes on `!isAuthenticated`, which reads
-  // false both for a viewer with no session and for one whose profile has not
-  // arrived. A replayed click in that window sends a signed-in viewer to /auth.
-  // The window is normally imperceptible; it lengthens exactly when the SSR
-  // profile read could not be completed, which is when this control could not
-  // have worked anyway.
+  // Disabled while unsettled, as every control in this class is: it ships
+  // ENABLED in server HTML with pre-hydration click replay, and its handler
+  // routes on `!isAuthenticated`, which reads false for a signed-in viewer whose
+  // profile has not landed. See AuthStatus in lib/context/AuthContext.
   const isDisabled = disabled || isLoading || authStatus === 'pending'
   // Shared auto-dismiss primitive rather than a hand-rolled timer, which must
   // not outlive unmount. See useAutoDismissBanner / useDismissTimer (PSY-1664).
@@ -91,9 +89,8 @@ export function SaveButton({
     e.preventDefault() // Prevent any parent link clicks
     e.stopPropagation()
 
-    // Never route a viewer we have not identified yet. Defence in depth behind
-    // the disabled render above, and ahead of the redirect because the redirect
-    // cannot tell "no session" from "profile still in flight".
+    // Unreachable while the control renders disabled; defence in depth for the
+    // redirect below, which cannot tell "no session" from "profile in flight".
     if (authStatus === 'pending') return
 
     // Matches FollowButton: render for anonymous visitors so the public save
@@ -113,11 +110,16 @@ export function SaveButton({
     }
   }
 
-  const label = !isAuthenticated
-    ? 'Sign in to save'
-    : isSaved
-      ? 'Remove from My List'
-      : 'Add to My List'
+  // `authStatus === 'anonymous'`, not `!isAuthenticated`: the sign-in wording
+  // is a claim about the viewer, and the unsettled window is not yet entitled
+  // to make it. The control is disabled there, so it announces the neutral
+  // add/remove name instead.
+  const label =
+    authStatus === 'anonymous'
+      ? 'Sign in to save'
+      : isSaved
+        ? 'Remove from My List'
+        : 'Add to My List'
 
   if (variant === 'bracket') {
     return (

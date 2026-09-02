@@ -46,12 +46,14 @@ export function ReleaseSaveButton({
   actionLabel,
   actionAriaLabel,
 }: ReleaseSaveButtonProps) {
-  const { isAuthenticated, user } = useAuthContext()
+  const { isAuthenticated, authStatus, user } = useAuthContext()
   const router = useRouter()
   const pathname = usePathname()
   // While a batch owns this release the prop is 'pending', which suppresses the
   // per-item request rather than racing the batch that replaces it.
   const { value: batched, shouldSelfFetch } = resolveBatchedSaveData(saveData)
+  // The unsettled-window gate lives inside the hook, beside the key it
+  // protects (see AuthStatus in lib/context/AuthContext).
   const { data: fetched, isLoading: statusLoading } = useReleaseSaveCount(
     releaseId,
     isAuthenticated,
@@ -73,11 +75,19 @@ export function ReleaseSaveButton({
     show: showSaveError,
     clear: clearSaveError,
   } = useAutoDismissBanner<true>(ERROR_DISMISS_MS)
-  const isDisabled = disabled || statusLoading || isLoading
+  // Disabled while unsettled, as every control in this class is: it ships
+  // ENABLED in server HTML with pre-hydration click replay, and its handler
+  // routes on `!isAuthenticated`, which reads false for a signed-in viewer whose
+  // profile has not landed. See AuthStatus in lib/context/AuthContext.
+  const isDisabled =
+    disabled || statusLoading || isLoading || authStatus === 'pending'
 
   const handleClick = async (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault()
     event.stopPropagation()
+    // Unreachable while the control renders disabled; defence in depth for the
+    // redirect below, which cannot tell "no session" from "profile in flight".
+    if (authStatus === 'pending') return
     if (!isAuthenticated) {
       const returnTo = `${pathname}${window.location.search}`
       router.push(`/auth?returnTo=${encodeURIComponent(returnTo)}`)

@@ -12,7 +12,7 @@ import type { PublicProfileResponse } from '@/features/auth'
  * Optional auth — when authenticated, includes is_following.
  */
 export const useUserFollowStatus = (username: string, enabled = true) => {
-  const { isAuthenticated, user } = useAuthContext()
+  const { isAuthenticated, authStatus, user } = useAuthContext()
   const viewerId = isAuthenticated ? user?.id : undefined
   return useQuery({
     queryKey: queryKeys.follows.user(username, viewerId),
@@ -22,8 +22,13 @@ export const useUserFollowStatus = (username: string, enabled = true) => {
         { method: 'GET' }
       )
     },
+    // The write-side rule (see AuthStatus in lib/context/AuthContext): the key carries `viewerId`, which is
+    // undefined whenever `isAuthenticated` is false, and that includes the
+    // window before a signed-in viewer's profile lands. It is held here, not by
+    // the caller, because the follow/unfollow mutations write this key too.
     enabled:
       enabled &&
+      authStatus !== 'pending' &&
       Boolean(username) &&
       (!isAuthenticated || viewerId !== undefined),
     staleTime: 2 * 60 * 1000,

@@ -842,12 +842,14 @@ export function refreshViewerTierQueries(queryClient: QueryClient) {
  * rebuilds its query once `clear()` has destroyed the old one.
  *
  * The `clear()` cannot be relied on to do this by itself. It only self-heals
- * where some ANCESTOR of the panel consumes `useAuthContext` and re-renders on
- * the logout state change (VenueDetail, ShowDetail). Components that read auth
- * through `useIsAuthenticated` instead — ReleaseDetail and LabelDetail, both of
- * which render `<RevisionHistory>` — hold a `useProfile` query observer, which
- * `clear()` orphans in exactly the same way, so nothing re-renders them and the
- * privileged rows stay on screen for as long as the page is mounted.
+ * where some ANCESTOR of the panel re-renders on the logout state change, which
+ * every auth predicate now provides: `useIsAuthenticated` reads `AuthContext`
+ * rather than holding a `useProfile` observer of its own, so a panel reached
+ * through it (ReleaseDetail, LabelDetail, both of which render
+ * `<RevisionHistory>`) re-renders on the same context change that repaints
+ * VenueDetail and ShowDetail. A future predicate that subscribes to a query
+ * directly reintroduces the orphan, since `clear()` destroys queries without
+ * notifying their observers.
  */
 export function resetViewerTierQueries(queryClient: QueryClient) {
   return Promise.all(

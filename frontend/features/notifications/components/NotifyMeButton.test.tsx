@@ -17,6 +17,19 @@ vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => mockAuthContext(),
 }))
 
+// Single source of truth for the mocked auth state, mirroring the real
+// AuthContext's invariant that `isAuthenticated` is DERIVED from `authStatus`.
+// Setting the two independently would let a test assert against a viewer that
+// cannot exist; driving both from one value still leaves 'pending' reachable,
+// which is the cell where a signed-in viewer reads isAuthenticated=false.
+function setAuth(authStatus: 'pending' | 'authenticated' | 'anonymous') {
+  mockAuthContext.mockReturnValue({
+    authStatus,
+    isAuthenticated: authStatus === 'authenticated',
+    user: authStatus === 'authenticated' ? { id: '1' } : null,
+  })
+}
+
 // Mock notification hooks
 const mockQuickCreate = vi.fn()
 const mockDeleteFilter = vi.fn()
@@ -31,10 +44,7 @@ vi.mock('../hooks', () => ({
 describe('NotifyMeButton', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockAuthContext.mockReturnValue({
-      isAuthenticated: true,
-      user: { id: '1' },
-    })
+    setAuth('authenticated')
     mockFilterCheck.mockReturnValue({
       data: undefined,
       hasFilter: false,
@@ -84,10 +94,7 @@ describe('NotifyMeButton', () => {
   })
 
   it('redirects to auth when unauthenticated', async () => {
-    mockAuthContext.mockReturnValue({
-      isAuthenticated: false,
-      user: null,
-    })
+    setAuth('anonymous')
     const user = userEvent.setup()
     render(
       <NotifyMeButton
@@ -213,15 +220,44 @@ describe('NotifyMeButton', () => {
     )
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
+
+  // ── Unsettled auth (PSY-1972)
+  //
+  // The anonymous branch is a bare router push to /auth, and `!isAuthenticated`
+  // reads true both for a viewer with no session and for one whose profile has
+  // not arrived. Cells:
+  //
+  //   authStatus     button variant                bracket variant
+  //   pending        disabled, no click            disabled
+  //   anonymous      enabled, click -> /auth       enabled, click -> /auth
+  //   authenticated  normal                        normal
+
+  it.each([[false], [true]])(
+    'ships disabled while auth is unsettled (compact=%s)',
+    (compact) => {
+      setAuth('pending')
+      render(
+        <NotifyMeButton
+          entityType="artist"
+          entityId={1}
+          entityName="Test Artist"
+          compact={compact}
+        />
+      )
+      expect(screen.getByRole('button')).toBeDisabled()
+    }
+  )
+
+  // The handler's own pending bail is not covered: React reads `props.disabled`
+  // off the fiber before dispatching onClick, and `consumePendingReplay` refuses
+  // a disabled target, so nothing can reach it while the control renders
+  // disabled. It is defence in depth, and no single-file mutation fails on it.
 })
 
 describe('NotifyMeButton — bracket variant (PSY-641)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockAuthContext.mockReturnValue({
-      isAuthenticated: true,
-      user: { id: '1' },
-    })
+    setAuth('authenticated')
     mockFilterCheck.mockReturnValue({
       data: undefined,
       hasFilter: false,
@@ -295,5 +331,41 @@ describe('NotifyMeButton — bracket variant (PSY-641)', () => {
     )
     await user.click(screen.getByRole('button', { name: 'Notify me' }))
     expect(mutate).toHaveBeenCalledWith({ entityType: 'artist', entityId: 1 })
+  })
+
+  // Unsettled auth (PSY-1972). BracketLink ships this control enabled in server
+  // HTML and opts it into pre-hydration click replay, so `disabled` (which also
+  // sets pointer-events-none) is what keeps a replayed click from routing a
+  // signed-in viewer to /auth.
+  it('ships the bracket disabled while auth is unsettled', () => {
+    setAuth('pending')
+    render(
+      <NotifyMeButton
+        entityType="artist"
+        entityId={1}
+        entityName="Test Artist"
+        variant="bracket"
+      />
+    )
+    expect(screen.getByRole('button', { name: 'Notify me' })).toBeDisabled()
+  })
+
+  it('ships the bracket enabled for a settled-anonymous viewer', async () => {
+    setAuth('anonymous')
+    const user = userEvent.setup()
+    render(
+      <NotifyMeButton
+        entityType="artist"
+        entityId={1}
+        entityName="Test Artist"
+        variant="bracket"
+      />
+    )
+    const bracket = screen.getByRole('button', { name: 'Notify me' })
+    expect(bracket).toBeEnabled()
+    await user.click(bracket)
+    expect(mockPush).toHaveBeenCalledWith(
+      '/auth?returnTo=%2Fartists%2Ftest-artist'
+    )
   })
 })

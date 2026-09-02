@@ -178,16 +178,11 @@ export const useFollowStatus = (
         { method: 'GET' }
       )
     },
-    // Invariant: the viewer-less key `[follows, type, null, id]` holds only
-    // anonymous data.
-    //
-    // `viewerId` is `undefined` whenever `isAuthenticated` is false, which
-    // includes the window before a signed-in viewer's profile lands. A fetch
-    // issued in that window carries their cookie, so the response is THEIR
-    // follow state, and it lands under the viewer-less key. `authStatus !==
-    // 'pending'` is what keeps that write from happening; it is on the write
-    // side because the key is shared by every observer and both variants, so a
-    // read-side guard in one component cannot hold it.
+    // The write-side rule (see AuthStatus in lib/context/AuthContext): the key carries `viewerId`, which is
+    // undefined whenever `isAuthenticated` is false, and that includes the
+    // window before a signed-in viewer's profile lands. It is held here, not by
+    // a component, because the key is shared by every observer and both
+    // variants.
     enabled:
       enabled &&
       authStatus !== 'pending' &&
@@ -206,7 +201,7 @@ export const useBatchFollowStatus = (
   entityType: string,
   entityIds: number[]
 ) => {
-  const { isAuthenticated, user } = useAuthContext()
+  const { isAuthenticated, authStatus, user } = useAuthContext()
   const viewerId = isAuthenticated ? user?.id : undefined
   return useQuery({
     queryKey: queryKeys.follows.batch(entityType, entityIds, viewerId),
@@ -223,9 +218,12 @@ export const useBatchFollowStatus = (
       )
       return response.follows
     },
+    // Same viewer-keyed hazard as the single-entity read, on the highest-traffic
+    // path: the charts pages hold one of these per column.
     enabled:
       entityIds.length > 0 &&
       !!entityType &&
+      authStatus !== 'pending' &&
       (!isAuthenticated || viewerId !== undefined),
     staleTime: 2 * 60 * 1000,
   })

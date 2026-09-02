@@ -8,8 +8,11 @@ import {
   useCallback,
   ReactNode,
 } from 'react'
-import { useProfile, useLogout } from '@/features/auth'
-import type { UserTier } from '@/features/auth'
+// Concrete module paths, not the `@/features/auth` barrel. `useIsAuthenticated`
+// lives in that barrel and reads this context, so the barrel import would close
+// a cycle through it.
+import { useProfile, useLogout } from '@/features/auth/hooks/useAuth'
+import type { UserTier } from '@/features/auth/types'
 import type { NavMode } from '@/lib/nav-mode'
 import { AuthError, isDefinitiveUnauthenticated } from '@/lib/errors'
 
@@ -69,6 +72,29 @@ interface User {
  * unresolved read a way back.
  */
 export type AuthStatus = 'pending' | 'authenticated' | 'anonymous'
+
+/**
+ * THE WRITE-SIDE RULE, stated once: a query whose cache key carries the
+ * viewer's identity sets `enabled: authStatus !== 'pending'`.
+ *
+ * Every such key is built from `isAuthenticated` / `user?.id`, both of which
+ * read "anonymous" while the profile is in flight, and a request issued then
+ * still carries the viewer's cookie. The response is therefore THEIR data,
+ * written under the viewer-less key, where it outlives the session that
+ * produced it — session expiry clears no cache.
+ *
+ * The guard belongs in the query's own `enabled`, never in a caller's: the key
+ * is shared by every observer of it and by the mutations that write it
+ * optimistically, so a guard held by one component cannot protect it.
+ *
+ * Settled-ANONYMOUS is a separate, per-query call: skip the request only when
+ * the response says nothing the control paints (`is_following` for a viewer
+ * with no session says nothing; a public save count does).
+ *
+ * Holders: `useFollowStatus`, `useBatchFollowStatus`, `useUserFollowStatus`,
+ * `useShowSaveCount`, `useShowSaveCountBatch`, `useReleaseSaveCount`,
+ * `useReleaseSaveCountBatch`.
+ */
 
 interface AuthState {
   user: User | null
