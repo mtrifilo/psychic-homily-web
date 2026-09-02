@@ -645,6 +645,60 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_Success() {
 	suite.Require().NoError(err)
 }
 
+// PSY-1959: the persisted slug must name the act the export CURATED as the
+// headliner, not whichever act happens to hold position 0. A slug does not
+// regenerate, so a position-only read writes the wrong act down permanently.
+func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_SlugNamesTheCuratedHeadliner() {
+	result, err := suite.service.ImportData(contracts.DataImportRequest{
+		Shows: []contracts.ExportedShow{
+			{
+				Title:     "Curated Slug Show",
+				EventDate: time.Date(2027, 5, 12, 20, 0, 0, 0, time.UTC).Format(time.RFC3339),
+				Status:    "approved",
+				Venues:    []contracts.ExportedVenue{{Name: "Curated Slug Venue", City: "NYC", State: "NY"}},
+				Artists: []contracts.ExportedShowArtist{
+					{Name: "Slug Opener", Position: 0, SetType: "opener"},
+					{Name: "Slug Headliner", Position: 1, SetType: "headliner"},
+				},
+			},
+		},
+	})
+	suite.Require().NoError(err)
+	suite.Require().Equal(1, result.Shows.Imported, result.Shows.Messages)
+
+	var show catalogm.Show
+	suite.Require().NoError(suite.db.Where("title = ?", "Curated Slug Show").First(&show).Error)
+	suite.Require().NotNil(show.Slug)
+	suite.Contains(*show.Slug, "slug-headliner", "the curated headliner names the slug")
+	suite.NotContains(*show.Slug, "slug-opener")
+}
+
+// The other half of the rule: an export that curates nobody still dates its slug
+// from the lowest position, so an uncurated import is unchanged.
+func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_UncuratedSlugStillNamesLowestPosition() {
+	result, err := suite.service.ImportData(contracts.DataImportRequest{
+		Shows: []contracts.ExportedShow{
+			{
+				Title:     "Uncurated Slug Show",
+				EventDate: time.Date(2027, 5, 13, 20, 0, 0, 0, time.UTC).Format(time.RFC3339),
+				Status:    "approved",
+				Venues:    []contracts.ExportedVenue{{Name: "Uncurated Slug Venue", City: "NYC", State: "NY"}},
+				Artists: []contracts.ExportedShowArtist{
+					{Name: "Uncurated Second", Position: 1, SetType: "performer"},
+					{Name: "Uncurated First", Position: 0, SetType: "performer"},
+				},
+			},
+		},
+	})
+	suite.Require().NoError(err)
+	suite.Require().Equal(1, result.Shows.Imported, result.Shows.Messages)
+
+	var show catalogm.Show
+	suite.Require().NoError(suite.db.Where("title = ?", "Uncurated Slug Show").First(&show).Error)
+	suite.Require().NotNil(show.Slug)
+	suite.Contains(*show.Slug, "uncurated-first", "position, not list order, decides an uncurated bill")
+}
+
 func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_Duplicate() {
 	venue := suite.createVenue("Dupe Venue", "NYC", "NY", true)
 	eventDate := time.Date(2025, 6, 15, 20, 0, 0, 0, time.UTC)

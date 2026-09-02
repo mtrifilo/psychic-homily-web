@@ -476,6 +476,11 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 			}
 		}
 
+		// Built from the loop below rather than from artistEntries, so the slug
+		// ranks exactly the rows this import writes: same sanitized name, same
+		// resolved position, same resolved set_type, and skipped entries absent.
+		var billForSlug []catalog.HeadlineCandidate
+
 		for idx, entry := range artistEntries {
 			// Sanitize at the boundary — this covers all three sources above
 			// (billing data, artist list, title fallback) with one rule, so a
@@ -546,13 +551,18 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 			if err := tx.Create(&showArtist).Error; err != nil {
 				return fmt.Errorf("failed to create show-artist association: %w", err)
 			}
+
+			billForSlug = append(billForSlug, catalog.HeadlineCandidate{
+				Name:     artistName,
+				SetType:  setType,
+				Position: position,
+			})
 		}
 
-		// Generate slug for the show
-		headlinerName := ""
-		if len(artistEntries) > 0 {
-			headlinerName = artistEntries[0].Name
-		}
+		// Generate slug for the show. Ranked on the curated role first, because
+		// the slug is persisted and does not regenerate when the bill is
+		// curated later.
+		headlinerName := catalog.ResolveHeadlinerName(billForSlug)
 		// The slug date is read in the venue's own zone (PSY-1873); venueConfig
 		// carries only a state, and the state map answers Phoenix for anything
 		// outside the US.

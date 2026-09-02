@@ -53,3 +53,83 @@ func TestHeadlineSlotSQLDerivesValuesFromTheVocabulary(t *testing.T) {
 		}
 	}
 }
+
+// ResolveHeadlinerName is what three slug writers persist, so every branch of
+// its ranking is pinned here rather than only through their integration suites.
+func TestResolveHeadlinerName(t *testing.T) {
+	cases := []struct {
+		name string
+		bill []HeadlineCandidate
+		want string
+	}{
+		{
+			name: "empty bill names nobody",
+			bill: nil,
+			want: "",
+		},
+		{
+			name: "curated headliner outranks a lower position",
+			bill: []HeadlineCandidate{
+				{Name: "Opener", SetType: contracts.SetTypeOpener, Position: 0},
+				{Name: "Headliner", SetType: contracts.SetTypeHeadliner, Position: 1},
+			},
+			want: "Headliner",
+		},
+		{
+			name: "uncurated bill falls back to lowest position",
+			bill: []HeadlineCandidate{
+				{Name: "Second", SetType: contracts.SetTypePerformer, Position: 1},
+				{Name: "First", SetType: contracts.SetTypePerformer, Position: 0},
+			},
+			want: "First",
+		},
+		{
+			name: "a curated bill naming no headliner still names an act",
+			bill: []HeadlineCandidate{
+				{Name: "Top", SetType: contracts.SetTypePerformer, Position: 0},
+				{Name: "Opener", SetType: contracts.SetTypeOpener, Position: 1},
+			},
+			want: "Top",
+		},
+		{
+			name: "set_type is normalized, not compared raw",
+			bill: []HeadlineCandidate{
+				{Name: "Opener", SetType: "opener", Position: 0},
+				{Name: "Headliner", SetType: "  HEADLINER  ", Position: 1},
+			},
+			want: "Headliner",
+		},
+		{
+			name: "an unmappable label makes no claim",
+			bill: []HeadlineCandidate{
+				{Name: "Top", SetType: "", Position: 0},
+				{Name: "Host", SetType: "host", Position: 1},
+			},
+			want: "Top",
+		},
+		{
+			name: "two curated headliners tie on position",
+			bill: []HeadlineCandidate{
+				{Name: "Later", SetType: contracts.SetTypeHeadliner, Position: 3},
+				{Name: "Earlier", SetType: contracts.SetTypeHeadliner, Position: 2},
+			},
+			want: "Earlier",
+		},
+		{
+			name: "equal position and rank leave bill order in charge",
+			bill: []HeadlineCandidate{
+				{Name: "Listed First", SetType: contracts.SetTypePerformer, Position: 0},
+				{Name: "Listed Second", SetType: contracts.SetTypePerformer, Position: 0},
+			},
+			want: "Listed First",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ResolveHeadlinerName(tc.bill); got != tc.want {
+				t.Errorf("ResolveHeadlinerName = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

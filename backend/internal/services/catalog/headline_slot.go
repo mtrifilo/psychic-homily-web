@@ -113,22 +113,18 @@ import (
 //     pipeline/discovery.createShowFromEvent, and two in
 //     internal/services/admin/data_sync.go -- importShow and
 //     backfillShowSlugs. (Note that path: there is also an
-//     internal/api/handlers/admin, which is NOT where this lives.) They are
-//     not reachable by the SQL rule above and need their own audit. cmd/seed
-//     has two more; it is dev tooling and is not audited here.
+//     internal/api/handlers/admin, which is NOT where this lives.) cmd/seed has
+//     two more; it is dev tooling and is not audited here.
 //
-//     NOTE that three of the four ignore set_type entirely, by two different
-//     mechanisms. createShowFromEvent takes artistEntries[0] by list index.
-//     The two data_sync sites read the EXPORTED Position field and keep the
-//     LAST artist whose Position is 0, falling back to the first in the list
-//     when none is -- so do not go looking for an [0] index there. Either way
-//     the role was in hand: discovery carries it on artistEntries[i].SetType
-//     (a per-artist setType is computed in the loop immediately above the slug
-//     call), and the export payload carries ExportedShowArtist.SetType. So a
-//     curated bill whose headliner is not first can persist a slug naming the
-//     wrong act, and because a slug is written down that outlives any
-//     read-path fix. Left alone here only because the SQL rule above cannot
-//     reach it. catalog.CreateShow is the one that reads the stated role.
+//     ResolveHeadlinerName below is that group's shared rule, and the three
+//     that read a payload call it. It has to be a separate function rather than
+//     headlineSlotSQL because the rows it ranks do not exist to query yet, and
+//     because a slug needs a name even from a bill that names no headliner.
+//     catalog.CreateShow is the exception that needs no call: it resolves after
+//     associateArtists has written the rows, so it reads the stored
+//     is_headliner. A slug is written down and outlives any read-path fix,
+//     which is why this group ranks on the curated role rather than on list
+//     position.
 //
 //  3. The duplicate-headliner GUARDS at show.go's checkDuplicateHeadlinerConflicts
 //     and pipeline/discovery.go's checkHeadlinerDuplicate (the latter fed by
@@ -177,4 +173,52 @@ func headlineSlotSQL(alias string) string {
 		THEN COALESCE(` + alias + `.set_type, '') = '` + contracts.SetTypeHeadliner + `'
 		ELSE ` + alias + `.position = 0
 	END)`
+}
+
+// HeadlineCandidate is one act of a bill as an in-memory writer holds it, just
+// before the show_artists rows exist to query. SetType is the raw value that
+// writer will store; it is normalized here, so a caller need not pre-map it.
+type HeadlineCandidate struct {
+	Name     string
+	SetType  string
+	Position int
+}
+
+// ResolveHeadlinerName names the act that tops `bill`, for writers that must
+// pick a headliner from a request or export payload rather than from
+// show_artists. It is the in-memory counterpart of the group-1 RESOLVE reads
+// documented above, and takes the same ranking: a curated 'headliner' outranks
+// everything, then lowest position, then bill order as the stable tiebreak.
+//
+// It always names an act when the bill has one, because its callers write the
+// answer into a slug and a slug needs a name. That is what separates it from
+// headlineSlotSQL, which reports that a curated bill naming no headliner has no
+// headline slot at all. Returns "" only for an empty bill.
+//
+// Position is read from the value the caller will store, not from slice index,
+// because discovery derives position from billing_order and the data-sync import
+// carries an exported Position that need not match list order.
+func ResolveHeadlinerName(bill []HeadlineCandidate) string {
+	best := -1
+	for i, act := range bill {
+		if best < 0 || headlineRankLess(act, bill[best]) {
+			best = i
+		}
+	}
+	if best < 0 {
+		return ""
+	}
+	return bill[best].Name
+}
+
+// headlineRankLess reports whether `a` outranks `b` for the headline slot.
+// Strict, so equal-ranking acts leave the earlier one in place and bill order
+// breaks the tie.
+func headlineRankLess(a, b HeadlineCandidate) bool {
+	aCurated := contracts.NormalizeSetType(a.SetType) == contracts.SetTypeHeadliner
+	bCurated := contracts.NormalizeSetType(b.SetType) == contracts.SetTypeHeadliner
+	if aCurated != bCurated {
+		return aCurated
+	}
+	return a.Position < b.Position
 }
