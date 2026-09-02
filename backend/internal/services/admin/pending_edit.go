@@ -410,6 +410,25 @@ var fetchedURLFields = map[string]string{
 	"image_url": "Image URL",
 }
 
+// shapedURLFields is the apply-side counterpart of the `shape` rules in
+// urlFieldSpecs: the URL fields whose stored value must take a particular FORM,
+// beyond being a URL. It is a copy for the same layering reason fetchedURLFields
+// is, and it carries the rule itself rather than only a label because the rule
+// lives in internal/utils, which both layers may import.
+//
+// TestShapedURLFieldsMatchHandlerRegistry is the tripwire for the two drifting
+// apart: add a `shape` rule there without adding it here and the approve path
+// silently stops guarding that field.
+var shapedURLFields = map[string]struct {
+	displayName string
+	validate    func(value, fieldName string) error
+}{
+	utils.BandcampEmbedURLField: {
+		displayName: utils.BandcampEmbedURLLabel,
+		validate:    utils.ValidateBandcampEmbedURL,
+	},
+}
+
 // revalidateFetchedURLs re-runs the SSRF host guard over the values an approval
 // is about to apply, and reports one that must not go live.
 //
@@ -442,15 +461,11 @@ var fetchedURLFields = map[string]string{
 // string still passes: that is the clear-the-field gesture.
 func revalidateFetchedURLs(ctx context.Context, updates map[string]interface{}) error {
 	for field, displayName := range fetchedURLFields {
-		raw, present := updates[field]
-		if !present || raw == nil {
-			continue
-		}
-		value, isString := raw.(string)
-		if !isString {
-			return fmt.Errorf("%s must be a string", displayName)
-		}
-		if value == "" {
+		value, present, err := updateStringValue(updates, field, displayName)
+		if err != nil || !present {
+			if err != nil {
+				return err
+			}
 			continue
 		}
 		if err := urlguard.Default.Validate(ctx, value, displayName); err != nil {
@@ -460,38 +475,65 @@ func revalidateFetchedURLs(ctx context.Context, updates map[string]interface{}) 
 	return nil
 }
 
-// revalidateBandcampEmbed re-runs the Bandcamp release-page shape rule over the
-// value an approval is about to apply, and reports one that must not go live.
+// updateStringValue reads one field out of the map an approval is about to
+// apply, and answers whether there is a string worth validating.
 //
-// Same argument as revalidateFetchedURLs above, for a different rule and a
-// different harm. Submission checks this too (shared.ValidateFieldChangeValue),
-// so this is a SECOND run of one policy rather than a new one; it exists because
-// the queue outlives the guard. bandcamp_embed_url has been in
-// ArtistAllowedEditFields and unvalidated since PSY-525, so every row already
-// sitting in the queue predates the rule, and approval applies values verbatim.
+// It exists so each apply-side gate holds only its own RULE. What the map can
+// contain is one contract, not one per gate: absent or nil means the approval
+// does not touch the field, an empty string is the clear-the-field gesture, and
+// a present-but-non-string value is refused rather than skipped.
 //
-// The harm it blocks is not a broken embed. The stored value renders as an
+// Refusing the non-string is the load-bearing part. It cannot be an attack (JSON
+// yields float64/bool/map/slice/nil, none of which spell a URL, and pgx errors
+// rather than coercing one into the column), but skipping it would leave the row
+// to 500 at the driver on every approve attempt and sit pending forever. A 422
+// is actionable.
+func updateStringValue(updates map[string]interface{}, field, displayName string) (value string, present bool, err error) {
+	raw, ok := updates[field]
+	if !ok || raw == nil {
+		return "", false, nil
+	}
+	s, isString := raw.(string)
+	if !isString {
+		return "", false, fmt.Errorf("%s must be a string", displayName)
+	}
+	if s == "" {
+		return "", false, nil
+	}
+	return s, true, nil
+}
+
+// revalidateShapedURLs re-runs the FORM rules over the values an approval is
+// about to apply, and reports one that must not go live.
+//
+// Same argument as revalidateFetchedURLs above, for a different class of rule
+// and a different harm. Submission checks these too
+// (shared.ValidateFieldChangeValue), so this is a SECOND run of one policy
+// rather than a new one; it exists because the queue outlives the guard. A row
+// written before a rule shipped, or through a path that missed it, carries an
+// unvetted value that approval would otherwise apply verbatim.
+//
+// The harm it blocks is not a broken embed. bandcamp_embed_url renders as an
 // OUTBOUND link labelled "Listen to <artist> on Bandcamp" wherever the embed
-// resolve comes back empty, so an arbitrary host approved into this column is a
+// resolve comes back empty, so an arbitrary host approved into that column is a
 // phishing destination wearing a name readers trust.
 //
 // Reads the built `updates` map for the same reason the fetched-URL gate does:
 // the value checked is then literally the value the untyped Updates() writes.
-//
-// A present-but-non-string value is refused rather than skipped, matching the
-// fetched-URL gate: it cannot spell a URL, but skipping it leaves the row to 500
-// at the driver on every approve attempt and sit pending forever. An empty
-// string still passes: that is the clear-the-field gesture.
-func revalidateBandcampEmbed(updates map[string]interface{}) error {
-	raw, present := updates[utils.BandcampEmbedURLField]
-	if !present || raw == nil {
-		return nil
+func revalidateShapedURLs(updates map[string]interface{}) error {
+	for field, rule := range shapedURLFields {
+		value, present, err := updateStringValue(updates, field, rule.displayName)
+		if err != nil {
+			return err
+		}
+		if !present {
+			continue
+		}
+		if err := rule.validate(value, rule.displayName); err != nil {
+			return err
+		}
 	}
-	value, isString := raw.(string)
-	if !isString {
-		return fmt.Errorf("%s must be a string", utils.BandcampEmbedURLLabel)
-	}
-	return utils.ValidateBandcampEmbedURL(value, utils.BandcampEmbedURLLabel)
+	return nil
 }
 
 // ApprovePendingEdit approves a pending edit, applying changes to the entity
@@ -620,13 +662,11 @@ func (s *PendingEditService) ApprovePendingEdit(ctx context.Context, editID uint
 		))
 	}
 
-	// PSY-1966: same placement argument as the block above, and for the same
-	// reason it reads `updates` rather than the change slice. Kept a separate
-	// call rather than folded into revalidateFetchedURLs because the two answer
-	// different questions (where a host POINTS vs what shape a URL has) and only
-	// one of them resolves DNS.
-	if err := revalidateBandcampEmbed(updates); err != nil {
-		slog.Default().Warn("pending_edit_blocked_bandcamp_embed",
+	// PSY-1966. Kept a separate call rather than folded into the block above
+	// because the two answer different questions (where a host POINTS vs what
+	// shape a URL has) and only one of them resolves DNS.
+	if err := revalidateShapedURLs(updates); err != nil {
+		slog.Default().Warn("pending_edit_blocked_url_shape",
 			"edit_id", edit.ID,
 			"entity_type", edit.EntityType,
 			"entity_id", edit.EntityID,

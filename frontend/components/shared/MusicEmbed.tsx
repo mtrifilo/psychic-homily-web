@@ -301,28 +301,21 @@ function deriveEmbedState({
 
   // Priority 3: Bandcamp fallback links.
   //
-  // Both URLs are checked before either becomes an href, and this is the ONLY
-  // place that check can live and be complete: nine surfaces mount this
-  // component and all but one hand it the raw column, so a gate at the call
-  // sites is a gate that a tenth caller silently skips (PSY-1966).
+  // Both URLs are proven Bandcamp before either becomes an href, and this is the
+  // only place that check is COMPLETE: nine surfaces mount this component and
+  // hand it the raw contributor-writable column, so a gate at the call sites is
+  // a gate a tenth caller silently skips. The iframe branches above need no such
+  // gate — their src is built from a resolved numeric id, never from the stored
+  // string.
   //
-  // What is being defended: the fallback renders an outbound link labelled
-  // "Listen to <artist> on Bandcamp". bandcampAlbumUrl is
-  // artists.bandcamp_embed_url and bandcampProfileUrl is social.bandcamp, both
-  // contributor-writable, so an arbitrary URL in either is a phishing
-  // destination wearing a name the reader trusts. The iframe branches above need
-  // no such gate: their src is built from a resolved numeric id, never from the
-  // stored string.
+  // Two rules because the two fields hold two things. An embed URL names ONE
+  // release, so it must be a /album|/track page (see isBandcampReleaseUrl for
+  // the mirrored write gate); a profile URL is a bare artist root, so the host
+  // anchor is the whole rule.
   //
-  // Two different rules because the two fields hold two different things. An
-  // embed URL names ONE release, so it must be a /album|/track page — the mirror
-  // of what the backend write gate now stores (utils.IsValidBandcampEmbedURL).
-  // A profile URL is a bare artist root, so the host anchor is the whole rule.
-  //
-  // Fail CLOSED, to 'none': a row written before the write gate existed shows no
-  // link rather than an unverified one. Falling through to the profile when the
-  // album URL is rejected is deliberate — the artist may still have a good
-  // profile link, and hiding that too would punish the reader for a bad row.
+  // Fail CLOSED, to 'none'. Falling through to the profile when the album URL is
+  // rejected is deliberate: the artist may still have a good profile link, and
+  // hiding that too would punish the reader for a bad row.
   if (bandcampAlbumUrl && isBandcampReleaseUrl(bandcampAlbumUrl)) {
     return {
       type: 'fallback',

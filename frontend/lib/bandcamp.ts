@@ -46,16 +46,11 @@ export function isAllowedBandcampUrl(url: string): boolean {
  * that the value is a Bandcamp release page. Anything rendered as a link has to
  * prove it here first.
  *
- * This is the READ half of a mirrored pair. The write half is
- * utils.IsValidBandcampEmbedURL in the Go backend, which every path that stores
- * the column now gates on, and the invariant between them is that what can be
- * STORED is a subset of what can be RENDERED. If that ever inverts, a curator
- * saves a URL the site then refuses to show, with nothing anywhere saying why.
- *
- * The one place they differ is the bandcamp.com apex, which this accepts and the
- * write gate refuses. That direction is the safe one and it is deliberate: no
- * new row can hold an apex URL, and a legacy row that does still renders rather
- * than silently losing its link. Keep any future divergence pointing this way.
+ * This is the READ half of a mirrored pair whose contract is stated in full on
+ * the write half, utils.IsValidBandcampEmbedURL in the Go backend. In short:
+ * what can be STORED must stay a subset of what can be RENDERED, so this side
+ * may be the more lenient one and never the stricter. Read that doc before
+ * changing either.
  *
  * The segment test reads `pathname`, never the whole URL: a `/track/` page with
  * the literal `/album/` in its query string is a track, and a substring test

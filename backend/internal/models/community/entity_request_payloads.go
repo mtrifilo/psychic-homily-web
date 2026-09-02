@@ -412,15 +412,11 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 			return err
 		}
 		// The embed URL must be a Bandcamp RELEASE page, the same rule the direct
-		// artist endpoint applies (PSY-1966). This was previously a scheme-only
-		// check, on the reasoning that the domain rule was a content-quality gate
-		// and requiring it here risked rejecting otherwise-valid extracted embeds.
-		// Both halves of that no longer hold: the rule is exported from utils
-		// rather than trapped in a handler, and the value is not confined to a
-		// sandboxed iframe — it renders as an outbound link labelled Bandcamp, so
-		// an off-platform host is a safety problem, not a tidiness one. An
-		// extraction that produces something else should fail here, where the
-		// submitter can see it, rather than land on a live artist page.
+		// artist endpoint applies (PSY-1966). The value is not confined to a
+		// sandboxed iframe — it renders as an outbound link labelled Bandcamp —
+		// so an off-platform host is a safety problem, not a tidiness one, and an
+		// extraction that produces something else fails here, where the submitter
+		// can see it, rather than on a live artist page.
 		return optionalBandcampEmbedURL("artist", p.BandcampEmbedURL, maxRequestURLLen)
 	case EntityRequestRelease:
 		p, err := UnmarshalPayload[ReleaseRequestPayload](raw)
@@ -771,16 +767,17 @@ func optionalHTTPURL(entityType, field string, value *string, maxLen int) error 
 }
 
 // optionalBandcampEmbedURL rejects an optional bandcamp_embed_url that is not a
-// Bandcamp release page (nil is allowed). It caps length first so an absurd
-// value is refused on the cheap rule, then applies the shared shape rule, so the
-// queue cannot hold a value the direct artist endpoint would refuse.
+// Bandcamp release page (nil is allowed). It caps length on the shared helper
+// first so an absurd value is refused on the cheap rule and reports the length
+// failure the same way every other payload field does, then applies the shared
+// shape rule, so the queue cannot hold a value the direct artist endpoint would
+// refuse.
 func optionalBandcampEmbedURL(entityType string, value *string, maxLen int) error {
+	if err := optionalMaxLen(entityType, utils.BandcampEmbedURLField, value, maxLen); err != nil {
+		return err
+	}
 	if value == nil {
 		return nil
-	}
-	if len(*value) > maxLen {
-		return fmt.Errorf("%s payload: %s must be %d characters or fewer",
-			entityType, utils.BandcampEmbedURLField, maxLen)
 	}
 	if err := utils.ValidateBandcampEmbedURL(*value, utils.BandcampEmbedURLField); err != nil {
 		return fmt.Errorf("%s payload: %w", entityType, err)

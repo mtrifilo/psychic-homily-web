@@ -19,16 +19,20 @@ async function validateBandcampUrl(
 ): Promise<{ valid: true; resolvedUrl: string } | { valid: false; error: string }> {
   // Host must be a real bandcamp.com (sub)domain — the URL is fetched
   // server-side below, so a substring check would allow SSRF. See lib/bandcamp.
+  //
+  // Subsumed by the release check below, which starts with this same host
+  // anchor. Kept because the two failures need different words: "that is not
+  // Bandcamp" and "that is Bandcamp, but not a release" send an admin to
+  // different fixes.
   if (!isAllowedBandcampUrl(url)) {
     return { valid: false, error: 'URL must be a Bandcamp URL' }
   }
 
-  // Release-page shape, read off the parsed pathname. The substring test this
-  // replaced accepted any Bandcamp page carrying "/album/" somewhere it did not
-  // mean it, e.g. /merch/shirt?ref=/album/x, which the backend then refused with
-  // a message about the host — a rejection an admin could not act on. This is
-  // the same predicate the render gate uses; the backend write gate stays the
-  // authority on what is stored, and is stricter still.
+  // Release-page shape, read off the parsed PATHNAME, so a Bandcamp page that
+  // merely carries "/album/" somewhere it does not mean it (/merch/shirt?ref=
+  // /album/x) is not taken for a release. Same predicate the render gate uses;
+  // the backend write gate stays the authority on what is stored, and is
+  // stricter still (it also excludes the bandcamp.com apex).
   if (!isBandcampReleaseUrl(url)) {
     return {
       valid: false,

@@ -393,7 +393,7 @@ describe('ShowCard', () => {
             id: 1,
             name: 'Band',
             is_headliner: true,
-            socials: { spotify: 'https://spotify.com/band' },
+            socials: { spotify: 'https://open.spotify.com/artist/4Z8W4fKeB5YxbusRsdQVPb' },
           }),
         ],
       })
