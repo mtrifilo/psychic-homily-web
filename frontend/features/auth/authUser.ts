@@ -1,12 +1,13 @@
-import type { UserTier } from '@/features/auth/types'
+import type { UserTier } from './types'
 import type { NavMode } from '@/lib/nav-mode'
 
 /**
  * The viewer identity every consumer of `useAuthContext()` reads.
  *
- * Produced from an API payload only through {@link toAuthUser}, so the profile
- * query and the in-session override built at login cannot describe the same
- * viewer differently.
+ * Reached only through {@link toAuthUser}, which `AuthProvider` runs on both
+ * the profile query's payload and the object handed to `setUser`, so the
+ * profile and the in-session override cannot describe the same viewer
+ * differently.
  */
 export interface User {
   id: string
@@ -35,12 +36,17 @@ export interface User {
  * `/auth/profile` and every endpoint that establishes a session (password
  * login, registration, magic-link verification, account recovery, passkey
  * login, passkey signup) serialize the same backend user model, so one shape
- * and one mapper cover all of them. Fields are optional because this type is
- * also the read contract for cached payloads written by older builds.
+ * and one mapper cover all of them. Fields are optional because this is also
+ * the read contract for cached payloads written by older builds.
+ *
+ * Two fields are declared narrower than the wire actually carries, inherited
+ * from the per-endpoint types this replaced: `id` is a JSON number and `email`
+ * is nullable (`components['schemas']['User']` in types/api.d.ts, generated
+ * from the backend model). The values pass through unconverted, so consumers
+ * that need a number call `Number(user.id)`.
  *
  * `user_tier` is a bare string rather than {@link UserTier}: the value is a
- * server-controlled enum this client does not validate, and narrowing it
- * happens once, in {@link toAuthUser}.
+ * server-controlled enum, and the cast to it happens in {@link toAuthUser}.
  */
 export interface AuthApiUser {
   id: string
@@ -61,11 +67,10 @@ export interface AuthApiUser {
 /**
  * The single adapter from an auth API payload to the context {@link User}.
  *
- * Every field the context exposes is mapped here. A call site that builds the
- * object itself can omit a privilege field (`is_admin`) or state a placeholder
- * for one it does not know (`email_verified`), and the override then wins over
- * the real profile for the rest of the SPA session, so the fix for that class
- * is to leave no other place where the object is assembled.
+ * Fields are enumerated rather than spread: the backend serializes its whole
+ * user model on these endpoints, including `preferences`, `privacy_settings`
+ * and `is_active`, none of which belongs in the context value every
+ * auth-consuming component re-renders on. The list is the allowlist.
  */
 export function toAuthUser(apiUser: AuthApiUser): User {
   return {

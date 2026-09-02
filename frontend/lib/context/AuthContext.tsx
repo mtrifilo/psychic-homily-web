@@ -12,10 +12,8 @@ import {
 // lives in that barrel and reads this context, so the barrel import would close
 // a cycle through it.
 import { useProfile, useLogout } from '@/features/auth/hooks/useAuth'
+import { toAuthUser, type AuthApiUser, type User } from '@/features/auth/authUser'
 import { AuthError, isDefinitiveUnauthenticated } from '@/lib/errors'
-import { toAuthUser, type User } from './authUser'
-
-export type { User }
 
 /**
  * Whether the viewer's identity is KNOWN yet, and what it turned out to be.
@@ -86,7 +84,14 @@ interface AuthState {
 }
 
 interface AuthContextType extends AuthState {
-  setUser: (user: User | null) => void
+  /**
+   * Claim an authenticated viewer from a session-entry response, ahead of the
+   * profile query. Takes the API payload, not a context {@link User}: the
+   * mapping runs here so no call site can assemble a narrower object and have
+   * it outrank the profile for the rest of the SPA session (PSY-1945).
+   * `null` releases the claim.
+   */
+  setUser: (user: AuthApiUser | null) => void
   setError: (error: string | null) => void
   clearError: () => void
   logout: () => void
@@ -227,8 +232,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return null
   }, [profileError, errorOverride])
 
-  const setUser = useCallback((newUser: User | null) => {
-    setUserOverride(newUser)
+  const setUser = useCallback((newUser: AuthApiUser | null) => {
+    setUserOverride(newUser ? toAuthUser(newUser) : null)
     setErrorOverride(null)
   }, [])
 

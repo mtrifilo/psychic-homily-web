@@ -354,35 +354,20 @@ describe('AuthPage', () => {
         },
       })
 
-      expect(mockAuthState.setUser).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: '7',
-          email: 'admin@test.local',
-          username: 'reggie',
-          is_admin: true,
-          email_verified: true,
-          user_tier: 'trusted_contributor',
-        })
-      )
-      expect(mockPush).toHaveBeenCalledWith('/')
-    })
-
-    it('reports an unverified non-admin as exactly that', async () => {
-      const callbacks = await submitLogin()
-
-      callbacks.onSuccess({
-        success: true,
-        user: {
-          id: '8',
-          email: 'new@test.local',
-          is_admin: false,
-          email_verified: false,
-        },
+      // The whole payload, unnarrowed: `AuthProvider` is what maps it, and the
+      // bug was this site handing over a subset with the privilege fields cut.
+      expect(mockAuthState.setUser).toHaveBeenCalledWith({
+        id: '7',
+        email: 'admin@test.local',
+        username: 'reggie',
+        first_name: 'Reg',
+        last_name: 'Gie',
+        is_admin: true,
+        email_verified: true,
+        user_tier: 'trusted_contributor',
+        nav_mode: 'top',
       })
-
-      expect(mockAuthState.setUser).toHaveBeenCalledWith(
-        expect.objectContaining({ is_admin: false, email_verified: false })
-      )
+      expect(mockPush).toHaveBeenCalledWith('/')
     })
   })
 })

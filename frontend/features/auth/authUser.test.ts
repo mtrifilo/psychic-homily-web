@@ -38,17 +38,14 @@ describe('toAuthUser', () => {
     })
   })
 
-  // The regression this function exists for: an admin whose session-entry
-  // response says is_admin, mapped by hand, arrived in the context without it,
-  // and the override outranks the profile for the rest of the SPA session.
-  it('preserves is_admin rather than dropping it', () => {
-    expect(toAuthUser({ ...apiUser, is_admin: true }).is_admin).toBe(true)
-    expect(toAuthUser({ ...apiUser, is_admin: false }).is_admin).toBe(false)
-  })
-
-  it('preserves email_verified rather than stating a placeholder', () => {
-    expect(toAuthUser({ ...apiUser, email_verified: true }).email_verified).toBe(true)
-    expect(toAuthUser({ ...apiUser, email_verified: false }).email_verified).toBe(false)
+  // The regression this function exists for: a hand-mapped session-entry
+  // response reached the context with `is_admin` dropped and `email_verified`
+  // stated as a placeholder, and the override outranks the profile for the
+  // rest of the SPA session. The `true` direction is covered above.
+  it('reports a non-admin unverified viewer as exactly that', () => {
+    const mapped = toAuthUser({ ...apiUser, is_admin: false, email_verified: false })
+    expect(mapped.is_admin).toBe(false)
+    expect(mapped.email_verified).toBe(false)
   })
 
   // `email_verified` is required on the context user, so an absent value needs
@@ -59,8 +56,11 @@ describe('toAuthUser', () => {
     expect(toAuthUser(withoutFlag).email_verified).toBe(false)
   })
 
-  it('leaves absent optional fields absent', () => {
-    expect(toAuthUser({ id: 'user-2', email: 'plain@test.local' })).toEqual({
+  // `toStrictEqual`, not `toEqual`: the latter treats an absent key and an
+  // explicit `undefined` as equal, so it would pass against a mapper that
+  // silently stopped writing a field.
+  it('writes every context key even when the payload carries only the required two', () => {
+    expect(toAuthUser({ id: 'user-2', email: 'plain@test.local' })).toStrictEqual({
       id: 'user-2',
       email: 'plain@test.local',
       username: undefined,

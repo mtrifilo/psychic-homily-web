@@ -8,7 +8,6 @@ import { z } from 'zod'
 import { AlertCircle, Loader2, Mail, Lock, User, Eye, EyeOff, Send, CheckCircle2 } from 'lucide-react'
 import { useLogin, useRegister, useSendMagicLink } from '@/features/auth'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { toAuthUser } from '@/lib/context/authUser'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -87,7 +86,7 @@ function LoginForm({ returnTo }: { returnTo: string }) {
       loginMutation.mutate(value, {
         onSuccess: data => {
           if (data.user) {
-            setUser(toAuthUser(data.user))
+            setUser(data.user)
           }
           router.push(returnTo)
         },
@@ -374,7 +373,7 @@ function SignupForm({ returnTo, onHandoffChange }: SignupFormProps) {
               return
             }
 
-            setUser(toAuthUser(data.user))
+            setUser(data.user)
             onHandoffChange({
               status: 'complete',
               email: data.user.email || value.email,

@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/dialog'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { toAuthUser, type AuthApiUser } from '@/lib/context/authUser'
+import type { AuthResponse } from '@/features/auth/hooks/useAuth'
 import { refreshViewerTierQueries } from '@/lib/queryClient'
 import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION, MIN_SIGNUP_AGE } from '@/lib/legal'
@@ -134,14 +134,7 @@ export function PasskeySignupButton({
         }),
       })
 
-      // Annotated rather than left as `any`: this path builds the session
-      // override by hand, so the payload's shape is the contract that keeps
-      // `toAuthUser` fed with every field the context exposes.
-      const finishData: {
-        success?: boolean
-        message?: string
-        user?: AuthApiUser
-      } = await finishResponse.json()
+      const finishData: AuthResponse = await finishResponse.json()
 
       if (!finishData.success) {
         throw new Error(finishData.message || 'Failed to complete passkey signup')
@@ -149,7 +142,7 @@ export function PasskeySignupButton({
 
       // Success - update auth context
       if (finishData.user) {
-        setUser(toAuthUser(finishData.user))
+        setUser(finishData.user)
       }
 
       // This path establishes a session with a raw fetch rather than the

@@ -19,7 +19,6 @@ vi.mock('@/features/auth/hooks/useAuth', () => ({
 
 // Import after mocks are set up
 import { AuthProvider, useAuthContext } from './AuthContext'
-import { toAuthUser } from './authUser'
 
 // Helper to create wrapper with specific query client
 function createWrapperWithClient(queryClient: QueryClient) {
@@ -359,15 +358,13 @@ describe('AuthContext', () => {
       })
 
       act(() => {
-        result.current.setUser(
-          toAuthUser({
-            id: 'admin-1',
-            email: 'admin@test.local',
-            is_admin: true,
-            email_verified: true,
-            user_tier: 'trusted_contributor',
-          })
-        )
+        result.current.setUser({
+          id: 'admin-1',
+          email: 'admin@test.local',
+          is_admin: true,
+          email_verified: true,
+          user_tier: 'trusted_contributor',
+        })
       })
 
       expect(result.current.user?.is_admin).toBe(true)

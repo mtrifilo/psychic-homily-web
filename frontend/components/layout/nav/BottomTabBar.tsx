@@ -366,6 +366,13 @@ export function BottomTabBar() {
           // jump: this cell is one of five equal columns, so it has to occupy
           // its column whatever the viewer turns out to be. aria-hidden: it
           // looks tappable but is deliberately inert until auth settles.
+          //
+          // The gate here is `isLoading`, not the settled `authStatus` the top
+          // bar's UserMenu uses, so a viewer whose profile fetch failed on a
+          // non-definitive error falls through to the anonymous Account link
+          // below. Choosing between that link and a permanently inert cell is
+          // a UX decision this surface has not had (PSY-1986 covered the top
+          // bar only).
           <div aria-hidden className={tabClassName(false)}>
             <User className="size-5" />
             Account

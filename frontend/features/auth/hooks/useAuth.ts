@@ -28,7 +28,7 @@ import {
   type AuthErrorCodeType,
 } from '@/lib/errors'
 import type { NavMode } from '@/lib/nav-mode'
-import type { AuthApiUser } from '@/lib/context/authUser'
+import type { AuthApiUser } from '../authUser'
 import type { APIToken } from '../types'
 
 // Types
@@ -50,17 +50,19 @@ interface RegisterCredentials {
   min_age_attested: number
 }
 
-interface AuthResponse {
+/**
+ * The envelope every auth endpoint answers with.
+ *
+ * `user` is the full viewer payload, not a login-sized subset: the backend
+ * serializes the same user model here as it does on /auth/profile. Exported
+ * because the passkey components establish their session with a raw `fetch`
+ * rather than a mutation, and read the same envelope.
+ */
+export interface AuthResponse {
   success: boolean
   message: string
   error_code?: AuthErrorCodeType
   request_id?: string
-  /**
-   * The full viewer payload, not a login-sized subset: the backend serializes
-   * the same user model here as it does on /auth/profile. Call sites hand it
-   * to `toAuthUser` so the in-session override carries every field the profile
-   * would have carried, `is_admin` and `email_verified` included.
-   */
   user?: AuthApiUser
 }
 
@@ -100,28 +102,11 @@ interface UserProfile {
   message: string
   error_code?: AuthErrorCodeType
   request_id?: string
-  user?: {
-    id: string
-    email: string
-    username?: string
+  // The shared payload plus the fields only the profile endpoint's consumers
+  // read. Declaring the shared part once is what lets `toAuthUser` map this
+  // payload and a session-entry payload with the same code.
+  user?: AuthApiUser & {
     name?: string
-    display_name?: string
-    first_name?: string
-    last_name?: string
-    bio?: string
-    // Free-text "City, state" (PSY-1416). Optional; empty omits the public
-    // profile meta-line segment.
-    location?: string
-    // OAuth / profile avatar (PSY-1488 claim-state header). Backend User
-    // always includes the field; optional here for legacy cached payloads.
-    avatar_url?: string
-    is_admin?: boolean
-    email_verified?: boolean
-    user_tier?: string
-    // Global nav chrome preference (PSY-1115 backend; PSY-1117 toggle). Backend
-    // always sends this (column default 'top'), but typed optional so the
-    // unauthenticated sentinel and legacy cached payloads stay valid.
-    nav_mode?: NavMode
     created_at: string
     updated_at: string
     preferences?: UserPreferencesData
@@ -525,14 +510,7 @@ interface VerifyMagicLinkResponse {
   message: string
   error_code?: string
   request_id?: string
-  user?: {
-    id: string
-    email: string
-    name?: string
-    first_name?: string
-    last_name?: string
-    is_admin?: boolean
-  }
+  user?: AuthApiUser
 }
 
 // Send verification email mutation
@@ -1160,14 +1138,7 @@ interface RecoverAccountRequest {
 interface RecoverAccountResponse {
   success: boolean
   message: string
-  user?: {
-    id: string
-    email: string
-    name?: string
-    first_name?: string
-    last_name?: string
-    is_admin?: boolean
-  }
+  user?: AuthApiUser
   error_code?: AuthErrorCodeType
   request_id?: string
 }
@@ -1190,14 +1161,7 @@ interface RequestAccountRecoveryResponse {
 interface ConfirmAccountRecoveryResponse {
   success: boolean
   message: string
-  user?: {
-    id: string
-    email: string
-    name?: string
-    first_name?: string
-    last_name?: string
-    is_admin?: boolean
-  }
+  user?: AuthApiUser
   error_code?: AuthErrorCodeType
   request_id?: string
 }

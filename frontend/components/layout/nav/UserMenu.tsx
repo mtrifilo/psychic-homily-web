@@ -30,15 +30,12 @@ import { NotificationBell } from '@/features/notifications'
 export function UserMenu() {
   const { user, authStatus, logout } = useAuthContext()
 
-  // The gate is `authStatus`, never `isLoading` / `!isAuthenticated`: both read
-  // the same way for a viewer who is anonymous and for one whose profile has
-  // not arrived, and the anonymous link is an identity claim about the viewer.
-  // Stating it while the bracket controls elsewhere on the page render disabled
-  // puts two answers to "who is this?" on one screen (PSY-1986).
+  // The `login / sign-up` link below is an identity claim about the viewer, so
+  // the gate is `authStatus` per the rule stated on the AuthStatus type.
   //
-  // Nothing renders in the unsettled slot: no spinner either, since a viewer
+  // Nothing renders in the unsettled slot, and no spinner either: a viewer
   // whose profile fetch failed on a non-definitive error stays 'pending' for
-  // the rest of the SPA session and a spinner would promise an arrival that is
+  // the rest of the SPA session, so a spinner would promise an arrival that is
   // not coming. The box keeps the avatar trigger's height so the settled
   // controls drop into the same row geometry.
   if (authStatus === 'pending') {
