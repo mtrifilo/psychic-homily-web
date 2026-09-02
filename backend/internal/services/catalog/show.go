@@ -304,16 +304,16 @@ func (s *ShowService) determineShowStatus(tx *gorm.DB, venues []contracts.Create
 // event_date) on show_artists, PARTIAL on
 // `WHERE event_date IS NOT NULL AND venue_id IS NOT NULL`, and keyed on IDS;
 // syncShowArtistDedupColumns stamps those columns in this same transaction.
-// This guard is keyed on LOWER(artists.name) and LOWER(venues.name), with no
-// city term. So:
+// This guard is keyed on LOWER(artists.name) and on the venue identity the save
+// TARGETS, which venueDedupTarget resolves the way associateVenues will: by id
+// when the request gave one, otherwise by (lower(name), lower(city)), the pair
+// venues are unique on. So:
 //
 //   - On one (artist_id, venue_id, event_date) triple the index refuses
 //     regardless of set_type or position, and there this guard adds only the
 //     message.
-//   - Where the two resolve to DIFFERENT ids, only this guard fires. Venues may
-//     legally share a name across cities (idx_venues_name_city_unique), and the
-//     venue join carries no city term, so this case refuses real collisions and
-//     same-named venues in other cities alike.
+//   - Where the two resolve to DIFFERENT artist ids, only this guard fires: an
+//     artist name is matched case-insensitively against the whole table.
 //   - Where the denorm columns are NULL, or the collision sits at a multi-venue
 //     show's non-lowest venue_id, this guard is the only refusal.
 //
@@ -347,40 +347,16 @@ func (s *ShowService) determineShowStatus(tx *gorm.DB, venues []contracts.Create
 //     index as the sole refusal, with the gap noted above.
 //   - The message below reaches server logs and in-process callers. The HTTP
 //     surface replaces it with a fixed "Failed to create show", so this copy is
-//     not what an API client reads.
+//     not what an API client reads. PreviewShowImport is the exception: it
+//     renders the same wording verbatim in the admin UI, from the same
+//     predicate, so a preview verdict cannot disagree with the confirm outcome.
 //
 // Accepted consequence: a curated OPENER at position 0 still trips the guard.
 // The write is refused either way, so the message is what carries the fix, and
 // it no longer asserts the matched artist is a headliner.
 func (s *ShowService) checkDuplicateHeadlinerConflicts(tx *gorm.DB, req *contracts.CreateShowRequest) error {
-	// Get all headliners from the request.
-	//
-	// Resolved with the same function and the same positions associateArtists
-	// will use, so the names locked and probed here are exactly the rows about
-	// to be written as headliners. Reading a different signal -- or the same
-	// signal without position -- would let an artist be written into the
-	// headliner slot without ever being duplicate-checked.
-	var headlinerNames []string
-	for position, artist := range req.Artists {
-		if _, isHeadliner := resolveArtistRole(artist, position); isHeadliner {
-			headlinerNames = append(headlinerNames, artist.Name)
-		}
-	}
-
-	// If no headliners marked, fall back to first-billed artist
-	if len(headlinerNames) == 0 {
-		if len(req.Artists) > 0 {
-			headlinerNames = []string{req.Artists[0].Name}
-		} else {
-			return nil
-		}
-	}
-
-	// Get all venue names from the request
-	var venueNames []string
-	for _, venue := range req.Venues {
-		venueNames = append(venueNames, venue.Name)
-	}
+	probed := probedHeadlinerNames(req.Artists)
+	targets := venueDedupTargets(req.Venues)
 
 	// The dedup key is the FULL event_date timestamp (PSY-559): a matinee and
 	// an evening set at the same venue with the same headliner are distinct
@@ -393,48 +369,156 @@ func (s *ShowService) checkDuplicateHeadlinerConflicts(tx *gorm.DB, req *contrac
 	// timestamp (not the calendar day) lets matinee + evening inserts proceed
 	// in parallel. Uses FNV hash for a stable int64 lock key; auto-released on
 	// transaction commit/rollback.
-	for _, headlinerName := range headlinerNames {
-		for _, venueName := range venueNames {
-			lockKey := fnvHash(strings.ToLower(headlinerName) + "|" + strings.ToLower(venueName) + "|" + eventDate.Format(time.RFC3339Nano))
+	//
+	// The venue half of the key is the identity the CALLER expressed, so two
+	// callers naming one venue differently (one by id, one by name and city) do
+	// not serialize against each other and fall through to the unique index.
+	for _, headlinerName := range probed {
+		for _, target := range targets {
+			lockKey := fnvHash(strings.ToLower(headlinerName) + "|" + target.lockKey() + "|" + eventDate.Format(time.RFC3339Nano))
 			if err := tx.Exec("SELECT pg_advisory_xact_lock(?)", lockKey).Error; err != nil {
 				return fmt.Errorf("failed to acquire advisory lock: %w", err)
 			}
 		}
 	}
 
-	// Check for conflicts: same artist + same venue + same exact timestamp
-	// (case-insensitive), where the stored row is curated 'headliner' OR sits
-	// at position 0. Do not narrow this to headlineSlotSQL; this function's
-	// docblock records what that was measured to break.
-	for _, headlinerName := range headlinerNames {
-		for _, venueName := range venueNames {
-			var existingShows []catalogm.Show
+	conflict, err := findDuplicateShowConflict(tx, probed, targets, eventDate)
+	if err != nil {
+		return err
+	}
+	if conflict != nil {
+		return errors.New(duplicateShowConflictMessage(*conflict, eventDate))
+	}
+	return nil
+}
 
-			err := tx.Table("shows").
+// duplicateShowConflict is one refusal from the create-path duplicate
+// predicate: the act probed, and the venue name to name it at. Neither side of
+// the match is necessarily a headliner.
+type duplicateShowConflict struct {
+	artistName string
+	venueName  string
+}
+
+// probedHeadlinerNames returns the acts the duplicate predicate probes: the
+// bill's stated headliners, or the first-billed act when the bill states none.
+//
+// Resolved with the same function and the same positions associateArtists will
+// use, so the names locked and probed are exactly the rows about to be written
+// as headliners. Reading a different signal -- or the same signal without
+// position -- would let an artist be written into the headliner slot without
+// ever being duplicate-checked.
+func probedHeadlinerNames(artists []contracts.CreateShowArtist) []string {
+	var names []string
+	for position, artist := range artists {
+		if _, isHeadliner := resolveArtistRole(artist, position); isHeadliner {
+			names = append(names, artist.Name)
+		}
+	}
+	if len(names) == 0 && len(artists) > 0 {
+		names = []string{artists[0].Name}
+	}
+	return names
+}
+
+// venueDedupTarget is one venue of a create request, identified the way
+// associateVenues will resolve it: by id when the caller gave one, otherwise by
+// name within a city. Venues are unique on (lower(name), lower(city)), so a
+// name-only match reaches same-named rooms in other cities and refuses saves
+// that collide with none of them.
+//
+// A venue carrying neither an id nor a name is dropped: associateVenues cannot
+// resolve one either, and it would otherwise match every venue whose name is
+// empty.
+type venueDedupTarget struct {
+	id   *uint
+	name string
+	city string
+}
+
+func venueDedupTargets(venues []contracts.CreateShowVenue) []venueDedupTarget {
+	targets := make([]venueDedupTarget, 0, len(venues))
+	for _, venue := range venues {
+		switch {
+		case venue.ID != nil && *venue.ID != 0:
+			targets = append(targets, venueDedupTarget{id: venue.ID, name: venue.Name})
+		case venue.Name != "":
+			targets = append(targets, venueDedupTarget{name: venue.Name, city: venue.City})
+		}
+	}
+	return targets
+}
+
+// scope narrows a query to the show_venues/venues rows this target identifies.
+func (t venueDedupTarget) scope(query *gorm.DB) *gorm.DB {
+	if t.id != nil {
+		return query.Where("show_venues.venue_id = ?", *t.id)
+	}
+	return query.Where("LOWER(venues.name) = LOWER(?) AND LOWER(venues.city) = LOWER(?)", t.name, t.city)
+}
+
+// lockKey is the advisory-lock half naming this venue. Distinct per identity
+// form, because an id and a name are not comparable without a lookup.
+func (t venueDedupTarget) lockKey() string {
+	if t.id != nil {
+		return fmt.Sprintf("id:%d", *t.id)
+	}
+	return strings.ToLower(t.name) + "|" + strings.ToLower(t.city)
+}
+
+// displayName is what a refusal calls this venue. An id-identified venue may
+// carry no name in the request, in which case the id is the only honest label.
+func (t venueDedupTarget) displayName() string {
+	if t.name != "" {
+		return t.name
+	}
+	return fmt.Sprintf("#%d", *t.id)
+}
+
+// findDuplicateShowConflict runs the create-path duplicate predicate and returns
+// the first collision, or nil. It is the ONE predicate: the create guard turns
+// its result into a refusal, and PreviewShowImport turns the same result into a
+// warning, so a preview cannot report an import the confirm path then rejects.
+//
+// The stored row matches on curated 'headliner' OR position 0. Do not narrow
+// that to headlineSlotSQL; checkDuplicateHeadlinerConflicts records what it was
+// measured to break.
+func findDuplicateShowConflict(
+	db *gorm.DB,
+	probedNames []string,
+	targets []venueDedupTarget,
+	eventDate time.Time,
+) (*duplicateShowConflict, error) {
+	for _, artistName := range probedNames {
+		for _, target := range targets {
+			query := db.Table("shows").
 				Joins("JOIN show_artists ON shows.id = show_artists.show_id").
 				Joins("JOIN artists ON show_artists.artist_id = artists.id").
 				Joins("JOIN show_venues ON shows.id = show_venues.show_id").
 				Joins("JOIN venues ON show_venues.venue_id = venues.id").
-				Where("LOWER(artists.name) = LOWER(?) AND LOWER(venues.name) = LOWER(?)",
-					headlinerName, venueName).
-				Where("(show_artists.set_type = ? OR show_artists.position = 0)", "headliner").
-				Where("shows.event_date = ?", eventDate).
-				Find(&existingShows).Error
+				Where("LOWER(artists.name) = LOWER(?)", artistName).
+				Where("(show_artists.set_type = ? OR show_artists.position = 0)", contracts.SetTypeHeadliner).
+				Where("shows.event_date = ?", eventDate)
 
-			if err != nil {
-				return fmt.Errorf("failed to check for duplicate headliner conflicts: %w", err)
+			var existingShows []catalogm.Show
+			if err := target.scope(query).Find(&existingShows).Error; err != nil {
+				return nil, fmt.Errorf("failed to check for duplicate headliner conflicts: %w", err)
 			}
-
-			// No role claimed: the matched row may be an opener the predicate
-			// reached through its position arm.
 			if len(existingShows) > 0 {
-				return fmt.Errorf("'%s' is already performing at venue '%s' on %s",
-					headlinerName, venueName, req.EventDate.Format("2006-01-02 15:04:05 UTC"))
+				return &duplicateShowConflict{artistName: artistName, venueName: target.displayName()}, nil
 			}
 		}
 	}
+	return nil, nil
+}
 
-	return nil
+// duplicateShowConflictMessage is the one wording for a duplicate collision, so
+// the preview warning and the create refusal cannot describe the same fact
+// differently. It claims no role for the matched artist: the predicate's
+// position arm reaches acts that are not headliners.
+func duplicateShowConflictMessage(conflict duplicateShowConflict, eventDate time.Time) string {
+	return fmt.Sprintf("'%s' is already performing at venue '%s' on %s",
+		conflict.artistName, conflict.venueName, eventDate.Format("2006-01-02 15:04:05 UTC"))
 }
 
 // GetShow retrieves a show by ID with all associations
@@ -3145,32 +3229,36 @@ func (s *ShowService) PreviewShowImport(content []byte) (*contracts.ImportPrevie
 		response.Artists = append(response.Artists, result)
 	}
 
-	// Check for potential duplicate (same headliner at same venue on same date)
-	eventDate, err := time.Parse(time.RFC3339, parsed.Frontmatter.Show.EventDate)
-	if err == nil {
-		// Find headliners
-		for _, artistResult := range response.Artists {
-			if artistResult.SetType == contracts.SetTypeHeadliner && artistResult.ExistingID != nil {
-				for _, venueResult := range response.Venues {
-					if venueResult.ExistingID != nil {
-						// Check for existing show
-						var existingShows []catalogm.Show
-						s.db.Table("shows").
-							Joins("JOIN show_artists ON shows.id = show_artists.show_id").
-							Joins("JOIN show_venues ON shows.id = show_venues.show_id").
-							Where("show_artists.artist_id = ? AND show_venues.venue_id = ? AND shows.event_date = ? AND show_artists.set_type = ?",
-								*artistResult.ExistingID, *venueResult.ExistingID, eventDate.UTC(), "headliner").
-							Find(&existingShows)
-
-						if len(existingShows) > 0 {
-							response.Warnings = append(response.Warnings,
-								fmt.Sprintf("Warning: Headliner '%s' already has a show at '%s' on this date",
-									artistResult.Name, venueResult.Name))
-						}
-					}
-				}
-			}
+	// Duplicate check, run through the SAME predicate the confirm path will run
+	// on the SAME request, so CanImport cannot promise an import that then 422s.
+	// The previous preview was narrower on three counts: it only probed acts
+	// curated 'headliner', it only matched stored rows curated 'headliner', and
+	// it only warned instead of withholding CanImport.
+	importReq, err := showImportCreateRequest(parsed, false)
+	if err != nil {
+		// The confirm path rejects an unparseable date outright, so the preview
+		// must not report the file as importable. An absent date already warned
+		// above; this covers a present but malformed one.
+		if parsed.Frontmatter.Show.EventDate != "" {
+			response.Warnings = append(response.Warnings, "Invalid event date")
+			response.CanImport = false
 		}
+		return response, nil
+	}
+
+	conflict, err := findDuplicateShowConflict(
+		s.db,
+		probedHeadlinerNames(importReq.Artists),
+		venueDedupTargets(importReq.Venues),
+		importReq.EventDate.UTC(),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if conflict != nil {
+		response.Warnings = append(response.Warnings,
+			"Warning: "+duplicateShowConflictMessage(*conflict, importReq.EventDate.UTC()))
+		response.CanImport = false
 	}
 
 	return response, nil
@@ -3269,13 +3357,25 @@ func (s *ShowService) ConfirmShowImport(content []byte, isAdmin bool) (*contract
 		return nil, err
 	}
 
-	// Parse event date
+	req, err := showImportCreateRequest(parsed, isAdmin)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create the show
+	return s.CreateShow(req)
+}
+
+// showImportCreateRequest builds the create request a markdown import submits.
+// PreviewShowImport builds the SAME request so its duplicate warning is computed
+// from the bill and venues the confirm path will actually send, rather than from
+// a second reading of the frontmatter that could drift from it.
+func showImportCreateRequest(parsed *contracts.ParsedShowImport, isAdmin bool) (*contracts.CreateShowRequest, error) {
 	eventDate, err := time.Parse(time.RFC3339, parsed.Frontmatter.Show.EventDate)
 	if err != nil {
 		return nil, fmt.Errorf("invalid event date: %w", err)
 	}
 
-	// Build venues for contracts.CreateShowRequest
 	var requestVenues []contracts.CreateShowVenue
 	for _, venueData := range parsed.Frontmatter.Venues {
 		requestVenues = append(requestVenues, contracts.CreateShowVenue{
@@ -3286,8 +3386,6 @@ func (s *ShowService) ConfirmShowImport(content []byte, isAdmin bool) (*contract
 		})
 	}
 
-	// Build artists for contracts.CreateShowRequest.
-	//
 	// The export frontmatter's set_type is a curated value that a prior export
 	// wrote out, so it is passed through rather than collapsed to a boolean --
 	// an import used to preserve only "was this the headliner" and silently
@@ -3313,8 +3411,7 @@ func (s *ShowService) ConfirmShowImport(content []byte, isAdmin bool) (*contract
 		requestArtists = append(requestArtists, entry)
 	}
 
-	// Build the create request
-	req := &contracts.CreateShowRequest{
+	return &contracts.CreateShowRequest{
 		Title:            parsed.Frontmatter.Show.Title,
 		EventDate:        eventDate,
 		City:             parsed.Frontmatter.Show.City,
@@ -3326,10 +3423,7 @@ func (s *ShowService) ConfirmShowImport(content []byte, isAdmin bool) (*contract
 		Venues:           requestVenues,
 		Artists:          requestArtists,
 		SubmitterIsAdmin: isAdmin,
-	}
-
-	// Create the show
-	return s.CreateShow(req)
+	}, nil
 }
 
 // ============================================================================

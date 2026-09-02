@@ -3996,17 +3996,149 @@ artists:
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(resp)
-	// Should still be importable but with a warning
-	suite.True(resp.CanImport)
+	// The confirm path refuses this, so the preview must not offer it.
+	suite.False(resp.CanImport, "a preview must not promise an import the confirm path refuses")
 	suite.Require().NotEmpty(resp.Warnings)
 	found := false
 	for _, w := range resp.Warnings {
-		if strings.Contains(w, "already has a show") {
+		if strings.Contains(w, "'Dup Preview Headliner' is already performing") {
 			found = true
 			break
 		}
 	}
-	suite.True(found, "expected duplicate headliner warning, got: %v", resp.Warnings)
+	suite.True(found, "expected duplicate warning, got: %v", resp.Warnings)
+
+	// The other half of "one predicate": the outcome the warning predicted.
+	_, err = suite.showService.ConfirmShowImport(content, true)
+	suite.Require().Error(err, "confirm must refuse exactly what preview refused")
+	suite.Contains(err.Error(), "'Dup Preview Headliner' is already performing")
+}
+
+// PSY-1982: the preview's predicate used to be NARROWER than the confirm
+// guard's on two counts, and this file trips both. Nothing states 'headliner',
+// so the confirm guard falls back to the first-billed act, which the preview
+// never probed; and the stored row it collides with is a curated opener the
+// preview's `set_type='headliner'` filter could not see.
+func (suite *ShowServiceIntegrationTestSuite) TestPreviewShowImport_RefusesWhatTheConfirmGuardRefuses() {
+	user := suite.createTestUser()
+	eventDate := suite.uniqueEventDate()
+	_, err := suite.showService.CreateShow(&contracts.CreateShowRequest{
+		Title:     "Narrower Predicate Original",
+		EventDate: eventDate,
+		City:      "Phoenix",
+		State:     "AZ",
+		Venues:    []contracts.CreateShowVenue{{Name: "Narrower Predicate Venue", City: "Phoenix", State: "AZ"}},
+		Artists: []contracts.CreateShowArtist{
+			{Name: "Narrower Predicate Act", SetType: strPtr(contracts.SetTypeOpener)},
+			{Name: "Narrower Predicate Top", SetType: strPtr(contracts.SetTypeHeadliner)},
+		},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	})
+	suite.Require().NoError(err)
+
+	content := []byte(fmt.Sprintf(`---
+show:
+  title: "Narrower Predicate Import"
+  event_date: "%s"
+  city: "Phoenix"
+  state: "AZ"
+  status: "pending"
+venues:
+  - name: "Narrower Predicate Venue"
+    city: "Phoenix"
+    state: "AZ"
+artists:
+  - name: "Narrower Predicate Act"
+    position: 0
+---
+`, eventDate.Format(time.RFC3339)))
+
+	resp, err := suite.showService.PreviewShowImport(content)
+	suite.Require().NoError(err)
+	suite.False(resp.CanImport, "the file states no headliner, so the guard probes the first-billed act")
+
+	_, err = suite.showService.ConfirmShowImport(content, true)
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "'Narrower Predicate Act' is already performing")
+}
+
+// The city half of PSY-1982, through both surfaces: a same-named venue in
+// ANOTHER city is a different room, so neither the preview nor the confirm may
+// treat it as a duplicate.
+func (suite *ShowServiceIntegrationTestSuite) TestShowImport_SameNamedVenueInAnotherCityIsNotADuplicate() {
+	user := suite.createTestUser()
+	eventDate := suite.uniqueEventDate()
+	_, err := suite.showService.CreateShow(&contracts.CreateShowRequest{
+		Title:             "Touring Act In Phoenix",
+		EventDate:         eventDate,
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{Name: "The Rebel Lounge", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Same Name Venue Act", SetType: strPtr(contracts.SetTypeHeadliner)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	})
+	suite.Require().NoError(err)
+
+	content := []byte(fmt.Sprintf(`---
+show:
+  title: "Touring Act In Tucson"
+  event_date: "%s"
+  city: "Tucson"
+  state: "AZ"
+  status: "pending"
+venues:
+  - name: "The Rebel Lounge"
+    city: "Tucson"
+    state: "AZ"
+artists:
+  - name: "Same Name Venue Act"
+    position: 0
+    set_type: "headliner"
+---
+`, eventDate.Format(time.RFC3339)))
+
+	resp, err := suite.showService.PreviewShowImport(content)
+	suite.Require().NoError(err)
+	suite.True(resp.CanImport, "a same-named room in another city is not a collision")
+	suite.Empty(resp.Warnings)
+
+	created, err := suite.showService.ConfirmShowImport(content, true)
+	suite.Require().NoError(err, "the confirm path must accept what the preview offered")
+	suite.Require().NotNil(created)
+}
+
+// The same city scoping at the guard itself, without the import surface: the
+// venue join is scoped to (name, city), the pair venues are unique on and the
+// pair associateVenues resolves.
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_SameNamedVenueInAnotherCityIsNotADuplicate() {
+	user := suite.createTestUser()
+	eventDate := suite.uniqueEventDate()
+
+	build := func(title, city string) *contracts.CreateShowRequest {
+		return &contracts.CreateShowRequest{
+			Title:             title,
+			EventDate:         eventDate,
+			City:              city,
+			State:             "AZ",
+			Venues:            []contracts.CreateShowVenue{{Name: "Crescent Ballroom", City: city, State: "AZ"}},
+			Artists:           []contracts.CreateShowArtist{{Name: "Cross City Act", SetType: strPtr(contracts.SetTypeHeadliner)}},
+			SubmittedByUserID: &user.ID,
+			SubmitterIsAdmin:  true,
+		}
+	}
+
+	_, err := suite.showService.CreateShow(build("Cross City Phoenix", "Phoenix"))
+	suite.Require().NoError(err)
+
+	_, err = suite.showService.CreateShow(build("Cross City Tucson", "Tucson"))
+	suite.Require().NoError(err, "a same-named room in another city must not be refused as a duplicate")
+
+	// The same room on the same night still is one.
+	_, err = suite.showService.CreateShow(build("Cross City Phoenix Again", "Phoenix"))
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "'Cross City Act' is already performing")
 }
 
 func (suite *ShowServiceIntegrationTestSuite) TestPreviewShowImport_MissingEventDate() {
