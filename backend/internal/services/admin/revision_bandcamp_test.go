@@ -13,7 +13,7 @@ import (
 // this system vetted (PSY-1966).
 //
 // FieldChange.OldValue arrives on the suggest-edit body and nothing compares it
-// to the entity's real current value — the submit handler validates NewValue
+// to the entity's real current value: the submit handler validates NewValue
 // only, and ApprovePendingEdit copies the pair verbatim into
 // revisions.field_changes. So a contributor can pair a legitimate NewValue with
 // an arbitrary OldValue, wait for the approve, and have Rollback write the

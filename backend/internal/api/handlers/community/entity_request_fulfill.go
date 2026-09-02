@@ -52,7 +52,7 @@ func validatePayloadImageURL(ctx context.Context, entityType string, raw json.Ra
 // It exists for the stranding reason stated on validatePayloadImageURL above,
 // not for a new one. ValidateEntityRequestPayload already carries this rule and
 // fulfillEntity re-runs it, so a hostile value never reaches a live artist
-// either way — but that refusal lands AFTER Decide has claimed the row, leaving
+// either way, but that refusal lands AFTER Decide has claimed the row, leaving
 // it approved with nothing created and no endpoint able to correct its payload.
 // A row queued before this rule existed is exactly the row an admin is most
 // likely to approve. Checked here, it is a clean 422 on a row that is still

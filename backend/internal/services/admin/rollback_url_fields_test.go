@@ -10,8 +10,8 @@ import (
 
 // The rollback hole is not one field wide (PSY-1966 review, round 2).
 //
-// FieldChange.OldValue is contributor input that nothing validates — the submit
-// handler checks NewValue only — and Rollback writes it live. So EVERY forward
+// FieldChange.OldValue is contributor input that nothing validates: the submit
+// handler checks NewValue only, and Rollback writes it live. So EVERY forward
 // rule is bypassed by going backwards, and SocialLinks renders each of these as
 // an href under a trusted platform glyph with no read-time check of its own.
 //
@@ -27,9 +27,9 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_RefusesHostileOldValu
 		{"youtube", "https://youtube.evil.test/", "https://youtube.com/@realband"},
 		{"soundcloud", "https://soundcloud.evil.test/", "https://soundcloud.com/realband"},
 		// website is host-unrestricted by design, so only the scheme rule guards
-		// it — but that rule must still run on the way back.
+		// it, but that rule must still run on the way back.
 		{"website", "javascript:alert(1)", "https://realband.example.org"},
-		// No platform to anchor to, so the scheme rule is the whole guard — and
+		// No platform to anchor to, so the scheme rule is the whole guard, and
 		// it is still the difference between restoring a link and restoring a
 		// javascript: or data: URL into a rendered attribute.
 		{"image_url", "javascript:alert(1)", "https://cdn.example.org/a.jpg"},

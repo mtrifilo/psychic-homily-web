@@ -12,7 +12,7 @@ import { parseSpotifyEmbed } from '@/lib/spotify'
  * prove is Bandcamp.
  *
  * This is a RESTATEMENT of `MusicEmbed`'s own entry conditions, not a call into
- * it — a component cannot answer a question asked before it mounts, and most
+ * it: a component cannot answer a question asked before it mounts, and most
  * callers mock `@/components/shared` in their tests, so a predicate exported
  * from there would vanish under the mock. What keeps the two in step is that
  * they gate on the same imported predicates, and that

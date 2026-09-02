@@ -10,7 +10,7 @@
     "file in frontend/lib/bandcamp.test.ts. Both assert their own half, so a",
     "change to either predicate that breaks the contract fails on that side and",
     "names the value. Editing one language's rules without editing this file is",
-    "what the two tests are here to catch — a hand-copied list in one test file",
+    "what the two tests are here to catch: a hand-copied list in one test file",
     "could not, and missed the backslash divergence until a review found it.",
     "",
     "storable  = utils.IsValidBandcampEmbedURL accepts; isBandcampReleaseUrl must",

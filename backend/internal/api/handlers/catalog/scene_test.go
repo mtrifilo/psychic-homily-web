@@ -249,7 +249,7 @@ func TestGetSceneActiveArtists_ServiceError(t *testing.T) {
 
 // A page row holding a value nothing can render must not be nominated
 // (PSY-1966). The preview gates its Listen heading on renderability, so
-// nominating one no longer degrades to a plain link — it suppresses the block,
+// nominating one no longer degrades to a plain link: it suppresses the block,
 // and the next band that DOES have a working embed never gets its turn.
 //
 // This is the case that fails if the page loop reverts to `*a.BandcampEmbedURL != ""`.

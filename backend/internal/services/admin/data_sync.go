@@ -426,14 +426,14 @@ func (s *DataSyncService) importArtist(artist *contracts.ExportedArtist, dryRun 
 	// shape rule the artist endpoints enforce (PSY-1966).
 	//
 	// AFTER the duplicate probe, not before. ExportData emits this column, so an
-	// export → import round trip — the tool's whole purpose — carries every
+	// export to import round trip (the tool's whole purpose) carries every
 	// existing artist's stored value back in; checking first would fail each
 	// legacy row that was storable under the old rule, on a branch that writes
 	// nothing anyway, and would skip the slug backfill that branch performs.
 	//
 	// That ordering only helps when the target already HAS the artist. Seeding a
 	// fresh or partial environment takes the create branch below, where a legacy
-	// row is refused outright — and a refused row is not merely skipped, because
+	// row is refused outright, and a refused row is not merely skipped, because
 	// the show pass later recreates the artist by name through
 	// FindOrCreateArtistTx with a nil initializer, losing its location and all
 	// eight social links too. An operator seeding an empty DB from an export
@@ -459,7 +459,7 @@ func (s *DataSyncService) importArtist(artist *contracts.ExportedArtist, dryRun 
 		a.State = artist.State
 		// NilIfBlank for the same invariant CreateArtist and UpdateArtist keep:
 		// the validator passes "" as the clear gesture, and storing it raw leaves
-		// the column blank-but-not-null — skipped by every `IS NULL` repair path
+		// the column blank-but-not-null: skipped by every `IS NULL` repair path
 		// forever while rendering nothing.
 		a.BandcampEmbedURL = artist.BandcampEmbedURL
 		if artist.BandcampEmbedURL != nil {

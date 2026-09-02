@@ -9,7 +9,7 @@ import (
 
 // The column is NULL or a renderable URL, never blank-but-not-null (PSY-1966).
 //
-// The validator has to pass "" — that is how a curator clears the field — so
+// The validator has to pass "": that is how a curator clears the field, so
 // every write path must normalize it rather than store it. A blank row renders
 // exactly like NULL but is invisible to every `bandcamp_embed_url IS NULL` gate:
 // the profile resolver, the release-derived fill,

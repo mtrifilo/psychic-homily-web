@@ -25,7 +25,7 @@ const (
 	// CodeArtistInvalidField indicates a field value the service refused. It
 	// exists so a service-layer validation refusal reaches the caller as a 422
 	// carrying its own message, rather than as the generic 500 every
-	// non-ArtistError maps to — which would swallow the one sentence that tells
+	// non-ArtistError maps to, which would swallow the one sentence that tells
 	// the submitter how to fix the value.
 	CodeArtistInvalidField = "ARTIST_INVALID_FIELD"
 	// CodeArtistRelationshipNotFound indicates no connection (stored or

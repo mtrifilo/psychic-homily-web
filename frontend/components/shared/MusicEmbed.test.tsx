@@ -361,7 +361,7 @@ describe('MusicEmbed', () => {
   // PSY-1966. The fallback link is the sink: `artists.bandcamp_embed_url` and
   // `social.bandcamp` are contributor-writable, and nine surfaces hand this
   // component the raw column, so the gate lives here rather than at the callers.
-  // A value that is not provably a Bandcamp page must render NO link — an
+  // A value that is not provably a Bandcamp page must render NO link: an
   // outbound href labelled "Listen to <artist> on Bandcamp" is a trusted label
   // on an attacker-chosen destination.
   describe('outbound-link gate', () => {

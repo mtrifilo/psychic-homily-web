@@ -435,18 +435,18 @@ var shapedURLFields = map[string]struct {
 // It exists because Rollback is the one write path that takes its value from
 // FieldChange.OldValue, and OldValue is contributor input that NOTHING
 // validates: the submit handler checks NewValue only, and approve copies the
-// pair verbatim into revisions.field_changes. So every forward gate — scheme,
-// social host anchor, release shape — is bypassed by going backwards, for every
+// pair verbatim into revisions.field_changes. So every forward gate (scheme,
+// social host anchor, release shape) is bypassed by going backwards, for every
 // field in the table, not just the one PSY-1966 set out to fix. A contributor
 // pairs a real Spotify NewValue with `https://spotify-verify.evil.test/` as the
 // OldValue, an admin later presses rollback, and SocialLinks renders that host
 // under the Spotify glyph.
 //
 // It is keyed on FIELD NAME, so it covers artist, venue, label and festival
-// alike — the allowlists share these names.
+// alike: the allowlists share these names.
 //
 // It covers every URL field the shared registry knows, which is a SUPERSET of
-// what today's *AllowedEditFields maps expose — cover_image_url, for instance,
+// what today's *AllowedEditFields maps expose: cover_image_url, for instance,
 // belongs to collections and is not editable through this pipeline at all. A
 // superset on purpose: an entry costs one map lookup on a field that never
 // appears, and a field added to an allowlist later is guarded on arrival rather
@@ -487,13 +487,13 @@ var rollbackURLFields = map[string]string{
 // edit, so a single planted OldValue makes that revision permanently
 // un-rollbackable, including the undo of unrelated fields recorded beside it. A
 // contributor can therefore deny undo on their own edit. That is accepted here
-// as the lesser harm — the alternative writes an attacker-chosen href under a
-// trusted platform label, and admins retain direct-edit paths — but a partial
+// as the lesser harm: the alternative writes an attacker-chosen href under a
+// trusted platform label, and admins retain direct-edit paths, but a partial
 // rollback that skips only the refused field is the better long-term answer and
 // is left as its own change, because it alters what an admin sees "rollback" do.
 //
 // `website` is host-unrestricted by design (it is the any-host escape hatch), so
-// for that field this is the scheme check alone — as it is for the image and
+// for that field this is the scheme check alone, as it is for the image and
 // flyer fields, which have no platform to anchor to.
 //
 // image_url gets its SCHEME rule here but not its host guard: that resolves DNS
@@ -604,8 +604,8 @@ func updateStringValue(updates map[string]interface{}, field, displayName string
 // Validate what arrived, then normalize what survived.
 //
 // Why NULL matters: a blank-but-not-null row is invisible to every
-// `bandcamp_embed_url IS NULL` gate — the profile resolver, the release-derived
-// fill, cmd/backfill-artist-bandcamp-embeds, cmd/sweep-link-suggestions — so the
+// `bandcamp_embed_url IS NULL` gate: the profile resolver, the release-derived
+// fill, cmd/backfill-artist-bandcamp-embeds, cmd/sweep-link-suggestions, so the
 // artist can never be repaired by any automated path again, while rendering
 // exactly the same as NULL.
 //

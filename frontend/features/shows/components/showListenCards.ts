@@ -56,7 +56,7 @@ export interface ListenCard {
  * not, because it asks a stricter question: that predicate answers "will the
  * player render anything", while a "Buy" card promises ONE release, which is
  * `isBandcampReleaseUrl`. So `https://band.bandcamp.com/music` opens a music
- * block and produces no Buy card — correct, not drift.
+ * block and produces no Buy card: correct, not drift.
  *
  * What remains owed is the ladder itself: an exported pure resolver beside
  * `deriveEmbedState` that this function calls instead of restating. Do not add

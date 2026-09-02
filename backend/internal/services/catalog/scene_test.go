@@ -2071,7 +2071,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetRepresentativeEmbed_PicksE
 //
 // This is the regression the gate would otherwise cause. The preview now heads
 // its Listen block on what the player will actually produce, so nominating an
-// unrenderable row no longer degrades to a plain link — it suppresses the whole
+// unrenderable row no longer degrades to a plain link: it suppresses the whole
 // block for the metro, and the next band that has a working embed never gets its
 // turn. One junk row must not silence a scene.
 func (suite *SceneServiceIntegrationTestSuite) TestGetRepresentativeEmbed_SkipsUnrenderableEmbed() {

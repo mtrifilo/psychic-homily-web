@@ -15,7 +15,7 @@ import (
 //
 // The assertion that matters is not "the approve failed" but WHERE it failed.
 // ValidateEntityRequestPayload already refuses such a payload inside
-// fulfillEntity, so the value never reaches a live artist either way — but that
+// fulfillEntity, so the value never reaches a live artist either way, but that
 // refusal lands AFTER Decide has claimed the row, leaving it approved with
 // nothing created, and a claimed row's payload can no longer be corrected
 // (PSY-1948's resubmission replaces PENDING rows only). So this asserts a 422

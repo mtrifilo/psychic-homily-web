@@ -330,7 +330,7 @@ func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUs
 	//
 	// That distinction is the whole finding. FieldChange.OldValue arrives on the
 	// suggest-edit body and nothing ever compares it to the entity's actual
-	// current value — the submit handler validates NewValue only, and
+	// current value: the submit handler validates NewValue only, and
 	// ApprovePendingEdit copies the pair verbatim into revisions.field_changes.
 	// So a contributor can submit a legitimate NewValue alongside an arbitrary
 	// OldValue, wait for the approve, and have this function write the OldValue
@@ -345,7 +345,7 @@ func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUs
 	//
 	// SCOPE: a rollback can write ANY field in the entity's edit allowlist, and
 	// none of their forward rules ever ran on OldValue, so all three checks are
-	// needed to reproduce what the forward paths enforce — the shape rule for
+	// needed to reproduce what the forward paths enforce: the shape rule for
 	// bandcamp_embed_url, the scheme + platform-host rules for the other URL
 	// fields (SocialLinks and the ticket link render each as an href under a
 	// trusted label), and the SSRF host guard for image_url.

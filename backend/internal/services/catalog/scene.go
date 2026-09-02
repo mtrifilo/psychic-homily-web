@@ -97,8 +97,8 @@ const (
 	// Ten, not one, and not the whole roster: one would let a single legacy row
 	// at the top of the active ordering silence a metro's player entirely, and
 	// the whole roster would trade that for an unbounded scan on a preview panel.
-	// Ten covers the case this exists for — a handful of unrenderable rows ahead
-	// of a good one — and a metro whose ten most active bands ALL hold a value
+	// Ten covers the case this exists for: a handful of unrenderable rows ahead
+	// of a good one, and a metro whose ten most active bands ALL hold a value
 	// nothing can render has a data problem, not a pagination problem.
 	representativeEmbedCandidates = 10
 )

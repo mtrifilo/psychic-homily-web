@@ -178,7 +178,7 @@ func (h *SceneHandler) representativeEmbed(ctx context.Context, city, state stri
 		// Renderability, not non-emptiness (PSY-1966). The preview gates its
 		// "Listen" heading on what the player will actually produce, so
 		// nominating a row the renderer refuses does not degrade to a link any
-		// more — it suppresses the whole block, and the next band on the page
+		// more: it suppresses the whole block, and the next band on the page
 		// that DOES have a working embed never gets its turn. One junk row must
 		// not silence a scene.
 		if a.BandcampEmbedURL != nil && utils.IsResolvableBandcampURL(*a.BandcampEmbedURL) {

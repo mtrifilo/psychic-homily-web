@@ -71,7 +71,7 @@ func IsBandcampArtistHost(host string) bool {
 //
 // CROSS-LANGUAGE MIRROR: isBandcampReleaseUrl in frontend/lib/bandcamp.ts. The
 // names differ because each reads naturally in its own file, so grep for the
-// other one from here — and change neither without the shared corpus in
+// other one from here, and change neither without the shared corpus in
 // internal/utils/testdata/bandcamp_url_corpus.json, which both sides assert.
 //
 // THE CONTRACT between them is one-directional: everything STORABLE here must be
@@ -108,7 +108,7 @@ func IsBandcampArtistHost(host string) bool {
 //     and "evilbandcamp.com" are all rejected.
 //   - Path prefix on the path AS WRITTEN in the input, never on anything Go
 //     derived from it. Go's u.Path is percent-DECODED, which would accept
-//     "/%61lbum/y" and "/album%2Fx" — spellings the browser's `pathname`, the
+//     "/%61lbum/y" and "/album%2Fx": spellings the browser's `pathname`, the
 //     thing the read gate reads, keeps encoded and refuses. u.EscapedPath() is
 //     not a fix either: it returns RawPath only while RawPath is a valid
 //     encoding of Path, and ANY space or non-ASCII byte in the path invalidates
@@ -169,13 +169,13 @@ func IsValidBandcampEmbedURL(rawURL string) bool {
 // percent-decoded, so "/%61lbum/y" reads as "/album/y". u.EscapedPath() looks
 // like the right answer and is not: it returns the original RawPath only while
 // RawPath round-trips through Go's own escaping rules, and a space or any
-// non-ASCII byte breaks that, whereupon it re-escapes the DECODED path — so
+// non-ASCII byte breaks that, whereupon it re-escapes the DECODED path, so
 // "/%61lbum/caf\u00e9" comes back "/album/caf%C3%A9" and passes a prefix test
 // the browser fails. Reading the input directly has no such fallback.
 //
 // The caller compares only an ASCII prefix ("/album/", "/track/"), so the one
-// remaining difference from the browser's `pathname` — which percent-encodes
-// non-ASCII bytes it was handed literally — cannot change the answer. Dot
+// remaining difference from the browser's `pathname`, which percent-encodes
+// non-ASCII bytes it was handed literally, cannot change the answer. Dot
 // segments and backslashes, the other things a browser resolves before deciding
 // what a path is, are rejected outright by hasTraversalSegment.
 //
@@ -252,8 +252,8 @@ func hasTraversalSegment(path string) bool {
 // affordance vanishing from a row that works is the inverse of what this exists
 // to prevent.
 //
-// It still cannot model the browser exactly — percent-encoded and IDNA host
-// spellings that WHATWG folds are refused here — and the residue only ever
+// It still cannot model the browser exactly: percent-encoded and IDNA host
+// spellings that WHATWG folds are refused here, and the residue only ever
 // UNDER-reports: a row that plays but shows no dot. That is the safe direction
 // for a decorative marker, and closing it would mean reimplementing WHATWG host
 // parsing in Go.
@@ -295,7 +295,7 @@ const (
 // can be wrong.
 //
 // ONLY the empty string passes as the clear-the-field gesture, and a caller that
-// accepts it MUST normalize it to NULL before storing (utils.NilIfBlank) — see
+// accepts it MUST normalize it to NULL before storing (utils.NilIfBlank): see
 // BlankBandcampEmbedToNil. A whitespace-only value is refused outright. Both
 // rules serve the same invariant: the column is either NULL or a renderable URL,
 // never blank-but-not-null, which would read as "has an embed" to every IS NULL
@@ -330,7 +330,7 @@ func ValidateBandcampEmbedURL(value, fieldName string) error {
 // hostile value (https://evil.test/artist/x in the spotify field, which renders
 // as a SocialLinks href) cannot be stored (PSY-1113). A field absent here
 // (website) accepts any host. A host matches when it equals a base or is a
-// subdomain of it — covering open.spotify.com, <artist>.bandcamp.com,
+// subdomain of it: covering open.spotify.com, <artist>.bandcamp.com,
 // m.facebook.com, music.youtube.com, www.*, etc.
 //
 // Redirector / short-link hosts (fb.me, t.co, youtube-nocookie.com) are
@@ -343,8 +343,8 @@ func ValidateBandcampEmbedURL(value, fieldName string) error {
 // have made a third spelling of a security allowlist. One table, two callers.
 //
 // UNEXPORTED on purpose. Only ValidateSocialHost below is exported, so a
-// security allowlist in a leaf package everything imports cannot be reached —
-// or mutated from some package's init — by anything but the rule that owns it.
+// security allowlist in a leaf package everything imports cannot be reached, or
+// mutated from some package's init, by anything but the rule that owns it.
 var socialHostSuffixes = map[string][]string{
 	"instagram":  {"instagram.com"},
 	"facebook":   {"facebook.com", "fb.com"},
@@ -386,8 +386,8 @@ func ValidateSocialHost(field, fieldName, value string) error {
 //
 // ValidateBandcampEmbedURL passes the empty string, so without this an approve
 // writes ” and the row becomes blank-but-not-null: invisible to every
-// `bandcamp_embed_url IS NULL` gate — the profile resolver, the release-derived
-// fill, cmd/backfill-artist-bandcamp-embeds, cmd/sweep-link-suggestions — which
+// `bandcamp_embed_url IS NULL` gate: the profile resolver, the release-derived
+// fill, cmd/backfill-artist-bandcamp-embeds, cmd/sweep-link-suggestions, which
 // means the artist can never be repaired by any automated path again, while
 // still rendering nothing. That is the exact state the whitespace refusal exists
 // to prevent, reached by the one input the validator has to allow.

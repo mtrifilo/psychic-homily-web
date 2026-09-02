@@ -413,7 +413,7 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		}
 		// The embed URL must be a Bandcamp RELEASE page, the same rule the direct
 		// artist endpoint applies (PSY-1966). The value is not confined to a
-		// sandboxed iframe — it renders as an outbound link labelled Bandcamp —
+		// sandboxed iframe. It renders as an outbound link labelled Bandcamp,
 		// so an off-platform host is a safety problem, not a tidiness one, and an
 		// extraction that produces something else fails here, where the submitter
 		// can see it, rather than on a live artist page.

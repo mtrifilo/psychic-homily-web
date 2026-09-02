@@ -786,7 +786,7 @@ func TestShapeRuledFieldsAvoidURLSchemeError(t *testing.T) {
 		}
 		if spec.shape != nil {
 			t.Errorf("%q carries a shape rule but is validated via URLSchemeError, which does not "+
-				"run one — its create path would silently accept the wrong form", field)
+				"run one: its create path would silently accept the wrong form", field)
 		}
 	}
 }

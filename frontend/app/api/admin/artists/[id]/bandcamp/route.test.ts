@@ -144,7 +144,7 @@ describe('POST /api/admin/artists/[id]/bandcamp', () => {
   // PSY-1966: the release-page check reads the parsed pathname. The substring
   // test it replaced accepted an on-platform page that merely MENTIONS /album/
   // in a query string, which the backend then refused with a message about the
-  // host — a rejection an admin could not act on.
+  // host: a rejection an admin could not act on.
   it('rejects an on-platform page whose /album/ is only in the query string', async () => {
     fetchSpy = mockFetchRouting()
 

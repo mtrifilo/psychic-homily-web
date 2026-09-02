@@ -22,8 +22,8 @@ import (
 // allowlists.
 //
 // Without this, adding one URL field to any *AllowedEditFields silently reopens
-// exactly the hole this round closed — a contributor-supplied OldValue reaching
-// the column with none of its forward rules — and nothing fails.
+// exactly the hole this round closed: a contributor-supplied OldValue reaching
+// the column with none of its forward rules, and nothing fails.
 //
 // A field counts as a URL field when the canonical handler registry says so, so
 // this cannot drift from what "is a URL field" means everywhere else.
@@ -55,7 +55,7 @@ func TestRollbackURLFieldsCoverEveryEditableURLField(t *testing.T) {
 				continue
 			}
 			assert.Contains(t, rollbackURLFields, field,
-				"%s.%s is an editable URL field, so a rollback can write it — add it to "+
+				"%s.%s is an editable URL field, so a rollback can write it: add it to "+
 					"rollbackURLFields, or a contributor-supplied old_value reaches the column "+
 					"with none of its forward rules", entity, field)
 		}

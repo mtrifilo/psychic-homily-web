@@ -559,7 +559,7 @@ func (s *GraphOverviewSuite) TestBuild_GrowthKeepsExistingNodesInPlace() {
 // The playable flag draws a "this dot plays something" marker, and the panel it
 // opens refuses to render a value it cannot prove is Bandcamp (PSY-1966). So
 // non-emptiness is the wrong question, and this is the case that fails if
-// nodeFlags reverts to `*meta.BandcampEmbedURL != ""` — the sibling test above
+// nodeFlags reverts to `*meta.BandcampEmbedURL != ""`: the sibling test above
 // seeds an apex EmbeddedPlayer URL, which IS renderable, so it cannot catch it.
 func (s *GraphOverviewSuite) TestBuild_FlagsIgnoreUnrenderableBandcampEmbed() {
 	artists := s.seedScene()

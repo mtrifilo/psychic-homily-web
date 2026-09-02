@@ -69,7 +69,7 @@ type urlFieldSpec struct {
 // (collection), cover_art_url (release), and ticket_url (show), which were
 // previously length-only and accepted javascript:/data: schemes.
 //
-// Intentionally omitted: flyer_url — PSY-525 left it to a length-only check,
+// Intentionally omitted: flyer_url. PSY-525 left it to a length-only check,
 // and the suggest-edit path matches that scope so it doesn't enforce stricter
 // rules than the catalog handler would.
 //
@@ -264,7 +264,7 @@ func ValidateURLField(ctx context.Context, fieldName string, value *string) erro
 //
 // This is a broad HOST floor for the free-form social fields. The stricter,
 // path-aware rules are utils.ValidateBandcampEmbedURL (the `shape` rule on
-// bandcamp_embed_url above) and isValidSpotifyURL (catalog/artist.go) — change
+// bandcamp_embed_url above) and isValidSpotifyURL (catalog/artist.go): change
 // platform-host rules with all of them in mind.
 func validateSocialHost(field, value string) error {
 	if err := utils.ValidateSocialHost(field, urlFieldSpecs[field].displayName, value); err != nil {
@@ -487,7 +487,7 @@ func outOfRangeError(bounds contracts.NumericEditBounds) error {
 // It does NOT apply `shape` rules either, for a plainer reason: this helper
 // returns a bare error for a caller that attaches its own body-field Location,
 // while a shape rule's refusal is already a complete sentence. Same hazard, same
-// answer — no field it is used for carries one, and marking one means moving
+// answer, no field it is used for carries one, and marking one means moving
 // that field off this helper. TestShapeRuledFieldsAvoidURLSchemeError pins it.
 func URLSchemeError(fieldName, value string) error {
 	spec, ok := urlFieldSpecs[fieldName]

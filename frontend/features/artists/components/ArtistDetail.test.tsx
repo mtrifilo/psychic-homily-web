@@ -690,7 +690,7 @@ describe('ArtistDetail', () => {
     // PSY-1966. The sidebar heads its own "Top tracks" section, so it has to
     // predict what MusicEmbed will do. A stored value that is not provably
     // Bandcamp renders no player and no link, so the section must not open at
-    // all — reverting this gate to a truthiness test would strand the heading
+    // all: reverting this gate to a truthiness test would strand the heading
     // over nothing, which is what PSY-1302 exists to prevent.
     it.each([
       'https://evil.test/album/checkout',

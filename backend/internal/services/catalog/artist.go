@@ -173,7 +173,7 @@ func validateBandcampEmbedOnWrite(value *string) error {
 		// An ArtistError, not a bare one: every handler maps a bare error from
 		// these methods to a generic 500 and logs the detail, so the sentence
 		// telling the submitter what shape to use would be swallowed by the one
-		// caller this gate exists for — the next one.
+		// caller this gate exists for: the next one.
 		return apperrors.ErrArtistInvalidField(err)
 	}
 	return nil
@@ -207,7 +207,7 @@ func (s *ArtistService) CreateArtist(req *contracts.CreateArtistRequest) (*contr
 		a.ImageURL = req.ImageURL
 		// NilIfBlank for the same reason UpdateArtist uses it: the validator
 		// passes "" as the clear gesture, and an entity-request payload carrying
-		// one would otherwise land blank-but-not-null with a NULL provenance —
+		// one would otherwise land blank-but-not-null with a NULL provenance:
 		// permanently unrepairable by every `IS NULL` path, rendering nothing.
 		a.BandcampEmbedURL = req.BandcampEmbedURL
 		if req.BandcampEmbedURL != nil {
@@ -2041,8 +2041,8 @@ func selectBandcampEmbedFromReleases(releases []catalogm.Release) *string {
 			link := &rel.ExternalLinks[li]
 			// The TRIMMED URL, because that is what this function stores a few
 			// lines down. Validating the raw value while storing the trimmed one
-			// meant a release link with surrounding whitespace — the column is
-			// stored verbatim and never normalized — silently stopped yielding an
+			// meant a release link with surrounding whitespace (the column is
+			// stored verbatim, never normalized) silently stopped yielding an
 			// embed, and worse, a later recompute would NULL an embed that was
 			// derived from it and renders today.
 			trimmedLink := strings.TrimSpace(link.URL)

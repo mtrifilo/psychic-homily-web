@@ -127,7 +127,7 @@ export function MusicEmbed({
   // anything failing this same host anchor with a 400 before it fetches, so a
   // value that cannot clear it is not "an album URL we have not resolved yet",
   // it is one the resolver will never accept. Treating it as absent for the
-  // WHOLE ladder — the query and the branches below — is what keeps a junk row
+  // WHOLE ladder (the query and the branches below) is what keeps a junk row
   // from paying a round trip, holding the 120px loading placeholder open, and
   // then collapsing to nothing.
   //
@@ -318,9 +318,9 @@ function deriveEmbedState({
   // Both URLs are proven Bandcamp before either becomes an href, and this is the
   // only place that check is COMPLETE: nearly every surface that mounts this
   // component hands it a raw contributor-writable column (ShowListenModule is
-  // the exception — its href is already proven by listenCardsForBill), so a gate
+  // the exception: its href is already proven by listenCardsForBill), so a gate
   // at the call sites is a gate the next caller silently skips. The iframe
-  // branches above need no such gate — their src is built from a resolved
+  // branches above need no such gate: their src is built from a resolved
   // numeric id, never from the stored string.
   //
   // The album URL has already cleared the host anchor before it reaches this

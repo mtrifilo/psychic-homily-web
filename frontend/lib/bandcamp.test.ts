@@ -297,7 +297,7 @@ describe('resolveBandcampEmbed', () => {
 // Both halves read ONE shared corpus, checked in beside the Go test. That file
 // is the tripwire: a hand-copied list in this file could only fail for shapes
 // someone had already thought of, and did in fact miss the backslash divergence
-// (`/album/x\..\..\evil` — a segment delimiter to this parser, an ordinary
+// (`/album/x\..\..\evil`: a segment delimiter to this parser, an ordinary
 // byte to Go) until a review found it. Adding a case now obliges both languages
 // to agree about it.
 //
@@ -308,7 +308,7 @@ describe('cross-language corpus (store is a subset of render)', () => {
   // Read at RUNTIME, not imported.
   //
   // `import ... from '../../backend/...json'` would pull a backend file into the
-  // frontend TypeScript program, and `next build` typechecks that program — so a
+  // frontend TypeScript program, and `next build` typechecks that program, so a
   // Vercel project rooted at frontend/ without "include source files outside the
   // root directory" would fail the BUILD on a test fixture. The two existing
   // cross-boundary references in e2e/ are runtime path.resolve calls for exactly
@@ -343,7 +343,7 @@ describe('cross-language corpus (store is a subset of render)', () => {
 
   // The deltas the corpus marks as writer-only strictness. Asserting they render
   // is what keeps "the read gate is the lenient side here" honest rather than
-  // aspirational — if one of these ever stopped rendering, a legacy row would
+  // aspirational: if one of these ever stopped rendering, a legacy row would
   // lose its link with nothing to say so.
   const readerAccepts = corpus.rejected.filter((c) => !c.alsoRejectedByReader)
   it.each(readerAccepts.map((c) => [c.url, c.why] as const))(

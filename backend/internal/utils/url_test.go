@@ -440,7 +440,7 @@ func TestIsResolvableBandcampURL(t *testing.T) {
 // RESOLVABLE, or a value the write gate accepts would light no playable dot and
 // be skipped by the scene picker.
 //
-// This is NOT the store-subset-of-render contract — that one spans languages and
+// This is NOT the store-subset-of-render contract: that one spans languages and
 // is pinned by the shared corpus (TestBandcampURLCorpus here,
 // frontend/lib/bandcamp.test.ts there). This is the weaker in-language ladder,
 // and it is close to true by construction; it earns its place by failing loudly

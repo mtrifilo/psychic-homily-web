@@ -76,8 +76,8 @@ export async function POST(
 
   // Trimmed HERE, at the boundary. `new URL()` and `fetch()` both ignore
   // surrounding whitespace, so an untrimmed value validates and resolves
-  // happily and is then refused by the backend — which deliberately stores only
-  // what it validated — with a message about the URL shape that says nothing
+  // happily and is then refused by the backend, which deliberately stores only
+  // what it validated, with a message about the URL shape that says nothing
   // about the invisible characters actually at fault. The admin UI already
   // trims; this covers direct API callers.
   const bandcamp_url =

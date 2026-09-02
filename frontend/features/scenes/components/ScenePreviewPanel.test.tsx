@@ -232,7 +232,7 @@ describe('ScenePreviewPanel', () => {
   })
 
   // PSY-1966: the backend picker now filters unrenderable candidates, so this
-  // should not arrive — but the heading is rendered HERE, and a heading over
+  // should not arrive, but the heading is rendered HERE, and a heading over
   // nothing is the failure this whole family guards against. The case that fails
   // if the gate reverts to a bare {embed && ...}.
   it.each([

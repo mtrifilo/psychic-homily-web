@@ -157,9 +157,9 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_AppliesB
 // turn that into an unapprovable row, and it must land as NULL.
 //
 // NULL, not "", is the load-bearing half. A blank-but-not-null value is what
-// every `bandcamp_embed_url IS NULL` repair path skips — the profile resolver,
+// every `bandcamp_embed_url IS NULL` repair path skips: the profile resolver,
 // the release-derived fill, cmd/backfill-artist-bandcamp-embeds,
-// cmd/sweep-link-suggestions — so storing "" here would clear the embed and
+// cmd/sweep-link-suggestions, so storing "" here would clear the embed and
 // simultaneously make the artist permanently un-repairable by any automated
 // path, while rendering exactly the same as NULL. That is the state the
 // whitespace refusal exists to prevent, reached through the one input the
