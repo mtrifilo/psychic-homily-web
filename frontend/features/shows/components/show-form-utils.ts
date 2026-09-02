@@ -212,10 +212,10 @@ export function showToFormValues(show: ShowResponse): FormValues {
   //
   // Going through showTimingInput rather than re-spelling its two fields is
   // what keeps the form and the page from drifting: it carries the
-  // `venue?.state ?? show.state` fallback, which the write path below also
-  // applies (the venue.state form field is seeded the same way). Spelling only
-  // `venue?.state` here would read a venue-less show in Phoenix and write it
-  // back in its own state, shifting event_date on a no-op save.
+  // `venue?.state ?? show.state` fallback, and the venue.state form field
+  // below is seeded from that same value. Spelling only `venue?.state` here
+  // would open a venue-less New York show on a Phoenix wall clock while the
+  // show page renders it in Eastern.
   const timing = showTimingInput(show)
   const venueTz = resolveShowTimezone(timing.state, timing.timezone)
   const { date, time } = parseISOToDateAndTime(show.event_date, venueTz)
@@ -231,28 +231,34 @@ export function showToFormValues(show: ShowResponse): FormValues {
       })
     ),
     venue: {
+      // The show's existing venue, addressed by id, which is what lets the
+      // state field below be blank: `associateVenues` resolves a venue
+      // carrying an id by primary key, and only its (name, city, state)
+      // fallback demands a state.
+      //
+      // The id is not sticky. `ShowForm`'s `handleVenueSelect` sets it to a
+      // picked venue and clears it on `VenueInput`'s null signal, which fires
+      // on the first keystroke in the venue name field, so an edit that names
+      // a different venue resolves that one instead.
+      //
+      // While the id stands, the payload's name/city/state/address are inert:
+      // the by-id branch associates the row and never writes to it. Editing
+      // the location fields therefore changes only the SHOW's denormalized
+      // city and state, not the venue.
+      id: venue?.id,
       name: venue?.name || '',
+      // City keeps the show-row fallback and state does not, because only
+      // state decides the zone the submit recomposes event_date in. City is
+      // still load-bearing on the no-id branch, where `FindOrCreateVenue`
+      // matches on (name, city): a wrong one there usually misses and creates
+      // a duplicate venue.
       city: venue?.city || show.city || '',
-      // KNOWN DIVERGENCE, left alone deliberately — see PSY-1965 before
-      // "fixing" it, because the two obvious fixes are both worse (PSY-1696
-      // tried each). The comment above claims this field is seeded the way the
-      // zone is resolved. It is NOT: `showTimingInput` coalesces with `??` and
-      // this line uses `||`, which differ on the empty string, and
-      // `venues.state` is NOT NULL so an international venue stores `''`.
-      //
-      // For a US show a merge has repointed onto such a venue (a merge does not
-      // rewrite the denormalized `shows.state`), the editor therefore opens on
-      // a fallback-zone wall clock while `ShowForm`'s submit recomposes the
-      // instant from THIS field's `'NY'` — moving `event_date` on a no-op Save.
-      //
-      // Aligning them on `||` makes `isShowTimezoneResolved` answer true for
-      // that Berlin venue, so the page prints a New York clock beside a Berlin
-      // address — the laundering `CompactShowRow` documents. Aligning them on
-      // `??` blanks this field, and the update payload carries no `venue.id`,
-      // so the backend's `FindOrCreateVenue` rejects it outright: "venue state
-      // is required". Date drift is the least bad of the three until the field
-      // stops doing two jobs at once.
-      state: venue?.state || show.state || '',
+      // `timing.state` verbatim, the invariant `showTimingInput` documents:
+      // the submit recomposes event_date from this field, so any spelling that
+      // differs from the one the instant was READ in moves the row. Blank for
+      // a venue with no state on file, since `venues.state` is NOT NULL and
+      // stores `''` rather than null.
+      state: timing.state ?? '',
       address: venue?.address || '',
     },
     date,

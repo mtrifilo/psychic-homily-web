@@ -101,6 +101,7 @@ describe('showToFormValues', () => {
     const show = makeShowResponse()
     const result = showToFormValues(show)
 
+    expect(result.venue.id).toBe(10)
     expect(result.venue.name).toBe('The Venue')
     expect(result.venue.city).toBe('Phoenix')
     expect(result.venue.state).toBe('AZ')
@@ -323,7 +324,7 @@ describe('showToFormValues', () => {
     expect(result.door_cost).toBe('$40')
   })
 
-  it('falls back to show city/state when venue has none', () => {
+  it('falls back to the show city when the venue has none, but not to its state', () => {
     const show = makeShowResponse({
       city: 'Tucson',
       state: 'AZ',
@@ -331,13 +332,14 @@ describe('showToFormValues', () => {
     })
     const result = showToFormValues(show)
 
+    // City is a display and payload field only, so the show row still fills it.
     expect(result.venue.city).toBe('Tucson')
-    // `||`, which is NOT how `showTimingInput` resolves the zone for this same
-    // row (`??`, so it keeps the venue's blank). That divergence is a real
-    // no-op-Save bug and it is PSY-1965, deliberately not fixed here: both ways
-    // of aligning the two are worse, and the reasons are recorded at the seed
-    // site in show-form-utils.ts.
-    expect(result.venue.state).toBe('AZ')
+    // The state is not, because the submit resolves the timezone from it.
+    // `showTimingInput` keeps the venue's blank for this row, and the field
+    // has to name the same zone the instant was read in.
+    expect(result.venue.state).toBe('')
+    // The id is what keeps that blank payload resolvable on the backend.
+    expect(result.venue.id).toBe(1)
   })
 
   it('handles empty venues array gracefully', () => {
@@ -347,6 +349,9 @@ describe('showToFormValues', () => {
     expect(result.venue.name).toBe('')
     expect(result.venue.city).toBe('Mesa')
     expect(result.venue.state).toBe('AZ')
+    // Nothing to address by id, so the payload describes the venue by
+    // name/city/state and the state field is required again.
+    expect(result.venue.id).toBeUndefined()
   })
 
   it('handles null description, age_requirement, title', () => {
@@ -743,7 +748,6 @@ describe('extractedVenueToSelected', () => {
   })
 })
 
-
 // --- set_type vocabulary (PSY-1673) ---
 
 describe('SET_TYPE_OPTIONS', () => {
@@ -869,7 +873,6 @@ describe('toArtistPayloads', () => {
     })
   })
 })
-
 
 // --- resolveFormSetType (PSY-1673) ---
 

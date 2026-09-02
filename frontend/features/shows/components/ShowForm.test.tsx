@@ -195,6 +195,36 @@ function makeShow(overrides: Partial<ShowResponse> = {}): ShowResponse {
   }
 }
 
+/**
+ * A show whose venue has no state on file and no resolved zone, carrying a US
+ * state on the show row itself. `showTimingInput` reads it in America/Phoenix
+ * (the venue's '' state resolves no zone), so composing the save from 'NY'
+ * instead would land the instant 3 hours away.
+ *
+ * This is the one show whose state field may stay blank, so it is also the
+ * fixture that ARMS the exemption: a test that opens on any other show leaves
+ * `zonelessVenueId` undefined and never reaches the id comparison.
+ */
+function makeZonelessVenueShow(): ShowResponse {
+  return makeShow({
+    event_date: '2099-06-15T03:00:00Z', // 20:00 Jun 14, America/Phoenix
+    city: 'Berlin',
+    state: 'NY',
+    venues: [
+      {
+        id: 77,
+        slug: 'hall-ohne-zone',
+        name: 'Hall Ohne Zone',
+        address: null,
+        city: 'Berlin',
+        state: '',
+        timezone: null,
+        verified: true,
+      },
+    ],
+  })
+}
+
 // ─────────────────────────────────────────────────────────────
 // Regression guards (PSY-724 stable keys)
 //
@@ -885,6 +915,362 @@ describe('ShowForm — edit mode pre-fills from initialData', () => {
     expect(cancelButton).toBeInTheDocument()
     await user.click(cancelButton)
     expect(onCancel).toHaveBeenCalledTimes(1)
+  })
+})
+
+// A blank venue state is exempted for ONE venue: the state-less one an edit
+// opened on. These pin the cases that are not that venue.
+describe('ShowForm: a blank venue state is otherwise still rejected', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetMockState()
+  })
+
+  // A create has no stored instant to round-trip against, so no venue is
+  // exempt here however it was named.
+  it('blocks a submission whose venue state is blank even when a venue id is set', async () => {
+    mockVenueSearch.venues = [
+      {
+        id: 210,
+        slug: 'hall-ohne-zone',
+        name: 'Hall Ohne Zone',
+        address: null,
+        city: 'Berlin',
+        state: '',
+        timezone: null,
+        verified: true,
+      },
+    ]
+    const user = userEvent.setup()
+    mockAuth.user = { id: 1, is_admin: true }
+    renderWithProviders(<ShowForm mode="create" redirectOnCreate={false} />)
+
+    await user.type(
+      screen.getByPlaceholderText('Enter artist name'),
+      'Headliner Band'
+    )
+    await user.type(screen.getByLabelText(/^Venue$/i), 'Hall')
+    await user.click(await screen.findByText('Hall Ohne Zone'))
+    fireSet(screen.getByLabelText(/^Date$/i) as HTMLInputElement, futureDate())
+
+    // The picker filled the id and the venue's own blank state.
+    expect(screen.getByLabelText(/^State$/i)).toHaveValue('')
+
+    await user.click(screen.getByRole('button', { name: /submit show/i }))
+
+    expect(await screen.findByText('State is required')).toBeInTheDocument()
+    expect(mockShowSubmit.mutate).not.toHaveBeenCalled()
+  })
+
+  // Clearing the field is not the same as opening on a venue that has no
+  // state. The show's date and time were read in America/New_York here, and a
+  // blank state resolves FALLBACK_SHOW_TIMEZONE, so accepting this would move
+  // event_date 3 hours with nothing left in any column to show it happened.
+  it('blocks an edit whose state the user cleared, even though the venue is named by id', async () => {
+    const user = userEvent.setup()
+    mockAuth.user = { id: 1, is_admin: true }
+    renderWithProviders(
+      <ShowForm
+        mode="edit"
+        initialData={makeShow({
+          event_date: '2099-06-15T00:00:00Z', // 20:00 Jun 14, America/New_York
+          city: 'Brooklyn',
+          state: 'NY',
+          venues: [
+            {
+              id: 88,
+              slug: 'union-pool',
+              name: 'Union Pool',
+              address: null,
+              city: 'Brooklyn',
+              state: 'NY',
+              timezone: null,
+              verified: true,
+            },
+          ],
+        })}
+      />
+    )
+
+    await user.clear(screen.getByLabelText(/^State$/i))
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    expect(await screen.findByText('State is required')).toBeInTheDocument()
+    expect(mockShowUpdate.mutate).not.toHaveBeenCalled()
+  })
+
+  // Nor is picking a DIFFERENT state-less venue mid-edit. The date and time on
+  // screen were read in the venue the form opened on, so composing them
+  // against the new venue's blank state would silently re-anchor the show.
+  // The case the exemption's id comparison exists for, and the only one that
+  // reaches it: the form is opened on the state-less venue that ARMS the
+  // exemption, then a DIFFERENT state-less venue is picked. Exempting on the
+  // mere presence of an id would accept this, and the two venues do not share a
+  // zone (the opened-on one resolves the Phoenix fallback, the new one carries
+  // Europe/Berlin), so the save would re-anchor the show by 9 hours.
+  it('blocks an edit that swaps in a different state-less venue', async () => {
+    mockVenueSearch.venues = [
+      {
+        id: 210,
+        slug: 'kesselhaus-berlin',
+        name: 'Kesselhaus',
+        address: null,
+        city: 'Berlin',
+        state: '',
+        timezone: 'Europe/Berlin',
+        verified: true,
+      },
+    ]
+    const user = userEvent.setup()
+    mockAuth.user = { id: 1, is_admin: true }
+    renderWithProviders(
+      <ShowForm mode="edit" initialData={makeZonelessVenueShow()} />
+    )
+
+    const venueInput = screen.getByLabelText(/^Venue$/i)
+    await user.clear(venueInput)
+    await user.type(venueInput, 'Kessel')
+    await user.click(await screen.findByText('Kesselhaus'))
+
+    // The picker carried the new venue's own blank state into the field, so
+    // only the id tells the two venues apart.
+    expect(screen.getByLabelText(/^State$/i)).toHaveValue('')
+
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    expect(await screen.findByText('State is required')).toBeInTheDocument()
+    expect(mockShowUpdate.mutate).not.toHaveBeenCalled()
+  })
+
+  // A venue-less show has no id to compare against, so the exemption must not
+  // fire on `undefined === undefined`. This is the row with the weakest zone
+  // evidence of any, not the strongest.
+  it('blocks an edit on a venue-less show whose own state is blank', async () => {
+    const user = userEvent.setup()
+    mockAuth.user = { id: 1, is_admin: true }
+    renderWithProviders(
+      <ShowForm
+        mode="edit"
+        initialData={makeShow({ city: 'Berlin', state: '', venues: [] })}
+      />
+    )
+
+    await user.type(screen.getByLabelText(/^Venue$/i), 'Somewhere')
+    expect(screen.getByLabelText(/^State$/i)).toHaveValue('')
+
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    expect(await screen.findByText('State is required')).toBeInTheDocument()
+    expect(mockShowUpdate.mutate).not.toHaveBeenCalled()
+  })
+})
+
+describe('ShowForm: edit mode venue resolution + event_date round trip', () => {
+  /** The shape of the one argument the update mutation is called with. */
+  type UpdateCall = {
+    updates: {
+      event_date: string
+      state?: string
+      venues: Array<{
+        id?: number
+        name?: string
+        city?: string
+        state?: string
+      }>
+    }
+  }
+
+  const firstUpdate = () =>
+    mockShowUpdate.mutate.mock.calls[0][0] as UpdateCall
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetMockState()
+    mockShowUpdate.mutate.mockImplementation((_vars, opts) => {
+      opts?.onSuccess?.({ id: 42 })
+    })
+  })
+
+  it('saves a show at a state-less venue without moving event_date', async () => {
+    const show = makeZonelessVenueShow()
+    const user = userEvent.setup()
+    renderWithProviders(<ShowForm mode="edit" initialData={show} />)
+
+    // The precondition the payload assertions hang on: the field opens blank,
+    // matching the venue rather than the show row's 'NY'.
+    expect(screen.getByLabelText(/^State$/i)).toHaveValue('')
+
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => expect(mockShowUpdate.mutate).toHaveBeenCalledTimes(1))
+
+    const call = firstUpdate()
+    // Byte-identical: a save that changes nothing must write back the instant
+    // it read. Composing from 'NY' would give 2099-06-15T00:00:00Z.
+    expect(call.updates.event_date).toBe('2099-06-15T03:00:00Z')
+    // The id is what keeps the blank state resolvable on the backend.
+    expect(call.updates.venues[0].id).toBe(77)
+    expect(call.updates.venues[0].state).toBe('')
+    // The show row's own state is left alone rather than cleared: the blank
+    // field is a gap in the VENUE's record, and shows.state is read by
+    // state-filtered listings, the cities aggregation and alert matching.
+    expect(call.updates.state).toBeUndefined()
+  })
+
+  // The venue id has to survive a user who focuses the venue field and moves
+  // on. VenueInput's blur runs its confirm path, which cannot match a name the
+  // user never changed because the search hook is disabled for an empty query;
+  // clearing the selection there drops the id and the venue's IANA zone, and
+  // on a state-less venue then blocks the save outright.
+  //
+  // The blur handler fires on a 150ms timer, so the wait is what makes this a
+  // regression test rather than a race the assertions win by default.
+  it('keeps the venue id when the venue field is focused and blurred untouched', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <ShowForm mode="edit" initialData={makeZonelessVenueShow()} />
+    )
+
+    await user.click(screen.getByLabelText(/^Venue$/i))
+    await user.tab()
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 300))
+    })
+
+    // The banner a cleared selection would surface for this non-admin. Its
+    // absence is the precondition the payload assertions hang on.
+    expect(screen.queryByText('New Venue')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => expect(mockShowUpdate.mutate).toHaveBeenCalledTimes(1))
+
+    const call = firstUpdate()
+    expect(call.updates.venues[0].id).toBe(77)
+    expect(call.updates.event_date).toBe('2099-06-15T03:00:00Z')
+  })
+
+  it("sends the show's own venue id on an unrelated edit", async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<ShowForm mode="edit" initialData={makeShow()} />)
+
+    await user.type(screen.getByLabelText(/^show title/i), ' (rescheduled)')
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => expect(mockShowUpdate.mutate).toHaveBeenCalledTimes(1))
+
+    const call = firstUpdate()
+    expect(call.updates.venues[0].id).toBe(5)
+    expect(call.updates.venues[0].name).toBe('Valley Bar')
+  })
+
+  it('sends the picked venue id when the venue is changed from the picker', async () => {
+    mockVenueSearch.venues = [
+      {
+        id: 160,
+        slug: 'boom-leeds-leeds-england',
+        name: 'Boom Leeds',
+        address: null,
+        city: 'Leeds',
+        state: 'England',
+        timezone: 'Europe/London',
+        verified: true,
+      },
+    ]
+    const user = userEvent.setup()
+    renderWithProviders(<ShowForm mode="edit" initialData={makeShow()} />)
+
+    const venueInput = screen.getByLabelText(/^Venue$/i)
+    await user.clear(venueInput)
+    await user.type(venueInput, 'Boom')
+    await user.click(await screen.findByText('Boom Leeds'))
+
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => expect(mockShowUpdate.mutate).toHaveBeenCalledTimes(1))
+
+    const call = firstUpdate()
+    // The picked venue, not the one the form opened on.
+    expect(call.updates.venues[0].id).toBe(160)
+    expect(call.updates.venues[0].name).toBe('Boom Leeds')
+    expect(call.updates.venues[0].state).toBe('England')
+  })
+
+  it('drops the venue id when a brand new venue name is typed', async () => {
+    const user = userEvent.setup()
+    mockAuth.user = { id: 1, is_admin: true }
+    renderWithProviders(<ShowForm mode="edit" initialData={makeShow()} />)
+
+    const venueInput = screen.getByLabelText(/^Venue$/i)
+    await user.clear(venueInput)
+    await user.type(venueInput, 'Some Brand New Room')
+    await user.tab()
+
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => expect(mockShowUpdate.mutate).toHaveBeenCalledTimes(1))
+
+    const call = firstUpdate()
+    // No id, so the backend resolves this by (name, city, state) and creates
+    // the room when it does not already exist.
+    expect(call.updates.venues[0].id).toBeUndefined()
+    expect(call.updates.venues[0].name).toBe('Some Brand New Room')
+    // Clearing the selection clears only the id, so the city and state the
+    // previous venue filled in ride along. Pinned as an accepted wart, not as
+    // a claim that Phoenix is the right answer for a room nobody located.
+    expect(call.updates.venues[0].city).toBe('Phoenix')
+    expect(call.updates.venues[0].state).toBe('AZ')
+  })
+
+  it('blocks a new venue with no state at the form instead of at the backend', async () => {
+    const user = userEvent.setup()
+    mockAuth.user = { id: 1, is_admin: true }
+    renderWithProviders(
+      <ShowForm mode="edit" initialData={makeZonelessVenueShow()} />
+    )
+
+    // Typing a fresh venue name clears the id, so the payload has to describe
+    // the venue by name/city/state again and the blank state is now a gap the
+    // backend would reject with a generic failure.
+    const venueInput = screen.getByLabelText(/^Venue$/i)
+    await user.clear(venueInput)
+    await user.type(venueInput, 'Another New Room')
+    await user.tab()
+
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    expect(await screen.findByText('State is required')).toBeInTheDocument()
+    // On the field the user can act on, not merely somewhere on the page:
+    // that association is the whole reason the rule carries a `path`.
+    expect(screen.getByLabelText(/^State$/i)).toHaveAttribute(
+      'aria-invalid',
+      'true'
+    )
+    expect(mockShowUpdate.mutate).not.toHaveBeenCalled()
+  })
+
+  it('leaves a show with no venue on the name/city/state path', async () => {
+    const show = makeShow({
+      event_date: '2099-01-16T01:00:00Z', // 20:00 Jan 15, America/New_York
+      city: 'Brooklyn',
+      state: 'NY',
+      venues: [],
+    })
+    const user = userEvent.setup()
+    mockAuth.user = { id: 1, is_admin: true }
+    renderWithProviders(<ShowForm mode="edit" initialData={show} />)
+
+    await user.type(screen.getByLabelText(/^Venue$/i), 'Union Pool')
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => expect(mockShowUpdate.mutate).toHaveBeenCalledTimes(1))
+
+    const call = firstUpdate()
+    expect(call.updates.venues[0].id).toBeUndefined()
+    // The show row's own state still resolves the zone when there is no venue
+    // to prefer, so the instant round-trips.
+    expect(call.updates.venues[0].state).toBe('NY')
+    expect(call.updates.event_date).toBe('2099-01-16T01:00:00Z')
   })
 })
 
