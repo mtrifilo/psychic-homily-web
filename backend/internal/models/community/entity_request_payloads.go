@@ -352,6 +352,11 @@ var payloadRegistry = map[string]EntityRequestPayload{
 // boundary accepted whole, folding two legal dates into one bucket.
 func MaxRequestDateLen() int { return maxRequestDateLen }
 
+// MaxRequestNameLen exposes the cap on the payload field the dedup key's NAME
+// term reads (PSY-1990), so tests outside this package can pin the boundary that
+// keeps that term index-safe.
+func MaxRequestNameLen() int { return maxRequestNameLen }
+
 // DedupOccurrenceJSONKeys returns, sorted and deduplicated, every JSON key the
 // registered payloads name as their occurrence term (PSY-1977). It is what the
 // pending-request dedup key's occurrence expression must read, in the
@@ -402,7 +407,7 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		if err != nil {
 			return err
 		}
-		if err := requireField("artist", "name", p.Name); err != nil {
+		if err := requireBoundedField("artist", "name", p.Name, maxRequestNameLen); err != nil {
 			return err
 		}
 		if err := optionalHTTPURL("artist", "image_url", p.ImageURL, maxRequestURLLen); err != nil {
@@ -423,7 +428,7 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		if err != nil {
 			return err
 		}
-		if err := requireField("release", "title", p.Title); err != nil {
+		if err := requireBoundedField("release", "title", p.Title, maxRequestNameLen); err != nil {
 			return err
 		}
 		if err := optionalHTTPURL("release", "cover_art_url", p.CoverArtURL, maxRequestURLLen); err != nil {
@@ -435,7 +440,7 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		if err != nil {
 			return err
 		}
-		if err := requireField("label", "name", p.Name); err != nil {
+		if err := requireBoundedField("label", "name", p.Name, maxRequestNameLen); err != nil {
 			return err
 		}
 		if err := optionalHTTPURL("label", "image_url", p.ImageURL, maxRequestURLLen); err != nil {
@@ -447,13 +452,15 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		if err != nil {
 			return err
 		}
-		if err := requireField("venue", "name", p.Name); err != nil {
+		if err := requireBoundedField("venue", "name", p.Name, maxRequestNameLen); err != nil {
 			return err
 		}
-		if err := requireField("venue", "city", p.City); err != nil {
+		// city and state are the venue's OCCURRENCE terms (PSY-1989), so these two
+		// caps bound index terms, not just the venues.city/venues.state columns.
+		if err := requireBoundedField("venue", "city", p.City, maxRequestCityLen); err != nil {
 			return err
 		}
-		if err := requireField("venue", "state", p.State); err != nil {
+		if err := requireBoundedField("venue", "state", p.State, maxRequestStateLen); err != nil {
 			return err
 		}
 		if err := optionalHTTPURL("venue", "image_url", p.ImageURL, maxRequestURLLen); err != nil {
@@ -465,7 +472,7 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		if err != nil {
 			return err
 		}
-		if err := requireField("show", "title", p.Title); err != nil {
+		if err := requireBoundedField("show", "title", p.Title, maxRequestNameLen); err != nil {
 			return err
 		}
 		// event_date drives the created show's timestamp (PSY-1037): RFC3339 is
@@ -496,14 +503,11 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		// Shows are fulfillable when the admin supplies associations (PSY-1037),
 		// so the payload's fields ride onto a created show — validate them with
 		// the SAME caps the direct show-create handler enforces (title ≤255,
-		// age_requirement ≤50, price and door_price 0–10000, description
-		// ≤5000; image_url
-		// VARCHAR(2048), ticket_url VARCHAR(500)). A value that slipped past
-		// here would 500 at INSERT after the row is claimed, leaving an
-		// approved-but-unfulfilled row no decide call can re-process.
-		if err := optionalMaxLen("show", "title", &p.Title, maxRequestTitleLen); err != nil {
-			return err
-		}
+		// checked above with the other name terms, age_requirement ≤50, price and
+		// door_price 0–10000, description ≤5000; image_url VARCHAR(2048),
+		// ticket_url VARCHAR(500)). A value that slipped past here would 500 at
+		// INSERT after the row is claimed, leaving an approved-but-unfulfilled row
+		// no decide call can re-process.
 		if err := optionalMaxLen("show", "age_requirement", p.AgeRequirement, maxRequestAgeLen); err != nil {
 			return err
 		}
@@ -534,7 +538,7 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		if err != nil {
 			return err
 		}
-		if err := requireField("festival", "name", p.Name); err != nil {
+		if err := requireBoundedField("festival", "name", p.Name, maxRequestNameLen); err != nil {
 			return err
 		}
 		// edition_year is optional (0 → derived from start_date at fulfill), but a
@@ -775,6 +779,35 @@ func requireField(entityType, field, value string) error {
 	return nil
 }
 
+// requireBoundedField is requireField plus a length ceiling, for a required
+// field whose value reaches a bounded destination column, the pending-dedup
+// INDEX, or both.
+//
+// The length is measured on the UNTRIMMED value, and that is the load-bearing
+// half. Go's strings.TrimSpace strips 25 Unicode space runes while SQL trim()
+// strips ASCII 0x20 only, so a name measured after Go's trim can be 4 bytes here
+// and kilobytes in the expression Postgres indexes. Measuring the raw value is
+// stricter than either trim and independent of both, so no future change to
+// either one can open a gap. Same rule, same reason, as requireDateTimeOrDate.
+//
+// Bytes, not runes, so the check is stricter than a VARCHAR(n)'s n CHARACTERS
+// and a multi-byte value can never overflow at INSERT. It also refuses some
+// values the column would accept (255 CJK characters is 765 bytes); that is the
+// same trade MaxShowRequestArtistNameLen already makes, and index-row size is
+// counted in bytes too.
+//
+// Emptiness is reported before length so a field of nothing but whitespace reads
+// as missing rather than oversized.
+func requireBoundedField(entityType, field, value string, max int) error {
+	if err := requireField(entityType, field, value); err != nil {
+		return err
+	}
+	if len(value) > max {
+		return fmt.Errorf("%s payload: %s must be %d characters or fewer", entityType, field, max)
+	}
+	return nil
+}
+
 // optionalHTTPURL validates an optional URL field: nil/empty is allowed, but a
 // present value must be a well-formed http/https URL no longer than maxLen.
 // Scheme validation here at the request trust boundary keeps a hostile scheme
@@ -841,13 +874,29 @@ const (
 	maxRequestURLLen         = 2048
 	maxRequestShortURLLen    = 500
 	maxRequestDescriptionLen = 5000
-	// Show-specific caps, mirroring the direct show-create handler's Resolve
-	// limits (PSY-1037): title ≤255 (column is VARCHAR(500); 255 keeps boundary
-	// parity with the direct path), age_requirement ≤50, price and door_price
-	// 0–10000.
-	// city/state mirror the shows columns (VARCHAR(255)/VARCHAR(10)).
-	maxRequestTitleLen = 255
-	maxRequestAgeLen   = 50
+	// maxRequestNameLen caps the payload field the pending-dedup key's NAME term
+	// reads: name on artist, label, venue and festival, title on release and show.
+	//
+	// 255 is the destination column on every one of those types (artists.name,
+	// labels.name, venues.name, festivals.name, releases.title are all
+	// VARCHAR(255); shows.title is VARCHAR(500), where 255 keeps boundary parity
+	// with the direct show-create handler's Resolve limit). One constant rather
+	// than six, because the value it bounds is one thing: the term
+	// uq_entity_requests_pending_dedup indexes.
+	//
+	// It is an INDEX bound before it is a column bound. The name term has been in
+	// that index since PSY-1008 UNTRUNCATED, so an oversized value is not a
+	// tidiness problem: it blows the btree index-row limit (SQLSTATE 54000, which
+	// GORM does not translate to ErrDuplicatedKey, so the dedup branch does not
+	// fire and a contributor turns their own input into a 500), and it can abort
+	// the build of any migration that touches that index. See maxRequestDateLen
+	// for the same reasoning applied to the occurrence term.
+	//
+	// Unlike the occurrence term, the index does NOT truncate this one, so this
+	// cap does not bound rows queued before it existed. Those still need the
+	// preflight the dedup migrations carry.
+	maxRequestNameLen = 255
+	maxRequestAgeLen  = 50
 	// maxRequestPrice deliberately DUPLICATES contracts.MaxShowPrice rather
 	// than importing it: models must not depend on services, and this package
 	// imports nothing from there.
@@ -858,7 +907,17 @@ const (
 	// test package holds the two together instead -- see
 	// TestMaxRequestPriceMatchesContractRail in the _test package, which CAN
 	// import contracts without inverting the layering.
-	maxRequestPrice    = 10000
+	maxRequestPrice = 10000
+	// city/state mirror their destination columns. Both widths cover the show
+	// payload's optional pair (shows.city VARCHAR(255), shows.state VARCHAR(10))
+	// and the venue payload's required pair (venues.city VARCHAR(255),
+	// venues.state VARCHAR(10)).
+	//
+	// On a VENUE they are also dedup-key terms (PSY-1989), so there they are index
+	// bounds as well as column bounds, and DedupOccurrenceTermWidths pairs each
+	// with the width the index truncates that term to. Keep those equal: a
+	// truncation shorter than the cap keys a prefix of a value the boundary
+	// accepted whole, folding two distinct cities into one bucket.
 	maxRequestCityLen  = 255
 	maxRequestStateLen = 10
 	// maxRequestDateLen bounds a date/timestamp field that feeds the pending-dedup
