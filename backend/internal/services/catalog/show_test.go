@@ -1812,8 +1812,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_VenueB
 	// Same payload without the ID. FindOrCreateVenue checks the state BEFORE
 	// it looks the venue up by (name, city), so the fallback rejects this even
 	// though the row exists. That ordering is what makes the ID branch the only
-	// way to name a state-less venue, and it is the half the form's rule
-	// mirrors.
+	// way to name a state-less venue.
 	_, _, err = suite.showService.UpdateShowWithRelations(
 		created.ID,
 		&contracts.UpdateShowRequest{},

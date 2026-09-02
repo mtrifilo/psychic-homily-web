@@ -195,6 +195,36 @@ function makeShow(overrides: Partial<ShowResponse> = {}): ShowResponse {
   }
 }
 
+/**
+ * A show whose venue has no state on file and no resolved zone, carrying a US
+ * state on the show row itself. `showTimingInput` reads it in America/Phoenix
+ * (the venue's '' state resolves no zone), so composing the save from 'NY'
+ * instead would land the instant 3 hours away.
+ *
+ * This is the one show whose state field may stay blank, so it is also the
+ * fixture that ARMS the exemption: a test that opens on any other show leaves
+ * `zonelessVenueId` undefined and never reaches the id comparison.
+ */
+function makeZonelessVenueShow(): ShowResponse {
+  return makeShow({
+    event_date: '2099-06-15T03:00:00Z', // 20:00 Jun 14, America/Phoenix
+    city: 'Berlin',
+    state: 'NY',
+    venues: [
+      {
+        id: 77,
+        slug: 'hall-ohne-zone',
+        name: 'Hall Ohne Zone',
+        address: null,
+        city: 'Berlin',
+        state: '',
+        timezone: null,
+        verified: true,
+      },
+    ],
+  })
+}
+
 // ─────────────────────────────────────────────────────────────
 // Regression guards (PSY-724 stable keys)
 //
@@ -972,29 +1002,60 @@ describe('ShowForm: a blank venue state is otherwise still rejected', () => {
   // Nor is picking a DIFFERENT state-less venue mid-edit. The date and time on
   // screen were read in the venue the form opened on, so composing them
   // against the new venue's blank state would silently re-anchor the show.
+  // The case the exemption's id comparison exists for, and the only one that
+  // reaches it: the form is opened on the state-less venue that ARMS the
+  // exemption, then a DIFFERENT state-less venue is picked. Exempting on the
+  // mere presence of an id would accept this, and the two venues do not share a
+  // zone (the opened-on one resolves the Phoenix fallback, the new one carries
+  // Europe/Berlin), so the save would re-anchor the show by 9 hours.
   it('blocks an edit that swaps in a different state-less venue', async () => {
     mockVenueSearch.venues = [
       {
         id: 210,
-        slug: 'hall-ohne-zone',
-        name: 'Hall Ohne Zone',
+        slug: 'kesselhaus-berlin',
+        name: 'Kesselhaus',
         address: null,
         city: 'Berlin',
         state: '',
-        timezone: null,
+        timezone: 'Europe/Berlin',
         verified: true,
       },
     ]
     const user = userEvent.setup()
     mockAuth.user = { id: 1, is_admin: true }
-    renderWithProviders(<ShowForm mode="edit" initialData={makeShow()} />)
+    renderWithProviders(
+      <ShowForm mode="edit" initialData={makeZonelessVenueShow()} />
+    )
 
     const venueInput = screen.getByLabelText(/^Venue$/i)
     await user.clear(venueInput)
-    await user.type(venueInput, 'Hall')
-    await user.click(await screen.findByText('Hall Ohne Zone'))
+    await user.type(venueInput, 'Kessel')
+    await user.click(await screen.findByText('Kesselhaus'))
 
-    // The picker carried the new venue's own blank state into the field.
+    // The picker carried the new venue's own blank state into the field, so
+    // only the id tells the two venues apart.
+    expect(screen.getByLabelText(/^State$/i)).toHaveValue('')
+
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    expect(await screen.findByText('State is required')).toBeInTheDocument()
+    expect(mockShowUpdate.mutate).not.toHaveBeenCalled()
+  })
+
+  // A venue-less show has no id to compare against, so the exemption must not
+  // fire on `undefined === undefined`. This is the row with the weakest zone
+  // evidence of any, not the strongest.
+  it('blocks an edit on a venue-less show whose own state is blank', async () => {
+    const user = userEvent.setup()
+    mockAuth.user = { id: 1, is_admin: true }
+    renderWithProviders(
+      <ShowForm
+        mode="edit"
+        initialData={makeShow({ city: 'Berlin', state: '', venues: [] })}
+      />
+    )
+
+    await user.type(screen.getByLabelText(/^Venue$/i), 'Somewhere')
     expect(screen.getByLabelText(/^State$/i)).toHaveValue('')
 
     await user.click(screen.getByRole('button', { name: /save changes/i }))
@@ -1029,32 +1090,6 @@ describe('ShowForm: edit mode venue resolution + event_date round trip', () => {
       opts?.onSuccess?.({ id: 42 })
     })
   })
-
-  /**
-   * A show whose venue has no state on file and no resolved zone, carrying a
-   * US state on the show row itself. `showTimingInput` reads it in
-   * America/Phoenix (the venue's '' state resolves no zone), so composing the
-   * save from 'NY' instead would land the instant 3 hours away.
-   */
-  function makeZonelessVenueShow() {
-    return makeShow({
-      event_date: '2099-06-15T03:00:00Z', // 20:00 Jun 14, America/Phoenix
-      city: 'Berlin',
-      state: 'NY',
-      venues: [
-        {
-          id: 77,
-          slug: 'hall-ohne-zone',
-          name: 'Hall Ohne Zone',
-          address: null,
-          city: 'Berlin',
-          state: '',
-          timezone: null,
-          verified: true,
-        },
-      ],
-    })
-  }
 
   it('saves a show at a state-less venue without moving event_date', async () => {
     const show = makeZonelessVenueShow()
@@ -1163,7 +1198,6 @@ describe('ShowForm: edit mode venue resolution + event_date round trip', () => {
 
   it('drops the venue id when a brand new venue name is typed', async () => {
     const user = userEvent.setup()
-    // Admin so the city/state fields stay editable on a verified venue.
     mockAuth.user = { id: 1, is_admin: true }
     renderWithProviders(<ShowForm mode="edit" initialData={makeShow()} />)
 
@@ -1181,6 +1215,9 @@ describe('ShowForm: edit mode venue resolution + event_date round trip', () => {
     // the room when it does not already exist.
     expect(call.updates.venues[0].id).toBeUndefined()
     expect(call.updates.venues[0].name).toBe('Some Brand New Room')
+    // Clearing the selection clears only the id, so the city and state the
+    // previous venue filled in ride along. Pinned as an accepted wart, not as
+    // a claim that Phoenix is the right answer for a room nobody located.
     expect(call.updates.venues[0].city).toBe('Phoenix')
     expect(call.updates.venues[0].state).toBe('AZ')
   })

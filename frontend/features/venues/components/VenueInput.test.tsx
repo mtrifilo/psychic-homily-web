@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, fireEvent } from '@testing-library/react'
+import { screen, fireEvent, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { useForm } from '@tanstack/react-form'
@@ -177,7 +177,9 @@ describe('VenueInput blur confirm', () => {
     await user.click(screen.getByPlaceholderText('Enter venue name'))
     await user.tab()
     // Past the 150ms confirm delay the blur schedules.
-    await new Promise(resolve => setTimeout(resolve, 300))
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 300))
+    })
 
     expect(onVenueSelect).not.toHaveBeenCalled()
   })
@@ -191,8 +193,40 @@ describe('VenueInput blur confirm', () => {
     await user.clear(input)
     await user.type(input, 'Somewhere Else')
     await user.tab()
-    await new Promise(resolve => setTimeout(resolve, 300))
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 300))
+    })
 
     expect(onVenueSelect).toHaveBeenCalledWith(null)
+  })
+
+  // The branch the early return sits directly on top of, and the only way a
+  // cleared selection is ever restored: a typed name that matches a venue
+  // exactly re-selects it rather than reporting a new one.
+  it('re-selects a venue whose name the user typed exactly', async () => {
+    mockSearchData = {
+      venues: [
+        { id: 42, name: 'Hall Ohne Zone', slug: 'hall-ohne-zone', city: 'Berlin', state: '' },
+      ],
+    }
+    const onVenueSelect = vi.fn()
+    const user = userEvent.setup()
+    renderWithProviders(<SeededVenueInput onVenueSelect={onVenueSelect} />)
+
+    const input = screen.getByPlaceholderText('Enter venue name')
+    await user.clear(input)
+    await user.type(input, 'hall ohne zone')
+    await user.tab()
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 300))
+    })
+
+    // Not `null`: the match is what carries the venue's id and IANA zone back
+    // to the form.
+    expect(onVenueSelect).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: 42, name: 'Hall Ohne Zone' })
+    )
+    // And the field takes the venue's own casing.
+    expect(input).toHaveValue('Hall Ohne Zone')
   })
 })

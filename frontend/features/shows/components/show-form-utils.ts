@@ -250,7 +250,8 @@ export function showToFormValues(show: ShowResponse): FormValues {
       // City keeps the show-row fallback and state does not, because only
       // state decides the zone the submit recomposes event_date in. City is
       // still load-bearing on the no-id branch, where `FindOrCreateVenue`
-      // matches on (name, city); a wrong one there resolves the wrong room.
+      // matches on (name, city): a wrong one there usually misses and creates
+      // a duplicate venue.
       city: venue?.city || show.city || '',
       // `timing.state` verbatim, the invariant `showTimingInput` documents:
       // the submit recomposes event_date from this field, so any spelling that

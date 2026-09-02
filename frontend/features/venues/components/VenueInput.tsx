@@ -55,7 +55,7 @@ export function VenueInput({
     // is no new name to resolve and the standing selection is still correct.
     //
     // Returning early is load-bearing, not an optimization. `useVenueSearch`
-    // runs `enabled: query.length > 0` (see `createSearchHook` in
+    // runs `enabled: debouncedQuery.length > 0` (see `createSearchHook` in
     // lib/hooks/factories.ts), so `filteredVenues` is empty here and the
     // exact-match lookup below cannot succeed for a name the user never
     // changed. Falling through calls `onVenueSelect(null)` on a bare

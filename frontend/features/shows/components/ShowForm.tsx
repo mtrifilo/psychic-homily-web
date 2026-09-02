@@ -124,35 +124,49 @@ const showFormFields = {
  * The form's rules, with the ONE venue that may be saved without naming a
  * state supplied by the caller.
  *
- * A blank state field is an exemption, not a mode. The submit resolves the
- * event_date timezone from that field, and `resolveShowTimezone` answers
- * FALLBACK_SHOW_TIMEZONE for a blank one, so a blank state that is not the
- * value the instant was READ in silently recomposes the show hours away. The
- * only venue for which the two agree is the one the form opened on when that
- * venue has no state on file, which `zonelessVenueId` names.
+ * A blank state field is an exemption, not a mode. The submit composes
+ * event_date through `resolveShowTimezone(venue.state, selectedVenue.timezone)`,
+ * which prefers the venue's resolved IANA zone and consults the state only when
+ * there is none; a blank state then resolves FALLBACK_SHOW_TIMEZONE. So a blank
+ * state is safe exactly when the venue it describes is the one the date and
+ * time fields were already read against, which `stateLessVenueId` names.
+ *
+ * Both halves of the predicate are load-bearing. `stateLessVenueId !== undefined`
+ * keeps a venue-less show, whose id is also undefined, from matching on
+ * `undefined === undefined`. `venue.id === stateLessVenueId` keeps a DIFFERENT
+ * state-less venue picked mid-edit from inheriting the exemption, which would
+ * re-anchor the show whenever the two venues resolve different zones.
  *
  * Everything else keeps the plain requirement: a state the user cleared, a
- * different venue picked mid-edit, and every create. Those are also the cases
- * the backend cares about, since `associateVenues` resolves a venue carrying
- * an id by primary key and only its (name, city, state) fallback,
- * `VenueService.FindOrCreateVenue` in
- * backend/internal/services/catalog/venue.go, rejects an empty state.
+ * different venue picked mid-edit, and every create.
+ *
+ * This is deliberately STRICTER than the backend. `associateVenues` resolves a
+ * venue carrying an id by primary key and would accept any of those, since only
+ * its (name, city, state) fallback, `VenueService.FindOrCreateVenue` in
+ * backend/internal/services/catalog/venue.go, reads the state at all. The
+ * backend has no stake in the zone; this rule does, because the field it
+ * guards is what the submit composes event_date from.
  *
  * The rule sits on the venue object rather than the state field so it can read
  * the id; `path` puts the message back on the state field, which is where the
  * user can act on it.
  *
- * KNOWN GAP, unchanged by this rule: a state the US map does not list resolves
- * to the same fallback, so a venue with `state: 'England'` and no `timezone`
- * still composes in it. Naming a state is not the same as naming a zone.
+ * KNOWN GAPS, none of them closed by this rule, all of them equally open
+ * before it:
+ * - A state the US map does not list resolves to the same fallback, so a venue
+ *   with `state: 'England'` and no `timezone` still composes in it. Naming a
+ *   state is not naming a zone.
+ * - EDITING the state re-anchors the instant, because the submit reads this
+ *   field. Filling in a blank state is the reachable form of that.
+ * - Whitespace passes, since the rule tests emptiness rather than content.
  */
-function makeShowFormSchema(zonelessVenueId: number | undefined) {
+function makeShowFormSchema(stateLessVenueId: number | undefined) {
   return z.object({
     ...showFormFields,
     venue: venueFields.refine(
       venue =>
         venue.state !== '' ||
-        (zonelessVenueId !== undefined && venue.id === zonelessVenueId),
+        (stateLessVenueId !== undefined && venue.id === stateLessVenueId),
       { message: 'State is required', path: ['state'] }
     ),
   })
@@ -267,22 +281,30 @@ export function ShowForm({
     return mergeExtraction(defaultFormValues, initialExtraction)
   })()
 
-  // The venue this form opened on, when it has no state on file and so seeded
+  // The venue this form OPENED on, when it has no state on file and so seeded
   // the state field blank. That venue is the only one a save may name without
-  // a state, because it is the only one whose zone the date and time fields
-  // were already read in.
+  // a state, because it is the only one whose zone the date and time fields on
+  // screen were already read in.
+  //
+  // Captured once, in a state initializer, for the same reason TanStack Form
+  // reads `defaultValues` once: it has to describe the values the form is
+  // holding. Recomputing it per render would let a background refetch that
+  // fills the venue's state in revoke the exemption mid-edit, and the field is
+  // disabled for a non-admin on a verified venue, so that error would land on
+  // a control the user cannot act on.
   //
   // Gated on `initialData` rather than on `isEditMode` alone so it decides on
   // the same condition the submit branch below does; `mode="edit"` without
   // initialData builds a CREATE payload, which the exemption must not cover.
-  const zonelessVenueId =
+  const [stateLessVenueId] = useState(() =>
     isEditMode && initialData && initialFormValues.venue.state === ''
       ? initialFormValues.venue.id
       : undefined
+  )
 
   const formSchema = useMemo(
-    () => makeShowFormSchema(zonelessVenueId),
-    [zonelessVenueId]
+    () => makeShowFormSchema(stateLessVenueId),
+    [stateLessVenueId]
   )
 
   // Track venue name for showing/hiding the "new venue" warning. Seed it from
@@ -312,6 +334,10 @@ export function ShowForm({
       // alone wrote a Leeds 8pm show as 03:00Z and the show page then rendered
       // it at 4:00 AM the next day. The same resolver reads the instant back in
       // showToFormValues, so an edit round-trips instead of shifting the row.
+      //
+      // makeShowFormSchema's venue rule depends on this expression: it decides
+      // when `value.venue.state` is allowed to be blank by reasoning about what
+      // this call would then return. Change one and read the other.
       const venueTimezone = resolveShowTimezone(
         value.venue.state,
         selectedVenue?.timezone
