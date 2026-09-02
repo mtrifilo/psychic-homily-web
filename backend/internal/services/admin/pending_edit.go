@@ -460,6 +460,40 @@ func revalidateFetchedURLs(ctx context.Context, updates map[string]interface{}) 
 	return nil
 }
 
+// revalidateBandcampEmbed re-runs the Bandcamp release-page shape rule over the
+// value an approval is about to apply, and reports one that must not go live.
+//
+// Same argument as revalidateFetchedURLs above, for a different rule and a
+// different harm. Submission checks this too (shared.ValidateFieldChangeValue),
+// so this is a SECOND run of one policy rather than a new one; it exists because
+// the queue outlives the guard. bandcamp_embed_url has been in
+// ArtistAllowedEditFields and unvalidated since PSY-525, so every row already
+// sitting in the queue predates the rule, and approval applies values verbatim.
+//
+// The harm it blocks is not a broken embed. The stored value renders as an
+// OUTBOUND link labelled "Listen to <artist> on Bandcamp" wherever the embed
+// resolve comes back empty, so an arbitrary host approved into this column is a
+// phishing destination wearing a name readers trust.
+//
+// Reads the built `updates` map for the same reason the fetched-URL gate does:
+// the value checked is then literally the value the untyped Updates() writes.
+//
+// A present-but-non-string value is refused rather than skipped, matching the
+// fetched-URL gate: it cannot spell a URL, but skipping it leaves the row to 500
+// at the driver on every approve attempt and sit pending forever. An empty
+// string still passes: that is the clear-the-field gesture.
+func revalidateBandcampEmbed(updates map[string]interface{}) error {
+	raw, present := updates[utils.BandcampEmbedURLField]
+	if !present || raw == nil {
+		return nil
+	}
+	value, isString := raw.(string)
+	if !isString {
+		return fmt.Errorf("%s must be a string", utils.BandcampEmbedURLLabel)
+	}
+	return utils.ValidateBandcampEmbedURL(value, utils.BandcampEmbedURLLabel)
+}
+
 // ApprovePendingEdit approves a pending edit, applying changes to the entity
 // and recording a revision.
 //
@@ -584,6 +618,23 @@ func (s *PendingEditService) ApprovePendingEdit(ctx context.Context, editID uint
 			"cannot approve: %s. Reject this edit and ask the contributor to resubmit with a public image URL.",
 			err,
 		))
+	}
+
+	// PSY-1966: same placement argument as the block above, and for the same
+	// reason it reads `updates` rather than the change slice. Kept a separate
+	// call rather than folded into revalidateFetchedURLs because the two answer
+	// different questions (where a host POINTS vs what shape a URL has) and only
+	// one of them resolves DNS.
+	if err := revalidateBandcampEmbed(updates); err != nil {
+		slog.Default().Warn("pending_edit_blocked_bandcamp_embed",
+			"edit_id", edit.ID,
+			"entity_type", edit.EntityType,
+			"entity_id", edit.EntityID,
+			"submitted_by", edit.SubmittedBy,
+			"reviewer_id", reviewerID,
+			"error", err.Error(),
+		)
+		return nil, apperrors.ErrPendingEditInvalidRequest(fmt.Sprintf("cannot approve: %s", err))
 	}
 
 	// PSY-985: a venue location edit through the contribution flow bypasses

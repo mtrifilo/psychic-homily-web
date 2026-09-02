@@ -356,4 +356,112 @@ describe('MusicEmbed', () => {
       expect(iframe).toHaveStyle({ height: '352px' })
     })
   })
+
+  // PSY-1966. The fallback link is the sink: `artists.bandcamp_embed_url` and
+  // `social.bandcamp` are contributor-writable, and nine surfaces hand this
+  // component the raw column, so the gate lives here rather than at the callers.
+  // A value that is not provably a Bandcamp page must render NO link — an
+  // outbound href labelled "Listen to <artist> on Bandcamp" is a trusted label
+  // on an attacker-chosen destination.
+  describe('outbound-link gate', () => {
+    // A resolve that finds no embed is the ordinary way to reach the fallback
+    // (deleted or renamed release), not only an outage.
+    const noEmbed = () =>
+      vi.spyOn(global, 'fetch').mockResolvedValue({ ok: false, status: 404 } as Response)
+
+    const hostileAlbumUrls = [
+      'https://evil.test/album/checkout',
+      'https://bandcamp.com.attacker.test/album/x',
+      'https://evil.test/?next=https://band.bandcamp.com/album/y',
+      // On a Bandcamp host but not a release page.
+      'https://band.bandcamp.com/merch/shirt?ref=/album/x',
+      // http renders nothing: the resolver refuses to fetch it, so this only
+      // ever reaches the fallback, and the fallback refuses it too.
+      'http://band.bandcamp.com/album/test',
+    ]
+
+    it.each(hostileAlbumUrls)('renders no link for album URL %s', async (url) => {
+      noEmbed()
+      const { container } = render(
+        <MusicEmbed bandcampAlbumUrl={url} artistName="Test Artist" />
+      )
+
+      await waitFor(() => {
+        expect(screen.queryByText('Listen to Test Artist on Bandcamp')).not.toBeInTheDocument()
+      })
+      expect(container.querySelector('a')).toBeNull()
+    })
+
+    it('renders no link for a hostile profile URL', async () => {
+      const { container } = render(
+        <MusicEmbed bandcampProfileUrl="https://evil.test/band" artistName="Test Artist" />
+      )
+
+      await waitFor(() => {
+        expect(container.querySelector('a')).toBeNull()
+      })
+    })
+
+    // A bad album URL must not take a good profile link down with it: the
+    // reader still gets somewhere real.
+    it('falls through to a valid profile link when the album URL is rejected', async () => {
+      noEmbed()
+      render(
+        <MusicEmbed
+          bandcampAlbumUrl="https://evil.test/album/checkout"
+          bandcampProfileUrl="https://band.bandcamp.com"
+          artistName="Test Artist"
+        />
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText('Listen to Test Artist on Bandcamp')).toHaveAttribute(
+          'href',
+          'https://band.bandcamp.com'
+        )
+      })
+    })
+
+    // The gate must not close the ordinary path.
+    it('still links a real release page when the embed cannot be resolved', async () => {
+      noEmbed()
+      render(
+        <MusicEmbed
+          bandcampAlbumUrl="https://band.bandcamp.com/track/leyenda"
+          artistName="Test Artist"
+        />
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText('Listen to Test Artist on Bandcamp')).toHaveAttribute(
+          'href',
+          'https://band.bandcamp.com/track/leyenda'
+        )
+      })
+    })
+
+    // The iframe branch is unaffected: its src is built from a resolved numeric
+    // id, never from the stored string, so a rejected URL that DOES resolve
+    // still plays. Only the href is gated.
+    it('leaves the resolved iframe alone', async () => {
+      vi.spyOn(global, 'fetch').mockResolvedValue({
+        ok: true,
+        json: async () => ({ kind: 'album', id: '123456' }),
+      } as Response)
+
+      render(
+        <MusicEmbed
+          bandcampAlbumUrl="https://band.bandcamp.com/album/test"
+          artistName="Test Artist"
+        />
+      )
+
+      await waitFor(() => {
+        expect(screen.getByTitle('Test Artist on Bandcamp')).toHaveAttribute(
+          'src',
+          expect.stringContaining('https://bandcamp.com/EmbeddedPlayer/album=123456')
+        )
+      })
+    })
+  })
 })

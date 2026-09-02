@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidateHTTPURL(t *testing.T) {
@@ -306,7 +307,9 @@ func TestIsValidBandcampEmbedURL(t *testing.T) {
 		// Valid album/track pages on an artist subdomain.
 		{"album page", "https://artificialgo.bandcamp.com/album/triple-ones", true},
 		{"track page", "https://artificialgo.bandcamp.com/track/one-song", true},
-		{"http scheme accepted", "http://artificialgo.bandcamp.com/album/x", true},
+		// http is refused even on a real release page: both renderers require
+		// https, so an http row shows neither an embed nor a link.
+		{"http scheme rejected", "http://artificialgo.bandcamp.com/album/x", false},
 		{"leading/trailing whitespace trimmed", "  https://x.bandcamp.com/album/y  ", true},
 
 		// Rejected: not an album/track path.
@@ -324,6 +327,13 @@ func TestIsValidBandcampEmbedURL(t *testing.T) {
 		{"javascript scheme", "javascript:alert(1)", false},
 		{"empty string", "", false},
 		{"not a url", "not a url", false},
+
+		// Rejected: the shapes PSY-1966 exists for. Each is a plausible-looking
+		// value that would otherwise render as an outbound link labelled Bandcamp.
+		{"open redirect carrying a real release URL", "https://evil.test/?next=https://x.bandcamp.com/album/y", false},
+		{"userinfo spoofing the host", "https://x.bandcamp.com@evil.test/album/y", false},
+		{"release path on a subdomain of a lookalike", "https://x.bandcamp.com.evil.test/album/y", false},
+		{"album segment only in the query of a foreign host", "https://evil.test/checkout?ref=/album/x", false},
 	}
 
 	for _, tc := range tests {
@@ -331,6 +341,32 @@ func TestIsValidBandcampEmbedURL(t *testing.T) {
 			assert.Equal(t, tc.want, IsValidBandcampEmbedURL(tc.input))
 		})
 	}
+}
+
+func TestValidateBandcampEmbedURL(t *testing.T) {
+	t.Run("accepts a release page", func(t *testing.T) {
+		assert.NoError(t, ValidateBandcampEmbedURL("https://x.bandcamp.com/album/y", BandcampEmbedURLLabel))
+	})
+
+	t.Run("empty and whitespace clear the field", func(t *testing.T) {
+		assert.NoError(t, ValidateBandcampEmbedURL("", BandcampEmbedURLLabel))
+		assert.NoError(t, ValidateBandcampEmbedURL("   ", BandcampEmbedURLLabel))
+	})
+
+	t.Run("refusal names the field and shows an accepted example", func(t *testing.T) {
+		err := ValidateBandcampEmbedURL("https://evil.test/album/x", BandcampEmbedURLLabel)
+		require.Error(t, err)
+		// The message has to be actionable on its own: a submitter cannot fix
+		// "host anchor failed", but can fix by copying the shape shown.
+		assert.Contains(t, err.Error(), BandcampEmbedURLLabel)
+		assert.Contains(t, err.Error(), "https://artist.bandcamp.com/album/title")
+	})
+
+	t.Run("field name is the caller's, not a constant", func(t *testing.T) {
+		err := ValidateBandcampEmbedURL("https://evil.test/album/x", "bandcamp_embed_url")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "bandcamp_embed_url")
+	})
 }
 
 func TestIsBandcampAlbumURL(t *testing.T) {

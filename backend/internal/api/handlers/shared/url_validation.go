@@ -53,23 +53,34 @@ type urlFieldSpec struct {
 // (collection), cover_art_url (release), and ticket_url (show), which were
 // previously length-only and accepted javascript:/data: schemes.
 //
-// Intentionally omitted: flyer_url and bandcamp_embed_url — PSY-525 left them
-// to length-only / domain-specific checks (e.g. isValidBandcampURL), and the
-// suggest-edit path matches that scope so it doesn't enforce stricter rules
-// than the catalog handler would.
+// Intentionally omitted: flyer_url — PSY-525 left it to a length-only check,
+// and the suggest-edit path matches that scope so it doesn't enforce stricter
+// rules than the catalog handler would.
+//
+// bandcamp_embed_url WAS omitted on the same reasoning and is now here
+// (PSY-1966). What changed is not the rule but what the value does: it renders
+// as an outbound link under a Bandcamp label, not only as a sandboxed iframe,
+// and it is reachable through this path — it sits in ArtistAllowedEditFields,
+// so any email-verified contributor can set it with a direct suggest-edit call.
+// Its shape gate is validateBandcampEmbedShape below, not a host suffix,
+// because a release page is a path as much as a host.
 var urlFieldSpecs = map[string]urlFieldSpec{
-	"image_url":       {displayName: "Image URL", maxLength: 2048, fetched: true},
-	"cover_image_url": {displayName: "Cover image URL", maxLength: 2048},
-	"cover_art_url":   {displayName: "Cover art URL", maxLength: 2048},
-	"ticket_url":      {displayName: "Ticket URL", maxLength: 500},
-	"instagram":       {displayName: "Instagram URL", maxLength: 255},
-	"facebook":        {displayName: "Facebook URL", maxLength: 500},
-	"twitter":         {displayName: "Twitter URL", maxLength: 255},
-	"youtube":         {displayName: "YouTube URL", maxLength: 500},
-	"spotify":         {displayName: "Spotify URL", maxLength: 500},
-	"soundcloud":      {displayName: "SoundCloud URL", maxLength: 500},
-	"bandcamp":        {displayName: "Bandcamp URL", maxLength: 500},
-	"website":         {displayName: "Website URL", maxLength: 500},
+	"image_url":          {displayName: "Image URL", maxLength: 2048, fetched: true},
+	"cover_image_url":    {displayName: "Cover image URL", maxLength: 2048},
+	"cover_art_url":      {displayName: "Cover art URL", maxLength: 2048},
+	"ticket_url":         {displayName: "Ticket URL", maxLength: 500},
+	// 2048, not the 500 the social fields use: the column is TEXT, and the
+	// entity-request queue already caps this same field at 2048. Two boundaries
+	// onto one column must not disagree about what fits.
+	utils.BandcampEmbedURLField: {displayName: utils.BandcampEmbedURLLabel, maxLength: 2048},
+	"instagram":          {displayName: "Instagram URL", maxLength: 255},
+	"facebook":           {displayName: "Facebook URL", maxLength: 500},
+	"twitter":            {displayName: "Twitter URL", maxLength: 255},
+	"youtube":            {displayName: "YouTube URL", maxLength: 500},
+	"spotify":            {displayName: "Spotify URL", maxLength: 500},
+	"soundcloud":         {displayName: "SoundCloud URL", maxLength: 500},
+	"bandcamp":           {displayName: "Bandcamp URL", maxLength: 500},
+	"website":            {displayName: "Website URL", maxLength: 500},
 }
 
 // FetchedURLFieldNames returns the field names marked `fetched` above: the URL
@@ -233,6 +244,28 @@ func validateSocialHost(field, value string) error {
 	)
 }
 
+// validateBandcampEmbedShape rejects a bandcamp_embed_url that is not a
+// Bandcamp release page, and is a no-op for every other field.
+//
+// It is separate from validateSocialHost because a host allowlist is not enough
+// here. social.bandcamp holds a profile root, so "is it on bandcamp.com" is the
+// whole question; bandcamp_embed_url names ONE release, so the path carries as
+// much meaning as the host, and a value that clears the host floor but not the
+// path renders nothing on either surface that consumes it.
+//
+// Assumes the scheme and length checks already ran. The predicate re-parses
+// rather than taking a parsed URL because it is the same one the service layer
+// and the CLI backfills call, and it owns the whole rule.
+func validateBandcampEmbedShape(field, value string) error {
+	if field != utils.BandcampEmbedURLField {
+		return nil
+	}
+	if err := utils.ValidateBandcampEmbedURL(value, urlFieldSpecs[field].displayName); err != nil {
+		return huma.Error422UnprocessableEntity(err.Error())
+	}
+	return nil
+}
+
 // ValidateSocialURLs applies the http/https scheme check AND a per-platform host
 // allowlist (PSY-1113) to the standard set of social URL fields shared by
 // artist, venue, label, and festival request bodies. Pass nil for fields the
@@ -321,6 +354,9 @@ func ValidateFieldChangeValue(ctx context.Context, fieldName string, value any) 
 		return err
 	}
 	if err := validateSocialHost(fieldName, s); err != nil {
+		return err
+	}
+	if err := validateBandcampEmbedShape(fieldName, s); err != nil {
 		return err
 	}
 	return validateFetchHost(ctx, fieldName, s)

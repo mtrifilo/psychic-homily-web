@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { resolveBandcampEmbed, isAllowedBandcampUrl } from '@/lib/bandcamp'
+import {
+  resolveBandcampEmbed,
+  isAllowedBandcampUrl,
+  isBandcampReleaseUrl,
+} from '@/lib/bandcamp'
 import { requireAdmin, forwardArtistMusicUpdate } from '@/lib/admin-artist-route'
 
 interface UpdateBandcampRequest {
@@ -19,7 +23,13 @@ async function validateBandcampUrl(
     return { valid: false, error: 'URL must be a Bandcamp URL' }
   }
 
-  if (!url.includes('/album/') && !url.includes('/track/')) {
+  // Release-page shape, read off the parsed pathname. The substring test this
+  // replaced accepted any Bandcamp page carrying "/album/" somewhere it did not
+  // mean it, e.g. /merch/shirt?ref=/album/x, which the backend then refused with
+  // a message about the host — a rejection an admin could not act on. This is
+  // the same predicate the render gate uses; the backend write gate stays the
+  // authority on what is stored, and is stricter still.
+  if (!isBandcampReleaseUrl(url)) {
     return {
       valid: false,
       error: 'URL must be a Bandcamp album or track URL, not a profile URL',

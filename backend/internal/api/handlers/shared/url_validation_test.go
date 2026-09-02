@@ -195,6 +195,71 @@ func TestValidateFieldChangeValue_HostAnchorsSocialFields(t *testing.T) {
 }
 
 // ============================================================================
+// bandcamp_embed_url on the suggest-edit path (PSY-1966)
+// ============================================================================
+
+// bandcamp_embed_url sits in ArtistAllowedEditFields, so any email-verified
+// contributor can set it with a direct suggest-edit call, and the stored value
+// renders as an OUTBOUND link labelled "Listen to <artist> on Bandcamp" wherever
+// the embed resolve comes back empty. Before this gate the field was absent from
+// urlFieldSpecs entirely, so any string at all reached the pending queue and
+// then the live column.
+func TestValidateFieldChangeValue_BandcampEmbedURLShape(t *testing.T) {
+	for _, ok := range []string{
+		"https://kingbuffalo.bandcamp.com/album/regenerator",
+		"https://x.bandcamp.com/track/leyenda",
+		// A real release page whose query mentions the other path type.
+		"https://x.bandcamp.com/track/t?ref=/album/a",
+	} {
+		if err := ValidateFieldChangeValue(bg, "bandcamp_embed_url", ok); err != nil {
+			t.Errorf("%q should pass, got: %v", ok, err)
+		}
+	}
+
+	// nil and empty are the clear-the-field gesture; the column is nullable.
+	if err := ValidateFieldChangeValue(bg, "bandcamp_embed_url", nil); err != nil {
+		t.Errorf("nil should pass (clear gesture), got: %v", err)
+	}
+	if err := ValidateFieldChangeValue(bg, "bandcamp_embed_url", ""); err != nil {
+		t.Errorf("empty string should pass (clear gesture), got: %v", err)
+	}
+
+	// Each of these is a URL that would otherwise wear a Bandcamp label while
+	// sending the reader somewhere else.
+	for _, bad := range []string{
+		"https://evil.test/album/checkout",
+		"https://bandcamp.com.attacker.test/album/x",
+		"https://evil.test/?next=https://x.bandcamp.com/album/y",
+		"https://x.bandcamp.com@evil.test/album/y",
+		// On-platform but not a release: a profile root, and a merch page whose
+		// query merely mentions an album.
+		"https://kingbuffalo.bandcamp.com",
+		"https://kingbuffalo.bandcamp.com/merch/shirt?ref=/album/x",
+		// http renders nothing on either surface, so it is refused on write.
+		"http://x.bandcamp.com/album/y",
+		"javascript:alert(1)//bandcamp.com/album/x",
+	} {
+		testhelpers.AssertHumaError(t, ValidateFieldChangeValue(bg, "bandcamp_embed_url", bad), 422)
+	}
+
+	// NewValue is `any` decoded from JSONB, so non-strings are reachable and
+	// would otherwise reach an untyped GORM Updates() map.
+	for _, bad := range []any{42, true, map[string]any{"x": 1}, []any{"a"}} {
+		testhelpers.AssertHumaError(t, ValidateFieldChangeValue(bg, "bandcamp_embed_url", bad), 422)
+	}
+}
+
+// social.bandcamp holds a PROFILE root, not a release, so it keeps the looser
+// host floor. Tightening it to the release rule would reject every value the
+// field is meant to hold.
+func TestValidateFieldChangeValue_BandcampProfileFieldStaysHostOnly(t *testing.T) {
+	if err := ValidateFieldChangeValue(bg, "bandcamp", "https://kingbuffalo.bandcamp.com"); err != nil {
+		t.Errorf("a profile root should pass on the social field, got: %v", err)
+	}
+	testhelpers.AssertHumaError(t, ValidateFieldChangeValue(bg, "bandcamp", "https://evil.test/kingbuffalo"), 422)
+}
+
+// ============================================================================
 // Bounded non-URL text fields on the suggest-edit path
 // ============================================================================
 

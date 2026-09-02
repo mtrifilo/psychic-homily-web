@@ -240,6 +240,10 @@ func TestIsValidBandcampURL(t *testing.T) {
 		{"lookalike domain", "https://notbandcamp.com/album/x", false},
 		{"scheme-less", "artist.bandcamp.com/album/x", false},
 		{"non-http scheme", "javascript:alert(1)//artist.bandcamp.com/album/x", false},
+		// http on a genuine release page is refused (PSY-1966): the resolver
+		// that turns the value into an iframe and the link gate that renders the
+		// fallback both require https, so an http row shows nothing at all.
+		{"http on a real release page", "http://artist.bandcamp.com/album/cool-album", false},
 	}
 
 	for _, tt := range tests {

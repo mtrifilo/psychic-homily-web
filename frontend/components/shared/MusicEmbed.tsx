@@ -4,7 +4,12 @@ import { useQuery } from '@tanstack/react-query'
 import * as Sentry from '@sentry/nextjs'
 import { ExternalLink, Loader2, Music } from 'lucide-react'
 import { parseSpotifyEmbed, type SpotifyEmbedKind } from '@/lib/spotify'
-import { bandcampEmbedSrc, type BandcampEmbedResponse } from '@/lib/bandcamp'
+import {
+  bandcampEmbedSrc,
+  isAllowedBandcampUrl,
+  isBandcampReleaseUrl,
+  type BandcampEmbedResponse,
+} from '@/lib/bandcamp'
 import { queryKeys } from '@/lib/queryClient'
 
 interface MusicEmbedProps {
@@ -295,7 +300,30 @@ function deriveEmbedState({
   }
 
   // Priority 3: Bandcamp fallback links.
-  if (bandcampAlbumUrl) {
+  //
+  // Both URLs are checked before either becomes an href, and this is the ONLY
+  // place that check can live and be complete: nine surfaces mount this
+  // component and all but one hand it the raw column, so a gate at the call
+  // sites is a gate that a tenth caller silently skips (PSY-1966).
+  //
+  // What is being defended: the fallback renders an outbound link labelled
+  // "Listen to <artist> on Bandcamp". bandcampAlbumUrl is
+  // artists.bandcamp_embed_url and bandcampProfileUrl is social.bandcamp, both
+  // contributor-writable, so an arbitrary URL in either is a phishing
+  // destination wearing a name the reader trusts. The iframe branches above need
+  // no such gate: their src is built from a resolved numeric id, never from the
+  // stored string.
+  //
+  // Two different rules because the two fields hold two different things. An
+  // embed URL names ONE release, so it must be a /album|/track page — the mirror
+  // of what the backend write gate now stores (utils.IsValidBandcampEmbedURL).
+  // A profile URL is a bare artist root, so the host anchor is the whole rule.
+  //
+  // Fail CLOSED, to 'none': a row written before the write gate existed shows no
+  // link rather than an unverified one. Falling through to the profile when the
+  // album URL is rejected is deliberate — the artist may still have a good
+  // profile link, and hiding that too would punish the reader for a bad row.
+  if (bandcampAlbumUrl && isBandcampReleaseUrl(bandcampAlbumUrl)) {
     return {
       type: 'fallback',
       url: bandcampAlbumUrl,
@@ -303,7 +331,7 @@ function deriveEmbedState({
     }
   }
 
-  if (bandcampProfileUrl) {
+  if (bandcampProfileUrl && isAllowedBandcampUrl(bandcampProfileUrl)) {
     return {
       type: 'fallback',
       url: bandcampProfileUrl,

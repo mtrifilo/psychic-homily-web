@@ -403,6 +403,18 @@ func (s *DataSyncService) importArtist(artist *contracts.ExportedArtist, dryRun 
 		return "SKIP: Artist name is required", "error"
 	}
 
+	// The import body is JSON an admin hands us, not a value this system wrote,
+	// so it is a write boundary like any other and the embed URL meets the same
+	// shape rule the artist endpoints enforce (PSY-1966). Refusing the ROW rather
+	// than dropping the field keeps the import honest: a silently blanked embed
+	// would report the artist as imported while quietly losing what the operator
+	// meant to move, and the per-row result already exists to say why one failed.
+	if bandcamp := artist.BandcampEmbedURL; bandcamp != nil {
+		if err := utils.ValidateBandcampEmbedURL(*bandcamp, utils.BandcampEmbedURLLabel); err != nil {
+			return fmt.Sprintf("ERROR: Artist '%s': %v", artist.Name, err), "error"
+		}
+	}
+
 	// Probe first so the DUPLICATE / WOULD IMPORT / IMPORTED message + dry-run gate
 	// can be decided before any write; the actual create + slug-backfill then route
 	// through the single artist funnel (PSY-1254).
