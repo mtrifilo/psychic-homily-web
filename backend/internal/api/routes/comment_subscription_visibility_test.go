@@ -101,9 +101,9 @@ func TestCommentSubscriptionsMirrorTheDetailRoute(t *testing.T) {
 	}
 
 	// Everybody subscribes to BOTH shows WHILE THEY ARE APPROVED, over the real
-	// route. That is the repro, and it is also what makes the assertions below
-	// about a show taken private afterwards mean anything: the subscribe gate
-	// alone would leave every row made before this ticket shipped still leaking.
+	// route, which is what makes the assertions below about a show taken private
+	// afterwards mean anything: a gate on the subscribe route alone leaves every
+	// row made before the flip still leaking.
 	for _, u := range []*authm.User{stranger, quitter, submitter, admin} {
 		for _, show := range []*catalogm.Show{gated, open} {
 			if code, body := do(t, http.MethodPost, subscribePath(show.ID), token(u), nil); code != http.StatusOK {
@@ -514,7 +514,7 @@ func seedComment(t *testing.T, seeder *engagement.CommentService, authorID, show
 }
 
 // seedEntityComment is seedComment for any comment parent, for the sibling
-// matrix that gates collections (PSY-1987).
+// matrix that gates collections.
 func seedEntityComment(t *testing.T, seeder *engagement.CommentService, authorID uint, entityType string, entityID uint, body string) uint {
 	t.Helper()
 	comment, err := seeder.CreateComment(authorID, &contracts.CreateCommentRequest{

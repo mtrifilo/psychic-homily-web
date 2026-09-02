@@ -71,7 +71,7 @@ func TestListComments_InvalidEntityID(t *testing.T) {
 
 // An entity type with no registered visibility rule reads as an EMPTY thread,
 // not as an error, because that is the shape this route already answers for an
-// id with no comments and the two must be indistinguishable (PSY-1987).
+// id with no comments and the two must be indistinguishable.
 func TestListComments_UnregisteredEntityTypeReadsEmpty(t *testing.T) {
 	serviceCalled := false
 	mock := &testhelpers.MockCommentService{
@@ -429,7 +429,7 @@ func TestCreateComment_EmptyBody(t *testing.T) {
 }
 
 // Posting to an entity type with no registered visibility rule is refused as a
-// missing entity, at the gate, before the writer runs (PSY-1987).
+// missing entity, at the gate, before the writer runs.
 func TestCreateComment_UnregisteredEntityTypeIsRefusedAtTheGate(t *testing.T) {
 	serviceCalled := false
 	mock := &testhelpers.MockCommentService{

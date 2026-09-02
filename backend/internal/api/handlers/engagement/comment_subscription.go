@@ -165,7 +165,7 @@ func (h *CommentSubscriptionHandler) UnsubscribeHandler(ctx context.Context, req
 		return nil, huma.Error400BadRequest("Invalid entity ID")
 	}
 
-	err = h.subscriptionService.Unsubscribe(user.ID, req.EntityType, uint(entityID))
+	removed, err := h.subscriptionService.Unsubscribe(user.ID, req.EntityType, uint(entityID))
 	if err != nil {
 		if mapped := shared.MapCommentError(err); mapped != nil {
 			return nil, mapped
@@ -174,6 +174,15 @@ func (h *CommentSubscriptionHandler) UnsubscribeHandler(ctx context.Context, req
 		return nil, huma.Error500InternalServerError(
 			fmt.Sprintf("Failed to unsubscribe (request_id: %s)", requestID),
 		)
+	}
+
+	// NOTHING HAPPENED, NOTHING IS RECORDED. This route is ungated and accepts
+	// any (entity_type, entity_id) pair the caller names, so writing an audit row
+	// per call lets a caller mint rows against ids they have no relationship
+	// with. The response is identical either way, so the count never reaches the
+	// caller.
+	if removed == 0 {
+		return nil, nil
 	}
 
 	// Audit log (fire and forget)

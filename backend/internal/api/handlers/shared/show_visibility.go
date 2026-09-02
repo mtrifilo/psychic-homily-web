@@ -47,24 +47,19 @@ func ShowSubResourceVisible(checker contracts.ShowVisibilityInterface, showID ui
 // EntitySubResourceVisible is ShowSubResourceVisible for a polymorphic route,
 // where the entity may not be a show at all.
 //
-// The one call every gated polymorphic route makes. It is a thin delegation to
-// services/shared.EntityVisibleTo, which owns the per-entity-type registry, and
-// it is thin ON PURPOSE: the rule that decides an entity_type must be the same
-// object the SQL spellings derive their allowlist from, or the handler gate and
-// the row gates can disagree about what an entity type means.
+// The one call every gated polymorphic route makes. A thin delegation to
+// services/shared.EntityVisibleTo, whose doc is the contract; it is thin ON
+// PURPOSE, because the rule that decides an entity_type must be the same object
+// the SQL spellings derive their allowlist from, or the handler gate and the row
+// gates can disagree about what an entity type means.
 //
-// AN ENTITY TYPE WITH NO REGISTERED RULE IS NOT VISIBLE (PSY-1987). This used to
-// pass everything that was not a show, which is how `collection` — a type with a
-// real read-time rule of its own — reached six surfaces ungated. What a caller
-// does with a refusal is still the caller's own no-data shape, per this file's
-// header: the empty list, or the entity-not-found error a never-used id gets.
-//
-// One consequence worth stating because it is a contract change: a route that
-// used to answer "invalid entity type" for a junk {entity_type} segment now
-// refuses it as a missing entity, at the gate, before the service that produced
-// that message runs. That is the fail-closed default doing its job, and it also
-// removes a small oracle — the old pair of answers published which entity types
-// the vocabulary contains.
+// AN ENTITY TYPE WITH NO REGISTERED RULE IS NOT VISIBLE, and a junk
+// {entity_type} segment is refused here rather than reaching the service that
+// would have answered "invalid entity type". What a caller does with a refusal
+// is still the caller's own no-data shape, per this file's header: the empty
+// list, or the entity-not-found error a never-used id gets. One answer for a
+// gated entity, a missing one and an unknown type is the point: the pairs that
+// differ are the oracle.
 func EntitySubResourceVisible(checker contracts.ShowVisibilityInterface, entityType string, entityID uint, viewer contracts.ShowViewer) bool {
 	return servicesshared.EntityVisibleTo(checker, entityType, entityID, viewer)
 }

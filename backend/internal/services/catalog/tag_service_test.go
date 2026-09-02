@@ -1239,11 +1239,39 @@ func (suite *TagServiceIntegrationTestSuite) TestGetTagEntities_Collections_Publ
 
 	// Same assertion via the entity_type filter — exercises the
 	// `entity_type=collection` query-param path the frontend uses.
-	filtered, _, err := suite.tagService.GetTagEntities(tag.ID, catalogm.TagEntityCollection, 50, 0)
+	filtered, filteredTotal, err := suite.tagService.GetTagEntities(tag.ID, catalogm.TagEntityCollection, 50, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(filtered, 1)
 	suite.Assert().Equal(publicColl.ID, filtered[0].EntityID)
 	suite.Assert().Equal("Public Picks", filtered[0].Name)
+
+	// THE TOTAL COUNTS THE SAME ROWS THE PAGE CONTAINS. A private collection
+	// dropped only in the assembly loop would leave a short page beside a total
+	// that still counted it, which reports how many private collections carry
+	// this tag: the withheld row published as arithmetic.
+	suite.Assert().EqualValues(len(filtered), filteredTotal,
+		"the total must describe the same rows as the page")
+
+	// The same property on the UNFILTERED listing, where the collection arm has
+	// to coexist with every other entity type's rows.
+	all, allTotal, err := suite.tagService.GetTagEntities(tag.ID, "", 50, 0)
+	suite.Require().NoError(err)
+	suite.Assert().EqualValues(len(all), allTotal,
+		"the unfiltered total must describe the same rows as the page")
+
+	// A HARD-DELETED collection is withheld on the same terms as a private one,
+	// and its entity_tags row outlives it. The pair has to answer alike or the
+	// listing sorts deleted collections from private ones.
+	deleted := suite.createCollection(user.ID, "Deleted Picks", true)
+	_, err = suite.tagService.AddTagToEntity(tag.ID, "", catalogm.TagEntityCollection, deleted.ID, user.ID, "")
+	suite.Require().NoError(err)
+	suite.Require().NoError(suite.db.Exec("DELETE FROM collections WHERE id = ?", deleted.ID).Error)
+
+	afterDelete, afterDeleteTotal, err := suite.tagService.GetTagEntities(tag.ID, catalogm.TagEntityCollection, 50, 0)
+	suite.Require().NoError(err)
+	suite.Assert().Len(afterDelete, 1, "a deleted collection must not appear")
+	suite.Assert().EqualValues(len(afterDelete), afterDeleteTotal,
+		"the total must not count a collection that no longer exists")
 }
 
 func (suite *TagServiceIntegrationTestSuite) TestGetTagDetail_NotFound() {

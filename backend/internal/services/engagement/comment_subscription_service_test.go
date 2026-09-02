@@ -159,8 +159,9 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestUnsubscribeSucc
 	err := suite.service.Subscribe(user.ID, "show", 1)
 	suite.NoError(err)
 
-	err = suite.service.Unsubscribe(user.ID, "show", 1)
+	removed, err := suite.service.Unsubscribe(user.ID, "show", 1)
 	suite.NoError(err)
+	suite.EqualValues(1, removed)
 
 	subscribed, err := suite.service.IsSubscribed(user.ID, "show", 1)
 	suite.NoError(err)
@@ -170,16 +171,21 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestUnsubscribeSucc
 func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestUnsubscribeIdempotent() {
 	user := suite.createTestUser()
 
-	// Unsubscribe without subscribing — should not error
-	err := suite.service.Unsubscribe(user.ID, "show", 1)
+	// Unsubscribe without subscribing: no error, and NOTHING removed. The count
+	// is what the route uses to decide whether an audit row is warranted, so a
+	// no-op that reported 1 would let any caller stamp the audit log with an
+	// arbitrary (entity_type, entity_id) pair.
+	removed, err := suite.service.Unsubscribe(user.ID, "show", 1)
 	suite.NoError(err)
+	suite.EqualValues(0, removed)
 }
 
 func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestUnsubscribeInvalidEntityType() {
 	user := suite.createTestUser()
 
-	err := suite.service.Unsubscribe(user.ID, "invalid_type", 1)
+	removed, err := suite.service.Unsubscribe(user.ID, "invalid_type", 1)
 	suite.Error(err)
+	suite.EqualValues(0, removed)
 	suite.Contains(err.Error(), "unsupported entity type")
 }
 
@@ -681,8 +687,9 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestNilDBSubscribe(
 
 func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestNilDBUnsubscribe() {
 	svc := &CommentSubscriptionService{db: nil}
-	err := svc.Unsubscribe(1, "show", 1)
+	removed, err := svc.Unsubscribe(1, "show", 1)
 	suite.Error(err)
+	suite.EqualValues(0, removed)
 	suite.Contains(err.Error(), "database not initialized")
 }
 

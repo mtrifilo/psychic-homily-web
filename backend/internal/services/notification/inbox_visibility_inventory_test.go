@@ -43,7 +43,7 @@ const (
 	// gated entity, so the comment arm gates the row through the comments
 	// table. Which parents are gated is shared.VisibleCommentEntitySQL's
 	// decision — a show, a collection, or a type nobody dispositioned — and this
-	// arm carries no copy of that list (PSY-1987).
+	// arm carries no copy of that list.
 	gatedByCommentParent
 	// fencedElsewhere: the row reaches a show, but not through entity_id, so
 	// gating the ROW would be wrong. Its show data is fenced at its own
@@ -199,13 +199,15 @@ func TestEntityTypeArmDropsArgsWithItsGate(t *testing.T) {
 	}
 }
 
-// An admin gets a REAL predicate, not a blanket bypass (PSY-1987).
+// An admin gets a REAL predicate, not a blanket bypass.
 //
-// This used to answer `1 = 1` for an admin, which was right while every arm
-// judged shows. The comment arm now also judges COLLECTIONS, and no collection
-// read path grants an admin a private one, so a blanket bypass would make the
-// moderation inbox the one surface that publishes them. Pinned here because the
-// bypass is the tidier-looking code and a later edit will want it back.
+// A blanket bypass is right only while every arm judges shows, which an admin
+// sees all of. The comment arm also judges COLLECTIONS, and no collection detail
+// or listing read grants an admin a private one, so `1 = 1` would extend the two
+// deliberate admin exceptions (the pending-comment moderation queue and the
+// admin write path on PUT /collections/{slug}) to a passive feed that nobody
+// decided to grant. Pinned here because the bypass is the tidier-looking code
+// and a later edit will want it back.
 func TestInboxPredicateHasNoBlanketAdminBypass(t *testing.T) {
 	sql, _ := inboxRowsVisibleTo("nl", contracts.ShowViewer{UserID: 7, IsAdmin: true})
 	if sql == "1 = 1" || sql == "TRUE" {

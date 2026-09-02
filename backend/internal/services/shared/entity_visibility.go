@@ -14,30 +14,22 @@ import (
 //
 // A comment, a comment subscription, a last-read pointer and an entity-tag row
 // all name their parent as an (entity_type, entity_id) pair, so the surfaces
-// that read them cannot ask "may this viewer see this show" — they have to ask
-// "may this viewer see whatever this row points at". This file is where that
-// question is answered, once, for every spelling of it (PSY-1987).
+// that read them cannot ask "may this viewer see this show". They have to ask
+// "may this viewer see whatever this row points at". This file answers that
+// question once, for every spelling of it.
 //
-// THE ROOT DEFECT THIS FILE EXISTS TO REMOVE was a default-open. The gate
-// PSY-1939 introduced recognised `show` and waved everything else through,
-// including `collection` — which has a real read-time rule of its own — so a
-// logged-in stranger could subscribe to a guessed private collection id and
-// watch it from the watching list, the notification inbox and the comment
-// fan-out. The bug was not that the collection rule was written wrong. It is
-// that nothing forced anybody to write it.
-//
-// So the shape here is a REGISTRY and a closed switch, not a special case:
+// The shape is a REGISTRY and a closed switch, not a special case:
 //
 //   - Every entity type that can reach these gates has an explicit entry below,
 //     and an entity type with no entry is NOT VISIBLE. Refusing is recoverable;
 //     publishing is not.
-//   - `alwaysVisible` is a decision, spelled out per type with the reason. It is
-//     not the absence of one, which is exactly what it replaces.
+//   - `ruleAlwaysVisible` is a decision, spelled out per type with the reason,
+//     rather than the absence of one.
 //   - TestEveryCommentEntityTypeHasAVisibilityRule fails for a type declared in
-//     the models and missing here, so the eighth entity type cannot ship
+//     the models and missing here, so an entity type cannot ship
 //     un-dispositioned. The runtime fail-closed is the belt behind that brace,
 //     for a type that reaches these gates without going through the model
-//     constants at all — three of the four call-site families pass unvalidated
+//     constants at all: three of the four call-site families pass unvalidated
 //     path text straight in.
 //
 // THE ADMIN TIER IS NOT UNIFORM ACROSS THE ARMS, and nothing here may add one.
@@ -59,15 +51,36 @@ import (
 type entityVisibilityRule int
 
 const (
+	// ruleUnregistered is the ZERO VALUE and is never stored in the registry. A
+	// bare map index on a type nobody registered yields this, and every switch
+	// below refuses it, so the cheapest possible mistake stays the closed one.
+	// The permissive rule must never be the value a missing key produces.
+	ruleUnregistered entityVisibilityRule = iota
 	// ruleAlwaysVisible: this entity type has no read-time visibility rule
 	// anywhere in the codebase, so every row naming it is answerable to every
 	// caller. A CLAIM, checked against the model in the disposition test.
-	ruleAlwaysVisible entityVisibilityRule = iota
+	ruleAlwaysVisible
 	// ruleShow: decided by services/shared/show_visibility.go.
 	ruleShow
 	// ruleCollection: decided by services/shared/collection_visibility.go.
 	ruleCollection
 )
+
+// String names a rule so a failing disposition test reads as a rule name rather
+// than as an integer whose meaning depends on the declaration order above.
+func (r entityVisibilityRule) String() string {
+	switch r {
+	case ruleUnregistered:
+		return "ruleUnregistered"
+	case ruleAlwaysVisible:
+		return "ruleAlwaysVisible"
+	case ruleShow:
+		return "ruleShow"
+	case ruleCollection:
+		return "ruleCollection"
+	}
+	return "unknown entityVisibilityRule"
+}
 
 // entityVisibilityRules is the disposition of every polymorphic entity_type,
 // keyed by the CANONICAL value the writers store.
@@ -102,30 +115,22 @@ var entityVisibilityRules = map[string]entityVisibilityRule{
 
 // entityVisibilityRuleFor resolves an {entity_type} segment to its rule.
 //
-// Case is folded and surrounding space trimmed for the reason PSY-1939 gave: a
-// gate that `show` passes but `Show` slips through is not a gate. ok is false
-// for anything not registered, and every caller treats that as "not visible".
+// EXACT MATCH against the canonical spelling, with no case folding and no plural
+// fallback, because this gate has to agree with the service vocabulary that runs
+// behind it. engagement.validateCommentEntityType and
+// catalogm.IsValidTagEntityType both compare exactly, so a gate that accepted
+// more spellings than they do would answer two different refusals for the same
+// id depending on how the caller spelled the type, and the pair of answers is
+// itself a disclosure. One canonical vocabulary, one answer.
 //
-// The PLURAL spelling resolves to the singular, on a second lookup that only an
-// unregistered spelling ever reaches. Plurals are recognised for the reason
-// PSY-1939 gave for `shows`: an {entity_type} path segment is caller-supplied
-// text, the codebase uses plurals for the same concept elsewhere
-// (catalog.EntityExistenceService), and a gate that a spelling slips past is not
-// a gate. Under a fail-closed default the cost of NOT recognising them changed
-// sign — an unrecognised plural now refuses a legitimate read rather than waving
-// a gated one through — which is a second, independent reason to keep them.
+// It is also what the SQL spellings do: they compare against STORED values, and
+// the writers store the canonical spelling. A Go side that normalised and a SQL
+// side that did not would be two rules.
 //
-// Stripping the suffix admits nothing new: the stem has to be a registered type
-// for the lookup to succeed, and stem+"s" IS its plural by construction.
-//
-// The SQL side has no equivalent and must not grow one: it compares against
-// STORED values, and the writers store the canonical spelling.
+// ok is false for anything not registered, and every caller treats that as "not
+// visible".
 func entityVisibilityRuleFor(entityType string) (entityVisibilityRule, bool) {
-	normalized := strings.ToLower(strings.TrimSpace(entityType))
-	if rule, ok := entityVisibilityRules[normalized]; ok {
-		return rule, true
-	}
-	rule, ok := entityVisibilityRules[strings.TrimSuffix(normalized, "s")]
+	rule, ok := entityVisibilityRules[entityType]
 	return rule, ok
 }
 
@@ -133,7 +138,7 @@ func entityVisibilityRuleFor(entityType string) (entityVisibilityRule, bool) {
 // names, for ONE already-identified pair.
 //
 // The Go spelling, used by the handler boundary. An entity type with no
-// registered rule answers FALSE, which is the change PSY-1987 exists to make.
+// registered rule answers FALSE.
 //
 // A nil checker answers false for the types that need one, and true for the
 // types that do not: there is nothing for a missing gate to have decided about
@@ -192,6 +197,14 @@ func EntityVisibleTo(checker contracts.ShowVisibilityInterface, entityType strin
 // Both expressions are SQL the CALLER controls and must be literals in the
 // calling code. Nothing derived from a request may reach them.
 func VisibleCommentEntitySQL(entityTypeExpr, entityIDExpr string, viewer contracts.ShowViewer) (string, []interface{}) {
+	// SQLQuotedList's contract: empty means empty, and the caller must not emit a
+	// placeholder for it. `IN ()` is a syntax error, so an empty registry answers
+	// the refusal the allowlist would have meant rather than a broken statement.
+	// Unreachable while the registry has entries; spelled out because the failure
+	// it prevents is a 500 on every surface at once.
+	if registeredEntityTypeList == "" {
+		return "1 = 0", nil
+	}
 	conds := []string{entityTypeExpr + " IN (" + registeredEntityTypeList + ")"}
 	var args []interface{}
 	// SORTED, so the emitted statement is byte-identical across processes and
@@ -217,8 +230,8 @@ func VisibleCommentEntitySQL(entityTypeExpr, entityIDExpr string, viewer contrac
 //
 // A gated rule with no arm here EXCLUDES every row of its type. That is the
 // fail-closed answer to a half-finished rule: withholding is recoverable and a
-// disposition test says so loudly, while passing the rows through would be this
-// ticket's own defect, reintroduced by whoever adds the eighth type.
+// disposition test says so loudly, while passing the rows through would restore
+// the default-open for whoever adds the next type.
 func commentEntityArmFor(entityType, entityTypeExpr, entityIDExpr string, viewer contracts.ShowViewer) (string, []interface{}) {
 	switch entityVisibilityRules[entityType] {
 	case ruleShow:

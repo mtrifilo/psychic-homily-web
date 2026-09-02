@@ -255,7 +255,7 @@ func CreateArtist(db *gorm.DB, name string) *catalogm.Artist {
 // it, with is_public read back out of the database.
 //
 // Beside CreateApprovedShow / CreatePendingShow because collections are the
-// OTHER entity type with a read-time visibility rule (PSY-1987), and a privacy
+// OTHER entity type with a read-time visibility rule, and a privacy
 // fixture is exactly the thing that must not be re-derived per test package.
 //
 // TWO WRITES, and both are load-bearing. GORM omits a false boolean on Create

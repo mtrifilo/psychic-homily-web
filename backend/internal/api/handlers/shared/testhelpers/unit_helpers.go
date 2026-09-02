@@ -88,10 +88,13 @@ func CtxWithUser(user *authm.User) context.Context {
 //
 // EVERY method must be filled in here, not just the ones a given test needs.
 // The helper's meaning is "this test is not about the gate", and a method left
-// nil would quietly refuse one entity type while granting the rest — a test
-// failure that reads as a product bug. The name predates the collection arm
-// (PSY-1987) and is left alone for the reason contracts.ShowVisibilityInterface
-// gives.
+// nil quietly refuses one entity type while granting the rest, which reads as a
+// product bug in whichever unrelated test hits it.
+// TestAllShowsVisibleFillsEveryGate enforces that by reflection, so a method
+// added to the interface is covered without an edit here.
+//
+// The name says shows and the helper grants collections too, for the reason
+// contracts.ShowVisibilityInterface gives about its own name.
 func AllShowsVisible() *MockShowVisibility {
 	return &MockShowVisibility{
 		ShowVisibleToFn:       func(uint, contracts.ShowViewer) bool { return true },

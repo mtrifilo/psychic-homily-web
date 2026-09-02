@@ -12,14 +12,12 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 )
 
-// Every polymorphic entity_type must have a decided position on visibility
-// (PSY-1987).
+// Every polymorphic entity_type must have a decided position on visibility.
 //
-// This is the structural guard the ticket exists to add. The leak it closes was
-// not a rule written wrong — it was a rule nobody was forced to write:
-// `collection` reached six surfaces through a gate that recognised `show` and
-// waved everything else through, and no test failed, because there was nothing
-// for a missing decision to fail.
+// The failure this guards against is not a rule written wrong. It is a rule
+// nobody is forced to write: an entity type reaching six surfaces through a gate
+// that recognises some types and waves the rest through fails no test, because
+// there is nothing for a missing decision to fail.
 //
 // So the cost of adding an entity type is one line in entityVisibilityRules plus
 // the judgement it forces. That is the point. It does not check behaviour —
@@ -132,8 +130,8 @@ func TestRegisteredEntityTypesReachTheEmittedSQL(t *testing.T) {
 // Every alwaysVisible entry says, in prose, that its model carries no read-time
 // visibility rule. Prose does not fail. The day somebody adds `is_private` to
 // artists, or turns `label.status` into a moderation state, five gates keep
-// answering true and nothing moves — which is this ticket's own defect one level
-// down, and the reason to spend a test on it.
+// answering true and nothing moves, which is the same missing-decision failure
+// one level down and the reason to spend a test on it.
 //
 // It is a NAME-BASED heuristic over the GORM struct, not a proof: it catches a
 // column whose name is in the privacy vocabulary below, and it cannot catch a
@@ -166,18 +164,30 @@ func TestAlwaysVisibleModelsHaveNoPrivacyColumn(t *testing.T) {
 	// name so `IsPublic`, `PublicationStatus` and `DeletedAt` all land.
 	privacyVocabulary := []string{
 		"Public", "Private", "Visib", "Deleted", "Published", "Status", "Verified", "Moderat",
+		"Hidden", "Draft", "Archiv", "Restrict", "Embargo",
 	}
 
-	// TIMESTAMPS ARE NOT RULES, and excluding them structurally beats waiving
-	// them one by one. `LastVerifiedAt` is on all five of these models and is
-	// data provenance — when somebody last checked the row is true — not a test
-	// any gate could evaluate. A read-time visibility rule is a boolean or a
-	// short enum, because a gate has to turn it into a WHERE clause.
+	// PROVENANCE TIMESTAMPS ARE NOT RULES, and they are excluded BY NAME rather
+	// than by type. A `time.Time` type test run before the vocabulary match would
+	// skip `PublishedAt` and `HiddenAt` as well, and those are exactly the shape
+	// a read-time rule arrives in: a gate turns `published_at IS NOT NULL` into a
+	// WHERE clause as readily as it turns a boolean into one. So the vocabulary
+	// decides first, and only these four names are waived for being provenance.
 	//
-	// gorm.DeletedAt is deliberately NOT excluded: it is not a time.Time, and a
-	// soft-delete column genuinely IS a read-time rule that these gates would
+	// gorm.DeletedAt is not in the list and must not be: it is not a time.Time,
+	// and a soft-delete column genuinely IS a read-time rule these gates would
 	// have to honour.
-	isTimestamp := func(t reflect.Type) bool {
+	provenanceTimestamps := map[string]bool{
+		"CreatedAt":      true,
+		"UpdatedAt":      true,
+		"LastVerifiedAt": true,
+		"VerifiedAt":     true,
+	}
+	isProvenanceTimestamp := func(field reflect.StructField) bool {
+		if !provenanceTimestamps[field.Name] {
+			return false
+		}
+		t := field.Type
 		if t.Kind() == reflect.Ptr {
 			t = t.Elem()
 		}
@@ -201,9 +211,9 @@ func TestAlwaysVisibleModelsHaveNoPrivacyColumn(t *testing.T) {
 		modelType := reflect.TypeOf(model)
 		for i := 0; i < modelType.NumField(); i++ {
 			field := modelType.Field(i)
-			if isTimestamp(field.Type) {
-				continue
-			}
+			// VOCABULARY FIRST. A field that matches nothing is not a candidate,
+			// whatever its type; a field that DOES match is skipped only if it is
+			// one of the named provenance timestamps.
 			matched := ""
 			for _, term := range privacyVocabulary {
 				if strings.Contains(field.Name, term) {
@@ -212,6 +222,9 @@ func TestAlwaysVisibleModelsHaveNoPrivacyColumn(t *testing.T) {
 				}
 			}
 			if matched == "" {
+				continue
+			}
+			if isProvenanceTimestamp(field) {
 				continue
 			}
 			key := entityType + "." + field.Name
@@ -279,21 +292,59 @@ func TestEntityVisibleToFailsClosedOnAnUnregisteredType(t *testing.T) {
 	}
 }
 
-// A registered type is decided by its rule, and case and the plural spelling do
-// not change the answer. A gate that "show" passes but "Show" or "shows" slips
-// through is not a gate.
-func TestEntityVisibleToNormalisesTheSpelling(t *testing.T) {
+// ONLY THE CANONICAL SPELLING IS REGISTERED. Case variants and plurals are
+// refused, and that is the convergence this gate owes the service behind it:
+// engagement.validateCommentEntityType and catalogm.IsValidTagEntityType both
+// compare exactly, so a gate that accepted more spellings than they do would
+// answer one refusal for a gated id and a different one for the same id spelled
+// another way. One vocabulary, one answer.
+func TestEntityVisibleToTakesOnlyTheCanonicalSpelling(t *testing.T) {
 	denying := noEntitiesVisibleChecker{}
-	for _, entityType := range []string{"show", "Show", " SHOW ", "shows", "collection", "COLLECTIONS"} {
-		if EntityVisibleTo(denying, entityType, 1, contracts.ShowViewer{UserID: 7}) {
-			t.Errorf("a denying checker was bypassed by the spelling %q", entityType)
+	permissive := allEntitiesVisibleChecker{}
+	viewer := contracts.ShowViewer{UserID: 7}
+
+	// The gated types: refused by their own rule under the canonical spelling.
+	for _, entityType := range []string{"show", "collection"} {
+		if EntityVisibleTo(denying, entityType, 1, viewer) {
+			t.Errorf("a denying checker was bypassed for %q", entityType)
 		}
 	}
 	// The always-visible arm answers without consulting a checker at all, so a
 	// denying one cannot make an artist disappear.
-	for _, entityType := range []string{"artist", "Artists", "venue", "release", "label", "festival"} {
-		if !EntityVisibleTo(denying, entityType, 1, contracts.ShowViewer{UserID: 7}) {
+	for _, entityType := range []string{"artist", "venue", "release", "label", "festival"} {
+		if !EntityVisibleTo(denying, entityType, 1, viewer) {
 			t.Errorf("the always-visible arm refused %q", entityType)
+		}
+	}
+	// Every non-canonical spelling of a REGISTERED type is unregistered, even
+	// with a checker that grants everything. The permissive checker is what makes
+	// this about the vocabulary rather than about the rule.
+	for _, entityType := range []string{
+		"Show", " SHOW ", "shows", "Collection", "COLLECTIONS", "collections",
+		"Artist", "artists", "venues", " artist",
+	} {
+		if EntityVisibleTo(permissive, entityType, 1, viewer) {
+			t.Errorf("the gate accepted the non-canonical spelling %q", entityType)
+		}
+	}
+}
+
+// The gate's vocabulary and the comment service's vocabulary must answer alike,
+// or the pair of refusals sorts one kind of id from another.
+//
+// engagementm.ValidCommentEntityTypes is the service's set. Every member of it
+// must be registered, and no spelling outside it may resolve.
+func TestGateVocabularyMatchesTheCommentServiceVocabulary(t *testing.T) {
+	for entityType := range engagementm.ValidCommentEntityTypes {
+		if _, ok := entityVisibilityRuleFor(string(entityType)); !ok {
+			t.Errorf("the service accepts %q but the gate does not resolve it, so the route "+
+				"refuses a type the service would have served", entityType)
+		}
+	}
+	for entityType := range entityVisibilityRules {
+		if _, ok := engagementm.ValidCommentEntityTypes[engagementm.CommentEntityType(entityType)]; !ok {
+			t.Errorf("the gate resolves %q but the service rejects it, so the two answer "+
+				"differently for the same id", entityType)
 		}
 	}
 }

@@ -964,7 +964,7 @@ func (h *CollectionHandler) GetEntityCollectionsHandler(ctx context.Context, req
 
 	// Which collections an entity sits in is that entity's own sub-resource,
 	// reached by the id its detail route refuses, so it answers to the same viewer
-	// rule (PSY-1939, PSY-1987). An entity type with no registered rule is refused
+	// rule. An entity type with no registered rule is refused
 	// rather than waved through, so this route's safety does not rest on the check
 	// above having the same members as the registry — the gate refuses anything
 	// the registry has not dispositioned, whatever reaches it.

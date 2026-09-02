@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -14,17 +16,14 @@ import (
 	"psychic-homily-backend/internal/testutil"
 )
 
-// PSY-1987: a comment SUBSCRIPTION to a COLLECTION carries the collection detail
-// route's visibility rule, at the moment it is made and on every read of it
-// afterwards.
+// A comment SUBSCRIPTION to a COLLECTION carries the collection detail route's
+// visibility rule, at the moment it is made and on every read of it afterwards.
 //
-// PSY-1983 closed this family for shows and disclosed collections as the leak it
-// had not reached: shared.EntitySubResourceVisible recognised `show` and waved
-// every other entity type through, so one POST with a guessed id turned
-// GET /me/comment-subscriptions into a monitored feed of a private collection —
-// its id, its comment count, its last-activity timestamp and the display name of
-// whoever commented last — and the fan-out mailed every new comment on it to
-// whoever had subscribed.
+// What is at stake if it does not: one POST with a guessed id turns
+// GET /me/comment-subscriptions into a monitored feed of a private collection,
+// carrying its id, its comment count, its last-activity timestamp and the
+// display name of whoever commented last, and the fan-out mails every new
+// comment on it to whoever subscribed.
 //
 // This is the sibling of comment_subscription_visibility_test.go, same shape,
 // same four tiers, on the other gated entity type. Read them together. The one
@@ -68,9 +67,9 @@ func TestCollectionSubscriptionsMirrorTheDetailRoute(t *testing.T) {
 	// one's subscription would silently disarm every assertion after it.
 	quitter := testhelpers.CreateTestUser(td.DB)
 
-	// BOTH PUBLIC to begin with: the reported repro is a collection that was
-	// public when it was subscribed to, and the subscribe gate alone would leave
-	// every row made before this ticket shipped still leaking.
+	// BOTH PUBLIC to begin with, because the case that matters is a collection
+	// that was public when it was subscribed to. A gate on the subscribe route
+	// alone leaves every row made before the flip still leaking.
 	gated := testhelpers.CreateCollection(t, td.DB, creator.ID, watchGatedCollectionTitle, watchGatedCollectionSlug, true).ID
 	open := testhelpers.CreateCollection(t, td.DB, creator.ID, watchOpenCollectionTitle, watchOpenCollectionSlug, true).ID
 
@@ -262,8 +261,8 @@ func TestCollectionSubscriptionsMirrorTheDetailRoute(t *testing.T) {
 				// echoing a caller's own input discloses nothing. Normalised out
 				// so the comparison is about everything else: any OTHER
 				// difference sorts real private collections from ids never used.
-				gatedNorm := strings.ReplaceAll(string(gatedBody), fmt.Sprint(gated), "<id>")
-				absentNorm := strings.ReplaceAll(string(absentBody), fmt.Sprint(absentCollectionID), "<id>")
+				gatedNorm := elideEntityID(string(gatedBody), gated)
+				absentNorm := elideEntityID(string(absentBody), absentCollectionID)
 				if gatedCode != absentCode || !sameErrorMessage([]byte(gatedNorm), []byte(absentNorm)) {
 					t.Errorf("POST %s answers %d/%s for a private collection but %d/%s for a nonexistent one as %s — the difference is the leak",
 						w.name, gatedCode, gatedNorm, absentCode, absentNorm, c.name)
@@ -541,4 +540,17 @@ func TestCollectionSubscriptionsMirrorTheDetailRoute(t *testing.T) {
 			t.Errorf("the inbox did not restore the republished collection's comment; body: %s", restored)
 		}
 	})
+}
+
+// elideEntityID replaces WHOLE-NUMBER occurrences of id in body with a
+// placeholder, so two error messages can be compared for everything except the
+// caller's own echoed input.
+//
+// Word-anchored rather than a plain substring replacement: collection ids are
+// small integers, and replacing "3" everywhere also rewrites the 3 inside a
+// timestamp, a status code or a longer id, which would make two genuinely
+// different messages compare equal and turn the assertion into a no-op.
+func elideEntityID(body string, id uint) string {
+	pattern := regexp.MustCompile(`\b` + regexp.QuoteMeta(strconv.FormatUint(uint64(id), 10)) + `\b`)
+	return pattern.ReplaceAllString(body, "<id>")
 }

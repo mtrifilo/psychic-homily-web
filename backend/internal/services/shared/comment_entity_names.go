@@ -26,7 +26,7 @@ type EntityNameRow struct {
 // Returns nested map[entityType]map[entityID]EntityNameRow.
 //
 // GATED ids are FENCED HERE, against viewer, as well as by the row gates the
-// callers apply upstream (PSY-1983, PSY-1987). Which types those are is
+// callers apply upstream. Which types those are is
 // EntityIdentityFenceSQL's decision, not a list repeated here, so a type that
 // gains a rule gains this fence in the same edit. The two mechanisms are not
 // redundant and are not alternatives:
@@ -52,11 +52,9 @@ type EntityNameRow struct {
 // batch, is logged and skipped, and both callers fall back to rendering
 // "collection #<id>". The fence is added anyway, and it is not decoration: the
 // column bug is a display defect somebody will fix, and fixing it must not be
-// the edit that starts publishing private collections' titles. Deliberately NOT
-// fixed here, because widening a disclosure path is not something a privacy
-// change should do on the way past; PSY-1987's PR body files it as a follow-up.
-// The row gates upstream are what actually close the leak, and they do not
-// depend on this.
+// the edit that starts publishing private collections' titles. The fence is
+// therefore in place BEFORE the column is corrected, and the row gates upstream
+// are what actually close the leak: they do not depend on this.
 func LoadCommentEntityNames(db *gorm.DB, idsByType map[string][]uint, viewer contracts.ShowViewer) map[string]map[uint]EntityNameRow {
 	out := make(map[string]map[uint]EntityNameRow, len(idsByType))
 	for entityType, ids := range idsByType {

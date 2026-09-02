@@ -1150,19 +1150,26 @@ func (s *TagService) GetTagEntities(tagID uint, entityType string, limit, offset
 		query = query.Where("entity_type = ?", entityType)
 	}
 
-	// Gated shows leave this listing in the QUERY, not in the assembly loop
-	// below, so the total, the page and the offset all describe the same rows
-	// (PSY-1939). Dropping them later would answer an empty page beside a total
-	// that counts them, which is the withheld count published as arithmetic and
-	// is exactly what a gate on this listing exists to prevent.
+	// Gated entities leave this listing in the QUERY, not in the assembly loop
+	// below, so the total, the page and the offset all describe the same rows.
+	// Dropping them later would answer a short page beside a total that counts
+	// them, which is the withheld count published as arithmetic and is exactly
+	// what a gate on this listing exists to prevent.
 	//
-	// PUBLIC tier: this route is anonymous, and a tag's membership is a shared
-	// listing whose contents must not vary by credential.
+	// PUBLIC tier for both arms: this route is anonymous, and a tag's membership
+	// is a shared listing whose contents must not vary by credential. The
+	// anonymous ShowViewer is what makes VisibleCollectionExistsSQL collapse to
+	// `is_public = TRUE`, which is the rule enrichCollections applies below.
 	visibleShows, visibleShowsArgs := shared.VisibleShowExistsSQL(
 		"entity_tags.entity_id", contracts.ShowViewer{})
 	query = query.Where(
 		"(entity_tags.entity_type <> ? OR "+visibleShows+")",
 		append([]interface{}{catalogm.TagEntityShow}, visibleShowsArgs...)...)
+	visibleCollections, visibleCollectionsArgs := shared.VisibleCollectionExistsSQL(
+		"entity_tags.entity_id", contracts.ShowViewer{})
+	query = query.Where(
+		"(entity_tags.entity_type <> ? OR "+visibleCollections+")",
+		append([]interface{}{catalogm.TagEntityCollection}, visibleCollectionsArgs...)...)
 
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
@@ -1229,21 +1236,13 @@ func (s *TagService) GetTagEntities(tagID uint, entityType string, limit, offset
 				enriched.EntityType = et.EntityType
 				enriched.EntityID = et.EntityID
 				item = enriched
-			} else if et.EntityType == "collection" || et.EntityType == catalogm.TagEntityShow {
-				// PSY-553: enrichCollections drops private + deleted
-				// collections so the public tag detail page can't leak
-				// them; skip rather than emit an empty-name placeholder.
-				//
-				// KNOWN GAP for collections, stated rather than implied: the
-				// total above still counts the rows this drops, so a short page
-				// beside a larger total reports how many private collections
-				// carry the tag. Closing it needs the collection visibility
-				// rule in the query, the way the show rule now is.
-				//
-				// Shows never reach this branch: the query already excluded
-				// them, which is what keeps their total honest. The arm stays
-				// as defence in depth, so a future edit that loosens the query
-				// still cannot emit a nameless card asserting a show is there.
+			} else if et.EntityType == catalogm.TagEntityCollection || et.EntityType == catalogm.TagEntityShow {
+				// DEFENCE IN DEPTH, not the gate. Neither type reaches this
+				// branch: the query above excludes gated shows, private
+				// collections and rows whose entity no longer exists, which is
+				// what keeps the total describing the same rows as the page. The
+				// arm stays so that an edit loosening the query cannot emit a
+				// nameless card asserting the entity is there.
 				continue
 			}
 		}

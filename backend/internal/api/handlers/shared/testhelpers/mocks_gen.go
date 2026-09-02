@@ -1105,7 +1105,7 @@ func (m *MockCommentService) DeleteComment(userID uint, commentID uint, isAdmin 
 
 type MockCommentSubscriptionService struct {
 	SubscribeFn               func(uint, string, uint) error
-	UnsubscribeFn             func(uint, string, uint) error
+	UnsubscribeFn             func(uint, string, uint) (int64, error)
 	IsSubscribedFn            func(uint, string, uint) (bool, error)
 	MarkReadFn                func(uint, string, uint) error
 	GetUnreadCountFn          func(uint, string, uint) (int, error)
@@ -1119,11 +1119,11 @@ func (m *MockCommentSubscriptionService) Subscribe(userID uint, entityType strin
 	}
 	return nil
 }
-func (m *MockCommentSubscriptionService) Unsubscribe(userID uint, entityType string, entityID uint) error {
+func (m *MockCommentSubscriptionService) Unsubscribe(userID uint, entityType string, entityID uint) (int64, error) {
 	if m.UnsubscribeFn != nil {
 		return m.UnsubscribeFn(userID, entityType, entityID)
 	}
-	return nil
+	return 0, nil
 }
 func (m *MockCommentSubscriptionService) IsSubscribed(userID uint, entityType string, entityID uint) (bool, error) {
 	if m.IsSubscribedFn != nil {

@@ -423,7 +423,7 @@ func (s *CommentNotificationService) NotifySubscribers(commentID uint) error {
 }
 
 // whereRecipientMaySeeCommentParent narrows a recipient query to the users who
-// may see the entity the comment hangs off (PSY-1983, PSY-1987).
+// may see the entity the comment hangs off.
 //
 // The fan-out is the channel a read-time gate cannot reach. Both callers below
 // send EMAIL carrying the parent's title, the comment's excerpt and a link, and
@@ -431,11 +431,12 @@ func (s *CommentNotificationService) NotifySubscribers(commentID uint) error {
 // stranger who subscribed while the show was public, or while the collection was
 // public, would otherwise keep being mailed its private activity indefinitely.
 //
-// UNCONDITIONAL now, where it used to return the query untouched for every
-// non-show parent. That early return was the fan-out's half of the default-open
-// this ticket removes: a collection turned private kept mailing its comments to
-// everyone who had ever subscribed. shared.CommentEntityRecipientsSQL answers
-// for every entity type, including "nobody" for one that has no recorded rule.
+// UNCONDITIONAL: the gate is spliced in for every parent entity type, with no
+// early return for the types that have no rule. An early return there is the
+// fan-out's half of a default-open, and it is how a collection turned private
+// keeps mailing its comments to everyone who ever subscribed.
+// shared.CommentEntityRecipientsSQL answers for every entity type, including
+// "nobody" for one that has no recorded rule.
 //
 // recipientIDExpr names the column holding each candidate's user id, and it is a
 // literal at each call site: the subscriber query joins users through

@@ -312,3 +312,129 @@ func TestSetTagParent_ServiceError(t *testing.T) {
 	_, err := h.SetTagParentHandler(ctx, &SetTagParentRequest{TagID: "2"})
 	testhelpers.AssertHumaError(t, err, 500)
 }
+
+// ============================================================================
+// The per-entity tag WRITE gate
+// ============================================================================
+
+// A caller who may not see the entity may not write tags onto it.
+//
+// The harm the gate removes is not only an oracle: a tag added to a private
+// collection appears on its owner's page, counts toward the per-collection cap,
+// and is attributed to whoever added it. All four write registrations on this
+// path family are covered, because a write route left out of a sweep is how a
+// family gets missed.
+//
+// deniesEverything stands in for a gate that refuses; the service mocks below
+// fail the test if they are reached at all, which is the assertion that matters:
+// the refusal happens BEFORE the write.
+func TestTagWriteRoutes_RefuseAnEntityTheCallerCannotSee(t *testing.T) {
+	deniesEverything := &testhelpers.MockShowVisibility{
+		ShowVisibleToFn:       func(uint, contracts.ShowViewer) bool { return false },
+		CollectionVisibleToFn: func(uint, contracts.ShowViewer) bool { return false },
+	}
+	reached := func(t *testing.T) func() {
+		return func() { t.Error("the tag service was reached for an entity the caller cannot see") }
+	}
+
+	t.Run("add", func(t *testing.T) {
+		mock := &testhelpers.MockTagService{
+			AddTagToEntityFn: func(uint, string, string, uint, uint, string) (*catalogm.EntityTag, error) {
+				reached(t)()
+				return nil, nil
+			},
+		}
+		h := NewTagHandler(mock, nil, deniesEverything)
+		ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+		req := &AddTagToEntityRequest{EntityType: "collection", EntityID: "7"}
+		req.Body.TagID = 3
+		_, err := h.AddTagToEntityHandler(ctx, req)
+		testhelpers.AssertHumaError(t, err, 404)
+	})
+
+	t.Run("remove", func(t *testing.T) {
+		mock := &testhelpers.MockTagService{
+			RemoveTagFromEntityFn: func(uint, string, uint) error {
+				reached(t)()
+				return nil
+			},
+		}
+		h := NewTagHandler(mock, nil, deniesEverything)
+		ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+		_, err := h.RemoveTagFromEntityHandler(ctx, &RemoveTagFromEntityRequest{
+			EntityType: "collection", EntityID: "7", TagID: "3",
+		})
+		testhelpers.AssertHumaError(t, err, 404)
+	})
+
+	t.Run("vote", func(t *testing.T) {
+		mock := &testhelpers.MockTagService{
+			VoteOnTagFn: func(uint, string, uint, uint, bool) error {
+				reached(t)()
+				return nil
+			},
+		}
+		h := NewTagHandler(mock, nil, deniesEverything)
+		ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+		req := &VoteTagRequest{EntityType: "collection", EntityID: "7", TagID: "3"}
+		req.Body.IsUpvote = true
+		_, err := h.VoteTagHandler(ctx, req)
+		testhelpers.AssertHumaError(t, err, 404)
+	})
+
+	t.Run("remove vote", func(t *testing.T) {
+		mock := &testhelpers.MockTagService{
+			RemoveTagVoteFn: func(uint, string, uint, uint) error {
+				reached(t)()
+				return nil
+			},
+		}
+		h := NewTagHandler(mock, nil, deniesEverything)
+		ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+		_, err := h.RemoveTagVoteHandler(ctx, &RemoveTagVoteRequest{
+			EntityType: "collection", EntityID: "7", TagID: "3",
+		})
+		testhelpers.AssertHumaError(t, err, 404)
+	})
+}
+
+// AN UNREGISTERED ENTITY TYPE IS REFUSED TOO, on the same terms, because the
+// gate's registry is what decides which types have a rule and a type nobody
+// dispositioned is not visible. The permissive gate here is what makes this
+// about the registry rather than about the checker.
+func TestTagWriteRoutes_RefuseAnUnregisteredEntityType(t *testing.T) {
+	mock := &testhelpers.MockTagService{
+		AddTagToEntityFn: func(uint, string, string, uint, uint, string) (*catalogm.EntityTag, error) {
+			t.Error("the tag service was reached for an unregistered entity type")
+			return nil, nil
+		},
+	}
+	h := NewTagHandler(mock, nil, testhelpers.AllShowsVisible())
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &AddTagToEntityRequest{EntityType: "radio_show", EntityID: "7"}
+	req.Body.TagName = "punk"
+	_, err := h.AddTagToEntityHandler(ctx, req)
+	testhelpers.AssertHumaError(t, err, 404)
+}
+
+// The control. A gate that simply broke these routes would pass every assertion
+// above, so a visible entity must still be writable.
+func TestTagWriteRoutes_AllowAVisibleEntity(t *testing.T) {
+	called := 0
+	mock := &testhelpers.MockTagService{
+		AddTagToEntityFn: func(uint, string, string, uint, uint, string) (*catalogm.EntityTag, error) {
+			called++
+			return &catalogm.EntityTag{}, nil
+		},
+	}
+	h := NewTagHandler(mock, nil, testhelpers.AllShowsVisible())
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &AddTagToEntityRequest{EntityType: "collection", EntityID: "7"}
+	req.Body.TagID = 3
+	if _, err := h.AddTagToEntityHandler(ctx, req); err != nil {
+		t.Fatalf("a visible collection refused a tag write: %v", err)
+	}
+	if called != 1 {
+		t.Errorf("the tag service was called %d times, want 1", called)
+	}
+}

@@ -34,7 +34,7 @@ import (
 // The three visibility matrices (show_subresource_visibility_test.go,
 // comment_subscription_visibility_test.go, collection_subscription_visibility_test.go)
 // all do the same thing: mint a real JWT and send it through the real router on
-// the real carrier. These helpers are that, once (PSY-1987).
+// the real carrier. These helpers are that, once.
 //
 // The CARRIER is the load-bearing detail and the reason this is shared rather
 // than re-typed per file: credentials ride the `auth_token` COOKIE, not an

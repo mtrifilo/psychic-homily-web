@@ -1125,7 +1125,7 @@ func inboxVisibleRows(alias string) string {
 }
 
 // inboxRowsVisibleTo is the predicate that hides the inbox rows which lead to an
-// entity viewer may not see (PSY-1983, PSY-1987).
+// entity viewer may not see.
 //
 // Suppression, not de-identification. A row kept and blanked still holds a
 // position in the list and still counts toward the badge, and the recipient
@@ -1197,13 +1197,14 @@ func inboxVisibleRows(alias string) string {
 // the entity. That vocabulary belongs to this package's table, which is why the
 // adapter lives here rather than beside the rules.
 func inboxRowsVisibleTo(alias string, viewer contracts.ShowViewer) (string, []interface{}) {
-	// NO ADMIN SHORT-CIRCUIT. This used to answer `1 = 1` for an admin, which was
-	// right while every arm judged shows: an admin sees every show. The comment
-	// arm now also judges COLLECTIONS, and no collection read path grants an
-	// admin a private one (services/shared/collection_visibility.go), so a
-	// blanket bypass here would have made the moderation inbox the one surface
-	// that publishes them. The show arms still short-circuit internally, so an
-	// admin's statement is the same shape it was plus the collection probe.
+	// NO ADMIN SHORT-CIRCUIT. `1 = 1` is right only while every arm judges shows,
+	// which an admin sees all of. The comment arm also judges COLLECTIONS, and no
+	// collection detail or listing read grants an admin a private one
+	// (services/shared/collection_visibility.go, which names the two admin
+	// surfaces that do and why they are moderation powers rather than a tier).
+	// A blanket bypass here would extend those powers to a passive feed. The show
+	// arms still short-circuit internally, so an admin's statement is the same
+	// shape as any other caller's plus the collection probe.
 	commentGate, commentGateArgs := shared.VisibleCommentEntitySQL(
 		"inbox_comment.entity_type", "inbox_comment.entity_id", viewer)
 	directGate, directGateArgs := shared.VisibleShowExistsSQL(alias+".entity_id", viewer)

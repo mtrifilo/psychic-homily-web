@@ -2014,3 +2014,148 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestPercentileRankin
 	suite.Require().NoError(err)
 	suite.Require().NotNil(result, "Exactly 10 users should be enough for rankings")
 }
+
+// =============================================================================
+// Contribution history: collection visibility
+// =============================================================================
+
+// createCollectionForHistory creates a collection owned by creatorID. GORM skips
+// a false bool on Create, so private collections are created public and updated,
+// which is the same pattern the tag suite uses.
+func (suite *ContributorProfileServiceIntegrationTestSuite) createCollectionForHistory(
+	creatorID uint, title, slug string, isPublic bool,
+) *communitym.Collection {
+	c := &communitym.Collection{
+		Title:     title,
+		Slug:      slug,
+		CreatorID: creatorID,
+		IsPublic:  true,
+	}
+	suite.Require().NoError(suite.db.Create(c).Error)
+	if !isPublic {
+		suite.Require().NoError(suite.db.Model(c).Update("is_public", false).Error)
+		c.IsPublic = false
+	}
+	return c
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) createCollectionItemForHistory(
+	collectionID, addedBy uint,
+) *communitym.CollectionItem {
+	item := &communitym.CollectionItem{
+		CollectionID:  collectionID,
+		EntityType:    "artist",
+		EntityID:      1,
+		AddedByUserID: addedBy,
+		CreatedAt:     time.Now().UTC(),
+	}
+	suite.Require().NoError(suite.db.Create(item).Error)
+	return item
+}
+
+// A PRIVATE COLLECTION LEAVES SOMEBODY ELSE'S CONTRIBUTION TIMELINE ENTIRELY:
+// its id, its title and the slug the audit metadata carries.
+//
+// The timeline is anonymous-readable, so every collection audit row is a
+// disclosure of the collection's identity to whoever loads the profile. The
+// total is asserted alongside the page because a row dropped after the count is
+// the same disclosure restated as arithmetic.
+//
+// Both id families are covered. create_collection names the collection, while
+// add_collection_item names a collection_items row under the same entity_type,
+// and a gate that read entity_id one way for both would judge one family against
+// the other's table.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_HidesPrivateCollections() {
+	actor := suite.createTestUser("collectionactor")
+	stranger := suite.createTestUser("collectionstranger")
+
+	openColl := suite.createCollectionForHistory(actor.ID, "Open Picks", "open-picks-history", true)
+	shutColl := suite.createCollectionForHistory(actor.ID, "Shut Picks", "shut-picks-history", false)
+	openItem := suite.createCollectionItemForHistory(openColl.ID, actor.ID)
+	shutItem := suite.createCollectionItemForHistory(shutColl.ID, actor.ID)
+
+	suite.auditLog.LogAction(actor.ID, "create_collection", "collection", openColl.ID,
+		map[string]interface{}{"slug": openColl.Slug})
+	suite.auditLog.LogAction(actor.ID, "create_collection", "collection", shutColl.ID,
+		map[string]interface{}{"slug": shutColl.Slug})
+	suite.auditLog.LogAction(actor.ID, "add_collection_item", "collection", openItem.ID,
+		map[string]interface{}{"slug": openColl.Slug})
+	suite.auditLog.LogAction(actor.ID, "add_collection_item", "collection", shutItem.ID,
+		map[string]interface{}{"slug": shutColl.Slug})
+
+	strangerView := contracts.ShowViewer{UserID: stranger.ID}
+	entries, total, err := suite.profileService.GetContributionHistory(actor.ID, 50, 0, "", strangerView)
+	suite.Require().NoError(err)
+	suite.EqualValues(len(entries), total, "the total must count the same rows the page contains")
+	suite.Require().Len(entries, 2, "a stranger sees only the public collection's two rows")
+
+	for _, e := range entries {
+		suite.NotEqual(shutColl.ID, e.EntityID, "the private collection's id reached a stranger")
+		suite.NotEqual(shutItem.ID, e.EntityID, "the private collection's item id reached a stranger")
+		suite.NotEqual("Shut Picks", e.EntityName, "the private collection's title reached a stranger")
+		if e.Metadata != nil {
+			suite.NotEqual(shutColl.Slug, e.Metadata["slug"],
+				"the private collection's slug reached a stranger through audit metadata")
+		}
+	}
+
+	// An ANONYMOUS caller is the same tier as a stranger here, and it is the tier
+	// the route actually serves most often.
+	anonEntries, anonTotal, err := suite.profileService.GetContributionHistory(
+		actor.ID, 50, 0, "", contracts.ShowViewer{})
+	suite.Require().NoError(err)
+	suite.EqualValues(len(anonEntries), anonTotal)
+	suite.Len(anonEntries, 2)
+
+	// An ADMIN gets the stranger's answer, because no collection read grants one.
+	adminEntries, adminTotal, err := suite.profileService.GetContributionHistory(
+		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: stranger.ID, IsAdmin: true})
+	suite.Require().NoError(err)
+	suite.EqualValues(len(adminEntries), adminTotal)
+	suite.Len(adminEntries, 2, "an admin must not be served a private collection here")
+
+	// The CREATOR sees all four, which is what makes the assertions above about
+	// visibility rather than about the gate having broken the arm.
+	ownEntries, ownTotal, err := suite.profileService.GetContributionHistory(
+		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: actor.ID})
+	suite.Require().NoError(err)
+	suite.EqualValues(len(ownEntries), ownTotal)
+	suite.Require().Len(ownEntries, 4, "the creator sees their own private collection's rows")
+
+	// The item rows carry NO resolved name in either direction: their entity_id
+	// is a collection_items id, so looking it up in collections would resolve an
+	// unrelated collection's title.
+	for _, e := range ownEntries {
+		if e.Action == "add_collection_item" {
+			suite.Empty(e.EntityName,
+				"an item row must not carry a name resolved from an unrelated collection")
+		}
+		if e.Action == "create_collection" && e.EntityID == shutColl.ID {
+			suite.Equal("Shut Picks", e.EntityName, "the creator's own collection resolves its title")
+		}
+	}
+}
+
+// A REMOVED ITEM'S AUDIT ROW IS WITHHELD FROM EVERYONE, including the actor.
+//
+// remove_collection_item stores the deleted item's id, collection_items are
+// hard-deleted, and the row's metadata still carries the parent's slug. With no
+// parent left to decide against, the gate fails closed. Pinned here because it
+// is a deliberate loss of a contribution row rather than an oversight, and
+// because the fix is on the audit WRITER rather than in this file.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_RemovedItemRowsFailClosed() {
+	actor := suite.createTestUser("removalactor")
+	openColl := suite.createCollectionForHistory(actor.ID, "Removal Picks", "removal-picks-history", true)
+	item := suite.createCollectionItemForHistory(openColl.ID, actor.ID)
+	itemID := item.ID
+	suite.Require().NoError(suite.db.Delete(&communitym.CollectionItem{}, itemID).Error)
+
+	suite.auditLog.LogAction(actor.ID, "remove_collection_item", "collection", itemID,
+		map[string]interface{}{"slug": openColl.Slug})
+
+	entries, total, err := suite.profileService.GetContributionHistory(
+		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: actor.ID})
+	suite.Require().NoError(err)
+	suite.EqualValues(len(entries), total)
+	suite.Empty(entries, "an audit row naming a deleted item has no parent to be decided against")
+}

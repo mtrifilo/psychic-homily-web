@@ -482,14 +482,52 @@ func (s *ContributorProfileService) GetContributionStats(userID uint, viewer con
 // an enumeration oracle needs.
 var contributionShowEntityTypes = []string{"show", "show_edit"}
 
+// contributionCollectionEntityType is the discriminator a contribution row
+// carries when it names a collection. There is no "collection_edit" twin:
+// pending_entity_edits and entity_edit_audit_logs accept artist, venue,
+// festival, release, label and show, so the synthetic "<type>_edit" the union
+// emits never says collection.
+const contributionCollectionEntityType = "collection"
+
+// contributionCollectionItemActions are the audit actions whose entity_id is a
+// collection_items row id even though their entity_type says "collection".
+//
+// The audit writers store two different kinds of id under one discriminator
+// (handlers/community/collection.go), so a gate that read entity_id as a
+// collections id for every one of them would judge these three against whatever
+// collection happens to share the item's number. Each carries the parent's slug
+// in its metadata, so the row discloses the collection's identity whichever id
+// it holds and has to be decided against the parent.
+//
+// A removed item resolves to no parent and the row is withheld, because
+// collection_items are hard-deleted. Withholding a contribution the viewer may
+// in fact be entitled to is the recoverable direction; the alternative reads a
+// slug out of a private collection.
+var contributionCollectionItemActions = []string{
+	"add_collection_item",
+	"update_collection_item",
+	"remove_collection_item",
+}
+
+// isCollectionItemAction reports whether an action's entity_id is a
+// collection_items id rather than a collections id.
+func isCollectionItemAction(action string) bool {
+	for _, a := range contributionCollectionItemActions {
+		if a == action {
+			return true
+		}
+	}
+	return false
+}
+
 // GetContributionHistory returns a paginated, unified contribution timeline for
 // a user, containing only what the caller in viewer is allowed to see.
 //
-// Rows naming a show the viewer may not see are dropped, and dropped INSIDE the
-// union rather than after it, so the total this reports counts the same rows the
-// page contains. Filtering afterwards would return a short page beside a total
-// announcing how many rows were withheld, which is the same disclosure stated as
-// a number.
+// Rows naming a show or a collection the viewer may not see are dropped, and
+// dropped INSIDE the union rather than after it, so the total this reports counts
+// the same rows the page contains. Filtering afterwards would return a short page
+// beside a total announcing how many rows were withheld, which is the same
+// disclosure stated as a number.
 //
 // The filter is on the unified result, not on the shows subquery alone, because
 // four of the five sources can name a show: a submission names the show it
@@ -531,18 +569,38 @@ func (s *ContributorProfileService) GetContributionHistory(userID uint, limit, o
 		auditQuery, showQuery, venueQuery, entityEditQuery, entityEditAuditQuery)
 
 	// The visibility gate, applied to the unified result so one condition covers
-	// every source. contributionShowEntityTypes are the two discriminators a
-	// show row can carry; anything else passes, show being the only entity type
-	// with a read-time visibility rule.
+	// every source. One arm per entity type that has a read-time rule:
+	// contributionShowEntityTypes are the two discriminators a show row can
+	// carry, and "collection" is the third. Anything else passes.
+	//
+	// The collection arm reads entity_id TWO WAYS because the audit writers store
+	// two kinds of id under that discriminator: the item actions name a
+	// collection_items row and everything else names the collection itself. The
+	// CASE picks per row, so neither family is judged against the other's table.
+	// Both are gated rather than only the ids, because every collection audit row
+	// carries the parent's slug in its metadata.
 	//
 	// Parentheses written out rather than left to the driver, and the entity-type
 	// filter ANDed after: the binding this pins is
-	// `(not a show OR visible) AND type = x`, never `not a show OR (visible AND
-	// type = x)`, which would publish every gated show row.
+	// `(not a show OR visible) AND (not a collection OR visible) AND type = x`,
+	// never a form where the trailing AND binds inside one of the ORs, which
+	// would publish every gated row.
+	//
+	// Placeholders bind by POSITION, so the arguments below are appended in
+	// statement order.
 	visibleShows, visibleShowsArgs := shared.VisibleShowExistsSQL("unified.entity_id", viewer)
-	entityFilter := fmt.Sprintf(" WHERE (unified.entity_type NOT IN ? OR %s)", visibleShows)
+	visibleItemParents, visibleItemParentArgs := shared.VisibleCollectionItemExistsSQL("unified.entity_id", viewer)
+	visibleCollections, visibleCollectionArgs := shared.VisibleCollectionExistsSQL("unified.entity_id", viewer)
+	entityFilter := fmt.Sprintf(
+		" WHERE (unified.entity_type NOT IN ? OR %s)"+
+			" AND (unified.entity_type <> ? OR (CASE WHEN unified.action IN ? THEN %s ELSE %s END))",
+		visibleShows, visibleItemParents, visibleCollections)
 	args = append(args, contributionShowEntityTypes)
 	args = append(args, visibleShowsArgs...)
+	args = append(args, contributionCollectionEntityType)
+	args = append(args, contributionCollectionItemActions)
+	args = append(args, visibleItemParentArgs...)
+	args = append(args, visibleCollectionArgs...)
 	if entityType != "" {
 		entityFilter += " AND unified.entity_type = ?"
 		args = append(args, entityType)
@@ -1058,15 +1116,22 @@ func (s *ContributorProfileService) GetPercentileRankings(userID uint) (*contrac
 // =============================================================================
 
 func (s *ContributorProfileService) enrichEntityNames(entries []*contracts.ContributionEntry, viewer contracts.ShowViewer) {
-	// The show lookup repeats the visibility gate the union already applied.
-	// Deliberate belt and braces on a security boundary, and it costs no extra
-	// query: a title is the payload GET /shows/{id}'s 404 withholds, and this is
-	// the one place in this file that reads one. A row that slipped past the
-	// union keeps its id here but gains no name.
+	// The show and collection lookups repeat the visibility gates the union
+	// already applied. Deliberate belt and braces on a security boundary, and
+	// they cost no extra query: a title is the payload the two detail routes
+	// withhold, and these are the only places in this file that read one. A row
+	// that slipped past the union keeps its id here but gains no name.
 	showsVisible, showsVisibleArgs := shared.VisibleShowPredicateSQL("shows", viewer)
+	collectionsVisible, collectionsVisibleArgs := shared.VisibleCollectionPredicateSQL("collections", viewer)
 
 	idsByType := make(map[string][]uint)
 	for _, e := range entries {
+		// A collection item action's entity_id is a collection_items id, so
+		// looking it up in collections resolves an unrelated collection's title.
+		// Those entries carry no name at all rather than a wrong one.
+		if e.EntityType == contributionCollectionEntityType && isCollectionItemAction(e.Action) {
+			continue
+		}
 		idsByType[e.EntityType] = append(idsByType[e.EntityType], e.EntityID)
 	}
 
@@ -1153,7 +1218,14 @@ func (s *ContributorProfileService) enrichEntityNames(entries []*contracts.Contr
 				ID    uint
 				Title string
 			}
-			s.db.Table("collections").Select("id, title").Where("id IN ?", ids).Scan(&results)
+			// Fenced on the same terms as the show branch above, and for the same
+			// reason: a title is the payload GET /collections/{slug} withholds, and
+			// this is the one place in this file that reads one.
+			s.db.Table("collections").
+				Select("id, title").
+				Where("id IN ?", ids).
+				Where(collectionsVisible, collectionsVisibleArgs...).
+				Scan(&results)
 			for _, r := range results {
 				names[r.ID] = r.Title
 			}
@@ -1162,6 +1234,9 @@ func (s *ContributorProfileService) enrichEntityNames(entries []*contracts.Contr
 	}
 
 	for _, e := range entries {
+		if e.EntityType == contributionCollectionEntityType && isCollectionItemAction(e.Action) {
+			continue
+		}
 		if names, ok := nameMap[e.EntityType]; ok {
 			if name, ok := names[e.EntityID]; ok {
 				e.EntityName = name

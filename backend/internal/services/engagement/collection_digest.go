@@ -382,6 +382,17 @@ func (s *CollectionDigestService) queryCandidates(now time.Time) ([]digestCandid
 	// users must explicitly enable the digest from the notification settings
 	// page (PSY-350 / PSY-515). A subscriber with no user_preferences row
 	// COALESCEs to FALSE and is excluded.
+	//
+	// A SUBSCRIBER IS ALSO A VIEWER, and this cycle decides one collection
+	// against many of them, so it takes the recipient spelling of the collection
+	// rule. The subscribe-time gate cannot cover this on its own: a collection
+	// that was public when a stranger subscribed goes private later, and the row
+	// persists. Mail is FINAL, so the gate has to be here as well as there.
+	//
+	// The predicate is a literal from services/shared, spliced rather than
+	// written out: a digest that decided a collection on its own terms would be a
+	// second rule, and the one that leaks is always the second one.
+	visibleToSubscriber := shared.VisibleCollectionRecipientPredicateSQL("c", "cs.user_id")
 	err := s.db.Raw(`
 		SELECT
 			cs.user_id,
@@ -411,6 +422,7 @@ func (s *CollectionDigestService) queryCandidates(now time.Time) ([]digestCandid
 		WHERE u.is_active = TRUE
 			AND u.deleted_at IS NULL
 			AND COALESCE(up.notify_on_collection_digest, FALSE) = TRUE
+			AND `+visibleToSubscriber+`
 		ORDER BY cs.user_id ASC, c.id ASC, ci.created_at ASC
 	`, now).Scan(&rows).Error
 	if err != nil {
