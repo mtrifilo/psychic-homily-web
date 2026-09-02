@@ -171,7 +171,7 @@ func MapArtistError(err error) error {
 			return huma.Error404NotFound(artistErr.Message)
 		case apperrors.CodeArtistExists, apperrors.CodeArtistAliasExists, apperrors.CodeArtistHasShows:
 			return huma.Error409Conflict(artistErr.Message)
-		case apperrors.CodeArtistMergeSelf:
+		case apperrors.CodeArtistMergeSelf, apperrors.CodeArtistInvalidField:
 			return huma.Error422UnprocessableEntity(artistErr.Message)
 		case apperrors.CodeArtistHasOtherUsersEngagement:
 			return huma.Error403Forbidden(artistErr.Message)

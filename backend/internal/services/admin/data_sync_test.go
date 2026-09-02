@@ -430,6 +430,46 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportArtist_Success() {
 	suite.NotNil(artist.Slug)
 }
 
+// The import body is JSON an admin hands us, not a value this system wrote, so
+// bandcamp_embed_url meets the same release-page rule the artist endpoints
+// enforce (PSY-1966). The row is refused rather than the field silently blanked:
+// a blanked field would report the artist as imported while losing what the
+// operator meant to move.
+// One representative value: the accepted and rejected shapes are settled by the
+// predicate's own table (utils.TestIsValidBandcampEmbedURL). What this proves is
+// that the import path consults it at all, and what happens to the row when it
+// refuses.
+func (suite *DataSyncServiceIntegrationTestSuite) TestImportArtist_RejectsNonBandcampEmbedURL() {
+	bad := "https://evil.test/album/checkout"
+	name := fmt.Sprintf("Import Guard %d", time.Now().UnixNano())
+	result, err := suite.service.ImportData(contracts.DataImportRequest{
+		Artists: []contracts.ExportedArtist{{Name: name, BandcampEmbedURL: &bad}},
+	})
+	suite.Require().NoError(err)
+	suite.Equal(0, result.Artists.Imported)
+	suite.Equal(1, result.Artists.Errors)
+	suite.Contains(result.Artists.Messages[0], "Bandcamp embed URL")
+
+	var count int64
+	suite.Require().NoError(suite.db.Model(&catalogm.Artist{}).
+		Where("name = ?", name).Count(&count).Error)
+	suite.Zero(count, "a refused row must not create the artist")
+}
+
+func (suite *DataSyncServiceIntegrationTestSuite) TestImportArtist_AcceptsBandcampReleaseURL() {
+	release := "https://kingbuffalo.bandcamp.com/album/regenerator"
+	result, err := suite.service.ImportData(contracts.DataImportRequest{
+		Artists: []contracts.ExportedArtist{{Name: "Import Guard OK", BandcampEmbedURL: &release}},
+	})
+	suite.Require().NoError(err)
+	suite.Equal(1, result.Artists.Imported)
+
+	var artist catalogm.Artist
+	suite.Require().NoError(suite.db.Where("name = ?", "Import Guard OK").First(&artist).Error)
+	suite.Require().NotNil(artist.BandcampEmbedURL)
+	suite.Equal(release, *artist.BandcampEmbedURL)
+}
+
 func (suite *DataSyncServiceIntegrationTestSuite) TestImportArtist_Duplicate() {
 	suite.createArtist("Existing Band")
 

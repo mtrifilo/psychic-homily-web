@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { ShowForm } from './ShowForm'
 import { SaveButton, ShowPrice, SocialLinks, MusicEmbed } from '@/components/shared'
+import { hasRenderableMusic } from '@/lib/musicAvailability'
 import type { BatchedSaveData } from '@/components/shared/batchedSaveData'
 import { DeleteShowDialog } from './DeleteShowDialog'
 import { ExportShowButton } from './ExportShowButton'
@@ -29,14 +30,16 @@ import { splitBill } from '../utils'
 import type { ShowResponse, ArtistResponse } from '../types'
 
 /**
- * Check if an artist has any music available (Bandcamp embed, Spotify, or Bandcamp profile)
+ * Whether an artist's music block will render anything. A stored Bandcamp URL
+ * no longer implies that on its own, so this asks the shared predicate rather
+ * than testing the column, or the expand button would open onto nothing.
  */
 function artistHasMusic(artist: ArtistResponse): boolean {
-  return !!(
-    artist.bandcamp_embed_url ||
-    artist.socials?.spotify ||
-    artist.socials?.bandcamp
-  )
+  return hasRenderableMusic({
+    bandcampAlbumUrl: artist.bandcamp_embed_url,
+    bandcampProfileUrl: artist.socials?.bandcamp,
+    spotifyUrl: artist.socials?.spotify,
+  })
 }
 
 /**

@@ -421,6 +421,35 @@ func (s *DataSyncService) importArtist(artist *contracts.ExportedArtist, dryRun 
 		return fmt.Sprintf("ERROR: Failed to check artist '%s': %v", artist.Name, err), "error"
 	}
 
+	// The import body is JSON an admin hands us, not a value this system wrote,
+	// so it is a write boundary like any other and the embed URL meets the same
+	// shape rule the artist endpoints enforce (PSY-1966).
+	//
+	// AFTER the duplicate probe, not before. ExportData emits this column, so an
+	// export to import round trip (the tool's whole purpose) carries every
+	// existing artist's stored value back in; checking first would fail each
+	// legacy row that was storable under the old rule, on a branch that writes
+	// nothing anyway, and would skip the slug backfill that branch performs.
+	//
+	// That ordering only helps when the target already HAS the artist. Seeding a
+	// fresh or partial environment takes the create branch below, where a legacy
+	// row is refused outright, and a refused row is not merely skipped, because
+	// the show pass later recreates the artist by name through
+	// FindOrCreateArtistTx with a nil initializer, losing its location and all
+	// eight social links too. An operator seeding an empty DB from an export
+	// containing legacy values will see those rows reported as errors and must
+	// fix them at the source.
+	//
+	// Refusing rather than blanking the field is still the right call: a silently
+	// blanked embed would report the artist as imported while quietly losing what
+	// the operator meant to move, and the per-row result already says why one
+	// failed.
+	if artist.BandcampEmbedURL != nil {
+		if err := utils.ValidateBandcampEmbedURL(*artist.BandcampEmbedURL, utils.BandcampEmbedURLLabel); err != nil {
+			return fmt.Sprintf("ERROR: Artist '%s': %v", artist.Name, err), "error"
+		}
+	}
+
 	if dryRun {
 		return fmt.Sprintf("WOULD IMPORT: Artist '%s'", artist.Name), "imported"
 	}
@@ -428,7 +457,14 @@ func (s *DataSyncService) importArtist(artist *contracts.ExportedArtist, dryRun 
 	newArtist, _, ferr := catalog.FindOrCreateArtistTx(s.db, artist.Name, func(a *catalogm.Artist) {
 		a.City = artist.City
 		a.State = artist.State
+		// NilIfBlank for the same invariant CreateArtist and UpdateArtist keep:
+		// the validator passes "" as the clear gesture, and storing it raw leaves
+		// the column blank-but-not-null: skipped by every `IS NULL` repair path
+		// forever while rendering nothing.
 		a.BandcampEmbedURL = artist.BandcampEmbedURL
+		if artist.BandcampEmbedURL != nil {
+			a.BandcampEmbedURL = utils.NilIfBlank(*artist.BandcampEmbedURL)
+		}
 		a.Social = catalogm.Social{
 			Instagram:  artist.Instagram,
 			Facebook:   artist.Facebook,

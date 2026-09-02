@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import {
   parseBandcampEmbedId,
@@ -283,4 +286,70 @@ describe('resolveBandcampEmbed', () => {
       error: 'Could not extract embed ID from Bandcamp page',
     })
   })
+})
+
+// The store-subset-of-render contract, from the READ side (PSY-1966).
+//
+// THE CONTRACT: anything the Go write gate (utils.IsValidBandcampEmbedURL) will
+// store must be renderable here. Nothing may be storable and unrenderable, or a
+// curator's save silently produces no link and nobody can see why.
+//
+// Both halves read ONE shared corpus, checked in beside the Go test. That file
+// is the tripwire: a hand-copied list in this file could only fail for shapes
+// someone had already thought of, and did in fact miss the backslash divergence
+// (`/album/x\..\..\evil`: a segment delimiter to this parser, an ordinary
+// byte to Go) until a review found it. Adding a case now obliges both languages
+// to agree about it.
+//
+// The reverse direction does NOT hold and the corpus records where: the Go gate
+// is deliberately the stricter side on the bandcamp.com apex and on surrounding
+// whitespace, both of which this parser accepts.
+describe('cross-language corpus (store is a subset of render)', () => {
+  // Read at RUNTIME, not imported.
+  //
+  // `import ... from '../../backend/...json'` would pull a backend file into the
+  // frontend TypeScript program, and `next build` typechecks that program, so a
+  // Vercel project rooted at frontend/ without "include source files outside the
+  // root directory" would fail the BUILD on a test fixture. The two existing
+  // cross-boundary references in e2e/ are runtime path.resolve calls for exactly
+  // this reason. readFileSync keeps the single shared source of truth while
+  // staying invisible to tsc and to the bundle.
+  const corpus = JSON.parse(
+    readFileSync(
+      resolve(__dirname, '../../backend/internal/utils/testdata/bandcamp_url_corpus.json'),
+      'utf8'
+    )
+  ) as {
+    storable: string[]
+    rejected: { url: string; why: string; alsoRejectedByReader: boolean }[]
+  }
+
+  it('has entries on both sides', () => {
+    expect(corpus.storable.length).toBeGreaterThan(0)
+    expect(corpus.rejected.length).toBeGreaterThan(0)
+  })
+
+  it.each(corpus.storable)('renders anything the backend will store: %s', (url) => {
+    expect(isBandcampReleaseUrl(url)).toBe(true)
+  })
+
+  const mustAlsoReject = corpus.rejected.filter((c) => c.alsoRejectedByReader)
+  it.each(mustAlsoReject.map((c) => [c.url, c.why] as const))(
+    'refuses %s (%s)',
+    (url) => {
+      expect(isBandcampReleaseUrl(url)).toBe(false)
+    }
+  )
+
+  // The deltas the corpus marks as writer-only strictness. Asserting they render
+  // is what keeps "the read gate is the lenient side here" honest rather than
+  // aspirational: if one of these ever stopped rendering, a legacy row would
+  // lose its link with nothing to say so.
+  const readerAccepts = corpus.rejected.filter((c) => !c.alsoRejectedByReader)
+  it.each(readerAccepts.map((c) => [c.url, c.why] as const))(
+    'still renders %s, where the writer is deliberately stricter (%s)',
+    (url) => {
+      expect(isBandcampReleaseUrl(url)).toBe(true)
+    }
+  )
 })

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/utils"
 )
 
 // ──────────────────────────────────────────────
@@ -222,7 +223,10 @@ func (b *overviewBuild) nodeFlags(artistMeta map[uint]overviewArtist, upcoming m
 			continue
 		}
 		meta := artistMeta[id]
-		if meta.BandcampEmbedURL != nil && *meta.BandcampEmbedURL != "" {
+		// Renderability, not non-emptiness: a value the panel refuses to turn
+		// into a player or a link must not light this flag (PSY-1966), or the
+		// dot promises something the click does not deliver.
+		if meta.BandcampEmbedURL != nil && utils.IsResolvableBandcampURL(*meta.BandcampEmbedURL) {
 			flags[i] |= contracts.GraphOverviewFlagPlayableAudio
 		}
 		if _, ok := upcoming[id]; ok {

@@ -45,6 +45,36 @@ func validatePayloadImageURL(ctx context.Context, entityType string, raw json.Ra
 	return shared.ValidateImageURL(ctx, imageURL)
 }
 
+// validatePayloadBandcampEmbedURL runs an entity-request payload's
+// bandcamp_embed_url through the same release-page rule the direct artist
+// endpoints apply (PSY-1966).
+//
+// It exists for the stranding reason stated on validatePayloadImageURL above,
+// not for a new one. ValidateEntityRequestPayload already carries this rule and
+// fulfillEntity re-runs it, so a hostile value never reaches a live artist
+// either way, but that refusal lands AFTER Decide has claimed the row, leaving
+// it approved with nothing created and no endpoint able to correct its payload.
+// A row queued before this rule existed is exactly the row an admin is most
+// likely to approve. Checked here, it is a clean 422 on a row that is still
+// pending, so the contributor can resubmit.
+//
+// Cheap and resolver-free, so it runs before the image guard's DNS lookup.
+func validatePayloadBandcampEmbedURL(entityType string, raw json.RawMessage) error {
+	embedURL, err := communitym.PayloadBandcampEmbedURL(entityType, raw)
+	if err != nil {
+		return huma.Error422UnprocessableEntity(
+			fmt.Sprintf("Invalid payload for %s: %v", entityType, err),
+		)
+	}
+	if embedURL == nil {
+		return nil
+	}
+	if verr := utils.ValidateBandcampEmbedURL(*embedURL, utils.BandcampEmbedURLLabel); verr != nil {
+		return huma.Error422UnprocessableEntity(verr.Error())
+	}
+	return nil
+}
+
 // billSource records where a resolved bill came from, and is the label a 422
 // about that bill uses (PSY-1858). An admin who sent no show_artists must not
 // be told their show_artists is malformed. A named type rather than a bare

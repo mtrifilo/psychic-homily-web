@@ -30,6 +30,7 @@ import {
   useArtistUpdate,
   type MusicLinkCandidate,
 } from '@/lib/hooks/admin/useAdminArtists'
+import { hasRenderableMusic } from '@/lib/musicAvailability'
 import {
   SocialLinks,
   MusicEmbed,
@@ -285,11 +286,14 @@ function ArtistSidebar({
     : []
 
   const hasSocialLinks = !!artist.social && hasAnySocialLink(artist.social)
-  const hasMusicLink = Boolean(
-    artist.social?.spotify ||
-      artist.bandcamp_embed_url ||
-      artist.social?.bandcamp
-  )
+  // Whether MusicEmbed will render anything, which a stored Bandcamp URL no
+  // longer implies on its own. One shared predicate rather than a local
+  // truthiness test, so this section cannot head an empty sidebar.
+  const hasMusicLink = hasRenderableMusic({
+    bandcampAlbumUrl: artist.bandcamp_embed_url,
+    bandcampProfileUrl: artist.social?.bandcamp,
+    spotifyUrl: artist.social?.spotify,
+  })
 
   return (
     <div className="space-y-6">

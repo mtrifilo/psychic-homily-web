@@ -411,13 +411,13 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		if err := optionalMaxLen("artist", "description", p.Description, maxRequestDescriptionLen); err != nil {
 			return err
 		}
-		// Scheme-validate the embed URL (the security floor — keeps a hostile
-		// scheme off the created artist). This is intentionally looser than the
-		// direct artist endpoint's bandcamp.com/album|track domain check
-		// (isValidBandcampURL): that check is unexported in the catalog handler
-		// and is a content-quality gate, not a safety one, so requiring it here
-		// would risk rejecting otherwise-valid extracted embeds.
-		return optionalHTTPURL("artist", "bandcamp_embed_url", p.BandcampEmbedURL, maxRequestURLLen)
+		// The embed URL must be a Bandcamp RELEASE page, the same rule the direct
+		// artist endpoint applies (PSY-1966). The value is not confined to a
+		// sandboxed iframe. It renders as an outbound link labelled Bandcamp,
+		// so an off-platform host is a safety problem, not a tidiness one, and an
+		// extraction that produces something else fails here, where the submitter
+		// can see it, rather than on a live artist page.
+		return optionalBandcampEmbedURL("artist", p.BandcampEmbedURL, maxRequestURLLen)
 	case EntityRequestRelease:
 		p, err := UnmarshalPayload[ReleaseRequestPayload](raw)
 		if err != nil {
@@ -618,6 +618,38 @@ func PayloadImageURL(entityType string, raw json.RawMessage) (*string, error) {
 	}
 }
 
+// PayloadBandcampEmbedURL returns the payload's bandcamp_embed_url, or nil when
+// the type has no such field or the value is absent.
+//
+// It exists for the same reason PayloadImageURL does, one boundary further out:
+// the admin approve path has to check this value BEFORE Decide claims the row,
+// because fulfilment happens after the claim and a rejection there would leave
+// an approved-but-unfulfilled request that no decide call can re-process
+// (PSY-1966). The extraction lives here, beside the payload shapes; the rule it
+// feeds lives in utils.
+//
+// artist is the only type carrying the field. The switch is exhaustive over the
+// registered types on purpose, and an unknown type is an ERROR rather than "no
+// embed URL", so adding an entity_type without deciding whether it carries one
+// fails closed instead of silently skipping the gate. Callers gate on
+// IsValidEntityRequestType first, so the error is unreachable from the API
+// boundary.
+func PayloadBandcampEmbedURL(entityType string, raw json.RawMessage) (*string, error) {
+	switch entityType {
+	case EntityRequestArtist:
+		p, err := UnmarshalPayload[ArtistRequestPayload](raw)
+		if err != nil {
+			return nil, err
+		}
+		return p.BandcampEmbedURL, nil
+	case EntityRequestRelease, EntityRequestLabel, EntityRequestShow,
+		EntityRequestVenue, EntityRequestFestival:
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("unknown entity type %q", entityType)
+	}
+}
+
 // ShowPayloadBillField labels a contributor's stored bill in a 422 (PSY-1858).
 // Exported so the API layer, which validates the same bill at its own trust
 // boundaries, names it identically: one defect must not answer to two different
@@ -761,6 +793,27 @@ func optionalHTTPURL(entityType, field string, value *string, maxLen int) error 
 		return fmt.Errorf("%s payload: %s must be %d characters or fewer", entityType, field, maxLen)
 	}
 	if err := utils.ValidateHTTPURL(*value, field); err != nil {
+		return fmt.Errorf("%s payload: %w", entityType, err)
+	}
+	return nil
+}
+
+// optionalBandcampEmbedURL rejects an optional bandcamp_embed_url that is not a
+// Bandcamp release page (nil is allowed). It caps length on the shared helper
+// first so an absurd value is refused on the cheap rule and reports the length
+// failure the same way every other payload field does, then applies the shared
+// shape rule, so the queue cannot hold a value the direct artist endpoint would
+// refuse.
+func optionalBandcampEmbedURL(entityType string, value *string, maxLen int) error {
+	if err := optionalMaxLen(entityType, utils.BandcampEmbedURLField, value, maxLen); err != nil {
+		return err
+	}
+	if value == nil {
+		return nil
+	}
+	// The LABEL, not the field name, so the submit refusal and the pre-claim
+	// approve refusal (validatePayloadBandcampEmbedURL) read as one sentence.
+	if err := utils.ValidateBandcampEmbedURL(*value, utils.BandcampEmbedURLLabel); err != nil {
 		return fmt.Errorf("%s payload: %w", entityType, err)
 	}
 	return nil

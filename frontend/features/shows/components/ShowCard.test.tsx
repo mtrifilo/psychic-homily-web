@@ -393,7 +393,50 @@ describe('ShowCard', () => {
             id: 1,
             name: 'Band',
             is_headliner: true,
-            socials: { spotify: 'https://spotify.com/band' },
+            socials: { spotify: 'https://open.spotify.com/artist/4Z8W4fKeB5YxbusRsdQVPb' },
+          }),
+        ],
+      })
+      render(<ShowCard show={show} isAdmin={false} />)
+      expect(
+        screen.getByRole('button', { name: /discover artist music/i })
+      ).toBeInTheDocument()
+    })
+
+    // PSY-1966. The expand button promises a music section; a stored value the
+    // player refuses to render must not offer one, or the button opens onto
+    // nothing.
+    it.each([
+      'https://evil.test/album/checkout',
+      'https://bandcamp.com.attacker.test/album/x',
+      'http://band.bandcamp.com/album/test',
+    ])('does not show expand button for an unrenderable stored value: %s', (url) => {
+      const show = makeShow({
+        artists: [
+          makeArtist({
+            id: 1,
+            name: 'Band',
+            is_headliner: true,
+            bandcamp_embed_url: url,
+            socials: {},
+          }),
+        ],
+      })
+      render(<ShowCard show={show} isAdmin={false} />)
+      expect(
+        screen.queryByRole('button', { name: /discover artist music/i })
+      ).not.toBeInTheDocument()
+    })
+
+    it('shows the expand button for a real release URL', () => {
+      const show = makeShow({
+        artists: [
+          makeArtist({
+            id: 1,
+            name: 'Band',
+            is_headliner: true,
+            bandcamp_embed_url: 'https://band.bandcamp.com/album/test',
+            socials: {},
           }),
         ],
       })

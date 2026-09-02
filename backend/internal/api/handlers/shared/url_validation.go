@@ -4,9 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"net/url"
 	"sort"
-	"strings"
 	"unicode/utf8"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -43,6 +41,24 @@ type urlFieldSpec struct {
 	// the update path is guarded. TestFetchedFieldsAvoidURLSchemeError is the
 	// tripwire; if it fails, thread a context rather than deleting the case.
 	fetched bool
+	// shape is an extra rule about the FORM of the value, for a field whose
+	// column means something narrower than "a URL": bandcamp_embed_url must name
+	// one Bandcamp release, not merely sit on a Bandcamp host. nil means the
+	// scheme and length rules are the whole contract.
+	//
+	// It lives on the spec rather than beside it so the registry stays the one
+	// place that answers "what is enforced on this field". The `fetched` flag
+	// above and the socialHostSuffixes table are the two older answers to the
+	// same question; a third free-standing hook would have made the coverage of
+	// any given field unreadable without opening every validator.
+	//
+	// It returns a plain error, not a huma one, because the rules it points at
+	// live in internal/utils and know nothing about HTTP. The dispatcher wraps.
+	//
+	// BEFORE ADDING ONE: like `fetched`, URLSchemeError does NOT honour this
+	// (see the note there), so a field validated through that helper stays
+	// shape-unchecked. TestShapeRuledFieldsAvoidURLSchemeError is the tripwire.
+	shape func(value, fieldName string) error
 }
 
 // urlFieldSpecs is the canonical list of URL fields validated at the API
@@ -53,10 +69,16 @@ type urlFieldSpec struct {
 // (collection), cover_art_url (release), and ticket_url (show), which were
 // previously length-only and accepted javascript:/data: schemes.
 //
-// Intentionally omitted: flyer_url and bandcamp_embed_url — PSY-525 left them
-// to length-only / domain-specific checks (e.g. isValidBandcampURL), and the
-// suggest-edit path matches that scope so it doesn't enforce stricter rules
-// than the catalog handler would.
+// Intentionally omitted: flyer_url. PSY-525 left it to a length-only check,
+// and the suggest-edit path matches that scope so it doesn't enforce stricter
+// rules than the catalog handler would.
+//
+// bandcamp_embed_url is reachable through this path: it sits in
+// ArtistAllowedEditFields, so any email-verified contributor can set it with a
+// direct suggest-edit call, and the stored value renders as an outbound link
+// under a Bandcamp label rather than only inside a sandboxed iframe. It carries
+// a `shape` rule rather than a host suffix because a release page is a path as
+// much as a host.
 var urlFieldSpecs = map[string]urlFieldSpec{
 	"image_url":       {displayName: "Image URL", maxLength: 2048, fetched: true},
 	"cover_image_url": {displayName: "Cover image URL", maxLength: 2048},
@@ -70,6 +92,52 @@ var urlFieldSpecs = map[string]urlFieldSpec{
 	"soundcloud":      {displayName: "SoundCloud URL", maxLength: 500},
 	"bandcamp":        {displayName: "Bandcamp URL", maxLength: 500},
 	"website":         {displayName: "Website URL", maxLength: 500},
+	// Keyed by the constant, not a literal, because the apply-side gate in
+	// internal/services/admin selects on the same constant. Last in the map so
+	// its comment does not split the block above into two alignment runs.
+	//
+	// 2048, not the 500 the social fields use: the column is TEXT, and the
+	// entity-request queue already caps this same field at 2048. Two boundaries
+	// onto one column must not disagree about what fits.
+	utils.BandcampEmbedURLField: {
+		displayName: utils.BandcampEmbedURLLabel,
+		maxLength:   2048,
+		shape:       utils.ValidateBandcampEmbedURL,
+	},
+}
+
+// URLFieldNames returns every field this registry treats as a URL.
+//
+// Exported so internal/services/admin can ask "is this field a URL?" without
+// restating the answer. Its rollback gate has to cover every URL field the
+// per-entity edit allowlists expose, and a test that decided for itself what
+// counted as a URL would drift from this registry the moment one changed.
+func URLFieldNames() []string {
+	names := make([]string, 0, len(urlFieldSpecs))
+	for field := range urlFieldSpecs {
+		names = append(names, field)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// ShapeRuledURLFieldNames returns the field names carrying a `shape` rule: the
+// URL fields whose stored value must take a particular FORM, beyond being a URL.
+//
+// Exported for the same reason FetchedURLFieldNames is: internal/services/admin
+// re-runs these rules at pending-edit approval time and keeps its own list
+// (services do not import handler packages), and its test compares the two so
+// adding a rule here without adding it there fails loudly instead of silently
+// leaving the approve path ungated.
+func ShapeRuledURLFieldNames() []string {
+	names := make([]string, 0, len(urlFieldSpecs))
+	for field, spec := range urlFieldSpecs {
+		if spec.shape != nil {
+			names = append(names, field)
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 // FetchedURLFieldNames returns the field names marked `fetched` above: the URL
@@ -177,60 +245,51 @@ func ValidateURLField(ctx context.Context, fieldName string, value *string) erro
 	if err := URLSchemeError(fieldName, *value); err != nil {
 		return huma.Error422UnprocessableEntity(err.Error())
 	}
+	// Shape rules apply here as well as on the suggest-edit path: a handler that
+	// reaches for the obvious shared helper must not get partial validation.
+	// Empty is the clear-the-field gesture and each shape rule passes it.
+	if err := validateShape(fieldName, *value); err != nil {
+		return err
+	}
 	return validateFetchHost(ctx, fieldName, *value)
 }
 
-// socialHostSuffixes anchors each platform social field to its known hosts, so
-// a hostile value (e.g. https://evil.test/artist/x in the spotify field, which
-// renders as a SocialLinks href / embed source) can't be stored (PSY-1113). A
-// field absent here (website) accepts any host. A host matches when it equals a
-// base or is a subdomain of it — covering open.spotify.com, <artist>.bandcamp.com,
-// m.facebook.com, music.youtube.com, www.*, etc.
+// validateSocialHost rejects a social-platform URL whose host isn't on that
+// platform's allowlist, as a huma 422.
 //
-// This is a broad HOST floor for the free-form social fields. The dedicated
-// embed endpoints use the stricter, path-aware isValidBandcampURL /
-// isValidSpotifyURL (catalog/artist.go) — change platform-host rules with both
-// in mind.
+// The allowlist and the matching rule live in utils.SocialHostSuffixes /
+// utils.ValidateSocialHost, because the rollback gate in internal/services/admin
+// needs the same rule and cannot import a handler package. This is the HTTP
+// wrapper; the policy is one table.
 //
-// Redirector / short-link hosts (fb.me, t.co, youtube-nocookie.com) are
-// intentionally excluded: they can't be statically verified to land on-platform,
-// which is the point of the anchor. `website` is the escape hatch for any host.
-var socialHostSuffixes = map[string][]string{
-	"instagram":  {"instagram.com"},
-	"facebook":   {"facebook.com", "fb.com"},
-	"twitter":    {"twitter.com", "x.com"},
-	"youtube":    {"youtube.com", "youtu.be"},
-	"spotify":    {"spotify.com"},
-	"soundcloud": {"soundcloud.com"},
-	"bandcamp":   {"bandcamp.com"},
+// This is a broad HOST floor for the free-form social fields. The stricter,
+// path-aware rules are utils.ValidateBandcampEmbedURL (the `shape` rule on
+// bandcamp_embed_url above) and isValidSpotifyURL (catalog/artist.go): change
+// platform-host rules with all of them in mind.
+func validateSocialHost(field, value string) error {
+	if err := utils.ValidateSocialHost(field, urlFieldSpecs[field].displayName, value); err != nil {
+		return huma.Error422UnprocessableEntity(err.Error())
+	}
+	return nil
 }
 
-// validateSocialHost rejects a social-platform URL whose host isn't on that
-// platform's allowlist. Fields not in socialHostSuffixes (website, image_url,
-// ...) are unrestricted. Assumes `value` already passed the scheme check, so a
-// parse failure here just means "skip" (the scheme check already rejected it).
-func validateSocialHost(field, value string) error {
-	bases, restricted := socialHostSuffixes[field]
-	if !restricted || strings.TrimSpace(value) == "" {
+// validateShape applies a field's `shape` rule, and is a no-op for every field
+// that has none. Assumes the scheme and length checks already ran.
+//
+// It is separate from validateSocialHost because a host allowlist is not enough
+// for every field. social.bandcamp holds a profile root, so "is it on
+// bandcamp.com" is the whole question; bandcamp_embed_url names ONE release, so
+// the path carries as much meaning as the host, and a value that clears the host
+// floor but not the path renders nothing on either surface that consumes it.
+func validateShape(field, value string) error {
+	spec, ok := urlFieldSpecs[field]
+	if !ok || spec.shape == nil {
 		return nil
 	}
-	u, err := url.Parse(strings.TrimSpace(value))
-	if err != nil {
-		return nil
+	if err := spec.shape(value, spec.displayName); err != nil {
+		return huma.Error422UnprocessableEntity(err.Error())
 	}
-	host := strings.ToLower(u.Hostname())
-	for _, base := range bases {
-		if host == base || strings.HasSuffix(host, "."+base) {
-			return nil
-		}
-	}
-	return huma.Error422UnprocessableEntity(
-		fmt.Sprintf(
-			"%s must be a link on %s",
-			urlFieldSpecs[field].displayName,
-			strings.Join(bases, " or "),
-		),
-	)
+	return nil
 }
 
 // ValidateSocialURLs applies the http/https scheme check AND a per-platform host
@@ -321,6 +380,9 @@ func ValidateFieldChangeValue(ctx context.Context, fieldName string, value any) 
 		return err
 	}
 	if err := validateSocialHost(fieldName, s); err != nil {
+		return err
+	}
+	if err := validateShape(fieldName, s); err != nil {
 		return err
 	}
 	return validateFetchHost(ctx, fieldName, s)
@@ -421,6 +483,12 @@ func outOfRangeError(bounds contracts.NumericEditBounds) error {
 // field it is used for is marked `fetched`; before marking one, move that
 // field's validation off this helper (or thread a real context in), or the
 // guard will silently not run on that path.
+//
+// It does NOT apply `shape` rules either, for a plainer reason: this helper
+// returns a bare error for a caller that attaches its own body-field Location,
+// while a shape rule's refusal is already a complete sentence. Same hazard, same
+// answer, no field it is used for carries one, and marking one means moving
+// that field off this helper. TestShapeRuledFieldsAvoidURLSchemeError pins it.
 func URLSchemeError(fieldName, value string) error {
 	spec, ok := urlFieldSpecs[fieldName]
 	if !ok || value == "" {

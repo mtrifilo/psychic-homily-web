@@ -195,6 +195,56 @@ func TestValidateFieldChangeValue_HostAnchorsSocialFields(t *testing.T) {
 }
 
 // ============================================================================
+// bandcamp_embed_url on the suggest-edit path (PSY-1966)
+// ============================================================================
+
+// bandcamp_embed_url sits in ArtistAllowedEditFields, so any email-verified
+// contributor can set it with a direct suggest-edit call, and the stored value
+// renders as an OUTBOUND link labelled "Listen to <artist> on Bandcamp" wherever
+// the embed resolve comes back empty. Before this gate the field was absent from
+// urlFieldSpecs entirely, so any string at all reached the pending queue and
+// then the live column.
+//
+// The full table of accepted and rejected shapes lives at the predicate
+// (utils.TestIsValidBandcampEmbedURL). What this pins is that the rule is WIRED
+// into this path, and that this path's own concerns (the clear gesture, the
+// non-string values only this path can produce) survive it.
+func TestValidateFieldChangeValue_BandcampEmbedURLShape(t *testing.T) {
+	if err := ValidateFieldChangeValue(bg, "bandcamp_embed_url", "https://x.bandcamp.com/track/leyenda"); err != nil {
+		t.Errorf("a release page should pass, got: %v", err)
+	}
+	testhelpers.AssertHumaError(t,
+		ValidateFieldChangeValue(bg, "bandcamp_embed_url", "https://evil.test/album/checkout"), 422)
+	// On-platform but not a release: the host floor alone would have let it by.
+	testhelpers.AssertHumaError(t,
+		ValidateFieldChangeValue(bg, "bandcamp_embed_url", "https://kingbuffalo.bandcamp.com"), 422)
+
+	// nil and empty are the clear-the-field gesture; the column is nullable.
+	if err := ValidateFieldChangeValue(bg, "bandcamp_embed_url", nil); err != nil {
+		t.Errorf("nil should pass (clear gesture), got: %v", err)
+	}
+	if err := ValidateFieldChangeValue(bg, "bandcamp_embed_url", ""); err != nil {
+		t.Errorf("empty string should pass (clear gesture), got: %v", err)
+	}
+
+	// NewValue is `any` decoded from JSONB, so non-strings are reachable and
+	// would otherwise reach an untyped GORM Updates() map.
+	for _, bad := range []any{42, true, map[string]any{"x": 1}, []any{"a"}} {
+		testhelpers.AssertHumaError(t, ValidateFieldChangeValue(bg, "bandcamp_embed_url", bad), 422)
+	}
+}
+
+// social.bandcamp holds a PROFILE root, not a release, so it keeps the looser
+// host floor. Tightening it to the release rule would reject every value the
+// field is meant to hold.
+func TestValidateFieldChangeValue_BandcampProfileFieldStaysHostOnly(t *testing.T) {
+	if err := ValidateFieldChangeValue(bg, "bandcamp", "https://kingbuffalo.bandcamp.com"); err != nil {
+		t.Errorf("a profile root should pass on the social field, got: %v", err)
+	}
+	testhelpers.AssertHumaError(t, ValidateFieldChangeValue(bg, "bandcamp", "https://evil.test/kingbuffalo"), 422)
+}
+
+// ============================================================================
 // Bounded non-URL text fields on the suggest-edit path
 // ============================================================================
 
@@ -716,6 +766,43 @@ func TestFetchedFieldsAvoidURLSchemeError(t *testing.T) {
 			t.Errorf("%q is marked fetched but is validated via URLSchemeError, which cannot run "+
 				"the host guard — its create path would silently skip SSRF validation", field)
 		}
+	}
+}
+
+// TestShapeRuledFieldsAvoidURLSchemeError is the same tripwire for `shape`
+// rules (PSY-1966). URLSchemeError returns a bare error for a caller that
+// attaches its own body-field Location and does not run shape rules, so giving
+// one to a field validated through that helper would guard the update path and
+// leave the create path unguarded, with nothing failing to say so.
+//
+// If it fires: move that field's create-path validation onto ValidateURLField
+// rather than deleting the case.
+func TestShapeRuledFieldsAvoidURLSchemeError(t *testing.T) {
+	for _, field := range urlSchemeErrorFields {
+		spec, ok := urlFieldSpecs[field]
+		if !ok {
+			t.Errorf("%q is passed to URLSchemeError but is not a known URL field", field)
+			continue
+		}
+		if spec.shape != nil {
+			t.Errorf("%q carries a shape rule but is validated via URLSchemeError, which does not "+
+				"run one: its create path would silently accept the wrong form", field)
+		}
+	}
+}
+
+// TestShapeRuleAppliesThroughValidateURLField pins the coverage the registry
+// promises: a handler reaching for the shared typed helper gets the shape rule,
+// not only the scheme and length checks.
+func TestShapeRuleAppliesThroughValidateURLField(t *testing.T) {
+	testhelpers.AssertHumaError(t,
+		ValidateURLField(bg, "bandcamp_embed_url", PtrString("https://evil.test/album/checkout")), 422)
+	if err := ValidateURLField(bg, "bandcamp_embed_url", PtrString("https://x.bandcamp.com/album/y")); err != nil {
+		t.Errorf("a release page should pass, got: %v", err)
+	}
+	// Empty is the clear-the-field gesture and must survive the shape rule.
+	if err := ValidateURLField(bg, "bandcamp_embed_url", PtrString("")); err != nil {
+		t.Errorf("empty should pass (clear gesture), got: %v", err)
 	}
 }
 

@@ -142,6 +142,12 @@ postgres-data/
 # (radio provider snapshots PSY-1022; shared show-price vectors PSY-1962).
 !**/testdata/*.json
 
+# Shared bandcamp URL corpus (PSY-1966): the ONE fixture the Go write gate and
+# the TypeScript read gate both assert, so the store-subset-of-render contract is
+# a test rather than a comment. Source, not a credential, and BOTH test suites
+# fail without it.
+!backend/internal/utils/testdata/*.json
+
 # PH-branded MapLibre basemap style (PSY-1543): source, not a credential —
 # phBasemap.ts imports it at build time, so it MUST be tracked or the build
 # breaks for everyone but the author.

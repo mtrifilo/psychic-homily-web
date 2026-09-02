@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 import { MusicEmbed } from '@/components/shared/MusicEmbed'
+import { hasRenderableMusic } from '@/lib/musicAvailability'
 import { FollowButton } from '@/components/shared/FollowButton'
 import { SceneNotifyModeToggle } from './SceneNotifyModeToggle'
 import { useSceneArtists, useSceneShows } from '../hooks'
@@ -92,7 +93,12 @@ export function ScenePreviewContent({
         <FollowButton entityType="scenes" entityId={scene.slug} compact />
         <SceneNotifyModeToggle slug={scene.slug} />
       </div>
-      {embed && (
+      {/* Gated on what MusicEmbed will actually produce, not on the row
+          existing: a stored Bandcamp URL no longer implies content, and a bare
+          "Listen" over nothing is worse than no section at all. The backend
+          picker applies the same rule, so a metro whose top band holds an
+          unrenderable value still gets the next band's player. */}
+      {embed && hasRenderableMusic({ bandcampAlbumUrl: embed.embed_url }) && (
         <div>
           <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Listen

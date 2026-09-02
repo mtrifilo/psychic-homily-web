@@ -410,6 +410,116 @@ var fetchedURLFields = map[string]string{
 	"image_url": "Image URL",
 }
 
+// shapedURLFields is the apply-side counterpart of the `shape` rules in
+// urlFieldSpecs: the URL fields whose stored value must take a particular FORM,
+// beyond being a URL. It is a copy for the same layering reason fetchedURLFields
+// is, and it carries the rule itself rather than only a label because the rule
+// lives in internal/utils, which both layers may import.
+//
+// TestShapedURLFieldsMatchHandlerRegistry is the tripwire for the two drifting
+// apart: add a `shape` rule there without adding it here and the approve path
+// silently stops guarding that field.
+var shapedURLFields = map[string]struct {
+	displayName string
+	validate    func(value, fieldName string) error
+}{
+	utils.BandcampEmbedURLField: {
+		displayName: utils.BandcampEmbedURLLabel,
+		validate:    utils.ValidateBandcampEmbedURL,
+	},
+}
+
+// rollbackURLFields is every field a rollback may write whose value is a URL
+// somebody will click, with the label a refusal names it by.
+//
+// It exists because Rollback is the one write path that takes its value from
+// FieldChange.OldValue, and OldValue is contributor input that NOTHING
+// validates: the submit handler checks NewValue only, and approve copies the
+// pair verbatim into revisions.field_changes. So every forward gate (scheme,
+// social host anchor, release shape) is bypassed by going backwards, for every
+// field in the table, not just the one PSY-1966 set out to fix. A contributor
+// pairs a real Spotify NewValue with `https://spotify-verify.evil.test/` as the
+// OldValue, an admin later presses rollback, and SocialLinks renders that host
+// under the Spotify glyph.
+//
+// It is keyed on FIELD NAME, so it covers artist, venue, label and festival
+// alike: the allowlists share these names.
+//
+// It covers every URL field the shared registry knows, which is a SUPERSET of
+// what today's *AllowedEditFields maps expose: cover_image_url, for instance,
+// belongs to collections and is not editable through this pipeline at all. A
+// superset on purpose: an entry costs one map lookup on a field that never
+// appears, and a field added to an allowlist later is guarded on arrival rather
+// than on someone remembering this file.
+//
+// Only the platform fields carry a host anchor; the rest get the scheme rule,
+// which is still the difference between restoring a link and restoring
+// "javascript:..." into a rendered attribute.
+//
+// image_url is HERE for its scheme rule but its host is NOT resolved: the SSRF
+// guard needs a context.Context this function does not take. That residue is
+// stated on validateRollbackURLs and is the one part of the forward contract
+// this path still cannot reproduce.
+var rollbackURLFields = map[string]string{
+	"instagram":       "Instagram URL",
+	"facebook":        "Facebook URL",
+	"twitter":         "Twitter URL",
+	"youtube":         "YouTube URL",
+	"spotify":         "Spotify URL",
+	"soundcloud":      "SoundCloud URL",
+	"bandcamp":        "Bandcamp URL",
+	"website":         "Website URL",
+	"ticket_url":      "Ticket URL",
+	"cover_art_url":   "Cover art URL",
+	"cover_image_url": "Cover image URL",
+	"flyer_url":       "Flyer URL",
+	"image_url":       "Image URL",
+}
+
+// validateRollbackURLs re-runs the forward paths' URL rules over the values a
+// rollback is about to write, and reports one that must not go live.
+//
+// WHY THIS IS NOT PARANOIA: see rollbackURLFields. OldValue is unvalidated
+// contributor input that reaches the column through an admin's undo button.
+//
+// It refuses the WHOLE rollback rather than dropping the offending field, which
+// has a cost worth naming: a revision records every field of one contributor
+// edit, so a single planted OldValue makes that revision permanently
+// un-rollbackable, including the undo of unrelated fields recorded beside it. A
+// contributor can therefore deny undo on their own edit. That is accepted here
+// as the lesser harm: the alternative writes an attacker-chosen href under a
+// trusted platform label, and admins retain direct-edit paths, but a partial
+// rollback that skips only the refused field is the better long-term answer and
+// is left as its own change, because it alters what an admin sees "rollback" do.
+//
+// `website` is host-unrestricted by design (it is the any-host escape hatch), so
+// for that field this is the scheme check alone, as it is for the image and
+// flyer fields, which have no platform to anchor to.
+//
+// image_url gets its SCHEME rule here but not its host guard: that resolves DNS
+// and needs a context.Context Rollback does not take. So a rollback can still
+// restore an image_url pointing at an internal address, which is the one part of
+// the forward contract this path cannot yet reproduce. Threading a context
+// through Rollback is its own change.
+func validateRollbackURLs(updates map[string]interface{}) error {
+	for field, displayName := range rollbackURLFields {
+		value, present, err := updateStringValue(updates, field, displayName)
+		if err != nil {
+			return err
+		}
+		if !present {
+			continue
+		}
+		if err := utils.ValidateHTTPURL(value, displayName); err != nil {
+			return err
+		}
+		if err := utils.ValidateSocialHost(field, displayName, value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // revalidateFetchedURLs re-runs the SSRF host guard over the values an approval
 // is about to apply, and reports one that must not go live.
 //
@@ -442,18 +552,98 @@ var fetchedURLFields = map[string]string{
 // string still passes: that is the clear-the-field gesture.
 func revalidateFetchedURLs(ctx context.Context, updates map[string]interface{}) error {
 	for field, displayName := range fetchedURLFields {
-		raw, present := updates[field]
-		if !present || raw == nil {
-			continue
+		value, present, err := updateStringValue(updates, field, displayName)
+		if err != nil {
+			return err
 		}
-		value, isString := raw.(string)
-		if !isString {
-			return fmt.Errorf("%s must be a string", displayName)
-		}
-		if value == "" {
+		if !present {
 			continue
 		}
 		if err := urlguard.Default.Validate(ctx, value, displayName); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// updateStringValue reads one field out of the map an approval is about to
+// apply, and answers whether there is a string worth validating.
+//
+// It exists so each apply-side gate holds only its own RULE. What the map can
+// contain is one contract, not one per gate: absent or nil means the approval
+// does not touch the field, an empty string is the clear-the-field gesture, and
+// a present-but-non-string value is refused rather than skipped.
+//
+// Refusing the non-string is the load-bearing part. It cannot be an attack (JSON
+// yields float64/bool/map/slice/nil, none of which spell a URL, and pgx errors
+// rather than coercing one into the column), but skipping it would leave the row
+// to 500 at the driver on every approve attempt and sit pending forever. A 422
+// is actionable.
+func updateStringValue(updates map[string]interface{}, field, displayName string) (value string, present bool, err error) {
+	raw, ok := updates[field]
+	if !ok || raw == nil {
+		return "", false, nil
+	}
+	s, isString := raw.(string)
+	if !isString {
+		return "", false, fmt.Errorf("%s must be a string", displayName)
+	}
+	if s == "" {
+		return "", false, nil
+	}
+	return s, true, nil
+}
+
+// normalizeBlankShapedURLs turns the clear-the-field gesture into the value the
+// column must actually hold for it: NULL, not "".
+//
+// AFTER the gate, never before, and the ordering is the whole correctness
+// argument. ValidateBandcampEmbedURL refuses a whitespace-only value and passes
+// only the empty string; normalizing first would turn "   " into nil and the
+// gate would then skip it, silently accepting an input the rule says to refuse.
+// Validate what arrived, then normalize what survived.
+//
+// Why NULL matters: a blank-but-not-null row is invisible to every
+// `bandcamp_embed_url IS NULL` gate: the profile resolver, the release-derived
+// fill, cmd/backfill-artist-bandcamp-embeds, cmd/sweep-link-suggestions, so the
+// artist can never be repaired by any automated path again, while rendering
+// exactly the same as NULL.
+//
+// Driven by shapedURLFields but delegating per field, so a future shape field
+// whose blank is NOT a clear gesture does not silently inherit this.
+func normalizeBlankShapedURLs(updates map[string]interface{}) {
+	if raw, ok := updates[utils.BandcampEmbedURLField]; ok {
+		updates[utils.BandcampEmbedURLField] = utils.BlankBandcampEmbedToNil(raw)
+	}
+}
+
+// revalidateShapedURLs re-runs the FORM rules over the values an approval is
+// about to apply, and reports one that must not go live.
+//
+// Same argument as revalidateFetchedURLs above, for a different class of rule
+// and a different harm. Submission checks these too
+// (shared.ValidateFieldChangeValue), so this is a SECOND run of one policy
+// rather than a new one; it exists because the queue outlives the guard. A row
+// written before a rule shipped, or through a path that missed it, carries an
+// unvetted value that approval would otherwise apply verbatim.
+//
+// The harm it blocks is not a broken embed. bandcamp_embed_url renders as an
+// OUTBOUND link labelled "Listen to <artist> on Bandcamp" wherever the embed
+// resolve comes back empty, so an arbitrary host approved into that column is a
+// phishing destination wearing a name readers trust.
+//
+// Reads the built `updates` map for the same reason the fetched-URL gate does:
+// the value checked is then literally the value the untyped Updates() writes.
+func revalidateShapedURLs(updates map[string]interface{}) error {
+	for field, rule := range shapedURLFields {
+		value, present, err := updateStringValue(updates, field, rule.displayName)
+		if err != nil {
+			return err
+		}
+		if !present {
+			continue
+		}
+		if err := rule.validate(value, rule.displayName); err != nil {
 			return err
 		}
 	}
@@ -585,6 +775,23 @@ func (s *PendingEditService) ApprovePendingEdit(ctx context.Context, editID uint
 			err,
 		))
 	}
+
+	// PSY-1966. Kept a separate call rather than folded into the block above
+	// because the two answer different questions (where a host POINTS vs what
+	// shape a URL has) and only one of them resolves DNS.
+	if err := revalidateShapedURLs(updates); err != nil {
+		slog.Default().Warn("pending_edit_blocked_url_shape",
+			"edit_id", edit.ID,
+			"entity_type", edit.EntityType,
+			"entity_id", edit.EntityID,
+			"submitted_by", edit.SubmittedBy,
+			"reviewer_id", reviewerID,
+			"error", err.Error(),
+		)
+		return nil, apperrors.ErrPendingEditInvalidRequest(fmt.Sprintf("cannot approve: %s", err))
+	}
+
+	normalizeBlankShapedURLs(updates)
 
 	// PSY-985: a venue location edit through the contribution flow bypasses
 	// VenueService, so the system-derived columns have to be maintained here too.

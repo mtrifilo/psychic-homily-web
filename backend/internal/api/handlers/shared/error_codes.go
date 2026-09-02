@@ -31,7 +31,7 @@ package shared
 //   - if req.Body.Title == ""                       → "Title is required"
 //   - if len(*req.Body.Description) > 5000          → "Description must be 5000 characters or fewer"
 //   - if !catalogm.IsValidTagEntityType(et)         → "Invalid entity_type"
-//   - if !isValidBandcampURL(*req.Body.Bandcamp)    → "Invalid Bandcamp URL format"
+//   - if err := utils.ValidateBandcampEmbedURL(...) → "Bandcamp embed URL must be …"
 //   - if req.Body.ArtistID == 0                     → "artist_id is required"
 //   - service returns CodeTagMergeInvalid           → "Cannot merge a tag with itself"
 //   - service returns CodeCollectionTagLimitExceeded → "Collections can have at most 10 tags"

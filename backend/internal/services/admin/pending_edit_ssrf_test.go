@@ -80,6 +80,20 @@ func TestFetchedURLFieldsMatchHandlerRegistry(t *testing.T) {
 		"the approve path must re-validate exactly the fields the handler registry marks `fetched`")
 }
 
+// TestShapedURLFieldsMatchHandlerRegistry is the same tripwire for the `shape`
+// rules (PSY-1966): add one to urlFieldSpecs without adding it to
+// shapedURLFields and the approve path silently stops guarding that field, so a
+// row queued before the rule shipped would still go live.
+func TestShapedURLFieldsMatchHandlerRegistry(t *testing.T) {
+	canonical := handlershared.ShapeRuledURLFieldNames()
+	applySide := make([]string, 0, len(shapedURLFields))
+	for field := range shapedURLFields {
+		applySide = append(applySide, field)
+	}
+	assert.ElementsMatch(t, canonical, applySide,
+		"the approve path must re-validate exactly the fields the handler registry gives a `shape` rule")
+}
+
 // TestApprovePendingEdit_RejectsStoredSSRFImageURL is the acceptance case: the
 // stored value is applied to the live entity at approval, so a row carrying a
 // host that points inward must fail the approval outright.

@@ -14,6 +14,7 @@ import (
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/utils"
 )
 
 // batchArtistUpcomingShowCounts returns a map of artist_id → upcoming
@@ -173,7 +174,13 @@ func batchArtistPlayableAudio(db *gorm.DB, artistIDs []uint) map[uint]bool {
 		return out
 	}
 	for _, r := range rows {
-		bandcamp := r.BandcampEmbedURL != nil && strings.TrimSpace(*r.BandcampEmbedURL) != ""
+		// Non-emptiness is not the question; renderability is. Since PSY-1966 the
+		// panel refuses to turn a stored value into a player or a link unless it
+		// is a Bandcamp URL, so a marker driven by "the column has something in
+		// it" would light a dot that opens onto nothing: the exact promise this
+		// batch exists to keep. utils.IsResolvableBandcampURL is the Go mirror of
+		// the host anchor the frontend's own gate asks.
+		bandcamp := r.BandcampEmbedURL != nil && utils.IsResolvableBandcampURL(*r.BandcampEmbedURL)
 		spotify := r.Spotify != nil && hasEmbeddableSpotify(*r.Spotify)
 		if bandcamp || spotify {
 			out[r.ID] = true

@@ -153,10 +153,45 @@ func (s *ArtistService) runProfileResolve(artistID uint, profileURL string) {
 	dispatch("bandcamp_profile_resolve", work)
 }
 
+// validateBandcampEmbedOnWrite is the service-layer guard on the one field in
+// the artist contract that renders as an outbound link under a trusted platform
+// label (PSY-1966).
+//
+// The API boundaries check it too. This exists because those are a property of
+// the CURRENT call graph, not of the code: the typed contract carries the field,
+// so the next caller to reach for it inherits nothing. Duplicating one cheap,
+// pure predicate is the price of making the invariant structural, and it is the
+// same call the SSRF guard makes for image_url.
+//
+// nil means the write does not touch the field. Empty means clear it; callers
+// normalize that to NULL rather than storing a blank.
+func validateBandcampEmbedOnWrite(value *string) error {
+	if value == nil {
+		return nil
+	}
+	if err := utils.ValidateBandcampEmbedURL(*value, utils.BandcampEmbedURLLabel); err != nil {
+		// An ArtistError, not a bare one: every handler maps a bare error from
+		// these methods to a generic 500 and logs the detail, so the sentence
+		// telling the submitter what shape to use would be swallowed by the one
+		// caller this gate exists for: the next one.
+		return apperrors.ErrArtistInvalidField(err)
+	}
+	return nil
+}
+
 // CreateArtist creates a new artist
 func (s *ArtistService) CreateArtist(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// The typed contract carries bandcamp_embed_url, so this is where a NEW
+	// caller would reach for it, and every boundary gate is a property of today's
+	// call graph rather than of the code (PSY-1966). Checked here as well, the
+	// property is structural. The SSRF guard this mirrors makes the same choice,
+	// re-checking at the service rather than trusting its handlers.
+	if err := validateBandcampEmbedOnWrite(req.BandcampEmbedURL); err != nil {
+		return nil, err
 	}
 
 	// Single artist write path (PSY-1254): dedup by name, unique slug, insert (and
@@ -170,7 +205,14 @@ func (s *ArtistService) CreateArtist(req *contracts.CreateArtistRequest) (*contr
 		// (metro is derived from this location by the create funnel — PSY-1255 step B.)
 		a.Description = req.Description
 		a.ImageURL = req.ImageURL
+		// NilIfBlank for the same reason UpdateArtist uses it: the validator
+		// passes "" as the clear gesture, and an entity-request payload carrying
+		// one would otherwise land blank-but-not-null with a NULL provenance:
+		// permanently unrepairable by every `IS NULL` path, rendering nothing.
 		a.BandcampEmbedURL = req.BandcampEmbedURL
+		if req.BandcampEmbedURL != nil {
+			a.BandcampEmbedURL = utils.NilIfBlank(*req.BandcampEmbedURL)
+		}
 		// Stamp provenance whenever this create sets an embed (a human/admin/AI
 		// value): "manual" so the PSY-1189 keep-fresh hook never auto-refreshes a
 		// curated embed. nil when no embed is supplied so the source isn't falsely
@@ -427,7 +469,13 @@ func (s *ArtistService) UpdateArtist(artistID uint, req *contracts.UpdateArtistR
 		updates["description"] = utils.NilIfEmpty(*req.Description)
 	}
 	if req.BandcampEmbedURL != nil {
-		embed := utils.NilIfEmpty(*req.BandcampEmbedURL)
+		if err := validateBandcampEmbedOnWrite(req.BandcampEmbedURL); err != nil {
+			return nil, err
+		}
+		// NilIfBlank, not NilIfEmpty: the column must be NULL or a renderable
+		// URL, never blank-but-not-null, which every `IS NULL` repair path skips
+		// forever while it renders nothing.
+		embed := utils.NilIfBlank(*req.BandcampEmbedURL)
 		updates["bandcamp_embed_url"] = embed
 		// Keep the provenance column in lockstep with the URL on every write
 		// through this typed path (admin endpoint, AI fulfiller): a non-empty
@@ -1991,17 +2039,24 @@ func selectBandcampEmbedFromReleases(releases []catalogm.Release) *string {
 		var relBest *embedCandidate
 		for li := range rel.ExternalLinks {
 			link := &rel.ExternalLinks[li]
-			if !utils.IsValidBandcampEmbedURL(link.URL) {
+			// The TRIMMED URL, because that is what this function stores a few
+			// lines down. Validating the raw value while storing the trimmed one
+			// meant a release link with surrounding whitespace (the column is
+			// stored verbatim, never normalized) silently stopped yielding an
+			// embed, and worse, a later recompute would NULL an embed that was
+			// derived from it and renders today.
+			trimmedLink := strings.TrimSpace(link.URL)
+			if !utils.IsValidBandcampEmbedURL(trimmedLink) {
 				continue
 			}
 			c := embedCandidate{
-				url:  strings.TrimSpace(link.URL),
+				url:  trimmedLink,
 				year: rel.ReleaseYear,
 				// Anchor on the parsed PATH, not a substring of the whole URL:
 				// a /track/ link with "/album/" in its query string must not be
 				// mis-classified as an album (the URL already passed the strict
 				// validator, so the path is /album/… or /track/…).
-				isAlbum: utils.IsBandcampAlbumURL(link.URL),
+				isAlbum: utils.IsBandcampAlbumURL(trimmedLink),
 				relID:   rel.ID,
 				linkID:  link.ID,
 			}

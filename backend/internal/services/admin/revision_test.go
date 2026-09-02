@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -113,7 +114,7 @@ func (s *RevisionServiceIntegrationTestSuite) rollbackLatest(entityType string, 
 	var recorded adminm.Revision
 	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", entityType, entityID).
 		Order("id DESC").First(&recorded).Error)
-	s.Require().NoError(s.svc.Rollback(recorded.ID, adminID))
+	s.Require().NoError(s.svc.Rollback(context.Background(), recorded.ID, adminID))
 }
 
 // createTestArtist makes an artist already living in a metro, so a rollback that
@@ -454,7 +455,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_Success() {
 	s.db.Where("entity_type = ? AND entity_id = ?", "venue", venue.ID).First(&revision)
 
 	// Rollback
-	err = s.svc.Rollback(revision.ID, adminUser.ID)
+	err = s.svc.Rollback(context.Background(), revision.ID, adminUser.ID)
 	s.NoError(err)
 
 	// Verify venue name is restored
@@ -521,7 +522,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_NullableTimestampBack
 	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "show", show.ID).
 		First(&revision).Error)
 
-	s.Require().NoError(s.svc.Rollback(revision.ID, adminUser.ID),
+	s.Require().NoError(s.svc.Rollback(context.Background(), revision.ID, adminUser.ID),
 		"rolling back a revision that first set a nullable timestamp must succeed")
 
 	var restored catalogm.Show
@@ -571,7 +572,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_NullablePriceBackToNu
 	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "show", show.ID).
 		First(&revision).Error)
 
-	s.Require().NoError(s.svc.Rollback(revision.ID, adminUser.ID))
+	s.Require().NoError(s.svc.Rollback(context.Background(), revision.ID, adminUser.ID))
 
 	var restored catalogm.Show
 	s.Require().NoError(s.db.First(&restored, show.ID).Error)
@@ -604,7 +605,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_NullableCapacityBackT
 	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "venue", venue.ID).
 		First(&revision).Error)
 
-	s.Require().NoError(s.svc.Rollback(revision.ID, adminUser.ID))
+	s.Require().NoError(s.svc.Rollback(context.Background(), revision.ID, adminUser.ID))
 
 	var restored catalogm.Venue
 	s.Require().NoError(s.db.First(&restored, venue.ID).Error)
@@ -612,7 +613,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_NullableCapacityBackT
 }
 
 func (s *RevisionServiceIntegrationTestSuite) TestRollback_RevisionNotFound() {
-	err := s.svc.Rollback(99999, 1)
+	err := s.svc.Rollback(context.Background(), 99999, 1)
 	s.Error(err)
 	s.Contains(err.Error(), "revision not found")
 }
@@ -630,7 +631,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_EntityNotFound() {
 	var revision adminm.Revision
 	s.db.First(&revision)
 
-	err = s.svc.Rollback(revision.ID, user.ID)
+	err = s.svc.Rollback(context.Background(), revision.ID, user.ID)
 	s.Error(err)
 	s.Contains(err.Error(), "entity not found")
 }
@@ -658,7 +659,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_NarrowsNumericValues(
 	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "venue", venue.ID).
 		Order("id DESC").First(&recorded).Error)
 
-	s.Require().NoError(s.svc.Rollback(recorded.ID, user.ID))
+	s.Require().NoError(s.svc.Rollback(context.Background(), recorded.ID, user.ID))
 
 	var restored catalogm.Venue
 	s.Require().NoError(s.db.First(&restored, venue.ID).Error)
@@ -682,7 +683,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_RestoresOutOfRangeHis
 	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "venue", venue.ID).
 		Order("id DESC").First(&recorded).Error)
 
-	s.Require().NoError(s.svc.Rollback(recorded.ID, user.ID),
+	s.Require().NoError(s.svc.Rollback(context.Background(), recorded.ID, user.ID),
 		"undo must not be blocked by a bound the historical value predates")
 
 	var restored catalogm.Venue
@@ -722,7 +723,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_RederivesVenueTimezon
 	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "venue", venue.ID).
 		Order("id DESC").First(&recorded).Error)
 
-	s.Require().NoError(s.svc.Rollback(recorded.ID, adminUser.ID))
+	s.Require().NoError(s.svc.Rollback(context.Background(), recorded.ID, adminUser.ID))
 
 	var restored catalogm.Venue
 	s.Require().NoError(s.db.First(&restored, venue.ID).Error)
@@ -764,7 +765,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_LeavesDerivedColumnsA
 	var recorded adminm.Revision
 	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "venue", venue.ID).
 		Order("id DESC").First(&recorded).Error)
-	s.Require().NoError(s.svc.Rollback(recorded.ID, user.ID))
+	s.Require().NoError(s.svc.Rollback(context.Background(), recorded.ID, user.ID))
 
 	var restored catalogm.Venue
 	s.Require().NoError(s.db.First(&restored, venue.ID).Error)
@@ -1226,7 +1227,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_RestoresRealAddressFo
 	var stored adminm.Revision
 	s.Require().NoError(s.db.First(&stored).Error)
 
-	s.Require().NoError(s.svc.Rollback(stored.ID, adminUser.ID))
+	s.Require().NoError(s.svc.Rollback(context.Background(), stored.ID, adminUser.ID))
 
 	var restored catalogm.Venue
 	s.Require().NoError(s.db.First(&restored, venue.ID).Error)

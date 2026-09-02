@@ -765,6 +765,34 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_P
 	suite.Assert().False(byID[a3], "artist with no embeds must not be flagged")
 }
 
+// The flag draws a "this dot plays something" ring, and clicking it opens a
+// panel that since PSY-1966 refuses to render a value it cannot prove is
+// Bandcamp. Non-emptiness is therefore the wrong question: a legacy or hostile
+// value must not light the ring, or the click lands on an empty panel.
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_PlayableAudio_IgnoresUnrenderableEmbed() {
+	center := suite.createArtist("Unrenderable Center")
+	for _, c := range []struct{ name, embed string }{
+		{"Foreign Host Band", "https://evil.test/album/checkout"},
+		{"Lookalike Band", "https://bandcamp.com.attacker.test/album/x"},
+		{"Http Band", "http://x.bandcamp.com/album/y"},
+		{"Blank Band", "   "},
+	} {
+		id := suite.createArtist(c.name)
+		embed := c.embed
+		suite.Require().NoError(
+			suite.db.Model(&catalogm.Artist{}).Where("id = ?", id).Update("bandcamp_embed_url", &embed).Error)
+		_, err := suite.svc.CreateRelationship(center, id, "similar", false)
+		suite.Require().NoError(err)
+	}
+
+	graph, err := suite.svc.GetArtistGraph(center, nil, 0)
+	suite.Require().NoError(err)
+	for _, n := range graph.Nodes {
+		suite.Assert().False(n.HasPlayableAudio,
+			"%s stores a value nothing can render and must not be flagged playable", n.Name)
+	}
+}
+
 // The playable-audio flag also survives the no-relationships early return.
 func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_PlayableAudio_EmptyGraphCenter() {
 	a1 := suite.createArtist("Lonely Playable")

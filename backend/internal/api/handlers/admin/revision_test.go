@@ -378,7 +378,7 @@ func TestRevisionHandler_Rollback_Success(t *testing.T) {
 	var receivedAdminID uint
 	h := NewRevisionHandler(
 		&testhelpers.MockRevisionService{
-			RollbackFn: func(revisionID uint, adminUserID uint) error {
+			RollbackFn: func(_ context.Context, revisionID uint, adminUserID uint) error {
 				receivedRevisionID = revisionID
 				receivedAdminID = adminUserID
 				return nil
@@ -412,7 +412,7 @@ func TestRevisionHandler_Rollback_InvalidID(t *testing.T) {
 func TestRevisionHandler_Rollback_ServiceError(t *testing.T) {
 	h := NewRevisionHandler(
 		&testhelpers.MockRevisionService{
-			RollbackFn: func(revisionID uint, adminUserID uint) error {
+			RollbackFn: func(_ context.Context, revisionID uint, adminUserID uint) error {
 				return fmt.Errorf("revision not found")
 			},
 		},

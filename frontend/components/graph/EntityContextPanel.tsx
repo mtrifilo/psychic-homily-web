@@ -19,6 +19,7 @@ import Link from 'next/link'
 
 import { cn } from '@/lib/utils'
 import { MusicEmbed } from '@/components/shared/MusicEmbed'
+import { hasRenderableMusic } from '@/lib/musicAvailability'
 import { GraphPanelShell } from './GraphPanelShell'
 
 /**
@@ -202,8 +203,14 @@ export function EntityContextPanel({
             <p className="font-medium text-foreground/90">{primary.text}</p>
           )}
 
+          {/* What MusicEmbed will produce, not what the model carries: an
+              unrenderable value would otherwise open a content block holding
+              nothing (PSY-1966). */}
           {primary?.kind === 'embed' &&
-            (primary.bandcampAlbumUrl || primary.spotifyUrl) && (
+            hasRenderableMusic({
+              bandcampAlbumUrl: primary.bandcampAlbumUrl,
+              spotifyUrl: primary.spotifyUrl,
+            }) && (
               <MusicEmbed
                 compact
                 bandcampAlbumUrl={primary.bandcampAlbumUrl}

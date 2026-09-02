@@ -288,6 +288,20 @@ func TestValidateEntityRequestPayload(t *testing.T) {
 	t.Run("artist rejects non-http bandcamp_embed_url", func(t *testing.T) {
 		assert.Error(t, ValidateEntityRequestPayload(EntityRequestArtist, json.RawMessage(`{"name":"Boris","bandcamp_embed_url":"data:text/html,evil"}`)))
 	})
+	// PSY-1966: the embed URL must be a Bandcamp RELEASE page, not merely an
+	// http(s) URL. The queue is the second reachable write path onto this
+	// column, and fulfilment re-runs this same validator, so a value refused
+	// here cannot arrive on a live artist by being approved later. The full
+	// table of shapes lives at the predicate (utils.TestIsValidBandcampEmbedURL);
+	// one foreign host and one on-platform non-release pin the wiring.
+	t.Run("artist rejects a bandcamp_embed_url that is not a release page", func(t *testing.T) {
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestArtist, json.RawMessage(`{"name":"Boris","bandcamp_embed_url":"https://evil.test/album/checkout"}`)))
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestArtist, json.RawMessage(`{"name":"Boris","bandcamp_embed_url":"https://boris.bandcamp.com"}`)))
+	})
+	t.Run("artist accepts a track page and an empty bandcamp_embed_url", func(t *testing.T) {
+		assert.NoError(t, ValidateEntityRequestPayload(EntityRequestArtist, json.RawMessage(`{"name":"Boris","bandcamp_embed_url":"https://boris.bandcamp.com/track/x"}`)))
+		assert.NoError(t, ValidateEntityRequestPayload(EntityRequestArtist, json.RawMessage(`{"name":"Boris","bandcamp_embed_url":""}`)))
+	})
 	t.Run("venue rejects non-http image_url", func(t *testing.T) {
 		assert.Error(t, ValidateEntityRequestPayload(EntityRequestVenue, json.RawMessage(`{"name":"Trunk Space","city":"Phoenix","state":"AZ","image_url":"ftp://example.com/x.jpg"}`)))
 	})

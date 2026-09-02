@@ -8,7 +8,7 @@ import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 // shared component (and their AuthContext/router dependencies) for one embed,
 // and it is the path the Atlas suites already mock. Same rule VenuePanel states.
 import { MusicEmbed } from '@/components/shared/MusicEmbed'
-import { parseSpotifyEmbed } from '@/lib/spotify'
+import { hasRenderableMusic } from '@/lib/musicAvailability'
 import { useArtistGraphCard } from '@/features/artists/hooks/useArtistGraphCard'
 import { useArtistShows } from '@/features/artists/hooks/useArtists'
 import { ARTIST_SHOWS_PAGE_LIMIT } from '@/features/artists/api'
@@ -175,15 +175,15 @@ export function ArtistPanel({
   const artistSlug = card?.slug || current.artistSlug
   const identity = card ? artistIdentityLine(card) : ''
   const connections = card ? artistConnectionsLine(card) : ''
-  // Whether the LISTEN block will actually render a player. Mirrors MusicEmbed's
-  // own resolution exactly — ArtistContextPanel's `hasPlayableAudio`, and for
-  // the same reason (PSY-1302): a Bandcamp embed URL always yields content (an
-  // iframe, or a fallback link), a Spotify link only when it parses to an
-  // embeddable id. A headed LISTEN section with no player under it is the
-  // failure mode this gate exists to prevent.
+  // Whether the LISTEN block will actually render a player. One shared
+  // predicate, gating on the same host anchor MusicEmbed does, rather than a
+  // local restatement: a headed LISTEN section with no player under it is the
+  // failure mode this gate exists to prevent (PSY-1302).
   const hasPlayableAudio = card
-    ? Boolean(card.bandcamp_embed_url) ||
-      Boolean(card.spotify && parseSpotifyEmbed(card.spotify))
+    ? hasRenderableMusic({
+        bandcampAlbumUrl: card.bandcamp_embed_url,
+        spotifyUrl: card.spotify,
+      })
     : false
 
   const atFirst = index <= 0

@@ -40,11 +40,17 @@ export function isAllowedBandcampUrl(url: string): boolean {
  *
  * Stricter than {@link isAllowedBandcampUrl}, and the extra strictness is for a
  * different threat. The host anchor above protects a SERVER-side fetch; this
- * protects an outbound link we put in front of a reader under a "buy" verb.
- * `artists.bandcamp_embed_url` is a contributor-writable column that the
- * suggest-edit path does not URL-validate, so "the column says Bandcamp" is not
- * evidence that the value is a Bandcamp release page. Anything rendered as a
- * purchase link has to prove it here first.
+ * protects an outbound link we put in front of a reader under a "buy" verb, or
+ * under a "Listen on Bandcamp" label. `artists.bandcamp_embed_url` is a
+ * contributor-writable column, so "the column says Bandcamp" is not evidence
+ * that the value is a Bandcamp release page. Anything rendered as a link has to
+ * prove it here first.
+ *
+ * This is the READ half of a mirrored pair whose contract is stated in full on
+ * the write half, utils.IsValidBandcampEmbedURL in the Go backend. In short:
+ * what can be STORED must stay a subset of what can be RENDERED, so this side
+ * may be the more lenient one and never the stricter. Read that doc before
+ * changing either.
  *
  * The segment test reads `pathname`, never the whole URL: a `/track/` page with
  * the literal `/album/` in its query string is a track, and a substring test

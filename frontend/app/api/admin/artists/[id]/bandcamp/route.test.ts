@@ -141,6 +141,26 @@ describe('POST /api/admin/artists/[id]/bandcamp', () => {
     expect(nonAuthCalls).toHaveLength(0)
   })
 
+  // PSY-1966: the release-page check reads the parsed pathname. The substring
+  // test it replaced accepted an on-platform page that merely MENTIONS /album/
+  // in a query string, which the backend then refused with a message about the
+  // host: a rejection an admin could not act on.
+  it('rejects an on-platform page whose /album/ is only in the query string', async () => {
+    fetchSpy = mockFetchRouting()
+
+    const res = await POST(
+      postRequest({ bandcamp_url: 'https://band.bandcamp.com/merch/shirt?ref=/album/x' }),
+      params
+    )
+
+    expect(res.status).toBe(400)
+    expect(mockRevalidatePath).not.toHaveBeenCalled()
+    const nonAuthCalls = (fetchSpy.mock.calls as unknown[][]).filter(
+      (call) => !String(call[0]).endsWith('/auth/profile')
+    )
+    expect(nonAuthCalls).toHaveLength(0)
+  })
+
   it('auto-corrects an /album/ URL to /track/ on 404 and persists the corrected URL', async () => {
     // Mirrors the Soroche bug: the suggested /album/<slug> 404s, but the same
     // slug exists at /track/<slug>. The route must retry and save the /track/ URL.

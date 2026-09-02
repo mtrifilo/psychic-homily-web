@@ -714,10 +714,13 @@ func (h *ArtistHandler) UpdateArtistBandcampHandler(ctx context.Context, req *Up
 		return nil, huma.Error400BadRequest("Invalid artist ID")
 	}
 
-	// Validate URL format if provided and not empty
-	if req.Body.BandcampEmbedURL != nil && *req.Body.BandcampEmbedURL != "" {
-		if !isValidBandcampURL(*req.Body.BandcampEmbedURL) {
-			return nil, huma.Error422UnprocessableEntity("Invalid Bandcamp URL format. URL must be a bandcamp.com album or track URL.")
+	// Validate URL format if provided. The shared validator carries the refusal
+	// message, so a curator sees the same sentence (and the same worked example)
+	// here as through the suggest-edit and entity-request queues. Empty passes:
+	// it is the clear-the-field gesture this endpoint documents.
+	if req.Body.BandcampEmbedURL != nil {
+		if err := utils.ValidateBandcampEmbedURL(*req.Body.BandcampEmbedURL, utils.BandcampEmbedURLLabel); err != nil {
+			return nil, huma.Error422UnprocessableEntity(err.Error())
 		}
 	}
 
@@ -777,15 +780,6 @@ func (h *ArtistHandler) UpdateArtistBandcampHandler(ctx context.Context, req *Up
 	)
 
 	return &UpdateArtistBandcampResponse{Body: artist}, nil
-}
-
-// isValidBandcampURL validates that the URL is a proper Bandcamp album/track
-// URL. The strict host-anchored + /album|/track rule lives in
-// utils.IsValidBandcampEmbedURL (PSY-1188) so the service-layer release-derived
-// backfill enforces the SAME gate this admin endpoint does; this thin wrapper
-// keeps the existing call site readable.
-func isValidBandcampURL(rawURL string) bool {
-	return utils.IsValidBandcampEmbedURL(rawURL)
 }
 
 // parseHTTPURL parses rawURL and confirms it has an http/https scheme and a

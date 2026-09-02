@@ -25,8 +25,8 @@ import Link from 'next/link'
 
 import { cn } from '@/lib/utils'
 import { formatShowDate } from '@/lib/utils/formatters'
-import { parseSpotifyEmbed } from '@/lib/spotify'
 import { MusicEmbed } from '@/components/shared/MusicEmbed'
+import { hasRenderableMusic } from '@/lib/musicAvailability'
 import type { ArtistGraphCard } from '@/features/artists/types'
 import { GraphPanelShell } from './GraphPanelShell'
 
@@ -96,12 +96,14 @@ export function ArtistContextPanel({
         card.connections.shared_labels > 0 && `${card.connections.shared_labels} label ties`,
       ].filter((part): part is string => Boolean(part))
     : []
-  // Whether the Listen row will actually render a player — mirrors MusicEmbed's
-  // own resolution so the headed row never strands empty (PSY-1302): a Bandcamp
-  // embed URL always yields content (an iframe, or a fallback link), a Spotify
-  // link only when it parses to an embeddable id.
+  // Whether the Listen row will actually render a player. One shared predicate,
+  // gating on the same host anchor MusicEmbed does, so the headed row never
+  // strands empty (PSY-1302).
   const hasPlayableAudio = card
-    ? Boolean(card.bandcamp_embed_url) || Boolean(card.spotify && parseSpotifyEmbed(card.spotify))
+    ? hasRenderableMusic({
+        bandcampAlbumUrl: card.bandcamp_embed_url,
+        spotifyUrl: card.spotify,
+      })
     : false
 
   return (

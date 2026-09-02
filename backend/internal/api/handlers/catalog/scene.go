@@ -10,6 +10,7 @@ import (
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/utils"
 )
 
 // SceneHandler handles scene (city aggregation) endpoints.
@@ -174,7 +175,13 @@ func (h *SceneHandler) representativeEmbed(ctx context.Context, city, state stri
 		return nil
 	}
 	for _, a := range page {
-		if a.BandcampEmbedURL != nil && *a.BandcampEmbedURL != "" {
+		// Renderability, not non-emptiness (PSY-1966). The preview gates its
+		// "Listen" heading on what the player will actually produce, so
+		// nominating a row the renderer refuses does not degrade to a link any
+		// more: it suppresses the whole block, and the next band on the page
+		// that DOES have a working embed never gets its turn. One junk row must
+		// not silence a scene.
+		if a.BandcampEmbedURL != nil && utils.IsResolvableBandcampURL(*a.BandcampEmbedURL) {
 			return &contracts.SceneRepresentativeEmbed{
 				EmbedURL:   *a.BandcampEmbedURL,
 				ArtistName: a.Name,

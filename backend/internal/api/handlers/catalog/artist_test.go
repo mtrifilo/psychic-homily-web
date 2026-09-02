@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
@@ -180,6 +181,38 @@ func TestUpdateBandcamp_ProfileOnlyURL(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 422)
 }
 
+// http is refused even on a genuine release page (PSY-1966): the resolver that
+// turns the value into an iframe and the link gate that renders the fallback
+// both require https, so an http row would show nothing at all.
+func TestUpdateBandcamp_HTTPReleaseURL(t *testing.T) {
+	h := testArtistHandler()
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
+	url := "http://artist.bandcamp.com/album/cool-album"
+	req := &UpdateArtistBandcampRequest{ArtistID: "1"}
+	req.Body.BandcampEmbedURL = &url
+
+	_, err := h.UpdateArtistBandcampHandler(ctx, req)
+	testhelpers.AssertHumaError(t, err, 422)
+}
+
+// The refusal is the SHARED sentence, so a curator reads the same message here
+// as through the suggest-edit and entity-request queues. The full table of
+// accepted and rejected shapes lives at the predicate
+// (utils.TestIsValidBandcampEmbedURL); this pins the wiring and the copy.
+func TestUpdateBandcamp_RefusalUsesSharedMessage(t *testing.T) {
+	h := testArtistHandler()
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
+	url := "https://evil.test/album/checkout"
+	req := &UpdateArtistBandcampRequest{ArtistID: "1"}
+	req.Body.BandcampEmbedURL = &url
+
+	_, err := h.UpdateArtistBandcampHandler(ctx, req)
+	testhelpers.AssertHumaError(t, err, 422)
+	if !strings.Contains(err.Error(), "https://artist.bandcamp.com/album/title") {
+		t.Errorf("expected the shared refusal with its worked example, got: %v", err)
+	}
+}
+
 // --- UpdateArtistSpotifyHandler ---
 
 func TestUpdateSpotify_NoUser(t *testing.T) {
@@ -220,37 +253,6 @@ func TestUpdateSpotify_InvalidURL(t *testing.T) {
 }
 
 // --- Helper function tests ---
-
-func TestIsValidBandcampURL(t *testing.T) {
-	tests := []struct {
-		name     string
-		url      string
-		expected bool
-	}{
-		{"valid album URL", "https://artist.bandcamp.com/album/cool-album", true},
-		{"valid track URL", "https://artist.bandcamp.com/track/cool-track", true},
-		{"apex rejected (releases live on a subdomain)", "https://bandcamp.com/album/cool-album", false},
-		{"profile only", "https://artist.bandcamp.com", false},
-		{"wrong domain", "https://example.com/album/test", false},
-		{"empty string", "", false},
-		// Host is anchored (parsed), not a substring — these all contain
-		// "bandcamp.com" but resolve to attacker/internal hosts (PSY-1107).
-		{"ssrf substring bypass via query", "http://169.254.169.254/album/x?bandcamp.com", false},
-		{"attacker subdomain suffix", "https://bandcamp.com.attacker.test/album/x", false},
-		{"lookalike domain", "https://notbandcamp.com/album/x", false},
-		{"scheme-less", "artist.bandcamp.com/album/x", false},
-		{"non-http scheme", "javascript:alert(1)//artist.bandcamp.com/album/x", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := isValidBandcampURL(tt.url)
-			if result != tt.expected {
-				t.Errorf("isValidBandcampURL(%q) = %v, want %v", tt.url, result, tt.expected)
-			}
-		})
-	}
-}
 
 func TestIsValidSpotifyURL(t *testing.T) {
 	tests := []struct {

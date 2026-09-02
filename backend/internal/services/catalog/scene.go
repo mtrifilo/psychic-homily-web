@@ -19,6 +19,7 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/geo"
 	"psychic-homily-backend/internal/services/shared"
+	"psychic-homily-backend/internal/utils"
 )
 
 // SceneService handles computed city-level aggregations for "scene" pages.
@@ -87,6 +88,19 @@ const (
 	// review). Columns are aliases/`a.`-qualified, so both queries must SELECT
 	// is_active + show_count and alias the artists table `a`.
 	sceneRosterActiveOrderBy = "is_active DESC, show_count DESC, a.name ASC, a.id ASC"
+
+	// representativeEmbedCandidates is how deep the representative-embed query
+	// looks before giving up. It is a LIMIT because the shape rule that picks the
+	// winner runs in Go (see GetRepresentativeEmbed), so SQL can only narrow to
+	// "has something stored" and the rest is a scan.
+	//
+	// Ten, not one, and not the whole roster: one would let a single legacy row
+	// at the top of the active ordering silence a metro's player entirely, and
+	// the whole roster would trade that for an unbounded scan on a preview panel.
+	// Ten covers the case this exists for: a handful of unrenderable rows ahead
+	// of a good one, and a metro whose ten most active bands ALL hold a value
+	// nothing can render has a data problem, not a pagination problem.
+	representativeEmbedCandidates = 10
 )
 
 // usCountry is the country passed to the geocoder when resolving a scene's
@@ -1220,7 +1234,7 @@ func (s *SceneService) GetRepresentativeEmbed(city, state string, activeWindowDa
 	// (PSY-1294 decision). Placeholder order mirrors GetActiveArtists: cutoff
 	// (SELECT), status (subquery), then the roster predicate args.
 	args := append([]any{activeCutoff, catalogm.ShowStatusApproved}, aargs...)
-	var row embedRow
+	var rows []embedRow
 	result := s.db.Raw(`
 		SELECT a.slug, a.name, a.bandcamp_embed_url,
 		       COALESCE(ss.last_show >= ?, false) AS is_active,
@@ -1237,28 +1251,34 @@ func (s *SceneService) GetRepresentativeEmbed(city, state string, activeWindowDa
 		) ss ON ss.artist_id = a.id
 		WHERE `+ap+` AND a.bandcamp_embed_url IS NOT NULL AND a.bandcamp_embed_url <> ''
 		ORDER BY `+sceneRosterActiveOrderBy+`
-		LIMIT 1
-	`, args...).Scan(&row)
+		LIMIT ?
+	`, append(args, representativeEmbedCandidates)...).Scan(&rows)
 	if result.Error != nil {
 		return nil, fmt.Errorf("failed to get representative embed: %w", result.Error)
 	}
-	// No matching row leaves `row` zero-valued. The WHERE filters to a non-empty
-	// bandcamp_embed_url, so an empty URL here unambiguously means no band based in
-	// this metro has an embed — the preview shows no player. (Uses the file's
-	// zero-value no-row idiom, cf. parseSceneSlugParts.)
-	if row.BandcampEmbedURL == "" {
-		return nil, nil
+	// Candidates, then the shape rule in Go (PSY-1966). SQL can filter on
+	// non-emptiness but not on "the renderer will accept this", and since the
+	// preview now gates its heading on exactly that, a LIMIT 1 that landed on a
+	// junk row would suppress the whole Listen block for the metro instead of
+	// falling through to the next band. Keeping the rule in one Go predicate,
+	// rather than restating a host anchor in SQL, is what stops the two from
+	// disagreeing.
+	for _, row := range rows {
+		if !utils.IsResolvableBandcampURL(row.BandcampEmbedURL) {
+			continue
+		}
+		slug := ""
+		if row.Slug != nil {
+			slug = *row.Slug
+		}
+		return &contracts.SceneRepresentativeEmbed{
+			EmbedURL:   row.BandcampEmbedURL,
+			ArtistName: row.Name,
+			ArtistSlug: slug,
+		}, nil
 	}
-
-	slug := ""
-	if row.Slug != nil {
-		slug = *row.Slug
-	}
-	return &contracts.SceneRepresentativeEmbed{
-		EmbedURL:   row.BandcampEmbedURL,
-		ArtistName: row.Name,
-		ArtistSlug: slug,
-	}, nil
+	// Nothing renderable in the candidate window: the preview shows no player.
+	return nil, nil
 }
 
 // sceneSlugExprSQL is the no-CBSA slug form stored on venues. Must stay

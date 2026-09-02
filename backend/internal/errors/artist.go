@@ -21,6 +21,13 @@ const (
 	CodeArtistAliasNotFound = "ARTIST_ALIAS_NOT_FOUND"
 	// CodeArtistMergeSelf indicates an attempt to merge an artist into itself.
 	CodeArtistMergeSelf = "ARTIST_MERGE_SELF"
+
+	// CodeArtistInvalidField indicates a field value the service refused. It
+	// exists so a service-layer validation refusal reaches the caller as a 422
+	// carrying its own message, rather than as the generic 500 every
+	// non-ArtistError maps to, which would swallow the one sentence that tells
+	// the submitter how to fix the value.
+	CodeArtistInvalidField = "ARTIST_INVALID_FIELD"
 	// CodeArtistRelationshipNotFound indicates no connection (stored or
 	// query-time) exists between the artist pair.
 	CodeArtistRelationshipNotFound = "ARTIST_RELATIONSHIP_NOT_FOUND"
@@ -120,6 +127,16 @@ func ErrArtistRelationshipNotFound() *ArtistError {
 }
 
 // ErrArtistMergeSelf creates a merge-into-self error.
+// ErrArtistInvalidField wraps a validation failure raised inside the service.
+// The message is the validator's own, so the wording a curator sees is the same
+// whichever layer refused the value.
+func ErrArtistInvalidField(err error) *ArtistError {
+	return &ArtistError{
+		Code:    CodeArtistInvalidField,
+		Message: err.Error(),
+	}
+}
+
 func ErrArtistMergeSelf() *ArtistError {
 	return &ArtistError{
 		Code:    CodeArtistMergeSelf,

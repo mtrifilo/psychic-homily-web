@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -258,7 +259,7 @@ func (s *RevisionService) GetUserRevisions(userID uint, limit, offset int, viewe
 
 // Rollback applies the inverse of a revision's changes to the entity.
 // It creates a new revision recording the rollback.
-func (s *RevisionService) Rollback(revisionID uint, adminUserID uint) error {
+func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUserID uint) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
 	}
@@ -323,6 +324,58 @@ func (s *RevisionService) Rollback(revisionID uint, adminUserID uint) error {
 	if err := NarrowNumericUpdates(updates); err != nil {
 		return err
 	}
+
+	// PSY-1966: a rollback is a WRITE of a contributor-supplied value, not a
+	// restore of something this system vetted.
+	//
+	// That distinction is the whole finding. FieldChange.OldValue arrives on the
+	// suggest-edit body and nothing ever compares it to the entity's actual
+	// current value: the submit handler validates NewValue only, and
+	// ApprovePendingEdit copies the pair verbatim into revisions.field_changes.
+	// So a contributor can submit a legitimate NewValue alongside an arbitrary
+	// OldValue, wait for the approve, and have this function write the OldValue
+	// live. Every gate on the forward paths is bypassed by going backwards.
+	//
+	// Refusing the whole rollback, rather than dropping the offending field, is
+	// the same call ApprovePendingEdit makes: a partial undo is not the undo the
+	// admin asked for, and the message names what is wrong.
+	//
+	// A legacy row's correction therefore cannot be rolled back, and that is the
+	// intended outcome: un-fixing a bad URL is not an operation worth having.
+	//
+	// SCOPE: a rollback can write ANY field in the entity's edit allowlist, and
+	// none of their forward rules ever ran on OldValue, so all three checks are
+	// needed to reproduce what the forward paths enforce: the shape rule for
+	// bandcamp_embed_url, the scheme + platform-host rules for the other URL
+	// fields (SocialLinks and the ticket link render each as an href under a
+	// trusted label), and the SSRF host guard for image_url.
+	//
+	// image_url is the one that needs a context, and it is the one that most
+	// needs the check: urlguard's package doc explains that the fetch-time layer
+	// re-checks IP LITERALS only, so a HOSTNAME resolving to 169.254.169.254 is
+	// invisible to it and this write boundary is the only layer with a resolver.
+	// A rollback that skipped it would be the single path into that column that
+	// nothing can see.
+	//
+	// The blank normalization mirrors ApprovePendingEdit's, and it is not an edge
+	// case here: the edit drawer sends old_value "" whenever a contributor sets a
+	// previously-empty field, so "set it, approve, roll back" is the ORDINARY way
+	// to reach it. Without this the column lands blank-but-not-null, which every
+	// `IS NULL` repair path skips forever while it renders nothing.
+	//
+	// The root fix for all of it is that OldValue should be derived from the
+	// entity at submit time instead of accepted from the client. That is a change
+	// to the pending-edit contract and its diff previews, not a rider here.
+	if err := revalidateShapedURLs(updates); err != nil {
+		return err
+	}
+	if err := validateRollbackURLs(updates); err != nil {
+		return err
+	}
+	if err := revalidateFetchedURLs(ctx, updates); err != nil {
+		return err
+	}
+	normalizeBlankShapedURLs(updates)
 
 	// A rollback that restores city/state must re-derive whatever the system
 	// derives FROM that location, or the entity lands back in its old city still
