@@ -685,9 +685,8 @@ func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_Legacy
 }
 
 // The other half of the rule: an update whose bill NOBODY describes keeps
-// resolveArtistRole's position-0 fallback. Suppressing here unconditionally --
-// the initializeArtist shape PSY-1704 recorded as a defect -- would leave an
-// undescribed bill with no headline slot at all.
+// resolveArtistRole's position-0 fallback. Suppressing unconditionally would
+// leave an undescribed bill with no headline slot at all.
 func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_UncuratedBillKeepsPositionInference() {
 	show := suite.createTestShow(func(req *contracts.CreateShowRequest) {
 		req.Title = "Bill To Leave Undescribed"
@@ -717,13 +716,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_Uncura
 	suite.True(*updated.Artists[0].IsHeadliner)
 }
 
-// The scope boundary, pinned end to end: an update that describes the bill but
-// names NO headliner keeps position inference, so the genuine top act is still
-// written into the headline slot. Suppressing here would leave the show with
-// zero headliner rows, and headlineSlotSQL would then count that top act as a
-// SUPPORT slot -- the PSY-1704 write-path defect, newly minted on an endpoint
-// that does not produce it today. PSY-1705's wider rule would suppress; the
-// disagreement is left open rather than settled here.
+// The trigger's boundary, pinned end to end: an update that describes the bill
+// but names NO headliner keeps position inference, so the genuine top act is
+// still written into the headline slot. Suppressing here would leave the show
+// with zero headliner rows, and headlineSlotSQL would then count that top act as
+// a SUPPORT slot. Its create-path twin is
+// TestCreateShow_PartiallyCuratedBillKeepsAHeadlineSlot.
 func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_DescribedBillWithNoNamedHeadlinerKeepsInference() {
 	show := suite.createTestShow(func(req *contracts.CreateShowRequest) {
 		req.Title = "Bill With No Named Headliner"
@@ -745,6 +743,82 @@ func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_Descri
 
 	suite.Equal([]string{contracts.SetTypeHeadliner, contracts.SetTypeOpener}, suite.storedSetTypes(show.ID))
 	suite.Equal(1, suite.storedHeadlinerCount(show.ID))
+}
+
+// The create-path twin of TestUpdateShowWithRelations_StatedBillWritesExactlyOneHeadliner.
+// CreateShow applies the same suppression, so a caller that names one headliner
+// and leaves another act silent gets exactly the bill it stated.
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_StatedBillWritesExactlyOneHeadliner() {
+	user := suite.createTestUser()
+	created, err := suite.showService.CreateShow(&contracts.CreateShowRequest{
+		Title:     "Created Stated Bill",
+		EventDate: suite.uniqueEventDate(),
+		City:      "Phoenix",
+		State:     "AZ",
+		Venues:    []contracts.CreateShowVenue{{Name: "Created Stated Room", City: "Phoenix", State: "AZ"}},
+		Artists: []contracts.CreateShowArtist{
+			// States nothing: first-in-list is not a second opinion.
+			{Name: "Created Earth"},
+			{Name: "Created Boris", SetType: strPtr(contracts.SetTypeHeadliner)},
+		},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	})
+	suite.Require().NoError(err)
+
+	suite.Equal([]string{contracts.SetTypePerformer, contracts.SetTypeHeadliner}, suite.storedSetTypes(created.ID))
+	suite.Equal(1, suite.storedHeadlinerCount(created.ID), "a create must never write a second, unstated headliner")
+}
+
+// The create-path twin of
+// TestUpdateShowWithRelations_DescribedBillWithNoNamedHeadlinerKeepsInference,
+// and the case PSY-1943 is about: a bill that curates an opener and says nothing
+// about the top act still gets a headline slot, so headlineSlotSQL does not read
+// the genuine headliner as a support slot and put it in Openers to Watch.
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_PartiallyCuratedBillKeepsAHeadlineSlot() {
+	user := suite.createTestUser()
+	created, err := suite.showService.CreateShow(&contracts.CreateShowRequest{
+		Title:     "Created Partially Curated Bill",
+		EventDate: suite.uniqueEventDate(),
+		City:      "Phoenix",
+		State:     "AZ",
+		Venues:    []contracts.CreateShowVenue{{Name: "Created Partial Room", City: "Phoenix", State: "AZ"}},
+		Artists: []contracts.CreateShowArtist{
+			{Name: "Created Silent Top Act"},
+			{Name: "Created Curated Opener", SetType: strPtr(contracts.SetTypeOpener)},
+		},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	})
+	suite.Require().NoError(err)
+
+	suite.Equal([]string{contracts.SetTypeHeadliner, contracts.SetTypeOpener}, suite.storedSetTypes(created.ID))
+	suite.Equal(1, suite.storedHeadlinerCount(created.ID))
+}
+
+// The create-path twin of
+// TestUpdateShowWithRelations_UncuratedBillKeepsPositionInference. A bill nobody
+// described keeps the position-0 fallback rather than storing every act as
+// 'performer', which is what pinning a silent act's flag false produces.
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_UndescribedBillInfersPositionZero() {
+	user := suite.createTestUser()
+	created, err := suite.showService.CreateShow(&contracts.CreateShowRequest{
+		Title:     "Created Undescribed Bill",
+		EventDate: suite.uniqueEventDate(),
+		City:      "Phoenix",
+		State:     "AZ",
+		Venues:    []contracts.CreateShowVenue{{Name: "Created Undescribed Room", City: "Phoenix", State: "AZ"}},
+		Artists: []contracts.CreateShowArtist{
+			{Name: "Created Undescribed First"},
+			{Name: "Created Undescribed Second"},
+		},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	})
+	suite.Require().NoError(err)
+
+	suite.Equal([]string{contracts.SetTypeHeadliner, contracts.SetTypePerformer}, suite.storedSetTypes(created.ID))
+	suite.Equal(1, suite.storedHeadlinerCount(created.ID))
 }
 
 // storedHeadlinerCount counts the rows an update actually wrote into the
@@ -787,12 +861,18 @@ var setTypeTestDateOffset int
 // a headliner, including one the caller never flagged and never named a slot
 // for -- associateArtists infers that row from position 0, so a pre-check that
 // did not would lock and probe a different set than it writes.
+//
+// The bill describes a support act and names no headliner, which is exactly the
+// shape that keeps the position-0 inference armed. Only the top act repeats
+// across the two bookings, so the refusal below can come from the pre-check
+// alone; the message assertion is what proves it did, rather than the unique
+// index catching the same collision as a driver error.
 func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_PositionZeroWithNoSignalIsDuplicateChecked() {
 	user := suite.createTestUser()
 	eventDate := suite.uniqueEventDate()
 	venue := contracts.CreateShowVenue{Name: "Inferred Headliner Room", City: "Phoenix", State: "AZ"}
 
-	build := func(title string) *contracts.CreateShowRequest {
+	build := func(title, supportName string) *contracts.CreateShowRequest {
 		return &contracts.CreateShowRequest{
 			Title:     title,
 			EventDate: eventDate,
@@ -803,23 +883,21 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_PositionZeroWithNoS
 				// No set_type and no is_headliner: resolved to headliner from
 				// position 0 alone.
 				{Name: "Inferred Headliner"},
-				// An explicit headliner further down the bill. Before the
-				// pre-check resolved with real positions, this entry alone
-				// filled headlinerNames, which suppressed the first-billed
-				// fallback and left the inferred headliner unchecked.
-				{Name: "Named Headliner", SetType: strPtr(contracts.SetTypeHeadliner)},
+				{Name: supportName, SetType: strPtr(contracts.SetTypeOpener)},
 			},
 			SubmittedByUserID: &user.ID,
 			SubmitterIsAdmin:  true,
 		}
 	}
 
-	first, err := suite.showService.CreateShow(build("First Inferred Booking"))
+	first, err := suite.showService.CreateShow(build("First Inferred Booking", "Inferred Support A"))
 	suite.Require().NoError(err)
-	suite.Equal([]string{contracts.SetTypeHeadliner, contracts.SetTypeHeadliner}, suite.storedSetTypes(first.ID))
+	suite.Equal([]string{contracts.SetTypeHeadliner, contracts.SetTypeOpener}, suite.storedSetTypes(first.ID))
 
-	_, err = suite.showService.CreateShow(build("Second Inferred Booking"))
+	_, err = suite.showService.CreateShow(build("Second Inferred Booking", "Inferred Support B"))
 	suite.Require().Error(err, "the position-inferred headliner must be duplicate-checked too")
+	suite.Contains(err.Error(), "'Inferred Headliner' is already performing",
+		"the pre-check refused this, so the unique index never had to")
 }
 
 // ConfirmShowImport carries curated roles through from the export frontmatter

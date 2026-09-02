@@ -372,6 +372,44 @@ func (s *ShowHandlerIntegrationSuite) TestCreateShow_CarriesShowTimes() {
 // TestCreateShow_RejectsMusicBeforeDoors pins the one ordering rule that is
 // true by definition. Any window against event_date is deliberately not
 // enforced.
+// PSY-1943 through the create endpoint as Huma runs it: Resolve first, then the
+// handler. A bill that curates an opener and says nothing about the top act must
+// still name a headliner, which is what a defaulted is_headliner destroyed.
+//
+// Resolve is called explicitly because these suites invoke the handler function
+// directly; without it the request never passes through the code this pins.
+func (s *ShowHandlerIntegrationSuite) TestCreateShow_PartiallyCuratedBillKeepsAHeadlineSlot() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Partial Curation Room", "Phoenix", "AZ")
+
+	ctx := testhelpers.CtxWithUser(user)
+	title := "Endpoint Partially Curated Bill"
+	opener := "opener"
+	req := &CreateShowRequest{}
+	req.Body.Title = &title
+	req.Body.EventDate = time.Now().UTC().AddDate(0, 0, 21)
+	req.Body.City = "Phoenix"
+	req.Body.State = "AZ"
+	req.Body.Venues = []Venue{{ID: &venue.ID}}
+	req.Body.Artists = []Artist{
+		{Name: testhelpers.StringPtr("Endpoint Silent Top Act")},
+		{Name: testhelpers.StringPtr("Endpoint Curated Opener"), SetType: &opener},
+	}
+	s.Require().Empty(req.Body.Resolve(nil))
+
+	resp, err := s.handler.CreateShowHandler(ctx, req)
+	s.Require().NoError(err)
+	s.Require().Len(resp.Body.Artists, 2)
+	s.True(*resp.Body.Artists[0].IsHeadliner, "a bill nobody topped must still read position 0 as the headliner")
+
+	var setTypes []string
+	s.Require().NoError(s.deps.DB.Model(&catalogm.ShowArtist{}).
+		Where("show_id = ?", resp.Body.ID).
+		Order("position ASC").
+		Pluck("set_type", &setTypes).Error)
+	s.Equal([]string{"headliner", "opener"}, setTypes)
+}
+
 func (s *ShowHandlerIntegrationSuite) TestCreateShow_RejectsMusicBeforeDoors() {
 	eventDate := time.Now().UTC().AddDate(0, 0, 14)
 	doors := eventDate
@@ -772,11 +810,10 @@ func (s *ShowHandlerIntegrationSuite) TestUpdateShow_StatedBillDoesNotInferASeco
 	s.EqualValues(1, headlinerRows, "an update must write exactly the headliner the caller stated")
 }
 
-// The guard against relocating the PSY-1860 fix into this handler. Defaulting a
-// nil is_headliner here the way create's initializeArtist does would make every
-// act "stated", so the service's suppression never arms, its helper goes dead on
-// its only call site, and a bill nobody described would be written with NO
-// headliner row at all instead of reading position 0.
+// The guard against relocating the fix into this handler. Defaulting a nil
+// is_headliner here would make every act "stated", so the service's suppression
+// never arms and a bill nobody described would be written with NO headliner row
+// at all instead of reading position 0.
 func (s *ShowHandlerIntegrationSuite) TestUpdateShow_UndescribedBillStillInfersPositionZero() {
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Undescribed Bill Show")

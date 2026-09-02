@@ -36,9 +36,9 @@ type CreateShowVenue struct {
 // only the headliner slot -- may still be inferred from bill position.
 //
 // That positional inference is per-ACT, so it is not the whole story on a bill:
-// the show UPDATE path applies a bill-level rule on top, disarming it for the
-// acts a caller left silent once some other act names the headliner. In-process
-// callers building an update bill should read
+// the show CREATE and UPDATE paths apply a bill-level rule on top, disarming it
+// for the acts a caller left silent once some other act names the headliner.
+// In-process callers building either bill should read
 // catalog.suppressPositionInferenceWhenHeadlinerNamed before relying on the
 // paragraph above.
 type CreateShowArtist struct {

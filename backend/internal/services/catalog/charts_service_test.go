@@ -992,12 +992,14 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_UncuratedF
 // for the rows nobody described, so a bill with a stated opener and no stated
 // headliner has NO headline slot and both acts count as support.
 //
-// This shape is reachable through POST /shows: initializeArtist defaults a
-// silent act's is_headliner to a non-nil false, so resolveArtistRole's
-// position-0 fallback never fires and the top act is stored 'performer'. The
+// A caller reaches this shape by pinning its top act off the headline slot
+// explicitly (set_type 'performer', or is_headliner false), which the community
+// fulfiller and ConfirmShowImport both do for the acts nobody described. The
 // genuine headliner then lands in this chart. Pinned here so the behavior is
-// asserted rather than discovered; see headline_slot.go for why the fix
-// belongs in the write path.
+// asserted rather than discovered; see headline_slot.go for why this rule does
+// not repair it. The show service's create and update paths no longer produce
+// the shape from mere silence, which
+// TestCreateShow_PartiallyCuratedBillKeepsAHeadlineSlot pins.
 func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_PartiallyCuratedBillHasNoHeadlineSlot() {
 	user := suite.createUser("otw-partial@test.com")
 	venue := suite.createVenue("Partial Venue", "Phoenix", "AZ")

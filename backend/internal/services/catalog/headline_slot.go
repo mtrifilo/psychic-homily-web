@@ -39,20 +39,19 @@ import (
 // nobody has said anything better about it.
 //
 // KNOWN CONSEQUENCE, disclosed on PSY-1704 rather than papered over: a
-// PARTIALLY curated bill has no headline slot at all. The show form always
-// states a role for every act (artist 1 seeds as Headliner), but an API client
-// can send `set_type` on one act and nothing on another, and
-// handlers/catalog.initializeArtist then defaults the silent act's
-// is_headliner to a non-nil FALSE, which means resolveArtistRole's
-// position-0 fallback never fires on POST /shows, and the top act is stored
-// 'performer'. On such a bill the genuine headliner is counted as a support
-// slot and becomes eligible for Openers to Watch.
+// PARTIALLY curated bill has no headline slot at all. This rule is not the place
+// to repair one. Narrowing the fallback to "no row states 'headliner'" would
+// re-introduce the position heuristic on bills whose curator described an opener
+// and no headliner, which is exactly what the curated arm exists to stop.
 //
-// That is a write-path defect (initializeArtist destroys the "caller stated
-// nothing" signal that resolveArtistRole is built to detect); reading it as a
-// headline slot here would only hide it. Narrowing the fallback to "no row
-// states 'headliner'" would also mask it, and would re-introduce the position
-// heuristic on bills whose curator described an opener and no headliner.
+// Which bills arrive in that shape is a write-path question. The show service's
+// create and update paths no longer produce it from silence: an act that states
+// neither set_type nor is_headliner keeps its "caller stated nothing" signal, so
+// resolveArtistRole's position-0 fallback still names a headliner on a bill
+// where nobody else claims the slot (suppressPositionInferenceWhenHeadlinerNamed).
+// A bill still reaches this shape when a caller explicitly pins its top act off
+// the headline slot (set_type 'performer', or is_headliner false), which the
+// community fulfiller and ConfirmShowImport both do for silent acts.
 //
 // NOT covered here, deliberately, in three groups:
 //

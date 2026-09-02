@@ -70,19 +70,19 @@ func NewShowHandler(
 // body, which is why neither Resolve nor the update handler re-checks it; the
 // show service backstops in-process callers that bypass the schema.
 //
-// This struct is shared by POST /shows and PUT /shows/{show_id}, and the two
-// endpoints read an act that states NEITHER field differently. Create runs
-// Resolve, whose initializeArtist defaults is_headliner to false on every act,
-// so bill position is never read as a role there. Update has no Resolve, so the
-// show service's rule 3 can read position 0 as the headliner -- unless some act
-// names a headliner, in which case the silent acts store 'performer'
-// (catalog.suppressPositionInferenceWhenHeadlinerNamed, PSY-1860). The doc tags
-// below publish that difference; keep them in step with the service.
+// This struct is shared by POST /shows and PUT /shows/{show_id}, and both read
+// an act that states NEITHER field the same way: omitting both fields is the
+// caller saying nothing about that act's slot, and the show service reads bill
+// position 0 as the headliner only while no act on that bill names one
+// (catalog.suppressPositionInferenceWhenHeadlinerNamed). Neither handler
+// defaults the flag, because a defaulted false is indistinguishable from a
+// caller who chose it. The doc tags below publish that rule; keep them in step
+// with the service.
 type Artist struct {
 	ID          *uint   `json:"id,omitempty"`
 	Name        *string `json:"name,omitempty"`
-	IsHeadliner *bool   `json:"is_headliner,omitempty" doc:"Legacy headliner flag. Ignored when set_type is present, which is authoritative. On POST /shows a missing flag is defaulted to false, so bill position is never read as a role. On PUT /shows/{show_id} an act that states neither field is read as the headliner only when it is first on the bill AND no other act names a headliner."`
-	SetType     *string `json:"set_type,omitempty" enum:"headliner,direct_support,opener,special_guest,dj,performer" doc:"Curated bill role. Authoritative over is_headliner when present. Omit when the slot is not known; the show then stores 'performer', meaning 'on the bill, slot unknown', which must not be rendered as a role. One exception on PUT /shows/{show_id}: an act that omits BOTH this and is_headliner is stored 'headliner' when it is first on a bill where no act names a headliner. Once any act does name one (by either field), the acts that stated nothing store 'performer' rather than being inferred from list position."`
+	IsHeadliner *bool   `json:"is_headliner,omitempty" doc:"Legacy headliner flag. Ignored when set_type is present, which is authoritative. Omit it to say nothing about this act's slot; an act that states neither field is read as the headliner only when it is first on the bill AND no other act names a headliner. Sending false states that this act is not the headliner and holds bill position out of it."`
+	SetType     *string `json:"set_type,omitempty" enum:"headliner,direct_support,opener,special_guest,dj,performer" doc:"Curated bill role. Authoritative over is_headliner when present. Omit when the slot is not known; the show then stores 'performer', meaning 'on the bill, slot unknown', which must not be rendered as a role. One exception: an act that omits BOTH this and is_headliner is stored 'headliner' when it is first on a bill where no act names a headliner. Once any act does name one (by either field), the acts that stated nothing store 'performer' rather than being inferred from list position."`
 
 	InstagramHandle *string `json:"instagram_handle,omitempty"`
 }
@@ -94,23 +94,6 @@ type Venue struct {
 	City    *string `json:"city,omitempty"`
 	State   *string `json:"state,omitempty"`
 	Address *string `json:"address,omitempty"`
-}
-
-// initializeArtist provides sensible defaults for Artist fields
-func initializeArtist(a *Artist) {
-	// Set default for IsHeadliner if not provided.
-	//
-	// Harmless alongside set_type: the show service reads set_type first and
-	// derives is_headliner from it, so defaulting the flag here cannot
-	// contradict a caller that curated the role and sent set_type alone.
-	if a.IsHeadliner == nil {
-		// Default to false for non-headliners
-		defaultValue := false
-		a.IsHeadliner = &defaultValue
-	}
-
-	// Note: ID and Name are left as-is since validation will check
-	// that at least one is provided. No need to "initialize" nil values.
 }
 
 // CreateShowRequestBody represents the request body with preprocessing
@@ -266,10 +249,10 @@ func (r *CreateShowRequestBody) Resolve(ctx huma.Context) []error {
 		}
 	}
 
-	// Preprocess and validate artists
+	// Validate artists. Nothing is defaulted here: a nil is_headliner is the
+	// caller stating nothing about that act's slot, and the show service needs
+	// that distinct from an explicit false.
 	for i := range r.Artists {
-		initializeArtist(&r.Artists[i])
-
 		artist := &r.Artists[i]
 		if (artist.ID == nil || *artist.ID == 0) && (artist.Name == nil || *artist.Name == "") {
 			errors = append(errors, &huma.ErrorDetail{

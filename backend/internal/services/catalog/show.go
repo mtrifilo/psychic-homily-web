@@ -112,6 +112,14 @@ func (s *ShowService) CreateShow(req *contracts.CreateShowRequest) (*contracts.S
 		return nil, err
 	}
 
+	// One bill for the whole create. checkDuplicateHeadlinerConflicts must
+	// resolve exactly the rows associateArtists will write, so suppression runs
+	// once here, ahead of both. Copied rather than assigned onto req, which the
+	// caller owns and may still read.
+	createReq := *req
+	createReq.Artists = suppressPositionInferenceWhenHeadlinerNamed(req.Artists)
+	req = &createReq
+
 	// Use transaction for data consistency
 	var response *contracts.ShowResponse
 	err := s.db.Transaction(func(tx *gorm.DB) error {
@@ -2146,8 +2154,9 @@ func validateShowArtistSetTypes(artists []contracts.CreateShowArtist) error {
 //
 // Rule 3 is a fallback for an act nobody placed, and callers are responsible for
 // not letting it fire alongside a headliner somebody DID name: see
-// suppressPositionInferenceWhenHeadlinerNamed, which disarms it for the update
-// path so one bill cannot end up with an UNSTATED second headliner row. Two acts
+// suppressPositionInferenceWhenHeadlinerNamed, which disarms it for the create
+// and update paths so one bill cannot end up with an UNSTATED second headliner
+// row. Two acts
 // that each state 'headliner' still resolve to two headliner rows; nothing here
 // validates headliner count.
 func resolveArtistRole(a contracts.CreateShowArtist, position int) (setType string, isHeadliner bool) {
@@ -2201,81 +2210,51 @@ func claimsHeadlineSlot(a contracts.CreateShowArtist) bool {
 	return isHeadliner
 }
 
-// suppressPositionInferenceWhenHeadlinerNamed returns the replacement bill to
-// write for a show UPDATE, with resolveArtistRole's position-0 fallback disarmed
-// on the acts the caller left silent -- but ONLY when some OTHER act on that same
-// bill has named itself the headliner. A bill on which nobody claims the headline
-// slot is returned untouched, so rule 3 still reads position 0 as the headliner.
+// suppressPositionInferenceWhenHeadlinerNamed returns the bill to write, with
+// resolveArtistRole's position-0 fallback disarmed on the acts the caller left
+// silent -- but ONLY when some OTHER act on that same bill names itself the
+// headliner. A bill on which nobody claims the headline slot is returned
+// untouched, so rule 3 still reads position 0 as the headliner.
 //
-// The defect this closes (PSY-1860): an update REPLACES the bill and the handler
-// forwards a nil is_headliner straight through, so
-// {"artists":[{"name":"Earth"},{"name":"Boris","set_type":"headliner"}]} wrote
-// TWO rows with set_type='headliner'. Readers that resolve THE one headliner of
-// a show break that tie on lowest position, so the act NOBODY designated won it
-// and the curated one was discarded -- silently, on the single fact the caller
-// was editing. headline_slot.go is the map of which readers resolve a headliner
-// which way; deliberately not re-inventoried here, because a copy of that list
-// rots without anything in CI noticing.
+// This is the one inference rule the show CREATE and UPDATE paths share, in one
+// sentence: bill position is read as a role only while no act on that bill has
+// named a headliner. CreateShow applies it ahead of its duplicate guard, so the
+// guard resolves exactly the rows associateArtists then writes;
+// UpdateShowWithRelations applies it ahead of replaceShowArtists.
+//
+// The defect it closes: a caller that leaves one act silent beside a curated one,
+// {"artists":[{"name":"Earth"},{"name":"Boris","set_type":"headliner"}]},
+// otherwise gets TWO rows with set_type='headliner'. Readers that resolve THE one
+// headliner of a show break that tie on lowest position, so the act nobody
+// designated wins it and the curated one is discarded. headline_slot.go is the
+// map of which readers resolve a headliner which way; deliberately not
+// re-inventoried here, because a copy of that list rots without anything in CI
+// noticing.
 //
 // An UNSTATED second headliner can only arise when one act claims the slot and a
 // silent act is inferred into it, so this trigger closes that exactly. It does
 // NOT make two headliner rows unreachable: a caller that states 'headliner' on
-// two acts still gets two rows, here and on create. That bill is the caller's
-// own statement rather than an inference, nothing on this path validates
-// headliner COUNT, and headlineSlotSQL deliberately reads a curated bill's
-// headline slot as every row curated 'headliner'. Do not read this helper as a
-// one-headliner-per-show guarantee.
+// two acts still gets two rows. That bill is the caller's own statement rather
+// than an inference, nothing here validates headliner COUNT, and headlineSlotSQL
+// reads a curated bill's headline slot as every row curated 'headliner'. Do not
+// read this helper as a one-headliner-per-show guarantee.
 //
 // Both spellings of the claim count, set_type='headliner' and the legacy
-// is_headliner=true flag. On this endpoint the flag is longstanding rather than
-// a new surface to protect, and it produced the identical corruption -- an update
-// naming the SECOND act with is_headliner:true also wrote two headliner rows --
-// so reading it as silence would leave half the defect live.
+// is_headliner=true flag, because the flag produces the identical corruption and
+// reading it as silence would leave half the defect live.
 //
-// DELIBERATELY NARROWER than community.suppressPositionInference (PSY-1705),
-// whose caller arms it as soon as any act states a set_type (buildShowAssociations
-// sets billIsCurated from setType alone; it does NOT read the legacy flag, which
-// is a live gap on that endpoint, not something this helper inherits). That wider
-// arming would also change bills that are described but on which nobody claims
-// the top -- e.g. [{Earth}, {Boris, set_type:"opener"}] -- writing the silent top
-// act as 'performer'. Two locked decisions disagree about what that bill should
-// mean, and this ticket is not the place to settle it:
-//
-//   - PSY-1705 says a stated bill is a complete statement, so first-in-list is
-//     not a second opinion and the show should stop ASSERTING a headliner nobody
-//     chose. Its safety argument covers display resolvers and dedup only.
-//   - PSY-1704 (headline_slot.go) says the resulting shape -- a partially
-//     described bill whose silent top act is pinned false -- is a WRITE-PATH
-//     DEFECT, because headlineSlotSQL then reads that bill as curated with no
-//     headline slot and classifies the genuine top act as a SUPPORT slot,
-//     making it eligible for Openers to Watch and flipping its
-//     headliner_count/opener_count.
-//
-// Suppressing there would make the shape PSY-1704 calls a defect ROUTINE on this
-// endpoint. It is already reachable here, but only when a caller says so
-// explicitly (is_headliner:false or set_type:'performer' on the top act); the
-// widened trigger would additionally produce it for every caller who merely left
-// an act silent. So that case is left exactly as it behaves today, and the
-// disagreement stays open for a ticket that can weigh it across every write path
-// at once instead of moving one alone. Several other paths decide this same
-// question with their own hand-rolled position rule, including one that still
-// has the PSY-1860 defect in its own spelling and does not route through
-// resolveArtistRole at all; that survey belongs in the ticket, not in a comment
-// that cannot be kept honest.
-//
-// This is also why it does not copy handlers/catalog.initializeArtist, which
-// pins the flag false on every act unconditionally: that destroys the "caller
-// stated nothing" signal even on a bill nobody described at all.
+// NARROWER than community.suppressPositionInference, whose caller arms it as soon
+// as any act states a set_type. That wider arming also rewrites a bill that is
+// described but names no headliner -- [{Earth}, {Boris, set_type:"opener"}] --
+// storing the silent top act as 'performer'. headlineSlotSQL reads such a bill as
+// curated with no headline slot and classifies the genuine top act as a SUPPORT
+// slot, eligible for Openers to Watch. Under this trigger that bill keeps its top
+// act in the headline slot, and an act reaches 'performer' at position 0 only
+// when its own caller says so (is_headliner:false or set_type:'performer').
 //
 // Non-mutating: the input is returned as-is when there is nothing to suppress,
 // which also preserves a nil slice (nil means "leave the associations untouched"
 // to replaceShowArtists, and an allocated empty slice would wipe the bill).
-//
-// Scoped to the update path on purpose. CreateShow is not routed through this:
-// its HTTP surface is already immune via initializeArtist, and its
-// checkDuplicateHeadlinerConflicts pre-check must keep resolving exactly the
-// rows associateArtists will write, so changing what an in-process CreateShow
-// infers would move the duplicate guard with it.
 func suppressPositionInferenceWhenHeadlinerNamed(artists []contracts.CreateShowArtist) []contracts.CreateShowArtist {
 	headlinerNamed, anySilent := false, false
 	for _, a := range artists {

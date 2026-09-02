@@ -565,18 +565,13 @@ func payloadShowBill(req *communitym.EntityRequest) ([]ShowArtistInput, error) {
 // is not a second opinion. ConfirmShowImport reaches the same outcome for
 // markdown exports, which always state a label, but NOT by the same mechanism:
 // it pins the flag false on every frontmatter entry unconditionally, so an
-// unlabelled import file gets a bill with no headliner row at all. The direct
-// show-CREATE handler is immune for that same blunter reason: initializeArtist,
-// called at the top of CreateShowRequestBody.Resolve, pins the flag false on
-// every act before the show service ever sees the bill. The show UPDATE handler had
-// the same exposure (it forwards a nil IsHeadliner through replaceShowArtists ->
-// associateArtists -> resolveArtistRole) and was fixed separately, in the show
-// service rather than the handler, by
-// catalog.suppressPositionInferenceWhenHeadlinerNamed (PSY-1860). That one arms
-// only when some act NAMES itself the headliner, rather than on any stated role,
-// because suppressing on a described bill where nobody claims the top would make
-// the shape PSY-1704 calls a write-path defect routine; see its doc comment for
-// the open disagreement between the two rules. The product's own show form was
+// unlabelled import file gets a bill with no headliner row at all. The show
+// service's own CREATE and UPDATE paths reach it a third way, in the service
+// rather than a handler, by catalog.suppressPositionInferenceWhenHeadlinerNamed.
+// That one arms only when some act NAMES itself the headliner, rather than on
+// any stated role, because suppressing on a described bill where nobody claims
+// the top makes the shape PSY-1704 calls a write-path defect routine; see its
+// doc comment for the rule those two paths share. The product's own show form is
 // unaffected either way because it derives an explicit is_headliner per act.
 //
 // KNOWN GAP on THIS endpoint, not fixed by that ticket: buildShowAssociations
@@ -587,8 +582,9 @@ func payloadShowBill(req *communitym.EntityRequest) ([]ShowArtistInput, error) {
 // door. The ShowArtistInput doc tags disclose the gap rather than promising the
 // fix, so what remains is the code change and its test.
 //
-// Scoped deliberately narrower than initializeArtist: acts that state their own
-// set_type or is_headliner are left untouched. For an ADMIN-typed bill the
+// Scoped deliberately: acts that state their own set_type or is_headliner are
+// left untouched, so this never overwrites a caller's own claim. For an
+// ADMIN-typed bill the
 // caller adds a second narrowing, leaving a bill where NOBODY states anything
 // untouched as a whole, so no caller that predates set_type on this endpoint can
 // see a different outcome; pinning those unconditionally would turn an
