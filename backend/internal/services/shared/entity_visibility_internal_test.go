@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	communitym "psychic-homily-backend/internal/models/community"
@@ -155,15 +156,32 @@ func TestAlwaysVisibleModelsHaveNoPrivacyColumn(t *testing.T) {
 	// Waivers, keyed "entityType.FieldName". Each says why the field is not a
 	// read-time visibility rule.
 	waived := map[string]string{
-		"label.Status":    "active/inactive/defunct — whether the label still operates; every listing serves all three",
-		"festival.Status": "announced/confirmed/cancelled/completed — the event's lifecycle, not who may read it",
-		"venue.Verified":  "gates the street ADDRESS at field level (Venue.PublicAddress), never the row",
+		"label.Status":                    "active/inactive/defunct — whether the label still operates; every listing serves all three",
+		"festival.Status":                 "announced/confirmed/cancelled/completed — the event's lifecycle, not who may read it",
+		"venue.Verified":                  "gates the street ADDRESS at field level (Venue.PublicAddress), never the row",
+		"artist.StreamingDiscoveryStatus": "the enrichment pipeline's own state — how far discovery has got, not who may read the artist",
 	}
 
 	// The shapes a read-time rule arrives in. Substring-matched against the field
 	// name so `IsPublic`, `PublicationStatus` and `DeletedAt` all land.
 	privacyVocabulary := []string{
 		"Public", "Private", "Visib", "Deleted", "Published", "Status", "Verified", "Moderat",
+	}
+
+	// TIMESTAMPS ARE NOT RULES, and excluding them structurally beats waiving
+	// them one by one. `LastVerifiedAt` is on all five of these models and is
+	// data provenance — when somebody last checked the row is true — not a test
+	// any gate could evaluate. A read-time visibility rule is a boolean or a
+	// short enum, because a gate has to turn it into a WHERE clause.
+	//
+	// gorm.DeletedAt is deliberately NOT excluded: it is not a time.Time, and a
+	// soft-delete column genuinely IS a read-time rule that these gates would
+	// have to honour.
+	isTimestamp := func(t reflect.Type) bool {
+		if t.Kind() == reflect.Ptr {
+			t = t.Elem()
+		}
+		return t == reflect.TypeOf(time.Time{})
 	}
 
 	// Every alwaysVisible type must appear above, or the sweep silently covers
@@ -183,6 +201,9 @@ func TestAlwaysVisibleModelsHaveNoPrivacyColumn(t *testing.T) {
 		modelType := reflect.TypeOf(model)
 		for i := 0; i < modelType.NumField(); i++ {
 			field := modelType.Field(i)
+			if isTimestamp(field.Type) {
+				continue
+			}
 			matched := ""
 			for _, term := range privacyVocabulary {
 				if strings.Contains(field.Name, term) {
