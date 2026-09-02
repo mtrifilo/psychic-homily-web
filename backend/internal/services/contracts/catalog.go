@@ -89,20 +89,41 @@ type CreateShowRequest struct {
 type UpdateShowRequest struct {
 	Title     *string    `json:"title"`
 	EventDate *time.Time `json:"event_date"`
-	// DoorsAt / MusicAt follow the same nil-means-unchanged rule as every
-	// other field here, so there is no way to clear a previously set time
-	// through this struct. Clearing needs an explicit tri-state signal and no
-	// caller asks for it yet.
-	DoorsAt        *time.Time `json:"doors_at"`
-	MusicAt        *time.Time `json:"music_at"`
-	City           *string    `json:"city"`
-	State          *string    `json:"state"`
-	Price          *float64   `json:"price"`
-	DoorPrice      *float64   `json:"door_price"`
-	AgeRequirement *string    `json:"age_requirement"`
-	Description    *string    `json:"description"`
-	TicketURL      *string    `json:"ticket_url"`
-	ImageURL       *string    `json:"image_url"`
+	// The four NULLABLE-AND-CLEARABLE fields. A *T here would mean a value can
+	// be replaced but never RETRACTED, because a nil pointer reads the same
+	// whether the caller omitted the key or asked for NULL; Nullable keeps the
+	// two apart (PSY-1961). Read them with Present / Clears / Value, never by
+	// comparing to nil.
+	//
+	// All four rather than door_price alone, which is the field that forced the
+	// question: door_price is the OPT-IN half of the advance/door split, so
+	// removing one is routine curation. But a form where one price clears and
+	// its twin silently does not is a worse surface than either consistent
+	// choice, and doors_at/music_at have the identical shape, so one mechanism
+	// covers the set.
+	//
+	// The remaining nullable fields on this struct are TEXT, and they are left
+	// alone here for a narrower reason than "they already have a gesture".
+	// image_url does: showUpdatesToMap normalizes "" to SQL NULL through
+	// utils.NilIfEmpty. age_requirement, description and ticket_url do NOT --
+	// they store the empty string, and ShowForm sends `undefined` for a blank
+	// one anyway, so blanking them is the same silent no-op PSY-1961 removed
+	// for prices. That is a REAL remaining gap, not a solved one.
+	//
+	// It is out of scope here because "" and NULL are indistinguishable to every
+	// reader of those three columns (each render guard is a falsy check), so the
+	// no-op costs an edit rather than publishing a false fact. A number has no
+	// empty spelling at all, which is why these four could not wait.
+	DoorsAt        Nullable[time.Time] `json:"doors_at"`
+	MusicAt        Nullable[time.Time] `json:"music_at"`
+	City           *string             `json:"city"`
+	State          *string             `json:"state"`
+	Price          Nullable[float64]   `json:"price"`
+	DoorPrice      Nullable[float64]   `json:"door_price"`
+	AgeRequirement *string             `json:"age_requirement"`
+	Description    *string             `json:"description"`
+	TicketURL      *string             `json:"ticket_url"`
+	ImageURL       *string             `json:"image_url"`
 }
 
 // ShowResponse represents the show data returned to clients.
@@ -978,12 +999,18 @@ type VenueShowResponse struct {
 	ID uint `json:"id"`
 	// Slug is the canonical /shows/{slug} target, matching ShowResponse.Slug.
 	// Empty when the show has no slug, and clients fall back to the id.
-	Slug           string           `json:"slug"`
-	Title          string           `json:"title"`
-	EventDate      time.Time        `json:"event_date"`
-	City           *string          `json:"city"`
-	State          *string          `json:"state"`
+	Slug      string    `json:"slug"`
+	Title     string    `json:"title"`
+	EventDate time.Time `json:"event_date"`
+	City      *string   `json:"city"`
+	State     *string   `json:"state"`
+	// Price and DoorPrice are the advance/door pair, and both are served
+	// because a list that carried only the advance half would UNDER-REPORT a
+	// split price: a reader scanning the venue archive saw $35 and opened a
+	// show costing $40 at the door (PSY-1962). Null on either means "not
+	// recorded"; zero means free.
 	Price          *float64         `json:"price"`
+	DoorPrice      *float64         `json:"door_price"`
 	AgeRequirement *string          `json:"age_requirement"`
 	// Status flags, so a venue listing can strike through a cancelled date and
 	// badge a sold-out one without a second fetch per row.
@@ -1280,10 +1307,14 @@ type ArtistShowResponse struct {
 	ID uint `json:"id"`
 	// Slug is the canonical /shows/{slug} target, matching ShowResponse.Slug.
 	// Empty when the show has no slug, and clients fall back to the id.
-	Slug           string                   `json:"slug"`
-	Title          string                   `json:"title"`
-	EventDate      time.Time                `json:"event_date"`
+	Slug      string    `json:"slug"`
+	Title     string    `json:"title"`
+	EventDate time.Time `json:"event_date"`
+	// The advance/door pair. Served together for the reason stated on
+	// VenueShowResponse: the advance half alone under-reports a split price
+	// (PSY-1962).
 	Price          *float64                 `json:"price"`
+	DoorPrice      *float64                 `json:"door_price"`
 	AgeRequirement *string                  `json:"age_requirement"`
 	// Status flags, so an artist listing can strike through a cancelled date and
 	// badge a sold-out one without a second fetch per row. Every producer of this
@@ -1523,15 +1554,23 @@ type SceneShowSummary struct {
 	// timestamp — structured-data `startDate`, a calendar export — must use this
 	// and render it in the venue's own zone.
 	StartsAt time.Time `json:"starts_at"`
-	// The show's price when known -- and the ADVANCE price on rows that also
-	// record shows.door_price, which this summary deliberately does NOT carry
-	// (PSY-1864). It was described as the "door price" before that column
-	// existed; it never was one. A scene surface that wants the split has to add
-	// the field here first. NO currency
-	// is recorded anywhere in the schema — `shows.price` is a bare numeric — so
-	// a consumer that needs one has to assume, and for a non-US scene that
-	// assumption is wrong. Do not add a currency here without adding the column.
-	Price *float64 `json:"price,omitempty"`
+	// The advance/door price pair (PSY-1962). Price is the ADVANCE half on rows
+	// that also record a door price; it was described as the "door price" before
+	// shows.door_price existed, and it never was one.
+	//
+	// Both halves are served because a scene day list carrying only the advance
+	// price under-reports what the site knows: a reader scanning the night saw
+	// $35 and turned up to a $40 door.
+	//
+	// NO currency is recorded anywhere in the schema — both columns are bare
+	// numerics — so a consumer that needs one has to assume, and for a non-US
+	// scene that assumption is wrong. Do not add a currency here without adding
+	// the column.
+	//
+	// `omitempty` on a pointer omits only a nil, so an unrecorded price is
+	// absent from the payload and a FREE show still serializes as 0.
+	Price     *float64 `json:"price,omitempty"`
+	DoorPrice *float64 `json:"door_price,omitempty"`
 
 	// The billed venue's own details, from the SAME venue row VenueName names —
 	// enough to describe a place without a second round-trip per show.

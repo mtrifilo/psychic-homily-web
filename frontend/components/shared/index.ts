@@ -14,6 +14,8 @@ export type {
 } from './RelationshipBadge'
 export { EntityTypeBadge, getEntityTypeBadgeClasses } from './EntityTypeBadge'
 export type { EntityTypeBadgeProps } from './EntityTypeBadge'
+export { ShowPrice } from './ShowPrice'
+export type { ShowPriceProps } from './ShowPrice'
 export { DensityToggle } from './DensityToggle'
 export type { DensityToggleProps } from './DensityToggle'
 export { EntityDetailLayout } from './EntityDetailLayout'

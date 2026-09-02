@@ -902,6 +902,7 @@ func (s *SceneService) GetSceneShowsInRange(city, state string, from, to time.Ti
 		Title         string    `gorm:"column:title"`
 		EventDate     time.Time `gorm:"column:event_date"`
 		Price         *float64  `gorm:"column:price"`
+		DoorPrice     *float64  `gorm:"column:door_price"`
 		IsSoldOut     bool      `gorm:"column:is_sold_out"`
 		IsCancelled   bool      `gorm:"column:is_cancelled"`
 		VenueName     string    `gorm:"column:venue_name"`
@@ -937,7 +938,7 @@ func (s *SceneService) GetSceneShowsInRange(city, state string, from, to time.Ti
 	if err := s.db.Raw(`
 		SELECT * FROM (
 			SELECT DISTINCT ON (s.id)
-			       s.id, COALESCE(s.slug, '') AS slug, s.title, s.event_date, s.price,
+			       s.id, COALESCE(s.slug, '') AS slug, s.title, s.event_date, s.price, s.door_price,
 			       s.is_sold_out, s.is_cancelled,
 			       v.name AS venue_name,
 			       COALESCE(v.slug, '') AS venue_slug,
@@ -1003,6 +1004,7 @@ func (s *SceneService) GetSceneShowsInRange(city, state string, from, to time.Ti
 			EventDate:     r.EventDate.In(loc).Format("2006-01-02"),
 			StartsAt:      r.EventDate.UTC(),
 			Price:         r.Price,
+			DoorPrice:     r.DoorPrice,
 			VenueName:     r.VenueName,
 			ArtistNames:   artistNames,
 			Artists:       artists,

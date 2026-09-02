@@ -12,15 +12,13 @@ import {
   ExternalLink,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import {
-  formatShowTime,
-  formatPrice,
-} from '@/lib/utils/formatters'
+import { formatShowTime } from '@/lib/utils/formatters'
+import { hasStatedPrice } from '@/lib/utils/showPrice'
 import { formatShowDateBadge } from '@/lib/utils/showDateBadge'
 import { Button } from '@/components/ui/button'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { ShowForm } from './ShowForm'
-import { SaveButton, SocialLinks, MusicEmbed } from '@/components/shared'
+import { SaveButton, ShowPrice, SocialLinks, MusicEmbed } from '@/components/shared'
 import type { BatchedSaveData } from '@/components/shared/batchedSaveData'
 import { DeleteShowDialog } from './DeleteShowDialog'
 import { ExportShowButton } from './ExportShowButton'
@@ -238,11 +236,10 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
         </span>
 
         {/* Price */}
-        {show.price != null && (
-          <span className="text-xs text-muted-foreground shrink-0 hidden md:inline tabular-nums">
-            {formatPrice(show.price)}
-          </span>
-        )}
+        <ShowPrice
+          show={show}
+          className="text-xs text-muted-foreground shrink-0 hidden md:inline tabular-nums"
+        />
       </article>
     )
   }
@@ -317,10 +314,8 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
                     {formatShowTime(show.event_date, show.state, show.venues?.[0]?.timezone)}
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {show.price != null && (
-                      <span>{formatPrice(show.price)}</span>
-                    )}
-                    {show.price != null && show.age_requirement && (
+                    <ShowPrice show={show} />
+                    {hasStatedPrice(show) && show.age_requirement && (
                       <span> &middot; </span>
                     )}
                     {show.age_requirement && (
@@ -555,10 +550,8 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
                   {formatShowTime(show.event_date, show.state, show.venues?.[0]?.timezone)}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {show.price != null && (
-                    <span>{formatPrice(show.price)}</span>
-                  )}
-                  {show.price != null && show.age_requirement && (
+                  <ShowPrice show={show} />
+                  {hasStatedPrice(show) && show.age_requirement && (
                     <span> &middot; </span>
                   )}
                   {show.age_requirement && (

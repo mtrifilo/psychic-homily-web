@@ -376,7 +376,7 @@ describe('VenuePanel', () => {
     // machine is in.
     expect(screen.getByText('FRI 7/31')).toBeInTheDocument()
     expect(screen.getByText('Levitation pre-party')).toBeInTheDocument()
-    expect(screen.getByText('9:00 PM · $18.00')).toBeInTheDocument()
+    expect(screen.getByText('9:00 PM · $18')).toBeInTheDocument()
   })
 
   it('falls back to the bill when a show has no title', () => {
@@ -462,7 +462,7 @@ describe('VenuePanel', () => {
 
   it('renders nothing rather than "Invalid Date" for a malformed event date', () => {
     // formatShowTime has no NaN guard of its own, so an unparseable date would
-    // otherwise print an empty date gutter beside "Invalid Date · $18.00".
+    // otherwise print an empty date gutter beside "Invalid Date · $18".
     mockUseVenueShows.mockReturnValue({
       data: {
         shows: [show({ event_date: 'not-a-date' })],
@@ -476,7 +476,7 @@ describe('VenuePanel', () => {
     expect(screen.getByText('Levitation pre-party')).toBeInTheDocument()
     expect(screen.queryByText(/Invalid Date/)).not.toBeInTheDocument()
     // The price still stands on its own — a bad date shouldn't erase the row.
-    expect(screen.getByText('$18.00')).toBeInTheDocument()
+    expect(screen.getByText('$18')).toBeInTheDocument()
   })
 
   it('says so plainly when nothing is booked', () => {

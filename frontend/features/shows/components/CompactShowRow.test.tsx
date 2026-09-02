@@ -49,7 +49,19 @@ describe('CompactShowRow', () => {
 
   it('renders price when provided', () => {
     render(<CompactShowRow show={baseShow} state="AZ" />)
-    expect(screen.getByText('$15.00')).toBeInTheDocument()
+    expect(screen.getByText('$15')).toBeInTheDocument()
+  })
+
+  // The row moves with every other list surface (PSY-1962): showing the advance
+  // half alone was a wrong number about money, not a shorter one.
+  it('renders a split price as the pair', () => {
+    render(
+      <CompactShowRow
+        show={{ ...baseShow, price: 35, door_price: 40 }}
+        state="AZ"
+      />
+    )
+    expect(screen.getByText('$35/$40')).toBeInTheDocument()
   })
 
   it('does not render price when null', () => {

@@ -62,6 +62,7 @@ function makeShow(id: number): VenueShow {
     city: 'Phoenix',
     state: 'AZ',
     price: null,
+    door_price: null,
     age_requirement: null,
     is_cancelled: false,
     is_sold_out: false,

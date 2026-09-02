@@ -5,6 +5,7 @@ import { CheckCircle, PlusCircle, AlertTriangle, Calendar, MapPin, Music } from 
 import { Badge } from '@/components/ui/badge'
 import type { ImportPreviewResponse } from '@/features/shows'
 import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
+import { formatPrice } from '@/lib/utils/formatters'
 
 interface ImportPreviewProps {
   preview: ImportPreviewResponse
@@ -72,19 +73,23 @@ export const ImportPreview = memo(function ImportPreview({ preview }: ImportPrev
               </span>
             </div>
           )}
+          {/* The confirm step writes BOTH prices, so the preview has to show
+              both or it no longer describes what commits (PSY-1864). They stay
+              on separate labelled lines rather than collapsing to the list
+              register: this previews PARSED INPUT, so a reader is checking two
+              extracted fields against a source, and `$35/$40` would hide which
+              half came from where. The amounts still go through the site's
+              money format, so a $0 door previews as `Free` — the same word it
+              will publish as — instead of `$0.00` (PSY-1962). */}
           {preview.show.price !== undefined && preview.show.price !== null && (
             <div className="text-muted-foreground">
-              Price: ${preview.show.price.toFixed(2)}
+              Price: {formatPrice(preview.show.price)}
             </div>
           )}
-          {/* The confirm step writes door_price, so the preview has to show it
-              or it no longer describes what commits (PSY-1864). Explicit
-              null/undefined guard rather than truthiness: a $0 door is Free,
-              which is a fact worth previewing. */}
           {preview.show.door_price !== undefined &&
             preview.show.door_price !== null && (
               <div className="text-muted-foreground">
-                Door: ${preview.show.door_price.toFixed(2)}
+                Door: {formatPrice(preview.show.door_price)}
               </div>
             )}
           {preview.show.age_requirement && (

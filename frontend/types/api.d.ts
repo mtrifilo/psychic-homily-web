@@ -8458,6 +8458,8 @@ export interface components {
         ArtistShowResponse: {
             age_requirement: string | null;
             artists: components["schemas"]["ArtistShowArtist"][] | null;
+            /** Format: double */
+            door_price: number | null;
             /** Format: date-time */
             event_date: string;
             /** Format: int64 */
@@ -15773,6 +15775,8 @@ export interface components {
         SceneShowSummary: {
             artist_names?: string[] | null;
             artists?: components["schemas"]["SceneShowArtist"][] | null;
+            /** Format: double */
+            door_price?: number;
             event_date: string;
             /** Format: int64 */
             id: number;
@@ -17510,14 +17514,14 @@ export interface components {
             description?: string;
             /**
              * Format: double
-             * @description Price at the door
+             * @description Price at the door. Null clears it.
              */
-            door_price?: number;
+            door_price?: number | null;
             /**
              * Format: date-time
-             * @description When doors open (RFC3339)
+             * @description When doors open (RFC3339). Null clears it.
              */
-            doors_at?: string;
+            doors_at?: string | null;
             /**
              * Format: date-time
              * @description Event date and time
@@ -17527,14 +17531,14 @@ export interface components {
             image_url?: string;
             /**
              * Format: date-time
-             * @description When the first set starts (RFC3339)
+             * @description When the first set starts (RFC3339). Null clears it.
              */
-            music_at?: string;
+            music_at?: string | null;
             /**
              * Format: double
-             * @description Ticket price (advance price when a door price is also set)
+             * @description Ticket price (advance price when a door price is also set). Null clears it.
              */
-            price?: number;
+            price?: number | null;
             /** @description State where the show takes place */
             state?: string;
             /** @description Revision summary describing the change */
@@ -18109,6 +18113,8 @@ export interface components {
             age_requirement: string | null;
             artists: components["schemas"]["ArtistResponse"][] | null;
             city: string | null;
+            /** Format: double */
+            door_price: number | null;
             /** Format: date-time */
             event_date: string;
             /** Format: int64 */

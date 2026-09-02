@@ -60,6 +60,7 @@ function makeShow(id: number): ArtistShow {
     title: `Show ${id}`,
     event_date: '2025-06-14T02:00:00Z',
     price: null,
+    door_price: null,
     age_requirement: null,
     is_cancelled: false,
     is_sold_out: false,

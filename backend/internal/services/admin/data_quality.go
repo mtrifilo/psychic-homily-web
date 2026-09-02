@@ -531,7 +531,7 @@ func (s *DataQualityService) getCategoryCount(category string) (int, error) {
 	case "shows_missing_price":
 		err = s.db.Raw(`
 			SELECT COUNT(*) FROM shows
-			WHERE status = 'approved' AND event_date >= NOW() AND price IS NULL
+			WHERE status = 'approved' AND event_date >= NOW() AND price IS NULL AND door_price IS NULL
 		`).Scan(&count).Error
 
 	case "releases_missing_year":
@@ -860,11 +860,23 @@ func (s *DataQualityService) getShowsNoBillingOrder(limit, offset int) ([]*contr
 	return items, total, nil
 }
 
+// getShowsMissingPrice reports approved upcoming shows that record NEITHER
+// price.
+//
+// Both columns, not `price` alone (PSY-1962): a show with a $40 door and no
+// advance price has a perfectly well-known price, and listing it as "missing"
+// sends an admin to correct data that is already right. This is the third
+// consumer that must reduce the advance/door pair to one answer, beside
+// effectiveShowPriceCents and the schema.org Offer -- here the question is
+// "does the site know what this costs at all", which either column settles.
+//
+// The count query in the summary switch above carries the SAME predicate; the
+// two must move together or the dashboard's badge disagrees with its own list.
 func (s *DataQualityService) getShowsMissingPrice(limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
 	var total int64
 	err := s.db.Raw(`
 		SELECT COUNT(*) FROM shows
-		WHERE status = 'approved' AND event_date >= NOW() AND price IS NULL
+		WHERE status = 'approved' AND event_date >= NOW() AND price IS NULL AND door_price IS NULL
 	`).Scan(&total).Error
 	if err != nil {
 		return nil, 0, err
@@ -879,7 +891,7 @@ func (s *DataQualityService) getShowsMissingPrice(limit, offset int) ([]*contrac
 	err = s.db.Raw(`
 		SELECT id, title, slug
 		FROM shows
-		WHERE status = 'approved' AND event_date >= NOW() AND price IS NULL
+		WHERE status = 'approved' AND event_date >= NOW() AND price IS NULL AND door_price IS NULL
 		ORDER BY event_date ASC
 		LIMIT ? OFFSET ?
 	`, limit, offset).Scan(&rows).Error

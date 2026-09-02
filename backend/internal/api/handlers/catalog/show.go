@@ -329,11 +329,16 @@ func validateShowTimeOrder(doorsAt, musicAt *time.Time) *huma.ErrorDetail {
 // effectiveTime resolves what a partial update leaves in a column: the incoming
 // value when the request supplied one, otherwise the stored value it leaves
 // untouched.
-func effectiveTime(incoming, stored *time.Time) *time.Time {
-	if incoming != nil {
-		return incoming
+//
+// A CLEARED field resolves to nil, which is the state the column really ends up
+// in, so the doors/music order check judges the row as it will be written rather
+// than as it was. Clearing doors_at on a show that keeps its music_at is
+// therefore allowed: an unknown door time cannot be late for anything.
+func effectiveTime(incoming contracts.Nullable[time.Time], stored *time.Time) *time.Time {
+	if !incoming.Present() {
+		return stored
 	}
-	return stored
+	return incoming.ValueOrNil()
 }
 
 // CreateShowRequest represents the HTTP request for creating a show
@@ -469,22 +474,27 @@ type UpdateShowRequest struct {
 	Body   struct {
 		Title     *string    `json:"title,omitempty" doc:"Show title"`
 		EventDate *time.Time `json:"event_date,omitempty" doc:"Event date and time"`
-		// Omitting doors_at / music_at / price / door_price leaves the stored
-		// value unchanged -- so an edit that records a door price never
-		// disturbs the advance price. There is no clear-back-to-null signal
-		// for any of them yet.
-		DoorsAt        *time.Time `json:"doors_at,omitempty" doc:"When doors open (RFC3339)"`
-		MusicAt        *time.Time `json:"music_at,omitempty" doc:"When the first set starts (RFC3339)"`
-		City           *string    `json:"city,omitempty" doc:"City where the show takes place"`
-		State          *string    `json:"state,omitempty" doc:"State where the show takes place"`
-		Price          *float64   `json:"price,omitempty" doc:"Ticket price (advance price when a door price is also set)"`
-		DoorPrice      *float64   `json:"door_price,omitempty" doc:"Price at the door"`
-		AgeRequirement *string    `json:"age_requirement,omitempty" doc:"Age requirement"`
-		Description    *string    `json:"description,omitempty" doc:"Show description" required:"false"`
-		TicketURL      *string    `json:"ticket_url,omitempty" doc:"Ticket purchase URL" required:"false"`
-		ImageURL       *string    `json:"image_url,omitempty" doc:"Show flyer image URL" required:"false"`
-		Venues         []Venue    `json:"venues,omitempty" doc:"List of venues for the show"`
-		Artists        []Artist   `json:"artists,omitempty" doc:"List of artists for the show"`
+		// The four TRI-STATE fields: omitting one leaves the stored value alone
+		// (so an edit that records a door price never disturbs the advance
+		// price), and sending an explicit null CLEARS it to SQL NULL. Nothing
+		// else on this body distinguishes the two. The nullable TEXT fields have
+		// no equivalent gesture and are a known remaining gap, argued on
+		// contracts.UpdateShowRequest rather than repeated here.
+		//
+		// Declared by value, not as pointers -- see shared.NullableInput, where a
+		// pointer would put back exactly the ambiguity these remove.
+		DoorsAt        shared.NullableInput[time.Time] `json:"doors_at,omitempty" required:"false" doc:"When doors open (RFC3339). Null clears it."`
+		MusicAt        shared.NullableInput[time.Time] `json:"music_at,omitempty" required:"false" doc:"When the first set starts (RFC3339). Null clears it."`
+		City           *string                         `json:"city,omitempty" doc:"City where the show takes place"`
+		State          *string                         `json:"state,omitempty" doc:"State where the show takes place"`
+		Price          shared.NullableInput[float64]   `json:"price,omitempty" required:"false" doc:"Ticket price (advance price when a door price is also set). Null clears it."`
+		DoorPrice      shared.NullableInput[float64]   `json:"door_price,omitempty" required:"false" doc:"Price at the door. Null clears it."`
+		AgeRequirement *string                         `json:"age_requirement,omitempty" doc:"Age requirement"`
+		Description    *string                         `json:"description,omitempty" doc:"Show description" required:"false"`
+		TicketURL      *string                         `json:"ticket_url,omitempty" doc:"Ticket purchase URL" required:"false"`
+		ImageURL       *string                         `json:"image_url,omitempty" doc:"Show flyer image URL" required:"false"`
+		Venues         []Venue                         `json:"venues,omitempty" doc:"List of venues for the show"`
+		Artists        []Artist                        `json:"artists,omitempty" doc:"List of artists for the show"`
 		// Summary describes the reason for the edit; persisted on the
 		// revision row so the History accordion can display it. Mirrors
 		// AdminUpdateArtistRequest.Body.Summary (PSY-563). Empty string =
@@ -1051,7 +1061,12 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 	if req.Body.AgeRequirement != nil && len(*req.Body.AgeRequirement) > 50 {
 		return nil, huma.Error422UnprocessableEntity("Age requirement must be 50 characters or fewer")
 	}
-	for _, p := range showPriceFields(req.Body.Price, req.Body.DoorPrice) {
+	// ValueOrNil, so the update path runs the same showPriceFields rail the
+	// create path does. A CLEAR reads as nil here and is deliberately not
+	// range-checked: there is no number to be out of range, and refusing it
+	// would make an out-of-range legacy price uncorrectable by the one gesture
+	// that removes it.
+	for _, p := range showPriceFields(req.Body.Price.ValueOrNil(), req.Body.DoorPrice.ValueOrNil()) {
 		if outOfShowPriceRange(p.value) {
 			return nil, huma.Error422UnprocessableEntity(showPriceRangeMessage(p.label))
 		}
@@ -1083,27 +1098,29 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 	// validating against its own pre-write snapshot) would fail EVERY later
 	// edit, including title-only ones, naming a field the caller never sent.
 	// No UI writes these times yet, so there would be no in-product way out.
-	if req.Body.DoorsAt != nil || req.Body.MusicAt != nil {
+	if req.Body.DoorsAt.Present() || req.Body.MusicAt.Present() {
 		if err := validateShowTimeOrder(
-			effectiveTime(req.Body.DoorsAt, existingShow.DoorsAt),
-			effectiveTime(req.Body.MusicAt, existingShow.MusicAt),
+			effectiveTime(req.Body.DoorsAt.Nullable, existingShow.DoorsAt),
+			effectiveTime(req.Body.MusicAt.Nullable, existingShow.MusicAt),
 		); err != nil {
 			return nil, huma.Error422UnprocessableEntity("validation failed", err)
 		}
 	}
 
-	// Build typed update request for basic show fields. The service writes
-	// only the non-nil fields, converts EventDate to UTC, and normalizes an
-	// empty ImageURL to SQL NULL.
+	// Build typed update request for basic show fields. The service writes only
+	// the fields the request mentioned, converts EventDate to UTC, and
+	// normalizes an empty ImageURL to SQL NULL. The four tri-state fields cross
+	// as their embedded contract value, which is the INTENT (unchanged / clear /
+	// set) with the wire spelling already stripped off.
 	serviceUpdates := &contracts.UpdateShowRequest{
 		Title:          req.Body.Title,
 		EventDate:      req.Body.EventDate,
-		DoorsAt:        req.Body.DoorsAt,
-		MusicAt:        req.Body.MusicAt,
+		DoorsAt:        req.Body.DoorsAt.Nullable,
+		MusicAt:        req.Body.MusicAt.Nullable,
 		City:           req.Body.City,
 		State:          req.Body.State,
-		Price:          req.Body.Price,
-		DoorPrice:      req.Body.DoorPrice,
+		Price:          req.Body.Price.Nullable,
+		DoorPrice:      req.Body.DoorPrice.Nullable,
 		AgeRequirement: req.Body.AgeRequirement,
 		Description:    req.Body.Description,
 		TicketURL:      req.Body.TicketURL,

@@ -170,7 +170,9 @@ export interface ArtistShow {
   slug: string
   title: string
   event_date: string
+  /** The advance/door pair; see VenueShow.price for why both are served. */
   price: number | null
+  door_price: number | null
   age_requirement: string | null
   /** Show was called off. Renders as a destructive badge on the bill. */
   is_cancelled: boolean

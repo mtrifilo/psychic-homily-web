@@ -6,7 +6,6 @@ import {
   formatDayCountLine,
   formatDayFull,
   formatPointerDay,
-  formatShowPrice,
   formatShowStartTime,
   looksLikeCalendarDate,
   type SceneDayResponse,
@@ -164,16 +163,6 @@ describe('formatShowStartTime', () => {
   })
 })
 
-describe('formatShowPrice', () => {
-  it('uses the site-wide price format', () => {
-    expect(formatShowPrice(show({ price: 22 }))).toBe('$22.00')
-    expect(formatShowPrice(show({ price: 0 }))).toBe('Free')
-  })
-
-  it('is absent when no price is recorded', () => {
-    expect(formatShowPrice(show())).toBeNull()
-  })
-})
 
 describe('formatDayCountLine', () => {
   it('counts and pluralises listed shows', () => {

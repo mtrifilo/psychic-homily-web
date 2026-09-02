@@ -2,7 +2,7 @@
 
 import { Fragment, useMemo } from 'react'
 import Link from 'next/link'
-import { DenseTable, DenseTableGroupHeader } from '@/components/shared'
+import { DenseTable, DenseTableGroupHeader, ShowPrice } from '@/components/shared'
 // Deep imports, not the barrel: `@/features/shows`'s barrel edge drags in
 // ShowForm and the whole mutation graph, and pulls an artists -> shows ->
 // artists value cycle in behind it (the same reason ShowForm deep-imports
@@ -15,7 +15,6 @@ import {
 } from '@/features/shows/showArchive'
 import { formatLocation, LOCATION_UNKNOWN } from '@/lib/formatLocation'
 import {
-  formatPrice,
   formatShowDate,
   formatShowTime,
 } from '@/lib/utils/formatters'
@@ -88,7 +87,7 @@ function ShowRow({ show }: { show: ArtistShow }) {
         />
       </td>
       <td className="whitespace-nowrap text-right font-mono text-xs text-muted-foreground">
-        {typeof show.price === 'number' ? formatPrice(show.price) : ABSENT}
+        <ShowPrice show={show} fallback={ABSENT} />
       </td>
       <td className="whitespace-nowrap text-right text-muted-foreground">
         {formatShowTime(show.event_date, zone.state, zone.timezone)}

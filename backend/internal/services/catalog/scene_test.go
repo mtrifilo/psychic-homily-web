@@ -836,9 +836,11 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneShowsInRange_CarriesV
 	start := time.Date(2026, 7, 28, 3, 0, 0, 0, time.UTC)
 	show := suite.createApprovedShow("", crescent.ID, artist.ID, user.ID, start)
 	price := 20.0
+	doorPrice := 25.0
 	suite.Require().NoError(suite.db.Model(show).Updates(map[string]any{
-		"slug":  "riff-wood-crescent-ballroom",
-		"price": price,
+		"slug":       "riff-wood-crescent-ballroom",
+		"price":      price,
+		"door_price": doorPrice,
 	}).Error)
 
 	phx, err := time.LoadLocation("America/Phoenix")
@@ -853,6 +855,12 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneShowsInRange_CarriesV
 	suite.True(got.StartsAt.Equal(start), "absolute instant, not the calendar date")
 	suite.Require().NotNil(got.Price)
 	suite.InDelta(price, *got.Price, 0.001)
+	// BOTH halves. This one is projected by a hand-written raw SQL string, so a
+	// typo in the column list serves nulls forever and nothing else fails
+	// (PSY-1962). A scene day list showing the advance price alone quotes $20
+	// for a night whose door is $25.
+	suite.Require().NotNil(got.DoorPrice, "the scene summary must carry door_price, not drop it")
+	suite.InDelta(doorPrice, *got.DoorPrice, 0.001)
 	suite.Equal("Crescent Ballroom", got.VenueName)
 	suite.Equal("crescent-ballroom", got.VenueSlug)
 	suite.Equal("308 N 2nd Ave", got.VenueAddress)

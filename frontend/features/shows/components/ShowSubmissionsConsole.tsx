@@ -20,10 +20,10 @@ import {
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { queryKeys } from '@/lib/queryClient'
 import {
-  formatPrice,
   formatShowDate,
   formatShowTime,
 } from '@/lib/utils/formatters'
+import { hasStatedPrice } from '@/lib/utils/showPrice'
 import {
   useSetShowCancelled,
   useSetShowSoldOut,
@@ -39,6 +39,7 @@ import {
 import {
   BracketLink,
   SaveButton,
+  ShowPrice,
   SubmissionSuccessDialog,
 } from '@/components/shared'
 import { VenueDeniedDialog } from '@/features/venues/components/VenueDeniedDialog'
@@ -309,8 +310,10 @@ function SubmissionShowCard({
                   {venue.name}
                 </span>
               ))}
-            {show.price != null && (
-              <span>&nbsp;•&nbsp;{formatPrice(show.price)}</span>
+            {hasStatedPrice(show) && (
+              <span>
+                &nbsp;•&nbsp;<ShowPrice show={show} />
+              </span>
             )}
             {show.age_requirement && (
               <span>&nbsp;•&nbsp;{show.age_requirement}</span>

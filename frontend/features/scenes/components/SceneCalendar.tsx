@@ -3,11 +3,11 @@ import Link from 'next/link'
 // from the root layout, so importing a name through it is the habit that puts
 // unrelated modules in the chunk every route loads (PSY-1772).
 import { BracketLink } from '@/components/shared/BracketLink'
+import { ShowPrice } from '@/components/shared/ShowPrice'
 import { showDisplayTitle, showHref } from '../sceneWeek'
 import {
   dayShows,
   formatDayCountLine,
-  formatShowPrice,
   formatShowStartTime,
   type SceneDayResponse,
 } from '../sceneDay'
@@ -116,7 +116,6 @@ function SceneShowRow({
   // a smaller loss than a confident wrong one.
   const zone = rowTimeZone(show) ?? sceneTimeZone
   const time = zone ? formatShowStartTime(show, zone) : null
-  const price = formatShowPrice(show)
   const subLocality = venueSubLocality(show)
 
   return (
@@ -157,11 +156,10 @@ function SceneShowRow({
         {/* The price rides in the LEFT GUTTER under the time, so a priced row
             costs no more height than an unpriced one. Putting it on a line of
             its own would undo the saving this grid exists for. */}
-        {price && (
-          <span className="col-start-1 row-start-2 shrink-0 font-mono text-xs tabular-nums text-muted-foreground sm:row-start-auto">
-            {price}
-          </span>
-        )}
+        <ShowPrice
+          show={show}
+          className="col-start-1 row-start-2 shrink-0 font-mono text-xs tabular-nums text-muted-foreground sm:row-start-auto"
+        />
         {show.venue_name && (
           <span className="col-start-2 row-start-2 min-w-0 font-mono text-xs text-muted-foreground sm:shrink-0">
             {show.venue_name}

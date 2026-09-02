@@ -1,0 +1,32 @@
+{
+  "_comment": [
+    "The advance/door price register, as ONE set of cases read by both",
+    "implementations: Go's shared.ShowPriceText (show_price_test.go) and",
+    "TypeScript's showPriceLabel (frontend/lib/utils/showPrice.test.ts).",
+    "",
+    "The two are hand-written twins with no compiler between them, and they",
+    "already drifted once: the Go side shipped rendering every amount as whole",
+    "dollars, so $12.50 read as '$12' and a fifty-cent door as '$0' — free, in a",
+    "subscriber's calendar. Prose cross-references did not catch that. This file",
+    "does, because a change to either side that is not made to the other fails a",
+    "test rather than reaching a reader.",
+    "",
+    "Add a case here, not to one suite. `advance` and `door` are null for an",
+    "unrecorded price; `text` is what a dense list renders, empty for nothing."
+  ],
+  "cases": [
+    { "name": "no recorded price says nothing", "advance": null, "door": null, "text": "" },
+    { "name": "advance only renders bare", "advance": 35, "door": null, "text": "$35" },
+    { "name": "door only renders bare too", "advance": null, "door": 40, "text": "$40" },
+    { "name": "a genuine pair renders both", "advance": 35, "door": 40, "text": "$35/$40" },
+    { "name": "equal prices collapse", "advance": 35, "door": 35, "text": "$35" },
+    { "name": "a cheaper door keeps advance first", "advance": 40, "door": 30, "text": "$40/$30" },
+    { "name": "zero is Free, not silence", "advance": 0, "door": null, "text": "Free" },
+    { "name": "a free advance with a paid door keeps both", "advance": 0, "door": 10, "text": "Free/$10" },
+    { "name": "whole amounts drop the cents", "advance": 35, "door": null, "text": "$35" },
+    { "name": "a fractional price keeps them", "advance": 12.5, "door": null, "text": "$12.50" },
+    { "name": "and is never rounded", "advance": 12.75, "door": null, "text": "$12.75" },
+    { "name": "a sub-dollar price is not free", "advance": 0.5, "door": null, "text": "$0.50" },
+    { "name": "a fractional pair keeps both spellings", "advance": 12.5, "door": 15, "text": "$12.50/$15" }
+  ]
+}

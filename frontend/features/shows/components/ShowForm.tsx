@@ -61,6 +61,7 @@ import {
   defaultFormValues,
   showToFormValues,
   parseCost,
+  priceUpdateValue,
   removeArtistAtIndex,
   isVenueLocationEditable as computeVenueEditable,
   makeFormArtist,
@@ -260,21 +261,6 @@ export function ShowForm({
       const price = parseCost(value.cost)
       // Independent of `price`: a blank door field leaves door_price absent on
       // a create, and never falls back to the advance price (PSY-1864).
-      //
-      // KNOWN LIMITATION on EDIT: blank means "unchanged", not "clear". The key
-      // is dropped from the payload and the backend's nil-means-unchanged rule
-      // keeps the stored value, so a recorded door price cannot be RETRACTED
-      // here — only overwritten with another number. `price`, `doors_at` and
-      // `music_at` share the limitation, but it bites harder here: the door
-      // price is the opt-in half, so "remove it again" is a routine correction
-      // rather than an edge case. Clearing needs an explicit tri-state signal
-      // on UpdateShowRequest (null distinguished from omitted); until that
-      // exists, blanking this field is silently a no-op.
-      //
-      // TRACKED IN PSY-1961, which also carries the open question of whether
-      // this should surface user-facing copy in the meantime. It compounds
-      // PSY-1960: a rollback can write a spurious door_price of 0 (rendered
-      // "DOOR Free"), and with no clear path that false claim is stuck.
       const doorPrice = parseCost(value.door_cost)
 
       if (isEditMode && initialData) {
@@ -284,8 +270,12 @@ export function ShowForm({
           event_date: eventDate,
           city: value.venue.city,
           state: value.venue.state,
-          price,
-          door_price: doorPrice,
+          price: priceUpdateValue(value.cost, price, initialData.price),
+          door_price: priceUpdateValue(
+            value.door_cost,
+            doorPrice,
+            initialData.door_price
+          ),
           age_requirement: value.ages || undefined,
           description: value.description || undefined,
           image_url: value.image_url || undefined,

@@ -530,6 +530,87 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_NullableTimestampBack
 	s.Equal("Rollback Times", restored.Title, "the bundled field must roll back too")
 }
 
+// TestRollback_NullablePriceBackToNull is the timestamp test's twin for a
+// nullable NUMBER, and the difference between them is the whole point (PSY-1960).
+//
+// A "" written into a TIMESTAMPTZ blows up, so that defect announced itself. 0
+// is perfectly writable to a numeric column, so this one did not: the rollback
+// SUCCEEDED and restored a price nobody had entered. door_price makes it the
+// common case rather than an edge one, because the column ships NULL on every
+// existing row, so the first door-price edit on any show is this transition.
+//
+// It is a false PUBLIC claim, not just a wrong number: the ticket line renders
+// 0 as "Free", so the undo publishes "DOOR Free" for a show whose door price was
+// only ever unknown.
+func (s *RevisionServiceIntegrationTestSuite) TestRollback_NullablePriceBackToNull() {
+	user := s.createTestUser()
+	adminUser := s.createTestUser()
+
+	show := &catalogm.Show{
+		Title:     "Rollback Prices",
+		EventDate: time.Now().UTC().AddDate(0, 0, 14),
+		Status:    catalogm.ShowStatusApproved,
+	}
+	s.Require().NoError(s.db.Create(show).Error)
+
+	advance, door := 35.0, 40.0
+	// Through revisiondiff, not hand-written changes: the defect was in what
+	// Compare RECORDED, so a test that feeds Rollback a hand-written nil would
+	// have passed throughout.
+	changes := revisiondiff.Compare(
+		&contracts.ShowResponse{Title: "Rollback Prices"},
+		&contracts.ShowResponse{Title: "Rollback Prices", Price: &advance, DoorPrice: &door},
+		revisiondiff.ShowFields,
+	)
+	s.Require().Len(changes, 2, "expected price + door_price changes, got %v", changes)
+	s.Require().NoError(s.svc.RecordRevision("show", show.ID, user.ID, changes, "set prices"))
+	s.Require().NoError(s.db.Table("shows").Where("id = ?", show.ID).
+		Updates(map[string]interface{}{"price": advance, "door_price": door}).Error)
+
+	var revision adminm.Revision
+	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "show", show.ID).
+		First(&revision).Error)
+
+	s.Require().NoError(s.svc.Rollback(revision.ID, adminUser.ID))
+
+	var restored catalogm.Show
+	s.Require().NoError(s.db.First(&restored, show.ID).Error)
+	s.Nil(restored.DoorPrice, "door_price must be back to NULL, not 0 (which renders as Free)")
+	s.Nil(restored.Price, "price must be back to NULL, not 0")
+}
+
+// TestRollback_NullableCapacityBackToNull is the *int arm of the same fix, on a
+// field that is REGISTERED in NumericEditFieldBounds. That registration is why
+// it needs its own test: the nil recorded by revisiondiff passes through
+// NarrowNumericUpdates, which must hand it on as a typed (*int)(nil) rather than
+// narrowing it to 0 or dropping it.
+func (s *RevisionServiceIntegrationTestSuite) TestRollback_NullableCapacityBackToNull() {
+	user := s.createTestUser()
+	adminUser := s.createTestUser()
+	venue := s.createTestVenue("Capacity Room")
+
+	capacity := 250
+	changes := revisiondiff.Compare(
+		&contracts.VenueDetailResponse{Name: "Capacity Room"},
+		&contracts.VenueDetailResponse{Name: "Capacity Room", Capacity: &capacity},
+		revisiondiff.VenueFields,
+	)
+	s.Require().Len(changes, 1, "expected a capacity change, got %v", changes)
+	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, changes, "set capacity"))
+	s.Require().NoError(s.db.Table("venues").Where("id = ?", venue.ID).
+		Update("capacity", capacity).Error)
+
+	var revision adminm.Revision
+	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "venue", venue.ID).
+		First(&revision).Error)
+
+	s.Require().NoError(s.svc.Rollback(revision.ID, adminUser.ID))
+
+	var restored catalogm.Venue
+	s.Require().NoError(s.db.First(&restored, venue.ID).Error)
+	s.Nil(restored.Capacity, "capacity must be back to NULL, not 0")
+}
+
 func (s *RevisionServiceIntegrationTestSuite) TestRollback_RevisionNotFound() {
 	err := s.svc.Rollback(99999, 1)
 	s.Error(err)

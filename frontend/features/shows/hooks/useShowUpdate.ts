@@ -58,10 +58,23 @@ export interface ShowUpdate {
   event_date?: string // ISO 8601 UTC timestamp
   city?: string
   state?: string
-  // Advance price and door price. An omitted field leaves the stored value
-  // alone, so writing one never clears the other.
-  price?: number
-  door_price?: number
+  /**
+   * Advance price and door price, as a TRI-STATE (PSY-1961). Omitting a field
+   * leaves the stored value alone, so writing one never clears the other;
+   * sending an explicit `null` clears it to SQL NULL; a number writes that
+   * number, zero included ("Free" is a price, not an absence).
+   *
+   * `null` rather than `0` or `''` as the clear signal: a blank field means
+   * "there is no separate door price", and spelling that as 0 would publish
+   * `DOOR Free` — the exact false claim this mechanism exists to make
+   * retractable.
+   *
+   * The mutation's payload goes through JSON.stringify, which DROPS an
+   * `undefined` key and KEEPS a `null` one. That is the whole encoding: the
+   * three states of this type are the three states the API reads.
+   */
+  price?: number | null
+  door_price?: number | null
   age_requirement?: string
   description?: string
   image_url?: string

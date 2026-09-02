@@ -420,11 +420,16 @@ type filterMatch struct {
 // says "max $10", however expensive the door is. shows.door_price is what made
 // that row shape reachable, so the fallback ships alongside it.
 //
-// When BOTH prices are known this stays the ADVANCE price, which is the
-// pre-existing behavior and is deliberately left alone. Whether a user's
-// ceiling should instead apply to the HIGHEST price they could pay is a real
-// product question, and a schema ticket is the wrong place to answer it — it
-// is recorded on PSY-1962 alongside the rest of the split-price read surfaces.
+// When BOTH prices are known this is the ADVANCE price. DECIDED, not merely
+// inherited (PSY-1962): a price ceiling states what a user is willing to spend
+// to get in, and the advance price is what they would actually pay, since a
+// door price above it is the price of choosing not to buy ahead. Judging by the
+// HIGHEST number they could pay would suppress an alert for a show they can
+// afford, and a filter that hides a $35-advance show because its door is $40 is
+// wrong in the direction that costs the user the show.
+//
+// The read surfaces went the other way in the same change and show BOTH numbers,
+// because a list has room to state a fact and a filter has to reduce it to one.
 func effectiveShowPriceCents(show *catalogm.Show) *int {
 	price := show.Price
 	if price == nil {
@@ -875,10 +880,16 @@ func (s *NotificationFilterService) showEmailContent(show *catalogm.Show) showEm
 		showURL = fmt.Sprintf("%s/shows/%d", s.frontendURL, show.ID)
 	}
 
-	priceText := ""
-	if show.Price != nil {
-		priceText = fmt.Sprintf("$%.0f", *show.Price)
-	}
+	// Through the shared derivation, like every other read surface (PSY-1962).
+	// This one line feeds THREE emails -- the filter alert, the scene-follow
+	// alert and the artist-follow alert -- and it used to render show.Price
+	// alone with "$%.0f", so a door-only show emailed no price at all, a
+	// $35/$40 show emailed "$35", and a FREE show emailed "$0".
+	//
+	// An email is the ICS feed's twin for the reason that made this urgent: it
+	// lands in an inbox and stays there, so the number in it outlives the page
+	// view that produced it and is what the reader budgets against.
+	priceText := shared.ShowPriceText(show.Price, show.DoorPrice)
 
 	return showEmailContentParts{
 		date:       show.EventDate.In(utils.EventLocation(venueTZ, venueState)).Format("Monday, January 2, 2006"),

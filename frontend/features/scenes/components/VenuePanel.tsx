@@ -26,7 +26,8 @@ import {
 } from '@/features/venues/hooks'
 import { VENUE_SHOWS_PAGE_LIMIT } from '@/features/venues/api'
 import type { VenueShow, VenueWithShowCount } from '@/features/venues/types'
-import { formatPrice, formatShowTime } from '@/lib/utils/formatters'
+import { formatShowTime } from '@/lib/utils/formatters'
+import { showPriceText } from '@/lib/utils/showPrice'
 import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 import { formatTimeAgo } from '@/lib/formatTimeAgo'
 import {
@@ -537,7 +538,7 @@ function ShowRow({
     (show.artists ?? []).map((a) => a.name),
     { cap: 3 },
   )
-  const meta = [time, show.price !== null ? formatPrice(show.price) : null]
+  const meta = [time, showPriceText(show)]
     .filter(Boolean)
     .join(' · ')
 

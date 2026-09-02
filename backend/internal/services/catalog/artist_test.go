@@ -556,6 +556,27 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_Upcoming()
 	suite.True(resp[0].EventDate.After(time.Now().UTC().AddDate(0, 0, -1)))
 }
 
+// The artist archive is the venue archive's twin and must carry the same pair;
+// the reasoning is on TestGetShowsForVenue_CarriesBothPrices (PSY-1962). Both
+// exist because these two tables are a documented drift pair.
+func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_CarriesBothPrices() {
+	artist := suite.createTestArtist("Priced Artist")
+	venue := suite.createTestVenue("Priced Venue", "Phoenix", "AZ")
+	user := suite.createTestUser()
+
+	show := suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
+	suite.Require().NoError(suite.db.Model(&catalogm.Show{}).Where("id = ?", show.ID).
+		Updates(map[string]interface{}{"price": 35.0, "door_price": 40.0}).Error)
+
+	resp, _, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "upcoming", Limit: 10})
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 1)
+	suite.Require().NotNil(resp[0].Price, "artist shows must carry price")
+	suite.Require().NotNil(resp[0].DoorPrice, "artist shows must carry door_price, not drop it")
+	suite.InDelta(35.0, *resp[0].Price, 0.001)
+	suite.InDelta(40.0, *resp[0].DoorPrice, 0.001)
+}
+
 func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_Past() {
 	artist := suite.createTestArtist("Past Artist")
 	venue := suite.createTestVenue("Past Venue", "Phoenix", "AZ")

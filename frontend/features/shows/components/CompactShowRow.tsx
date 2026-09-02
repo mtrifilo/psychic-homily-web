@@ -1,7 +1,11 @@
 'use client'
 
 import Link from 'next/link'
-import { formatPrice, formatShowTime } from '@/lib/utils/formatters'
+import { formatShowTime } from '@/lib/utils/formatters'
+// Deep import, not the barrel: `@/components/shared` pulls ~30 components
+// into the chunk of every route that renders a compact row (PSY-1772), and the
+// scene surfaces next door deep-import this same component for that reason.
+import { ShowPrice } from '@/components/shared/ShowPrice'
 import { formatShowDateBadge } from '@/lib/utils/showDateBadge'
 
 interface CompactShowArtist {
@@ -14,7 +18,12 @@ interface CompactShowData {
   id: number
   slug?: string | null
   event_date: string
+  /**
+   * The advance/door pair. Both, because a row showing the advance half alone
+   * quoted $35 for a show whose door is $40 (PSY-1962).
+   */
   price?: number | null
+  door_price?: number | null
   artists: CompactShowArtist[]
 }
 
@@ -185,7 +194,7 @@ export function CompactShowRow({
             <div className="font-medium text-foreground/80">
               {formatShowTime(show.event_date, state, timezone)}
             </div>
-            {show.price != null && <div>{formatPrice(show.price)}</div>}
+            <ShowPrice show={show} className="block" />
             {showDetailsLink && (
               <div className="mt-0.5">
                 <Link

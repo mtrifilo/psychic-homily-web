@@ -136,9 +136,11 @@ postgres-data/
 !cli/eval/batch-schema.json
 !cli/eval/fixtures/**/*.json
 
-# Radio provider canned test fixtures (PSY-1022): snapshots of real provider
-# responses; adapter tests parse these instead of hitting live APIs.
-!backend/internal/services/catalog/testdata/*.json
+# Go `testdata` fixtures are test inputs, never credentials: a suite that reads
+# one only guards the tree when the fixture is tracked. The blanket `*.json`
+# rule above silently strands them, so testdata JSON is tracked everywhere
+# (radio provider snapshots PSY-1022; shared show-price vectors PSY-1962).
+!**/testdata/*.json
 
 # PH-branded MapLibre basemap style (PSY-1543): source, not a credential —
 # phBasemap.ts imports it at build time, so it MUST be tracked or the build

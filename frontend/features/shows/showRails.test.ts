@@ -99,7 +99,7 @@ describe('buildAlsoTonightRail', () => {
   it('carries the room and the price as separate ledger columns', () => {
     const rail = buildAlsoTonightRail(makeAlsoTonightPayload(), 99)
     expect(rail?.rows[0]?.room).toBe('Empty Bottle')
-    expect(rail?.rows[0]?.figure).toBe('$15.00')
+    expect(rail?.rows[0]?.figure).toBe('$15')
     expect(rail?.hasRoomColumn).toBe(true)
   })
 
@@ -350,7 +350,7 @@ describe('buildMoreAtVenueRail', () => {
       2,
       99
     )
-    expect(rail?.rows[0]?.figure).toBe('$45.00')
+    expect(rail?.rows[0]?.figure).toBe('$45')
   })
 
   it('reserves no room column — the room is the heading', () => {

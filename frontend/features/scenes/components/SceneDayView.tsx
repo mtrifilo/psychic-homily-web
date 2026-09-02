@@ -3,6 +3,7 @@ import Link from 'next/link'
 // no dependency on that barrel at all, and going through it would pull all ~30
 // shared components into this route's module graph to use one of them.
 import { ShareButton } from '@/components/shared/ShareButton'
+import { ShowPrice } from '@/components/shared/ShowPrice'
 import { showDisplayTitle, showHref } from '../sceneWeek'
 import {
   dayShows,
@@ -11,7 +12,6 @@ import {
   formatDayCountLine,
   formatDayFull,
   formatPointerDay,
-  formatShowPrice,
   formatShowStartTime,
   type SceneDayResponse,
   type SceneDayShow,
@@ -38,7 +38,6 @@ import {
  */
 function ShowRow({ show, sceneTimezone }: { show: SceneDayShow; sceneTimezone?: string }) {
   const time = formatShowStartTime(show, sceneTimezone)
-  const price = formatShowPrice(show)
 
   return (
     <li className="border-b border-border/40">
@@ -63,9 +62,10 @@ function ShowRow({ show, sceneTimezone }: { show: SceneDayShow; sceneTimezone?: 
           {!show.is_cancelled && show.is_sold_out && <ShowStatusBadge label="SOLD OUT" />}
         </span>
         <span className="hidden flex-1 sm:block" aria-hidden="true" />
-        {price && (
-          <span className="shrink-0 font-mono text-xs text-muted-foreground">{price}</span>
-        )}
+        <ShowPrice
+          show={show}
+          className="shrink-0 font-mono text-xs text-muted-foreground"
+        />
         {show.venue_name && (
           <span className="shrink-0 font-mono text-xs text-muted-foreground">
             {show.venue_name}

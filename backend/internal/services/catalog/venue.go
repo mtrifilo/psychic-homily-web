@@ -1337,6 +1337,7 @@ func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, query con
 			City:           show.City,
 			State:          show.State,
 			Price:          show.Price,
+			DoorPrice:      show.DoorPrice,
 			AgeRequirement: show.AgeRequirement,
 			IsCancelled:    show.IsCancelled,
 			IsSoldOut:      show.IsSoldOut,

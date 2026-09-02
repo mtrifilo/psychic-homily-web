@@ -1,5 +1,5 @@
 import type { components } from '@/types/api'
-import { formatPrice, formatShowTime } from '@/lib/utils/formatters'
+import { formatShowTime } from '@/lib/utils/formatters'
 import {
   parseCalendarDate,
   startInstant,
@@ -135,11 +135,6 @@ export function formatShowStartTime(
   const raw = startInstant(show)
   if (raw === null) return null
   return formatShowTime(raw, show.venue_state, show.venue_timezone || sceneTimezone)
-}
-
-/** The row's price, or null when the show has none recorded. */
-export function formatShowPrice(show: SceneDayShow): string | null {
-  return typeof show.price === 'number' ? formatPrice(show.price) : null
 }
 
 /**

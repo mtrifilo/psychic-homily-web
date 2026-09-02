@@ -88,6 +88,7 @@ export function makeVenueShow(overrides: Partial<VenueShow> = {}): VenueShow {
     city: 'Chicago',
     state: 'IL',
     price: null,
+    door_price: null,
     age_requirement: null,
     is_cancelled: false,
     is_sold_out: true,

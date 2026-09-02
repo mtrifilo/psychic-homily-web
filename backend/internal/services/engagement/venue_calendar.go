@@ -16,6 +16,7 @@ import (
 	"psychic-homily-backend/db"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -291,7 +292,7 @@ func (s *VenueCalendarService) buildCalendar(
 		}
 		showURL := showPageURL(frontendURL, slug, show.ID)
 		event.SetDescription(buildEventDescription(
-			location, artistsByShow[show.ID], show.Price, show.AgeRequirement, show.IsCancelled, showURL))
+			location, artistsByShow[show.ID], show.Price, show.DoorPrice, show.AgeRequirement, show.IsCancelled, showURL))
 		if showURL != "" {
 			event.SetURL(showURL)
 		}
@@ -311,7 +312,7 @@ func (s *VenueCalendarService) buildCalendar(
 // describes an event identically: the venue feed reads model-shaped shows,
 // while the per-show download and the personal saved-shows feed read
 // response-shaped ones.
-func buildEventDescription(location string, artistNames []string, price *float64, ageRequirement *string, isCancelled bool, showURL string) string {
+func buildEventDescription(location string, artistNames []string, price, doorPrice *float64, ageRequirement *string, isCancelled bool, showURL string) string {
 	var parts []string
 
 	if location != "" {
@@ -328,8 +329,8 @@ func buildEventDescription(location string, artistNames []string, price *float64
 			parts = append(parts, "Artists: "+strings.Join(clean, ", "))
 		}
 	}
-	if price != nil {
-		parts = append(parts, fmt.Sprintf("Price: $%.0f", *price))
+	if priceText := shared.ShowPriceText(price, doorPrice); priceText != "" {
+		parts = append(parts, "Price: "+priceText)
 	}
 	if ageRequirement != nil {
 		if ages := sanitizeICSText(*ageRequirement); ages != "" {

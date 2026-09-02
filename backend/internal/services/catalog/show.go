@@ -620,12 +620,17 @@ func (s *ShowService) GetUserSubmissions(userID uint, limit, offset int) ([]cont
 
 // UpdateShow updates an existing show (basic fields only)
 // showUpdatesToMap translates a typed UpdateShowRequest into a GORM update
-// map. Only non-nil fields are written so omitted fields stay unchanged.
+// map. Only mentioned fields are written so omitted fields stay unchanged.
 // EventDate is normalized to UTC before storing so the denormalized
 // show_artists.event_date stays in sync downstream; ImageURL is nullable and
 // normalizes empty input to SQL NULL. The remaining fields are written
 // verbatim to preserve prior handler behavior. A nil req yields an empty map
 // (used by the relations path when only associations change).
+//
+// The four Nullable fields are the ones that can be RETRACTED as well as set,
+// so "mentioned" and "has a value" are different questions for them: an absent
+// field is skipped, an explicit clear writes a typed nil that lands as SQL NULL,
+// and a value is written. See contracts.Nullable for why the distinction exists.
 func showUpdatesToMap(req *contracts.UpdateShowRequest) map[string]interface{} {
 	updates := map[string]interface{}{}
 	if req == nil {
@@ -637,24 +642,18 @@ func showUpdatesToMap(req *contracts.UpdateShowRequest) map[string]interface{} {
 	if req.EventDate != nil {
 		updates["event_date"] = req.EventDate.UTC()
 	}
-	if req.DoorsAt != nil {
-		updates["doors_at"] = req.DoorsAt.UTC()
-	}
-	if req.MusicAt != nil {
-		updates["music_at"] = req.MusicAt.UTC()
-	}
+	// UTC on the way in, matching EventDate: the column is TIMESTAMPTZ and the
+	// show page reads these back in the venue's zone.
+	putNullableTime(updates, "doors_at", req.DoorsAt)
+	putNullableTime(updates, "music_at", req.MusicAt)
 	if req.City != nil {
 		updates["city"] = *req.City
 	}
 	if req.State != nil {
 		updates["state"] = *req.State
 	}
-	if req.Price != nil {
-		updates["price"] = *req.Price
-	}
-	if req.DoorPrice != nil {
-		updates["door_price"] = *req.DoorPrice
-	}
+	putNullableFloat(updates, "price", req.Price)
+	putNullableFloat(updates, "door_price", req.DoorPrice)
 	if req.AgeRequirement != nil {
 		updates["age_requirement"] = *req.AgeRequirement
 	}
@@ -668,6 +667,44 @@ func showUpdatesToMap(req *contracts.UpdateShowRequest) map[string]interface{} {
 		updates["image_url"] = utils.NilIfEmpty(*req.ImageURL)
 	}
 	return updates
+}
+
+// putNullableTime and putNullableFloat write one tri-state field into a GORM
+// update map: absent writes nothing, a clear writes a nil pointer, a value
+// writes the value.
+//
+// PRESENCE IN THE MAP is what makes a clear land, and it is the only part that
+// is load-bearing. GORM's Updates() builds an assignment for every key in a
+// map[string]interface{} with no nil filter (callbacks/update.go), so an
+// untyped nil writes SQL NULL just as a typed one does — verified against
+// gorm v1.30.0 and by running the clear tests both ways. What must never happen
+// is the key being OMITTED, because "absent" is the one state that means leave
+// the column alone.
+//
+// The pointer comes from contracts.Nullable.ValueOrNil, which returns *T. That
+// is for the caller's sake rather than the ORM's: one expression covers both
+// the value and the clear, so neither helper has a branch that could pick the
+// wrong one.
+//
+// Two functions rather than one generic because the time arm normalizes to UTC
+// and the float arm does not; folding them together would need a per-call
+// transform argument to save three lines.
+func putNullableTime(updates map[string]interface{}, column string, field contracts.Nullable[time.Time]) {
+	if !field.Present() {
+		return
+	}
+	at := field.ValueOrNil()
+	if at != nil {
+		utc := at.UTC()
+		at = &utc
+	}
+	updates[column] = at
+}
+
+func putNullableFloat(updates map[string]interface{}, column string, field contracts.Nullable[float64]) {
+	if field.Present() {
+		updates[column] = field.ValueOrNil()
+	}
 }
 
 func (s *ShowService) UpdateShow(showID uint, req *contracts.UpdateShowRequest) (*contracts.ShowResponse, error) {

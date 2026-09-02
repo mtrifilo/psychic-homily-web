@@ -2,14 +2,13 @@
 
 import { Fragment, useMemo } from 'react'
 import Link from 'next/link'
-import { DenseTable, DenseTableGroupHeader } from '@/components/shared'
+import { DenseTable, DenseTableGroupHeader, ShowPrice } from '@/components/shared'
 // Deep import, not the barrel: `@/features/shows`'s barrel edge drags in
 // ShowForm and the whole mutation graph for one component, and pulls a
 // venues -> shows -> venues value cycle in behind it (the same reason ShowForm
 // deep-imports VenueInput). See features/venues/components/index.ts.
 import { ShowBill } from '@/features/shows/components/ShowBill'
 import {
-  formatPrice,
   formatShowDate,
   formatShowTime,
 } from '@/lib/utils/formatters'
@@ -52,7 +51,7 @@ function ShowRow({
         />
       </td>
       <td className="whitespace-nowrap text-right font-mono text-xs text-muted-foreground">
-        {typeof show.price === 'number' ? formatPrice(show.price) : ABSENT}
+        <ShowPrice show={show} fallback={ABSENT} />
       </td>
       <td className="whitespace-nowrap text-right text-muted-foreground">
         {formatShowTime(show.event_date, state, zone.venueTimezone)}
