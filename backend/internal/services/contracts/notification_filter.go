@@ -163,15 +163,33 @@ type NotificationFilterServiceInterface interface {
 	MatchAndNotifyBatch(shows []catalogm.Show) error
 
 	// Notification log
-	GetUserNotifications(userID uint, limit, offset int) ([]NotificationLogEntry, error)
-	GetUnreadCount(userID uint) (int64, error)
+	//
+	// All four take a ShowViewer rather than a user id. The inbox is
+	// self-scoped, so the viewer names both the account whose rows these are
+	// and the tier they are read at (PSY-1983), and passing one value rather
+	// than a user id beside a viewer carrying the same id keeps the two from
+	// disagreeing. Rows leading to a show the viewer may not see are dropped
+	// from the list, the unread count and both mark-read writes together, so no
+	// pair of them can be differenced. inboxRowsVisibleTo is the authority on
+	// WHICH rows those are — today the comment replies and mentions, the artist
+	// show alerts, and the show-filter / scene-follow rows that carry a show id
+	// directly — and restating its list here is how the two drift apart.
+	//
+	// All four REJECT the zero viewer. ShowViewer{} is the deliberate spelling
+	// for the public tier on the listing gates, and these are self-scoped, so
+	// the idiom that is correct there would mean "user 0" here; they error
+	// rather than answer emptily.
+	GetUserNotifications(viewer ShowViewer, limit, offset int) ([]NotificationLogEntry, error)
+	GetUnreadCount(viewer ShowViewer) (int64, error)
 	// MarkNotificationsRead flips read_at on the given IDs that belong to the
-	// user. Returns the count actually updated (already-read or
-	// not-owned-by-user IDs are skipped silently). PSY-595.
-	MarkNotificationsRead(userID uint, ids []uint) (int64, error)
+	// viewer. Returns the count actually updated; already-read, gated-show and
+	// not-owned-by-viewer IDs are skipped silently. NOT filtered by
+	// inboxVisibleRows, so an explicitly-named email-lane id still flips — a
+	// pre-existing asymmetry, named here rather than papered over. PSY-595.
+	MarkNotificationsRead(viewer ShowViewer, ids []uint) (int64, error)
 	// MarkAllNotificationsRead flips read_at on every unread notification
-	// for the user. Returns the count updated. PSY-595.
-	MarkAllNotificationsRead(userID uint) (int64, error)
+	// the viewer can see. Returns the count updated. PSY-595.
+	MarkAllNotificationsRead(viewer ShowViewer) (int64, error)
 
 	// Unsubscribe
 	PauseFilter(filterID uint) error

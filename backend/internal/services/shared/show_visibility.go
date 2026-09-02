@@ -5,6 +5,7 @@ import (
 
 	"psychic-homily-backend/internal/logger"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -32,6 +33,11 @@ import (
 //   - VisibleShowExistsSQL wraps that in a correlated EXISTS, for a query
 //     holding only a show id in some other table's column.
 //   - VisibleShowRevisionsSQL adds the two revision-specific terms.
+//   - VisibleShowCommentEntitySQL is the EXISTS form over a POLYMORPHIC
+//     (entity_type, entity_id) pair, for the comment family's tables, where a
+//     row may name a show or may name an artist.
+//   - VisibleShowRecipientsSQL decides ONE show for MANY viewers at once,
+//     reading the viewer id from a COLUMN, for a fan-out choosing recipients.
 //   - PublicShowPredicateSQL and PublicShowRevisionsSQL are the public tier of
 //     the two predicates with the status inlined, for statement builders that
 //     return a bare string and have no argument list to bind into.
@@ -180,6 +186,85 @@ func showExistsSQL(showIDExpr, showCond string) string {
 	return "EXISTS (SELECT 1 FROM shows " + visibleShowsAlias +
 		" WHERE " + visibleShowsAlias + ".id = " + showIDExpr +
 		" AND " + showCond + ")"
+}
+
+// CommentEntityTypeShow is the polymorphic entity_type value the comment family
+// stores a show under — comments, comment subscriptions, last-read pointers.
+//
+// Read from the model rather than written out, because the rows this gate
+// decides about are written from that constant and the comparison in Postgres is
+// case-sensitive. It is spelled the same as RevisionEntityTypeShow today and
+// deliberately kept separate: they are two vocabularies that happen to agree,
+// and one changing is not the other changing.
+const CommentEntityTypeShow = string(engagementm.CommentEntityShow)
+
+// VisibleShowCommentEntitySQL returns a condition, true for the rows of a
+// POLYMORPHIC (entity_type, entity_id) table that viewer may see, plus its bind
+// arguments.
+//
+// For the comment family's tables — comments, comment_subscriptions,
+// notification rows resolved through a comment — where one column decides
+// whether the id beside it is a show id at all.
+//
+// A row naming any OTHER entity type passes untouched: show is the only comment
+// parent with a read-time visibility rule. A row naming a show that no longer
+// exists does NOT pass, because VisibleShowExistsSQL fails closed on a missing
+// show, which is what lets a caller answer the same for a gated show and a
+// deleted one.
+//
+// Both expressions are SQL the CALLER controls and must be literals in the
+// calling code. Nothing derived from a request may reach them.
+func VisibleShowCommentEntitySQL(entityTypeExpr, entityIDExpr string, viewer contracts.ShowViewer) (string, []interface{}) {
+	if viewer.IsAdmin {
+		return "TRUE", nil
+	}
+	visible, args := VisibleShowExistsSQL(entityIDExpr, viewer)
+	return "(" + entityTypeExpr + " <> '" + CommentEntityTypeShow + "' OR " + visible + ")", args
+}
+
+// VisibleShowRecipientsSQL returns a condition, true for the rows whose
+// recipientIDExpr names a user who may see show showID, plus its bind arguments.
+//
+// The rule INVERTED: every other spelling fixes the viewer and asks about many
+// shows, this one fixes the show and asks about many viewers. A fan-out picking
+// who to notify about one show needs exactly that, and doing it the other way
+// round is one query per recipient.
+//
+// recipientIsAdminExpr carries the admin tier the other spellings get from
+// ShowViewer.IsAdmin. It is a COLUMN here for the same reason the viewer id is:
+// the answer differs per row. Both call sites already have the users table in
+// scope, so it costs no extra join — pass "" only where no such column exists,
+// which drops the branch and answers approved-or-submitter.
+//
+// Keeping the admin branch matters because this gate is FINAL, and it is the one
+// place in PSY-1983 that is. Every other gate the ticket adds suppresses at READ
+// time, so republishing the show brings the withheld rows back. A fan-out that
+// declines to write mints nothing, and nothing is what republication restores:
+// activity during the gated window is never delivered to anyone the gate
+// excluded, ever. A push cannot be recalled, so the write side is decided once,
+// at the moment of sending, and the recoverable direction is to withhold.
+//
+// That finality is exactly why the admin branch is not optional. Without it an
+// admin's inbox would permanently disagree with what all three READ gates say
+// they are entitled to — on the moderation path, where a pending show's
+// discussion is the thing they are most likely to be watching.
+//
+// recipientIDExpr is SQL the CALLER controls and must be a literal in the
+// calling code. Nothing derived from a request may reach it; showID is bound.
+func VisibleShowRecipientsSQL(showID uint, recipientIDExpr, recipientIsAdminExpr string) (string, []interface{}) {
+	cond := "(" + visibleShowsAlias + ".status = ? OR " +
+		visibleShowsAlias + ".submitted_by = " + recipientIDExpr
+	if recipientIsAdminExpr != "" {
+		cond += " OR " + recipientIsAdminExpr
+	}
+	cond += ")"
+	// showID binds ahead of the status because showExistsSQL puts the id
+	// comparison first, and the placeholders are positional.
+	//
+	// The admin term sits INSIDE the shows EXISTS rather than beside it, so an
+	// admin passes only when the show actually exists. A deleted show reaches
+	// nobody, which is what keeps "gated" and "gone" answering alike here too.
+	return showExistsSQL("?", cond), []interface{}{showID, catalogm.ShowStatusApproved}
 }
 
 // RevisionEntityTypeShow is the polymorphic entity_type value show revisions

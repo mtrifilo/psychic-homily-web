@@ -164,7 +164,7 @@ type watchingRow struct {
 	UnreadCount   int
 }
 
-// ListWatching returns the user's subscriptions enriched with entity
+// ListWatching returns viewer's own subscriptions enriched with entity
 // context and last comment activity, ordered by last activity (newest
 // first; threads without comments last, by subscription recency).
 //
@@ -172,9 +172,31 @@ type watchingRow struct {
 // LATERAL query; entity names and last-commenter names are then resolved
 // in one batch query per distinct entity table plus two for users — no
 // per-row queries.
-func (s *CommentSubscriptionService) ListWatching(userID uint, limit, offset int) ([]contracts.WatchingItem, int64, error) {
+//
+// A subscription whose show viewer may no longer see is SUPPRESSED, and
+// suppressed from the total as well as the page (PSY-1983). Dropping the row
+// while leaving the count whole would publish the same fact as arithmetic:
+// total minus the rows on the page is a count of gated shows this account
+// watches, and the account already knows which shows it subscribed to.
+//
+// Suppression, not deletion. The row stays, the gate is re-evaluated on every
+// read, and republishing the show brings the entry back with its unread count
+// intact — the unread count reads the comments table directly, so it recovers
+// even for comments posted while the show was gated. The NOTIFICATIONS about
+// those comments do not: the fan-out declined to mint them and nothing restores
+// what was never written (see VisibleShowRecipientsSQL).
+func (s *CommentSubscriptionService) ListWatching(viewer contracts.ShowViewer, limit, offset int) ([]contracts.WatchingItem, int64, error) {
 	if s.db == nil {
 		return nil, 0, errors.New("database not initialized")
+	}
+	// The zero viewer is a construction bug here, and it must not answer quietly.
+	// ShowViewer{} is the codebase's deliberate spelling for the PUBLIC TIER on
+	// the listing gates (see services/shared/show_visibility.go), so a caller
+	// following that idiom onto this self-scoped method would otherwise get a
+	// silent, permanent "you are watching nothing" instead of an error. Loud, for
+	// the same reason the nil handle above is loud.
+	if viewer.UserID == 0 {
+		return nil, 0, errors.New("ListWatching is self-scoped: the viewer carries no user id")
 	}
 
 	if limit <= 0 {
@@ -184,9 +206,16 @@ func (s *CommentSubscriptionService) ListWatching(userID uint, limit, offset int
 		offset = 0
 	}
 
+	userID := viewer.UserID
+	// The same condition on the count and on the page, so the two agree by
+	// construction rather than by two edits staying in step. `cs` is the alias
+	// the page query binds the table to; the count query is given it explicitly.
+	visibleSQL, visibleArgs := shared.VisibleShowCommentEntitySQL("cs.entity_type", "cs.entity_id", viewer)
+
 	var total int64
-	err := s.db.Model(&engagementm.CommentSubscription{}).
-		Where("user_id = ?", userID).
+	err := s.db.Table("comment_subscriptions cs").
+		Where("cs.user_id = ?", userID).
+		Where(visibleSQL, visibleArgs...).
 		Count(&total).Error
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to count subscriptions: %w", err)
@@ -203,6 +232,19 @@ func (s *CommentSubscriptionService) ListWatching(userID uint, limit, offset int
 	// (ties broken by id), so LastCommentAt and LastCommenterName always
 	// describe the same comment. The trailing (entity_type, entity_id)
 	// sort keys make pagination deterministic under timestamp ties.
+	//
+	// The visibility condition is spliced into the WHERE and its arguments into
+	// the middle of the list, because placeholders in a raw statement bind by
+	// POSITION: the four the LATERAL block already carries come first, and limit
+	// and offset must stay last.
+	pageArgs := []interface{}{
+		engagementm.CommentKindComment, engagementm.CommentKindComment, engagementm.CommentKindComment,
+		engagementm.CommentVisibilityVisible,
+		userID,
+	}
+	pageArgs = append(pageArgs, visibleArgs...)
+	pageArgs = append(pageArgs, limit, offset)
+
 	var rows []watchingRow
 	err = s.db.Raw(`
 		SELECT cs.entity_type,
@@ -229,18 +271,17 @@ func (s *CommentSubscriptionService) ListWatching(userID uint, limit, offset int
 			  AND c.visibility = ?
 		) agg ON true
 		WHERE cs.user_id = ?
+		  AND `+visibleSQL+`
 		ORDER BY agg.last_comment_at DESC NULLS LAST, cs.subscribed_at DESC,
 		         cs.entity_type ASC, cs.entity_id ASC
 		LIMIT ? OFFSET ?`,
-		engagementm.CommentKindComment, engagementm.CommentKindComment, engagementm.CommentKindComment,
-		engagementm.CommentVisibilityVisible,
-		userID, limit, offset,
+		pageArgs...,
 	).Scan(&rows).Error
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to fetch watching list: %w", err)
 	}
 
-	entities := s.loadWatchingEntities(rows)
+	entities := s.loadWatchingEntities(rows, viewer)
 	commenterNames := s.loadLastCommenterNames(rows)
 
 	items := make([]contracts.WatchingItem, len(rows))
@@ -265,7 +306,7 @@ func (s *CommentSubscriptionService) ListWatching(userID uint, limit, offset int
 
 // loadWatchingEntities batch-loads (id, name, slug) for the page's
 // entities, one SELECT per distinct entity table.
-func (s *CommentSubscriptionService) loadWatchingEntities(rows []watchingRow) map[string]map[uint]shared.EntityNameRow {
+func (s *CommentSubscriptionService) loadWatchingEntities(rows []watchingRow, viewer contracts.ShowViewer) map[string]map[uint]shared.EntityNameRow {
 	idsByType := make(map[string][]uint)
 	seen := make(map[string]map[uint]struct{})
 	for _, r := range rows {
@@ -280,7 +321,7 @@ func (s *CommentSubscriptionService) loadWatchingEntities(rows []watchingRow) ma
 		set[r.EntityID] = struct{}{}
 		idsByType[r.EntityType] = append(idsByType[r.EntityType], r.EntityID)
 	}
-	return shared.LoadCommentEntityNames(s.db, idsByType)
+	return shared.LoadCommentEntityNames(s.db, idsByType, viewer)
 }
 
 // loadLastCommenterNames batch-resolves the display name of each

@@ -15,7 +15,118 @@ import (
 // from handler_unit_mock_helpers_test.go
 
 func testCommentSubscriptionHandler() *CommentSubscriptionHandler {
-	return NewCommentSubscriptionHandler(nil, nil)
+	return NewCommentSubscriptionHandler(nil, nil, testhelpers.AllShowsVisible())
+}
+
+// ============================================================================
+// The gate's DENY side (PSY-1983)
+// ============================================================================
+//
+// Every other test in this file opts out with testhelpers.AllShowsVisible(),
+// because the gate is not their subject. That makes this the only place in the
+// FAST suite where the refusal branches are executed at all: the end-to-end
+// matrix in api/routes needs Postgres and skips under -short, so without these a
+// refactor that inverted the condition, dropped the `!`, or wired a nil checker
+// into a new route would pass the whole handler suite.
+//
+// The mock denies everything, which is the zero value's behaviour anyway; it is
+// spelled out so the intent is legible beside its AllShowsVisible() neighbours.
+func denyingSubscriptionHandler(svc *testhelpers.MockCommentSubscriptionService) *CommentSubscriptionHandler {
+	return NewCommentSubscriptionHandler(svc, nil, &testhelpers.MockShowVisibility{
+		ShowVisibleToFn: func(uint, contracts.ShowViewer) bool { return false },
+	})
+}
+
+// A refused subscribe must not reach the service, or the row is written and only
+// the response is withheld.
+func TestSubscribe_GatedShowRefusesWithoutTouchingTheService(t *testing.T) {
+	called := false
+	h := denyingSubscriptionHandler(&testhelpers.MockCommentSubscriptionService{
+		SubscribeFn: func(uint, string, uint) error {
+			called = true
+			return nil
+		},
+	})
+
+	_, err := h.SubscribeHandler(
+		testhelpers.CtxWithUser(&authm.User{ID: 1}),
+		&SubscribeRequest{EntityType: "show", EntityID: "42"},
+	)
+	testhelpers.AssertHumaError(t, err, 404)
+	if called {
+		t.Error("the subscription was created for a show the caller cannot see")
+	}
+}
+
+func TestMarkRead_GatedShowRefusesWithoutTouchingTheService(t *testing.T) {
+	called := false
+	h := denyingSubscriptionHandler(&testhelpers.MockCommentSubscriptionService{
+		MarkReadFn: func(uint, string, uint) error {
+			called = true
+			return nil
+		},
+	})
+
+	_, err := h.MarkReadHandler(
+		testhelpers.CtxWithUser(&authm.User{ID: 1}),
+		&MarkReadRequest{EntityType: "show", EntityID: "42"},
+	)
+	testhelpers.AssertHumaError(t, err, 404)
+	if called {
+		t.Error("the last-read pointer moved on a show the caller cannot see")
+	}
+}
+
+// The status route is the one that must NOT refuse: it answers exactly as it
+// does for a show nobody is subscribed to, so a 404 cannot confirm the id and a
+// truthful count cannot report activity.
+func TestSubscriptionStatus_GatedShowAnswersNotSubscribed(t *testing.T) {
+	h := denyingSubscriptionHandler(&testhelpers.MockCommentSubscriptionService{
+		IsSubscribedFn: func(uint, string, uint) (bool, error) { return true, nil },
+		GetUnreadCountFn: func(uint, string, uint) (int, error) {
+			return 7, nil
+		},
+	})
+
+	resp, err := h.SubscriptionStatusHandler(
+		testhelpers.CtxWithUser(&authm.User{ID: 1}),
+		&SubscriptionStatusRequest{EntityType: "show", EntityID: "42"},
+	)
+	if err != nil {
+		t.Fatalf("the status route refused instead of answering: %v", err)
+	}
+	if resp.Body.Subscribed {
+		t.Error("the status route confirmed a subscription to a show the caller cannot see")
+	}
+	if resp.Body.UnreadCount != 0 {
+		t.Errorf("unread_count = %d, want 0 — a live count is a running activity signal",
+			resp.Body.UnreadCount)
+	}
+}
+
+// The gate is show-scoped, and its pass-through for other entity types is a
+// deliberate default-open, not an oversight. Pinned here so a future edit that
+// makes the gate refuse everything is caught as a behaviour change rather than
+// shipped as a silent lockout of artist and venue subscriptions.
+func TestSubscribe_NonShowEntityIsNotRefusedByTheShowGate(t *testing.T) {
+	called := false
+	h := denyingSubscriptionHandler(&testhelpers.MockCommentSubscriptionService{
+		SubscribeFn: func(uint, string, uint) error {
+			called = true
+			return nil
+		},
+	})
+
+	_, err := h.SubscribeHandler(
+		testhelpers.CtxWithUser(&authm.User{ID: 1}),
+		&SubscribeRequest{EntityType: "artist", EntityID: "42"},
+	)
+	if err != nil {
+		t.Fatalf("the show gate refused an ARTIST subscription: %v", err)
+	}
+	if !called {
+		t.Error("the artist subscription never reached the service")
+	}
 }
 
 // ============================================================================
@@ -44,7 +155,7 @@ func TestSubscribe_InvalidEntityType(t *testing.T) {
 		SubscribeFn: func(userID uint, entityType string, entityID uint) error {
 			return apperrors.ErrCommentInvalidEntityType(entityType)
 		},
-	}, nil)
+	}, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SubscribeRequest{EntityType: "invalid", EntityID: "1"}
 
@@ -60,7 +171,7 @@ func TestSubscribe_Success(t *testing.T) {
 			}
 			return nil
 		},
-	}, nil)
+	}, nil, testhelpers.AllShowsVisible())
 
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SubscribeRequest{EntityType: "show", EntityID: "42"}
@@ -79,7 +190,7 @@ func TestSubscribe_ServiceError(t *testing.T) {
 		SubscribeFn: func(userID uint, entityType string, entityID uint) error {
 			return fmt.Errorf("database error")
 		},
-	}, nil)
+	}, nil, testhelpers.AllShowsVisible())
 
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SubscribeRequest{EntityType: "show", EntityID: "1"}
@@ -100,7 +211,7 @@ func TestSubscribe_AuditLogFires(t *testing.T) {
 				auditCalled <- true
 			}
 		},
-	})
+	}, testhelpers.AllShowsVisible())
 
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SubscribeRequest{EntityType: "show", EntityID: "42"}
@@ -139,7 +250,7 @@ func TestUnsubscribe_InvalidEntityType(t *testing.T) {
 		UnsubscribeFn: func(userID uint, entityType string, entityID uint) error {
 			return apperrors.ErrCommentInvalidEntityType(entityType)
 		},
-	}, nil)
+	}, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &UnsubscribeRequest{EntityType: "invalid", EntityID: "1"}
 
@@ -155,7 +266,7 @@ func TestUnsubscribe_Success(t *testing.T) {
 			}
 			return nil
 		},
-	}, nil)
+	}, nil, testhelpers.AllShowsVisible())
 
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &UnsubscribeRequest{EntityType: "show", EntityID: "42"}
@@ -171,7 +282,7 @@ func TestUnsubscribe_ServiceError(t *testing.T) {
 		UnsubscribeFn: func(userID uint, entityType string, entityID uint) error {
 			return fmt.Errorf("database error")
 		},
-	}, nil)
+	}, nil, testhelpers.AllShowsVisible())
 
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &UnsubscribeRequest{EntityType: "show", EntityID: "1"}
@@ -206,7 +317,7 @@ func TestSubscriptionStatus_InvalidEntityType(t *testing.T) {
 		IsSubscribedFn: func(userID uint, entityType string, entityID uint) (bool, error) {
 			return false, apperrors.ErrCommentInvalidEntityType(entityType)
 		},
-	}, nil)
+	}, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SubscriptionStatusRequest{EntityType: "invalid", EntityID: "1"}
 
@@ -222,7 +333,7 @@ func TestSubscriptionStatus_Subscribed(t *testing.T) {
 		GetUnreadCountFn: func(userID uint, entityType string, entityID uint) (int, error) {
 			return 5, nil
 		},
-	}, nil)
+	}, nil, testhelpers.AllShowsVisible())
 
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SubscriptionStatusRequest{EntityType: "show", EntityID: "1"}
@@ -244,7 +355,7 @@ func TestSubscriptionStatus_NotSubscribed(t *testing.T) {
 		IsSubscribedFn: func(userID uint, entityType string, entityID uint) (bool, error) {
 			return false, nil
 		},
-	}, nil)
+	}, nil, testhelpers.AllShowsVisible())
 
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SubscriptionStatusRequest{EntityType: "show", EntityID: "1"}
@@ -266,7 +377,7 @@ func TestSubscriptionStatus_ServiceError(t *testing.T) {
 		IsSubscribedFn: func(userID uint, entityType string, entityID uint) (bool, error) {
 			return false, fmt.Errorf("database error")
 		},
-	}, nil)
+	}, nil, testhelpers.AllShowsVisible())
 
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SubscriptionStatusRequest{EntityType: "show", EntityID: "1"}
@@ -289,16 +400,16 @@ func TestListSubscriptions_NoAuth(t *testing.T) {
 
 func TestListSubscriptions_SelfScopedAndPaginated(t *testing.T) {
 	h := NewCommentSubscriptionHandler(&testhelpers.MockCommentSubscriptionService{
-		ListWatchingFn: func(userID uint, limit int, offset int) ([]contracts.WatchingItem, int64, error) {
+		ListWatchingFn: func(viewer contracts.ShowViewer, limit int, offset int) ([]contracts.WatchingItem, int64, error) {
 			// User ID must come from the authenticated context, never the request
-			if userID != 7 || limit != 10 || offset != 20 {
-				return nil, 0, fmt.Errorf("unexpected args: %d, %d, %d", userID, limit, offset)
+			if viewer.UserID != 7 || limit != 10 || offset != 20 {
+				return nil, 0, fmt.Errorf("unexpected args: %d, %d, %d", viewer.UserID, limit, offset)
 			}
 			return []contracts.WatchingItem{
 				{EntityType: "artist", EntityID: 3, EntityName: "Watch Artist", EntityURL: "/artists/watch-artist", CommentCount: 4, UnreadCount: 2},
 			}, 31, nil
 		},
-	}, nil)
+	}, nil, testhelpers.AllShowsVisible())
 
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 7})
 	req := &ListCommentSubscriptionsRequest{Limit: 10, Offset: 20}
@@ -320,10 +431,10 @@ func TestListSubscriptions_SelfScopedAndPaginated(t *testing.T) {
 
 func TestListSubscriptions_ServiceError(t *testing.T) {
 	h := NewCommentSubscriptionHandler(&testhelpers.MockCommentSubscriptionService{
-		ListWatchingFn: func(userID uint, limit int, offset int) ([]contracts.WatchingItem, int64, error) {
+		ListWatchingFn: func(viewer contracts.ShowViewer, limit int, offset int) ([]contracts.WatchingItem, int64, error) {
 			return nil, 0, fmt.Errorf("database error")
 		},
-	}, nil)
+	}, nil, testhelpers.AllShowsVisible())
 
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &ListCommentSubscriptionsRequest{Limit: 20, Offset: 0}
@@ -358,7 +469,7 @@ func TestMarkRead_InvalidEntityType(t *testing.T) {
 		MarkReadFn: func(userID uint, entityType string, entityID uint) error {
 			return apperrors.ErrCommentInvalidEntityType(entityType)
 		},
-	}, nil)
+	}, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &MarkReadRequest{EntityType: "invalid", EntityID: "1"}
 
@@ -374,7 +485,7 @@ func TestMarkRead_Success(t *testing.T) {
 			}
 			return nil
 		},
-	}, nil)
+	}, nil, testhelpers.AllShowsVisible())
 
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &MarkReadRequest{EntityType: "show", EntityID: "42"}
@@ -393,7 +504,7 @@ func TestMarkRead_ServiceError(t *testing.T) {
 		MarkReadFn: func(userID uint, entityType string, entityID uint) error {
 			return fmt.Errorf("database error")
 		},
-	}, nil)
+	}, nil, testhelpers.AllShowsVisible())
 
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &MarkReadRequest{EntityType: "show", EntityID: "1"}
@@ -414,7 +525,7 @@ func TestSubscriptionStatus_UnreadCountError_StillReturnsSubscribed(t *testing.T
 		GetUnreadCountFn: func(userID uint, entityType string, entityID uint) (int, error) {
 			return 0, fmt.Errorf("count error")
 		},
-	}, nil)
+	}, nil, testhelpers.AllShowsVisible())
 
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SubscriptionStatusRequest{EntityType: "show", EntityID: "1"}
@@ -437,7 +548,7 @@ func TestSubscriptionStatus_UnreadCountError_StillReturnsSubscribed(t *testing.T
 // ============================================================================
 
 func TestSubscribe_NilSubscriptionService(t *testing.T) {
-	h := NewCommentSubscriptionHandler(nil, nil)
+	h := NewCommentSubscriptionHandler(nil, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SubscribeRequest{EntityType: "show", EntityID: "1"}
 

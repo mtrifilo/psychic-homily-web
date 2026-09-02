@@ -397,7 +397,7 @@ func (h *NotificationFilterHandler) GetNotificationsHandler(ctx context.Context,
 		offset = 0
 	}
 
-	notifications, err := h.filterService.GetUserNotifications(user.ID, limit, offset)
+	notifications, err := h.filterService.GetUserNotifications(middleware.GetShowViewerFromContext(ctx), limit, offset)
 	if err != nil {
 		requestID := logger.GetRequestID(ctx)
 		logger.FromContext(ctx).Error("get_notifications_failed",
@@ -410,7 +410,7 @@ func (h *NotificationFilterHandler) GetNotificationsHandler(ctx context.Context,
 		)
 	}
 
-	unreadCount, err := h.filterService.GetUnreadCount(user.ID)
+	unreadCount, err := h.filterService.GetUnreadCount(middleware.GetShowViewerFromContext(ctx))
 	if err != nil {
 		// Non-fatal
 		logger.FromContext(ctx).Warn("get_unread_count_failed",
@@ -438,9 +438,9 @@ func (h *NotificationFilterHandler) MarkNotificationsReadHandler(ctx context.Con
 	var updated int64
 	var err error
 	if len(req.Body.IDs) == 0 {
-		updated, err = h.filterService.MarkAllNotificationsRead(user.ID)
+		updated, err = h.filterService.MarkAllNotificationsRead(middleware.GetShowViewerFromContext(ctx))
 	} else {
-		updated, err = h.filterService.MarkNotificationsRead(user.ID, req.Body.IDs)
+		updated, err = h.filterService.MarkNotificationsRead(middleware.GetShowViewerFromContext(ctx), req.Body.IDs)
 	}
 	if err != nil {
 		requestID := logger.GetRequestID(ctx)
@@ -454,7 +454,7 @@ func (h *NotificationFilterHandler) MarkNotificationsReadHandler(ctx context.Con
 		)
 	}
 
-	unread, _ := h.filterService.GetUnreadCount(user.ID)
+	unread, _ := h.filterService.GetUnreadCount(middleware.GetShowViewerFromContext(ctx))
 
 	resp := &MarkNotificationsReadResponse{}
 	resp.Body.UpdatedCount = updated

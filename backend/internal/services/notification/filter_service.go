@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"html"
 	"log"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -936,20 +937,29 @@ func (s *NotificationFilterService) sendEmail(to, subject, html, unsubscribeURL 
 // Notification log
 // ──────────────────────────────────────────────
 
-// GetUserNotifications returns the user's INBOX rows, paginated.
+// GetUserNotifications returns viewer's own INBOX rows, paginated.
 //
 // Not every notification_log row for the user: inboxVisibleRows filters out the
-// ones that are not bell entries (see it for which and why). A caller counting
-// rows here against a raw count of the table will disagree, on purpose.
+// ones that are not bell entries (see it for which and why), and
+// inboxRowsVisibleTo drops the rows leading to a show viewer may no longer see.
+// A caller counting rows here against a raw count of the table will
+// disagree, on purpose.
 //
 // Show-filter and scene-follow rows are returned as-is. Three kinds are enriched
 // in batched follow-up passes so the bell/inbox can render a readable line with
 // a working link target: comment-driven rows (PSY-595), request-fulfillment rows
 // (PSY-890), and artist show-alert rows (PSY-1896).
-func (s *NotificationFilterService) GetUserNotifications(userID uint, limit, offset int) ([]contracts.NotificationLogEntry, error) {
+func (s *NotificationFilterService) GetUserNotifications(viewer contracts.ShowViewer, limit, offset int) ([]contracts.NotificationLogEntry, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
+	// The zero viewer is a construction bug: ShowViewer{} is the codebase's
+	// spelling for the public tier on the listing gates, and these methods are
+	// self-scoped, so it would otherwise mean "user 0" and answer emptily forever.
+	if viewer.UserID == 0 {
+		return nil, fmt.Errorf("GetUserNotifications is self-scoped: the viewer carries no user id")
+	}
+	userID := viewer.UserID
 
 	var logs []struct {
 		notificationm.NotificationLog
@@ -974,11 +984,13 @@ func (s *NotificationFilterService) GetUserNotifications(userID uint, limit, off
 		WHERE sv.show_id = nl.entity_id
 		LIMIT 1
 	)`
+	visibleShowCommentSQL, visibleShowCommentArgs := inboxRowsVisibleTo("nl", viewer)
 	err := s.db.Table("notification_log nl").
 		Select("nl.*, COALESCE(nf.name, CASE WHEN nl.entity_type = 'show' AND nl.filter_id IS NULL THEN "+sceneNameSubquery+" END, '') as filter_name").
 		Joins("LEFT JOIN notification_filters nf ON nf.id = nl.filter_id").
 		Where("nl.user_id = ?", userID).
 		Where(inboxVisibleRows("nl")).
+		Where(visibleShowCommentSQL, visibleShowCommentArgs...).
 		Order("nl.sent_at DESC").
 		Limit(limit).
 		Offset(offset).
@@ -1007,9 +1019,9 @@ func (s *NotificationFilterService) GetUserNotifications(userID uint, limit, off
 	}
 
 	// Enrich comment-driven, request-driven + follow-alert rows in batched passes.
-	s.enrichCommentNotifications(entries)
+	s.enrichCommentNotifications(entries, viewer)
 	s.enrichRequestNotifications(entries)
-	s.enrichArtistShowAlertNotifications(entries)
+	s.enrichArtistShowAlertNotifications(entries, viewer)
 	s.enrichVenueShowAlertNotifications(userID, entries)
 	return entries, nil
 }
@@ -1102,6 +1114,172 @@ func inboxVisibleRows(alias string) string {
 	return strings.Join(clauses, " AND ")
 }
 
+// inboxRowsVisibleTo is the predicate that hides the inbox rows which lead to a
+// show viewer may not see (PSY-1983).
+//
+// Suppression, not de-identification. A row kept and blanked still holds a
+// position in the list and still counts toward the badge, and the recipient
+// knows which shows they follow — so the entry's mere presence is the
+// disclosure. The rows are left in the table and the gate re-evaluated on every
+// read, so republishing the show brings them back, unread and in place.
+//
+// That restoration covers the rows that EXIST. It is not a promise that the
+// inbox is complete: the comment fan-out refuses to write a row for a recipient
+// who cannot see the show (VisibleShowRecipientsSQL), so activity during the
+// gated window was never minted and republication has nothing to restore for it.
+// Read-time suppression is reversible; the write-time gate is not.
+//
+// Applied to all three reads inboxVisibleRows covers — the list, the unread
+// count, mark-all — AND to BOTH mark-read writes. Those two return the number of
+// rows they touched, so a mark-all that flipped rows the list never showed would
+// publish the withheld count as arithmetic. (MarkNotificationsRead carries THIS
+// predicate but not inboxVisibleRows; that asymmetry is pre-existing and means an
+// explicitly-named email-lane id still flips and still counts. Out of scope here,
+// and named so it is not mistaken for coverage.)
+//
+// TWO FAMILIES OF ROW reach a show, and they reach it differently. Getting the
+// entity_type test wrong is not a style matter: entity_id means a DIFFERENT
+// THING per entity_type, so a lookup that skipped it would decide a row by
+// whatever unrelated record happened to share that number.
+//
+//   - comment_reply / comment_mention carry a COMMENT id, and the comment names
+//     its own parent. Reached through the comments table.
+//   - show, artist_show_alert carry a SHOW id directly — the show-filter matcher
+//     and scene-follow writer for the first (scene_follow_notify.go), the artist
+//     alert fan-out for the second. Reached with no join at all.
+//
+// The show-typed rows matter as much as the rest even though the API sends no
+// title for them: entity_id IS the withdrawn show's id, and for a scene-follow
+// row filter_name is re-derived AT READ TIME from the show's current venues, so
+// the row keeps publishing which metro a private show is in and follows it if
+// the venue changes.
+//
+// NotificationEntityVenueShowAlert MUST NEVER be added to the second arm, for
+// the reason showAlertEntityTypes gives at length: its entity_id is a VENUE id.
+// Its show titles are fenced separately, inside the batch-membership query in
+// enrichVenueShowAlertNotifications, because one venue-day row summarises MANY
+// shows and gating the row would hide the ones that are still public.
+//
+// That fence is deliberately the PUBLIC TIER for every caller, unlike the arms
+// here, which carry the viewer. A venue-day summary is a listing that merely
+// CONTAINS shows rather than a show's own surface, and services/shared's rule
+// puts those on the public tier so their contents do not vary by credential. The
+// consequence is narrower than the detail route and fails closed: a submitter
+// sees their own withdrawn show at /shows/{id} but not in that summary's count.
+//
+// Each arm FAILS CLOSED on a show that is gated OR gone, because
+// VisibleShowExistsSQL answers false for both — which is what lets a withdrawn
+// show and a deleted one answer alike. The comment arm stays deliberately
+// permissive in the one place nothing is at stake: a comment row deleted since
+// the notification was minted still passes, and the inbox already degrades to a
+// plain "new comment" line for it.
+//
+// It is an ADAPTER, not a second rule: the visibility decision is
+// shared.VisibleShowExistsSQL's, and what this adds is the walk from a
+// notification row to the show. That vocabulary belongs to this package's table,
+// which is why the adapter lives here rather than beside the rule.
+func inboxRowsVisibleTo(alias string, viewer contracts.ShowViewer) (string, []interface{}) {
+	if viewer.IsAdmin {
+		return "1 = 1", nil
+	}
+	commentGate, commentGateArgs := shared.VisibleShowExistsSQL("inbox_comment.entity_id", viewer)
+	directGate, directGateArgs := shared.VisibleShowExistsSQL(alias+".entity_id", viewer)
+
+	commentArm, commentArgs := entityTypeArm(alias, commentNotificationEntityTypeList,
+		"NOT EXISTS (SELECT 1 FROM comments inbox_comment"+
+			" WHERE inbox_comment.id = "+alias+".entity_id"+
+			" AND inbox_comment.entity_type = '"+shared.CommentEntityTypeShow+"'"+
+			" AND NOT "+commentGate+")", commentGateArgs)
+	directArm, directArgs := entityTypeArm(alias, showIDBearingEntityTypeList, directGate, directGateArgs)
+
+	// Argument order follows the statement text: the comment arm is written
+	// first, so its binds come first. Each arm reports its OWN args, because an
+	// arm that drops its gate must drop that gate's binds with it.
+	args := make([]interface{}, 0, len(commentArgs)+len(directArgs))
+	args = append(args, commentArgs...)
+	args = append(args, directArgs...)
+	return "(" + commentArm + " AND " + directArm + ")", args
+}
+
+// entityTypeArm builds "this row's entity_type is not one I judge, OR it passes
+// gate", and answers the NO-OP when the type list is empty.
+//
+// It returns the arm's ARGUMENTS as well as its SQL, and that is the whole point
+// of the signature: the no-op branch discards `gate`, so it must discard
+// gateArgs too. Computing the args beside the gate and appending them
+// unconditionally would leave the statement two placeholders short of its bind
+// list, and Postgres rejects the whole query — "bind message supplies 4
+// parameters, but the prepared statement requires 2" — on all four log methods
+// at once. A guard meant to make the empty case safe would have made it fatal.
+//
+// The empty case has to be spelled out rather than left to the SQL, because the
+// obvious spelling inverts the meaning. `entity_type NOT IN ()` is a syntax
+// error, and `NOT IN (NULL)` is never TRUE — which does not disable the arm, it
+// applies `gate` to EVERY row regardless of type. For the direct arm that would
+// mean judging a venue alert by whether a show with the venue's id is visible,
+// the exact confusion this file warns "MUST NEVER" happen. So an empty list
+// means "no row is of a type this arm judges", which is TRUE for every row.
+func entityTypeArm(alias, entityTypeList, gate string, gateArgs []interface{}) (string, []interface{}) {
+	if entityTypeList == "" {
+		return "1 = 1", nil
+	}
+	return "(" + alias + ".entity_type NOT IN (" + entityTypeList + ") OR " + gate + ")", gateArgs
+}
+
+// showIDBearingEntityTypeList is the SQL IN-list of notification entity types
+// whose entity_id is a SHOW id, for inboxRowsVisibleTo's direct arm.
+//
+// Spelled here rather than reusing showAlertEntityTypes, which looks like the
+// same set and is not: that one answers "has this user been told about this
+// show" and excludes NotificationEntityShow because that family needs a channel
+// qualifier it does not. A visibility gate wants every row whose entity_id is a
+// show id, qualifier or no qualifier, so the two lists are genuinely different
+// questions over overlapping members and must not be merged.
+//
+// NotificationEntityVenueShowAlert is absent and must stay absent: its entity_id
+// is a VENUE id, and listing it would gate venue rows on whether a SHOW with the
+// venue's id happens to be visible.
+var showIDBearingEntityTypeList = sqlQuotedList([]string{
+	notificationm.NotificationEntityShow,
+	notificationm.NotificationEntityArtistShowAlert,
+})
+
+// commentNotificationEntityTypeList is commentNotificationEntityTypes as a SQL
+// IN-list, built once.
+//
+// Derived from the map rather than written out, so adding an entity type there
+// reaches this predicate without a second edit. Sorted so the statement is
+// byte-identical across processes and builds: a query logged on one instance can
+// be matched against another, and a change to the map produces a reviewable
+// diff. Within a single process the string is already stable, since this is
+// computed once at init.
+var commentNotificationEntityTypeList = sqlQuotedList(commentNotificationEntityTypeKeys())
+
+// commentNotificationEntityTypeKeys is the map's key set. Extracted rather than
+// written out so the list and the writers cannot drift.
+func commentNotificationEntityTypeKeys() []string {
+	types := make([]string, 0, len(commentNotificationEntityTypes))
+	for entityType := range commentNotificationEntityTypes {
+		types = append(types, entityType)
+	}
+	return types
+}
+
+// sqlQuotedList renders entity-type constants as a sorted, quoted SQL IN-list.
+//
+// The values are package constants, never request data — the same property that
+// lets every other interpolated fragment in this file be interpolated.
+func sqlQuotedList(values []string) string {
+	quoted := make([]string, 0, len(values))
+	for _, v := range values {
+		quoted = append(quoted, "'"+v+"'")
+	}
+	sort.Strings(quoted)
+	// Empty means empty. entityTypeArm turns that into a no-op; emitting a SQL
+	// placeholder here would make the arm judge every row instead of none.
+	return strings.Join(quoted, ", ")
+}
+
 // notifiedAboutShow is the predicate for "this user has ALREADY been told about
 // this show, by any of the systems that can tell them".
 //
@@ -1140,7 +1318,7 @@ func notifiedAboutShow(alias string) string {
 // subject_entity_id resolves the artist and entity_id the show. Either coming
 // back empty (a merged artist, a deleted show) leaves that half blank and the
 // row degrades rather than disappearing — the notification still happened.
-func (s *NotificationFilterService) enrichArtistShowAlertNotifications(entries []contracts.NotificationLogEntry) {
+func (s *NotificationFilterService) enrichArtistShowAlertNotifications(entries []contracts.NotificationLogEntry, viewer contracts.ShowViewer) {
 	showIDs := make([]uint, 0, len(entries))
 	artistIDs := make([]uint, 0, len(entries))
 	seenShow := make(map[uint]struct{}, len(entries))
@@ -1170,10 +1348,19 @@ func (s *NotificationFilterService) enrichArtistShowAlertNotifications(entries [
 		Title string
 		Slug  *string
 	}
+	// FENCED HERE TOO, matching the venue twin below rather than relying on the
+	// row having been dropped upstream (PSY-1983). inboxRowsVisibleTo already
+	// removes these rows from GetUserNotifications, so today no gated id reaches
+	// this query — but the title and URL of a private show are the most
+	// sensitive fields this file writes, and a second reader of these rows (a
+	// digest, an export, an admin view) would otherwise publish them with
+	// nothing here to stop it. One index probe per row is the whole cost.
+	visibleShows, visibleShowArgs := shared.VisibleShowPredicateSQL("shows", viewer)
 	var shows []showRow
 	if err := s.db.Table("shows").
 		Select("id, title, slug").
 		Where("id IN ?", showIDs).
+		Where(visibleShows, visibleShowArgs...).
 		Scan(&shows).Error; err != nil {
 		log.Printf("warning: failed to load shows for inbox enrichment: %v", err)
 		return
@@ -1515,7 +1702,7 @@ type entityNameRow = shared.EntityNameRow
 // — grouped by table so each table is hit at most once. Missing comments
 // (deleted after the row was minted) leave the entry's enrichment fields
 // empty; the UI degrades to a plain "new comment" line.
-func (s *NotificationFilterService) enrichCommentNotifications(entries []contracts.NotificationLogEntry) {
+func (s *NotificationFilterService) enrichCommentNotifications(entries []contracts.NotificationLogEntry, viewer contracts.ShowViewer) {
 	if len(entries) == 0 {
 		return
 	}
@@ -1542,7 +1729,7 @@ func (s *NotificationFilterService) enrichCommentNotifications(entries []contrac
 	names, _ := shared.BatchResolvePublicUserNames(s.db, userIDs)
 	usernames, _ := shared.BatchResolveUserUsernames(s.db, userIDs)
 
-	entitiesByTypeID := s.loadParentEntitiesByType(commentsByID)
+	entitiesByTypeID := s.loadParentEntitiesByType(commentsByID, viewer)
 
 	for i := range entries {
 		e := &entries[i]
@@ -1610,7 +1797,7 @@ func (s *NotificationFilterService) loadCommentRows(commentIDs []uint) (map[uint
 // loaded comments by table and fires one batch SELECT per table — so the
 // inbox enrichment runs in O(distinct-entity-tables) DB roundtrips, not
 // O(rows). Returns nested map[entityType]map[entityID]entityNameRow.
-func (s *NotificationFilterService) loadParentEntitiesByType(comments map[uint]commentRow) map[string]map[uint]entityNameRow {
+func (s *NotificationFilterService) loadParentEntitiesByType(comments map[uint]commentRow, viewer contracts.ShowViewer) map[string]map[uint]entityNameRow {
 	idsByType := make(map[string]map[uint]struct{})
 	for _, c := range comments {
 		if _, _, _, ok := commentEntityPathAndTable(c.EntityType); !ok {
@@ -1632,7 +1819,7 @@ func (s *NotificationFilterService) loadParentEntitiesByType(comments map[uint]c
 		}
 		idListByType[entityType] = ids
 	}
-	return shared.LoadCommentEntityNames(s.db, idListByType)
+	return shared.LoadCommentEntityNames(s.db, idListByType, viewer)
 }
 
 // formatEntityURL builds the (URL, display-name) pair for a comment's
@@ -1660,33 +1847,55 @@ func (s *NotificationFilterService) formatEntityURL(entityType string, entityID 
 	return url, name
 }
 
-// GetUnreadCount returns the number of unread notifications for a user.
-func (s *NotificationFilterService) GetUnreadCount(userID uint) (int64, error) {
+// GetUnreadCount returns the number of unread notifications for viewer.
+//
+// Carries the same two predicates the list carries, or the badge and the list
+// disagree and the difference is a count of what was withheld.
+func (s *NotificationFilterService) GetUnreadCount(viewer contracts.ShowViewer) (int64, error) {
 	if s.db == nil {
 		return 0, fmt.Errorf("database not initialized")
 	}
+	// The zero viewer is a construction bug: ShowViewer{} is the codebase's
+	// spelling for the public tier on the listing gates, and these methods are
+	// self-scoped, so it would otherwise mean "user 0" and answer emptily forever.
+	if viewer.UserID == 0 {
+		return 0, fmt.Errorf("GetUnreadCount is self-scoped: the viewer carries no user id")
+	}
 
+	visibleSQL, visibleArgs := inboxRowsVisibleTo("notification_log", viewer)
 	var count int64
 	err := s.db.Model(&notificationm.NotificationLog{}).
-		Where("user_id = ? AND read_at IS NULL", userID).
+		Where("user_id = ? AND read_at IS NULL", viewer.UserID).
 		Where(inboxVisibleRows("notification_log")).
+		Where(visibleSQL, visibleArgs...).
 		Count(&count).Error
 	return count, err
 }
 
-// MarkNotificationsRead flips read_at on the given IDs for the user.
+// MarkNotificationsRead flips read_at on the given IDs for viewer.
 // Bound by user_id so a user can't mark another user's notifications read.
 // Returns the count actually updated.
-func (s *NotificationFilterService) MarkNotificationsRead(userID uint, ids []uint) (int64, error) {
+//
+// Rows viewer cannot see are skipped, so the returned count cannot be differenced
+// against the list to recover how many were withheld.
+func (s *NotificationFilterService) MarkNotificationsRead(viewer contracts.ShowViewer, ids []uint) (int64, error) {
 	if s.db == nil {
 		return 0, fmt.Errorf("database not initialized")
+	}
+	// The zero viewer is a construction bug: ShowViewer{} is the codebase's
+	// spelling for the public tier on the listing gates, and these methods are
+	// self-scoped, so it would otherwise mean "user 0" and answer emptily forever.
+	if viewer.UserID == 0 {
+		return 0, fmt.Errorf("MarkNotificationsRead is self-scoped: the viewer carries no user id")
 	}
 	if len(ids) == 0 {
 		return 0, nil
 	}
+	visibleSQL, visibleArgs := inboxRowsVisibleTo("notification_log", viewer)
 	now := time.Now().UTC()
 	result := s.db.Model(&notificationm.NotificationLog{}).
-		Where("user_id = ? AND id IN ? AND read_at IS NULL", userID, ids).
+		Where("user_id = ? AND id IN ? AND read_at IS NULL", viewer.UserID, ids).
+		Where(visibleSQL, visibleArgs...).
 		Update("read_at", now)
 	if result.Error != nil {
 		return 0, fmt.Errorf("failed to mark notifications read: %w", result.Error)
@@ -1695,19 +1904,29 @@ func (s *NotificationFilterService) MarkNotificationsRead(userID uint, ids []uin
 }
 
 // MarkAllNotificationsRead flips read_at on every unread notification for
-// the user. Returns the count updated.
-func (s *NotificationFilterService) MarkAllNotificationsRead(userID uint) (int64, error) {
+// viewer. Returns the count updated.
+func (s *NotificationFilterService) MarkAllNotificationsRead(viewer contracts.ShowViewer) (int64, error) {
 	if s.db == nil {
 		return 0, fmt.Errorf("database not initialized")
 	}
+	// The zero viewer is a construction bug: ShowViewer{} is the codebase's
+	// spelling for the public tier on the listing gates, and these methods are
+	// self-scoped, so it would otherwise mean "user 0" and answer emptily forever.
+	if viewer.UserID == 0 {
+		return 0, fmt.Errorf("MarkAllNotificationsRead is self-scoped: the viewer carries no user id")
+	}
+	visibleSQL, visibleArgs := inboxRowsVisibleTo("notification_log", viewer)
 	now := time.Now().UTC()
 	result := s.db.Model(&notificationm.NotificationLog{}).
-		Where("user_id = ? AND read_at IS NULL", userID).
-		// Same predicate as the list and the count, so "mark all read" clears
+		Where("user_id = ? AND read_at IS NULL", viewer.UserID).
+		// Same predicates as the list and the count, so "mark all read" clears
 		// exactly the rows the user could see and its reported count matches the
-		// badge that prompted the click. Leaving the hidden email-lane rows
-		// unread costs nothing: nothing reads their read_at.
+		// badge that prompted the click. Leaving the hidden email-lane rows and
+		// the gated-show rows unread costs nothing: nothing reads their read_at
+		// while they are hidden, and a republished show hands the recipient the
+		// backlog it withheld rather than a row already marked seen.
 		Where(inboxVisibleRows("notification_log")).
+		Where(visibleSQL, visibleArgs...).
 		Update("read_at", now)
 	if result.Error != nil {
 		return 0, fmt.Errorf("failed to mark all notifications read: %w", result.Error)

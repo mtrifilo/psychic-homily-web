@@ -53,7 +53,7 @@ func setupCommentVoteRoutes(rc RouteContext) {
 
 // setupCommentSubscriptionRoutes configures comment subscription and unread tracking endpoints.
 func setupCommentSubscriptionRoutes(rc RouteContext) {
-	subHandler := engagementh.NewCommentSubscriptionHandler(rc.SC.CommentSubscription, rc.SC.AuditLog)
+	subHandler := engagementh.NewCommentSubscriptionHandler(rc.SC.CommentSubscription, rc.SC.AuditLog, rc.SC.ShowVisibility)
 
 	// Protected: subscribe, unsubscribe, check status, mark read
 	huma.Post(rc.Protected, "/entities/{entity_type}/{entity_id}/subscribe", subHandler.SubscribeHandler)

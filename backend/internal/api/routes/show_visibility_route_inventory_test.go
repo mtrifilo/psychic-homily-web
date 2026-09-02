@@ -28,14 +28,23 @@ import (
 // these are locked".
 //
 // KNOWN LIMIT, stated so nobody reads this as an exhaustive sweep: it matches on
-// PATH SHAPE, so it sees only routes that carry a show id in the path. Two other
-// families reach a show and are invisible here — routes addressed by a
-// SUB-RESOURCE id whose handler resolves the show from it (/comments/{id},
-// /comments/{id}/replies, /collections/{slug}), and routes that take the entity
-// type as a QUERY parameter (/tags/{id}/entities?entity_type=show,
-// /auth/collections/contains). Both families have leaked in practice. Extending
-// the guard to them means driving it off the handler set rather than the path,
-// which is the follow-up this paragraph exists to name.
+// PATH SHAPE, so it sees only routes that carry a show id in the path. THREE
+// other families reach a show and are invisible here:
+//
+//   - routes addressed by a SUB-RESOURCE id whose handler resolves the show from
+//     it (/comments/{id}, /comments/{id}/replies, /collections/{slug});
+//   - routes that take the entity type as a QUERY parameter
+//     (/tags/{id}/entities?entity_type=show, /auth/collections/contains);
+//   - SELF-SCOPED routes addressed by the CALLER, which name no entity at all in
+//     the path and yet enumerate shows in their payload — /me/comment-subscriptions,
+//     /me/notifications, /me/notifications/mark-read. PSY-1983 is this family's
+//     first recorded instance, and it is the one this guard is least able to
+//     anticipate: the next /me/… surface that renders show titles (a digest, an
+//     activity feed, an export) will trip nothing here.
+//
+// All three have leaked in practice. Extending the guard to them means driving it
+// off the handler set rather than the path, which is the follow-up this paragraph
+// exists to name.
 
 // showRouteDisposition records why a show-addressable operation is safe.
 type showRouteDisposition int
@@ -56,9 +65,10 @@ const (
 	// the ticket's scope-deviation note.
 	//
 	// This says NOTHING about what the surface discloses. The comment-
-	// subscription family carries this disposition and DOES publish a gated
-	// show's title and slug through the watching list; that is a known open leak,
-	// not a claim of safety.
+	// subscription family carried this disposition while it DID publish a gated
+	// show's title and slug through the watching list, which was a known open
+	// leak recorded here rather than a claim of safety; PSY-1983 closed it and
+	// moved that family to `gated`. Read the remaining entries the same way.
 	writeOracleDeferred
 	// notShowAddressable: the route takes an {entity_type} segment but its
 	// allowlist does not accept a show, so no show id can reach it. Recorded
@@ -84,6 +94,15 @@ var showAddressableRoutes = map[string]showRouteDisposition{
 	"GET /entities/{entity_type}/{entity_id}/tags":      gated,
 	"GET /collections/entity/{entity_type}/{entity_id}": gated,
 	"GET /crates/entity/{entity_type}/{entity_id}":      gated,
+
+	// The comment-subscription family (PSY-1983). Subscribing is a standing
+	// request for a show's activity, so it takes the same viewer its content
+	// does; the status route answers "not subscribed" rather than refusing,
+	// because refusing would confirm the id while answering truthfully would
+	// publish a live comment count.
+	"POST /entities/{entity_type}/{entity_id}/subscribe":       gated,
+	"GET /entities/{entity_type}/{entity_id}/subscribe/status": gated,
+	"POST /entities/{entity_type}/{entity_id}/mark-read":       gated,
 
 	// Public-tier gates: these answer the same for everyone.
 	"GET /shows/{show_id}/calendar.ics":               gated,
@@ -114,6 +133,11 @@ var showAddressableRoutes = map[string]showRouteDisposition{
 	"POST /shows/{show_id}/publish":      selfScoped,
 	"POST /shows/{show_id}/sold-out":     selfScoped,
 	"POST /shows/{show_id}/cancelled":    selfScoped,
+	// Deliberately NOT gated, and self-scoped is the honest reading: it deletes
+	// the caller's own row and answers identically whether one was there, so it
+	// publishes nothing and offers no oracle. Gating it would only remove the
+	// last direct path to a row the watching list already hides (PSY-1983).
+	"DELETE /entities/{entity_type}/{entity_id}/subscribe": selfScoped,
 
 	// The follow family. The ticket names "followers routes" as a leak, and they
 	// are not one: shows are not a followable entity type. validFollowEntityTypes
@@ -143,10 +167,6 @@ var showAddressableRoutes = map[string]showRouteDisposition{
 	"DELETE /entities/{entity_type}/{entity_id}/tags/{tag_id}":       writeOracleDeferred,
 	"POST /tags/{tag_id}/entities/{entity_type}/{entity_id}/votes":   writeOracleDeferred,
 	"DELETE /tags/{tag_id}/entities/{entity_type}/{entity_id}/votes": writeOracleDeferred,
-	"POST /entities/{entity_type}/{entity_id}/subscribe":             writeOracleDeferred,
-	"DELETE /entities/{entity_type}/{entity_id}/subscribe":           writeOracleDeferred,
-	"GET /entities/{entity_type}/{entity_id}/subscribe/status":       writeOracleDeferred,
-	"POST /entities/{entity_type}/{entity_id}/mark-read":             writeOracleDeferred,
 }
 
 // showAddressablePathPattern matches the path shapes a show id can travel in.
@@ -182,7 +202,9 @@ func TestEveryShowAddressableRouteHasADisposition(t *testing.T) {
 			"visibility rule:\n  %v\n\nEvery route that can name a show has to decide whether a "+
 			"caller who cannot see that show may reach it. Add each to showAddressableRoutes with "+
 			"the disposition that is TRUE of it, and if that disposition is `gated`, add the "+
-			"behaviour assertion to show_subresource_visibility_test.go as well.",
+			"behaviour assertion to the matching suite in this package as well: "+
+			"show_subresource_visibility_test.go for routes addressed by a show id, "+
+			"comment_subscription_visibility_test.go for the self-scoped /me/… family.",
 			len(undecided), undecided)
 	}
 }

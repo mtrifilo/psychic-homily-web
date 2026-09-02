@@ -620,7 +620,7 @@ func (s *NotificationFilterSuite) TestVenueAlert_LateShowFoldsIntoDispatchedBatc
 
 	// The inbox row GREW: enrichment reads the batch live, which is the whole
 	// reason the show list is not stamped onto the row at write time.
-	entries, err := s.svc.GetUserNotifications(userID, 20, 0)
+	entries, err := s.svc.GetUserNotifications(inboxViewer(userID), 20, 0)
 	s.Require().NoError(err)
 	s.Require().Len(entries, 1)
 	s.Equal(2, entries[0].AlertShowCount)
@@ -763,11 +763,11 @@ func (s *NotificationFilterSuite) TestVenueAlert_EmailOnlyRowIsNotABellEntry() {
 	s.Equal(int64(0), s.venueInAppAlerts(userID, venueID, day))
 	s.Equal(int64(1), s.venueAlertRows(userID, venueID, day, notificationm.NotificationChannelEmail))
 
-	entries, err := s.svc.GetUserNotifications(userID, 20, 0)
+	entries, err := s.svc.GetUserNotifications(inboxViewer(userID), 20, 0)
 	s.Require().NoError(err)
 	s.Empty(entries, "the email lane of a venue alert is not a bell entry")
 
-	count, err := s.svc.GetUnreadCount(userID)
+	count, err := s.svc.GetUnreadCount(inboxViewer(userID))
 	s.Require().NoError(err)
 	s.Equal(int64(0), count, "and it must not inflate the unread badge either")
 }
@@ -784,7 +784,7 @@ func (s *NotificationFilterSuite) TestVenueAlert_InboxRowNamesTheVenueAndItsShow
 	}
 	s.Equal(1, s.flushNow())
 
-	entries, err := s.svc.GetUserNotifications(userID, 20, 0)
+	entries, err := s.svc.GetUserNotifications(inboxViewer(userID), 20, 0)
 	s.Require().NoError(err)
 	s.Require().Len(entries, 1)
 	e := entries[0]
@@ -818,7 +818,7 @@ func (s *NotificationFilterSuite) TestVenueAlert_AlreadyAnnouncedShowDropsFromTh
 
 	s.Equal(1, s.flushNow())
 
-	entries, err := s.svc.GetUserNotifications(userID, 20, 0)
+	entries, err := s.svc.GetUserNotifications(inboxViewer(userID), 20, 0)
 	s.Require().NoError(err)
 
 	var venueRows, artistRows int
@@ -1074,7 +1074,7 @@ func (s *NotificationFilterSuite) TestVenueAlert_PulledShowLeavesTheInboxRow() {
 	s.Require().NoError(s.db.Exec(
 		`UPDATE shows SET status = 'pending' WHERE id = ?`, pulled).Error)
 
-	entries, err := s.svc.GetUserNotifications(userID, 20, 0)
+	entries, err := s.svc.GetUserNotifications(inboxViewer(userID), 20, 0)
 	s.Require().NoError(err)
 	s.Require().Len(entries, 1)
 	s.Equal(1, entries[0].AlertShowCount, "a withdrawn show must drop out of the count")
@@ -1101,7 +1101,7 @@ func (s *NotificationFilterSuite) TestVenueAlert_MovedShowLeavesTheInboxRow() {
 	s.Require().NoError(s.db.Exec(
 		`UPDATE show_venues SET venue_id = ? WHERE show_id = ?`, elsewhere, moved).Error)
 
-	entries, err := s.svc.GetUserNotifications(userID, 20, 0)
+	entries, err := s.svc.GetUserNotifications(inboxViewer(userID), 20, 0)
 	s.Require().NoError(err)
 	s.Require().Len(entries, 1)
 	s.Equal(1, entries[0].AlertShowCount)
@@ -1132,7 +1132,7 @@ func (s *NotificationFilterSuite) TestVenueAlert_InboxCountMatchesWhatWasDeliver
 	s.Contains(capture.sent[0].subject, "New show at",
 		"the email is sized from the shows this reader has NOT already been told about")
 
-	entries, err := s.svc.GetUserNotifications(userID, 20, 0)
+	entries, err := s.svc.GetUserNotifications(inboxViewer(userID), 20, 0)
 	s.Require().NoError(err)
 	var venueRow *contracts.NotificationLogEntry
 	for i := range entries {

@@ -16,17 +16,19 @@ import (
 	"psychic-homily-backend/internal/testutil"
 )
 
-// The rule has six spellings: one in Go and five in SQL. They are only useful if
-// they agree, and reading alike is not agreeing — the SQL forms are strings
+// The rule has eight spellings: one in Go and seven in SQL. They are only useful
+// if they agree, and reading alike is not agreeing — the SQL forms are strings
 // assembled by concatenation, and the one that decides a security boundary is
 // the one Postgres parses, not the one a reviewer reads.
 //
 // So these tests enumerate the whole viewer x status matrix and run every
-// spelling against a real database. The four viewer-taking spellings are checked
+// spelling against a real database. The five viewer-taking spellings are checked
 // against every viewer; the two inlined public-tier forms take no viewer and are
 // checked against the anonymous row only, which is exactly what they claim to
-// be. A change to one that the others do not follow fails here rather than in
-// whichever route happens to use it.
+// be; the recipient form takes its viewer from a row and is checked against the
+// no-admin half of the table, which is what it claims to be. A change to one
+// that the others do not follow fails here rather than in whichever route
+// happens to use it.
 
 // showCase is one row of the matrix: a show in some state, and who submitted it.
 type showCase struct {
@@ -81,6 +83,10 @@ func TestShowVisibilitySpellingsAgree(t *testing.T) {
 	viewerID := testhelpers.CreateTestUser(td.DB).ID
 	otherID := testhelpers.CreateTestUser(td.DB).ID
 	strangerID := testhelpers.CreateTestUser(td.DB).ID
+	// A REAL admin row. VisibleShowRecipientsSQL reads the admin tier from the
+	// users table rather than from a ShowViewer, so a viewer struct claiming
+	// IsAdmin cannot exercise that branch — only a row with is_admin set can.
+	adminID := testhelpers.CreateAdminUser(td.DB).ID
 
 	viewers := []struct {
 		name   string
@@ -144,6 +150,54 @@ func TestShowVisibilitySpellingsAgree(t *testing.T) {
 				if got := countRevisionsMatching(t, td.DB, revision.ID, revSQL, revArgs); (got > 0) != want {
 					t.Errorf("VisibleShowRevisionsSQL for %s matched %d rows, want visible=%v", v.name, got, want)
 				}
+
+				entitySQL, entityArgs := shared.VisibleShowCommentEntitySQL("e.entity_type", "e.entity_id", v.viewer)
+				if got := countEntityRowMatching(t, td.DB, shared.CommentEntityTypeShow, show.ID, entitySQL, entityArgs); (got > 0) != want {
+					t.Errorf("VisibleShowCommentEntitySQL for %s matched %d rows, want visible=%v", v.name, got, want)
+				}
+				// The other half of the polymorphic form: a row naming a
+				// non-show entity passes for everyone, whatever the show with
+				// that id happens to be. A gate that read the id without the
+				// type would hide an artist's comments because a private show
+				// shares its number.
+				if got := countEntityRowMatching(t, td.DB, "artist", show.ID, entitySQL, entityArgs); got != 1 {
+					t.Errorf("VisibleShowCommentEntitySQL withheld an ARTIST row from %s", v.name)
+				}
+
+				// The recipient form fixes the show and varies the viewer, and it
+				// reads BOTH viewer facts out of the row rather than out of a
+				// ShowViewer. So the expected answer here is driven by what the
+				// USERS TABLE says, not by what v.viewer claims: all three users
+				// in this matrix are ordinary rows, so even the viewer that
+				// carries IsAdmin gets the non-admin answer. The real admin row
+				// is checked separately below.
+				//
+				// The anonymous viewer is skipped rather than expected to fail:
+				// this form reads a user id out of a row, and there is no row
+				// for nobody. A fan-out has recipients or it does not run.
+				if v.viewer.UserID != 0 {
+					recipientSQL, recipientArgs := shared.VisibleShowRecipientsSQL(show.ID, "users.id", "users.is_admin")
+					wantRecipient := wantVisible(c, v.isSelf, false)
+					if got := countUsersMatching(t, td.DB, v.viewer.UserID, recipientSQL, recipientArgs); (got > 0) != wantRecipient {
+						t.Errorf("VisibleShowRecipientsSQL for %s matched %d rows, want visible=%v",
+							v.name, got, wantRecipient)
+					}
+				}
+			}
+
+			// The admin ROW: is_admin comes off the users table, so this is the
+			// only way to exercise that branch. An admin is a recipient for every
+			// show state, which is what keeps a fan-out from permanently
+			// disagreeing with the read gates that do grant them the show.
+			recipientSQL, recipientArgs := shared.VisibleShowRecipientsSQL(show.ID, "users.id", "users.is_admin")
+			if got := countUsersMatching(t, td.DB, adminID, recipientSQL, recipientArgs); got != 1 {
+				t.Errorf("VisibleShowRecipientsSQL withheld a %s show from an ADMIN recipient", c.name)
+			}
+			// ...and with no admin expression the branch disappears entirely,
+			// which is what a call site with no users table in scope gets.
+			noAdminSQL, noAdminArgs := shared.VisibleShowRecipientsSQL(show.ID, "users.id", "")
+			if got := countUsersMatching(t, td.DB, adminID, noAdminSQL, noAdminArgs); (got > 0) != wantVisible(c, false, false) {
+				t.Errorf("VisibleShowRecipientsSQL with no admin expression matched %d rows for %s", got, c.name)
 			}
 
 			// The two inlined public-tier forms take no viewer, so they are
@@ -222,6 +276,39 @@ func countShowsMatching(t *testing.T, db *gorm.DB, showID uint, cond string, arg
 	q := db.Model(&catalogm.Show{}).Where("id = ?", showID)
 	if err := q.Where(cond, args...).Count(&count).Error; err != nil {
 		t.Fatalf("count shows with %q: %v", cond, err)
+	}
+	return count
+}
+
+// countEntityRowMatching runs a polymorphic (entity_type, entity_id) condition
+// against a one-row synthetic table rather than against comments or
+// comment_subscriptions.
+//
+// The condition under test reads exactly two columns and nothing else, so a real
+// table would add foreign keys, a moderation status and an author to a fixture
+// whose only job is to carry a type beside an id. The alias is `e`, which is
+// what the caller above qualifies the expressions with.
+func countEntityRowMatching(t *testing.T, db *gorm.DB, entityType string, entityID uint, cond string, args []interface{}) int64 {
+	t.Helper()
+	sqlArgs := append([]interface{}{entityType, entityID}, args...)
+	var count int64
+	if err := db.Raw(
+		"SELECT COUNT(*) FROM (SELECT ?::text AS entity_type, ?::bigint AS entity_id) e WHERE "+cond,
+		sqlArgs...,
+	).Scan(&count).Error; err != nil {
+		t.Fatalf("count entity rows with %q: %v", cond, err)
+	}
+	return count
+}
+
+// countUsersMatching runs a recipient condition against one real user row, which
+// is what the fan-out queries it over.
+func countUsersMatching(t *testing.T, db *gorm.DB, userID uint, cond string, args []interface{}) int64 {
+	t.Helper()
+	var count int64
+	q := db.Table("users").Where("users.id = ?", userID)
+	if err := q.Where(cond, args...).Count(&count).Error; err != nil {
+		t.Fatalf("count users with %q: %v", cond, err)
 	}
 	return count
 }

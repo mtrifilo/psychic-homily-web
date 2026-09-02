@@ -601,20 +601,101 @@ func (s *NotificationFilterSuite) TestArtistAlert_EmailOnlyRowIsNotABellEntry() 
 	s.Require().Len(capture.sent, 1)
 	s.Equal(int64(0), s.inAppAlerts(userID, showID))
 
-	entries, err := s.svc.GetUserNotifications(userID, 20, 0)
+	entries, err := s.svc.GetUserNotifications(inboxViewer(userID), 20, 0)
 	s.Require().NoError(err)
 	s.Empty(entries, "the email-lane row stands for a message already in their mailbox")
 
-	unread, err := s.svc.GetUnreadCount(userID)
+	unread, err := s.svc.GetUnreadCount(inboxViewer(userID))
 	s.Require().NoError(err)
 	s.Equal(int64(0), unread, "a hidden row must not inflate the badge")
 
 	// Mark-all is the third read site, and the predicate's whole point is that
 	// all three agree. A count of 1 here would mean "Catch up" reported clearing
 	// a notification the user was never shown.
-	cleared, err := s.svc.MarkAllNotificationsRead(userID)
+	cleared, err := s.svc.MarkAllNotificationsRead(inboxViewer(userID))
 	s.Require().NoError(err)
 	s.Equal(int64(0), cleared, "mark-all must clear exactly the rows the user could see")
+}
+
+// TestArtistAlert_PulledShowLeavesTheInboxRow is the artist-side twin of
+// TestVenueAlert_PulledShowLeavesTheInboxRow, and it closes the same hole on the
+// other alert family (PSY-1983).
+//
+// An artist alert is minted only for an announceable show, so the leak is
+// entirely historical: the row is legitimate when written, and moderation pulls
+// the show afterwards. Nothing re-checked that at read time, so the show's title
+// and a working link stayed in every follower's bell indefinitely — which is the
+// disclosure PSY-1983 closes for comment rows, on a row type it did not at first
+// cover.
+//
+// The venue twin keeps its row and drops the show from the batch, because one
+// venue-day row summarises many shows and the others are still public. An artist
+// alert IS one show, so there is nothing left in the row once the show goes: it
+// is suppressed whole, which also keeps the list, the badge and mark-all in
+// agreement.
+func (s *NotificationFilterSuite) TestArtistAlert_PulledShowLeavesTheInboxRow() {
+	userID := s.createTestUser()
+	artistID := s.createTestArtist("Pulled Artist")
+	s.followArtistWithAlerts(userID, artistID, `{"alerts":{"shows":{"in_app":true,"email":false}}}`)
+
+	venueID := s.createTestVenue("Valley Bar")
+	keep := s.createTestShow("Still on", []uint{artistID}, []uint{venueID})
+	pulled := s.createTestShow("Withdrawn by moderation", []uint{artistID}, []uint{venueID})
+
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(keep)))
+	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(pulled)))
+	s.Require().Equal(int64(1), s.inAppAlerts(userID, pulled),
+		"the alert must exist before it can be suppressed, or this proves nothing")
+
+	s.Require().NoError(s.db.Exec(
+		`UPDATE shows SET status = 'private' WHERE id = ?`, pulled).Error)
+
+	entries, err := s.svc.GetUserNotifications(inboxViewer(userID), 20, 0)
+	s.Require().NoError(err)
+	s.Require().Len(entries, 1, "the withdrawn show's row must drop out of the inbox")
+	s.Equal("Still on", entries[0].AlertShowTitle)
+	for _, e := range entries {
+		s.NotContains(e.AlertShowTitle, "Withdrawn by moderation",
+			"a non-public show's title must not keep rendering in the inbox")
+	}
+
+	// The badge and mark-all are the other two read sites, and the predicate's
+	// whole point is that all three agree: a count of 2 in either would publish
+	// the withheld row as arithmetic.
+	unread, err := s.svc.GetUnreadCount(inboxViewer(userID))
+	s.Require().NoError(err)
+	s.Equal(int64(1), unread, "the suppressed row must not inflate the badge")
+
+	cleared, err := s.svc.MarkAllNotificationsRead(inboxViewer(userID))
+	s.Require().NoError(err)
+	s.Equal(int64(1), cleared, "mark-all must clear exactly the rows the user could see")
+
+	// The SUBMITTER tier, which is the half of the rule a public-tier fence
+	// could not tell apart. createTestShow leaves submitted_by null, so without
+	// this the submitter term in the direct arm is never exercised and a
+	// regression that reduced it to `status = 'approved'` would pass.
+	s.Require().NoError(s.db.Exec(
+		`UPDATE shows SET submitted_by = ? WHERE id = ?`, userID, pulled).Error)
+	entries, err = s.svc.GetUserNotifications(inboxViewer(userID), 20, 0)
+	s.Require().NoError(err)
+	s.Require().Len(entries, 2, "the submitter reads their own withdrawn show, as the detail route grants it")
+
+	// ...and an ADMIN, the other bypass, which reaches the predicate by a
+	// different branch entirely (it short-circuits to a constant).
+	s.Require().NoError(s.db.Exec(
+		`UPDATE shows SET submitted_by = NULL WHERE id = ?`, pulled).Error)
+	adminEntries, err := s.svc.GetUserNotifications(
+		contracts.ShowViewer{UserID: userID, IsAdmin: true}, 20, 0)
+	s.Require().NoError(err)
+	s.Require().Len(adminEntries, 2, "an admin reads the withdrawn show")
+
+	// Suppression, not deletion: the row was never removed, so republishing
+	// restores it for everybody.
+	s.Require().NoError(s.db.Exec(
+		`UPDATE shows SET status = 'approved' WHERE id = ?`, pulled).Error)
+	entries, err = s.svc.GetUserNotifications(inboxViewer(userID), 20, 0)
+	s.Require().NoError(err)
+	s.Require().Len(entries, 2, "republishing must restore the suppressed row")
 }
 
 // TestArtistAlert_EachChannelLaneIsDelivered is the end-to-end half of the
@@ -642,7 +723,7 @@ func (s *NotificationFilterSuite) TestArtistAlert_EachChannelLaneIsDelivered() {
 		"the email must name the follow that actually has email switched on")
 
 	// One bell entry, attributed to the headliner.
-	entries, err := s.svc.GetUserNotifications(userID, 20, 0)
+	entries, err := s.svc.GetUserNotifications(inboxViewer(userID), 20, 0)
 	s.Require().NoError(err)
 	s.Require().Len(entries, 1)
 	s.Equal("Headliner", entries[0].AlertArtistName)
@@ -686,7 +767,7 @@ func (s *NotificationFilterSuite) TestArtistAlert_InboxRowNamesTheArtistAndLinks
 
 	s.Require().NoError(s.svc.MatchAndNotify(s.loadShow(showID)))
 
-	entries, err := s.svc.GetUserNotifications(userID, 20, 0)
+	entries, err := s.svc.GetUserNotifications(inboxViewer(userID), 20, 0)
 	s.Require().NoError(err)
 	s.Require().Len(entries, 1)
 	e := entries[0]
@@ -700,7 +781,7 @@ func (s *NotificationFilterSuite) TestArtistAlert_InboxRowNamesTheArtistAndLinks
 	s.Empty(e.FilterName,
 		"an artist alert must not inherit the scene label the show branch synthesizes for filter_id NULL rows")
 
-	unread, err := s.svc.GetUnreadCount(userID)
+	unread, err := s.svc.GetUnreadCount(inboxViewer(userID))
 	s.Require().NoError(err)
 	s.Equal(int64(1), unread)
 }
@@ -723,7 +804,7 @@ func (s *NotificationFilterSuite) TestArtistAlert_SuppressesTheSceneFollowForThe
 	s.Equal(int64(0), s.sceneLogCount(userID, showID),
 		"a band you follow is a better use of the one slot than something is on in your city")
 
-	entries, err := s.svc.GetUserNotifications(userID, 20, 0)
+	entries, err := s.svc.GetUserNotifications(inboxViewer(userID), 20, 0)
 	s.Require().NoError(err)
 	s.Len(entries, 1)
 }

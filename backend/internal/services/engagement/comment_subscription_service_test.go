@@ -11,8 +11,19 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	engagementm "psychic-homily-backend/internal/models/engagement"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
+
+// watchingViewer is the ordinary non-admin subscriber reading their own list —
+// the caller every test below has always meant.
+//
+// ListWatching takes a viewer rather than a user id (PSY-1983): the rows' owner
+// and the tier they are read at are the same fact. The tests that exercise the
+// gate build their own viewer; these do not, and say so by using this.
+func watchingViewer(userID uint) contracts.ShowViewer {
+	return contracts.ShowViewer{UserID: userID}
+}
 
 // =============================================================================
 // INTEGRATION TESTS (With Real Database)
@@ -44,6 +55,7 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM users")
 	_, _ = sqlDB.Exec("DELETE FROM artists")
 	_, _ = sqlDB.Exec("DELETE FROM venues")
+	_, _ = sqlDB.Exec("DELETE FROM shows")
 }
 
 func TestCommentSubscriptionServiceIntegrationTestSuite(t *testing.T) {
@@ -313,6 +325,29 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) createTestArtist(na
 	return artist
 }
 
+// createTestShow creates an APPROVED show, for the watching-list tests whose
+// subject is pagination, unread counts or user scoping rather than visibility.
+//
+// A real row, and an approved one, because ListWatching gates show-typed
+// subscriptions on the show detail route's rule (PSY-1983): a subscription
+// pointing at a show id with no row behind it is suppressed, exactly as a gated
+// one is, so that a deleted show and a private one cannot be told apart. These
+// fixtures used bare ids 1..5 and never created the shows, which is why the gate
+// emptied every one of them.
+//
+// SubmittedBy is left null on purpose: approved is visible to everybody, so a
+// submitter would be a second reason for these rows to appear and would mask the
+// gate if the status one ever broke.
+func (suite *CommentSubscriptionServiceIntegrationTestSuite) createTestShow(title string) *catalogm.Show {
+	show := &catalogm.Show{
+		Title:     title,
+		EventDate: time.Now().UTC().AddDate(0, 0, 7),
+		Status:    catalogm.ShowStatusApproved,
+	}
+	suite.Require().NoError(suite.db.Create(show).Error)
+	return show
+}
+
 func (suite *CommentSubscriptionServiceIntegrationTestSuite) createTestVenue(name string) *catalogm.Venue {
 	slug := fmt.Sprintf("%s-%d", name, time.Now().UnixNano())
 	venue := &catalogm.Venue{Name: name, Slug: &slug, City: "Phoenix", State: "AZ"}
@@ -338,7 +373,7 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) createTestCommentAt
 func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestListWatchingEmpty() {
 	user := suite.createTestUser()
 
-	items, total, err := suite.service.ListWatching(user.ID, 20, 0)
+	items, total, err := suite.service.ListWatching(watchingViewer(user.ID), 20, 0)
 	suite.NoError(err)
 	suite.Equal(int64(0), total)
 	suite.Len(items, 0)
@@ -359,7 +394,13 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestListWatchingEnr
 
 	suite.NoError(suite.service.Subscribe(user.ID, "artist", artist.ID))
 	suite.NoError(suite.service.Subscribe(user.ID, "venue", venue.ID))
-	suite.NoError(suite.service.Subscribe(user.ID, "show", 999)) // no show row
+	// A RELEASE with no row, not a show. The fallback rendering is still the
+	// behaviour for every entity type that has no visibility rule of its own,
+	// but a show is no longer one of them: a show-typed subscription with no row
+	// behind it is suppressed rather than rendered "show #999", because a
+	// deleted show and a private one have to answer the same
+	// (TestListWatchingSuppressesAShowThatIsNotVisible).
+	suite.NoError(suite.service.Subscribe(user.ID, "release", 999)) // no release row
 
 	base := time.Now().UTC().Add(-time.Hour)
 	suite.createTestCommentAt(commenter.ID, "venue", venue.ID, base)
@@ -369,7 +410,7 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestListWatchingEnr
 	// (DJ Spectre's), not from MAX(id).
 	suite.createTestCommentAt(user.ID, "artist", artist.ID, base.Add(-time.Minute))
 
-	items, total, err := suite.service.ListWatching(user.ID, 20, 0)
+	items, total, err := suite.service.ListWatching(watchingViewer(user.ID), 20, 0)
 	suite.NoError(err)
 	suite.Equal(int64(3), total)
 	suite.Require().Len(items, 3)
@@ -388,46 +429,100 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestListWatchingEnr
 	suite.Equal("/venues/"+*venue.Slug, items[1].EntityURL)
 
 	// Missing entity row → fallback name + ID URL, empty thread
-	suite.Equal("show", items[2].EntityType)
-	suite.Equal("show #999", items[2].EntityName)
+	suite.Equal("release", items[2].EntityType)
+	suite.Equal("release #999", items[2].EntityName)
 	suite.Equal("", items[2].EntitySlug)
-	suite.Equal("/shows/999", items[2].EntityURL)
+	suite.Equal("/releases/999", items[2].EntityURL)
 	suite.Equal(0, items[2].CommentCount)
 	suite.Nil(items[2].LastCommentAt)
 	suite.Equal("", items[2].LastCommenterName)
 }
 
+// The show-typed half of the case above, and the reason it had to move off a
+// show: a subscription is suppressed, with its count, when the viewer cannot see
+// the show behind it — whether that is because the show is gated or because
+// there is no show. Answering differently for the two would let a caller sort
+// real private shows from ids that were never used, which is the oracle the
+// detail route's 404 exists to remove (PSY-1983).
+func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestListWatchingSuppressesAShowThatIsNotVisible() {
+	user := suite.createTestUser()
+	other := suite.createTestUser()
+
+	visible := suite.createTestShow("Watching Approved Show")
+	private := suite.createTestShow("Watching Private Show")
+	suite.Require().NoError(suite.db.Model(&catalogm.Show{}).Where("id = ?", private.ID).
+		Update("status", catalogm.ShowStatusPrivate).Error)
+	// Somebody else's private show, so the submitter branch cannot be what
+	// hides it, and a submitted_by of the viewer cannot be what reveals it.
+	suite.Require().NoError(suite.db.Model(&catalogm.Show{}).Where("id = ?", private.ID).
+		Update("submitted_by", other.ID).Error)
+
+	suite.NoError(suite.service.Subscribe(user.ID, "show", visible.ID))
+	suite.NoError(suite.service.Subscribe(user.ID, "show", private.ID))
+	suite.NoError(suite.service.Subscribe(user.ID, "show", 99999999)) // no show row
+	// The submitter subscribes to their own private show, which is the control:
+	// without it, "suppressed" and "the gate refuses everybody" look the same.
+	suite.NoError(suite.service.Subscribe(other.ID, "show", private.ID))
+
+	items, total, err := suite.service.ListWatching(watchingViewer(user.ID), 20, 0)
+	suite.NoError(err)
+	suite.Require().Len(items, 1)
+	suite.Equal(visible.ID, items[0].EntityID)
+	// The total moves with the page. Three subscriptions exist and one is
+	// reportable; a total of 3 beside one row would publish the withheld two as
+	// arithmetic.
+	suite.Equal(int64(1), total)
+
+	// The submitter reads their own private show, matching the detail route.
+	otherItems, otherTotal, err := suite.service.ListWatching(watchingViewer(other.ID), 20, 0)
+	suite.NoError(err)
+	suite.Equal(int64(1), otherTotal)
+	suite.Require().Len(otherItems, 1)
+	suite.Equal(private.ID, otherItems[0].EntityID)
+
+	// Suppression, not deletion: publishing the show again restores its row.
+	suite.Require().NoError(suite.db.Model(&catalogm.Show{}).Where("id = ?", private.ID).
+		Update("status", catalogm.ShowStatusApproved).Error)
+	items, total, err = suite.service.ListWatching(watchingViewer(user.ID), 20, 0)
+	suite.NoError(err)
+	suite.Equal(int64(2), total)
+	suite.Require().Len(items, 2)
+}
+
 func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestListWatchingUnreadVsLastRead() {
 	user := suite.createTestUser()
 
-	suite.NoError(suite.service.Subscribe(user.ID, "show", 1))
-	suite.NoError(suite.service.Subscribe(user.ID, "show", 2))
+	showA := suite.createTestShow("Unread Show A")
+	showB := suite.createTestShow("Unread Show B")
 
-	// show 1: two comments, never read → unread
-	suite.createTestComment(user.ID, "show", 1)
-	suite.createTestComment(user.ID, "show", 1)
+	suite.NoError(suite.service.Subscribe(user.ID, "show", showA.ID))
+	suite.NoError(suite.service.Subscribe(user.ID, "show", showB.ID))
 
-	// show 2: one comment, fully read → not unread
-	suite.createTestComment(user.ID, "show", 2)
-	suite.NoError(suite.service.MarkRead(user.ID, "show", 2))
+	// showA: two comments, never read → unread
+	suite.createTestComment(user.ID, "show", showA.ID)
+	suite.createTestComment(user.ID, "show", showA.ID)
 
-	items, _, err := suite.service.ListWatching(user.ID, 20, 0)
+	// showB: one comment, fully read → not unread
+	suite.createTestComment(user.ID, "show", showB.ID)
+	suite.NoError(suite.service.MarkRead(user.ID, "show", showB.ID))
+
+	items, _, err := suite.service.ListWatching(watchingViewer(user.ID), 20, 0)
 	suite.NoError(err)
 	suite.Require().Len(items, 2)
 
 	byEntity := map[uint]int{items[0].EntityID: 0, items[1].EntityID: 1}
-	show1 := items[byEntity[1]]
-	show2 := items[byEntity[2]]
+	showAItem := items[byEntity[showA.ID]]
+	showBItem := items[byEntity[showB.ID]]
 
-	suite.Equal(2, show1.UnreadCount)
-	suite.Equal(0, show2.UnreadCount)
+	suite.Equal(2, showAItem.UnreadCount)
+	suite.Equal(0, showBItem.UnreadCount)
 
-	// New comment after mark-read flips show 2 back to unread
-	suite.createTestComment(user.ID, "show", 2)
-	items, _, err = suite.service.ListWatching(user.ID, 20, 0)
+	// New comment after mark-read flips showB back to unread
+	suite.createTestComment(user.ID, "show", showB.ID)
+	items, _, err = suite.service.ListWatching(watchingViewer(user.ID), 20, 0)
 	suite.NoError(err)
 	for _, item := range items {
-		if item.EntityID == 2 {
+		if item.EntityID == showB.ID {
 			suite.Equal(1, item.UnreadCount)
 		}
 	}
@@ -437,41 +532,45 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestListWatchingPag
 	user := suite.createTestUser()
 
 	base := time.Now().UTC().Add(-time.Hour)
+	shows := make([]*catalogm.Show, 0, 5)
 	for i := 1; i <= 5; i++ {
-		suite.NoError(suite.service.Subscribe(user.ID, "show", uint(i)))
-		suite.createTestCommentAt(user.ID, "show", uint(i), base.Add(time.Duration(i)*time.Minute))
+		show := suite.createTestShow(fmt.Sprintf("Paged Show %d", i))
+		shows = append(shows, show)
+		suite.NoError(suite.service.Subscribe(user.ID, "show", show.ID))
+		suite.createTestCommentAt(user.ID, "show", show.ID, base.Add(time.Duration(i)*time.Minute))
 	}
 
-	// First page: newest activity first (show 5, show 4)
-	items, total, err := suite.service.ListWatching(user.ID, 2, 0)
+	// First page: newest activity first (the 5th show, then the 4th)
+	items, total, err := suite.service.ListWatching(watchingViewer(user.ID), 2, 0)
 	suite.NoError(err)
 	suite.Equal(int64(5), total)
 	suite.Require().Len(items, 2)
-	suite.Equal(uint(5), items[0].EntityID)
-	suite.Equal(uint(4), items[1].EntityID)
+	suite.Equal(shows[4].ID, items[0].EntityID)
+	suite.Equal(shows[3].ID, items[1].EntityID)
 
 	// Second page
-	items2, _, err := suite.service.ListWatching(user.ID, 2, 2)
+	items2, _, err := suite.service.ListWatching(watchingViewer(user.ID), 2, 2)
 	suite.NoError(err)
 	suite.Require().Len(items2, 2)
-	suite.Equal(uint(3), items2[0].EntityID)
+	suite.Equal(shows[2].ID, items2[0].EntityID)
 
 	// Third page (only 1 remaining)
-	items3, _, err := suite.service.ListWatching(user.ID, 2, 4)
+	items3, _, err := suite.service.ListWatching(watchingViewer(user.ID), 2, 4)
 	suite.NoError(err)
 	suite.Len(items3, 1)
 }
 
 func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestListWatchingCountsOnlyVisibleComments() {
 	user := suite.createTestUser()
-	suite.NoError(suite.service.Subscribe(user.ID, "show", 1))
+	show := suite.createTestShow("Visible Counts Show")
+	suite.NoError(suite.service.Subscribe(user.ID, "show", show.ID))
 
-	suite.createTestComment(user.ID, "show", 1)
+	suite.createTestComment(user.ID, "show", show.ID)
 
 	hidden := &engagementm.Comment{
 		Kind:       engagementm.CommentKindComment,
 		EntityType: "show",
-		EntityID:   1,
+		EntityID:   show.ID,
 		UserID:     user.ID,
 		Body:       "Hidden",
 		BodyHTML:   "<p>Hidden</p>",
@@ -482,7 +581,7 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestListWatchingCou
 	fieldNote := &engagementm.Comment{
 		Kind:       engagementm.CommentKindFieldNote,
 		EntityType: "show",
-		EntityID:   1,
+		EntityID:   show.ID,
 		UserID:     user.ID,
 		Body:       "Field note",
 		BodyHTML:   "<p>Field note</p>",
@@ -490,7 +589,7 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestListWatchingCou
 	}
 	suite.Require().NoError(suite.db.Create(fieldNote).Error)
 
-	items, _, err := suite.service.ListWatching(user.ID, 20, 0)
+	items, _, err := suite.service.ListWatching(watchingViewer(user.ID), 20, 0)
 	suite.NoError(err)
 	suite.Require().Len(items, 1)
 	// comment_count covers only visible kind='comment' rows
@@ -505,15 +604,17 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestListWatchingCou
 func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestListWatchingScopedToUser() {
 	user := suite.createTestUser()
 	other := suite.createTestUser()
+	mine := suite.createTestShow("Scoped Mine")
+	theirs := suite.createTestShow("Scoped Theirs")
 
-	suite.NoError(suite.service.Subscribe(user.ID, "show", 1))
-	suite.NoError(suite.service.Subscribe(other.ID, "show", 2))
+	suite.NoError(suite.service.Subscribe(user.ID, "show", mine.ID))
+	suite.NoError(suite.service.Subscribe(other.ID, "show", theirs.ID))
 
-	items, total, err := suite.service.ListWatching(user.ID, 20, 0)
+	items, total, err := suite.service.ListWatching(watchingViewer(user.ID), 20, 0)
 	suite.NoError(err)
 	suite.Equal(int64(1), total)
 	suite.Require().Len(items, 1)
-	suite.Equal(uint(1), items[0].EntityID)
+	suite.Equal(mine.ID, items[0].EntityID)
 }
 
 // =============================================================================
@@ -608,7 +709,7 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestNilDBGetUnreadC
 
 func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestNilDBListWatching() {
 	svc := &CommentSubscriptionService{db: nil}
-	_, _, err := svc.ListWatching(1, 20, 0)
+	_, _, err := svc.ListWatching(watchingViewer(1), 20, 0)
 	suite.Error(err)
 	suite.Contains(err.Error(), "database not initialized")
 }

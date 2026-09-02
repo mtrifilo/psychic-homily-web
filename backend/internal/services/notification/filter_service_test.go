@@ -19,6 +19,16 @@ import (
 	"psychic-homily-backend/internal/testutil"
 )
 
+// inboxViewer is the ordinary non-admin recipient reading their own inbox — the
+// caller every notification-log test below has always meant.
+//
+// The four log methods take a viewer rather than a user id (PSY-1983), because
+// the row's owner and the tier it is read at are the same fact. Tests that care
+// about the gate build their own viewer; these do not, and say so by using this.
+func inboxViewer(userID uint) contracts.ShowViewer {
+	return contracts.ShowViewer{UserID: userID}
+}
+
 // =============================================================================
 // UNIT TESTS (No Database Required)
 // =============================================================================
@@ -872,20 +882,96 @@ func (s *NotificationFilterSuite) TestMatchAndNotifyBatch() {
 func (s *NotificationFilterSuite) TestGetUserNotifications() {
 	userID := s.createTestUser()
 
-	// Insert some notification log entries directly
+	// Insert some notification log entries directly, against REAL approved
+	// shows: a show-typed row whose entity_id names no visible show is
+	// suppressed at read time now (PSY-1983), so bare ids would read back empty.
 	for i := 0; i < 3; i++ {
 		s.db.Create(&notificationm.NotificationLog{
 			UserID:     userID,
 			EntityType: "show",
-			EntityID:   uint(i + 1),
+			EntityID:   s.createTestShow(fmt.Sprintf("Inbox Show %d", i), nil, nil),
 			Channel:    "email",
 			SentAt:     time.Now().UTC(),
 		})
 	}
 
-	entries, err := s.svc.GetUserNotifications(userID, 10, 0)
+	entries, err := s.svc.GetUserNotifications(inboxViewer(userID), 10, 0)
 	s.Require().NoError(err)
 	s.Assert().Len(entries, 3)
+}
+
+// TestShowFilterRow_PulledShowLeavesTheInbox covers the third and last
+// show-carrying row family: entity_type='show', written by the show-filter
+// matcher and the scene-follow fan-out with the SHOW id in entity_id (PSY-1983).
+//
+// The API sends no title for these rows, which is why they are easy to dismiss.
+// They still carry the withdrawn show's id, and for a scene-follow row
+// filter_name is re-derived AT READ TIME from the show's current venues — so an
+// ungated row keeps publishing which metro a private show is in, and follows it
+// if the venue changes. GET /shows/{id} 404s the same caller, so leaving this
+// open makes the two surfaces disagree about whether the show exists.
+func (s *NotificationFilterSuite) TestShowFilterRow_PulledShowLeavesTheInbox() {
+	userID := s.createTestUser()
+	keep := s.createTestShow("Filter Still On", nil, nil)
+	pulled := s.createTestShow("Filter Withdrawn", nil, nil)
+
+	now := time.Now().UTC()
+	s.Require().NoError(s.db.Create(&notificationm.NotificationLog{
+		UserID: userID, EntityType: notificationm.NotificationEntityShow,
+		EntityID: keep, Channel: "email", SentAt: now,
+	}).Error)
+	s.Require().NoError(s.db.Create(&notificationm.NotificationLog{
+		UserID: userID, EntityType: notificationm.NotificationEntityShow,
+		EntityID: pulled, Channel: "email", SentAt: now,
+	}).Error)
+
+	entries, err := s.svc.GetUserNotifications(inboxViewer(userID), 20, 0)
+	s.Require().NoError(err)
+	s.Require().Len(entries, 2, "both rows are legitimate while the shows are approved")
+
+	s.Require().NoError(s.db.Exec(
+		`UPDATE shows SET status = 'private' WHERE id = ?`, pulled).Error)
+
+	entries, err = s.svc.GetUserNotifications(inboxViewer(userID), 20, 0)
+	s.Require().NoError(err)
+	s.Require().Len(entries, 1, "the withdrawn show's row must drop out of the inbox")
+	s.Equal(keep, entries[0].EntityID, "and it must be the withdrawn one that went")
+
+	// The badge and mark-all are the other read sites; all three must agree or
+	// the difference between them is a count of what was withheld.
+	unread, err := s.svc.GetUnreadCount(inboxViewer(userID))
+	s.Require().NoError(err)
+	s.Equal(int64(1), unread)
+
+	cleared, err := s.svc.MarkAllNotificationsRead(inboxViewer(userID))
+	s.Require().NoError(err)
+	s.Equal(int64(1), cleared)
+
+	// MarkNotificationsRead(ids) is a DIFFERENT statement shape from mark-all —
+	// an UPDATE whose WHERE carries the correlated EXISTS — so it can break on
+	// its own. Naming the suppressed row's id explicitly must still be refused:
+	// otherwise updated_count becomes an integer oracle for how many gated rows
+	// the account holds, and the row is marked read, defeating the "republish
+	// restores them UNREAD" promise this ticket chose as its disposition.
+	var pulledRow notificationm.NotificationLog
+	s.Require().NoError(s.db.Where("user_id = ? AND entity_id = ?", userID, pulled).
+		First(&pulledRow).Error)
+	updated, err := s.svc.MarkNotificationsRead(inboxViewer(userID), []uint{pulledRow.ID})
+	s.Require().NoError(err)
+	s.Equal(int64(0), updated, "naming a suppressed row by id must not flip it or count it")
+
+	var stillUnread int64
+	s.Require().NoError(s.db.Model(&notificationm.NotificationLog{}).
+		Where("id = ? AND read_at IS NULL", pulledRow.ID).Count(&stillUnread).Error)
+	s.Equal(int64(1), stillUnread, "the suppressed row must still be unread when the show returns")
+
+	// The submitter still reads their own withdrawn show, matching the detail
+	// route, and republishing restores the row for everyone.
+	s.Require().NoError(s.db.Exec(
+		`UPDATE shows SET submitted_by = ? WHERE id = ?`, userID, pulled).Error)
+	entries, err = s.svc.GetUserNotifications(inboxViewer(userID), 20, 0)
+	s.Require().NoError(err)
+	s.Require().Len(entries, 2, "the submitter reads their own withdrawn show")
 }
 
 // TestGetUserNotifications_EnrichesRequestFulfillment verifies request-driven
@@ -910,7 +996,7 @@ func (s *NotificationFilterSuite) TestGetUserNotifications_EnrichesRequestFulfil
 		SentAt:     time.Now().UTC(),
 	}).Error)
 
-	entries, err := s.svc.GetUserNotifications(userID, 10, 0)
+	entries, err := s.svc.GetUserNotifications(inboxViewer(userID), 10, 0)
 	s.Require().NoError(err)
 	s.Require().Len(entries, 1)
 
@@ -936,7 +1022,7 @@ func (s *NotificationFilterSuite) TestGetUserNotifications_RequestFulfillment_De
 		SentAt:     time.Now().UTC(),
 	}).Error)
 
-	entries, err := s.svc.GetUserNotifications(userID, 10, 0)
+	entries, err := s.svc.GetUserNotifications(inboxViewer(userID), 10, 0)
 	s.Require().NoError(err)
 	s.Require().Len(entries, 1)
 
@@ -948,14 +1034,20 @@ func (s *NotificationFilterSuite) TestGetUserNotifications_RequestFulfillment_De
 
 func (s *NotificationFilterSuite) TestGetUnreadCount() {
 	userID := s.createTestUser()
+	// Real APPROVED shows, because a show-typed row whose entity_id names no
+	// visible show is suppressed at read time now (PSY-1983). Bare ids used to
+	// work only because nothing checked.
+	showA := s.createTestShow("Unread A", nil, nil)
+	showB := s.createTestShow("Unread B", nil, nil)
+	showC := s.createTestShow("Unread C", nil, nil)
 
 	// 2 unread, 1 read
-	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: 1, Channel: "email", SentAt: time.Now().UTC()})
-	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: 2, Channel: "email", SentAt: time.Now().UTC()})
+	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: showA, Channel: "email", SentAt: time.Now().UTC()})
+	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: showB, Channel: "email", SentAt: time.Now().UTC()})
 	now := time.Now().UTC()
-	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: 3, Channel: "email", SentAt: time.Now().UTC(), ReadAt: &now})
+	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: showC, Channel: "email", SentAt: time.Now().UTC(), ReadAt: &now})
 
-	count, err := s.svc.GetUnreadCount(userID)
+	count, err := s.svc.GetUnreadCount(inboxViewer(userID))
 	s.Require().NoError(err)
 	s.Assert().Equal(int64(2), count)
 }
@@ -965,15 +1057,18 @@ func (s *NotificationFilterSuite) TestGetUnreadCount() {
 func (s *NotificationFilterSuite) TestMarkNotificationsRead_All() {
 	userID := s.createTestUser()
 	now := time.Now().UTC()
-	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: 1, Channel: "email", SentAt: now})
-	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: 2, Channel: "email", SentAt: now})
-	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: 3, Channel: "email", SentAt: now, ReadAt: &now})
+	showA := s.createTestShow("Mark All A", nil, nil)
+	showB := s.createTestShow("Mark All B", nil, nil)
+	showC := s.createTestShow("Mark All C", nil, nil)
+	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: showA, Channel: "email", SentAt: now})
+	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: showB, Channel: "email", SentAt: now})
+	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: showC, Channel: "email", SentAt: now, ReadAt: &now})
 
-	updated, err := s.svc.MarkAllNotificationsRead(userID)
+	updated, err := s.svc.MarkAllNotificationsRead(inboxViewer(userID))
 	s.Require().NoError(err)
 	s.Assert().Equal(int64(2), updated, "only 2 unread should flip")
 
-	count, err := s.svc.GetUnreadCount(userID)
+	count, err := s.svc.GetUnreadCount(inboxViewer(userID))
 	s.Require().NoError(err)
 	s.Assert().Equal(int64(0), count, "no unread should remain")
 }
@@ -981,25 +1076,25 @@ func (s *NotificationFilterSuite) TestMarkNotificationsRead_All() {
 func (s *NotificationFilterSuite) TestMarkNotificationsRead_Specific() {
 	userID := s.createTestUser()
 	now := time.Now().UTC()
-	row1 := notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: 1, Channel: "email", SentAt: now}
-	row2 := notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: 2, Channel: "email", SentAt: now}
-	row3 := notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: 3, Channel: "email", SentAt: now}
+	row1 := notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: s.createTestShow("Specific A", nil, nil), Channel: "email", SentAt: now}
+	row2 := notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: s.createTestShow("Specific B", nil, nil), Channel: "email", SentAt: now}
+	row3 := notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: s.createTestShow("Specific C", nil, nil), Channel: "email", SentAt: now}
 	s.db.Create(&row1)
 	s.db.Create(&row2)
 	s.db.Create(&row3)
 
-	updated, err := s.svc.MarkNotificationsRead(userID, []uint{row1.ID, row2.ID})
+	updated, err := s.svc.MarkNotificationsRead(inboxViewer(userID), []uint{row1.ID, row2.ID})
 	s.Require().NoError(err)
 	s.Assert().Equal(int64(2), updated)
 
-	count, err := s.svc.GetUnreadCount(userID)
+	count, err := s.svc.GetUnreadCount(inboxViewer(userID))
 	s.Require().NoError(err)
 	s.Assert().Equal(int64(1), count, "third row should still be unread")
 }
 
 func (s *NotificationFilterSuite) TestMarkNotificationsRead_Empty() {
 	userID := s.createTestUser()
-	updated, err := s.svc.MarkNotificationsRead(userID, nil)
+	updated, err := s.svc.MarkNotificationsRead(inboxViewer(userID), nil)
 	s.Require().NoError(err)
 	s.Assert().Equal(int64(0), updated)
 }
@@ -1009,18 +1104,18 @@ func (s *NotificationFilterSuite) TestMarkNotificationsRead_OtherUserSkipped() {
 	b := s.createTestUser()
 	now := time.Now().UTC()
 
-	rowA := notificationm.NotificationLog{UserID: a, EntityType: "show", EntityID: 1, Channel: "email", SentAt: now}
-	rowB := notificationm.NotificationLog{UserID: b, EntityType: "show", EntityID: 2, Channel: "email", SentAt: now}
+	rowA := notificationm.NotificationLog{UserID: a, EntityType: "show", EntityID: s.createTestShow("Other A", nil, nil), Channel: "email", SentAt: now}
+	rowB := notificationm.NotificationLog{UserID: b, EntityType: "show", EntityID: s.createTestShow("Other B", nil, nil), Channel: "email", SentAt: now}
 	s.db.Create(&rowA)
 	s.db.Create(&rowB)
 
 	// Try to mark B's row from A's user context — must be a no-op.
-	updated, err := s.svc.MarkNotificationsRead(a, []uint{rowB.ID})
+	updated, err := s.svc.MarkNotificationsRead(inboxViewer(a), []uint{rowB.ID})
 	s.Require().NoError(err)
 	s.Assert().Equal(int64(0), updated)
 
 	// B's unread count untouched.
-	count, err := s.svc.GetUnreadCount(b)
+	count, err := s.svc.GetUnreadCount(inboxViewer(b))
 	s.Require().NoError(err)
 	s.Assert().Equal(int64(1), count)
 }

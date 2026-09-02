@@ -347,10 +347,21 @@ type CommentSubscriptionServiceInterface interface {
 	// GetUnreadCount returns the number of unread comments for a user on an entity.
 	GetUnreadCount(userID uint, entityType string, entityID uint) (int, error)
 
-	// ListWatching returns the user's subscriptions enriched with entity
+	// ListWatching returns viewer's own subscriptions enriched with entity
 	// context and last comment activity, ordered by last activity (newest
 	// first), plus the total subscription count.
-	ListWatching(userID uint, limit, offset int) ([]WatchingItem, int64, error)
+	//
+	// The viewer is the whole address: it names the user whose rows these are
+	// AND the tier they are read at (PSY-1983). One parameter rather than a
+	// user id beside a viewer carrying the same id, which is derivable state on
+	// a security boundary — the shape whose failure mode is serving one
+	// account's subscriptions under another's clearance.
+	//
+	// REJECTS the zero viewer. ShowViewer{} is the deliberate spelling for the
+	// public tier on the listing gates, and this is self-scoped, so the idiom
+	// that is correct there would mean "user 0" here; it errors rather than
+	// answer emptily.
+	ListWatching(viewer ShowViewer, limit, offset int) ([]WatchingItem, int64, error)
 
 	// GetSubscribersForEntity returns user IDs of all subscribers for an entity.
 	GetSubscribersForEntity(entityType string, entityID uint) ([]uint, error)
