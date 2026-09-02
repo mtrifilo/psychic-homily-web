@@ -669,9 +669,14 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 				return nil, huma.Error422UnprocessableEntity(
 					"Approving a show requires show_venue, and either show_artists or use_payload_artists")
 			}
-			// Last of the pre-claim checks because it is the only one that can
-			// resolve DNS; the in-memory refusals above should not wait on it.
 			if eligible.Payload != nil {
+				// PSY-1966, ahead of the image guard because it resolves nothing.
+				if verr := validatePayloadBandcampEmbedURL(eligible.EntityType, *eligible.Payload); verr != nil {
+					return nil, verr
+				}
+				// Last of the pre-claim checks because it is the only one that
+				// can resolve DNS; the in-memory refusals above should not wait
+				// on it.
 				if verr := validatePayloadImageURL(ctx, eligible.EntityType, *eligible.Payload); verr != nil {
 					return nil, verr
 				}

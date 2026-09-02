@@ -618,6 +618,38 @@ func PayloadImageURL(entityType string, raw json.RawMessage) (*string, error) {
 	}
 }
 
+// PayloadBandcampEmbedURL returns the payload's bandcamp_embed_url, or nil when
+// the type has no such field or the value is absent.
+//
+// It exists for the same reason PayloadImageURL does, one boundary further out:
+// the admin approve path has to check this value BEFORE Decide claims the row,
+// because fulfilment happens after the claim and a rejection there would leave
+// an approved-but-unfulfilled request that no decide call can re-process
+// (PSY-1966). The extraction lives here, beside the payload shapes; the rule it
+// feeds lives in utils.
+//
+// artist is the only type carrying the field. The switch is exhaustive over the
+// registered types on purpose, and an unknown type is an ERROR rather than "no
+// embed URL", so adding an entity_type without deciding whether it carries one
+// fails closed instead of silently skipping the gate. Callers gate on
+// IsValidEntityRequestType first, so the error is unreachable from the API
+// boundary.
+func PayloadBandcampEmbedURL(entityType string, raw json.RawMessage) (*string, error) {
+	switch entityType {
+	case EntityRequestArtist:
+		p, err := UnmarshalPayload[ArtistRequestPayload](raw)
+		if err != nil {
+			return nil, err
+		}
+		return p.BandcampEmbedURL, nil
+	case EntityRequestRelease, EntityRequestLabel, EntityRequestShow,
+		EntityRequestVenue, EntityRequestFestival:
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("unknown entity type %q", entityType)
+	}
+}
+
 // ShowPayloadBillField labels a contributor's stored bill in a 422 (PSY-1858).
 // Exported so the API layer, which validates the same bill at its own trust
 // boundaries, names it identically: one defect must not answer to two different
