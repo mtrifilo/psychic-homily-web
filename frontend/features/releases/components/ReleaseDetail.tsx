@@ -137,11 +137,13 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
   // PSY-1187: render a playable Bandcamp player when a release has a Bandcamp
   // album/track link. MusicEmbed resolves the URL to an iframe (falling back to
   // a link if it can't), so the clickable "Listen / Buy" cards below stay as-is.
-  const bandcampEmbedUrl = findBandcampEmbedUrl(release.external_links)
+  // Fed the gated list, so the player and the cards below can only ever be
+  // built from the same rows.
+  const bandcampEmbedUrl = findBandcampEmbedUrl(externalLinks)
   // PSY-1195: also feed a Spotify link to MusicEmbed. Its internal priority
   // prefers Bandcamp, so a release with both still shows the Bandcamp embed;
   // a Spotify-only release gets a playable Spotify player instead of just a card.
-  const spotifyEmbedUrl = findSpotifyEmbedUrl(release.external_links)
+  const spotifyEmbedUrl = findSpotifyEmbedUrl(externalLinks)
   // Fallback link text uses the primary (main) artist's name, then the first
   // artist, then the release title.
   const primaryArtistName =

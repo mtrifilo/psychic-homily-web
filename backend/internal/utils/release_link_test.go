@@ -2,7 +2,9 @@ package utils
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -13,8 +15,9 @@ import (
 // releaseLinkCorpus mirrors testdata/release_link_corpus.json, the file this
 // test shares with frontend/lib/releaseLinks.test.ts.
 type releaseLinkCorpus struct {
-	Platforms  map[string][]string `json:"platforms"`
-	Renderable []struct {
+	MaxURLLength int                 `json:"maxUrlLength"`
+	Platforms    map[string][]string `json:"platforms"`
+	Renderable   []struct {
 		Platform string `json:"platform"`
 		URL      string `json:"url"`
 	} `json:"renderable"`
@@ -47,27 +50,25 @@ func TestReleaseLinkCorpus(t *testing.T) {
 	corpus := loadReleaseLinkCorpus(t)
 
 	for _, c := range corpus.Renderable {
-		assert.True(t, IsRenderableReleaseLink(c.Platform, c.URL),
-			"corpus says renderable but the write gate refuses: %s %q", c.Platform, c.URL)
 		assert.NoError(t, ValidateReleaseLink(c.Platform, c.URL),
-			"the predicate and the validator disagree: %s %q", c.Platform, c.URL)
+			"corpus says renderable but the write gate refuses: %s %q", c.Platform, c.URL)
 	}
 
 	for _, c := range corpus.Refused {
-		assert.False(t, IsRenderableReleaseLink(c.Platform, c.URL),
-			"corpus says refused (%s) but the write gate accepts: %s %q", c.Why, c.Platform, c.URL)
 		assert.Error(t, ValidateReleaseLink(c.Platform, c.URL),
-			"the predicate and the validator disagree: %s %q", c.Platform, c.URL)
+			"corpus says refused (%s) but the write gate accepts: %s %q", c.Why, c.Platform, c.URL)
 	}
 }
 
-// TestReleaseLinkCorpusPinsThePlatformTable is what stops the Go and TypeScript
-// registries drifting: each language asserts its own table against the corpus,
-// so adding a platform or a host to one and not the other fails the other side.
-func TestReleaseLinkCorpusPinsThePlatformTable(t *testing.T) {
+// TestReleaseLinkCorpusPinsTheRegistry is what stops the Go and TypeScript
+// registries drifting: each language asserts its own table and its own cap
+// against the corpus, so a platform, a host, or a length changed in one and not
+// the other fails the other side.
+func TestReleaseLinkCorpusPinsTheRegistry(t *testing.T) {
 	corpus := loadReleaseLinkCorpus(t)
 
-	assert.ElementsMatch(t, ReleaseLinkPlatforms(), keysOf(corpus.Platforms),
+	assert.Equal(t, corpus.MaxURLLength, MaxReleaseLinkURLLen)
+	assert.ElementsMatch(t, ReleaseLinkPlatforms(), slices.Collect(maps.Keys(corpus.Platforms)),
 		"the corpus and the Go registry name different platforms")
 	for platform, wantHosts := range corpus.Platforms {
 		gotHosts, ok := ReleaseLinkPlatformHosts(platform)
@@ -76,14 +77,6 @@ func TestReleaseLinkCorpusPinsThePlatformTable(t *testing.T) {
 				"host anchors disagree for %q", platform)
 		}
 	}
-}
-
-func keysOf(m map[string][]string) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	return out
 }
 
 // TestReleaseLinkPlatformHostsIsNotMutable pins the copy in the accessor. The
@@ -129,14 +122,18 @@ func TestValidateReleaseLinkNamesTheAcceptedValue(t *testing.T) {
 	assert.Contains(t, err.Error(), "http or https")
 }
 
-// TestReleaseLinkPlatformMatchIsCaseInsensitive pins the one place the gate is
-// lenient: the enrichment writer's dedup index is on LOWER(platform), so the
-// system has always treated these as the same platform.
+// TestReleaseLinkPlatformMatchIsCaseInsensitive pins the one place the lookup
+// is lenient, and the one place it is not: the enrichment writer's dedup index
+// is on LOWER(platform), so casing has always named the same platform, while a
+// padded value is a different string that would be stored padded.
 func TestReleaseLinkPlatformMatchIsCaseInsensitive(t *testing.T) {
 	for _, platform := range []string{"bandcamp", "Bandcamp", "BANDCAMP"} {
 		assert.True(t, IsRenderableReleaseLink(platform, "https://kingbuffalo.bandcamp.com/album/regenerator"),
 			"platform %q", platform)
 	}
+	assert.ErrorContains(t,
+		ValidateReleaseLink(" bandcamp", "https://kingbuffalo.bandcamp.com/album/regenerator"),
+		"Platform must be one of")
 }
 
 // TestReleaseLinkAcceptsNoPathRule states the deliberate scope of the gate: it

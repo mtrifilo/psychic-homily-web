@@ -13,6 +13,8 @@
     "",
     "platforms   = the whole registry. Each side asserts its own table equals this,",
     "              which is what stops the two lists drifting.",
+    "maxUrlLength= the shared cap. Here rather than as a literal in each language,",
+    "              for the same reason the platform table is.",
     "renderable  = both gates accept.",
     "refused     = the Go write gate refuses. `alsoRefusedByReader` marks the ones",
     "              the reader must ALSO refuse, i.e. every case where a click would",
@@ -23,6 +25,7 @@
     "              link would remove a working affordance. Go refuses them at write",
     "              time rather than reimplementing UTS-46 to decide."
   ],
+  "maxUrlLength": 2048,
   "platforms": {
     "amazon_music": ["amazon.com"],
     "apple_music": ["apple.com"],

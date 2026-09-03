@@ -427,11 +427,11 @@ func (s *ReleaseService) AddExternalLinkWithSource(releaseID uint, platform, url
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	// The gate lives at the service, not only at the HTTP boundary, because the
-	// enrichment sweep and the backfill CLI reach this function without passing
-	// through a handler. The platform key is rendered as the label beside the
-	// URL, so an unanchored value is an arbitrary host wearing a name readers
-	// trust.
+	// The gate lives here rather than at the HTTP boundary because this is where
+	// every writer of a single link meets: the enrichment sweep and the backfill
+	// CLI reach it without passing through a handler. The platform key is
+	// rendered as the label beside the URL, so an unanchored value is an
+	// arbitrary host wearing a name readers trust.
 	if err := utils.ValidateReleaseLink(platform, url); err != nil {
 		return nil, apperrors.ErrReleaseInvalidField(err)
 	}

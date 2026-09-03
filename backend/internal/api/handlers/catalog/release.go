@@ -17,7 +17,6 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 	servicesshared "psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/services/shared/revisiondiff"
-	"psychic-homily-backend/internal/utils"
 )
 
 // canAddReleaseLink reports whether the user may add an external link to a
@@ -243,14 +242,6 @@ func (h *ReleaseHandler) CreateReleaseHandler(ctx context.Context, req *CreateRe
 	}
 	links := make([]contracts.CreateReleaseLinkEntry, len(req.Body.ExternalLinks))
 	for i, l := range req.Body.ExternalLinks {
-		// PSY-1996: same gate as POST /releases/{id}/links. The index is in the
-		// message because the body carries a list and the refusal has to say
-		// which entry to fix.
-		if err := utils.ValidateReleaseLink(l.Platform, l.URL); err != nil {
-			return nil, huma.Error422UnprocessableEntity(
-				fmt.Sprintf("external_links[%d]: %s", i, err.Error()),
-			)
-		}
 		links[i] = contracts.CreateReleaseLinkEntry{
 			Platform: l.Platform,
 			URL:      l.URL,
@@ -546,13 +537,9 @@ func (h *ReleaseHandler) AddExternalLinkHandler(ctx context.Context, req *AddExt
 		return nil, huma.Error400BadRequest("Invalid release ID")
 	}
 
-	// PSY-1996: the stored pair renders as an <a href> headed by the platform
-	// label, so both halves are gated here. The service re-checks, which is what
-	// covers the writers that never pass through a handler.
-	if err := utils.ValidateReleaseLink(req.Body.Platform, req.Body.URL); err != nil {
-		return nil, huma.Error422UnprocessableEntity(err.Error())
-	}
-
+	// The platform and URL are gated by ReleaseService.AddExternalLink, which is
+	// where every writer of the column meets, and its refusal arrives here as a
+	// 422 through MapReleaseError carrying the validator's own sentence.
 	link, err := h.releaseService.AddExternalLink(uint(releaseID), req.Body.Platform, req.Body.URL)
 	if err != nil {
 		if mapped := shared.MapReleaseError(err); mapped != nil {

@@ -28,6 +28,7 @@ const corpus = JSON.parse(
     'utf8'
   )
 ) as {
+  maxUrlLength: number
   platforms: Record<string, string[]>
   renderable: { platform: string; url: string }[]
   refused: {
@@ -45,12 +46,16 @@ describe('cross-language corpus (the write gate and this gate are one rule)', ()
     expect(corpus.refused.length).toBeGreaterThan(0)
   })
 
-  // The drift tripwire: the Go registry asserts the same object.
+  // The drift tripwire: the Go registry asserts the same object and the same cap.
   it('the platform table matches the backend registry', () => {
     const mine = Object.fromEntries(
       RELEASE_LINK_PLATFORM_KEYS.map((key) => [key, [...RELEASE_LINK_PLATFORMS[key].hosts]])
     )
     expect(mine).toEqual(corpus.platforms)
+  })
+
+  it('the URL cap matches the backend cap', () => {
+    expect(MAX_RELEASE_LINK_URL_LENGTH).toBe(corpus.maxUrlLength)
   })
 
   it.each(corpus.renderable.map((c) => [c.platform, c.url] as const))(

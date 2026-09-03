@@ -2,18 +2,23 @@ package catalog
 
 import (
 	"fmt"
-	"strings"
+	"reflect"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/utils"
 )
 
-// Release external-link validation (PSY-1996).
+// Release external-link validation at the HTTP layer (PSY-1996).
 //
-// The stored platform/url pair renders as an <a href> headed by the platform
-// label, so a row whose URL is not anchored to the platform it names is an
-// arbitrary host wearing a name readers trust. Each case below fails if its
-// half of the gate is removed.
+// The rules themselves are pinned in internal/utils by the shared corpus; these
+// cases are about what this layer adds: that the service's refusal arrives as a
+// 422 carrying the validator's sentence rather than the generic 500, that no
+// row is written, and that the tier gate does not exempt anyone.
 //
 // Methods hang off ReleaseHandlerIntegrationSuite (release_integration_test.go),
 // which owns the DB fixture and the per-test cleanup.
@@ -29,24 +34,13 @@ func (s *ReleaseHandlerIntegrationSuite) TestAddExternalLink_RefusesForeignHost(
 
 	_, err := s.handler.AddExternalLinkHandler(ctx, req)
 	testhelpers.AssertHumaError(s.T(), err, 422)
+	// The refusal has to name the hosts that work, or a curator cannot fix it.
+	s.Require().Error(err)
+	s.Contains(err.Error(), "bandcamp.com")
 
 	var count int64
 	s.deps.DB.Model(&catalogm.ReleaseExternalLink{}).Where("release_id = ?", release.ID).Count(&count)
 	s.EqualValues(0, count, "a refused link must not be stored")
-}
-
-// A lookalike suffix is the case a substring host check would pass.
-func (s *ReleaseHandlerIntegrationSuite) TestAddExternalLink_RefusesLookalikeSuffix() {
-	user := testhelpers.CreateUserWithTier(s.deps.DB, "trusted_contributor")
-	release := s.createReleaseViaService("Lookalike Album")
-
-	ctx := testhelpers.CtxWithUser(user)
-	req := &AddExternalLinkRequest{ReleaseID: fmt.Sprintf("%d", release.ID)}
-	req.Body.Platform = "bandcamp"
-	req.Body.URL = "https://bandcamp.com.evil.test/album/x"
-
-	_, err := s.handler.AddExternalLinkHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 func (s *ReleaseHandlerIntegrationSuite) TestAddExternalLink_RefusesUnknownPlatform() {
@@ -57,34 +51,6 @@ func (s *ReleaseHandlerIntegrationSuite) TestAddExternalLink_RefusesUnknownPlatf
 	req := &AddExternalLinkRequest{ReleaseID: fmt.Sprintf("%d", release.ID)}
 	req.Body.Platform = "napster"
 	req.Body.URL = "https://us.napster.com/album/x"
-
-	_, err := s.handler.AddExternalLinkHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 422)
-}
-
-// A platform longer than the column's VARCHAR(50) reaches Postgres as a 22001
-// without this check, which surfaces as a 500 the submitter cannot act on.
-func (s *ReleaseHandlerIntegrationSuite) TestAddExternalLink_RefusesOversizePlatform() {
-	user := testhelpers.CreateUserWithTier(s.deps.DB, "trusted_contributor")
-	release := s.createReleaseViaService("Oversize Platform Album")
-
-	ctx := testhelpers.CtxWithUser(user)
-	req := &AddExternalLinkRequest{ReleaseID: fmt.Sprintf("%d", release.ID)}
-	req.Body.Platform = strings.Repeat("b", 200)
-	req.Body.URL = "https://test.bandcamp.com/album/x"
-
-	_, err := s.handler.AddExternalLinkHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 422)
-}
-
-func (s *ReleaseHandlerIntegrationSuite) TestAddExternalLink_RefusesNonHTTPScheme() {
-	user := testhelpers.CreateUserWithTier(s.deps.DB, "trusted_contributor")
-	release := s.createReleaseViaService("Scheme Album")
-
-	ctx := testhelpers.CtxWithUser(user)
-	req := &AddExternalLinkRequest{ReleaseID: fmt.Sprintf("%d", release.ID)}
-	req.Body.Platform = "spotify"
-	req.Body.URL = "javascript:alert(document.domain)"
 
 	_, err := s.handler.AddExternalLinkHandler(ctx, req)
 	testhelpers.AssertHumaError(s.T(), err, 422)
@@ -105,23 +71,8 @@ func (s *ReleaseHandlerIntegrationSuite) TestAddExternalLink_AdminIsNotExempt() 
 	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
-// The refusal has to name the hosts that work, or a curator cannot fix it.
-func (s *ReleaseHandlerIntegrationSuite) TestAddExternalLink_RefusalNamesTheAcceptedHosts() {
-	user := testhelpers.CreateUserWithTier(s.deps.DB, "trusted_contributor")
-	release := s.createReleaseViaService("Refusal Copy Album")
-
-	ctx := testhelpers.CtxWithUser(user)
-	req := &AddExternalLinkRequest{ReleaseID: fmt.Sprintf("%d", release.ID)}
-	req.Body.Platform = "spotify"
-	req.Body.URL = "https://evil.test/album/x"
-
-	_, err := s.handler.AddExternalLinkHandler(ctx, req)
-	s.Require().Error(err)
-	s.Contains(err.Error(), "spotify.com")
-}
-
-// "Required" is a different problem from "not on that platform", and keeps its
-// own wording.
+// This route used to answer both empty halves with one message of its own; the
+// refusal is now the validator's, and still a 422.
 func (s *ReleaseHandlerIntegrationSuite) TestAddExternalLink_RefusesEmptyValues() {
 	user := testhelpers.CreateUserWithTier(s.deps.DB, "trusted_contributor")
 	release := s.createReleaseViaService("Empty Values Album")
@@ -139,8 +90,8 @@ func (s *ReleaseHandlerIntegrationSuite) TestAddExternalLink_RefusesEmptyValues(
 	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
-// A release link on a platform the picker did not previously offer is accepted:
-// the registry is one list, and the seed already writes youtube_music rows.
+// A platform the picker did not previously offer is accepted: the registry is
+// one list, and the seed already writes youtube_music rows.
 func (s *ReleaseHandlerIntegrationSuite) TestAddExternalLink_AcceptsEveryRegisteredPlatform() {
 	user := testhelpers.CreateUserWithTier(s.deps.DB, "trusted_contributor")
 	release := s.createReleaseViaService("Every Platform Album")
@@ -199,4 +150,28 @@ func (s *ReleaseHandlerIntegrationSuite) TestCreateRelease_AcceptsAnchoredExtern
 	resp, err := s.handler.CreateReleaseHandler(ctx, req)
 	s.Require().NoError(err)
 	s.Len(resp.Body.ExternalLinks, 2)
+}
+
+// TestPlatformDocListsEveryRegisteredPlatform pins the two `doc:` tags that
+// publish the accepted platforms in the OpenAPI document (and, through
+// bun run api:types, in the frontend's generated types).
+//
+// The tag is a string literal because huma reads struct tags statically, so it
+// is the one copy of the registry that nothing else forces to stay current.
+// This is that force: adding a platform without editing both tags fails here
+// rather than shipping a document that lies about the contract.
+func TestPlatformDocListsEveryRegisteredPlatform(t *testing.T) {
+	docs := map[string]string{
+		"CreateReleaseLinkInput": reflect.TypeOf(CreateReleaseLinkInput{}).
+			Field(0).Tag.Get("doc"),
+		"AddExternalLinkRequest.Body": reflect.TypeOf(AddExternalLinkRequest{}).
+			Field(1).Type.Field(0).Tag.Get("doc"),
+	}
+
+	for name, doc := range docs {
+		require.NotEmpty(t, doc, "%s has no doc tag", name)
+		for _, platform := range utils.ReleaseLinkPlatforms() {
+			assert.Contains(t, doc, platform, "%s doc omits %q", name, platform)
+		}
+	}
 }

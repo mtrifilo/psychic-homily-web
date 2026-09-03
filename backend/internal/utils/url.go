@@ -372,13 +372,28 @@ func ValidateSocialHost(field, fieldName, value string) error {
 	if err != nil {
 		return nil
 	}
-	host := strings.ToLower(u.Hostname())
-	for _, base := range bases {
-		if host == base || strings.HasSuffix(host, "."+base) {
-			return nil
-		}
+	if hostMatchesBase(strings.ToLower(u.Hostname()), bases) {
+		return nil
 	}
 	return fmt.Errorf("%s must be a link on %s", fieldName, strings.Join(bases, " or "))
+}
+
+// hostMatchesBase reports whether an already-lowercased host equals one of the
+// bases or is a subdomain of one.
+//
+// One spelling of the rule for both host allowlists in this package (the social
+// fields and the release-link platforms), because a fix to it that landed in
+// only one would be invisible: they are two files apart and nothing fails.
+//
+// The leading dot is load-bearing: it rejects "notbandcamp.com" and
+// "bandcamp.com.evil.test" while accepting "<artist>.bandcamp.com".
+func hostMatchesBase(host string, bases []string) bool {
+	for _, base := range bases {
+		if host == base || strings.HasSuffix(host, "."+base) {
+			return true
+		}
+	}
+	return false
 }
 
 // BlankBandcampEmbedToNil converts the clear-the-field gesture into the value the

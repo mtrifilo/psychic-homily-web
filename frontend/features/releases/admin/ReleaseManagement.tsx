@@ -236,34 +236,44 @@ interface LinkEntry {
   url: string
 }
 
-function LinkEditor({
-  links,
+/**
+ * The platform + URL add row, shared by the create form's pending list and the
+ * edit sheet's live list.
+ *
+ * It owns the draft and the refusal so the two callers cannot answer "is this
+ * link acceptable" differently. The refusal runs the same predicate as the
+ * public dialog, the release page's render gate and the backend write gate, and
+ * blocks the add: the create endpoint refuses the WHOLE release on one bad link,
+ * so catching it here is the difference between fixing one field and losing the
+ * form.
+ *
+ * onAdd may return a promise; the draft is cleared only once it resolves, so a
+ * rejected save leaves the value the curator typed.
+ */
+function LinkAddRow({
   onAdd,
-  onRemove,
+  pending = false,
 }: {
-  links: LinkEntry[]
-  onAdd: (link: LinkEntry) => void
-  onRemove: (index: number) => void
+  onAdd: (link: LinkEntry) => void | Promise<unknown>
+  pending?: boolean
 }) {
   const [platform, setPlatform] = useState<string>(EXTERNAL_LINK_PLATFORMS[0].value)
   const [url, setUrl] = useState('')
 
-  // Checked before the row joins the pending list rather than at submit: the
-  // create endpoint refuses the WHOLE release on one bad link, so catching it
-  // here is the difference between fixing one field and losing the form.
   const refusal = releaseLinkRefusal({ platform, url: url.trim() })
 
-  const handleAdd = useCallback(() => {
+  const handleAdd = useCallback(async () => {
     if (!url.trim() || refusal) return
-    onAdd({ platform, url: url.trim() })
-    setUrl('')
+    try {
+      await onAdd({ platform, url: url.trim() })
+      setUrl('')
+    } catch {
+      // The caller surfaces the failure; keep the typed value so it can be retried.
+    }
   }, [platform, url, refusal, onAdd])
 
   return (
-    <div className="space-y-3">
-      <Label>External Links</Label>
-
-      {/* Add new link */}
+    <>
       <div className="flex items-end gap-2">
         <div className="w-36">
           <Select value={platform} onValueChange={setPlatform}>
@@ -288,7 +298,7 @@ function LinkEditor({
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault()
-                handleAdd()
+                void handleAdd()
               }
             }}
             aria-invalid={refusal !== null}
@@ -298,15 +308,37 @@ function LinkEditor({
           type="button"
           variant="outline"
           size="sm"
-          onClick={handleAdd}
-          disabled={refusal !== null}
+          onClick={() => void handleAdd()}
+          disabled={pending || refusal !== null}
           aria-label="Add external link"
         >
-          <Plus className="h-4 w-4" />
+          {pending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Plus className="h-4 w-4" />
+          )}
         </Button>
       </div>
 
       {refusal && <p className="text-sm text-destructive">{refusal}</p>}
+    </>
+  )
+}
+
+function LinkEditor({
+  links,
+  onAdd,
+  onRemove,
+}: {
+  links: LinkEntry[]
+  onAdd: (link: LinkEntry) => void
+  onRemove: (index: number) => void
+}) {
+  return (
+    <div className="space-y-3">
+      <Label>External Links</Label>
+
+      <LinkAddRow onAdd={onAdd} />
 
       {/* Existing links */}
       {links.length > 0 && (
@@ -353,22 +385,12 @@ function ExistingLinkManager({
 }) {
   const addLinkMutation = useAddReleaseLink()
   const removeLinkMutation = useRemoveReleaseLink()
-  const [platform, setPlatform] = useState<string>(EXTERNAL_LINK_PLATFORMS[0].value)
-  const [url, setUrl] = useState('')
 
-  // Same predicate as the public dialog and the backend gate, so this surface
-  // cannot post a pair the others would refuse and cannot refuse one they allow.
-  const refusal = releaseLinkRefusal({ platform, url: url.trim() })
-
-  const handleAdd = useCallback(() => {
-    if (!url.trim() || refusal) return
-    addLinkMutation.mutate(
-      { releaseId, platform, url: url.trim() },
-      {
-        onSuccess: () => setUrl(''),
-      }
-    )
-  }, [releaseId, platform, url, refusal, addLinkMutation])
+  const handleAdd = useCallback(
+    (link: LinkEntry) =>
+      addLinkMutation.mutateAsync({ releaseId, ...link }),
+    [releaseId, addLinkMutation]
+  )
 
   const handleRemove = useCallback(
     (linkId: number) => {
@@ -381,59 +403,15 @@ function ExistingLinkManager({
     <div className="space-y-3">
       <Label>External Links</Label>
 
-      {/* Add new link */}
-      <div className="flex items-end gap-2">
-        <div className="w-36">
-          <Select value={platform} onValueChange={setPlatform}>
-            <SelectTrigger className="w-full" aria-label="External link platform">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {EXTERNAL_LINK_PLATFORMS.map((p) => (
-                <SelectItem key={p.value} value={p.value}>
-                  {p.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex-1">
-          <Input
-            placeholder="https://..."
-            aria-label="External link URL"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                handleAdd()
-              }
-            }}
-            aria-invalid={refusal !== null}
-          />
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={handleAdd}
-          disabled={addLinkMutation.isPending || refusal !== null}
-          aria-label="Add external link"
-        >
-          {addLinkMutation.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Plus className="h-4 w-4" />
-          )}
-        </Button>
-      </div>
+      <LinkAddRow onAdd={handleAdd} pending={addLinkMutation.isPending} />
 
-      {refusal && <p className="text-sm text-destructive">{refusal}</p>}
-      {addLinkMutation.isError && !refusal && (
-        <p className="text-sm text-destructive">
+      {/* A server-side refusal has to be visible here: this is the only add
+          surface with no other feedback, and the gate now refuses more. */}
+      {addLinkMutation.isError && (
+        <InlineErrorBanner>
           {(addLinkMutation.error as Error)?.message ||
             'Failed to add link. Please try again.'}
-        </p>
+        </InlineErrorBanner>
       )}
 
       {/* Existing links */}

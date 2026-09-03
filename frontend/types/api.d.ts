@@ -7235,7 +7235,7 @@ export interface components {
              */
             readonly $schema?: string;
             /**
-             * @description Platform name (bandcamp, spotify, etc.)
+             * @description Platform key. One of: amazon_music, apple_music, bandcamp, deezer, discogs, soundcloud, spotify, tidal, youtube, youtube_music
              * @example bandcamp
              */
             platform: string;
@@ -10073,7 +10073,7 @@ export interface components {
         };
         CreateReleaseLinkInput: {
             /**
-             * @description Platform name (bandcamp, spotify, discogs, etc.)
+             * @description Platform key. One of: amazon_music, apple_music, bandcamp, deezer, discogs, soundcloud, spotify, tidal, youtube, youtube_music
              * @example bandcamp
              */
             platform: string;

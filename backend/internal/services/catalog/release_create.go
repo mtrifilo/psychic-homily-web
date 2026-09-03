@@ -66,13 +66,19 @@ func createReleaseTx(tx *gorm.DB, req *contracts.CreateReleaseRequest, apply fun
 		}
 	}
 
-	// Create external links. Validated here rather than only at the HTTP
-	// boundary because the discography importer and the entity-request
-	// fulfiller build a CreateReleaseRequest directly; a link that reaches the
-	// column unanchored renders as an arbitrary host under a platform label.
-	for _, linkEntry := range req.ExternalLinks {
+	// Create external links, refusing the whole release rather than dropping a
+	// bad one: a partially-applied create is a worse answer than a refusal the
+	// caller can act on.
+	//
+	// The gate is here rather than at the HTTP boundary because this funnel is
+	// what every builder of a CreateReleaseRequest reaches, HTTP or not. The
+	// index is in the message because the request carries a list, so the refusal
+	// has to say which entry to fix.
+	for i, linkEntry := range req.ExternalLinks {
 		if err := utils.ValidateReleaseLink(linkEntry.Platform, linkEntry.URL); err != nil {
-			return nil, apperrors.ErrReleaseInvalidField(err)
+			return nil, apperrors.ErrReleaseInvalidField(
+				fmt.Errorf("external_links[%d]: %w", i, err),
+			)
 		}
 		link := &catalogm.ReleaseExternalLink{
 			ReleaseID: release.ID,

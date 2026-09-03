@@ -12,19 +12,18 @@ import { isBandcampReleaseUrl } from './bandcamp'
  *
  * The platform key is what a reader sees next to the URL, so an unanchored URL
  * is worse than a dead link: an arbitrary host wearing a name they trust.
- * Anchoring is on the parsed hostname, never a substring of the URL.
- *
- * A host matches when it equals a base or is a subdomain of it, which covers
- * open.spotify.com, <artist>.bandcamp.com, music.apple.com, itunes.apple.com,
- * music.youtube.com, music.amazon.com and www.discogs.com without listing each.
- * youtu.be is YouTube's own canonical share host; no other redirector or
- * short-link host belongs here, because one that cannot be shown statically to
- * land on-platform defeats the anchor.
+ * Anchoring is on the parsed hostname, never a substring of the URL. A host
+ * matches when it equals a base or is a subdomain of it, which is what covers
+ * open.spotify.com, <artist>.bandcamp.com, itunes.apple.com and www.discogs.com
+ * without listing each. youtu.be is YouTube's own share host; no other
+ * redirector belongs here, because one that cannot be shown statically to land
+ * on-platform defeats the anchor.
  *
  * Key order is the order the picker offers.
  *
  * CROSS-LANGUAGE MIRROR: releaseLinkPlatformHosts in
- * backend/internal/utils/release_link.go. Both sides assert this table against
+ * backend/internal/utils/release_link.go, where the reasoning behind each rule
+ * lives. Both sides assert this table against
  * backend/internal/utils/testdata/release_link_corpus.json, so a platform or
  * host added to one language and not the other fails the other language's suite
  * by name.
@@ -71,8 +70,15 @@ export interface ReleaseLinkLike {
  */
 const ASCII_HOST = /^[a-z0-9.-]+$/
 
+/**
+ * The registry entry for a platform, or null.
+ *
+ * Lowercases but does NOT trim, mirroring the Go lookup: casing has always named
+ * the same platform (the enrichment writer's dedup index is on LOWER(platform)),
+ * while a padded value is a different string that would be stored padded.
+ */
 function platformEntry(platform: string) {
-  const key = platform.trim().toLowerCase()
+  const key = platform.toLowerCase()
   return Object.prototype.hasOwnProperty.call(RELEASE_LINK_PLATFORMS, key)
     ? RELEASE_LINK_PLATFORMS[key as ReleaseLinkPlatform]
     : null
@@ -93,30 +99,14 @@ export function releaseLinkPlatformLabel(platform: string): string {
 }
 
 /**
- * The refusal to show beside the URL field, or null when the pair is fine.
+ * The single statement of what a release link may be, as the sentence to show
+ * whoever wrote it, or null when the pair is fine.
  *
- * It mirrors the backend's wording rather than restating a rule: both name the
- * hosts that work, because a submitter can act on that and cannot act on being
- * told which check failed. Empty input returns null; "required" is the caller's
- * own concern.
- */
-export function releaseLinkRefusal(link: ReleaseLinkLike): string | null {
-  if (!link.url.trim()) return null
-  const entry = platformEntry(link.platform)
-  if (!entry) {
-    return `Platform must be one of: ${RELEASE_LINK_PLATFORM_KEYS.join(', ')}`
-  }
-  if (isRenderableReleaseLink(link)) return null
-  return `${entry.label} link must be an http or https URL on ${entry.hosts.join(' or ')}`
-}
-
-/**
- * The ONE predicate for what a release external link is allowed to be. The
- * backend gates every write path on the same rules, so a stored row always
- * produces a link and a row that would not produce a link is never stored.
- *
- * Legacy rows are the reason the read side asks at all: nothing backfills, so a
- * row written before the gate existed keeps its value and renders no link.
+ * The rules mirror utils.ValidateReleaseLink in Go, judged by this language's
+ * URL parser; the shared corpus records every input where the two parsers
+ * disagree and why each is safe. The messages name the accepted value rather
+ * than the rule that failed, because that is the only form a submitter can act
+ * on.
  *
  * It deliberately says nothing about the PATH. A release link is "this release
  * on that platform" and each platform spells that differently, so a path rule
@@ -125,27 +115,59 @@ export function releaseLinkRefusal(link: ReleaseLinkLike): string | null {
  * The path-strict rules are the embed parsers (isBandcampReleaseUrl,
  * parseSpotifyEmbed), which answer a narrower question about one URL.
  */
-export function isRenderableReleaseLink(link: ReleaseLinkLike): boolean {
+function releaseLinkFailure(link: ReleaseLinkLike): string | null {
   const entry = platformEntry(link.platform)
-  if (!entry || link.platform !== link.platform.trim()) return false
-  // Judged exactly as stored: this parser trims before resolving, so a value
-  // that only validates after trimming is one the two layers disagree about.
-  if (!link.url || link.url !== link.url.trim()) return false
-  if (link.url.length > MAX_RELEASE_LINK_URL_LENGTH) return false
-
-  let parsed: URL
-  try {
-    parsed = new URL(link.url)
-  } catch {
-    return false
+  if (!entry) {
+    return `Platform must be one of: ${RELEASE_LINK_PLATFORM_KEYS.join(', ')}`
   }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
+  if (!link.url.trim()) return 'URL is required'
+  if (link.url.length > MAX_RELEASE_LINK_URL_LENGTH) {
+    return `URL must be ${MAX_RELEASE_LINK_URL_LENGTH} characters or fewer`
+  }
 
-  const host = parsed.hostname.toLowerCase()
-  if (!ASCII_HOST.test(host)) return false
-  // The leading dot is load-bearing: it rejects "notbandcamp.com" and
-  // "bandcamp.com.evil.test" while accepting "<artist>.bandcamp.com".
-  return entry.hosts.some(base => host === base || host.endsWith(`.${base}`))
+  const hostAnchored = (() => {
+    // Judged exactly as stored: this parser trims before resolving, so a value
+    // that only validates after trimming is one the two layers disagree about.
+    if (link.url !== link.url.trim()) return false
+    let parsed: URL
+    try {
+      parsed = new URL(link.url)
+    } catch {
+      return false
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
+    const host = parsed.hostname.toLowerCase()
+    if (!ASCII_HOST.test(host)) return false
+    // The leading dot is load-bearing: it rejects "notbandcamp.com" and
+    // "bandcamp.com.evil.test" while accepting "<artist>.bandcamp.com".
+    return entry.hosts.some(base => host === base || host.endsWith(`.${base}`))
+  })()
+
+  return hostAnchored
+    ? null
+    : `${entry.label} link must be an http or https URL on ${entry.hosts.join(' or ')}`
+}
+
+/**
+ * The refusal to show beside a URL field the user is still filling in, or null.
+ *
+ * The one difference from the gate: an empty field is not yet a mistake, so it
+ * says nothing. Whether empty may be submitted is the caller's own concern.
+ */
+export function releaseLinkRefusal(link: ReleaseLinkLike): string | null {
+  return link.url.trim() ? releaseLinkFailure(link) : null
+}
+
+/**
+ * The predicate for what a release external link is allowed to be. The backend
+ * gates every write path on the same rules, so a stored row always produces a
+ * link and a row that would not produce a link is never stored.
+ *
+ * Legacy rows are the reason the read side asks at all: nothing backfills, so a
+ * row written before the gate existed keeps its value and renders no link.
+ */
+export function isRenderableReleaseLink(link: ReleaseLinkLike): boolean {
+  return releaseLinkFailure(link) === null
 }
 
 /**

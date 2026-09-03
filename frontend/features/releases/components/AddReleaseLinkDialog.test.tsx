@@ -112,8 +112,10 @@ describe('AddReleaseLinkDialog', () => {
     const urlInput = screen.getByLabelText('URL')
     await user.type(urlInput, 'not-a-url')
 
+    // One refusal covers every way the value can be wrong, and names the shape
+    // that works instead of the check that failed.
     expect(
-      screen.getByText(/Enter a valid URL starting with http/i)
+      screen.getByText(/must be an http or https URL on bandcamp\.com/)
     ).toBeInTheDocument()
 
     const submit = screen.getByRole('button', { name: /Add link/i })
