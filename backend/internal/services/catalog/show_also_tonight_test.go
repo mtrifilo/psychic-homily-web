@@ -465,10 +465,13 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_LiveNightP
 		suite.createAlsoTonightShow(fmt.Sprintf("live-started-%d", i), chicago.ID,
 			nowLocal.Add(-time.Duration(i)*time.Minute), catalogm.ShowStatusApproved)
 	}
+	// Ten minutes of headroom on the earliest upcoming row: the fixture writes
+	// twenty-six shows before the rail reads its own clock, and a row that starts
+	// during the seeding would sink and take a started row's place.
 	var upcoming []uint
 	for i := 0; i < showAlsoTonightCap; i++ {
 		show := suite.createAlsoTonightShow(fmt.Sprintf("live-upcoming-%d", i), evanston.ID,
-			nowLocal.Add(time.Duration(2+i)*time.Minute), catalogm.ShowStatusApproved)
+			nowLocal.Add(time.Duration(10+i)*time.Minute), catalogm.ShowStatusApproved)
 		upcoming = append(upcoming, show.ID)
 	}
 

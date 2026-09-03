@@ -87,9 +87,10 @@ func TestShowDedupLockKeysAreOrderIndependent(t *testing.T) {
 	}
 }
 
-// One act cannot take two locks: the probe compares names case-insensitively, so
-// the keys must be deduplicated the same way. Two spellings of one name reach
-// here whenever a bill names an act the request also addressed by id.
+// One name cannot take two locks. probedHeadlinerNames already deduplicates
+// case-insensitively, so this pins the second half of that guarantee against a
+// hand-built value: the keys themselves fold the same way, and a probe assembled
+// by some future caller cannot lock one name twice.
 func TestShowDedupLockKeysDeduplicateOneAct(t *testing.T) {
 	eventDate := time.Date(2027, 6, 2, 20, 0, 0, 0, time.UTC)
 

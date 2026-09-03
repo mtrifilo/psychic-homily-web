@@ -4393,7 +4393,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_UnknownArtistIDIsNo
 	eventDate := suite.uniqueEventDate()
 
 	missingID := uint(2147483000)
-	_, err := suite.showService.CreateShow(&contracts.CreateShowRequest{
+	req := &contracts.CreateShowRequest{
 		Title:             "Unknown Artist Id",
 		EventDate:         eventDate,
 		City:              "Phoenix",
@@ -4402,10 +4402,67 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_UnknownArtistIDIsNo
 		Artists:           []contracts.CreateShowArtist{{ID: &missingID}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
+	}
+
+	// The probe itself, because the error below is the resolver's either way: a
+	// probe that kept the empty name would query LOWER(artists.name) = '' and take
+	// a lock on it without changing what the caller sees.
+	probe, err := newShowDedupProbe(suite.db, req)
+	suite.Require().NoError(err)
+	suite.Empty(probe.names, "an id that addresses no artist contributes no probe name")
+	suite.Empty(probe.lockKeys(), "and no lock is taken on the empty name")
+
+	nameless, err := newShowDedupProbe(suite.db, &contracts.CreateShowRequest{
+		EventDate: eventDate,
+		Venues:    req.Venues,
+		Artists:   []contracts.CreateShowArtist{{}},
 	})
+	suite.Require().NoError(err)
+	suite.Empty(nameless.names, "an act with neither id nor name contributes none either")
+
+	_, err = suite.showService.CreateShow(req)
 	suite.Require().Error(err)
 	suite.Contains(err.Error(), fmt.Sprintf("artist with ID %d not found", missingID),
 		"an unresolvable id fails at the resolver, not as a duplicate")
+}
+
+// Two entries for ONE artist -- an id and, further down the bill, that artist's
+// own name -- collapse to a single probe. This is the live path the probe's
+// resolve-then-deduplicate order exists for: dedup on the request's spelling
+// would leave two entries that resolve to one name taking two locks and running
+// the same query twice.
+func (suite *ShowServiceIntegrationTestSuite) TestShowDedupProbe_TwoEntriesForOneArtistProbeOnce() {
+	user := suite.createTestUser()
+	eventDate := suite.uniqueEventDate()
+
+	seeded, err := suite.showService.CreateShow(&contracts.CreateShowRequest{
+		Title:             "One Artist Twice Seed",
+		EventDate:         eventDate,
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{Name: "One Artist Twice Room", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "One Artist Twice Act"}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	})
+	suite.Require().NoError(err)
+	suite.Require().Len(seeded.Artists, 1)
+	suite.Require().Len(seeded.Venues, 1)
+	artistID := seeded.Artists[0].ID
+	venueID := seeded.Venues[0].ID
+
+	probe, err := newShowDedupProbe(suite.db, &contracts.CreateShowRequest{
+		EventDate: suite.uniqueEventDate(),
+		Venues:    []contracts.CreateShowVenue{{ID: &venueID}},
+		Artists: []contracts.CreateShowArtist{
+			{ID: &artistID},
+			{Name: "one artist twice act", SetType: strPtr(contracts.SetTypeHeadliner)},
+		},
+	})
+	suite.Require().NoError(err)
+	suite.Equal([]string{"One Artist Twice Act"}, probe.names,
+		"an id and that artist's own name are one act, probed once, under the stored spelling")
+	suite.Len(probe.lockKeys(), 1, "and one act at one venue is one lock")
 }
 
 // The predicate PreviewShowImport runs is the one the create guard runs, and it

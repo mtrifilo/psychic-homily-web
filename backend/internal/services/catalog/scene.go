@@ -908,8 +908,10 @@ func (s *SceneService) GetSceneShowsInRange(city, state string, from, to time.Ti
 // returned cannot be promoted afterwards.
 //
 // Every other caller passes nil and reads the night earliest-first, which is the
-// order a schedule is read in. An archive or future night has no mixed halves to
-// separate, so the distinction only ever matters on the live one.
+// order a schedule is read in. The rail passes one only for the date its own
+// payload calls IsTonight, which is the gate the client applies too; any other
+// date is read earliest-first here whatever mix of started and upcoming rows it
+// holds.
 func (s *SceneService) sceneShowsInRange(city, state string, from, to time.Time, loc *time.Location, limit int, sinkStartedAt *time.Time) ([]contracts.SceneShowSummary, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -952,8 +954,10 @@ func (s *SceneService) sceneShowsInRange(city, state string, from, to time.Time,
 	// ordering instant where there is one, then the cap.
 	args := append(append([]any{}, vargs...), catalogm.ShowStatusApproved, now, windowEnd)
 	// Both branches are compile-time literals; only the instant is a bind arg.
-	// `<=` is the boundary the client's own hasShowStarted uses, so a row cannot
-	// land in one half on the server and the other on a hydrating client.
+	// `<=` is the boundary the client's own hasShowStarted uses, so the two agree
+	// on a row starting exactly at the instant they are given. A row that starts
+	// between this answer and a client re-sort moves to the started half, which is
+	// what re-sorting is for.
 	const clockOrder = "picked.event_date ASC, picked.id ASC"
 	orderBy := "ORDER BY " + clockOrder
 	if sinkStartedAt != nil {

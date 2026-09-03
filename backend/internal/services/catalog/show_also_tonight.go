@@ -36,8 +36,9 @@ const showAlsoTonightCap = 20
 //     boundary that names a NIGHT. `Date` is a scene-day key, so the two surfaces
 //     must bucket a 01:00 set onto the same date. `IsTonight` carries the 6am
 //     rule separately, so a client never has to reimplement it.
-//   - The rows come from GetSceneShowsInRange, so "the metro's shows on a date"
-//     has ONE definition shared with the scene-day page and the digest.
+//   - The rows come from sceneShowsInRange, the same query GetSceneShowsInRange
+//     serves, so "the metro's shows on a date" has ONE definition shared with the
+//     scene-day page and the digest.
 //
 // A show whose venue cannot be scoped to a scene returns an empty rail at 200,
 // not 404: the show itself is real, and a page that exists must not be broken by
@@ -152,9 +153,9 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 	//     sending them there is worse than sending them nowhere.
 	//
 	// The membership half cannot be read off the rows alone: they are capped and
-	// ordered, so a subject the scene-day page does list can still be absent from
-	// them, and only that branch pays for a query. A date with no page to point at
-	// pays for nothing.
+	// ordered, so a subject the scope does include can still be absent from them.
+	// Only that branch pays for a query, and a date with no page to point at pays
+	// for nothing.
 	//
 	// Display identity below stays unconditional, because naming the metro is
 	// true either way. Same split as SceneDayResponse.PrevDate/NextDate.
@@ -162,7 +163,7 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 	if dateIsServable(date, nowLocal) {
 		listed := subjectOnTheRail
 		if !listed {
-			listed, err = s.sceneListsShow(scope, subject.ShowID)
+			listed, err = s.sceneScopeIncludesShow(scope, subject.ShowID)
 			if err != nil {
 				return nil, err
 			}
@@ -186,14 +187,20 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 	}, nil
 }
 
-// sceneListsShow answers whether the metro's scene-day page for this show's date
-// would list this show: the venue predicate and status filter GetSceneShowsInRange
-// applies, asked about one row. The date needs no term, because this rail's date
-// is derived from the subject's own instant.
+// sceneScopeIncludesShow answers whether one show sits in the metro's scope: the
+// venue predicate and approved-status filter GetSceneShowsInRange applies, asked
+// about a single row. It carries no date term and no clock.
+//
+// That is NARROWER than "the scene-day page for this date lists this show", and
+// deliberately so. This rail dates a show on the room's own zone while the
+// scene-day page dates it on the metro's modal clock (alsoTonightClock states
+// why), so the two can file one show under different dates. What this answers is
+// the failure the venues.metro backfill actually produces: a room the scene
+// cannot see at all.
 //
 // EXISTS rather than a count: a show billed at several of the metro's rooms
 // matches once per room, and only whether it matches at all is ever asked.
-func (s *SceneService) sceneListsShow(scope sceneScope, showID uint) (bool, error) {
+func (s *SceneService) sceneScopeIncludesShow(scope sceneScope, showID uint) (bool, error) {
 	vp, vargs := scope.venuePredicate("v")
 	args := append(append([]any{}, vargs...), showID, catalogm.ShowStatusApproved)
 

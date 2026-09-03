@@ -309,8 +309,10 @@ func (s *ShowService) determineShowStatus(tx *gorm.DB, venues []contracts.Create
 //   - On one (artist_id, venue_id, event_date) triple the index refuses
 //     regardless of set_type or position, and there this guard adds only the
 //     message.
-//   - Where the two resolve to DIFFERENT artist ids, only this guard fires: an
-//     artist name is matched case-insensitively against the whole table.
+//   - Where they resolve to the SAME artist they answer alike:
+//     artists_lower_name_uniq makes LOWER(name) a unique identity, so matching a
+//     name reaches exactly the row an id reaches. The guard's reach past the
+//     index is the bullet below, not a second row for one band.
 //   - Where the denorm columns are NULL, or the collision sits at a multi-venue
 //     show's non-lowest venue_id, this guard is the only refusal for the acts it
 //     probes.
@@ -470,9 +472,11 @@ func (p showDedupProbe) lockKeys() []int64 {
 // resolved, so reading the request's name alone would probe an empty string and
 // check nothing.
 //
-// Resolving to a NAME rather than matching on artist_id is what keeps this guard
-// wider than the unique index it fronts: the index is keyed on artist_id, while a
-// name reaches a duplicate ROW of the same band under a different id.
+// Resolving to a NAME rather than matching on artist_id keeps ONE probe shape:
+// the stored-row half compares LOWER(artists.name), the advisory lock is keyed on
+// that name, and the refusal message names an act rather than an id.
+// artists_lower_name_uniq makes the two identities equivalent, so this is the
+// shape of the check and not a claim about its reach.
 //
 // An id that addresses no artist contributes no probe name, and neither does an
 // act carrying neither id nor name. The create refuses both at associateArtists,
