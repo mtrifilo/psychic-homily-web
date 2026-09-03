@@ -1073,6 +1073,12 @@ func (s *CollectionService) UpdateCollection(slug string, userID uint, isAdmin b
 		retrieveSlug = newSlug
 	}
 
+	// READ BACK AS THE CALLER, which is what makes the admin exception a WRITE
+	// power and not a read one. An admin who edits a private collection without
+	// publishing it gets the update applied and a not-found response, because
+	// GetBySlug refuses them exactly as it does everywhere else. The is_public
+	// flip returns a body because the flip is what makes the collection
+	// readable, and that is the remedy the report queue needs.
 	return s.GetBySlug(retrieveSlug, userID)
 }
 
