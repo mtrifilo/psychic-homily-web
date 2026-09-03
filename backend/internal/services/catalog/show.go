@@ -375,15 +375,25 @@ func (s *ShowService) checkDuplicateHeadlinerConflicts(tx *gorm.DB, req *contrac
 	//
 	// The venue half of the key is the identity the CALLER expressed, so two
 	// callers naming one venue differently (one by id, one by name and city) do
-	// not serialize against each other and fall through to the unique index.
+	// not serialize against each other and fall through to the unique index. The
+	// artist half has no such split: probedHeadlinerNames resolves an id to the
+	// name that id stores, so a bill sent by id and the same bill sent by name
+	// take the same key.
 	//
-	for _, lockKey := range showDedupLockKeys(req, eventDate) {
+	// The probe set is built ONCE and handed to both halves, so the names locked
+	// are exactly the names queried.
+	probeNames, err := probedHeadlinerNames(tx, req.Artists)
+	if err != nil {
+		return err
+	}
+
+	for _, lockKey := range showDedupLockKeys(probeNames, req.Venues, eventDate) {
 		if err := tx.Exec("SELECT pg_advisory_xact_lock(?)", lockKey).Error; err != nil {
 			return fmt.Errorf("failed to acquire advisory lock: %w", err)
 		}
 	}
 
-	message, err := findRequestDuplicate(tx, req)
+	message, err := findRequestDuplicate(tx, req, probeNames)
 	if err != nil {
 		return err
 	}
@@ -398,10 +408,10 @@ func (s *ShowService) checkDuplicateHeadlinerConflicts(tx *gorm.DB, req *contrac
 // takes several locks, and two concurrent creates of the same bill listed in
 // opposite orders would otherwise take the same keys in opposite orders and
 // deadlock, which Postgres resolves by killing one create with a 40P01.
-func showDedupLockKeys(req *contracts.CreateShowRequest, eventDate time.Time) []int64 {
+func showDedupLockKeys(probeNames []string, venues []contracts.CreateShowVenue, eventDate time.Time) []int64 {
 	var keys []int64
-	for _, headlinerName := range probedHeadlinerNames(req.Artists) {
-		for _, target := range venueDedupTargets(req.Venues) {
+	for _, headlinerName := range probeNames {
+		for _, target := range venueDedupTargets(venues) {
 			keys = append(keys,
 				fnvHash(strings.ToLower(headlinerName)+"|"+target.lockKey()+"|"+eventDate.Format(time.RFC3339Nano)))
 		}
@@ -428,33 +438,99 @@ func showDedupLockKeys(req *contracts.CreateShowRequest, eventDate time.Time) []
 // puts that artist on that bill at that venue at that instant, which is the only
 // question a duplicate guard asks.
 //
-// The mirror holds only for acts that carry a NAME. An act given by id alone --
-// which the create schema accepts, and which the ph CLI sends for every act it
-// resolved to an existing artist -- contributes an empty name here, and the probe
-// matches nothing on it. Unlike the venue half, this is not resolved to an id;
-// closing it needs its own ticket.
+// An act is probed under the name it will STORE, which for an act given by id is
+// the canonical name of that artist row rather than anything the request spelled:
+// associateArtists resolves an id to that row and ignores any name beside it, so
+// the row this write makes matchable carries that name. The create schema accepts
+// an id with no name at all, and the ph CLI sends exactly that for every act it
+// resolved, so reading the request's name alone would probe an empty string and
+// check nothing.
+//
+// Resolving to a NAME rather than matching on artist_id is what keeps this guard
+// wider than the unique index it fronts: the index is keyed on artist_id, while a
+// name reaches a duplicate ROW of the same band under a different id.
+//
+// An id that addresses no artist contributes no probe name, and neither does an
+// act carrying neither id nor name. The create refuses both at associateArtists,
+// and an empty name would otherwise probe every artist row whose name is empty.
 //
 // Names are deduplicated case-insensitively, matching the LOWER() comparison the
 // probe runs, so one act cannot take two locks and two queries.
-func probedHeadlinerNames(artists []contracts.CreateShowArtist) []string {
+func probedHeadlinerNames(db *gorm.DB, artists []contracts.CreateShowArtist) ([]string, error) {
 	if len(artists) == 0 {
-		return nil
+		return nil, nil
 	}
 
-	names := []string{artists[0].Name}
-	seen := map[string]bool{strings.ToLower(artists[0].Name): true}
+	canonical, err := canonicalArtistNames(db, artists)
+	if err != nil {
+		return nil, err
+	}
+
+	var names []string
+	seen := map[string]bool{}
+	probe := func(artist contracts.CreateShowArtist) {
+		name := storedArtistName(artist, canonical)
+		if name == "" {
+			return
+		}
+		key := strings.ToLower(name)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		names = append(names, name)
+	}
+
+	probe(artists[0])
 	for _, artist := range artists {
 		if !claimsHeadlineSlot(artist) {
 			continue
 		}
-		key := strings.ToLower(artist.Name)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		names = append(names, artist.Name)
+		probe(artist)
 	}
-	return names
+	return names, nil
+}
+
+// storedArtistName is the name the show_artists row this act writes will carry:
+// the canonical name of the row an id addresses, and otherwise the name the
+// request gave. Empty when an id addresses no row.
+func storedArtistName(artist contracts.CreateShowArtist, canonical map[uint]string) string {
+	if artist.ID != nil {
+		return canonical[*artist.ID]
+	}
+	return artist.Name
+}
+
+// canonicalArtistNames reads the names of the artist rows a bill addresses by id,
+// in one query, keyed by id because a bill may address one artist twice.
+//
+// Read-only, and it takes no lock: an id names a row that already exists, and a
+// rename racing this read moves the name the guard would have probed either way.
+func canonicalArtistNames(db *gorm.DB, artists []contracts.CreateShowArtist) (map[uint]string, error) {
+	ids := make([]uint, 0, len(artists))
+	for _, artist := range artists {
+		if artist.ID != nil {
+			ids = append(ids, *artist.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	type artistNameRow struct {
+		ID   uint   `gorm:"column:id"`
+		Name string `gorm:"column:name"`
+	}
+	var rows []artistNameRow
+	if err := db.Table("artists").Select("id, name").Where("id IN ?", ids).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("failed to resolve artist names for duplicate check: %w", err)
+	}
+
+	names := make(map[uint]string, len(rows))
+	for _, row := range rows {
+		names[row.ID] = row.Name
+	}
+	return names, nil
 }
 
 // venueDedupTarget is one venue of a create request, identified by id when the
@@ -543,15 +619,20 @@ func (t venueDedupTarget) displayName() string {
 // match below, and neither depends on whether position inference has been
 // suppressed, so this answers the same question wherever it is called from.
 //
+// probeNames comes in rather than being built here because the create path takes
+// its advisory locks on the same set before reading, and locking one set while
+// querying another would leave the query unserialized. Every caller builds it
+// with probedHeadlinerNames.
+//
 // The stored row matches on curated 'headliner' OR position 0. Do not narrow
 // that to headlineSlotSQL; checkDuplicateHeadlinerConflicts records what it was
 // measured to break. It reads ids rather than whole rows: the join is not
 // deduplicated, so a match can return one row per (show_artist, show_venue) pair
 // and only its existence is ever asked about.
-func findRequestDuplicate(db *gorm.DB, req *contracts.CreateShowRequest) (string, error) {
+func findRequestDuplicate(db *gorm.DB, req *contracts.CreateShowRequest, probeNames []string) (string, error) {
 	eventDate := req.EventDate.UTC()
 
-	for _, artistName := range probedHeadlinerNames(req.Artists) {
+	for _, artistName := range probeNames {
 		for _, target := range venueDedupTargets(req.Venues) {
 			query := db.Table("shows").
 				Joins("JOIN show_artists ON shows.id = show_artists.show_id").
@@ -3333,7 +3414,11 @@ func (s *ShowService) PreviewShowImport(content []byte) (*contracts.ImportPrevie
 		return response, nil
 	}
 
-	message, err := findRequestDuplicate(s.db, importReq)
+	probeNames, err := probedHeadlinerNames(s.db, importReq.Artists)
+	if err != nil {
+		return nil, err
+	}
+	message, err := findRequestDuplicate(s.db, importReq, probeNames)
 	if err != nil {
 		return nil, err
 	}

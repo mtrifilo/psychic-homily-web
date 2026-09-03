@@ -59,29 +59,14 @@ func TestHeadlineSlotSQLDerivesValuesFromTheVocabulary(t *testing.T) {
 // Two concurrent creates of ONE bill listed in opposite orders must take the
 // same advisory locks in the same order, or Postgres kills one with a 40P01.
 // Sorting is the whole guarantee, and it is invisible at the call site, so it is
-// pinned here.
+// pinned here. The probe names are passed literally: which acts a bill probes is
+// probedHeadlinerNames' question and is pinned against a database.
 func TestShowDedupLockKeysAreOrderIndependent(t *testing.T) {
 	eventDate := time.Date(2027, 6, 1, 20, 0, 0, 0, time.UTC)
 	venues := []contracts.CreateShowVenue{{Name: "Lock Room", City: "Phoenix", State: "AZ"}}
-	headliner := contracts.SetTypeHeadliner
 
-	forward := showDedupLockKeys(&contracts.CreateShowRequest{
-		EventDate: eventDate,
-		Venues:    venues,
-		Artists: []contracts.CreateShowArtist{
-			{Name: "Earth"},
-			{Name: "Boris", SetType: &headliner},
-		},
-	}, eventDate)
-
-	reversed := showDedupLockKeys(&contracts.CreateShowRequest{
-		EventDate: eventDate,
-		Venues:    venues,
-		Artists: []contracts.CreateShowArtist{
-			{Name: "Boris"},
-			{Name: "Earth", SetType: &headliner},
-		},
-	}, eventDate)
+	forward := showDedupLockKeys([]string{"Earth", "Boris"}, venues, eventDate)
+	reversed := showDedupLockKeys([]string{"Boris", "Earth"}, venues, eventDate)
 
 	if len(forward) != 2 {
 		t.Fatalf("both acts must be locked, got %d keys", len(forward))
@@ -95,16 +80,16 @@ func TestShowDedupLockKeysAreOrderIndependent(t *testing.T) {
 }
 
 // One act cannot take two locks: the probe compares names case-insensitively, so
-// the keys must be deduplicated the same way.
+// the keys must be deduplicated the same way. Two spellings of one name reach
+// here whenever a bill names an act the request also addressed by id.
 func TestShowDedupLockKeysDeduplicateOneAct(t *testing.T) {
 	eventDate := time.Date(2027, 6, 2, 20, 0, 0, 0, time.UTC)
-	headliner := contracts.SetTypeHeadliner
 
-	keys := showDedupLockKeys(&contracts.CreateShowRequest{
-		EventDate: eventDate,
-		Venues:    []contracts.CreateShowVenue{{Name: "Lock Room", City: "Phoenix", State: "AZ"}},
-		Artists:   []contracts.CreateShowArtist{{Name: "earth", SetType: &headliner}},
-	}, eventDate)
+	keys := showDedupLockKeys(
+		[]string{"earth", "Earth"},
+		[]contracts.CreateShowVenue{{Name: "Lock Room", City: "Phoenix", State: "AZ"}},
+		eventDate,
+	)
 
 	if len(keys) != 1 {
 		t.Errorf("one act at one venue is one lock, got %d: %v", len(keys), keys)
