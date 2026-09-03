@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/httprate"
 
 	authm "psychic-homily-backend/internal/models/auth"
+	adminsvc "psychic-homily-backend/internal/services/admin"
 	"psychic-homily-backend/internal/services/auth"
 )
 
@@ -694,5 +695,26 @@ func TestRateLimitPublicReadsByAuthState_OwnCapRejectionsDoNotDrainSharedCeiling
 	// budget left (2/2) because A's rejected retries never reached it.
 	if rr := serve(handler, readReq(sharedIP, tokenB)); rr.Code != http.StatusOK {
 		t.Errorf("B first (same IP as spamming A): status = %d, want 200 (A's own-cap rejections must not drain the shared ceiling)", rr.Code)
+	}
+}
+
+// PSY-2017: skipping a limiter is a SEPARATE grant from authenticating. A scope
+// that adminsvc later learns to validate stays metered until it is named in the
+// bypass allowlist, which is what "a new scope is limited by default" means.
+//
+// This is a unit pin on the list itself. It cannot be driven through
+// APITokenValidator today, because adminsvc refuses an unknown scope before the
+// bypass check runs; the two gates coincide until a second scope exists.
+func TestAPITokenBypassScopes(t *testing.T) {
+	cases := map[string]bool{
+		adminsvc.TokenScopeAdmin: true,
+		"readonly":               false,
+		"ingest":                 false,
+		"":                       false,
+	}
+	for scope, want := range cases {
+		if got := apiTokenBypassScopes[scope]; got != want {
+			t.Errorf("apiTokenBypassScopes[%q] = %v, want %v", scope, got, want)
+		}
 	}
 }

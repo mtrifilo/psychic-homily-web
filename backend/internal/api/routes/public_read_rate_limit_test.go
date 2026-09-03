@@ -39,7 +39,7 @@ func TestIsPublicReadRateLimitEnabled(t *testing.T) {
 // limit. This is what keeps CI/E2E and a fresh prod deploy unthrottled until the
 // limiter is deliberately enabled per environment (stage-first rollout).
 func TestPublicReadRateLimiter_NotEnabledIsNoop(t *testing.T) {
-	mw := PublicReadRateLimiter(nil, nil, func(string) string { return "" })
+	mw := PublicReadRateLimiter(nil, nil, nil, func(string) string { return "" })
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -58,7 +58,7 @@ func TestPublicReadRateLimiter_NotEnabledIsNoop(t *testing.T) {
 // Enabled + nil JWT (all requests anonymous) → anonymous READS are limited:
 // APIRequestsPerMinute pass, the next is 429 with Retry-After.
 func TestPublicReadRateLimiter_EnabledLimitsAnonymousReads(t *testing.T) {
-	mw := PublicReadRateLimiter(nil, nil, enableEnv)
+	mw := PublicReadRateLimiter(nil, nil, nil, enableEnv)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -90,7 +90,7 @@ func TestPublicReadRateLimiter_EnabledLimitsAnonymousReads(t *testing.T) {
 // GET/HEAD filter — otherwise it is an unmetered aggregate query over
 // user_bookmarks for any anonymous caller.
 func TestPublicReadRateLimiter_LimitsReadViaPostBatch(t *testing.T) {
-	mw := PublicReadRateLimiter(nil, nil, enableEnv)
+	mw := PublicReadRateLimiter(nil, nil, nil, enableEnv)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -117,7 +117,7 @@ func TestPublicReadRateLimiter_LimitsReadViaPostBatch(t *testing.T) {
 // The batch follow-count endpoint is a READ that carries entity IDs in a POST
 // body. It must share the anonymous read budget (PSY-1397).
 func TestPublicReadRateLimiter_LimitsFollowsBatch(t *testing.T) {
-	mw := PublicReadRateLimiter(nil, nil, enableEnv)
+	mw := PublicReadRateLimiter(nil, nil, nil, enableEnv)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -165,7 +165,7 @@ func TestReadViaPostPaths_CoversOptionalAuthPosts(t *testing.T) {
 }
 
 func TestPublicReadRateLimiter_LimitsReleaseSaveBatch(t *testing.T) {
-	mw := PublicReadRateLimiter(nil, nil, enableEnv)
+	mw := PublicReadRateLimiter(nil, nil, nil, enableEnv)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -192,7 +192,7 @@ func TestPublicReadRateLimiter_LimitsReleaseSaveBatch(t *testing.T) {
 // Genuine follow writes must bypass the read budget — only the batch read path
 // is on the read-via-POST allowlist, not /{entity_type}/{entity_id}/follow.
 func TestPublicReadRateLimiter_FollowWriteNotLimited(t *testing.T) {
-	mw := PublicReadRateLimiter(nil, nil, enableEnv)
+	mw := PublicReadRateLimiter(nil, nil, nil, enableEnv)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -211,7 +211,7 @@ func TestPublicReadRateLimiter_FollowWriteNotLimited(t *testing.T) {
 // A genuine write on a path that merely LOOKS adjacent must still bypass the
 // read budget — the allowlist is exact-match, not a prefix.
 func TestPublicReadRateLimiter_SaveWriteNotLimited(t *testing.T) {
-	mw := PublicReadRateLimiter(nil, nil, enableEnv)
+	mw := PublicReadRateLimiter(nil, nil, nil, enableEnv)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -230,7 +230,7 @@ func TestPublicReadRateLimiter_SaveWriteNotLimited(t *testing.T) {
 // Writes (non-GET/HEAD) are NOT limited here — they keep their own dedicated
 // limiters, so a shared read budget can't 429 an anonymous write.
 func TestPublicReadRateLimiter_WritesNotLimited(t *testing.T) {
-	mw := PublicReadRateLimiter(nil, nil, enableEnv)
+	mw := PublicReadRateLimiter(nil, nil, nil, enableEnv)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -259,7 +259,7 @@ func TestPublicReadRateLimiter_HealthPathsExempt(t *testing.T) {
 
 	for path, remoteAddr := range probes {
 		t.Run(path, func(t *testing.T) {
-			mw := PublicReadRateLimiter(nil, nil, enableEnv)
+			mw := PublicReadRateLimiter(nil, nil, nil, enableEnv)
 			handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			}))
@@ -280,9 +280,11 @@ func TestPublicReadRateLimiter_HealthPathsExempt(t *testing.T) {
 // PSY-1430 / PSY-1505: personal iCal + Atom feeds are token-auth'd URL polls
 // from Google/Apple Calendar / RSS-reader cloud IPs. They must not share the
 // anonymous public-read per-IP bucket (PSY-1418) or feed fetchers get unfairly
-// 429'd. The /feeds/ prefix covers both saved-shows.ics and follows.atom.
+// 429'd. PSY-2017: the exemption is the VALIDATED token, so this fixture
+// resolves exactly the one token the paths below carry.
 func TestPublicReadRateLimiter_PersonalFeedPathsExempt(t *testing.T) {
-	mw := PublicReadRateLimiter(nil, nil, enableEnv)
+	const liveToken = "phcal_abc123"
+	mw := PublicReadRateLimiter(nil, nil, func(tok string) bool { return tok == liveToken }, enableEnv)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -354,7 +356,7 @@ func TestPublicReadRateLimiter_AuthenticatedUsesPerUserCap(t *testing.T) {
 		t.Fatalf("CreateToken: %v", err)
 	}
 
-	mw := PublicReadRateLimiter(jwtService, nil, enableEnv)
+	mw := PublicReadRateLimiter(jwtService, nil, nil, enableEnv)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -376,7 +378,7 @@ func TestPublicReadRateLimiter_AuthenticatedUsesPerUserCap(t *testing.T) {
 // PSY-1814: a validated phk_ token is exempt from the anonymous per-IP budget.
 func TestPublicReadRateLimiter_ValidatedAPITokenBypassesAnonCap(t *testing.T) {
 	const valid = "phk_validated-ingest"
-	mw := PublicReadRateLimiter(nil, func(tok string) bool { return tok == valid }, enableEnv)
+	mw := PublicReadRateLimiter(nil, func(tok string) bool { return tok == valid }, nil, enableEnv)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -414,7 +416,7 @@ func TestPublicReadRateLimiter_ValidatedAPITokenBypassesAnonCap(t *testing.T) {
 
 // PSY-1814 / PSY-1362: a forged phk_ prefix still 429s at the anonymous cap.
 func TestPublicReadRateLimiter_ForgedAPITokenHitsAnonCap(t *testing.T) {
-	mw := PublicReadRateLimiter(nil, func(string) bool { return false }, enableEnv)
+	mw := PublicReadRateLimiter(nil, func(string) bool { return false }, nil, enableEnv)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -458,7 +460,7 @@ func TestPublicReadRateLimiter_NoAuthDoesNotHitValidateCallback(t *testing.T) {
 	mw := PublicReadRateLimiter(nil, func(string) bool {
 		called = true
 		return false
-	}, enableEnv)
+	}, nil, enableEnv)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -472,5 +474,90 @@ func TestPublicReadRateLimiter_NoAuthDoesNotHitValidateCallback(t *testing.T) {
 	}
 	if called {
 		t.Error("validateAPIToken was called with no Authorization header (must stay DB-free)")
+	}
+}
+
+// PSY-2017: the exemption is the token, not the URL shape. A path that spells a
+// feed route with a token nothing resolves is metered exactly like any other
+// anonymous read, which is what closes the "name the prefix, skip the limiter"
+// hole the phk_ bypass had.
+func TestPublicReadRateLimiter_UnvalidatedFeedTokenIsLimited(t *testing.T) {
+	paths := []string{
+		"/feeds/phcal_junk/saved-shows.ics",
+		"/feeds/phcal_junk/follows.atom",
+		"/calendar/phcal_junk",
+		"/feeds/junk/saved-shows.ics",
+		"/feeds/anything-at-all",
+	}
+	for _, path := range paths {
+		t.Run(path, func(t *testing.T) {
+			mw := PublicReadRateLimiter(nil, nil, func(string) bool { return false }, enableEnv)
+			handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}))
+			for i := 0; i < middleware.APIRequestsPerMinute; i++ {
+				req := httptest.NewRequest(http.MethodGet, path, nil)
+				req.RemoteAddr = "7.7.9.10:100"
+				rr := httptest.NewRecorder()
+				handler.ServeHTTP(rr, req)
+				if rr.Code != http.StatusOK {
+					t.Fatalf("request %d within limit: status = %d, want 200", i, rr.Code)
+				}
+			}
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			req.RemoteAddr = "7.7.9.10:100"
+			rr := httptest.NewRecorder()
+			handler.ServeHTTP(rr, req)
+			if rr.Code != http.StatusTooManyRequests {
+				t.Errorf("request past limit: status = %d, want 429 (an unvalidated feed token earns no exemption)", rr.Code)
+			}
+		})
+	}
+}
+
+// A feed path whose token carries no phcal_ prefix must not spend a lookup: the
+// prefix is the pre-filter that keeps a visitor GET off the database, exactly as
+// validatedAPIToken keeps one off api_tokens.
+func TestPublicReadRateLimiter_NonPrefixedFeedPathDoesNotHitValidateCallback(t *testing.T) {
+	called := false
+	mw := PublicReadRateLimiter(nil, nil, func(string) bool {
+		called = true
+		return false
+	}, enableEnv)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	for _, path := range []string{"/feeds/junk/saved-shows.ics", "/calendar/token", "/artists/1/graph-card"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.RemoteAddr = "7.7.9.11:100"
+		handler.ServeHTTP(httptest.NewRecorder(), req)
+	}
+	if called {
+		t.Error("validateFeedToken was called for a path carrying no phcal_ token (must stay DB-free)")
+	}
+}
+
+// personalFeedTokenFromPath is what decides whether a request is even a
+// candidate for the exemption, so its shape rules are pinned directly: only the
+// registered feed routes yield a token, and a token never spans a path segment.
+func TestPersonalFeedTokenFromPath(t *testing.T) {
+	cases := map[string]string{
+		"/feeds/phcal_abc/saved-shows.ics": "phcal_abc",
+		"/feeds/phcal_abc/follows.atom":    "phcal_abc",
+		"/calendar/phcal_abc":              "phcal_abc",
+		"/calendar/token":                  "token",
+		"/feeds/phcal_abc/other.ics":       "",
+		"/feeds//saved-shows.ics":          "",
+		"/saved-shows.ics":                 "",
+		"/feeds/a/b/saved-shows.ics":       "",
+		"/calendar/phcal_abc/saved-shows":  "",
+		"/calendar/":                       "",
+		"/feeds/":                          "",
+	}
+	for path, want := range cases {
+		if got := personalFeedTokenFromPath(path); got != want {
+			t.Errorf("personalFeedTokenFromPath(%q) = %q, want %q", path, got, want)
+		}
 	}
 }

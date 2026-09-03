@@ -62,11 +62,9 @@ func TestShowAlsoTonightPathResolvesAnonymously(t *testing.T) {
 func TestShowAlsoTonightIsNotExemptFromRateLimiting(t *testing.T) {
 	path := "/shows/desert-doom-night/also-tonight"
 
-	for _, prefix := range personalFeedPathPrefixesExemptFromRateLimit {
-		if len(path) >= len(prefix) && path[:len(prefix)] == prefix {
-			t.Errorf("also-tonight path %q matches rate-limit exemption prefix %q — a public "+
-				"unauthenticated endpoint must stay metered", path, prefix)
-		}
+	if token := personalFeedTokenFromPath(path); token != "" {
+		t.Errorf("also-tonight path %q reads as personal-feed token %q: a public unauthenticated endpoint must stay metered",
+			path, token)
 	}
 	for _, exact := range infraPathsExemptFromRateLimit {
 		if path == exact {

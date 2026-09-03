@@ -296,10 +296,15 @@ func main() {
 	// rates, then prod).
 	validateAPIToken := middleware.APITokenValidator(sc.APIToken)
 
-	router.Use(routes.PublicReadRateLimiter(sc.JWT, validateAPIToken, os.Getenv))
+	// PSY-2017: a personal feed or calendar URL skips the public-read limiter only
+	// when the phcal_ token in its path resolves to a live calendar_tokens row.
+	validateFeedToken := middleware.CalendarTokenValidator(sc.Calendar)
 
-	// PSY-1482: rate-limit authenticated engagement-toggle mutations (save/unsave
-	// show+release, follow/unfollow entity+scene) against a SHARED per-USER budget
+	router.Use(routes.PublicReadRateLimiter(sc.JWT, validateAPIToken, validateFeedToken, os.Getenv))
+
+	// PSY-1482: rate-limit authenticated one-row mutations (save/unsave
+	// show+release, follow/unfollow entity+scene, venue confirm, and PSY-1991's
+	// single entity-request file+withdraw) against a SHARED per-USER budget
 	// (60/min burst + 600/hr sustained, both must pass). Public-read limiting
 	// exempts writes, so these mutations otherwise had no ceiling on rc.Protected.
 	// Admin JWTs and validated API tokens bypass. Mounted after sc (needs sc.JWT),
@@ -307,6 +312,16 @@ func main() {
 	// (default noop): set ENABLE_ENGAGEMENT_MUTATION_RATE_LIMITS=1 per environment
 	// (stage, observe 429 rates, then prod).
 	router.Use(routes.EngagementMutationRateLimiter(sc.JWT, validateAPIToken, os.Getenv))
+
+	// PSY-1991: rate-limit batch entity-request filing against its OWN per-user
+	// budget (middleware.EntityRequestBatchBurstPerMinute +
+	// EntityRequestBatchSustainedPerHour, both must pass), metered per request
+	// rather than per submission. Separate from the shared budget above because
+	// one batch request carries many submissions; the numbers and their
+	// derivation live with the constants. Admin JWTs and validated API tokens
+	// bypass. Shares the engagement limiter's opt-in flag, so both
+	// entity-request budgets arrive in an environment together.
+	router.Use(routes.EntityRequestBatchRateLimiter(sc.JWT, validateAPIToken, os.Getenv))
 
 	// PSY-1734: gzip compressible response bodies. Mounted LAST of the global
 	// middleware, i.e. INSIDE the rate limiters, so a rejected request is never

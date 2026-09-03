@@ -29,11 +29,11 @@ func TestRateLimitEngagementMutationSustained_ReturnsMiddleware(t *testing.T) {
 // without sending 60 requests. The sustained window stays generous so only the
 // burst limiter trips here.
 func engagementMW(jwtService *auth.JWTService) func(http.Handler) http.Handler {
-	burst := httprate.Limit(1, time.Minute, httprate.WithKeyFuncs(engagementUserKeyFunc),
+	burst := httprate.Limit(1, time.Minute, httprate.WithKeyFuncs(mutationUserKeyFunc),
 		httprate.WithLimitHandler(RateLimitExceededHandler))
-	sustained := httprate.Limit(1000, time.Hour, httprate.WithKeyFuncs(engagementUserKeyFunc),
+	sustained := httprate.Limit(1000, time.Hour, httprate.WithKeyFuncs(mutationUserKeyFunc),
 		httprate.WithLimitHandler(RateLimitExceededHandler))
-	return RateLimitEngagementMutationsByUser(jwtService, burst, sustained)
+	return RateLimitMutationsByUser(jwtService, burst, sustained)
 }
 
 func mutationReq(remoteAddr, bearer string) *http.Request {
@@ -58,7 +58,77 @@ func mkEngagementToken(t *testing.T, jwtService *auth.JWTService, id uint) strin
 
 // An authenticated user is metered per-user: past the burst cap the same user
 // is 429'd with a Retry-After header (the AC's "61st mutation → 429", scaled).
-func TestRateLimitEngagementMutationsByUser_AuthenticatedIsPerUserLimited(t *testing.T) {
+// The batch budget's HOUR window: without this, wiring the burst limiter twice,
+// or building the sustained one on time.Minute, ships green. The burst window is
+// stubbed wide open so only the hour window can reject.
+func TestRateLimitEntityRequestBatchSustained_LimitsAtItsOwnCeiling(t *testing.T) {
+	jwtService := newTestJWTService()
+	token := mkEngagementToken(t, jwtService, 1)
+	burst := httprate.Limit(EntityRequestBatchSustainedPerHour*2, time.Minute,
+		httprate.WithKeyFuncs(mutationUserKeyFunc),
+		httprate.WithLimitHandler(RateLimitExceededHandler))
+	handler := RateLimitMutationsByUser(jwtService, burst, RateLimitEntityRequestBatchSustained())(okHandler())
+
+	send := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/entity-requests/batch", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		return rr
+	}
+
+	for i := 0; i < EntityRequestBatchSustainedPerHour; i++ {
+		if rr := send(); rr.Code != http.StatusOK {
+			t.Fatalf("request %d within the hour ceiling: status = %d, want 200", i, rr.Code)
+		}
+	}
+	rr := send()
+	if rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("request past the hour ceiling: status = %d, want 429", rr.Code)
+	}
+	// The hour window must not tell the caller to retry in a minute: that value
+	// becomes the client's countdown.
+	if got := rr.Header().Get("Retry-After"); got != "3600" {
+		t.Errorf("Retry-After = %q, want 3600 (the window this limiter meters)", got)
+	}
+}
+
+// The two budgets are distinct instances, so spending one leaves the other. The
+// burst pair is covered in routes; this pins the sustained pair, which is what a
+// copy-paste of the burst constructor would break.
+func TestEntityRequestBatchSustained_IsNotTheEngagementSustained(t *testing.T) {
+	jwtService := newTestJWTService()
+	token := mkEngagementToken(t, jwtService, 1)
+	wideBurst := func() func(http.Handler) http.Handler {
+		return httprate.Limit(EngagementMutationSustainedPerHour*2, time.Minute,
+			httprate.WithKeyFuncs(mutationUserKeyFunc),
+			httprate.WithLimitHandler(RateLimitExceededHandler))
+	}
+	batch := RateLimitMutationsByUser(jwtService, wideBurst(), RateLimitEntityRequestBatchSustained())(okHandler())
+	engagement := RateLimitMutationsByUser(jwtService, wideBurst(), RateLimitEngagementMutationSustained())(okHandler())
+
+	send := func(h http.Handler) int {
+		req := httptest.NewRequest(http.MethodPost, "/entity-requests/batch", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		return rr.Code
+	}
+
+	for i := 0; i < EntityRequestBatchSustainedPerHour; i++ {
+		if code := send(batch); code != http.StatusOK {
+			t.Fatalf("batch request %d: status = %d, want 200", i, code)
+		}
+	}
+	if code := send(batch); code != http.StatusTooManyRequests {
+		t.Fatalf("batch past its hour ceiling: status = %d, want 429", code)
+	}
+	if code := send(engagement); code != http.StatusOK {
+		t.Errorf("engagement hour window after the batch one is spent: status = %d, want 200", code)
+	}
+}
+
+func TestRateLimitMutationsByUser_AuthenticatedIsPerUserLimited(t *testing.T) {
 	jwtService := newTestJWTService()
 	token := mkEngagementToken(t, jwtService, 42)
 	handler := engagementMW(jwtService)(okHandler())
@@ -78,14 +148,14 @@ func TestRateLimitEngagementMutationsByUser_AuthenticatedIsPerUserLimited(t *tes
 // BOTH windows are enforced: with a generous burst but a tiny sustained cap, the
 // second mutation trips the SUSTAINED (hour) limiter — proving it is actually
 // chained, not just the burst window (policy: stricter of the two wins).
-func TestRateLimitEngagementMutationsByUser_SustainedWindowEnforced(t *testing.T) {
+func TestRateLimitMutationsByUser_SustainedWindowEnforced(t *testing.T) {
 	jwtService := newTestJWTService()
 	token := mkEngagementToken(t, jwtService, 42)
-	burst := httprate.Limit(1000, time.Minute, httprate.WithKeyFuncs(engagementUserKeyFunc),
+	burst := httprate.Limit(1000, time.Minute, httprate.WithKeyFuncs(mutationUserKeyFunc),
 		httprate.WithLimitHandler(RateLimitExceededHandler))
-	sustained := httprate.Limit(1, time.Hour, httprate.WithKeyFuncs(engagementUserKeyFunc),
+	sustained := httprate.Limit(1, time.Hour, httprate.WithKeyFuncs(mutationUserKeyFunc),
 		httprate.WithLimitHandler(RateLimitExceededHandler))
-	handler := RateLimitEngagementMutationsByUser(jwtService, burst, sustained)(okHandler())
+	handler := RateLimitMutationsByUser(jwtService, burst, sustained)(okHandler())
 
 	if rr := serve(handler, mutationReq("9.9.9.9:1000", token)); rr.Code != http.StatusOK {
 		t.Fatalf("first mutation: status = %d, want 200", rr.Code)
@@ -99,7 +169,7 @@ func TestRateLimitEngagementMutationsByUser_SustainedWindowEnforced(t *testing.T
 // a save path, a follow on a DIFFERENT path from the same user is still 429'd.
 // (Routing to distinct handlers is proven at the routes level; here the wrapper
 // keys purely on user id, so any two in-scope requests share the bucket.)
-func TestRateLimitEngagementMutationsByUser_SaveAndFollowShareCounter(t *testing.T) {
+func TestRateLimitMutationsByUser_SaveAndFollowShareCounter(t *testing.T) {
 	jwtService := newTestJWTService()
 	token := mkEngagementToken(t, jwtService, 7)
 	handler := engagementMW(jwtService)(okHandler())
@@ -117,7 +187,7 @@ func TestRateLimitEngagementMutationsByUser_SaveAndFollowShareCounter(t *testing
 
 // Two different users each get their own bucket — a per-user key, not a shared
 // one — even on the same IP.
-func TestRateLimitEngagementMutationsByUser_UsersDoNotCollide(t *testing.T) {
+func TestRateLimitMutationsByUser_UsersDoNotCollide(t *testing.T) {
 	jwtService := newTestJWTService()
 	tokenA := mkEngagementToken(t, jwtService, 42)
 	tokenB := mkEngagementToken(t, jwtService, 99)
@@ -136,7 +206,7 @@ func TestRateLimitEngagementMutationsByUser_UsersDoNotCollide(t *testing.T) {
 // Unauthenticated requests pass through untouched (no user id to key on; the
 // downstream JWT middleware 401s them). They are NOT collapsed into a shared
 // bucket, so an anonymous flood can't 429 a legitimate authenticated user.
-func TestRateLimitEngagementMutationsByUser_UnauthenticatedPassesThrough(t *testing.T) {
+func TestRateLimitMutationsByUser_UnauthenticatedPassesThrough(t *testing.T) {
 	handler := engagementMW(newTestJWTService())(okHandler())
 
 	for i := 0; i < 5; i++ {
@@ -150,7 +220,7 @@ func TestRateLimitEngagementMutationsByUser_UnauthenticatedPassesThrough(t *test
 // — httprate turns the key-func error into a 428 — rather than silently keying
 // every request into one shared bucket. A detectable misuse, not a site-wide
 // budget.
-func TestRateLimitEngagementMutationsByUser_StandaloneLimiterFailsLoud(t *testing.T) {
+func TestRateLimitMutationsByUser_StandaloneLimiterFailsLoud(t *testing.T) {
 	handler := RateLimitEngagementMutationBurst()(okHandler())
 	rr := serve(handler, mutationReq("9.9.9.9:1000", ""))
 	if rr.Code != http.StatusPreconditionRequired {

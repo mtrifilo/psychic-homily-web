@@ -56,11 +56,9 @@ func TestShowTimelinePathResolvesAnonymously(t *testing.T) {
 func TestShowTimelineIsNotExemptFromRateLimiting(t *testing.T) {
 	path := "/shows/desert-doom-night/timeline"
 
-	for _, prefix := range personalFeedPathPrefixesExemptFromRateLimit {
-		if len(path) >= len(prefix) && path[:len(prefix)] == prefix {
-			t.Errorf("timeline path %q matches rate-limit exemption prefix %q — a public "+
-				"unauthenticated endpoint must stay metered", path, prefix)
-		}
+	if token := personalFeedTokenFromPath(path); token != "" {
+		t.Errorf("timeline path %q reads as personal-feed token %q: a public unauthenticated endpoint must stay metered",
+			path, token)
 	}
 	for _, exact := range infraPathsExemptFromRateLimit {
 		if path == exact {

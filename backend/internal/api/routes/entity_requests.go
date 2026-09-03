@@ -32,7 +32,7 @@ func setupEntityRequestRoutes(rc RouteContext) {
 	// User: file many at once (PSY-2005). The collection paste flow resolves a
 	// whole textarea in one pass, so its zero-result lines are one request rather
 	// than one per line. Same validation and dedup as the single route, per item.
-	huma.Post(rc.Protected, "/entity-requests/batch", entityRequestHandler.CreateEntityRequestBatchHandler)
+	huma.Post(rc.Protected, EntityRequestBatchPath, entityRequestHandler.CreateEntityRequestBatchHandler)
 
 	// User: retract one's own PENDING request (PSY-1992). A verb sub-resource
 	// POST, the shape the decide and fulfill transitions already use. Ownership

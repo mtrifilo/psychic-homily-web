@@ -6,6 +6,7 @@ import (
 
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/services/auth"
+	"psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/testenv"
 )
 
@@ -68,19 +69,93 @@ func IsPublicReadRateLimitEnabled(getenv func(string) string) bool {
 // here too, or it silently lands on the anonymous per-IP budget.
 var infraPathsExemptFromRateLimit = []string{"/health", "/health/ready"}
 
-// personalFeedPathPrefixesExemptFromRateLimit are token-authenticated personal
-// feeds (PSY-1430 iCal + PSY-1505 Atom). Google Calendar / Apple Calendar / RSS
-// readers poll from shared cloud IPs; putting them on the anonymous per-IP
-// public-read bucket (PSY-1418 / PSY-1362) would unfairly 429 feed fetchers that
-// share an egress IP with scrapers. Auth is the URL token itself (hashed
-// lookup), not session JWT — so they never land in the authenticated per-user
-// bucket either. Exempt only the feed URL shapes (canonical /feeds/… covering
-// saved-shows.ics and follows.atom, plus legacy /calendar/phcal_… iCal alias)
-// — NOT /calendar/token CRUD, which remains on the normal public-read budget
-// when unauthenticated probes hit it.
-var personalFeedPathPrefixesExemptFromRateLimit = []string{
-	"/feeds/",
-	"/calendar/phcal_",
+// personalFeedRouteTemplates are the token-in-URL feed routes whose holder is
+// exempt from the public-read limiter (PSY-1430 iCal + PSY-1505 Atom). Google
+// Calendar / Apple Calendar / RSS readers poll from shared cloud IPs; putting
+// them on the anonymous per-IP public-read bucket (PSY-1418 / PSY-1362) would
+// unfairly 429 feed fetchers that share an egress IP with scrapers. Auth is the
+// URL token itself (hashed lookup), not a session JWT, so they never land in
+// the authenticated per-user bucket either.
+//
+// The templates come from the registrations in calendar.go, so this list and
+// the router agree by construction. /calendar/token CRUD is NOT one of them:
+// the legacy alias template does read "token" out of that path as a candidate,
+// and what stops it there is the phcal_ pre-filter in validatedFeedToken, which
+// answers false before any lookup runs.
+var personalFeedRouteTemplates = []string{
+	savedShowsFeedRoute,
+	followsActivityFeedRoute,
+	legacyCalendarFeedRoute,
+}
+
+// feedRouteTokenPlaceholder is the segment a personal-feed route template puts
+// where the plaintext token goes.
+const feedRouteTokenPlaceholder = "{token}"
+
+// feedRouteMatcher is one template split around its {token} placeholder.
+type feedRouteMatcher struct{ prefix, suffix string }
+
+// personalFeedRouteMatchers is personalFeedRouteTemplates split once at init,
+// because personalFeedTokenFromPath runs on every public read the site serves.
+// A template with no placeholder panics here rather than silently matching every
+// path under its prefix.
+var personalFeedRouteMatchers = func() []feedRouteMatcher {
+	matchers := make([]feedRouteMatcher, 0, len(personalFeedRouteTemplates))
+	for _, template := range personalFeedRouteTemplates {
+		prefix, suffix, found := strings.Cut(template, feedRouteTokenPlaceholder)
+		if !found {
+			panic("personal-feed route template without a " + feedRouteTokenPlaceholder + " segment: " + template)
+		}
+		matchers = append(matchers, feedRouteMatcher{prefix: prefix, suffix: suffix})
+	}
+	return matchers
+}()
+
+// personalFeedTokenFromPath returns the plaintext token a request path carries
+// in a personal-feed route's {token} segment, or "" when the path is not one of
+// those routes. Matching the FULL route shape (not a bare /feeds/ prefix) is
+// what keeps an unrelated path under /feeds/ from reaching the token lookup at
+// all.
+func personalFeedTokenFromPath(path string) string {
+	for _, m := range personalFeedRouteMatchers {
+		if len(path) <= len(m.prefix)+len(m.suffix) {
+			continue
+		}
+		if !strings.HasPrefix(path, m.prefix) || !strings.HasSuffix(path, m.suffix) {
+			continue
+		}
+		token := path[len(m.prefix) : len(path)-len(m.suffix)]
+		if strings.Contains(token, "/") {
+			continue
+		}
+		return token
+	}
+	return ""
+}
+
+// validatedFeedToken is the one spelling of "this request holds a usable
+// personal-feed token": the exemption resolves the question here rather than
+// deriving it from the URL shape. The callback is the DB lookup
+// (CalendarService.ValidateCalendarToken, adapted by
+// middleware.CalendarTokenValidator).
+//
+// The phcal_ prefix is a cheap pre-filter, not the credential: a path without it
+// never reaches the database, and a path with it is exempt only if the lookup
+// resolves. A nil callback answers false, so an exemption wired without a
+// calendar service meters every feed request rather than exempting them all.
+func validatedFeedToken(validate func(string) bool, path string) bool {
+	if validate == nil {
+		return false
+	}
+	token := personalFeedTokenFromPath(path)
+	// The caller passes the ESCAPED path, so a percent-encoded spelling of the
+	// prefix does not resolve here. Deciding on the decoded form would exempt
+	// /feeds/phcal%5f<live token>/... on a token the router then hands to the
+	// handler still encoded, which rejects it: an unmetered 401 generator.
+	if !strings.HasPrefix(token, engagement.CalendarTokenPrefix) {
+		return false
+	}
+	return validate(token)
 }
 
 // PublicReadRateLimiter returns the chi middleware that throttles public-READ
@@ -93,10 +168,11 @@ var personalFeedPathPrefixesExemptFromRateLimit = []string{
 // so one IP running many scripted accounts is bounded in aggregate. A request
 // whose bearer passes validateAPIToken (APITokenService.ValidateToken — not the
 // phk_ prefix alone) is exempt so ingest search does not starve visitors on the
-// same IP (PSY-1814). Infra paths and personal calendar feed prefixes above are
-// exempt. Returns a pass-through noop unless the opt-in flag is set. Mounted
-// once, globally, before route registration.
-func PublicReadRateLimiter(jwtService *auth.JWTService, validateAPIToken func(string) bool, getenv func(string) string) func(http.Handler) http.Handler {
+// same IP (PSY-1814). Infra paths are exempt, and so is a personal-feed request
+// whose URL token validates (PSY-2017), not the path shape alone. Returns a
+// pass-through noop unless the opt-in flag is set. Mounted once, globally,
+// before route registration.
+func PublicReadRateLimiter(jwtService *auth.JWTService, validateAPIToken, validateFeedToken func(string) bool, getenv func(string) string) func(http.Handler) http.Handler {
 	if !IsPublicReadRateLimitEnabled(getenv) {
 		return noopRateLimiter()
 	}
@@ -108,7 +184,7 @@ func PublicReadRateLimiter(jwtService *auth.JWTService, validateAPIToken func(st
 		middleware.RateLimitPublicReadAuthenticatedIPCeiling(), // authenticated → coarse per-IP ceiling (PSY-1378)
 	)
 	limiter = skipRateLimitForPaths(limiter, infraPathsExemptFromRateLimit...)
-	limiter = skipRateLimitForPathPrefixes(limiter, personalFeedPathPrefixesExemptFromRateLimit...)
+	limiter = skipRateLimitForValidatedFeedToken(limiter, validateFeedToken)
 	return limitReadMethodsOnly(limiter)
 }
 
@@ -134,6 +210,23 @@ const FollowsBatchPath = "/follows/batch"
 // an unmetered batch aggregate query simply because the endpoint takes a body.
 var readViaPostPaths = []string{SaveCountsBatchPath, ReleaseSaveCountsBatchPath, FollowsBatchPath}
 
+// limitWhen wraps a limiter so only the requests inScope reports on reach it;
+// everything else passes straight through to the handler. Every globally mounted
+// limiter in this package is scoped this way, so a budget can never 429 a route
+// it was not built for.
+func limitWhen(limiter func(http.Handler) http.Handler, inScope func(*http.Request) bool) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		limited := limiter(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if inScope(r) {
+				limited.ServeHTTP(w, r)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // limitReadMethodsOnly applies the limiter to safe read methods (GET/HEAD) plus
 // the read-via-POST batch endpoints above. Genuine writes (POST/PUT/PATCH/
 // DELETE) pass through — they keep their own dedicated limiters, so a shared
@@ -144,18 +237,11 @@ func limitReadMethodsOnly(limiter func(http.Handler) http.Handler) func(http.Han
 	for _, p := range readViaPostPaths {
 		readPosts[p] = true
 	}
-	return func(next http.Handler) http.Handler {
-		limited := limiter(next)
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			isRead := r.Method == http.MethodGet || r.Method == http.MethodHead
-			isReadViaPost := r.Method == http.MethodPost && readPosts[r.URL.Path]
-			if isRead || isReadViaPost {
-				limited.ServeHTTP(w, r)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
+	return limitWhen(limiter, func(r *http.Request) bool {
+		isRead := r.Method == http.MethodGet || r.Method == http.MethodHead
+		isReadViaPost := r.Method == http.MethodPost && readPosts[r.URL.Path]
+		return isRead || isReadViaPost
+	})
 }
 
 // skipRateLimitForPaths wraps a limiter so exact-match paths bypass it entirely.
@@ -164,33 +250,21 @@ func skipRateLimitForPaths(limiter func(http.Handler) http.Handler, paths ...str
 	for _, p := range paths {
 		exempt[p] = true
 	}
-	return func(next http.Handler) http.Handler {
-		limited := limiter(next)
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if exempt[r.URL.Path] {
-				next.ServeHTTP(w, r)
-				return
-			}
-			limited.ServeHTTP(w, r)
-		})
-	}
+	return limitWhen(limiter, func(r *http.Request) bool { return !exempt[r.URL.Path] })
 }
 
-// skipRateLimitForPathPrefixes wraps a limiter so any path under the given
-// prefixes bypasses it. Used for token-in-URL personal feeds whose pollers
-// (Google/Apple Calendar) share cloud egress IPs with unrelated anonymous traffic.
-func skipRateLimitForPathPrefixes(limiter func(http.Handler) http.Handler, prefixes ...string) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		limited := limiter(next)
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			path := r.URL.Path
-			for _, prefix := range prefixes {
-				if strings.HasPrefix(path, prefix) {
-					next.ServeHTTP(w, r)
-					return
-				}
-			}
-			limited.ServeHTTP(w, r)
-		})
-	}
+// skipRateLimitForValidatedFeedToken wraps a limiter so a personal-feed request
+// bypasses it only when the token in its URL resolves to a live calendar token.
+// A junk token is metered as whatever the request otherwise is, anonymous
+// included, so naming the URL shape buys nothing.
+//
+// The lookup runs BEFORE the limiter, which means a forged phcal_ path buys one
+// indexed read on a request the limiter may be about to reject. That order is
+// the same trade RateLimitPublicReadsByAuthState already takes for phk_ tokens,
+// and for the same reason: validating after the limiter would make a live feed
+// token increment the bucket it is meant to skip.
+func skipRateLimitForValidatedFeedToken(limiter func(http.Handler) http.Handler, validateFeedToken func(string) bool) func(http.Handler) http.Handler {
+	return limitWhen(limiter, func(r *http.Request) bool {
+		return !validatedFeedToken(validateFeedToken, r.URL.EscapedPath())
+	})
 }

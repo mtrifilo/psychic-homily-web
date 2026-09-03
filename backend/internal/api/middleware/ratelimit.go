@@ -14,6 +14,7 @@ import (
 	"psychic-homily-backend/internal/respond"
 	adminsvc "psychic-homily-backend/internal/services/admin"
 	"psychic-homily-backend/internal/services/auth"
+	engagementsvc "psychic-homily-backend/internal/services/engagement"
 )
 
 // Rate limit configurations for different endpoint types
@@ -180,11 +181,23 @@ func SkipRateLimitForAdmin(jwtService *auth.JWTService, validateAPIToken func(st
 	}
 }
 
+// apiTokenBypassScopes is the ALLOWLIST of token scopes that skip a rate
+// limiter. Authenticating and skipping a limiter are separate grants: a scope
+// added to adminsvc's knownTokenScopes authenticates, and stays METERED until it
+// is named here as well. Inverting the question this way is what keeps a scope
+// added later from silently inheriting the bypasses admin holds.
+//
+// It holds the same single scope as knownTokenScopes today, so no token that
+// validates can be refused HERE: adminsvc refuses an unknown scope first. This
+// list is the second half of that decision, waiting for the first scope that
+// authenticates without being admin.
+var apiTokenBypassScopes = map[string]bool{adminsvc.TokenScopeAdmin: true}
+
 // APITokenValidator adapts an API token service to the predicate the limiter
 // bypasses take: true only for a token APITokenService.ValidateToken resolves
-// to a live row. Whatever that method rejects, the bypass rejects, including a
-// database error, so a degraded database meters callers rather than exempting
-// them.
+// to a live row whose scope is in apiTokenBypassScopes. Whatever that method
+// rejects, the bypass rejects, including a database error, so a degraded
+// database meters callers rather than exempting them.
 //
 // The predicate is not cheap: each call is a hashed api_tokens read, and a
 // successful one also queues a last_used_at write. Callers reach it through
@@ -198,8 +211,38 @@ func APITokenValidator(svc *adminsvc.APITokenService) func(string) bool {
 		return nil
 	}
 	return func(token string) bool {
-		_, _, err := svc.ValidateToken(token)
-		return err == nil
+		_, apiToken, err := svc.ValidateToken(token)
+		if err != nil || apiToken == nil {
+			return false
+		}
+		return apiTokenBypassScopes[apiToken.Scope]
+	}
+}
+
+// CalendarTokenValidator adapts the calendar service to the predicate the
+// public-read limiter's personal-feed exemption takes: true only for a
+// plaintext feed token CalendarService.ValidateCalendarToken resolves to a live
+// row on an active user. Whatever that method rejects, the exemption rejects,
+// including a database error, so a degraded database meters feed pollers rather
+// than exempting them.
+//
+// The predicate is not cheap. ValidateCalendarToken hashes, reads
+// calendar_tokens on its unique index, and preloads the owning user, so a call
+// is two statements; the feed handler behind the limiter then resolves the same
+// token again. Callers reach it through validatedFeedToken, which invokes it
+// only for a request whose path is a personal-feed shape carrying a
+// phcal_-prefixed token.
+//
+// A nil service yields a nil predicate, which validatedFeedToken reads as "no
+// usable token". The parameter is the concrete service rather than an interface
+// so that comparison sees an actual nil.
+func CalendarTokenValidator(svc *engagementsvc.CalendarService) func(string) bool {
+	if svc == nil {
+		return nil
+	}
+	return func(token string) bool {
+		user, err := svc.ValidateCalendarToken(token)
+		return err == nil && user != nil
 	}
 }
 
@@ -293,6 +336,12 @@ func RateLimitPublicReadAuthenticatedIPCeiling() func(http.Handler) http.Handler
 // Authorization header carries the phk_ prefix, so a visitor GET never hits the
 // database here. Admin session JWTs still route to the per-user 300/min bucket,
 // not this bypass.
+//
+// A FOURTH state is layered OUTSIDE this function, in
+// routes.PublicReadRateLimiter: a request whose path carries a validated
+// phcal_ personal-feed token skips the limiter entirely (PSY-2017). Path
+// matching lives beside the feed registrations, which is why it is not a case
+// here; an audit of what skips this limiter has to read both.
 //
 // Failed validation falls through to anonLimiter, so the DB lookup runs BEFORE
 // the per-IP cap. That order is load-bearing: validating after the limiter
@@ -390,22 +439,42 @@ func extractJWT(r *http.Request) string {
 	return token
 }
 
-// RateLimitExceededHandler handles rate limit exceeded responses
+// RateLimitExceededHandler handles rate limit exceeded responses for the
+// minute-window limiters. Retry-After is a minute because every limiter wired to
+// it directly meters a minute; an hour window must use
+// rateLimitExceededHandlerAfter so the header does not understate the wait by an
+// order of magnitude.
 func RateLimitExceededHandler(w http.ResponseWriter, r *http.Request) {
-	// Log the rate limit hit
-	log := logger.FromContext(r.Context())
-	if log == nil {
-		log = logger.Default()
-	}
-	log.Warn("rate limit exceeded",
-		"path", r.URL.Path,
-		"method", r.Method,
-		"remote_addr", r.RemoteAddr,
-	)
+	rateLimitExceededHandlerAfter(time.Minute)(w, r)
+}
 
-	// Return 429 Too Many Requests with JSON response
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Retry-After", "60")
-	w.WriteHeader(http.StatusTooManyRequests)
-	respond.SafeWrite(r.Context(), w, []byte(`{"success":false,"error":"too_many_requests","message":"Rate limit exceeded. Please try again in 60 seconds."}`))
+// rateLimitExceededHandlerAfter builds a 429 handler whose Retry-After and
+// message both name the limiter's OWN window. The header is what
+// ApiError.retryAfter carries into client countdown copy, so a limiter that
+// reports a minute on an hour bucket tells the caller to retry 59 times before
+// the budget can possibly refill.
+func rateLimitExceededHandlerAfter(window time.Duration) func(http.ResponseWriter, *http.Request) {
+	seconds := int(window.Seconds())
+	retryAfter := strconv.Itoa(seconds)
+	body := []byte(fmt.Sprintf(
+		`{"success":false,"error":"too_many_requests","message":"Rate limit exceeded. Please try again in %d seconds."}`,
+		seconds))
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Log the rate limit hit.
+		log := logger.FromContext(r.Context())
+		if log == nil {
+			log = logger.Default()
+		}
+		log.Warn("rate limit exceeded",
+			"path", r.URL.Path,
+			"method", r.Method,
+			"remote_addr", r.RemoteAddr,
+		)
+
+		// Return 429 Too Many Requests with JSON response
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", retryAfter)
+		w.WriteHeader(http.StatusTooManyRequests)
+		respond.SafeWrite(r.Context(), w, body)
+	}
 }
