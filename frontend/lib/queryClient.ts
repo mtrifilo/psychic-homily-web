@@ -202,6 +202,51 @@ function profileAlreadyKnowsAnonymous(
   return data?.success === false
 }
 
+// Does the profile cache still hold a payload that NAMES a signed-in viewer?
+//
+// This is what separates "a session ended" from "an anonymous viewer's request
+// was refused". TanStack retains the last successful `data` when a refetch
+// errors, so after a session dies the signed-in payload is still here, beside
+// the 401 that killed it. An anonymous viewer's cache holds the `{ success:
+// false }` sentinel instead, or nothing at all, and their 401s must not spend
+// a reset on caches that already hold anonymous answers.
+function profileNamesAViewer(client: QueryClient | undefined): boolean {
+  if (!client) return false
+  const data = client.getQueryData(queryKeys.auth.profile) as
+    | { success?: boolean; user?: unknown }
+    | undefined
+  return data?.success === true && data.user != null
+}
+
+// One viewer-tier reset per expiry episode. Released by
+// `refreshViewerTierQueries`, which every transition into a session calls.
+let viewerTierResetForExpiredSession = false
+
+/**
+ * Session expiry has no logout, so this is the only path that takes the
+ * previous viewer's privileged payloads off the screen: a 401 on the profile
+ * query or on any authed request means the session behind the cached answers
+ * is gone, and `resetViewerTierQueries` re-masks them the way logout does.
+ *
+ * The latch is not an optimization. The reset pushes every mounted observer of
+ * those families into a pending state, so each refetches with the same dead
+ * cookie and 401s again, back into this handler; unlatched, each of those
+ * errors would reset the families that produced it and the cycle has no fixed
+ * point. Latched, an expiry costs exactly one reset and one refetch per
+ * mounted family.
+ *
+ * The profile query is deliberately not reset here. Its own error IS the
+ * settle: `AuthContext` reads a definitive 401 as 'anonymous' ahead of any
+ * retained payload, and the invalidation below is what asks the question again.
+ */
+function dropExpiredSessionCaches(client: QueryClient | undefined) {
+  if (!client) return
+  if (viewerTierResetForExpiredSession) return
+  if (!profileNamesAViewer(client)) return
+  viewerTierResetForExpiredSession = true
+  void resetViewerTierQueries(client)
+}
+
 // Function to create query client (for use in provider)
 function makeQueryClient() {
   // Create caches with global error handlers
@@ -214,6 +259,12 @@ function makeQueryClient() {
       // active queries to refetch, each getting 401, each triggering this handler
       // again, creating an infinite cascade of clears and refetches.
       if (isSessionExpiredError(error)) {
+        // Ahead of the invalidation, and not skipped for the profile query:
+        // the reset takes the previous session's payloads off the screen, and
+        // the profile's own 401 is the most authoritative signal that they
+        // belong to a session that has ended.
+        dropExpiredSessionCaches(browserQueryClient)
+
         if (query.queryKey[0] !== 'auth' || query.queryKey[1] !== 'profile') {
           // Skip the invalidation if the profile cache already encodes
           // the "logged out" answer — either as an error from a prior
@@ -237,6 +288,10 @@ function makeQueryClient() {
       // When a session expires during a mutation, invalidate profile to update
       // auth state. Same rationale as above — don't clear the entire cache.
       if (isSessionExpiredError(error)) {
+        // A write refused for a dead session says the same thing a read's 401
+        // says, and the same latch keeps the two from resetting twice.
+        dropExpiredSessionCaches(browserQueryClient)
+
         if (!profileAlreadyKnowsAnonymous(browserQueryClient)) {
           browserQueryClient?.invalidateQueries({
             queryKey: queryKeys.auth.profile,
@@ -816,6 +871,11 @@ const VIEWER_TIER_QUERY_KEYS: readonly (readonly unknown[])[] = [
  * See `resetViewerTierQueries` for the other direction.
  */
 export function refreshViewerTierQueries(queryClient: QueryClient) {
+  // Releases the expiry latch. A session entry is the event that makes a
+  // later expiry a new episode rather than an echo of the previous one, and
+  // every path into a session calls this (`refreshCachesForNewSession`, plus
+  // the two passkey components that establish their session with a raw fetch).
+  viewerTierResetForExpiredSession = false
   return Promise.all(
     VIEWER_TIER_QUERY_KEYS.map(queryKey =>
       queryClient.invalidateQueries({ queryKey })
