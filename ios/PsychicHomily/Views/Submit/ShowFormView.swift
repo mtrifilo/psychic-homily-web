@@ -93,8 +93,7 @@ struct ShowFormView: View {
                     }
 
                     // The advance/door split is OPT-IN. Left blank the show
-                    // records no door price at all, which is the honest answer
-                    // whenever the source stated only one number.
+                    // records no door price at all.
                     LabeledContent("Door Price") {
                         TextField("only if it differs", text: $doorCost)
                             .multilineTextAlignment(.trailing)
@@ -199,8 +198,8 @@ struct ShowFormView: View {
             "artists": artistSubmissions,
             "venues": venueSubmissions,
         ]
-        if price > 0 { body["price"] = price }
-        if doorPrice > 0 { body["door_price"] = doorPrice }
+        if let price { body["price"] = price }
+        if let doorPrice { body["door_price"] = doorPrice }
         if !ageRequirement.isEmpty { body["age_requirement"] = ageRequirement }
         if !description.isEmpty { body["description"] = description }
 
@@ -217,11 +216,15 @@ struct ShowFormView: View {
         isSubmitting = false
     }
 
-    private func parsePrice(_ text: String) -> Double {
+    /// The amount a price field states, or nil when it states none.
+    ///
+    /// Optional rather than zero: zero is a price the site prints as "Free", so
+    /// a field holding "0" has to stay distinguishable from an empty one.
+    private func parsePrice(_ text: String) -> Double? {
         let cleaned = text.replacingOccurrences(of: "$", with: "")
             .replacingOccurrences(of: ",", with: "")
             .trimmingCharacters(in: .whitespaces)
-        return Double(cleaned) ?? 0
+        return Double(cleaned)
     }
 }
 

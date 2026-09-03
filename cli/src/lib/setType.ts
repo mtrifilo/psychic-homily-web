@@ -33,8 +33,19 @@ export function isValidSetType(value: string): value is SetType {
 }
 
 /** The vocabulary as a comma-separated list, for validation messages. */
-export function setTypeVocabularyCSV(): string {
-  return SET_TYPE_VOCABULARY.join(", ");
+export const SET_TYPE_VOCABULARY_CSV = SET_TYPE_VOCABULARY.join(", ");
+
+/**
+ * Whether a stored value says anything at all about an act's slot.
+ *
+ * THE definition of silence, so the two questions built on it cannot disagree:
+ * what gets sent back, and what gets warned about. Absent, blank and
+ * `performer` are its three spellings.
+ */
+function statesASlot(value: string | null | undefined): value is string {
+  if (value == null) return false;
+  const trimmed = value.trim();
+  return trimmed !== "" && trimmed !== SET_TYPE_UNCURATED;
 }
 
 /**
@@ -43,33 +54,34 @@ export function setTypeVocabularyCSV(): string {
  *
  * Two values resolve to `undefined` and they mean different things:
  *
- * - `performer`, empty, or absent is the act's slot being unknown. Only an
- *   ABSENT key says that on the way back in, so the caller must OMIT the field
- *   rather than send `performer` or `null`.
- * - A value outside the vocabulary is a row the API would 422 on. Rewriting
+ * - Silence, per {@link statesASlot}. Only an ABSENT key says "slot unknown" on
+ *   the way back in, so the caller must OMIT the field rather than send
+ *   `performer` or `null`.
+ * - A value outside the vocabulary is a row the API would refuse. Rewriting
  *   the bill is the only way this CLI can add or drop an act, so the choice is
  *   between dropping that one unreadable value and failing the whole edit;
  *   callers drop it and say so out loud. The column carries no CHECK
  *   constraint, so such a row is reachable.
+ *
+ * The value is judged EXACTLY as stored, untrimmed, which is the same verdict
+ * the API gives a role stated on the way in. Only emptiness is forgiving.
  */
 export function curatedSetType(
   value: string | null | undefined,
 ): SetType | undefined {
-  if (value == null) return undefined;
-  const trimmed = value.trim();
-  if (trimmed === "" || trimmed === SET_TYPE_UNCURATED) return undefined;
-  return isValidSetType(trimmed) ? trimmed : undefined;
+  if (!statesASlot(value)) return undefined;
+  return isValidSetType(value) ? value : undefined;
 }
 
 /**
  * Whether a stored value is one this CLI cannot round-trip: it states a slot,
  * but not one the API would accept back.
+ *
+ * Derived from {@link curatedSetType} rather than restating its test, so the
+ * value that gets dropped is exactly the value that gets warned about.
  */
 export function isUnroundtrippableSetType(
   value: string | null | undefined,
 ): boolean {
-  if (value == null) return false;
-  const trimmed = value.trim();
-  if (trimmed === "" || trimmed === SET_TYPE_UNCURATED) return false;
-  return !isValidSetType(trimmed);
+  return statesASlot(value) && curatedSetType(value) === undefined;
 }

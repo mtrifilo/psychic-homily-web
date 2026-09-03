@@ -2,10 +2,10 @@ import { describe, test, expect } from "bun:test";
 import {
   SET_TYPE_VOCABULARY,
   SET_TYPE_UNCURATED,
+  SET_TYPE_VOCABULARY_CSV,
   curatedSetType,
   isUnroundtrippableSetType,
   isValidSetType,
-  setTypeVocabularyCSV,
 } from "../src/lib/setType";
 
 describe("isValidSetType", () => {
@@ -32,9 +32,9 @@ describe("isValidSetType", () => {
   });
 });
 
-describe("setTypeVocabularyCSV", () => {
+describe("SET_TYPE_VOCABULARY_CSV", () => {
   test("names every accepted role, top of bill first", () => {
-    expect(setTypeVocabularyCSV()).toBe(
+    expect(SET_TYPE_VOCABULARY_CSV).toBe(
       "headliner, direct_support, opener, special_guest, dj, performer",
     );
   });
@@ -60,8 +60,9 @@ describe("curatedSetType", () => {
     expect(curatedSetType("Headliner")).toBeUndefined();
   });
 
-  test("tolerates surrounding whitespace on a real role", () => {
-    expect(curatedSetType("  opener  ")).toBe("opener");
+  test("judges the value untrimmed, exactly as the API would", () => {
+    expect(curatedSetType("  opener  ")).toBeUndefined();
+    expect(isUnroundtrippableSetType("  opener  ")).toBe(true);
   });
 });
 

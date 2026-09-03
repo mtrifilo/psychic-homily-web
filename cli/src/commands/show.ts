@@ -7,7 +7,7 @@ import {
   curatedSetType,
   isUnroundtrippableSetType,
   isValidSetType,
-  setTypeVocabularyCSV,
+  SET_TYPE_VOCABULARY_CSV,
 } from "../lib/setType";
 import type { SetType } from "../lib/setType";
 
@@ -109,9 +109,7 @@ export function parseShowArtistInput(jsonStr: string): ShowArtistInput[] {
  * The bill entry that re-states an act already on the show, unchanged.
  *
  * Both subcommands edit a bill by rewriting it whole, so every act they are not
- * touching has to be re-stated exactly or its curation is lost. That is the
- * defect this function exists to close: sending only `is_headliner` flattened
- * every `direct_support` / `opener` / `dj` on the bill back to the default.
+ * touching has to be re-stated exactly or its curation is lost.
  */
 function preserveBillEntry(existing: ShowArtistResponse): ShowArtistUpdate {
   const entry: ShowArtistUpdate = {
@@ -130,13 +128,23 @@ function preserveBillEntry(existing: ShowArtistResponse): ShowArtistUpdate {
  * for the acts that state nothing. Undefined leaves the key off the payload
  * entirely: the act's slot is then unknown, which is a fact the API records as
  * such rather than a role it has to invent.
+ *
+ * Returns a validated role, so the payload cannot carry a value the API would
+ * refuse. An out-of-vocabulary role reads as unstated here; invalidRoleErrors
+ * is what reports it, and it runs first.
+ *
+ * `performer` is a role an operator may state, unlike the `performer` READ off
+ * a stored row, which is that row's slot being unknown (curatedSetType). The
+ * two are asymmetric on purpose: stating it holds bill position out of the
+ * API's headliner inference, which silence does not.
  */
 function requestedRole(
   artist: ShowArtistInput,
   fallbackRole?: string,
-): string | undefined {
+): SetType | undefined {
   const stated = artist.set_type ?? fallbackRole;
-  return stated === undefined || stated.trim() === "" ? undefined : stated;
+  if (stated === undefined || stated.trim() === "") return undefined;
+  return isValidSetType(stated) ? stated : undefined;
 }
 
 /**
@@ -146,7 +154,7 @@ function requestedRole(
  * vocabulary here instead of arriving as a 422 body, and no partial bill is
  * written on the way to finding out.
  */
-export function invalidRoleErrors(
+function invalidRoleErrors(
   artists: ShowArtistInput[],
   fallbackRole?: string,
 ): string[] {
@@ -157,7 +165,7 @@ export function invalidRoleErrors(
     !isValidSetType(fallbackRole)
   ) {
     errors.push(
-      `--role "${fallbackRole}" is not a valid bill role (allowed: ${setTypeVocabularyCSV()})`,
+      `--role "${fallbackRole}" is not a valid bill role (allowed: ${SET_TYPE_VOCABULARY_CSV})`,
     );
   }
   for (const artist of artists) {
@@ -165,32 +173,34 @@ export function invalidRoleErrors(
     if (stated === undefined || stated.trim() === "") continue;
     if (isValidSetType(stated)) continue;
     errors.push(
-      `"${artist.name}": set_type "${stated}" is not a valid bill role (allowed: ${setTypeVocabularyCSV()})`,
+      `"${artist.name}": set_type "${stated}" is not a valid bill role (allowed: ${SET_TYPE_VOCABULARY_CSV})`,
     );
   }
   return errors;
 }
 
 /**
- * Warns about acts whose stored role cannot be sent back, once per edit.
+ * Shows the operator the acts this edit KEEPS, and warns about any whose stored
+ * role cannot be sent back.
  *
- * The rewrite drops such a value (see curatedSetType), which is a real change to
- * a row the operator did not name, so it is never made silently.
+ * Takes the surviving bill, so both subcommands preview exactly the list they
+ * are about to send. Dropping an unroundtrippable role is a real change to a
+ * row nobody named, so it is never made silently.
  */
-function warnUnroundtrippableRoles(artists: ShowArtistResponse[]): void {
-  for (const artist of artists) {
-    if (isUnroundtrippableSetType(artist.set_type)) {
+function previewKeptBill(kept: ShowArtistResponse[]): void {
+  for (const act of kept) {
+    const role = curatedSetType(act.set_type);
+    if (role) {
+      display.info(`  ${gray("KEEP")} "${act.name}" ${dim(`[${role}]`)}`);
+    }
+  }
+  for (const act of kept) {
+    if (isUnroundtrippableSetType(act.set_type)) {
       display.warn(
-        `  "${artist.name}" (ID: ${artist.id}) has an unrecognized role "${artist.set_type}" — it will be reset to the default (allowed: ${setTypeVocabularyCSV()})`,
+        `  "${act.name}" (ID: ${act.id}) has an unrecognized role "${act.set_type}" — it will be reset to the default (allowed: ${SET_TYPE_VOCABULARY_CSV})`,
       );
     }
   }
-}
-
-/** How an act's stored role reads in the preview, or "" when it states none. */
-function roleLabel(setType: string | null | undefined): string {
-  const role = curatedSetType(setType);
-  return role ? ` ${dim(`[${role}]`)}` : "";
 }
 
 /**
@@ -206,7 +216,7 @@ function roleLabel(setType: string | null | undefined): string {
  * @param artists - Array of artist inputs to add
  * @param env - API environment config
  * @param confirm - Whether to execute (default: dry-run)
- * @param role - Bill role for added acts that state none of their own
+ * @param defaultRole - Bill role for added acts that state none of their own
  * @returns Array of add results
  */
 export async function addArtistsToShow(
@@ -214,13 +224,13 @@ export async function addArtistsToShow(
   artists: ShowArtistInput[],
   env: EnvironmentConfig,
   confirm: boolean,
-  role?: string,
+  defaultRole?: string,
 ): Promise<ArtistAddResult[]> {
   const client = new APIClient(env);
   const results: ArtistAddResult[] = [];
 
   // --- Step 0: Refuse invalid roles before any request goes out ---
-  const roleErrors = invalidRoleErrors(artists, role);
+  const roleErrors = invalidRoleErrors(artists, defaultRole);
   if (roleErrors.length > 0) {
     for (const message of roleErrors) {
       display.error(message);
@@ -245,14 +255,21 @@ export async function addArtistsToShow(
 
   // --- Step 2: Resolve artist names ---
   display.header("Resolving artists...");
+  // `role` is derived once here, so the preview, the payload and the success
+  // line cannot describe the added act three different ways.
   const resolutions: Array<{
     input: ShowArtistInput;
     resolved: { id: number; name: string; confidence: number } | null;
+    role: SetType | undefined;
   }> = [];
 
   for (const artist of artists) {
     const match = await resolveArtistId(client, artist.name);
-    resolutions.push({ input: artist, resolved: match });
+    resolutions.push({
+      input: artist,
+      resolved: match,
+      role: requestedRole(artist, defaultRole),
+    });
   }
 
   // --- Step 3: Check which are already linked ---
@@ -264,13 +281,7 @@ export async function addArtistsToShow(
   display.info(
     `Show currently has ${show.artists.length} artist(s): ${show.artists.map((a) => `"${a.name}"`).join(", ") || "(none)"}`,
   );
-  for (const existing of show.artists) {
-    const label = roleLabel(existing.set_type);
-    if (label) {
-      display.info(`  ${gray("KEEP")} "${existing.name}"${label}`);
-    }
-  }
-  warnUnroundtrippableRoles(show.artists);
+  previewKeptBill(show.artists);
   display.info("");
 
   let addCount = 0;
@@ -294,9 +305,8 @@ export async function addArtistsToShow(
             : yellow(
                 `FUZZY ${conf} -> "${r.resolved.name}" (ID: ${r.resolved.id})`,
               );
-        const stated = requestedRole(r.input, role);
-        const roleTag = stated
-          ? ` [${stated}]`
+        const roleTag = r.role
+          ? ` [${r.role}]`
           : r.input.is_headliner
             ? " [headliner]"
             : "";
@@ -363,11 +373,18 @@ export async function addArtistsToShow(
 
     // A stated role is authoritative and is_headliner is DERIVED from it, so
     // the two halves of the payload cannot contradict each other.
-    const stated = requestedRole(r.input, role);
-    const entry: ShowArtistUpdate = stated
-      ? { id: r.resolved.id, is_headliner: stated === "headliner", set_type: stated as SetType }
-      : { id: r.resolved.id, is_headliner: r.input.is_headliner ?? false };
-    updatedArtists.push(entry);
+    updatedArtists.push(
+      r.role
+        ? {
+            id: r.resolved.id,
+            is_headliner: r.role === "headliner",
+            set_type: r.role,
+          }
+        : {
+            id: r.resolved.id,
+            is_headliner: r.input.is_headliner ?? false,
+          },
+    );
   }
 
   // PUT the updated artist list
@@ -380,9 +397,8 @@ export async function addArtistsToShow(
     // Mark all new artists as added
     for (const r of resolutions) {
       if (r.resolved && !existingArtistIds.has(r.resolved.id)) {
-        const stated = requestedRole(r.input, role);
-        const roleStr = stated
-          ? ` as ${stated}`
+        const roleStr = r.role
+          ? ` as ${r.role}`
           : r.input.is_headliner
             ? " as headliner"
             : "";
@@ -507,22 +523,17 @@ export async function removeArtistFromShow(
     artistName = existingArtist.name;
   }
 
+  // The bill that survives this removal, resolved once so the preview and the
+  // payload cannot describe different bills.
+  const kept = show.artists.filter((a) => a.id !== artistId);
+
   // --- Step 4: Preview ---
   display.header("Preview");
   display.info(
     `Will remove "${artistName}" (ID: ${artistId}) from "${show.title || "(untitled)"}"`,
   );
-  display.info(
-    `Show will have ${show.artists.length - 1} artist(s) after removal.`,
-  );
-  for (const remaining of show.artists) {
-    if (remaining.id === artistId) continue;
-    const label = roleLabel(remaining.set_type);
-    if (label) {
-      display.info(`  ${gray("KEEP")} "${remaining.name}"${label}`);
-    }
-  }
-  warnUnroundtrippableRoles(show.artists.filter((a) => a.id !== artistId));
+  display.info(`Show will have ${kept.length} artist(s) after removal.`);
+  previewKeptBill(kept);
 
   if (!confirm) {
     display.warn("Dry run. Pass --confirm to execute.");
@@ -532,14 +543,9 @@ export async function removeArtistFromShow(
   // --- Step 5: Execute ---
   display.header("Removing artist...");
 
-  // Build the artist list without the target artist
-  const remainingArtists = show.artists
-    .filter((a) => a.id !== artistId)
-    .map(preserveBillEntry);
-
   try {
     await client.put(`/shows/${show.id}`, {
-      artists: remainingArtists,
+      artists: kept.map(preserveBillEntry),
     });
     display.success(
       `Removed "${artistName}" (ID: ${artistId}) from "${show.title || "(untitled)"}"`,

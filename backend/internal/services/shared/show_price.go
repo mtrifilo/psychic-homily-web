@@ -49,11 +49,12 @@ func ShowPriceText(price, doorPrice *float64) string {
 // showPriceAmount is one number in the site's money register: "Free" for zero,
 // "$35" for a whole amount, "$12.50" when there really are cents.
 //
-// It must stay byte-identical to formatPrice in frontend/lib/utils/formatters.ts,
-// because the two render THE SAME COLUMN to the same reader — the calendar entry
-// a subscriber keeps and the /shows row they saw it on. That is a duplication
-// across languages with no compiler holding it together, so the rule is stated
-// on both sides and each names the other by path.
+// It must stay byte-identical to formatPrice in frontend/lib/utils/formatters.ts
+// and Show.formatPrice in ios/PsychicHomily/Models/Show.swift, because the three
+// render THE SAME COLUMN to the same reader — the calendar entry a subscriber
+// keeps, the /shows row they saw it on, and the row in the app. That is a
+// duplication across languages with no compiler holding it together, so the rule
+// is stated on every side and each names the others by path.
 //
 // The whole-number test is what keeps them in step, and it is easy to get wrong:
 // a bare "$%.0f" (which is what the ICS description used before PSY-1962) prints

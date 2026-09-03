@@ -54,6 +54,13 @@ struct Show: Codable, Identifiable, Hashable, Sendable {
 
     /// One amount as the site spells it: `Free` for zero, `$20` for a whole
     /// number, `$20.50` otherwise.
+    ///
+    /// It must stay byte-identical to `formatPrice` in
+    /// `frontend/lib/utils/formatters.ts` and `showPriceAmount` in
+    /// `backend/internal/services/shared/show_price.go`, which render the same
+    /// column to the same reader with no compiler holding the three together.
+    /// The whole-number test is the part that drifts: rendering everything as
+    /// whole dollars turns $12.50 into `$12` and a fifty-cent door into `$0`.
     static func formatPrice(_ amount: Double) -> String {
         if amount == 0 { return "Free" }
         if amount == amount.rounded() { return String(format: "$%.0f", amount) }
@@ -66,8 +73,8 @@ struct Show: Codable, Identifiable, Hashable, Sendable {
     /// THE derivation of "what does this show cost", so a row and the detail
     /// screen cannot disagree about whether there are one or two numbers.
     ///
-    /// An equal pair COLLAPSES to one: `$20/$20` spends two slots to say one
-    /// thing and reads as a rendering bug. A lone DOOR price comes back
+    /// An equal pair COLLAPSES to one: two slots and a separator to say one
+    /// thing reads as a rendering bug. A lone DOOR price comes back
     /// indistinguishable from a lone advance price, deliberately — with one
     /// number there is nothing to tell it apart from, so qualifying it would
     /// add a word without adding a fact.
@@ -85,14 +92,14 @@ struct Show: Codable, Identifiable, Hashable, Sendable {
 
     /// The show is free to enter: the only price it states is zero.
     var isFree: Bool {
-        statedPrices == [0]
+        let prices = statedPrices
+        return prices.count == 1 && prices[0] == 0
     }
 
     /// A dense row's price: `$20`, `Free`, or the pair `$20/$25`.
     ///
-    /// Both numbers rather than the advance half alone: a row showing `$20` for
-    /// a show whose door is $25 tells a reader the wrong thing about money and
-    /// they find out at the door.
+    /// Both numbers rather than the advance half alone, so a row never quotes
+    /// the advance price of a show whose door price is higher.
     var priceText: String? {
         let prices = statedPrices
         if prices.isEmpty { return nil }

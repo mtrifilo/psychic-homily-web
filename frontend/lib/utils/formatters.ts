@@ -249,13 +249,13 @@ export function formatShowTimeCompact(
  * business: every call site guards on `!= null` rather than truthiness, or a
  * free show renders as nothing.
  *
- * MIRRORED IN GO by `showPriceAmount` in
- * `backend/internal/services/shared/show_price.go`, which renders the ICS feed
- * descriptions. The two spell the same column for the same reader — the
- * calendar entry a subscriber keeps and the /shows row they saw it on — and no
- * compiler holds them together, so a change here needs the same change there.
- * The whole-number test is the part that drifts: rendering everything as whole
- * dollars turns $12.50 into `$12` and a fifty-cent door into `$0`.
+ * MIRRORED in two other languages, spelling the same column for the same
+ * reader: `showPriceAmount` in `backend/internal/services/shared/show_price.go`
+ * (the ICS feed descriptions) and `Show.formatPrice` in
+ * `ios/PsychicHomily/Models/Show.swift` (the iOS list and detail screens). No
+ * compiler holds the three together, so a change here needs the same change in
+ * both. The whole-number test is the part that drifts: rendering everything as
+ * whole dollars turns $12.50 into `$12` and a fifty-cent door into `$0`.
  */
 export function formatPrice(price: number): string {
   if (price === 0) return 'Free'

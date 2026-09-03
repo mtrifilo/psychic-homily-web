@@ -69,8 +69,7 @@ interface ShowInput {
   price?: number;
   /**
    * The price at the door, carried ONLY when the source states one separately
-   * from the advance price. Never derived from `price`: a door price nobody
-   * stated is a number a reader finds out is wrong at the door.
+   * from the advance price. Never derived from `price`.
    */
   door_price?: number;
   age_requirement?: string;
@@ -433,25 +432,35 @@ export async function submitShows(
 // -- Display helpers ---------------------------------------------------------
 
 /**
+ * One amount as the site spells it: `Free` for zero, `$20` for a whole number,
+ * `$20.50` otherwise.
+ */
+function formatAmount(amount: number): string {
+  if (amount === 0) return "Free";
+  return Number.isInteger(amount) ? `$${amount}` : `$${amount.toFixed(2)}`;
+}
+
+/**
  * The dry run's `Price` line: `$20`, `$25 door`, `$20 / $25 door`, or null when
  * the show states no price at all.
  *
  * A preview of the PAYLOAD, so both numbers are printed whenever both will be
- * sent, including two equal ones. The site collapses an equal pair when it
- * renders a show; collapsing here would hide a duplicated number from the one
- * reader who can still fix it before it is written.
+ * sent, including two equal ones — a preview that collapsed them would hide a
+ * duplicated number from the one reader who can still fix it before it is
+ * written.
  *
- * Zero prints as `$0` rather than being dropped, because the guards test
- * `!== undefined`: a free show states a price, and `door_price` is opt-in
- * rather than derived, so neither half is ever inferred from the other.
+ * Zero is a price, not silence, which is why the guards test `!== undefined`.
+ * Neither half is ever inferred from the other.
  */
 export function showPriceLine(input: {
   price?: number;
   door_price?: number;
 }): string | null {
   const parts: string[] = [];
-  if (input.price !== undefined) parts.push(`$${input.price}`);
-  if (input.door_price !== undefined) parts.push(`$${input.door_price} door`);
+  if (input.price !== undefined) parts.push(formatAmount(input.price));
+  if (input.door_price !== undefined) {
+    parts.push(`${formatAmount(input.door_price)} door`);
+  }
   return parts.length > 0 ? parts.join(" / ") : null;
 }
 

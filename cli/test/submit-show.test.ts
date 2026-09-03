@@ -447,8 +447,14 @@ describe("showPriceLine", () => {
     expect(showPriceLine({ price: 20, door_price: 20 })).toBe("$20 / $20 door");
   });
 
-  test("prints a zero price rather than reading it as silence", () => {
-    expect(showPriceLine({ price: 0 })).toBe("$0");
+  test("prints a zero price as Free rather than reading it as silence", () => {
+    expect(showPriceLine({ price: 0 })).toBe("Free");
+  });
+
+  test("spells a fractional amount to the cent", () => {
+    expect(showPriceLine({ price: 20.5, door_price: 25 })).toBe(
+      "$20.50 / $25 door",
+    );
   });
 
   test("is null when the show states no price", () => {

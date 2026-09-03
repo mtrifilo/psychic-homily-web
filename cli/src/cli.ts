@@ -19,7 +19,7 @@ import { runShowAddArtist, runShowRemoveArtist } from "./commands/show";
 import { runSourcesStale, runSourcesRegister, runSourcesRefresh } from "./commands/sources";
 import { runRadioRematch } from "./commands/radio";
 import { flushRevalidation } from "./lib/revalidate";
-import { setTypeVocabularyCSV } from "./lib/setType";
+import { SET_TYPE_VOCABULARY_CSV } from "./lib/setType";
 
 const program = new Command();
 
@@ -205,7 +205,7 @@ showCmd
   .option("--file <path>", "Read artist JSON from file")
   .option(
     "--role <role>",
-    `Bill role for added acts that state no set_type of their own (${setTypeVocabularyCSV()})`,
+    `Bill role for added acts that state no set_type of their own (${SET_TYPE_VOCABULARY_CSV})`,
   )
   .option("--confirm", "Execute changes (default is dry-run)")
   .action(async (showId: string, json: string | undefined, opts: { file?: string; confirm?: boolean; role?: string }) => {
