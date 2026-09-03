@@ -199,23 +199,43 @@ describe('TopBar', () => {
 
     // PSY-1986. Both pending cells, because they differ in the signal the bar
     // used to read: the ordinary pre-profile window has `isLoading` true, and
-    // the terminal window a non-definitive failure (5xx, network, 403) leaves
-    // behind has it false. That second cell is where the bar claimed the
-    // viewer was anonymous beside bracket controls that rendered disabled, so
-    // a regression to an `isLoading` gate has to fail here.
+    // the terminal window a non-definitive failure (5xx, 429, network, 403)
+    // leaves behind has it false. In both, the bar keeps the anonymous-safe
+    // /auth route and suppresses every control that names a viewer, so a
+    // regression to an `isLoading` gate fails on one cell or the other.
     it.each([
       ['while the profile is in flight', true],
       ['after the profile failed without settling', false],
-    ])('claims no identity %s', (_label, isLoading) => {
+    ])('keeps the login link and asserts no identity %s', (_label, isLoading) => {
       mockAuthContext.mockReturnValue(authFixture({ authStatus: 'pending', isLoading }))
       render(<TopBar />)
-      expect(screen.queryByText('login / sign-up')).not.toBeInTheDocument()
+      expect(screen.getAllByText('login / sign-up').length).toBeGreaterThanOrEqual(1)
       expect(screen.queryByRole('button', { name: 'User menu' })).not.toBeInTheDocument()
       expect(screen.queryByRole('link', { name: '+ Submit' })).not.toBeInTheDocument()
       expect(screen.queryByTestId('notification-bell')).not.toBeInTheDocument()
       // No spinner either. Lucide's Loader2 renders a bare svg with no role,
       // so the class is what this assertion has to look for.
       expect(document.querySelector('.animate-spin')).toBeNull()
+    })
+
+    // The pending and settled-anonymous slots are the SAME markup, which is
+    // what keeps the row from reflowing when a pending read settles to
+    // anonymous. Comparing the rendered node pins that; asserting the link
+    // twice would not.
+    it('renders the pending slot identically to the settled-anonymous slot', () => {
+      const slotOf = (authStatus: AuthStatus) => {
+        mockAuthContext.mockReturnValue(authFixture({ authStatus }))
+        const { unmount } = render(<TopBar />)
+        const html = screen
+          .getAllByText('login / sign-up')
+          .map(node => node.outerHTML)
+          .join('')
+        unmount()
+        return html
+      }
+      const pending = slotOf('pending')
+      expect(pending).not.toEqual('')
+      expect(pending).toEqual(slotOf('anonymous'))
     })
 
     // The override built at login makes the viewer authenticated before the

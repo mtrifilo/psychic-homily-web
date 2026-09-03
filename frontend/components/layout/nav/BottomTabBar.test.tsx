@@ -6,6 +6,7 @@ import { BottomTabBar } from './BottomTabBar'
 import { primaryLinks } from './PrimaryNav'
 import { mobileBrowseHrefs, primaryTabs, sidebarGroups } from './navData'
 import { BOTTOM_TAB_BAR_BOX } from '@/test/layoutContracts'
+import type { AuthStatus } from '@/lib/context/AuthContext'
 
 let mockPathname = '/'
 vi.mock('next/navigation', () => ({
@@ -33,18 +34,36 @@ vi.mock('next/link', () => {
 })
 
 const mockLogout = vi.fn()
+type MockUser = { email: string; username?: string; is_admin: boolean }
 type MockAuthContextValue = {
-  user: { email: string; username?: string; is_admin: boolean } | null
+  user: MockUser | null
   isAuthenticated: boolean
+  authStatus: AuthStatus
   isLoading: boolean
   logout: () => void
 }
-const mockAuthContext = vi.fn<() => MockAuthContextValue>(() => ({
-  user: null,
-  isAuthenticated: false,
-  isLoading: false,
-  logout: mockLogout,
-}))
+
+// One fixture builder, matching TopBar.test.tsx's, because the two bars gate
+// the Account affordance on the same signal. It pins one coupling:
+// `isAuthenticated` derives from `authStatus` and cannot be overridden, so no
+// test describes a viewer whose two auth signals disagree. `isLoading` stays
+// overridable, because the two pending windows this bar has to survive differ
+// in it.
+function authFixture(
+  overrides: Partial<Omit<MockAuthContextValue, 'isAuthenticated'>> = {}
+): MockAuthContextValue {
+  const authStatus = overrides.authStatus ?? 'anonymous'
+  return {
+    user: null,
+    authStatus,
+    isLoading: authStatus === 'pending',
+    logout: mockLogout,
+    ...overrides,
+    isAuthenticated: authStatus === 'authenticated',
+  }
+}
+
+const mockAuthContext = vi.fn<() => MockAuthContextValue>(() => authFixture())
 vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => mockAuthContext(),
 }))
@@ -70,13 +89,8 @@ vi.mock('next-themes', () => ({
   }),
 }))
 
-function authedAs(user: { email: string; username?: string; is_admin: boolean }) {
-  mockAuthContext.mockReturnValue({
-    user,
-    isAuthenticated: true,
-    isLoading: false,
-    logout: mockLogout,
-  })
+function authedAs(user: MockUser) {
+  mockAuthContext.mockReturnValue(authFixture({ user, authStatus: 'authenticated' }))
 }
 
 describe('BottomTabBar', () => {
@@ -84,12 +98,7 @@ describe('BottomTabBar', () => {
     vi.clearAllMocks()
     mockPathname = '/'
     mockUnreadCount.mockReturnValue(0)
-    mockAuthContext.mockReturnValue({
-      user: null,
-      isAuthenticated: false,
-      isLoading: false,
-      logout: mockLogout,
-    })
+    mockAuthContext.mockReturnValue(authFixture())
   })
 
   // Mobile-reachability guard, simplified per PSY-1821: primaryLinks and
@@ -384,16 +393,49 @@ describe('BottomTabBar', () => {
       )
     })
 
-    it('is inert while auth is hydrating', () => {
-      mockAuthContext.mockReturnValue({
-        user: null,
-        isAuthenticated: false,
-        isLoading: true,
-        logout: mockLogout,
-      })
+    // PSY-1986. Both pending windows, which differ in the signal this cell
+    // used to read: the pre-profile window has `isLoading` true, the window a
+    // non-definitive failure (5xx, 429, network, 403) leaves behind has it
+    // false. The cell keeps the anonymous /auth link in both and opens no
+    // sheet, so a regression to an `isLoading` gate fails on one or the other.
+    it.each([
+      ['while the profile is in flight', true],
+      ['after the profile failed without settling', false],
+    ])('keeps the login link and opens no account sheet %s', (_label, isLoading) => {
+      mockAuthContext.mockReturnValue(authFixture({ authStatus: 'pending', isLoading }))
       render(<BottomTabBar />)
-      expect(screen.queryByRole('link', { name: 'Account' })).not.toBeInTheDocument()
+      expect(screen.getByRole('link', { name: 'Account' })).toHaveAttribute('href', '/auth')
       expect(screen.queryByRole('button', { name: 'Account' })).not.toBeInTheDocument()
+    })
+
+    // The bar must not paint a stale viewer's identity while the status is
+    // unsettled: `user` survives a logout-in-flight and a failed refetch, so
+    // the sheet's gate has to be the status, not the presence of a user.
+    it('shows no account sheet for a retained user while the status is pending', () => {
+      mockAuthContext.mockReturnValue(
+        authFixture({
+          user: { email: 'stale@test.com', is_admin: false },
+          authStatus: 'pending',
+        })
+      )
+      render(<BottomTabBar />)
+      expect(screen.getByRole('link', { name: 'Account' })).toHaveAttribute('href', '/auth')
+      expect(screen.queryByText('stale@test.com')).not.toBeInTheDocument()
+    })
+
+    // The pending and settled-anonymous cells are the SAME markup, which is
+    // what keeps the tab from changing shape when a pending read settles to
+    // anonymous. Comparing the rendered node pins that; asserting the href
+    // twice would not.
+    it('renders the pending cell identically to the settled-anonymous cell', () => {
+      const cellOf = (authStatus: AuthStatus) => {
+        mockAuthContext.mockReturnValue(authFixture({ authStatus }))
+        const { unmount } = render(<BottomTabBar />)
+        const html = screen.getByRole('link', { name: 'Account' }).outerHTML
+        unmount()
+        return html
+      }
+      expect(cellOf('pending')).toEqual(cellOf('anonymous'))
     })
 
     it('opens the account sheet with the UserMenu-mirror entries when signed in', async () => {
@@ -465,22 +507,19 @@ describe('BottomTabBar', () => {
       expect(screen.getAllByTestId('unread-count-badge')).toHaveLength(2)
     })
 
-    // Both non-authed Account renderings are badge-less by construction, not
-    // just because the hook happens to return 0 — so force a non-zero count and
-    // assert nothing renders.
+    // The link arm is badge-less by construction, not just because the hook
+    // happens to return 0, so force a non-zero count and assert nothing
+    // renders, for both statuses that reach it.
     it('never badges an anonymous visitor', () => {
       mockUnreadCount.mockReturnValue(5)
       render(<BottomTabBar />)
       expect(screen.queryByTestId('unread-count-badge')).not.toBeInTheDocument()
     })
 
-    it('never badges the inert placeholder while auth is hydrating', () => {
-      mockAuthContext.mockReturnValue({
-        user: null,
-        isAuthenticated: false,
-        isLoading: true,
-        logout: mockLogout,
-      })
+    it('never badges the Account tab while auth is unsettled', () => {
+      mockAuthContext.mockReturnValue(
+        authFixture({ user: { email: 'stale@test.com', is_admin: false }, authStatus: 'pending' })
+      )
       mockUnreadCount.mockReturnValue(5)
       render(<BottomTabBar />)
       expect(screen.queryByTestId('unread-count-badge')).not.toBeInTheDocument()
