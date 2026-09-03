@@ -1,7 +1,6 @@
 'use client'
 
 import { Bookmark, Loader2 } from 'lucide-react'
-import { usePathname, useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { BracketLink } from './BracketLink'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -9,6 +8,7 @@ import { useReleaseSaveCount, useReleaseSaveToggle } from '@/features/releases'
 import { cn } from '@/lib/utils'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { useAutoDismissBanner } from '@/lib/hooks/common'
+import { useAuthGatedAction } from '@/lib/hooks/common/useAuthGatedAction'
 import {
   resolveBatchedSaveData,
   type BatchedSaveData,
@@ -47,8 +47,6 @@ export function ReleaseSaveButton({
   actionAriaLabel,
 }: ReleaseSaveButtonProps) {
   const { isAuthenticated, authStatus, user } = useAuthContext()
-  const router = useRouter()
-  const pathname = usePathname()
   // While a batch owns this release the prop is 'pending', which suppresses the
   // per-item request rather than racing the batch that replaces it.
   const { value: batched, shouldSelfFetch } = resolveBatchedSaveData(saveData)
@@ -76,23 +74,15 @@ export function ReleaseSaveButton({
     clear: clearSaveError,
   } = useAutoDismissBanner<true>(ERROR_DISMISS_MS)
   // Disabled while unsettled, as every control in this class is: it ships
-  // ENABLED in server HTML with pre-hydration click replay, and its handler
-  // routes on `!isAuthenticated`, which reads false for a signed-in viewer whose
-  // profile has not landed. See AuthStatus in lib/context/AuthContext.
+  // ENABLED in server HTML with pre-hydration click replay, and a click that
+  // lands while the viewer's identity is unknown can only guess. See
+  // AuthStatus in lib/context/AuthContext.
   const isDisabled =
     disabled || statusLoading || isLoading || authStatus === 'pending'
 
-  const handleClick = async (event: React.MouseEvent<HTMLButtonElement>) => {
-    event.preventDefault()
-    event.stopPropagation()
-    // Unreachable while the control renders disabled; defence in depth for the
-    // redirect below, which cannot tell "no session" from "profile in flight".
-    if (authStatus === 'pending') return
-    if (!isAuthenticated) {
-      const returnTo = `${pathname}${window.location.search}`
-      router.push(`/auth?returnTo=${encodeURIComponent(returnTo)}`)
-      return
-    }
+  // The hook owns the pending bail and the sign-in redirect; this handler
+  // states only what an authenticated click does.
+  const { onClick: handleClick } = useAuthGatedAction(async () => {
     if (isDisabled) return
     try {
       clearSaveError()
@@ -100,7 +90,7 @@ export function ReleaseSaveButton({
     } catch {
       showSaveError(true)
     }
-  }
+  })
 
   const label = isSaved ? 'Saved' : 'Save'
   const ariaLabel =

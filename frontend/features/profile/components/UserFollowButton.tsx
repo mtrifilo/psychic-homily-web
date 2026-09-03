@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter, usePathname } from 'next/navigation'
 import { UserPlus, UserCheck, UserMinus, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -13,6 +12,7 @@ import {
 import { cn } from '@/lib/utils'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { useAutoDismissBanner } from '@/lib/hooks/common'
+import { useAuthGatedAction } from '@/lib/hooks/common/useAuthGatedAction'
 
 // How long a follow/unfollow failure stays on screen before auto-hiding.
 const ERROR_DISMISS_MS = 3000
@@ -32,9 +32,7 @@ export function UserFollowButton({
   username,
   className,
 }: UserFollowButtonProps) {
-  const router = useRouter()
-  const pathname = usePathname()
-  const { isAuthenticated, authStatus } = useAuthContext()
+  const { authStatus } = useAuthContext()
   const [isHovering, setIsHovering] = useState(false)
   // Shared auto-dismiss primitive rather than a hand-rolled timer, which must
   // not outlive unmount. See useAutoDismissBanner / useDismissTimer (PSY-1664).
@@ -60,22 +58,14 @@ export function UserFollowButton({
   const isFollowing = data?.is_following ?? false
   const isMutating = follow.isPending || unfollow.isPending
   // Disabled while unsettled, as every control in this class is: it ships
-  // ENABLED in server HTML with pre-hydration click replay, and its handler
-  // routes on `!isAuthenticated`, which reads false for a signed-in viewer whose
-  // profile has not landed. See AuthStatus in lib/context/AuthContext.
+  // ENABLED in server HTML with pre-hydration click replay, and a click that
+  // lands while the viewer's identity is unknown can only guess. See
+  // AuthStatus in lib/context/AuthContext.
   const isDisabled = isMutating || authStatus === 'pending'
 
-  const handleClick = () => {
-    // Unreachable while the control renders disabled; defence in depth for the
-    // redirect below, which cannot tell "no session" from "profile in flight".
-    if (authStatus === 'pending') return
-
-    if (!isAuthenticated) {
-      const returnTo = `${pathname}${window.location.search}`
-      router.push(`/auth?returnTo=${encodeURIComponent(returnTo)}`)
-      return
-    }
-
+  // The hook owns the pending bail and the sign-in redirect; this handler
+  // states only what an authenticated click does.
+  const { onClick: handleClick } = useAuthGatedAction(() => {
     if (isDisabled) return
 
     clearErrorAction()
@@ -89,7 +79,7 @@ export function UserFollowButton({
     } else {
       follow.mutate(username, { onError })
     }
-  }
+  })
 
   if (statusLoading) {
     return (

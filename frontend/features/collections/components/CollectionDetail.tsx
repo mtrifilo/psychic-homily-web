@@ -91,7 +91,8 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { useRouter, usePathname } from 'next/navigation'
+import { useAuthGatedAction } from '@/lib/hooks/common/useAuthGatedAction'
+import { useRouter } from 'next/navigation'
 import type { ApiError } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { CommentThread } from '@/features/comments'
@@ -113,8 +114,7 @@ const ANCHOR_SECTIONS: AnchorSection[] = [
 
 export function CollectionDetail({ slug }: CollectionDetailProps) {
   const router = useRouter()
-  const pathname = usePathname()
-  const { user, isAuthenticated } = useAuthContext()
+  const { user, isAuthenticated, authStatus } = useAuthContext()
   const { data: collection, isLoading, error } = useCollection(slug)
   const subscribeMutation = useSubscribeCollection()
   const unsubscribeMutation = useUnsubscribeCollection()
@@ -125,6 +125,19 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
   // PSY-352: like/unlike toggle.
   const likeMutation = useLikeCollection()
   const unlikeMutation = useUnlikeCollection()
+  // One handler for all three viewer states: the hook bails while auth is
+  // unsettled and routes a settled-anonymous viewer to sign-in, so the toggle
+  // no longer picks its own onClick from `isAuthenticated`, which reads false
+  // for a signed-in viewer whose profile has not arrived. Declared with the
+  // other hooks, above the early returns the render below sits after, so
+  // `collection` is always present by the time a click can reach it.
+  const { onClick: handleToggleLike } = useAuthGatedAction(() => {
+    if (collection?.user_likes_this) {
+      unlikeMutation.mutate({ slug })
+    } else {
+      likeMutation.mutate({ slug })
+    }
+  })
 
   const [isEditing, setIsEditing] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
@@ -313,13 +326,6 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
     )
   }
 
-  const handleToggleLike = () => {
-    if (collection.user_likes_this) {
-      unlikeMutation.mutate({ slug })
-    } else {
-      likeMutation.mutate({ slug })
-    }
-  }
   const isLikePending = likeMutation.isPending || unlikeMutation.isPending
   // The "this viewer has liked it" visual state — only meaningful for
   // authenticated viewers (anonymous viewers see the count but never a
@@ -523,18 +529,17 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={
-                    isAuthenticated
-                      ? handleToggleLike
-                      : () =>
-                          router.push(
-                            `/auth?returnTo=${encodeURIComponent(pathname)}`
-                          )
+                  onClick={handleToggleLike}
+                  disabled={
+                    authStatus === 'pending' ||
+                    (isAuthenticated && isLikePending)
                   }
-                  disabled={isAuthenticated && isLikePending}
                   aria-pressed={isAuthenticated ? showLiked : undefined}
                   aria-label={
-                    !isAuthenticated
+                    // `authStatus === 'anonymous'`, not `!isAuthenticated`:
+                    // the sign-in wording is a claim about the viewer, and the
+                    // unsettled window is not entitled to make it.
+                    authStatus === 'anonymous'
                       ? 'Sign in to like collection'
                       : showLiked
                         ? 'Unlike collection'

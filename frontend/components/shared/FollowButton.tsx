@@ -1,11 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter, usePathname } from 'next/navigation'
 import { UserPlus, UserCheck, UserMinus, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { BracketLink } from './BracketLink'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { useAuthGatedAction } from '@/lib/hooks/common/useAuthGatedAction'
 import {
   useFollowStatus,
   useFollow,
@@ -51,9 +51,7 @@ export function FollowButton({
   className,
   disabled = false,
 }: FollowButtonProps) {
-  const router = useRouter()
-  const pathname = usePathname()
-  const { isAuthenticated, authStatus } = useAuthContext()
+  const { authStatus } = useAuthContext()
   const [isHovering, setIsHovering] = useState(false)
 
   // The bracket paints no follower count, and a settled-anonymous viewer's
@@ -102,22 +100,9 @@ export function FollowButton({
   //                 to /auth. Intended: that is what Follow does for them.
   //   pending    -> disabled (see `isDisabled`).
 
-  const handleClick = (e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-
-    // Unreachable while `isDisabled` includes 'pending'; kept because the
-    // redirect below cannot distinguish "no session" from "profile in flight",
-    // and it sits ahead of the `isDisabled` bail, which runs after the
-    // redirect.
-    if (authStatus === 'pending') return
-
-    if (!isAuthenticated) {
-      const returnTo = `${pathname}${window.location.search}`
-      router.push(`/auth?returnTo=${encodeURIComponent(returnTo)}`)
-      return
-    }
-
+  // The pending bail and the sign-in redirect both live in the hook, so this
+  // handler only has to say what an authenticated click does.
+  const { onClick: handleClick } = useAuthGatedAction(() => {
     if (isDisabled) return
 
     if (isFollowing) {
@@ -125,7 +110,7 @@ export function FollowButton({
     } else {
       follow.mutate({ entityType, entityId })
     }
-  }
+  })
 
   // Bracket variant — dense header linkbox. Toggles [Follow] ↔ [Following];
   // ignores `compact` (brackets are already maximally compact).

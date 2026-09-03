@@ -56,9 +56,14 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/atlas',
 }))
 
-let mockIsAuthenticated = true
+// `authStatus` is the setting, and `isAuthenticated` is derived from it, so no
+// case here can describe a viewer whose two auth signals disagree.
+let mockAuthStatus: 'pending' | 'anonymous' | 'authenticated' = 'authenticated'
 vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => ({ isAuthenticated: mockIsAuthenticated }),
+  useAuthContext: () => ({
+    authStatus: mockAuthStatus,
+    isAuthenticated: mockAuthStatus === 'authenticated',
+  }),
 }))
 
 import { VenuePanel } from './VenuePanel'
@@ -127,7 +132,7 @@ beforeEach(() => {
   // Default: a venue nobody has written a note about, which is the common case
   // and the one the panel must render as NO section rather than an empty box.
   mockUseVenueFieldNotes.mockReturnValue({ data: undefined })
-  mockIsAuthenticated = true
+  mockAuthStatus = 'authenticated'
   mockUseVenueConfirm.mockReturnValue({
     mutate: mockConfirmMutate,
     isPending: false,
@@ -224,13 +229,26 @@ describe('VenuePanel', () => {
   })
 
   it('sends a signed-out user to auth instead of writing', () => {
-    mockIsAuthenticated = false
+    mockAuthStatus = 'anonymous'
     renderPanel()
     fireEvent.click(screen.getByTestId('venue-panel-confirm'))
     expect(mockConfirmMutate).not.toHaveBeenCalled()
     expect(mockPush).toHaveBeenCalledWith(
       expect.stringContaining('/auth?returnTo='),
     )
+  })
+
+  it('neither writes nor redirects while auth is unsettled', () => {
+    // The redirect cannot tell "no session" from "profile in flight", so a tap
+    // in this window would either write as a viewer we cannot identify or send
+    // a signed-in one to the sign-in form.
+    mockAuthStatus = 'pending'
+    renderPanel()
+    const confirm = screen.getByTestId('venue-panel-confirm')
+    expect(confirm).toHaveAttribute('aria-disabled', 'true')
+    fireEvent.click(confirm)
+    expect(mockConfirmMutate).not.toHaveBeenCalled()
+    expect(mockPush).not.toHaveBeenCalled()
   })
 
   it('reads as done, and refuses a second write, once confirmed', () => {

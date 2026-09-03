@@ -1,7 +1,6 @@
 'use client'
 
 import { useId, useMemo, useRef, useState, type ReactNode } from 'react'
-import { useRouter, usePathname } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { Library, Check, Plus, Loader2, AlertCircle, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -22,6 +21,7 @@ import {
 } from '@/features/collections/hooks'
 import { queryKeys } from '@/lib/queryClient'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { useAuthGatedAction } from '@/lib/hooks/common/useAuthGatedAction'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import type { CollectionEntityType } from '@/features/collections/types'
 import { useCreateCollectionDrawer } from '@/features/collections/components/CreateCollectionDrawer'
@@ -99,11 +99,16 @@ export function AddToCollectionButton({
   // early return triggered a Rules-of-Hooks violation once the auth
   // profile resolved (PSY-466).
   const { isAuthenticated, authStatus } = useAuthContext()
-  const router = useRouter()
-  const pathname = usePathname()
   const queryClient = useQueryClient()
   const { openCreateDrawer } = useCreateCollectionDrawer()
   const [open, setOpen] = useState(false)
+  // Owns the pending bail and the sign-in redirect for the public bracket
+  // below. Opening the popover is what a settled-authenticated click does, and
+  // is what the authenticated render at the foot of this component does, so
+  // the hook's authenticated branch says the same thing that render does.
+  const { onClick: handlePublicBracketClick } = useAuthGatedAction(() =>
+    setOpen(true)
+  )
 
   // PSY-961 / PSY-893 D4: close the popover and open the app-level Create
   // drawer pre-filled with this entity as item 1 — "I'm reading about this
@@ -292,10 +297,7 @@ export function AddToCollectionButton({
         // router push. A replayed click in that window sends an
         // already-signed-in viewer to /auth.
         disabled={authStatus === 'pending'}
-        onClick={() => {
-          if (authStatus === 'pending') return
-          router.push(`/auth?returnTo=${encodeURIComponent(pathname)}`)
-        }}
+        onClick={handlePublicBracketClick}
       />
     )
   }

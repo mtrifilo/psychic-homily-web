@@ -7,22 +7,29 @@ import type {
   CollectionItem,
 } from '../types'
 
-// Mock AuthContext
+// Mock AuthContext.
+//
+// `authStatus` is what a case sets; `isAuthenticated` is derived from it at the
+// boundary, so no case can describe a viewer whose two auth signals disagree,
+// and 'pending' is expressible (it is not, when `isAuthenticated` is the input).
 type MockAuthUser = { id: string; is_admin?: boolean } | null
 type MockAuthValue = {
   user: MockAuthUser
-  isAuthenticated: boolean
+  authStatus: 'pending' | 'anonymous' | 'authenticated'
   isLoading: boolean
   logout: () => void
 }
 const mockAuthContext = vi.fn<() => MockAuthValue>(() => ({
   user: { id: '1' },
-  isAuthenticated: true,
+  authStatus: 'authenticated',
   isLoading: false,
   logout: vi.fn(),
 }))
 vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => mockAuthContext(),
+  useAuthContext: () => {
+    const value = mockAuthContext()
+    return { ...value, isAuthenticated: value.authStatus === 'authenticated' }
+  },
 }))
 
 // Mock next/link
@@ -390,7 +397,7 @@ describe('CollectionDetail', () => {
     vi.clearAllMocks()
     mockAuthContext.mockReturnValue({
       user: { id: '1' },
-      isAuthenticated: true,
+      authStatus: 'authenticated',
       isLoading: false,
       logout: vi.fn(),
     })
@@ -577,7 +584,7 @@ describe('CollectionDetail', () => {
   it('does not show delete button for non-creator', () => {
     mockAuthContext.mockReturnValue({
       user: { id: '999' },
-      isAuthenticated: true,
+      authStatus: 'authenticated',
       isLoading: false,
       logout: vi.fn(),
     })
@@ -720,7 +727,7 @@ describe('CollectionDetail', () => {
       const user = userEvent.setup()
       mockAuthContext.mockReturnValue({
         user: { id: '999' },
-        isAuthenticated: true,
+        authStatus: 'authenticated',
         isLoading: false,
         logout: vi.fn(),
       })
@@ -738,7 +745,7 @@ describe('CollectionDetail', () => {
       const user = userEvent.setup()
       mockAuthContext.mockReturnValue({
         user: null,
-        isAuthenticated: false,
+        authStatus: 'anonymous',
         isLoading: false,
         logout: vi.fn(),
       })
@@ -757,7 +764,7 @@ describe('CollectionDetail', () => {
       const user = userEvent.setup()
       mockAuthContext.mockReturnValue({
         user: { id: '999' },
-        isAuthenticated: true,
+        authStatus: 'authenticated',
         isLoading: false,
         logout: vi.fn(),
       })
@@ -776,7 +783,7 @@ describe('CollectionDetail', () => {
       const user = userEvent.setup()
       mockAuthContext.mockReturnValue({
         user: { id: '999' },
-        isAuthenticated: true,
+        authStatus: 'authenticated',
         isLoading: false,
         logout: vi.fn(),
       })
@@ -854,7 +861,7 @@ describe('CollectionDetail', () => {
       const user = userEvent.setup()
       mockAuthContext.mockReturnValue({
         user: null,
-        isAuthenticated: false,
+        authStatus: 'anonymous',
         isLoading: false,
         logout: vi.fn(),
       })
@@ -921,7 +928,7 @@ describe('CollectionDetail', () => {
       const user = userEvent.setup()
       mockAuthContext.mockReturnValue({
         user: { id: '999', is_admin: false },
-        isAuthenticated: true,
+        authStatus: 'authenticated',
         isLoading: false,
         logout: vi.fn(),
       })
@@ -941,7 +948,7 @@ describe('CollectionDetail', () => {
       const user = userEvent.setup()
       mockAuthContext.mockReturnValue({
         user: { id: '1', is_admin: false },
-        isAuthenticated: true,
+        authStatus: 'authenticated',
         isLoading: false,
         logout: vi.fn(),
       })
@@ -960,7 +967,7 @@ describe('CollectionDetail', () => {
       const user = userEvent.setup()
       mockAuthContext.mockReturnValue({
         user: { id: '999', is_admin: true },
-        isAuthenticated: true,
+        authStatus: 'authenticated',
         isLoading: false,
         logout: vi.fn(),
       })
@@ -979,7 +986,7 @@ describe('CollectionDetail', () => {
       const user = userEvent.setup()
       mockAuthContext.mockReturnValue({
         user: null,
-        isAuthenticated: false,
+        authStatus: 'anonymous',
         isLoading: false,
         logout: vi.fn(),
       })
@@ -1089,7 +1096,7 @@ describe('CollectionDetail', () => {
       // Logged-in user is not the creator
       mockAuthContext.mockReturnValue({
         user: { id: '999' },
-        isAuthenticated: true,
+        authStatus: 'authenticated',
         isLoading: false,
         logout: vi.fn(),
       })
@@ -1920,7 +1927,7 @@ describe('CollectionDetail', () => {
     it('does NOT render drag handles in grid + ranked for non-creator', () => {
       mockAuthContext.mockReturnValue({
         user: { id: '999' },
-        isAuthenticated: true,
+        authStatus: 'authenticated',
         isLoading: false,
         logout: vi.fn(),
       })
@@ -2029,7 +2036,7 @@ describe('CollectionDetail', () => {
       mockAuthContext.mockReturnValue({
         // Non-creator viewer — subscribe button is rendered.
         user: { id: '99' },
-        isAuthenticated: true,
+        authStatus: 'authenticated',
         isLoading: false,
         logout: vi.fn(),
       })
@@ -2048,7 +2055,7 @@ describe('CollectionDetail', () => {
     it('renders the clone error banner when cloneMutation isError', () => {
       mockAuthContext.mockReturnValue({
         user: { id: '99' },
-        isAuthenticated: true,
+        authStatus: 'authenticated',
         isLoading: false,
         logout: vi.fn(),
       })
@@ -2067,7 +2074,7 @@ describe('CollectionDetail', () => {
     it('uses the privacy-aware copy on subscribe 403', () => {
       mockAuthContext.mockReturnValue({
         user: { id: '99' },
-        isAuthenticated: true,
+        authStatus: 'authenticated',
         isLoading: false,
         logout: vi.fn(),
       })
@@ -2245,7 +2252,7 @@ describe('CollectionDetail', () => {
         const user = userEvent.setup()
         mockAuthContext.mockReturnValue({
           user: { id: '999', is_admin: false },
-          isAuthenticated: true,
+          authStatus: 'authenticated',
           isLoading: false,
           logout: vi.fn(),
         })
@@ -2289,7 +2296,7 @@ describe('CollectionDetail', () => {
         const user = userEvent.setup()
         mockAuthContext.mockReturnValue({
           user: null,
-          isAuthenticated: false,
+          authStatus: 'anonymous',
           isLoading: false,
           logout: vi.fn(),
         })
@@ -2430,7 +2437,7 @@ describe('CollectionDetail', () => {
         // it — the inline status row is the only in-flight feedback.
         mockAuthContext.mockReturnValue({
           user: { id: '999' },
-          isAuthenticated: true,
+          authStatus: 'authenticated',
           isLoading: false,
           logout: vi.fn(),
         })
@@ -2626,7 +2633,7 @@ describe('CollectionDetail', () => {
       it('hides the Add Items toggle for non-creators', () => {
         mockAuthContext.mockReturnValue({
           user: { id: '999' },
-          isAuthenticated: true,
+          authStatus: 'authenticated',
           isLoading: false,
           logout: vi.fn(),
         })

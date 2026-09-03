@@ -1,11 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter, usePathname } from 'next/navigation'
 import { AlertCircle, Bell, BellRing, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { BracketLink } from '@/components/shared/BracketLink'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { useAuthGatedAction } from '@/lib/hooks/common/useAuthGatedAction'
 import {
   useNotificationFilterCheck,
   useQuickCreateFilter,
@@ -42,8 +42,6 @@ export function NotifyMeButton({
   compact = false,
   variant = 'button',
 }: NotifyMeButtonProps) {
-  const router = useRouter()
-  const pathname = usePathname()
   const { isAuthenticated, authStatus } = useAuthContext()
   const [isHovering, setIsHovering] = useState(false)
 
@@ -59,19 +57,11 @@ export function NotifyMeButton({
   const isMutating = quickCreate.isPending || deleteFilter.isPending
   const isUnsettled = authStatus === 'pending'
 
-  const handleClick = (e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-
-    // Unreachable while the control renders disabled; defence in depth for the
-    // redirect below, which cannot tell "no session" from "profile in flight".
-    if (isUnsettled) return
-
-    if (!isAuthenticated) {
-      router.push(`/auth?returnTo=${encodeURIComponent(pathname)}`)
-      return
-    }
-
+  // The hook owns the pending bail and the sign-in redirect; this handler
+  // states only what an authenticated click does. Both renders below route
+  // through it, so the sign-in affordance and the toggle cannot drift into
+  // two destinations.
+  const { onClick: handleClick } = useAuthGatedAction(() => {
     if (isMutating) return
 
     if (hasFilter && matchingFilter) {
@@ -79,7 +69,7 @@ export function NotifyMeButton({
     } else {
       quickCreate.mutate({ entityType, entityId })
     }
-  }
+  })
 
   // Bracket variant — dense header linkbox. handleClick already handles the
   // unauthenticated → /auth redirect, so a single BracketLink covers all states.
@@ -106,9 +96,7 @@ export function NotifyMeButton({
   // viewer whose profile has not arrived. One branch rather than two so the two
   // states cannot drift into different buttons.
   if (isUnsettled || !isAuthenticated) {
-    const goToAuth = isUnsettled
-      ? undefined
-      : () => router.push(`/auth?returnTo=${encodeURIComponent(pathname)}`)
+    const goToAuth = isUnsettled ? undefined : handleClick
     if (compact) {
       return (
         <Button

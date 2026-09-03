@@ -17,7 +17,13 @@ interface LoginPromptDialogProps {
   onOpenChange: (open: boolean) => void
   title?: string
   description?: string
-  returnTo?: string
+  /**
+   * The sign-in destination, already built. The caller passes an href rather
+   * than a bare `returnTo` because the canonical destination is resolved when
+   * the prompt OPENS (`useAuthGatedAction`), while this dialog is mounted
+   * closed in server markup, where there is no location to resolve it from.
+   */
+  authHref?: string
 }
 
 export function LoginPromptDialog({
@@ -25,10 +31,8 @@ export function LoginPromptDialog({
   onOpenChange,
   title = 'Sign in required',
   description = 'You need to be signed in to perform this action.',
-  returnTo = '/',
+  authHref = buildAuthHref('/'),
 }: LoginPromptDialogProps) {
-  const authHref = buildAuthHref(returnTo)
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">

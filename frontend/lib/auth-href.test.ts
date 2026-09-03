@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { sanitizeReturnTo } from '@/app/auth/auth-redirect-utils'
-import { AUTH_PATH, buildAuthHref } from './auth-href'
+import {
+  AUTH_PATH,
+  buildAuthHref,
+  currentLocationReturnTo,
+} from './auth-href'
 
 describe('buildAuthHref', () => {
   it('points at the auth route, which is the only route that renders the form', () => {
@@ -39,5 +43,32 @@ describe('buildAuthHref', () => {
       )
       expect(sanitizeReturnTo(returnTo)).toBe(destination)
     }
+  })
+})
+
+describe('currentLocationReturnTo', () => {
+  it('carries the query string, which is where the hand-rolled copies drifted', () => {
+    // Four of the nine copies this replaced sent the bare pathname, so a
+    // reader who clicked from a filtered list came back to the unfiltered page.
+    window.history.replaceState({}, '', '/shows?city=phoenix&when=weekend')
+    expect(currentLocationReturnTo('/shows')).toBe(
+      '/shows?city=phoenix&when=weekend'
+    )
+  })
+
+  it('is the bare pathname when the location carries no query', () => {
+    window.history.replaceState({}, '', '/artists/calexico')
+    expect(currentLocationReturnTo('/artists/calexico')).toBe(
+      '/artists/calexico'
+    )
+  })
+
+  it('round-trips through the auth page inverse', () => {
+    window.history.replaceState({}, '', '/users/alice?tab=bio')
+    const href = buildAuthHref(currentLocationReturnTo('/users/alice'))
+    const returnTo = new URL(href, 'https://psychichomily.com').searchParams.get(
+      'returnTo'
+    )
+    expect(sanitizeReturnTo(returnTo)).toBe('/users/alice?tab=bio')
   })
 })
