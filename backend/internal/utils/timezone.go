@@ -123,6 +123,23 @@ func GetTimezoneForState(state string) string {
 	return "America/Phoenix"
 }
 
+// HasTimezoneForState reports whether StateTimezones carries this state, i.e.
+// whether GetTimezoneForState answers from the map rather than from its
+// America/Phoenix default.
+//
+// The distinction the default erases: "AZ" and "England" both come back as
+// America/Phoenix, and only the first of them is an answer. A caller about to
+// print a WALL CLOCK needs to tell them apart, because the second is wrong by
+// hours; a caller printing a calendar DATE does not, because the fallback day is
+// still the best available one.
+//
+// Case folding matches GetTimezoneForState exactly, and neither trims, so the
+// two always agree on which inputs the map holds.
+func HasTimezoneForState(state string) bool {
+	_, ok := StateTimezones[strings.ToUpper(state)]
+	return ok
+}
+
 // EventLocation resolves the IANA location for rendering an event time in a
 // venue's local zone. Precedence: a valid explicit venue timezone, then the US
 // state->tz map (GetTimezoneForState, which itself defaults unknown/empty input

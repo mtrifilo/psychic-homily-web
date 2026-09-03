@@ -74,8 +74,12 @@ export interface SceneWindowData {
   sceneName: string
   city: string
   state: string
-  /** IANA zone the window's dates were resolved in, for structured data. */
-  timezone: string
+  /**
+   * IANA zone the window's dates were resolved in, for structured data. Null
+   * when the payload could not name one, which keeps a guessed zone out of a
+   * published `startDate` offset.
+   */
+  timezone: string | null
   /** Day rows, already sliced to the window and capped. */
   days: SceneWeekDay[]
   /** Shows actually rendered — may be under the window's true total. */

@@ -37,7 +37,14 @@ import {
  * widths a right-hand venue column cannot survive real band names, so the
  * metadata stacks underneath instead.
  */
-function ShowRow({ show, sceneTimezone }: { show: SceneDayShow; sceneTimezone?: string }) {
+function ShowRow({
+  show,
+  sceneTimezone,
+}: {
+  show: SceneDayShow
+  /** Null when the day payload could not name the scene's zone. */
+  sceneTimezone?: string | null
+}) {
   const time = formatShowStartTime(show, sceneTimezone)
 
   return (

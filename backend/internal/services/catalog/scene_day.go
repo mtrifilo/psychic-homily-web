@@ -303,7 +303,7 @@ func (s *SceneService) GetSceneDay(city, state, dateKey string) (*contracts.Scen
 		return nil, apperrors.ErrSceneNotFound(fmt.Sprintf("scene not found: %s, %s", city, state))
 	}
 
-	loc := s.sceneLocation(scope, state)
+	loc, zone := s.sceneLocation(scope, state)
 	nowLocal := time.Now().In(loc)
 	tonight := tonightDate(nowLocal)
 
@@ -388,7 +388,7 @@ func (s *SceneService) GetSceneDay(city, state, dateKey string) (*contracts.Scen
 		City:      city,
 		State:     state,
 		Date:      date.String(),
-		Timezone:  loc.String(),
+		Timezone:  zone,
 		// From the DATE, not from `start`: a start that is a jump boundary can
 		// render as the PREVIOUS date, and at a week edge that is the previous
 		// week — a "Full week" chip pointing at the wrong seven days.

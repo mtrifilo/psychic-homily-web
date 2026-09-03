@@ -722,7 +722,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestSceneSurfaces_AllCarryArtistP
 	// week's buckets: GetSceneWeek buckets scene-locally, so a UTC-formatted key
 	// names the wrong week whenever the anchor instant has already crossed into
 	// Monday UTC but is still Sunday in the scene (Phoenix is UTC-7 year round).
-	sceneLoc := suite.sceneService.sceneLocation(suite.sceneService.scopeFor("Phoenix", "AZ"), "AZ")
+	sceneLoc, _ := suite.sceneService.sceneLocation(suite.sceneService.scopeFor("Phoenix", "AZ"), "AZ")
 	anchorWeekKey := ISOWeekKey(anchor.In(sceneLoc))
 
 	assertPaired := func(surface string, shows []contracts.SceneShowSummary) {

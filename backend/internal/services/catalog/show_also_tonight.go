@@ -10,7 +10,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
-	"psychic-homily-backend/internal/utils"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // showAlsoTonightCap bounds the "also tonight" rail. A rail is a glance, not a
@@ -64,7 +64,8 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 	// EVERY blank-city venue in the state, plus a "---il" slug that resolves to
 	// nothing.
 	if strings.TrimSpace(subject.VenueCity) == "" || strings.TrimSpace(subject.VenueState) == "" {
-		return emptyAlsoTonight(subject, subject.venueLocation()), nil
+		venueLoc, venueZone := subject.venueZone()
+		return emptyAlsoTonight(subject, venueLoc, venueZone), nil
 	}
 
 	scope := s.scopeFor(subject.VenueCity, subject.VenueState)
@@ -73,7 +74,7 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 	// answers. Passing it back into GetSceneShowsInRange re-resolves the SAME
 	// scope, which is how every other scene caller addresses a metro.
 	city, state := metroDisplayIdentity(scope.metro, scope.city, scope.state)
-	loc := s.alsoTonightLocation(subject, scope, state)
+	loc, zone := s.alsoTonightZone(subject, scope, state)
 
 	// Half-open [start, end), both ends from the CALENDAR — see calendarDate.start
 	// for why this is not `time.Date(..., 0, 0, 0, 0, loc)`.
@@ -95,7 +96,8 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 		// otherwise perfectly serveable.
 		var sceneErr *apperrors.SceneError
 		if errors.As(err, &sceneErr) && sceneErr.Code == apperrors.CodeSceneNotFound {
-			return emptyAlsoTonight(subject, subject.venueLocation()), nil
+			venueLoc, venueZone := subject.venueZone()
+			return emptyAlsoTonight(subject, venueLoc, venueZone), nil
 		}
 		return nil, err
 	}
@@ -143,7 +145,7 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 		City:      city,
 		State:     state,
 		Date:      date.String(),
-		Timezone:  loc.String(),
+		Timezone:  zone,
 		IsTonight: date == tonightDate(nowLocal),
 		ShowCount: len(shows),
 		HasMore:   hasMore,
@@ -151,8 +153,9 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 	}, nil
 }
 
-// alsoTonightLocation is the clock this show's date is read on: the room's own
-// zone when it has one, otherwise the metro's modal clock.
+// alsoTonightZone is the clock this show's date is read on, plus the zone name
+// the rail may publish: the room's own zone when it has one, otherwise the
+// metro's modal clock.
 //
 // That order, and not the reverse, because the two answer different questions.
 // sceneLocation is the right clock for a page the READER dated — it makes every
@@ -166,9 +169,9 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 // The room's own column cannot be wrong about the room. Where the two disagree
 // the metro straddles a zone boundary, and the show's own night is the thing
 // worth getting right.
-func (s *SceneService) alsoTonightLocation(subject *alsoTonightSubject, scope sceneScope, state string) *time.Location {
+func (s *SceneService) alsoTonightZone(subject *alsoTonightSubject, scope sceneScope, state string) (*time.Location, *string) {
 	if strings.TrimSpace(subject.VenueTimezone) != "" {
-		return subject.venueLocation()
+		return subject.venueZone()
 	}
 	return s.sceneLocation(scope, state)
 }
@@ -183,7 +186,7 @@ type alsoTonightSubject struct {
 	VenueTimezone string    `gorm:"column:venue_timezone"`
 }
 
-// venueLocation is the room's own zone, for the branches with no scene clock to
+// venueZone is the room's own zone, for the branches with no scene clock to
 // use. Precedence matches utils.EventLocation everywhere else: the venue's
 // explicit IANA zone, then the US state map, then its Arizona default.
 //
@@ -191,10 +194,13 @@ type alsoTonightSubject struct {
 // because GetTimezoneForState answers America/Phoenix for every unknown or blank
 // state. Without it a 01:00 Berlin set would be published under the previous
 // date by the one field whose entire job is to name the right one.
-func (a *alsoTonightSubject) venueLocation() *time.Location {
-	// One call, not a branch on the empty string: EventLocation already treats an
+//
+// The second return is nil when the precedence reached that Arizona default: the
+// date is still read on it, and the rail publishes no zone for it.
+func (a *alsoTonightSubject) venueZone() (*time.Location, *string) {
+	// One call, not a branch on the empty string: EventZone already treats an
 	// empty zone as absent and falls through to the state map.
-	return utils.EventLocation(&a.VenueTimezone, a.VenueState)
+	return shared.EventZone(&a.VenueTimezone, a.VenueState)
 }
 
 // resolveAlsoTonightSubject loads the subject show by numeric id or slug.
@@ -275,10 +281,10 @@ func (s *SceneService) resolveAlsoTonightSubject(idOrSlug string) (*alsoTonightS
 // in the best zone available, and nothing else. Scene identity is deliberately
 // left blank rather than filled with the venue's raw city, so a client cannot
 // render a "see all" link to a scene page that would 404.
-func emptyAlsoTonight(subject *alsoTonightSubject, loc *time.Location) *contracts.ShowAlsoTonightResponse {
+func emptyAlsoTonight(subject *alsoTonightSubject, loc *time.Location, zone *string) *contracts.ShowAlsoTonightResponse {
 	return &contracts.ShowAlsoTonightResponse{
 		Date:     dateOf(subject.EventDate.In(loc)).String(),
-		Timezone: loc.String(),
+		Timezone: zone,
 		Shows:    []contracts.SceneShowSummary{},
 	}
 }

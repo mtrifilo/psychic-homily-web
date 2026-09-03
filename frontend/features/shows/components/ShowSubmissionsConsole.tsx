@@ -23,7 +23,9 @@ import { queryKeys } from '@/lib/queryClient'
 import {
   formatShowDate,
   formatShowTime,
+  resolveShowTimezone,
 } from '@/lib/utils/formatters'
+import { formatTimeInTimezone } from '@/lib/utils/timeUtils'
 import { hasStatedPrice } from '@/lib/utils/showPrice'
 import {
   useSetShowCancelled,
@@ -96,6 +98,21 @@ function SubmissionShowCard({
     show.state,
     show.venues?.[0]?.timezone
   )
+  // The clock the SUBMITTER typed, read back on the same fallback the submit
+  // path wrote it under, so this is a round trip rather than a second guess.
+  //
+  // Shown only where the row is actionable, and labelled, because it is the one
+  // hour the site refuses to publish: an unlabelled clock here would make the
+  // same claim the show page withholds. Someone who can edit the venue is
+  // exactly who can turn it back into a fact, and the fix is the venue's zone,
+  // not the show's time.
+  const unresolvedZoneStartTime =
+    canManage && startTime === null
+      ? formatTimeInTimezone(
+          show.event_date,
+          resolveShowTimezone(show.state, show.venues?.[0]?.timezone)
+        )
+      : null
 
   return (
     <article
@@ -327,6 +344,14 @@ function SubmissionShowCard({
               <span>&nbsp;•&nbsp;{show.age_requirement}</span>
             )}
             {startTime && <span>&nbsp;•&nbsp;{startTime}</span>}
+            {unresolvedZoneStartTime && (
+              <span>
+                &nbsp;•&nbsp;
+                <span className="font-mono text-xs">
+                  {unresolvedZoneStartTime} &middot; zone unresolved
+                </span>
+              </span>
+            )}
             {SHOW_LIST_FEATURE_POLICY.ownership.showDetailsLink && (
               <>
                 <span>&nbsp;•&nbsp;</span>

@@ -72,6 +72,45 @@ describe('timelineDateLabel', () => {
     expect(utc).toBe('AUG 10')
     expect(chicago).not.toBe(utc)
   })
+
+  it('falls back to the state map when the stop carries no zone', () => {
+    expect(
+      timelineDateLabel(
+        {
+          event_date: NIGHT_ACROSS_THE_UTC_BOUNDARY,
+          timezone: null,
+          state: 'IL',
+        },
+        '2025'
+      )
+    ).toBe('AUG 9')
+  })
+
+  it('marks the day when neither the zone nor the state answers', () => {
+    expect(
+      timelineDateLabel(
+        {
+          event_date: NIGHT_ACROSS_THE_UTC_BOUNDARY,
+          timezone: null,
+          state: 'England',
+        },
+        '2025'
+      )
+    ).toBe('~AUG 9')
+  })
+
+  it('marks a stop once, ahead of a label that carries its year', () => {
+    expect(
+      timelineDateLabel(
+        {
+          event_date: NIGHT_ACROSS_THE_UTC_BOUNDARY,
+          timezone: null,
+          state: '',
+        },
+        '2026'
+      )
+    ).toBe('~AUG 9 2025')
+  })
 })
 
 describe('timelinePlaceLabel', () => {

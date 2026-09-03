@@ -180,6 +180,21 @@ describe('formatShowStartTime', () => {
       )
     ).toBeNull()
   })
+
+  // The day payload now sends null rather than its own fallback literal for a
+  // scene whose zone it cannot name, which is the case this refusal could not
+  // previously reach.
+  it('returns null on an explicitly null scene zone', () => {
+    expect(
+      formatShowStartTime(show({ venue_timezone: '', venue_state: '' }), null)
+    ).toBeNull()
+    expect(
+      formatShowStartTimeCompact(
+        show({ venue_timezone: '', venue_state: '' }),
+        null
+      )
+    ).toBeNull()
+  })
 })
 
 

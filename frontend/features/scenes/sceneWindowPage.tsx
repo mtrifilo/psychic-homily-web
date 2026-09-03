@@ -3,6 +3,7 @@ import type { Metadata } from 'next'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { SITE_URL } from '@/lib/seo/siteMetadata'
 import { SceneWindowView } from './components/SceneWindowView'
+import { resolveShowTimezone } from '@/lib/utils/formatters'
 import { calendarDateInZone, sceneTonightDate } from './sceneCalendar'
 import { fetchSceneWeekChain } from './sceneWindowApi'
 import { buildSceneWindowJsonLd } from './sceneWindowJsonLd'
@@ -77,17 +78,26 @@ export const getSceneWindow = cache(
     const first = weeks[0]
     // The zone the backend resolved the week in — never the reader's. A viewer
     // in Berlin and one in Chicago must be shown the same Chicago weekend.
+    //
+    // NULL when the backend could not name it. Carried nullable rather than
+    // filled in, because the one consumer of this field is the JSON-LD, where a
+    // fallback zone would compose a UTC offset out of a guess.
     const timezone = first.timezone
     // The 6am night boundary, mirrored from the backend so this page and
     // `/tonight` cannot disagree about which date "tonight" names.
     //
-    // The fallback is UTC's date, NOT the week's first day. `Timezone` is set
-    // from a `*time.Location` and is always populated in practice, so this path
-    // is defence rather than expectation — but anchoring on the week's Monday
+    // Bucketing is a DATE question, so it reads on `resolveShowTimezone`'s
+    // answer rather than on the nullable published zone: a fallback day is the
+    // best available answer, and it is the same day every other surface files
+    // this scene's nights under. Only a CLOCK is refused on the fallback.
+    //
+    // The remaining fallback is UTC's date, NOT the week's first day, for a
+    // zone string the runtime cannot load at all: anchoring on the week's Monday
     // would put up to six already-finished nights at the top of a window whose
     // label promises the ones ahead, which is the exact dishonesty the rolling
     // bound exists to prevent. UTC's date is within a day of any scene's.
-    const tonight = sceneTonightDate(now, timezone) ?? calendarDateInZone(now, 'UTC')
+    const bucketZone = resolveShowTimezone(first.state, timezone)
+    const tonight = sceneTonightDate(now, bucketZone) ?? calendarDateInZone(now, 'UTC')
 
     const all = flattenWeekDays(weeks)
     const scoped =

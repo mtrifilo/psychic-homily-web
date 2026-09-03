@@ -276,23 +276,46 @@ describe('ShowSubmissionsConsole', () => {
       expect(screen.getByText(/8:00\s?PM/)).toBeTruthy()
     })
 
-    it('names no hour, and leaves no doubled bullet, when it does not', () => {
+    it('labels the submitted hour, and leaves no doubled bullet, when it does not', () => {
       mockUseMySubmissions.mockReturnValue({
         data: { shows: [zonelessShow()], total: 1 },
         isLoading: false,
         error: null,
       })
       renderWithProviders(<ShowSubmissionsConsole />)
-      expect(screen.queryByText(/8:00\s?PM/)).toBeNull()
 
-      // The segment leaves WITH its leading bullet. A trailing-bullet check
-      // could not see that: `Details` always follows, so the line never ends on
-      // a divider either way. What the dropped segment can leave behind is two
-      // adjacent ones, which is what this asserts.
+      // The hour the submitter typed, read back on the same fallback the
+      // submit path wrote it under, and never unlabelled: the label is what
+      // separates it from the published clock the show page withholds.
+      const labelled = screen.getByText(/8:00\s?PM\s+\u00b7\s+zone unresolved/)
+      expect(labelled).toBeTruthy()
+      expect(labelled.className).toContain('font-mono')
+
+      // The segment carries its own leading bullet. A trailing-bullet check
+      // could not see a fault here: `Details` always follows, so the line never
+      // ends on a divider either way. What a mis-assembled segment can leave
+      // behind is two adjacent ones, which is what this asserts.
       const meta = screen.getByText(/Venue 1/).closest('div') as HTMLElement
       const text = meta.textContent ?? ''
       expect(text).toContain('$20')
       expect(text.replace(/\s|\u00a0/g, '')).not.toContain('\u2022\u2022')
+    })
+
+    it('shows a reader nothing when the row is not theirs to fix', () => {
+      mockUseAuthContext.mockReturnValue({
+        isAuthenticated: true,
+        isLoading: false,
+        user: { id: '99', is_admin: false },
+      })
+      mockUseMySubmissions.mockReturnValue({
+        data: { shows: [zonelessShow()], total: 1 },
+        isLoading: false,
+        error: null,
+      })
+      renderWithProviders(<ShowSubmissionsConsole />)
+
+      expect(screen.queryByText(/8:00\s?PM/)).toBeNull()
+      expect(screen.queryByText(/zone unresolved/)).toBeNull()
     })
 
     it('keeps the date on a row whose time it withheld', () => {

@@ -10,6 +10,7 @@ import type { SceneShowSummary } from '@/features/scenes/types'
 import { showPriceLabel } from '@/lib/utils/showPrice'
 import { venueEndpoints } from '@/features/venues/api'
 import { governingAgeRequirement } from './showAge'
+import { markGuessedShowDay } from './showPageDate'
 import {
   formatShowMonthDayPadded,
   showYearInZone,
@@ -561,6 +562,11 @@ function railBillLine(
  * bad instant — it returns the literal string `Invalid Date`, which the lead
  * column would then uppercase and print. Null keeps the `RailRow.lead` contract
  * honest and leaves the column reserved but blank.
+ *
+ * MARKED `~SEP 04` when the zone that decided the day is the fallback rather
+ * than one the room supplies. This rail sits on the show page, a few hundred
+ * pixels under a header rendering the same day in the same register, so an
+ * unmarked date here reads as a checked one against a marked one there.
  */
 function railShowDate(
   eventDate: string | null | undefined,
@@ -594,10 +600,12 @@ function railShowDate(
   // two reads straddling New Year would print two different leads for one row.
   const year = showYearInZone(eventDate, state, timezone)
   const currentYear = showYearInZone(now.toISOString(), state, timezone)
-  if (year === currentYear) return label
   // Apostrophe, not a bare `27`: `SEP 04 27` reads as a date range in an
   // uppercase mono column.
-  return `${label} '${String(year).slice(-2)}`
+  const dated = year === currentYear ? label : `${label} '${String(year).slice(-2)}`
+  // One mark for the cell, ahead of everything in it: a row carrying a year is
+  // one guessed date, not two.
+  return markGuessedShowDay(dated, state, timezone)
 }
 
 /**
@@ -667,6 +675,11 @@ export interface RailRowData {
  * instead is how a listed time comes to disagree with the heading above it: a
  * reader in Berlin would see a Chicago night set in CEST.
  *
+ * `railTimezone` is NULL when the backend could not name the metro's zone
+ * either, and the lead column then renders empty rather than an hour read off
+ * the fallback. The DATE is not marked here: this rail is listing-shaped, and a
+ * row about another show has no estimate beside it to read a mark against.
+ *
  * Every column of the mock's ledger is drawn here: the compact time register
  * (`8PM`, and `7:30PM` on the half hour), the bill, the room, the price through
  * the site's shared `formatPrice`, and the age. The age is the show's own
@@ -678,7 +691,7 @@ export interface RailRowData {
  */
 export function alsoTonightRow(
   show: AlsoTonightShow,
-  railTimezone: string
+  railTimezone: string | null | undefined
 ): RailRowData {
   return {
     href: railShowHref(show),

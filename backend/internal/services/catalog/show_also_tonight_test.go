@@ -20,6 +20,17 @@ import (
 
 const alsoTonightZone = "America/Chicago"
 
+// zoneOf reads a payload's nullable zone for an assertion, mapping a withheld
+// zone to the empty string. A test that expected a name then fails on the
+// comparison instead of panicking on a nil dereference, and one that expects the
+// withholding says so by comparing against the empty string.
+func zoneOf(zone *string) string {
+	if zone == nil {
+		return ""
+	}
+	return *zone
+}
+
 func (suite *SceneServiceIntegrationTestSuite) alsoTonightLoc() *time.Location {
 	loc, err := time.LoadLocation(alsoTonightZone)
 	suite.Require().NoError(err)
@@ -128,7 +139,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_ExcludesSe
 	suite.Equal("IL", rail.State)
 	suite.Equal("Chicago, IL", rail.SceneName)
 	suite.Equal("2026-09-18", rail.Date)
-	suite.Equal(alsoTonightZone, rail.Timezone)
+	suite.Equal(alsoTonightZone, zoneOf(rail.Timezone))
 }
 
 // The window is a half-open venue-local calendar day. A minute either side of it
@@ -343,7 +354,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_RoomZoneBe
 
 	rail, err := suite.sceneService.GetShowAlsoTonight(fmt.Sprint(subject.ID))
 	suite.Require().NoError(err)
-	suite.Equal("America/Denver", rail.Timezone,
+	suite.Equal("America/Denver", zoneOf(rail.Timezone),
 		"the room's own zone must decide the date, not the state map's answer for TX")
 	suite.Equal("2026-09-18", rail.Date,
 		"a 23:30 Mountain set belongs to the 18th; the Central reading would publish it as the 19th")
@@ -546,7 +557,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_NoSceneBra
 
 		rail, err := suite.sceneService.GetShowAlsoTonight(fmt.Sprint(subject.ID))
 		suite.Require().NoError(err)
-		suite.Equal("Europe/Berlin", rail.Timezone,
+		suite.Equal("Europe/Berlin", zoneOf(rail.Timezone),
 			"the venue's own zone must win; the state map would have said America/Phoenix")
 		suite.Equal("2026-09-19", rail.Date)
 		suite.Empty(rail.Shows)
@@ -566,9 +577,59 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_NoSceneBra
 
 		rail, err := suite.sceneService.GetShowAlsoTonight(fmt.Sprint(subject.ID))
 		suite.Require().NoError(err)
-		suite.Equal("Europe/Berlin", rail.Timezone)
+		suite.Equal("Europe/Berlin", zoneOf(rail.Timezone))
 		suite.Equal("2026-09-19", rail.Date)
 		suite.Empty(rail.SceneSlug)
+	})
+}
+
+// A room with no stored zone whose state is outside the US map is the case the
+// fallback used to answer with America/Phoenix. The rail now publishes no zone
+// at all, so a client cannot mistake the surrender for an answer and print an
+// hour on it.
+func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_WithholdsTheZoneItCannotName() {
+	at := time.Date(2026, time.September, 19, 1, 0, 0, 0, time.UTC)
+
+	suite.Run("non-US state, no timezone column", func() {
+		windmill := suite.seedVenue(alsoTonightVenue{
+			name: "The Windmill", city: "London", state: "England", unverified: true,
+		})
+		subject := suite.createAlsoTonightShow("windmill-subject", windmill.ID, at, catalogm.ShowStatusApproved)
+
+		rail, err := suite.sceneService.GetShowAlsoTonight(fmt.Sprint(subject.ID))
+		suite.Require().NoError(err)
+		suite.Nil(rail.Timezone, "England is not in the US map, so no zone is nameable")
+		// 01:00Z on the 19th is 18:00 on the 18th in the fallback, which is the
+		// day the rail still publishes.
+		suite.Equal("2026-09-18", rail.Date)
+	})
+
+	suite.TearDownTest()
+
+	suite.Run("blank state, no timezone column", func() {
+		unknown := suite.seedVenue(alsoTonightVenue{
+			name: "Hall Ohne Zone", city: "Berlin", state: "BE", unverified: true,
+		})
+		suite.Require().NoError(suite.db.Model(unknown).Update("state", "").Error)
+		subject := suite.createAlsoTonightShow("zoneless-subject", unknown.ID, at, catalogm.ShowStatusApproved)
+
+		rail, err := suite.sceneService.GetShowAlsoTonight(fmt.Sprint(subject.ID))
+		suite.Require().NoError(err)
+		suite.Nil(rail.Timezone)
+	})
+
+	suite.TearDownTest()
+
+	suite.Run("a US state alone still names a zone", func() {
+		rebel := suite.seedVenue(alsoTonightVenue{
+			name: "The Rebel Lounge", city: "Phoenix", state: "AZ", unverified: true,
+		})
+		subject := suite.createAlsoTonightShow("az-subject", rebel.ID, at, catalogm.ShowStatusApproved)
+
+		rail, err := suite.sceneService.GetShowAlsoTonight(fmt.Sprint(subject.ID))
+		suite.Require().NoError(err)
+		suite.Equal("America/Phoenix", zoneOf(rail.Timezone),
+			"the state map is an answer, and only the surrender to it is withheld")
 	})
 }
 
@@ -741,7 +802,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_Unscopeabl
 	suite.Empty(rail.State)
 	// The date is still the answer to a real question, so it is still served.
 	suite.Equal("2026-09-18", rail.Date)
-	suite.Equal("America/Denver", rail.Timezone)
+	suite.Equal("America/Denver", zoneOf(rail.Timezone))
 }
 
 // The counterpart to the case above, and the reason "no metro" is not by itself
@@ -783,11 +844,11 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_ShowWithNo
 	suite.NotNil(rail.Shows, "an empty rail must marshal as [] rather than null")
 	suite.Equal(0, rail.ShowCount)
 	suite.Empty(rail.SceneSlug)
-	// Concrete, not merely non-empty: with no venue there is no state either, so
-	// the zone is GetTimezoneForState's default and 20:00 UTC is still the 18th
-	// there. Asserting the actual values is what would catch a silent change in
-	// the fallback chain.
-	suite.Equal("America/Phoenix", rail.Timezone)
+	// With no venue there is no state either, so nothing names a zone and the
+	// rail publishes none. The DATE is still served, read on the fallback, where
+	// 20:00 UTC is still the 18th: a fallback day is the best available answer,
+	// and it is the hour built on the same fallback that is refused.
+	suite.Nil(rail.Timezone)
 	suite.Equal("2026-09-18", rail.Date)
 }
 
