@@ -583,6 +583,36 @@ describe('CollectionItemCard', () => {
       expect(banner).toHaveTextContent('Failed to remove this item.')
     })
 
+    // The banner goes through describeCollectionMutationError, so a 403 renders
+    // the permission copy rather than the server's own string. That string names
+    // the collection ("Access denied for collection '<slug>'"), which is the
+    // shape this surface used to print back at the reader.
+    it('renders the permission copy on 403 rather than the server string', async () => {
+      const user = userEvent.setup()
+      mockRemoveIsError.mockReturnValue(true)
+      mockRemoveError.mockReturnValue(
+        Object.assign(new Error("Access denied for collection 'my-collection'"), {
+          status: 403,
+        })
+      )
+
+      render(
+        <CollectionItemCard
+          item={makeItem({ id: 42 })}
+          density="comfortable"
+          isCreator
+          slug="my-collection"
+        />
+      )
+      await user.click(screen.getByTestId('collection-item-card-remove'))
+
+      const banner = screen.getByTestId('collection-item-card-remove-error-42')
+      expect(banner).toHaveTextContent(
+        'You do not have permission to change this collection.'
+      )
+      expect(banner).not.toHaveTextContent('Access denied')
+    })
+
     it('does not render the error banner when isError is false', async () => {
       const user = userEvent.setup()
       render(

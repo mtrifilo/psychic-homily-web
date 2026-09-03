@@ -47,6 +47,7 @@ import { getEntityUrl, getEntityTypeLabel, type CollectionItem } from '../types'
 import { MarkdownContent } from './MarkdownContent'
 import { Button } from '@/components/ui/button'
 import { useRemoveCollectionItem } from '../hooks'
+import { describeCollectionMutationError } from './collectionDetailShared'
 
 /**
  * Lucide icon table per entity type — used as the image fallback when the
@@ -429,6 +430,12 @@ function CollectionItemCardRemoveControl({
             the click didn't take effect. Sticky while the confirm UI is
             open; clears as soon as the user clicks Remove again or
             Cancels (mutation state transitions to pending/idle).
+
+            Through describeCollectionMutationError like every other collection
+            mutation banner: this is the surface a 403 actually reaches, since
+            the confirm control is the one an owner still sees after losing the
+            collection, and the raw server string it used to print named the
+            collection back at the reader.
           */}
           {removeMutation.isError && (
             <div
@@ -445,10 +452,10 @@ function CollectionItemCardRemoveControl({
                 aria-hidden="true"
               />
               <span className="flex-1">
-                {removeMutation.error instanceof Error &&
-                removeMutation.error.message
-                  ? removeMutation.error.message
-                  : 'Failed to remove this item.'}
+                {describeCollectionMutationError(
+                  removeMutation.error,
+                  'Failed to remove this item.'
+                )}
               </span>
             </div>
           )}
