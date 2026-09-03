@@ -110,6 +110,10 @@ const PRINTABLE_ASCII = /^[!-~]+$/
  * this language's trim() strip. Neither set contains the other: Go strips U+0085
  * and not U+FEFF, JavaScript the reverse. A value either would strip is one the
  * two layers would disagree about, so the write-side mirror refuses all of them.
+ *
+ * Both UI callers submit an already-trimmed URL, so in the app this rule is a
+ * floor rather than something a curator will meet. It is here so the mirror is
+ * complete for any caller that is not one of those two forms.
  */
 const EDGE_WHITESPACE = /^[\s\u0085]|[\s\u0085]$/
 
@@ -301,12 +305,18 @@ function stripUrlWhitespace(raw: string): string {
  *
  * Being lenient is not the same as being loose. It will not certify a value the
  * browser would refuse to follow, which is why the whitespace it strips is
- * exactly the whitespace the URL parser strips. And it refuses userinfo, which
- * is the one place "will a browser reach the platform" is the wrong question to
- * ask: the card prints the stored URL as its caption and truncates from the
- * right, so "https://your-account-is-suspended.example.com@open.spotify.com/…"
- * reads as another domain with the real host cut off the end, while the click
- * does land on Spotify. The destination was never the harm there.
+ * exactly the whitespace the URL parser strips.
+ *
+ * And it refuses userinfo, the one shape where "will a browser reach the
+ * platform" is the wrong question. The card prints the stored URL as its caption
+ * and truncates from the right, so
+ * "https://your-account-is-suspended.example.com@open.spotify.com/album/x" reads
+ * as another domain with the real host cut off the end. What separates that from
+ * any long hostname is that userinfo is not part of the host in ANY parser: it
+ * is text a browser discards, so the caption names a domain the click does not
+ * go near. A misleading SUBDOMAIN is a different thing, because that is where
+ * the click genuinely goes, and nothing here closes it: the anchor buys "on the
+ * platform", never "vouched for by it".
  */
 export function isRenderableReleaseLink(link: ReleaseLinkLike): boolean {
   const entry = platformEntry(link.platform)

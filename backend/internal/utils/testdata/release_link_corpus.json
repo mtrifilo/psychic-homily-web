@@ -211,7 +211,7 @@
     {
       "platform": "spotify",
       "url": "https://your-account-is-suspended.example.com@open.spotify.com/album/x",
-      "why": "userinfo. Both parsers agree the host is open.spotify.com, so the click is safe and the reader's usual question, 'will a browser reach the platform', answers yes. It is the wrong question here: the card prints the stored URL as its caption and truncates from the right, so this reads as another domain with the real host cut off. Refused on BOTH sides for that reason, not for the destination",
+      "why": "userinfo. Both parsers agree the host is open.spotify.com, so the click is safe and the reader's usual question, 'will a browser reach the platform', answers yes. It is the wrong question here: userinfo is not part of the host in any parser, so the caption names a domain the click does not go near, and the card truncates from the right so that domain is the visible half. Refused on BOTH sides for that reason, not for the destination. A misleading SUBDOMAIN is a different case and both sides accept it, because that is where the click genuinely goes",
       "alsoRefusedByReader": true
     },
     {

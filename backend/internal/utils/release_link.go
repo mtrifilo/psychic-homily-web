@@ -170,9 +170,13 @@ func ReleaseLinkHostsFor(platform string) ([]string, bool) {
 //   - No userinfo. No real platform URL carries any, and the release card prints
 //     the stored URL as its caption, truncated from the right, so
 //     "https://your-account-is-suspended.example.com@open.spotify.com/album/x"
-//     reads as another domain with the real host cut off. The href was never the
-//     problem there; the label plus the visible text was, which is why the
-//     render gate refuses it too rather than treating it as a lenient case.
+//     reads as another domain with the real host cut off. What separates this
+//     from any long hostname is that userinfo is not part of the host in ANY
+//     parser: it is text a browser discards, so the caption names a domain the
+//     click does not go near. The render gate refuses it for the same reason
+//     rather than treating it as one of its lenient cases. A misleading
+//     SUBDOMAIN is a different thing and neither gate closes it, because that is
+//     where the click genuinely goes.
 //   - The host is ASCII-only in the [a-z0-9.-] set, so the suffix anchor means
 //     the same thing to Go and to a browser (see asciiHostRe).
 //   - No label spelled in punycode. Go treats "xn--" as four ordinary bytes,
