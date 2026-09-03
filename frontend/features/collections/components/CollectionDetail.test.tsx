@@ -7,11 +7,7 @@ import type {
   CollectionItem,
 } from '../types'
 
-// Mock AuthContext.
-//
-// `authStatus` is what a case sets; `isAuthenticated` is derived from it at the
-// boundary, so no case can describe a viewer whose two auth signals disagree,
-// and 'pending' is expressible (it is not, when `isAuthenticated` is the input).
+// Mock AuthContext
 type MockAuthUser = { id: string; is_admin?: boolean } | null
 type MockAuthValue = {
   user: MockAuthUser
@@ -25,12 +21,10 @@ const mockAuthContext = vi.fn<() => MockAuthValue>(() => ({
   isLoading: false,
   logout: vi.fn(),
 }))
-vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => {
-    const value = mockAuthContext()
-    return { ...value, isAuthenticated: value.authStatus === 'authenticated' }
-  },
-}))
+vi.mock('@/lib/context/AuthContext', async () => {
+  const { deriveMockAuthSignals } = await import('@/test/authFixture')
+  return { useAuthContext: () => deriveMockAuthSignals(mockAuthContext()) }
+})
 
 // Mock next/link
 vi.mock('next/link', () => ({

@@ -56,18 +56,10 @@ let mockAuthState: {
   authStatus: 'anonymous',
 }
 
-// `authStatus` is the setting; `isAuthenticated` derives from it at the
-// boundary, so no case describes a viewer whose two auth signals disagree,
-// and 'pending' is expressible (it is not, when `isLoading` is the input:
-// `isLoading` is false both before the profile fetch starts and after it
-// fails without settling).
-vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => ({
-    ...mockAuthState,
-    isAuthenticated: mockAuthState.authStatus === 'authenticated',
-    isLoading: mockAuthState.authStatus === 'pending',
-  }),
-}))
+vi.mock('@/lib/context/AuthContext', async () => {
+  const { deriveMockAuthSignals } = await import('@/test/authFixture')
+  return { useAuthContext: () => deriveMockAuthSignals(mockAuthState) }
+})
 
 vi.mock('@/app/auth/_components/passkey-login', () => ({
   PasskeyLoginButton: (): null => null,

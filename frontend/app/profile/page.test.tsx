@@ -29,18 +29,10 @@ vi.mock('next/navigation', () => ({
   redirect: (path: string) => mockRedirect(path),
 }))
 
-// `authStatus` is the setting; `isAuthenticated` derives from it at the
-// boundary, so no case describes a viewer whose two auth signals disagree.
-vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => {
-    const value = mockUseAuthContext()
-    return {
-      ...value,
-      isAuthenticated: value.authStatus === 'authenticated',
-      isLoading: value.authStatus === 'pending',
-    }
-  },
-}))
+vi.mock('@/lib/context/AuthContext', async () => {
+  const { deriveMockAuthSignals } = await import('@/test/authFixture')
+  return { useAuthContext: () => deriveMockAuthSignals(mockUseAuthContext()) }
+})
 
 vi.mock('@/features/auth', () => ({
   useUpdateProfile: () => mockUseUpdateProfile(),

@@ -12,8 +12,6 @@ import SubmitShowPage from './page'
 // pending/success/error would be presets rather than consequences of the click,
 // and the tests would still pass with the click handler deleted.
 
-// `authStatus` is the setting; `isAuthenticated` derives from it at the
-// boundary, so no case describes a viewer whose two auth signals disagree.
 let mockAuth: {
   authStatus: 'pending' | 'anonymous' | 'authenticated'
   user: { email: string; email_verified: boolean; is_admin?: boolean } | null
@@ -22,13 +20,10 @@ let mockAuth: {
   user: { email: 'user@example.com', email_verified: false },
 }
 
-vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => ({
-    ...mockAuth,
-    isAuthenticated: mockAuth.authStatus === 'authenticated',
-    isLoading: mockAuth.authStatus === 'pending',
-  }),
-}))
+vi.mock('@/lib/context/AuthContext', async () => {
+  const { deriveMockAuthSignals } = await import('@/test/authFixture')
+  return { useAuthContext: () => deriveMockAuthSignals(mockAuth) }
+})
 
 const mockPush = vi.fn()
 vi.mock('next/navigation', () => ({

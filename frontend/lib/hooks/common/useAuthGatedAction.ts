@@ -3,28 +3,9 @@
 import { useCallback } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import type { AuthStatus } from '@/lib/context/AuthContext'
 import { buildAuthHref, currentLocationReturnTo } from '@/lib/auth-href'
 
-/**
- * The two calls a caller may still make for itself.
- *
- * `onAnonymous` exists for a control that surfaces sign-in as a dialog rather
- * than a navigation; it receives the same href the default push would use, so
- * the destination stays one formula no matter which shape the affordance
- * takes.
- */
-export interface AuthGatedActionOptions {
-  onAnonymous?: (authHref: string) => void
-}
-
 export interface AuthGatedAction {
-  authStatus: AuthStatus
-  /** Auth is unsettled. The control renders disabled and cannot act. */
-  isPending: boolean
-  /** Settled anonymous: a click routes to sign-in rather than acting. */
-  isAnonymous: boolean
-  isAuthenticated: boolean
   /**
    * The sign-in href for the viewer's current location. Event-time only, for
    * the reason `currentLocationReturnTo` gives.
@@ -47,57 +28,55 @@ export interface AuthGatedAction {
  *   anonymous     route to `/auth` with the canonical returnTo
  *   authenticated run `action`
  *
- * `isPending` is exposed so the caller can render the control disabled in the
- * same window the handler refuses to act in. A control that only guards the
- * click still renders actionable and is silently inert, which is a different
- * bug from the one this hook closes.
+ * The handler is half the rule. A control that only guards the click still
+ * renders actionable and is silently inert, so the caller must also render it
+ * disabled while `authStatus === 'pending'`.
  *
  * The handler suppresses the event's default and propagation before it
  * branches, because every control in this class sits inside a linkbox or a
  * card that would otherwise navigate underneath it.
+ *
+ * `onAnonymous` is for a control that surfaces sign-in as a dialog rather than
+ * a navigation. It receives the same href the default push would use, so the
+ * destination stays one formula no matter which shape the affordance takes.
  */
 export function useAuthGatedAction(
   action: () => void,
-  options?: AuthGatedActionOptions
+  onAnonymous?: (authHref: string) => void
 ): AuthGatedAction {
   const router = useRouter()
   const pathname = usePathname()
   const { authStatus } = useAuthContext()
-  const onAnonymous = options?.onAnonymous
 
   const buildAuthHrefForHere = useCallback(
     () => buildAuthHref(currentLocationReturnTo(pathname)),
     [pathname]
   )
 
-  const onClick = useCallback(
-    (event?: { preventDefault: () => void; stopPropagation: () => void }) => {
-      event?.preventDefault()
-      event?.stopPropagation()
+  // Deliberately not memoized: every caller passes a fresh inline `action`, so
+  // a `useCallback` here could never hit its cache, and nothing downstream is
+  // memoized on this identity.
+  const onClick = (event?: {
+    preventDefault: () => void
+    stopPropagation: () => void
+  }) => {
+    event?.preventDefault()
+    event?.stopPropagation()
 
-      if (authStatus === 'pending') return
+    if (authStatus === 'pending') return
 
-      if (authStatus === 'anonymous') {
-        const href = buildAuthHrefForHere()
-        if (onAnonymous) {
-          onAnonymous(href)
-        } else {
-          router.push(href)
-        }
-        return
+    if (authStatus === 'anonymous') {
+      const href = buildAuthHrefForHere()
+      if (onAnonymous) {
+        onAnonymous(href)
+      } else {
+        router.push(href)
       }
+      return
+    }
 
-      action()
-    },
-    [action, authStatus, buildAuthHrefForHere, onAnonymous, router]
-  )
-
-  return {
-    authStatus,
-    isPending: authStatus === 'pending',
-    isAnonymous: authStatus === 'anonymous',
-    isAuthenticated: authStatus === 'authenticated',
-    buildAuthHrefForHere,
-    onClick,
+    action()
   }
+
+  return { buildAuthHrefForHere, onClick }
 }

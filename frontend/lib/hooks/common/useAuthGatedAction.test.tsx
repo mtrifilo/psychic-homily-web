@@ -12,12 +12,12 @@ vi.mock('next/navigation', () => ({
 }))
 
 let mockAuthStatus: AuthStatus = 'authenticated'
-vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => ({
-    authStatus: mockAuthStatus,
-    isAuthenticated: mockAuthStatus === 'authenticated',
-  }),
-}))
+vi.mock('@/lib/context/AuthContext', async () => {
+  const { deriveMockAuthSignals } = await import('@/test/authFixture')
+  return {
+    useAuthContext: () => deriveMockAuthSignals({ authStatus: mockAuthStatus }),
+  }
+})
 
 function setLocation(url: string) {
   window.history.replaceState({}, '', url)
@@ -39,7 +39,6 @@ describe('useAuthGatedAction', () => {
 
     expect(action).toHaveBeenCalledTimes(1)
     expect(mockPush).not.toHaveBeenCalled()
-    expect(result.current.isPending).toBe(false)
   })
 
   it('routes a settled-anonymous viewer to sign-in instead of acting', () => {
@@ -67,7 +66,6 @@ describe('useAuthGatedAction', () => {
 
     expect(action).not.toHaveBeenCalled()
     expect(mockPush).not.toHaveBeenCalled()
-    expect(result.current.isPending).toBe(true)
   })
 
   // The drift PSY-1985 found: four of the nine hand-rolled copies sent the
@@ -103,7 +101,7 @@ describe('useAuthGatedAction', () => {
     setLocation('/shows/example?tab=bill')
     const onAnonymous = vi.fn()
     const { result } = renderHook(() =>
-      useAuthGatedAction(vi.fn(), { onAnonymous })
+      useAuthGatedAction(vi.fn(), onAnonymous)
     )
 
     act(() => result.current.onClick())
@@ -118,7 +116,7 @@ describe('useAuthGatedAction', () => {
     mockAuthStatus = 'pending'
     const onAnonymous = vi.fn()
     const { result } = renderHook(() =>
-      useAuthGatedAction(vi.fn(), { onAnonymous })
+      useAuthGatedAction(vi.fn(), onAnonymous)
     )
 
     act(() => result.current.onClick())
@@ -126,13 +124,4 @@ describe('useAuthGatedAction', () => {
     expect(onAnonymous).not.toHaveBeenCalled()
   })
 
-  it('reports the viewer state its callers render from', () => {
-    mockAuthStatus = 'anonymous'
-    const { result } = renderHook(() => useAuthGatedAction(vi.fn()))
-
-    expect(result.current.authStatus).toBe('anonymous')
-    expect(result.current.isAnonymous).toBe(true)
-    expect(result.current.isPending).toBe(false)
-    expect(result.current.isAuthenticated).toBe(false)
-  })
 })

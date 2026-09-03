@@ -125,12 +125,9 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
   // PSY-352: like/unlike toggle.
   const likeMutation = useLikeCollection()
   const unlikeMutation = useUnlikeCollection()
-  // One handler for all three viewer states: the hook bails while auth is
-  // unsettled and routes a settled-anonymous viewer to sign-in, so the toggle
-  // no longer picks its own onClick from `isAuthenticated`, which reads false
-  // for a signed-in viewer whose profile has not arrived. Declared with the
-  // other hooks, above the early returns the render below sits after, so
-  // `collection` is always present by the time a click can reach it.
+  // Declared with the other hooks, above the early returns the render below
+  // sits after, so `collection` is always present by the time a click can
+  // reach it.
   const { onClick: handleToggleLike } = useAuthGatedAction(() => {
     if (collection?.user_likes_this) {
       unlikeMutation.mutate({ slug })
@@ -536,9 +533,8 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
                   }
                   aria-pressed={isAuthenticated ? showLiked : undefined}
                   aria-label={
-                    // `authStatus === 'anonymous'`, not `!isAuthenticated`:
-                    // the sign-in wording is a claim about the viewer, and the
-                    // unsettled window is not entitled to make it.
+                    // The sign-in wording is a claim about the viewer; see the
+                    // AuthStatus docblock's carve-out.
                     authStatus === 'anonymous'
                       ? 'Sign in to like collection'
                       : showLiked

@@ -21,12 +21,12 @@ vi.mock('next/navigation', () => ({
 }))
 
 let mockAuthStatus: AuthStatus = 'authenticated'
-vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => ({
-    authStatus: mockAuthStatus,
-    isAuthenticated: mockAuthStatus === 'authenticated',
-  }),
-}))
+vi.mock('@/lib/context/AuthContext', async () => {
+  const { deriveMockAuthSignals } = await import('@/test/authFixture')
+  return {
+    useAuthContext: () => deriveMockAuthSignals({ authStatus: mockAuthStatus }),
+  }
+})
 
 const navigations = ['push', 'replace', 'redirect'] as const
 

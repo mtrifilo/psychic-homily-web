@@ -194,9 +194,10 @@ test.describe('Not-found pages — HTTP 404 status', () => {
       // `/shows/submit` is a client component with no server `notFound()`, so the
       // INITIAL document is HTTP 200 (pre-fix the proxy rewrote it to the
       // synthetic no-route path → 404). The page then client-redirects anon
-      // visitors to `/auth` (verified: app/shows/submit/page.tsx useEffect
-      // router.push('/auth?returnTo=%2Fshows%2Fsubmit')). Both assertions
-      // together prove the proxy let the real page render+hydrate, not 404.
+      // visitors to `/auth` (verified: app/shows/submit/page.tsx delegates to
+      // useAuthRouteGuard, whose effect pushes the sign-in href). Both
+      // assertions together prove the proxy let the real page render+hydrate,
+      // not 404.
       const response = await page.goto('/shows/submit')
       expect(
         response?.status(),

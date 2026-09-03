@@ -63,8 +63,6 @@ export function UserFollowButton({
   // AuthStatus in lib/context/AuthContext.
   const isDisabled = isMutating || authStatus === 'pending'
 
-  // The hook owns the pending bail and the sign-in redirect; this handler
-  // states only what an authenticated click does.
   const { onClick: handleClick } = useAuthGatedAction(() => {
     if (isDisabled) return
 

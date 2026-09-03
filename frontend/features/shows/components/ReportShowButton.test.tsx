@@ -10,9 +10,7 @@ vi.mock('next/navigation', () => ({
 const mockPush = vi.fn()
 
 // Return type widened so individual tests can override `user`/`authStatus`
-// without TS narrowing from the default-null literal. `authStatus` is the
-// setting and `isAuthenticated` derives from it at the boundary, so no case
-// describes a viewer whose two auth signals disagree.
+// without TS narrowing from the default-null literal.
 type MockAuthContextValue = {
   user: { id: string; is_admin: boolean } | null
   authStatus: 'pending' | 'anonymous' | 'authenticated'
@@ -23,16 +21,10 @@ const mockAuthContext = vi.fn<() => MockAuthContextValue>(() => ({
   authStatus: 'anonymous',
   logout: vi.fn(),
 }))
-vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => {
-    const value = mockAuthContext()
-    return {
-      ...value,
-      isAuthenticated: value.authStatus === 'authenticated',
-      isLoading: value.authStatus === 'pending',
-    }
-  },
-}))
+vi.mock('@/lib/context/AuthContext', async () => {
+  const { deriveMockAuthSignals } = await import('@/test/authFixture')
+  return { useAuthContext: () => deriveMockAuthSignals(mockAuthContext()) }
+})
 
 type MockMyShowReportValue = {
   data: { report: { id: number; report_type: string } | null } | undefined

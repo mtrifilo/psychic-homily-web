@@ -83,9 +83,8 @@ export function SaveButton({
     clear: clearSaveError,
   } = useAutoDismissBanner<true>(ERROR_DISMISS_MS)
 
-  // Rendered for anonymous visitors so the public save count stays visible;
-  // the hook owns the pending bail and the sign-in redirect that follows from
-  // that, so this handler states only what an authenticated click does.
+  // Rendered for anonymous visitors so the public save count stays visible,
+  // which is why the hook's anonymous branch is reachable here at all.
   const { onClick: handleClick } = useAuthGatedAction(async () => {
     if (isDisabled) return
 

@@ -102,10 +102,10 @@ export function AddToCollectionButton({
   const queryClient = useQueryClient()
   const { openCreateDrawer } = useCreateCollectionDrawer()
   const [open, setOpen] = useState(false)
-  // Owns the pending bail and the sign-in redirect for the public bracket
-  // below. Opening the popover is what a settled-authenticated click does, and
-  // is what the authenticated render at the foot of this component does, so
-  // the hook's authenticated branch says the same thing that render does.
+  // The public bracket below renders only while the viewer is not
+  // settled-authenticated, so the hook's authenticated branch is unreachable
+  // through it; opening the popover is what that branch would do, and what the
+  // authenticated render at the foot of this component does.
   const { onClick: handlePublicBracketClick } = useAuthGatedAction(() =>
     setOpen(true)
   )

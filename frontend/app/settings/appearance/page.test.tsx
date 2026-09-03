@@ -17,19 +17,14 @@ vi.mock('next/navigation', () => ({
 
 // AuthContext: mutable so each test sets the auth/loading state and the saved
 // nav_mode the switch seeds from.
-// `authStatus` is the setting; `isAuthenticated` derives from it, so no case
-// describes a viewer whose two auth signals disagree.
 let mockAuthState: {
   authStatus: 'pending' | 'anonymous' | 'authenticated'
   user: { nav_mode?: string } | null
 }
-vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => ({
-    ...mockAuthState,
-    isAuthenticated: mockAuthState.authStatus === 'authenticated',
-    isLoading: mockAuthState.authStatus === 'pending',
-  }),
-}))
+vi.mock('@/lib/context/AuthContext', async () => {
+  const { deriveMockAuthSignals } = await import('@/test/authFixture')
+  return { useAuthContext: () => deriveMockAuthSignals(mockAuthState) }
+})
 
 const mockMutateAsync = vi.fn()
 let mockIsPending = false

@@ -12,18 +12,10 @@ vi.mock('next/navigation', () => ({
   redirect: vi.fn(),
 }))
 
-// `authStatus` is the setting; `isAuthenticated` derives from it at the
-// boundary, so no case describes a viewer whose two auth signals disagree.
-vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => {
-    const value = mockUseAuthContext()
-    return {
-      ...value,
-      isAuthenticated: value.authStatus === 'authenticated',
-      isLoading: value.authStatus === 'pending',
-    }
-  },
-}))
+vi.mock('@/lib/context/AuthContext', async () => {
+  const { deriveMockAuthSignals } = await import('@/test/authFixture')
+  return { useAuthContext: () => deriveMockAuthSignals(mockUseAuthContext()) }
+})
 
 // Mock the contributions feature module — the page consumes
 // `<MyPendingEditsList />`, which in turn consumes the hooks below. We mock

@@ -17,21 +17,15 @@ vi.mock('next/navigation', () => ({
   redirect: vi.fn(),
 }))
 
-// `authStatus` is the setting; `isAuthenticated` derives from it, so a case
-// cannot describe a viewer whose two auth signals disagree, and the unsettled
-// window is expressible (it is not, when `isAuthenticated` is the input).
 let mockAuthState: {
   user: { is_admin?: boolean } | null
   authStatus: 'pending' | 'anonymous' | 'authenticated'
 }
 
-vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => ({
-    ...mockAuthState,
-    isAuthenticated: mockAuthState.authStatus === 'authenticated',
-    isLoading: mockAuthState.authStatus === 'pending',
-  }),
-}))
+vi.mock('@/lib/context/AuthContext', async () => {
+  const { deriveMockAuthSignals } = await import('@/test/authFixture')
+  return { useAuthContext: () => deriveMockAuthSignals(mockAuthState) }
+})
 
 describe('AdminGuard (shared admin route guard)', () => {
   beforeEach(() => {

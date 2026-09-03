@@ -40,7 +40,7 @@ export function ReportShowButton({
   // Captured when the prompt opens rather than derived during render: the
   // canonical destination reads `window.location.search`, which is empty on
   // the server, and this dialog is mounted (closed) in the server markup.
-  const [loginPromptReturnTo, setLoginPromptReturnTo] = useState<string | null>(
+  const [loginPromptAuthHref, setLoginPromptAuthHref] = useState<string | null>(
     null
   )
 
@@ -58,11 +58,9 @@ export function ReportShowButton({
   // same misread the redirect makes elsewhere.
   const { onClick: handleClick } = useAuthGatedAction(
     () => setIsReportDialogOpen(true),
-    {
-      onAnonymous: authHref => {
-        setLoginPromptReturnTo(authHref)
-        setIsLoginPromptOpen(true)
-      },
+    authHref => {
+      setLoginPromptAuthHref(authHref)
+      setIsLoginPromptOpen(true)
     }
   )
 
@@ -121,13 +119,13 @@ export function ReportShowButton({
         />
       )}
 
-      {!isAuthenticated && (
+      {!isAuthenticated && loginPromptAuthHref && (
         <LoginPromptDialog
           open={isLoginPromptOpen}
           onOpenChange={setIsLoginPromptOpen}
           title="Sign in to report"
           description="You need to be signed in to report an issue with this show. This helps us prevent abuse and keep our community safe."
-          authHref={loginPromptReturnTo ?? undefined}
+          authHref={loginPromptAuthHref}
         />
       )}
     </>

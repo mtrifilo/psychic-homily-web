@@ -486,6 +486,14 @@ describe('queryClient module', () => {
       })
     }
 
+    // The families a reset touched, in call order. Written once because the
+    // cast and the key-shape assumption are the same in every assertion below.
+    function resetFamilies(spy: { mock: { calls: unknown[][] } }): unknown[] {
+      return spy.mock.calls.map(
+        ([options]) => (options as { queryKey: unknown[] }).queryKey[0]
+      )
+    }
+
     async function fail401(
       client: {
         fetchQuery: (options: {
@@ -522,17 +530,14 @@ describe('queryClient module', () => {
       await fail401(client, ['comments', 'entity', 'venues', 1])
       await fail401(client, ['collections', 'entity', 'venues', 1])
 
-      const resetFamilies = resetQueries.mock.calls.map(
-        ([options]) => (options as { queryKey: unknown[] }).queryKey[0]
-      )
-      expect(resetFamilies).toContain('revisions')
-      expect(resetFamilies).toContain('comments')
-      expect(resetFamilies).toContain('collections')
+      const families = resetFamilies(resetQueries)
+      expect(families).toContain('revisions')
+      expect(families).toContain('comments')
+      expect(families).toContain('collections')
 
       // One reset PER FAMILY, from one episode. Unlatched, the refetch each
       // reset starts would 401 with the same dead cookie and reset again.
-      const perFamily = resetFamilies.filter(f => f === 'revisions').length
-      expect(perFamily).toBe(1)
+      expect(families.filter(f => f === 'revisions')).toHaveLength(1)
     })
 
     it('does not reset again when the reset\'s own refetch 401s', async () => {
@@ -591,11 +596,7 @@ describe('queryClient module', () => {
 
       await fail401(client, ['auth', 'profile'])
 
-      expect(
-        resetQueries.mock.calls.map(
-          ([options]) => (options as { queryKey: unknown[] }).queryKey[0]
-        )
-      ).toContain('revisions')
+      expect(resetFamilies(resetQueries)).toContain('revisions')
     })
 
     it('leaves the profile query itself out of the reset', async () => {
@@ -609,11 +610,7 @@ describe('queryClient module', () => {
       // AuthContext reads the profile's definitive 401 as 'anonymous' ahead of
       // any retained payload, so its error IS the settle; resetting it would
       // discard the answer.
-      expect(
-        resetQueries.mock.calls.map(
-          ([options]) => (options as { queryKey: unknown[] }).queryKey[0]
-        )
-      ).not.toContain('auth')
+      expect(resetFamilies(resetQueries)).not.toContain('auth')
     })
   })
 })

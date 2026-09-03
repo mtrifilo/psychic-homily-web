@@ -49,8 +49,7 @@ export default function NotificationInboxPage() {
   const entries = data?.notifications ?? []
   const { unread, read } = partitionNotificationsByRead(entries)
 
-  // 'redirect' mode has already left for /auth by the time this reads
-  // anything but 'loading' or 'ready'.
+  // Only 'loading' and 'ready' reach here: 'redirect' mode throws.
   if (gate !== 'ready') {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">

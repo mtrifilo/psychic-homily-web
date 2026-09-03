@@ -948,8 +948,7 @@ function ActiveLibraryContent({
     })
   }
 
-  // 'redirect' mode has already left for /auth by the time this reads
-  // anything but 'loading' or 'ready'.
+  // Only 'loading' and 'ready' reach here: 'redirect' mode throws.
   if (gate !== 'ready') {
     return (
       <div className="flex justify-center items-center min-h-screen">

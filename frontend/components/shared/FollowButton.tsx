@@ -100,8 +100,6 @@ export function FollowButton({
   //                 to /auth. Intended: that is what Follow does for them.
   //   pending    -> disabled (see `isDisabled`).
 
-  // The pending bail and the sign-in redirect both live in the hook, so this
-  // handler only has to say what an authenticated click does.
   const { onClick: handleClick } = useAuthGatedAction(() => {
     if (isDisabled) return
 

@@ -398,10 +398,9 @@ export function BottomTabBar() {
           </SheetTab>
         ) : (
           <Link
-            // Built during render, so the destination is the pathname without
-            // its query string: `currentLocationReturnTo` needs a browser
-            // location this markup is also produced without. Same constraint,
-            // same answer, as `SignInPrompt`.
+            // The render-time grade of the destination: the pathname alone.
+            // See `currentLocationReturnTo` for why a query string cannot be
+            // read here.
             href={buildAuthHref(pathname)}
             aria-current={accountActive ? 'page' : undefined}
             className={tabClassName(accountActive)}

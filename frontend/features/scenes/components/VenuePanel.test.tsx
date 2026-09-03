@@ -56,15 +56,13 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/atlas',
 }))
 
-// `authStatus` is the setting, and `isAuthenticated` is derived from it, so no
-// case here can describe a viewer whose two auth signals disagree.
 let mockAuthStatus: 'pending' | 'anonymous' | 'authenticated' = 'authenticated'
-vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => ({
-    authStatus: mockAuthStatus,
-    isAuthenticated: mockAuthStatus === 'authenticated',
-  }),
-}))
+vi.mock('@/lib/context/AuthContext', async () => {
+  const { deriveMockAuthSignals } = await import('@/test/authFixture')
+  return {
+    useAuthContext: () => deriveMockAuthSignals({ authStatus: mockAuthStatus }),
+  }
+})
 
 import { VenuePanel } from './VenuePanel'
 

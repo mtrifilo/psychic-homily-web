@@ -10,7 +10,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { buildAuthHref } from '@/lib/auth-href'
 
 interface LoginPromptDialogProps {
   open: boolean
@@ -18,12 +17,13 @@ interface LoginPromptDialogProps {
   title?: string
   description?: string
   /**
-   * The sign-in destination, already built. The caller passes an href rather
-   * than a bare `returnTo` because the canonical destination is resolved when
-   * the prompt OPENS (`useAuthGatedAction`), while this dialog is mounted
-   * closed in server markup, where there is no location to resolve it from.
+   * The sign-in destination, already built. Required, and an href rather than
+   * a bare `returnTo`, because the canonical destination is resolved when the
+   * prompt OPENS (`useAuthGatedAction`), while this dialog is mounted closed
+   * in server markup, where there is no location to resolve it from. A default
+   * here could only be a destination that discards where the reader was.
    */
-  authHref?: string
+  authHref: string
 }
 
 export function LoginPromptDialog({
@@ -31,7 +31,7 @@ export function LoginPromptDialog({
   onOpenChange,
   title = 'Sign in required',
   description = 'You need to be signed in to perform this action.',
-  authHref = buildAuthHref('/'),
+  authHref,
 }: LoginPromptDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

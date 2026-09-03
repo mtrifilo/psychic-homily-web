@@ -80,8 +80,6 @@ export function ReleaseSaveButton({
   const isDisabled =
     disabled || statusLoading || isLoading || authStatus === 'pending'
 
-  // The hook owns the pending bail and the sign-in redirect; this handler
-  // states only what an authenticated click does.
   const { onClick: handleClick } = useAuthGatedAction(async () => {
     if (isDisabled) return
     try {

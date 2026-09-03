@@ -57,10 +57,8 @@ export function NotifyMeButton({
   const isMutating = quickCreate.isPending || deleteFilter.isPending
   const isUnsettled = authStatus === 'pending'
 
-  // The hook owns the pending bail and the sign-in redirect; this handler
-  // states only what an authenticated click does. Both renders below route
-  // through it, so the sign-in affordance and the toggle cannot drift into
-  // two destinations.
+  // Both renders below route through this one handler, so the sign-in
+  // affordance and the toggle cannot drift into two destinations.
   const { onClick: handleClick } = useAuthGatedAction(() => {
     if (isMutating) return
 

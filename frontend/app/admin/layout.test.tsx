@@ -30,20 +30,15 @@ vi.mock('next/dynamic', () => ({
   },
 }))
 
-// `authStatus` is the setting; `isAuthenticated` derives from it, so no case
-// describes a viewer whose two auth signals disagree.
 let mockAuthState: {
   user: { is_admin?: boolean } | null
   authStatus: 'pending' | 'anonymous' | 'authenticated'
 }
 
-vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => ({
-    ...mockAuthState,
-    isAuthenticated: mockAuthState.authStatus === 'authenticated',
-    isLoading: mockAuthState.authStatus === 'pending',
-  }),
-}))
+vi.mock('@/lib/context/AuthContext', async () => {
+  const { deriveMockAuthSignals } = await import('@/test/authFixture')
+  return { useAuthContext: () => deriveMockAuthSignals(mockAuthState) }
+})
 
 describe('AdminLayout', () => {
   beforeEach(() => {
