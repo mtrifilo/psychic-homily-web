@@ -365,13 +365,9 @@ func TestGateVocabularyMatchesTheCommentServiceVocabulary(t *testing.T) {
 				"refuses a type the service would have served", entityType)
 		}
 	}
-	known := gatedVocabularies()
-	for entityType := range entityVisibilityRules {
-		if !known[entityType] {
-			t.Errorf("the gate resolves %q but no service vocabulary accepts it, so the two "+
-				"answer differently for the same id", entityType)
-		}
-	}
+	// The other direction — a registered type no vocabulary accepts — is
+	// TestEntityVisibilityRegistryHasNoStaleEntries, over the same set with the
+	// same helper. One assertion, one home.
 }
 
 // A nil checker refuses the types that need one and serves the types that do

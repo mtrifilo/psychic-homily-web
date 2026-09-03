@@ -64,9 +64,9 @@ type ShowVisibilityInterface interface {
 	// CollectionVisibleTo mirrors GET /collections/{slug}: public, or the
 	// creator's own. NOT admins: no collection detail or listing read has an
 	// admin tier, and a gate more permissive than the route it mirrors is the
-	// leak, not the fix. The two admin surfaces that do serve a private
-	// collection are named in services/shared/collection_visibility.go, which
-	// says why they are moderation powers rather than a tier this gate should
-	// carry. See services/shared.CollectionVisibleTo.
+	// leak, not the fix. The admin surfaces that do serve a private collection
+	// are named in services/shared/collection_visibility.go, which says why they
+	// are moderation powers rather than a tier this gate should carry. See
+	// services/shared.CollectionVisibleTo.
 	CollectionVisibleTo(collectionID uint, viewer ShowViewer) bool
 }

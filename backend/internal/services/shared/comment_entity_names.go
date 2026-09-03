@@ -26,10 +26,12 @@ type EntityNameRow struct {
 // Returns nested map[entityType]map[entityID]EntityNameRow.
 //
 // GATED ids are FENCED HERE, against viewer, as well as by the row gates the
-// callers apply upstream. Which types those are is
+// callers of THIS function apply upstream. Which types those are is
 // EntityIdentityFenceSQL's decision, not a list repeated here, so a type that
-// gains a rule gains this fence in the same edit. The two mechanisms are not
-// redundant and are not alternatives:
+// gains a rule gains this fence in the same edit. The claim is about this batch
+// loader and the two passes that call it; an enrichment pass that resolves a
+// name without coming through here carries whatever fence its own code splices
+// in. The two mechanisms are not redundant and are not alternatives:
 //
 //   - The callers' row gates are what remove the SIGNAL. Suppressing the entry
 //     AND its count is the only thing that does; a de-identified row is still a
@@ -41,9 +43,9 @@ type EntityNameRow struct {
 //     entity's title and slug with nothing in the path to stop it, and the
 //     failure would be silent.
 //
-// So: every enrichment pass that resolves a gated entity's identity fences
-// itself, and every listing that renders one drops the row first. A new caller
-// inherits the first for free and still owes the second.
+// So: this loader fences every batch it resolves, and every listing that renders
+// one drops the row first. A caller that comes through here inherits the first
+// for free and still owes the second.
 //
 // THE COLLECTION FENCE CANNOT FIRE TODAY, and saying so is the point of this
 // paragraph. engagementm.CommentEntityPathAndTable returns "name" as the display

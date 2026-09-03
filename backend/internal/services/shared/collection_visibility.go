@@ -25,11 +25,14 @@ import (
 // collection the same way for everybody and spell `is_public = true` by hand.
 // catalog/tag_service.go's enrichCollections, catalog/scene_collections.go,
 // catalog/tag_intersection.go and catalog/charts_featured_collection.go each
-// carry their own literal, as do the `!IsPublic && CreatorID != userID` tests
-// inside services/community/collection.go. Migrating them onto the spellings
-// here is a separate change: it is a refactor of routes this file does not
-// otherwise touch, and doing it under a privacy fix would put untested churn
-// beside the gates.
+// carry their own literal, and so do community/collection.go's ListCollections
+// (under its PublicOnly filter) and GetUserPublicCollections, whose whole
+// contract is the public tier. The `!IsPublic && CreatorID != userID` tests
+// inside services/community/collection.go are the Go spelling of the same rule
+// at the route boundary, where there is no query to splice a predicate into.
+// Migrating the literals onto the spellings here is a separate change: it is a
+// refactor of routes this file does not otherwise touch, and doing it under a
+// privacy fix would put untested churn beside the gates.
 //
 // TWO WAYS THIS RULE DIFFERS FROM THE SHOW RULE, and both are load-bearing:
 //
@@ -43,18 +46,23 @@ import (
 //     `viewer.IsAdmin` is deliberately UNREAD by everything here;
 //     TestCollectionVisibilitySpellingsAgree pins that with a real admin row.
 //
-//     THREE SURFACES DO SERVE AN ADMIN A PRIVATE COLLECTION, and they are
-//     exceptions with a reason rather than counter-examples:
+//     THE SURFACES THAT DO SERVE AN ADMIN A PRIVATE COLLECTION are exceptions
+//     with a reason rather than counter-examples, and each names its own reason
+//     at its own definition:
 //     GET /admin/comments/pending serves the moderation queue every pending
 //     comment's body and (entity_type, entity_id) regardless of the parent's
 //     visibility; GET /admin/entity-reports and its detail route resolve a
 //     reported collection's title and slug the same way; and
-//     PUT /collections/{slug} takes `isAdmin` and returns the updated detail, so
-//     an admin can both read and republish a private collection through it. All
-//     three are moderation powers on the admin group. The rule this file states
-//     is about the tiers a NON-admin surface answers for, and adding an admin
-//     tier here would extend those powers to the watching list, the inbox and
-//     the comment fan-out, which is not what moderation trust was granted for.
+//     PUT /collections/{slug} and DELETE /collections/{slug} take `isAdmin`, so
+//     an admin can flip a reported collection public or remove it. Those two are
+//     the remedies the report queue exists to reach: a queue that showed an
+//     admin the report while every remedy refused them is a queue they cannot
+//     act on. They are moderation powers on moderated routes. The rule this file
+//     states is about the tiers a NON-admin surface answers for, and adding an
+//     admin tier here would extend those powers to the watching list, the inbox,
+//     the item writes and the comment fan-out, which is not what moderation
+//     trust was granted for. Every collection write that is NOT one of those two
+//     refuses an admin a private collection.
 //
 //     This propagates. VisibleCommentEntitySQL cannot take the admin
 //     short-circuit its show-only predecessor took, and the notification
@@ -232,9 +240,17 @@ const visibleCollectionTextIDAlias = "visible_collection_text_id"
 //
 // For a caller holding a collection id inside a JSON document rather than in a
 // typed column: an audit row's metadata records the parent a polymorphic
-// entity_id cannot name. The comparison is `id::text = idExpr` rather than a
-// cast of idExpr, so a value that is not a number answers false instead of
-// raising.
+// entity_id cannot name.
+//
+// THE CAST IS ON THE JSON SIDE, guarded by a digits-only regex, so the
+// comparison is `collections.id = <bigint>` and probes the primary key. Casting
+// the COLUMN instead (`id::text = idExpr`) is not sargable: it evaluates per row
+// of collections, inside a CASE, in both the count and the page query of an
+// anonymous route. The guard is what makes the cast total — a value that is not
+// a run of digits yields NULL, the comparison is NULL, and the EXISTS is false
+// rather than the statement raising. The guard caps the run at 18 digits, which
+// is inside bigint's range on every input, so no value can overflow the cast
+// either.
 //
 // A SLUG WOULD NOT DO. Renaming a collection regenerates its slug and deleting
 // one frees the string, so a later collection can take that name and a slug
@@ -248,7 +264,51 @@ const visibleCollectionTextIDAlias = "visible_collection_text_id"
 func VisibleCollectionTextIDExistsSQL(idExpr string, viewer contracts.ShowViewer) (string, []interface{}) {
 	inner, args := VisibleCollectionPredicateSQL(visibleCollectionTextIDAlias, viewer)
 	return "EXISTS (SELECT 1 FROM collections " + visibleCollectionTextIDAlias +
-		" WHERE " + visibleCollectionTextIDAlias + ".id::text = " + idExpr +
+		" WHERE " + visibleCollectionTextIDAlias + ".id = " + textIDAsBigintSQL(idExpr) +
+		" AND " + inner + ")", args
+}
+
+// textIDAsBigintSQL renders a TEXT expression as a bigint, or as NULL when it is
+// not a bounded run of digits.
+//
+// The digit guard is what makes the cast total: `NULL` compares unequal to every
+// id, so a non-numeric value answers "no such collection" instead of raising and
+// taking down the statement it sits in. 18 digits is inside bigint's range for
+// every input, so no value can overflow the cast either.
+func textIDAsBigintSQL(idExpr string) string {
+	return "(CASE WHEN " + idExpr + " ~ '^[0-9]{1,18}$' THEN (" + idExpr + ")::bigint END)"
+}
+
+// visibleCollectionSlugAlias is the alias VisibleCollectionSlugExistsSQL binds
+// the collections table to. Distinct from every other alias here, for the reason
+// visibleCollectionsAlias gives.
+const visibleCollectionSlugAlias = "visible_collection_slug"
+
+// VisibleCollectionSlugExistsSQL returns a correlated EXISTS condition, true
+// when the collection NAMED BY SLUG in slugExpr is one viewer may see, plus its
+// bind arguments.
+//
+// FOR FROZEN ROWS THAT RECORD NOTHING ELSE, and for nothing else. A slug is a
+// weaker reference than an id: renaming a collection regenerates its slug and
+// deleting one frees the string, so a later collection can take that name and
+// this condition would then decide the row against a collection that has no
+// relation to it. Every spelling that has an id available must use the id, and
+// the id forms above are what the writers feed today.
+//
+// The one case that has no id is an audit row written before the writers
+// recorded one. Its metadata carries the slug alone, its entity_id names a
+// hard-deleted collection_items row, and judging it by id therefore withholds it
+// from everyone including its own author on a public collection. A slug match is
+// the only reference such a row still has.
+//
+// A row whose slugExpr matches no collection is NOT visible, which is the same
+// fail-closed answer every spelling here gives.
+//
+// slugExpr is SQL the CALLER controls and must be a literal in the calling code.
+func VisibleCollectionSlugExistsSQL(slugExpr string, viewer contracts.ShowViewer) (string, []interface{}) {
+	inner, args := VisibleCollectionPredicateSQL(visibleCollectionSlugAlias, viewer)
+	return "EXISTS (SELECT 1 FROM collections " + visibleCollectionSlugAlias +
+		" WHERE " + visibleCollectionSlugAlias + ".slug = " + slugExpr +
 		" AND " + inner + ")", args
 }
 

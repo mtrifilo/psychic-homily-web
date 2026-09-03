@@ -316,9 +316,10 @@ func (s *CollectionService) CreateCollection(creatorID uint, req *contracts.Crea
 // per-item notes and positions) from the source collection. Sets
 // `forked_from_collection_id` to the source ID. PSY-351.
 //
-// Visibility: matches the existing pattern (GetBySlug). Source must be
-// public OR owned by the caller. Anyone authenticated can clone any public
-// collection — no trust-tier gate.
+// Visibility: matches GetBySlug. Source must be public OR owned by the caller,
+// and a source the caller may not see is refused as MISSING, not as forbidden,
+// so this route answers a private collection and an unused slug alike. Anyone
+// authenticated can clone any public collection — no trust-tier gate.
 //
 // Notes:
 //   - The clone is created as a new public, collaborative=true collection
@@ -345,9 +346,10 @@ func (s *CollectionService) CloneCollection(srcSlug string, callerID uint) (*con
 		return nil, fmt.Errorf("failed to load source collection: %w", err)
 	}
 
-	// Visibility: match GetBySlug — public OR owned by caller.
+	// Visibility: match GetBySlug — public OR owned by caller, and invisible
+	// answers as missing so a private source and an unused slug are one answer.
 	if !src.IsPublic && src.CreatorID != callerID {
-		return nil, apperrors.ErrCollectionForbidden(srcSlug)
+		return nil, apperrors.ErrCollectionNotFound(srcSlug)
 	}
 
 	// PSY-358: separate fork soft cap. Forks have their own bucket so they
@@ -533,9 +535,17 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 	// Count forks (public social signal — PSY-351). Live COUNT mirrors
 	// the existing collection counter pattern and is cheap thanks to the
 	// partial index added in migration 20260427173004.
+	//
+	// PUBLIC TIER, and no viewer term. A fork is a collection of its own, so a
+	// count that included private ones would report how many people cloned this
+	// collection and hid the result. It is a public signal and it counts public
+	// forks; batchCountForks answers the same way for the listings.
+	forkVisibility, forkVisibilityArgs := shared.VisibleCollectionPredicateSQL(
+		"collections", contracts.ShowViewer{})
 	var forksCount int64
 	s.db.Model(&communitym.Collection{}).
 		Where("forked_from_collection_id = ?", collection.ID).
+		Where(forkVisibility, forkVisibilityArgs...).
 		Count(&forksCount)
 
 	// Resolve "forked from" attribution if applicable. PSY-351.
@@ -981,7 +991,13 @@ func applySearchRelevanceOrder(query *gorm.DB, pattern string) *gorm.DB {
 		Order("collections.updated_at DESC")
 }
 
-// UpdateCollection updates an existing collection
+// UpdateCollection updates an existing collection.
+//
+// ADMINS REACH A PRIVATE COLLECTION HERE, and this is one of the two routes
+// where they do. Flipping is_public is the moderation remedy for a reported
+// collection, and the entity-report queue serves an admin reports naming private
+// collections, so an admin refused this route could see the report and do
+// nothing about it. Every other collection write refuses them.
 func (s *CollectionService) UpdateCollection(slug string, userID uint, isAdmin bool, req *contracts.UpdateCollectionRequest) (*contracts.CollectionDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -994,6 +1010,12 @@ func (s *CollectionService) UpdateCollection(slug string, userID uint, isAdmin b
 			return nil, apperrors.ErrCollectionNotFound(slug)
 		}
 		return nil, fmt.Errorf("failed to get collection: %w", err)
+	}
+
+	// Invisible answers as missing, BEFORE ownership, so a caller who may not
+	// see the collection cannot tell a private slug from an unused one.
+	if !collection.IsPublic && collection.CreatorID != userID && !isAdmin {
+		return nil, apperrors.ErrCollectionNotFound(slug)
 	}
 
 	// Check ownership
@@ -1054,7 +1076,12 @@ func (s *CollectionService) UpdateCollection(slug string, userID uint, isAdmin b
 	return s.GetBySlug(retrieveSlug, userID)
 }
 
-// DeleteCollection deletes a collection
+// DeleteCollection deletes a collection.
+//
+// ADMINS REACH A PRIVATE COLLECTION HERE, on UpdateCollection's reason: removal
+// is the other moderation remedy for a reported collection, and a queue that
+// shows an admin the report while every remedy refuses them is a queue they
+// cannot act on. It publishes nothing — the response is empty either way.
 func (s *CollectionService) DeleteCollection(slug string, userID uint, isAdmin bool) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
@@ -1067,6 +1094,11 @@ func (s *CollectionService) DeleteCollection(slug string, userID uint, isAdmin b
 			return apperrors.ErrCollectionNotFound(slug)
 		}
 		return fmt.Errorf("failed to get collection: %w", err)
+	}
+
+	// Invisible answers as missing, BEFORE ownership.
+	if !collection.IsPublic && collection.CreatorID != userID && !isAdmin {
+		return apperrors.ErrCollectionNotFound(slug)
 	}
 
 	// Check ownership
@@ -1611,7 +1643,14 @@ func festivalSubtitle(city, state string, editionYear int) *string {
 	return &joined
 }
 
-// UpdateItem updates an item's notes in a collection
+// UpdateItem updates an item's notes in a collection.
+//
+// The visibility test runs BEFORE the item is loaded and takes no isAdmin term.
+// Before the item, because item ids are a global sequence and an item lookup that
+// ran first would answer item-not-found for an id in another collection and
+// forbidden for one in this collection, which is membership. Without isAdmin,
+// because an item response carries the item's entity name, slug and the display
+// name of whoever added it, and no collection READ grants an admin any of that.
 func (s *CollectionService) UpdateItem(slug string, itemID uint, userID uint, isAdmin bool, req *contracts.UpdateCollectionItemRequest) (*contracts.CollectionItemResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -1624,6 +1663,10 @@ func (s *CollectionService) UpdateItem(slug string, itemID uint, userID uint, is
 			return nil, apperrors.ErrCollectionNotFound(slug)
 		}
 		return nil, fmt.Errorf("failed to get collection: %w", err)
+	}
+
+	if !collection.IsPublic && collection.CreatorID != userID {
+		return nil, apperrors.ErrCollectionNotFound(slug)
 	}
 
 	var item communitym.CollectionItem
@@ -1673,7 +1716,9 @@ func (s *CollectionService) UpdateItem(slug string, itemID uint, userID uint, is
 	}, nil
 }
 
-// RemoveItem removes an item from a collection
+// RemoveItem removes an item from a collection.
+//
+// Gated on UpdateItem's terms: before the item lookup, and with no isAdmin term.
 func (s *CollectionService) RemoveItem(slug string, itemID uint, userID uint, isAdmin bool) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
@@ -1686,6 +1731,10 @@ func (s *CollectionService) RemoveItem(slug string, itemID uint, userID uint, is
 			return apperrors.ErrCollectionNotFound(slug)
 		}
 		return fmt.Errorf("failed to get collection: %w", err)
+	}
+
+	if !collection.IsPublic && collection.CreatorID != userID {
+		return apperrors.ErrCollectionNotFound(slug)
 	}
 
 	var item communitym.CollectionItem
@@ -1722,6 +1771,11 @@ func (s *CollectionService) ReorderItems(slug string, userID uint, req *contract
 			return apperrors.ErrCollectionNotFound(slug)
 		}
 		return fmt.Errorf("failed to get collection: %w", err)
+	}
+
+	// Invisible answers as missing, before the creator test.
+	if !collection.IsPublic && collection.CreatorID != userID {
+		return apperrors.ErrCollectionNotFound(slug)
 	}
 
 	// Only creator can reorder
@@ -1782,23 +1836,27 @@ func (s *CollectionService) Subscribe(slug string, userID uint) error {
 	return nil
 }
 
-// Unsubscribe removes a user's subscription from a collection
+// Unsubscribe removes a user's subscription from a collection.
+//
+// IT ANSWERS SUCCESS WHATEVER THE SLUG NAMES, and deletes by subquery rather
+// than resolving the slug first. Resolving it would make this route report
+// whether a slug is taken: a slug is derived from the title, so a 404 for an
+// unused string beside a success for a private collection's guessable name is an
+// existence oracle over exactly the collections the rest of this file hides. The
+// polymorphic twin (DELETE /entities/{type}/{id}/subscribe) never resolves the
+// entity either, and the two must answer alike.
+//
+// Quitting is always allowed, so there is nothing a caller learns from the
+// success itself: it is the same answer whether a row was there or not.
 func (s *CollectionService) Unsubscribe(slug string, userID uint) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
 	}
 
-	var collection communitym.Collection
-	err := s.db.Where("slug = ?", slug).First(&collection).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return apperrors.ErrCollectionNotFound(slug)
-		}
-		return fmt.Errorf("failed to get collection: %w", err)
-	}
-
-	result := s.db.Where("collection_id = ? AND user_id = ?", collection.ID, userID).
-		Delete(&communitym.CollectionSubscriber{})
+	result := s.db.Where(
+		"collection_id IN (SELECT id FROM collections WHERE slug = ?) AND user_id = ?",
+		slug, userID,
+	).Delete(&communitym.CollectionSubscriber{})
 	if result.Error != nil {
 		return fmt.Errorf("failed to unsubscribe from collection: %w", result.Error)
 	}
@@ -2203,20 +2261,18 @@ func (s *CollectionService) GetEntityCollections(entityType string, entityID uin
 		limit = 10
 	}
 
-	// Find collection IDs that contain this entity. Public collections are
-	// visible to everyone; the viewer's own private collections are also
-	// included when viewerID > 0.
-	visibility := s.db.Where("collections.is_public = ?", true)
-	if viewerID > 0 {
-		visibility = visibility.Or("collections.creator_id = ?", viewerID)
-	}
+	// Find collection IDs that contain this entity, on the shared spelling of the
+	// detail route's rule rather than a hand-written copy of it: public to
+	// everyone, plus the viewer's own when viewerID > 0.
+	visibility, visibilityArgs := shared.VisibleCollectionPredicateSQL(
+		"collections", contracts.ShowViewer{UserID: viewerID})
 
 	var collectionIDs []uint
 	err := s.db.Model(&communitym.CollectionItem{}).
 		Select("DISTINCT collection_items.collection_id").
 		Joins("JOIN collections ON collections.id = collection_items.collection_id").
 		Where("collection_items.entity_type = ? AND collection_items.entity_id = ?", entityType, entityID).
-		Where(visibility).
+		Where(visibility, visibilityArgs...).
 		Limit(limit).
 		Pluck("collection_items.collection_id", &collectionIDs).Error
 	if err != nil {
@@ -2923,11 +2979,18 @@ func (s *CollectionService) batchCountContributors(collectionIDs []uint) map[uin
 // batchCountForks returns fork counts (number of cloned children) keyed by
 // source collection ID. Live COUNT mirrors the existing collection counter
 // pattern. PSY-351.
+//
+// PUBLIC TIER, on the reason GetBySlug's single-collection count gives: a
+// private fork is a private collection, and counting it reports that somebody
+// cloned this one and hid the result.
 func (s *CollectionService) batchCountForks(collectionIDs []uint) map[uint]int {
 	counts := make(map[uint]int)
 	if len(collectionIDs) == 0 {
 		return counts
 	}
+
+	visibility, visibilityArgs := shared.VisibleCollectionPredicateSQL(
+		"collections", contracts.ShowViewer{})
 
 	type Row struct {
 		ForkedFromCollectionID uint
@@ -2937,6 +3000,7 @@ func (s *CollectionService) batchCountForks(collectionIDs []uint) map[uint]int {
 	s.db.Model(&communitym.Collection{}).
 		Select("forked_from_collection_id, COUNT(*) as count").
 		Where("forked_from_collection_id IN ?", collectionIDs).
+		Where(visibility, visibilityArgs...).
 		Group("forked_from_collection_id").
 		Find(&rows)
 
@@ -3190,6 +3254,24 @@ func (s *CollectionService) batchListCollectionTagSummaries(collectionIDs []uint
 		return result
 	}
 
+	// The count each chip carries is the VISIBLE one, the same number
+	// GET /tags and the tag detail page publish. Left as the raw column it would
+	// differ from those by exactly the gated shows and private collections
+	// carrying the tag, and the difference is that count.
+	tagIDs := make([]uint, 0, len(rows))
+	for _, r := range rows {
+		tagIDs = append(tagIDs, r.ID)
+	}
+	visibleCounts, err := shared.VisibleTagUsageCounts(s.db, tagIDs)
+	if err != nil {
+		// Chips without counts rather than counts that publish the withheld
+		// rows: this helper already degrades to an empty map on a failed load,
+		// and a fallback to the raw column would be the disclosure with an extra
+		// step.
+		log.Printf("warning: failed to compute visible tag usage counts: %v", err)
+		visibleCounts = map[uint]int{}
+	}
+
 	for _, r := range rows {
 		result[r.CollectionID] = append(result[r.CollectionID], contracts.TagSummary{
 			ID:         r.ID,
@@ -3197,7 +3279,7 @@ func (s *CollectionService) batchListCollectionTagSummaries(collectionIDs []uint
 			Slug:       r.Slug,
 			Category:   r.Category,
 			IsOfficial: r.IsOfficial,
-			UsageCount: r.UsageCount,
+			UsageCount: visibleCounts[r.ID],
 		})
 	}
 	return result
@@ -3430,10 +3512,10 @@ func capCollectionGraphNodes(
 // collection's items. PSY-366 (artist-only origin), PSY-555 (Option B —
 // every collection item becomes a node).
 //
-// Visibility gate mirrors GetBySlug: private collections return
-// ErrCollectionForbidden unless viewer is the creator. Collections that exist
-// but contain no items return a 200 response with empty nodes/links — the
-// collection is valid, just non-graph-able.
+// Visibility gate mirrors GetBySlug: a private collection answers NOT FOUND
+// unless the viewer is the creator, on the terms that route states. Collections
+// that exist but contain no items return a 200 response with empty nodes/links —
+// the collection is valid, just non-graph-able.
 //
 // Edge derivation rules:
 //   - artist ↔ artist  : stored artist_relationships rows (subject to type

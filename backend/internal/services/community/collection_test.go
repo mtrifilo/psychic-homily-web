@@ -882,7 +882,10 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_NotFoun
 func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_Forbidden() {
 	creator := suite.createTestUser("RealOwner")
 	other := suite.createTestUser("Intruder")
-	created := suite.createBasicCollection(creator, "Protected Collection")
+	// PUBLIC, because forbidden is the answer for a collection the caller CAN
+	// see and may not edit. A private one answers not-found, which
+	// collection_privacy_test.go asserts.
+	created := suite.createPublicCollection(creator, "Protected Collection")
 
 	newTitle := "Hacked!"
 	resp, err := suite.collectionService.UpdateCollection(created.Slug, other.ID, false, &contracts.UpdateCollectionRequest{
@@ -1087,7 +1090,9 @@ func (suite *CollectionServiceIntegrationTestSuite) TestDeleteCollection_NotFoun
 func (suite *CollectionServiceIntegrationTestSuite) TestDeleteCollection_Forbidden() {
 	creator := suite.createTestUser("DeleteOwner")
 	other := suite.createTestUser("DeleteIntruder")
-	created := suite.createBasicCollection(creator, "Cannot Delete")
+	// PUBLIC: forbidden is the answer for a collection the caller can see. The
+	// private case is collection_privacy_test.go's.
+	created := suite.createPublicCollection(creator, "Cannot Delete")
 
 	err := suite.collectionService.DeleteCollection(created.Slug, other.ID, false)
 
@@ -1418,7 +1423,11 @@ func (suite *CollectionServiceIntegrationTestSuite) TestRemoveItem_AdminCanRemov
 	creator := suite.createTestUser("AdminRemoveCreator")
 	admin := suite.createTestUser("AdminRemover")
 
-	coll := suite.createBasicCollection(creator, "Admin Remove")
+	// PUBLIC. An admin holds the item writes on a collection they may see and
+	// is refused them on a private one, which collection_privacy_test.go
+	// asserts: no collection read grants an admin a private collection, and the
+	// item response carries the entity's name and the adder's display name.
+	coll := suite.createPublicCollection(creator, "Admin Remove")
 	artist := suite.createTestArtist("Admin Removable")
 	item, _ := suite.collectionService.AddItem(coll.Slug, creator.ID, &contracts.AddCollectionItemRequest{
 		EntityType: communitym.CollectionEntityArtist, EntityID: artist.ID,
@@ -1484,7 +1493,8 @@ func (suite *CollectionServiceIntegrationTestSuite) TestReorderItems_Success() {
 func (suite *CollectionServiceIntegrationTestSuite) TestReorderItems_Forbidden() {
 	creator := suite.createTestUser("ReorderOwner")
 	other := suite.createTestUser("ReorderOther")
-	coll := suite.createBasicCollection(creator, "Reorder Forbidden")
+	// PUBLIC: forbidden is the answer for a collection the caller can see.
+	coll := suite.createPublicCollection(creator, "Reorder Forbidden")
 
 	err := suite.collectionService.ReorderItems(coll.Slug, other.ID, &contracts.ReorderCollectionItemsRequest{
 		Items: []contracts.ReorderItem{},
@@ -1580,9 +1590,11 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUnsubscribe_NotSubscribe
 	suite.Require().NoError(err)
 }
 
-func (suite *CollectionServiceIntegrationTestSuite) TestUnsubscribe_CollectionNotFound() {
-	err := suite.collectionService.Unsubscribe("nonexistent-slug", 1)
-	suite.Require().Error(err)
+// UNSUBSCRIBING NEVER REPORTS WHETHER THE SLUG EXISTS. It deletes by subquery
+// and answers success whatever the slug names, so it cannot be used to sort real
+// slugs from unused ones. collection_privacy_test.go asserts the pair directly.
+func (suite *CollectionServiceIntegrationTestSuite) TestUnsubscribe_UnusedSlugAnswersSuccess() {
+	suite.Require().NoError(suite.collectionService.Unsubscribe("nonexistent-slug", 1))
 }
 
 // =============================================================================

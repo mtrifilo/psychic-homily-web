@@ -675,9 +675,17 @@ func (s *ContributorProfileService) GetContributionHistory(userID uint, limit, o
 	// The item branch also accepts the parent named by the metadata's
 	// collection_id, because collection_items are hard-deleted and a
 	// remove_collection_item row names an item that no longer exists. An id is
-	// never reissued, so that reference stays true; the metadata SLUG is not
-	// usable for this, because a rename frees the string and a later collection
-	// can take it.
+	// never reissued, so that reference stays true.
+	//
+	// A THIRD ARM CARRIES THE ROWS THAT RECORD NO collection_id, and it is keyed
+	// on the metadata SLUG. Those rows are frozen: the writers record an id now,
+	// so `collection_id IS NULL` selects exactly the rows written before they
+	// did, and no new one can enter that arm. Without it every such row whose
+	// item has since been removed — which is every remove_collection_item row
+	// ever written, the item being deleted by definition — is withheld from its
+	// own author on a public collection, and from the total as well as the page.
+	// The slug's weakness is real (a rename frees the string, so a later
+	// collection can take it) and it is confined to this arm for that reason.
 	//
 	// Parentheses written out rather than left to the driver, and the entity-type
 	// filter ANDed after: the binding this pins is
@@ -691,20 +699,24 @@ func (s *ContributorProfileService) GetContributionHistory(userID uint, limit, o
 	visibleItemParents, visibleItemParentArgs := shared.VisibleCollectionItemExistsSQL("unified.entity_id", viewer)
 	visibleByParentID, visibleByParentIDArgs := shared.VisibleCollectionTextIDExistsSQL(
 		"unified.metadata->>'collection_id'", viewer)
+	visibleByLegacySlug, visibleByLegacySlugArgs := shared.VisibleCollectionSlugExistsSQL(
+		"unified.metadata->>'slug'", viewer)
 	visibleCollections, visibleCollectionArgs := shared.VisibleCollectionExistsSQL("unified.entity_id", viewer)
 	entityFilter := fmt.Sprintf(
 		" WHERE (unified.entity_type NOT IN ? OR %s)"+
 			" AND (unified.entity_type <> ?"+
-			" OR (CASE WHEN unified.action IN ? THEN (%s OR %s)"+
+			" OR (CASE WHEN unified.action IN ? THEN (%s OR %s"+
+			" OR (unified.metadata->>'collection_id' IS NULL AND %s))"+
 			" WHEN unified.action IN ? THEN %s"+
 			" ELSE FALSE END))",
-		visibleShows, visibleItemParents, visibleByParentID, visibleCollections)
+		visibleShows, visibleItemParents, visibleByParentID, visibleByLegacySlug, visibleCollections)
 	args = append(args, contributionShowEntityTypes)
 	args = append(args, visibleShowsArgs...)
 	args = append(args, contributionCollectionEntityType)
 	args = append(args, contributionCollectionActionsOfKind(collectionIDIsItem))
 	args = append(args, visibleItemParentArgs...)
 	args = append(args, visibleByParentIDArgs...)
+	args = append(args, visibleByLegacySlugArgs...)
 	args = append(args, contributionCollectionActionsOfKind(collectionIDIsCollection))
 	args = append(args, visibleCollectionArgs...)
 	if entityType != "" {
@@ -1289,6 +1301,15 @@ func (s *ContributorProfileService) GetPercentileRankings(userID uint) (*contrac
 // Entity Name Enrichment
 // =============================================================================
 
+// enrichEntityNames resolves each entry's display name from the entity's own
+// table.
+//
+// ONE ARM PER DISCRIMINATOR, and the two gated arms carry the shared predicate.
+// It cannot splice services/shared's fence unconditionally the way the comment
+// batch loader does: five of the discriminators here are synthetic
+// ("venue_edit", "request" and their siblings) and the registry does not resolve
+// them, so an unconditional fence would answer FALSE and strip the names off
+// every suggested edit. The arms it does fence are the arms that have a rule.
 func (s *ContributorProfileService) enrichEntityNames(entries []*contracts.ContributionEntry, viewer contracts.ShowViewer) {
 	// The show and collection lookups repeat the visibility gates the union
 	// already applied. Deliberate belt and braces on a security boundary, and

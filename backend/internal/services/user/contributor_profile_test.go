@@ -2342,3 +2342,49 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	suite.EqualValues(len(own), ownTotal)
 	suite.Len(own, 8, "the creator sees both collections' rows")
 }
+
+// A ROW WRITTEN BEFORE collection_id WAS RECORDED IS STILL LISTED.
+//
+// The writers record the parent's id now; every item row written before they did
+// carries the slug alone. Its entity_id names a collection_items row that may
+// since have been hard-deleted, so an id-only rule withholds it from EVERYONE,
+// including its own author on a public collection, and from the total as well as
+// the page. The slug arm carries exactly those rows and only those: it is
+// selected by `collection_id IS NULL`, which no new row can satisfy.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_LegacyItemRowsWithNoParentIDAreStillListed() {
+	actor := suite.createTestUser("legacyactor")
+	stranger := suite.createTestUser("legacystranger")
+
+	openColl := suite.createCollectionForHistory(actor.ID, "Legacy Open", "legacy-open-history", true)
+	shutColl := suite.createCollectionForHistory(actor.ID, "Legacy Shut", "legacy-shut-history", false)
+
+	// THE PRE-DEPLOY SHAPE: the slug and nothing else, on an item that has since
+	// been removed. A row whose item still existed would pass on the item arm and
+	// prove nothing about the legacy one.
+	for _, c := range []*communitym.Collection{openColl, shutColl} {
+		item := suite.createCollectionItemForHistory(c.ID, actor.ID)
+		itemID := item.ID
+		suite.Require().NoError(suite.db.Delete(&communitym.CollectionItem{}, itemID).Error)
+		suite.auditLog.LogAction(actor.ID, "remove_collection_item", "collection", itemID,
+			map[string]interface{}{"slug": c.Slug})
+	}
+	// A legacy row whose slug names no collection at all stays withheld, which is
+	// the fail-closed answer every other arm gives.
+	suite.auditLog.LogAction(actor.ID, "remove_collection_item", "collection", 987655,
+		map[string]interface{}{"slug": "a-slug-that-never-existed"})
+
+	entries, total, err := suite.profileService.GetContributionHistory(
+		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: stranger.ID})
+	suite.Require().NoError(err)
+	suite.EqualValues(len(entries), total, "the total must count the same rows the page contains")
+	suite.Require().Len(entries, 1,
+		"a legacy row on a PUBLIC collection is still listed to a stranger")
+	suite.Equal(openColl.Slug, entries[0].Metadata["slug"])
+
+	own, ownTotal, err := suite.profileService.GetContributionHistory(
+		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: actor.ID})
+	suite.Require().NoError(err)
+	suite.EqualValues(len(own), ownTotal)
+	suite.Len(own, 2,
+		"the author sees both real legacy rows and neither the unresolvable one")
+}

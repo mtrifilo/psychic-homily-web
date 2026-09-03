@@ -83,20 +83,18 @@ func (s *EntityReportService) CreateEntityReport(req *contracts.CreateEntityRepo
 	// a content disclosure and an enumeration primitive.
 	viewer := contracts.ShowViewer{UserID: req.UserID}
 	switch req.EntityType {
-	case "collection":
+	case communitym.EntityReportEntityCollection:
 		if !shared.CollectionVisibleTo(s.db, req.EntityID, viewer) {
 			return nil, apperrors.ErrEntityReportEntityNotFound(req.EntityType, req.EntityID)
 		}
-	case "comment":
+	case communitym.EntityReportEntityComment:
 		if !s.commentParentVisible(req.EntityID, viewer) {
 			return nil, apperrors.ErrEntityReportEntityNotFound(req.EntityType, req.EntityID)
 		}
 	default:
+		// Every type reaching here has a plural table name and no read-time rule.
+		// The two that do not are the cases above.
 		tableName := req.EntityType + "s"
-		// Comments table is already plural
-		if req.EntityType == "comment" {
-			tableName = "comments"
-		}
 		var count int64
 		if err := s.db.Table(tableName).Where("id = ?", req.EntityID).Count(&count).Error; err != nil {
 			return nil, apperrors.ErrEntityReportInternal(fmt.Errorf("failed to verify entity: %w", err))
@@ -132,7 +130,7 @@ func (s *EntityReportService) CreateEntityReport(req *contracts.CreateEntityRepo
 	}
 
 	// Auto-hide comments with 3+ reports
-	if req.EntityType == "comment" {
+	if req.EntityType == communitym.EntityReportEntityComment {
 		var totalReports int64
 		if err := s.db.Model(&communitym.EntityReport{}).
 			Where("entity_type = 'comment' AND entity_id = ? AND status = ?",

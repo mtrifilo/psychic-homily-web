@@ -196,3 +196,216 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddTagToCollection_Refus
 	})
 	suite.Require().NoError(err)
 }
+
+// THE ITEM WRITES, and they are the loudest of the family: a bulk add reports a
+// per-row duplicate for every entity already present, so an ungated one
+// enumerates a private collection's contents 200 rows at a time.
+func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_RefusesAPrivateCollaborativeCollection() {
+	creator := suite.createTestUser("additemcreator")
+	stranger := suite.createTestUser("additemstranger")
+	artist := suite.createTestArtist("Add Item Artist")
+	other := suite.createTestArtist("Add Item Other Artist")
+
+	open, err := suite.collectionService.CreateCollection(creator.ID, &contracts.CreateCollectionRequest{
+		Title:         "Add Item Collaborative",
+		IsPublic:      true,
+		Collaborative: true,
+	})
+	suite.Require().NoError(err)
+
+	// The control: a stranger may add to a PUBLIC collaborative collection.
+	_, err = suite.collectionService.AddItem(open.Slug, stranger.ID, &contracts.AddCollectionItemRequest{
+		EntityType: "artist",
+		EntityID:   artist.ID,
+	})
+	suite.Require().NoError(err)
+
+	suite.Require().NoError(suite.db.Table("collections").
+		Where("id = ?", open.ID).Update("is_public", false).Error)
+
+	_, err = suite.collectionService.AddItem(open.Slug, stranger.ID, &contracts.AddCollectionItemRequest{
+		EntityType: "artist",
+		EntityID:   other.ID,
+	})
+	suite.Require().Error(err)
+	var addErr *apperrors.CollectionError
+	suite.Require().True(stderrors.As(err, &addErr))
+	suite.Equal(apperrors.CodeCollectionNotFound, addErr.Code,
+		"a private collaborative collection answers an outsider like a missing one")
+
+	// The creator still can, so the gate did not break the feature.
+	_, err = suite.collectionService.AddItem(open.Slug, creator.ID, &contracts.AddCollectionItemRequest{
+		EntityType: "artist",
+		EntityID:   other.ID,
+	})
+	suite.Require().NoError(err)
+}
+
+func (suite *CollectionServiceIntegrationTestSuite) TestBulkAddItems_RefusesAPrivateCollaborativeCollection() {
+	creator := suite.createTestUser("bulkcreator")
+	stranger := suite.createTestUser("bulkstranger")
+	artist := suite.createTestArtist("Bulk Item Artist")
+
+	open, err := suite.collectionService.CreateCollection(creator.ID, &contracts.CreateCollectionRequest{
+		Title:         "Bulk Add Collaborative",
+		IsPublic:      true,
+		Collaborative: true,
+	})
+	suite.Require().NoError(err)
+
+	_, err = suite.collectionService.AddItem(open.Slug, creator.ID, &contracts.AddCollectionItemRequest{
+		EntityType: "artist",
+		EntityID:   artist.ID,
+	})
+	suite.Require().NoError(err)
+
+	req := &contracts.BulkAddCollectionItemsRequest{
+		Items: []contracts.AddCollectionItemRequest{{EntityType: "artist", EntityID: artist.ID}},
+	}
+
+	// The control: while it is public the duplicate is reported, which is exactly
+	// the row-by-row disclosure the gate has to stop once it is private.
+	before, err := suite.collectionService.BulkAddItems(open.Slug, stranger.ID, req)
+	suite.Require().NoError(err)
+	suite.Require().Len(before.Errors, 1, "the control: a duplicate is reported on a public collection")
+
+	suite.Require().NoError(suite.db.Table("collections").
+		Where("id = ?", open.ID).Update("is_public", false).Error)
+
+	after, err := suite.collectionService.BulkAddItems(open.Slug, stranger.ID, req)
+	suite.Require().Error(err)
+	suite.Nil(after, "no per-row report may be returned for a collection the caller cannot see")
+	var bulkErr *apperrors.CollectionError
+	suite.Require().True(stderrors.As(err, &bulkErr))
+	suite.Equal(apperrors.CodeCollectionNotFound, bulkErr.Code)
+}
+
+// CLONING IS A READ. It copies the source's title, description and every item
+// into a collection the caller owns, so a source the caller cannot see answers
+// like one that does not exist rather than like one they are forbidden.
+func (suite *CollectionServiceIntegrationTestSuite) TestCloneCollection_RefusesAPrivateSourceLikeAMissingOne() {
+	creator := suite.createTestUser("clonecreator")
+	stranger := suite.createTestUser("clonestranger")
+	shut := suite.createBasicCollection(creator, "Clone Shut")
+
+	_, err := suite.collectionService.CloneCollection(shut.Slug, stranger.ID)
+	suite.Require().Error(err)
+	_, missingErr := suite.collectionService.CloneCollection("a-slug-that-never-existed", stranger.ID)
+	suite.Require().Error(missingErr)
+
+	var gated, missing *apperrors.CollectionError
+	suite.Require().True(stderrors.As(err, &gated))
+	suite.Require().True(stderrors.As(missingErr, &missing))
+	suite.Equal(missing.Code, gated.Code,
+		"a private source and a slug nobody has used must answer alike")
+
+	// The creator can still fork their own, which is the control.
+	clone, err := suite.collectionService.CloneCollection(shut.Slug, creator.ID)
+	suite.Require().NoError(err)
+	suite.NotNil(clone)
+}
+
+// THE OWNER WRITES ANSWER A NON-CREATOR AS A MISSING COLLECTION, and the item
+// writes decide the collection BEFORE they load the item: item ids are a global
+// sequence, so an item lookup that ran first would sort ids that belong to this
+// collection from ids that do not.
+func (suite *CollectionServiceIntegrationTestSuite) TestOwnerWritesRefuseAPrivateCollectionLikeAMissingOne() {
+	creator := suite.createTestUser("ownerwritecreator")
+	stranger := suite.createTestUser("ownerwritestranger")
+	artist := suite.createTestArtist("Owner Write Artist")
+
+	shut := suite.createBasicCollection(creator, "Owner Write Shut")
+	item, err := suite.collectionService.AddItem(shut.Slug, creator.ID, &contracts.AddCollectionItemRequest{
+		EntityType: "artist",
+		EntityID:   artist.ID,
+	})
+	suite.Require().NoError(err)
+
+	const missingSlug = "a-slug-that-never-existed"
+	notes := "a stranger should not be able to write this"
+
+	codeOf := func(err error) string {
+		suite.Require().Error(err)
+		var collErr *apperrors.CollectionError
+		suite.Require().True(stderrors.As(err, &collErr))
+		return collErr.Code
+	}
+
+	// UpdateCollection and DeleteCollection admit an admin (the moderation
+	// remedies), so the stranger is the caller here and the admin arm is asserted
+	// in the route matrix.
+	_, updateErr := suite.collectionService.UpdateCollection(shut.Slug, stranger.ID, false,
+		&contracts.UpdateCollectionRequest{Title: &notes})
+	_, updateMissingErr := suite.collectionService.UpdateCollection(missingSlug, stranger.ID, false,
+		&contracts.UpdateCollectionRequest{Title: &notes})
+	suite.Equal(codeOf(updateMissingErr), codeOf(updateErr), "PUT /collections/{slug}")
+
+	suite.Equal(
+		codeOf(suite.collectionService.DeleteCollection(missingSlug, stranger.ID, false)),
+		codeOf(suite.collectionService.DeleteCollection(shut.Slug, stranger.ID, false)),
+		"DELETE /collections/{slug}")
+
+	// The item writes, with an item id that IS in this collection. A gate placed
+	// after the item lookup would answer item-not-found here and forbidden for an
+	// id from another collection, and that pair is membership.
+	_, itemErr := suite.collectionService.UpdateItem(shut.Slug, item.ID, stranger.ID, false,
+		&contracts.UpdateCollectionItemRequest{Notes: &notes})
+	_, itemMissingErr := suite.collectionService.UpdateItem(missingSlug, item.ID, stranger.ID, false,
+		&contracts.UpdateCollectionItemRequest{Notes: &notes})
+	suite.Equal(codeOf(itemMissingErr), codeOf(itemErr), "PATCH /collections/{slug}/items/{item_id}")
+
+	suite.Equal(
+		codeOf(suite.collectionService.RemoveItem(missingSlug, item.ID, stranger.ID, false)),
+		codeOf(suite.collectionService.RemoveItem(shut.Slug, item.ID, stranger.ID, false)),
+		"DELETE /collections/{slug}/items/{item_id}")
+
+	reorder := &contracts.ReorderCollectionItemsRequest{
+		Items: []contracts.ReorderItem{{ItemID: item.ID, Position: 1}},
+	}
+	suite.Equal(
+		codeOf(suite.collectionService.ReorderItems(missingSlug, stranger.ID, reorder)),
+		codeOf(suite.collectionService.ReorderItems(shut.Slug, stranger.ID, reorder)),
+		"PUT /collections/{slug}/items/reorder")
+
+	// AN ADMIN IS REFUSED THE ITEM WRITES, and admitted to the two moderation
+	// remedies. Both halves are the assertion.
+	_, adminItemErr := suite.collectionService.UpdateItem(shut.Slug, item.ID, stranger.ID, true,
+		&contracts.UpdateCollectionItemRequest{Notes: &notes})
+	suite.Equal(apperrors.CodeCollectionNotFound, codeOf(adminItemErr),
+		"an admin is refused a private collection's item writes")
+
+	// The creator still holds all of them, which is the control.
+	_, err = suite.collectionService.UpdateItem(shut.Slug, item.ID, creator.ID, false,
+		&contracts.UpdateCollectionItemRequest{Notes: &notes})
+	suite.Require().NoError(err)
+	suite.Require().NoError(suite.collectionService.ReorderItems(shut.Slug, creator.ID, reorder))
+	suite.Require().NoError(suite.collectionService.RemoveItem(shut.Slug, item.ID, creator.ID, false))
+}
+
+// UNSUBSCRIBING NEVER REPORTS WHETHER THE SLUG EXISTS. Quitting is always
+// allowed, so a slug nobody has used and a private collection's guessable name
+// answer the same success.
+func (suite *CollectionServiceIntegrationTestSuite) TestUnsubscribe_IsNotASlugExistenceOracle() {
+	creator := suite.createTestUser("unsubcreator")
+	stranger := suite.createTestUser("unsubstranger")
+
+	shut := suite.createPublicCollection(creator, "Unsub Shut")
+	suite.Require().NoError(suite.collectionService.Subscribe(shut.Slug, stranger.ID))
+	suite.Require().NoError(suite.db.Table("collections").
+		Where("id = ?", shut.ID).Update("is_public", false).Error)
+
+	suite.Require().NoError(suite.collectionService.Unsubscribe(shut.Slug, stranger.ID),
+		"a subscriber may always quit")
+	suite.Require().NoError(suite.collectionService.Unsubscribe(shut.Slug, stranger.ID),
+		"and quitting twice answers the same")
+	suite.Require().NoError(suite.collectionService.Unsubscribe("a-slug-that-never-existed", stranger.ID),
+		"an unused slug answers the same as a real one")
+
+	// The row is gone, which is what makes the successes above about the delete
+	// rather than about a no-op.
+	var remaining int64
+	suite.Require().NoError(suite.db.Table("collection_subscribers").
+		Where("collection_id = ? AND user_id = ?", shut.ID, stranger.ID).
+		Count(&remaining).Error)
+	suite.Zero(remaining)
+}

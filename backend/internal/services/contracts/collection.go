@@ -559,16 +559,17 @@ type CollectionServiceInterface interface {
 	// actorID is the acting admin (featured_by / unfeatured_by); pass 0 for an
 	// unknown/system actor.
 	SetFeatured(slug string, featured bool, actorID uint) error
-	// AddTagToCollection applies a tag to a collection (PSY-354). Caller must
-	// have edit access (creator OR collaborative-and-authenticated, mirroring
-	// AddItem). Enforces MaxCollectionTags. Returns the post-mutation tag
-	// list.
+	// AddTagToCollection applies a tag to a collection (PSY-354). Caller must be
+	// able to SEE the collection, and then must have edit access (creator OR
+	// collaborative-and-authenticated, mirroring AddItem). A collection the
+	// caller cannot see answers not-found. Enforces MaxCollectionTags. Returns
+	// the post-mutation tag list.
 	AddTagToCollection(slug string, userID uint, req *AddCollectionTagRequest) (*AddCollectionTagResponse, error)
 	// RemoveTagFromCollection removes a tag from a collection (PSY-354).
-	// Same edit-access rule as AddTagToCollection.
+	// Same visibility and edit-access rules as AddTagToCollection.
 	RemoveTagFromCollection(slug string, tagID uint, userID uint) error
 	// GetCollectionGraph returns the artist-relationship subgraph for the
 	// collection's artist items. Visibility gate mirrors GetBySlug
-	// (private → ErrCollectionForbidden unless viewer is creator). PSY-366.
+	// (private → not found unless viewer is creator). PSY-366.
 	GetCollectionGraph(slug string, viewerID uint, types []string) (*CollectionGraphResponse, error)
 }

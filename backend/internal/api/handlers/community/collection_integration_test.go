@@ -1040,13 +1040,16 @@ func (s *CollectionHandlerIntegrationSuite) TestUnsubscribe_NoAuth() {
 	testhelpers.AssertHumaError(s.T(), err, 401)
 }
 
-func (s *CollectionHandlerIntegrationSuite) TestUnsubscribe_CollectionNotFound() {
+// UNSUBSCRIBING NEVER REPORTS WHETHER THE SLUG EXISTS. Quitting is always
+// allowed and the route deletes by subquery, so an unused slug and a private
+// collection's guessable name get the same success.
+func (s *CollectionHandlerIntegrationSuite) TestUnsubscribe_UnusedSlugAnswersSuccess() {
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	ctx := testhelpers.CtxWithUser(user)
 
 	req := &UnsubscribeHandlerRequest{Slug: "nonexistent"}
 	_, err := s.handler.UnsubscribeHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 404)
+	s.Require().NoError(err)
 }
 
 // ============================================================================
@@ -1413,9 +1416,11 @@ func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_NoAuth() {
 	testhelpers.AssertHumaError(s.T(), err, 401)
 }
 
-// TestCloneCollection_PrivateSourceForbidden ensures the visibility check
-// matches GetBySlug — non-owners cannot clone a private collection.
-func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_PrivateSourceForbidden() {
+// TestCloneCollection_PrivateSourceNotFound ensures the visibility check matches
+// GetBySlug: a non-owner cannot clone a private collection, and the refusal is
+// the one an unused slug gets. TestCloneCollection_SourceNotFound below asserts
+// the other half of that pair.
+func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_PrivateSourceNotFound() {
 	owner := testhelpers.CreateTestUser(s.deps.DB)
 	other := testhelpers.CreateTestUser(s.deps.DB)
 	private := s.createCollectionViaService(owner, "Private Source", false)
@@ -1423,7 +1428,7 @@ func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_PrivateSourceFor
 	ctx := testhelpers.CtxWithUser(other)
 	req := &CloneCollectionHandlerRequest{Slug: private.Slug}
 	_, err := s.handler.CloneCollectionHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 403)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 // TestCloneCollection_SourceNotFound ensures unknown slugs return 404.

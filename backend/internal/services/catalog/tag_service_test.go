@@ -1927,3 +1927,81 @@ func TestTagServiceIntegration(t *testing.T) {
 	}
 	suite.Run(t, new(TagServiceIntegrationTestSuite))
 }
+
+// EVERY SURFACE PUBLISHES ONE usage_count, and it is the visible one.
+//
+// The number is rendered beside listings that withhold gated rows, so two
+// surfaces disagreeing about it reports the withheld rows by subtraction: the
+// browse listing's count minus the detail page's count is exactly the number of
+// private collections and gated shows carrying the tag. This walks every public
+// surface that publishes the number and requires them to agree with the
+// breakdown they are read beside.
+func (suite *TagServiceIntegrationTestSuite) TestUsageCountAgreesAcrossEveryPublicSurface() {
+	user := suite.createTestUser("usagecount-user")
+	tag := suite.createTag("usage-count-agreement", "genre")
+
+	openColl := suite.createCollection(user.ID, "Usage Open", true)
+	shutColl := suite.createCollection(user.ID, "Usage Shut", false)
+	for _, c := range []*communitym.Collection{openColl, shutColl} {
+		_, err := suite.tagService.AddTagToEntity(tag.ID, "", catalogm.TagEntityCollection, c.ID, user.ID, "")
+		suite.Require().NoError(err)
+	}
+
+	// The raw column counts both, which is what makes the assertions below about
+	// the gate rather than about a tag nothing carries.
+	var rawColumn int
+	suite.Require().NoError(suite.db.Model(&catalogm.Tag{}).
+		Where("id = ?", tag.ID).Select("usage_count").Scan(&rawColumn).Error)
+	suite.Require().EqualValues(2, rawColumn,
+		"the denormalised column counts the private collection, which is the disclosure")
+
+	const wantVisible = 1
+
+	detail, err := suite.tagService.GetTagDetail(tag.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(detail)
+	suite.Assert().Equal(wantVisible, detail.UsageCount, "GET /tags/{id}/detail")
+	suite.Assert().EqualValues(wantVisible, detail.UsageBreakdown[catalogm.TagEntityCollection],
+		"the breakdown the count is rendered beside")
+
+	byID, err := suite.tagService.GetTag(tag.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(byID)
+	suite.Assert().Equal(wantVisible, byID.UsageCount, "GET /tags/{id}")
+
+	bySlug, err := suite.tagService.GetTagBySlug(tag.Slug)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(bySlug)
+	suite.Assert().Equal(wantVisible, bySlug.UsageCount, "GET /tags/{slug}")
+
+	listed, _, err := suite.tagService.ListTags("", tag.Name, nil, "usage", 50, 0, "", nil)
+	suite.Require().NoError(err)
+	suite.Require().Len(listed, 1)
+	suite.Assert().Equal(wantVisible, listed[0].UsageCount, "GET /tags")
+
+	searched, err := suite.tagService.SearchTags(tag.Name, 10, "")
+	suite.Require().NoError(err)
+	suite.Require().Len(searched, 1)
+	suite.Assert().Equal(wantVisible, searched[0].Tag.UsageCount, "GET /tags/search")
+
+	// The entity-scoped facet count, which is the same number reached by a
+	// different query.
+	scoped, _, err := suite.tagService.ListTags("", tag.Name, nil, "usage", 50, 0,
+		catalogm.TagEntityCollection, nil)
+	suite.Require().NoError(err)
+	suite.Require().Len(scoped, 1)
+	suite.Assert().Equal(wantVisible, scoped[0].UsageCount, "GET /tags?entity_type=collection")
+
+	// FLIPPING IT BACK moves every surface together. A count frozen at read time
+	// would pass every assertion above and fail here.
+	suite.Require().NoError(suite.db.Model(&communitym.Collection{}).
+		Where("id = ?", shutColl.ID).Update("is_public", true).Error)
+
+	reopened, err := suite.tagService.GetTagDetail(tag.ID)
+	suite.Require().NoError(err)
+	suite.Assert().Equal(2, reopened.UsageCount)
+	reopenedList, _, err := suite.tagService.ListTags("", tag.Name, nil, "usage", 50, 0, "", nil)
+	suite.Require().NoError(err)
+	suite.Require().Len(reopenedList, 1)
+	suite.Assert().Equal(2, reopenedList[0].UsageCount)
+}

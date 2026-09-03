@@ -48,11 +48,18 @@ const (
 	// (GetCollectionHandler parses the segment as a uint first), which makes the
 	// 403/404 pair walkable.
 	collectionGated collectionRouteDisposition = iota
-	// collectionCreatorOnly: the route is a write that already refuses anybody
-	// but the creator, or a contributor on a collaborative collection. The
-	// collaborative branch carries no visibility test of its own, which is the
-	// divergence the map's item-write entries name below.
+	// collectionCreatorOnly: the route is a write that refuses a collection the
+	// caller cannot see BEFORE it asks who they are, and then refuses anybody but
+	// the creator, or a contributor on a collaborative collection. The visibility
+	// test runs first and takes no admin term, so a private collection answers
+	// these routes exactly as an unused slug does.
 	collectionCreatorOnly
+	// collectionAdminModeration: the route is a creator write that ALSO admits an
+	// admin to a private collection, because it is a remedy the entity-report
+	// queue needs to reach. Two routes hold this, and adding a third is a claim
+	// about moderation rather than about visibility. See
+	// services/shared/collection_visibility.go.
+	collectionAdminModeration
 	// collectionSelfScoped: the route answers only about the CALLER's own
 	// relationship to the collection and publishes no collection content.
 	collectionSelfScoped
@@ -114,17 +121,26 @@ var collectionAddressableRoutes = map[string]collectionRouteDisposition{
 	"GET /collections/entity/{entity_type}/{entity_id}": collectionGated,
 	"GET /crates/entity/{entity_type}/{entity_id}":      collectionGated,
 
-	// Unsubscribing is the caller's own row, like its polymorphic twin.
+	// Unsubscribing is the caller's own row, like its polymorphic twin: it deletes
+	// by subquery, never resolves the slug, and answers success whatever the slug
+	// names, so it reports neither the collection's existence nor whether a
+	// subscription was there.
 	"DELETE /collections/{slug}/subscribe": collectionSelfScoped,
 	"DELETE /crates/{slug}/subscribe":      collectionSelfScoped,
 
+	// The two moderation remedies. Both refuse a non-creator who is not an admin
+	// a private collection, as missing; both admit an admin, because flipping a
+	// reported collection public and removing it are what the report queue exists
+	// to reach.
+	"PUT /collections/{slug}":    collectionAdminModeration,
+	"PUT /crates/{slug}":         collectionAdminModeration,
+	"DELETE /collections/{slug}": collectionAdminModeration,
+	"DELETE /crates/{slug}":      collectionAdminModeration,
+
 	// Owner writes. Each refuses a caller who is neither the creator nor, on a
 	// collaborative collection, a contributor, and each refuses a collection the
-	// caller cannot see before it considers `collaborative`.
-	"PUT /collections/{slug}":                    collectionCreatorOnly,
-	"PUT /crates/{slug}":                         collectionCreatorOnly,
-	"DELETE /collections/{slug}":                 collectionCreatorOnly,
-	"DELETE /crates/{slug}":                      collectionCreatorOnly,
+	// caller cannot see first — before `collaborative`, before the item lookup,
+	// and with no admin term.
 	"POST /collections/{slug}/items":             collectionCreatorOnly,
 	"POST /crates/{slug}/items":                  collectionCreatorOnly,
 	"POST /collections/{slug}/items/bulk":        collectionCreatorOnly,

@@ -177,6 +177,22 @@ func TestCollectionVisibilitySpellingsAgree(t *testing.T) {
 				if got := countEntityRowMatching(t, td.DB, shared.CommentEntityTypeCollection, itemID, itemSQL, itemArgs); (got > 0) != want {
 					t.Errorf("VisibleCollectionItemExistsSQL for %s matched %d rows, want visible=%v", v.name, got, want)
 				}
+
+				// The TEXT-ID and SLUG spellings, which read their reference out
+				// of an audit row's JSON metadata rather than from a typed
+				// column. Same truth table, evaluated in the shape the
+				// contributions timeline evaluates them in: a text expression
+				// beside the enclosing query.
+				textSQL, textArgs := shared.VisibleCollectionTextIDExistsSQL("meta.value", v.viewer)
+				if got := countTextExprMatching(t, td.DB, fmt.Sprint(collection.ID), textSQL, textArgs); (got > 0) != want {
+					t.Errorf("VisibleCollectionTextIDExistsSQL for %s matched %d rows, want visible=%v",
+						v.name, got, want)
+				}
+				slugSQL, slugArgs := shared.VisibleCollectionSlugExistsSQL("meta.value", v.viewer)
+				if got := countTextExprMatching(t, td.DB, collection.Slug, slugSQL, slugArgs); (got > 0) != want {
+					t.Errorf("VisibleCollectionSlugExistsSQL for %s matched %d rows, want visible=%v",
+						v.name, got, want)
+				}
 			}
 		})
 	}
@@ -275,4 +291,63 @@ func countCollectionsMatching(t *testing.T, db *gorm.DB, collectionID uint, cond
 		t.Fatalf("count collections with %q: %v", cond, err)
 	}
 	return count
+}
+
+// countTextExprMatching evaluates a condition written against a TEXT expression,
+// in the shape the contributions timeline evaluates it in: the value sits in a
+// column beside the enclosing query rather than in a typed id column.
+func countTextExprMatching(t *testing.T, db *gorm.DB, value string, cond string, args []interface{}) int64 {
+	t.Helper()
+	var count int64
+	// The value binds FIRST, because placeholders are positional and the
+	// subselect that produces the column is written before the condition.
+	all := append([]interface{}{value}, args...)
+	if err := db.Raw(
+		"SELECT COUNT(*) FROM (SELECT ?::text AS value) AS meta WHERE "+cond, all...,
+	).Scan(&count).Error; err != nil {
+		t.Fatalf("count text-expression matches with %q: %v", cond, err)
+	}
+	return count
+}
+
+// THE TEXT-ID SPELLING MUST NOT RAISE ON A VALUE THAT IS NOT A NUMBER. It reads
+// a JSON field, so anything can be in it, and the statement it sits in decides an
+// anonymous route: a cast that raised would take the whole timeline down rather
+// than withhold one row.
+func TestVisibleCollectionTextIDIsTotalOverItsInput(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	td := testutil.SetupTestPostgres(t)
+	defer td.Cleanup()
+
+	creator := testhelpers.CreateTestUser(td.DB)
+	collection := testhelpers.CreateCollection(t, td.DB, creator.ID,
+		"Text ID Total", "text-id-total", true)
+
+	viewer := contracts.ShowViewer{UserID: creator.ID}
+	cond, args := shared.VisibleCollectionTextIDExistsSQL("meta.value", viewer)
+
+	for _, value := range []string{
+		"",
+		"not-a-number",
+		"12x",
+		" 1",
+		"1 ",
+		"-1",
+		"1.0",
+		// Longer than any bigint, which is what the digit cap in the guard is for:
+		// an unbounded cast would overflow and raise here.
+		"999999999999999999999999999999",
+	} {
+		if got := countTextExprMatching(t, td.DB, value, cond, args); got != 0 {
+			t.Errorf("the text-id spelling matched %d rows for %q, want 0", got, value)
+		}
+	}
+
+	// The control: the real id still matches, so the arm above is measuring the
+	// guard rather than a condition that matches nothing at all.
+	if got := countTextExprMatching(t, td.DB, fmt.Sprint(collection.ID), cond, args); got != 1 {
+		t.Errorf("the text-id spelling matched %d rows for the real id, want 1", got)
+	}
 }

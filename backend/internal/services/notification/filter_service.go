@@ -1201,8 +1201,8 @@ func inboxRowsVisibleTo(alias string, viewer contracts.ShowViewer) (string, []in
 	// NO ADMIN SHORT-CIRCUIT. `1 = 1` is right only while every arm judges shows,
 	// which an admin sees all of. The comment arm also judges COLLECTIONS, and no
 	// collection detail or listing read grants an admin a private one
-	// (services/shared/collection_visibility.go, which names the two admin
-	// surfaces that do and why they are moderation powers rather than a tier).
+	// (services/shared/collection_visibility.go, which names the admin surfaces
+	// that do and why they are moderation powers rather than a tier).
 	// A blanket bypass here would extend those powers to a passive feed. The show
 	// arms still short-circuit internally, so an admin's statement is the same
 	// shape as any other caller's plus the collection probe.

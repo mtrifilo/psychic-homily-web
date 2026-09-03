@@ -607,3 +607,178 @@ func elideEntityID(body string, id uint) string {
 	pattern := regexp.MustCompile(`\b` + regexp.QuoteMeta(strconv.FormatUint(uint64(id), 10)) + `\b`)
 	return pattern.ReplaceAllString(body, "<id>")
 }
+
+// THE SLUG-ADDRESSED OWNER WRITES, over the real router.
+//
+// The route inventory records a disposition for each of these; a map that says
+// a route is safe is a claim, not a test. This walks all five with a stranger
+// and requires the answer to be indistinguishable from the answer a slug nobody
+// has ever used gets — status and message both, with the caller's own slug
+// normalised out because echoing a caller's own input discloses nothing.
+//
+// The item writes carry an item id that IS in the private collection, which is
+// what makes them about the gate's POSITION: a gate placed after the item lookup
+// answers item-not-found for an id in another collection and forbidden for one
+// in this collection, and that pair reports membership over a global sequence.
+func TestCollectionOwnerWritesRefuseLikeAMissingCollection(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	td := testutil.SetupTestPostgres(t)
+	defer td.Cleanup()
+
+	cfg := testConfig()
+	sc := services.NewServiceContainer(td.DB, cfg)
+	router := chi.NewRouter()
+	SetupRoutes(router, sc, cfg)
+
+	creator := testhelpers.CreateUserWithTier(td.DB, "trusted_contributor")
+	stranger := testhelpers.CreateTestUser(td.DB)
+	admin := testhelpers.CreateAdminUser(td.DB)
+
+	// COLLABORATIVE and public to begin with, so the stranger can legitimately
+	// add an item and then be locked out by the flip alone. A contributor who
+	// added an item while it was public is the caller the AddedByUserID branch
+	// used to admit.
+	gated := testhelpers.CreateCollection(t, td.DB, creator.ID,
+		"Things I Stopped Sharing", "things-i-stopped-sharing", true)
+	if err := td.DB.Model(gated).Update("collaborative", true).Error; err != nil {
+		t.Fatalf("make collection collaborative: %v", err)
+	}
+	artist := testhelpers.CreateArtist(td.DB, "Owner Write Route Artist")
+
+	do := func(t *testing.T, method, path, credential string, body []byte) (int, []byte) {
+		return doRequest(t, router, method, path, credential, body)
+	}
+	strangerToken := mintToken(t, sc, stranger)
+	adminToken := mintToken(t, sc, admin)
+
+	addBody := []byte(fmt.Sprintf(`{"entity_type":"artist","entity_id":%d}`, artist.ID))
+	code, body := do(t, http.MethodPost, "/collections/"+gated.Slug+"/items", strangerToken, addBody)
+	if code != http.StatusOK {
+		t.Fatalf("the control: a stranger adding to the PUBLIC collaborative collection = %d; body: %s", code, body)
+	}
+	var added struct {
+		ID uint `json:"id"`
+	}
+	if err := json.Unmarshal(body, &added); err != nil || added.ID == 0 {
+		t.Fatalf("read back the item id from %s: %v", body, err)
+	}
+
+	testhelpers.SetCollectionPublic(t, td.DB, gated.ID, false)
+
+	const missingSlug = "a-slug-nobody-has-ever-used"
+	reorderBody := []byte(fmt.Sprintf(`{"items":[{"item_id":%d,"position":1}]}`, added.ID))
+
+	writes := []struct {
+		name   string
+		method string
+		path   func(slug string) string
+		body   []byte
+		// adminIsModerator marks the two routes an admin reaches on a private
+		// collection: flipping it public and removing it are the remedies the
+		// entity-report queue exists to reach. Their admin arms run last, on
+		// fixtures of their own, because both of them CHANGE the collection —
+		// a rename regenerates the slug and a delete removes the row, either of
+		// which would make every later subtest pass for the wrong reason.
+		adminIsModerator bool
+	}{
+		{
+			name:             "update the collection",
+			method:           http.MethodPut,
+			path:             func(slug string) string { return "/collections/" + slug },
+			body:             []byte(`{"title":"renamed by a stranger"}`),
+			adminIsModerator: true,
+		},
+		{
+			name:             "delete the collection",
+			method:           http.MethodDelete,
+			path:             func(slug string) string { return "/collections/" + slug },
+			adminIsModerator: true,
+		},
+		{
+			name:   "update an item",
+			method: http.MethodPatch,
+			path: func(slug string) string {
+				return fmt.Sprintf("/collections/%s/items/%d", slug, added.ID)
+			},
+			body: []byte(`{"notes":"a stranger should not be able to write this"}`),
+		},
+		{
+			name:   "remove an item",
+			method: http.MethodDelete,
+			path: func(slug string) string {
+				return fmt.Sprintf("/collections/%s/items/%d", slug, added.ID)
+			},
+		},
+		{
+			name:   "reorder the items",
+			method: http.MethodPut,
+			path:   func(slug string) string { return "/collections/" + slug + "/items/reorder" },
+			body:   reorderBody,
+		},
+	}
+
+	// EVERY REFUSAL IS A NON-MUTATION, so all five can share the one fixture:
+	// the stranger arm never succeeds, and neither does the admin arm on the
+	// three routes that are not moderation remedies.
+	for _, w := range writes {
+		w := w
+		t.Run(w.name, func(t *testing.T) {
+			gatedCode, gatedBody := do(t, w.method, w.path(gated.Slug), strangerToken, w.body)
+			if gatedCode < 400 {
+				t.Fatalf("a stranger could %s on the private collection: %d; body: %s",
+					w.name, gatedCode, gatedBody)
+			}
+			missingCode, missingBody := do(t, w.method, w.path(missingSlug), strangerToken, w.body)
+
+			gatedNorm := strings.ReplaceAll(string(gatedBody), gated.Slug, "<slug>")
+			missingNorm := strings.ReplaceAll(string(missingBody), missingSlug, "<slug>")
+			if gatedCode != missingCode || !sameErrorMessage([]byte(gatedNorm), []byte(missingNorm)) {
+				t.Errorf("%s answers %d/%s for a private collection but %d/%s for a slug nobody "+
+					"has used — the difference is the leak",
+					w.name, gatedCode, gatedNorm, missingCode, missingNorm)
+			}
+			if strings.Contains(string(gatedBody), gated.Title) {
+				t.Errorf("%s published the private collection's title: %s", w.name, gatedBody)
+			}
+
+			if w.adminIsModerator {
+				return // asserted below, on its own fixture
+			}
+			// No collection read grants an admin a private collection, so the
+			// three non-moderation writes must answer them exactly as they answer
+			// the stranger. Both requests name the same slug, so the bodies
+			// compare directly.
+			adminCode, adminBody := do(t, w.method, w.path(gated.Slug), adminToken, w.body)
+			if adminCode != gatedCode || !sameErrorMessage(adminBody, gatedBody) {
+				t.Errorf("an admin gets %d for %s on a private collection while a stranger gets %d; "+
+					"no collection read grants an admin one, so the two must answer alike. body: %s",
+					adminCode, w.name, gatedCode, adminBody)
+			}
+		})
+	}
+
+	// THE TWO MODERATION REMEDIES, each on a fixture of its own because each
+	// consumes it. An admin holds these on a private collection deliberately:
+	// the entity-report queue shows them reports naming private collections, and
+	// flipping one public or removing it are the only remedies there are.
+	t.Run("an admin may flip a private collection public", func(t *testing.T) {
+		target := testhelpers.CreateCollection(t, td.DB, creator.ID,
+			"Reported And Private", "reported-and-private", false)
+		code, body := do(t, http.MethodPut, "/collections/"+target.Slug, adminToken,
+			[]byte(`{"is_public":true}`))
+		if code != http.StatusOK {
+			t.Errorf("an admin was refused the flip on a private collection: %d; body: %s", code, body)
+		}
+	})
+
+	t.Run("an admin may delete a private collection", func(t *testing.T) {
+		target := testhelpers.CreateCollection(t, td.DB, creator.ID,
+			"Reported And Removable", "reported-and-removable", false)
+		code, body := do(t, http.MethodDelete, "/collections/"+target.Slug, adminToken, nil)
+		if code >= 400 {
+			t.Errorf("an admin was refused the delete on a private collection: %d; body: %s", code, body)
+		}
+	})
+}
