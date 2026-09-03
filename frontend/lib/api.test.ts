@@ -661,4 +661,32 @@ describe('API Module', () => {
       expect(getRequestIdFromError(undefined)).toBeUndefined()
     })
   })
+
+  describe('isConflictError', () => {
+    it('recognises a 409 thrown by apiRequest', async () => {
+      const { isConflictError } = await import('./api')
+
+      const error: Error & { status?: number } = new Error('Conflict')
+      error.status = 409
+
+      expect(isConflictError(error)).toBe(true)
+    })
+
+    it('rejects a different status', async () => {
+      const { isConflictError } = await import('./api')
+
+      const error: Error & { status?: number } = new Error('Unprocessable')
+      error.status = 422
+
+      expect(isConflictError(error)).toBe(false)
+    })
+
+    it('rejects a plain error, null and undefined', async () => {
+      const { isConflictError } = await import('./api')
+
+      expect(isConflictError(new Error('Test'))).toBe(false)
+      expect(isConflictError(null)).toBe(false)
+      expect(isConflictError(undefined)).toBe(false)
+    })
+  })
 })

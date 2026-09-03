@@ -373,12 +373,10 @@ type AdminEntityRequestView struct {
 	Payload       *json.RawMessage `json:"payload"`
 	SourceContext string           `json:"source_context"`
 	SourceDetail  *json.RawMessage `json:"source_detail,omitempty"`
-	// OriginalSourceContext is the source_context this request was ORIGINALLY
-	// filed with, absent while the row still holds its first submission
-	// (PSY-1978). A resubmission replaces source_context along with the payload,
-	// so a request filed as ai_extraction and resubmitted as manual otherwise
-	// presents as a plain manual request and drops out of the ai_extraction
-	// filter, with nothing on the card saying the evidence existed.
+	// OriginalSourceContext is absent while the row still holds its first
+	// submission; communitym.EntityRequest.OriginalSourceContext owns what it
+	// records and why. The moderation card reads it to say a request was filed
+	// under a source it no longer claims.
 	OriginalSourceContext *string   `json:"original_source_context,omitempty" doc:"The source_context this request was originally filed with, present only when a resubmission has since replaced it"`
 	RequesterID           uint      `json:"requester_id"`
 	RequesterName         string    `json:"requester_name"`
@@ -640,11 +638,13 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 	// read that ERRORS still reports ahead of any complaint about the body, and a
 	// read that finds nothing (GetRequest answers (nil, nil) for a missing row)
 	// still falls through to Decide, which is what turns it into the 404.
-	// A rejection reads nothing off the row and creates nothing, so it takes no
-	// pre-claim read and has no server-side version to defend. It still carries
-	// the CALLER's version when one was sent: a reject is a judgement on a
-	// payload too, and rejecting the submission that replaced the one the admin
-	// read tells the contributor their correction was refused unseen.
+	// The version the claim will be conditioned on, and the two decisions reach it
+	// differently. A rejection reads nothing off the row and creates nothing, so
+	// it takes no pre-claim read and this stays the CALLER's version: a reject is
+	// a judgement on a payload too, and rejecting the submission that replaced the
+	// one the admin read refuses a correction nobody saw. An approve overwrites it
+	// with its own read below, which the caller's version has already been
+	// checked against.
 	reviewedVersion := req.Body.ExpectedUpdatedAt
 	var showAssoc *showAssociations
 	if newState == communitym.EntityRequestStateApproved {
@@ -678,17 +678,15 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 			// A caller-supplied version is answered against THIS read before any
 			// check runs, so a decision aimed at a payload the row no longer holds
 			// costs no DNS lookup (PSY-1974).
-			if reviewedVersion != nil && !eligible.UpdatedAt.Equal(*reviewedVersion) {
-				stale := apperrors.ErrEntityRequestStale(uint(requestID))
-				if mapped := shared.MapEntityRequestError(stale); mapped != nil {
-					return nil, mapped
-				}
-				return nil, huma.Error409Conflict(stale.Message)
+			if req.Body.ExpectedUpdatedAt != nil && !eligible.UpdatedAt.Equal(*req.Body.ExpectedUpdatedAt) {
+				// One spelling of the 409: MapEntityRequestError owns the status and
+				// the copy for this code, and this is the same refusal the claim would
+				// raise a few statements later.
+				return nil, shared.MapEntityRequestError(apperrors.ErrEntityRequestStale(uint(requestID)))
 			}
 			// The version every check below is about to run against. Passed to the
 			// claim so a row the requester revised in between refuses instead of
-			// fulfilling a payload none of these checks ever saw (PSY-1948). Equal
-			// to the caller's by the comparison directly above when they sent one.
+			// fulfilling a payload none of these checks ever saw (PSY-1948).
 			reviewedVersion = &eligible.UpdatedAt
 		}
 
@@ -872,9 +870,9 @@ const maxSupersededPayloadBytes = 65536
 // replacement destroyed).
 //
 // The payload goes in as RAW JSON, not a string, so a query can read into it the
-// same way it reads the live column. It is copied only when it fits
-// maxSupersededPayloadBytes; the byte count is always recorded, so an omission is
-// visible rather than indistinguishable from a row that carried no payload.
+// same way it reads the live column. Over the cap it is replaced by its length
+// under a name that says why it is missing, so an omission is never mistaken for
+// a row that carried no payload.
 func addSupersededMetadata(metadata map[string]interface{}, superseded *communitym.SupersededSubmission) {
 	if superseded == nil {
 		return
@@ -886,10 +884,11 @@ func addSupersededMetadata(metadata map[string]interface{}, superseded *communit
 	if superseded.Payload == nil {
 		return
 	}
-	metadata["superseded_payload_bytes"] = len(*superseded.Payload)
 	if len(*superseded.Payload) <= maxSupersededPayloadBytes {
 		metadata["superseded_payload"] = superseded.Payload
+		return
 	}
+	metadata["superseded_payload_omitted_bytes"] = len(*superseded.Payload)
 }
 
 // normalizeSourceDetail trims + length-caps the optional source detail and

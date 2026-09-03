@@ -10,7 +10,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '../../api'
+import { apiRequest, API_ENDPOINTS, isConflictError } from '../../api'
 import { queryKeys, createInvalidateQueries } from '../../queryClient'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -118,18 +118,6 @@ export function useAdminEntityRequests(filters: AdminEntityRequestsFilters = {})
   })
 }
 
-/**
- * Whether a thrown value is an HTTP 409 from `apiRequest`.
- *
- * `apiRequest` attaches `status` to the Error it throws, and a thrown value is
- * `unknown` to a caller, so the narrowing lives here rather than being repeated
- * at each call site. Exported so the queue can name the same condition it
- * refetches on.
- */
-export function isConflict(error: unknown): boolean {
-  return (error as { status?: number } | null)?.status === 409
-}
-
 /** Admin-supplied venue for fulfilling a show request (PSY-1037). */
 export type ShowVenueInput = components['schemas']['ShowVenueInput']
 
@@ -229,7 +217,7 @@ export function useDecideEntityRequest() {
       // requester revised the payload under the open queue (PSY-1974). Both
       // resolve the same way — look at the row again — so refetch, and let the
       // card render the server's message for which of the two it was.
-      if (isConflict(error)) {
+      if (isConflictError(error)) {
         invalidateQueries.adminEntityRequests()
       }
     },

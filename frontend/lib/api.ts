@@ -714,6 +714,21 @@ export const getEnvironmentInfo = () => ({
 })
 
 /**
+ * Whether a thrown value is an HTTP 409 from {@link apiRequest}.
+ *
+ * A thrown value is `unknown` to its catcher, so the narrowing lives beside the
+ * {@link ApiError} shape it narrows rather than being re-declared per feature.
+ * Sits next to {@link getRequestIdFromError} for the same reason.
+ */
+export function isConflictError(error: unknown): boolean {
+  return (
+    error !== null &&
+    typeof error === 'object' &&
+    (error as ApiError).status === 409
+  )
+}
+
+/**
  * Extract request ID from an error object
  */
 export function getRequestIdFromError(error: unknown): string | undefined {

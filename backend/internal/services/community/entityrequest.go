@@ -321,18 +321,20 @@ func (s *EntityRequestService) replacePendingSubmission(
 		return nil, nil, nil
 	}
 
-	// The refreshed row is BUILT from the row we matched plus the fields we just
-	// wrote, not re-read. A second statement here would be a second way to fail
-	// AFTER the destructive write committed — reporting a 500 for a correction
-	// that landed, and skipping the audit row that is the only record it landed.
-	// Every column that changed is known here, and no other writer can touch a
-	// pending row's remaining columns.
+	// The submission the write just destroyed, captured from the row that was
+	// matched. It exists nowhere else once this returns.
 	superseded := &communitym.SupersededSubmission{
 		Payload:       existing.Payload,
 		SourceContext: existing.SourceContext,
 		SourceDetail:  existing.SourceDetail,
 	}
 
+	// The refreshed row is BUILT from the row we matched plus the fields we just
+	// wrote, not re-read. A second statement here would be a second way to fail
+	// AFTER the destructive write committed — reporting a 500 for a correction
+	// that landed, and skipping the audit row that is the only record it landed.
+	// Every column that changed is known here, and no other writer can touch a
+	// pending row's remaining columns.
 	refreshed := *existing
 	refreshed.Payload = &newPayload
 	refreshed.SourceContext = sourceContext
@@ -342,7 +344,7 @@ func (s *EntityRequestService) replacePendingSubmission(
 	// same reason every other field here does: this statement is the only writer
 	// of a pending row's submission columns.
 	if refreshed.OriginalSourceContext == nil {
-		original := superseded.SourceContext
+		original := existing.SourceContext
 		refreshed.OriginalSourceContext = &original
 	}
 	return &refreshed, superseded, nil

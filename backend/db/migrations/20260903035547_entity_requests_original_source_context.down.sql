@@ -3,9 +3,13 @@
 -- DESTRUCTIVE, and in the one direction that cannot be reconstructed from the
 -- table: the column is the only place a row states what it was originally filed
 -- as, and a resubmission has already overwritten source_context with the current
--- claim. The replace_entity_request audit_logs rows still carry the superseded
--- values per replacement, so the fact survives the drop; only the moderation
--- card's ability to show it without an audit query does not.
+-- claim.
+--
+-- The replace_entity_request audit_logs rows carry the superseded values per
+-- replacement, but they are NOT a guarantee: that write is fire-and-forget after
+-- the response and its failures are logged, not retried. This column is the only
+-- record of a dropped provenance that is written in the same statement as the
+-- write that dropped it. Dropping it makes the fact best-effort.
 --
 -- Roll the BINARY back first, then run this. A binary that writes this column
 -- against a table without it fails every replacement with an undefined-column

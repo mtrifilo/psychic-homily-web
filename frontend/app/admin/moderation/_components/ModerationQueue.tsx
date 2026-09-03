@@ -50,10 +50,10 @@ import {
   useAdminEntityRequests,
   useDecideEntityRequest,
   useRescueEntityRequest,
-  isConflict,
   type ShowArtistInput,
   type ShowVenueInput,
 } from '@/lib/hooks/admin/useAdminEntityRequests'
+import { isConflictError } from '@/lib/api'
 import { CommentEditHistory } from '@/features/comments'
 import { EntitySaveSuccessBanner } from '@/features/contributions'
 // Imported by path, not through the '@/features/shows' barrel, which is
@@ -366,23 +366,30 @@ function sourceContextLabel(source: string): string {
 }
 
 /**
- * The source_context a request was ORIGINALLY filed with, when a resubmission
- * has since replaced it with a different one (PSY-1978).
+ * Names the source_context a request was ORIGINALLY filed with, when a
+ * resubmission has since replaced it with a different one (PSY-1978). Renders
+ * nothing otherwise, so both cards can drop it into their source line
+ * unconditionally.
  *
  * A resubmission overwrites payload, source_context and source_detail together,
  * so a request filed as `ai_extraction` with a source article and resubmitted as
- * `manual` presents as a plain manual request and drops out of the
- * `source_context=ai_extraction` filter. `original_source_context` is the row's
- * record of the first filing; showing it is what stops that being silent.
+ * `manual` presents as a plain manual request; this is what stops that being
+ * silent. It stays silent when the value is unchanged, because "revised from
+ * manual" beside "via manual" says nothing — a revision as such is not this
+ * field's subject.
  *
- * Returns undefined when the value equals the current one: a revision that kept
- * its provenance has nothing to say here, and "revised from manual" beside "via
- * manual" is noise. A revision as such is not this field's subject.
+ * Amber is this file's "worth knowing before you act" register. Unlike a
+ * timestamp-derived revision signal, `original_source_context` does not move
+ * when a row is decided, so it is equally truthful on an approved orphan.
  */
-function revisedFromSource(request: AdminEntityRequest): string | undefined {
+function RevisedFromSource({ request }: { request: AdminEntityRequest }) {
   const original = request.original_source_context
-  if (!original || original === request.source_context) return undefined
-  return sourceContextLabel(original)
+  if (!original || original === request.source_context) return null
+  return (
+    <span className="ml-1 text-amber-700 dark:text-amber-400">
+      &middot; revised from {sourceContextLabel(original)}
+    </span>
+  )
 }
 
 // Surfaced as the card header (requestEntityLabel), so the preview does not
@@ -859,7 +866,6 @@ function RequestCard({
   const entityLabel = requestEntityLabel(request)
   const previewEntries = payloadPreviewEntries(request.payload)
   const sourceUrl = safeHttpUrl(request.source_detail?.url)
-  const revisedFrom = revisedFromSource(request)
   const canCreate = FULFILLABLE_REQUEST_TYPES.has(request.entity_type)
   // PSY-1037: a show approve needs admin-supplied venue + artists, so Create
   // opens the associations form instead of approving immediately.
@@ -869,13 +875,9 @@ function RequestCard({
   // submission and nothing else.
   const isRevised = wasRevisedSinceFiling(request.created_at, request.updated_at)
 
-  // PSY-1974: the version of the row this card is rendering. A queued payload is
-  // mutable until it is decided, so every decision states which payload it was
-  // made against and a row revised since is refused rather than decided. Passed
-  // through as the STRING the endpoint returned: routing it via `Date` would
-  // drop the microseconds a timestamptz stores and 409 every decision.
-  const reviewedVersion = request.updated_at
-
+  // PSY-1974: every decision below states the version of the row this card
+  // rendered, so a payload the requester replaced under an open queue is refused
+  // rather than decided.
   const handleCreate = useCallback(() => {
     if (isShow) {
       // Open-only: the form's own Cancel closes it (a "Create" button that
@@ -884,7 +886,7 @@ function RequestCard({
       return
     }
     decideMutation.mutate(
-      { id: request.id, decision: 'approved', expected_updated_at: reviewedVersion },
+      { id: request.id, decision: 'approved', expected_updated_at: request.updated_at },
       { onSuccess: () => onActionSuccess({ verb: 'created', entityLabel }) }
     )
   }, [
@@ -892,7 +894,7 @@ function RequestCard({
     setShowFormOpen,
     decideMutation,
     request.id,
-    reviewedVersion,
+    request.updated_at,
     onActionSuccess,
     entityLabel,
   ])
@@ -905,12 +907,12 @@ function RequestCard({
           decision: 'approved',
           show_venue: venue,
           show_artists: artists,
-          expected_updated_at: reviewedVersion,
+          expected_updated_at: request.updated_at,
         },
         { onSuccess: () => onActionSuccess({ verb: 'created', entityLabel }) }
       )
     },
-    [decideMutation, request.id, reviewedVersion, onActionSuccess, entityLabel]
+    [decideMutation, request.id, request.updated_at, onActionSuccess, entityLabel]
   )
 
   const handleReject = useCallback(
@@ -920,12 +922,12 @@ function RequestCard({
           id: request.id,
           decision: 'rejected',
           note: reason,
-          expected_updated_at: reviewedVersion,
+          expected_updated_at: request.updated_at,
         },
         { onSuccess: () => onActionSuccess({ verb: 'rejected', entityLabel }) }
       )
     },
-    [decideMutation, request.id, reviewedVersion, onActionSuccess, entityLabel]
+    [decideMutation, request.id, request.updated_at, onActionSuccess, entityLabel]
   )
 
   return (
@@ -972,15 +974,7 @@ function RequestCard({
           <span className="ml-1">
             &middot; via {sourceContextLabel(request.source_context)}
           </span>
-          {/* PSY-1978: the request was filed under a different origin and a
-              resubmission replaced it. Amber is this file's "worth knowing
-              before you act" register, and this is the one thing on the card the
-              current values cannot tell an admin. */}
-          {revisedFrom && (
-            <span className="ml-1 text-amber-700 dark:text-amber-400">
-              &middot; revised from {revisedFrom}
-            </span>
-          )}
+          <RevisedFromSource request={request} />
           {sourceUrl && (
             <a
               href={sourceUrl}
@@ -1057,7 +1051,7 @@ function RequestCard({
                 is already re-rendering against the row as it stands now. Say so,
                 because the message above tells the admin to look again and the
                 only thing that answers it is a fresh read. */}
-            {isConflict(decideMutation.error) && (
+            {isConflictError(decideMutation.error) && (
               <p className="mt-1 text-xs text-muted-foreground">
                 This card has been refreshed with the request as it stands now.
               </p>
@@ -1097,7 +1091,6 @@ function RescueCard({
 
   const entityLabel = requestEntityLabel(request)
   const previewEntries = payloadPreviewEntries(request.payload)
-  const revisedFrom = revisedFromSource(request)
   const canFulfill = FULFILLABLE_REQUEST_TYPES.has(request.entity_type)
   const isShow = request.entity_type === 'show'
   const [showFormOpen, setShowFormOpen] = useState(false)
@@ -1166,14 +1159,7 @@ function RescueCard({
             />
           </span>
           <span className="ml-1">&middot; via {sourceContextLabel(request.source_context)}</span>
-          {/* PSY-1978: shown here as well as on RequestCard. Unlike the Revised
-              badge, this does not move when a row is decided — a decision writes
-              no source_context — so it stays truthful on an approved orphan. */}
-          {revisedFrom && (
-            <span className="ml-1 text-amber-700 dark:text-amber-400">
-              &middot; revised from {revisedFrom}
-            </span>
-          )}
+          <RevisedFromSource request={request} />
         </div>
 
         {/* Payload preview */}

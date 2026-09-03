@@ -86,10 +86,6 @@ func TestCreateEntityRequest_ReplacementAuditCarriesTheSupersededSubmission(t *t
 	if !strings.Contains(string(*payload), "from the source article") {
 		t.Errorf("expected the superseded payload's content, got %s", string(*payload))
 	}
-	if md["superseded_payload_bytes"] != len(*payload) {
-		t.Errorf("expected the payload length recorded as %d, got %v",
-			len(*payload), md["superseded_payload_bytes"])
-	}
 
 	detail, ok := md["superseded_source_detail"].(*json.RawMessage)
 	if !ok || detail == nil {
@@ -114,7 +110,7 @@ func TestCreateEntityRequest_FreshFilingAuditRecordsNothingSuperseded(t *testing
 		"superseded_source_context",
 		"superseded_source_detail",
 		"superseded_payload",
-		"superseded_payload_bytes",
+		"superseded_payload_omitted_bytes",
 	} {
 		if _, present := md[key]; present {
 			t.Errorf("a fresh filing must not carry %s", key)
@@ -137,9 +133,9 @@ func TestAddSupersededMetadata_OversizedPayloadIsCountedNotCopied(t *testing.T) 
 	if _, present := md["superseded_payload"]; present {
 		t.Error("a payload over the cap must not be copied into the audit row")
 	}
-	if md["superseded_payload_bytes"] != len(oversized) {
-		t.Errorf("expected the byte count %d to be recorded anyway, got %v",
-			len(oversized), md["superseded_payload_bytes"])
+	if md["superseded_payload_omitted_bytes"] != len(oversized) {
+		t.Errorf("expected the byte count %d to be recorded in its place, got %v",
+			len(oversized), md["superseded_payload_omitted_bytes"])
 	}
 	if md["superseded_source_context"] != communitym.EntityRequestSourceAIExtraction {
 		t.Error("the superseded source_context is small and is always recorded")
@@ -156,6 +152,9 @@ func TestAddSupersededMetadata_PayloadAtTheCapIsCopied(t *testing.T) {
 
 	if _, present := md["superseded_payload"]; !present {
 		t.Error("a payload at the cap is within it")
+	}
+	if _, present := md["superseded_payload_omitted_bytes"]; present {
+		t.Error("nothing was omitted, so nothing should say so")
 	}
 }
 

@@ -38,9 +38,12 @@ type EntityRequestServiceInterface interface {
 	//
 	// superseded carries the submission the replacement destroyed (PSY-1978).
 	// The write is unrecoverable from the table, and the row's own
-	// original_source_context records only the FIRST filing, so a caller that
-	// keeps an audit trail MUST record this: it is the only place the overwritten
-	// payload and source detail exist after the UPDATE commits.
+	// original_source_context records only the FIRST filing's source_context, so a
+	// caller that keeps an audit trail MUST record this: it is the only place the
+	// overwritten payload and source detail exist after the UPDATE commits. Where
+	// that record is fire-and-forget, as the HTTP handler's audit write is, the
+	// overwritten payload is retained on a best-effort basis and the column is the
+	// only durable half.
 	//
 	// superseded is always nil for an AUTO-APPROVING tier: its row is stamped
 	// 'approved' before the insert and never meets the pending-only dedup index,

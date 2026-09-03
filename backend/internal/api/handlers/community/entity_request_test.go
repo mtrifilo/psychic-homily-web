@@ -234,40 +234,12 @@ func TestCreateEntityRequest_Replaced_IsReportedOnTheResponse(t *testing.T) {
 
 // A replacement OVERWRITES a stored payload, so it gets its own audit action.
 // Nothing else records that the submission an admin is about to moderate is not
-// the one originally filed.
+// the one originally filed. What that action CARRIES is asserted in
+// entity_request_superseded_test.go, which owns the shared capture harness.
 func TestCreateEntityRequest_Replaced_AuditsAsAReplacement(t *testing.T) {
-	// The audit write is fire-and-forget (GoSafe), so it lands on another
-	// goroutine after the handler returns; a channel reads it without a sleep.
-	logged := make(chan string, 1)
-	h := NewEntityRequestHandler(
-		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, *communitym.SupersededSubmission, error) {
-				return pendingRequest(7, "artist"), supersededSubmission(), nil
-			},
-		},
-		nil,
-		&testhelpers.MockAuditLogService{
-			LogActionFn: func(_ uint, action, _ string, _ uint, _ map[string]interface{}) {
-				logged <- action
-			},
-		},
-	)
-
-	req := &CreateEntityRequestRequest{}
-	req.Body.EntityType = "artist"
-	req.Body.Payload = artistPayload(t, "Boris")
-
-	if _, err := h.CreateEntityRequestHandler(erUserCtx(), req); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	select {
-	case action := <-logged:
-		if action != "replace_entity_request" {
-			t.Errorf("expected action=replace_entity_request, got %s", action)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("a replacement must write an audit row")
+	action, _ := captureAuditMetadata(t, supersededSubmission())
+	if action != "replace_entity_request" {
+		t.Errorf("expected action=replace_entity_request, got %s", action)
 	}
 }
 

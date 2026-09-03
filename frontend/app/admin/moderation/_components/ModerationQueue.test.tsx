@@ -201,14 +201,7 @@ vi.mock('@/lib/hooks/admin/useAdminComments', () => ({
   useAdminCommentEditHistory: () => ({ data: undefined as unknown, isLoading: false, error: null as Error | null }),
 }))
 
-// The three hooks are stubbed; everything else in the module is kept REAL.
-// `isConflict` is one of those, and it must be: a double for it would be a
-// second copy of the rule the card branches on, free to disagree with the one
-// that ships.
-vi.mock('@/lib/hooks/admin/useAdminEntityRequests', async importOriginal => ({
-  ...(await importOriginal<
-    typeof import('@/lib/hooks/admin/useAdminEntityRequests')
-  >()),
+vi.mock('@/lib/hooks/admin/useAdminEntityRequests', () => ({
   useAdminEntityRequests: (...args: unknown[]) => mockUseAdminEntityRequests(...args),
   useDecideEntityRequest: () => mockUseDecideEntityRequest(),
   useRescueEntityRequest: () => mockUseRescueEntityRequest(),
