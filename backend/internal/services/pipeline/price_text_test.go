@@ -66,16 +66,31 @@ func TestParseEventPrices_SourceShapes(t *testing.T) {
 		{"no separator", "$1200", floatPtr(1200), nil},
 		{"space after the sign", "$ 20 adv / $ 25 door", floatPtr(20), floatPtr(25)},
 
-		// A tier range is not a split, and neither bound is the cost of getting
-		// in. SeeTickets serves these verbatim out of span.price -- the
-		// four-figure shapes below were read off the live Rebel Lounge calendar
-		// -- and it prefixes ONE sign to the whole span, so the second bound
-		// often carries none. Counting signed amounts would miss exactly those.
+		// The split survives punctuation the labels are written with, which is
+		// what a distance rule read on one label at a time got wrong.
+		{"colons after the labels", "Advance: $20, Door: $25", floatPtr(20), floatPtr(25)},
+		{"no punctuation at all", "Advance $20 Door $25", floatPtr(20), floatPtr(25)},
+		{"labels lead, no punctuation", "adv $20 door $25", floatPtr(20), floatPtr(25)},
+		{"modifiers between amount and label", "$20 online in advance, $25 cash at the door", floatPtr(20), floatPtr(25)},
+		{"door stated first with modifiers", "$25 cash at the door, $20 advance online", floatPtr(20), floatPtr(25)},
+		{"dash between two labelled amounts", "$20 adv - $25 door", floatPtr(20), floatPtr(25)},
+		{"set-time range after a split", "$15 adv / $20 door, 6-10pm", floatPtr(15), floatPtr(20)},
+		{"venue named after the door label", "$20 adv / $25 door at the venue", floatPtr(20), floatPtr(25)},
+		{"day of, unfinished", "$20 advance, $25 day of", floatPtr(20), floatPtr(25)},
+
+		// A bound is not a price. SeeTickets serves span.price verbatim and
+		// prefixes ONE sign to the whole of it, so the second bound often
+		// carries none: counting signed amounts would miss exactly those. Only
+		// the first row is a shape observed on a live calendar; the rest are
+		// the variants that same prefixing and the same phrasings produce.
 		{"tier range", "$10.00-$30.00", nil, nil},
 		{"tier range with one sign", "$10.00-30.00", nil, nil},
 		{"short tier range", "$20-25", nil, nil},
 		{"spaced tier range", "$10 - 30", nil, nil},
 		{"spelled range", "$20 to $30", nil, nil},
+		{"open ended", "$20+", nil, nil},
+		{"open ended spelled", "$20 and up", nil, nil},
+		{"range on the advance half", "$20-25 adv / $30 door", nil, nil},
 		{"bare slash pair", "$20/$25", nil, nil},
 
 		// Every half is read from a label. Nothing becomes the advance price by
@@ -85,12 +100,17 @@ func TestParseEventPrices_SourceShapes(t *testing.T) {
 		{"fee beside a door price", "$25 at the door (plus $3 fees)", nil, nil},
 		{"price plus a fee", "$20 (plus $3 fees)", nil, nil},
 		{"tier ahead of the split", "$30 VIP / $20 adv / $25 door", nil, nil},
-		{"both labels on one amount", "adv $20 door $25", nil, nil},
 
-		// A door word that belongs to the doors TIME states no second price.
+		// A door word that belongs to the doors TIME states no second price,
+		// and cannot take an amount the listing calls an advance price.
 		{"doors time", "$20, doors at 7", floatPtr(20), nil},
 		{"doors open", "$20 doors open 8pm", floatPtr(20), nil},
 		{"doors time beside a pair", "$20/$25, doors at 7", nil, nil},
+		{"bare hour after doors", "$20, doors 7", floatPtr(20), nil},
+		{"advance price beside a doors time", "$15 advance, doors 6", floatPtr(15), nil},
+		{"doors time written first", "$20, 8pm doors", floatPtr(20), nil},
+		{"cover beside a doors time", "$10 cover, 9pm doors", floatPtr(10), nil},
+		{"sentences", "$20 advance. Doors 7. Show 8.", floatPtr(20), nil},
 
 		// A free word beside a figure is ambiguous, and none of these readings
 		// is the show's price.

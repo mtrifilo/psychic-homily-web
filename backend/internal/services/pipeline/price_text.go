@@ -23,36 +23,53 @@ var statedAmount = regexp.MustCompile(`\$\s*((?:\d+,)*\d+(?:\.\d+)?)`)
 // "-5", "0x1p10" -- none of which is a price.
 var amountShape = regexp.MustCompile(`^(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?$`)
 
-// statedRange matches a span between two figures. Only the lower bound of a
-// range carries a sign in some listings, so a range cannot be recognised by
-// counting signed amounts: SeeTickets prefixes ONE "$" to whatever text sits in
-// span.price, which turns "10.00-30.00" into "$10.00-30.00" and leaves a single
-// stated amount whose value is the bottom of a tier spread. Reading it would
-// tell a reader $10 about a $30 show.
-var statedRange = regexp.MustCompile(`(?:-|–|—|\bto\b)\s*\$?\s*\d`)
+// rangedOrOpenEnded matches a figure that is a BOUND rather than a price,
+// tested against the text immediately following an amount.
+//
+// A range cannot be recognised by counting signed amounts: SeeTickets prefixes
+// ONE "$" to whatever text sits in span.price, so "10.00-30.00" arrives as
+// "$10.00-30.00" and leaves a single stated amount worth the bottom of a tier
+// spread. Anchoring the test to one amount's own trailing text is what tells
+// that apart from a dash SEPARATING two labelled prices, which is not a range.
+//
+// "$20+" and "$20 and up" state a floor by the same logic. The "+" has to sit
+// flush against the amount, or the age restriction in "$25 door 21+" would read
+// as one.
+var rangedOrOpenEnded = regexp.MustCompile(`(?i)^\s*(?:(?:-|–|—|to\b)\s*\$?\s*\d|\+|(?:and|&)\s+up\b)`)
 
-// doorLabel matches the words a listing uses to mark an amount as the price AT
-// THE DOOR. "doors open at 8" is excluded by the lookalike guard in
-// nearestLabelledAmount rather than here, because Go's RE2 has no lookahead.
-var doorLabel = regexp.MustCompile(`(?i)\b(?:at\s+the\s+door|doors?|d\.o\.s\.?|dos|day[\s-]of(?:[\s-]the)?[\s-]show)\b`)
+// doorMatcher marks an amount as the price AT THE DOOR.
+//
+// skipAfter and skipBefore are what separate the price label from the DOORS
+// TIME, which is the same word: "$20, doors at 7" and "$20, 8pm doors" each
+// state one price. The forward guard matches a clock or a bare hour but NOT a
+// figure carrying a "+", because an age restriction is the commonest thing to
+// follow a real door price and refusing every digit threw away both halves of
+// exactly the listings this parser exists to read.
+var doorMatcher = labelMatcher{
+	pattern:    regexp.MustCompile(`(?i)\b(?:at\s+the\s+door|doors?|d\.o\.s\.?|dos|day[\s-]of[\s-]the[\s-]show|day[\s-]of[\s-]show|day[\s-]of)\b`),
+	skipAfter:  regexp.MustCompile(`(?i)^\s*(?:open|at\s+\d|@|\d{1,2}(?::\d{2})?\s*[ap]\.?m\.?|\d{1,2}:\d{2}|\d{1,2}(?:[^\d+]|$))`),
+	skipBefore: regexp.MustCompile(`(?i)(?:\d{1,2}(?::\d{2})?\s*[ap]\.?m\.?|\d{1,2}:\d{2})\s*$`),
+}
 
-// advanceLabel matches the words a listing uses to mark an amount as the price
-// bought AHEAD of the night. Nothing here names a ticket TIER: "GA" and "VIP"
-// say which seat, not which day, and reading a tier as the advance half is what
-// would publish a three dollar advance for "$25 at the door (plus $3 fees)".
+// advanceMatcher marks an amount as the price bought AHEAD of the night.
+// Nothing in it names a ticket TIER: "GA" and "VIP" say which seat, not which
+// day, and reading a tier as the advance half is what would publish a three
+// dollar advance for "$25 at the door (plus $3 fees)".
 //
 // The longest phrasings come FIRST so a match starts at the word nearest its
-// amount, the same reason "at the door" leads doorLabel: in "$20 in advance,
-// $25 ...", a match on "advance" alone sits closer to the SECOND amount.
-var advanceLabel = regexp.MustCompile(`(?i)\b(?:in\s+advance|adv|advance|pre-?\s?sale|presale)\b`)
+// amount, the same reason "at the door" leads the door pattern.
+var advanceMatcher = labelMatcher{
+	pattern: regexp.MustCompile(`(?i)\b(?:in\s+advance|advance|adv|pre-?\s?sale|presale)\b`),
+}
 
-// doorLabelLookalike matches the door word used for the DOORS TIME rather than
-// a price. A listing reading "$20, doors at 7" states one price, not two.
-//
-// It matches a CLOCK, not any digit. An age restriction is the commonest thing
-// to follow a real door price ("$25 door 21+"), and refusing every digit threw
-// away both halves of exactly the listings this parser exists to read.
-var doorLabelLookalike = regexp.MustCompile(`(?i)^\s*(?:open|at\b|@|\d{1,2}(?::\d{2})?\s*[ap]\.?m\.?|\d{1,2}:\d{2})`)
+// labelMatcher finds a label and reports how far it sits from each stated
+// amount. skipAfter and skipBefore, when set, reject a match whose surrounding
+// text shows the word is not labelling a price.
+type labelMatcher struct {
+	pattern    *regexp.Regexp
+	skipAfter  *regexp.Regexp
+	skipBefore *regexp.Regexp
+}
 
 // freeToken matches a free-admission word anywhere in the string.
 var freeToken = regexp.MustCompile(`(?i)\b(?:free|no\s+cover)\b`)
@@ -90,16 +107,18 @@ const labelReach = 24
 // publishes a three dollar advance for "$25 at the door (plus $3 fees)" and the
 // bottom of a tier spread for "$20/$25 GA, $30 at the door".
 //
-// A LONE amount goes to the half its own label names, and to the advance half
-// when nothing labels it. That is not cosmetic: a re-scrape reading "$30 at the
-// door" against a stored $20/$25 must move the door price, and putting it in
-// the advance column instead would publish "$30 advance, $25 at the door".
+// A LONE amount goes to the half its own NEAREST label names, and to the
+// advance half when nothing labels it. That is not cosmetic: a re-scrape
+// reading "$30 at the door" against a stored $20/$25 must move the door price,
+// and putting it in the advance column instead would publish "$30 advance, $25
+// at the door".
 //
-// ANYTHING ELSE READS AS NO PRICE AT ALL: a range ("$10.00-$30.00", which
-// SeeTickets serves verbatim out of span.price), three or more amounts, a
-// free-admission word sitting beside a figure, an amount this parser cannot
-// read. Each of those is a string whose meaning is genuinely unclear, and
-// silence is a truthful answer where a guess is a wrong number about money.
+// ANYTHING ELSE READS AS NO PRICE AT ALL: a bound rather than a price
+// ("$10.00-$30.00", "$20+"), three or more amounts, a free-admission word
+// sitting beside a figure, an amount this parser cannot read, a pair of labels
+// whose assignment to two amounts is a tie. Each of those is a string whose
+// meaning is genuinely unclear, and silence is a truthful answer where a guess
+// is a wrong number about money.
 //
 // A nil return on either half means "not stated". Zero means free, so both are
 // pointers.
@@ -126,10 +145,6 @@ func parseEventPrices(s string) (advance, door *float64) {
 		return nil, nil
 	}
 
-	if statedRange.MatchString(normalized) {
-		return nil, nil
-	}
-
 	amounts := statedAmount.FindAllStringSubmatchIndex(normalized, -1)
 	if len(amounts) == 0 {
 		return plausibleAmount(lower), nil
@@ -149,40 +164,78 @@ func parseEventPrices(s string) (advance, door *float64) {
 		}
 	}
 
-	doorIdx := nearestLabelledAmount(normalized, amounts, doorLabel, doorLabelLookalike)
+	advanceDist := advanceMatcher.distances(normalized, amounts)
+	doorDist := doorMatcher.distances(normalized, amounts)
 
 	if len(values) == 1 {
-		if doorIdx == 0 {
+		if rangedOrOpenEnded.MatchString(normalized[amounts[0][1]:]) {
+			return nil, nil
+		}
+		// The amount's OWN nearest label decides its column, so a doors time
+		// sitting beside a price cannot claim an amount the listing calls an
+		// advance price. An unlabelled amount is the show's price.
+		if doorDist[0] < advanceDist[0] {
 			return nil, values[0]
 		}
 		return values[0], nil
 	}
 
-	advanceIdx := nearestLabelledAmount(normalized, amounts, advanceLabel, nil)
-	if doorIdx < 0 || advanceIdx < 0 || doorIdx == advanceIdx {
+	// Two amounts, two labels, and each label takes a DIFFERENT amount. The
+	// assignment with the smaller total distance wins, which reads
+	// "$20 adv / $25 door" and "adv $20 / door $25" alike without knowing the
+	// order and without a per-label tie deciding anything on its own. An exact
+	// tie between the two assignments is ambiguous and states no split.
+	advanceIdx, doorIdx, ok := assignLabels(advanceDist, doorDist)
+	if !ok {
+		return nil, nil
+	}
+	if rangedOrOpenEnded.MatchString(normalized[amounts[advanceIdx][1]:]) ||
+		rangedOrOpenEnded.MatchString(normalized[amounts[doorIdx][1]:]) {
 		return nil, nil
 	}
 	return values[advanceIdx], values[doorIdx]
 }
 
-// nearestLabelledAmount returns the index in amounts of the one a label
-// describes, or -1 when the string labels none within labelReach. A label
-// between two amounts describes the NEARER of the two, which is what separates
-// "$20 adv / $25 door" from "adv $20 / door $25" without knowing the order.
-//
-// An exact tie resolves to the amount the label FOLLOWS, because "$20 adv" is
-// the order listings write far more often than "adv $20". A tie can only put
-// both halves on one amount, which parseEventPrices reads as no split rather
-// than as an inverted one.
-//
-// lookalike, when non-nil, is tested against the text after a match and skips
-// the label when it holds.
-func nearestLabelledAmount(s string, amounts [][]int, label, lookalike *regexp.Regexp) int {
-	best := -1
-	bestDistance := labelReach + 1
+// assignLabels pairs the advance label with one amount and the door label with
+// the other, choosing the pairing whose distances total less. It reports false
+// when neither pairing has both labels within reach, or when the two tie.
+func assignLabels(advanceDist, doorDist []int) (advanceIdx, doorIdx int, ok bool) {
+	inReach := func(d int) bool { return d <= labelReach }
+	firstIsAdvance := inReach(advanceDist[0]) && inReach(doorDist[1])
+	firstIsDoor := inReach(advanceDist[1]) && inReach(doorDist[0])
 
-	for _, at := range label.FindAllStringIndex(s, -1) {
-		if lookalike != nil && lookalike.MatchString(s[at[1]:]) {
+	switch {
+	case firstIsAdvance && firstIsDoor:
+		switch {
+		case advanceDist[0]+doorDist[1] < advanceDist[1]+doorDist[0]:
+			return 0, 1, true
+		case advanceDist[1]+doorDist[0] < advanceDist[0]+doorDist[1]:
+			return 1, 0, true
+		default:
+			return 0, 0, false
+		}
+	case firstIsAdvance:
+		return 0, 1, true
+	case firstIsDoor:
+		return 1, 0, true
+	default:
+		return 0, 0, false
+	}
+}
+
+// distances reports, for each stated amount, how far the nearest usable
+// occurrence of this label sits from it, or labelReach+1 when none is in reach.
+func (lm labelMatcher) distances(s string, amounts [][]int) []int {
+	out := make([]int, len(amounts))
+	for i := range out {
+		out[i] = labelReach + 1
+	}
+
+	for _, at := range lm.pattern.FindAllStringIndex(s, -1) {
+		if lm.skipAfter != nil && lm.skipAfter.MatchString(s[at[1]:]) {
+			continue
+		}
+		if lm.skipBefore != nil && lm.skipBefore.MatchString(s[:at[0]]) {
 			continue
 		}
 		for i, m := range amounts {
@@ -193,13 +246,12 @@ func nearestLabelledAmount(s string, amounts [][]int, label, lookalike *regexp.R
 			case at[0] >= m[1]:
 				distance = at[0] - m[1]
 			}
-			if distance < bestDistance {
-				bestDistance = distance
-				best = i
+			if distance < out[i] {
+				out[i] = distance
 			}
 		}
 	}
-	return best
+	return out
 }
 
 // plausibleAmount reads a matched amount as a number, or reports nil when the

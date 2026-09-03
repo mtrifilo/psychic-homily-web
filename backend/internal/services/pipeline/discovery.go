@@ -653,17 +653,9 @@ func (s *DiscoveryService) updateShowFromEvent(existing *catalogm.Show, event *c
 
 	if event.Price != nil {
 		newPrice, newDoorPrice := parseEventPrices(*event.Price)
-		recordPrice("price", "price", existing.Price, newPrice)
-		recordPrice("door_price", "doorPrice", existing.DoorPrice, newDoorPrice)
-
-		// A listing that now reads "free" states the cost of the whole show,
-		// not of one half of it. Leaving a stored door price beside it would
-		// publish "Free advance, $25 at the door" off a listing that says
-		// neither. This is the one case where the absence rule gives way,
-		// because free is a stated price rather than a missing one.
-		if newPrice != nil && *newPrice == 0 && newDoorPrice == nil && existing.DoorPrice != nil {
-			updates["door_price"] = nil
-			changes = append(changes, fmt.Sprintf("doorPrice: $%.2f -> nil", *existing.DoorPrice))
+		if composedPairIsSane(existing, newPrice, newDoorPrice) {
+			recordPrice("price", "price", existing.Price, newPrice)
+			recordPrice("door_price", "doorPrice", existing.DoorPrice, newDoorPrice)
 		}
 	}
 
@@ -723,6 +715,35 @@ func (s *DiscoveryService) updateShowFromEvent(existing *catalogm.Show, event *c
 	}
 
 	return fmt.Sprintf("UPDATED: %s (show #%d) -- %s", event.Title, existing.ID, changeStr), "updated"
+}
+
+// composedPairIsSane reports whether writing the scraped halves onto the stored
+// row leaves a pair a listing could have stated.
+//
+// A re-scrape that states ONE half is combined with a stored half that came
+// from a different scrape, and the absence rule means that combination is then
+// permanent. An advance price above the door price is the combination that
+// cannot be true of one listing: the door half exists to say the price goes UP
+// on the night, and the registers spell the pair "$28/$25" and "$28 ADV · DOOR
+// $25", which is a wrong number about money rather than an odd-looking one.
+// Neither half is written in that case, so the row keeps what it had.
+//
+// A scrape that states BOTH halves is trusted, because then the pair is one
+// listing's own claim rather than something this function composed.
+func composedPairIsSane(existing *catalogm.Show, scrapedPrice, scrapedDoorPrice *float64) bool {
+	if scrapedPrice != nil && scrapedDoorPrice != nil {
+		return true
+	}
+
+	price := existing.Price
+	if scrapedPrice != nil {
+		price = scrapedPrice
+	}
+	doorPrice := existing.DoorPrice
+	if scrapedDoorPrice != nil {
+		doorPrice = scrapedDoorPrice
+	}
+	return price == nil || doorPrice == nil || *price <= *doorPrice
 }
 
 // getTimezoneForState delegates to the shared utils.GetTimezoneForState.

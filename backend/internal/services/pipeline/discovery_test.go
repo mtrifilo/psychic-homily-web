@@ -974,26 +974,37 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_UpdateFromADoorOnly
 	suite.InDelta(30.0, *show.DoorPrice, 0.001)
 }
 
-// Free states the cost of the whole show, so the stored door price goes with
-// it. Leaving it would publish "Free advance, $25 at the door".
-func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_UpdateToFreeClearsTheDoorPrice() {
+// A re-scrape that states one half is combined with a stored half from another
+// scrape, and the absence rule makes that combination permanent. An advance
+// price above the door price is the combination no single listing states, and
+// the registers spell it "$28/$25", so neither half is written.
+func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_UpdateRefusesAnAdvanceDearerThanTheDoor() {
 	event := suite.makeEvent("evt-price-007", "Wednesday", "valley-bar", "2026-06-22", []string{"Wednesday"})
-	event.Price = strPtr("$20 adv / $25 door")
+	event.Price = strPtr("$25 at the door")
 
 	_, err := suite.svc.ImportEvents([]contracts.DiscoveredEvent{event}, false, false, catalogm.ShowStatusApproved)
 	suite.Require().NoError(err)
 
-	event.Price = strPtr("Free")
+	event.Price = strPtr("$28")
 	updated, err := suite.svc.ImportEvents([]contracts.DiscoveredEvent{event}, false, true, catalogm.ShowStatusApproved)
 	suite.Require().NoError(err)
-	suite.Require().Len(updated.Messages, 1)
-	suite.Contains(updated.Messages[0], "doorPrice: $25.00 -> nil")
+	suite.Equal(1, updated.Duplicates, "the row is left as it was")
 
 	var show catalogm.Show
 	suite.Require().NoError(suite.db.Where("source_event_id = ?", "evt-price-007").First(&show).Error)
+	suite.Nil(show.Price)
+	suite.Require().NotNil(show.DoorPrice)
+	suite.InDelta(25.0, *show.DoorPrice, 0.001)
+
+	// A scrape stating BOTH halves is one listing's own claim, so it is taken.
+	event.Price = strPtr("$28 adv / $30 door")
+	_, err = suite.svc.ImportEvents([]contracts.DiscoveredEvent{event}, false, true, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+
+	suite.Require().NoError(suite.db.Where("source_event_id = ?", "evt-price-007").First(&show).Error)
 	suite.Require().NotNil(show.Price)
-	suite.InDelta(0.0, *show.Price, 0.001)
-	suite.Nil(show.DoorPrice)
+	suite.InDelta(28.0, *show.Price, 0.001)
+	suite.InDelta(30.0, *show.DoorPrice, 0.001)
 }
 
 // The dry run reports what it would write and writes nothing.
