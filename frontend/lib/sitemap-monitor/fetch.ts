@@ -40,11 +40,9 @@ export interface SitemapObservation {
    * host would send that secret to it. Storing them target-anchored makes the
    * off-origin case unrepresentable rather than merely unlikely.
    *
-   * Grouped rather than flat so the reachability sample can be STRATIFIED.
-   * Drawing uniformly from the concatenation would make the probe a
-   * releases-only check: releases is ~20k of the ~33k URLs, so a 10-URL sample
-   * expects 0.44 shows and would probe the highest-churn families essentially
-   * never.
+   * Grouped rather than flat so the reachability sample can be STRATIFIED. The
+   * reasoning and the measured shares are on pickStratifiedSample in
+   * evaluate.ts, which owns that sampling design.
    */
   locsByBucket: Map<LocBucket, string[]>
   /**
@@ -158,14 +156,18 @@ async function requestFollowing(
  * a muted alert is the end state this whole monitor exists to avoid.
  *
  * 4xx is NOT retried: a 404 on the entries feed is a real, stable answer, and
- * retrying it just doubles the time to the same verdict.
+ * retrying it just doubles the time to the same verdict. 429 is the exception,
+ * because it is the one 4xx that says "ask again": the API rate-limits
+ * anonymous callers per IP (APIRequestsPerMinute, 100) and this job asks for
+ * one document plus one count per shard, so a burst that clips the limiter must
+ * cost a retry rather than the whole run.
  */
 async function withRetry<T>(attempt: () => Promise<T>, retryDelayMs: number): Promise<T> {
   try {
     return await attempt()
   } catch (error) {
     const message = (error as Error).message
-    const isClientError = /returned 4\d\d/.test(message)
+    const isClientError = /returned 4\d\d/.test(message) && !/returned 429/.test(message)
     if (isClientError) throw error
     await new Promise(resolve => setTimeout(resolve, retryDelayMs))
     return attempt()
@@ -261,11 +263,16 @@ export function rebaseOnTarget(loc: string, target: string): string {
 /**
  * How many shard documents are fetched at once.
  *
- * Six, not the shard count: the documents come from ONE origin that rate-limits
- * anonymous callers per IP, and this job also probes sampled URLs and asks the
- * API for a per-shard count. Six keeps a walk of a few dozen documents inside a
- * couple of minutes of wall clock while staying an order of magnitude under any
- * per-minute limit, and it does not have to move when the shard count does.
+ * Six, not the shard count: the documents come from ONE origin, this job also
+ * probes sampled URLs, and the count phase asks the API once per entity shard.
+ * Six keeps a walk of a few dozen documents inside a couple of minutes of wall
+ * clock, and it does not have to move when the shard count does.
+ *
+ * It bounds CONCURRENCY, not rate. The rate is what has to clear the API's
+ * anonymous per-IP limiter (APIRequestsPerMinute, 100): today the count phase
+ * is one request per entity shard, so 31 per run against that 100. Doubling a
+ * family's bucket count adds 8 to both that number and the document walk, which
+ * is the term to check before doubling more than one family.
  */
 export const SHARD_FETCH_CONCURRENCY = 6
 
@@ -434,7 +441,7 @@ export async function walkSitemap(config: MonitorConfig): Promise<SitemapObserva
         continue
       }
       // The shard id is NOT the family once a family is sub-sharded: counting
-      // `releases-a-e` as its own bucket would leave `releases` observed at
+      // `releases-b0` as its own bucket would leave `releases` observed at
       // zero, which the evaluator reports as a vanished family — a false alarm
       // that looks exactly like the real incident. Resolved through the shared
       // table so a new sub-shard cannot reintroduce the confusion.

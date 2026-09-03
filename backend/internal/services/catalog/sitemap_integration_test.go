@@ -182,35 +182,42 @@ func TestSitemapEntriesFamilyFilterIsolatesOneFamily(t *testing.T) {
 	}
 }
 
-// seedSubShardRow inserts one row of a sub-sharded family with an explicit
-// primary key, which is what makes the bucket a row belongs to predictable.
+// subShardedFamily is how the test below seeds one row of a family with an
+// explicit primary key, which is what makes the bucket a row lands in
+// predictable, and how it reads the field that family's rows come back in.
 //
-// Keyed by family so the test below is driven by the shard table rather than by
-// a hand-written case per family: a family added to sitemapShardsByFamily fails
-// here with a message naming what to add, instead of silently going unchecked.
-var seedSubShardRow = map[string]func(db *gorm.DB, id uint, slug string) error{
-	"shows": func(db *gorm.DB, id uint, slug string) error {
-		return db.Create(&catalogm.Show{
-			ID:        id,
-			Title:     "Bucketed Show " + slug,
-			Slug:      strPtr(slug),
-			EventDate: time.Date(2026, 9, 17, 3, 30, 0, 0, time.UTC),
-			Status:    catalogm.ShowStatusApproved,
-		}).Error
-	},
-	"artists": func(db *gorm.DB, id uint, slug string) error {
-		return db.Create(&catalogm.Artist{ID: id, Name: "Bucketed Artist " + slug, Slug: strPtr(slug)}).Error
-	},
-	"releases": func(db *gorm.DB, id uint, slug string) error {
-		return db.Create(&catalogm.Release{ID: id, Title: "Bucketed Release " + slug, Slug: strPtr(slug)}).Error
-	},
+// One table keyed by family, so a family added to sitemapShardsByFamily fails
+// once with a message naming what to add rather than going unchecked.
+type subShardedFamily struct {
+	seed func(db *gorm.DB, id uint, slug string) error
+	rows func(*contracts.SitemapEntries) []contracts.SitemapEntry
 }
 
-// sitemapSubShardRows reads the field a family's rows land in.
-var sitemapSubShardRows = map[string]func(*contracts.SitemapEntries) []contracts.SitemapEntry{
-	"shows":    func(e *contracts.SitemapEntries) []contracts.SitemapEntry { return e.Shows },
-	"artists":  func(e *contracts.SitemapEntries) []contracts.SitemapEntry { return e.Artists },
-	"releases": func(e *contracts.SitemapEntries) []contracts.SitemapEntry { return e.Releases },
+var subShardedFamilies = map[string]subShardedFamily{
+	"shows": {
+		seed: func(db *gorm.DB, id uint, slug string) error {
+			return db.Create(&catalogm.Show{
+				ID:        id,
+				Title:     "Bucketed Show " + slug,
+				Slug:      strPtr(slug),
+				EventDate: time.Date(2026, 9, 17, 3, 30, 0, 0, time.UTC),
+				Status:    catalogm.ShowStatusApproved,
+			}).Error
+		},
+		rows: func(e *contracts.SitemapEntries) []contracts.SitemapEntry { return e.Shows },
+	},
+	"artists": {
+		seed: func(db *gorm.DB, id uint, slug string) error {
+			return db.Create(&catalogm.Artist{ID: id, Name: "Bucketed Artist " + slug, Slug: strPtr(slug)}).Error
+		},
+		rows: func(e *contracts.SitemapEntries) []contracts.SitemapEntry { return e.Artists },
+	},
+	"releases": {
+		seed: func(db *gorm.DB, id uint, slug string) error {
+			return db.Create(&catalogm.Release{ID: id, Title: "Bucketed Release " + slug, Slug: strPtr(slug)}).Error
+		},
+		rows: func(e *contracts.SitemapEntries) []contracts.SitemapEntry { return e.Releases },
+	},
 }
 
 // TestSitemapSubShardsBucketEveryFamilyExactly is the behavioural half of the
@@ -243,14 +250,11 @@ func TestSitemapSubShardsBucketEveryFamilyExactly(t *testing.T) {
 	service := NewSitemapService(td.DB)
 
 	for family, shards := range sitemapShardsByFamily {
-		seed, ok := seedSubShardRow[family]
+		under, ok := subShardedFamilies[family]
 		if !ok {
-			t.Fatalf("family %q is sub-sharded but this test cannot seed it, so add it to seedSubShardRow", family)
+			t.Fatalf("family %q is sub-sharded but this test cannot seed or read it, so add it to subShardedFamilies", family)
 		}
-		read, ok := sitemapSubShardRows[family]
-		if !ok {
-			t.Fatalf("family %q is sub-sharded but this test cannot read its rows, so add it to sitemapSubShardRows", family)
-		}
+		seed, read := under.seed, under.rows
 
 		buckets := len(shards)
 		// Two full turns of the modulus plus one id far above the run, so every
@@ -291,11 +295,11 @@ func TestSitemapSubShardsBucketEveryFamilyExactly(t *testing.T) {
 				t.Errorf("shard %q served all %d rows of %q, so its call site in Entries is not narrowing",
 					shard.id, len(slugs), family)
 			}
-			for otherFamily, otherRead := range sitemapSubShardRows {
+			for otherFamily, other := range subShardedFamilies {
 				if otherFamily == family {
 					continue
 				}
-				if got := len(otherRead(entries)); got != 0 {
+				if got := len(other.rows(entries)); got != 0 {
 					t.Errorf("Entries(%s) populated %d %s rows, and a sub-shard addresses one family",
 						shard.id, got, otherFamily)
 				}

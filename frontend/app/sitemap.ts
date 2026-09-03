@@ -18,22 +18,19 @@
  * `[__metadata_id__]` route).
  *
  * SHARDING BY FAMILY ALONE IS NOT ENOUGH, and that is measured rather than
- * assumed. Against production on 2026-09-03 the whole `releases` family answers
- * 2,041,734 raw bytes (129.8% of the cap once encoded), `shows` 1,267,618
- * (80.6%, which is what failed a production build) and `artists` 918,744
- * (58.4%). `fetchShard` weighs every response, so a genuine breach fails the
- * build. The bucket scheme, the arithmetic behind the count, and what changing
- * it costs are documented on SHOW_SHARD_IDS in ./sitemap-shards.ts and on
- * `sitemapShard` in the backend.
+ * assumed: three families answer more than one cache entry holds, one of them
+ * past the gate that fails the build. `fetchShard` weighs every response, so a
+ * genuine breach fails the build. The measured family payloads live on
+ * `sitemapShard` in backend/internal/services/catalog/sitemap.go, the measured
+ * per-bucket entry sizes on SHOW_SHARD_IDS in ./sitemap-shards.ts.
  *
  * The route mode is CONDITIONAL on whether the build-time fetch succeeds, and
  * the build's fetch Data Cache is a second input. All four rows measured by
- * build → `next start` → kill the backend → curl. The first two were
- * RE-MEASURED on PSY-1763, against a database holding the production release
- * catalogue, once the shard count went from 10 to 14. Row 1 was re-measured
- * again on PSY-2019 at 32 shards, against a database holding the production
- * catalogue (`32 of 32 shards have a fallback document`); rows 2 to 4 were
- * NOT, so read their counts as the count they were taken at:
+ * build → `next start` → kill the backend → curl. Rows 1 and 3 were last
+ * measured at the current 32 shards, against a database holding the production
+ * catalogue (`32 of 32 shards have a fallback document`, and `31 of 32 shards
+ * have no fallback document` with the backend down); rows 2 and 4 were not, so
+ * read their counts as the count they were taken at:
  *
  *   Backend reachable at build time (the normal production path):
  *     ├ ● /sitemap/[__metadata_id__]         1h      1y

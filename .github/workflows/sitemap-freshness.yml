@@ -106,6 +106,11 @@ jobs:
     # At N=32 documents, E=31 entity shards and a pool of 6 that is 14 x 65s =
     # 15.2 minutes. 25 holds it with room for another family split, and each 6
     # shards added costs two more waves, i.e. ~2 minutes rather than ~6.5.
+    #
+    # TIME IS NOT THE ONLY CEILING. The run also makes E requests to the API on
+    # top of the document walk, against an anonymous per-IP limiter of 100 per
+    # minute, so a family doubling adds 8 to E as well as to N. Check both
+    # before doubling more than one family.
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4

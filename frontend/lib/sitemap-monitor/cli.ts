@@ -37,7 +37,10 @@ import {
 export async function runCheck(config: MonitorConfig, now: Date): Promise<Report> {
   // Sequential, not Promise.all: if the API feed is down there is nothing to
   // compare against, and crawling every shard first would waste a minute of
-  // runner time to reach the same conclusion.
+  // runner time to reach the same conclusion. The two phases hit different
+  // origins, so overlapping them would be safe for the rate limiters and would
+  // save the count phase's waves; the fail-fast is kept deliberately, and it is
+  // now several waves rather than a single request.
   const expected = await fetchExpectedCounts(config)
   const observation = await walkSitemap(config)
 

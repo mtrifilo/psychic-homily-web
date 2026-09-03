@@ -6,7 +6,7 @@
  * as no alert — which is the state this monitor exists to leave behind.
  */
 
-import type { Report } from './evaluate'
+import type { Comparison, Report } from './evaluate'
 
 /** Matches the backend's Discord embed palette in services/notification/discord.go. */
 const COLOR_RED = 0xff0000
@@ -53,33 +53,36 @@ function sampleTally(report: Report): string {
   return `${report.samples.filter(s => s.ok).length}/${report.samples.length}`
 }
 
-/** `shows  1458 / 1458  (+0, ±292)` — one aligned line per family. */
-function familyLines(report: Report): string[] {
-  const width = Math.max(...report.families.map(c => c.family.length))
-  return report.families.map(c => {
-    const mark = c.ok ? 'ok  ' : 'FAIL'
-    const sign = c.delta > 0 ? '+' : ''
-    const note = c.vanished ? ' VANISHED' : ''
-    return `${mark} ${c.family.padEnd(width)}  sitemap ${c.observed} / api ${c.expected}  (${sign}${c.delta}, tol ±${c.allowed})${note}`
+/**
+ * `ok   shows  sitemap 1458 / api 1458  (+0, tol ±292)` — one aligned line per
+ * labelled comparison, so the family table and the per-document table below it
+ * cannot word the same numbers differently.
+ */
+function comparisonLines(rows: ReadonlyArray<{ label: string } & Comparison>): string[] {
+  if (rows.length === 0) return []
+  const width = Math.max(...rows.map(row => row.label.length))
+  return rows.map(row => {
+    const mark = row.ok ? 'ok  ' : 'FAIL'
+    const sign = row.delta > 0 ? '+' : ''
+    const note = row.vanished ? ' VANISHED' : ''
+    return `${mark} ${row.label.padEnd(width)}  sitemap ${row.observed} / api ${row.expected}  (${sign}${row.delta}, tol ±${row.allowed})${note}`
   })
 }
 
+/** One line per family. */
+function familyLines(report: Report): string[] {
+  return comparisonLines(report.families.map(c => ({ ...c, label: c.family })))
+}
+
 /**
- * `ok   shows-b3  sitemap 1637 / api 1637  (+0, tol ±328)` per sub-shard.
+ * One line per sub-shard document.
  *
  * Written to the Actions log only. The Discord embed carries the family table
  * plus the failure list, because 24 more lines would push a healthy report past
  * the description limit and take the failures with it.
  */
 function shardLines(report: Report): string[] {
-  if (report.shards.length === 0) return []
-  const width = Math.max(...report.shards.map(c => c.shard.length))
-  return report.shards.map(c => {
-    const mark = c.ok ? 'ok  ' : 'FAIL'
-    const sign = c.delta > 0 ? '+' : ''
-    const note = c.vanished ? ' VANISHED' : c.unobserved ? ' NOT FETCHED' : ''
-    return `${mark} ${c.shard.padEnd(width)}  sitemap ${c.observed} / api ${c.expected}  (${sign}${c.delta}, tol ±${c.allowed})${note}`
-  })
+  return comparisonLines(report.shards.map(c => ({ ...c, label: c.shard })))
 }
 
 /** The full human-readable report written to the Actions log. */

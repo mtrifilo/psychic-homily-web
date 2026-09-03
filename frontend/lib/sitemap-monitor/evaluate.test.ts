@@ -252,28 +252,21 @@ describe('evaluate, per shard', () => {
     expect(report.shards.filter(s => s.family === 'shows')).toHaveLength(SHOWS_BUCKETS.length)
   })
 
-  it('names a document that serves nothing while the API has rows', () => {
+  /**
+   * The whole reason for the per-document check. One bucket of eight is 12.5%
+   * of its family, which clears the default 20% family tolerance, so the family
+   * comparison passes and without this the loss would be reported nowhere.
+   */
+  it('names a document that serves nothing while its family passes', () => {
     const dark = SHOWS_BUCKETS[2]
     const report = evaluate(showBuckets(1600, { [dark]: 0 }), config)
 
+    expect(report.families.find(f => f.family === 'shows')?.ok).toBe(true)
     expect(report.ok).toBe(false)
     expect(report.failures).toContainEqual(
       `vanished — shard ${dark}: the API has 1600 entries and the document serves NONE`
     )
     expect(report.shards.find(s => s.shard === dark)?.vanished).toBe(true)
-  })
-
-  /**
-   * The whole reason for the per-document check. One bucket of eight is 12.5%
-   * of its family, which clears the default 20% family tolerance, so without
-   * this the loss would be reported nowhere.
-   */
-  it('catches a loss the family comparison passes', () => {
-    const dark = SHOWS_BUCKETS[0]
-    const report = evaluate(showBuckets(1600, { [dark]: 0 }), config)
-
-    expect(report.families.find(f => f.family === 'shows')?.ok).toBe(true)
-    expect(report.ok).toBe(false)
   })
 
   it('reports a document that drifted past its own tolerance', () => {
@@ -295,7 +288,21 @@ describe('evaluate, per shard', () => {
     const report = evaluate({ ...base, observedByShard: observed }, config)
 
     expect(report.failures).toEqual([])
-    expect(report.shards.find(s => s.shard === missing)?.unobserved).toBe(true)
+    expect(report.shards.map(s => s.shard)).not.toContain(missing)
+  })
+
+  // fetchExpectedCounts throws rather than return a partial expectation, so a
+  // missing count means a caller built one by hand. Zero would read as
+  // over-coverage, which blames the sitemap for a feed problem.
+  it('fails a document the feed reported no count for', () => {
+    const unexpected = SHOWS_BUCKETS[4]
+    const base = showBuckets(1600)
+    const expected = new Map(base.expectedByShard)
+    expected.delete(unexpected)
+    const report = evaluate({ ...base, expectedByShard: expected }, config)
+
+    expect(report.ok).toBe(false)
+    expect(report.shards.find(s => s.shard === unexpected)?.ok).toBe(false)
   })
 
   // A single-document family is already covered by its FamilyComparison, and

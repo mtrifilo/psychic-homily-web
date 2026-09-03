@@ -421,7 +421,7 @@ describe('sitemap', () => {
 
   /**
    * The releases family outgrew a single Data Cache entry and is served in slug
-   * ranges (PSY-1763). What has to hold for that to be invisible from outside is
+   * buckets. What has to hold for that to be invisible from outside is
    * that each range reads its rows out of the FAMILY's key — the other half,
    * that each asks for its own id, is covered once for every shard below.
    */

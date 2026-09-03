@@ -145,8 +145,8 @@ export const RELEASE_SHARD_IDS = [
  * green, and those rows leave the sitemap with the loss sitting inside the
  * monitor's per-family drift tolerance.
  *
- * `SITEMAP_FAMILIES` has carried the same pair since PSY-1622 (`MissingFamily`
- * above is its addition-guard); this is the sub-shard's.
+ * `SITEMAP_FAMILIES` carries the same pair: `MissingFamily` above is its
+ * addition-guard, and this is the sub-shard's.
  *
  * Written over the whole wire vocabulary rather than one family's prefix, so a
  * newly bucketed family is covered by adding its list to the Exclude.

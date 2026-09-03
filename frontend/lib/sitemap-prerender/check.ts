@@ -13,12 +13,10 @@
  *   UNREACHABLE   | warm        | all                | 200, previous document
  *
  * Counts are written as "all" rather than a number on purpose: the shard count
- * is a property of app/sitemap-shards.ts and has changed with every sharding
- * decision (10 families, then 14, then 39, and 32 once the three over-cap
- * families moved to primary-key buckets), while the BEHAVIOUR each row
- * describes did not. Rows 1 and 3 were measured at 14 shards on PSY-1763,
- * again at 39 on PSY-2018, and again at 32 on PSY-2019: `32 of 32 shards have
- * a fallback document` against a healthy backend, and `31 of 32 shards have no
+ * is a property of app/sitemap-shards.ts and changes with every sharding
+ * decision, while the BEHAVIOUR each row describes does not. Rows 1 and 3 are
+ * measured again at each count; at the current 32: `32 of 32 shards have a
+ * fallback document` against a healthy backend, and `31 of 32 shards have no
  * fallback document` with the backend unreachable, exit 1.
  *
  * The stale-serving fallback the sitemap needs is the PRERENDERED BODY that
@@ -278,9 +276,10 @@ export interface PartitionedFailures {
  * The gate cannot tell the two apart and must not try: during a legitimate
  * sub-shard rollout the old backend serves `releases` and rejects
  * `releases-b0`, which is indistinguishable from a genuinely drifted id. So
- * the excuse stays, and the compensating control is elsewhere — `compareFamilies`
- * in lib/sitemap-monitor/evaluate.ts flags a family as `vanished` when the API
- * has rows and the sitemap serves none, at any tolerance.
+ * the excuse stays, and the compensating control is elsewhere, in
+ * lib/sitemap-monitor/evaluate.ts: `compareShards` flags a sub-shard whose API
+ * count is non-zero while the served document is empty, and `compareFamilies`
+ * does the same for a whole family. Both fail at any tolerance.
  */
 export async function partitionShardFailures(
   failures: readonly ShardPrerenderFailure[],

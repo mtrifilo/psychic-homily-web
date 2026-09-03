@@ -38,7 +38,8 @@ var sitemapFamilies = []string{
 }
 
 // sitemapShard is one bucket of an entity family, addressable on the wire as if
-// it were a family of its own.
+// it were a family of its own. A row belongs to bucket `id % buckets` of its
+// family.
 //
 // WHY FAMILIES GET SUB-SHARDED. Sharding the sitemap per family (PSY-1622)
 // keeps each Next Data Cache entry under the per-item cap of 2 MiB, i.e.
@@ -52,36 +53,25 @@ var sitemapFamilies = []string{
 // cap), shows 1,267,618 over 13,096 (80.6%), artists 918,744 over 13,493
 // (58.4%). No other family is above 8%.
 //
-// THE PARTITION KEY IS THE PRIMARY KEY, TAKEN MODULO A FIXED BUCKET COUNT:
-// a row belongs to bucket `id % buckets` of its family. Three properties, in
-// the order they matter:
+// WHAT THE PRIMARY KEY BUYS AS A PARTITION KEY:
 //
-//   - TOTAL AND DISJOINT BY CONSTRUCTION. Every non-negative integer has
-//     exactly one residue modulo N, and a family enumerates all N of them
-//     (sitemapShardsPerFamily below, asserted by
-//     TestSitemapShardsBucketTheirFamilies). There are no bounds to keep
-//     contiguous and no outer ends to leave open, so a partition gap is
-//     unrepresentable rather than merely tested for. Primary keys here are
-//     `uint` columns fed by a serial sequence, so they are positive; Postgres
-//     keeps the dividend's sign in `%`, which is why the domain is stated as
-//     the non-negative integers.
-//   - STABLE. A row's primary key never changes, so a row never changes
-//     bucket. Slug ranges hold that only while a rename also changes the URL,
-//     and calendar ranges do not hold it at all (UpdateShow moves event_date
-//     without regenerating the slug). Under this key the only thing that moves
-//     a URL between documents is a change of `buckets`.
-//   - BALANCED WITHOUT RE-CUTTING. Residues of a serial key are equidistributed
-//     independently of what the rows contain, so every bucket of a family holds
-//     the same share as the corpus grows. A content-derived key stays balanced
-//     only while the content mix holds, and a calendar key is not
-//     self-balancing at all: its live bucket grows while the old ones do not.
+//   - TOTALITY AND DISJOINTNESS ARE STRUCTURAL. A family enumerates every
+//     residue in [0, buckets), so a gap needs a missing residue rather than a
+//     mis-typed bound. Primary keys here are `uint` columns fed by a serial
+//     sequence and Postgres keeps the dividend's sign in `%`, so the partition
+//     covers exactly the non-negative ids the tables hold.
+//   - A ROW NEVER CHANGES BUCKET, because a primary key never changes. The only
+//     thing that moves a URL between documents is a change of `buckets`.
+//   - BUCKETS STAY BALANCED WITHOUT RE-CUTTING, because membership is
+//     independent of what a row contains. Measured spread inside a family is
+//     under half a percentage point; see SHOW_SHARD_IDS in
+//     frontend/app/sitemap-shards.ts for the per-bucket byte table.
 //
-// WHAT IT COSTS. A bucket has no locality, so an insert anywhere in a family
-// dirties one bucket at random rather than the newest range, and doubling
-// `buckets` moves half of a family's URLs between documents. That is the whole
-// re-tuning cost, paid once per doubling, against a scheme that needs no
-// maintenance edit in between. sitemapShardsPerFamily states the headroom each
-// family is given so a doubling stays rare.
+// WHAT IT COSTS. A bucket has no locality, so an insert dirties one bucket at
+// random rather than the newest range, and doubling `buckets` moves half of a
+// family's URLs between documents. That is the whole re-tuning cost, paid once
+// per doubling, and sitemapShardsPerFamily states the headroom each family is
+// given so a doubling stays rare.
 //
 // A BUCKET APPEARS IN NO URL. Entries are announced at /shows/{slug} whichever
 // bucket serves them, so which document carries a URL is a transport detail.
@@ -106,16 +96,6 @@ type sitemapShard struct {
 	// bucket is this shard's residue, in [0, buckets).
 	bucket int
 }
-
-// sitemapShardKeyColumn is the column every bucket predicate is taken on.
-//
-// The primary key, so it exists on every table a family's scope can resolve to
-// and needs no per-family spelling. That also means a shard filed under the
-// wrong family would narrow silently instead of failing as an unknown column:
-// what rules that out is the shard table being generated per family, plus
-// TestSitemapShardsBucketTheirFamilies asserting every shard's `family` field
-// against the key it is filed under and against its own id prefix.
-const sitemapShardKeyColumn = "id"
 
 // sitemapShardsPerFamily is the definition: which families are sub-sharded, and
 // into how many buckets each.
@@ -240,14 +220,30 @@ func sitemapShardByID(id string) *sitemapShard {
 // narrow restricts a family's scope to this shard's bucket. A nil shard is the
 // whole family, which is what an unsharded `?family=releases` still asks for.
 //
+// The predicate is taken on the primary key, which every family's table has, so
+// a shard filed under the wrong family narrows silently rather than failing as
+// an unknown column. What rules that out is the shard table being generated per
+// family from sitemapShardsPerFamily, plus the family a caller reaches being
+// the shard's own (see Entries).
+//
 // The bucket count and residue are package-owned integers from
 // sitemapShardsPerFamily, never caller input: a caller supplies only an id,
 // which sitemapShardByID either resolves to one of these shards or rejects.
+//
+// THE PREDICATE IS NOT SARGABLE, and that is measured rather than assumed. On
+// the production catalogue (28,725 releases, 13,163 shows, 13,499 artists) the
+// planner takes a sequential scan plus a quicksort per bucket: releases 4.9 ms
+// and 345 shared buffers against 5.6 ms and 1,123 for the whole family through
+// idx_releases_slug, shows 1.5 ms, artists 1.0 ms. So serving a family in eight
+// buckets costs about 2.5x the buffer traffic of serving it whole, for roughly
+// 40 ms of work per family per regeneration, all from shared buffers. An
+// expression index on ((id % N)) would remove the scans and would have to be
+// rebuilt on every change of N; the numbers say it buys nothing worth that.
 func (shard *sitemapShard) narrow(scope *gorm.DB) *gorm.DB {
 	if shard == nil {
 		return scope
 	}
-	return scope.Where(sitemapShardKeyColumn+" % ? = ?", shard.buckets, shard.bucket)
+	return scope.Where("id % ? = ?", shard.buckets, shard.bucket)
 }
 
 // SitemapService answers the sitemap generator's one question: which slugs are
