@@ -76,7 +76,7 @@ func setupShowRoutes(rc RouteContext) {
 
 	// Rate-limited show creation: 10 requests per hour per IP
 	// Prevents flooding the admin approval queue
-	// Requests bearing a VALIDATED API token bypass the rate limit — they're
+	// Requests bearing a VALIDATED API token bypass the rate limit: they are
 	// trusted admin clients. The phk_ prefix alone does not qualify.
 	//
 	// PSY-1598: on the MAIN api via a Huma group, not its own humachi.New — a

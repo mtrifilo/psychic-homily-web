@@ -179,10 +179,10 @@ func TestExtractJWT_IgnoresNonBearerAuthHeader(t *testing.T) {
 	}
 }
 
-// PSY-2004: extractJWT must reject exactly what the authenticating middleware
-// rejects. A header with extra fields is not a Bearer credential to
-// bearerTokenFromHeader, so both fall back to the cookie and agree on which
-// credential the request is presenting.
+// extractJWT rejects exactly what the authenticating middleware rejects. A
+// header with extra fields is not a Bearer credential to bearerTokenFromHeader,
+// so both fall back to the cookie and agree on which credential the request is
+// presenting.
 func TestExtractJWT_MalformedBearerHeaderFallsBackToCookieLikeTheAuthenticator(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+APITokenPrefix+"live trailing")
@@ -246,18 +246,23 @@ func TestValidatedAPIToken_NilValidatorFailsClosed(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/tag", nil)
 	req.Header.Set("Authorization", "Bearer "+APITokenPrefix+"whatever")
 	if ValidatedAPIToken(nil, req) {
-		t.Error("ValidatedAPIToken(nil, ...) = true, want false — a missing validator must not exempt anything")
+		t.Error("ValidatedAPIToken(nil, ...) = true, want false: a missing validator must not exempt anything")
 	}
 }
 
+// acceptOnly is a token validator that accepts exactly one token.
+func acceptOnly(live string) func(string) bool {
+	return func(token string) bool { return token == live }
+}
+
 // skipAdminMW builds SkipRateLimitForAdmin over a 1-request/minute limiter,
-// trivially saturated, with a validator that accepts exactly liveToken.
-func skipAdminMW(t *testing.T, jwtService *auth.JWTService, liveToken string) (http.Handler, *int) {
+// trivially saturated, and returns it with a counter of the requests that
+// reached the handler.
+func skipAdminMW(t *testing.T, jwtService *auth.JWTService, validate func(string) bool) (http.Handler, *int) {
 	t.Helper()
 	base := httprate.Limit(1, time.Minute,
 		httprate.WithKeyFuncs(httprate.KeyByIP),
 		httprate.WithLimitHandler(RateLimitExceededHandler))
-	validate := func(token string) bool { return liveToken != "" && token == liveToken }
 	hits := 0
 	handler := SkipRateLimitForAdmin(jwtService, validate, base)(
 		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -271,7 +276,7 @@ func skipAdminMW(t *testing.T, jwtService *auth.JWTService, liveToken string) (h
 // imports must not be throttled.
 func TestSkipRateLimitForAdmin_ValidatedAPITokenBypassesLimit(t *testing.T) {
 	const live = APITokenPrefix + "live"
-	handler, hits := skipAdminMW(t, nil, live)
+	handler, hits := skipAdminMW(t, nil, acceptOnly(live))
 
 	for i := 0; i < 5; i++ {
 		req := httptest.NewRequest(http.MethodPost, "/tag", nil)
@@ -288,8 +293,8 @@ func TestSkipRateLimitForAdmin_ValidatedAPITokenBypassesLimit(t *testing.T) {
 	}
 }
 
-// PSY-2004: the headline regression. A cookie-authenticated caller that names a
-// phk_ token it does not hold is metered like the session it actually rides on.
+// The headline regression. A cookie-authenticated caller that names a phk_
+// token it does not hold is metered like the session it actually rides on.
 func TestSkipRateLimitForAdmin_ForgedAPITokenOverCookieSessionIsLimited(t *testing.T) {
 	headers := []string{
 		"Bearer " + APITokenPrefix + "forged",
@@ -301,7 +306,7 @@ func TestSkipRateLimitForAdmin_ForgedAPITokenOverCookieSessionIsLimited(t *testi
 		t.Run(header, func(t *testing.T) {
 			// A fresh limiter per case: httprate keys by IP, so a shared one
 			// would let the first case spend the second case's budget.
-			handler, hits := skipAdminMW(t, nil, APITokenPrefix+"live")
+			handler, hits := skipAdminMW(t, nil, acceptOnly(APITokenPrefix+"live"))
 
 			first := httptest.NewRequest(http.MethodPost, "/tag", nil)
 			first.Header.Set("Authorization", header)
@@ -334,7 +339,7 @@ func TestSkipRateLimitForAdmin_ForgedAPITokenOverCookieSessionIsLimited(t *testi
 
 // No Authorization header at all: unchanged, the limiter applies.
 func TestSkipRateLimitForAdmin_NoCredentialIsLimited(t *testing.T) {
-	handler, _ := skipAdminMW(t, nil, APITokenPrefix+"live")
+	handler, _ := skipAdminMW(t, nil, acceptOnly(APITokenPrefix+"live"))
 
 	first := httptest.NewRequest(http.MethodPost, "/tag", nil)
 	first.RemoteAddr = "9.9.9.6:1000"

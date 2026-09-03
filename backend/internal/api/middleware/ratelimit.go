@@ -13,6 +13,7 @@ import (
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/respond"
 	"psychic-homily-backend/internal/services/auth"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // Rate limit configurations for different endpoint types
@@ -145,27 +146,41 @@ func SkipRateLimitForAdmin(jwtService *auth.JWTService, validateAPIToken func(st
 	return func(next http.Handler) http.Handler {
 		limited := limiter(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Two escape hatches, both cryptographically established: an API
-			// token that passes validateAPIToken (hash + DB lookup +
-			// revoked/expired/inactive checks), and a JWT whose user is an
-			// admin. The API-token hatch covers the ph CLI doing bulk imports,
-			// which authenticates with a phk_ token rather than a JWT.
+			// Two hatches, both earned by a credential the caller actually
+			// holds: an API token that passes validateAPIToken, and a JWT whose
+			// user is an admin. The bare phk_ prefix is not one of them, so a
+			// request the authenticator resolves to a cookie session is metered
+			// as that session whatever its Authorization header claims.
 			//
-			// The phk_ PREFIX alone is not a hatch. A request the authenticator
-			// resolves to a cookie session must be metered as that session
-			// however its Authorization header is shaped, or a logged-in caller
-			// exempts itself by naming a token it does not hold.
-			//
-			// COST: validateAPIToken runs only for a phk_-prefixed bearer (see
-			// ValidatedAPIToken), and every other request already pays
-			// isAdminTokenRequest's user lookup, so no request class gains a
-			// database round trip it was not already making.
+			// Both checks are database lookups, and validateAPIToken runs
+			// BEFORE the limiter so a live token never increments the bucket.
+			// A phk_-prefixed bearer therefore costs one api_tokens lookup even
+			// when it names nothing, which is the same trade
+			// RateLimitPublicReadsByAuthState documents for public reads.
 			if ValidatedAPIToken(validateAPIToken, r) || isAdminTokenRequest(jwtService, r) {
 				next.ServeHTTP(w, r)
 				return
 			}
 			limited.ServeHTTP(w, r)
 		})
+	}
+}
+
+// APITokenValidator adapts an API token service to the predicate the limiter
+// bypasses take: true only for a token APITokenService.ValidateToken resolves
+// to a live row (hash lookup, plus its revoked, expired, inactive and scope
+// checks). A nil service yields a nil predicate, which ValidatedAPIToken reads
+// as "no usable token".
+//
+// Pure: it holds no per-process state, so callers may build it wherever they
+// wire a limiter.
+func APITokenValidator(svc contracts.APITokenServiceInterface) func(string) bool {
+	if svc == nil {
+		return nil
+	}
+	return func(token string) bool {
+		_, _, err := svc.ValidateToken(token)
+		return err == nil
 	}
 }
 
@@ -321,16 +336,15 @@ func sessionUserID(jwtService *auth.JWTService, r *http.Request) (uint, bool) {
 	return jwtService.SessionUserID(token)
 }
 
-// ValidatedAPIToken reports whether the request carries a cryptographically
-// validated phk_ API token. Prefix-only is NOT enough (see SECURITY comment on
-// RateLimitPublicReadsByAuthState): a forged phk_ must stay on the anonymous
-// bucket. The callback is the DB lookup (APITokenService.ValidateToken); this
-// helper only invokes it when the token has the phk_ prefix, so visitor GETs
-// with no Authorization — and JWTs that failed SessionUserID — never hit the DB.
+// ValidatedAPIToken is the one spelling of "the caller holds a usable API
+// token": every limiter bypass resolves the question here rather than deriving
+// it from the prefix. The callback is the DB lookup
+// (APITokenService.ValidateToken, adapted by APITokenValidator), invoked only
+// when the credential carries the phk_ prefix, so requests with no API token
+// never reach the database through this path.
 //
-// This is the ONE spelling of "the caller holds a usable API token". Every
-// limiter bypass resolves the question here, so none of them can drift back to
-// trusting the prefix, and none re-derives the token hashing.
+// A nil callback answers false, so a limiter wired without a token service
+// meters every request rather than exempting them all.
 func ValidatedAPIToken(validate func(string) bool, r *http.Request) bool {
 	if validate == nil {
 		return false

@@ -33,8 +33,8 @@ import (
 //
 // The router these tests build has no database, so no phk_ string resolves to a
 // live token here. That makes this file the NEGATIVE half of the bypass
-// contract: an unvalidated phk_ earns nothing. The positive half — a live token
-// really does bypass — is pinned where the validator can be injected:
+// contract: an unvalidated phk_ earns nothing. The positive half, that a live
+// token really does bypass, is pinned where the validator can be injected:
 // TestRateLimitUnlessAPIToken_ValidatedTokenBypasses below, and
 // middleware.TestSkipRateLimitForAdmin_ValidatedAPITokenBypassesLimit.
 
@@ -151,11 +151,9 @@ func TestShowCreateStillRateLimited(t *testing.T) {
 	}
 }
 
-// PSY-2004: a phk_ header that names no live token does not open the show-create
-// hatch. Show creation feeds the admin approval queue, so the limiter is the
+// A phk_ header that names no live token does not open the show-create hatch. Show creation feeds the admin approval queue, so the limiter is the
 // only thing standing between a logged-in account and a flooded queue.
 func TestShowCreateUnvalidatedAPITokenDoesNotBypass(t *testing.T) {
-	router := newTestRouter(t)
 	const ip = "203.0.113.22:1234"
 	limit := middleware.ShowCreateRequestsPerHour
 
@@ -163,7 +161,7 @@ func TestShowCreateUnvalidatedAPITokenDoesNotBypass(t *testing.T) {
 		t.Run(hdr, func(t *testing.T) {
 			// Each case gets its own router: httprate keys by IP, so a shared
 			// one would arrive already saturated.
-			router = newTestRouter(t)
+			router := newTestRouter(t)
 			hdrs := map[string]string{"Authorization": hdr}
 			for i := 0; i < limit; i++ {
 				if code := send(t, router, "POST", "/shows", ip, hdrs); code == http.StatusTooManyRequests {
@@ -171,7 +169,7 @@ func TestShowCreateUnvalidatedAPITokenDoesNotBypass(t *testing.T) {
 				}
 			}
 			if code := send(t, router, "POST", "/shows", ip, hdrs); code != http.StatusTooManyRequests {
-				t.Errorf("request %d returned %d, want 429 — an unvalidated phk_ must not bypass show creation",
+				t.Errorf("request %d returned %d, want 429: an unvalidated phk_ must not bypass show creation",
 					limit+1, code)
 			}
 		})
@@ -237,7 +235,7 @@ func TestTagCreateStillRateLimited(t *testing.T) {
 	}
 }
 
-// PSY-2004: same for tag creation — the prefix is not the hatch.
+// Same for tag creation: the prefix is not the hatch.
 func TestTagCreateUnvalidatedAPITokenDoesNotBypass(t *testing.T) {
 	router := newTestRouter(t)
 	const ip = "203.0.113.26:1234"
@@ -251,7 +249,7 @@ func TestTagCreateUnvalidatedAPITokenDoesNotBypass(t *testing.T) {
 		}
 	}
 	if code := send(t, router, "POST", path, ip, hdrs); code != http.StatusTooManyRequests {
-		t.Errorf("request %d returned %d, want 429 — an unvalidated phk_ must not bypass tag creation", limit+1, code)
+		t.Errorf("request %d returned %d, want 429: an unvalidated phk_ must not bypass tag creation", limit+1, code)
 	}
 }
 
@@ -278,7 +276,7 @@ func TestTagVoteRateLimitIsSharedAcrossPostAndDelete(t *testing.T) {
 	}
 }
 
-// PSY-2004: and for tag voting, where the budget guards vote manipulation.
+// And for tag voting, where the budget guards vote manipulation.
 func TestTagVoteUnvalidatedAPITokenDoesNotBypass(t *testing.T) {
 	router := newTestRouter(t)
 	const ip = "203.0.113.29:1234"
@@ -292,7 +290,7 @@ func TestTagVoteUnvalidatedAPITokenDoesNotBypass(t *testing.T) {
 		}
 	}
 	if code := send(t, router, "POST", path, ip, hdrs); code != http.StatusTooManyRequests {
-		t.Errorf("request %d returned %d, want 429 — an unvalidated phk_ must not bypass tag voting", limit+1, code)
+		t.Errorf("request %d returned %d, want 429: an unvalidated phk_ must not bypass tag voting", limit+1, code)
 	}
 }
 

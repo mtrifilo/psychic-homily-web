@@ -556,7 +556,7 @@ func TestBearerTokenFromHeader(t *testing.T) {
 	}
 }
 
-// PSY-2004: a well-formed Bearer header is the credential, and the cookie is
+// A well-formed Bearer header is the credential, and the cookie is
 // not consulted behind it. The rate limiters rely on this: a request presenting
 // a junk phk_ token is not a cookie session to anybody.
 func TestHumaJWTMiddleware_JunkAPITokenHeaderDoesNotConsultCookie(t *testing.T) {
@@ -587,13 +587,13 @@ func TestHumaJWTMiddleware_JunkAPITokenHeaderDoesNotConsultCookie(t *testing.T) 
 	// reports the token service's own error. Seeing the latter is how we know
 	// the cookie was never reached.
 	if body.Message == "Invalid token" {
-		t.Errorf("Message = %q — the cookie was consulted behind a well-formed Bearer header", body.Message)
+		t.Errorf("Message = %q: the cookie was consulted behind a well-formed Bearer header", body.Message)
 	}
 }
 
-// PSY-2004: the converse. A header with extra fields is not a Bearer credential
-// at all, so the request is authenticated from its cookie — which is exactly why
-// the limiters must not read a phk_ prefix out of such a header.
+// The converse. A header with extra fields is not a Bearer credential at all,
+// so the request is authenticated from its cookie, which is exactly why the
+// limiters must not read a phk_ prefix out of such a header.
 func TestHumaJWTMiddleware_MalformedBearerHeaderFallsBackToCookie(t *testing.T) {
 	jwtService := newTestJWTService()
 
@@ -621,7 +621,7 @@ func TestHumaJWTMiddleware_MalformedBearerHeaderFallsBackToCookie(t *testing.T) 
 	var body JWTErrorResponse
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	if body.Message != "Invalid token" {
-		t.Errorf("Message = %q, want %q — the cookie should have been used", body.Message, "Invalid token")
+		t.Errorf("Message = %q, want %q (the cookie should have been used)", body.Message, "Invalid token")
 	}
 }
 

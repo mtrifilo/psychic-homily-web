@@ -70,7 +70,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 		SC:        sc,
 		Cfg:       cfg,
 
-		ValidateAPIToken: APITokenValidator(sc.APIToken),
+		ValidateAPIToken: middleware.APITokenValidator(sc.APIToken),
 	}
 
 	// Setup domain-specific routes. Order is preserved from the original

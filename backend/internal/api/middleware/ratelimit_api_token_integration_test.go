@@ -5,9 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
-	"github.com/go-chi/httprate"
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
@@ -75,25 +73,12 @@ func (s *SkipRateLimitAPITokenSuite) sessionToken(user *authm.User) string {
 	return token
 }
 
-// newHandler returns a 1-request/minute limiter wrapped in SkipRateLimitForAdmin
-// with the production validator, plus a counter of requests that reached the
-// handler. One request per minute makes the cap trivially reachable.
+// newHandler is the unit tests' harness wired to the PRODUCTION validator, so a
+// change to APITokenValidator's semantics shows up here rather than only in the
+// stub the unit tests inject.
 func (s *SkipRateLimitAPITokenSuite) newHandler() (http.Handler, *int) {
 	s.T().Helper()
-	base := httprate.Limit(1, time.Minute,
-		httprate.WithKeyFuncs(httprate.KeyByIP),
-		httprate.WithLimitHandler(RateLimitExceededHandler))
-	validate := func(token string) bool {
-		_, _, err := s.tokenSvc.ValidateToken(token)
-		return err == nil
-	}
-	hits := 0
-	handler := SkipRateLimitForAdmin(s.jwtService, validate, base)(
-		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			hits++
-			w.WriteHeader(http.StatusOK)
-		}))
-	return handler, &hits
+	return skipAdminMW(s.T(), s.jwtService, APITokenValidator(s.tokenSvc))
 }
 
 // send issues one request carrying the given Authorization header and cookie
@@ -153,8 +138,8 @@ func (s *SkipRateLimitAPITokenSuite) TestRevokedAPITokenIsLimited() {
 		"a revoked API token must not bypass the limiter")
 }
 
-// PSY-2004: the headline case. A non-admin cookie session that names an API
-// token it does not hold is metered as the session it actually rides on.
+// The headline case. A non-admin cookie session that names an API token it does
+// not hold is metered as the session it actually rides on.
 func (s *SkipRateLimitAPITokenSuite) TestForgedAPITokenOverCookieSessionIsLimited() {
 	admin := s.createUser("live-owner@test.com", true)
 	created, err := s.tokenSvc.CreateToken(admin.ID, nil, 30)

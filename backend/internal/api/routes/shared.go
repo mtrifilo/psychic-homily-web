@@ -13,7 +13,6 @@ import (
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/respond"
 	"psychic-homily-backend/internal/services"
-	adminsvc "psychic-homily-backend/internal/services/admin"
 )
 
 // RouteContext holds the shared dependencies passed to every route setup function.
@@ -32,45 +31,18 @@ type RouteContext struct {
 	ValidateAPIToken func(string) bool
 }
 
-// APITokenValidator adapts APITokenService.ValidateToken (hash, DB lookup,
-// revoked/expired/inactive and admin-scope checks) to the boolean predicate the
-// rate-limiter bypasses take. A nil service yields a nil predicate, which every
-// bypass reads as "no usable token" and therefore meters the request.
-func APITokenValidator(svc *adminsvc.APITokenService) func(string) bool {
-	if svc == nil {
-		return nil
-	}
-	return func(token string) bool {
-		_, _, err := svc.ValidateToken(token)
-		return err == nil
-	}
-}
-
-// rateLimitUnlessAPIToken wraps httprate.Limit but skips rate limiting for
-// requests that carry a VALIDATED API token, so batch imports by the ph CLI are
-// not throttled. Validation runs only for a phk_-prefixed bearer, so ordinary
-// browser traffic reaches the limiter without a database round trip.
-//
-// The phk_ prefix alone does not exempt anything: a request the authenticating
-// middleware resolves to a cookie session is metered as that session no matter
-// what its Authorization header claims.
+// rateLimitUnlessAPIToken is a per-IP limiter with ONE hatch: a validated API
+// token, so batch imports by the ph CLI are not throttled. It is
+// SkipRateLimitForAdmin with the admin-JWT hatch withheld (the nil JWT service),
+// which is the difference show creation keeps from tag creation: contributing a
+// show is not something an admin session should be able to do unmetered.
 func rateLimitUnlessAPIToken(validateAPIToken func(string) bool, requestLimit int, windowLength time.Duration) func(http.Handler) http.Handler {
-	limiter := httprate.Limit(
+	return middleware.SkipRateLimitForAdmin(nil, validateAPIToken, httprate.Limit(
 		requestLimit,
 		windowLength,
 		httprate.WithKeyFuncs(middleware.KeyByClientIP),
 		httprate.WithLimitHandler(rateLimitHandler),
-	)
-	return func(next http.Handler) http.Handler {
-		limited := limiter(next)
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if middleware.ValidatedAPIToken(validateAPIToken, r) {
-				next.ServeHTTP(w, r)
-				return
-			}
-			limited.ServeHTTP(w, r)
-		})
-	}
+	))
 }
 
 // rateLimitHandler handles rate limit exceeded responses with JSON

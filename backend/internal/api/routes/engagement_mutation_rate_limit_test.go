@@ -243,8 +243,8 @@ func TestEngagementMutationRateLimiter_ValidatedAPITokenBypasses(t *testing.T) {
 	}
 }
 
-// PSY-2004: a cookie-authenticated caller cannot buy its way out of the
-// engagement budget by naming a phk_ token it does not hold.
+// A cookie-authenticated caller cannot buy its way out of the engagement budget
+// by naming a phk_ token it does not hold.
 //
 // The header shape matters, because it decides which credential BOTH layers
 // read. "Bearer <token> trailing" is not a Bearer credential to

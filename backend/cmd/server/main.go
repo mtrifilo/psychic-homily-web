@@ -291,9 +291,10 @@ func main() {
 	// registered before routes). OPT-IN (default noop) for stage-first rollout:
 	// set ENABLE_PUBLIC_READ_RATE_LIMITS=1 per environment (stage, observe 429
 	// rates, then prod).
-	// One validator for every limiter bypass: a phk_ bearer is trusted only
-	// where APITokenService.ValidateToken resolves it to a live token.
-	validateAPIToken := routes.APITokenValidator(sc.APIToken)
+	// A phk_ bearer is trusted only where APITokenService.ValidateToken resolves
+	// it to a live token. The route-level limiters build the same adapter from
+	// the same service (RouteContext.ValidateAPIToken).
+	validateAPIToken := middleware.APITokenValidator(sc.APIToken)
 
 	router.Use(routes.PublicReadRateLimiter(sc.JWT, validateAPIToken, os.Getenv))
 

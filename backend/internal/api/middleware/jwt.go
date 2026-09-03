@@ -102,28 +102,26 @@ func JWTMiddleware(jwtService *auth.JWTService) func(http.Handler) http.Handler 
 	}
 }
 
-// APITokenPrefix is the prefix for API tokens (used to identify token type)
-const APITokenPrefix = "phk_"
+// APITokenPrefix identifies an API-token credential. Defined as the prefix the
+// token generator actually mints, so a change there cannot leave a reader
+// classifying live tokens as something else.
+const APITokenPrefix = adminsvc.TokenPrefix
 
-// bearerTokenFromHeader returns the credential in an "Bearer <token>"
-// Authorization header, or "" when the header is absent, non-Bearer, or not
-// exactly two space-separated fields.
+// bearerTokenFromHeader returns the credential in a "Bearer <token>"
+// Authorization header, or "" when the header is anything else, including one
+// carrying more than the two fields.
 //
-// INVARIANT: every component that reads a credential off a request parses it
-// through this function. The rate limiters decide whether to meter a request by
-// looking at the same header the authenticators use to decide who the caller
-// is; if the two parsed it differently, a header shape one accepted and the
-// other rejected would let a request be exempted as one principal while being
-// authenticated as another.
+// Every Authorization reader in this package parses through this function, so
+// the middleware that decides whether to meter a request and the middleware
+// that decides who the caller is always read the same credential. Two parses
+// that disagreed about a header shape would let a request be exempted as one
+// principal while being authenticated as another.
 func bearerTokenFromHeader(authHeader string) string {
-	if authHeader == "" {
+	scheme, token, ok := strings.Cut(authHeader, " ")
+	if !ok || scheme != "Bearer" || token == "" || strings.ContainsRune(token, ' ') {
 		return ""
 	}
-	parts := strings.Split(authHeader, " ")
-	if len(parts) != 2 || parts[0] != "Bearer" {
-		return ""
-	}
-	return parts[1]
+	return token
 }
 
 // HumaJWTMiddleware validates JWT tokens or API tokens (Huma middleware version)
