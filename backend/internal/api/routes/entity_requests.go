@@ -9,10 +9,12 @@ import (
 // setupEntityRequestRoutes configures the polymorphic entity_requests queue
 // endpoints (PSY-997, built on PSY-869's service).
 //
-//   - User queue-create on rc.Protected (auth required; trust-tier gating is
-//     in the service — contributor/new_user file a pending request).
-//   - Admin list + decide on rc.Admin (auth + IsAdmin enforced by middleware,
-//     per PSY-423; handlers carry no inline admin check).
+//   - User queue-create, batch queue-create and withdraw on rc.Protected (auth
+//     required; trust-tier gating is in the service — contributor/new_user file
+//     a pending request — and WHOSE request a withdrawal may touch is the
+//     service's conditional UPDATE, not this registration).
+//   - Admin list, decide and fulfill on rc.Admin (auth + IsAdmin enforced by
+//     middleware, per PSY-423; handlers carry no inline admin check).
 //
 // These are SEPARATE from the pending_entity_edits admin endpoints — PSY-871's
 // frontend unifies the two queues into one page; the backend keeps them

@@ -1732,6 +1732,7 @@ func (m *MockEntityRequestFulfiller) CreateShow(req *contracts.CreateShowRequest
 
 type MockEntityRequestService struct {
 	CreateRequestFn           func(*authm.User, string, []byte, string, []byte, bool) (*communitym.EntityRequest, *communitym.SupersededSubmission, error)
+	WillAutoApproveFn         func(*authm.User, bool) bool
 	RecordFulfillmentFn       func(uint, uint) error
 	GetRequestFn              func(uint) (*communitym.EntityRequest, error)
 	ListPendingFn             func(string, int, int) ([]communitym.EntityRequest, int64, error)
@@ -1747,6 +1748,12 @@ func (m *MockEntityRequestService) CreateRequest(user *authm.User, entityType st
 		return m.CreateRequestFn(user, entityType, payload, sourceContext, sourceDetail, confirmed)
 	}
 	return nil, nil, nil
+}
+func (m *MockEntityRequestService) WillAutoApprove(user *authm.User, confirmed bool) bool {
+	if m.WillAutoApproveFn != nil {
+		return m.WillAutoApproveFn(user, confirmed)
+	}
+	return false
 }
 func (m *MockEntityRequestService) RecordFulfillment(requestID uint, createdEntityID uint) error {
 	if m.RecordFulfillmentFn != nil {

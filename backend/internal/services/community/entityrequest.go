@@ -81,6 +81,24 @@ func autoApproves(user *authm.User, confirmed bool) bool {
 	}
 }
 
+// WillAutoApprove answers, for this user and confirmation state, whether
+// CreateRequest would stamp the row 'approved' rather than queue it.
+//
+// It exists so a CALLER can know what a submission is about to become before it
+// becomes it. The queue-create handler needs that to decide whether a payload's
+// image_url host must be resolved BEFORE the row is written: an auto-approved
+// row is fulfilled into a live entity in the same request, and a check that runs
+// after the insert can only refuse a row that already exists.
+//
+// It is the same predicate CreateRequest applies, not a copy of it, so the two
+// cannot disagree about a tier.
+func (s *EntityRequestService) WillAutoApprove(user *authm.User, confirmed bool) bool {
+	if user == nil {
+		return false
+	}
+	return autoApproves(user, confirmed)
+}
+
 // CreateRequest persists a typed entity-creation request, applying trust-tier
 // gating to decide whether it auto-approves or queues for admin review.
 //

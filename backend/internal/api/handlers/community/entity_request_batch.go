@@ -16,28 +16,36 @@ import (
 // User: Queue many entity-creation requests at once — POST /entity-requests/batch
 // ============================================================================
 
-// maxEntityRequestBatchItems caps one batch. It is the paste flow's own design
-// size: AddItemsPicker resolves a whole textarea in one pass and files every
-// zero-result line together, and its comments size that textarea at 200 lines.
+// maxEntityRequestSubmissions caps one batch: how many submissions one request
+// may carry, and so how much work one request may ask for.
 //
 // The cap is stated TWICE: as the items schema's maxItems, which huma refuses an
 // oversized body against before the handler runs, and as the handler's own
 // guard, which is what a caller reaching the handler directly meets. A struct tag
 // cannot be built from a constant, so TestBatchItemCapMatchesTheSchema is what
 // holds the two spellings together.
-const maxEntityRequestBatchItems = 200
+const maxEntityRequestSubmissions = 200
 
-// EntityRequestBatchItem is one contributor submission as it arrives, before any
-// of it has been checked. Field for field the single route's body, so a producer
-// that can build one can build the other, and it is what submitEntityRequest
-// takes for BOTH routes: the single route's body is converted to one.
-type EntityRequestBatchItem struct {
-	EntityType string `json:"entity_type" doc:"Entity type to request (artist, venue, label, release, show, festival)"`
-	// The payload doc string is the single route's, verbatim: the payload is
-	// json.RawMessage on both routes, so nothing about its shape reaches the
-	// generated OpenAPI document and the doc string is the whole contract a
-	// producer author sees. TestBatchPayloadDocMatchesTheSingleRoute pins the two
-	// together.
+// EntityRequestSubmission is ONE contributor submission as it arrives, before
+// any of it has been checked.
+//
+// It is the single route's whole body AND one entry in the batch route's items,
+// declared once rather than twice: a field added to one spelling and missed in
+// the other would be dropped silently, with nothing failing to say so. It is
+// also what submitEntityRequest takes, so there is no conversion between the
+// wire shape and the internal one.
+//
+// The payload is json.RawMessage, so NOTHING about its shape reaches the
+// generated OpenAPI document: the doc string below is the only contract a
+// producer author sees. The show bill's headliner rule is stated there for that
+// reason (PSY-1858) - a producer that assumes bill order names the headliner, as
+// most sources do, ships shows with none.
+//
+// TestCreateEntityRequestPayloadDocMatchesTheRules pins the cap and the
+// vocabulary that doc string restates, since a doc tag cannot be built from
+// constants.
+type EntityRequestSubmission struct {
+	EntityType    string                                `json:"entity_type" doc:"Entity type to request (artist, venue, label, release, show, festival)"`
 	Payload       json.RawMessage                       `json:"payload" doc:"Typed creation payload for the entity_type. The name (or title) is required on every type and must be 255 characters or fewer; a venue's city must be 100 characters or fewer and its state 10; a festival's edition_year must be between 0 and 9999, where 0 or an absent value means the edition year is taken from start_date. Lengths count CHARACTERS and are measured before trimming, so trailing whitespace counts. A show payload may carry the bill as artists: [{name, set_type?}], name only, no id, at most 50 acts. A payload bill NEVER infers a headliner from list order: an act with no set_type is stored as 'performer', so a bill naming no 'headliner' creates a show with no headliner row. State set_type 'headliner' explicitly when the source names one. When set_type is present it must be one of: headliner,direct_support,opener,special_guest,dj,performer."`
 	SourceContext string                                `json:"source_context" required:"false" doc:"How the request originated (ai_extraction, paste_mode, manual); defaults to manual"`
 	SourceDetail  *communitym.EntityRequestSourceDetail `json:"source_detail" required:"false" doc:"Optional origin context (source URL + excerpt), chiefly for AI extraction; shown in the admin moderation queue"`
@@ -48,7 +56,7 @@ type EntityRequestBatchItem struct {
 // POST /entity-requests/batch.
 type CreateEntityRequestBatchRequest struct {
 	Body struct {
-		Items []EntityRequestBatchItem `json:"items" minItems:"1" maxItems:"200" doc:"The submissions to file, at most 200. Each is validated, deduped and stored on its own: a refused item never withholds its siblings, and every item has exactly one result at its own index."`
+		Items []EntityRequestSubmission `json:"items" minItems:"1" maxItems:"200" doc:"The submissions to file, at most 200. Each is validated, deduped and stored on its own: a refused item never withholds its siblings, and every item has exactly one result at its own index."`
 	}
 }
 
@@ -61,8 +69,12 @@ const (
 	// colliding pending row and overwrote its submission, the single route's
 	// replaced: true.
 	entityRequestBatchReplaced = "replaced"
-	// entityRequestBatchRefused: nothing was stored for this submission, and
-	// error says why in the words the single route would have answered with.
+	// entityRequestBatchRefused: this submission produced no request the caller
+	// asked for, and error says why in the words the single route would have
+	// answered with. It USUALLY means nothing was stored, and id says which: a
+	// refused result carrying an id is a request that exists but whose catalog
+	// entity was not created, which is what an auto-approving tier's fulfilment
+	// failure leaves behind.
 	entityRequestBatchRefused = "refused"
 )
 
@@ -74,8 +86,8 @@ const (
 // per-row chip from the single route reads the same fields here.
 type EntityRequestBatchResult struct {
 	Index  int    `json:"index" doc:"The zero-based position of this item in the request's items array. Results are returned in that order and every item has exactly one."`
-	Status string `json:"status" enum:"created,replaced,refused" doc:"created = a new request was filed; replaced = this submission overwrote the requester's own queued request under the same dedup key (a correction); refused = nothing was stored, see error."`
-	ID     *uint  `json:"id,omitempty" doc:"The stored request's id. Present on created and replaced, absent on refused. On a replacement it is the id of the row that already existed."`
+	Status string `json:"status" enum:"created,replaced,refused" doc:"created = a new request was filed; replaced = this submission overwrote the requester's own queued request under the same dedup key (a correction); refused = no request the caller asked for came of it, see error and id."`
+	ID     *uint  `json:"id,omitempty" doc:"The stored request's id. Always present on created and replaced; on a replacement it is the id of the row that already existed. On refused it is ABSENT when nothing was stored, and PRESENT when the request was stored and only its catalog entity was not created, which an auto-approving tier's fulfilment failure leaves behind."`
 	// DecisionState is what the single route's decision_state says: 'pending'
 	// for a queued request, 'approved' when the requester's tier auto-approves.
 	DecisionState *string `json:"decision_state,omitempty" doc:"The stored request's decision_state (pending or approved). Absent on refused."`
@@ -129,16 +141,17 @@ func (h *EntityRequestHandler) CreateEntityRequestBatchHandler(ctx context.Conte
 	if len(items) == 0 {
 		return nil, huma.Error422UnprocessableEntity("items is required and must contain at least one entry")
 	}
-	if len(items) > maxEntityRequestBatchItems {
+	if len(items) > maxEntityRequestSubmissions {
 		return nil, huma.Error422UnprocessableEntity(
-			"A batch may carry at most " + strconv.Itoa(maxEntityRequestBatchItems) + " items")
+			"A batch may carry at most " + strconv.Itoa(maxEntityRequestSubmissions) + " items")
 	}
 
 	results := make([]EntityRequestBatchResult, 0, len(items))
 	for i := range items {
-		created, replaced, err := h.submitEntityRequest(ctx, user, items[i])
+		created, replaced, err := h.submitEntityRequest(
+			ctx, user, items[i], deferImageHostWhenQueued)
 		if err != nil {
-			results = append(results, refusedBatchResult(i, err))
+			results = append(results, refusedBatchResult(i, created, err))
 			continue
 		}
 
@@ -169,17 +182,29 @@ func (h *EntityRequestHandler) CreateEntityRequestBatchHandler(ctx context.Conte
 // error itself. An error that is not a huma.StatusError is a fault this handler
 // did not anticipate, and it reads as a 500 rather than being reported with a
 // status it does not have.
-func refusedBatchResult(index int, err error) EntityRequestBatchResult {
+//
+// stored is the row submitEntityRequest wrote before it failed, and is nil for
+// every refusal that happened at the boundary. When it is not nil the result
+// carries its id, because a client told only "refused" about a request that
+// exists cannot find it again.
+func refusedBatchResult(index int, stored *communitym.EntityRequest, err error) EntityRequestBatchResult {
 	message := err.Error()
 	status := 500
 	var statusErr huma.StatusError
 	if errors.As(err, &statusErr) {
 		status = statusErr.GetStatus()
 	}
-	return EntityRequestBatchResult{
+	result := EntityRequestBatchResult{
 		Index:       index,
 		Status:      entityRequestBatchRefused,
 		Error:       &message,
 		ErrorStatus: status,
 	}
+	if stored != nil {
+		id := stored.ID
+		state := string(stored.DecisionState)
+		result.ID = &id
+		result.DecisionState = &state
+	}
+	return result
 }

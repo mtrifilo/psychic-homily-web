@@ -8,6 +8,7 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
+	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	communitym "psychic-homily-backend/internal/models/community"
 	servicesshared "psychic-homily-backend/internal/services/shared"
@@ -74,6 +75,13 @@ func (h *EntityRequestHandler) WithdrawEntityRequestHandler(ctx context.Context,
 			"error", err.Error(),
 		)
 		return nil, huma.Error500InternalServerError("Failed to withdraw the request")
+	}
+	if withdrawn == nil {
+		// The write committed and the read-back found nothing, which is the row
+		// having been deleted in between. Answering not-found is the honest
+		// report, and it is what keeps every line below from dereferencing nil.
+		return nil, shared.MapEntityRequestError(
+			apperrors.ErrEntityRequestNotFound(uint(requestID)))
 	}
 
 	// Fire-and-forget audit log, matching the queue-create path's. The row's own

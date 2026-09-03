@@ -45,6 +45,27 @@ func validatePayloadImageURL(ctx context.Context, entityType string, raw json.Ra
 	return shared.ValidateImageURL(ctx, imageURL)
 }
 
+// validatePayloadImageLiteral is validatePayloadImageURL without the resolver:
+// it refuses the literal forms (bad scheme, IP literal on a private, loopback,
+// link-local or metadata address, an internal name) and lets a public-looking
+// hostname through unresolved.
+//
+// It is what the BATCH route runs for a submission that will be QUEUED, because
+// the resolving check costs a DNS lookup on a two-second budget and a batch
+// carries up to maxEntityRequestSubmissions of them. A submission that will
+// AUTO-APPROVE gets the resolving check whatever the route, so a hostname that
+// resolves inward never reaches a live entity; what it can do is sit in the
+// queue until the decide handler's pre-claim check refuses an approve.
+func validatePayloadImageLiteral(entityType string, raw json.RawMessage) error {
+	imageURL, err := communitym.PayloadImageURL(entityType, raw)
+	if err != nil {
+		return huma.Error422UnprocessableEntity(
+			fmt.Sprintf("Invalid payload for %s: %v", entityType, err),
+		)
+	}
+	return shared.ValidateImageURLLiteral(imageURL)
+}
+
 // validatePayloadBandcampEmbedURL runs an entity-request payload's
 // bandcamp_embed_url through the same release-page rule the direct artist
 // endpoints apply (PSY-1966).

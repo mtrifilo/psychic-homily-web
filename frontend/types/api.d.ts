@@ -7699,6 +7699,11 @@ export interface components {
             created_at: string;
             /** Format: int64 */
             created_entity_id?: number;
+            /**
+             * Format: date-time
+             * @description When this request stopped being pending: decided by an admin, or withdrawn by its own requester. Absent while it is pending.
+             */
+            decided_at?: string;
             decision_note?: string;
             decision_state: string;
             entity_type: string;
@@ -9828,7 +9833,7 @@ export interface components {
              */
             readonly $schema?: string;
             /** @description The submissions to file, at most 200. Each is validated, deduped and stored on its own: a refused item never withholds its siblings, and every item has exactly one result at its own index. */
-            items: components["schemas"]["EntityRequestBatchItem"][] | null;
+            items: components["schemas"]["EntityRequestSubmission"][] | null;
         };
         CreateEntityRequestBatchResponseBody: {
             /**
@@ -9839,24 +9844,6 @@ export interface components {
             readonly $schema?: string;
             /** @description One result per submitted item, in the order the items were sent. */
             results: components["schemas"]["EntityRequestBatchResult"][] | null;
-        };
-        CreateEntityRequestRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/CreateEntityRequestRequestBody.json
-             */
-            readonly $schema?: string;
-            /** @description FE-side confirm step (only relevant to trusted_contributor tier) */
-            confirmed?: boolean;
-            /** @description Entity type to request (artist, venue, label, release, show, festival) */
-            entity_type: string;
-            /** @description Typed creation payload for the entity_type. The name (or title) is required on every type and must be 255 characters or fewer; a venue's city must be 100 characters or fewer and its state 10; a festival's edition_year must be between 0 and 9999, where 0 or an absent value means the edition year is taken from start_date. Lengths count CHARACTERS and are measured before trimming, so trailing whitespace counts. A show payload may carry the bill as artists: [{name, set_type?}], name only, no id, at most 50 acts. A payload bill NEVER infers a headliner from list order: an act with no set_type is stored as 'performer', so a bill naming no 'headliner' creates a show with no headliner row. State set_type 'headliner' explicitly when the source names one. When set_type is present it must be one of: headliner,direct_support,opener,special_guest,dj,performer. */
-            payload: unknown;
-            /** @description How the request originated (ai_extraction, paste_mode, manual); defaults to manual */
-            source_context?: string;
-            /** @description Optional origin context (source URL + excerpt), chiefly for AI extraction; shown in the admin moderation queue */
-            source_detail?: components["schemas"]["EntityRequestSourceDetail"];
         };
         CreateEntityRequestResponseBody: {
             /**
@@ -10817,18 +10804,6 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
-        EntityRequestBatchItem: {
-            /** @description FE-side confirm step (only relevant to trusted_contributor tier) */
-            confirmed?: boolean;
-            /** @description Entity type to request (artist, venue, label, release, show, festival) */
-            entity_type: string;
-            /** @description Typed creation payload for the entity_type. The name (or title) is required on every type and must be 255 characters or fewer; a venue's city must be 100 characters or fewer and its state 10; a festival's edition_year must be between 0 and 9999, where 0 or an absent value means the edition year is taken from start_date. Lengths count CHARACTERS and are measured before trimming, so trailing whitespace counts. A show payload may carry the bill as artists: [{name, set_type?}], name only, no id, at most 50 acts. A payload bill NEVER infers a headliner from list order: an act with no set_type is stored as 'performer', so a bill naming no 'headliner' creates a show with no headliner row. State set_type 'headliner' explicitly when the source names one. When set_type is present it must be one of: headliner,direct_support,opener,special_guest,dj,performer. */
-            payload: unknown;
-            /** @description How the request originated (ai_extraction, paste_mode, manual); defaults to manual */
-            source_context?: string;
-            /** @description Optional origin context (source URL + excerpt), chiefly for AI extraction; shown in the admin moderation queue */
-            source_detail?: components["schemas"]["EntityRequestSourceDetail"];
-        };
         EntityRequestBatchResult: {
             /**
              * Format: int64
@@ -10846,7 +10821,7 @@ export interface components {
             error_status?: number;
             /**
              * Format: int64
-             * @description The stored request's id. Present on created and replaced, absent on refused. On a replacement it is the id of the row that already existed.
+             * @description The stored request's id. Always present on created and replaced; on a replacement it is the id of the row that already existed. On refused it is ABSENT when nothing was stored, and PRESENT when the request was stored and only its catalog entity was not created, which an auto-approving tier's fulfilment failure leaves behind.
              */
             id?: number;
             /**
@@ -10855,7 +10830,7 @@ export interface components {
              */
             index: number;
             /**
-             * @description created = a new request was filed; replaced = this submission overwrote the requester's own queued request under the same dedup key (a correction); refused = nothing was stored, see error.
+             * @description created = a new request was filed; replaced = this submission overwrote the requester's own queued request under the same dedup key (a correction); refused = no request the caller asked for came of it, see error and id.
              * @enum {string}
              */
             status: "created" | "replaced" | "refused";
@@ -10865,6 +10840,24 @@ export interface components {
             excerpt?: string;
             /** @description Source article / page URL the request was extracted from */
             url?: string;
+        };
+        EntityRequestSubmission: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/EntityRequestSubmission.json
+             */
+            readonly $schema?: string;
+            /** @description FE-side confirm step (only relevant to trusted_contributor tier) */
+            confirmed?: boolean;
+            /** @description Entity type to request (artist, venue, label, release, show, festival) */
+            entity_type: string;
+            /** @description Typed creation payload for the entity_type. The name (or title) is required on every type and must be 255 characters or fewer; a venue's city must be 100 characters or fewer and its state 10; a festival's edition_year must be between 0 and 9999, where 0 or an absent value means the edition year is taken from start_date. Lengths count CHARACTERS and are measured before trimming, so trailing whitespace counts. A show payload may carry the bill as artists: [{name, set_type?}], name only, no id, at most 50 acts. A payload bill NEVER infers a headliner from list order: an act with no set_type is stored as 'performer', so a bill naming no 'headliner' creates a show with no headliner row. State set_type 'headliner' explicitly when the source names one. When set_type is present it must be one of: headliner,direct_support,opener,special_guest,dj,performer. */
+            payload: unknown;
+            /** @description How the request originated (ai_extraction, paste_mode, manual); defaults to manual */
+            source_context?: string;
+            /** @description Optional origin context (source URL + excerpt), chiefly for AI extraction; shown in the admin moderation queue */
+            source_detail?: components["schemas"]["EntityRequestSourceDetail"];
         };
         EntityTagResponse: {
             /** Format: date-time */
@@ -19633,7 +19626,7 @@ export interface operations {
     "get-admin-entity-requests": {
         parameters: {
             query?: {
-                /** @description Filter by decision state (pending, approved, rejected); defaults to pending */
+                /** @description Filter by decision state (pending, approved, rejected, withdrawn); defaults to pending. 'withdrawn' rows were retracted by their own requester and are waiting on nobody, which is why the default excludes them. */
                 state?: string;
                 /** @description Filter by entity type (artist, venue, label, release, show, festival) */
                 entity_type?: string;
@@ -28638,7 +28631,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateEntityRequestRequestBody"];
+                "application/json": components["schemas"]["EntityRequestSubmission"];
             };
         };
         responses: {

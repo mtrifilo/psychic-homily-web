@@ -1257,13 +1257,16 @@ describe('AddItemsPicker', () => {
     await pasteInto(user, 'Already Reviewed')
 
     await screen.findByTestId('add-items-picker-paste-row-queued')
-    mockApiRequest.mockRejectedValueOnce(new Error('conflict'))
+    // The server's own words for the refusal, which name the reason.
+    mockApiRequest.mockRejectedValueOnce(
+      new Error('Entity request 100 is approved, expected pending')
+    )
 
     await user.click(screen.getByTestId('add-items-picker-paste-row-withdraw'))
 
     expect(
       await screen.findByTestId('add-items-picker-paste-row-withdraw-error')
-    ).toHaveTextContent('Could not withdraw this request')
+    ).toHaveTextContent('Entity request 100 is approved, expected pending')
     expect(
       screen.getByTestId('add-items-picker-paste-row-queued')
     ).toHaveTextContent('FOR REVIEW')

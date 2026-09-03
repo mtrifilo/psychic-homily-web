@@ -68,7 +68,12 @@ vi.mock('@/lib/hooks/common/useEntitySearch', () => ({
 vi.mock('@/lib/api', () => ({
   apiRequest: vi.fn(async () => ({})),
   API_ENDPOINTS: {
-    COLLECTIONS: { ENTITY_REQUESTS: 'http://test/entity-requests' },
+    COLLECTIONS: {
+      ENTITY_REQUESTS: 'http://test/entity-requests',
+      ENTITY_REQUESTS_BATCH: 'http://test/entity-requests/batch',
+      ENTITY_REQUEST_WITHDRAW: (requestId: number) =>
+        `http://test/entity-requests/${requestId}/withdraw`,
+    },
   },
 }))
 

@@ -288,11 +288,16 @@ describe('ModerationQueue', () => {
 
     render(<ModerationQueue />)
 
-    // The withdrawn tab is not fetched while it is closed, so nothing from it
-    // can reach the pending surface.
+    // Not fetched while the tab is closed: every moderation page load would
+    // otherwise carry a query for rows nobody asked for.
+    const withdrawnCall = mockUseAdminEntityRequests.mock.calls.find(
+      ([filters]) => (filters as { state?: string })?.state === 'withdrawn'
+    )
+    expect(withdrawnCall?.[0]).toMatchObject({ enabled: false })
+    // And nothing from it reaches the pending surface.
     expect(screen.queryByTestId('moderation-withdrawn-card')).not.toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: /Withdrawn/ })
+      screen.getByRole('button', { name: /^Withdrawn/ })
     ).toBeInTheDocument()
   })
 
@@ -303,7 +308,7 @@ describe('ModerationQueue', () => {
     })
 
     render(<ModerationQueue />)
-    await user.click(screen.getByRole('button', { name: /Withdrawn/ }))
+    await user.click(screen.getByRole('button', { name: /^Withdrawn/ }))
 
     const card = await screen.findByTestId('moderation-withdrawn-card')
     // Read-only: a withdrawn row is not waiting on a decision, and every admin

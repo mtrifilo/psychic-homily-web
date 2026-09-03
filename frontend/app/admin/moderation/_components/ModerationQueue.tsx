@@ -1131,8 +1131,14 @@ function WithdrawnRequestCard({ request }: { request: AdminEntityRequest }) {
               {entityLabel}
             </span>
           </div>
+          {/* Two moments, and they are different: when it was filed, and when
+              the requester took it back. A card showing only the first cannot
+              say how long ago the withdrawal happened. */}
           <div className="flex flex-col items-end shrink-0 text-xs text-muted-foreground">
-            <span>{timeAgo(request.created_at)}</span>
+            <span>filed {timeAgo(request.created_at)}</span>
+            {request.decided_at && (
+              <span>withdrawn {timeAgo(request.decided_at)}</span>
+            )}
           </div>
         </div>
 
@@ -1936,7 +1942,18 @@ export function ModerationQueue() {
       }
     }
 
-    // Sort oldest first (review fairness)
+    // Sort oldest first (review fairness) on every surface that is a QUEUE.
+    // The withdrawn tab is not one: nothing there is waiting to be worked, so
+    // the useful order is the most recently withdrawn first, which is also the
+    // order the fixed server-side window selects.
+    if (itemTypeFilter === 'withdrawn') {
+      return [...merged].sort(
+        (a, b) =>
+          new Date((b.data as AdminEntityRequest).decided_at ?? b.data.created_at).getTime() -
+          new Date((a.data as AdminEntityRequest).decided_at ?? a.data.created_at).getTime()
+      )
+    }
+
     merged = [...merged].sort(
       (a, b) =>
         new Date(a.data.created_at).getTime() - new Date(b.data.created_at).getTime()

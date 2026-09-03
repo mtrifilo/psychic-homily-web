@@ -236,8 +236,10 @@ interface PreviewRow {
    */
   requestId?: number
   /**
-   * A failed withdrawal's message, shown on the row that tried it. The row stays
-   * `queued` on a failure, because the request it filed is still queued.
+   * A failed withdrawal's message. It is set on every row naming the request the
+   * withdrawal was for, which is more than one when identical lines collapsed
+   * onto it: they are one request, so they carry one verdict. The rows stay
+   * `queued` on a failure, because the request they name still is.
    */
   withdrawError?: string
 }
@@ -301,10 +303,11 @@ export function parsePasteLine(line: string): ParsedPasteLine {
 // ──────────────────────────────────────────────
 
 /**
- * LOCAL queue-create call (PSY-845, batched by PSY-2005). Posts every
- * zero-result line of one paste to `POST /entity-requests/batch` in ONE request,
- * so a plain-text line with no matches becomes an admin-reviewable
- * artist-creation request rather than being silently dropped.
+ * LOCAL queue-create call (PSY-845, batched by PSY-2005). Posts the zero-result
+ * lines of one paste to `POST /entity-requests/batch`, so a plain-text line with
+ * no matches becomes an admin-reviewable artist-creation request rather than
+ * being silently dropped. One request per QUEUE_BATCH_MAX_ITEMS names, which for
+ * every paste at or under that size is one request.
  *
  * Deliberately LOCAL (not a shared exported hook): AICollectionFiller posts to
  * the same endpoint from a different surface, one item at a time as the user
@@ -321,10 +324,14 @@ export function parsePasteLine(line: string): ParsedPasteLine {
  * file a well-formed request. The admin reviewing the queue retypes /
  * reclassifies if it was actually a release or venue.
  *
- * Results come back one per item, at the index the item was sent at, so the
- * caller reads each line's own outcome: `replaced` says the request landed on
- * the requester's own queued row under this name rather than filing a new one,
- * and `refused` says nothing was stored for that line and why.
+ * Results come back one per item, and each carries the index of the name in the
+ * CALLER's list: a chunk indexes from zero on the wire, and the offset is added
+ * back before the result is returned, so the caller never sees the split.
+ *
+ * `replaced` says the request landed on the requester's own queued row under
+ * this name rather than filing a new one, and `refused` says nothing was stored
+ * for that line and why. A name with NO result is one nothing answered for; see
+ * the chunk-failure note in the body.
  */
 async function queueEntityRequestBatch(
   names: string[]
@@ -383,10 +390,15 @@ function pasteQueueKey(raw: string): string {
 }
 
 /**
- * The largest batch the queue endpoint accepts. Stated here because nothing else
- * in this flow bounds it: a paste of more zero-result lines than this is split
- * into consecutive batches rather than sent as one request the server refuses
- * whole, which would lose every line over one oversized paste.
+ * How many names this component puts in one batch request. It is chosen to be at
+ * most the endpoint's own cap, which nothing here can read: the cap lives in a
+ * Go struct tag and does not reach the generated types.
+ *
+ * A paste of more zero-result lines than this is SPLIT rather than sent as one
+ * body, because a body over the endpoint's cap is refused whole. Should the
+ * endpoint's cap ever drop below this number, a full chunk is refused whole and
+ * its rows land on the retryable failed state with a Retry, rather than
+ * vanishing - which is what the chunk-failure handling below buys.
  */
 const QUEUE_BATCH_MAX_ITEMS = 200
 
@@ -399,6 +411,17 @@ function withdrawEntityRequest(requestId: number): Promise<void> {
   return apiRequest(API_ENDPOINTS.COLLECTIONS.ENTITY_REQUEST_WITHDRAW(requestId), {
     method: 'POST',
   }).then(() => undefined)
+}
+
+/**
+ * What a refused withdrawal says. The server's own message names the reason
+ * (already reviewed, no longer the caller's), which is more use than the generic
+ * line; the constant is the fallback for a failure that carries no message at
+ * all, such as a dropped connection.
+ */
+function withdrawFailureMessage(err: unknown): string {
+  const message = err instanceof Error ? err.message.trim() : ''
+  return message || WITHDRAW_REFUSED_MESSAGE
 }
 
 // ──────────────────────────────────────────────
@@ -610,8 +633,9 @@ function usePastePreview(pasteText: string): {
   // they never filed.
   //
   // A 4xx item is terminal for that line, so it lands on queue_refused with the
-  // server's reason and no Retry. A 5xx item, and a transport failure, which has
-  // no per-item answer at all, stay on the retryable queue_failed.
+  // server's reason and no Retry. A 5xx item stays on the retryable queue_failed,
+  // and so does a name with no result at all, which is what a chunk that failed
+  // to send leaves behind.
   const fileQueueBatch = useCallback(
     (generation: number, entries: { raw: string; index: number }[]): Promise<void> => {
       if (entries.length === 0) return Promise.resolve()
@@ -679,6 +703,10 @@ function usePastePreview(pasteText: string): {
 
           updateRows(generation, patches)
         },
+        // queueEntityRequestBatch resolves with what it has rather than
+        // rejecting, so reaching here means it threw for a reason it does not
+        // handle. Every row settles retryable, which is the safe reading of an
+        // answer nobody got.
         () => updateRows(generation, settleAll({ status: 'queue_failed' }))
       )
     },
@@ -885,10 +913,10 @@ function usePastePreview(pasteText: string): {
       applyToRequest({ status: 'withdrawing', withdrawError: undefined })
       void withdrawEntityRequest(requestId).then(
         () => applyToRequest({ status: 'withdrawn' }),
-        () =>
+        (err: unknown) =>
           applyToRequest({
             status: 'queued',
-            withdrawError: WITHDRAW_REFUSED_MESSAGE,
+            withdrawError: withdrawFailureMessage(err),
           })
       )
     },
@@ -1756,8 +1784,8 @@ function PastePreviewRow({
         )}
       </div>
 
-      {/* A failed withdrawal, on the row that tried it. The row is still queued,
-          so the message is the only thing that changed. */}
+      {/* A failed withdrawal, on every row naming the request it was for. The
+          rows are still queued, so the message is the only thing that changed. */}
       {row.withdrawError && (
         <p
           className="ml-10 mt-1.5 text-xs text-destructive"
