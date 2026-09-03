@@ -472,13 +472,32 @@ BEGIN
   INSERT INTO show_venues (show_id, venue_id) VALUES (s_id, v_id);
   INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (s_id, a_id, 0, 'headliner');
 
+  -- PSY-457: follow-and-save.spec.ts "save a show round-trip". The slug keeps
+  -- its historical `e2e-attendance-test` name because navigation.spec.ts and
+  -- not-found.spec.ts also consume it.
+  -- Dedicated show so parallel workers don't race on e2e-collection-saved-show.
+  INSERT INTO shows (title, event_date, city, state, status, slug, created_at, updated_at)
+  VALUES (
+    'E2E [attendance-test]',
+    NOW() + INTERVAL '5 hours',
+    'Phoenix', 'AZ', 'approved',
+    'e2e-attendance-test',
+    NOW(), NOW()
+  )
+  RETURNING id INTO s_id;
+  INSERT INTO show_venues (show_id, venue_id) VALUES (s_id, v_id);
+  INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (s_id, a_id, 0, 'headliner');
+
   -- shows.spec.ts "renders the advance/door price split on a list row".
-  -- The only seeded row carrying both price columns, so the `$20/$25` list
-  -- register has something to render; every other seeded show leaves both
-  -- NULL. Read-only for the spec, but reserved anyway so a mutating test
-  -- cannot take the prices away. The event_date is one hour past the
-  -- reserved show above: these rows all bill the same artist at the same
-  -- venue, and show_dedup_keys holds UNIQUE (artist_id, venue_id, event_date).
+  -- The only two seeded rows that record a door price: every other seeded show
+  -- leaves both columns NULL, so the `$20/$25` list register and the door-only
+  -- fallback have nothing to render without them. Both are read-only for the
+  -- spec.
+  --
+  -- Every row in this block bills the same artist at the same venue, and
+  -- show_dedup_keys holds UNIQUE (artist_id, venue_id, event_date), so each
+  -- takes the next whole hour after the row before it. These are the last two,
+  -- at +6 and +7; append the next fixture at +8.
   INSERT INTO shows (title, event_date, city, state, status, price, door_price, slug, created_at, updated_at)
   VALUES (
     'E2E [door-price-split]',
@@ -492,16 +511,17 @@ BEGIN
   INSERT INTO show_venues (show_id, venue_id) VALUES (s_id, v_id);
   INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (s_id, a_id, 0, 'headliner');
 
-  -- PSY-457: follow-and-save.spec.ts "save a show round-trip". The slug keeps
-  -- its historical `e2e-attendance-test` name because navigation.spec.ts and
-  -- not-found.spec.ts also consume it.
-  -- Dedicated show so parallel workers don't race on e2e-collection-saved-show.
-  INSERT INTO shows (title, event_date, city, state, status, slug, created_at, updated_at)
+  -- A door price with no advance price. It renders as a bare `$15`, the same
+  -- as an advance-only show, so what it guards is not a second register but
+  -- the columns being read separately: a list that gated on `price != null`
+  -- would drop this number entirely.
+  INSERT INTO shows (title, event_date, city, state, status, door_price, slug, created_at, updated_at)
   VALUES (
-    'E2E [attendance-test]',
-    NOW() + INTERVAL '5 hours',
+    'E2E [door-price-only]',
+    NOW() + INTERVAL '7 hours',
     'Phoenix', 'AZ', 'approved',
-    'e2e-attendance-test',
+    15,
+    'e2e-door-price-only',
     NOW(), NOW()
   )
   RETURNING id INTO s_id;

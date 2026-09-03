@@ -86,9 +86,10 @@ type Show struct {
 	// the frontend), and the data-quality "missing price" report, which asks
 	// whether the site knows the cost AT ALL and so accepts either column.
 	//
-	// STILL UNSWEPT on non-web clients: the dev-seed exemplars never produce a
-	// split price, and a discovery re-scrape discards an extracted door price.
-	// The `ph` CLI and the iOS client do carry the pair.
+	// STILL UNSWEPT: the discovery ingest path carries no door price end to
+	// end -- neither contracts.DiscoveredEvent nor the scrapers that fill it
+	// name one, so createShowFromEvent has nothing to write. The `ph` CLI and
+	// the iOS client do carry the pair.
 	Price          *float64
 	DoorPrice      *float64 `gorm:"column:door_price"`
 	AgeRequirement *string

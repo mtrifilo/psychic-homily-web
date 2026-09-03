@@ -41,11 +41,11 @@ test.describe('Shows list', () => {
     ).toBeVisible()
   })
 
-  // The advance/door pair has to survive the whole stack to be worth
-  // rendering: the list query has to select door_price, the response has to
-  // carry it, and the card has to spell the pair rather than the advance half
-  // alone. A component test proves only the last of those. `e2e-door-price-split`
-  // is the seeded row carrying both columns.
+  // A door price has to survive the whole stack to be worth recording: the
+  // list query has to select door_price, the response has to carry it, and the
+  // card has to read both columns rather than the advance one alone. A
+  // component test proves only the last of those. `e2e-door-price-split` and
+  // `e2e-door-price-only` are the two seeded rows that record one.
   test('renders the advance/door price split on a list row', async ({
     page,
   }) => {
@@ -61,6 +61,17 @@ test.describe('Shows list', () => {
     await expect(
       splitRow.getByText('$20 advance, $25 at the door')
     ).toBeAttached()
+
+    // A door price with no advance price reads as a bare number, so the check
+    // that matters is that it is served at all: a list gating on
+    // `price != null` renders this row with no price and still passes a
+    // substring assertion on the row's other text.
+    const doorOnlyRow = page.getByRole('article', {
+      name: 'E2E [door-price-only]',
+    })
+    await expect(doorOnlyRow).toBeVisible()
+    await expect(doorOnlyRow).toContainText('$15')
+    await expect(doorOnlyRow).not.toContainText('/$')
   })
 
   test('pagination loads more shows', async ({ page }) => {

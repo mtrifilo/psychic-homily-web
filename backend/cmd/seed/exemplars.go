@@ -54,11 +54,6 @@ const (
 	edgeCaseFestivalSlug   = "desert-daze-exemplar-2026" // PSY-657 social:{} canary
 	exemplarShowSlug       = "the-path-tour-exemplar-at-the-rhythm-room-exemplar"
 	exemplarCollectionSlug = "psychic-homily-staff-picks-exemplar"
-
-	// The two price shapes no other exemplar produces: a show with both
-	// columns, and a show with only the door column.
-	exemplarSplitPriceShowSlug = "advance-door-split-exemplar"
-	exemplarDoorOnlyShowSlug   = "door-only-price-exemplar"
 )
 
 // tagSpec is one tag to create-and-apply: display name, URL slug, and
@@ -761,16 +756,23 @@ func seedExemplarArtistShows(db *gorm.DB, artistID, venueID uint) {
 }
 
 // seedExemplarPriceShows attaches the two price shapes no other seeded show
-// carries: an advance/door split, and a door price recorded with no advance
-// price. Every other seeded show sets at most `price`, so the split register
-// the list surfaces spell `$20/$25` and the NULL-advance branch have no row to
-// render against a dev database.
+// carries. Every other show this seed writes sets at most Price, so the
+// advance/door pair a list surface spells `$20/$25` has no row to render
+// against a dev database.
+//
+// The door-only row renders identically to an advance-only one by design:
+// statedShowPrices collapses a lone price of either column to one number. It
+// exists so the guards that DO read the columns separately have something to
+// fail against, namely hasStatedPrice, which decides whether the separator
+// beside the price appears, and offerShowPrice, which falls back to the door
+// column for the schema.org Offer.
 //
 // Both are upcoming, so they appear on `/shows` rather than only in the
-// archive, and both take day offsets distinct from every other exemplar show
-// billing this artist at this venue: show_dedup_keys holds
+// archive. Their day offsets are distinct from every other exemplar show
+// billing this artist at this venue, because show_dedup_keys holds
 // UNIQUE (artist_id, venue_id, event_date) and is rebuilt by trigger from the
-// show_artists insert below.
+// show_artists insert below. What makes a RE-seed safe is not the offsets
+// though: it is the per-slug probe, which skips a show that already exists.
 func seedExemplarPriceShows(db *gorm.DB, artistID, venueID uint) {
 	if artistID == 0 || venueID == 0 {
 		return
@@ -785,14 +787,14 @@ func seedExemplarPriceShows(db *gorm.DB, artistID, venueID uint) {
 	}
 	shows := []priced{
 		{
-			slug:      exemplarSplitPriceShowSlug,
+			slug:      "exemplar-advance-door-split",
 			title:     "Marissa Nadler (Exemplar): Advance/Door Split",
 			dayOffset: 42,
 			price:     fltptr(20),
 			doorPrice: fltptr(25),
 		},
 		{
-			slug:      exemplarDoorOnlyShowSlug,
+			slug:      "exemplar-door-only-price",
 			title:     "Marissa Nadler (Exemplar): Door Only",
 			dayOffset: 70,
 			price:     nil,
@@ -801,10 +803,18 @@ func seedExemplarPriceShows(db *gorm.DB, artistID, venueID uint) {
 	}
 
 	for _, s := range shows {
+		// A probe error is NOT "not found": treating a dropped connection as
+		// absence sends us into a create that then trips the slug unique index,
+		// reporting a conflict instead of the real fault.
 		var existing catalogm.Show
-		if db.Where("slug = ?", s.slug).First(&existing).Error == nil {
+		switch err := db.Where("slug = ?", s.slug).First(&existing).Error; {
+		case err == nil:
+			continue
+		case !errors.Is(err, gorm.ErrRecordNotFound):
+			log.Printf("Warning: failed to probe priced show %s: %v", s.slug, err)
 			continue
 		}
+
 		eventDate := time.Now().Add(time.Duration(s.dayOffset) * 24 * time.Hour).UTC()
 		show := &catalogm.Show{
 			Title:          s.title,
