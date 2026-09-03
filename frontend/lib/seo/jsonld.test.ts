@@ -329,6 +329,22 @@ describe('generateMusicEventSchema', () => {
     expect('url' in schema.offers!).toBe(false)
   })
 
+  // The description is emitted verbatim, so a vendor URL stored there would
+  // reach structured data past the offer gate. The discovery writer stores the
+  // URL in `ticket_url` and keeps the description free of it; this pins the
+  // whole document, not just `offers`.
+  it('carries the vendor URL nowhere for an ingested show', () => {
+    const schema = generateMusicEventSchema({
+      ...baseShow,
+      price: 25,
+      slug: 'test-show',
+      description: 'Doors: 7ish | Show: 8ish',
+      ticket_url: 'https://dice.fm/event/abc',
+    })
+    expect(schema.description).toBe('Doors: 7ish | Show: 8ish')
+    expect(JSON.stringify(schema)).not.toContain('dice.fm')
+  })
+
   // `seller` names the vendor without linking to them.
   it.each([
     ['https://dice.fm/event/abc', 'DICE'],
