@@ -76,7 +76,8 @@ func setupShowRoutes(rc RouteContext) {
 
 	// Rate-limited show creation: 10 requests per hour per IP
 	// Prevents flooding the admin approval queue
-	// API token requests (phk_ prefix) bypass the rate limit — they're trusted admin clients
+	// Requests bearing a VALIDATED API token bypass the rate limit — they're
+	// trusted admin clients. The phk_ prefix alone does not qualify.
 	//
 	// PSY-1598: on the MAIN api via a Huma group, not its own humachi.New — a
 	// separate instance owns a separate OpenAPI document, so this operation was
@@ -86,6 +87,7 @@ func setupShowRoutes(rc RouteContext) {
 	// per-route, not per-request.
 	showCreateGroup := huma.NewGroup(rc.API, "")
 	showCreateGroup.UseMiddleware(humaFromHTTP(rateLimitUnlessAPIToken(
+		rc.ValidateAPIToken,
 		middleware.ShowCreateRequestsPerHour,
 		time.Hour,
 	)))

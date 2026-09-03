@@ -88,7 +88,7 @@ func RateLimitEngagementMutationSustained() func(http.Handler) http.Handler {
 // authenticated user only (no anonymous/IP budget in v1). Passing through
 // avoids keying a "user:0" bucket for requests that can never mutate.
 //
-// This is the per-user CORE only. Admin / trusted-phk_ BYPASS is layered by
+// This is the per-user CORE only. Admin / validated-API-token BYPASS is layered by
 // wrapping this in SkipRateLimitForAdmin (see routes.EngagementMutationRateLimiter),
 // reusing that audited helper rather than re-deriving the bypass condition here.
 //

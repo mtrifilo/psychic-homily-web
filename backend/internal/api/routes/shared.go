@@ -2,7 +2,6 @@ package routes
 
 import (
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -14,6 +13,7 @@ import (
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/respond"
 	"psychic-homily-backend/internal/services"
+	adminsvc "psychic-homily-backend/internal/services/admin"
 )
 
 // RouteContext holds the shared dependencies passed to every route setup function.
@@ -25,12 +25,36 @@ type RouteContext struct {
 	Admin     *huma.Group                // Admin-only Huma API group (auth + IsAdmin enforced upstream)
 	SC        *services.ServiceContainer // All instantiated services
 	Cfg       *config.Config             // Application configuration
+
+	// ValidateAPIToken reports whether a bearer string is a live API token.
+	// Built once in SetupRoutes so every rate-limiter bypass in this package
+	// asks the same question of the same service.
+	ValidateAPIToken func(string) bool
+}
+
+// APITokenValidator adapts APITokenService.ValidateToken (hash, DB lookup,
+// revoked/expired/inactive and admin-scope checks) to the boolean predicate the
+// rate-limiter bypasses take. A nil service yields a nil predicate, which every
+// bypass reads as "no usable token" and therefore meters the request.
+func APITokenValidator(svc *adminsvc.APITokenService) func(string) bool {
+	if svc == nil {
+		return nil
+	}
+	return func(token string) bool {
+		_, _, err := svc.ValidateToken(token)
+		return err == nil
+	}
 }
 
 // rateLimitUnlessAPIToken wraps httprate.Limit but skips rate limiting for
-// requests authenticated with an API token (phk_ prefix). API tokens are
-// admin-only and trusted — they shouldn't be throttled during batch imports.
-func rateLimitUnlessAPIToken(requestLimit int, windowLength time.Duration) func(http.Handler) http.Handler {
+// requests that carry a VALIDATED API token, so batch imports by the ph CLI are
+// not throttled. Validation runs only for a phk_-prefixed bearer, so ordinary
+// browser traffic reaches the limiter without a database round trip.
+//
+// The phk_ prefix alone does not exempt anything: a request the authenticating
+// middleware resolves to a cookie session is metered as that session no matter
+// what its Authorization header claims.
+func rateLimitUnlessAPIToken(validateAPIToken func(string) bool, requestLimit int, windowLength time.Duration) func(http.Handler) http.Handler {
 	limiter := httprate.Limit(
 		requestLimit,
 		windowLength,
@@ -38,15 +62,13 @@ func rateLimitUnlessAPIToken(requestLimit int, windowLength time.Duration) func(
 		httprate.WithLimitHandler(rateLimitHandler),
 	)
 	return func(next http.Handler) http.Handler {
+		limited := limiter(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			auth := r.Header.Get("Authorization")
-			if strings.HasPrefix(auth, "Bearer phk_") {
-				// API token — bypass rate limit
+			if middleware.ValidatedAPIToken(validateAPIToken, r) {
 				next.ServeHTTP(w, r)
 				return
 			}
-			// Normal request — apply rate limit
-			limiter(next).ServeHTTP(w, r)
+			limited.ServeHTTP(w, r)
 		})
 	}
 }

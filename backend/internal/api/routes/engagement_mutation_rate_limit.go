@@ -78,18 +78,19 @@ func isEngagementMutationRequest(r *http.Request) bool {
 // EngagementMutationRateLimiter returns the chi middleware that throttles
 // authenticated engagement-toggle mutations against a shared per-user budget
 // (middleware.EngagementMutationBurstPerMinute + EngagementMutationSustainedPerHour,
-// both must pass). Admin JWTs and trusted phk_ tokens bypass. Non-mutation
+// both must pass). Admin JWTs and validated API tokens bypass. Non-mutation
 // requests pass straight through. Returns a pass-through noop unless the opt-in
 // flag is set. Mounted once, globally, before route registration.
-func EngagementMutationRateLimiter(jwtService *auth.JWTService, getenv func(string) string) func(http.Handler) http.Handler {
+func EngagementMutationRateLimiter(jwtService *auth.JWTService, validateAPIToken func(string) bool, getenv func(string) string) func(http.Handler) http.Handler {
 	if !IsEngagementMutationRateLimitEnabled(getenv) {
 		return noopRateLimiter()
 	}
-	// Admin JWTs and trusted phk_ tokens bypass via SkipRateLimitForAdmin (the
+	// Admin JWTs and validated API tokens bypass via SkipRateLimitForAdmin (the
 	// same helper the tag limiters use); everyone else flows through the shared
 	// per-user burst+sustained budget.
 	limiter := middleware.SkipRateLimitForAdmin(
 		jwtService,
+		validateAPIToken,
 		middleware.RateLimitEngagementMutationsByUser(
 			jwtService,
 			middleware.RateLimitEngagementMutationBurst(),

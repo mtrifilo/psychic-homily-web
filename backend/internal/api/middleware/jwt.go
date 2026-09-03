@@ -42,18 +42,12 @@ func JWTMiddleware(jwtService *auth.JWTService) func(http.Handler) http.Handler 
 				"path", r.URL.Path,
 			)
 
-			var token string
 			var tokenSource string
 
 			// First, try to get token from Authorization header
-			authHeader := r.Header.Get("Authorization")
-			if authHeader != "" {
-				// Extract token from "Bearer <token>"
-				tokenParts := strings.Split(authHeader, " ")
-				if len(tokenParts) == 2 && tokenParts[0] == "Bearer" {
-					token = tokenParts[1]
-					tokenSource = "header"
-				}
+			token := bearerTokenFromHeader(r.Header.Get("Authorization"))
+			if token != "" {
+				tokenSource = "header"
 			}
 
 			// If no token in header, try to get from HTTP-only cookie
@@ -111,6 +105,27 @@ func JWTMiddleware(jwtService *auth.JWTService) func(http.Handler) http.Handler 
 // APITokenPrefix is the prefix for API tokens (used to identify token type)
 const APITokenPrefix = "phk_"
 
+// bearerTokenFromHeader returns the credential in an "Bearer <token>"
+// Authorization header, or "" when the header is absent, non-Bearer, or not
+// exactly two space-separated fields.
+//
+// INVARIANT: every component that reads a credential off a request parses it
+// through this function. The rate limiters decide whether to meter a request by
+// looking at the same header the authenticators use to decide who the caller
+// is; if the two parsed it differently, a header shape one accepted and the
+// other rejected would let a request be exempted as one principal while being
+// authenticated as another.
+func bearerTokenFromHeader(authHeader string) string {
+	if authHeader == "" {
+		return ""
+	}
+	parts := strings.Split(authHeader, " ")
+	if len(parts) != 2 || parts[0] != "Bearer" {
+		return ""
+	}
+	return parts[1]
+}
+
 // HumaJWTMiddleware validates JWT tokens or API tokens (Huma middleware version)
 // API tokens are identified by the "phk_" prefix and validated separately
 func HumaJWTMiddleware(jwtService *auth.JWTService, sessionConfig ...config.SessionConfig) func(ctx huma.Context, next func(huma.Context)) {
@@ -136,18 +151,12 @@ func HumaJWTMiddleware(jwtService *auth.JWTService, sessionConfig ...config.Sess
 			"path", url.Path,
 		)
 
-		var token string
 		var tokenSource string
 
 		// First, try to get token from Authorization header
-		authHeader := ctx.Header("Authorization")
-		if authHeader != "" {
-			// Extract token from "Bearer <token>"
-			tokenParts := strings.Split(authHeader, " ")
-			if len(tokenParts) == 2 && tokenParts[0] == "Bearer" {
-				token = tokenParts[1]
-				tokenSource = "header"
-			}
+		token := bearerTokenFromHeader(ctx.Header("Authorization"))
+		if token != "" {
+			tokenSource = "header"
 		}
 
 		// If no token in header, try to get from HTTP-only cookie
@@ -242,17 +251,12 @@ func LenientHumaJWTMiddleware(jwtService *auth.JWTService, gracePeriod time.Dura
 			"path", url.Path,
 		)
 
-		var token string
 		var tokenSource string
 
 		// Try Authorization header first
-		authHeader := ctx.Header("Authorization")
-		if authHeader != "" {
-			tokenParts := strings.Split(authHeader, " ")
-			if len(tokenParts) == 2 && tokenParts[0] == "Bearer" {
-				token = tokenParts[1]
-				tokenSource = "header"
-			}
+		token := bearerTokenFromHeader(ctx.Header("Authorization"))
+		if token != "" {
+			tokenSource = "header"
 		}
 
 		// Fall back to cookie
@@ -314,16 +318,8 @@ func OptionalHumaJWTMiddleware(jwtService *auth.JWTService) func(ctx huma.Contex
 	apiTokenService := adminsvc.NewAPITokenService(nil)
 
 	return func(ctx huma.Context, next func(huma.Context)) {
-		var token string
-
 		// Try Authorization header
-		authHeader := ctx.Header("Authorization")
-		if authHeader != "" {
-			tokenParts := strings.Split(authHeader, " ")
-			if len(tokenParts) == 2 && tokenParts[0] == "Bearer" {
-				token = tokenParts[1]
-			}
-		}
+		token := bearerTokenFromHeader(ctx.Header("Authorization"))
 
 		// Try cookie
 		if token == "" {

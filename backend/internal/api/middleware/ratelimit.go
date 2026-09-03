@@ -141,32 +141,32 @@ func RateLimitTagVoteEndpoints() func(http.Handler) http.Handler {
 // 20/hour tag-create and 30/minute tag-vote limits against their own IP. This
 // lets us keep the abuse-prevention limits tight for anonymous/IP-level
 // traffic while not blocking the people running the site.
-func SkipRateLimitForAdmin(jwtService *auth.JWTService, limiter func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+func SkipRateLimitForAdmin(jwtService *auth.JWTService, validateAPIToken func(string) bool, limiter func(http.Handler) http.Handler) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		limited := limiter(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// API tokens (phk_ prefix) and JWT admins both bypass: API tokens are
-			// admin-only and trusted, so they shouldn't be throttled during bulk
-			// imports — matching routes.rateLimitUnlessAPIToken (show creation).
-			// Without the API-token branch the ph CLI (which authenticates with a
-			// phk_ token, not a JWT) gets throttled on bulk tagging despite PSY-345.
-			if isTrustedAPIToken(r) || isAdminTokenRequest(jwtService, r) {
+			// Two escape hatches, both cryptographically established: an API
+			// token that passes validateAPIToken (hash + DB lookup +
+			// revoked/expired/inactive checks), and a JWT whose user is an
+			// admin. The API-token hatch covers the ph CLI doing bulk imports,
+			// which authenticates with a phk_ token rather than a JWT.
+			//
+			// The phk_ PREFIX alone is not a hatch. A request the authenticator
+			// resolves to a cookie session must be metered as that session
+			// however its Authorization header is shaped, or a logged-in caller
+			// exempts itself by naming a token it does not hold.
+			//
+			// COST: validateAPIToken runs only for a phk_-prefixed bearer (see
+			// ValidatedAPIToken), and every other request already pays
+			// isAdminTokenRequest's user lookup, so no request class gains a
+			// database round trip it was not already making.
+			if ValidatedAPIToken(validateAPIToken, r) || isAdminTokenRequest(jwtService, r) {
 				next.ServeHTTP(w, r)
 				return
 			}
 			limited.ServeHTTP(w, r)
 		})
 	}
-}
-
-// isTrustedAPIToken reports whether the request carries an API token (phk_
-// prefix). API tokens are admin-only and trusted by construction (see
-// internal/services/admin/api_token.go), so — like routes.rateLimitUnlessAPIToken used
-// for show creation — they bypass the per-IP limiter. This intentionally trusts
-// the prefix rather than re-validating the token (the JWT validator rejects
-// phk_ tokens anyway); it covers the ph CLI doing bulk imports (PSY-345).
-func isTrustedAPIToken(r *http.Request) bool {
-	return strings.HasPrefix(extractJWT(r), APITokenPrefix)
 }
 
 // isAdminTokenRequest returns true when the request carries a valid JWT whose
@@ -251,13 +251,11 @@ func RateLimitPublicReadAuthenticatedIPCeiling() func(http.Handler) http.Handler
 // scraper account. Session-JWT path is DB-free: the id comes from the verified
 // token (auth.JWTService.SessionUserID), no per-request DB query.
 //
-// SECURITY: do NOT reuse isTrustedAPIToken / SkipRateLimitForAdmin here — those
-// trust the phk_ prefix with no DB lookup, which is safe only on write paths
-// that still authenticate downstream. A forged prefix must not grant a higher
-// cap (or a bypass) on these no-downstream-auth public reads. Only
-// APITokenService.ValidateToken (hashes, DB lookup, revoked/expired/inactive
-// checks), injected as validateAPIToken, exempts a request from the anonymous
-// bucket. The callback is invoked only when the bearer has the phk_ prefix, so
+// SECURITY: only APITokenService.ValidateToken (hashes, DB lookup,
+// revoked/expired/inactive checks), injected as validateAPIToken, exempts a
+// request from the anonymous bucket. A forged phk_ prefix grants neither a
+// higher cap nor a bypass on these public reads, which have no downstream
+// authentication to catch it. The callback is invoked only when the bearer has the phk_ prefix, so
 // visitor GETs with no Authorization never hit the database. Admin session JWTs
 // still route to the per-user 300/min bucket, not this bypass.
 //
@@ -300,7 +298,7 @@ func RateLimitPublicReadsByAuthState(jwtService *auth.JWTService, validateAPITok
 				user.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
-			if validatedAPIToken(validateAPIToken, r) {
+			if ValidatedAPIToken(validateAPIToken, r) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -323,13 +321,17 @@ func sessionUserID(jwtService *auth.JWTService, r *http.Request) (uint, bool) {
 	return jwtService.SessionUserID(token)
 }
 
-// validatedAPIToken reports whether the request carries a cryptographically
+// ValidatedAPIToken reports whether the request carries a cryptographically
 // validated phk_ API token. Prefix-only is NOT enough (see SECURITY comment on
 // RateLimitPublicReadsByAuthState): a forged phk_ must stay on the anonymous
 // bucket. The callback is the DB lookup (APITokenService.ValidateToken); this
 // helper only invokes it when the token has the phk_ prefix, so visitor GETs
 // with no Authorization — and JWTs that failed SessionUserID — never hit the DB.
-func validatedAPIToken(validate func(string) bool, r *http.Request) bool {
+//
+// This is the ONE spelling of "the caller holds a usable API token". Every
+// limiter bypass resolves the question here, so none of them can drift back to
+// trusting the prefix, and none re-derives the token hashing.
+func ValidatedAPIToken(validate func(string) bool, r *http.Request) bool {
 	if validate == nil {
 		return false
 	}
@@ -340,15 +342,14 @@ func validatedAPIToken(validate func(string) bool, r *http.Request) bool {
 	return validate(token)
 }
 
-// extractJWT reads the JWT from either the Authorization header or the
-// auth_token cookie, matching the logic in JWTMiddleware. Returns empty
-// string when no token is present.
+// extractJWT reads the credential from either the Authorization header or the
+// auth_token cookie, in the same order and with the same header parsing
+// (bearerTokenFromHeader) the authenticating middleware uses, so the limiter
+// and the authenticator always see the same credential. Returns empty string
+// when no token is present.
 func extractJWT(r *http.Request) string {
-	if authHeader := r.Header.Get("Authorization"); authHeader != "" {
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) == 2 && parts[0] == "Bearer" {
-			return parts[1]
-		}
+	if token := bearerTokenFromHeader(r.Header.Get("Authorization")); token != "" {
+		return token
 	}
 	if cookie, err := r.Cookie("auth_token"); err == nil {
 		return cookie.Value

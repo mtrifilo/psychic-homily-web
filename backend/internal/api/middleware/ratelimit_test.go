@@ -109,7 +109,7 @@ func TestRateLimitTagVoteEndpoints_ReturnsMiddleware(t *testing.T) {
 func TestSkipRateLimitForAdmin_NilJWTServiceLimitsEveryRequest(t *testing.T) {
 	// 1 request / minute limiter, easy to saturate within the test.
 	base := httprate.Limit(1, time.Minute, httprate.WithKeyFuncs(httprate.KeyByIP))
-	mw := SkipRateLimitForAdmin(nil, base)
+	mw := SkipRateLimitForAdmin(nil, nil, base)
 
 	hits := 0
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -179,60 +179,177 @@ func TestExtractJWT_IgnoresNonBearerAuthHeader(t *testing.T) {
 	}
 }
 
-// PSY-1173: isTrustedAPIToken recognizes the phk_ API-token prefix (and only
-// that) so admin API clients bypass the limiter like show creation does.
-func TestIsTrustedAPIToken(t *testing.T) {
+// PSY-2004: extractJWT must reject exactly what the authenticating middleware
+// rejects. A header with extra fields is not a Bearer credential to
+// bearerTokenFromHeader, so both fall back to the cookie and agree on which
+// credential the request is presenting.
+func TestExtractJWT_MalformedBearerHeaderFallsBackToCookieLikeTheAuthenticator(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer "+APITokenPrefix+"live trailing")
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "cookie-token"})
+
+	if got := extractJWT(req); got != "cookie-token" {
+		t.Errorf("extractJWT = %q, want %q (a three-field header is not a Bearer credential)", got, "cookie-token")
+	}
+}
+
+// ValidatedAPIToken calls the validator only for a phk_-prefixed bearer, so an
+// ordinary browser request costs no database round trip, and it reports the
+// validator's answer rather than the prefix.
+func TestValidatedAPIToken(t *testing.T) {
+	const live = APITokenPrefix + "live"
+
 	tests := []struct {
-		name   string
-		header string
-		want   bool
+		name        string
+		header      string
+		cookie      string
+		want        bool
+		wantQueried bool
 	}{
-		{"phk_ bearer token", "Bearer " + APITokenPrefix + "abc123", true},
-		{"jwt bearer token", "Bearer eyJhbGciOi.foo.bar", false},
-		{"non-bearer header", "Basic dXNlcjpwYXNz", false},
-		{"no auth header", "", false},
+		{name: "live phk_ token", header: "Bearer " + live, want: true, wantQueried: true},
+		{name: "unknown phk_ token", header: "Bearer " + APITokenPrefix + "forged", wantQueried: true},
+		{name: "jwt bearer token", header: "Bearer eyJhbGciOi.foo.bar"},
+		{name: "non-bearer header", header: "Basic dXNlcjpwYXNz"},
+		{name: "no credential at all"},
+		{name: "session cookie only", cookie: "session-jwt"},
+		// The limiter and the authenticator must read the same header. A
+		// three-field header is not a Bearer credential to either of them, so
+		// the phk_ inside it buys nothing.
+		{name: "phk_ inside a malformed header", header: "Bearer " + live + " trailing"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			queried := ""
+			validate := func(token string) bool {
+				queried = token
+				return token == live
+			}
 			req := httptest.NewRequest(http.MethodPost, "/tag", nil)
 			if tc.header != "" {
 				req.Header.Set("Authorization", tc.header)
 			}
-			if got := isTrustedAPIToken(req); got != tc.want {
-				t.Errorf("isTrustedAPIToken() = %v, want %v", got, tc.want)
+			if tc.cookie != "" {
+				req.AddCookie(&http.Cookie{Name: "auth_token", Value: tc.cookie})
+			}
+			if got := ValidatedAPIToken(validate, req); got != tc.want {
+				t.Errorf("ValidatedAPIToken() = %v, want %v", got, tc.want)
+			}
+			if gotQueried := queried != ""; gotQueried != tc.wantQueried {
+				t.Errorf("validator queried = %v, want %v (queried %q)", gotQueried, tc.wantQueried, queried)
 			}
 		})
 	}
 }
 
-// PSY-1173: a phk_ API token bypasses the limiter past the limit even with a
-// nil JWTService — API tokens are admin-only and trusted (mirrors show
-// creation's rateLimitUnlessAPIToken). Without this the ph CLI gets throttled
-// during bulk tagging despite PSY-345's admin-bypass intent.
-func TestSkipRateLimitForAdmin_APITokenBypassesLimit(t *testing.T) {
-	// 1 request / minute limiter — trivially saturated without a bypass.
-	base := httprate.Limit(1, time.Minute, httprate.WithKeyFuncs(httprate.KeyByIP))
-	mw := SkipRateLimitForAdmin(nil, base)
+// A nil validator is "no usable token", so every request is metered.
+func TestValidatedAPIToken_NilValidatorFailsClosed(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/tag", nil)
+	req.Header.Set("Authorization", "Bearer "+APITokenPrefix+"whatever")
+	if ValidatedAPIToken(nil, req) {
+		t.Error("ValidatedAPIToken(nil, ...) = true, want false — a missing validator must not exempt anything")
+	}
+}
 
+// skipAdminMW builds SkipRateLimitForAdmin over a 1-request/minute limiter,
+// trivially saturated, with a validator that accepts exactly liveToken.
+func skipAdminMW(t *testing.T, jwtService *auth.JWTService, liveToken string) (http.Handler, *int) {
+	t.Helper()
+	base := httprate.Limit(1, time.Minute,
+		httprate.WithKeyFuncs(httprate.KeyByIP),
+		httprate.WithLimitHandler(RateLimitExceededHandler))
+	validate := func(token string) bool { return liveToken != "" && token == liveToken }
 	hits := 0
-	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits++
-		w.WriteHeader(http.StatusOK)
-	}))
+	handler := SkipRateLimitForAdmin(jwtService, validate, base)(
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			hits++
+			w.WriteHeader(http.StatusOK)
+		}))
+	return handler, &hits
+}
 
-	// Five rapid same-IP requests, all carrying an API token, all pass.
+// A validated phk_ token bypasses the limiter past the cap: the ph CLI's bulk
+// imports must not be throttled.
+func TestSkipRateLimitForAdmin_ValidatedAPITokenBypassesLimit(t *testing.T) {
+	const live = APITokenPrefix + "live"
+	handler, hits := skipAdminMW(t, nil, live)
+
 	for i := 0; i < 5; i++ {
 		req := httptest.NewRequest(http.MethodPost, "/tag", nil)
-		req.Header.Set("Authorization", "Bearer "+APITokenPrefix+"deadbeef")
+		req.Header.Set("Authorization", "Bearer "+live)
 		req.RemoteAddr = "9.9.9.9:1000"
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
 		if rr.Code != http.StatusOK {
-			t.Fatalf("request %d: status = %d, want 200 (phk_ token must bypass the limiter)", i+1, rr.Code)
+			t.Fatalf("request %d: status = %d, want 200 (a live API token must bypass the limiter)", i+1, rr.Code)
 		}
 	}
-	if hits != 5 {
-		t.Errorf("handler hits = %d, want 5 (all phk_ requests should reach the handler)", hits)
+	if *hits != 5 {
+		t.Errorf("handler hits = %d, want 5 (all validated requests should reach the handler)", *hits)
+	}
+}
+
+// PSY-2004: the headline regression. A cookie-authenticated caller that names a
+// phk_ token it does not hold is metered like the session it actually rides on.
+func TestSkipRateLimitForAdmin_ForgedAPITokenOverCookieSessionIsLimited(t *testing.T) {
+	headers := []string{
+		"Bearer " + APITokenPrefix + "forged",
+		// The header shape the authenticator ignores entirely, falling back to
+		// the cookie: the limiter must ignore it the same way.
+		"Bearer " + APITokenPrefix + "live trailing",
+	}
+	for _, header := range headers {
+		t.Run(header, func(t *testing.T) {
+			// A fresh limiter per case: httprate keys by IP, so a shared one
+			// would let the first case spend the second case's budget.
+			handler, hits := skipAdminMW(t, nil, APITokenPrefix+"live")
+
+			first := httptest.NewRequest(http.MethodPost, "/tag", nil)
+			first.Header.Set("Authorization", header)
+			first.AddCookie(&http.Cookie{Name: "auth_token", Value: "session-jwt"})
+			first.RemoteAddr = "9.9.9.8:1000"
+			rr := httptest.NewRecorder()
+			handler.ServeHTTP(rr, first)
+			if rr.Code != http.StatusOK {
+				t.Fatalf("first request: status = %d, want 200", rr.Code)
+			}
+
+			second := httptest.NewRequest(http.MethodPost, "/tag", nil)
+			second.Header.Set("Authorization", header)
+			second.AddCookie(&http.Cookie{Name: "auth_token", Value: "session-jwt"})
+			second.RemoteAddr = "9.9.9.8:1001"
+			rr = httptest.NewRecorder()
+			handler.ServeHTTP(rr, second)
+			if rr.Code != http.StatusTooManyRequests {
+				t.Fatalf("second request: status = %d, want 429 (a forged phk_ must not exempt a cookie session)", rr.Code)
+			}
+			if got := rr.Header().Get("Retry-After"); got != "60" {
+				t.Errorf("Retry-After = %q, want %q", got, "60")
+			}
+			if *hits != 1 {
+				t.Errorf("handler hits = %d, want 1 (only the first request is under the cap)", *hits)
+			}
+		})
+	}
+}
+
+// No Authorization header at all: unchanged, the limiter applies.
+func TestSkipRateLimitForAdmin_NoCredentialIsLimited(t *testing.T) {
+	handler, _ := skipAdminMW(t, nil, APITokenPrefix+"live")
+
+	first := httptest.NewRequest(http.MethodPost, "/tag", nil)
+	first.RemoteAddr = "9.9.9.6:1000"
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, first)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("first request: status = %d, want 200", rr.Code)
+	}
+
+	second := httptest.NewRequest(http.MethodPost, "/tag", nil)
+	second.RemoteAddr = "9.9.9.6:1001"
+	rr = httptest.NewRecorder()
+	handler.ServeHTTP(rr, second)
+	if rr.Code != http.StatusTooManyRequests {
+		t.Errorf("second request: status = %d, want 429", rr.Code)
 	}
 }
 

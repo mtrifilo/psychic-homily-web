@@ -536,6 +536,95 @@ func TestHumaJWTMiddleware_InvalidAPIToken(t *testing.T) {
 	}
 }
 
+// bearerTokenFromHeader is the one parse every credential reader shares, so its
+// exact acceptance set decides which credential a request is presenting.
+func TestBearerTokenFromHeader(t *testing.T) {
+	cases := map[string]string{
+		"Bearer abc123":       "abc123",
+		"Bearer phk_abc":      "phk_abc",
+		"Bearer abc123 extra": "",
+		"Bearer  abc123":      "",
+		"Bearer":              "",
+		"bearer abc123":       "",
+		"Basic dXNlcjpwYXNz":  "",
+		"":                    "",
+	}
+	for header, want := range cases {
+		if got := bearerTokenFromHeader(header); got != want {
+			t.Errorf("bearerTokenFromHeader(%q) = %q, want %q", header, got, want)
+		}
+	}
+}
+
+// PSY-2004: a well-formed Bearer header is the credential, and the cookie is
+// not consulted behind it. The rate limiters rely on this: a request presenting
+// a junk phk_ token is not a cookie session to anybody.
+func TestHumaJWTMiddleware_JunkAPITokenHeaderDoesNotConsultCookie(t *testing.T) {
+	jwtService := newTestJWTService()
+
+	user := &authm.User{Email: strPtr("cookie@example.com")}
+	user.ID = 7
+	sessionToken, err := jwtService.CreateToken(user)
+	if err != nil {
+		t.Fatalf("failed to create token: %v", err)
+	}
+
+	mw := HumaJWTMiddleware(jwtService)
+	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+	req.Header.Set("Authorization", "Bearer phk_junk")
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: sessionToken})
+	ctx, rr := newHumaContext(t, req)
+
+	nextCalled := false
+	mw(ctx, func(next huma.Context) { nextCalled = true })
+
+	if nextCalled {
+		t.Error("next should not be called: the presented credential is an unknown API token")
+	}
+	var body JWTErrorResponse
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
+	// The JWT branch reports the literal "Invalid token"; the API-token branch
+	// reports the token service's own error. Seeing the latter is how we know
+	// the cookie was never reached.
+	if body.Message == "Invalid token" {
+		t.Errorf("Message = %q — the cookie was consulted behind a well-formed Bearer header", body.Message)
+	}
+}
+
+// PSY-2004: the converse. A header with extra fields is not a Bearer credential
+// at all, so the request is authenticated from its cookie — which is exactly why
+// the limiters must not read a phk_ prefix out of such a header.
+func TestHumaJWTMiddleware_MalformedBearerHeaderFallsBackToCookie(t *testing.T) {
+	jwtService := newTestJWTService()
+
+	user := &authm.User{Email: strPtr("cookie@example.com")}
+	user.ID = 7
+	sessionToken, err := jwtService.CreateToken(user)
+	if err != nil {
+		t.Fatalf("failed to create token: %v", err)
+	}
+
+	mw := HumaJWTMiddleware(jwtService)
+	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+	req.Header.Set("Authorization", "Bearer phk_junk trailing")
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: sessionToken})
+	ctx, rr := newHumaContext(t, req)
+
+	nextCalled := false
+	mw(ctx, func(next huma.Context) { nextCalled = true })
+
+	// The cookie's session token parses; only the user lookup fails (no DB in
+	// this harness), so the JWT branch reports its literal message.
+	if nextCalled {
+		t.Error("next should not be called when the DB user lookup fails")
+	}
+	var body JWTErrorResponse
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
+	if body.Message != "Invalid token" {
+		t.Errorf("Message = %q, want %q — the cookie should have been used", body.Message, "Invalid token")
+	}
+}
+
 func TestHumaJWTMiddleware_InvalidAuthHeaderFormat(t *testing.T) {
 	jwtService := newTestJWTService()
 	mw := HumaJWTMiddleware(jwtService)
