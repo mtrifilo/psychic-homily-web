@@ -7,6 +7,7 @@ import {
   buildMoreAtVenueRail,
   SHOW_RAIL_ROW_CAP,
   VENUE_RAIL_FETCH_LIMIT,
+  venueRailShowsUrl,
 } from './showRails'
 import {
   makeAlsoTonightPayload,
@@ -68,7 +69,7 @@ describe('buildAlsoTonightRail', () => {
     // names the Chicago night, so the rows must be set on Chicago's clock
     // whatever zone the runtime is in.
     const rail = buildAlsoTonightRail(makeAlsoTonightPayload(), 99)
-    expect(rail?.rows[0]?.lead).toBe('8:00 PM')
+    expect(rail?.rows[0]?.lead).toBe('8PM')
   })
 
   it('falls back to the scene’s clock for a row with no venue zone', () => {
@@ -83,7 +84,7 @@ describe('buildAlsoTonightRail', () => {
       }),
       99
     )
-    expect(rail?.rows[0]?.lead).toBe('8:00 PM')
+    expect(rail?.rows[0]?.lead).toBe('8PM')
   })
 
   it('leaves the lead null when the payload carries no usable instant', () => {
@@ -633,5 +634,189 @@ describe('alsoTonightSeeAllHref', () => {
       alsoTonightSeeAllHref(makeAlsoTonightPayload({ date: 'tonight' }))
     ).toBeNull()
     expect(alsoTonightSeeAllHref(makeAlsoTonightPayload({ date: '' }))).toBeNull()
+  })
+})
+
+describe('the age column', () => {
+  // The rail states the door policy the show page's venue module would state
+  // for the same show: the event's own requirement where it has one, the
+  // room's house default otherwise.
+  const railRow = (over: Parameters<typeof makeAlsoTonightShow>[0]) =>
+    buildAlsoTonightRail(
+      makeAlsoTonightPayload({ shows: [makeAlsoTonightShow(over)] }),
+      99
+    )?.rows[0]
+
+  it('reserves the column on the night rail and not on the room rail', () => {
+    expect(
+      buildAlsoTonightRail(makeAlsoTonightPayload(), 99)?.hasAgeColumn
+    ).toBe(true)
+    expect(
+      buildMoreAtVenueRail(makeRailVenue(), [makeVenueShow()], 1, 99)
+        ?.hasAgeColumn
+    ).toBe(false)
+  })
+
+  it('falls back to the room house policy when the event states none', () => {
+    expect(railRow({ age_requirement: '', venue_age_policy: '21+' })?.age).toBe(
+      '21+'
+    )
+  })
+
+  it('lets the event override the house default', () => {
+    // The case a bare house-policy column would get WRONG: an all-ages matinee
+    // in a 21+ room.
+    expect(
+      railRow({ age_requirement: 'all ages', venue_age_policy: '21+' })?.age
+    ).toBe('all ages')
+  })
+
+  it('is null when neither half is recorded, leaving the column empty', () => {
+    expect(railRow({ age_requirement: '', venue_age_policy: '' })?.age).toBeNull()
+    // Whitespace is an absence, not a value: both columns are contributor
+    // free text.
+    expect(
+      railRow({ age_requirement: '   ', venue_age_policy: '  ' })?.age
+    ).toBeNull()
+  })
+
+  it('leaves the venue rail rows with no age cell to draw', () => {
+    const rail = buildMoreAtVenueRail(makeRailVenue(), [makeVenueShow()], 1, 99)
+    expect(rail?.rows[0]?.age).toBeNull()
+  })
+})
+
+describe('live-night ordering', () => {
+  // 8PM, 9PM and 10PM Chicago on the fixtures' night.
+  const doors8 = makeAlsoTonightShow({
+    id: 8,
+    slug: 'eight',
+    starts_at: '2026-08-13T01:00:00Z',
+  })
+  const doors9 = makeAlsoTonightShow({
+    id: 9,
+    slug: 'nine',
+    starts_at: '2026-08-13T02:00:00Z',
+  })
+  const doors10 = makeAlsoTonightShow({
+    id: 10,
+    slug: 'ten',
+    starts_at: '2026-08-13T03:00:00Z',
+  })
+  const at930 = new Date('2026-08-13T02:30:00Z')
+
+  it('draws the shows still to come before the ones under way', () => {
+    const rail = buildAlsoTonightRail(
+      makeAlsoTonightPayload({ shows: [doors8, doors9, doors10] }),
+      99,
+      at930
+    )
+    expect(rail?.rows.map(row => row.href)).toEqual([
+      '/shows/ten',
+      '/shows/eight',
+      '/shows/nine',
+    ])
+  })
+
+  it('orders BEFORE the cap, so the drawn rows are the ones still to come', () => {
+    // Four started sets and one upcoming. Capping first would draw three
+    // started shows and hide the only one a reader can still get to.
+    const rail = buildAlsoTonightRail(
+      makeAlsoTonightPayload({
+        shows: [
+          makeAlsoTonightShow({
+            id: 1,
+            slug: 's1',
+            starts_at: '2026-08-13T00:00:00Z',
+          }),
+          makeAlsoTonightShow({
+            id: 2,
+            slug: 's2',
+            starts_at: '2026-08-13T00:30:00Z',
+          }),
+          makeAlsoTonightShow({
+            id: 3,
+            slug: 's3',
+            starts_at: '2026-08-13T01:00:00Z',
+          }),
+          makeAlsoTonightShow({
+            id: 4,
+            slug: 's4',
+            starts_at: '2026-08-13T01:30:00Z',
+          }),
+          doors10,
+        ],
+      }),
+      99,
+      at930
+    )
+    expect(rail?.rows[0]?.href).toBe('/shows/ten')
+    expect(rail?.rows).toHaveLength(SHOW_RAIL_ROW_CAP)
+  })
+
+  it('keeps an archive or future night earliest-first', () => {
+    const rail = buildAlsoTonightRail(
+      makeAlsoTonightPayload({
+        is_tonight: false,
+        shows: [doors8, doors9, doors10],
+      }),
+      99,
+      at930
+    )
+    expect(rail?.rows.map(row => row.href)).toEqual([
+      '/shows/eight',
+      '/shows/nine',
+      '/shows/ten',
+    ])
+  })
+
+  it('hides nothing: a night entirely under way still draws its cap', () => {
+    const rail = buildAlsoTonightRail(
+      makeAlsoTonightPayload({ shows: [doors8, doors9, doors10] }),
+      99,
+      new Date('2026-08-13T04:00:00Z')
+    )
+    expect(rail?.rows).toHaveLength(SHOW_RAIL_ROW_CAP)
+  })
+
+  it('suppresses from the venue rail exactly the rows the reordered rail drew', () => {
+    // The invariant the two share: the ids withheld from the room's column are
+    // the ones actually on screen in the night's column. A different clock on
+    // either side would break it silently.
+    const payload = makeAlsoTonightPayload({
+      shows: [
+        makeAlsoTonightShow({
+          id: 1,
+          slug: 's1',
+          starts_at: '2026-08-13T00:00:00Z',
+        }),
+        makeAlsoTonightShow({
+          id: 2,
+          slug: 's2',
+          starts_at: '2026-08-13T00:30:00Z',
+        }),
+        makeAlsoTonightShow({
+          id: 3,
+          slug: 's3',
+          starts_at: '2026-08-13T01:00:00Z',
+        }),
+        doors10,
+      ],
+    })
+    const rail = buildAlsoTonightRail(payload, 99, at930)
+    const drawn = alsoTonightDrawnIds(payload, 99, at930)
+    expect([...drawn].sort((a, b) => a - b)).toEqual([1, 2, 10])
+    expect(rail?.rows).toHaveLength(3)
+  })
+})
+
+describe('venueRailShowsUrl', () => {
+  it('sends the limit the rail hook sends, read from the constant', () => {
+    // The seed and the hook must describe the SAME request: the hook keys on
+    // what it sent, so a restated limit here would seed an entry it never
+    // reads and the rail would fetch client-side anyway.
+    expect(venueRailShowsUrl(10)).toContain(`limit=${VENUE_RAIL_FETCH_LIMIT}`)
+    expect(venueRailShowsUrl(10)).toContain('time_filter=upcoming')
+    expect(venueRailShowsUrl(10)).toContain('/venues/10/shows?')
   })
 })

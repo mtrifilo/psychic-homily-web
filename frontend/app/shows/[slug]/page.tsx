@@ -13,6 +13,12 @@ import { connection } from 'next/server'
 // that surface eagerly reachable from this route and quietly undo the eviction
 // below. utils.ts has type-only imports of its own, so it costs nothing.
 import { showTimingInput } from '@/features/shows/utils'
+// From the policy module, not the feature barrel, for the same eviction reason
+// the note above states: `showRails.ts` renders nothing.
+import { venueRailShowsUrl } from '@/features/shows/showRails'
+import { showEndpoints } from '@/features/shows/api'
+import type { ShowAlsoTonightResponse } from '@/features/shows/showRails'
+import type { VenueShowsResponse } from '@/features/venues/types'
 import type {
   ShowResponse,
   ShowTimelineResponse,
@@ -113,6 +119,53 @@ async function getShowTimeline(
     }
     if (res.status >= 500) {
       Sentry.captureMessage(`Show timeline: API returned ${res.status}`, {
+        level: 'warning',
+        tags: { service: 'show-page' },
+        extra: { slug, status: res.status },
+      })
+    }
+  } catch (error) {
+    Sentry.captureException(error, {
+      level: 'warning',
+      tags: { service: 'show-page' },
+      extra: { slug },
+    })
+  }
+  return null
+}
+
+/**
+ * One of the show page's two discovery rails, fetched on the server so its rows
+ * are in the served HTML rather than inserted after hydration (PSY-1967).
+ *
+ * The rails are NOT the last thing on the page — the provenance byline,
+ * `RevisionHistory` and `CommentThread` all sit below them — and
+ * `/shows/{slug}#comment-123` scrolls to its comment as soon as the comment
+ * query resolves. Rows arriving after that scroll take the targeted comment out
+ * from under the reader, which is the specific failure this removes.
+ *
+ * Failure is SILENT and returns null, like the timeline above: a rail is a
+ * discovery aside, and a show page must not 500 because a scene query did. The
+ * degrade happens HERE, before the value reaches the render, so a rail that
+ * 404s cannot knock the page out of its prerender.
+ *
+ * Both answers are per-show rather than per-viewer — the night is read on the
+ * venue's clock — so they cache exactly like the show detail already does.
+ */
+async function getRail<T>(
+  url: string,
+  service: string,
+  slug: string,
+): Promise<T | null> {
+  try {
+    const res = await fetch(url, { next: { revalidate: 3600 } })
+    // `return await`, not a bare `return`, for the reason the timeline states:
+    // a bare one leaves a truncated body rejecting outside this catch.
+    if (res.ok) {
+      return await res.json()
+    }
+    if (res.status >= 500) {
+      Sentry.captureMessage(`${service}: API returned ${res.status}`, {
         level: 'warning',
         tags: { service: 'show-page' },
         extra: { slug, status: res.status },
@@ -230,10 +283,50 @@ async function ShowDetailWithLifecycle({
   show: ShowResponse
 }) {
   await connection()
+  // The SAME instant the lifecycle is judged against, handed down so the
+  // discovery rails order the night by a clock the client cannot disagree with.
+  // Read here, after `connection()`, because a prerender may not read the time.
+  const renderedAt = new Date()
+  const lifecycle = getShowLifecycleState(showTimingInput(show), renderedAt)
+
+  // Both rails, fetched HERE rather than in the page body, for two reasons that
+  // both need the answers above: the night's rail is withheld entirely on a
+  // past show (an archive page must not offer a reader other shows they equally
+  // cannot attend), and the room's rail needs a venue id off the show payload.
+  // Asking for a rail the page will not draw would spend a backend query per
+  // archive page view for nothing.
+  //
+  // Together, so the pair costs ONE round trip rather than two. Each degrades
+  // to null on its own, and a null seed simply leaves that rail to the client
+  // query it already had.
+  const venue = show.venues?.[0]
+  const [alsoTonight, venueShows] = await Promise.all([
+    lifecycle === 'past'
+      ? null
+      : getRail<ShowAlsoTonightResponse>(
+          // Encoded for the reason `getShowTimeline` states: Next hands params
+          // through DECODED, so an unencoded `%2F` would re-point this
+          // server-side fetch at another backend path.
+          showEndpoints.ALSO_TONIGHT(encodeURIComponent(slug)),
+          'Show also-tonight',
+          slug,
+        ),
+    venue
+      ? getRail<VenueShowsResponse>(
+          venueRailShowsUrl(venue.id),
+          'Venue rail shows',
+          slug,
+        )
+      : null,
+  ])
+
   return (
     <ShowDetail
       showId={slug}
-      lifecycle={getShowLifecycleState(showTimingInput(show))}
+      lifecycle={lifecycle}
+      renderedAt={renderedAt.toISOString()}
+      initialAlsoTonight={alsoTonight ?? undefined}
+      initialVenueShows={venueShows ?? undefined}
     />
   )
 }

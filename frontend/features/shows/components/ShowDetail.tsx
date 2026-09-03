@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
@@ -29,6 +29,8 @@ import { ShowDiscoveryRails } from './ShowDiscoveryRails'
 import { ShowStatusStripe } from './ShowStatusStripe'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
+import type { ShowAlsoTonightResponse } from '../showRails'
+import type { VenueShowsResponse } from '@/features/venues/types'
 
 interface ShowDetailProps {
   showId: string | number
@@ -45,9 +47,41 @@ interface ShowDetailProps {
    * immediately while the clock half stays frozen at what the server saw.
    */
   lifecycle: ShowLifecycleState
+  /**
+   * The instant the route rendered at, in ISO form, read on the SERVER beside
+   * `lifecycle` and for the same reason: the discovery rails order a night by
+   * which of its shows have started, and this component renders on the server
+   * and again on the hydrating client. Two clock reads could order the rows two
+   * ways and fail hydration for the whole page.
+   *
+   * Optional so a test or a future caller can mount this page without staging a
+   * clock; it then falls back to the render's own.
+   */
+  renderedAt?: string
+  /**
+   * Both discovery rails as the SERVER fetched them, threaded straight through
+   * to `ShowDiscoveryRails` — see its own props for why they are seeded there
+   * rather than on the route.
+   */
+  initialAlsoTonight?: ShowAlsoTonightResponse
+  initialVenueShows?: VenueShowsResponse
 }
 
-export function ShowDetail({ showId, lifecycle }: ShowDetailProps) {
+export function ShowDetail({
+  showId,
+  lifecycle,
+  renderedAt,
+  initialAlsoTonight,
+  initialVenueShows,
+}: ShowDetailProps) {
+  // Parsed once per render rather than per rail, and guarded: every comparison
+  // against an Invalid Date is false, so an unparseable value would silently
+  // report the whole night as not yet started. It degrades to this render's own
+  // clock instead.
+  const now = useMemo(() => {
+    const at = renderedAt ? new Date(renderedAt) : null
+    return at && Number.isFinite(at.getTime()) ? at : new Date()
+  }, [renderedAt])
   const queryClient = useQueryClient()
   const { data: show, isLoading, error } = useShow(showId)
   const { isAuthenticated, user } = useAuthContext()
@@ -261,7 +295,13 @@ export function ShowDetail({ showId, lifecycle }: ShowDetailProps) {
             at this venue", below the embeds and above the footer. Renders
             nothing at all when neither rail has rows, so a quiet night and a
             room with no other dates cost this page no space. */}
-        <ShowDiscoveryRails show={show} lifecycle={lifecycle} />
+        <ShowDiscoveryRails
+          show={show}
+          lifecycle={lifecycle}
+          now={now}
+          initialAlsoTonight={initialAlsoTonight}
+          initialVenueShows={initialVenueShows}
+        />
 
         {/* Tags and provenance footer. Both were in the header slot, above the
             fold, competing with the bill for the first thing a reader sees.

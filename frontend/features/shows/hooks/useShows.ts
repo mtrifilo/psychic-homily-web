@@ -135,7 +135,18 @@ export const useShowAlsoTonight = (
    * Lets a caller that will not RENDER this rail skip fetching it. Defaults to
    * on, so the only callers paying attention are the ones with a reason.
    */
-  enabled = true
+  enabled = true,
+  /**
+   * The rail the SERVER already fetched for this same show, so the rows are in
+   * the served HTML instead of arriving after hydration and pushing the
+   * comment thread down (PSY-1967).
+   *
+   * Seeded here rather than through a `HydrationBoundary` on the route, the
+   * same choice `useVenueShows` documents: the key is built from this hook's
+   * own argument, so the seed cannot land on an entry the hook does not read.
+   * Pass it only for the show this hook is asking about.
+   */
+  initialData?: ShowAlsoTonightResponse
 ) => {
   return useQuery({
     queryKey: showQueryKeys.alsoTonight(String(showId)),
@@ -147,6 +158,7 @@ export const useShowAlsoTonight = (
     },
     enabled: enabled && Boolean(showId),
     staleTime: 5 * 60 * 1000, // 5 minutes
+    initialData,
   })
 }
 

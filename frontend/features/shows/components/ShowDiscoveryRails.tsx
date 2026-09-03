@@ -11,9 +11,11 @@ import {
   buildMoreAtVenueRail,
   VENUE_RAIL_FETCH_LIMIT,
   type RailRowData,
+  type ShowAlsoTonightResponse,
   type ShowRail,
 } from '../showRails'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
+import type { VenueShowsResponse } from '@/features/venues/types'
 import type { ShowResponse } from '../types'
 
 /**
@@ -44,23 +46,49 @@ import type { ShowResponse } from '../types'
  * nothing honest to say and a spinner would advertise a wait for something the
  * reader did not ask for.
  *
- * It is an ACCEPTED COST for the pending case, not a free one, and the cost is
- * layout shift: these rails are not the last thing on the page. The provenance
- * byline sits below them, and `RevisionHistory` + `CommentThread` sit below
- * that, so rows arriving late push all three down — worst on a phone, where the
- * columns stack. The page already inserts four client-fetched blocks above the
- * comment thread (collections, field notes, tags, the byline's revision
- * count), so this joins an existing pattern rather than starting one; it does
- * make it materially bigger. Removing the class properly means server-fetching
- * both rails into the route's prefetch so they are in the HTML, which is
- * PSY-1967 and is deliberately not attempted here.
+ * The PENDING case is not reached on a first paint: the route fetches both
+ * rails on the server and seeds them here, so the rows are in the served HTML
+ * and nothing below is pushed down when they arrive. That matters beyond
+ * tidiness — the provenance byline, `RevisionHistory` and `CommentThread` all
+ * sit under these rails, and `/shows/{slug}#comment-123` scrolls to a comment
+ * once its own query resolves, so a rail inserting rows after that scroll would
+ * take the targeted comment out from under the reader.
+ *
+ * A seed can still be absent (the server fetch failed, or was skipped), and
+ * then these rails behave exactly as they did before it existed: nothing until
+ * the client query resolves.
  */
 export function ShowDiscoveryRails({
   show,
   lifecycle,
+  now,
+  initialAlsoTonight,
+  initialVenueShows,
 }: {
   show: ShowResponse
   lifecycle: ShowLifecycleState
+  /**
+   * The instant this page is being rendered at, read ONCE on the server (see
+   * the show route) and threaded here for the same reason `lifecycle` is: this
+   * component renders on the server and again on the hydrating client, and a
+   * clock read on each side would let the two disagree about which of the
+   * night's shows have started — reordering the rows under the reader and
+   * failing hydration for the whole page.
+   */
+  now: Date
+  /**
+   * Rows the SERVER already fetched for exactly these two requests.
+   *
+   * Passed to the hooks as `initialData` rather than seeded into a query key on
+   * the route, following the venue archive's precedent: the key is then built
+   * in this component from this component's own arguments, so the URL and the
+   * key cannot describe different requests. Seeding a key from the route would
+   * mean restating `VENUE_RAIL_FETCH_LIMIT` there, and a stale copy of it would
+   * register an entry the hook never reads — a silent miss that leaves the
+   * layout shift in place with every test still green.
+   */
+  initialAlsoTonight?: ShowAlsoTonightResponse
+  initialVenueShows?: VenueShowsResponse
 }) {
   const venue = show.venues[0]
 
@@ -81,13 +109,18 @@ export function ShowDiscoveryRails({
   // on a past show.
   const { data: alsoTonightPayload } = useShowAlsoTonight(
     show.slug || show.id,
-    showsAlsoTonight
+    showsAlsoTonight,
+    // Withheld when this rail is not drawn at all: `initialData` on a DISABLED
+    // query still populates its cache entry, which would leave a past show's
+    // page holding a rail it refuses to render.
+    showsAlsoTonight ? initialAlsoTonight : undefined
   )
   const { data: venueShows } = useVenueShows({
     venueId: venue?.id ?? 0,
     timeFilter: 'upcoming',
     limit: VENUE_RAIL_FETCH_LIMIT,
     enabled: Boolean(venue),
+    initialData: venue ? initialVenueShows : undefined,
   })
 
   // ORDER MATTERS: the also-tonight rail is built first and its rows are handed
@@ -96,7 +129,7 @@ export function ShowDiscoveryRails({
   // renders in both columns at once. The venue rail yields because its heading
   // already names the room.
   const alsoTonight = showsAlsoTonight
-    ? buildAlsoTonightRail(alsoTonightPayload, show.id)
+    ? buildAlsoTonightRail(alsoTonightPayload, show.id, now)
     : null
   const moreAtVenue = buildMoreAtVenueRail(
     venue,
@@ -106,7 +139,9 @@ export function ShowDiscoveryRails({
     // Nothing to yield to when the other rail is not drawn: an exclusion set
     // built from a rail the reader cannot see would silently drop bills from
     // the only rail they can.
-    alsoTonight ? alsoTonightDrawnIds(alsoTonightPayload, show.id) : undefined
+    alsoTonight
+      ? alsoTonightDrawnIds(alsoTonightPayload, show.id, now)
+      : undefined
   )
 
   if (!alsoTonight && !moreAtVenue) return null
@@ -177,7 +212,13 @@ function Rail({ rail, testId }: { rail: ShowRail; testId: string }) {
       />
       <ul>
         {rail.rows.map(row => (
-          <RailRow key={row.href} row={row} hasRoomColumn={rail.hasRoomColumn} />
+          <RailRow
+            key={row.href}
+            row={row}
+            hasRoomColumn={rail.hasRoomColumn}
+            hasAgeColumn={rail.hasAgeColumn}
+            leadKind={rail.leadKind}
+          />
         ))}
       </ul>
     </section>
@@ -203,10 +244,20 @@ function Rail({ rail, testId }: { rail: ShowRail; testId: string }) {
 function RailRow({
   row,
   hasRoomColumn,
+  hasAgeColumn,
+  leadKind,
 }: {
   row: RailRowData
   hasRoomColumn: boolean
+  hasAgeColumn: boolean
+  leadKind: ShowRail['leadKind']
 }) {
+  // A clock time in the compact register is at most `10:30PM`; a date is at
+  // most `SEP 04 '27`, which is three characters longer and needs the wider
+  // reservation. Both are `text-xs` mono, so the difference is real width, not
+  // a rounding.
+  const leadWidth = leadKind === 'time' ? 'sm:w-14' : 'sm:w-20'
+
   return (
     <li className="border-b border-border/40 last:border-0">
       <Link
@@ -224,22 +275,28 @@ function RailRow({
             them, which is not the 672px the mock is drawn at. The rails row
             goes two-up at `lg`, and `EntityDetailLayout` may also be carrying
             a 320px chart-rank sidebar, so the narrowest real rail column is
-            ~300px (lg + sidebar). Reserving lead+room+figure at the mock's
-            proportions overflowed that outright and left the BILL — the one
-            cell a reader is scanning for — as a bare ellipsis from `md` up to
-            ~1100px. So: the room column, the least load-bearing of the four,
-            hides only in the horizontal band, and the bill keeps `flex-1`
-            everywhere.
+            ~300px (lg + sidebar). Reserving every cell at the mock's
+            proportions overflows that outright and leaves the BILL — the one
+            cell a reader is scanning for — as a bare ellipsis. So the two
+            least load-bearing columns, room and age, hide in the horizontal
+            band, and the bill keeps `flex-1` everywhere.
 
             Budget with the arithmetic, not by eye. The container caps at
             `max-w-6xl` (1152), so the narrowest real rail column is ~300px at
-            `lg` with the sidebar and ~364px at `xl` with it. At `lg` the room
-            is hidden: lead 80 + figure 64 + gaps 24 = 168 of 300, bill 132. At
-            `xl` the room is a QUARTER of the column rather than a fixed 128px,
-            so it scales with the space instead of eating a fixed bite out of
-            the narrowest case — 80 + 91 + 64 + 36 = 271 of 364, bill 93; and
-            at 540 (no sidebar) 80 + 135 + 64 + 36 = 315, bill 225. */}
-        <span className="shrink-0 whitespace-nowrap font-mono text-xs uppercase tabular-nums text-muted-foreground sm:w-20">
+            `lg` with the sidebar, ~364px at `xl` with it, and ~540px at `xl`
+            without. Gaps are 12px each. At `lg`, room and age are hidden:
+            lead 56 + figure 64 + gaps 24 = 144 of 300, bill 156. At `xl` all
+            five columns are up, and the room takes a SIXTH of the column
+            rather than a fixed width so it scales with the space instead of
+            eating a fixed bite out of the narrowest case — 56 + 61 + 40 + 64
+            + 48 = 269 of 364, bill 95; and at 540, 56 + 90 + 40 + 64 + 48 =
+            298, bill 242. The 95px case is the tightest the layout produces
+            (a charted show, whose sidebar is present); the bill truncates
+            there rather than pushing a column off the row, and it is the cell
+            every other width here is budgeted around. */}
+        <span
+          className={`shrink-0 whitespace-nowrap font-mono text-xs uppercase tabular-nums text-muted-foreground ${leadWidth}`}
+        >
           {row.lead ?? ''}
         </span>
         <span
@@ -259,8 +316,29 @@ function RailRow({
             Not `shrink-0`: under pressure this cell yields to the bill rather
             than pushing it out. */}
         {hasRoomColumn && (
-          <span className="block min-w-0 truncate font-mono text-xs text-muted-foreground sm:hidden xl:block xl:w-1/4">
+          <span className="block min-w-0 truncate font-mono text-xs text-muted-foreground sm:hidden xl:block xl:w-1/6">
             {row.room ?? ''}
+          </span>
+        )}
+        {/* The age column, on the same visibility rule as the room and for the
+            same reason: below `sm` every cell is its own full-width line and
+            there is no competition, and from `xl` there is room for all five.
+            In the horizontal band between them the columns genuinely fight,
+            and a door policy is the cell a reader can most afford to open the
+            show page for.
+
+            Fixed-width and truncating rather than sized to the value: this is
+            contributor-written free text with no vocabulary enforced, so a
+            column sized to fit whatever arrived would move under the row
+            below it. The width fits the short forms this column is mostly
+            made of (`21+`, `18+`); a longer one truncates and the `title`
+            carries the whole of it. */}
+        {hasAgeColumn && (
+          <span
+            className="block min-w-0 truncate font-mono text-xs uppercase text-muted-foreground sm:hidden xl:block xl:w-10"
+            title={row.age ?? undefined}
+          >
+            {row.age ?? ''}
           </span>
         )}
         {/* Uppercased here rather than in the policy, so `Free` reaches the

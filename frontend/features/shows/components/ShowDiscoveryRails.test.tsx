@@ -26,6 +26,14 @@ vi.mock('@/features/venues/hooks/useVenues', () => ({
 
 import { ShowDiscoveryRails } from './ShowDiscoveryRails'
 
+/**
+ * The clock every render here is staged at: an hour BEFORE the fixtures' 8PM
+ * Chicago doors, so no fixture row counts as started and the live-night
+ * ordering leaves the payload's clock order alone. Tests that care about the
+ * ordering stage their own instant.
+ */
+const RAILS_NOW = new Date('2026-08-13T00:00:00Z')
+
 beforeEach(() => {
   vi.clearAllMocks()
   // Default: neither rail has anything. Each test opts into the payload it
@@ -38,13 +46,13 @@ describe('ShowDiscoveryRails', () => {
   it('renders nothing at all when neither rail has rows', () => {
     // Not merely empty rails: the ROW must go, or its bottom margin opens a
     // gap above the footer on every quiet page.
-    const { container } = render(<ShowDiscoveryRails show={makeRailShow()} lifecycle="upcoming" />)
+    const { container } = render(<ShowDiscoveryRails now={RAILS_NOW} show={makeRailShow()} lifecycle="upcoming" />)
     expect(container).toBeEmptyDOMElement()
   })
 
   it('draws the also-tonight rail in the mock’s register', () => {
     useShowAlsoTonight.mockReturnValue({ data: makeAlsoTonightPayload() })
-    render(<ShowDiscoveryRails show={makeRailShow()} lifecycle="upcoming" />)
+    render(<ShowDiscoveryRails now={RAILS_NOW} show={makeRailShow()} lifecycle="upcoming" />)
 
     expect(
       screen.getByRole('heading', { name: 'Also / Tonight · Chicago' })
@@ -52,7 +60,7 @@ describe('ShowDiscoveryRails', () => {
     const row = screen.getByRole('link', { name: /Dehd \+ Lifeguard/ })
     expect(row).toHaveAttribute('href', '/shows/dehd-lifeguard')
     // Venue-local: 01:00 UTC Aug 13 is 8PM Aug 12 in Chicago.
-    expect(row).toHaveTextContent('8:00 PM')
+    expect(row).toHaveTextContent('8PM')
     expect(row).toHaveTextContent('Empty Bottle')
     expect(row).toHaveTextContent('$15')
   })
@@ -61,7 +69,7 @@ describe('ShowDiscoveryRails', () => {
     useVenueShows.mockReturnValue({
       data: makeVenueShowsResponse([makeVenueShow()]),
     })
-    render(<ShowDiscoveryRails show={makeRailShow()} lifecycle="upcoming" />)
+    render(<ShowDiscoveryRails now={RAILS_NOW} show={makeRailShow()} lifecycle="upcoming" />)
 
     expect(
       screen.getByRole('heading', { name: 'More at / Salt Shed' })
@@ -81,7 +89,7 @@ describe('ShowDiscoveryRails', () => {
         makeVenueShow({ is_cancelled: true, is_sold_out: false }),
       ]),
     })
-    render(<ShowDiscoveryRails show={makeRailShow()} lifecycle="upcoming" />)
+    render(<ShowDiscoveryRails now={RAILS_NOW} show={makeRailShow()} lifecycle="upcoming" />)
     const row = screen.getByRole('link', { name: /Waxahatchee/ })
     expect(row.lastElementChild).toHaveTextContent('Cancelled')
     expect(row.querySelector('.line-through')).not.toBeNull()
@@ -94,7 +102,7 @@ describe('ShowDiscoveryRails', () => {
         makeVenueShow({ is_cancelled: true, is_sold_out: true }),
       ]),
     })
-    render(<ShowDiscoveryRails show={makeRailShow()} lifecycle="upcoming" />)
+    render(<ShowDiscoveryRails now={RAILS_NOW} show={makeRailShow()} lifecycle="upcoming" />)
     const row = screen.getByRole('link', { name: /Waxahatchee/ })
     expect(row).toHaveTextContent('Cancelled')
     expect(row).not.toHaveTextContent('Sold out')
@@ -107,7 +115,7 @@ describe('ShowDiscoveryRails', () => {
     useVenueShows.mockReturnValue({
       data: makeVenueShowsResponse([makeVenueShow()]),
     })
-    render(<ShowDiscoveryRails show={makeRailShow()} lifecycle="upcoming" />)
+    render(<ShowDiscoveryRails now={RAILS_NOW} show={makeRailShow()} lifecycle="upcoming" />)
 
     const alsoTonight = screen.getByTestId('also-tonight-rail')
     const moreAtVenue = screen.getByTestId('more-at-venue-rail')
@@ -122,7 +130,7 @@ describe('ShowDiscoveryRails', () => {
     useVenueShows.mockReturnValue({
       data: makeVenueShowsResponse([makeVenueShow()]),
     })
-    render(<ShowDiscoveryRails show={makeRailShow()} lifecycle="upcoming" />)
+    render(<ShowDiscoveryRails now={RAILS_NOW} show={makeRailShow()} lifecycle="upcoming" />)
 
     expect(
       screen.getByRole('region', { name: 'Also / Tonight · Chicago' })
@@ -138,7 +146,7 @@ describe('ShowDiscoveryRails', () => {
         shows: [makeAlsoTonightShow({ is_cancelled: true })],
       }),
     })
-    render(<ShowDiscoveryRails show={makeRailShow()} lifecycle="upcoming" />)
+    render(<ShowDiscoveryRails now={RAILS_NOW} show={makeRailShow()} lifecycle="upcoming" />)
     const row = screen.getByRole('link', { name: /Dehd \+ Lifeguard/ })
     expect(row.lastElementChild).toHaveTextContent('Cancelled')
     expect(row.querySelector('.line-through')).not.toBeNull()
@@ -151,17 +159,18 @@ describe('ShowDiscoveryRails', () => {
         shows: [makeAlsoTonightShow({ starts_at: 'not-a-date' })],
       }),
     })
-    render(<ShowDiscoveryRails show={makeRailShow()} lifecycle="upcoming" />)
+    render(<ShowDiscoveryRails now={RAILS_NOW} show={makeRailShow()} lifecycle="upcoming" />)
     const row = screen.getByRole('link', { name: /Dehd \+ Lifeguard/ })
     // Width class, not text: the point is that the cell still OCCUPIES its
-    // column so the bills beneath it stay in line.
-    expect(row.firstElementChild).toHaveClass('sm:w-20')
+    // column so the bills beneath it stay in line. `sm:w-14` is the TIME
+    // reservation, which is what this rail leads with.
+    expect(row.firstElementChild).toHaveClass('sm:w-14')
     expect(row.firstElementChild).toHaveTextContent('')
   })
 
   it('draws one rail without the other', () => {
     useShowAlsoTonight.mockReturnValue({ data: makeAlsoTonightPayload() })
-    render(<ShowDiscoveryRails show={makeRailShow()} lifecycle="upcoming" />)
+    render(<ShowDiscoveryRails now={RAILS_NOW} show={makeRailShow()} lifecycle="upcoming" />)
     expect(screen.getByTestId('also-tonight-rail')).toBeInTheDocument()
     expect(screen.queryByTestId('more-at-venue-rail')).not.toBeInTheDocument()
   })
@@ -170,7 +179,7 @@ describe('ShowDiscoveryRails', () => {
     useShowAlsoTonight.mockReturnValue({
       data: makeAlsoTonightPayload({ has_more: true }),
     })
-    render(<ShowDiscoveryRails show={makeRailShow()} lifecycle="upcoming" />)
+    render(<ShowDiscoveryRails now={RAILS_NOW} show={makeRailShow()} lifecycle="upcoming" />)
     expect(
       screen.getByRole('link', { name: 'See every show Tonight, Chicago' })
     ).toHaveAttribute('href', '/scenes/chicago-il/2026-08-12')
@@ -178,21 +187,22 @@ describe('ShowDiscoveryRails', () => {
 
   it('renders no bracket when the rail withheld its see-all', () => {
     useShowAlsoTonight.mockReturnValue({ data: makeAlsoTonightPayload() })
-    render(<ShowDiscoveryRails show={makeRailShow()} lifecycle="upcoming" />)
+    render(<ShowDiscoveryRails now={RAILS_NOW} show={makeRailShow()} lifecycle="upcoming" />)
     expect(screen.getByTestId('also-tonight-rail')).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /^See all/ })).toBeNull()
   })
 
   it('addresses the also-tonight request by slug, preferring it to the id', () => {
-    render(<ShowDiscoveryRails show={makeRailShow()} lifecycle="upcoming" />)
+    render(<ShowDiscoveryRails now={RAILS_NOW} show={makeRailShow()} lifecycle="upcoming" />)
     expect(useShowAlsoTonight).toHaveBeenCalledWith(
       'modest-mouse-califone',
-      true
+      true,
+      undefined
     )
   })
 
   it('asks the venue for one row more than the rail can draw', () => {
-    render(<ShowDiscoveryRails show={makeRailShow()} lifecycle="upcoming" />)
+    render(<ShowDiscoveryRails now={RAILS_NOW} show={makeRailShow()} lifecycle="upcoming" />)
     expect(useVenueShows).toHaveBeenCalledWith(
       expect.objectContaining({
         venueId: 10,
@@ -214,7 +224,7 @@ describe('ShowDiscoveryRails', () => {
       data: makeVenueShowsResponse([makeVenueShow()], 9),
     })
 
-    render(<ShowDiscoveryRails show={makeRailShow()} lifecycle="past" />)
+    render(<ShowDiscoveryRails now={RAILS_NOW} show={makeRailShow()} lifecycle="past" />)
 
     expect(screen.queryByTestId('also-tonight-rail')).not.toBeInTheDocument()
     expect(screen.getByTestId('more-at-venue-rail')).toBeInTheDocument()
@@ -223,13 +233,17 @@ describe('ShowDiscoveryRails', () => {
   // Not fetched either: a rail that cannot render has no reason to cost a
   // request on every past show page.
   it('does not ask for also-tonight on a past show', () => {
-    render(<ShowDiscoveryRails show={makeRailShow()} lifecycle="past" />)
+    render(<ShowDiscoveryRails now={RAILS_NOW} show={makeRailShow()} lifecycle="past" />)
 
-    expect(useShowAlsoTonight).toHaveBeenCalledWith(expect.anything(), false)
+    expect(useShowAlsoTonight).toHaveBeenCalledWith(
+      expect.anything(),
+      false,
+      undefined
+    )
   })
 
   it('does not ask for venue shows when the show has no venue', () => {
-    render(<ShowDiscoveryRails show={makeRailShow({ venues: [] })} lifecycle="upcoming" />)
+    render(<ShowDiscoveryRails now={RAILS_NOW} show={makeRailShow({ venues: [] })} lifecycle="upcoming" />)
     expect(useVenueShows).toHaveBeenCalledWith(
       expect.objectContaining({ enabled: false })
     )
@@ -258,7 +272,7 @@ describe('ShowDiscoveryRails', () => {
         ],
       }),
     })
-    render(<ShowDiscoveryRails show={makeRailShow({ id: 999 })} lifecycle="upcoming" />)
+    render(<ShowDiscoveryRails now={RAILS_NOW} show={makeRailShow({ id: 999 })} lifecycle="upcoming" />)
     expect(
       screen.getByRole('link', { name: /Sen Morimoto/ })
     ).toHaveAttribute('href', '/shows/sen-morimoto')
@@ -273,11 +287,123 @@ describe('ShowDiscoveryRails', () => {
     })
     render(
       <ShowDiscoveryRails
+        now={RAILS_NOW}
         show={makeRailShow({ venues: [makeRailVenue({ slug: '' })] })}
         lifecycle="upcoming"
       />
     )
     expect(screen.getByTestId('more-at-venue-rail')).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /^See all/ })).toBeNull()
+  })
+
+  it('draws the mock’s age column on the night rail', () => {
+    useShowAlsoTonight.mockReturnValue({
+      data: makeAlsoTonightPayload({
+        shows: [makeAlsoTonightShow({ age_requirement: 'all ages' })],
+      }),
+    })
+    render(<ShowDiscoveryRails now={RAILS_NOW} show={makeRailShow()} lifecycle="upcoming" />)
+
+    const row = screen.getByRole('link', { name: /Dehd \+ Lifeguard/ })
+    // Uppercased by the column, like the figure beside it, so `all ages`
+    // reaches the mock's register without a second vocabulary.
+    const age = row.children[3]
+    expect(age).toHaveTextContent('all ages')
+    expect(age).toHaveClass('uppercase')
+  })
+
+  it('reserves the age column when a row states no policy at all', () => {
+    // Reserved-but-empty, not dropped: a row that omits a cell shifts every
+    // cell after it, which is what stops a ledger reading as columns.
+    useShowAlsoTonight.mockReturnValue({
+      data: makeAlsoTonightPayload({
+        shows: [
+          makeAlsoTonightShow({ age_requirement: '', venue_age_policy: '' }),
+        ],
+      }),
+    })
+    render(<ShowDiscoveryRails now={RAILS_NOW} show={makeRailShow()} lifecycle="upcoming" />)
+
+    const row = screen.getByRole('link', { name: /Dehd \+ Lifeguard/ })
+    expect(row.children).toHaveLength(5)
+    expect(row.children[3]).toHaveTextContent('')
+  })
+
+  it('gives the venue rail no age column', () => {
+    useVenueShows.mockReturnValue({
+      data: makeVenueShowsResponse([makeVenueShow()]),
+    })
+    render(<ShowDiscoveryRails now={RAILS_NOW} show={makeRailShow()} lifecycle="upcoming" />)
+
+    // Lead, bill, figure. No room cell (the heading names it) and no age cell.
+    const row = screen.getByRole('link', { name: /Waxahatchee/ })
+    expect(row.children).toHaveLength(3)
+  })
+
+  it('reserves a WIDER lead column for the venue rail’s dates', () => {
+    // The compact time register buys the night rail 24px it does not have to
+    // give the room rail, whose lead can be as long as `SEP 04 '27`.
+    useShowAlsoTonight.mockReturnValue({ data: makeAlsoTonightPayload() })
+    useVenueShows.mockReturnValue({
+      data: makeVenueShowsResponse([makeVenueShow()]),
+    })
+    render(<ShowDiscoveryRails now={RAILS_NOW} show={makeRailShow()} lifecycle="upcoming" />)
+
+    expect(
+      screen.getByRole('link', { name: /Dehd \+ Lifeguard/ }).firstElementChild
+    ).toHaveClass('sm:w-14')
+    expect(
+      screen.getByRole('link', { name: /Waxahatchee/ }).firstElementChild
+    ).toHaveClass('sm:w-20')
+  })
+
+  it('hands each hook the rows the server already fetched', () => {
+    // The seeds are passed to the HOOKS, which build their own keys from their
+    // own arguments, so a seeded URL and the key it lands on cannot describe
+    // different requests.
+    const alsoTonight = makeAlsoTonightPayload()
+    const venueShows = makeVenueShowsResponse([makeVenueShow()])
+    render(
+      <ShowDiscoveryRails
+        now={RAILS_NOW}
+        show={makeRailShow()}
+        lifecycle="upcoming"
+        initialAlsoTonight={alsoTonight}
+        initialVenueShows={venueShows}
+      />
+    )
+
+    expect(useShowAlsoTonight).toHaveBeenCalledWith(
+      'modest-mouse-califone',
+      true,
+      alsoTonight
+    )
+    expect(useVenueShows).toHaveBeenCalledWith(
+      expect.objectContaining({ initialData: venueShows })
+    )
+  })
+
+  it('withholds a seed from a rail it will not draw', () => {
+    // `initialData` populates a cache entry even on a DISABLED query, so a past
+    // show would otherwise hold a rail it refuses to render, and a venue-less
+    // show a rail with no room.
+    render(
+      <ShowDiscoveryRails
+        now={RAILS_NOW}
+        show={makeRailShow({ venues: [] })}
+        lifecycle="past"
+        initialAlsoTonight={makeAlsoTonightPayload()}
+        initialVenueShows={makeVenueShowsResponse([makeVenueShow()])}
+      />
+    )
+
+    expect(useShowAlsoTonight).toHaveBeenCalledWith(
+      expect.anything(),
+      false,
+      undefined
+    )
+    expect(useVenueShows).toHaveBeenCalledWith(
+      expect.objectContaining({ enabled: false, initialData: undefined })
+    )
   })
 })

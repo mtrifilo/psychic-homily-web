@@ -38,7 +38,11 @@ export function makeAlsoTonightShow(
     venue_city: 'Chicago',
     venue_state: 'IL',
     venue_timezone: 'America/Chicago',
+    venue_age_policy: '21+',
     price: 15,
+    // The common real shape: the room publishes a house policy and the event
+    // does not override it. A test about the override sets one.
+    age_requirement: '',
     is_cancelled: false,
     is_sold_out: false,
     ...overrides,
