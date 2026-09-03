@@ -1100,7 +1100,10 @@ func (s *DiscoveryService) CheckEvents(events []contracts.CheckEventInput) (*con
 
 	var shows []catalogm.Show
 	err := s.db.Where("(source_venue, source_event_id) IN ?", pairs).
-		Select("id, source_venue, source_event_id, status, price, age_requirement, description, event_date, is_sold_out, is_cancelled").
+		// Every column buildCheckEventStatus reads has to be named here: an
+		// omitted one arrives as the field's zero value, which this contract
+		// reports as "not recorded" rather than as a missing read.
+		Select("id, source_venue, source_event_id, status, price, door_price, age_requirement, description, event_date, is_sold_out, is_cancelled").
 		Find(&shows).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to check events: %w", err)
@@ -1190,7 +1193,7 @@ func (s *DiscoveryService) CheckEvents(events []contracts.CheckEventInput) (*con
 			Joins("JOIN venues ON show_venues.venue_id = venues.id").
 			Where("LOWER(venues.name) = LOWER(?) AND shows.event_date >= ? AND shows.event_date < ?",
 				venueConfig.Name, startOfDay, endOfDay).
-			Select("shows.id, shows.source_venue, shows.source_event_id, shows.status, shows.price, shows.age_requirement, shows.description, shows.event_date, shows.is_sold_out, shows.is_cancelled").
+			Select("shows.id, shows.source_venue, shows.source_event_id, shows.status, shows.price, shows.door_price, shows.age_requirement, shows.description, shows.event_date, shows.is_sold_out, shows.is_cancelled").
 			First(&matchedShow).Error
 		if err != nil {
 			continue // No match found — that's fine

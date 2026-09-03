@@ -1138,6 +1138,25 @@ func (suite *DiscoveryIntegrationTestSuite) TestCheckEvents_ReportsBothPriceHalv
 	suite.Require().NotNil(status.CurrentData.DoorPrice)
 	suite.InDelta(20.0, *status.CurrentData.Price, 0.001)
 	suite.InDelta(25.0, *status.CurrentData.DoorPrice, 0.001)
+
+	// The venue+date fallback runs its own column list, so it is its own way to
+	// drop the column. Strip the source key and ask again by date alone.
+	suite.Require().NoError(
+		suite.db.Model(&catalogm.Show{}).
+			Where("source_event_id = ?", "evt-check-price").
+			Updates(map[string]interface{}{"source_venue": nil, "source_event_id": nil}).Error,
+	)
+
+	result, err = suite.svc.CheckEvents([]contracts.CheckEventInput{
+		{ID: "no-source-check-price", VenueSlug: "valley-bar", Date: "2026-12-02"},
+	})
+	suite.Require().NoError(err)
+
+	status, ok = result.Events["no-source-check-price"]
+	suite.Require().True(ok, "fallback event should be found")
+	suite.Require().NotNil(status.CurrentData)
+	suite.Require().NotNil(status.CurrentData.DoorPrice)
+	suite.InDelta(25.0, *status.CurrentData.DoorPrice, 0.001)
 }
 
 func (suite *DiscoveryIntegrationTestSuite) TestCheckEvents_NotFound() {
