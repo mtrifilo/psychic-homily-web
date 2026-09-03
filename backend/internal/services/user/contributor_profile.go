@@ -942,10 +942,11 @@ func metadataUint(v interface{}) (uint, bool) {
 // festival and scene. But entity_edit_audit_logs.entity_type is a free column
 // with no allowlist behind it, so that is a property of the writers rather than a
 // constraint. Both arms therefore EXCLUDE the gated discriminators outright:
-// heatmapUngatedEntityTypesSQL drops any row naming a show or a collection, so a
-// writer that starts recording one withholds those days instead of locating a
-// gated entity to the day it was touched. Narrowing them to the real per-row gate
-// is the follow-up; refusing is the recoverable direction until then.
+// each carries `entity_type NOT IN ?` bound to heatmapGatedEntityTypes(), so a
+// writer that starts recording a show or a collection withholds those days
+// instead of locating a gated entity to the day it was touched. Narrowing them to
+// the real per-row gate is the follow-up; refusing is the recoverable direction
+// until then.
 func (s *ContributorProfileService) GetActivityHeatmap(userID uint, viewer contracts.ShowViewer) (*contracts.ActivityHeatmapResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")

@@ -24,15 +24,12 @@ import (
 // subtraction. The withheld count published as arithmetic is the same disclosure
 // as the rows.
 //
-// So every PUBLIC response body carries the VISIBLE count, computed here. The
-// raw column is still read in three places, and each is named rather than left
-// to be discovered:
+// So every PUBLIC response body carries the VISIBLE count, computed here, and the
+// two public listings ORDER BY it as well (services/catalog/tag_counts.go states
+// why the number and the ordering key have to be one expression). The raw column
+// is still read in two places, and each is named rather than left to be
+// discovered:
 //
-//   - ORDER BY, where it ranks popularity and no reader sees the number. The
-//     page is selected on the column and the counts rendered on it are the
-//     visible ones, so a listing's order and its numbers can disagree at the
-//     margin. That is the same trade the per-entity-type facet count already
-//     makes, and it is the recoverable one.
 //   - The low-quality tag queue's THRESHOLDS (catalog/tag_low_quality.go), where
 //     the subject is the tag's own hygiene: a tag applied only to private
 //     collections is in use, and calling it unused would put it in front of a

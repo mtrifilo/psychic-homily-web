@@ -1043,16 +1043,26 @@ func (s *TagService) SearchTags(query string, limit int, category string) ([]con
 		db = db.Where("category = ?", category)
 	}
 
+	// ORDERED BY THE COUNT THIS RESPONSE WILL PRINT, on ListTags' terms: the raw
+	// column both SELECTED the rows (the limit is applied to that order) and
+	// ranked them, while the number rendered beside each is the visible count, so
+	// a tag applied only to gated entities could outrank one with public rows and
+	// its position would state a lower bound on what its 0 withholds. Global
+	// scope, because this route has no entity_type facet. See tag_counts.go.
+	counts := s.visibleTagUsageCountQuery("", nil)
+	join, joinArgs := counts.leftJoin("tags.id")
+
 	var tags []catalogm.Tag
-	err := db.Order("usage_count DESC").
+	err := db.Model(&catalogm.Tag{}).
+		Select("tags.*").
+		Joins(join, joinArgs...).
+		Order(tagUsageCountOrderBySQL()).
 		Limit(limit).
 		Find(&tags).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to search tags: %w", err)
 	}
 
-	// The count a caller reads is the visible one. The ORDER BY above still ranks
-	// on the raw column, which is popularity rather than a published number.
 	if err := s.applyVisibleUsageCounts(tagPointers(tags)); err != nil {
 		return nil, fmt.Errorf("failed to compute visible tag usage counts: %w", err)
 	}

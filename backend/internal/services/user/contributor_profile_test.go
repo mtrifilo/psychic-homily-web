@@ -2512,18 +2512,24 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatm
 	suite.Equal(2, ownerDays, "the creator counts both, which is the control")
 
 	// The TIMELINE agrees, which is the property that closes the subtraction.
-	// Counted over the AUDIT rows alone, because the two routes union different
-	// source sets (the heatmap reads revisions and the timeline does not) and
-	// an equality over everything would hold here only by the fixture carrying
-	// none of the sources they do not share.
+	//
+	// THE FIXTURE IS THE BOUND on this equality and cannot be removed from it:
+	// the heatmap unions six sources and the timeline five, so the two totals are
+	// comparable only because this actor has nothing in the sources they do not
+	// share. The timeline side is restricted to audit rows to say which source is
+	// under test; adding a show, venue, pending edit or revision for this actor
+	// breaks the equality and the fixture, not the gate, is what to fix.
 	entries, _, err := suite.profileService.GetContributionHistory(
 		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: stranger.ID})
 	suite.Require().NoError(err)
 	auditEntries := 0
 	for _, e := range entries {
-		if e.Source == "audit_log" {
-			auditEntries++
+		if e.Source != "audit_log" {
+			suite.Failf("fixture drift",
+				"this actor has a %s row, which only the heatmap counts; the equality below is no longer meaningful",
+				e.Source)
 		}
+		auditEntries++
 	}
 	suite.Equal(auditEntries, strangerDays,
 		"the heatmap and the timeline must count the same audit rows for the same viewer")

@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	authm "psychic-homily-backend/internal/models/auth"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -884,15 +885,18 @@ func TestCommentWritesRefuseAGatedParentLikeAMissingComment(t *testing.T) {
 		})
 	}
 
-	// THE COMMENT SURVIVES every caller above, which is the destructive half of
-	// the claim: an admin DELETE that had been let through would have removed it
-	// and the walk would be a delete-and-observe rather than a probe.
-	var surviving int64
-	if err := td.DB.Table("comments").Where("id = ?", commentID).Count(&surviving).Error; err != nil {
-		t.Fatalf("count the seeded comment: %v", err)
+	// THE COMMENT IS UNTOUCHED by every caller above, which is the destructive
+	// half of the claim: DeleteComment is a SOFT delete, so counting the row
+	// proves nothing; what a let-through delete changes is `visibility`, and a
+	// walk that could change it would be a hide-and-observe rather than a probe.
+	var visibility string
+	if err := td.DB.Table("comments").Select("visibility").
+		Where("id = ?", commentID).Scan(&visibility).Error; err != nil {
+		t.Fatalf("read the seeded comment's visibility: %v", err)
 	}
-	if surviving != 1 {
-		t.Errorf("the comment on the private collection was removed by a caller the gate refuses")
+	if visibility != string(engagementm.CommentVisibilityVisible) {
+		t.Errorf("the comment on the private collection was hidden by a caller the gate refuses: visibility=%q",
+			visibility)
 	}
 
 	// THE MODERATION REMEDIES ARE ELSEWHERE, and they still reach this comment.

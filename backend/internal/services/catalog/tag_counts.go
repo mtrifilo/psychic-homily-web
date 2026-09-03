@@ -23,9 +23,9 @@ import (
 //
 // So each facet scope has ONE aggregate, built here. The listing LEFT JOINs it to
 // order itself and then reads the same aggregate for the numbers it prints.
-// `tags.usage_count`, the denormalised column, is not an ordering key for any
-// public listing; services/shared/tag_usage.go names the three places it is still
-// read and why each is not this.
+// `tags.usage_count`, the denormalised column, is not the ordering key for either
+// public tag listing, GET /tags or GET /tags/search; services/shared/tag_usage.go
+// names the places it is still read and why none of them is this.
 //
 // EVERY SCOPE IS PUBLIC TIER. These listings are anonymous, and a shared ranking
 // that varied by credential would report the difference between two callers.
@@ -120,10 +120,17 @@ func (s *TagService) visibleTagUsageCountQuery(entityType string, cities []contr
 
 // directEntityTypeTagUsageQuery counts entity_tags rows of one entity type.
 //
-// GATED FOR COLLECTIONS, and for nothing else here: a collection is the only
-// directly-taggable type with a read-time rule, and this count is rendered on the
-// same anonymous listing whose membership is filtered, so counting private
-// collections would report by subtraction how many carry each tag.
+// GATED FOR COLLECTIONS: this count is rendered on the same anonymous listing
+// whose membership is filtered, so counting private collections would report by
+// subtraction how many carry each tag.
+//
+// COLLECTION IS THE ONLY GATED TYPE THAT REACHES HERE, not the only gated
+// taggable type. `show` is gated too, and visibleTagUsageCountQuery routes it and
+// `festival` to the transitive branch above before this function is called. That
+// branch counts shows without a visibility term, so `?entity_type=show` counts
+// and now also ranks by shows a public reader may not see. That predates this
+// file and is disclosed rather than closed here: gating it means deciding whether
+// a facet count and the /shows listing it sits beside may disagree.
 func directEntityTypeTagUsageQuery(entityType string) tagUsageCountQuery {
 	sql := "SELECT entity_tags.tag_id AS tag_id, COUNT(*) AS count" +
 		" FROM entity_tags WHERE entity_tags.entity_type = ?"
