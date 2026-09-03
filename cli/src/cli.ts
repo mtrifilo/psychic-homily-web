@@ -19,6 +19,7 @@ import { runShowAddArtist, runShowRemoveArtist } from "./commands/show";
 import { runSourcesStale, runSourcesRegister, runSourcesRefresh } from "./commands/sources";
 import { runRadioRematch } from "./commands/radio";
 import { flushRevalidation } from "./lib/revalidate";
+import { setTypeVocabularyCSV } from "./lib/setType";
 
 const program = new Command();
 
@@ -202,8 +203,12 @@ showCmd
   .command("add-artist <show-id> [json]")
   .description("Add artists to an existing show by ID")
   .option("--file <path>", "Read artist JSON from file")
+  .option(
+    "--role <role>",
+    `Bill role for added acts that state no set_type of their own (${setTypeVocabularyCSV()})`,
+  )
   .option("--confirm", "Execute changes (default is dry-run)")
-  .action(async (showId: string, json: string | undefined, opts: { file?: string; confirm?: boolean }) => {
+  .action(async (showId: string, json: string | undefined, opts: { file?: string; confirm?: boolean; role?: string }) => {
     const env = await resolveEnvOrExit(program.opts().env);
     await runShowAddArtist(showId, json, env, opts);
   });

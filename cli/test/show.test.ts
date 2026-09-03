@@ -494,3 +494,248 @@ describe("removeArtistFromShow", () => {
     });
   });
 });
+
+// --- Curated bill roles survive an edit -------------------------------------
+
+/** A bill whose acts each hold a different curated role. */
+function setupCuratedBillMock(): void {
+  setupShowMock({
+    artists: [
+      { id: 10, name: "Pavement", slug: "pavement", is_headliner: true, set_type: "headliner" },
+      { id: 11, name: "Bosses Band", slug: "bosses-band", is_headliner: false, set_type: "direct_support" },
+      { id: 12, name: "Soapbox Derby", slug: "soapbox-derby", is_headliner: false, set_type: "opener" },
+    ],
+  });
+}
+
+/** The bill sent by the single PUT this edit issued. */
+function putBill(): Record<string, unknown>[] {
+  const putCalls = fetchCalls.filter(
+    (c) => c.method === "PUT" && /\/shows\/668$/.test(c.url),
+  );
+  expect(putCalls).toHaveLength(1);
+  return (putCalls[0].body as { artists: Record<string, unknown>[] }).artists;
+}
+
+describe("bill roles round-trip", () => {
+  test("add-artist preserves every untouched act's role byte-identically", async () => {
+    setupCuratedBillMock();
+    setupArtistSearchMock({
+      "Nite Fields": { id: 20, name: "Nite Fields", slug: "nite-fields" },
+    });
+    addMockRoute("PUT", /\/shows\/668$/, () => ({ id: 668 }));
+
+    await addArtistsToShow("668", [{ name: "Nite Fields" }], TEST_ENV, true);
+
+    const bill = putBill();
+    expect(bill.slice(0, 3)).toEqual([
+      { id: 10, is_headliner: true, set_type: "headliner" },
+      { id: 11, is_headliner: false, set_type: "direct_support" },
+      { id: 12, is_headliner: false, set_type: "opener" },
+    ]);
+  });
+
+  test("remove-artist preserves every remaining act's role byte-identically", async () => {
+    setupCuratedBillMock();
+    addMockRoute("PUT", /\/shows\/668$/, () => ({ id: 668 }));
+
+    await removeArtistFromShow("668", "12", TEST_ENV, true);
+
+    expect(putBill()).toEqual([
+      { id: 10, is_headliner: true, set_type: "headliner" },
+      { id: 11, is_headliner: false, set_type: "direct_support" },
+    ]);
+  });
+
+  test("a stored 'performer' goes back as an ABSENT key, never a stated role", async () => {
+    setupShowMock({
+      artists: [
+        { id: 10, name: "Pavement", slug: "pavement", is_headliner: true, set_type: "headliner" },
+        { id: 11, name: "Bosses Band", slug: "bosses-band", is_headliner: false, set_type: "performer" },
+      ],
+    });
+    setupArtistSearchMock({
+      "Nite Fields": { id: 20, name: "Nite Fields", slug: "nite-fields" },
+    });
+    addMockRoute("PUT", /\/shows\/668$/, () => ({ id: 668 }));
+
+    await addArtistsToShow("668", [{ name: "Nite Fields" }], TEST_ENV, true);
+
+    const bill = putBill();
+    expect("set_type" in bill[1]).toBe(false);
+    expect(bill[1]).toEqual({ id: 11, is_headliner: false });
+  });
+
+  test("an act stating no role is added with no set_type key", async () => {
+    setupCuratedBillMock();
+    setupArtistSearchMock({
+      "Nite Fields": { id: 20, name: "Nite Fields", slug: "nite-fields" },
+    });
+    addMockRoute("PUT", /\/shows\/668$/, () => ({ id: 668 }));
+
+    await addArtistsToShow("668", [{ name: "Nite Fields" }], TEST_ENV, true);
+
+    const added = putBill()[3];
+    expect("set_type" in added).toBe(false);
+    expect(added).toEqual({ id: 20, is_headliner: false });
+  });
+
+  test("--role states the added act's role and derives is_headliner from it", async () => {
+    setupCuratedBillMock();
+    setupArtistSearchMock({
+      "Nite Fields": { id: 20, name: "Nite Fields", slug: "nite-fields" },
+    });
+    addMockRoute("PUT", /\/shows\/668$/, () => ({ id: 668 }));
+
+    await addArtistsToShow(
+      "668",
+      [{ name: "Nite Fields" }],
+      TEST_ENV,
+      true,
+      "special_guest",
+    );
+
+    expect(putBill()[3]).toEqual({
+      id: 20,
+      is_headliner: false,
+      set_type: "special_guest",
+    });
+  });
+
+  test("--role headliner derives is_headliner true", async () => {
+    setupShowMock({
+      artists: [
+        { id: 11, name: "Bosses Band", slug: "bosses-band", is_headliner: false, set_type: "opener" },
+      ],
+    });
+    setupArtistSearchMock({
+      "Nite Fields": { id: 20, name: "Nite Fields", slug: "nite-fields" },
+    });
+    addMockRoute("PUT", /\/shows\/668$/, () => ({ id: 668 }));
+
+    await addArtistsToShow(
+      "668",
+      [{ name: "Nite Fields" }],
+      TEST_ENV,
+      true,
+      "headliner",
+    );
+
+    expect(putBill()[1]).toEqual({
+      id: 20,
+      is_headliner: true,
+      set_type: "headliner",
+    });
+  });
+
+  test("a per-act set_type outranks --role", async () => {
+    setupCuratedBillMock();
+    setupArtistSearchMock({
+      "Nite Fields": { id: 20, name: "Nite Fields", slug: "nite-fields" },
+    });
+    addMockRoute("PUT", /\/shows\/668$/, () => ({ id: 668 }));
+
+    await addArtistsToShow(
+      "668",
+      [{ name: "Nite Fields", set_type: "dj" }],
+      TEST_ENV,
+      true,
+      "opener",
+    );
+
+    expect(putBill()[3]).toEqual({
+      id: 20,
+      is_headliner: false,
+      set_type: "dj",
+    });
+  });
+
+  test("an invalid --role is refused before any request goes out", async () => {
+    setupCuratedBillMock();
+    setupArtistSearchMock({
+      "Nite Fields": { id: 20, name: "Nite Fields", slug: "nite-fields" },
+    });
+    addMockRoute("PUT", /\/shows\/668$/, () => ({ id: 668 }));
+
+    const results = await addArtistsToShow(
+      "668",
+      [{ name: "Nite Fields" }],
+      TEST_ENV,
+      true,
+      "support",
+    );
+
+    expect(results).toHaveLength(1);
+    expect(results[0].action).toBe("error");
+    expect(results[0].error).toContain("direct_support");
+    expect(fetchCalls).toHaveLength(0);
+  });
+
+  test("an invalid per-act set_type is refused before any request goes out", async () => {
+    setupCuratedBillMock();
+
+    const results = await addArtistsToShow(
+      "668",
+      [{ name: "Nite Fields", set_type: "Headliner" }],
+      TEST_ENV,
+      true,
+    );
+
+    expect(results[0].action).toBe("error");
+    expect(results[0].error).toContain("headliner");
+    expect(fetchCalls).toHaveLength(0);
+  });
+
+  test("a 422 from the API surfaces as an error result", async () => {
+    setupCuratedBillMock();
+    setupArtistSearchMock({
+      "Nite Fields": { id: 20, name: "Nite Fields", slug: "nite-fields" },
+    });
+    addMockRouteWithStatus("PUT", /\/shows\/668$/, 422, () => ({
+      title: "Unprocessable Entity",
+      detail: "expected value from [headliner direct_support opener special_guest dj performer]",
+    }));
+
+    const results = await addArtistsToShow(
+      "668",
+      [{ name: "Nite Fields" }],
+      TEST_ENV,
+      true,
+    );
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({ name: "Nite Fields", action: "error" });
+    expect(results[0].error).toBeDefined();
+  });
+
+  test("an unrecognized stored role is dropped rather than failing the edit", async () => {
+    setupShowMock({
+      artists: [
+        { id: 10, name: "Pavement", slug: "pavement", is_headliner: true, set_type: "headliner" },
+        { id: 11, name: "Bosses Band", slug: "bosses-band", is_headliner: false, set_type: "co-headliner" },
+      ],
+    });
+    setupArtistSearchMock({
+      "Nite Fields": { id: 20, name: "Nite Fields", slug: "nite-fields" },
+    });
+    addMockRoute("PUT", /\/shows\/668$/, () => ({ id: 668 }));
+
+    await addArtistsToShow("668", [{ name: "Nite Fields" }], TEST_ENV, true);
+
+    const bill = putBill();
+    expect("set_type" in bill[1]).toBe(false);
+    expect(bill[1]).toEqual({ id: 11, is_headliner: false });
+  });
+
+  test("dry-run sends no PUT for either subcommand", async () => {
+    setupCuratedBillMock();
+    setupArtistSearchMock({
+      "Nite Fields": { id: 20, name: "Nite Fields", slug: "nite-fields" },
+    });
+
+    await addArtistsToShow("668", [{ name: "Nite Fields" }], TEST_ENV, false, "opener");
+    await removeArtistFromShow("668", "12", TEST_ENV, false);
+
+    expect(fetchCalls.filter((c) => c.method === "PUT")).toHaveLength(0);
+  });
+});
