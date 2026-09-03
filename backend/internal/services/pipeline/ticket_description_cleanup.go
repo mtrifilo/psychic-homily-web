@@ -2,20 +2,20 @@ package pipeline
 
 import (
 	"fmt"
-	"net/url"
 	"sort"
 	"strings"
 
 	"gorm.io/gorm"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/utils"
 )
 
 // The shape discovery descriptions are assembled in: parts joined with
 // ticketDescriptionSeparator, a vendor URL carried as a part beginning with
-// ticketDescriptionPrefix. The create path no longer writes such a part; this
-// file owns the only remaining knowledge of the spelling, because it has to
-// read rows that were written before the URL had a column.
+// ticketDescriptionPrefix. This file is the only place that reads the vendor
+// part, because it is the only code that touches rows written before the URL
+// had a column of its own.
 const (
 	ticketDescriptionSeparator = " | "
 	ticketDescriptionPrefix    = "Tickets: "
@@ -76,6 +76,13 @@ func (r *TicketDescriptionCleanupReport) SourceBreakdown() string {
 	return strings.Join(parts, ", ")
 }
 
+// plannedWrite is one row's rewrite, held until the whole pass is planned so
+// the writes can share a transaction.
+type plannedWrite struct {
+	showID  uint
+	updates map[string]any
+}
+
 // ticketDescriptionSplit is the result of reading one stored description.
 type ticketDescriptionSplit struct {
 	// Description is what the description becomes, nil when nothing is left.
@@ -129,16 +136,16 @@ func splitTicketDescription(description string) ticketDescriptionSplit {
 	return result
 }
 
-// isAbsoluteHTTPURL reports whether the value is an http(s) URL naming a host.
-// Scheme-less values are rejected: this pass moves a value into a column the
-// render surfaces treat as a destination, and supplying a scheme here would
-// invent the destination rather than read it.
+// isAbsoluteHTTPURL reports whether the value is an http(s) URL naming a host,
+// under the same rule every write boundary applies.
+//
+// The empty check is this caller's own: utils.ValidateHTTPURL admits "" because
+// its callers treat an absent optional field as valid, and here an empty value
+// is a "Tickets:" part with nothing after it. Scheme-less values are rejected,
+// because this pass moves a value into a column the render surfaces treat as a
+// destination, and supplying a scheme would invent one rather than read it.
 func isAbsoluteHTTPURL(value string) bool {
-	parsed, err := url.Parse(value)
-	if err != nil {
-		return false
-	}
-	return (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != ""
+	return value != "" && utils.ValidateHTTPURL(value, "Tickets") == nil
 }
 
 // CleanupTicketDescriptions moves vendor URLs out of stored show descriptions
@@ -146,9 +153,10 @@ func isAbsoluteHTTPURL(value string) bool {
 //
 // The column wins when it already holds a value: the description line is the
 // older record, and a populated column was either a later scrape or a human
-// edit. Rows are written one at a time so a single unwritable row does not
-// abandon the pass, and the pass is idempotent because it rewrites only rows
-// whose description still carries the part.
+// edit. Every write lands in ONE transaction, so a row this pass cannot write
+// leaves the table exactly as it found it rather than half-rewritten with no
+// record of where it stopped. The pass is idempotent because it rewrites only
+// rows whose description still carries the part.
 func CleanupTicketDescriptions(db *gorm.DB, opts TicketDescriptionCleanupOptions) (*TicketDescriptionCleanupReport, error) {
 	type candidate struct {
 		ID          uint
@@ -171,6 +179,7 @@ func CleanupTicketDescriptions(db *gorm.DB, opts TicketDescriptionCleanupOptions
 		Scanned:  len(candidates),
 		BySource: map[string]int{},
 	}
+	var writes []plannedWrite
 
 	for _, row := range candidates {
 		split := splitTicketDescription(row.Description)
@@ -182,7 +191,7 @@ func CleanupTicketDescriptions(db *gorm.DB, opts TicketDescriptionCleanupOptions
 		}
 
 		columnEmpty := row.TicketURL == nil || strings.TrimSpace(*row.TicketURL) == ""
-		storable := len(split.TicketURL) <= maxTicketURLLen
+		storable := len(split.TicketURL) <= utils.MaxTicketURLLen
 		if columnEmpty && !storable {
 			report.SkippedOversizeURL++
 			continue
@@ -209,12 +218,23 @@ func CleanupTicketDescriptions(db *gorm.DB, opts TicketDescriptionCleanupOptions
 			})
 		}
 
-		if opts.DryRun {
-			continue
+		writes = append(writes, plannedWrite{showID: row.ID, updates: updates})
+	}
+
+	if opts.DryRun || len(writes) == 0 {
+		return report, nil
+	}
+
+	err = db.Transaction(func(tx *gorm.DB) error {
+		for _, write := range writes {
+			if err := tx.Model(&catalogm.Show{}).Where("id = ?", write.showID).Updates(write.updates).Error; err != nil {
+				return fmt.Errorf("updating show %d: %w", write.showID, err)
+			}
 		}
-		if err := db.Model(&catalogm.Show{}).Where("id = ?", row.ID).Updates(updates).Error; err != nil {
-			return nil, fmt.Errorf("updating show %d: %w", row.ID, err)
-		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return report, nil

@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -94,26 +95,15 @@ func TestPlantedAffiliateTag(t *testing.T) {
 	}
 }
 
-// The reason names the parameter and the host, and carries neither the partner
-// ID (a third party's account identifier) nor the rest of the URL (contributor
-// text).
-func TestPlantedTagReason(t *testing.T) {
-	reason := plantedTagReason("https://evil.example/e/1?next=/a/b&irmp=9999999")
-	assert.Equal(t, "irmp on evil.example", reason)
-	assert.NotContains(t, reason, "9999999")
-	assert.NotContains(t, reason, "/a/b")
-
-	// A value the SQL predicate matched but this parser cannot pin down still
-	// gets a reason rather than an empty cell.
-	assert.Equal(t, "Affiliate parameter in the stored ticket URL", plantedTagReason("?irmp=1"))
-}
-
-// The predicate the count and the item list share must name the parameter list
-// the frontend vendor table generates.
-func TestPlantedTagPatternNamesEveryKnownParam(t *testing.T) {
+// The SQL pre-filter has one job: admit every row the Go matcher would match.
+// A parameter it cannot spell is a row the console never sees.
+func TestPlantedTagCandidateSQLNamesEveryKnownParam(t *testing.T) {
 	assert.NotEmpty(t, knownAffiliateParams)
+	where, args := plantedTagCandidateSQL()
+	assert.Equal(t, len(knownAffiliateParams), len(args))
+	assert.Equal(t, len(knownAffiliateParams), strings.Count(where, "ticket_url LIKE ?"))
 	for _, param := range knownAffiliateParams {
-		assert.Contains(t, plantedTagPattern, param)
+		assert.Contains(t, args, "%"+param+"=%")
 	}
 }
 
@@ -121,12 +111,33 @@ func TestPlantedTagPatternNamesEveryKnownParam(t *testing.T) {
 // surface must neither count them nor list them.
 func TestPlantedTagCategoriesAreAdminOnly(t *testing.T) {
 	for _, key := range []string{categoryShowsPlantedTicketTag, categoryFestivalsPlantedTicketTag} {
-		assert.True(t, adminOnlyCategories[key], key)
+		assert.Equal(t, audienceAdmin, categoryDefinitions[key].Audience, key)
 		assert.Contains(t, categoryOrder, key)
 		assert.NotContains(t, contributeCategoryOrder, key)
-		_, defined := categoryDefinitions[key]
-		assert.True(t, defined, key)
+		assert.Contains(t, plantedTagSources, key)
 	}
+}
+
+// A category with no audience would be published by categoriesForAudience's
+// default, so the zero value has to be a test failure rather than a decision.
+func TestEveryCategoryDeclaresAnAudience(t *testing.T) {
+	for _, key := range categoryOrder {
+		def, ok := categoryDefinitions[key]
+		assert.True(t, ok, key)
+		assert.Contains(t, []string{audiencePublic, audienceAdmin}, def.Audience, key)
+	}
+	assert.Len(t, categoryDefinitions, len(categoryOrder))
+}
+
+func TestPageItems(t *testing.T) {
+	items := []*contracts.DataQualityItem{{Name: "a"}, {Name: "b"}, {Name: "c"}}
+
+	assert.Len(t, pageItems(items, 2, 0), 2)
+	assert.Equal(t, "c", pageItems(items, 2, 2)[0].Name)
+	assert.Empty(t, pageItems(items, 2, 3))
+	assert.Empty(t, pageItems(items, 2, 99))
+	assert.Len(t, pageItems(items, 99, 0), 3)
+	assert.Len(t, pageItems(items, 0, 0), 3)
 }
 
 // =============================================================================
@@ -195,6 +206,7 @@ func (suite *DataQualityServiceIntegrationTestSuite) TestShowsPlantedTicketTag()
 	suite.Require().Len(items, 1)
 	suite.Equal("show", items[0].EntityType)
 	suite.Equal(planted.ID, items[0].EntityID)
+	// The parameter and the host, never the partner ID or the rest of the URL.
 	suite.Equal("irmp on www.ticketweb.com", items[0].Reason)
 	suite.NotContains(items[0].Reason, "9999999")
 

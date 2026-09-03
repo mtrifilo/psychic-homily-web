@@ -283,6 +283,13 @@ const (
 	MaxBandcampEmbedURLLen = 2048
 )
 
+// MaxTicketURLLen is the width of the shows.ticket_url and festivals.ticket_url
+// columns. Every boundary onto those columns reads it here so they cannot
+// disagree about what fits: the edit-form registry in api/handlers/shared and
+// the discovery writer, which drops a wider scraped value rather than
+// truncating it into a broken destination.
+const MaxTicketURLLen = 500
+
 // ValidateBandcampEmbedURL is IsValidBandcampEmbedURL as a write-boundary
 // check, returning the one refusal message every path that stores
 // artists.bandcamp_embed_url shows. Keeping the message here rather than at each

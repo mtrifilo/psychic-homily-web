@@ -6,6 +6,7 @@ import (
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/utils"
 )
 
 // =============================================================================
@@ -185,7 +186,7 @@ func (suite *DiscoveryIntegrationTestSuite) TestCleanupTicketDescriptions_Leaves
 // A URL wider than the column with nowhere else to live stays in the
 // description: stripping it would destroy the only copy.
 func (suite *DiscoveryIntegrationTestSuite) TestCleanupTicketDescriptions_LeavesAnUnstorableURLInPlace() {
-	oversize := "https://a.example/" + strings.Repeat("x", maxTicketURLLen)
+	oversize := "https://a.example/" + strings.Repeat("x", utils.MaxTicketURLLen)
 	seeded := suite.seedLegacyShow("Legacy Seven", "Tickets: "+oversize, nil)
 
 	report, err := CleanupTicketDescriptions(suite.db, TicketDescriptionCleanupOptions{})

@@ -351,11 +351,9 @@ jobs:
           fi
           echo "OK: frontend/types/api.d.ts matches the backend spec"
 
-      # PSY-1976: the data-quality console asks the same question of stored
-      # ticket URLs that the render surfaces ask, so the Go affiliate-parameter
-      # list is generated from the frontend vendor table rather than kept by
-      # hand. A second list would answer differently the first time a vendor is
-      # added.
+      # The Go affiliate-parameter list is generated from the frontend vendor
+      # table, which is the one place the app writes down which parameters
+      # credit an affiliate.
       - name: Regenerate affiliate params and assert no drift
         run: |
           bun run scripts/gen-affiliate-params.ts

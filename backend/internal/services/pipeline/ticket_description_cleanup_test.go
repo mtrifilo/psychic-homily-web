@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"psychic-homily-backend/internal/utils"
 )
 
 func TestSplitTicketDescription(t *testing.T) {
@@ -121,17 +123,14 @@ func TestScrapedTicketURL(t *testing.T) {
 
 	// Wider than the column: dropped rather than truncated into a broken
 	// destination.
-	oversize := "https://a.example/" + strings.Repeat("x", maxTicketURLLen)
+	oversize := "https://a.example/" + strings.Repeat("x", utils.MaxTicketURLLen)
 	assert.Nil(t, scrapedTicketURL(&oversize))
 }
 
-func TestIsAbsoluteHTTPURL(t *testing.T) {
-	assert.True(t, isAbsoluteHTTPURL("https://dice.fm/e/1"))
-	assert.True(t, isAbsoluteHTTPURL("http://dice.fm/e/1"))
-	assert.False(t, isAbsoluteHTTPURL("dice.fm/e/1"))
-	assert.False(t, isAbsoluteHTTPURL("//dice.fm/e/1"))
-	assert.False(t, isAbsoluteHTTPURL("https:///e/1"))
-	assert.False(t, isAbsoluteHTTPURL("mailto:a@b.example"))
+// utils.ValidateHTTPURL owns the scheme/host rule and has its own suite; the
+// only case this caller adds is the empty value that helper admits.
+func TestIsAbsoluteHTTPURLRejectsEmpty(t *testing.T) {
 	assert.False(t, isAbsoluteHTTPURL(""))
-	assert.False(t, isAbsoluteHTTPURL("https://%zz"))
+	assert.False(t, isAbsoluteHTTPURL("dice.fm/e/1"))
+	assert.True(t, isAbsoluteHTTPURL("https://dice.fm/e/1"))
 }

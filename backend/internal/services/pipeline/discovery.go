@@ -1083,26 +1083,22 @@ func parseArtistsFromTitle(title string) []string {
 	return []string{strings.TrimSpace(title)}
 }
 
-// ptrStr safely dereferences a string pointer, returning "" if nil
-// maxTicketURLLen is the width of shows.ticket_url. A scraped value wider than
-// the column is dropped rather than truncated: a truncated URL is a broken
-// destination, and failing the insert would lose the whole show.
-const maxTicketURLLen = 500
-
 // scrapedTicketURL reads the ticket URL a scrape stated, or nil when it stated
-// none this writer can store. Whitespace-only is "none": a scraper reading an
-// empty attribute reports "" and "   " interchangeably.
+// none this writer can store.
+//
+// Blank collapses to nil, which both call sites want: a scraper reading an
+// empty attribute reports "" and "   " interchangeably, and the update path
+// treats "stated nothing" as "leave the stored value alone". A value wider than
+// the column is nil for the same reason a truncated URL is worse than none.
 func scrapedTicketURL(raw *string) *string {
-	if raw == nil {
+	trimmed := utils.NilIfBlankPtr(raw)
+	if trimmed == nil || len(*trimmed) > utils.MaxTicketURLLen {
 		return nil
 	}
-	trimmed := strings.TrimSpace(*raw)
-	if trimmed == "" || len(trimmed) > maxTicketURLLen {
-		return nil
-	}
-	return &trimmed
+	return trimmed
 }
 
+// ptrStr safely dereferences a string pointer, returning "" if nil
 func ptrStr(s *string) string {
 	if s == nil {
 		return ""

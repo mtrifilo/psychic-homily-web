@@ -174,19 +174,9 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
   // what keeps a scheme-less `ticket_url` from resolving as a relative href
   // under /festivals/.
   //
-  // The http(s) floor is this anchor's own, because it is a raw <a> rather
-  // than a BracketLink (which carries the same floor for the same reason).
-  //
-  // Festival `ticket_url` is CONTRIBUTOR-writable, not admin-only: it is in
-  // `FestivalAllowedEditFields`, `PUT /festivals/{id}/suggest-edit` is a
-  // protected (any authenticated user) route, and the edit auto-applies with
-  // no review for the trusted_contributor and local_ambassador tiers. So this
-  // guards a contributor-supplied value, exactly like the show surface.
-  //
-  // Unreachable TODAY only because every non-null branch of repairTicketUrl
-  // yields an http(s) value. It stays because that is a navigation repair
-  // rather than a safety rule, and a future "don't invent a scheme" change to
-  // it would otherwise land here silently.
+  // The http(s) floor below is this anchor's own, because it is a raw <a>
+  // rather than a BracketLink, which carries the same floor for a
+  // contributor-writable value.
   const repairedTicketUrl = repairTicketUrl(festival.ticket_url)
   // The shared paid-referral rule, with no `freeAdmission` to pass: festivals
   // record no price, so a ticket link here is a vendor referral or nothing.
