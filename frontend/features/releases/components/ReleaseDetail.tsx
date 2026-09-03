@@ -41,66 +41,13 @@ import { CommentThread } from '@/features/comments'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { queryKeys } from '@/lib/queryClient'
-import { getReleaseTypeLabel, type ReleaseExternalLink } from '../types'
-
-/** Known platform display info */
-const PLATFORM_CONFIG: Record<string, { label: string; className?: string }> = {
-  bandcamp: { label: 'Bandcamp' },
-  spotify: { label: 'Spotify' },
-  apple_music: { label: 'Apple Music' },
-  youtube: { label: 'YouTube' },
-  youtube_music: { label: 'YouTube Music' },
-  soundcloud: { label: 'SoundCloud' },
-  tidal: { label: 'Tidal' },
-  deezer: { label: 'Deezer' },
-  amazon_music: { label: 'Amazon Music' },
-  discogs: { label: 'Discogs' },
-}
-
-function getPlatformLabel(platform: string): string {
-  return (
-    PLATFORM_CONFIG[platform]?.label ??
-    platform
-      .split('_')
-      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
-      .join(' ')
-  )
-}
-
-/**
- * Pick the first Bandcamp album/track external link to feed the embed (PSY-1187).
- *
- * Only `/album/<slug>` and `/track/<slug>` URLs resolve to a playable Bandcamp
- * iframe; a bare profile root (e.g. `https://artist.bandcamp.com`) does not.
- * Restricting to those two path types here means MusicEmbed only fires the
- * resolver fetch when a player can actually render — a profile-only Bandcamp
- * link is left to the plain "Listen / Buy" card alone (and MusicEmbed itself
- * still falls back to a link if a chosen album/track URL fails to resolve).
- */
-function findBandcampEmbedUrl(links: ReleaseExternalLink[]): string | null {
-  const link = links.find(
-    l =>
-      l.platform.toLowerCase() === 'bandcamp' &&
-      (l.url.includes('/album/') || l.url.includes('/track/'))
-  )
-  return link?.url ?? null
-}
-
-/**
- * Pick the first Spotify external link to feed the embed (PSY-1195).
- *
- * Returns the URL of any `spotify`-platform link (case-insensitive). MusicEmbed
- * runs `parseSpotifyEmbed` on it, which host-anchors + id-validates and accepts
- * only album/track/artist URLs — so a non-embeddable Spotify URL (e.g. a search
- * or playlist link) is left to the plain "Listen / Buy" card and MusicEmbed
- * renders no Spotify player for it. When a release also has a Bandcamp
- * album/track link, MusicEmbed's internal priority renders the Bandcamp embed
- * first, so passing both is safe (PSY-1187 precedence preserved).
- */
-function findSpotifyEmbedUrl(links: ReleaseExternalLink[]): string | null {
-  const link = links.find(l => l.platform.toLowerCase() === 'spotify')
-  return link?.url ?? null
-}
+import {
+  findBandcampEmbedUrl,
+  findSpotifyEmbedUrl,
+  releaseLinkPlatformLabel,
+  renderableReleaseLinks,
+} from '@/lib/releaseLinks'
+import { getReleaseTypeLabel } from '../types'
 
 interface ReleaseDetailProps {
   idOrSlug: string | number
@@ -176,8 +123,13 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
     )
   }
 
-  const hasExternalLinks =
-    release.external_links && release.external_links.length > 0
+  // PSY-1996: the rows whose platform and URL agree. A row that fails the gate
+  // keeps its value in the database and renders nothing here, so a link written
+  // before the write boundary existed cannot point a platform-labelled href at
+  // an arbitrary host. The heading is gated on the SAME list, or a release whose
+  // only link is refused would head an empty section.
+  const externalLinks = renderableReleaseLinks(release.external_links)
+  const hasExternalLinks = externalLinks.length > 0
   const hasLabels = release.labels && release.labels.length > 0
   const hasDescription =
     !!release.description && release.description.trim().length > 0
@@ -185,15 +137,11 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
   // PSY-1187: render a playable Bandcamp player when a release has a Bandcamp
   // album/track link. MusicEmbed resolves the URL to an iframe (falling back to
   // a link if it can't), so the clickable "Listen / Buy" cards below stay as-is.
-  const bandcampEmbedUrl = release.external_links
-    ? findBandcampEmbedUrl(release.external_links)
-    : null
+  const bandcampEmbedUrl = findBandcampEmbedUrl(release.external_links)
   // PSY-1195: also feed a Spotify link to MusicEmbed. Its internal priority
   // prefers Bandcamp, so a release with both still shows the Bandcamp embed;
   // a Spotify-only release gets a playable Spotify player instead of just a card.
-  const spotifyEmbedUrl = release.external_links
-    ? findSpotifyEmbedUrl(release.external_links)
-    : null
+  const spotifyEmbedUrl = findSpotifyEmbedUrl(release.external_links)
   // Fallback link text uses the primary (main) artist's name, then the first
   // artist, then the release title.
   const primaryArtistName =
@@ -447,7 +395,7 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
                 </div>
               )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {release.external_links.map(link => (
+                {externalLinks.map(link => (
                   <a
                     key={link.id}
                     href={link.url}
@@ -458,7 +406,7 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
                     <ExternalLink className="h-5 w-5 text-muted-foreground shrink-0" />
                     <div className="flex-1 min-w-0">
                       <div className="font-medium text-foreground">
-                        {getPlatformLabel(link.platform)}
+                        {releaseLinkPlatformLabel(link.platform)}
                       </div>
                       <div className="text-xs text-muted-foreground truncate">
                         {link.url}

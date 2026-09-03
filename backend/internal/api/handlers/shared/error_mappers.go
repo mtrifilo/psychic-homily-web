@@ -219,8 +219,10 @@ func MapLabelError(err error) error {
 
 // MapReleaseError converts a ReleaseError to an appropriate Huma HTTP error.
 // Returns nil if err is not a *apperrors.ReleaseError. not-found → 404;
-// already-exists → 409. Used by the entity-request fulfillment path so a
-// duplicate release surfaces as a 409.
+// already-exists → 409; a field the service refused → 422 carrying the
+// validator's own sentence. Used by the entity-request fulfillment path so a
+// duplicate release surfaces as a 409, and by the release handlers so a service
+// chokepoint refusal is not flattened into a 500.
 func MapReleaseError(err error) error {
 	var releaseErr *apperrors.ReleaseError
 	if errors.As(err, &releaseErr) {
@@ -229,6 +231,8 @@ func MapReleaseError(err error) error {
 			return huma.Error404NotFound(releaseErr.Message)
 		case apperrors.CodeReleaseExists:
 			return huma.Error409Conflict(releaseErr.Message)
+		case apperrors.CodeReleaseInvalidField:
+			return huma.Error422UnprocessableEntity(releaseErr.Message)
 		}
 	}
 	return nil

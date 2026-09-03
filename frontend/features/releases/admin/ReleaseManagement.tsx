@@ -57,6 +57,11 @@ import {
   type ReleaseDetail,
   type ReleaseExternalLink,
 } from '../types'
+import {
+  isRenderableReleaseLink,
+  releaseLinkPlatformLabel,
+  releaseLinkRefusal,
+} from '@/lib/releaseLinks'
 
 // ============================================================================
 // Constants
@@ -243,11 +248,16 @@ function LinkEditor({
   const [platform, setPlatform] = useState<string>(EXTERNAL_LINK_PLATFORMS[0].value)
   const [url, setUrl] = useState('')
 
+  // Checked before the row joins the pending list rather than at submit: the
+  // create endpoint refuses the WHOLE release on one bad link, so catching it
+  // here is the difference between fixing one field and losing the form.
+  const refusal = releaseLinkRefusal({ platform, url: url.trim() })
+
   const handleAdd = useCallback(() => {
-    if (!url.trim()) return
+    if (!url.trim() || refusal) return
     onAdd({ platform, url: url.trim() })
     setUrl('')
-  }, [platform, url, onAdd])
+  }, [platform, url, refusal, onAdd])
 
   return (
     <div className="space-y-3">
@@ -272,6 +282,7 @@ function LinkEditor({
         <div className="flex-1">
           <Input
             placeholder="https://..."
+            aria-label="External link URL"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             onKeyDown={(e) => {
@@ -280,6 +291,7 @@ function LinkEditor({
                 handleAdd()
               }
             }}
+            aria-invalid={refusal !== null}
           />
         </div>
         <Button
@@ -287,11 +299,14 @@ function LinkEditor({
           variant="outline"
           size="sm"
           onClick={handleAdd}
+          disabled={refusal !== null}
           aria-label="Add external link"
         >
           <Plus className="h-4 w-4" />
         </Button>
       </div>
+
+      {refusal && <p className="text-sm text-destructive">{refusal}</p>}
 
       {/* Existing links */}
       {links.length > 0 && (
@@ -302,8 +317,7 @@ function LinkEditor({
               className="flex items-center gap-2 rounded-md border px-3 py-2"
             >
               <Badge variant="secondary" className="text-xs">
-                {EXTERNAL_LINK_PLATFORMS.find((p) => p.value === link.platform)
-                  ?.label || link.platform}
+                {releaseLinkPlatformLabel(link.platform)}
               </Badge>
               <span className="text-sm text-muted-foreground truncate flex-1">
                 {link.url}
@@ -342,15 +356,19 @@ function ExistingLinkManager({
   const [platform, setPlatform] = useState<string>(EXTERNAL_LINK_PLATFORMS[0].value)
   const [url, setUrl] = useState('')
 
+  // Same predicate as the public dialog and the backend gate, so this surface
+  // cannot post a pair the others would refuse and cannot refuse one they allow.
+  const refusal = releaseLinkRefusal({ platform, url: url.trim() })
+
   const handleAdd = useCallback(() => {
-    if (!url.trim()) return
+    if (!url.trim() || refusal) return
     addLinkMutation.mutate(
       { releaseId, platform, url: url.trim() },
       {
         onSuccess: () => setUrl(''),
       }
     )
-  }, [releaseId, platform, url, addLinkMutation])
+  }, [releaseId, platform, url, refusal, addLinkMutation])
 
   const handleRemove = useCallback(
     (linkId: number) => {
@@ -382,6 +400,7 @@ function ExistingLinkManager({
         <div className="flex-1">
           <Input
             placeholder="https://..."
+            aria-label="External link URL"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             onKeyDown={(e) => {
@@ -390,6 +409,7 @@ function ExistingLinkManager({
                 handleAdd()
               }
             }}
+            aria-invalid={refusal !== null}
           />
         </div>
         <Button
@@ -397,7 +417,7 @@ function ExistingLinkManager({
           variant="outline"
           size="sm"
           onClick={handleAdd}
-          disabled={addLinkMutation.isPending}
+          disabled={addLinkMutation.isPending || refusal !== null}
           aria-label="Add external link"
         >
           {addLinkMutation.isPending ? (
@@ -408,6 +428,14 @@ function ExistingLinkManager({
         </Button>
       </div>
 
+      {refusal && <p className="text-sm text-destructive">{refusal}</p>}
+      {addLinkMutation.isError && !refusal && (
+        <p className="text-sm text-destructive">
+          {(addLinkMutation.error as Error)?.message ||
+            'Failed to add link. Please try again.'}
+        </p>
+      )}
+
       {/* Existing links */}
       {links.length > 0 && (
         <div className="space-y-2">
@@ -417,18 +445,29 @@ function ExistingLinkManager({
               className="flex items-center gap-2 rounded-md border px-3 py-2"
             >
               <Badge variant="secondary" className="text-xs">
-                {EXTERNAL_LINK_PLATFORMS.find(
-                  (p) => p.value === link.platform
-                )?.label || link.platform}
+                {releaseLinkPlatformLabel(link.platform)}
               </Badge>
-              <a
-                href={link.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm text-muted-foreground truncate flex-1 hover:text-foreground"
-              >
-                {link.url}
-              </a>
+              {/* A row the public page refuses to link is shown here as inert
+                  text, still labelled and still removable: an admin has to be
+                  able to see and delete it, and following it is the same click
+                  the gate exists to prevent. */}
+              {isRenderableReleaseLink(link) ? (
+                <a
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-muted-foreground truncate flex-1 hover:text-foreground"
+                >
+                  {link.url}
+                </a>
+              ) : (
+                <span className="flex-1 truncate text-sm text-muted-foreground">
+                  <span className="mr-1.5 font-medium text-destructive">
+                    Not shown publicly:
+                  </span>
+                  {link.url}
+                </span>
+              )}
               <Button
                 type="button"
                 variant="ghost"

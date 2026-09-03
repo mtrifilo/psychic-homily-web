@@ -460,4 +460,77 @@ describe('ReleaseManagement', () => {
       expect(screen.getByLabelText(/Title \*/i)).toHaveValue('')
     })
   })
+
+  // PSY-1996. The admin surface is the one place a refused row must stay
+  // visible: it is where someone removes it. So it shows the value as inert
+  // text rather than as a link, and keeps the Remove control.
+  describe('external-link gate in the edit sheet', () => {
+    it('links a conforming row and renders a refused one as inert text', () => {
+      renderWithProviders(
+        <EditReleaseFormFields
+          key={1}
+          release={makeDetail({
+            id: 1,
+            external_links: [
+              {
+                id: 10,
+                platform: 'bandcamp',
+                url: 'https://kingbuffalo.bandcamp.com/album/regenerator',
+              },
+              {
+                id: 11,
+                platform: 'bandcamp',
+                url: 'https://bandcamp-checkout.evil.test/album/x',
+              },
+            ],
+          })}
+          open
+          onOpenChange={vi.fn()}
+          onSuccess={vi.fn()}
+        />
+      )
+
+      expect(
+        document.querySelector(
+          'a[href="https://kingbuffalo.bandcamp.com/album/regenerator"]'
+        )
+      ).not.toBeNull()
+      expect(
+        document.querySelector(
+          'a[href="https://bandcamp-checkout.evil.test/album/x"]'
+        )
+      ).toBeNull()
+      expect(screen.getByText('Not shown publicly:')).toBeInTheDocument()
+      expect(
+        screen.getByLabelText(
+          'Remove link https://bandcamp-checkout.evil.test/album/x'
+        )
+      ).toBeInTheDocument()
+    })
+
+    it('refuses an off-platform URL before it is posted', async () => {
+      const user = userEvent.setup()
+      renderWithProviders(
+        <EditReleaseFormFields
+          key={1}
+          release={makeDetail({ id: 1, external_links: [] })}
+          open
+          onOpenChange={vi.fn()}
+          onSuccess={vi.fn()}
+        />
+      )
+
+      await user.type(
+        screen.getByLabelText('External link URL'),
+        'https://evil.test/album/x'
+      )
+
+      expect(
+        screen.getByText(/must be an http or https URL on bandcamp\.com/)
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: 'Add external link' })
+      ).toBeDisabled()
+    })
+  })
 })

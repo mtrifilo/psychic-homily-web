@@ -17,6 +17,7 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 	servicesshared "psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/services/shared/revisiondiff"
+	"psychic-homily-backend/internal/utils"
 )
 
 // canAddReleaseLink reports whether the user may add an external link to a
@@ -207,7 +208,7 @@ type CreateReleaseArtistInput struct {
 
 // CreateReleaseLinkInput represents external link input for release creation
 type CreateReleaseLinkInput struct {
-	Platform string `json:"platform" doc:"Platform name (bandcamp, spotify, discogs, etc.)" example:"bandcamp"`
+	Platform string `json:"platform" doc:"Platform key. One of: amazon_music, apple_music, bandcamp, deezer, discogs, soundcloud, spotify, tidal, youtube, youtube_music" example:"bandcamp"`
 	URL      string `json:"url" doc:"URL to the release on the platform"`
 }
 
@@ -242,6 +243,14 @@ func (h *ReleaseHandler) CreateReleaseHandler(ctx context.Context, req *CreateRe
 	}
 	links := make([]contracts.CreateReleaseLinkEntry, len(req.Body.ExternalLinks))
 	for i, l := range req.Body.ExternalLinks {
+		// PSY-1996: same gate as POST /releases/{id}/links. The index is in the
+		// message because the body carries a list and the refusal has to say
+		// which entry to fix.
+		if err := utils.ValidateReleaseLink(l.Platform, l.URL); err != nil {
+			return nil, huma.Error422UnprocessableEntity(
+				fmt.Sprintf("external_links[%d]: %s", i, err.Error()),
+			)
+		}
 		links[i] = contracts.CreateReleaseLinkEntry{
 			Platform: l.Platform,
 			URL:      l.URL,
@@ -261,6 +270,9 @@ func (h *ReleaseHandler) CreateReleaseHandler(ctx context.Context, req *CreateRe
 
 	release, err := h.releaseService.CreateRelease(serviceReq)
 	if err != nil {
+		if mapped := shared.MapReleaseError(err); mapped != nil {
+			return nil, mapped
+		}
 		logger.FromContext(ctx).Error("create_release_failed",
 			"error", err.Error(),
 			"request_id", requestID,
@@ -506,7 +518,7 @@ func (h *ReleaseHandler) GetArtistReleasesHandler(ctx context.Context, req *GetA
 type AddExternalLinkRequest struct {
 	ReleaseID string `path:"release_id" doc:"Release ID" example:"1"`
 	Body      struct {
-		Platform string `json:"platform" doc:"Platform name (bandcamp, spotify, etc.)" example:"bandcamp"`
+		Platform string `json:"platform" doc:"Platform key. One of: amazon_music, apple_music, bandcamp, deezer, discogs, soundcloud, spotify, tidal, youtube, youtube_music" example:"bandcamp"`
 		URL      string `json:"url" doc:"URL to the release"`
 	}
 }
@@ -534,15 +546,17 @@ func (h *ReleaseHandler) AddExternalLinkHandler(ctx context.Context, req *AddExt
 		return nil, huma.Error400BadRequest("Invalid release ID")
 	}
 
-	if req.Body.Platform == "" || req.Body.URL == "" {
-		return nil, huma.Error422UnprocessableEntity("Platform and URL are required")
+	// PSY-1996: the stored pair renders as an <a href> headed by the platform
+	// label, so both halves are gated here. The service re-checks, which is what
+	// covers the writers that never pass through a handler.
+	if err := utils.ValidateReleaseLink(req.Body.Platform, req.Body.URL); err != nil {
+		return nil, huma.Error422UnprocessableEntity(err.Error())
 	}
 
 	link, err := h.releaseService.AddExternalLink(uint(releaseID), req.Body.Platform, req.Body.URL)
 	if err != nil {
-		var releaseErr *apperrors.ReleaseError
-		if errors.As(err, &releaseErr) && releaseErr.Code == apperrors.CodeReleaseNotFound {
-			return nil, huma.Error404NotFound("Release not found")
+		if mapped := shared.MapReleaseError(err); mapped != nil {
+			return nil, mapped
 		}
 		logger.FromContext(ctx).Error("add_external_link_failed",
 			"release_id", releaseID,

@@ -1,0 +1,219 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
+import { describe, it, expect } from 'vitest'
+
+import {
+  MAX_RELEASE_LINK_URL_LENGTH,
+  RELEASE_LINK_PLATFORMS,
+  RELEASE_LINK_PLATFORM_KEYS,
+  findBandcampEmbedUrl,
+  findSpotifyEmbedUrl,
+  isRenderableReleaseLink,
+  releaseLinkPlatformLabel,
+  releaseLinkRefusal,
+  renderableReleaseLinks,
+} from './releaseLinks'
+
+// Read at RUNTIME, not imported.
+//
+// `import ... from '../../backend/...json'` would pull a backend file into the
+// frontend TypeScript program, and `next build` typechecks that program, so a
+// Vercel project rooted at frontend/ without "include source files outside the
+// root directory" would fail the BUILD on a test fixture. readFileSync keeps the
+// single shared source of truth while staying invisible to tsc and to the bundle.
+const corpus = JSON.parse(
+  readFileSync(
+    resolve(__dirname, '../../backend/internal/utils/testdata/release_link_corpus.json'),
+    'utf8'
+  )
+) as {
+  platforms: Record<string, string[]>
+  renderable: { platform: string; url: string }[]
+  refused: {
+    platform: string
+    url: string
+    why: string
+    alsoRefusedByReader: boolean
+  }[]
+}
+
+describe('cross-language corpus (the write gate and this gate are one rule)', () => {
+  it('has entries on every side', () => {
+    expect(Object.keys(corpus.platforms).length).toBeGreaterThan(0)
+    expect(corpus.renderable.length).toBeGreaterThan(0)
+    expect(corpus.refused.length).toBeGreaterThan(0)
+  })
+
+  // The drift tripwire: the Go registry asserts the same object.
+  it('the platform table matches the backend registry', () => {
+    const mine = Object.fromEntries(
+      RELEASE_LINK_PLATFORM_KEYS.map((key) => [key, [...RELEASE_LINK_PLATFORMS[key].hosts]])
+    )
+    expect(mine).toEqual(corpus.platforms)
+  })
+
+  it.each(corpus.renderable.map((c) => [c.platform, c.url] as const))(
+    'renders anything the backend will store: %s %s',
+    (platform, url) => {
+      expect(isRenderableReleaseLink({ platform, url })).toBe(true)
+    }
+  )
+
+  const mustAlsoRefuse = corpus.refused.filter((c) => c.alsoRefusedByReader)
+  it.each(mustAlsoRefuse.map((c) => [c.platform, c.url, c.why] as const))(
+    'refuses %s %s (%s)',
+    (platform, url) => {
+      expect(isRenderableReleaseLink({ platform, url })).toBe(false)
+    }
+  )
+
+  // The deltas the corpus marks as writer-only strictness: hosts the browser's
+  // UTS-46 mapping resolves back ONTO the platform. Asserting they render is
+  // what keeps "the reader is the lenient side here" honest rather than
+  // aspirational, so a legacy row of that shape does not silently lose a link
+  // that works.
+  const readerAccepts = corpus.refused.filter((c) => !c.alsoRefusedByReader)
+  it.each(readerAccepts.map((c) => [c.platform, c.url, c.why] as const))(
+    'still renders %s %s, where the writer is deliberately stricter (%s)',
+    (platform, url) => {
+      expect(isRenderableReleaseLink({ platform, url })).toBe(true)
+    }
+  )
+})
+
+describe('isRenderableReleaseLink', () => {
+  it('refuses a URL longer than the shared cap', () => {
+    const long = `https://kingbuffalo.bandcamp.com/album/${'a'.repeat(MAX_RELEASE_LINK_URL_LENGTH)}`
+    expect(isRenderableReleaseLink({ platform: 'bandcamp', url: long })).toBe(false)
+  })
+
+  it('refuses an empty URL', () => {
+    expect(isRenderableReleaseLink({ platform: 'bandcamp', url: '' })).toBe(false)
+  })
+
+  it('matches the platform case-insensitively', () => {
+    for (const platform of ['bandcamp', 'Bandcamp', 'BANDCAMP']) {
+      expect(
+        isRenderableReleaseLink({
+          platform,
+          url: 'https://kingbuffalo.bandcamp.com/album/regenerator',
+        })
+      ).toBe(true)
+    }
+  })
+})
+
+describe('renderableReleaseLinks', () => {
+  it('keeps conforming rows in stored order and drops the rest', () => {
+    const links = [
+      { id: 1, platform: 'bandcamp', url: 'https://evil.test/album/x' },
+      { id: 2, platform: 'spotify', url: 'https://open.spotify.com/album/x' },
+      { id: 3, platform: 'napster', url: 'https://us.napster.com/album/x' },
+      { id: 4, platform: 'bandcamp', url: 'https://kingbuffalo.bandcamp.com/album/y' },
+    ]
+    expect(renderableReleaseLinks(links).map((l) => l.id)).toEqual([2, 4])
+  })
+
+  it('treats null and undefined as no links', () => {
+    expect(renderableReleaseLinks(null)).toEqual([])
+    expect(renderableReleaseLinks(undefined)).toEqual([])
+  })
+})
+
+// These two are the shared selectors behind both the release page and the
+// collection graph panel, which previously kept private copies and could feed
+// MusicEmbed a link the page would not have shown.
+describe('findBandcampEmbedUrl', () => {
+  it('skips a bandcamp row the gate refuses', () => {
+    expect(
+      findBandcampEmbedUrl([
+        { platform: 'bandcamp', url: 'https://evil.test/album/x' },
+        { platform: 'bandcamp', url: 'https://kingbuffalo.bandcamp.com/album/ok' },
+      ])
+    ).toBe('https://kingbuffalo.bandcamp.com/album/ok')
+  })
+
+  it('skips a bare profile root, which resolves to no player', () => {
+    expect(
+      findBandcampEmbedUrl([
+        { platform: 'bandcamp', url: 'https://kingbuffalo.bandcamp.com' },
+      ])
+    ).toBeNull()
+  })
+
+  // The old whole-URL substring test selected this; the path test does not.
+  it('ignores a release path that appears only in the query', () => {
+    expect(
+      findBandcampEmbedUrl([
+        { platform: 'bandcamp', url: 'https://kingbuffalo.bandcamp.com/merch?x=/album/y' },
+      ])
+    ).toBeNull()
+  })
+})
+
+describe('findSpotifyEmbedUrl', () => {
+  it('skips a spotify row the gate refuses', () => {
+    expect(
+      findSpotifyEmbedUrl([
+        { platform: 'spotify', url: 'https://spotify-verify.evil.test/album/x' },
+      ])
+    ).toBeNull()
+  })
+
+  it('returns the first renderable spotify row', () => {
+    expect(
+      findSpotifyEmbedUrl([
+        { platform: 'bandcamp', url: 'https://kingbuffalo.bandcamp.com/album/ok' },
+        { platform: 'spotify', url: 'https://open.spotify.com/album/ok' },
+      ])
+    ).toBe('https://open.spotify.com/album/ok')
+  })
+})
+
+describe('releaseLinkRefusal', () => {
+  it('says nothing about an empty value', () => {
+    expect(releaseLinkRefusal({ platform: 'bandcamp', url: '' })).toBeNull()
+  })
+
+  it('names the accepted hosts', () => {
+    expect(
+      releaseLinkRefusal({ platform: 'spotify', url: 'https://evil.test/album/x' })
+    ).toContain('spotify.com')
+  })
+
+  // Both languages answer an unknown platform by listing the ones that exist,
+  // which is the only form a submitter can act on.
+  it('lists the platforms that exist for an unknown one', () => {
+    const message = releaseLinkRefusal({
+      platform: 'napster',
+      url: 'https://us.napster.com/album/x',
+    })
+    expect(message).toContain('Platform must be one of')
+    for (const key of RELEASE_LINK_PLATFORM_KEYS) {
+      expect(message).toContain(key)
+    }
+  })
+
+  it('is silent for a pair the gate accepts', () => {
+    expect(
+      releaseLinkRefusal({
+        platform: 'bandcamp',
+        url: 'https://kingbuffalo.bandcamp.com/album/ok',
+      })
+    ).toBeNull()
+  })
+})
+
+describe('releaseLinkPlatformLabel', () => {
+  it('names every registered platform', () => {
+    expect(releaseLinkPlatformLabel('apple_music')).toBe('Apple Music')
+    expect(releaseLinkPlatformLabel('youtube_music')).toBe('YouTube Music')
+  })
+
+  // An admin surface still has to name a legacy row it refuses to link, or the
+  // row cannot be identified for removal.
+  it('title-cases an unknown platform rather than dropping it', () => {
+    expect(releaseLinkPlatformLabel('some_store')).toBe('Some Store')
+  })
+})

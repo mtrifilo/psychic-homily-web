@@ -11,6 +11,7 @@ import (
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/utils"
 
 	"gorm.io/gorm"
 )
@@ -409,6 +410,13 @@ func seedExemplarRelease(db *gorm.DB, userID, mainArtistID, labelID uint) {
 			{"discogs", "https://www.discogs.com/release/exemplar-path-of-the-clouds"},
 		}
 		for _, l := range links {
+			// This loop writes the table directly rather than through
+			// ReleaseService, so it is the one link writer the service gate does
+			// not cover. Checking the literals here is what keeps a seeded
+			// exemplar from being a row the release page refuses to link.
+			if err := utils.ValidateReleaseLink(l.Platform, l.URL); err != nil {
+				return fmt.Errorf("exemplar external link %s: %w", l.Platform, err)
+			}
 			el := catalogm.ReleaseExternalLink{
 				ReleaseID: release.ID,
 				Platform:  l.Platform,

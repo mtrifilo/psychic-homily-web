@@ -8,6 +8,12 @@ import (
 const (
 	CodeReleaseNotFound = "RELEASE_NOT_FOUND"
 	CodeReleaseExists   = "RELEASE_EXISTS"
+	// CodeReleaseInvalidField indicates a field value the service refused. It
+	// exists so a service-layer validation refusal reaches the caller as a 422
+	// carrying its own message, rather than as the generic 500 every
+	// non-ReleaseError maps to, which would swallow the one sentence that tells
+	// the submitter how to fix the value. Mirrors CodeArtistInvalidField.
+	CodeReleaseInvalidField = "RELEASE_INVALID_FIELD"
 )
 
 // ReleaseError represents a release-related error with additional context.
@@ -38,6 +44,16 @@ func ErrReleaseNotFound(releaseID uint) *ReleaseError {
 		Code:      CodeReleaseNotFound,
 		Message:   "Release not found",
 		ReleaseID: releaseID,
+	}
+}
+
+// ErrReleaseInvalidField wraps a validation failure raised inside the service.
+// The message is the validator's own, so the wording a curator sees is the same
+// whichever layer refused the value.
+func ErrReleaseInvalidField(err error) *ReleaseError {
+	return &ReleaseError{
+		Code:    CodeReleaseInvalidField,
+		Message: err.Error(),
 	}
 }
 

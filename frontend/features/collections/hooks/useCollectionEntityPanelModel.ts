@@ -49,25 +49,10 @@ import {
   indexCollectionNodes,
 } from '../lib/collectionGraphNeighbors'
 
-// ReleaseExternalLink lives on releases/types — re-import the finders locally
-// rather than coupling to ReleaseDetail.tsx's private helpers.
-function findBandcampEmbedUrl(
-  links: { platform: string; url: string }[],
-): string | null {
-  const link = links.find(
-    l =>
-      l.platform.toLowerCase() === 'bandcamp' &&
-      (l.url.includes('/album/') || l.url.includes('/track/')),
-  )
-  return link?.url ?? null
-}
-
-function findSpotifyEmbedUrl(
-  links: { platform: string; url: string }[],
-): string | null {
-  const link = links.find(l => l.platform.toLowerCase() === 'spotify')
-  return link?.url ?? null
-}
+// The finders live in lib/releaseLinks so this panel and the release page share
+// one selection rule and one render gate; keeping private copies here is how the
+// panel previously fed MusicEmbed a link the page would not have shown.
+import { findBandcampEmbedUrl, findSpotifyEmbedUrl } from '@/lib/releaseLinks'
 
 function locationMeta(node: CollectionGraphNode): string | null {
   const parts = [node.city, node.state].filter(Boolean)

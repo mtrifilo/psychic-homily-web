@@ -7,6 +7,7 @@ import (
 
 	"gorm.io/gorm"
 
+	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
@@ -65,8 +66,14 @@ func createReleaseTx(tx *gorm.DB, req *contracts.CreateReleaseRequest, apply fun
 		}
 	}
 
-	// Create external links
+	// Create external links. Validated here rather than only at the HTTP
+	// boundary because the discography importer and the entity-request
+	// fulfiller build a CreateReleaseRequest directly; a link that reaches the
+	// column unanchored renders as an arbitrary host under a platform label.
 	for _, linkEntry := range req.ExternalLinks {
+		if err := utils.ValidateReleaseLink(linkEntry.Platform, linkEntry.URL); err != nil {
+			return nil, apperrors.ErrReleaseInvalidField(err)
+		}
 		link := &catalogm.ReleaseExternalLink{
 			ReleaseID: release.ID,
 			Platform:  linkEntry.Platform,

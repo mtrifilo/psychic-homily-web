@@ -24,6 +24,7 @@ import { StatusBanner } from '@/components/shared'
 // validateUrlField is not re-exported from the contributions barrel; import it
 // from the types module directly (the canonical home shared with edit forms).
 import { validateUrlField } from '@/features/contributions/types'
+import { releaseLinkRefusal } from '@/lib/releaseLinks'
 import { useAddReleaseLink } from '../hooks/useAdminReleases'
 import { EXTERNAL_LINK_PLATFORMS } from '../types'
 
@@ -65,8 +66,13 @@ export function AddReleaseLinkDialog({
   // Client-side URL validation is UX-only; the backend remains the source of
   // truth. Empty is invalid here (the field is required to add a link), unlike
   // validateUrlField's "empty = clear-the-field" intent on edit forms.
+  //
+  // The platform-anchor check runs the same predicate the release page's render
+  // gate and the backend's write gate run, so the three cannot disagree about
+  // what is acceptable; it only moves the refusal earlier than the round trip.
   const trimmedUrl = url.trim()
-  const urlFormatError = validateUrlField(url)
+  const urlFormatError =
+    validateUrlField(url) ?? releaseLinkRefusal({ platform, url: trimmedUrl })
   const canSubmit =
     trimmedUrl.length > 0 && urlFormatError === null && !addLink.isPending
 

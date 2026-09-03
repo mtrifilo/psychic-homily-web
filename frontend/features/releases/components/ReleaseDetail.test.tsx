@@ -870,4 +870,117 @@ describe('ReleaseDetail', () => {
       expect(screen.queryByText('Listen / Buy')).not.toBeInTheDocument()
     })
   })
+
+  // PSY-1996: a stored row whose URL is not anchored to the platform it names
+  // renders no link at all. Nothing backfills, so this gate is the only thing
+  // between a row written before the write boundary existed and a
+  // platform-labelled href pointing anywhere.
+  describe('external-link render gate', () => {
+    it('renders no link for a row whose host is not on the named platform', () => {
+      mockUseRelease.mockReturnValue({
+        data: makeRelease({
+          external_links: [
+            {
+              id: 1,
+              platform: 'bandcamp',
+              url: 'https://bandcamp-checkout.evil.test/album/x',
+            },
+            {
+              id: 2,
+              platform: 'spotify',
+              url: 'https://open.spotify.com/album/ok',
+            },
+          ],
+        }),
+        isLoading: false,
+        error: null,
+      })
+      render(<ReleaseDetail idOrSlug="in-rainbows" />)
+
+      expect(screen.queryByText('Bandcamp')).not.toBeInTheDocument()
+      expect(
+        document.querySelector(
+          'a[href="https://bandcamp-checkout.evil.test/album/x"]'
+        )
+      ).toBeNull()
+      // The conforming sibling still renders.
+      expect(screen.getByText('Spotify').closest('a')).toHaveAttribute(
+        'href',
+        'https://open.spotify.com/album/ok'
+      )
+    })
+
+    it('renders no link for an unknown platform', () => {
+      mockUseRelease.mockReturnValue({
+        data: makeRelease({
+          external_links: [
+            {
+              id: 1,
+              platform: 'napster',
+              url: 'https://us.napster.com/album/x',
+            },
+          ],
+        }),
+        isLoading: false,
+        error: null,
+      })
+      render(<ReleaseDetail idOrSlug="in-rainbows" />)
+
+      expect(
+        document.querySelector('a[href="https://us.napster.com/album/x"]')
+      ).toBeNull()
+    })
+
+    // A heading over nothing is the PSY-1302 failure mode, and it is what a
+    // gate applied to the list but not the heading would produce.
+    it('omits the Listen / Buy heading when every stored row is refused', () => {
+      mockUseRelease.mockReturnValue({
+        data: makeRelease({
+          external_links: [
+            { id: 1, platform: 'bandcamp', url: 'https://evil.test/album/x' },
+            {
+              id: 2,
+              platform: 'napster',
+              url: 'https://us.napster.com/album/x',
+            },
+          ],
+        }),
+        isLoading: false,
+        error: null,
+      })
+      render(<ReleaseDetail idOrSlug="in-rainbows" />)
+
+      expect(screen.queryByText('Listen / Buy')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('music-embed')).not.toBeInTheDocument()
+    })
+
+    it('feeds no embed URL from a refused Bandcamp row', () => {
+      mockUseRelease.mockReturnValue({
+        data: makeRelease({
+          external_links: [
+            {
+              id: 1,
+              platform: 'bandcamp',
+              url: 'https://evil.test/album/triple-ones',
+            },
+            {
+              id: 2,
+              platform: 'spotify',
+              url: 'https://open.spotify.com/album/ok',
+            },
+          ],
+        }),
+        isLoading: false,
+        error: null,
+      })
+      render(<ReleaseDetail idOrSlug="in-rainbows" />)
+
+      const embed = screen.getByTestId('music-embed')
+      expect(embed).toHaveAttribute('data-url', '')
+      expect(embed).toHaveAttribute(
+        'data-spotify-url',
+        'https://open.spotify.com/album/ok'
+      )
+    })
+  })
 })
