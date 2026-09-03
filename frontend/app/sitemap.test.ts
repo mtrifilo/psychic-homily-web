@@ -28,11 +28,15 @@ import {
   ALL_SHARD_IDS,
   ENTITY_SHARD_IDS,
   RELEASE_SHARD_IDS,
+  SHOW_SHARD_IDS,
   shardFamily,
 } from './sitemap-shards'
 
 /** The releases sub-shard the sub-sharding cases drive. */
 const [RELEASE_SHARD] = RELEASE_SHARD_IDS
+
+/** The shows sub-shard the shows cases drive. */
+const [SHOW_SHARD] = SHOW_SHARD_IDS
 
 const ISO = '2026-07-20T12:00:00Z'
 
@@ -128,7 +132,7 @@ describe('sitemap', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    expect(await urlsOf('shows')).toContain('https://psychichomily.com/shows/a-shows')
+    expect(await urlsOf(SHOW_SHARD)).toContain('https://psychichomily.com/shows/a-shows')
     expect(await urlsOf('artists')).toContain(
       'https://psychichomily.com/artists/a-artists'
     )
@@ -166,7 +170,7 @@ describe('sitemap', () => {
       respondWith(emptyFamilies({ shows: [{ slug: 'a-show', updated_at: ISO }] }))
     )
 
-    const entry = (await sitemap({ id: Promise.resolve('shows') })).find(
+    const entry = (await sitemap({ id: Promise.resolve(SHOW_SHARD) })).find(
       e => e.url === 'https://psychichomily.com/shows/a-show'
     )
 
@@ -202,7 +206,7 @@ describe('sitemap', () => {
       )
     )
 
-    const entry = (await sitemap({ id: Promise.resolve('shows') })).find(
+    const entry = (await sitemap({ id: Promise.resolve(SHOW_SHARD) })).find(
       e => e.url === 'https://psychichomily.com/shows/a-show'
     )
 
@@ -223,7 +227,7 @@ describe('sitemap', () => {
       )
     )
 
-    const showUrls = (await urlsOf('shows')).filter(u =>
+    const showUrls = (await urlsOf(SHOW_SHARD)).filter(u =>
       u.startsWith('https://psychichomily.com/shows/')
     )
 
@@ -248,7 +252,7 @@ describe('sitemap', () => {
     it('throws when the feed errors rather than emitting a partial sitemap', async () => {
       vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')))
 
-      await expect(sitemap({ id: Promise.resolve('shows') })).rejects.toThrow(
+      await expect(sitemap({ id: Promise.resolve(SHOW_SHARD) })).rejects.toThrow(
         'network down'
       )
       expect(captureException).toHaveBeenCalled()
@@ -257,7 +261,7 @@ describe('sitemap', () => {
     it('throws on a non-ok response', async () => {
       vi.stubGlobal('fetch', respondWith({}, 500))
 
-      await expect(sitemap({ id: Promise.resolve('shows') })).rejects.toThrow(/500/)
+      await expect(sitemap({ id: Promise.resolve(SHOW_SHARD) })).rejects.toThrow(/500/)
       expect(captureException).toHaveBeenCalled()
     })
 
@@ -273,7 +277,7 @@ describe('sitemap', () => {
     ])('throws when a family is %s', async (_label, body) => {
       vi.stubGlobal('fetch', respondWith(body))
 
-      await expect(sitemap({ id: Promise.resolve('shows') })).rejects.toThrow(
+      await expect(sitemap({ id: Promise.resolve(SHOW_SHARD) })).rejects.toThrow(
         /missing the "shows" family/
       )
       expect(captureException).toHaveBeenCalled()
@@ -286,7 +290,7 @@ describe('sitemap', () => {
     ])('throws on %s', async (_label, shows) => {
       vi.stubGlobal('fetch', respondWith(emptyFamilies({ shows })))
 
-      await expect(sitemap({ id: Promise.resolve('shows') })).rejects.toThrow(
+      await expect(sitemap({ id: Promise.resolve(SHOW_SHARD) })).rejects.toThrow(
         /malformed row in the "shows" family/
       )
       expect(captureException).toHaveBeenCalled()
@@ -383,11 +387,11 @@ describe('sitemap', () => {
     const fetchMock = respondWith(emptyFamilies())
     vi.stubGlobal('fetch', fetchMock)
 
-    await sitemap({ id: Promise.resolve('shows') })
+    await sitemap({ id: Promise.resolve(SHOW_SHARD) })
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringMatching(/\/sitemap\/entries\?family=shows$/),
+      expect.stringMatching(new RegExp(`/sitemap/entries\\?family=${SHOW_SHARD}$`)),
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     )
   })

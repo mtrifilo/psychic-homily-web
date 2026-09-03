@@ -344,7 +344,7 @@ function describePendingCost(pending: readonly ShardPrerenderFailure[]): string[
   }
 
   return [
-    `These include slug ranges of ${[...families].map(f => `"${f}"`).join(', ')}, which the`,
+    `These include sub-shards of ${[...families].map(f => `"${f}"`).join(', ')}, which the`,
     'backend ALREADY serves rows for. Those URLs exist and are simply not being',
     'announced while this deployment is live, so a share of a live family is absent',
     'from the index — not nothing. A pending shard is Dynamic, so it has no ISR timer:',
@@ -373,8 +373,8 @@ export function formatPendingShards(
     ...describePendingCost(pending),
     '',
     'If this is still printing after the backend has deployed, an id has drifted',
-    'between the two sides. Start at SITEMAP_FAMILIES and RELEASE_SHARD_IDS in',
-    'app/sitemap-shards.ts, and at sitemapFamilies / releaseShards in',
-    'backend/internal/services/catalog/sitemap.go.',
+    'between the two sides. Start at SITEMAP_FAMILIES, SHOW_SHARD_IDS and',
+    'RELEASE_SHARD_IDS in app/sitemap-shards.ts, and at sitemapFamilies /',
+    'sitemapShards in backend/internal/services/catalog/sitemap.go.',
   ].join('\n')
 }

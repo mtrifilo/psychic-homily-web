@@ -3,12 +3,17 @@ import {
   ENTITY_SHARD_IDS,
   PAGES_SHARD_ID,
   RELEASE_SHARD_IDS,
+  SHOW_SHARD_IDS,
+  shardFamily,
   SITEMAP_FAMILIES,
 } from '@/app/sitemap-shards'
 import { resolveConfig } from './config'
 import { fetchExpectedCounts, rebaseOnTarget, sampleUrls, walkSitemap } from './fetch'
 
 const STAGE = 'https://stage.psychichomily.com'
+
+/** The shows sub-shard the shows-family fixtures below serve rows from. */
+const [SHOW_SHARD] = SHOW_SHARD_IDS
 
 /** Retry delay 0 — the real 5s backoff would add 5s to every failure-path test. */
 function testConfig(env: Record<string, string> = {}) {
@@ -87,7 +92,7 @@ describe('walkSitemap', () => {
     const bodies: Record<string, string> = {
       [`${STAGE}/sitemap-index`]: index(ALL_IDS),
       [`${STAGE}/sitemap/pages.xml`]: urlset(['https://psychichomily.com/']),
-      [`${STAGE}/sitemap/shows.xml`]: urlset([
+      [`${STAGE}/sitemap/${SHOW_SHARD}.xml`]: urlset([
         'https://psychichomily.com/shows/2026-08-01-a',
         'https://psychichomily.com/shows/2025-01-01-b',
       ]),
@@ -234,6 +239,33 @@ describe('walkSitemap', () => {
         expect(observation.errors).not.toContain(emptyShardError(id))
       }
     })
+
+    /**
+     * The shows shards are calendar months, so an empty one is a month nobody
+     * has booked yet rather than a lost document — SPARSE_SUB_SHARD_FAMILIES.
+     * Reported, this would fire on almost every run: the enumerated span runs
+     * to the end of the year after next.
+     */
+    it('is NOT reported for a family whose ranges are legitimately sparse', async () => {
+      const showShards = ENTITY_SHARD_IDS.filter(id => shardFamily(id) === 'shows')
+      const [darkMonth, ...litMonths] = showShards
+      expect(litMonths.length).toBeGreaterThan(0)
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string) => {
+          if (url.endsWith('/sitemap-index')) return xmlResponse(index(ALL_IDS))
+          const id = url.split('/sitemap/')[1]?.replace('.xml', '') ?? ''
+          return xmlResponse(
+            urlset(id === darkMonth ? [] : [`https://psychichomily.com/shows/${id}-one`])
+          )
+        })
+      )
+
+      const observation = await walkSitemap(testConfig({ SITEMAP_MONITOR_TARGET: STAGE }))
+
+      expect(observation.errors).toEqual([])
+    })
   })
 
   it('records an error when a shard fails to fetch, and keeps going', async () => {
@@ -241,13 +273,13 @@ describe('walkSitemap', () => {
       'fetch',
       vi.fn(async (url: string) => {
         if (url.endsWith('/sitemap-index')) return xmlResponse(index(ALL_IDS))
-        if (url.endsWith('/shows.xml')) return xmlResponse('server error', 503)
+        if (url.endsWith(`/${SHOW_SHARD}.xml`)) return xmlResponse('server error', 503)
         return xmlResponse(urlset(['https://psychichomily.com/artists/a']))
       })
     )
 
     const observation = await walkSitemap(testConfig({ SITEMAP_MONITOR_TARGET: STAGE }))
-    expect(observation.errors.some(e => e.includes('shard "shows"') && e.includes('503'))).toBe(
+    expect(observation.errors.some(e => e.includes(`shard "${SHOW_SHARD}"`) && e.includes('503'))).toBe(
       true
     )
     expect(observation.observedByFamily.artists).toBe(1)

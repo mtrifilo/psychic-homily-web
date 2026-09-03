@@ -87,7 +87,7 @@ jobs:
   check:
     name: Sitemap vs API
     runs-on: ubuntu-latest
-    # Walking every shard means ~33k URLs across 15 documents (the index, 14
+    # Walking every shard means ~33k URLs across 40 documents (the index, 39
     # shards) plus the projection feed and the sampled probes; a couple of
     # minutes is normal, so this ceiling only catches a genuinely wedged
     # endpoint.
@@ -101,12 +101,15 @@ jobs:
     #
     #   (1 index + N shards + 1 projection feed) x 65s
     #
-    # At N=14 that is 17.3 minutes, which is why 15 no longer fits — PSY-1763
-    # split releases into four slug ranges and pushed the count from 11 to 14.
-    # 25 leaves room for one more split before this has to be revisited; past
-    # that, fetch the shards with bounded concurrency instead of raising it
-    # again.
-    timeout-minutes: 25
+    # At N=39 that is 44.4 minutes — PSY-2018 split shows into 26 UTC event
+    # months and pushed the count from 14 to 39. 50 covers it with a margin.
+    #
+    # THE SEQUENTIAL WALK IS NOW THE BINDING COST, and raising this again is not
+    # the next move: the ceiling only bounds a wedged origin, but every minute of
+    # it is a minute of alert latency on the one run that matters. Fetching the
+    # shards with bounded concurrency caps the walk at roughly (N / workers)
+    # documents deep and would take this back under 10 minutes.
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
 

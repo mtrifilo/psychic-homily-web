@@ -10,6 +10,7 @@ import {
   ENTITY_SHARD_IDS,
   shardFamily,
   SITEMAP_FAMILIES,
+  SPARSE_SUB_SHARD_FAMILIES,
   PAGES_SHARD_ID,
   type Family,
 } from '@/app/sitemap-shards'
@@ -424,10 +425,15 @@ export async function walkSitemap(config: MonitorConfig): Promise<SitemapObserva
   // which walkSitemap does not have: a range serving nothing while another range
   // of the same family serves rows cannot be a legitimately empty catalogue.
   // A family that is entirely empty stays silent here and is `vanished`'s job.
+  //
+  // EXCEPT where emptiness carries no information. The inference above holds for
+  // a slug range and fails for a calendar range, where an unbooked month is an
+  // ordinary fact rather than a fault; SPARSE_SUB_SHARD_FAMILIES names the
+  // families whose ranges are keyed that way, and what covers them instead.
   for (const [shardId, count] of locsPerShard) {
     if (count > 0 || shardId === PAGES_SHARD_ID) continue
     const family = shardFamily(shardId)
-    if (!family) continue
+    if (!family || SPARSE_SUB_SHARD_FAMILIES.has(family)) continue
     const siblingsWithRows = [...locsPerShard].some(
       ([otherId, otherCount]) =>
         otherId !== shardId && otherCount > 0 && shardFamily(otherId) === family
