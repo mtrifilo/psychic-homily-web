@@ -310,14 +310,16 @@ export function BottomTabBar() {
 
   const isActive = (href: string) => isNavActive(pathname, href)
 
-  // Everything the Account cell derives from the viewer turns on this one
-  // signal, so the tab's destination, its active set and its badge cannot
-  // disagree about who is looking. It is `authStatus`, not `isLoading`, per
-  // the rule on the AuthStatus type: `isLoading` is false both before the
-  // profile fetch starts and after it fails, so an `isLoading` gate has two
-  // windows where it falls through to a claim the context has not settled.
-  // The `user !== null` conjunct narrows the type for `user.email` below;
-  // 'authenticated' already implies it.
+  // The one signal every viewer-derived part of the Account cell reads, so
+  // the tab's destination, its active set and its badge cannot disagree about
+  // who is looking. `user !== null` narrows the type for `user.email` below
+  // and adds nothing else: AuthProvider derives 'authenticated' from a
+  // non-null user, so each implies the other.
+  //
+  // What this cell must NOT read is `isLoading`, which is false both before
+  // the profile fetch starts and after it fails, and so has windows where it
+  // falls through to a claim the context has not settled. See the AuthStatus
+  // type for the rule.
   const isSettledAuthenticated = authStatus === 'authenticated' && user !== null
 
   // The canonical account list (navData, PSY-1821) with the username-aware
@@ -372,10 +374,11 @@ export function BottomTabBar() {
 
         {/* The auth-aware Account cell. The sheet names a viewer, so it is
             what a settled 'authenticated' buys; every other status gets the
-            /auth link, which names none. That is the rule UserMenu applies to
-            the desktop bar, and both bars are on screen together at tablet
-            widths, so they have to agree. Either arm fills the same one of
-            five equal grid columns, so the cell does not jump on settle. */}
+            /auth link, which names none. That is the rule UserMenu applies in
+            the top bar, and the two are on screen together from `sm` up to
+            this bar's own `xl:hidden`, so they have to agree. Either arm fills
+            the same one of five equal grid columns, so the cell does not jump
+            on settle. */}
         {isSettledAuthenticated ? (
           <SheetTab
             label="Account"

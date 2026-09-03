@@ -374,49 +374,69 @@ describe('BottomTabBar', () => {
       )
     })
 
-    // PSY-1986. Both pending windows, which differ in the signal this cell
-    // used to read: the pre-profile window has `isLoading` true, the window a
-    // non-definitive failure (5xx, 429, network, 403) leaves behind has it
-    // false. The cell keeps the anonymous /auth link in both and opens no
-    // sheet, so a regression to an `isLoading` gate fails on one or the other.
+    // PSY-1986. Two pending windows that differ only in `isLoading`: the
+    // profile is in flight (true), or a non-definitive failure (5xx, 429,
+    // network, 403) has left the query errored without settling the viewer
+    // (false). The cell keeps the /auth link in both and opens no sheet, so a
+    // gate written on `isLoading` fails one window or the other.
     it.each([
       ['while the profile is in flight', true],
       ['after the profile failed without settling', false],
     ])('keeps the login link and opens no account sheet %s', (_label, isLoading) => {
+      mockPathname = '/auth'
       mockAuthContext.mockReturnValue(authFixture({ authStatus: 'pending', isLoading }))
       render(<BottomTabBar />)
-      expect(screen.getByRole('link', { name: 'Account' })).toHaveAttribute('href', '/auth')
+      const tab = screen.getByRole('link', { name: 'Account' })
+      expect(tab).toHaveAttribute('href', '/auth')
+      // A real destination, so it carries the current-page state its route
+      // earns: `accountActive` falls to `isActive('/auth')` on this arm.
+      expect(tab).toHaveAttribute('aria-current', 'page')
       expect(screen.queryByRole('button', { name: 'Account' })).not.toBeInTheDocument()
     })
 
-    // The bar must not paint a stale viewer's identity while the status is
-    // unsettled: `user` survives a logout-in-flight and a failed refetch, so
-    // the sheet's gate has to be the status, not the presence of a user.
-    it('shows no account sheet for a retained user while the status is pending', () => {
+    // A logout in flight is 'authenticated' with `isLoading` true: the profile
+    // payload is still cached, so the context still names this viewer until
+    // the mutation resolves and clears it. The old `isLoading` gate went inert
+    // here; the cell now keeps the sheet, which is what the desktop bar has
+    // always done in the same window.
+    it('keeps the account sheet while a logout is in flight', () => {
       mockAuthContext.mockReturnValue(
         authFixture({
-          user: { email: 'stale@test.com', is_admin: false },
-          authStatus: 'pending',
+          user: { email: 'user@test.com', is_admin: false },
+          authStatus: 'authenticated',
+          isLoading: true,
         })
       )
       render(<BottomTabBar />)
-      expect(screen.getByRole('link', { name: 'Account' })).toHaveAttribute('href', '/auth')
-      expect(screen.queryByText('stale@test.com')).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Account' })).toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: 'Account' })).not.toBeInTheDocument()
     })
 
     // The pending and settled-anonymous cells are the SAME markup, which is
-    // what keeps the tab from changing shape when a pending read settles to
-    // anonymous. Comparing the rendered node pins that; asserting the href
-    // twice would not.
+    // what keeps the tab row from changing shape when a pending read settles
+    // to anonymous. Two things are compared, because either alone passes a
+    // reflow: the cell's whole subtree (a spacer or spinner rendered beside
+    // the link would differ) and the grid's child count (a sixth child in a
+    // `grid-cols-5` row wraps Account outside the fixed bar height, the
+    // PSY-1820 failure). Account is the grid's last child in both arms.
     it('renders the pending cell identically to the settled-anonymous cell', () => {
       const cellOf = (authStatus: AuthStatus) => {
         mockAuthContext.mockReturnValue(authFixture({ authStatus }))
-        const { unmount } = render(<BottomTabBar />)
-        const html = screen.getByRole('link', { name: 'Account' }).outerHTML
+        const { container, unmount } = render(<BottomTabBar />)
+        const grid = container.querySelector(
+          'nav[aria-label="Mobile navigation"] > div'
+        )
+        const shape = {
+          gridChildren: grid?.children.length,
+          account: grid?.lastElementChild?.outerHTML,
+        }
         unmount()
-        return html
+        return shape
       }
-      expect(cellOf('pending')).toEqual(cellOf('anonymous'))
+      const pending = cellOf('pending')
+      expect(pending.gridChildren).toBe(primaryTabs.length + 2)
+      expect(pending.account).toContain('href="/auth"')
+      expect(pending).toEqual(cellOf('anonymous'))
     })
 
     it('opens the account sheet with the UserMenu-mirror entries when signed in', async () => {
@@ -498,9 +518,7 @@ describe('BottomTabBar', () => {
     })
 
     it('never badges the Account tab while auth is unsettled', () => {
-      mockAuthContext.mockReturnValue(
-        authFixture({ user: { email: 'stale@test.com', is_admin: false }, authStatus: 'pending' })
-      )
+      mockAuthContext.mockReturnValue(authFixture({ authStatus: 'pending' }))
       mockUnreadCount.mockReturnValue(5)
       render(<BottomTabBar />)
       expect(screen.queryByTestId('unread-count-badge')).not.toBeInTheDocument()

@@ -33,9 +33,10 @@ export function UserMenu() {
 
   // Only the cluster below names a viewer, so only it requires a settled
   // 'authenticated' (see the AuthStatus type). The `login / sign-up` link is
-  // the fall-through for every other status, 'pending' included: it is this
-  // bar's only route to /auth, and an unsettled viewer may be an anonymous one
-  // whose profile fetch was rate-limited.
+  // the fall-through for every other status, 'pending' included: it names no
+  // viewer, and it is this bar's only route to /auth, which an unsettled
+  // viewer may need, since 'pending' does not say whether their session is
+  // live or dead.
   if (authStatus === 'authenticated' && user) {
     // The canonical account destination list (navData, PSY-1821) — Profile's
     // username-aware href, the Profile/Settings split, and each entry's icon

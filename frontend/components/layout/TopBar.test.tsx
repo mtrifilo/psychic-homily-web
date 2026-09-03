@@ -181,12 +181,12 @@ describe('TopBar', () => {
       expect(screen.getByRole('link', { name: '+ Submit' })).toHaveAttribute('href', '/shows/submit')
     })
 
-    // PSY-1986. Both pending cells, because they differ in the signal the bar
-    // used to read: the ordinary pre-profile window has `isLoading` true, and
-    // the terminal window a non-definitive failure (5xx, 429, network, 403)
-    // leaves behind has it false. In both, the bar keeps the anonymous-safe
-    // /auth route and suppresses every control that names a viewer, so a
-    // regression to an `isLoading` gate fails on one cell or the other.
+    // PSY-1986. Two pending cells that differ only in `isLoading`: the profile
+    // is in flight (true), or a non-definitive failure (5xx, 429, network,
+    // 403) has left the query errored without settling the viewer (false).
+    // Nothing under test reads `isLoading`, which is the point: the bar keeps
+    // the /auth route and suppresses every control that names a viewer in
+    // both, so a gate written on `isLoading` fails one cell or the other.
     it.each([
       ['while the profile is in flight', true],
       ['after the profile failed without settling', false],
@@ -204,13 +204,15 @@ describe('TopBar', () => {
 
     // The pending and settled-anonymous slots are the SAME markup, which is
     // what keeps the row from reflowing when a pending read settles to
-    // anonymous. Comparing the rendered node pins that; asserting the link
-    // twice would not.
+    // anonymous. The comparison is of the whole SLOT, not of the link alone:
+    // a pending branch that rendered this link beside a spacer or a spinner
+    // would reflow and would still match on the link.
     it('renders the pending slot identically to the settled-anonymous slot', () => {
       const slotOf = (authStatus: AuthStatus) => {
         mockAuthContext.mockReturnValue(authFixture({ authStatus }))
         const { unmount } = render(<TopBar />)
-        const html = screen.getByText('login / sign-up').outerHTML
+        const slot = screen.getByText('login / sign-up').parentElement
+        const html = slot?.innerHTML
         unmount()
         return html
       }
