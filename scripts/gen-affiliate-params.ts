@@ -27,9 +27,11 @@ if (params.length === 0) {
 }
 
 for (const param of params) {
-  // The generated literal is spliced into a Go regular expression. Anything
-  // outside this alphabet would need escaping rules the vendor table has never
-  // needed, and inventing them silently is how a predicate stops matching.
+  // A parameter name is compared for equality in Go after percent-decoding, so
+  // the alphabet is not an escaping requirement. It is a tripwire: a value that
+  // is not a bare identifier means the vendor table now holds something this
+  // generator was never designed to carry, and stopping is better than emitting
+  // a Go literal nobody reviewed.
   if (!/^[A-Za-z0-9_-]+$/.test(param)) {
     console.error(`gen-affiliate-params: parameter ${JSON.stringify(param)} is not a bare identifier`)
     process.exit(1)

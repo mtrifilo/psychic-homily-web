@@ -65,6 +65,23 @@ func TestPlantedAffiliateTag(t *testing.T) {
 			wantOK:    true,
 		},
 		{
+			// Stripped by every URL parser and by the browser, so the vendor
+			// reads `irmp` and credits the planter.
+			name:      "a tab hidden inside the parameter name",
+			url:       "https://evil.example/e/1?ir\tmp=9999999",
+			wantParam: "irmp",
+			wantHost:  "evil.example",
+			wantOK:    true,
+		},
+		{
+			// One host, so one finding: the render side prints it the same way.
+			name:      "a trailing root-label dot is not a different host",
+			url:       "https://www.ticketweb.com./e/1?irmp=9999999",
+			wantParam: "irmp",
+			wantHost:  "www.ticketweb.com",
+			wantOK:    true,
+		},
+		{
 			name:      "a port is not part of the host",
 			url:       "https://evil.example:8443/e/1?irmp=9999999",
 			wantParam: "irmp",
@@ -100,13 +117,16 @@ func TestKnownAffiliateParamsIsPopulated(t *testing.T) {
 	assert.NotEmpty(t, knownAffiliateParams)
 }
 
-// The planted-tag categories are moderation findings; the public /contribute
-// surface must neither count them nor list them.
-func TestPlantedTagCategoriesAreAdminOnly(t *testing.T) {
-	for _, key := range []string{categoryShowsPlantedTicketTag, categoryFestivalsPlantedTicketTag} {
-		assert.Equal(t, audienceAdmin, categoryDefinitions[key].Audience, key)
-		assert.Contains(t, categoryOrder, key)
+// Every admin-only category is withheld from the public /contribute surface,
+// stated over the audience rather than over the two keys that have it today: a
+// third one added later has to inherit the assertion.
+func TestAdminOnlyCategoriesAreWithheldFromContribute(t *testing.T) {
+	adminOnly := categoriesForAudience(categoryOrder, audienceAdmin)
+	assert.Subset(t, adminOnly, []string{categoryShowsPlantedTicketTag, categoryFestivalsPlantedTicketTag})
+	for _, key := range adminOnly {
 		assert.NotContains(t, contributeCategoryOrder, key)
+	}
+	for _, key := range []string{categoryShowsPlantedTicketTag, categoryFestivalsPlantedTicketTag} {
 		assert.Contains(t, plantedTagSources, key)
 	}
 }

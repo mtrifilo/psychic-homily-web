@@ -284,10 +284,13 @@ const (
 )
 
 // MaxTicketURLLen is the width of the shows.ticket_url and festivals.ticket_url
-// columns. Every boundary onto those columns reads it here so they cannot
-// disagree about what fits: the edit-form registry in api/handlers/shared and
-// the discovery writer, which drops a wider scraped value rather than
-// truncating it into a broken destination.
+// columns, in characters.
+//
+// Read by the edit-form registry in api/handlers/shared and by the discovery
+// writer, which drops a wider scraped value rather than truncating it into a
+// broken destination. The entity-request payload validator caps the same fields
+// through its own shared short-URL bound, which is the same number for a
+// different reason.
 const MaxTicketURLLen = 500
 
 // ValidateBandcampEmbedURL is IsValidBandcampEmbedURL as a write-boundary

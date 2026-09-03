@@ -11,6 +11,13 @@
 // Dry-run prints exactly what a live run would change and writes nothing. The
 // pass is idempotent: a second run reports zero rows, because it only rewrites
 // descriptions that still carry the vendor line.
+//
+// Save the --dry-run --verbose output before a --confirm run: a vendor line
+// whose URL the column already holds is removed and stored nowhere, and that
+// listing is the only record of it.
+//
+// A live run writes shows.updated_at, which costs each rewritten show its place
+// in one venue-follow email digest cycle.
 package main
 
 import (

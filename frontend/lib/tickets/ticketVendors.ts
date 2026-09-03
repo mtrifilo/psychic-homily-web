@@ -312,8 +312,8 @@ export interface TicketLink {
    * always somebody else's doing. Null otherwise, including when this call
    * appended our own.
    *
-   * Reported, not acted on: the link still renders exactly as stored. See
-   * `lib/tickets/plantedTagTelemetry`.
+   * Read, not acted on: the link still renders exactly as stored, and the
+   * presence of the tag is what makes it `sponsored`.
    */
   plantedTag: PlantedTicketTag | null
 }
@@ -364,6 +364,10 @@ function affiliateParamKey(key: string): string {
 
 /**
  * Every affiliate parameter this module knows about, in normalized form.
+ *
+ * Exported because `scripts/gen-affiliate-params.ts` reads it to generate the
+ * backend's copy, which is why this module must stay import-free: the generator
+ * runs it outside Next.
  *
  * Read for QUALIFICATION, which is a different question from tagging and has a
  * different scope. Tagging asks "does THIS vendor have a program we are in";
@@ -732,16 +736,12 @@ export function carriesOurAffiliateTag(link: TicketLink): boolean {
  * reaches this function as a RELATIVE href, and linking one navigates inside
  * this site instead of out.
  *
- * `plantedTag` rides both shapes, because the report is about the STORED
- * value rather than about what a page renders.
- *
  * `vendorName` is null only for a value that names no host
  * ({@link ticketVendorLabel}), and such a value is never `linked`: there is
  * nothing to navigate to and nobody to name.
  */
 export type TicketOffer = {
   vendorName: string | null
-  plantedTag: PlantedTicketTag | null
 } & (
   | {
       linked: true
@@ -766,7 +766,7 @@ export function ticketOffer(
 ): TicketOffer {
   const link = ticketLink(rawUrl, partnerIds ?? affiliatePartnerIds())
   const vendorName = ticketVendorLabel(rawUrl)
-  const shared = { vendorName, plantedTag: link.plantedTag }
+  const shared = { vendorName }
 
   // A value that names no host is not a destination: there is nothing to
   // navigate to and nobody to name, so no shape of this offer may link it.

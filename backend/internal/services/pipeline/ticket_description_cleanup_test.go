@@ -66,6 +66,21 @@ func TestSplitTicketDescription(t *testing.T) {
 			wantNonURL:  true,
 		},
 		{
+			// url.Parse accepts spaces in a path, so without the whitespace
+			// refusal the whole tail would move into ticket_url and vanish
+			// from the description.
+			name:        "prose after the url leaves the part alone",
+			description: "Tickets: https://dice.fm/e/9 SOLD OUT - waitlist at venue",
+			wantChanged: false,
+			wantNonURL:  true,
+		},
+		{
+			name:        "prose after the url in a later part leaves that part alone",
+			description: "Doors: 7ish | Tickets: https://dice.fm/e/9 cash only",
+			wantChanged: false,
+			wantNonURL:  true,
+		},
+		{
 			name:        "a description with no vendor line is untouched",
 			description: "Doors: 7ish | Show: 8ish",
 			wantChanged: false,
@@ -128,9 +143,13 @@ func TestScrapedTicketURL(t *testing.T) {
 }
 
 // utils.ValidateHTTPURL owns the scheme/host rule and has its own suite; the
-// only case this caller adds is the empty value that helper admits.
-func TestIsAbsoluteHTTPURLRejectsEmpty(t *testing.T) {
+// cases this caller adds are the empty value that helper admits and any inner
+// whitespace, which url.Parse accepts inside a path.
+func TestIsAbsoluteHTTPURL(t *testing.T) {
+	assert.True(t, isAbsoluteHTTPURL("https://dice.fm/e/1"))
+
 	assert.False(t, isAbsoluteHTTPURL(""))
 	assert.False(t, isAbsoluteHTTPURL("dice.fm/e/1"))
-	assert.True(t, isAbsoluteHTTPURL("https://dice.fm/e/1"))
+	assert.False(t, isAbsoluteHTTPURL("https://dice.fm/e/1 SOLD OUT"))
+	assert.False(t, isAbsoluteHTTPURL("https://dice.fm/e/1\tSOLD OUT"))
 }

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"gorm.io/gorm"
 
@@ -11,15 +13,14 @@ import (
 	"psychic-homily-backend/internal/utils"
 )
 
-// The shape discovery descriptions are assembled in: parts joined with
-// ticketDescriptionSeparator, a vendor URL carried as a part beginning with
-// ticketDescriptionPrefix. This file is the only place that reads the vendor
-// part, because it is the only code that touches rows written before the URL
-// had a column of its own.
-const (
-	ticketDescriptionSeparator = " | "
-	ticketDescriptionPrefix    = "Tickets: "
-)
+// ticketDescriptionSeparator joins the parts of a discovery description.
+// createShowFromEvent writes with it and this pass splits on it, so the two
+// cannot disagree about where a part ends.
+const ticketDescriptionSeparator = " | "
+
+// ticketDescriptionPrefix opens the vendor part. Only this pass reads it: the
+// rows carrying one were written before the URL had a column.
+const ticketDescriptionPrefix = "Tickets: "
 
 // TicketDescriptionCleanupOptions controls one cleanup pass.
 type TicketDescriptionCleanupOptions struct {
@@ -39,15 +40,21 @@ type TicketDescriptionCleanupRow struct {
 }
 
 // TicketDescriptionCleanupReport summarizes one pass.
+//
+// Stripped, SkippedNonURL and SkippedOversizeURL are DISJOINT and together
+// account for every scanned row: each row lands in exactly one, and a row whose
+// description merely mentions the prefix mid-part lands in SkippedNonURL.
 type TicketDescriptionCleanupReport struct {
-	// Scanned counts rows whose description contains the prefix at all.
+	// Scanned counts rows whose description contains the prefix anywhere,
+	// including inside a part this pass does not treat as the vendor line.
 	Scanned int
 	// Stripped counts rows whose description this pass rewrites.
 	Stripped int
-	// MovedToColumn counts rows that additionally gain a ticket_url.
+	// MovedToColumn counts the stripped rows that additionally gain a
+	// ticket_url. It is a subset of Stripped, not a fourth bucket.
 	MovedToColumn int
-	// SkippedNonURL counts rows whose "Tickets:" part is not an absolute
-	// http(s) URL, which this pass leaves alone.
+	// SkippedNonURL counts rows this pass rewrites nothing in, because no part
+	// is a "Tickets: " part carrying an absolute http(s) URL.
 	SkippedNonURL int
 	// SkippedOversizeURL counts rows left untouched because the URL is wider
 	// than the ticket_url column and the column is empty, so stripping it from
@@ -136,20 +143,40 @@ func splitTicketDescription(description string) ticketDescriptionSplit {
 	return result
 }
 
-// isAbsoluteHTTPURL reports whether the value is an http(s) URL naming a host,
-// under the same rule every write boundary applies.
+// isAbsoluteHTTPURL reports whether the value is a single http(s) URL naming a
+// host, under the same rule every write boundary applies.
 //
-// The empty check is this caller's own: utils.ValidateHTTPURL admits "" because
-// its callers treat an absent optional field as valid, and here an empty value
-// is a "Tickets:" part with nothing after it. Scheme-less values are rejected,
-// because this pass moves a value into a column the render surfaces treat as a
-// destination, and supplying a scheme would invent one rather than read it.
+// Two refusals are this caller's own. The EMPTY one, because
+// utils.ValidateHTTPURL admits "" for callers treating an absent optional field
+// as valid, and here it means a "Tickets:" part with nothing after it. And any
+// INNER WHITESPACE, because url.Parse accepts spaces in a path: without this,
+// "Tickets: https://dice.fm/e/1 SOLD OUT" parses as one valid URL, so the pass
+// would move the prose into ticket_url and delete it from the description. A
+// vendor line this pass may act on is one token.
+//
+// Scheme-less values are rejected because this pass moves a value into a column
+// the render surfaces treat as a destination, and supplying a scheme would
+// invent one rather than read it.
 func isAbsoluteHTTPURL(value string) bool {
-	return value != "" && utils.ValidateHTTPURL(value, "Tickets") == nil
+	if value == "" || strings.ContainsFunc(value, unicode.IsSpace) {
+		return false
+	}
+	return utils.ValidateHTTPURL(value, "Tickets") == nil
 }
 
 // CleanupTicketDescriptions moves vendor URLs out of stored show descriptions
 // and into shows.ticket_url.
+//
+// It is DESTRUCTIVE in two cases a dry run reports and a live run cannot undo:
+// a vendor line whose URL the column already holds is removed and stored
+// nowhere, and only the FIRST URL survives when a description carries several.
+// It also touches every source, not just discovery, because the line is read
+// off the description rather than off shows.source.
+//
+// It writes shows.updated_at, which venue-follow digests read as "edited since
+// accrual" and use to withhold a show from the EMAIL lane for that cycle
+// (internal/services/notification/venue_follow_notify.go). A pass over many
+// rows costs them one email each.
 //
 // The column wins when it already holds a value: the description line is the
 // older record, and a populated column was either a later scrape or a human
@@ -183,15 +210,13 @@ func CleanupTicketDescriptions(db *gorm.DB, opts TicketDescriptionCleanupOptions
 
 	for _, row := range candidates {
 		split := splitTicketDescription(row.Description)
-		if split.SawNonURL {
-			report.SkippedNonURL++
-		}
 		if !split.Changed {
+			report.SkippedNonURL++
 			continue
 		}
 
 		columnEmpty := row.TicketURL == nil || strings.TrimSpace(*row.TicketURL) == ""
-		storable := len(split.TicketURL) <= utils.MaxTicketURLLen
+		storable := utf8.RuneCountInString(split.TicketURL) <= utils.MaxTicketURLLen
 		if columnEmpty && !storable {
 			report.SkippedOversizeURL++
 			continue

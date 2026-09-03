@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 	"unicode"
 
 	"gorm.io/gorm"
@@ -379,7 +380,7 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 		}
 		var description *string
 		if len(descParts) > 0 {
-			desc := strings.Join(descParts, " | ")
+			desc := strings.Join(descParts, ticketDescriptionSeparator)
 			description = &desc
 		}
 
@@ -1088,11 +1089,19 @@ func parseArtistsFromTitle(title string) []string {
 //
 // Blank collapses to nil, which both call sites want: a scraper reading an
 // empty attribute reports "" and "   " interchangeably, and the update path
-// treats "stated nothing" as "leave the stored value alone". A value wider than
-// the column is nil for the same reason a truncated URL is worse than none.
+// treats "stated nothing" as "leave the stored value alone".
+//
+// The value must clear the same bar every other writer onto ticket_url clears
+// (utils.ValidateHTTPURL, via shared.ValidateURLField on the edit paths): the
+// column is a destination the render surfaces link, and the content here is an
+// extraction over third-party HTML. A value wider than the column is nil for
+// the same reason a truncated URL is worse than none.
 func scrapedTicketURL(raw *string) *string {
 	trimmed := utils.NilIfBlankPtr(raw)
-	if trimmed == nil || len(*trimmed) > utils.MaxTicketURLLen {
+	if trimmed == nil || utf8.RuneCountInString(*trimmed) > utils.MaxTicketURLLen {
+		return nil
+	}
+	if utils.ValidateHTTPURL(*trimmed, "ticket_url") != nil {
 		return nil
 	}
 	return trimmed

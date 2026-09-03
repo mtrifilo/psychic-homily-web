@@ -11,9 +11,11 @@ import (
 // plantedTagSource describes one table carrying a contributor-writable ticket
 // URL, for the category that reports affiliate tags planted in it.
 //
-// A tag in a STORED ticket URL was planted by whoever submitted the row: this
-// app never writes an affiliate parameter into the database, it appends one at
-// render time.
+// A tag in a STORED ticket URL is somebody else's: the render surfaces append
+// ours to a copy at render time and never write one back. Whose it is depends
+// on the row's provenance, which the reason does not carry -- a contributor
+// submitted it, or the discovery importer copied a venue listing that already
+// had one.
 type plantedTagSource struct {
 	EntityType string
 	Table      string
@@ -115,11 +117,11 @@ func (s *DataQualityService) getPlantedTicketTag(category string, limit, offset 
 
 // pageItems applies limit/offset to an already-ordered slice.
 func pageItems(items []*contracts.DataQualityItem, limit, offset int) []*contracts.DataQualityItem {
-	if offset >= len(items) {
-		return []*contracts.DataQualityItem{}
-	}
 	if offset < 0 {
 		offset = 0
+	}
+	if offset >= len(items) {
+		return []*contracts.DataQualityItem{}
 	}
 	end := offset + limit
 	if limit <= 0 || end > len(items) {
@@ -131,7 +133,14 @@ func pageItems(items []*contracts.DataQualityItem, limit, offset int) []*contrac
 // plantedAffiliateTag reports the affiliate parameter a stored ticket URL
 // credits and the host it credits it on.
 func plantedAffiliateTag(rawURL string) (param, host string, ok bool) {
-	trimmed := strings.TrimSpace(rawURL)
+	// Tab, newline and carriage return are stripped by every URL parser and by
+	// the browser before a request goes out, so a key spelled "ir<TAB>mp"
+	// reaches the vendor as `irmp` and is credited. A scan that kept them would
+	// read an unknown parameter and report nothing. The render side normalizes
+	// the same three characters for the same reason.
+	scannable := strings.NewReplacer("\t", "", "\n", "", "\r", "").Replace(rawURL)
+
+	trimmed := strings.TrimSpace(scannable)
 	if trimmed == "" {
 		return "", "", false
 	}
@@ -181,12 +190,16 @@ func firstAffiliateParam(query string) (string, bool) {
 // ticketURLHost reads the host out of a stored ticket URL, supplying the scheme
 // a contributor omitted so `ticketweb.com/e/1` still names a host. Returns the
 // empty string when the value names none.
+//
+// The root label's trailing dot is dropped, matching the host the render side
+// prints for the same row: `ticketweb.com.` and `ticketweb.com` are one host,
+// and a reason that spelled them differently would read as two findings.
 func ticketURLHost(rawURL string) string {
 	if parsed, err := url.Parse(rawURL); err == nil && parsed.Host != "" {
-		return parsed.Hostname()
+		return strings.TrimSuffix(parsed.Hostname(), ".")
 	}
 	if parsed, err := url.Parse("https://" + rawURL); err == nil {
-		return parsed.Hostname()
+		return strings.TrimSuffix(parsed.Hostname(), ".")
 	}
 	return ""
 }
