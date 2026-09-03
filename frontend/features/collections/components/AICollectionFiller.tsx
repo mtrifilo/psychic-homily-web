@@ -41,6 +41,8 @@ import { Badge } from '@/components/ui/badge'
 import { InlineErrorBanner } from '@/components/shared'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useCollectionExtraction } from '../hooks'
+import { REPLACED_REQUEST_EXPLANATION } from './collectionDetailShared'
+import type { components } from '@/types/api'
 import type {
   ExtractedCollectionData,
   ExtractedCollectionItem,
@@ -158,8 +160,21 @@ function createAffordanceFor(
 // is staged into the collection (true inline create-and-add); 'requested' =
 // approved but the entity wasn't auto-created (e.g. a show, whose venue +
 // artists an admin can only supply while the request is still pending —
-// PSY-1037); 'queued' = pending admin review.
-type RequestOutcome = 'created' | 'requested' | 'queued'
+// PSY-1037); 'queued' = pending admin review; 'updated' = pending admin review
+// on the requester's OWN earlier request, which this submission replaced
+// (PSY-1948's `replaced`).
+type RequestOutcome = 'created' | 'requested' | 'queued' | 'updated'
+
+/** The queue-create response, aliased from the generated OpenAPI types. */
+type CreateEntityRequestResponse = components['schemas']['CreateEntityRequestResponseBody']
+
+/** The chip word for each outcome. Exhaustive: a new outcome is a build error. */
+const REQUEST_OUTCOME_LABEL: Record<RequestOutcome, string> = {
+  created: 'Added',
+  requested: 'Requested',
+  queued: 'Queued',
+  updated: 'Updated',
+}
 
 interface QueueEntityRequestVars {
   /** The unmatched row this request was filed from (used for per-row state). */
@@ -200,29 +215,42 @@ function useQueueEntityRequest() {
         }),
       })
 
-      const data = await response.json().catch(() => null)
+      const body: unknown = await response.json().catch(() => null)
 
       if (!response.ok) {
+        const problem = body as { detail?: string; message?: string } | null
         throw new Error(
-          (data && (data.detail || data.message)) ||
+          problem?.detail ||
+            problem?.message ||
             'Failed to submit entity request'
         )
       }
+
+      // Read through the GENERATED schema, not a hand-written shape, so a
+      // backend rename fails the build here rather than reporting every
+      // submission as a first filing forever. Partial because the response is
+      // parsed, not validated: the fields are still narrowed below.
+      const data = (body ?? {}) as Partial<CreateEntityRequestResponse>
 
       // PSY-1008: an auto-approved request now fulfills the entity inline and
       // returns created_entity_id. When present, the caller stages the new
       // entity into the collection (true create-and-add). decision_state still
       // distinguishes approved from pending for the non-fulfilled fallback.
       const createdEntityId =
-        typeof data?.created_entity_id === 'number'
+        typeof data.created_entity_id === 'number'
           ? data.created_entity_id
           : undefined
+      // `replaced` reports a correction to the requester's own queued request.
+      // It ranks below the two approved outcomes: it can only be true of a
+      // pending row, and "the entity exists" outranks it if both ever applied.
       const outcome: RequestOutcome =
         createdEntityId !== undefined
           ? 'created'
-          : data?.decision_state === 'approved'
+          : data.decision_state === 'approved'
             ? 'requested'
-            : 'queued'
+            : data.replaced === true
+              ? 'updated'
+              : 'queued'
       return { outcome, rowKey: vars.rowKey, createdEntityId }
     },
   })
@@ -790,6 +818,7 @@ function ExtractedRow({
   const hasSuggestions =
     !item.matched_artist_id && (item.artist_suggestions?.length ?? 0) > 0
   const isNew = !item.matched_artist_id && !hasSuggestions
+  const isReplaced = requestOutcome === 'updated'
 
   return (
     <div
@@ -868,12 +897,14 @@ function ExtractedRow({
               variant="secondary"
               className="text-xs shrink-0 motion-safe:animate-in motion-safe:fade-in"
               data-testid="ai-collection-filler-row-request-chip"
+              // Both spellings of the explanation are required; see the
+              // constant's own contract.
+              title={isReplaced ? REPLACED_REQUEST_EXPLANATION : undefined}
             >
-              {requestOutcome === 'created'
-                ? 'Added'
-                : requestOutcome === 'queued'
-                  ? 'Queued'
-                  : 'Requested'}
+              {REQUEST_OUTCOME_LABEL[requestOutcome]}
+              {isReplaced && (
+                <span className="sr-only"> {REPLACED_REQUEST_EXPLANATION}</span>
+              )}
             </Badge>
           ) : affordance === 'none' ? null : confirming ? (
             // trusted_contributor inline confirm — irreversible creation.

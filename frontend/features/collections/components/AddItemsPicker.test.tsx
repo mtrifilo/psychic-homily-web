@@ -840,6 +840,50 @@ describe('AddItemsPicker', () => {
     })
   })
 
+  // PSY-1975: `replaced: true` means the POST corrected the requester's own
+  // queued request rather than filing a new one.
+  it('Paste mode: a replaced request reads UPDATED and explains itself', async () => {
+    mockApiRequest.mockResolvedValue({ replaced: true })
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await user.click(screen.getByTestId('tab-paste'))
+    await pasteInto(user, 'Corrected Artist')
+
+    const chip = await screen.findByTestId('add-items-picker-paste-row-queued')
+    expect(chip).toHaveTextContent('UPDATED')
+    expect(chip).not.toHaveTextContent('FOR REVIEW')
+    expect(chip).toHaveTextContent(
+      'Your earlier request was replaced with this one'
+    )
+    expect(chip).toHaveAttribute(
+      'title',
+      'Your earlier request was replaced with this one'
+    )
+    // The row is still queued for review, so it still counts toward the tally.
+    expect(screen.getByText('1 for review')).toBeInTheDocument()
+  })
+
+  it('Paste mode: a Retry reports the verdict of the attempt that succeeded', async () => {
+    // The row reaches queue_failed first, so the success path is the only
+    // writer of `replaced` and has to set it on the retry, not just on the
+    // initial pass.
+    mockApiRequest.mockRejectedValueOnce(new Error('boom'))
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await user.click(screen.getByTestId('tab-paste'))
+    await pasteInto(user, 'Corrected Artist')
+
+    const retry = await screen.findByTestId(
+      'add-items-picker-paste-row-retry-queue'
+    )
+    mockApiRequest.mockResolvedValue({ replaced: true })
+    await user.click(retry)
+
+    expect(
+      await screen.findByTestId('add-items-picker-paste-row-queued')
+    ).toHaveTextContent('UPDATED')
+  })
+
   it('Paste mode: a failed queue POST shows a Retry that re-fires the request', async () => {
     mockApiRequest.mockRejectedValueOnce(new Error('boom'))
     const user = userEvent.setup()

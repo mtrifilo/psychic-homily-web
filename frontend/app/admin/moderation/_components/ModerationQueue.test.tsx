@@ -910,6 +910,280 @@ describe('ModerationQueue', () => {
     expect(screen.queryByText(partialBillWarning)).not.toBeInTheDocument()
   })
 
+  // ─── Payload bill prefill (PSY-1955) ─────────────────────────────────────
+  //
+  // The form seeds its rows from the bill the contributor recorded on the
+  // request payload, so approving does not re-type it. The form still sends an
+  // explicit show_artists, which is what makes an act the admin removed stay
+  // removed: the endpoint never merges a body bill with the payload's.
+
+  /** A show request whose payload carries a bill. */
+  function showRequestWithBill(artists: unknown): AdminEntityRequest {
+    return {
+      ...mockEntityRequest,
+      id: 11,
+      entity_type: 'show',
+      payload: {
+        title: 'Big Fest',
+        event_date: '2026-07-01',
+        city: 'Phoenix',
+        state: 'AZ',
+        artists,
+      },
+      source_detail: null,
+    }
+  }
+
+  it('seeds the bill from the payload, keeping stated roles and leaving the rest unstated', () => {
+    setDefaultMocks({
+      requests: [
+        showRequestWithBill([
+          { name: 'Boris', set_type: 'headliner' },
+          { name: 'Earth' },
+          { name: '  Sleep  ', set_type: 'direct_support' },
+        ]),
+      ],
+    })
+
+    render(<ModerationQueue />)
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }))
+
+    expect(screen.getByLabelText('Artist 1 name')).toHaveValue('Boris')
+    expect(screen.getByLabelText('Artist 2 name')).toHaveValue('Earth')
+    // Names are trimmed on the way in: the trimmed name is what the endpoint
+    // measures and stores.
+    expect(screen.getByLabelText('Artist 3 name')).toHaveValue('Sleep')
+    expect(screen.queryByLabelText('Artist 4 name')).not.toBeInTheDocument()
+
+    // The role control carries the payload's role, and says nothing for the
+    // act that stated none — bill order never designates one.
+    expect(screen.getByRole('combobox', { name: 'Artist 1 bill role' })).toHaveTextContent(
+      'Headliner'
+    )
+    expect(screen.getByRole('combobox', { name: 'Artist 2 bill role' })).toHaveTextContent(
+      'Role not stated'
+    )
+    expect(screen.getByRole('combobox', { name: 'Artist 3 bill role' })).toHaveTextContent(
+      'Direct support'
+    )
+  })
+
+  it('stops printing the bill as raw JSON in the payload preview', () => {
+    setDefaultMocks({
+      requests: [showRequestWithBill([{ name: 'Boris', set_type: 'headliner' }])],
+    })
+
+    render(<ModerationQueue />)
+
+    expect(screen.queryByText('artists:')).not.toBeInTheDocument()
+    expect(screen.queryByText(/\[\{"name":"Boris"/)).not.toBeInTheDocument()
+    // The rest of the payload still previews.
+    expect(screen.getByText('event_date:')).toBeInTheDocument()
+  })
+
+  it('submits the seeded bill with each act on the role the payload stated', () => {
+    const mutate = vi.fn()
+    mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+    setDefaultMocks({
+      requests: [
+        showRequestWithBill([
+          { name: 'Boris', set_type: 'headliner' },
+          { name: 'Earth' },
+        ]),
+      ],
+    })
+
+    render(<ModerationQueue />)
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }))
+    fireEvent.change(screen.getByLabelText('Venue name'), { target: { value: 'Valley Bar' } })
+    fireEvent.click(screen.getByRole('button', { name: /create show/i }))
+
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 11,
+        decision: 'approved',
+        show_venue: { name: 'Valley Bar', city: 'Phoenix', state: 'AZ' },
+        // set_type is ABSENT on the unstated act (a present "" is a 422) and
+        // is_headliner is always sent, so an unstated act cannot pick up the
+        // backend's position-0 fallback.
+        show_artists: [
+          { name: 'Boris', is_headliner: true, set_type: 'headliner' },
+          { name: 'Earth', is_headliner: false },
+        ],
+      }),
+      expect.anything()
+    )
+  })
+
+  it('drops a removed act from the submitted bill', () => {
+    const mutate = vi.fn()
+    mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+    setDefaultMocks({
+      requests: [
+        showRequestWithBill([
+          { name: 'Boris', set_type: 'headliner' },
+          { name: 'Hallucinated Act' },
+          { name: 'Earth' },
+        ]),
+      ],
+    })
+
+    render(<ModerationQueue />)
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }))
+    fireEvent.change(screen.getByLabelText('Venue name'), { target: { value: 'Valley Bar' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Remove artist 2' }))
+    fireEvent.click(screen.getByRole('button', { name: /create show/i }))
+
+    // The removed act is gone from the body, and the body is the whole bill:
+    // the endpoint never merges it back from the payload.
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        show_artists: [
+          { name: 'Boris', is_headliner: true, set_type: 'headliner' },
+          { name: 'Earth', is_headliner: false },
+        ],
+      }),
+      expect.anything()
+    )
+  })
+
+  it('degrades a role outside the vocabulary to unstated rather than inventing one', () => {
+    setDefaultMocks({
+      requests: [showRequestWithBill([{ name: 'Boris', set_type: 'co-headliner-ish' }])],
+    })
+
+    render(<ModerationQueue />)
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }))
+
+    expect(screen.getByLabelText('Artist 1 name')).toHaveValue('Boris')
+    expect(screen.getByRole('combobox', { name: 'Artist 1 bill role' })).toHaveTextContent(
+      'Role not stated'
+    )
+  })
+
+  it.each([
+    ['no artists key at all', undefined],
+    ['an artists value that is not an array', { name: 'Boris' }],
+    ['a null artists value', null],
+    ['entries that are not objects', ['Boris', 42, null]],
+    ['entries with no usable name', [{ set_type: 'headliner' }, { name: '   ' }, { name: 7 }]],
+  ])('falls back to one blank row for %s', (_label, artists) => {
+    setDefaultMocks({ requests: [showRequestWithBill(artists)] })
+
+    render(<ModerationQueue />)
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }))
+
+    // The queue rendered, and the form opened on today's single blank row.
+    expect(screen.getByLabelText('Artist 1 name')).toHaveValue('')
+    expect(screen.queryByLabelText('Artist 2 name')).not.toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Artist 1 bill role' })).toHaveTextContent(
+      'Role not stated'
+    )
+  })
+
+  it('removes a seeded act even when it is the only one on the bill', () => {
+    setDefaultMocks({
+      requests: [showRequestWithBill([{ name: 'Hallucinated Solo Act' }])],
+    })
+
+    render(<ModerationQueue />)
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }))
+
+    // The bill came from somebody else, so a single act must still be
+    // droppable in one click rather than only clearable.
+    fireEvent.click(screen.getByRole('button', { name: 'Remove artist 1' }))
+    expect(screen.queryByLabelText('Artist 1 name')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /create show/i })).toBeDisabled()
+
+    // Add artist restores an empty row, so the form is not a dead end.
+    fireEvent.click(screen.getByRole('button', { name: /add artist/i }))
+    expect(screen.getByLabelText('Artist 1 name')).toHaveValue('')
+  })
+
+  it('keeps the blank form one-row floor when no bill seeded it', () => {
+    setDefaultMocks({ requests: [showRequestWithBill(undefined)] })
+
+    render(<ModerationQueue />)
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }))
+
+    expect(
+      screen.queryByRole('button', { name: 'Remove artist 1' })
+    ).not.toBeInTheDocument()
+  })
+
+  it('says which job the form is asking the admin to do', () => {
+    const seeded = /check the bill the requester recorded/i
+    const unseeded = /supply the venue and artist\(s\)/i
+
+    setDefaultMocks({ requests: [showRequestWithBill([{ name: 'Boris' }])] })
+    const { unmount } = render(<ModerationQueue />)
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }))
+    expect(screen.getByText(seeded)).toBeInTheDocument()
+    expect(screen.queryByText(unseeded)).not.toBeInTheDocument()
+    unmount()
+
+    setDefaultMocks({ requests: [showRequestWithBill(undefined)] })
+    render(<ModerationQueue />)
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }))
+    expect(screen.getByText(unseeded)).toBeInTheDocument()
+    expect(screen.queryByText(seeded)).not.toBeInTheDocument()
+  })
+
+  it('keeps the seeded rows when the payload is replaced under an open form', () => {
+    // A queued payload is mutable and the queue refetches, so an open form can
+    // be re-rendered with a payload the admin never saw. The rows are their
+    // working copy: they must not be re-seeded, and nothing describing them may
+    // follow the new payload either.
+    const request = showRequestWithBill([
+      { name: 'Boris', set_type: 'headliner' },
+      { name: 'Earth' },
+    ])
+    setDefaultMocks({ requests: [request] })
+    const { rerender } = render(<ModerationQueue />)
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }))
+    fireEvent.change(screen.getByLabelText('Artist 2 name'), {
+      target: { value: 'Melvins' },
+    })
+
+    // The contributor resubmits, dropping the bill entirely.
+    setDefaultMocks({ requests: [{ ...request, artists: undefined, payload: { title: 'Big Fest', event_date: '2026-07-01' } }] })
+    rerender(<ModerationQueue />)
+
+    expect(screen.getByLabelText('Artist 1 name')).toHaveValue('Boris')
+    expect(screen.getByLabelText('Artist 2 name')).toHaveValue('Melvins')
+    // The header still describes the form on screen, not the new payload.
+    expect(
+      screen.getByText(/check the bill the requester recorded/i)
+    ).toBeInTheDocument()
+  })
+
+  it('seeds the rescue form from the payload bill too', () => {
+    const mutate = vi.fn()
+    mockUseRescueEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+    const orphan: AdminEntityRequest = {
+      ...showRequestWithBill([{ name: 'Boris', set_type: 'headliner' }]),
+      id: 12,
+      decision_state: 'approved',
+      created_entity_id: undefined,
+    }
+    setDefaultMocks({ rescue: [orphan] })
+
+    render(<ModerationQueue />)
+    fireEvent.click(screen.getByText('Needs attention'))
+    fireEvent.click(screen.getByRole('button', { name: /^fulfill$/i }))
+    fireEvent.change(screen.getByLabelText('Venue name'), { target: { value: 'Valley Bar' } })
+    fireEvent.click(screen.getByRole('button', { name: /create show/i }))
+
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 12,
+        action: 'fulfill',
+        show_artists: [{ name: 'Boris', is_headliner: true, set_type: 'headliner' }],
+      }),
+      expect.anything()
+    )
+  })
+
   it('cancel closes the show form without mutating', () => {
     const mutate = vi.fn()
     mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
@@ -1204,6 +1478,78 @@ describe('ModerationQueue', () => {
       fireEvent.click(screen.getByText('Reports'))
 
       expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    })
+  })
+
+  // ── PSY-1975: a request whose payload was rewritten after it was filed ────
+  //
+  // A resubmission replaces the queued row's submission in place, so updated_at
+  // moves and created_at does not. The card says so; the queue does not
+  // reshuffle, because it still sorts on created_at.
+  describe('revised request (PSY-1975)', () => {
+    const revisedRequest: AdminEntityRequest = {
+      ...mockEntityRequest,
+      id: 60,
+      payload: { name: 'Corrected Band' },
+      source_detail: null,
+      created_at: '2026-04-08T00:00:00Z',
+      updated_at: '2026-04-08T04:00:00Z',
+    }
+
+    it('badges a revised request and stamps when the revision landed', () => {
+      setDefaultMocks({ requests: [revisedRequest] })
+      render(<ModerationQueue />)
+
+      expect(screen.getByText('Revised')).toBeInTheDocument()
+      // The filing stamp stays the headline; the revision reads beside it.
+      expect(screen.getByText(/^revised /)).toBeInTheDocument()
+    })
+
+    it('leaves an untouched request unbadged', () => {
+      setDefaultMocks({ requests: [mockEntityRequest] })
+      render(<ModerationQueue />)
+
+      expect(screen.queryByText('Revised')).not.toBeInTheDocument()
+    })
+
+    it('ignores a sub-minute gap between the two stamps', () => {
+      // The floor is a product decision, not a clock-skew correction: an
+      // untouched row's two stamps are equal. Pinned so the threshold cannot
+      // move without somebody deciding to move it.
+      setDefaultMocks({
+        requests: [
+          {
+            ...revisedRequest,
+            created_at: '2026-04-08T00:00:00Z',
+            updated_at: '2026-04-08T00:00:30Z',
+          },
+        ],
+      })
+      render(<ModerationQueue />)
+
+      expect(screen.queryByText('Revised')).not.toBeInTheDocument()
+    })
+
+    it('keeps the revised card in its filed-at position', () => {
+      // Discriminating on purpose: the queue sorts oldest-first, and this pair
+      // orders one way by created_at and the OTHER way by updated_at. `older`
+      // was filed first but revised most recently, so swapping the comparator's
+      // key would swap these two rows and reshuffle the queue under a reader.
+      const older: AdminEntityRequest = {
+        ...mockEntityRequest,
+        id: 61,
+        payload: { name: 'Older Band' },
+        source_detail: null,
+        created_at: '2026-04-07T00:00:00Z',
+        updated_at: '2026-04-09T00:00:00Z',
+      }
+      setDefaultMocks({ requests: [older, revisedRequest] })
+      render(<ModerationQueue />)
+
+      const names = screen
+        .getAllByText(/Band$/)
+        .map(node => node.textContent)
+      expect(names).toEqual(['Older Band', 'Corrected Band'])
     })
   })
 

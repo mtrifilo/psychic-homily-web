@@ -589,7 +589,11 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 	// This closes the window between THIS read and the claim. It does NOT close
 	// the window between the admin READING the queue and pressing approve: that
 	// body carries no version, so the payload can change under a human review.
-	// PSY-1975 covers surfacing a revision in the queue.
+	// The queue badges a request whose updated_at has moved since it was filed,
+	// which reports a revision the admin's last list fetch happened to see; it
+	// is not a version check, and nothing refuses an approve issued against a
+	// payload the admin never read. Closing that needs a client-supplied
+	// version on the decide body.
 	//
 	// PSY-1037: approving a show REQUIRES the associations — guard before the
 	// claim. Decide only operates on pending rows, so a post-claim failure
@@ -745,9 +749,14 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 		if resp.Body.CreatedEntityID != nil {
 			metadata["created_entity_id"] = *resp.Body.CreatedEntityID
 		}
-		// PSY-1858: record WHICH bill was fulfilled, so an approve that adopted the
-		// contributor's stored bill is distinguishable after the fact from one the
-		// admin typed and vetted. Nothing else in the row carries that.
+		// PSY-1858: record WHICH INPUT the fulfilled bill arrived on. Nothing else
+		// in the row carries that.
+		//
+		// It does NOT distinguish a bill the admin composed from one they merely
+		// accepted: the moderation form seeds its rows from this same payload and
+		// submits them, so billSourceBody covers both a typed bill and a stored one
+		// the admin passed through. billSourcePayload means only that no client
+		// sent show_artists at all.
 		//
 		// Gated on the entity type as well as on showAssoc, because a non-show
 		// approve carrying stray show_venue + show_artists still builds a

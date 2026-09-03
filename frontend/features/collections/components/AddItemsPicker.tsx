@@ -87,7 +87,15 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { ENTITY_ICONS } from './collectionDetailShared'
+import { ENTITY_ICONS, REPLACED_REQUEST_EXPLANATION } from './collectionDetailShared'
+import type { components } from '@/types/api'
+
+/**
+ * The queue-create response, aliased from the generated OpenAPI types so a
+ * backend rename fails the build here instead of silently reporting every
+ * submission as a first filing.
+ */
+type CreateEntityRequestResponse = components['schemas']['CreateEntityRequestResponseBody']
 
 // ──────────────────────────────────────────────
 // Types
@@ -191,6 +199,13 @@ interface PreviewRow {
    * one via the inline dropdown, which promotes the row to `matched`.
    */
   candidates?: PreviewCandidate[]
+  /**
+   * `queued` rows only: the request corrected the requester's own earlier
+   * queued request under this name rather than filing a new one. A field and
+   * not a status, because the row is queued for review either way and every
+   * count that reads `status` still means what it meant.
+   */
+  replaced?: boolean
 }
 
 /** Max candidates surfaced in an AMBIGUOUS line's [Pick] dropdown. */
@@ -276,16 +291,20 @@ export function parsePasteLine(line: string): ParsedPasteLine {
  * event_date, venues city+state, etc.) — so the line text is sufficient to
  * file a well-formed request. The admin reviewing the queue retypes /
  * reclassifies if it was actually a release or venue.
+ *
+ * The resolved `replaced` says the request landed on the requester's own queued
+ * row under this name rather than filing a new one. Anything but `true` reads
+ * as a first filing, which is the claim that stays true either way.
  */
-function queueEntityRequest(name: string): Promise<unknown> {
-  return apiRequest(API_ENDPOINTS.COLLECTIONS.ENTITY_REQUESTS, {
+function queueEntityRequest(name: string): Promise<{ replaced: boolean }> {
+  return apiRequest<CreateEntityRequestResponse>(API_ENDPOINTS.COLLECTIONS.ENTITY_REQUESTS, {
     method: 'POST',
     body: JSON.stringify({
       entity_type: 'artist',
       payload: { name },
       source_context: 'paste_mode',
     }),
-  })
+  }).then(res => ({ replaced: res?.replaced === true }))
 }
 
 // ──────────────────────────────────────────────
@@ -479,7 +498,7 @@ function usePastePreview(pasteText: string): {
     (generation: number, index: number, raw: string): Promise<void> => {
       updateRow(generation, index, { status: 'queuing' })
       return queueEntityRequest(raw).then(
-        () => updateRow(generation, index, { status: 'queued' }),
+        ({ replaced }) => updateRow(generation, index, { status: 'queued', replaced }),
         () => updateRow(generation, index, { status: 'queue_failed' })
       )
     },
@@ -1396,14 +1415,21 @@ function PastePreviewRow({
             Queuing…
           </Badge>
         )}
+        {/* A replaced row is still queued for review, so it keeps the pending
+            register and only its word changes. Both spellings of the
+            explanation are required; see the constant's own contract. */}
         {row.status === 'queued' && (
           <Badge
             variant="secondary"
             className="text-[10px] px-1.5 py-0 shrink-0 bg-pending text-pending-foreground motion-safe:animate-in motion-safe:fade-in"
             data-testid="add-items-picker-paste-row-queued"
+            title={row.replaced ? REPLACED_REQUEST_EXPLANATION : undefined}
           >
             <Inbox className="h-3 w-3 mr-0.5" />
-            FOR REVIEW
+            {row.replaced ? 'UPDATED' : 'FOR REVIEW'}
+            {row.replaced && (
+              <span className="sr-only"> {REPLACED_REQUEST_EXPLANATION}</span>
+            )}
           </Badge>
         )}
         {row.status === 'queue_failed' && (

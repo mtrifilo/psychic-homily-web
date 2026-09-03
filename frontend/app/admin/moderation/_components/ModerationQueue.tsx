@@ -143,6 +143,33 @@ function renderValue(value: unknown): string {
   return String(value)
 }
 
+/**
+ * How far updated_at must lead created_at before a pending request reads as
+ * revised. One minute, by product decision.
+ *
+ * It is a floor, not a correction for clock skew: an untouched row's two
+ * stamps are EQUAL, because GORM writes every auto-timestamp on a row from one
+ * clock read and the column defaults are both NOW(). So the cost of the floor
+ * is its own blind spot, a resubmission inside the first minute never badging,
+ * and not a false-positive risk it is buying that back.
+ */
+const REVISED_MIN_GAP_MS = 60 * 1000
+
+/**
+ * True when a PENDING entity request was rewritten after it was filed: a
+ * resubmission replaces the queued row's payload in place, moving updated_at
+ * while created_at stays where the queue sorts on it.
+ *
+ * PENDING is the caller's contract. On a decided row the same gap only means
+ * the decision was stamped.
+ */
+function wasRevisedSinceFiling(createdAt: string, updatedAt: string): boolean {
+  const created = Date.parse(createdAt)
+  const updated = Date.parse(updatedAt)
+  if (Number.isNaN(created) || Number.isNaN(updated)) return false
+  return updated - created > REVISED_MIN_GAP_MS
+}
+
 // ─── Filter Types ────────────────────────────────────────────────────────────
 
 // 'needs_attention' (PSY-1088) is the rescue view: approved-but-unfulfilled
@@ -337,10 +364,17 @@ function sourceContextLabel(source: string): string {
   }
 }
 
-// name/title are surfaced as the card header (requestEntityLabel), so the
-// preview omits them to avoid repeating the label — mirroring PendingEditCard,
-// whose preview shows the changes, not the already-headed entity name.
-const PREVIEW_OMIT_KEYS = new Set(['name', 'title'])
+// Surfaced as the card header (requestEntityLabel), so the preview does not
+// repeat them — mirroring PendingEditCard, whose preview shows the changes and
+// not the already-headed entity name.
+const PREVIEW_HEADER_KEYS = ['name', 'title']
+
+// Shown by a control instead of the preview. `artists` is the show payload's
+// bill, which ShowCreateForm renders as editable rows; it is also the only
+// non-scalar payload field, so the preview could only stringify it.
+const PREVIEW_CONTROL_OWNED_KEYS = ['artists']
+
+const PREVIEW_OMIT_KEYS = new Set([...PREVIEW_HEADER_KEYS, ...PREVIEW_CONTROL_OWNED_KEYS])
 
 /** Non-header payload fields as [key, displayValue] pairs for the preview box. */
 // `payload` is a *json.RawMessage server-side, so the wire can send `null`;
@@ -477,6 +511,54 @@ function toShowArtistInputs(rows: ShowArtistRow[]): ShowArtistInput[] {
 }
 
 /**
+ * Read the bill a show request's payload carries (PSY-1858) into form rows.
+ *
+ * This is the ONLY place the bill's shape is asserted: `payload` is `unknown`
+ * in the generated types, because the backend field is a *json.RawMessage and
+ * no schema reaches the OpenAPI document. The authoritative shape is
+ * communitym.ShowRequestArtist — a required `name`, an optional `set_type`
+ * from the curated vocabulary.
+ *
+ * A non-conforming entry is DROPPED, never thrown on: this runs while
+ * rendering the queue, so one malformed payload costs its own card a prefill
+ * and not the whole surface. An empty result means "no bill", which the form
+ * answers with a single blank row.
+ *
+ * The result is not truncated. MaxShowRequestArtists is enforced at
+ * queue-create and again pre-claim; a cap restated here could only disagree
+ * with it, and disagreeing downward would seed fewer acts than the request
+ * holds while the admin submits the seeded rows as the whole bill.
+ */
+function parsePayloadBill(payload: Record<string, unknown> | null): ShowArtistRow[] {
+  const artists = payload?.artists
+  if (!Array.isArray(artists)) return []
+
+  const rows: ShowArtistRow[] = []
+  for (const entry of artists) {
+    if (typeof entry !== 'object' || entry === null) continue
+    const { name, set_type: setType } = entry as { name?: unknown; set_type?: unknown }
+    if (typeof name !== 'string') continue
+    // A nameless act is dropped from the submitted bill anyway, and one
+    // carrying a role blocks the submit outright.
+    const trimmedName = name.trim()
+    if (trimmedName === '') continue
+    rows.push({
+      name: trimmedName,
+      // An unrecognised role says nothing rather than asserting a slot nobody
+      // chose; toSetTypeChoice falls back to unstated for exactly that reason.
+      set_type: typeof setType === 'string' ? toSetTypeChoice(setType) : UNSTATED_ROLE,
+    })
+  }
+  return rows
+}
+
+/** A payload string field, or '' when the payload does not carry one. */
+function payloadString(payload: Record<string, unknown> | null, key: string): string {
+  const value = payload?.[key]
+  return typeof value === 'string' ? value : ''
+}
+
+/**
  * Inline associations form for approving a SHOW request (PSY-1037): the
  * payload carries the show metadata but not the venue + artists CreateShow
  * requires, so the admin supplies them here. Plain controlled inputs — the
@@ -485,28 +567,43 @@ function toShowArtistInputs(rows: ShowArtistRow[]): ShowArtistInput[] {
  * Typo-created duplicates are recoverable via the existing merge tooling.
  */
 function ShowCreateForm({
-  defaultCity,
-  defaultState,
+  payload,
   isSubmitting,
   onSubmit,
   onCancel,
 }: {
-  defaultCity: string
-  defaultState: string
+  /**
+   * The request's own creation payload. Every seed this form takes is read off
+   * it here, so the approve card and the rescue card cannot drift apart on what
+   * a request prefills.
+   */
+  payload: Record<string, unknown> | null
   isSubmitting: boolean
   onSubmit: (venue: ShowVenueInput, artists: ShowArtistInput[]) => void
   onCancel: () => void
 }) {
   const [venueName, setVenueName] = useState('')
-  const [venueCity, setVenueCity] = useState(defaultCity)
-  const [venueState, setVenueState] = useState(defaultState)
-  // Every act starts with its role unstated, including the first (PSY-1856).
-  // The row used to arrive pre-checked as the headliner, which asserted a slot
-  // nobody had looked at; a bill role is a curated fact somebody states, and it
-  // is never inferred from row order.
-  const [artists, setArtists] = useState<ShowArtistRow[]>([
-    { name: '', set_type: UNSTATED_ROLE },
-  ])
+  const [venueCity, setVenueCity] = useState(() => payloadString(payload, 'city'))
+  const [venueState, setVenueState] = useState(() => payloadString(payload, 'state'))
+  // The bill the request carried WHEN THIS FORM OPENED. Read once, like every
+  // other seed here: a queued payload is mutable (a resubmission replaces it in
+  // place), and the queue refetches, so a live read would let the rows and
+  // everything describing them disagree while the admin is typing.
+  const [payloadBill] = useState(() => parsePayloadBill(payload))
+  const seededFromPayload = payloadBill.length > 0
+  // A seeded act keeps the role the payload stated and stays UNSTATED when it
+  // stated none: bill order is not a designation, on this form or at the
+  // endpoint. From here the rows are the admin's working copy; re-seeding them
+  // from a refetched payload would discard edits mid-review.
+  const [artists, setArtists] = useState<ShowArtistRow[]>(() =>
+    payloadBill.length > 0 ? payloadBill : [{ name: '', set_type: UNSTATED_ROLE }]
+  )
+
+  // A seeded act is removable even when it is the only one: the bill came from
+  // somebody else, possibly an AI extraction, so a single hallucinated act must
+  // be droppable in one click. A form that seeded blank keeps its one-row floor,
+  // where removal would only mean clearing a field the admin just typed into.
+  const canRemoveRows = artists.length > 1 || seededFromPayload
 
   const updateArtist = (index: number, patch: Partial<ShowArtistRow>) => {
     setArtists(rows => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)))
@@ -559,8 +656,12 @@ function ShowCreateForm({
 
   return (
     <div className="mt-3 space-y-3 rounded-md border bg-muted/30 p-3">
+      {/* A seeded form is not asking for artists the request lacks, so it does
+          not say so. */}
       <p className="text-xs font-medium text-foreground">
-        Create show — supply the venue and artist(s) the request doesn&rsquo;t carry
+        {seededFromPayload
+          ? 'Create show — check the bill the requester recorded, then supply the venue'
+          : 'Create show — supply the venue and artist(s) the request doesn’t carry'}
       </p>
 
       <div className="space-y-2">
@@ -634,7 +735,7 @@ function ShowCreateForm({
                 ))}
               </SelectContent>
             </Select>
-            {artists.length > 1 && (
+            {canRemoveRows && (
               <Button
                 type="button"
                 variant="ghost"
@@ -742,6 +843,9 @@ function RequestCard({
   // opens the associations form instead of approving immediately.
   const isShow = request.entity_type === 'show'
   const [showFormOpen, setShowFormOpen] = useState(false)
+  // This card renders pending rows only, so a moved updated_at is a rewritten
+  // submission and nothing else.
+  const isRevised = wasRevisedSinceFiling(request.created_at, request.updated_at)
 
   const handleCreate = useCallback(() => {
     if (isShow) {
@@ -786,13 +890,26 @@ function RequestCard({
             <Badge variant="outline" className="shrink-0">
               {entityTypeLabel(request.entity_type)}
             </Badge>
+            {/* Amber is this file's "worth knowing before you act" register
+                (see the rescue card) and is legible in both themes. */}
+            {isRevised && (
+              <Badge
+                variant="outline"
+                className="shrink-0 border-amber-500/40 text-amber-700 dark:text-amber-400"
+              >
+                Revised
+              </Badge>
+            )}
             <span className="text-sm font-medium text-foreground truncate">
               {entityLabel}
             </span>
           </div>
-          <span className="text-xs text-muted-foreground shrink-0">
-            {timeAgo(request.created_at)}
-          </span>
+          {/* created_at stays the headline stamp: it is what the queue sorts
+              on, so the card keeps its place. */}
+          <div className="flex flex-col items-end shrink-0 text-xs text-muted-foreground">
+            <span>{timeAgo(request.created_at)}</span>
+            {isRevised && <span>revised {timeAgo(request.updated_at)}</span>}
+          </div>
         </div>
 
         {/* Attribution + source context */}
@@ -854,8 +971,7 @@ function RequestCard({
         {/* PSY-1037: show approvals collect the venue + artists here first */}
         {isShow && showFormOpen && (
           <ShowCreateForm
-            defaultCity={typeof request.payload?.city === 'string' ? request.payload.city : ''}
-            defaultState={typeof request.payload?.state === 'string' ? request.payload.state : ''}
+            payload={request.payload}
             isSubmitting={pendingDecision === 'approved'}
             onSubmit={handleCreateShow}
             onCancel={() => setShowFormOpen(false)}
@@ -1006,8 +1122,7 @@ function RescueCard({
         {/* Shows collect the venue + artists before fulfilling */}
         {isShow && showFormOpen && (
           <ShowCreateForm
-            defaultCity={typeof request.payload?.city === 'string' ? request.payload.city : ''}
-            defaultState={typeof request.payload?.state === 'string' ? request.payload.state : ''}
+            payload={request.payload}
             isSubmitting={pendingAction === 'fulfill'}
             onSubmit={handleFulfillShow}
             onCancel={() => setShowFormOpen(false)}
