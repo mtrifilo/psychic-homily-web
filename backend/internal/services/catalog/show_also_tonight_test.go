@@ -102,11 +102,7 @@ func (suite *SceneServiceIntegrationTestSuite) showIDs(idOrSlug string) []uint {
 	rail, err := suite.sceneService.GetShowAlsoTonight(idOrSlug)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(rail)
-	ids := make([]uint, 0, len(rail.Shows))
-	for _, show := range rail.Shows {
-		ids = append(ids, show.ID)
-	}
-	return ids
+	return idsOf(rail.Shows)
 }
 
 // The two acceptance properties that define the rail: it never lists the show
@@ -450,7 +446,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestSceneShowsInRange_StartedRows
 // otherwise only possible during part of the day, and the test would quietly stop
 // asserting anything for the rest of it.
 func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_LiveNightPromotesEveryUpcomingShowOverTheCap() {
-	loc, nowLocal := suite.eveningZone()
+	loc, nowLocal := suite.liveNightZone()
 
 	chicago := suite.seedVenue(alsoTonightVenue{
 		name: "Empty Bottle", city: "Chicago", state: "IL", tz: loc.String(),
@@ -1086,34 +1082,26 @@ func idsOf(shows []contracts.SceneShowSummary) []uint {
 	return ids
 }
 
-// eveningZone is a real IANA zone in which the current instant is mid evening,
-// with that instant. A live-night fixture needs both started and still-to-come
-// shows on ONE calendar date, which only exists in the evening; picking the zone
-// from the clock rather than the clock from the zone is what makes such a test
-// mean the same thing at every hour the suite might run.
-func (suite *SceneServiceIntegrationTestSuite) eveningZone() (*time.Location, time.Time) {
-	// One zone per UTC offset, so some entry always reads as evening.
-	names := []string{
-		"Pacific/Midway", "Pacific/Honolulu", "Pacific/Marquesas", "America/Anchorage",
-		"America/Los_Angeles", "America/Denver", "America/Chicago", "America/New_York",
-		"America/Halifax", "America/Sao_Paulo", "Atlantic/South_Georgia", "Atlantic/Azores",
-		"UTC", "Europe/Berlin", "Europe/Athens", "Europe/Moscow", "Asia/Tehran",
-		"Asia/Dubai", "Asia/Karachi", "Asia/Kolkata", "Asia/Kathmandu", "Asia/Dhaka",
-		"Asia/Yangon", "Asia/Bangkok", "Asia/Shanghai", "Asia/Tokyo", "Australia/Darwin",
-		"Australia/Brisbane", "Pacific/Guadalcanal", "Pacific/Auckland", "Pacific/Chatham",
-		"Pacific/Kiritimati",
-	}
-	for _, name := range names {
+// liveNightZone is a real IANA zone in which the current instant sits well
+// inside one calendar date, with that instant. A live-night fixture needs both
+// started and still-to-come shows on ONE date, past the 06:00 night boundary;
+// picking the zone from the clock rather than the clock from the zone is what
+// makes such a test mean the same thing at every hour the suite might run.
+//
+// Four zones roughly six hours apart cover the 08:00-21:59 window from any UTC
+// instant, since the window is wider than the widest gap between them.
+func (suite *SceneServiceIntegrationTestSuite) liveNightZone() (*time.Location, time.Time) {
+	now := time.Now()
+	for _, name := range []string{"America/Chicago", "UTC", "Asia/Shanghai", "Pacific/Auckland"} {
 		loc, err := time.LoadLocation(name)
 		if err != nil {
 			continue
 		}
-		// From 19:00 to 21:59, so seeding half an hour either side of now stays on
-		// one calendar date and after the 06:00 night boundary.
-		if hour := time.Now().In(loc).Hour(); hour >= 19 && hour < 22 {
-			return loc, time.Now().In(loc)
+		nowLocal := now.In(loc)
+		if hour := nowLocal.Hour(); hour >= 8 && hour < 22 {
+			return loc, nowLocal
 		}
 	}
-	suite.Require().FailNow("no zone in the table reads as evening right now")
+	suite.Require().FailNow("no zone in the table is inside its own day right now")
 	return nil, time.Time{}
 }

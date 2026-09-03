@@ -4411,7 +4411,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_UnknownArtistIDIsNo
 // The predicate PreviewShowImport runs is the one the create guard runs, and it
 // has to answer the same on an id-only bill. Called directly, because the import
 // surface builds its bills from frontmatter names and cannot express an id.
-func (suite *ShowServiceIntegrationTestSuite) TestFindRequestDuplicate_ProbesAnIdOnlyBill() {
+func (suite *ShowServiceIntegrationTestSuite) TestShowDedupProbe_ProbesAnIdOnlyBill() {
 	user := suite.createTestUser()
 	eventDate := suite.uniqueEventDate()
 
@@ -4437,12 +4437,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestFindRequestDuplicate_ProbesAnI
 		Venues:    []contracts.CreateShowVenue{{ID: &venueID}},
 		Artists:   []contracts.CreateShowArtist{{ID: &artistID}},
 	}
-	probeNames, err := probedHeadlinerNames(suite.db, req.Artists)
+	probe, err := newShowDedupProbe(suite.db, req)
 	suite.Require().NoError(err)
-	suite.Equal([]string{"Predicate Id Only Act"}, probeNames,
+	suite.Equal([]string{"Predicate Id Only Act"}, probe.names,
 		"the probe set is the names the bill will store")
 
-	message, err := findRequestDuplicate(suite.db, req, probeNames)
+	message, err := probe.findDuplicate(suite.db)
 	suite.Require().NoError(err)
 	suite.Contains(message, "'Predicate Id Only Act' is already performing",
 		"preview must refuse what confirm refuses")

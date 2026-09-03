@@ -65,8 +65,16 @@ func TestShowDedupLockKeysAreOrderIndependent(t *testing.T) {
 	eventDate := time.Date(2027, 6, 1, 20, 0, 0, 0, time.UTC)
 	venues := []contracts.CreateShowVenue{{Name: "Lock Room", City: "Phoenix", State: "AZ"}}
 
-	forward := showDedupLockKeys([]string{"Earth", "Boris"}, venues, eventDate)
-	reversed := showDedupLockKeys([]string{"Boris", "Earth"}, venues, eventDate)
+	forward := showDedupProbe{
+		names:     []string{"Earth", "Boris"},
+		venues:    venueDedupTargets(venues),
+		eventDate: eventDate,
+	}.lockKeys()
+	reversed := showDedupProbe{
+		names:     []string{"Boris", "Earth"},
+		venues:    venueDedupTargets(venues),
+		eventDate: eventDate,
+	}.lockKeys()
 
 	if len(forward) != 2 {
 		t.Fatalf("both acts must be locked, got %d keys", len(forward))
@@ -85,11 +93,11 @@ func TestShowDedupLockKeysAreOrderIndependent(t *testing.T) {
 func TestShowDedupLockKeysDeduplicateOneAct(t *testing.T) {
 	eventDate := time.Date(2027, 6, 2, 20, 0, 0, 0, time.UTC)
 
-	keys := showDedupLockKeys(
-		[]string{"earth", "Earth"},
-		[]contracts.CreateShowVenue{{Name: "Lock Room", City: "Phoenix", State: "AZ"}},
-		eventDate,
-	)
+	keys := showDedupProbe{
+		names:     []string{"earth", "Earth"},
+		venues:    venueDedupTargets([]contracts.CreateShowVenue{{Name: "Lock Room", City: "Phoenix", State: "AZ"}}),
+		eventDate: eventDate,
+	}.lockKeys()
 
 	if len(keys) != 1 {
 		t.Errorf("one act at one venue is one lock, got %d: %v", len(keys), keys)

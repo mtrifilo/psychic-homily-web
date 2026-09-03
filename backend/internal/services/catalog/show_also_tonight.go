@@ -98,8 +98,7 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 	// separate from upcoming ones and stays in clock order.
 	var sinkStartedAt *time.Time
 	if isTonight {
-		startedBy := nowLocal
-		sinkStartedAt = &startedBy
+		sinkStartedAt = &nowLocal
 	}
 
 	// TWO over the cap, and both are load-bearing. One pays for the subject, which
@@ -122,8 +121,13 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 	}
 
 	shows := make([]contracts.SceneShowSummary, 0, len(rows))
+	// A subject among the rows is already proof the scene lists it: these rows came
+	// from the scene's own scope. Absence proves nothing, because the fetch is
+	// capped and ordered, so that branch has to ask (see below).
+	subjectOnTheRail := false
 	for _, row := range rows {
 		if row.ID == subject.ShowID {
+			subjectOnTheRail = true
 			continue
 		}
 		shows = append(shows, row)
@@ -147,18 +151,21 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 	//     this date provably does not list the show the reader came from, and
 	//     sending them there is worse than sending them nowhere.
 	//
-	// The membership half is asked of the scope, not read off the rows above: the
-	// rows are capped and ordered, so a subject the scene-day page does list can
-	// still be absent from them. Ordered second so a date with no page to point at
-	// pays for no query.
+	// The membership half cannot be read off the rows alone: they are capped and
+	// ordered, so a subject the scene-day page does list can still be absent from
+	// them, and only that branch pays for a query. A date with no page to point at
+	// pays for nothing.
 	//
 	// Display identity below stays unconditional, because naming the metro is
 	// true either way. Same split as SceneDayResponse.PrevDate/NextDate.
 	sceneSlug := ""
 	if dateIsServable(date, nowLocal) {
-		listed, err := s.sceneListsShow(scope, subject.ShowID)
-		if err != nil {
-			return nil, err
+		listed := subjectOnTheRail
+		if !listed {
+			listed, err = s.sceneListsShow(scope, subject.ShowID)
+			if err != nil {
+				return nil, err
+			}
 		}
 		if listed {
 			sceneSlug = buildSceneSlug(city, state)
@@ -184,25 +191,27 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 // applies, asked about one row. The date needs no term, because this rail's date
 // is derived from the subject's own instant.
 //
-// A multi-room show can match on more than one of its rooms, so this counts
-// rather than expecting one row.
+// EXISTS rather than a count: a show billed at several of the metro's rooms
+// matches once per room, and only whether it matches at all is ever asked.
 func (s *SceneService) sceneListsShow(scope sceneScope, showID uint) (bool, error) {
 	vp, vargs := scope.venuePredicate("v")
 	args := append(append([]any{}, vargs...), showID, catalogm.ShowStatusApproved)
 
-	var matches int64
+	var listed bool
 	if err := s.db.Raw(`
-		SELECT COUNT(*)
-		FROM shows s
-		JOIN show_venues sv ON sv.show_id = s.id
-		JOIN venues v ON v.id = sv.venue_id
-		WHERE `+vp+`
-		  AND s.id = ?
-		  AND s.status = ?
-	`, args...).Scan(&matches).Error; err != nil {
+		SELECT EXISTS (
+			SELECT 1
+			FROM shows s
+			JOIN show_venues sv ON sv.show_id = s.id
+			JOIN venues v ON v.id = sv.venue_id
+			WHERE `+vp+`
+			  AND s.id = ?
+			  AND s.status = ?
+		)
+	`, args...).Scan(&listed).Error; err != nil {
 		return false, fmt.Errorf("failed to check scene membership: %w", err)
 	}
-	return matches > 0, nil
+	return listed, nil
 }
 
 // alsoTonightClock is the clock this show's date is read on, plus the zone name

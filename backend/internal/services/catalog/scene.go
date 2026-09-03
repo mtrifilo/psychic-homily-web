@@ -882,7 +882,8 @@ func (s *SceneService) GetSceneUpcomingShows(city, state string, windowDays, lim
 
 // GetSceneShowsInRange returns the scene's approved shows in the half-open
 // window [from, to), soonest first (id as the same-date tiebreak), capped at
-// limit. This is the shared engine behind both GetSceneUpcomingShows (a
+// limit. That order is this function's; sceneShowsInRange below serves the one
+// caller that needs another. This is the shared engine behind both GetSceneUpcomingShows (a
 // rolling window from now) and the weekly city page (a fixed calendar week),
 // so the digest email and the public page can never disagree about which shows
 // belong to a scene.
@@ -953,9 +954,10 @@ func (s *SceneService) sceneShowsInRange(city, state string, from, to time.Time,
 	// Both branches are compile-time literals; only the instant is a bind arg.
 	// `<=` is the boundary the client's own hasShowStarted uses, so a row cannot
 	// land in one half on the server and the other on a hydrating client.
-	orderBy := "ORDER BY picked.event_date ASC, picked.id ASC"
+	const clockOrder = "picked.event_date ASC, picked.id ASC"
+	orderBy := "ORDER BY " + clockOrder
 	if sinkStartedAt != nil {
-		orderBy = "ORDER BY (picked.event_date <= ?) ASC, picked.event_date ASC, picked.id ASC"
+		orderBy = "ORDER BY (picked.event_date <= ?) ASC, " + clockOrder
 		args = append(args, sinkStartedAt.UTC())
 	}
 	args = append(args, limit)
