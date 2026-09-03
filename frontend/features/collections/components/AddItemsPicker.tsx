@@ -332,19 +332,31 @@ async function queueEntityRequestBatch(
   const results: EntityRequestBatchResult[] = []
   for (let sent = 0; sent < names.length; sent += QUEUE_BATCH_MAX_ITEMS) {
     const chunk = names.slice(sent, sent + QUEUE_BATCH_MAX_ITEMS)
-    const res = await apiRequest<EntityRequestBatchResponse>(
-      API_ENDPOINTS.COLLECTIONS.ENTITY_REQUESTS_BATCH,
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          items: chunk.map(name => ({
-            entity_type: 'artist',
-            payload: { name },
-            source_context: 'paste_mode',
-          })),
-        }),
-      }
-    )
+    let res: EntityRequestBatchResponse
+    try {
+      res = await apiRequest<EntityRequestBatchResponse>(
+        API_ENDPOINTS.COLLECTIONS.ENTITY_REQUESTS_BATCH,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            items: chunk.map(name => ({
+              entity_type: 'artist',
+              payload: { name },
+              source_context: 'paste_mode',
+            })),
+          }),
+        }
+      )
+    } catch {
+      // A failed chunk RESOLVES with what the earlier ones answered rather than
+      // rejecting. Rejecting would mark every row failed, including the ones
+      // already filed, and retrying those would file replacements the
+      // contributor never made. Items with no result are the caller's
+      // queue_failed, which is exactly the rows this chunk and the ones after it
+      // cover. Stopping is deliberate: the next chunk is one more request at the
+      // same server the last one just failed against.
+      break
+    }
     // Each chunk indexes from zero, so the offset restores the caller's own
     // positions and the results read as one list.
     for (const result of res?.results ?? []) {

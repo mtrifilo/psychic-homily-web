@@ -1097,6 +1097,35 @@ describe('AddItemsPicker', () => {
     )
   }, 20000)
 
+  // A chunk that fails must not take the chunk before it down with it: those
+  // rows are FILED, and marking them failed would offer a Retry that files a
+  // replacement the contributor never made.
+  it('Paste mode: a failed second chunk leaves the first chunk queued', async () => {
+    const lines = Array.from({ length: 201 }, (_, i) => `Junk Line ${i}`)
+    let call = 0
+    mockApiRequest.mockImplementation(async (...args: unknown[]) => {
+      call += 1
+      if (call === 2) throw new Error('network down')
+      return batchAnswer(args)
+    })
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await user.click(screen.getByTestId('tab-paste'))
+    await pasteInto(user, lines.join('\n'))
+
+    await waitFor(
+      () =>
+        expect(
+          screen.getAllByTestId('add-items-picker-paste-row-queued')
+        ).toHaveLength(200),
+      { timeout: 10000 }
+    )
+    // Only the unanswered line is retryable.
+    expect(
+      screen.getAllByTestId('add-items-picker-paste-row-retry-queue')
+    ).toHaveLength(1)
+  }, 20000)
+
   // PSY-2005: an item the server refused is terminal for that line, so it says
   // why and offers no Retry, while its siblings are filed regardless.
   it('Paste mode: a refused item reports its reason and never blocks its siblings', async () => {
