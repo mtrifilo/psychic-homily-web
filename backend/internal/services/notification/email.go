@@ -228,13 +228,30 @@ func (s *EmailService) SendAccountRecoveryEmail(toEmail, token string, daysRemai
 	return nil
 }
 
-// SendShowReminderEmail sends a reminder email ~24h before a saved show
-func (s *EmailService) SendShowReminderEmail(toEmail, showTitle, showURL, unsubscribeURL string, eventDate time.Time, venues []string) error {
+// The two date registers of the show reminder. They differ only in the trailing
+// clause, so a reader comparing a withheld line against a normal one sees the
+// same date in the same shape with nothing substituted for the hour.
+const (
+	showReminderDateTimeLayout = "Monday, January 2, 2006 at 3:04 PM"
+	showReminderDateOnlyLayout = "Monday, January 2, 2006"
+)
+
+// SendShowReminderEmail sends a reminder email ~24h before a saved show.
+//
+// The clock is dropped when the event's zone is unresolved (see
+// contracts.LocalizedEventTime): naming an hour there would state a time read
+// off the Arizona fallback, which for a non-US room is wrong by hours. The date
+// carries the whole line on its own in that case.
+func (s *EmailService) SendShowReminderEmail(toEmail, showTitle, showURL, unsubscribeURL string, eventTime contracts.LocalizedEventTime, venues []string) error {
 	if !s.IsConfigured() {
 		return fmt.Errorf("email service is not configured")
 	}
 
-	formattedDate := eventDate.Format("Monday, January 2, 2006 at 3:04 PM")
+	dateLayout := showReminderDateOnlyLayout
+	if eventTime.ZoneResolved {
+		dateLayout = showReminderDateTimeLayout
+	}
+	formattedDate := eventTime.At.Format(dateLayout)
 	venueText := ""
 	if len(venues) > 0 {
 		venueText = fmt.Sprintf(`<p style="font-size: 16px; color: #444;">Venue: <strong>%s</strong></p>`, strings.Join(venues, ", "))

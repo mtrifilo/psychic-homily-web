@@ -1,5 +1,6 @@
-import { formatShowMonth } from '@/lib/utils/formatters'
+import { formatShowMonth, resolveShowTimezone } from '@/lib/utils/formatters'
 import { formatInTimezone } from '@/lib/utils/timeUtils'
+import { markGuessedShowDay } from '../showPageDate'
 import type { ShowTimelineRecurrence } from '../types'
 
 /**
@@ -25,10 +26,23 @@ import type { ShowTimelineRecurrence } from '../types'
 export interface TimelineStop {
   /** ISO instant. */
   event_date: string
-  /** Resolved IANA zone. Never the venue's raw nullable column. */
-  timezone: string
+  /**
+   * The IANA zone the stop's room is on, or null when the room supplies none.
+   *
+   * A null does not by itself mean the date is a guess: the date is then read on
+   * `state` through `resolveShowTimezone`, and only a `state` the US map cannot
+   * answer for leaves the label marked. Never hand this field to
+   * `formatInTimezone` directly, because `Intl` raises on a null zone.
+   */
+  timezone: string | null
   venue_name?: string | null
   city?: string | null
+  /**
+   * The room's state, read alongside `timezone` by the same
+   * `resolveShowTimezone` precedence every other surface dates a show on, and by
+   * the marking rule. Also the place label's second half for a room with no
+   * name on record.
+   */
   state?: string | null
 }
 
@@ -37,12 +51,17 @@ export interface TimelineStop {
  * label has no business demanding a date, and a caller with only a place should
  * not have to invent one to ask for its label.
  */
-type StopDate = Pick<TimelineStop, 'event_date' | 'timezone'>
+type StopDate = Pick<TimelineStop, 'event_date' | 'timezone' | 'state'>
 type StopPlace = Pick<TimelineStop, 'venue_name' | 'city' | 'state'>
+
+/** The clock one stop's date is read on: its own zone, then the state map. */
+function stopZone(stop: StopDate): string {
+  return resolveShowTimezone(stop.state, stop.timezone)
+}
 
 /** Venue-local calendar year, for deciding whether a date needs one. */
 export function timelineYear(stop: StopDate): string {
-  return formatInTimezone(stop.event_date, stop.timezone, { year: 'numeric' })
+  return formatInTimezone(stop.event_date, stopZone(stop), { year: 'numeric' })
 }
 
 /**
@@ -56,17 +75,22 @@ export function timelineYear(stop: StopDate): string {
  * The year is conditional because on a tour leg it would be three redundant
  * repetitions of the year in the heading. An archive spine reaching back across
  * a New Year is the case that needs it, and there the year is the whole point.
+ *
+ * MARKED `~AUG 9` when the stop's zone is the fallback rather than one its room
+ * supplies, in the same register the header a few lines above uses. One mark per
+ * date, ahead of the whole label, so a stop carrying a year is marked once.
  */
 export function timelineDateLabel(
   stop: StopDate,
   subjectYear: string,
 ): string {
-  const date = formatInTimezone(stop.event_date, stop.timezone, {
+  const date = formatInTimezone(stop.event_date, stopZone(stop), {
     month: 'short',
     day: 'numeric',
   }).toUpperCase()
   const year = timelineYear(stop)
-  return year === subjectYear ? date : `${date} ${year}`
+  const label = year === subjectYear ? date : `${date} ${year}`
+  return markGuessedShowDay(label, stop.state, stop.timezone)
 }
 
 /**
@@ -115,8 +139,13 @@ export function timelineCurrentPlaceLabel(stop: StopPlace): string {
  *
  * Month resolution through the same `formatShowMonth` the month-grouped
  * archives head their sections with, so "Nov 2023" here and the "Nov 2023"
- * heading a reader lands on after following the link are one string. It is
- * passed a null state because the stop's zone is already resolved.
+ * heading a reader lands on after following the link are one string.
+ *
+ * UNMARKED, unlike the spine. A month is a weaker claim than a day: the
+ * fallback's reading of a date can name the wrong day, but only a set within
+ * the last hours of a month can land it in the wrong month, and this line reads
+ * as prose rather than as a dateline. The header's decided marking list does
+ * not reach it.
  *
  * Sentence case, unlike the spine: this line sits directly under the bill in
  * the same register as the band names above it.
@@ -124,7 +153,7 @@ export function timelineCurrentPlaceLabel(stop: StopPlace): string {
 export function lastPlayedLabel(
   stop: StopDate & Pick<TimelineStop, 'venue_name'>,
 ): string {
-  const month = formatShowMonth(stop.event_date, null, stop.timezone)
+  const month = formatShowMonth(stop.event_date, stop.state, stop.timezone)
   const venue = stop.venue_name?.trim()
   return venue ? `${month}, ${venue}` : month
 }

@@ -1625,16 +1625,18 @@ type SceneWeekDay struct {
 // TrackedVenues is not decoration. Coverage is a curated slice of each city's
 // rooms, not an exhaustive listing, so the page must name the rooms it draws
 // from rather than implying it lists everything happening in the city.
+//
+// Timezone is NULL under the rule SceneDayResponse states in full.
 type SceneWeekResponse struct {
-	Slug      string `json:"slug"`
-	SceneName string `json:"scene_name"` // "City, ST"
-	City      string `json:"city"`
-	State     string `json:"state"`
-	ISOWeek   string `json:"iso_week"`   // "2026-W31"
-	StartDate string `json:"start_date"` // Monday, scene-local ISO date
-	EndDate   string `json:"end_date"`   // Sunday, scene-local ISO date
-	Timezone  string `json:"timezone"`   // IANA zone the week was computed in
-	ShowCount int    `json:"show_count"`
+	Slug      string  `json:"slug"`
+	SceneName string  `json:"scene_name"` // "City, ST"
+	City      string  `json:"city"`
+	State     string  `json:"state"`
+	ISOWeek   string  `json:"iso_week"`   // "2026-W31"
+	StartDate string  `json:"start_date"` // Monday, scene-local ISO date
+	EndDate   string  `json:"end_date"`   // Sunday, scene-local ISO date
+	Timezone  *string `json:"timezone"`   // IANA zone the week was computed in; NULL when unresolved
+	ShowCount int     `json:"show_count"`
 	// PrevWeek/NextWeek are ISO week keys for adjacent-week navigation.
 	PrevWeek string `json:"prev_week"`
 	NextWeek string `json:"next_week"`
@@ -1734,13 +1736,19 @@ type SceneVenueSummary struct {
 // The day is computed in the scene's own timezone for the same reason the week
 // is: a 21:00 show in Chicago is 02:00 the NEXT day in UTC, so a UTC boundary
 // would file it under the wrong date.
+//
+// Timezone is NULL when the scene has no zone the site knows: no verified room
+// carries one and the state is outside the US map. The Date above is still
+// served, computed on the Arizona default, because a fallback DAY is the best
+// available answer; the null zone is what tells a client not to build an HOUR on
+// the same guess.
 type SceneDayResponse struct {
-	Slug      string `json:"slug"`
-	SceneName string `json:"scene_name"` // "City, ST"
-	City      string `json:"city"`
-	State     string `json:"state"`
-	Date      string `json:"date"`     // scene-local ISO date (YYYY-MM-DD)
-	Timezone  string `json:"timezone"` // IANA zone the day was computed in
+	Slug      string  `json:"slug"`
+	SceneName string  `json:"scene_name"` // "City, ST"
+	City      string  `json:"city"`
+	State     string  `json:"state"`
+	Date      string  `json:"date"`     // scene-local ISO date (YYYY-MM-DD)
+	Timezone  *string `json:"timezone"` // IANA zone the day was computed in; NULL when unresolved
 	// ISOWeek is the week this day belongs to, so a client can link the week
 	// view without redoing ISO calendar maths (which is subtle enough that the
 	// two would eventually disagree at a year boundary).
@@ -1758,6 +1766,11 @@ type SceneDayResponse struct {
 	// by the date it BEGAN on (the same 6am broadcast-day boundary the radio
 	// schedule uses). Answered here because it depends on the SCENE's clock,
 	// not the viewer's. It does not widen the day's window — see Shows.
+	//
+	// Computed on the fallback clock when Timezone is NULL, and NOT withheld
+	// there. It is a same-day claim about a DATE, and this payload publishes the
+	// date on that same fallback; withholding one and not the other would leave
+	// a client a date it cannot label.
 	IsTonight bool `json:"is_tonight"`
 	// IsPastDay says the day is over and can no longer gain shows — the only
 	// state in which a client may cache this payload hard.
@@ -1831,8 +1844,10 @@ type ShowAlsoTonightResponse struct {
 	// A strict calendar date, so a 00:30 set files under the date it starts on.
 	// "Tonight" is a different question, answered by IsTonight.
 	Date string `json:"date"`
-	// Timezone is the IANA zone the date and its window were computed in.
-	Timezone string `json:"timezone"`
+	// Timezone is the IANA zone the date and its window were computed in, NULL
+	// when neither the subject room nor the metro names one. Same rule
+	// SceneDayResponse states in full.
+	Timezone *string `json:"timezone"`
 	// IsTonight says this date is the one a reader standing in the scene right
 	// now would call "tonight" — which is NOT simply Date == today. Until 06:00
 	// local the answer is still YESTERDAY's date, because a night is named by the
@@ -1858,10 +1873,14 @@ type ShowAlsoTonightResponse struct {
 // link to it, and read its date on the right clock.
 //
 // Timezone is RESOLVED, never the venue's raw nullable column: each entry names
-// a different room, so a client that received nulls would have to redo
-// utils.EventLocation's timezone-then-state-then-default fallback per entry to
-// avoid printing a Berlin date on a Phoenix clock. The server already holds
-// both inputs, so it answers once.
+// a different room, so a client that received the column would have to redo the
+// timezone-then-state fallback per entry to avoid printing a Berlin date on a
+// Phoenix clock. The server already holds both inputs, so it answers once
+// (shared.EventZone).
+//
+// NULL when neither input answers, under the rule SceneDayResponse states in
+// full. That is a refusal, not a gap the client should fill: a client renders
+// the DATE and no clock.
 //
 // VenueSlug and ShowSlug can be empty: both columns are nullable, and a client
 // must render an empty slug as unlinked text rather than building `/venues/`,
@@ -1874,7 +1893,7 @@ type ShowTimelineEntry struct {
 	VenueSlug string    `json:"venue_slug"`
 	City      string    `json:"city"`
 	State     string    `json:"state"`
-	Timezone  string    `json:"timezone"`
+	Timezone  *string   `json:"timezone"`
 }
 
 // ShowTimelineRecurrence is what this show's place already knows about one act

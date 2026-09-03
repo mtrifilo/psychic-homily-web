@@ -23,7 +23,10 @@ import { queryKeys } from '@/lib/queryClient'
 import {
   formatShowDate,
   formatShowTime,
+  isShowTimezoneResolved,
+  resolveShowTimezone,
 } from '@/lib/utils/formatters'
+import { formatTimeInTimezone } from '@/lib/utils/timeUtils'
 import { hasStatedPrice } from '@/lib/utils/showPrice'
 import {
   useSetShowCancelled,
@@ -45,6 +48,7 @@ import {
 } from '@/components/shared'
 import { VenueDeniedDialog } from '@/features/venues/components/VenueDeniedDialog'
 import type { ShowResponse } from '../types'
+import { showTimingInput } from '../utils'
 import { useMySubmissions } from '../hooks'
 import { DeleteShowDialog } from './DeleteShowDialog'
 import { MakePrivateDialog } from './MakePrivateDialog'
@@ -89,13 +93,38 @@ function SubmissionShowCard({
   const canPublish =
     (show.status === 'private' || show.status === 'rejected') && canManage
   const headingId = `submission-show-${show.id}`
+  // ONE zone derivation for the whole card, and the same one `/shows/{slug}`
+  // renders on. Reading `show.state` here while the show page reads
+  // `venue.state ?? show.state` lets the two disagree about whether a row's zone
+  // is nameable, and this card would then assert as fact the exact hour that
+  // page refuses to publish.
+  const timing = showTimingInput(show)
+  const zoneIsNameable = isShowTimezoneResolved(timing.state, timing.timezone)
   // Null on a guessed zone. The meta line drops the segment WITH its leading
   // bullet, so the row reads as one fact fewer rather than as a stray divider.
   const startTime = formatShowTime(
     show.event_date,
-    show.state,
-    show.venues?.[0]?.timezone
+    timing.state,
+    timing.timezone
   )
+  // The wall clock this instant was STORED under, read back on the same fallback
+  // the write paths anchor on, so the row still shows the hour someone can act
+  // on. It is not a submitter's keystroke: a date-only row was anchored at
+  // 20:00 by whichever writer created it.
+  //
+  // Shown only where the row is actionable, and labelled IN WORDS rather than
+  // with `showPageDate`'s `~`: that marker says a printed value is an estimate,
+  // and this is the opposite claim: an exact wall time whose ZONE is unknown,
+  // which is why it is the one hour the site refuses to publish. Someone who can
+  // edit the venue is exactly who can turn it back into a fact, and the fix is
+  // the venue's zone, not the show's time.
+  const unresolvedZoneStartTime =
+    canManage && !zoneIsNameable
+      ? formatTimeInTimezone(
+          show.event_date,
+          resolveShowTimezone(timing.state, timing.timezone)
+        )
+      : null
 
   return (
     <article
@@ -107,9 +136,9 @@ function SubmissionShowCard({
           <p className="text-sm font-bold tracking-wide text-primary">
             {formatShowDate(
               show.event_date,
-              show.state,
+              timing.state,
               false,
-              show.venues?.[0]?.timezone
+              timing.timezone
             )}
           </p>
           <p className="mt-0.5 text-xs text-muted-foreground">
@@ -327,6 +356,14 @@ function SubmissionShowCard({
               <span>&nbsp;•&nbsp;{show.age_requirement}</span>
             )}
             {startTime && <span>&nbsp;•&nbsp;{startTime}</span>}
+            {unresolvedZoneStartTime && (
+              <span>
+                &nbsp;•&nbsp;
+                <span className="font-mono text-xs">
+                  {unresolvedZoneStartTime} &middot; zone unresolved
+                </span>
+              </span>
+            )}
             {SHOW_LIST_FEATURE_POLICY.ownership.showDetailsLink && (
               <>
                 <span>&nbsp;•&nbsp;</span>

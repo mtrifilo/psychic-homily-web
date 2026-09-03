@@ -61,7 +61,7 @@ export function isDescribableEvent(show: SceneWeekShow): boolean {
  */
 function toMusicEventInput(
   show: SceneWeekShow,
-  sceneTimezone: string | undefined,
+  sceneTimezone: string | null | undefined,
   now: Date
 ): MusicEventInput {
   const startsAt = startInstant(show) as string // isDescribableEvent gated this
@@ -110,10 +110,16 @@ function toMusicEventInput(
  *
  * May be shorter than the list it was given — a show without a venue or a start
  * instant is listed on the page but not published as an event.
+ *
+ * `sceneTimezone` is null or absent when the payload could not name the scene's
+ * zone. It then supplies no fallback, and `startDate` degrades to a bare
+ * calendar date for any row whose own `venue_state` the US map cannot answer
+ * for either. A row carrying a US state still publishes a full offset, because
+ * the state map is a real answer.
  */
 export function sceneShowEvents(
   shows: SceneWeekShow[],
-  sceneTimezone: string | undefined,
+  sceneTimezone: string | null | undefined,
   now: Date
 ): MusicEventSchema[] {
   return shows

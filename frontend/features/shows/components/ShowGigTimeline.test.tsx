@@ -229,4 +229,56 @@ describe('ShowGigTimeline', () => {
       ).toBeInTheDocument()
     })
   })
+
+  // Each stop is marked on ITS OWN zone, including the stop the reader is on.
+  // A spine that marked per-row but left its own middle marker unmarked would
+  // print the header's guessed day twice, once qualified and once not.
+  describe('the guessed-day marker', () => {
+    const zoneless = { timezone: null, state: 'England', city: 'London' }
+
+    it('marks the current stop when its own zone is unnameable', () => {
+      render(
+        <ShowGigTimeline
+          current={{ ...current, ...zoneless, venue_name: 'The Windmill' }}
+          previous={makeEntry()}
+          next={null}
+        />
+      )
+
+      expect(screen.getByText(/~AUG 12 THE WINDMILL/)).toBeInTheDocument()
+      // The neighbour keeps its own answer; the marking is not a page mode.
+      expect(
+        screen.getByRole('link', { name: /Previous show:\s*AUG 9 METRO, CHICAGO/ })
+      ).toBeInTheDocument()
+    })
+
+    it('leaves the current stop unmarked when the state map answers', () => {
+      render(
+        <ShowGigTimeline
+          current={{ ...current, timezone: null }}
+          previous={makeEntry()}
+          next={null}
+        />
+      )
+
+      expect(screen.getByText(/AUG 12 SALT SHED/)).toBeInTheDocument()
+      expect(screen.queryByText(/~AUG 12/)).not.toBeInTheDocument()
+    })
+
+    it('marks a neighbour whose own zone is unnameable', () => {
+      render(
+        <ShowGigTimeline
+          current={current}
+          previous={makeEntry({ ...zoneless, venue_name: 'The Windmill' })}
+          next={null}
+        />
+      )
+
+      expect(
+        screen.getByRole('link', {
+          name: /Previous show:\s*~AUG 9 THE WINDMILL, LONDON/,
+        })
+      ).toBeInTheDocument()
+    })
+  })
 })

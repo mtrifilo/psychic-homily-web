@@ -9,6 +9,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -268,14 +269,19 @@ func weekHasEnded(now, end time.Time) bool {
 
 // sceneLocation resolves the timezone a scene's week boundaries are computed
 // in: the most common explicit timezone among its verified venues, falling back
-// to the state map via utils.EventLocation.
+// to the state map, both resolved through shared.EventZone.
 //
 // Modal rather than first-row so one mis-geocoded venue cannot shift the whole
 // city's week. Metro scopes stay within a single zone in practice (a CBSA is
 // geographically compact), so a single location per scene is well defined.
-func (s *SceneService) sceneLocation(scope sceneScope, state string) *time.Location {
+//
+// The second return is the publishable zone NAME, nil when neither the modal
+// venue zone nor the state map answered and the location is the Arizona
+// default. Both are returned together so a caller cannot compute the boundaries
+// on one input and publish a zone derived from another.
+func (s *SceneService) sceneLocation(scope sceneScope, state string) (*time.Location, *string) {
 	if s.db == nil {
-		return utils.EventLocation(nil, state)
+		return shared.EventZone(nil, state)
 	}
 	vp, vargs := scope.venuePredicate("v")
 	var tz string
@@ -291,9 +297,9 @@ func (s *SceneService) sceneLocation(scope sceneScope, state string) *time.Locat
 		LIMIT 1
 	`, vargs...).Scan(&tz).Error
 	if err != nil || tz == "" {
-		return utils.EventLocation(nil, state)
+		return shared.EventZone(nil, state)
 	}
-	return utils.EventLocation(&tz, state)
+	return shared.EventZone(&tz, state)
 }
 
 // GetSceneWeek returns one ISO week of a scene's shows, grouped by day in the
@@ -320,7 +326,7 @@ func (s *SceneService) GetSceneWeek(city, state, weekKey string) (*contracts.Sce
 		return nil, apperrors.ErrSceneNotFound(fmt.Sprintf("scene not found: %s, %s", city, state))
 	}
 
-	loc := s.sceneLocation(scope, state)
+	loc, zone := s.sceneLocation(scope, state)
 	nowLocal := time.Now().In(loc)
 	currentKey := ISOWeekKey(nowLocal)
 
@@ -382,7 +388,7 @@ func (s *SceneService) GetSceneWeek(city, state, weekKey string) (*contracts.Sce
 		ISOWeek:       ISOWeekKey(start),
 		StartDate:     start.Format("2006-01-02"),
 		EndDate:       start.AddDate(0, 0, 6).Format("2006-01-02"),
-		Timezone:      loc.String(),
+		Timezone:      zone,
 		ShowCount:     len(shows),
 		PrevWeek:      ISOWeekKey(start.AddDate(0, 0, -7)),
 		NextWeek:      ISOWeekKey(start.AddDate(0, 0, 7)),

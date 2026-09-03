@@ -131,10 +131,10 @@ export function formatPointerDay(
  * `venue_state` the US map does not list. A row with no time still lists its
  * bill and venue, which is most of its value.
  *
- * The refusal is narrower than it looks, because `sceneTimezone` reaches it as
- * a zone the BACKEND already resolved. When that resolution surrendered to its
- * own fallback the string is indistinguishable from a real one here, so this
- * still prints an hour. Closing that needs the payload to say it surrendered.
+ * `sceneTimezone` is the zone the BACKEND resolved, and it is NULL when that
+ * resolution surrendered to its own fallback. The refusal is still decided per
+ * ROW: a null scene zone reaches it only for a row whose own `venue_state` the
+ * US map cannot answer for either, which is the row whose hour would be a guess.
  */
 export function formatShowStartTime(
   show: SceneDayShow,
@@ -152,9 +152,8 @@ export function formatShowStartTime(
  * two registers are allowed to share a page. Identical zone resolution, the
  * same instant guard and the same refusal as `formatShowStartTime` above, so a
  * surface can move between the registers without moving a clock and without
- * gaining one it had withheld. The same narrowing applies: `sceneTimezone`
- * arrives already resolved, so a scene whose own resolution surrendered still
- * prints an hour here.
+ * gaining one it had withheld. A null `sceneTimezone` reaches the refusal here
+ * too.
  */
 export function formatShowStartTimeCompact(
   show: SceneDayShow,

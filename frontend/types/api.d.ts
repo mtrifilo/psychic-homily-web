@@ -15681,7 +15681,7 @@ export interface components {
             shows: components["schemas"]["SceneShowSummary"][] | null;
             slug: string;
             state: string;
-            timezone: string;
+            timezone: string | null;
             tracked_venues: components["schemas"]["SceneTrackedVenue"][] | null;
         };
         SceneDetailResponse: {
@@ -15954,7 +15954,7 @@ export interface components {
             slug: string;
             start_date: string;
             state: string;
-            timezone: string;
+            timezone: string | null;
             tracked_venues: components["schemas"]["SceneTrackedVenue"][] | null;
         };
         Schema: {
@@ -16494,7 +16494,7 @@ export interface components {
             show_count: number;
             shows: components["schemas"]["SceneShowSummary"][] | null;
             state?: string;
-            timezone: string;
+            timezone: string | null;
         };
         ShowArtistInput: {
             /**
@@ -16651,7 +16651,7 @@ export interface components {
             show_id: number;
             show_slug: string;
             state: string;
-            timezone: string;
+            timezone: string | null;
             venue_name: string;
             venue_slug: string;
         };

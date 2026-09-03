@@ -207,7 +207,7 @@ func (s *ShowTimelineIntegrationTestSuite) TestShowTimeline_AdjacentDatesFlankTh
 	s.Equal(*room.Slug, timeline.Previous.VenueSlug)
 	s.Equal("Chicago", timeline.Previous.City)
 	s.Equal("IL", timeline.Previous.State)
-	s.Equal(timelineChicagoZone, timeline.Previous.Timezone)
+	s.Equal(timelineChicagoZone, zoneOf(timeline.Previous.Timezone))
 
 	// The spine hangs off /shows/{show_id}, which every sibling addresses by id
 	// OR slug.
@@ -255,8 +255,36 @@ func (s *ShowTimelineIntegrationTestSuite) TestShowTimeline_AdjacencyOrdersByIns
 
 	// Local dates remain a display concern, which is what each entry's resolved
 	// zone is for.
-	s.Equal("Europe/Berlin", timeline.Previous.Timezone)
-	s.Equal("Pacific/Honolulu", timeline.Next.Timezone)
+	s.Equal("Europe/Berlin", zoneOf(timeline.Previous.Timezone))
+	s.Equal("Pacific/Honolulu", zoneOf(timeline.Next.Timezone))
+}
+
+// A neighbour at a room the site cannot name a zone for publishes none, so the
+// spine renders its date and withholds its hour rather than reading one off the
+// Arizona default. A US room in the same timeline still names its zone, which is
+// what separates a refusal from a blanket removal.
+func (s *ShowTimelineIntegrationTestSuite) TestShowTimeline_WithholdsTheZoneItCannotName() {
+	loc := s.loc(timelineChicagoZone)
+
+	subjectRoom := s.seedChicagoRoom("Empty Bottle", "Chicago")
+	windmill := s.seedRoom(timelineRoom{name: "The Windmill", city: "London", state: "England", noMetro: true})
+	rebel := s.seedRoom(timelineRoom{name: "The Rebel Lounge", city: "Phoenix", state: "AZ"})
+	act := s.seedAct("Touring Act", "Portland", "OR")
+
+	previous := s.seedDate(windmill, time.Date(2026, time.July, 4, 20, 0, 0, 0, loc), catalogm.ShowStatusApproved, act)
+	subject := s.seedDate(subjectRoom, time.Date(2026, time.September, 18, 20, 0, 0, 0, loc), catalogm.ShowStatusApproved, act)
+	next := s.seedDate(rebel, time.Date(2026, time.November, 1, 20, 0, 0, 0, loc), catalogm.ShowStatusApproved, act)
+
+	timeline := s.timelineFor(subject)
+	s.Require().NotNil(timeline.Previous)
+	s.Require().NotNil(timeline.Next)
+	s.Equal(previous.ID, timeline.Previous.ShowID)
+	s.Equal(next.ID, timeline.Next.ShowID)
+
+	s.Nil(timeline.Previous.Timezone, "England is not in the US map and the room stores no zone")
+	s.Equal("The Windmill", timeline.Previous.VenueName, "the rest of the entry is unaffected")
+	s.Equal("America/Phoenix", zoneOf(timeline.Next.Timezone),
+		"the state map is an answer, and only the surrender to it is withheld")
 }
 
 // Non-approved shows are invisible here exactly as they are on every other
@@ -633,7 +661,7 @@ func (s *ShowTimelineIntegrationTestSuite) TestShowTimeline_ShowWithNoVenueKeeps
 	s.Equal(act.ID, timeline.HeadlinerArtistID)
 	s.Require().NotNil(timeline.Previous)
 	s.Equal(prior.ID, timeline.Previous.ShowID)
-	s.Equal(timelineChicagoZone, timeline.Previous.Timezone)
+	s.Equal(timelineChicagoZone, zoneOf(timeline.Previous.Timezone))
 	s.Nil(timeline.Next)
 	s.NotNil(timeline.Recurrence)
 	s.Empty(timeline.Recurrence, "no room means no place, so no act can be home here or returning here")
@@ -683,9 +711,11 @@ func (s *ShowTimelineIntegrationTestSuite) TestShowTimeline_NeighbourWithNoVenue
 	s.Empty(timeline.Previous.VenueSlug)
 	s.Empty(timeline.Previous.City)
 	s.Empty(timeline.Previous.State)
-	// A stop with neither a zone nor a state still names one, because every
-	// date has to be read on some clock.
-	s.NotEmpty(timeline.Previous.Timezone)
+	// A stop with neither a zone nor a state names none. Its date is still read
+	// on the fallback clock and served, but nothing is published that a client
+	// could build an hour on.
+	s.Nil(timeline.Previous.Timezone)
+	s.NotZero(timeline.Previous.EventDate)
 }
 
 // A roomless neighbour that carries a city and state on its own show row is
@@ -707,7 +737,7 @@ func (s *ShowTimelineIntegrationTestSuite) TestShowTimeline_RoomlessNeighbourIsD
 	s.Empty(timeline.Previous.VenueName, "there is still no room to name")
 	s.Equal("Chicago", timeline.Previous.City)
 	s.Equal("IL", timeline.Previous.State)
-	s.Equal(timelineChicagoZone, timeline.Previous.Timezone,
+	s.Equal(timelineChicagoZone, zoneOf(timeline.Previous.Timezone),
 		"the show row's state decides the clock, not the Arizona default")
 }
 

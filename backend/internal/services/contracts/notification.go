@@ -59,6 +59,23 @@ type SceneDigestGroup struct {
 	MoreNewArtists int
 }
 
+// LocalizedEventTime is an event instant already read on the zone it will be
+// printed in, paired with whether that zone is one the site knows.
+//
+// ZoneResolved false means the reading came from the America/Phoenix fallback,
+// which utils.EventLocation surrenders to for a room with no stored zone in a
+// state outside the US map. The hour is then wrong by hours for the non-US rooms
+// that case is made of, so only the calendar DAY may be published; the day
+// itself is still the best available answer and is printed unmarked.
+//
+// The flag travels WITH the instant rather than beside it so a caller cannot
+// localize on one input and decide publishability on another.
+// shared.EventLocationResolved answers it.
+type LocalizedEventTime struct {
+	At           time.Time
+	ZoneResolved bool
+}
+
 // ──────────────────────────────────────────────
 // Email Service Interface
 // ──────────────────────────────────────────────
@@ -69,7 +86,7 @@ type EmailServiceInterface interface {
 	SendVerificationEmail(toEmail, token string) error
 	SendMagicLinkEmail(toEmail, token string) error
 	SendAccountRecoveryEmail(toEmail, token string, daysRemaining int) error
-	SendShowReminderEmail(toEmail, showTitle, showURL, unsubscribeURL string, eventDate time.Time, venues []string) error
+	SendShowReminderEmail(toEmail, showTitle, showURL, unsubscribeURL string, eventTime LocalizedEventTime, venues []string) error
 	SendFilterNotificationEmail(toEmail, subject, htmlBody, unsubscribeURL string) error
 	// Each takes an HMAC-signed unsubscribeURL (RFC 8058 one-click).
 	SendTierPromotionEmail(toEmail, username, oldTier, newTier, reason, unsubscribeURL string, newPermissions []string) error

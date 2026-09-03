@@ -722,7 +722,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestSceneSurfaces_AllCarryArtistP
 	// week's buckets: GetSceneWeek buckets scene-locally, so a UTC-formatted key
 	// names the wrong week whenever the anchor instant has already crossed into
 	// Monday UTC but is still Sunday in the scene (Phoenix is UTC-7 year round).
-	sceneLoc := suite.sceneService.sceneLocation(suite.sceneService.scopeFor("Phoenix", "AZ"), "AZ")
+	sceneLoc, _ := suite.sceneService.sceneLocation(suite.sceneService.scopeFor("Phoenix", "AZ"), "AZ")
 	anchorWeekKey := ISOWeekKey(anchor.In(sceneLoc))
 
 	assertPaired := func(surface string, shows []contracts.SceneShowSummary) {
@@ -2710,4 +2710,61 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_DominantGenre_Neut
 		}
 	}
 	suite.Require().True(found, "Phoenix scene should be present")
+}
+
+// A scene whose rooms carry no zone and whose state is outside the US map has
+// only the Arizona default left, and the day and week payloads publish no zone
+// for it. The DATE is still computed and served on that default: a fallback day
+// is the best available answer, and it is the HOUR built on the same default
+// that a client must not print.
+func (suite *SceneServiceIntegrationTestSuite) TestSceneDayAndWeek_WithholdTheZoneTheyCannotName() {
+	user := suite.createUser()
+	artist := suite.createArtist("Zoneless Act")
+	windmill := suite.createVerifiedVenue("The Windmill", "London", "England")
+	suite.createVerifiedVenue("New Cross Inn", "London", "England")
+	suite.createApprovedShow("London Night", windmill.ID, artist.ID, user.ID,
+		time.Date(2026, time.November, 14, 3, 0, 0, 0, time.UTC))
+
+	day, err := suite.sceneService.GetSceneDay("London", "England", "2026-11-13")
+	suite.Require().NoError(err)
+	suite.Nil(day.Timezone, "England is not in the US map and no room stores a zone")
+	// 03:00Z on the 14th is 20:00 on the 13th in the fallback, which is the day
+	// the payload still names.
+	suite.Equal("2026-11-13", day.Date)
+	suite.Equal(1, day.ShowCount, "the withholding must not cost the night its shows")
+
+	week, err := suite.sceneService.GetSceneWeek("London", "England", "2026-W46")
+	suite.Require().NoError(err)
+	suite.Nil(week.Timezone)
+	suite.Equal("2026-W46", week.ISOWeek)
+}
+
+// The control, in the same shape: a US state the map carries is an answer, and
+// only the surrender to the default is withheld.
+func (suite *SceneServiceIntegrationTestSuite) TestSceneDayAndWeek_NameAZoneTheStateMapCarries() {
+	suite.seedSceneData()
+
+	day, err := suite.sceneService.GetSceneDay("Phoenix", "AZ", "2026-11-13")
+	suite.Require().NoError(err)
+	suite.Require().NotNil(day.Timezone)
+	suite.Equal("America/Phoenix", *day.Timezone)
+
+	week, err := suite.sceneService.GetSceneWeek("Phoenix", "AZ", "2026-W46")
+	suite.Require().NoError(err)
+	suite.Require().NotNil(week.Timezone)
+	suite.Equal("America/Phoenix", *week.Timezone)
+}
+
+// A verified room's own zone outranks the state map, and it is published as the
+// answer it is.
+func (suite *SceneServiceIntegrationTestSuite) TestSceneDay_PublishesAVerifiedRoomsOwnZone() {
+	berlin := suite.createVerifiedVenue("Berghain Kantine", "Berlin", "BE")
+	suite.createVerifiedVenue("Hall Ohne Zone", "Berlin", "BE")
+	tz := "Europe/Berlin"
+	suite.Require().NoError(suite.db.Model(berlin).Update("timezone", &tz).Error)
+
+	day, err := suite.sceneService.GetSceneDay("Berlin", "BE", "2026-11-14")
+	suite.Require().NoError(err)
+	suite.Require().NotNil(day.Timezone)
+	suite.Equal("Europe/Berlin", *day.Timezone)
 }

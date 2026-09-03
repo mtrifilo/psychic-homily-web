@@ -1200,7 +1200,7 @@ func (m *mockEmailService) SendMagicLinkEmail(_, _ string) error    { return nil
 func (m *mockEmailService) SendAccountRecoveryEmail(_ string, _ string, _ int) error {
 	return nil
 }
-func (m *mockEmailService) SendShowReminderEmail(_ string, _ string, _ string, _ string, _ time.Time, _ []string) error {
+func (m *mockEmailService) SendShowReminderEmail(_ string, _ string, _ string, _ string, _ contracts.LocalizedEventTime, _ []string) error {
 	return nil
 }
 func (m *mockEmailService) SendFilterNotificationEmail(_, _, _, _ string) error {

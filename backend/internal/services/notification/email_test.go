@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"psychic-homily-backend/internal/config"
+	"psychic-homily-backend/internal/services/contracts"
 
 	resend "github.com/resend/resend-go/v2"
 )
@@ -295,6 +296,12 @@ func TestSendAccountRecoveryEmail_APIError(t *testing.T) {
 // SendShowReminderEmail
 // =============================================================================
 
+// resolvedEventTime is the ordinary case: a room whose zone the site knows, so
+// the reminder may print an hour.
+func resolvedEventTime(at time.Time) contracts.LocalizedEventTime {
+	return contracts.LocalizedEventTime{At: at, ZoneResolved: true}
+}
+
 func TestSendShowReminderEmail_Success(t *testing.T) {
 	svc, emails, _ := setupEmailTest(t)
 
@@ -303,7 +310,7 @@ func TestSendShowReminderEmail_Success(t *testing.T) {
 		"Rock Night",
 		"http://localhost:3000/shows/rock-night",
 		"http://localhost:3000/unsubscribe?uid=1&sig=abc",
-		time.Date(2026, 7, 15, 20, 0, 0, 0, time.UTC),
+		resolvedEventTime(time.Date(2026, 7, 15, 20, 0, 0, 0, time.UTC)),
 		[]string{"Valley Bar"},
 	)
 
@@ -317,12 +324,36 @@ func TestSendShowReminderEmail_Success(t *testing.T) {
 	assert.Contains(t, email.Html, "Valley Bar")
 	assert.Contains(t, email.Html, "http://localhost:3000/shows/rock-night")
 	assert.Contains(t, email.Html, "Unsubscribe")
+	assert.Contains(t, email.Html, "Wednesday, July 15, 2026 at 8:00 PM")
+}
+
+func TestSendShowReminderEmail_UnresolvedZoneWithholdsTheClock(t *testing.T) {
+	svc, emails, _ := setupEmailTest(t)
+
+	err := svc.SendShowReminderEmail(
+		"user@test.com",
+		"Rock Night",
+		"http://localhost:3000/shows/rock-night",
+		"http://localhost:3000/unsubscribe?uid=1&sig=abc",
+		contracts.LocalizedEventTime{
+			At:           time.Date(2026, 7, 15, 20, 0, 0, 0, time.UTC),
+			ZoneResolved: false,
+		},
+		[]string{"Hall Ohne Zone"},
+	)
+
+	require.NoError(t, err)
+	email := <-emails
+	assert.Contains(t, email.Html, "Wednesday, July 15, 2026")
+	// The date survives; the hour and the clause that introduces it do not.
+	assert.NotContains(t, email.Html, "8:00 PM")
+	assert.NotContains(t, email.Html, "2026 at")
 }
 
 func TestSendShowReminderEmail_NotConfigured(t *testing.T) {
 	svc := &EmailService{client: nil, fromEmail: ""}
 
-	err := svc.SendShowReminderEmail("user@test.com", "Show", "url", "unsub", time.Now(), nil)
+	err := svc.SendShowReminderEmail("user@test.com", "Show", "url", "unsub", resolvedEventTime(time.Now()), nil)
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not configured")
@@ -331,7 +362,7 @@ func TestSendShowReminderEmail_NotConfigured(t *testing.T) {
 func TestSendShowReminderEmail_APIError(t *testing.T) {
 	svc := setupEmailTestError(t)
 
-	err := svc.SendShowReminderEmail("user@test.com", "Show", "url", "unsub", time.Now(), nil)
+	err := svc.SendShowReminderEmail("user@test.com", "Show", "url", "unsub", resolvedEventTime(time.Now()), nil)
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to send show reminder email")
@@ -341,7 +372,7 @@ func TestSendShowReminderEmail_MultipleVenues(t *testing.T) {
 	svc, emails, _ := setupEmailTest(t)
 
 	err := svc.SendShowReminderEmail(
-		"user@test.com", "Show", "url", "unsub", time.Now(),
+		"user@test.com", "Show", "url", "unsub", resolvedEventTime(time.Now()),
 		[]string{"Valley Bar", "Crescent Ballroom"},
 	)
 
@@ -354,7 +385,7 @@ func TestSendShowReminderEmail_NoVenues(t *testing.T) {
 	svc, emails, _ := setupEmailTest(t)
 
 	err := svc.SendShowReminderEmail(
-		"user@test.com", "Show", "url", "unsub", time.Now(),
+		"user@test.com", "Show", "url", "unsub", resolvedEventTime(time.Now()),
 		[]string{},
 	)
 

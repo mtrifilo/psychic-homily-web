@@ -4,7 +4,6 @@ import { Fragment, useCallback, useState } from 'react'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
-import { resolveShowTimezone } from '@/lib/utils/formatters'
 import { showPageDate } from '../showPageDate'
 import { ShowFlyerPlate } from './ShowFlyerPlate'
 import { ShowTicketRow } from './ShowTicketRow'
@@ -271,19 +270,27 @@ export function ShowHeader({
   const { headliners: effectiveHeadliners, support: effectiveSupport } =
     splitBill(artists)
 
-  // The show's own stop on its spine, formatted by the same rules as its
-  // neighbours. The zone is `timing`'s, which is the one the date line above
-  // and the status stripe above that are already rendered on.
   // One derivation, used by every module below. `||` rather than `??`, because
   // venues.city is free text and a blank string is as absent as a null here.
   const showCity = venue?.city?.trim() || show.city?.trim() || ''
-  const showState = venue?.state?.trim() || show.state?.trim() || ''
+  // The show's own stop on its spine, formatted by the same rules as its
+  // neighbours.
+  //
+  // The zone arrives UNRESOLVED, as the room's own column, because the spine
+  // marks a guessed day and a pre-resolved zone cannot be told from a known one.
+  // Both zone inputs come from `timing`, so this stop is marked on exactly the
+  // pair the date line below is marked on. A trimmed venue-then-show state would
+  // differ for a room whose own state is blank while the show row carries one,
+  // and there it would leave the spine unmarked under a marked header. `state`
+  // is also the place label's second half, but only for a stop with no room
+  // name: a venue-less show falls through to `CITY, STATE`, which is why the
+  // city keeps its own trimmed derivation.
   const currentStop: TimelineStop = {
     event_date: show.event_date,
-    timezone: resolveShowTimezone(timing.state, timing.timezone),
+    timezone: timing.timezone ?? null,
     venue_name: venue?.name,
     city: showCity,
-    state: showState,
+    state: timing.state ?? '',
   }
   // The act the spine follows, named for its landmark. Resolved from the
   // payload's own headliner id against the bill already rendered above, so the

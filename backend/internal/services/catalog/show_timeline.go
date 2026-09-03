@@ -9,7 +9,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
-	"psychic-homily-backend/internal/utils"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // GetShowTimeline returns the archive facts behind the show page's two corridor
@@ -152,11 +152,15 @@ type timelineEntryRow struct {
 
 // entry resolves the row's display clock and returns the public shape.
 //
-// EventLocation is called here rather than left to the client for the reason
+// The zone is resolved here rather than left to the client for the reason
 // stated on ShowTimelineEntry: each row names a different room, and its
-// precedence (the venue's IANA zone, then the US state map, then the Arizona
-// default) is the same one every other surface dates a show on.
+// precedence (the venue's IANA zone, then the US state map) is the same one
+// every other surface dates a show on.
+//
+// A room the precedence cannot answer for sends NO zone, so the client withholds
+// the hour instead of printing the Arizona default's reading of it.
 func (r *timelineEntryRow) entry() *contracts.ShowTimelineEntry {
+	_, zone := shared.EventZone(&r.Timezone, r.State)
 	return &contracts.ShowTimelineEntry{
 		ShowID:    r.ShowID,
 		ShowSlug:  r.ShowSlug,
@@ -165,7 +169,7 @@ func (r *timelineEntryRow) entry() *contracts.ShowTimelineEntry {
 		VenueSlug: r.VenueSlug,
 		City:      r.City,
 		State:     r.State,
-		Timezone:  utils.EventLocation(&r.Timezone, r.State).String(),
+		Timezone:  zone,
 	}
 }
 

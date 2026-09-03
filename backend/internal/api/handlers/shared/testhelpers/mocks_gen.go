@@ -1479,7 +1479,7 @@ type MockEmailService struct {
 	SendVerificationEmailFn        func(string, string) error
 	SendMagicLinkEmailFn           func(string, string) error
 	SendAccountRecoveryEmailFn     func(string, string, int) error
-	SendShowReminderEmailFn        func(string, string, string, string, time.Time, []string) error
+	SendShowReminderEmailFn        func(string, string, string, string, contracts.LocalizedEventTime, []string) error
 	SendFilterNotificationEmailFn  func(string, string, string, string) error
 	SendTierPromotionEmailFn       func(string, string, string, string, string, string, []string) error
 	SendTierDemotionEmailFn        func(string, string, string, string, string, string) error
@@ -1516,9 +1516,9 @@ func (m *MockEmailService) SendAccountRecoveryEmail(toEmail string, token string
 	}
 	return nil
 }
-func (m *MockEmailService) SendShowReminderEmail(toEmail string, showTitle string, showURL string, unsubscribeURL string, eventDate time.Time, venues []string) error {
+func (m *MockEmailService) SendShowReminderEmail(toEmail string, showTitle string, showURL string, unsubscribeURL string, eventTime contracts.LocalizedEventTime, venues []string) error {
 	if m.SendShowReminderEmailFn != nil {
-		return m.SendShowReminderEmailFn(toEmail, showTitle, showURL, unsubscribeURL, eventDate, venues)
+		return m.SendShowReminderEmailFn(toEmail, showTitle, showURL, unsubscribeURL, eventTime, venues)
 	}
 	return nil
 }

@@ -16,12 +16,15 @@ import { formatInTimezone } from '@/lib/utils/timeUtils'
  * checked one.
  *
  * WHICH RENDERS MARK is a decided list, not a property of the page: the header
- * date, both stripe registers, the meta description, and the share card. It
- * does NOT cover every date a reader can see on `/shows/{slug}` — the gig
- * timeline spine, the bill-recurrence line and the discovery rails print their
- * days through zones the payload already resolved, which is a shape this module
- * cannot reach. So a zone-less venue shows `~SEP 5` in the header above an
- * unmarked `SEP 5` on the spine.
+ * date, both stripe registers, the meta description, the share card, the gig
+ * timeline spine (`components/showTimelineCopy.timelineDateLabel`) and the
+ * more-at-venue rail's date column (`showRails.railShowDate`).
+ *
+ * It does NOT cover every date on `/shows/{slug}`. The bill-recurrence line
+ * prints a MONTH, a claim the fallback can only get wrong for a set in a
+ * month's last hours. The also-tonight rail is listing-shaped: its rows are
+ * other shows, with no other estimate beside them to read a mark against, and
+ * it withholds a CLOCK on the same predicate. Neither marks.
  *
  * Sited here rather than in `lib/utils/formatters` so the list above has a home
  * a reader can find, and so a listing surface does not reach for a marking

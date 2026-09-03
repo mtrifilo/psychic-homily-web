@@ -246,6 +246,44 @@ describe('buildMoreAtVenueRail', () => {
     expect(rail?.rows[0]?.lead).toBe('SEP 04')
   })
 
+  // This rail sits a few hundred pixels under a header that marks the same
+  // guessed day, so an unmarked date here reads as a checked one beside it.
+  it('marks the date when neither the room nor the row names a zone', () => {
+    const rail = buildMoreAtVenueRail(
+      makeRailVenue({ timezone: null, state: 'England', city: 'London' }),
+      [makeVenueShow({ state: null, event_date: '2026-09-05T01:00:00Z' })],
+      2,
+      99
+    )
+    expect(rail?.rows[0]?.lead).toBe('~SEP 04')
+  })
+
+  it('leaves a date the state map can answer for unmarked', () => {
+    const rail = buildMoreAtVenueRail(
+      makeRailVenue({ timezone: null }),
+      [makeVenueShow({ state: null, event_date: '2026-09-05T01:00:00Z' })],
+      2,
+      99
+    )
+    expect(rail?.rows[0]?.lead).toBe('SEP 04')
+  })
+
+  it('marks a guessed date once, ahead of a lead that carries its year', () => {
+    const nextYear = new Date().getFullYear() + 1
+    const rail = buildMoreAtVenueRail(
+      makeRailVenue({ timezone: null, state: 'England', city: 'London' }),
+      [
+        makeVenueShow({
+          state: null,
+          event_date: `${nextYear}-09-05T01:00:00Z`,
+        }),
+      ],
+      2,
+      99
+    )
+    expect(rail?.rows[0]?.lead).toBe(`~SEP 04 '${String(nextYear).slice(-2)}`)
+  })
+
   it('dates a row in another year, so an archive page cannot mis-file it', () => {
     // On a past show's page the left rail is headed with ITS year (e.g. 2019)
     // while this rail lists the room's UPCOMING dates. A bare `AUG 15` beside
@@ -899,6 +937,23 @@ describe('the also-tonight lead withholds a guessed clock', () => {
     const row = buildAlsoTonightRail(zoneless(), 99)?.rows[0]
     expect(row?.title).toBeTruthy()
     expect(row?.room).toBeTruthy()
+  })
+
+  // The backend now sends null rather than the fallback literal for a metro
+  // whose zone it cannot name, which is the case this rail could not previously
+  // tell from a real America/Phoenix.
+  it('leaves the lead empty on a null scene zone', () => {
+    const payload = makeAlsoTonightPayload({
+      timezone: null,
+      shows: [
+        makeAlsoTonightShow({
+          venue_state: '',
+          venue_timezone: '',
+          starts_at: '2026-08-13T01:00:00Z',
+        }),
+      ],
+    })
+    expect(buildAlsoTonightRail(payload, 99)?.rows[0]?.lead).toBeNull()
   })
 })
 
