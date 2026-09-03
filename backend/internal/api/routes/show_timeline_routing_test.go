@@ -57,7 +57,7 @@ func TestShowTimelineIsNotExemptFromRateLimiting(t *testing.T) {
 	path := "/shows/desert-doom-night/timeline"
 
 	if token := personalFeedTokenFromPath(path); token != "" {
-		t.Errorf("timeline path %q reads as personal-feed token %q — a public unauthenticated endpoint must stay metered",
+		t.Errorf("timeline path %q reads as personal-feed token %q: a public unauthenticated endpoint must stay metered",
 			path, token)
 	}
 	for _, exact := range infraPathsExemptFromRateLimit {

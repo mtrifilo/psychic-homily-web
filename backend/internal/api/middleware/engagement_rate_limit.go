@@ -14,7 +14,7 @@ import (
 
 // Engagement-mutation rate-limit ceilings (PSY-1482; policy locked in PSY-1460).
 // ONE shared per-user budget covers show/release save+unsave, entity/scene
-// follow+unfollow, venue confirm, and single entity-request file+withdraw — the
+// follow+unfollow, venue confirm, and single entity-request file+withdraw: the
 // same inline UX burst on Broadsheet chart rows, so a separate budget per action
 // would just invite "rotate which button to spam." A request must clear BOTH
 // windows (stricter wins).
@@ -132,7 +132,7 @@ func RateLimitEntityRequestBatchSustained() func(http.Handler) http.Handler {
 // RateLimitMutationsByUser meters an authenticated mutation against a per-user
 // budget: it stashes the user id from the verified session JWT into context and
 // routes the request through burstLimiter (minute) OUTER and sustainedLimiter
-// (hour) INNER — a request must clear both. Which budget that is comes from the
+// (hour) INNER, so a request must clear both. Which budget that is comes from the
 // limiters passed in: callers sharing one pair of limiters share one bucket,
 // callers passing their own pair get their own.
 //

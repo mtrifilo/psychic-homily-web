@@ -74,7 +74,7 @@ var infraPathsExemptFromRateLimit = []string{"/health", "/health/ready"}
 // Calendar / Apple Calendar / RSS readers poll from shared cloud IPs; putting
 // them on the anonymous per-IP public-read bucket (PSY-1418 / PSY-1362) would
 // unfairly 429 feed fetchers that share an egress IP with scrapers. Auth is the
-// URL token itself (hashed lookup), not a session JWT — so they never land in
+// URL token itself (hashed lookup), not a session JWT, so they never land in
 // the authenticated per-user bucket either.
 //
 // The templates come from the registrations in calendar.go, so this list and
@@ -146,7 +146,7 @@ func validatedFeedToken(validate func(string) bool, path string) bool {
 // whose bearer passes validateAPIToken (APITokenService.ValidateToken — not the
 // phk_ prefix alone) is exempt so ingest search does not starve visitors on the
 // same IP (PSY-1814). Infra paths are exempt, and so is a personal-feed request
-// whose URL token validates (PSY-2017 — not the path shape alone). Returns a
+// whose URL token validates (PSY-2017), not the path shape alone. Returns a
 // pass-through noop unless the opt-in flag is set. Mounted once, globally,
 // before route registration.
 func PublicReadRateLimiter(jwtService *auth.JWTService, validateAPIToken, validateFeedToken func(string) bool, getenv func(string) string) func(http.Handler) http.Handler {

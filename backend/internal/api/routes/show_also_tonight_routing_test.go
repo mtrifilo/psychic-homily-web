@@ -63,7 +63,7 @@ func TestShowAlsoTonightIsNotExemptFromRateLimiting(t *testing.T) {
 	path := "/shows/desert-doom-night/also-tonight"
 
 	if token := personalFeedTokenFromPath(path); token != "" {
-		t.Errorf("also-tonight path %q reads as personal-feed token %q — a public unauthenticated endpoint must stay metered",
+		t.Errorf("also-tonight path %q reads as personal-feed token %q: a public unauthenticated endpoint must stay metered",
 			path, token)
 	}
 	for _, exact := range infraPathsExemptFromRateLimit {

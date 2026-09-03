@@ -35,14 +35,14 @@ func TestFeedRoutesAndExemptionTemplatesAgree(t *testing.T) {
 
 	for pattern := range served {
 		if !declared[pattern] {
-			t.Errorf("router serves %q but personalFeedRouteTemplates does not declare it — "+
+			t.Errorf("router serves %q but personalFeedRouteTemplates does not declare it: "+
 				"a feed route absent from the templates never earns the exemption, and a "+
 				"non-feed route under /feeds/ does not belong there", pattern)
 		}
 	}
 	for _, template := range personalFeedRouteTemplates {
 		if strings.HasPrefix(template, "/feeds/") && !served[template] {
-			t.Errorf("personalFeedRouteTemplates declares %q but the router does not serve it — "+
+			t.Errorf("personalFeedRouteTemplates declares %q but the router does not serve it: "+
 				"the exemption would validate a token for a path nothing answers", template)
 		}
 	}
@@ -61,7 +61,7 @@ func TestLegacyCalendarAliasAndTokenCRUDAreDistinct(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("router does not serve %q — the legacy iCal alias is in the exemption templates",
+		t.Errorf("router does not serve %q, but the legacy iCal alias is in the exemption templates",
 			legacyCalendarFeedRoute)
 	}
 
@@ -72,7 +72,7 @@ func TestLegacyCalendarAliasAndTokenCRUDAreDistinct(t *testing.T) {
 		t.Errorf("personalFeedTokenFromPath(%q) = %q, want %q", "/calendar/token", got, "token")
 	}
 	if validatedFeedToken(func(string) bool { return true }, "/calendar/token") {
-		t.Error("/calendar/token was treated as a personal feed — it carries no phcal_ token")
+		t.Error("/calendar/token was treated as a personal feed, but it carries no phcal_ token")
 	}
 }
 
@@ -100,7 +100,7 @@ func TestEntityRequestRoutesLandOnTheirLimiters(t *testing.T) {
 	}
 	for _, tc := range cases {
 		if !registered[tc.pattern] {
-			t.Errorf("POST %s is not registered — the limiter patterns name a path the router does not serve", tc.pattern)
+			t.Errorf("POST %s is not registered: the limiter patterns name a path the router does not serve", tc.pattern)
 			continue
 		}
 		req := httptest.NewRequest(http.MethodPost, tc.path, nil)

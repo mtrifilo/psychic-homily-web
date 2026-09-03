@@ -407,8 +407,8 @@ function queueFailureReason(err: unknown): string | undefined {
   if (status !== 429) return undefined
   const retryAfter = (err as ApiError).retryAfter
   return retryAfter !== undefined
-    ? `Too many requests. Nothing was filed for this line — retry in ${retryAfter}s.`
-    : 'Too many requests. Nothing was filed for this line — wait a moment and retry.'
+    ? `Too many requests. Nothing was filed for this line; retry in ${retryAfter}s.`
+    : 'Too many requests. Nothing was filed for this line; wait a moment and retry.'
 }
 
 /**
@@ -1518,7 +1518,7 @@ function PasteModePane({
   ).length
   // A row whose filing failed gets its own tally rather than joining "for
   // review". Nothing was stored for it, so counting it there tells the user an
-  // admin will see a line no admin will (PSY-1991) — the same reasoning that
+  // admin will see a line no admin will (PSY-1991), the same reasoning that
   // gives a refused line its own count below. It stays retryable, and the tally
   // is what says how many lines the Retry is for.
   const queueFailedCount = previewRows.filter(
