@@ -9,29 +9,42 @@ import AdminGuard from './admin-guard'
 // is where the unauthenticated-redirect contract is verified.
 
 const mockPush = vi.fn()
+let mockPathname = '/admin/reports'
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: mockPush }),
+  useRouter: () => ({ push: mockPush, replace: vi.fn() }),
+  usePathname: () => mockPathname,
+  redirect: vi.fn(),
 }))
 
+// `authStatus` is the setting; `isAuthenticated` derives from it, so a case
+// cannot describe a viewer whose two auth signals disagree, and the unsettled
+// window is expressible (it is not, when `isAuthenticated` is the input).
 let mockAuthState: {
   user: { is_admin?: boolean } | null
-  isAuthenticated: boolean
-  isLoading: boolean
+  authStatus: 'pending' | 'anonymous' | 'authenticated'
 }
 
 vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => mockAuthState,
+  useAuthContext: () => ({
+    ...mockAuthState,
+    isAuthenticated: mockAuthState.authStatus === 'authenticated',
+    isLoading: mockAuthState.authStatus === 'pending',
+  }),
 }))
 
 describe('AdminGuard (shared admin route guard)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockAuthState = { user: null, isAuthenticated: false, isLoading: false }
+    mockPathname = '/admin/reports'
+    mockAuthState = { user: null, authStatus: 'anonymous' }
   })
 
-  it('shows a loading spinner and does not redirect while auth is resolving', () => {
-    mockAuthState = { user: null, isAuthenticated: false, isLoading: true }
+  it('shows a loading spinner and does not redirect while auth is unsettled', () => {
+    // The window this guard exists to survive: a signed-in viewer whose
+    // profile fetch failed on a non-definitive error reads 'pending', and
+    // redirecting there dumps them on the sign-in form and loses the page.
+    mockAuthState = { user: null, authStatus: 'pending' }
 
     render(
       <AdminGuard>
@@ -40,11 +53,12 @@ describe('AdminGuard (shared admin route guard)', () => {
     )
 
     expect(screen.queryByText('protected content')).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Access Denied' })).toBeNull()
     expect(mockPush).not.toHaveBeenCalled()
   })
 
-  it('redirects an unauthenticated visitor to /auth with returnTo', () => {
-    mockAuthState = { user: null, isAuthenticated: false, isLoading: false }
+  it('redirects a settled-anonymous visitor to /auth with the page they asked for', () => {
+    mockAuthState = { user: null, authStatus: 'anonymous' }
 
     render(
       <AdminGuard>
@@ -52,15 +66,14 @@ describe('AdminGuard (shared admin route guard)', () => {
       </AdminGuard>
     )
 
-    expect(mockPush).toHaveBeenCalledWith('/auth?returnTo=%2Fadmin')
+    expect(mockPush).toHaveBeenCalledWith('/auth?returnTo=%2Fadmin%2Freports')
     expect(screen.queryByText('protected content')).not.toBeInTheDocument()
   })
 
   it('shows Access Denied and redirects a non-admin authenticated user home', () => {
     mockAuthState = {
       user: { is_admin: false },
-      isAuthenticated: true,
-      isLoading: false,
+      authStatus: 'authenticated',
     }
 
     render(
@@ -79,8 +92,7 @@ describe('AdminGuard (shared admin route guard)', () => {
   it('renders children for an authenticated admin without redirecting', () => {
     mockAuthState = {
       user: { is_admin: true },
-      isAuthenticated: true,
-      isLoading: false,
+      authStatus: 'authenticated',
     }
 
     render(

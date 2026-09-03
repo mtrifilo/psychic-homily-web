@@ -12,7 +12,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { usePathname } from 'next/navigation'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { buildAuthHref } from '@/lib/auth-href'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { getUserInitials, getUserDisplayName } from './userDisplay'
 import { accountNavItems, visibleNavItems } from './navData'
@@ -30,6 +32,7 @@ import { NotificationBell } from '@/features/notifications'
 // PSY-1020), which also mirrors these account entries in its Account sheet.
 export function UserMenu() {
   const { user, authStatus, logout } = useAuthContext()
+  const pathname = usePathname()
 
   // Only the cluster below names a viewer, so only it requires a settled
   // 'authenticated' (see the AuthStatus type). The `login / sign-up` link is
@@ -134,7 +137,11 @@ export function UserMenu() {
   // where the anonymous bar ran out of room (PSY-1638).
   return (
     <Link
-      href="/auth"
+      // Built during render, so the destination is the pathname without its
+      // query string: `currentLocationReturnTo` needs a browser location this
+      // markup is also produced without. Same constraint, same answer, as
+      // `SignInPrompt`.
+      href={buildAuthHref(pathname)}
       className="shrink-0 whitespace-nowrap text-sm text-muted-foreground transition-colors hover:text-primary"
     >
       login / sign-up

@@ -12,7 +12,7 @@ import { test, expect } from '../fixtures'
  * silently broke.
  *
  * The contract under test (from admin-guard.tsx):
- * - unauthenticated → `/auth?returnTo=%2Fadmin`
+ * - unauthenticated → `/auth?returnTo=<the admin path they asked for>`
  * - authenticated non-admin → `/` (intermediate "Access Denied" card)
  * - authenticated admin → children render
  *
@@ -24,8 +24,11 @@ import { test, expect } from '../fixtures'
  */
 
 const AUTH_URL_REGEX = /\/auth(\?|$)/
-const ADMIN_RETURN_TO = 'returnTo=%2Fadmin'
 const ADMIN_SUBROUTES = ['/admin/dashboard', '/admin/reports', '/admin/users']
+
+// The guard returns the viewer to the page they asked for, not to the section
+// root, so the expectation is per-route.
+const returnToFor = (route: string) => `returnTo=${encodeURIComponent(route)}`
 
 test.describe('AdminGuard: unauthenticated access', () => {
   for (const route of ADMIN_SUBROUTES) {
@@ -39,7 +42,7 @@ test.describe('AdminGuard: unauthenticated access', () => {
 
       // returnTo query param preserves the original admin path so post-login
       // navigation can resume where the user intended.
-      expect(page.url()).toContain(ADMIN_RETURN_TO)
+      expect(page.url()).toContain(returnToFor(route))
 
       // Auth page rendered (sanity that we landed on the real auth surface,
       // not an error boundary).

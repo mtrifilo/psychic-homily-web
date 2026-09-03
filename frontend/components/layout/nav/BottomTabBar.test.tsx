@@ -342,9 +342,13 @@ describe('BottomTabBar', () => {
   })
 
   describe('Account tab', () => {
-    it('is a login link when anonymous', () => {
+    it('is a login link back to the page the viewer is on', () => {
+      mockPathname = '/artists/calexico'
       render(<BottomTabBar />)
-      expect(screen.getByRole('link', { name: 'Account' })).toHaveAttribute('href', '/auth')
+      expect(screen.getByRole('link', { name: 'Account' })).toHaveAttribute(
+        'href',
+        '/auth?returnTo=%2Fartists%2Fcalexico'
+      )
     })
 
     it('lights up on /auth when anonymous', () => {
@@ -387,7 +391,7 @@ describe('BottomTabBar', () => {
       mockAuthContext.mockReturnValue(authFixture({ authStatus: 'pending', isLoading }))
       render(<BottomTabBar />)
       const tab = screen.getByRole('link', { name: 'Account' })
-      expect(tab).toHaveAttribute('href', '/auth')
+      expect(tab).toHaveAttribute('href', '/auth?returnTo=%2Fauth')
       // A real destination, so it carries the current-page state its route
       // earns: `accountActive` falls to `isActive('/auth')` on this arm.
       expect(tab).toHaveAttribute('aria-current', 'page')
@@ -435,7 +439,7 @@ describe('BottomTabBar', () => {
       }
       const pending = cellOf('pending')
       expect(pending.gridChildren).toBe(primaryTabs.length + 2)
-      expect(pending.account).toContain('href="/auth"')
+      expect(pending.account).toContain('href="/auth?returnTo=')
       expect(pending).toEqual(cellOf('anonymous'))
     })
 

@@ -22,14 +22,24 @@ let mockSearchParams = new URLSearchParams()
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: mockReplace, push: mockPush }),
+  usePathname: () => '/profile',
   useSearchParams: () => mockSearchParams,
   // `redirect()` halts rendering in production by throwing; in tests we mock it
   // to a no-op spy so the unauthenticated path can be asserted without throwing.
   redirect: (path: string) => mockRedirect(path),
 }))
 
+// `authStatus` is the setting; `isAuthenticated` derives from it at the
+// boundary, so no case describes a viewer whose two auth signals disagree.
 vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => mockUseAuthContext(),
+  useAuthContext: () => {
+    const value = mockUseAuthContext()
+    return {
+      ...value,
+      isAuthenticated: value.authStatus === 'authenticated',
+      isLoading: value.authStatus === 'pending',
+    }
+  },
 }))
 
 vi.mock('@/features/auth', () => ({
@@ -64,8 +74,7 @@ const AUTHED_USER = {
 
 function setAuthenticated(overrides: Record<string, unknown> = {}) {
   mockUseAuthContext.mockReturnValue({
-    isAuthenticated: true,
-    isLoading: false,
+    authStatus: 'authenticated',
     user: AUTHED_USER,
     ...overrides,
   })
@@ -383,16 +392,20 @@ describe('ProfilePage (PSY-683)', () => {
   })
 
   describe('authentication gate', () => {
-    it('redirects unauthenticated users to /auth', () => {
-      setAuthenticated({ isAuthenticated: false, user: null })
+    it('redirects settled-anonymous users to /auth with a returnTo', () => {
+      setAuthenticated({ authStatus: 'anonymous', user: null })
 
       renderWithProviders(<ProfilePage />)
 
-      expect(mockRedirect).toHaveBeenCalledWith('/auth')
+      expect(mockRedirect).toHaveBeenCalledWith(
+        expect.stringContaining('/auth?returnTo=')
+      )
     })
 
-    it('shows a loading spinner (no redirect) while auth state is resolving', () => {
-      setAuthenticated({ isAuthenticated: false, isLoading: true, user: null })
+    it('shows a loading spinner (no redirect) while auth is unsettled', () => {
+      // 'pending' is a signed-in viewer whose profile has not arrived as often
+      // as it is anyone else, and this guard cannot tell them apart.
+      setAuthenticated({ authStatus: 'pending', user: null })
 
       renderWithProviders(<ProfilePage />)
 

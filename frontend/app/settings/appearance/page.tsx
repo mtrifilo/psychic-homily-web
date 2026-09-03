@@ -25,9 +25,10 @@
  */
 
 import { useState } from 'react'
-import { redirect, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { Loader2, Check } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { useAuthRouteGuard } from '@/lib/hooks/common/useAuthRouteGuard'
 import { useUpdateProfile } from '@/features/auth'
 import {
   Card,
@@ -47,7 +48,8 @@ import { useAutoDismissBanner } from '@/lib/hooks/common'
 const SAVED_DISMISS_MS = 3000
 
 export default function AppearanceSettingsPage() {
-  const { isAuthenticated, isLoading, user } = useAuthContext()
+  const { user } = useAuthContext()
+  const gate = useAuthRouteGuard('redirect')
   const router = useRouter()
   const updateProfile = useUpdateProfile()
 
@@ -78,16 +80,14 @@ export default function AppearanceSettingsPage() {
     setOptimistic(null)
   }
 
-  if (isLoading) {
+  // 'redirect' mode has already left for /auth by the time this reads
+  // anything but 'loading' or 'ready'.
+  if (gate !== 'ready') {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     )
-  }
-
-  if (!isAuthenticated) {
-    redirect('/auth')
   }
 
   const handleChange = async (checked: boolean) => {

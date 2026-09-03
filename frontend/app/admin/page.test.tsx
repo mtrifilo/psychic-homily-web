@@ -85,13 +85,16 @@ const mockReplace = vi.fn()
 let mockSearchParams = new URLSearchParams()
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ replace: mockReplace }),
+  useRouter: () => ({ replace: mockReplace, push: vi.fn() }),
   useSearchParams: () => mockSearchParams,
+  usePathname: () => '/admin',
+  redirect: vi.fn(),
 }))
 
 vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => ({
     user: { is_admin: true },
+    authStatus: 'authenticated',
     isAuthenticated: true,
     isLoading: false,
   }),

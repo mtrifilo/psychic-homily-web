@@ -210,7 +210,7 @@ function TokenConfirmation({ token }: { token: string }) {
 function RecoverAccountPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { isAuthenticated, isLoading } = useAuthContext()
+  const { authStatus } = useAuthContext()
   const requestRecoveryMutation = useRequestAccountRecovery()
 
   const [step, setStep] = useState<'email' | 'sent'>('email')
@@ -222,10 +222,10 @@ function RecoverAccountPageContent() {
 
   // Redirect if already authenticated
   useEffect(() => {
-    if (isAuthenticated && !isLoading && !token) {
+    if (authStatus === 'authenticated' && !token) {
       router.push('/')
     }
-  }, [isAuthenticated, isLoading, router, token])
+  }, [authStatus, router, token])
 
   // The backend response is enumeration-safe, so we always show the same
   // "sent" confirmation on a successful API call — per-state detail surfaces
@@ -256,8 +256,9 @@ function RecoverAccountPageContent() {
     setError(null)
   }
 
-  // Show loading state while checking auth
-  if (isLoading) {
+  // 'pending', not `isLoading`: the same unsettled window the sign-in page
+  // gates on. See AuthStatus in lib/context/AuthContext.
+  if (authStatus === 'pending') {
     return (
       <div className="flex min-h-[calc(100vh-64px)] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -266,7 +267,7 @@ function RecoverAccountPageContent() {
   }
 
   // Don't render if authenticated (will redirect)
-  if (isAuthenticated && !token) {
+  if (authStatus === 'authenticated' && !token) {
     return null
   }
 

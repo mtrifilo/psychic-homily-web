@@ -26,8 +26,17 @@ vi.mock('next/navigation', () => ({
   redirect: (path: string) => mockRedirect(path),
 }))
 
+// `authStatus` is the setting; `isAuthenticated` derives from it at the
+// boundary, so no case describes a viewer whose two auth signals disagree.
 vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => mockUseAuthContext(),
+  useAuthContext: () => {
+    const value = mockUseAuthContext()
+    return {
+      ...value,
+      isAuthenticated: value.authStatus === 'authenticated',
+      isLoading: value.authStatus === 'pending',
+    }
+  },
 }))
 
 // Stub the heavy feature modules so this suite stays focused on the Library
@@ -151,8 +160,7 @@ import LibraryPage from './page'
 
 function setAuthenticated() {
   mockUseAuthContext.mockReturnValue({
-    isAuthenticated: true,
-    isLoading: false,
+    authStatus: 'authenticated',
     user: { id: '1', email: 'alice@example.com', is_admin: false },
   })
 }
@@ -1264,16 +1272,33 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
   })
 
   describe('auth', () => {
-    it('redirects unauthenticated users to /auth', () => {
+    it('redirects settled-anonymous users to /auth with a returnTo', () => {
       mockUseAuthContext.mockReturnValue({
-        isAuthenticated: false,
-        isLoading: false,
+        authStatus: 'anonymous',
         user: null,
       })
 
       renderWithProviders(<LibraryPage />)
 
-      expect(mockRedirect).toHaveBeenCalledWith('/auth')
+      expect(mockRedirect).toHaveBeenCalledWith(
+        expect.stringContaining('/auth?returnTo=')
+      )
+    })
+
+    it('does not redirect while auth is unsettled', () => {
+      // 'pending' is a signed-in viewer whose profile has not arrived as
+      // often as it is anyone else, and this guard cannot tell them apart.
+      mockUseAuthContext.mockReturnValue({
+        authStatus: 'pending',
+        user: null,
+      })
+
+      renderWithProviders(<LibraryPage />)
+
+      expect(mockRedirect).not.toHaveBeenCalled()
+      expect(
+        screen.queryByRole('heading', { name: 'Library' })
+      ).not.toBeInTheDocument()
     })
   })
 })

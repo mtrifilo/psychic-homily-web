@@ -622,7 +622,7 @@ function SignupForm({ returnTo, onHandoffChange }: SignupFormProps) {
 function AuthPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { isAuthenticated, isLoading } = useAuthContext()
+  const { authStatus } = useAuthContext()
   const [activeTab, setActiveTab] = useState('login')
   const [signupHandoff, setSignupHandoff] = useState<SignupHandoff | null>(null)
   const signInTabRef = useRef<HTMLButtonElement>(null)
@@ -641,13 +641,17 @@ function AuthPageContent() {
   // email is waiting. The claim is in-memory only: on a reload it is gone and
   // the redirect resumes, so it cannot strand anyone.
   useEffect(() => {
-    if (isAuthenticated && !isLoading && !signupHandoff) {
+    if (authStatus === 'authenticated' && !signupHandoff) {
       router.push(returnTo)
     }
-  }, [isAuthenticated, isLoading, router, returnTo, signupHandoff])
+  }, [authStatus, router, returnTo, signupHandoff])
 
-  // Show loading state while checking auth
-  if (isLoading) {
+  // 'pending', not `isLoading`. This page is a route the nav bars offer while
+  // the viewer's identity is unsettled, and `isLoading` is false both before
+  // the profile fetch starts and after it fails without settling, so it
+  // rendered the sign-in form to a viewer who may already hold a session. See
+  // AuthStatus in lib/context/AuthContext.
+  if (authStatus === 'pending') {
     return (
       <div className="flex min-h-[calc(100vh-64px)] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -669,7 +673,7 @@ function AuthPageContent() {
   }
 
   // Don't render the form if authenticated (will redirect)
-  if (isAuthenticated) {
+  if (authStatus === 'authenticated') {
     return null
   }
 

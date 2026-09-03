@@ -48,14 +48,25 @@ vi.mock('@/features/auth', () => ({
 
 // Mutable so a test can flip the viewer to authenticated mid-signup, which is
 // what the real `useRegister` does when it awaits a profile refetch.
-let mockAuthState = {
+let mockAuthState: {
+  setUser: ReturnType<typeof vi.fn>
+  authStatus: 'pending' | 'anonymous' | 'authenticated'
+} = {
   setUser: vi.fn(),
-  isAuthenticated: false,
-  isLoading: false,
+  authStatus: 'anonymous',
 }
 
+// `authStatus` is the setting; `isAuthenticated` derives from it at the
+// boundary, so no case describes a viewer whose two auth signals disagree,
+// and 'pending' is expressible (it is not, when `isLoading` is the input:
+// `isLoading` is false both before the profile fetch starts and after it
+// fails without settling).
 vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => mockAuthState,
+  useAuthContext: () => ({
+    ...mockAuthState,
+    isAuthenticated: mockAuthState.authStatus === 'authenticated',
+    isLoading: mockAuthState.authStatus === 'pending',
+  }),
 }))
 
 vi.mock('@/app/auth/_components/passkey-login', () => ({
@@ -90,8 +101,7 @@ describe('SignupForm deferred validation', () => {
     mockRegisterMutate.mockReset()
     mockAuthState = {
       setUser: vi.fn(),
-      isAuthenticated: false,
-      isLoading: false,
+      authStatus: 'anonymous',
     }
   })
 
@@ -318,8 +328,7 @@ describe('SignupForm deferred validation', () => {
       // The session now exists, but the register callback has not run yet.
       mockAuthState = {
         setUser: vi.fn(),
-        isAuthenticated: true,
-        isLoading: false,
+        authStatus: 'authenticated',
       }
       act(() => {
         rerender()
@@ -339,8 +348,7 @@ describe('SignupForm deferred validation', () => {
       })
       mockAuthState = {
         setUser: vi.fn(),
-        isAuthenticated: true,
-        isLoading: false,
+        authStatus: 'authenticated',
       }
       act(() => {
         rerender()

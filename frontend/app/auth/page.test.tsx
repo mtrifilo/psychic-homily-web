@@ -21,14 +21,25 @@ vi.mock('next/navigation', () => ({
 
 // AuthContext is mocked with mutable state so individual tests can toggle the
 // authenticated / loading state the page branches on.
-let mockAuthState = {
+let mockAuthState: {
+  setUser: ReturnType<typeof vi.fn>
+  authStatus: 'pending' | 'anonymous' | 'authenticated'
+} = {
   setUser: vi.fn(),
-  isAuthenticated: false,
-  isLoading: false,
+  authStatus: 'anonymous',
 }
 
+// `authStatus` is the setting; `isAuthenticated` derives from it at the
+// boundary, so no case describes a viewer whose two auth signals disagree,
+// and 'pending' is expressible (it is not, when `isLoading` is the input:
+// `isLoading` is false both before the profile fetch starts and after it
+// fails without settling).
 vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => mockAuthState,
+  useAuthContext: () => ({
+    ...mockAuthState,
+    isAuthenticated: mockAuthState.authStatus === 'authenticated',
+    isLoading: mockAuthState.authStatus === 'pending',
+  }),
 }))
 
 // Captures the per-call options `LoginForm` hands `useLogin().mutate`, so a
@@ -90,8 +101,7 @@ describe('AuthPage', () => {
     mockSearchParams = new URLSearchParams()
     mockAuthState = {
       setUser: vi.fn(),
-      isAuthenticated: false,
-      isLoading: false,
+      authStatus: 'anonymous',
     }
   })
 
@@ -272,8 +282,7 @@ describe('AuthPage', () => {
       setSearchParams('returnTo=%2Flibrary')
       mockAuthState = {
         setUser: vi.fn(),
-        isAuthenticated: true,
-        isLoading: false,
+        authStatus: 'authenticated',
       }
 
       renderWithProviders(<AuthPage />)
@@ -288,8 +297,7 @@ describe('AuthPage', () => {
     it('redirects to "/" when authenticated with no returnTo', async () => {
       mockAuthState = {
         setUser: vi.fn(),
-        isAuthenticated: true,
-        isLoading: false,
+        authStatus: 'authenticated',
       }
 
       renderWithProviders(<AuthPage />)
@@ -299,11 +307,13 @@ describe('AuthPage', () => {
       })
     })
 
-    it('does not redirect while auth state is still loading', () => {
+    it('shows the spinner, not the sign-in form, while auth is unsettled', () => {
+      // The window this gate exists for: a viewer holding a session the
+      // backend has not answered for reads 'pending', and showing them the
+      // sign-in form claims they have no session.
       mockAuthState = {
         setUser: vi.fn(),
-        isAuthenticated: false,
-        isLoading: true,
+        authStatus: 'pending',
       }
 
       renderWithProviders(<AuthPage />)

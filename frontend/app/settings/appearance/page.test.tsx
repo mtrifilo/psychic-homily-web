@@ -10,19 +10,25 @@ import AppearanceSettingsPage from './page'
 const mockRefresh = vi.fn()
 const mockRedirect = vi.fn()
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ refresh: mockRefresh }),
+  useRouter: () => ({ refresh: mockRefresh, push: vi.fn(), replace: vi.fn() }),
+  usePathname: () => '/settings/appearance',
   redirect: (url: string) => mockRedirect(url),
 }))
 
 // AuthContext: mutable so each test sets the auth/loading state and the saved
 // nav_mode the switch seeds from.
+// `authStatus` is the setting; `isAuthenticated` derives from it, so no case
+// describes a viewer whose two auth signals disagree.
 let mockAuthState: {
-  isAuthenticated: boolean
-  isLoading: boolean
+  authStatus: 'pending' | 'anonymous' | 'authenticated'
   user: { nav_mode?: string } | null
 }
 vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => mockAuthState,
+  useAuthContext: () => ({
+    ...mockAuthState,
+    isAuthenticated: mockAuthState.authStatus === 'authenticated',
+    isLoading: mockAuthState.authStatus === 'pending',
+  }),
 }))
 
 const mockMutateAsync = vi.fn()
@@ -42,30 +48,33 @@ describe('AppearanceSettingsPage', () => {
     mockMutateAsync.mockResolvedValue({ success: true })
     mockIsPending = false
     mockAuthState = {
-      isAuthenticated: true,
-      isLoading: false,
+      authStatus: 'authenticated',
       user: { nav_mode: 'top' },
     }
     // Clear the nav_mode cookie between tests (jsdom persists document.cookie).
     document.cookie = 'nav_mode=; path=/; max-age=0'
   })
 
-  it('shows a loading state (no toggle) while auth resolves', () => {
-    mockAuthState = { isAuthenticated: false, isLoading: true, user: null }
+  it('shows a loading state and does not redirect while auth is unsettled', () => {
+    // 'pending' is a signed-in viewer whose profile has not arrived as often
+    // as it is anyone else, and this guard cannot tell them apart.
+    mockAuthState = { authStatus: 'pending', user: null }
     renderWithProviders(<AppearanceSettingsPage />)
     expect(screen.queryByRole('switch')).not.toBeInTheDocument()
+    expect(mockRedirect).not.toHaveBeenCalled()
   })
 
-  it('redirects unauthenticated users to /auth', () => {
-    mockAuthState = { isAuthenticated: false, isLoading: false, user: null }
+  it('redirects settled-anonymous users to /auth with a returnTo', () => {
+    mockAuthState = { authStatus: 'anonymous', user: null }
     renderWithProviders(<AppearanceSettingsPage />)
-    expect(mockRedirect).toHaveBeenCalledWith('/auth')
+    expect(mockRedirect).toHaveBeenCalledWith(
+      '/auth?returnTo=%2Fsettings%2Fappearance'
+    )
   })
 
   it('seeds the switch from the saved account preference (side → checked)', () => {
     mockAuthState = {
-      isAuthenticated: true,
-      isLoading: false,
+      authStatus: 'authenticated',
       user: { nav_mode: 'side' },
     }
     renderWithProviders(<AppearanceSettingsPage />)

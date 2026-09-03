@@ -12,6 +12,7 @@ import {
   UserTierBadge,
 } from '@/features/profile'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { useAuthRouteGuard } from '@/lib/hooks/common/useAuthRouteGuard'
 import { useOwnContributorProfile } from '@/features/auth'
 import { useMyCollections } from '@/features/collections'
 
@@ -34,30 +35,29 @@ function CenteredSpinner() {
  *   state (design board B): same profile-shaped page with a claim banner and
  *   the Get-started checklist, so the user sees the profile experience
  *   before their URL exists.
- * - Unauthenticated → /auth.
+ * - Settled anonymous → /auth.
  */
 export default function SelfProfilePage() {
   const router = useRouter()
-  const { user, isAuthenticated, isLoading } = useAuthContext()
+  const { user } = useAuthContext()
+  const gate = useAuthRouteGuard('replace')
   const { data: profile } = useOwnContributorProfile()
   // Own-collections total for the stats card. The public count is
   // username-keyed and can't resolve here; the self view counts the user's
   // own collections instead (includes private ones — it's their own card).
   const { data: myCollections } = useMyCollections()
 
+  // The sign-in redirect belongs to the guard; this only forwards a settled,
+  // signed-in viewer who already has a public URL.
   useEffect(() => {
-    if (isLoading) return
-    if (!isAuthenticated) {
-      router.replace('/auth')
-      return
-    }
+    if (gate !== 'ready') return
     if (user?.username) {
       router.replace(`/users/${user.username}`)
     }
-  }, [isLoading, isAuthenticated, user?.username, router])
+  }, [gate, user?.username, router])
 
   // While auth state resolves, or while a redirect above is in flight.
-  if (isLoading || !isAuthenticated || user?.username) {
+  if (gate !== 'ready' || user?.username) {
     return <CenteredSpinner />
   }
 

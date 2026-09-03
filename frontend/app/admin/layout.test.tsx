@@ -13,7 +13,9 @@ import AdminLayout from './layout'
 const mockPush = vi.fn()
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: mockPush }),
+  useRouter: () => ({ push: mockPush, replace: vi.fn() }),
+  usePathname: () => '/admin',
+  redirect: vi.fn(),
 }))
 
 // Both the rail (AdminSidebarNav) and the drawer (AdminDrawerNav) load their
@@ -28,20 +30,25 @@ vi.mock('next/dynamic', () => ({
   },
 }))
 
+// `authStatus` is the setting; `isAuthenticated` derives from it, so no case
+// describes a viewer whose two auth signals disagree.
 let mockAuthState: {
   user: { is_admin?: boolean } | null
-  isAuthenticated: boolean
-  isLoading: boolean
+  authStatus: 'pending' | 'anonymous' | 'authenticated'
 }
 
 vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => mockAuthState,
+  useAuthContext: () => ({
+    ...mockAuthState,
+    isAuthenticated: mockAuthState.authStatus === 'authenticated',
+    isLoading: mockAuthState.authStatus === 'pending',
+  }),
 }))
 
 describe('AdminLayout', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockAuthState = { user: null, isAuthenticated: false, isLoading: false }
+    mockAuthState = { user: null, authStatus: 'anonymous' }
   })
 
   it('gates children behind AdminGuard (unauthenticated → redirect, no content)', () => {
@@ -64,8 +71,7 @@ describe('AdminLayout', () => {
   it('withholds the drawer from a signed-in non-admin (Access Denied branch)', () => {
     mockAuthState = {
       user: { is_admin: false },
-      isAuthenticated: true,
-      isLoading: false,
+      authStatus: 'authenticated',
     }
 
     render(
@@ -82,8 +88,7 @@ describe('AdminLayout', () => {
   it('renders children when an admin is authenticated', () => {
     mockAuthState = {
       user: { is_admin: true },
-      isAuthenticated: true,
-      isLoading: false,
+      authStatus: 'authenticated',
     }
 
     render(
@@ -101,8 +106,7 @@ describe('AdminLayout', () => {
   it('mounts the mobile admin drawer for an admin, above the page content', () => {
     mockAuthState = {
       user: { is_admin: true },
-      isAuthenticated: true,
-      isLoading: false,
+      authStatus: 'authenticated',
     }
 
     render(
@@ -136,8 +140,7 @@ describe('AdminLayout', () => {
   it('pairs the drawer against the rail as exact breakpoint inverses', () => {
     mockAuthState = {
       user: { is_admin: true },
-      isAuthenticated: true,
-      isLoading: false,
+      authStatus: 'authenticated',
     }
 
     const { container } = render(

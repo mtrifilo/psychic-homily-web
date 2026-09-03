@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { Shield, Loader2 } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { useAuthRouteGuard } from '@/lib/hooks/common/useAuthRouteGuard'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { isValidTab } from '@/components/layout/adminNav'
 
@@ -176,7 +177,8 @@ function AdminPageContent() {
   // into useState + a sync effect) keeps the two from desyncing and avoids the
   // react-hooks/set-state-in-effect cascade.
   const activeTab: string = isValidTab(tabParam) ? tabParam : 'dashboard'
-  const { user, isLoading, isAuthenticated } = useAuthContext()
+  const { user } = useAuthContext()
+  const gate = useAuthRouteGuard('replace')
   const isAdmin = !!user?.is_admin
   const router = useRouter()
 
@@ -187,16 +189,16 @@ function AdminPageContent() {
     router.replace(url, { scroll: false })
   }, [router])
 
+  // The sign-in redirect belongs to the guard; this only demotes a settled,
+  // signed-in non-admin.
   useEffect(() => {
-    if (isLoading) return
-    if (!isAuthenticated) {
-      router.replace('/auth')
-    } else if (!isAdmin) {
+    if (gate !== 'ready') return
+    if (!isAdmin) {
       router.replace('/')
     }
-  }, [isLoading, isAuthenticated, isAdmin, router])
+  }, [gate, isAdmin, router])
 
-  if (isLoading || !isAuthenticated || !isAdmin) {
+  if (gate !== 'ready' || !isAdmin) {
     return (
       <div className="flex min-h-[calc(100vh-64px)] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />

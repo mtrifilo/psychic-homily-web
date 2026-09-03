@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { buildAuthHref } from '@/lib/auth-href'
 import { ExternalLink, LayoutGrid, LogOut, Moon, Sun, User } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -397,7 +398,11 @@ export function BottomTabBar() {
           </SheetTab>
         ) : (
           <Link
-            href="/auth"
+            // Built during render, so the destination is the pathname without
+            // its query string: `currentLocationReturnTo` needs a browser
+            // location this markup is also produced without. Same constraint,
+            // same answer, as `SignInPrompt`.
+            href={buildAuthHref(pathname)}
             aria-current={accountActive ? 'page' : undefined}
             className={tabClassName(accountActive)}
           >
