@@ -111,37 +111,57 @@ func (s *TagService) visibleTagUsageCountQuery(entityType string, cities []contr
 		if len(cities) > 0 {
 			return transitiveArtistTagUsageInShowCitiesQuery(cities)
 		}
-		return transitiveArtistTagUsageQuery(
-			catalogm.TagEntityShow, "show_artists", "show_id", "artist_id")
+		return transitiveArtistTagUsageQuery(catalogm.TagEntityShow)
 	case catalogm.TagEntityFestival:
-		return transitiveArtistTagUsageQuery(
-			catalogm.TagEntityFestival, "festival_artists", "festival_id", "artist_id")
+		return transitiveArtistTagUsageQuery(catalogm.TagEntityFestival)
 	}
 	return directEntityTypeTagUsageQuery(entityType)
 }
 
 // directEntityTypeTagUsageQuery counts entity_tags rows of one entity type.
 //
-// GATED FOR COLLECTIONS: this count is rendered on the same anonymous listing
-// whose membership is filtered, so counting private collections would report by
-// subtraction how many carry each tag.
+// THE TAGGED ENTITY'S OWN RULE, from the registry, spliced unconditionally: this
+// count is rendered on the same anonymous listing whose membership is filtered,
+// so counting rows the listing withholds would report by subtraction how many
+// carry each tag. VisibleEntityExistsSQL answers TRUE for a type with no rule,
+// so there is no per-type branch here to keep in step with the registry.
 //
-// COLLECTION IS THE ONLY GATED TYPE THAT REACHES HERE, not the only gated
-// taggable type. `show` is gated too, and visibleTagUsageCountQuery routes it and
-// `festival` to the transitive branch above before this function is called; that
-// branch carries the container's own rule, taken from the same registry.
+// `show` and `festival` never reach this function: visibleTagUsageCountQuery
+// routes both to the transitive branch above, which carries the container's rule
+// from the same registry.
 func directEntityTypeTagUsageQuery(entityType string) tagUsageCountQuery {
-	sql := "SELECT entity_tags.tag_id AS tag_id, COUNT(*) AS count" +
-		" FROM entity_tags WHERE entity_tags.entity_type = ?"
+	visible, visibleArgs := shared.VisibleEntityExistsSQL(
+		entityType, "entity_tags.entity_id", contracts.ShowViewer{})
+	// Placeholders bind by POSITION: the entity type is compared first, the
+	// visibility arguments follow it.
 	args := []interface{}{entityType}
-	if entityType == catalogm.TagEntityCollection {
-		visible, visibleArgs := shared.VisibleCollectionExistsSQL(
-			"entity_tags.entity_id", contracts.ShowViewer{})
-		sql += " AND " + visible
-		args = append(args, visibleArgs...)
+	args = append(args, visibleArgs...)
+	return tagUsageCountQuery{
+		sql: "SELECT entity_tags.tag_id AS tag_id, COUNT(*) AS count" +
+			" FROM entity_tags WHERE entity_tags.entity_type = ?" +
+			" AND " + visible +
+			" GROUP BY entity_tags.tag_id",
+		args: args,
 	}
-	return tagUsageCountQuery{sql: sql + " GROUP BY entity_tags.tag_id", args: args}
 }
+
+// artistLineupJunctions is the lineup table each transitively-counted container
+// type is billed through, keyed by the registry's own entity-type spelling.
+//
+// One key means one entry: the junction table and its container column are
+// properties of the container type, not choices a caller makes, so they are not
+// parameters that could be passed inconsistently with the type whose visibility
+// rule is looked up beside them.
+var artistLineupJunctions = map[string]struct {
+	table             string
+	containerIDColumn string
+}{
+	catalogm.TagEntityShow:     {"show_artists", "show_id"},
+	catalogm.TagEntityFestival: {"festival_artists", "festival_id"},
+}
+
+// artistLineupArtistIDColumn is the artist column on every lineup junction.
+const artistLineupArtistIDColumn = "artist_id"
 
 // transitiveArtistTagUsageQuery counts DISTINCT container entities (shows or
 // festivals) whose lineup includes an artist carrying the tag.
@@ -154,13 +174,17 @@ func directEntityTypeTagUsageQuery(entityType string) tagUsageCountQuery {
 // rule gains this term in the same edit, and the facet count then still agrees
 // with the listing beside it.
 //
-// containerEntityType, junctionTable, containerIDColumn and artistIDColumn are
-// SQL identifiers or registry keys the CALLER controls and are literals in the
-// calling code.
-func transitiveArtistTagUsageQuery(containerEntityType, junctionTable, containerIDColumn, artistIDColumn string) tagUsageCountQuery {
+// A containerEntityType with no lineup junction counts NOTHING rather than
+// counting everything, which is the same direction the registry's own zero value
+// takes: only the two types visibleTagUsageCountQuery routes here have an entry.
+func transitiveArtistTagUsageQuery(containerEntityType string) tagUsageCountQuery {
+	junction, ok := artistLineupJunctions[containerEntityType]
+	if !ok {
+		return tagUsageCountQuery{sql: "SELECT NULL::bigint AS tag_id, 0::bigint AS count WHERE FALSE"}
+	}
 	containerVisible, containerVisibleArgs := shared.VisibleEntityExistsSQL(
 		containerEntityType,
-		junctionTable+"."+containerIDColumn,
+		junction.table+"."+junction.containerIDColumn,
 		contracts.ShowViewer{},
 	)
 	// Placeholders bind by POSITION, so the artist type (in the JOIN) is appended
@@ -169,10 +193,10 @@ func transitiveArtistTagUsageQuery(containerEntityType, junctionTable, container
 	args = append(args, containerVisibleArgs...)
 	return tagUsageCountQuery{
 		sql: "SELECT entity_tags.tag_id AS tag_id," +
-			" COUNT(DISTINCT " + junctionTable + "." + containerIDColumn + ") AS count" +
-			" FROM " + junctionTable +
+			" COUNT(DISTINCT " + junction.table + "." + junction.containerIDColumn + ") AS count" +
+			" FROM " + junction.table +
 			" JOIN entity_tags ON entity_tags.entity_type = ?" +
-			" AND entity_tags.entity_id = " + junctionTable + "." + artistIDColumn +
+			" AND entity_tags.entity_id = " + junction.table + "." + artistLineupArtistIDColumn +
 			" WHERE " + containerVisible +
 			" GROUP BY entity_tags.tag_id",
 		args: args,
@@ -190,8 +214,7 @@ func transitiveArtistTagUsageQuery(containerEntityType, junctionTable, container
 // empty disjunction.
 func transitiveArtistTagUsageInShowCitiesQuery(cities []contracts.CityStateFilter) tagUsageCountQuery {
 	if len(cities) == 0 {
-		return transitiveArtistTagUsageQuery(
-			catalogm.TagEntityShow, "show_artists", "show_id", "artist_id")
+		return transitiveArtistTagUsageQuery(catalogm.TagEntityShow)
 	}
 	conds := make([]string, 0, len(cities))
 	args := []interface{}{catalogm.TagEntityArtist}
@@ -199,12 +222,16 @@ func transitiveArtistTagUsageInShowCitiesQuery(cities []contracts.CityStateFilte
 		conds = append(conds, "(shows.city = ? AND shows.state = ?)")
 		args = append(args, cs.City, cs.State)
 	}
-	// The show rule, from the registry, exactly as the unscoped variant takes it.
+	// The show rule, from the same registry the unscoped variant reads, applied
+	// to the `shows` row this query has ALREADY joined for the city filter. The
+	// unscoped variant has no such join and takes the EXISTS form instead; both
+	// come from entityVisibilityRuleFor, so neither is a second copy of the rule.
+	//
 	// The city filter narrows WHICH shows are counted and says nothing about who
 	// may see them, so the two terms are ANDed rather than one standing in for
 	// the other.
-	showVisible, showVisibleArgs := shared.VisibleEntityExistsSQL(
-		catalogm.TagEntityShow, "show_artists.show_id", contracts.ShowViewer{})
+	showVisible, showVisibleArgs := shared.EntityIdentityFenceSQL(
+		catalogm.TagEntityShow, "shows", contracts.ShowViewer{})
 	args = append(args, showVisibleArgs...)
 	return tagUsageCountQuery{
 		sql: "SELECT entity_tags.tag_id AS tag_id," +

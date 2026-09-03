@@ -34,12 +34,14 @@ func declareCollectionUpdateNoContent(o *huma.Operation) {
 	// declared response and no explicit error list, so declaring the 204 above
 	// silently removes the ErrorModel from this operation's document unless the
 	// codes are listed here.
+	//
+	// 422 and 500 are NOT listed: huma appends both itself to any operation that
+	// declares errors and takes a path parameter or a body, and this one takes
+	// both.
 	o.Errors = []int{
-		http.StatusUnauthorized,        // no session
-		http.StatusForbidden,           // visible, not editable
-		http.StatusNotFound,            // never used, or gated
-		http.StatusUnprocessableEntity, // request validation, invalid display_mode
-		http.StatusInternalServerError,
+		http.StatusUnauthorized, // no session
+		http.StatusForbidden,    // visible, not editable
+		http.StatusNotFound,     // never used, or gated
 	}
 }
 

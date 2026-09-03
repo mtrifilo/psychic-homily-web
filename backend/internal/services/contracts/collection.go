@@ -199,8 +199,13 @@ type CollectionDetailResponse struct {
 	// declared this one as their `forked_from_collection_id`. Computed live
 	// on read (see CollectionService.batchCountForks). PSY-351.
 	ForksCount int `json:"forks_count"`
-	// ForkedFromCollectionID is non-nil when this collection was cloned.
-	// May be set even if ForkedFrom is nil (when the source was deleted).
+	// ForkedFromCollectionID is non-nil when this collection was cloned FROM A
+	// SOURCE THE VIEWER MAY SEE. A gated source answers exactly like a deleted
+	// one, whose FK `ON DELETE SET NULL` has already nulled: an id with no title
+	// or slug beside it still says a private collection exists.
+	//
+	// It is therefore nil whenever ForkedFrom is nil on this route, and the
+	// listings carry the same rule through batchVisibleForkSources.
 	ForkedFromCollectionID *uint `json:"forked_from_collection_id,omitempty"`
 	// ForkedFrom is a minimal snapshot of the source collection for
 	// rendering inline attribution. nil when the source was deleted
@@ -258,7 +263,10 @@ type CollectionListResponse struct {
 	// ForksCount is a public social signal exposed on list cards too,
 	// so original collections can advertise how often they've been forked.
 	// PSY-351.
-	ForksCount             int            `json:"forks_count"`
+	ForksCount int `json:"forks_count"`
+	// ForkedFromCollectionID carries the detail route's rule: present only when
+	// the viewer may see the source. See CollectionDetailResponse's field and
+	// CollectionService.batchVisibleForkSources.
 	ForkedFromCollectionID *uint          `json:"forked_from_collection_id,omitempty"`
 	EntityTypeCounts       map[string]int `json:"entity_type_counts"`
 	// NewSinceLastVisit is the count of items added to this collection after

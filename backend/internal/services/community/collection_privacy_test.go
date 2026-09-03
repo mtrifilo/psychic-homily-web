@@ -183,27 +183,44 @@ func (suite *CollectionServiceIntegrationTestSuite) TestListings_DropAPrivateFor
 		return nil
 	}
 
-	listings := func(viewerID uint) map[string][]*contracts.CollectionListResponse {
+	// The two builders that take a viewer, and the two that do not. The split is
+	// the point: only the first pair can answer differently for the source's own
+	// creator, and asserting the creator's case against the other two would be
+	// asserting against a parameter they never receive.
+	viewerScopedListings := func(viewerID uint) map[string][]*contracts.CollectionListResponse {
 		browse, _, err := suite.collectionService.ListCollections(
 			contracts.CollectionFilters{ViewerID: viewerID}, 100, 0)
 		suite.Require().NoError(err)
-		library, _, err := suite.collectionService.GetUserCollections(stranger.ID, "", 100, 0)
-		suite.Require().NoError(err)
 		backlinks, err := suite.collectionService.GetEntityCollections("artist", artist.ID, viewerID, 100)
+		suite.Require().NoError(err)
+		return map[string][]*contracts.CollectionListResponse{
+			"ListCollections":      browse,
+			"GetEntityCollections": backlinks,
+		}
+	}
+	// GetUserCollections is the clone owner's own library and GetUserPublicCollections
+	// is their public profile; both are scoped to that user rather than to a viewer.
+	selfScopedListings := func() map[string][]*contracts.CollectionListResponse {
+		library, _, err := suite.collectionService.GetUserCollections(stranger.ID, "", 100, 0)
 		suite.Require().NoError(err)
 		profile, _, err := suite.collectionService.GetUserPublicCollections(stranger.ID, 100, 0)
 		suite.Require().NoError(err)
 		return map[string][]*contracts.CollectionListResponse{
-			"ListCollections":          browse,
 			"GetUserCollections":       library,
-			"GetEntityCollections":     backlinks,
 			"GetUserPublicCollections": profile,
 		}
+	}
+	allListings := func(viewerID uint) map[string][]*contracts.CollectionListResponse {
+		out := viewerScopedListings(viewerID)
+		for name, rows := range selfScopedListings() {
+			out[name] = rows
+		}
+		return out
 	}
 
 	// The control, and it is what separates the gate from a field nobody sets:
 	// while the source is public, every listing publishes its id.
-	for name, rows := range listings(stranger.ID) {
+	for name, rows := range allListings(stranger.ID) {
 		got := forkSourceID(name, rows)
 		suite.Require().NotNil(got, "%s dropped a PUBLIC fork source", name)
 		suite.Equal(source.ID, *got, "%s named the wrong fork source", name)
@@ -212,7 +229,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestListings_DropAPrivateFor
 	suite.Require().NoError(suite.db.Table("collections").
 		Where("id = ?", source.ID).Update("is_public", false).Error)
 
-	for name, rows := range listings(stranger.ID) {
+	for name, rows := range allListings(stranger.ID) {
 		suite.Nil(forkSourceID(name, rows),
 			"%s published the id of a fork source the caller may not see", name)
 	}
@@ -221,9 +238,8 @@ func (suite *CollectionServiceIntegrationTestSuite) TestListings_DropAPrivateFor
 	// GetUserPublicCollections is not one of them: it takes no viewer at all, so
 	// it fences at the public tier and drops the id for everybody, which is the
 	// safe direction of that limitation rather than a second rule.
-	viewerScoped := listings(creator.ID)
-	for _, name := range []string{"ListCollections", "GetEntityCollections"} {
-		got := forkSourceID(name, viewerScoped[name])
+	for name, rows := range viewerScopedListings(creator.ID) {
+		got := forkSourceID(name, rows)
 		suite.Require().NotNil(got, "%s withheld the fork source from the source's own creator", name)
 		suite.Equal(source.ID, *got)
 	}

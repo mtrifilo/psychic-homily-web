@@ -1183,9 +1183,10 @@ function InlineEditForm({
 
       {updateMutation.error && (
         <p className="text-sm text-destructive">
-          {updateMutation.error instanceof Error
-            ? updateMutation.error.message
-            : 'Failed to update collection'}
+          {describeCollectionMutationError(
+            updateMutation.error,
+            'Failed to update collection'
+          )}
         </p>
       )}
 
