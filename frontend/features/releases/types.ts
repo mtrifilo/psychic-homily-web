@@ -5,6 +5,11 @@
  * for release endpoints.
  */
 
+import {
+  OFFERED_RELEASE_LINK_PLATFORM_KEYS,
+  RELEASE_LINK_PLATFORMS,
+} from '@/lib/releaseLinks'
+
 export type ReleaseType =
   | 'lp'
   | 'ep'
@@ -52,19 +57,20 @@ export interface ReleaseExternalLink {
 /**
  * Platforms offered when adding an external link to a release. Shared by the
  * admin release editor (`features/releases/admin/ReleaseManagement.tsx`) and
- * the user-facing add-link dialog (`AddReleaseLinkDialog`, PSY-660) so the two
- * surfaces never drift apart. Keep in sync with the backend's accepted
- * platform values.
+ * the user-facing add-link dialog (`AddReleaseLinkDialog`, PSY-660).
+ *
+ * Derived from `RELEASE_LINK_PLATFORMS`, the registry the render gate and the
+ * backend write gate both read, so the picker cannot offer a platform the
+ * backend refuses. It offers that registry's `offered` subset rather than all
+ * of it, because the accepted set is wider than the set a curator is invited to
+ * type; which platforms are offered is decided at the registry.
  */
-export const EXTERNAL_LINK_PLATFORMS = [
-  { value: 'bandcamp', label: 'Bandcamp' },
-  { value: 'spotify', label: 'Spotify' },
-  { value: 'apple_music', label: 'Apple Music' },
-  { value: 'youtube', label: 'YouTube' },
-  { value: 'discogs', label: 'Discogs' },
-  { value: 'tidal', label: 'Tidal' },
-  { value: 'soundcloud', label: 'SoundCloud' },
-] as const
+export const EXTERNAL_LINK_PLATFORMS = OFFERED_RELEASE_LINK_PLATFORM_KEYS.map(
+  value => ({
+    value,
+    label: RELEASE_LINK_PLATFORMS[value].label,
+  })
+)
 
 export interface ReleaseLabel {
   id: number

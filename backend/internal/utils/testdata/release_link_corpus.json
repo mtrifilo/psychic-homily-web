@@ -1,0 +1,254 @@
+{
+  "_comment": [
+    "Shared cross-language corpus for the release_external_links gates (PSY-1996).",
+    "",
+    "THE CONTRACT: anything the Go write gate stores must be renderable by the",
+    "frontend read gate. Nothing may be storable and unrenderable, or a curator's",
+    "save silently produces no link and nobody can see why.",
+    "",
+    "Go reads this file in utils.TestReleaseLinkCorpus; TypeScript reads the same",
+    "file in frontend/lib/releaseLinks.test.ts. Both assert their own half plus the",
+    "platform table itself, so a platform, a host, or a rule added to one language",
+    "and not the other fails the other language's suite and names the value. A rule",
+    "the corpus carries no case for is a rule it cannot police, so add cases with",
+    "rules.",
+    "",
+    "platforms   = the whole registry. Each side asserts its own table equals this,",
+    "              which is what stops the two lists drifting.",
+    "maxUrlLength= the shared cap. Here rather than as a literal in each language,",
+    "              for the same reason the platform table is. Only the NUMBER is",
+    "              shared: Go counts bytes, TypeScript counts UTF-16 code units.",
+    "renderable  = both gates accept.",
+    "refused     = the Go write gate refuses. `alsoRefusedByReader` marks the ones",
+    "              the reader must ALSO refuse, i.e. every case where a click would",
+    "              leave the platform. The rest are cases where the WRITER is",
+    "              deliberately the stricter side and a legacy row of that shape",
+    "              still opens the right page: surrounding whitespace, which the",
+    "              browser strips, and host spellings the browser's UTS-46 mapping",
+    "              folds back onto the platform. Refusing those on the read side",
+    "              would take away links that work."
+  ],
+  "maxUrlLength": 2048,
+  "platforms": {
+    "amazon_music": ["music.amazon.com"],
+    "apple_music": ["music.apple.com", "itunes.apple.com"],
+    "bandcamp": ["bandcamp.com"],
+    "deezer": ["deezer.com"],
+    "discogs": ["discogs.com"],
+    "soundcloud": ["soundcloud.com"],
+    "spotify": ["open.spotify.com"],
+    "tidal": ["tidal.com"],
+    "youtube": ["youtube.com", "youtu.be"],
+    "youtube_music": ["music.youtube.com"]
+  },
+  "renderable": [
+    { "platform": "bandcamp", "url": "https://marissanadler.bandcamp.com/album/the-path-of-the-clouds" },
+    { "platform": "bandcamp", "url": "https://kingbuffalo.bandcamp.com/track/regenerator" },
+    { "platform": "bandcamp", "url": "https://bandcamp.com/album/apex-storefront-page" },
+    { "platform": "spotify", "url": "https://open.spotify.com/album/6gEwqCwB2n4bXGiCz9lJoR" },
+    { "platform": "spotify", "url": "https://open.spotify.com/intl-pt/album/6gEwqCwB2n4bXGiCz9lJoR" },
+    { "platform": "apple_music", "url": "https://music.apple.com/us/album/exemplar/1234567890" },
+    { "platform": "apple_music", "url": "https://itunes.apple.com/us/album/exemplar/1234567890" },
+    { "platform": "youtube", "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
+    { "platform": "youtube", "url": "https://youtu.be/dQw4w9WgXcQ" },
+    { "platform": "youtube_music", "url": "https://music.youtube.com/playlist?list=EXEMPLAR" },
+    { "platform": "soundcloud", "url": "https://soundcloud.com/artist/track-name" },
+    { "platform": "tidal", "url": "https://tidal.com/browse/album/123456" },
+    { "platform": "deezer", "url": "https://www.deezer.com/album/123456" },
+    { "platform": "amazon_music", "url": "https://music.amazon.com/albums/B00EXAMPLE" },
+    { "platform": "discogs", "url": "https://www.discogs.com/release/123456-Exemplar" },
+    { "platform": "spotify", "url": "http://open.spotify.com/album/6gEwqCwB2n4bXGiCz9lJoR" },
+    { "platform": "spotify", "url": "https://OPEN.SPOTIFY.COM/album/6gEwqCwB2n4bXGiCz9lJoR" },
+    { "platform": "Bandcamp", "url": "https://kingbuffalo.bandcamp.com/album/regenerator" },
+    { "platform": "spotify", "url": "https://open.spotify.com:443/album/6gEwqCwB2n4bXGiCz9lJoR" },
+    { "platform": "bandcamp", "url": "https://kingbuffalo.bandcamp.com:65535/album/x" }
+  ],
+  "refused": [
+    {
+      "platform": "napster",
+      "url": "https://us.napster.com/album/x",
+      "why": "platform is not in the registry, so nothing knows how to anchor it",
+      "alsoRefusedByReader": true
+    },
+    {
+      "platform": " bandcamp",
+      "url": "https://kingbuffalo.bandcamp.com/album/regenerator",
+      "why": "untrimmed platform: stored verbatim, and the label lookup would miss it",
+      "alsoRefusedByReader": true
+    },
+    {
+      "platform": "TİDAL",
+      "url": "https://tidal.com/browse/album/123456",
+      "why": "U+0130 in the platform key. Go's simple case mapping folds it to 'tidal' and finds the registry; JavaScript's SpecialCasing folds it to 'ti̇dal' and finds nothing. Both sides refuse a non-ASCII key BEFORE folding, or the row stores with a 201 and renders no link",
+      "alsoRefusedByReader": true
+    },
+    {
+      "platform": "bandcamp",
+      "url": "https://EVİL.bandcamp.com/album/x",
+      "why": "the same code point in the HOST. Folding first would have made this pure ASCII to Go ('evil.bandcamp.com') while the browser punycodes it to 'xn--evil-swc.bandcamp.com': two different Bandcamp accounts from one stored string. The ASCII rule runs before the fold. The reader is lenient because the browser's answer is still a bandcamp.com subdomain",
+      "alsoRefusedByReader": false
+    },
+    {
+      "platform": "bandcamp",
+      "url": "https://band%63amp.com/album/x",
+      "why": "percent escape in the host: Go's url.Parse refuses it outright (it rejects any host %XX below %80, except %25), so the ASCII rule never runs. The browser decodes it to bandcamp.com. Refused at write time so the column never holds a host the two layers spell differently",
+      "alsoRefusedByReader": false
+    },
+    {
+      "platform": "bandcamp",
+      "url": "https://evil.test/album/x?ref=bandcamp.com",
+      "why": "foreign host carrying the platform name in the query; a substring check would pass it",
+      "alsoRefusedByReader": true
+    },
+    {
+      "platform": "bandcamp",
+      "url": "https://bandcamp.com.evil.test/album/x",
+      "why": "lookalike suffix: the platform name is a LABEL, not the registrable domain",
+      "alsoRefusedByReader": true
+    },
+    {
+      "platform": "bandcamp",
+      "url": "https://notbandcamp.com/album/x",
+      "why": "the leading dot in the suffix anchor rejects a domain that merely ends with the base",
+      "alsoRefusedByReader": true
+    },
+    {
+      "platform": "spotify",
+      "url": "https://open.spotify.com@evil.test/album/x",
+      "why": "userinfo spoof: the text before @ is not the host, and both parsers agree it is evil.test",
+      "alsoRefusedByReader": true
+    },
+    {
+      "platform": "bandcamp",
+      "url": "http://169.254.169.254/album/x?bandcamp.com",
+      "why": "raw link-local IP; the anchor is on the host, never on the URL text",
+      "alsoRefusedByReader": true
+    },
+    {
+      "platform": "spotify",
+      "url": "javascript:alert(document.domain)",
+      "why": "scheme is neither http nor https",
+      "alsoRefusedByReader": true
+    },
+    {
+      "platform": "spotify",
+      "url": "data:text/html,<script>alert(1)</script>",
+      "why": "scheme is neither http nor https",
+      "alsoRefusedByReader": true
+    },
+    {
+      "platform": "spotify",
+      "url": "https://open.spotify.com/album/x ",
+      "why": "trailing whitespace: refused at write time so the column never holds a value the two parsers disagree about, but the browser strips it, so a legacy row of this shape opens the right page and the reader still renders it",
+      "alsoRefusedByReader": false
+    },
+    {
+      "platform": "spotify",
+      "url": " https://open.spotify.com/album/x",
+      "why": "leading whitespace, same reason",
+      "alsoRefusedByReader": false
+    },
+    {
+      "platform": "apple_music",
+      "url": "https://discussions.apple.com/thread/1234567",
+      "why": "an Apple-owned host, but one that publishes writing by strangers; the anchor names the music host so an Apple Music label cannot head a forum post",
+      "alsoRefusedByReader": true
+    },
+    {
+      "platform": "spotify",
+      "url": "https://community.spotify.com/t5/Music-Chat/x/td-p/1234567",
+      "why": "same shape on Spotify's forum",
+      "alsoRefusedByReader": true
+    },
+    {
+      "platform": "amazon_music",
+      "url": "https://www.amazon.com/review/R1234567",
+      "why": "same shape on Amazon's retail domain",
+      "alsoRefusedByReader": true
+    },
+    {
+      "platform": "spotify",
+      "url": "https://open.spotify.com./album/x",
+      "why": "fully-qualified trailing dot: neither parser normalizes it away, so it does not match the anchor",
+      "alsoRefusedByReader": true
+    },
+    {
+      "platform": "spotify",
+      "url": "https://[::1]/album/x",
+      "why": "IPv6 literal is not a platform host",
+      "alsoRefusedByReader": true
+    },
+    {
+      "platform": "youtube_music",
+      "url": "https://youtu.be/dQw4w9WgXcQ",
+      "why": "anchors are per platform, not per family: youtu.be is allowlisted for youtube only",
+      "alsoRefusedByReader": true
+    },
+    {
+      "platform": "bandcamp",
+      "url": "https://evil.test\\.bandcamp.com/album/x",
+      "why": "backslash: Go's parser refuses it in a host and the browser's ends the authority at it, so both land on evil.test",
+      "alsoRefusedByReader": true
+    },
+    {
+      "platform": "bandcamp",
+      "url": "https://kingbuffalo.bandcamp.com:65536/album/x",
+      "why": "port above the WHATWG ceiling: the browser's parser throws, so the row could never render. Go takes any run of digits, which is the one divergence where Go is the lenient parser",
+      "alsoRefusedByReader": true
+    },
+    {
+      "platform": "bandcamp",
+      "url": "https://kingbuffalo.bandcamp.com:99999/album/x",
+      "why": "same ceiling, five digits",
+      "alsoRefusedByReader": true
+    },
+    {
+      "platform": "bandcamp",
+      "url": "https://xn--a.bandcamp.com/album/x",
+      "why": "malformed punycode label: Go sees four ordinary bytes, the browser's parser decodes it, fails, and throws, so the row could never render",
+      "alsoRefusedByReader": true
+    },
+    {
+      "platform": "spotify",
+      "url": "https://your-account-is-suspended.example.com@open.spotify.com/album/x",
+      "why": "userinfo. Both parsers agree the host is open.spotify.com, so the click is safe and the reader's usual question, 'will a browser reach the platform', answers yes. It is the wrong question here: userinfo is not part of the host in any parser, so the caption names a domain the click does not go near, and the card truncates from the right so that domain is the visible half. Refused on BOTH sides for that reason, not for the destination. A misleading SUBDOMAIN is a different case and both sides accept it, because that is where the click genuinely goes",
+      "alsoRefusedByReader": true
+    },
+    {
+      "platform": "bandcamp",
+      "url": "https://xn--80ak6aa92e.bandcamp.com/album/x",
+      "why": "well-formed punycode label. No platform host in the registry is an IDN, so the writer refuses the whole spelling rather than deciding which decode; the reader still renders it, because a legacy row of this shape does open the right page",
+      "alsoRefusedByReader": false
+    },
+    {
+      "platform": "bandcamp",
+      "url": "https://ⓞne.bandcamp.com/album/x",
+      "why": "circled letter: UTS-46 maps it to o, so the browser resolves this onto a bandcamp.com subdomain and renders it",
+      "alsoRefusedByReader": false
+    },
+    {
+      "platform": "bandcamp",
+      "url": "https://evil.test。bandcamp.com/album/x",
+      "why": "ideographic full stop: UTS-46 makes it a label separator, so the browser resolves this to a bandcamp.com SUBDOMAIN",
+      "alsoRefusedByReader": false
+    },
+    {
+      "platform": "bandcamp",
+      "url": "https://evil.test­.bandcamp.com/album/x",
+      "why": "soft hyphen: UTS-46 deletes it, leaving a bandcamp.com subdomain",
+      "alsoRefusedByReader": false
+    },
+    {
+      "platform": "bandcamp",
+      "url": "https://ünicode.bandcamp.com/album/x",
+      "why": "non-ASCII label: the browser punycodes it and it stays a bandcamp.com subdomain",
+      "alsoRefusedByReader": false
+    },
+    {
+      "platform": "bandcamp",
+      "url": "https://bandcamp.com\\@evil.test/",
+      "why": "backslash before the @: Go's parser refuses it outright, the browser ends the authority at it and lands on bandcamp.com",
+      "alsoRefusedByReader": false
+    }
+  ]
+}

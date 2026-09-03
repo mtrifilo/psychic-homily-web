@@ -372,13 +372,32 @@ func ValidateSocialHost(field, fieldName, value string) error {
 	if err != nil {
 		return nil
 	}
-	host := strings.ToLower(u.Hostname())
-	for _, base := range bases {
-		if host == base || strings.HasSuffix(host, "."+base) {
-			return nil
-		}
+	if hostMatchesAnyBase(strings.ToLower(u.Hostname()), bases) {
+		return nil
 	}
 	return fmt.Errorf("%s must be a link on %s", fieldName, strings.Join(bases, " or "))
+}
+
+// hostMatchesAnyBase reports whether an already-lowercased host equals one of the
+// bases or is a subdomain of one.
+//
+// The leading dot is load-bearing: it rejects "notbandcamp.com" and
+// "bandcamp.com.evil.test" while accepting "<artist>.bandcamp.com".
+//
+// It is the suffix rule ONLY, shared by the two host allowlists in this package
+// (the social fields and the release-link platforms) so a fix to that rule
+// cannot land in one and not the other. It is NOT the whole check either caller
+// runs, and the two callers differ: ValidateReleaseLink refuses a non-ASCII host
+// before reaching here, because Go and a browser can read one differently;
+// ValidateSocialHost does not. A caller reaching for this helper inherits the
+// suffix rule and nothing else.
+func hostMatchesAnyBase(host string, bases []string) bool {
+	for _, base := range bases {
+		if host == base || strings.HasSuffix(host, "."+base) {
+			return true
+		}
+	}
+	return false
 }
 
 // BlankBandcampEmbedToNil converts the clear-the-field gesture into the value the

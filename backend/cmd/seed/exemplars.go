@@ -11,6 +11,7 @@ import (
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/utils"
 
 	"gorm.io/gorm"
 )
@@ -64,6 +65,20 @@ type tagSpec struct {
 	Name     string
 	Slug     string
 	Category string
+}
+
+// exemplarReleaseLinks is the exemplar release's Listen / Buy grid: 4+ links
+// across distinct platforms, so the grid renders with real variety.
+//
+// Package-level so a test can assert every literal clears
+// utils.ValidateReleaseLink. Inline, a value that stopped clearing the gate
+// would only surface as a warning at seed time, in a run nobody reads.
+var exemplarReleaseLinks = []struct{ Platform, URL string }{
+	{"bandcamp", "https://marissanadler.bandcamp.com/album/the-path-of-the-clouds"},
+	{"spotify", "https://open.spotify.com/album/exemplar-path-of-the-clouds"},
+	{"apple_music", "https://music.apple.com/us/album/exemplar-path-of-the-clouds"},
+	{"youtube_music", "https://music.youtube.com/playlist?list=EXEMPLAR-PATH-OF-CLOUDS"},
+	{"discogs", "https://www.discogs.com/release/exemplar-path-of-the-clouds"},
 }
 
 // strptr is a tiny helper to take the address of a string literal inline.
@@ -400,15 +415,14 @@ func seedExemplarRelease(db *gorm.DB, userID, mainArtistID, labelID uint) {
 			}
 		}
 
-		// 4+ external links across distinct platforms.
-		links := []struct{ Platform, URL string }{
-			{"bandcamp", "https://marissanadler.bandcamp.com/album/the-path-of-the-clouds"},
-			{"spotify", "https://open.spotify.com/album/exemplar-path-of-the-clouds"},
-			{"apple_music", "https://music.apple.com/us/album/exemplar-path-of-the-clouds"},
-			{"youtube_music", "https://music.youtube.com/playlist?list=EXEMPLAR-PATH-OF-CLOUDS"},
-			{"discogs", "https://www.discogs.com/release/exemplar-path-of-the-clouds"},
-		}
-		for _, l := range links {
+		for _, l := range exemplarReleaseLinks {
+			// This loop writes the table directly rather than through
+			// ReleaseService, so it is the one link writer the service gate does
+			// not cover. TestExemplarReleaseLinksPassTheGate is the tripwire;
+			// this check is the runtime backstop for it.
+			if err := utils.ValidateReleaseLink(l.Platform, l.URL); err != nil {
+				return fmt.Errorf("exemplar external link %s: %w", l.Platform, err)
+			}
 			el := catalogm.ReleaseExternalLink{
 				ReleaseID: release.ID,
 				Platform:  l.Platform,

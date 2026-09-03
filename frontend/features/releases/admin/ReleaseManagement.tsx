@@ -57,6 +57,11 @@ import {
   type ReleaseDetail,
   type ReleaseExternalLink,
 } from '../types'
+import {
+  isRenderableReleaseLink,
+  releaseLinkPlatformLabel,
+  releaseLinkRefusal,
+} from '@/lib/releaseLinks'
 
 // ============================================================================
 // Constants
@@ -231,29 +236,44 @@ interface LinkEntry {
   url: string
 }
 
-function LinkEditor({
-  links,
+/**
+ * The platform + URL add row, shared by the create form's pending list and the
+ * edit sheet's live list.
+ *
+ * It owns the draft and the refusal so the two callers cannot answer "is this
+ * link acceptable" differently. The refusal runs the same predicate as the
+ * public dialog, the release page's render gate and the backend write gate, and
+ * blocks the add: the create endpoint refuses the WHOLE release on one bad link,
+ * so catching it here is the difference between fixing one field and losing the
+ * form.
+ *
+ * onAdd may return a promise; the draft is cleared only once it resolves, so a
+ * rejected save leaves the value the curator typed.
+ */
+function LinkAddRow({
   onAdd,
-  onRemove,
+  pending = false,
 }: {
-  links: LinkEntry[]
-  onAdd: (link: LinkEntry) => void
-  onRemove: (index: number) => void
+  onAdd: (link: LinkEntry) => void | Promise<unknown>
+  pending?: boolean
 }) {
   const [platform, setPlatform] = useState<string>(EXTERNAL_LINK_PLATFORMS[0].value)
   const [url, setUrl] = useState('')
 
-  const handleAdd = useCallback(() => {
-    if (!url.trim()) return
-    onAdd({ platform, url: url.trim() })
-    setUrl('')
-  }, [platform, url, onAdd])
+  const refusal = releaseLinkRefusal({ platform, url: url.trim() })
+
+  const handleAdd = useCallback(async () => {
+    if (!url.trim() || refusal) return
+    try {
+      await onAdd({ platform, url: url.trim() })
+      setUrl('')
+    } catch {
+      // The caller surfaces the failure; keep the typed value so it can be retried.
+    }
+  }, [platform, url, refusal, onAdd])
 
   return (
-    <div className="space-y-3">
-      <Label>External Links</Label>
-
-      {/* Add new link */}
+    <>
       <div className="flex items-end gap-2">
         <div className="w-36">
           <Select value={platform} onValueChange={setPlatform}>
@@ -272,26 +292,59 @@ function LinkEditor({
         <div className="flex-1">
           <Input
             placeholder="https://..."
+            aria-label="External link URL"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault()
-                handleAdd()
+                void handleAdd()
               }
             }}
+            aria-invalid={refusal !== null}
           />
         </div>
         <Button
           type="button"
           variant="outline"
           size="sm"
-          onClick={handleAdd}
+          onClick={() => void handleAdd()}
+          disabled={pending || refusal !== null || url.trim().length === 0}
           aria-label="Add external link"
         >
-          <Plus className="h-4 w-4" />
+          {pending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Plus className="h-4 w-4" />
+          )}
         </Button>
       </div>
+
+      {/* role="alert" because the refusal appears while typing, after the field
+          already has focus, so nothing else would announce it. */}
+      {refusal && (
+        <p role="alert" className="text-sm text-destructive">
+          {refusal}
+        </p>
+      )}
+    </>
+  )
+}
+
+function LinkEditor({
+  links,
+  onAdd,
+  onRemove,
+}: {
+  links: LinkEntry[]
+  onAdd: (link: LinkEntry) => void
+  onRemove: (index: number) => void
+}) {
+  return (
+    <div className="space-y-3">
+      <Label>External Links</Label>
+
+      <LinkAddRow onAdd={onAdd} />
 
       {/* Existing links */}
       {links.length > 0 && (
@@ -302,8 +355,7 @@ function LinkEditor({
               className="flex items-center gap-2 rounded-md border px-3 py-2"
             >
               <Badge variant="secondary" className="text-xs">
-                {EXTERNAL_LINK_PLATFORMS.find((p) => p.value === link.platform)
-                  ?.label || link.platform}
+                {releaseLinkPlatformLabel(link.platform)}
               </Badge>
               <span className="text-sm text-muted-foreground truncate flex-1">
                 {link.url}
@@ -339,18 +391,12 @@ function ExistingLinkManager({
 }) {
   const addLinkMutation = useAddReleaseLink()
   const removeLinkMutation = useRemoveReleaseLink()
-  const [platform, setPlatform] = useState<string>(EXTERNAL_LINK_PLATFORMS[0].value)
-  const [url, setUrl] = useState('')
 
-  const handleAdd = useCallback(() => {
-    if (!url.trim()) return
-    addLinkMutation.mutate(
-      { releaseId, platform, url: url.trim() },
-      {
-        onSuccess: () => setUrl(''),
-      }
-    )
-  }, [releaseId, platform, url, addLinkMutation])
+  const handleAdd = useCallback(
+    (link: LinkEntry) =>
+      addLinkMutation.mutateAsync({ releaseId, ...link }),
+    [releaseId, addLinkMutation]
+  )
 
   const handleRemove = useCallback(
     (linkId: number) => {
@@ -363,50 +409,16 @@ function ExistingLinkManager({
     <div className="space-y-3">
       <Label>External Links</Label>
 
-      {/* Add new link */}
-      <div className="flex items-end gap-2">
-        <div className="w-36">
-          <Select value={platform} onValueChange={setPlatform}>
-            <SelectTrigger className="w-full" aria-label="External link platform">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {EXTERNAL_LINK_PLATFORMS.map((p) => (
-                <SelectItem key={p.value} value={p.value}>
-                  {p.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex-1">
-          <Input
-            placeholder="https://..."
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                handleAdd()
-              }
-            }}
-          />
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={handleAdd}
-          disabled={addLinkMutation.isPending}
-          aria-label="Add external link"
-        >
-          {addLinkMutation.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Plus className="h-4 w-4" />
-          )}
-        </Button>
-      </div>
+      <LinkAddRow onAdd={handleAdd} pending={addLinkMutation.isPending} />
+
+      {/* A server-side refusal has to be visible here: this is the only add
+          surface with no other feedback, and the gate now refuses more. */}
+      {addLinkMutation.isError && (
+        <InlineErrorBanner>
+          {(addLinkMutation.error as Error)?.message ||
+            'Failed to add link. Please try again.'}
+        </InlineErrorBanner>
+      )}
 
       {/* Existing links */}
       {links.length > 0 && (
@@ -417,18 +429,29 @@ function ExistingLinkManager({
               className="flex items-center gap-2 rounded-md border px-3 py-2"
             >
               <Badge variant="secondary" className="text-xs">
-                {EXTERNAL_LINK_PLATFORMS.find(
-                  (p) => p.value === link.platform
-                )?.label || link.platform}
+                {releaseLinkPlatformLabel(link.platform)}
               </Badge>
-              <a
-                href={link.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm text-muted-foreground truncate flex-1 hover:text-foreground"
-              >
-                {link.url}
-              </a>
+              {/* A row the public page refuses to link is shown here as inert
+                  text, still labelled and still removable: an admin has to be
+                  able to see and delete it, and following it is the same click
+                  the gate exists to prevent. */}
+              {isRenderableReleaseLink(link) ? (
+                <a
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-muted-foreground truncate flex-1 hover:text-foreground"
+                >
+                  {link.url}
+                </a>
+              ) : (
+                <span className="flex-1 truncate text-sm text-muted-foreground">
+                  <span className="mr-1.5 font-medium text-destructive">
+                    Not shown publicly:
+                  </span>
+                  {link.url}
+                </span>
+              )}
               <Button
                 type="button"
                 variant="ghost"

@@ -207,7 +207,7 @@ type CreateReleaseArtistInput struct {
 
 // CreateReleaseLinkInput represents external link input for release creation
 type CreateReleaseLinkInput struct {
-	Platform string `json:"platform" doc:"Platform name (bandcamp, spotify, discogs, etc.)" example:"bandcamp"`
+	Platform string `json:"platform" doc:"Platform key. One of: amazon_music, apple_music, bandcamp, deezer, discogs, soundcloud, spotify, tidal, youtube, youtube_music" example:"bandcamp"`
 	URL      string `json:"url" doc:"URL to the release on the platform"`
 }
 
@@ -261,6 +261,9 @@ func (h *ReleaseHandler) CreateReleaseHandler(ctx context.Context, req *CreateRe
 
 	release, err := h.releaseService.CreateRelease(serviceReq)
 	if err != nil {
+		if mapped := shared.MapReleaseError(err); mapped != nil {
+			return nil, mapped
+		}
 		logger.FromContext(ctx).Error("create_release_failed",
 			"error", err.Error(),
 			"request_id", requestID,
@@ -506,7 +509,7 @@ func (h *ReleaseHandler) GetArtistReleasesHandler(ctx context.Context, req *GetA
 type AddExternalLinkRequest struct {
 	ReleaseID string `path:"release_id" doc:"Release ID" example:"1"`
 	Body      struct {
-		Platform string `json:"platform" doc:"Platform name (bandcamp, spotify, etc.)" example:"bandcamp"`
+		Platform string `json:"platform" doc:"Platform key. One of: amazon_music, apple_music, bandcamp, deezer, discogs, soundcloud, spotify, tidal, youtube, youtube_music" example:"bandcamp"`
 		URL      string `json:"url" doc:"URL to the release"`
 	}
 }
@@ -534,15 +537,13 @@ func (h *ReleaseHandler) AddExternalLinkHandler(ctx context.Context, req *AddExt
 		return nil, huma.Error400BadRequest("Invalid release ID")
 	}
 
-	if req.Body.Platform == "" || req.Body.URL == "" {
-		return nil, huma.Error422UnprocessableEntity("Platform and URL are required")
-	}
-
+	// The platform and URL are gated by ReleaseService.AddExternalLink, which is
+	// where every writer of a single link meets, and its refusal arrives here as
+	// a 422 through MapReleaseError carrying the validator's own sentence.
 	link, err := h.releaseService.AddExternalLink(uint(releaseID), req.Body.Platform, req.Body.URL)
 	if err != nil {
-		var releaseErr *apperrors.ReleaseError
-		if errors.As(err, &releaseErr) && releaseErr.Code == apperrors.CodeReleaseNotFound {
-			return nil, huma.Error404NotFound("Release not found")
+		if mapped := shared.MapReleaseError(err); mapped != nil {
+			return nil, mapped
 		}
 		logger.FromContext(ctx).Error("add_external_link_failed",
 			"release_id", releaseID,
@@ -554,10 +555,16 @@ func (h *ReleaseHandler) AddExternalLinkHandler(ctx context.Context, req *AddExt
 		)
 	}
 
-	// Audit log (fire and forget)
+	// Audit log (fire and forget). The values are recorded, not just the fact of
+	// the write: the table carries no created_by, so this entry is the only
+	// record of who put a given URL under a given platform label.
 	if h.auditLogService != nil {
 		servicesshared.GoSafe(ctx, "audit_log", func() {
-			h.auditLogService.LogAction(user.ID, "add_release_link", "release", uint(releaseID), nil)
+			h.auditLogService.LogAction(user.ID, "add_release_link", "release", uint(releaseID), map[string]interface{}{
+				"link_id":  link.ID,
+				"platform": link.Platform,
+				"url":      link.URL,
+			})
 		})
 	}
 
@@ -593,11 +600,15 @@ func (h *ReleaseHandler) RemoveExternalLinkHandler(ctx context.Context, req *Rem
 		)
 	}
 
-	// Audit log (fire and forget)
+	// Audit log (fire and forget). The row is hard-deleted, so link_id is what
+	// ties this entry to the add entry that recorded the platform and the URL;
+	// without it a removal leaves no way to say what was removed.
 	if h.auditLogService != nil {
 		releaseID, _ := strconv.ParseUint(req.ReleaseID, 10, 32)
 		servicesshared.GoSafe(ctx, "audit_log", func() {
-			h.auditLogService.LogAction(user.ID, "remove_release_link", "release", uint(releaseID), nil)
+			h.auditLogService.LogAction(user.ID, "remove_release_link", "release", uint(releaseID), map[string]interface{}{
+				"link_id": linkID,
+			})
 		})
 	}
 

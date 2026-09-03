@@ -2,6 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, within, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
+import {
+  OFFERED_RELEASE_LINK_PLATFORM_KEYS,
+  RELEASE_LINK_PLATFORMS,
+  RELEASE_LINK_PLATFORM_KEYS,
+} from '@/lib/releaseLinks'
 import { AddReleaseLinkDialog } from './AddReleaseLinkDialog'
 
 // Capture the add-link mutation so flows can assert wiring without a backend.
@@ -53,7 +58,10 @@ describe('AddReleaseLinkDialog', () => {
     expect(within(dialog).getByText(/In Rainbows/)).toBeInTheDocument()
   })
 
-  it('offers all 7 external link platforms in the Select', async () => {
+  // Driven by the registry rather than a hand-copied count: the picker, the
+  // render gate and the backend write gate read one list, so a platform marked
+  // offered has to appear here without editing this test.
+  it('offers every offered platform in the Select, and only those', async () => {
     const user = userEvent.setup()
     renderDialog()
 
@@ -62,14 +70,43 @@ describe('AddReleaseLinkDialog', () => {
     // Radix renders options into a portaled listbox.
     const listbox = await screen.findByRole('listbox')
     const options = within(listbox).getAllByRole('option')
-    expect(options).toHaveLength(7)
-    expect(within(listbox).getByText('Bandcamp')).toBeInTheDocument()
-    expect(within(listbox).getByText('Spotify')).toBeInTheDocument()
-    expect(within(listbox).getByText('Apple Music')).toBeInTheDocument()
-    expect(within(listbox).getByText('YouTube')).toBeInTheDocument()
-    expect(within(listbox).getByText('Discogs')).toBeInTheDocument()
-    expect(within(listbox).getByText('Tidal')).toBeInTheDocument()
-    expect(within(listbox).getByText('SoundCloud')).toBeInTheDocument()
+    expect(options).toHaveLength(OFFERED_RELEASE_LINK_PLATFORM_KEYS.length)
+    for (const key of RELEASE_LINK_PLATFORM_KEYS) {
+      const label = RELEASE_LINK_PLATFORMS[key].label
+      if (RELEASE_LINK_PLATFORMS[key].offered) {
+        expect(within(listbox).getByText(label)).toBeInTheDocument()
+      } else {
+        expect(within(listbox).queryByText(label)).not.toBeInTheDocument()
+      }
+    }
+  })
+
+  // The host anchor is enforced before the round trip, using the same predicate
+  // the backend and the release page run.
+  it('blocks submit and names the accepted host for an off-platform URL', async () => {
+    const user = userEvent.setup()
+    renderDialog()
+
+    await user.type(
+      screen.getByLabelText('URL'),
+      'https://bandcamp-checkout.evil.test/album/x'
+    )
+
+    expect(await screen.findByText(/must be an http or https URL on bandcamp\.com/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Add link/ })).toBeDisabled()
+  })
+
+  it('accepts a URL on the selected platform', async () => {
+    const user = userEvent.setup()
+    renderDialog()
+
+    await user.type(
+      screen.getByLabelText('URL'),
+      'https://kingbuffalo.bandcamp.com/album/regenerator'
+    )
+
+    expect(screen.queryByText(/must be an http or https URL/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Add link/ })).toBeEnabled()
   })
 
   it('shows a validation error and blocks submit for a malformed URL', async () => {
@@ -79,8 +116,10 @@ describe('AddReleaseLinkDialog', () => {
     const urlInput = screen.getByLabelText('URL')
     await user.type(urlInput, 'not-a-url')
 
+    // One refusal covers every way the value can be wrong, and names the shape
+    // that works instead of the check that failed.
     expect(
-      screen.getByText(/Enter a valid URL starting with http/i)
+      screen.getByText(/must be an http or https URL on bandcamp\.com/)
     ).toBeInTheDocument()
 
     const submit = screen.getByRole('button', { name: /Add link/i })
