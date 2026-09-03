@@ -304,6 +304,45 @@ export function formatTimeInTimezone(
 }
 
 /**
+ * Format time in the COMPACT ledger register: "8PM", and "7:30PM" when the
+ * minutes are not zero.
+ *
+ * A dense fixed-width column, not a second site-wide clock format. The full
+ * register above is what a sentence or a status line says; this one is for a
+ * ledger row whose lead column is measured in pixels — `8PM` is about 22px in
+ * the rails' `text-xs` mono against `8:00 PM`'s ~57px.
+ *
+ * The half-hour case keeps its minutes because there is no shorter true way to
+ * say 19:30, and dropping them would move a door time by half an hour.
+ *
+ * Built from `formatToParts` rather than a format string so the hour, minute
+ * and AM/PM are read from the SAME formatted instant. An unreadable instant
+ * yields "" rather than a `RangeError`, which `formatToParts` throws on an
+ * invalid date and `toLocaleString` does not.
+ */
+export function formatCompactTimeInTimezone(
+  utcDateString: string,
+  timezone: string
+): string {
+  const date = new Date(utcDateString)
+  if (!Number.isFinite(date.getTime())) return ''
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).formatToParts(date)
+  const part = (type: string) =>
+    parts.find(p => p.type === type)?.value ?? ''
+  const hour = part('hour')
+  const minute = part('minute')
+  const dayPeriod = part('dayPeriod').toUpperCase()
+  return minute === '00'
+    ? `${hour}${dayPeriod}`
+    : `${hour}:${minute}${dayPeriod}`
+}
+
+/**
  * Format a UTC date string as an ISO 8601 string carrying the venue's local UTC
  * offset, e.g. "2026-03-14T20:00:00-07:00" for an 8 PM Phoenix show. Used for
  * structured data (JSON-LD MusicEvent.startDate) so crawlers index the local

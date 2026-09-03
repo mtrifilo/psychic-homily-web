@@ -6,6 +6,7 @@ import {
   formatInTimezone,
   formatDateInTimezone,
   formatTimeInTimezone,
+  formatCompactTimeInTimezone,
   parseISOToDateAndTime,
   toZonedISOString,
 } from './timeUtils'
@@ -441,5 +442,39 @@ describe('toZonedISOString (PSY-986)', () => {
 
   it('uses +00:00 for UTC', () => {
     expect(toZonedISOString(utc, 'UTC')).toBe('2026-03-15T03:00:00+00:00')
+  })
+})
+
+describe('formatCompactTimeInTimezone', () => {
+  it('drops the minutes on the hour', () => {
+    // 03:00Z is 20:00 in Phoenix, which has no half hour to state.
+    expect(
+      formatCompactTimeInTimezone('2026-03-15T03:00:00Z', 'America/Phoenix')
+    ).toBe('8PM')
+  })
+
+  it('keeps the minutes off the hour', () => {
+    // A 19:30 door cannot be said as 7PM without moving it half an hour.
+    expect(
+      formatCompactTimeInTimezone('2026-03-15T02:30:00Z', 'America/Phoenix')
+    ).toBe('7:30PM')
+  })
+
+  it('reads the hour in the ZONE it was given, not the runtime', () => {
+    const utc = '2026-03-15T03:00:00Z'
+    expect(formatCompactTimeInTimezone(utc, 'America/Phoenix')).toBe('8PM')
+    expect(formatCompactTimeInTimezone(utc, 'America/New_York')).toBe('11PM')
+  })
+
+  it('says 12AM for midnight rather than 0AM', () => {
+    expect(
+      formatCompactTimeInTimezone('2026-03-15T07:00:00Z', 'America/Phoenix')
+    ).toBe('12AM')
+  })
+
+  it('returns an empty string for an unreadable instant', () => {
+    // `formatToParts` THROWS on an invalid date, and a rail row must not take
+    // the page down because one payload field was junk.
+    expect(formatCompactTimeInTimezone('not-a-date', 'America/Phoenix')).toBe('')
   })
 })
