@@ -89,6 +89,11 @@ function ShowRow({ show }: { show: ArtistShow }) {
       <td className="whitespace-nowrap text-right font-mono text-xs text-muted-foreground">
         <ShowPrice show={show} fallback={ABSENT} />
       </td>
+      {/* Empty, not `ABSENT`, when the zone is a guess. The en dash means "no
+          price was recorded"; a withheld clock is a time the row HAS and
+          declines to name on a zone it cannot trust, and spelling the two the
+          same way would tell the reader the wrong thing about both. The cell
+          stays for the column count. */}
       <td className="whitespace-nowrap text-right text-muted-foreground">
         {formatShowTime(show.event_date, zone.state, zone.timezone)}
       </td>

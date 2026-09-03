@@ -168,6 +168,15 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
     [show.event_date, show.state, show.venues]
   )
 
+  // Null when this row's venue has no resolved zone, and every density below
+  // then renders no time element at all rather than an empty one. Derived once
+  // so the three densities cannot disagree about whether the clock is sayable.
+  const startTime = formatShowTime(
+    show.event_date,
+    show.state,
+    show.venues?.[0]?.timezone
+  )
+
   const handleEditSuccess = () => {
     setIsEditing(false)
   }
@@ -234,9 +243,11 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
         )}
 
         {/* Time */}
-        <span className="text-xs text-muted-foreground shrink-0 hidden sm:inline tabular-nums">
-          {formatShowTime(show.event_date, show.state, show.venues?.[0]?.timezone)}
-        </span>
+        {startTime && (
+          <span className="text-xs text-muted-foreground shrink-0 hidden sm:inline tabular-nums">
+            {startTime}
+          </span>
+        )}
 
         {/* Price */}
         <ShowPrice
@@ -313,9 +324,9 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
               {/* Right column: time, price, actions */}
               <div className="shrink-0 flex flex-col items-end gap-1.5">
                 <div className="text-right">
-                  <div className="text-sm font-medium">
-                    {formatShowTime(show.event_date, show.state, show.venues?.[0]?.timezone)}
-                  </div>
+                  {startTime && (
+                    <div className="text-sm font-medium">{startTime}</div>
+                  )}
                   <div className="text-xs text-muted-foreground">
                     <ShowPrice show={show} />
                     {hasStatedPrice(show) && show.age_requirement && (
@@ -549,9 +560,9 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
             {/* Right column: time, price, actions */}
             <div className="shrink-0 flex flex-col items-end gap-1">
               <div className="text-right">
-                <div className="text-sm font-medium">
-                  {formatShowTime(show.event_date, show.state, show.venues?.[0]?.timezone)}
-                </div>
+                {startTime && (
+                  <div className="text-sm font-medium">{startTime}</div>
+                )}
                 <div className="text-xs text-muted-foreground">
                   <ShowPrice show={show} />
                   {hasStatedPrice(show) && show.age_requirement && (

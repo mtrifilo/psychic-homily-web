@@ -126,8 +126,10 @@ export function formatPointerDay(
  * venue zone, and rendering it against a different one is how a listed time
  * ends up disagreeing with the date heading above it.
  *
- * Returns null when the payload cannot supply a usable instant — a row with no
- * time still lists its bill and venue, which is most of its value.
+ * Returns null when the payload cannot supply a usable instant, and again when
+ * neither the row nor the scene supplies a zone to read it against, because
+ * `formatShowTime` refuses an hour built on the fallback. A row with no time
+ * still lists its bill and venue, which is most of its value.
  */
 export function formatShowStartTime(
   show: SceneDayShow,

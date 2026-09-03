@@ -216,6 +216,63 @@ describe('ShowSubmissionsConsole', () => {
     )
   })
 
+  describe('the meta line withholds a clock on a guessed zone', () => {
+    // 03:00Z is 8:00 PM the previous day in the fallback zone.
+    function zonelessShow() {
+      const show = makeShow(1, 'approved')
+      return {
+        ...show,
+        event_date: '2026-09-10T03:00:00Z',
+        state: '',
+        venues: [{ ...show.venues[0], state: '', timezone: null }],
+      } as ShowResponse
+    }
+
+    it('names the hour when the venue carries a zone', () => {
+      const show = zonelessShow()
+      mockUseMySubmissions.mockReturnValue({
+        data: {
+          shows: [
+            {
+              ...show,
+              venues: [{ ...show.venues[0], timezone: 'America/Phoenix' }],
+            },
+          ],
+          total: 1,
+        },
+        isLoading: false,
+        error: null,
+      })
+      renderWithProviders(<ShowSubmissionsConsole />)
+      expect(screen.getByText(/8:00\s?PM/)).toBeTruthy()
+    })
+
+    it('names no hour, and leaves no orphaned bullet, when it does not', () => {
+      mockUseMySubmissions.mockReturnValue({
+        data: { shows: [zonelessShow()], total: 1 },
+        isLoading: false,
+        error: null,
+      })
+      renderWithProviders(<ShowSubmissionsConsole />)
+      expect(screen.queryByText(/8:00\s?PM/)).toBeNull()
+      // The row still states the facts the zone has nothing to do with, and
+      // the meta line ends on the last of them rather than on a divider.
+      const meta = screen.getByText(/Venue 1/).closest('div') as HTMLElement
+      expect(meta.textContent).toContain('$20')
+      expect(meta.textContent?.trimEnd().endsWith('\u2022')).toBe(false)
+    })
+
+    it('keeps the date on a row whose time it withheld', () => {
+      mockUseMySubmissions.mockReturnValue({
+        data: { shows: [zonelessShow()], total: 1 },
+        isLoading: false,
+        error: null,
+      })
+      renderWithProviders(<ShowSubmissionsConsole />)
+      expect(screen.getByText(/Sep 9/)).toBeTruthy()
+    })
+  })
+
   it('preserves owner controls for approved and private shows', async () => {
     const user = userEvent.setup()
     mockUseMySubmissions.mockReturnValue({

@@ -479,6 +479,39 @@ describe('VenuePanel', () => {
     expect(screen.getByText('$18')).toBeInTheDocument()
   })
 
+  // The panel's meta line joins time and price with a middot, so a withheld
+  // clock has to take its separator with it rather than leaving "· $18".
+  it('names no hour, and no orphaned separator, when the venue zone is a guess', () => {
+    mockUseVenueShows.mockReturnValue({
+      data: {
+        shows: [show({ state: '' })],
+        venue_id: 7,
+        total: 1,
+      },
+      isLoading: false,
+      isError: false,
+    })
+    renderPanel({ venue: venue({ state: '', timezone: null }) })
+    expect(screen.queryByText(/9:00\s?PM/)).not.toBeInTheDocument()
+    expect(screen.getByText('$18')).toBeInTheDocument()
+    // The date gutter is untouched: only the hour was a guess.
+    expect(screen.getByText('FRI 7/31')).toBeInTheDocument()
+  })
+
+  it('names the hour once the venue carries its own zone', () => {
+    mockUseVenueShows.mockReturnValue({
+      data: {
+        shows: [show({ state: '' })],
+        venue_id: 7,
+        total: 1,
+      },
+      isLoading: false,
+      isError: false,
+    })
+    renderPanel({ venue: venue({ state: '', timezone: 'America/Chicago' }) })
+    expect(screen.getByText(/9:00\s?PM · \$18/)).toBeInTheDocument()
+  })
+
   it('says so plainly when nothing is booked', () => {
     renderPanel()
     expect(screen.getByText('Nothing on the calendar yet.')).toBeInTheDocument()

@@ -1001,6 +1001,64 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       ).toBeTruthy()
     })
 
+    // The saved-shows row prints its time under the date badge. On a guessed
+    // zone that clock can be hours out, so the row shows the date alone.
+    it.each([
+      ['America/Phoenix', true],
+      [null, false],
+    ])('names an hour only when the venue zone is known (%s)', (timezone, expected) => {
+      mockUseSavedShows.mockImplementation(
+        (timeFilter: 'upcoming' | 'past') => ({
+          data: {
+            pages: [
+              {
+                shows:
+                  timeFilter === 'upcoming'
+                    ? [
+                        {
+                          ...makeSavedShow({
+                            id: 71,
+                            title: 'Zoneless',
+                            eventDate: '2026-09-10T03:00:00Z',
+                            savedAt: '2026-07-10T12:00:00Z',
+                          }),
+                          state: '',
+                          venues: [
+                            {
+                              id: 71,
+                              name: 'Hall Ohne Zone',
+                              slug: 'hall-ohne-zone',
+                              city: 'Berlin',
+                              state: '',
+                              timezone,
+                            },
+                          ],
+                        },
+                      ]
+                    : [],
+                total: timeFilter === 'upcoming' ? 1 : 0,
+                limit: 4,
+                offset: 0,
+              },
+            ],
+            pageParams: [{ limit: 4, offset: 0 }],
+          },
+          isLoading: false,
+          error: null,
+          hasNextPage: false,
+          isFetchingNextPage: false,
+          fetchNextPage: mockFetchNextPage,
+        })
+      )
+
+      renderWithProviders(<LibraryPage />)
+
+      const row = screen.getByRole('article', { name: 'Zoneless' })
+      expect(within(row).queryByText(/8:00\s?PM/) !== null).toBe(expected)
+      // The date survives either way: it is the row's ordering cue.
+      expect(within(row).getByText('SEP 9')).toBeTruthy()
+    })
+
     it('renders the compact mobile date and two-line show details', () => {
       mockUseSavedShows.mockImplementation(
         (timeFilter: 'upcoming' | 'past') => ({

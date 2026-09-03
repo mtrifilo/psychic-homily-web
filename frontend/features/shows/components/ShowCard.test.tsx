@@ -492,6 +492,83 @@ describe('ShowCard', () => {
     })
   })
 
+  describe('the clock is withheld on a guessed zone', () => {
+    // 03:00Z is the previous evening in the fallback zone (UTC-7), so a card
+    // reading this row on the guess names both a wrong hour and a wrong day.
+    const GUESSED = {
+      event_date: '2026-09-10T03:00:00Z',
+      state: '',
+      venues: [
+        {
+          id: 1,
+          slug: 'hall-ohne-zone',
+          name: 'Hall Ohne Zone',
+          city: 'Berlin',
+          state: '',
+          verified: true,
+        },
+      ],
+    }
+
+    // The clock the row would have printed before the gate existed, and the one
+    // a control row at a zoned venue still prints.
+    const FALLBACK_CLOCK = /8:00\s?PM/
+
+    it.each(['default', 'compact', 'expanded'] as const)(
+      'names no hour at %s density',
+      density => {
+        render(
+          <ShowCard
+            show={makeShow(GUESSED)}
+            isAdmin={false}
+            density={density === 'default' ? undefined : density}
+          />
+        )
+        expect(screen.queryByText(FALLBACK_CLOCK)).not.toBeInTheDocument()
+      }
+    )
+
+    it.each(['default', 'compact', 'expanded'] as const)(
+      'still names the hour at %s density when the venue carries a zone',
+      density => {
+        render(
+          <ShowCard
+            show={makeShow({
+              ...GUESSED,
+              venues: [{ ...GUESSED.venues[0], timezone: 'America/Phoenix' }],
+            })}
+            isAdmin={false}
+            density={density === 'default' ? undefined : density}
+          />
+        )
+        expect(screen.getByText(FALLBACK_CLOCK)).toBeInTheDocument()
+      }
+    )
+
+    it('withholds the hour for a state outside the US map', () => {
+      render(
+        <ShowCard
+          show={makeShow({
+            ...GUESSED,
+            venues: [{ ...GUESSED.venues[0], state: 'England' }],
+          })}
+          isAdmin={false}
+        />
+      )
+      expect(screen.queryByText(FALLBACK_CLOCK)).not.toBeInTheDocument()
+    })
+
+    it('keeps the date badge on the row whose time it withheld', () => {
+      render(<ShowCard show={makeShow(GUESSED)} isAdmin={false} />)
+      expect(screen.getByText(/SEP 9/i)).toBeInTheDocument()
+    })
+
+    it('keeps the price, which the zone has nothing to do with', () => {
+      render(<ShowCard show={makeShow(GUESSED)} isAdmin={false} />)
+      expect(screen.getAllByText('$20').length).toBeGreaterThan(0)
+    })
+  })
+
   describe('multiple headliners', () => {
     it('renders multiple headliners separated by bullets', () => {
       const show = makeShow({
