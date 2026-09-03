@@ -88,7 +88,11 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { ENTITY_ICONS, REPLACED_REQUEST_EXPLANATION } from './collectionDetailShared'
+import {
+  ENTITY_ICONS,
+  REPLACED_REQUEST_EXPLANATION,
+  WITHDRAW_REFUSED_MESSAGE,
+} from './collectionDetailShared'
 import type { components } from '@/types/api'
 
 /**
@@ -322,35 +326,57 @@ export function parsePasteLine(line: string): ParsedPasteLine {
  * the requester's own queued row under this name rather than filing a new one,
  * and `refused` says nothing was stored for that line and why.
  */
-function queueEntityRequestBatch(names: string[]): Promise<EntityRequestBatchResult[]> {
-  return apiRequest<EntityRequestBatchResponse>(
-    API_ENDPOINTS.COLLECTIONS.ENTITY_REQUESTS_BATCH,
-    {
-      method: 'POST',
-      body: JSON.stringify({
-        items: names.map(name => ({
-          entity_type: 'artist',
-          payload: { name },
-          source_context: 'paste_mode',
-        })),
-      }),
+async function queueEntityRequestBatch(
+  names: string[]
+): Promise<EntityRequestBatchResult[]> {
+  const results: EntityRequestBatchResult[] = []
+  for (let sent = 0; sent < names.length; sent += QUEUE_BATCH_MAX_ITEMS) {
+    const chunk = names.slice(sent, sent + QUEUE_BATCH_MAX_ITEMS)
+    const res = await apiRequest<EntityRequestBatchResponse>(
+      API_ENDPOINTS.COLLECTIONS.ENTITY_REQUESTS_BATCH,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          items: chunk.map(name => ({
+            entity_type: 'artist',
+            payload: { name },
+            source_context: 'paste_mode',
+          })),
+        }),
+      }
+    )
+    // Each chunk indexes from zero, so the offset restores the caller's own
+    // positions and the results read as one list.
+    for (const result of res?.results ?? []) {
+      results.push({ ...result, index: result.index + sent })
     }
-  ).then(res => res?.results ?? [])
+  }
+  return results
 }
 
 /**
- * The dedup key the queue endpoint applies to an artist request: the trimmed,
- * case-folded name. Two lines of one paste that share it are ONE request, so
- * sending both would have the second land on the row the first just filed and
- * come back reported as a correction of a request the user never made.
+ * The identity two paste lines have to share before this component treats them
+ * as ONE request: the trimmed line, byte for byte.
  *
- * Case folding is `toLowerCase`, and the server folds in Postgres. The two agree
- * on the ASCII names this picker sends; a locale-specific disagreement collapses
- * one row too few, which files a second request rather than mislabelling one.
+ * It is deliberately NOT the server's dedup key. That key is case-folded in
+ * Postgres, and a client that guessed at the folding could fold two names the
+ * server keeps apart, which would silently never file the second one. Two
+ * identical lines are one request under any folding, so this collapse can only
+ * ever be too conservative. Lines the SERVER then merges are caught by their
+ * shared request id in the results, so the collapse is an optimisation and not
+ * the thing correctness rests on.
  */
 function pasteQueueKey(raw: string): string {
-  return raw.trim().toLowerCase()
+  return raw.trim()
 }
+
+/**
+ * The largest batch the queue endpoint accepts. Stated here because nothing else
+ * in this flow bounds it: a paste of more zero-result lines than this is split
+ * into consecutive batches rather than sent as one request the server refuses
+ * whole, which would lose every line over one oversized paste.
+ */
+const QUEUE_BATCH_MAX_ITEMS = 200
 
 /**
  * Retract a request this paste filed (PSY-1992). Resolves when the request is
@@ -362,10 +388,6 @@ function withdrawEntityRequest(requestId: number): Promise<void> {
     method: 'POST',
   }).then(() => undefined)
 }
-
-/** Copy for a withdrawal the server refused. */
-const WITHDRAW_FAILED_MESSAGE =
-  'Could not withdraw this request. It may already have been reviewed.'
 
 // ──────────────────────────────────────────────
 // Component
@@ -547,20 +569,37 @@ function usePastePreview(pasteText: string): {
     []
   )
 
+  // Commit many rows at once IFF the captured generation is still current. One
+  // clone of the list for a whole batch, rather than one per row: a 200-line
+  // paste stamps and then settles every row in two passes.
+  const updateRows = useCallback(
+    (generation: number, next: Map<number, Partial<PreviewRow>>) => {
+      setPreviewRows((rows) => {
+        if (generationRef.current !== generation) return rows
+        if (next.size === 0) return rows
+        return rows.map((row, index) => {
+          const patch = next.get(index)
+          return patch ? { ...row, ...patch } : row
+        })
+      })
+    },
+    []
+  )
+
   // File a queue-for-review request for every zero-result plain-text line of one
-  // paste, in ONE round trip. Extracted so the initial pass AND retryQueue share
-  // one code path.
+  // paste, in as few round trips as the endpoint's cap allows. Extracted so the
+  // initial pass AND retryQueue share one code path.
   //
-  // Lines sharing the queue's dedup key are sent ONCE and every row that shares
-  // it reads the same result. Sending them all would file the first and have the
-  // rest land on it, so the paste would report a correction the user did not
-  // make. The collapsed rows are still rows: each shows the outcome of the
-  // request its line produced.
+  // Identical lines are sent ONCE and every row sharing the line reads that one
+  // result. Lines the SERVER merges instead (a case difference, say) come back
+  // with the SAME request id, and the second one is reported as whatever the
+  // first said rather than as a replacement: it corrects nothing, it is the same
+  // line twice. Without that, a paste tells the contributor it updated a request
+  // they never filed.
   //
-  // An item the server refused is terminal for that line, so it lands on
-  // queue_refused with the server's reason rather than on the retryable
-  // queue_failed. A transport failure has no per-item answer, so every line in
-  // the batch is retryable.
+  // A 4xx item is terminal for that line, so it lands on queue_refused with the
+  // server's reason and no Retry. A 5xx item, and a transport failure, which has
+  // no per-item answer at all, stay on the retryable queue_failed.
   const fileQueueBatch = useCallback(
     (generation: number, entries: { raw: string; index: number }[]): Promise<void> => {
       if (entries.length === 0) return Promise.resolve()
@@ -577,52 +616,61 @@ function usePastePreview(pasteText: string): {
         rowsByKey.set(key, [entry.index])
         order.push(entry.raw)
       }
+      const rowsForItem = [...rowsByKey.values()]
 
-      for (const entry of entries) {
-        updateRow(generation, entry.index, { status: 'queuing' })
-      }
+      updateRows(
+        generation,
+        new Map(entries.map((e) => [e.index, { status: 'queuing' as const }]))
+      )
 
-      const applyToRows = (key: string, next: Partial<PreviewRow>) => {
-        for (const index of rowsByKey.get(key) ?? []) {
-          updateRow(generation, index, next)
-        }
-      }
+      const settleAll = (next: Partial<PreviewRow>) =>
+        new Map(entries.map((e) => [e.index, next]))
 
       return queueEntityRequestBatch(order).then(
-        results => {
-          const byIndex = new Map(results.map(r => [r.index, r]))
-          order.forEach((raw, itemIndex) => {
-            const key = pasteQueueKey(raw)
+        (results) => {
+          const byIndex = new Map(results.map((r) => [r.index, r]))
+          // The verdict already reported for a request id, so a second item that
+          // landed on the same row repeats it instead of claiming a correction.
+          const verdictByRequest = new Map<number, Partial<PreviewRow>>()
+          const patches = new Map<number, Partial<PreviewRow>>()
+
+          rowsForItem.forEach((rowIndexes, itemIndex) => {
             const result = byIndex.get(itemIndex)
+            let patch: Partial<PreviewRow>
             if (!result) {
               // An item with no result was neither filed nor refused, so the row
               // says the request did not land and stays retryable.
-              applyToRows(key, { status: 'queue_failed' })
-              return
+              patch = { status: 'queue_failed' }
+            } else if (result.status === 'refused') {
+              patch =
+                result.error_status !== undefined && result.error_status >= 500
+                  ? { status: 'queue_failed' }
+                  : {
+                      status: 'queue_refused',
+                      refusal: result.error ?? undefined,
+                    }
+            } else {
+              const id = result.id ?? undefined
+              const seen = id !== undefined ? verdictByRequest.get(id) : undefined
+              patch = seen ?? {
+                status: 'queued',
+                replaced: result.status === 'replaced',
+                requestId: id,
+                withdrawError: undefined,
+              }
+              if (id !== undefined && seen === undefined) {
+                verdictByRequest.set(id, patch)
+              }
             }
-            if (result.status === 'refused') {
-              applyToRows(key, {
-                status: 'queue_refused',
-                refusal: result.error ?? undefined,
-              })
-              return
-            }
-            applyToRows(key, {
-              status: 'queued',
-              replaced: result.status === 'replaced',
-              requestId: result.id ?? undefined,
-              withdrawError: undefined,
-            })
+            for (const rowIndex of rowIndexes) patches.set(rowIndex, patch)
           })
+
+          updateRows(generation, patches)
         },
-        () => {
-          for (const entry of entries) {
-            updateRow(generation, entry.index, { status: 'queue_failed' })
-          }
-        }
+        () => updateRows(generation, settleAll({ status: 'queue_failed' }))
       )
     },
-    [updateRow]
+    [updateRows]
   )
 
   useEffect(() => {
@@ -780,13 +828,25 @@ function usePastePreview(pasteText: string): {
   )
 
   // Retry a failed queue request for a zero-result line (against the CURRENT
-  // generation so it survives the row-bounds check). One row, so one item; a
-  // refused row is not retryable and has no Retry to press.
+  // generation so it survives the row-bounds check). A refused row is not
+  // retryable and has no Retry to press.
+  //
+  // The retry carries EVERY failed row sharing this one's queue key, not just
+  // the row that was pressed: they are one request, so retrying them
+  // separately would file the first and have the rest land on it and report
+  // themselves as corrections.
   const retryQueue = useCallback(
     (rowIndex: number) => {
       const row = previewRows[rowIndex]
       if (!row || row.status !== 'queue_failed') return
-      void fileQueueBatch(generationRef.current, [{ raw: row.raw, index: rowIndex }])
+      const key = pasteQueueKey(row.raw)
+      const entries = previewRows
+        .map((r, index) => ({ raw: r.raw, index, status: r.status }))
+        .filter(
+          (r) => r.status === 'queue_failed' && pasteQueueKey(r.raw) === key
+        )
+        .map(({ raw, index }) => ({ raw, index }))
+      void fileQueueBatch(generationRef.current, entries)
     },
     [previewRows, fileQueueBatch]
   )
@@ -816,7 +876,7 @@ function usePastePreview(pasteText: string): {
         () =>
           applyToRequest({
             status: 'queued',
-            withdrawError: WITHDRAW_FAILED_MESSAGE,
+            withdrawError: WITHDRAW_REFUSED_MESSAGE,
           })
       )
     },

@@ -499,6 +499,8 @@ describe('AICollectionFiller', () => {
   ) {
     const fetchMock = vi.fn().mockResolvedValue({
       ok,
+      // apiRequest reads the request-id response header on every call.
+      headers: { get: () => null },
       json: async () => ({
         results: [
           {
@@ -610,7 +612,7 @@ describe('AICollectionFiller', () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
     const [url, init] = fetchMock.mock.calls[0]
-    expect(url).toBe('/api/entity-requests/batch')
+    expect(String(url)).toMatch(/\/entity-requests\/batch$/)
     const body = JSON.parse((init as RequestInit).body as string)
     expect(body.items).toHaveLength(1)
     expect(body.items[0].confirmed).toBe(true)
@@ -632,7 +634,7 @@ describe('AICollectionFiller', () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
     const [url, init] = fetchMock.mock.calls[0]
-    expect(url).toBe('/api/entity-requests/batch')
+    expect(String(url)).toMatch(/\/entity-requests\/batch$/)
     const body = JSON.parse((init as RequestInit).body as string)
     expect(body.items).toHaveLength(1)
     expect(body.items[0].confirmed).toBe(false)
@@ -744,7 +746,11 @@ describe('AICollectionFiller', () => {
     await screen.findByTestId('ai-collection-filler-row-request-chip')
 
     // The withdrawal answers 200 with no body of its own.
-    fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) })
+    fetchMock.mockResolvedValue({
+      ok: true,
+      headers: { get: () => null },
+      json: async () => ({}),
+    })
     await user.click(screen.getByTestId('ai-collection-filler-row-withdraw'))
 
     await waitFor(() =>
@@ -753,8 +759,8 @@ describe('AICollectionFiller', () => {
       ).toHaveTextContent('Withdrawn')
     )
     // The id came off the batch result, so the call names the stored request.
-    expect(fetchMock.mock.calls.at(-1)![0]).toBe(
-      '/api/entity-requests/7/withdraw'
+    expect(String(fetchMock.mock.calls.at(-1)![0])).toMatch(
+      /\/entity-requests\/7\/withdraw$/
     )
     // Nothing is left to withdraw.
     expect(
@@ -789,6 +795,7 @@ describe('AICollectionFiller', () => {
 
     fetchMock.mockResolvedValue({
       ok: false,
+      headers: { get: () => null },
       json: async () => ({ detail: 'Entity request 7 is already approved' }),
     })
     await user.click(screen.getByTestId('ai-collection-filler-row-withdraw'))
@@ -806,6 +813,7 @@ describe('AICollectionFiller', () => {
     // 403 (or any non-ok) → the mutationFn throws; the row surfaces it inline.
     const fetchMock = vi.fn().mockResolvedValue({
       ok: false,
+      headers: { get: () => null },
       json: async () => ({ message: 'Admin access required' }),
     })
     vi.stubGlobal('fetch', fetchMock)

@@ -27,8 +27,10 @@ import (
 // holds the two spellings together.
 const maxEntityRequestBatchItems = 200
 
-// EntityRequestBatchItem is one submission inside a batch. Field for field the
-// single route's body, so a producer that can build one can build the other.
+// EntityRequestBatchItem is one contributor submission as it arrives, before any
+// of it has been checked. Field for field the single route's body, so a producer
+// that can build one can build the other, and it is what submitEntityRequest
+// takes for BOTH routes: the single route's body is converted to one.
 type EntityRequestBatchItem struct {
 	EntityType string `json:"entity_type" doc:"Entity type to request (artist, venue, label, release, show, festival)"`
 	// The payload doc string is the single route's, verbatim: the payload is
@@ -134,12 +136,7 @@ func (h *EntityRequestHandler) CreateEntityRequestBatchHandler(ctx context.Conte
 
 	results := make([]EntityRequestBatchResult, 0, len(items))
 	for i := range items {
-		// A conversion, not a field-by-field copy: an item IS a submission, and
-		// the two types differ only in the doc tags the wire shape carries. Adding
-		// a field to either without the other stops compiling here, which is the
-		// loud version of the two drifting apart.
-		created, replaced, err := h.submitEntityRequest(
-			ctx, user, entityRequestSubmission(items[i]))
+		created, replaced, err := h.submitEntityRequest(ctx, user, items[i])
 		if err != nil {
 			results = append(results, refusedBatchResult(i, err))
 			continue

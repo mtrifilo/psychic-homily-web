@@ -745,15 +745,13 @@ func (s *EntityRequestService) Withdraw(requestID, requesterID uint) (*community
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	now := time.Now().UTC()
-	deciderID := requesterID
 	result := s.db.Model(&communitym.EntityRequest{}).
 		Where("id = ? AND requester_id = ? AND decision_state = ?",
 			requestID, requesterID, communitym.EntityRequestStatePending).
 		Updates(map[string]interface{}{
 			"decision_state": communitym.EntityRequestStateWithdrawn,
-			"decided_by":     deciderID,
-			"decided_at":     now,
+			"decided_by":     requesterID,
+			"decided_at":     time.Now().UTC(),
 		})
 	if result.Error != nil {
 		return nil, fmt.Errorf("failed to withdraw entity request: %w", result.Error)

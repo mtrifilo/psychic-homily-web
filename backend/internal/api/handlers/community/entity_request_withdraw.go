@@ -48,15 +48,10 @@ type WithdrawEntityRequestResponse struct {
 // WHERE. There is no inline ownership read here, because a read followed by a
 // write is two statements a concurrent decision can land between.
 //
-// The refusals, and why they differ:
-//
-//   - a row that does not exist, or exists and belongs to someone else, is 404.
-//     The two are ONE answer on purpose: a distinct 403 for someone else's row
-//     confirms that row exists, which turns the id space into an oracle for who
-//     has requested what.
-//   - the caller's OWN row that is no longer pending is 409, naming the state.
-//     It is their row, so there is nothing to withhold, and it is the only
-//     answer that explains why the affordance did nothing.
+// The refusals are the service's, mapped by MapEntityRequestError: not-found
+// (404) covers a row that is not there and one that is not the caller's alike,
+// and invalid-state (409) answers the caller's own decided row.
+// EntityRequestService.Withdraw owns why the two differ.
 func (h *EntityRequestHandler) WithdrawEntityRequestHandler(ctx context.Context, req *WithdrawEntityRequestRequest) (*WithdrawEntityRequestResponse, error) {
 	user := middleware.GetUserFromContext(ctx)
 	if user == nil {

@@ -101,15 +101,11 @@ type EntityRequestServiceInterface interface {
 
 	// Withdraw retracts the REQUESTER's own pending request (PSY-1992), moving
 	// it to decision_state 'withdrawn' and stamping decided_by/at with the
-	// requester. The conditional UPDATE carries the whole precondition (this row,
-	// this requester, still pending), so authorization is not the caller's to
-	// enforce here: another user's row and an already-decided row are both
-	// refused by the write itself.
-	//
-	// Refusals are told apart: a row that does not exist OR belongs to someone
-	// else is ErrEntityRequestNotFound (the caller learns nothing about a row
-	// that is not theirs), and the caller's OWN non-pending row is
-	// ErrEntityRequestInvalidState naming the state it is in.
+	// requester. Authorization is the conditional UPDATE's, not the caller's:
+	// another user's row and an already-decided row are refused by the write.
+	// ErrEntityRequestNotFound covers a missing row and someone else's alike;
+	// ErrEntityRequestInvalidState answers the caller's own decided row. The
+	// implementation owns why the two differ.
 	Withdraw(requestID, requesterID uint) (*communitym.EntityRequest, error)
 
 	// ClaimRescueFulfillment atomically stamps created_entity_id on an

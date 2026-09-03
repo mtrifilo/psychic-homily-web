@@ -2047,7 +2047,7 @@ export function ModerationQueue() {
             active={itemTypeFilter === 'withdrawn'}
             onClick={() => setItemTypeFilter('withdrawn')}
             label="Withdrawn"
-            count={itemTypeFilter === 'withdrawn' ? totalWithdrawn : undefined}
+            count={totalWithdrawn}
           />
         </div>
 
@@ -2083,21 +2083,7 @@ export function ModerationQueue() {
         <AdminEmptyState
           icon={Inbox}
           title="Queue Clear"
-          message={
-            itemTypeFilter === 'edits'
-              ? 'No pending entity edits to review.'
-              : itemTypeFilter === 'reports'
-                ? 'No pending entity reports to review.'
-                : itemTypeFilter === 'comments'
-                  ? 'No pending comments to review.'
-                  : itemTypeFilter === 'requests'
-                    ? 'No pending entity-creation requests to review.'
-                    : itemTypeFilter === 'withdrawn'
-                      ? 'No withdrawn requests. A request its requester retracted while it was still pending would appear here, for the record.'
-                      : itemTypeFilter === 'needs_attention'
-                        ? 'No approved-but-unfulfilled requests. Anything approved whose entity was never created would appear here to fulfill or void.'
-                      : 'No items need moderation. Pending entity edits, reports, comments, and creation requests will appear here when users submit them.'
-          }
+          message={EMPTY_QUEUE_MESSAGE[itemTypeFilter]}
         />
       )}
 
@@ -2189,6 +2175,25 @@ function formatModerationActionMessage(action: ModerationAction): string {
   }
 }
 
+// ─── Empty-state copy ────────────────────────────────────────────────────────
+
+/**
+ * What an empty queue says, per filter. A Record rather than a ternary chain so
+ * a new filter is a compile error here instead of silently inheriting the copy
+ * for "everything", which describes the pending queue and nothing else.
+ */
+const EMPTY_QUEUE_MESSAGE: Record<ItemTypeFilter, string> = {
+  all: 'No items need moderation. Pending entity edits, reports, comments, and creation requests will appear here when users submit them.',
+  edits: 'No pending entity edits to review.',
+  reports: 'No pending entity reports to review.',
+  comments: 'No pending comments to review.',
+  requests: 'No pending entity-creation requests to review.',
+  needs_attention:
+    'No approved-but-unfulfilled requests. Anything approved whose entity was never created would appear here to fulfill or void.',
+  withdrawn:
+    'No withdrawn requests. A request its requester retracted while it was still pending would appear here, for the record.',
+}
+
 // ─── Filter Button ───────────────────────────────────────────────────────────
 
 function FilterButton({
@@ -2200,12 +2205,7 @@ function FilterButton({
   active: boolean
   onClick: () => void
   label: string
-  /**
-   * The badge number. Undefined means the tab has no count to show, which is
-   * distinct from a count of zero: a filter whose rows are only fetched while it
-   * is open does not know its own total until then.
-   */
-  count: number | undefined
+  count: number
 }) {
   return (
     <button
@@ -2217,7 +2217,7 @@ function FilterButton({
       }`}
     >
       {label}
-      {count !== undefined && count > 0 && (
+      {count > 0 && (
         <span className={`ml-1.5 text-xs ${active ? 'text-muted-foreground' : 'opacity-70'}`}>
           {count}
         </span>

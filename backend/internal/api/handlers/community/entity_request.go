@@ -131,7 +131,7 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 		return nil, huma.Error401Unauthorized("Authentication required")
 	}
 
-	created, replaced, err := h.submitEntityRequest(ctx, user, entityRequestSubmission{
+	created, replaced, err := h.submitEntityRequest(ctx, user, EntityRequestBatchItem{
 		EntityType:    req.Body.EntityType,
 		Payload:       req.Body.Payload,
 		SourceContext: req.Body.SourceContext,
@@ -146,18 +146,6 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 		EntityRequestFields: (*EntityRequestFields)(created),
 		Replaced:            replaced,
 	}}, nil
-}
-
-// entityRequestSubmission is one contributor submission as it arrives, before
-// any of it has been checked. The single route carries one; the batch route
-// carries up to maxEntityRequestBatchItems of them. Both hand it to
-// submitEntityRequest, which is the only place a submission becomes a row.
-type entityRequestSubmission struct {
-	EntityType    string
-	Payload       json.RawMessage
-	SourceContext string
-	SourceDetail  *communitym.EntityRequestSourceDetail
-	Confirmed     bool
 }
 
 // submitEntityRequest runs ONE contributor submission through the queue-create
@@ -209,7 +197,7 @@ type entityRequestSubmission struct {
 // Only queueing tiers reach this path at all. An auto-approving tier's row is
 // stamped 'approved' before the INSERT, so it never collides with the
 // pending-only index and never replaces anything.
-func (h *EntityRequestHandler) submitEntityRequest(ctx context.Context, user *authm.User, sub entityRequestSubmission) (*communitym.EntityRequest, bool, error) {
+func (h *EntityRequestHandler) submitEntityRequest(ctx context.Context, user *authm.User, sub EntityRequestBatchItem) (*communitym.EntityRequest, bool, error) {
 	entityType := strings.TrimSpace(sub.EntityType)
 	if !communitym.IsValidEntityRequestType(entityType) {
 		return nil, false, huma.Error422UnprocessableEntity("Invalid entity type '" + entityType + "'")

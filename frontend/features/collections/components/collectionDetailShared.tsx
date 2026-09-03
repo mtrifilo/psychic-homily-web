@@ -47,6 +47,15 @@ export const REPLACED_REQUEST_EXPLANATION =
   'Your earlier request was replaced with this one'
 
 /**
+ * What a refused withdrawal means to the person who tried it (PSY-1992). The
+ * endpoint refuses one for exactly two reasons the contributor can act on, and
+ * neither is worth two sentences: the request is not theirs, or it is no longer
+ * pending. Shared by both queue-create surfaces so the sentence cannot drift.
+ */
+export const WITHDRAW_REFUSED_MESSAGE =
+  'Could not withdraw this request. It may already have been reviewed.'
+
+/**
  * Render a 4xx mutation failure with dedicated copy for 403. Falls back to the
  * server's `detail`/`message` for everything else, then to the caller's copy.
  *

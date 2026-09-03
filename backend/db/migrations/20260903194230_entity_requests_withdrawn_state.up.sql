@@ -11,16 +11,8 @@
 -- withdrawn row is excluded by the same filter that excludes a rejected one, and
 -- an admin who wants to see them asks for them.
 --
--- It is NOT an admin decision, and nothing here makes it one. decided_by and
--- decided_at record who ended the row's pending life and when, which for a
--- withdrawal is the requester themselves; decision_note stays for the
--- moderator's words. Every admin write path is scoped to pending or approved
--- rows, so none of them can act on a withdrawn one.
---
--- The dedup index is partial on decision_state = 'pending', so withdrawing a
--- request frees its key: the contributor can file the same name again, and that
--- filing is a new row rather than a replacement. That is the intended shape of
--- withdraw-then-refile.
+-- It is NOT an admin decision: decided_by names the requester on these rows.
+-- EntityRequestService.Withdraw owns that and the freed dedup key.
 --
 -- ORDERING: run this BEFORE the binary that writes 'withdrawn'. The old binary
 -- against the widened constraint is harmless (it writes no such value); the new

@@ -41,7 +41,11 @@ import { Badge } from '@/components/ui/badge'
 import { InlineErrorBanner } from '@/components/shared'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useCollectionExtraction } from '../hooks'
-import { REPLACED_REQUEST_EXPLANATION } from './collectionDetailShared'
+import { apiRequest, API_ENDPOINTS } from '@/lib/api'
+import {
+  REPLACED_REQUEST_EXPLANATION,
+  WITHDRAW_REFUSED_MESSAGE,
+} from './collectionDetailShared'
 import type { components } from '@/types/api'
 import type {
   ExtractedCollectionData,
@@ -174,6 +178,18 @@ type RequestOutcome =
 /** The batch queue-create response, aliased from the generated OpenAPI types. */
 type EntityRequestBatchResponse = components['schemas']['CreateEntityRequestBatchResponseBody']
 
+/**
+ * What one acted-on row's request is now. The id is what the withdraw affordance
+ * names, and it travels with the outcome because they describe one request: two
+ * records keyed alike would be two things to keep in step for one state change.
+ * It is absent when the response named no request, which is what hides the
+ * affordance.
+ */
+interface RowRequest {
+  outcome: RequestOutcome
+  requestId?: number
+}
+
 /** The chip word for each outcome. Exhaustive: a new outcome is a build error. */
 const REQUEST_OUTCOME_LABEL: Record<RequestOutcome, string> = {
   created: 'Added',
@@ -182,15 +198,6 @@ const REQUEST_OUTCOME_LABEL: Record<RequestOutcome, string> = {
   updated: 'Updated',
   withdrawn: 'Withdrawn',
 }
-
-/**
- * The outcomes a row can be withdrawn FROM: the request is still pending, so the
- * requester can still retract it. Every other outcome is decided or gone.
- */
-const WITHDRAWABLE_OUTCOMES: ReadonlySet<RequestOutcome> = new Set<RequestOutcome>([
-  'queued',
-  'updated',
-])
 
 interface QueueEntityRequestVars {
   /** The unmatched row this request was filed from (used for per-row state). */
@@ -224,39 +231,26 @@ interface QueueEntityRequestVars {
 function useQueueEntityRequest() {
   return useMutation({
     mutationFn: async (vars: QueueEntityRequestVars) => {
-      const response = await fetch('/api/entity-requests/batch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          items: [
-            {
-              entity_type: vars.entityType,
-              payload: { name: vars.name },
-              source_context: 'ai_extraction',
-              confirmed: vars.confirmed,
-            },
-          ],
-        }),
-      })
-
-      const body: unknown = await response.json().catch(() => null)
-
-      if (!response.ok) {
-        const problem = body as { detail?: string; message?: string } | null
-        throw new Error(
-          problem?.detail ||
-            problem?.message ||
-            'Failed to submit entity request'
-        )
-      }
-
-      // Read through the GENERATED schema, not a hand-written shape, so a
-      // backend rename fails the build here rather than reporting every
-      // submission as a first filing forever. Partial because the response is
-      // parsed, not validated: the fields are still narrowed below.
-      const data = (body ?? {}) as Partial<EntityRequestBatchResponse>
-      const result = data.results?.[0]
+      // apiRequest owns the credentials, the JSON headers, the detail/message
+      // error extraction and the telemetry; the endpoint comes from
+      // API_ENDPOINTS so a rename breaks the build here.
+      const data = await apiRequest<EntityRequestBatchResponse>(
+        API_ENDPOINTS.COLLECTIONS.ENTITY_REQUESTS_BATCH,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            items: [
+              {
+                entity_type: vars.entityType,
+                payload: { name: vars.name },
+                source_context: 'ai_extraction',
+                confirmed: vars.confirmed,
+              },
+            ],
+          }),
+        }
+      )
+      const result = data?.results?.[0]
 
       // A batch answers 200 for a well-formed batch whatever its items did, so a
       // refusal arrives HERE rather than on the status line. It is thrown so the
@@ -308,21 +302,10 @@ function useQueueEntityRequest() {
 function useWithdrawEntityRequest() {
   return useMutation({
     mutationFn: async (vars: { rowKey: string; requestId: number }) => {
-      const response = await fetch(
-        `/api/entity-requests/${vars.requestId}/withdraw`,
-        { method: 'POST', credentials: 'include' }
+      await apiRequest(
+        API_ENDPOINTS.COLLECTIONS.ENTITY_REQUEST_WITHDRAW(vars.requestId),
+        { method: 'POST' }
       )
-      if (!response.ok) {
-        const problem = (await response.json().catch(() => null)) as {
-          detail?: string
-          message?: string
-        } | null
-        throw new Error(
-          problem?.detail ||
-            problem?.message ||
-            'Could not withdraw this request. It may already have been reviewed.'
-        )
-      }
       return { rowKey: vars.rowKey }
     },
   })
@@ -368,11 +351,8 @@ export function AICollectionFiller({
   // Drives the "Requested" / "Queued" chip and hides the create affordance
   // once a row has been acted on (prevents double-filing).
   const [requestedRows, setRequestedRows] = useState<
-    Record<string, RequestOutcome>
+    Record<string, RowRequest>
   >({})
-  // The stored request each acted-on row filed, so the withdraw affordance can
-  // name it. Keyed the same as requestedRows.
-  const [requestIds, setRequestIds] = useState<Record<string, number>>({})
   // Per-row error message for a failed entity-request POST (403 / 422 / 5xx /
   // network). Surfaced inline on the row so the action isn't a silent no-op;
   // the create/queue button stays so the user can retry.
@@ -603,102 +583,100 @@ export function AICollectionFiller({
     setExtractionResult({ ...extractionResult, items: updatedItems })
   }
 
+  // Runs one row's mutation with the row bookkeeping every such action needs:
+  // refuse a second click while one is in flight (the settled chip guards a
+  // resolved row; this guards the window before it), clear the row's prior error
+  // so a retry starts clean, and surface a failure on the row rather than losing
+  // it. `run` receives the settle callback so the row leaves the in-flight set
+  // exactly once, on whichever arm resolves.
+  const runRowAction = (
+    rowKey: string,
+    fallbackMessage: string,
+    run: (settle: () => void, fail: (err: unknown) => void) => void
+  ) => {
+    if (inFlightRows.has(rowKey)) return
+    setRequestErrors(prev => {
+      if (!(rowKey in prev)) return prev
+      const next = { ...prev }
+      delete next[rowKey]
+      return next
+    })
+    setInFlightRows(prev => new Set(prev).add(rowKey))
+    const settle = () =>
+      setInFlightRows(prev => {
+        const next = new Set(prev)
+        next.delete(rowKey)
+        return next
+      })
+    run(settle, (err: unknown) => {
+      setRequestErrors(prev => ({
+        ...prev,
+        [rowKey]: err instanceof Error ? err.message : fallbackMessage,
+      }))
+      settle()
+    })
+  }
+
   // Files an entity-request for an unmatched row. Tier policy is enforced
   // server-side; `confirmed` is only meaningful for trusted_contributor.
   // On success the row flips to a Requested/Queued chip (set from the
   // backend's decision_state, not assumed) so the affordance can't be
   // double-fired.
   const requestRow = (rowKey: string, name: string, confirmed: boolean) => {
-    // Guard against a double-submit for the same row (the resolved/errored
-    // chip already guards a settled row; this guards the in-flight window).
-    if (inFlightRows.has(rowKey)) return
-    // Clear any prior error on this row so a retry starts clean.
-    setRequestErrors(prev => {
-      if (!(rowKey in prev)) return prev
-      const next = { ...prev }
-      delete next[rowKey]
-      return next
-    })
-    setInFlightRows(prev => new Set(prev).add(rowKey))
-    const clearInFlight = () =>
-      setInFlightRows(prev => {
-        const next = new Set(prev)
-        next.delete(rowKey)
-        return next
-      })
-    queueRequest.mutate(
-      { rowKey, entityType: 'artist', name, confirmed },
-      {
-        onSuccess: ({ outcome, createdEntityId, requestId }) => {
-          // PSY-853 inline create-and-add: when the auto-approve path fulfilled
-          // the entity (PSY-1008 returns created_entity_id), stage the new
-          // entity into the collection immediately — same bulk-add pipeline a
-          // matched row uses. The chip flips to "Added" via the 'created'
-          // outcome below.
-          if (createdEntityId !== undefined) {
-            onStageItems([
-              { entityType: 'artist', entityId: createdEntityId, name, subtitle: null },
-            ])
-          }
-          setRequestedRows(prev => ({ ...prev, [rowKey]: outcome }))
-          if (requestId !== undefined) {
-            setRequestIds(prev => ({ ...prev, [rowKey]: requestId }))
-          }
-          clearInFlight()
-        },
-        onError: (err: unknown) => {
-          setRequestErrors(prev => ({
-            ...prev,
-            [rowKey]:
-              err instanceof Error
-                ? err.message
-                : 'Failed to submit. Please try again.',
-          }))
-          clearInFlight()
-        },
-      }
+    runRowAction(rowKey, 'Failed to submit. Please try again.', (settle, fail) =>
+      queueRequest.mutate(
+        { rowKey, entityType: 'artist', name, confirmed },
+        {
+          onSuccess: ({ outcome, createdEntityId, requestId }) => {
+            // PSY-853 inline create-and-add: when the auto-approve path
+            // fulfilled the entity (PSY-1008 returns created_entity_id), stage
+            // the new entity into the collection immediately — same bulk-add
+            // pipeline a matched row uses. The chip flips to "Added" via the
+            // 'created' outcome.
+            if (createdEntityId !== undefined) {
+              onStageItems([
+                { entityType: 'artist', entityId: createdEntityId, name, subtitle: null },
+              ])
+            }
+            setRequestedRows(prev => ({ ...prev, [rowKey]: { outcome, requestId } }))
+            settle()
+          },
+          onError: fail,
+        }
+      )
     )
   }
 
   // Retract a request this surface filed (PSY-1992). The row's own error line is
-  // the feedback surface, the same one a failed filing uses, so a withdrawal that
-  // the server refused reads where the row's other failures read.
-  const withdrawRow = (rowKey: string) => {
-    const requestId = requestIds[rowKey]
-    if (requestId === undefined) return
-    if (inFlightRows.has(rowKey)) return
-    setRequestErrors(prev => {
-      if (!(rowKey in prev)) return prev
-      const next = { ...prev }
-      delete next[rowKey]
-      return next
-    })
-    setInFlightRows(prev => new Set(prev).add(rowKey))
-    const clearInFlight = () =>
-      setInFlightRows(prev => {
-        const next = new Set(prev)
-        next.delete(rowKey)
-        return next
-      })
-    withdrawRequest.mutate(
-      { rowKey, requestId },
-      {
-        onSuccess: () => {
-          setRequestedRows(prev => ({ ...prev, [rowKey]: 'withdrawn' }))
-          clearInFlight()
-        },
-        onError: (err: unknown) => {
-          setRequestErrors(prev => ({
-            ...prev,
-            [rowKey]:
-              err instanceof Error
-                ? err.message
-                : 'Could not withdraw this request.',
-          }))
-          clearInFlight()
-        },
-      }
+  // the feedback surface, the same one a failed filing uses, so a withdrawal the
+  // server refused reads where the row's other failures read.
+  const withdrawRow = (rowKey: string, requestId: number) => {
+    runRowAction(rowKey, WITHDRAW_REFUSED_MESSAGE, (settle, fail) =>
+      withdrawRequest.mutate(
+        { rowKey, requestId },
+        {
+          onSuccess: () => {
+            setRequestedRows(prev => ({
+              ...prev,
+              [rowKey]: { outcome: 'withdrawn' },
+            }))
+            settle()
+          },
+          onError: fail,
+        }
+      )
     )
+  }
+
+  // The ONE place that decides whether a row can be withdrawn: the request has to
+  // exist and still be pending. An approved request's entity exists and a
+  // withdrawn one is already gone, so neither offers the affordance, and a second
+  // opinion in the row component could only disagree with this one.
+  const withdrawHandlerFor = (rowKey: string, row: RowRequest | undefined) => {
+    if (!row || row.requestId === undefined) return undefined
+    if (row.outcome !== 'queued' && row.outcome !== 'updated') return undefined
+    const requestId = row.requestId
+    return () => withdrawRow(rowKey, requestId)
   }
 
   const matchedReadyCount = extractionResult
@@ -868,7 +846,7 @@ export function AICollectionFiller({
                         : false
                     }
                     affordance={affordance}
-                    requestOutcome={requestedRows[rowKey]}
+                    requestOutcome={requestedRows[rowKey]?.outcome}
                     requestError={requestErrors[rowKey]}
                     isRequesting={inFlightRows.has(rowKey)}
                     onAdd={() => stageItem(item)}
@@ -877,11 +855,7 @@ export function AICollectionFiller({
                     onRequest={confirmed =>
                       requestRow(rowKey, item.artist_name, confirmed)
                     }
-                    onWithdraw={
-                      requestIds[rowKey] !== undefined
-                        ? () => withdrawRow(rowKey)
-                        : undefined
-                    }
+                    onWithdraw={withdrawHandlerFor(rowKey, requestedRows[rowKey])}
                   />
                 )
               })}
@@ -936,8 +910,10 @@ function ExtractedRow({
   /** Files the entity-request. `confirmed` is the trusted_contributor step. */
   onRequest: (confirmed: boolean) => void
   /**
-   * Retracts the request this row filed (PSY-1992). Undefined when the row has
-   * no request to withdraw, which is what hides the affordance.
+   * Retracts the request this row filed (PSY-1992). Undefined when there is
+   * nothing to withdraw, which is the ONLY gate on the affordance: an approved
+   * request's entity exists and a withdrawn one is already gone, so the parent
+   * decides once (withdrawHandlerFor) and the row renders what it is given.
    */
   onWithdraw: (() => void) | undefined
 }) {
@@ -950,10 +926,6 @@ function ExtractedRow({
     !item.matched_artist_id && (item.artist_suggestions?.length ?? 0) > 0
   const isNew = !item.matched_artist_id && !hasSuggestions
   const isReplaced = requestOutcome === 'updated'
-  const canWithdraw =
-    onWithdraw !== undefined &&
-    requestOutcome !== undefined &&
-    WITHDRAWABLE_OUTCOMES.has(requestOutcome)
 
   return (
     <div
@@ -1045,7 +1017,7 @@ function ExtractedRow({
               {/* PSY-1992: retract the request, beside the chip that says it is
                   queued. Only a still-pending outcome offers it: an approved
                   request's entity exists, and a withdrawn one is already gone. */}
-              {canWithdraw && (
+              {onWithdraw && (
                 <Button
                   variant="ghost"
                   size="sm"
