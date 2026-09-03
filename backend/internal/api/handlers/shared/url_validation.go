@@ -214,6 +214,30 @@ func ValidateImageURL(ctx context.Context, imageURL *string) error {
 	return validateFetchHost(ctx, "image_url", *imageURL)
 }
 
+// ValidateImageURLLiteral applies every part of ValidateImageURL that needs no
+// resolver: the scheme rule, IDNA normalization, the IP-literal address check
+// and the internal-name list. It does NOT resolve the host.
+//
+// It exists for a caller that cannot afford one DNS lookup per value, which is
+// the reason urlguard.CheckLiteralHost exists; read its contract for what the
+// literal forms do and do not cover. A caller using this MUST run the resolving
+// ValidateImageURL before the value reaches anything that fetches it, because
+// this refuses only the forms an attacker writes literally, not a hostname that
+// resolves inward.
+func ValidateImageURLLiteral(imageURL *string) error {
+	if imageURL == nil {
+		return nil
+	}
+	spec := urlFieldSpecs["image_url"]
+	if err := validateScheme(*imageURL, spec.displayName); err != nil {
+		return err
+	}
+	if _, err := urlguard.CheckLiteralHost(*imageURL, spec.displayName); err != nil {
+		return huma.Error422UnprocessableEntity(err.Error())
+	}
+	return nil
+}
+
 // validateFetchHost applies the SSRF host guard to a field marked `fetched`,
 // and is a no-op for every other field. Assumes the scheme check already ran.
 func validateFetchHost(ctx context.Context, field, value string) error {

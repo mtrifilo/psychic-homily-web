@@ -123,16 +123,45 @@ vi.mock('@/lib/hooks/common/useEntitySearch', () => ({
   ],
 }))
 
-// Queue-for-review POST (useQueueEntityRequest → apiRequest). Tests inspect
-// mockApiRequest calls to assert the entity_request body; mockApiRequest can
-// be made to reject to exercise the queue_failed → Retry path.
+// Queue-for-review POST (the batch route, via apiRequest). Tests inspect
+// mockApiRequest calls to assert the batch body; mockApiRequest can be made to
+// reject to exercise the queue_failed → Retry path.
 const mockApiRequest = vi.fn(async (..._args: unknown[]) => ({}))
 vi.mock('@/lib/api', () => ({
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),
   API_ENDPOINTS: {
-    COLLECTIONS: { ENTITY_REQUESTS: 'http://test/entity-requests' },
+    COLLECTIONS: {
+      ENTITY_REQUESTS: 'http://test/entity-requests',
+      ENTITY_REQUESTS_BATCH: 'http://test/entity-requests/batch',
+      ENTITY_REQUEST_WITHDRAW: (requestId: number) =>
+        `http://test/entity-requests/${requestId}/withdraw`,
+    },
   },
 }))
+
+/** The items of the batch body the component posted. */
+function postedItems(call: unknown[]): { payload: { name: string } }[] {
+  return JSON.parse((call[1] as { body: string }).body).items
+}
+
+/**
+ * The server's answer to a batch: one result per item, at its own index. Every
+ * item lands on the same status, which is what most tests want; the ones that
+ * care about a mixed batch build their own results.
+ */
+function batchAnswer(
+  call: unknown[],
+  status: 'created' | 'replaced' = 'created'
+) {
+  return {
+    results: postedItems(call).map((_, index) => ({
+      index,
+      status,
+      id: 100 + index,
+      decision_state: 'pending',
+    })),
+  }
+}
 
 // Resolve mutation — most tests don't fire it; the few that do can override
 // the global pair from inside the test.
@@ -350,7 +379,9 @@ describe('AddItemsPicker', () => {
     mockResolveMutate.mockClear()
     mockResolveSuccessHandler = null
     mockApiRequest.mockClear()
-    mockApiRequest.mockResolvedValue({})
+    mockApiRequest.mockImplementation(async (...args: unknown[]) =>
+      batchAnswer(args)
+    )
     mockFetchEntitySearch = vi.fn(async () => ({
       results: EMPTY_GROUPS,
       allFailed: false,
@@ -825,25 +856,31 @@ describe('AddItemsPicker', () => {
     await user.click(screen.getByTestId('tab-paste'))
     await pasteInto(user, 'Totally Unknown Artist')
 
-    // The queued affordance renders and the POST fired with the line as the
+    // The queued affordance renders and the batch fired with the line as the
     // artist payload + paste_mode source.
     expect(
       await screen.findByTestId('add-items-picker-paste-row-queued')
     ).toHaveTextContent('FOR REVIEW')
     await waitFor(() => expect(mockApiRequest).toHaveBeenCalled())
-    const [, opts] = mockApiRequest.mock.calls.at(-1)!
-    const body = JSON.parse((opts as { body: string }).body)
-    expect(body).toMatchObject({
-      entity_type: 'artist',
-      source_context: 'paste_mode',
-      payload: { name: 'Totally Unknown Artist' },
+    const call = mockApiRequest.mock.calls.at(-1)!
+    expect(call[0]).toBe('http://test/entity-requests/batch')
+    expect(JSON.parse((call[1] as { body: string }).body)).toMatchObject({
+      items: [
+        {
+          entity_type: 'artist',
+          source_context: 'paste_mode',
+          payload: { name: 'Totally Unknown Artist' },
+        },
+      ],
     })
   })
 
   // PSY-1975: `replaced: true` means the POST corrected the requester's own
   // queued request rather than filing a new one.
   it('Paste mode: a replaced request reads UPDATED and explains itself', async () => {
-    mockApiRequest.mockResolvedValue({ replaced: true })
+    mockApiRequest.mockImplementation(async (...args: unknown[]) =>
+      batchAnswer(args, 'replaced')
+    )
     const user = userEvent.setup()
     render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
     await user.click(screen.getByTestId('tab-paste'))
@@ -876,7 +913,9 @@ describe('AddItemsPicker', () => {
     const retry = await screen.findByTestId(
       'add-items-picker-paste-row-retry-queue'
     )
-    mockApiRequest.mockResolvedValue({ replaced: true })
+    mockApiRequest.mockImplementation(async (...args: unknown[]) =>
+      batchAnswer(args, 'replaced')
+    )
     await user.click(retry)
 
     expect(
@@ -896,7 +935,6 @@ describe('AddItemsPicker', () => {
       'add-items-picker-paste-row-retry-queue'
     )
     mockApiRequest.mockClear()
-    mockApiRequest.mockResolvedValue({})
     await user.click(retry)
 
     // Retry re-fires the POST and the row settles to FOR REVIEW.
@@ -921,11 +959,9 @@ describe('AddItemsPicker', () => {
     expect(mockApiRequest).not.toHaveBeenCalled()
   })
 
-  it('Paste mode: queues EACH zero-result line independently (no last-write-wins)', async () => {
-    // Guards the multi-junk-line case: usePastePreview reuses ONE
-    // queueMutation instance across the bounded worker pool. Each per-call
-    // mutate() must fire its own onSuccess targeting its own row index —
-    // a last-write-wins bug would queue only one line / one POST.
+  it('Paste mode: files every zero-result line in ONE batch, each answered on its own row', async () => {
+    // The whole point of the batch route: a paste of N unmatched lines is one
+    // request, and every line still gets its own row state back.
     const user = userEvent.setup()
     render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
     await user.click(screen.getByTestId('tab-paste'))
@@ -936,11 +972,304 @@ describe('AddItemsPicker', () => {
         screen.getAllByTestId('add-items-picker-paste-row-queued')
       ).toHaveLength(3)
     )
-    expect(mockApiRequest).toHaveBeenCalledTimes(3)
-    const names = mockApiRequest.mock.calls
-      .map((c) => JSON.parse((c[1] as { body: string }).body).payload.name)
+    expect(mockApiRequest).toHaveBeenCalledTimes(1)
+    const names = postedItems(mockApiRequest.mock.calls[0])
+      .map((i) => i.payload.name)
       .sort()
     expect(names).toEqual(['JunkOne', 'JunkThree', 'JunkTwo'])
+  })
+
+  // PSY-2005: two IDENTICAL lines are one request. Sending both would have the
+  // second land on the row the first just filed and come back reported as a
+  // correction of a request the user never made.
+  it('Paste mode: collapses identical lines into one item', async () => {
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await user.click(screen.getByTestId('tab-paste'))
+    await pasteInto(user, 'Boris\nEarth\nBoris')
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByTestId('add-items-picker-paste-row-queued')
+      ).toHaveLength(3)
+    )
+    expect(mockApiRequest).toHaveBeenCalledTimes(1)
+    expect(
+      postedItems(mockApiRequest.mock.calls[0]).map((i) => i.payload.name)
+    ).toEqual(['Boris', 'Earth'])
+    // All three rows read as first filings: the duplicate shares the one
+    // request's verdict rather than reporting itself as a correction.
+    for (const chip of screen.getAllByTestId(
+      'add-items-picker-paste-row-queued'
+    )) {
+      expect(chip).toHaveTextContent('FOR REVIEW')
+    }
+  })
+
+  // The client collapses only identical lines, so lines the SERVER merges reach
+  // it as separate items answered with ONE request id. The second must read as
+  // whatever the first said, not as a correction: it is the same line twice, and
+  // the client deliberately does not guess at the server's case folding.
+  it('Paste mode: a server-merged duplicate reads as the first filing, not a correction', async () => {
+    mockApiRequest.mockImplementation(async (...args: unknown[]) => ({
+      results: postedItems(args).map((item, index) => ({
+        index,
+        // Both spellings of the name land on request 100, the second reported
+        // by the server as a replacement of the first.
+        status: item.payload.name.toLowerCase() === 'boris'
+          ? index === 0
+            ? 'created'
+            : 'replaced'
+          : 'created',
+        id: item.payload.name.toLowerCase() === 'boris' ? 100 : 200 + index,
+        decision_state: 'pending',
+      })),
+    }))
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await user.click(screen.getByTestId('tab-paste'))
+    await pasteInto(user, 'Boris\nboris\nEarth')
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByTestId('add-items-picker-paste-row-queued')
+      ).toHaveLength(3)
+    )
+    // Three items on the wire, because the client did not guess the folding.
+    expect(
+      postedItems(mockApiRequest.mock.calls[0]).map((i) => i.payload.name)
+    ).toEqual(['Boris', 'boris', 'Earth'])
+    for (const chip of screen.getAllByTestId(
+      'add-items-picker-paste-row-queued'
+    )) {
+      expect(chip).toHaveTextContent('FOR REVIEW')
+      expect(chip).not.toHaveTextContent('UPDATED')
+    }
+  })
+
+  // A 5xx item is a server fault, not a verdict on the line, so it stays
+  // retryable rather than landing on the terminal refusal state.
+  it('Paste mode: a 5xx item stays retryable', async () => {
+    mockApiRequest.mockImplementation(async (...args: unknown[]) => ({
+      results: postedItems(args).map((_, index) => ({
+        index,
+        status: 'refused',
+        error: 'Failed to create entity request',
+        error_status: 500,
+      })),
+    }))
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await user.click(screen.getByTestId('tab-paste'))
+    await pasteInto(user, 'Server Fault')
+
+    expect(
+      await screen.findByTestId('add-items-picker-paste-row-retry-queue')
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByTestId('add-items-picker-paste-row-refused')
+    ).not.toBeInTheDocument()
+  })
+
+  // The endpoint caps a batch at 200. A paste past that is split rather than sent
+  // as one request the server refuses whole, which would lose every line over one
+  // oversized paste - the failure the batch route exists to remove.
+  it('Paste mode: splits a paste past the batch cap instead of losing it', async () => {
+    const lines = Array.from({ length: 201 }, (_, i) => `Junk Line ${i}`)
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await user.click(screen.getByTestId('tab-paste'))
+    await pasteInto(user, lines.join('\n'))
+
+    await waitFor(
+      () =>
+        expect(
+          screen.getAllByTestId('add-items-picker-paste-row-queued')
+        ).toHaveLength(201),
+      { timeout: 10000 }
+    )
+    expect(mockApiRequest).toHaveBeenCalledTimes(2)
+    expect(postedItems(mockApiRequest.mock.calls[0])).toHaveLength(200)
+    expect(postedItems(mockApiRequest.mock.calls[1])).toHaveLength(1)
+    // The second chunk indexes from zero on the wire; its row is still the 201st.
+    expect(postedItems(mockApiRequest.mock.calls[1])[0].payload.name).toBe(
+      'Junk Line 200'
+    )
+  }, 20000)
+
+  // A chunk that fails must not take the chunk before it down with it: those
+  // rows are FILED, and marking them failed would offer a Retry that files a
+  // replacement the contributor never made.
+  it('Paste mode: a failed second chunk leaves the first chunk queued', async () => {
+    const lines = Array.from({ length: 201 }, (_, i) => `Junk Line ${i}`)
+    let call = 0
+    mockApiRequest.mockImplementation(async (...args: unknown[]) => {
+      call += 1
+      if (call === 2) throw new Error('network down')
+      return batchAnswer(args)
+    })
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await user.click(screen.getByTestId('tab-paste'))
+    await pasteInto(user, lines.join('\n'))
+
+    await waitFor(
+      () =>
+        expect(
+          screen.getAllByTestId('add-items-picker-paste-row-queued')
+        ).toHaveLength(200),
+      { timeout: 10000 }
+    )
+    // Only the unanswered line is retryable.
+    expect(
+      screen.getAllByTestId('add-items-picker-paste-row-retry-queue')
+    ).toHaveLength(1)
+  }, 20000)
+
+  // PSY-2005: an item the server refused is terminal for that line, so it says
+  // why and offers no Retry, while its siblings are filed regardless.
+  it('Paste mode: a refused item reports its reason and never blocks its siblings', async () => {
+    mockApiRequest.mockImplementation(async (...args: unknown[]) => ({
+      results: postedItems(args).map((item, index) =>
+        item.payload.name === 'TooLong'
+          ? {
+              index,
+              status: 'refused',
+              error: 'name must be 255 characters or fewer',
+              error_status: 422,
+            }
+          : { index, status: 'created', id: 100 + index, decision_state: 'pending' }
+      ),
+    }))
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await user.click(screen.getByTestId('tab-paste'))
+    await pasteInto(user, 'Fine One\nTooLong\nFine Two')
+
+    expect(
+      await screen.findByTestId('add-items-picker-paste-row-refused')
+    ).toHaveTextContent('REFUSED')
+    expect(
+      screen.getByTestId('add-items-picker-paste-row-refusal')
+    ).toHaveTextContent('name must be 255 characters or fewer')
+    expect(
+      screen.queryByTestId('add-items-picker-paste-row-retry-queue')
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getAllByTestId('add-items-picker-paste-row-queued')
+    ).toHaveLength(2)
+    expect(screen.getByText(/1 refused/)).toBeInTheDocument()
+  })
+
+  // A transport failure fails every row in the batch, including two that share
+  // one queue key. Retrying either has to carry both, or the first files and the
+  // second lands on it and reports itself as a correction the user never made.
+  it('Paste mode: a Retry carries every failed row sharing its line', async () => {
+    mockApiRequest.mockRejectedValueOnce(new Error('network down'))
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await user.click(screen.getByTestId('tab-paste'))
+    await pasteInto(user, 'Boris\nBoris\nEarth')
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByTestId('add-items-picker-paste-row-retry-queue')
+      ).toHaveLength(3)
+    )
+    mockApiRequest.mockClear()
+    await user.click(
+      screen.getAllByTestId('add-items-picker-paste-row-retry-queue')[0]
+    )
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByTestId('add-items-picker-paste-row-queued')
+      ).toHaveLength(2)
+    )
+    // One item on the wire for the two rows, and both read as a first filing.
+    expect(postedItems(mockApiRequest.mock.calls[0]).map(i => i.payload.name)).toEqual([
+      'Boris',
+    ])
+    for (const chip of screen.getAllByTestId(
+      'add-items-picker-paste-row-queued'
+    )) {
+      expect(chip).toHaveTextContent('FOR REVIEW')
+    }
+  })
+
+  // ── PSY-1992: withdraw a queued request from the chip's own surface ──
+
+  it('Paste mode: withdraws the request a queued line filed', async () => {
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await user.click(screen.getByTestId('tab-paste'))
+    await pasteInto(user, 'Regretted Artist')
+
+    await screen.findByTestId('add-items-picker-paste-row-queued')
+    mockApiRequest.mockClear()
+    mockApiRequest.mockResolvedValue({})
+
+    await user.click(screen.getByTestId('add-items-picker-paste-row-withdraw'))
+
+    expect(
+      await screen.findByTestId('add-items-picker-paste-row-withdrawn')
+    ).toHaveTextContent('WITHDRAWN')
+    // The id came off the batch result, so the call names the stored request.
+    expect(mockApiRequest).toHaveBeenCalledTimes(1)
+    expect(mockApiRequest.mock.calls[0][0]).toContain('/entity-requests/100/withdraw')
+    // A withdrawn line has left the review tally.
+    expect(screen.queryByText(/1 for review/)).not.toBeInTheDocument()
+    expect(screen.getByText(/1 withdrawn/)).toBeInTheDocument()
+  })
+
+  // Lines that collapsed onto ONE request name one request, so withdrawing from
+  // any of them moves all of them. A row still reading "for review" beside a
+  // withdrawn twin would be false.
+  it('Paste mode: withdrawing moves every line that shares the request', async () => {
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await user.click(screen.getByTestId('tab-paste'))
+    await pasteInto(user, 'Boris\nBoris')
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByTestId('add-items-picker-paste-row-queued')
+      ).toHaveLength(2)
+    )
+    mockApiRequest.mockResolvedValue({})
+    await user.click(
+      screen.getAllByTestId('add-items-picker-paste-row-withdraw')[0]
+    )
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByTestId('add-items-picker-paste-row-withdrawn')
+      ).toHaveLength(2)
+    )
+  })
+
+  // A refused withdrawal leaves the row queued, because the request it filed
+  // still is, and says so where the row can be read.
+  it('Paste mode: a refused withdrawal leaves the row queued and explains itself', async () => {
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await user.click(screen.getByTestId('tab-paste'))
+    await pasteInto(user, 'Already Reviewed')
+
+    await screen.findByTestId('add-items-picker-paste-row-queued')
+    // The server's own words for the refusal, which name the reason.
+    mockApiRequest.mockRejectedValueOnce(
+      new Error('Entity request 100 is approved, expected pending')
+    )
+
+    await user.click(screen.getByTestId('add-items-picker-paste-row-withdraw'))
+
+    expect(
+      await screen.findByTestId('add-items-picker-paste-row-withdraw-error')
+    ).toHaveTextContent('Entity request 100 is approved, expected pending')
+    expect(
+      screen.getByTestId('add-items-picker-paste-row-queued')
+    ).toHaveTextContent('FOR REVIEW')
   })
 
   // ── PSY-962: overview strip + drag-reorder ──

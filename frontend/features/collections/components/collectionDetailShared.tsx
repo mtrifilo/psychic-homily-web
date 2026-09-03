@@ -47,6 +47,15 @@ export const REPLACED_REQUEST_EXPLANATION =
   'Your earlier request was replaced with this one'
 
 /**
+ * The FALLBACK a refused withdrawal shows when the failure carries no message of
+ * its own (PSY-1992). Both queue-create surfaces prefer the server's own words,
+ * which name the reason; this is what a dropped connection gets. Shared so the
+ * fallback sentence cannot drift between the two.
+ */
+export const WITHDRAW_REFUSED_MESSAGE =
+  'Could not withdraw this request. It may already have been reviewed.'
+
+/**
  * Render a 4xx mutation failure with dedicated copy for 403. Falls back to the
  * server's `detail`/`message` for everything else, then to the caller's copy.
  *

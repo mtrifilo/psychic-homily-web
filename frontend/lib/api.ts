@@ -289,10 +289,20 @@ export const API_ENDPOINTS = {
     // PSY-823: paste-URL preview helper. Maps (entity_type, slug) pairs to
     // entity_ids + display metadata.
     RESOLVE_ITEMS: `${API_BASE_URL}/collections/resolve-items`,
-    // PSY-997: queue an entity-creation request for admin moderation. Used by
-    // PSY-845 (AddItemsPicker plain-text queue-for-review) + PSY-853
-    // (AICollectionFiller). Auth-gated (rc.Protected).
+    // PSY-997: queue ONE entity-creation request for admin moderation.
+    // Auth-gated (rc.Protected). No surface in this app calls it: both
+    // collection surfaces file through the batch route below, which applies the
+    // same per-item validation and dedup. It is the address of a route that is
+    // still served, for an API client that carries one submission.
     ENTITY_REQUESTS: `${API_BASE_URL}/entity-requests`,
+    // PSY-2005: file many at once. Same per-item validation and dedup as the
+    // single route, one result per item, so a refused line never withholds its
+    // siblings.
+    ENTITY_REQUESTS_BATCH: `${API_BASE_URL}/entity-requests/batch`,
+    // PSY-1992: retract one's own PENDING request. Another user's row and a
+    // decided one refuse.
+    ENTITY_REQUEST_WITHDRAW: (requestId: number) =>
+      `${API_BASE_URL}/entity-requests/${requestId}/withdraw`,
     ITEM: (slug: string, itemId: number) =>
       `${API_BASE_URL}/collections/${slug}/items/${itemId}`,
     UPDATE_ITEM: (slug: string, itemId: number) =>

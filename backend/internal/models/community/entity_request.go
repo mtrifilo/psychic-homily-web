@@ -21,6 +21,12 @@ const (
 	EntityRequestStatePending  EntityRequestDecisionState = "pending"
 	EntityRequestStateApproved EntityRequestDecisionState = "approved"
 	EntityRequestStateRejected EntityRequestDecisionState = "rejected"
+	// EntityRequestStateWithdrawn is the requester retracting their own request
+	// while it was still pending (PSY-1992). It is the one terminal state an
+	// admin does not put a row into, and the only one whose decided_by names the
+	// requester rather than a moderator. The dedup index is partial on 'pending',
+	// so withdrawing frees the key: refiling the same name opens a new row.
+	EntityRequestStateWithdrawn EntityRequestDecisionState = "withdrawn"
 )
 
 // Source context enumerates how a request originated. Extensible the same way
@@ -133,9 +139,16 @@ func (EntityRequest) TableName() string { return "entity_requests" }
 // IsValidEntityRequestState reports whether s is a recognized decision_state.
 // Used at the admin-list trust boundary to validate the optional state filter
 // before it reaches the query. PSY-997.
+//
+// It mirrors the migration's CHECK constraint, which is what the column enforces;
+// a value missing here is one the admin queue cannot ask for even though rows
+// hold it.
 func IsValidEntityRequestState(s string) bool {
 	switch EntityRequestDecisionState(s) {
-	case EntityRequestStatePending, EntityRequestStateApproved, EntityRequestStateRejected:
+	case EntityRequestStatePending,
+		EntityRequestStateApproved,
+		EntityRequestStateRejected,
+		EntityRequestStateWithdrawn:
 		return true
 	default:
 		return false

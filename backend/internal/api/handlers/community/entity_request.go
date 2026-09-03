@@ -15,6 +15,7 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
+	authm "psychic-homily-backend/internal/models/auth"
 	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
 	servicesshared "psychic-homily-backend/internal/services/shared"
@@ -57,27 +58,13 @@ func NewEntityRequestHandler(
 
 // CreateEntityRequestRequest is the Huma request for POST /entity-requests.
 //
-// Payload is the typed, per-entity_type creation payload (the shapes in
-// communitym/entity_request_payloads.go). It is carried as a raw JSON object
-// and validated against the entity_type's registered struct on the read side;
-// the handler only enforces it is present + non-empty here.
+// The body is ONE EntityRequestSubmission, the same type an entry in the batch
+// route's items is, so the two routes accept the same submission by
+// construction rather than by two declarations kept in step.
+//
+// A non-pointer Body keeps the body REQUIRED, which it has always been here.
 type CreateEntityRequestRequest struct {
-	Body struct {
-		EntityType string `json:"entity_type" doc:"Entity type to request (artist, venue, label, release, show, festival)"`
-		// The payload is json.RawMessage, so NOTHING about its shape reaches the
-		// generated OpenAPI document: the doc string is the only contract a
-		// producer author sees. The show bill's headliner rule is stated there
-		// for that reason (PSY-1858) — a producer that assumes bill order names
-		// the headliner, as most sources do, ships shows with none.
-		//
-		// TestCreateEntityRequestPayloadDocMatchesTheRules pins the cap and the
-		// vocabulary this string restates, since a doc tag cannot be built from
-		// constants.
-		Payload       json.RawMessage                       `json:"payload" doc:"Typed creation payload for the entity_type. The name (or title) is required on every type and must be 255 characters or fewer; a venue's city must be 100 characters or fewer and its state 10; a festival's edition_year must be between 0 and 9999, where 0 or an absent value means the edition year is taken from start_date. Lengths count CHARACTERS and are measured before trimming, so trailing whitespace counts. A show payload may carry the bill as artists: [{name, set_type?}], name only, no id, at most 50 acts. A payload bill NEVER infers a headliner from list order: an act with no set_type is stored as 'performer', so a bill naming no 'headliner' creates a show with no headliner row. State set_type 'headliner' explicitly when the source names one. When set_type is present it must be one of: headliner,direct_support,opener,special_guest,dj,performer."`
-		SourceContext string                                `json:"source_context" required:"false" doc:"How the request originated (ai_extraction, paste_mode, manual); defaults to manual"`
-		SourceDetail  *communitym.EntityRequestSourceDetail `json:"source_detail" required:"false" doc:"Optional origin context (source URL + excerpt), chiefly for AI extraction; shown in the admin moderation queue"`
-		Confirmed     bool                                  `json:"confirmed" required:"false" doc:"FE-side confirm step (only relevant to trusted_contributor tier)"`
-	}
+	Body EntityRequestSubmission
 }
 
 // Defensive caps for the optional source_detail fields at the trust boundary.
@@ -107,8 +94,7 @@ type EntityRequestFields communitym.EntityRequest
 // opened a new request or corrected a queued one.
 //
 // Named rather than anonymous so the embed below survives; the ...ResponseBody
-// suffix is the one Huma would have generated, and the sibling schema
-// CreateEntityRequestRequestBody is one token away in the generated document.
+// suffix is the one Huma would have generated.
 //
 // The request is EMBEDDED so its fields stay at the top level of the JSON, which
 // is the shape clients already read (PSY-1008's created_entity_id / PSY-1858's
@@ -122,11 +108,76 @@ type CreateEntityRequestResponseBody struct {
 
 // CreateEntityRequestHandler handles POST /entity-requests.
 //
+// An auth check over submitEntityRequest, which owns the pipeline and is shared
+// with the batch route, so the two routes cannot validate or dedup differently.
+func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, req *CreateEntityRequestRequest) (*CreateEntityRequestResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	created, replaced, err := h.submitEntityRequest(
+		ctx, user, req.Body, resolveImageHostNow)
+	if err != nil {
+		return nil, err
+	}
+
+	return &CreateEntityRequestResponse{Body: &CreateEntityRequestResponseBody{
+		EntityRequestFields: (*EntityRequestFields)(created),
+		Replaced:            replaced,
+	}}, nil
+}
+
+// imageHostPolicy says whether a route can AFFORD to resolve every submission's
+// image_url host at submit.
+//
+// The address classification that needs no resolver runs either way, so the
+// forms an attacker writes literally are refused on both routes. What this
+// chooses is whether the DNS lookup that decides where a public-looking hostname
+// actually points is also paid at submit.
+//
+// It exists because that lookup is bounded at two seconds and one batch carries
+// up to maxEntityRequestSubmissions submissions: resolving every one at submit is
+// a several-minute request any authenticated caller can ask for.
+//
+// A route that MAY defer does not thereby defer everything. submitEntityRequest
+// resolves any submission that is about to AUTO-APPROVE whatever the policy says,
+// because such a row is stamped approved before it is written and fulfilled into
+// a live entity in the same request: a check after the insert could only refuse a
+// row that already exists, and would leave it approved-but-unfulfilled holding a
+// value nothing resolved, on the one queue whose fulfil path does not re-check it
+// (see fulfillEntity). What is actually deferred is a QUEUED submission, which
+// nothing fetches, and which the decide handler resolves pre-claim before any
+// approve can fulfil it.
+type imageHostPolicy bool
+
+const (
+	// resolveImageHostNow: this route carries one submission, so it resolves.
+	resolveImageHostNow imageHostPolicy = true
+	// deferImageHostWhenQueued: this route carries many, so a submission that
+	// will be QUEUED is refused on its literal form only.
+	deferImageHostWhenQueued imageHostPolicy = false
+)
+
+// submitEntityRequest runs ONE contributor submission through the queue-create
+// pipeline: validate, store (replacing the requester's colliding pending row
+// when there is one), fulfil an auto-approval, and record the audit row. It is
+// the ONLY path from a submission to a row, so the single and batch routes
+// cannot validate or dedup differently.
+//
+// Every error it returns is already an HTTP error, so a caller either returns it
+// or, on the batch route, reads its status off huma.StatusError.
+//
+// The returned row is NON-NIL ALONGSIDE AN ERROR when the row was stored and
+// something after the insert failed, which is a fulfilment failure on the
+// auto-approve path. A caller reporting per item has to say so: the submission
+// was refused AND a request exists.
+//
 // Tier policy lives in PSY-869's service (autoApproves): contributor/new_user
 // file a PENDING request (never autonomously create the entity, per
 // feedback_human_verify_ai_entity_data); admin/local_ambassador (and confirmed
 // trusted_contributor) auto-approve. The service stamps decided_by/at on
-// auto-approve. This handler is a thin validator + pass-through.
+// auto-approve. This is a thin validator + pass-through.
 //
 // PSY-1948 — RESUBMISSION REPLACES: a request matching an existing PENDING one
 // on (entity_type, requester, normalized name, occurrence) overwrites that row's
@@ -162,37 +213,37 @@ type CreateEntityRequestResponseBody struct {
 // Only queueing tiers reach this path at all. An auto-approving tier's row is
 // stamped 'approved' before the INSERT, so it never collides with the
 // pending-only index and never replaces anything.
-func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, req *CreateEntityRequestRequest) (*CreateEntityRequestResponse, error) {
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil {
-		return nil, huma.Error401Unauthorized("Authentication required")
-	}
-
-	entityType := strings.TrimSpace(req.Body.EntityType)
+func (h *EntityRequestHandler) submitEntityRequest(
+	ctx context.Context,
+	user *authm.User,
+	sub EntityRequestSubmission,
+	imagePolicy imageHostPolicy,
+) (*communitym.EntityRequest, bool, error) {
+	entityType := strings.TrimSpace(sub.EntityType)
 	if !communitym.IsValidEntityRequestType(entityType) {
-		return nil, huma.Error422UnprocessableEntity("Invalid entity type '" + entityType + "'")
+		return nil, false, huma.Error422UnprocessableEntity("Invalid entity type '" + entityType + "'")
 	}
 
 	// source_context defaults to manual when omitted; any provided value must
 	// be a recognized source.
-	sourceContext := strings.TrimSpace(req.Body.SourceContext)
+	sourceContext := strings.TrimSpace(sub.SourceContext)
 	if sourceContext == "" {
 		sourceContext = communitym.EntityRequestSourceManual
 	}
 	if !communitym.IsValidEntityRequestSource(sourceContext) {
-		return nil, huma.Error422UnprocessableEntity("Invalid source context '" + sourceContext + "'")
+		return nil, false, huma.Error422UnprocessableEntity("Invalid source context '" + sourceContext + "'")
 	}
 
-	if len(strings.TrimSpace(string(req.Body.Payload))) == 0 {
-		return nil, huma.Error422UnprocessableEntity("Payload is required")
+	if len(strings.TrimSpace(string(sub.Payload))) == 0 {
+		return nil, false, huma.Error422UnprocessableEntity("Payload is required")
 	}
 
 	// Validate the payload decodes cleanly into its typed struct (rejects
 	// unknown fields / wrong shape / missing required fields) at the trust
 	// boundary, so a malformed contributor payload is rejected here rather than
 	// stored as junk in the queue and failing confusingly on admin approve.
-	if err := communitym.ValidateEntityRequestPayload(entityType, req.Body.Payload); err != nil {
-		return nil, huma.Error422UnprocessableEntity("Invalid payload for " + entityType + ": " + err.Error())
+	if err := communitym.ValidateEntityRequestPayload(entityType, sub.Payload); err != nil {
+		return nil, false, huma.Error422UnprocessableEntity("Invalid payload for " + entityType + ": " + err.Error())
 	}
 
 	// PSY-1858: a show payload may carry the bill the contributor knew. Its roles
@@ -206,37 +257,52 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 	// bill's STRUCTURE was already checked by ValidateEntityRequestPayload above.
 	// Ordered ahead of the image-URL guard because it is a pure in-memory check
 	// and that one can resolve DNS.
-	if err := validateShowPayloadBillRoles(entityType, req.Body.Payload); err != nil {
-		return nil, err
+	if err := validateShowPayloadBillRoles(entityType, sub.Payload); err != nil {
+		return nil, false, err
 	}
 
 	// PSY-1675: the payload's image_url rides onto a real entity at fulfillment
 	// and is then fetched server-side by the share-card renderer, so it clears
 	// the same SSRF host guard the direct show/venue/label endpoints apply.
-	// Enforced here at queue-create so a hostile value never reaches the queue.
-	// NOTHING re-applies it at fulfillment — validatePayloadImageURL has exactly
-	// two call sites, this one and the decide handler's pre-claim check — which is
-	// why that check's read has to be the one the claim commits against.
-	if err := validatePayloadImageURL(ctx, entityType, req.Body.Payload); err != nil {
-		return nil, err
+	//
+	// The literal forms are refused HERE whatever the policy, so a hostile value
+	// an attacker writes literally never reaches the queue.
+	//
+	// The HOST is resolved here too whenever this submission will auto-approve,
+	// because such a row is written already-approved and fulfilled into a live
+	// entity below: refusing it after the insert could only strand it. A
+	// submission that will be QUEUED may defer under a route that cannot afford
+	// the lookup; imageHostPolicy owns why that is safe.
+	//
+	// The resolving check is NOT re-applied at fulfillment, validatePayloadImageURL
+	// has exactly two call sites, this one and the decide handler's pre-claim
+	// check, which is why that check's read has to be the one the claim commits
+	// against.
+	if imagePolicy == resolveImageHostNow ||
+		h.entityRequestService.WillAutoApprove(user, sub.Confirmed) {
+		if err := validatePayloadImageURL(ctx, entityType, sub.Payload); err != nil {
+			return nil, false, err
+		}
+	} else if err := validatePayloadImageLiteral(entityType, sub.Payload); err != nil {
+		return nil, false, err
 	}
 
 	// Normalize the optional source detail (trim, drop empties) and cap its
 	// fields at the trust boundary. An all-empty detail becomes nil so the row
 	// stores NULL rather than an empty object.
-	sourceDetail, err := normalizeSourceDetail(req.Body.SourceDetail)
+	sourceDetail, err := normalizeSourceDetail(sub.SourceDetail)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	// Every check above this line runs before a replacement too, so a
 	// resubmission that fails validation is a 422 that leaves the queued payload
 	// exactly as it was (PSY-1948).
-	created, superseded, err := h.entityRequestService.CreateRequest(user, entityType, req.Body.Payload, sourceContext, sourceDetail, req.Body.Confirmed)
+	created, superseded, err := h.entityRequestService.CreateRequest(user, entityType, sub.Payload, sourceContext, sourceDetail, sub.Confirmed)
 	replaced := superseded != nil
 	if err != nil {
 		if mapped := shared.MapEntityRequestError(err); mapped != nil {
-			return nil, mapped
+			return nil, false, mapped
 		}
 		logger.FromContext(ctx).Error("entity_request_create_failed",
 			"user_id", user.ID,
@@ -244,7 +310,7 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 			"source_context", sourceContext,
 			"error", err.Error(),
 		)
-		return nil, huma.Error500InternalServerError("Failed to create entity request")
+		return nil, false, huma.Error500InternalServerError("Failed to create entity request")
 	}
 
 	// Auto-approve fulfillment (PSY-1008): when a trusted tier's request lands
@@ -298,9 +364,9 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 				// not 500 — inline create-and-add of an already-existing entity is
 				// a benign conflict, not a server fault.
 				if mapped := mapFulfillmentError(ferr); mapped != nil {
-					return nil, mapped
+					return created, false, mapped
 				}
-				return nil, huma.Error500InternalServerError("Request approved but creating the entity failed: " + ferr.Error())
+				return created, false, huma.Error500InternalServerError("Request approved but creating the entity failed: " + ferr.Error())
 			}
 		}
 	}
@@ -338,10 +404,7 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 		})
 	}
 
-	return &CreateEntityRequestResponse{Body: &CreateEntityRequestResponseBody{
-		EntityRequestFields: (*EntityRequestFields)(created),
-		Replaced:            replaced,
-	}}, nil
+	return created, replaced, nil
 }
 
 // ============================================================================
@@ -350,7 +413,7 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 
 // AdminListEntityRequestsRequest is the Huma request for GET /admin/entity-requests.
 type AdminListEntityRequestsRequest struct {
-	State         string `query:"state" required:"false" doc:"Filter by decision state (pending, approved, rejected); defaults to pending"`
+	State         string `query:"state" required:"false" doc:"Filter by decision state (pending, approved, rejected, withdrawn); defaults to pending. 'withdrawn' rows were retracted by their own requester and are waiting on nobody, which is why the default excludes them."`
 	EntityType    string `query:"entity_type" required:"false" doc:"Filter by entity type (artist, venue, label, release, show, festival)"`
 	SourceContext string `query:"source_context" required:"false" doc:"Filter by source context (ai_extraction, paste_mode, manual)"`
 	// Unfulfilled (PSY-1088), when true, narrows to approved-but-unfulfilled
@@ -380,14 +443,19 @@ type AdminEntityRequestView struct {
 	// submission; communitym.EntityRequest.OriginalSourceContext owns what it
 	// records and why. The moderation card reads it to say a request was filed
 	// under a source it no longer claims.
-	OriginalSourceContext *string   `json:"original_source_context,omitempty" doc:"The source_context this request was originally filed with, present only when a resubmission has since replaced it"`
-	RequesterID           uint      `json:"requester_id"`
-	RequesterName         string    `json:"requester_name"`
-	RequesterUsername     *string   `json:"requester_username"`
-	DecisionState         string    `json:"decision_state"`
-	DecisionNote          *string   `json:"decision_note,omitempty"`
-	CreatedEntityID       *uint     `json:"created_entity_id,omitempty"`
-	CreatedAt             time.Time `json:"created_at"`
+	OriginalSourceContext *string `json:"original_source_context,omitempty" doc:"The source_context this request was originally filed with, present only when a resubmission has since replaced it"`
+	RequesterID           uint    `json:"requester_id"`
+	RequesterName         string  `json:"requester_name"`
+	RequesterUsername     *string `json:"requester_username"`
+	DecisionState         string  `json:"decision_state"`
+	// DecidedAt is when the row stopped being pending, and is the ONLY fact that
+	// says when. created_at is when it was filed, and for a withdrawn row those
+	// are the two different moments a reader needs to tell apart. NULL while the
+	// row is pending.
+	DecidedAt       *time.Time `json:"decided_at,omitempty" doc:"When this request stopped being pending: decided by an admin, or withdrawn by its own requester. Absent while it is pending."`
+	DecisionNote    *string    `json:"decision_note,omitempty"`
+	CreatedEntityID *uint      `json:"created_entity_id,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
 	// UpdatedAt is the only field that distinguishes a request whose payload the
 	// contributor has since corrected from one that still holds what they first
 	// filed (PSY-1948). created_at does not move on a replacement, so a queue
@@ -414,6 +482,7 @@ func toAdminEntityRequestView(r *communitym.EntityRequest) AdminEntityRequestVie
 		RequesterName:         servicesshared.ResolveUserName(&r.Requester),
 		RequesterUsername:     servicesshared.ResolveUserUsername(&r.Requester),
 		DecisionState:         string(r.DecisionState),
+		DecidedAt:             r.DecidedAt,
 		DecisionNote:          r.DecisionNote,
 		CreatedEntityID:       r.CreatedEntityID,
 		CreatedAt:             r.CreatedAt,

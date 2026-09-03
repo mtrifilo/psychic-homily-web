@@ -484,7 +484,8 @@ describe('AICollectionFiller', () => {
   }
 
   /**
-   * Stub global.fetch with a single JSON response for the entity-request POST.
+   * Stub global.fetch with a single JSON response for the entity-request batch
+   * POST. This surface files ONE item per call, so the answer carries one result.
    * createdEntityId (PSY-1008) is included when provided — that's the
    * auto-approve-fulfilled path that triggers inline create-and-add.
    */
@@ -492,19 +493,26 @@ describe('AICollectionFiller', () => {
     decisionState: 'approved' | 'pending',
     ok = true,
     createdEntityId?: number,
-    // PSY-1948's replacement flag. The endpoint always sends it; default false
-    // so the existing callers keep describing a first filing.
-    replaced = false
+    // PSY-1948's replacement, reported per item as the 'replaced' status. Default
+    // 'created' so the existing callers keep describing a first filing.
+    status: 'created' | 'replaced' = 'created'
   ) {
     const fetchMock = vi.fn().mockResolvedValue({
       ok,
+      // apiRequest reads the request-id response header on every call.
+      headers: { get: () => null },
       json: async () => ({
-        id: 7,
-        decision_state: decisionState,
-        replaced,
-        ...(createdEntityId !== undefined
-          ? { created_entity_id: createdEntityId }
-          : {}),
+        results: [
+          {
+            index: 0,
+            status,
+            id: 7,
+            decision_state: decisionState,
+            ...(createdEntityId !== undefined
+              ? { created_entity_id: createdEntityId }
+              : {}),
+          },
+        ],
       }),
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -604,12 +612,13 @@ describe('AICollectionFiller', () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
     const [url, init] = fetchMock.mock.calls[0]
-    expect(url).toBe('/api/entity-requests')
+    expect(String(url)).toMatch(/\/entity-requests\/batch$/)
     const body = JSON.parse((init as RequestInit).body as string)
-    expect(body.confirmed).toBe(true)
-    expect(body.entity_type).toBe('artist')
-    expect(body.source_context).toBe('ai_extraction')
-    expect(body.payload).toEqual({ name: 'Some Made Up Band' })
+    expect(body.items).toHaveLength(1)
+    expect(body.items[0].confirmed).toBe(true)
+    expect(body.items[0].entity_type).toBe('artist')
+    expect(body.items[0].source_context).toBe('ai_extraction')
+    expect(body.items[0].payload).toEqual({ name: 'Some Made Up Band' })
   })
 
   it('queue path POSTs an entity_request and shows a "Queued" chip', async () => {
@@ -625,10 +634,11 @@ describe('AICollectionFiller', () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
     const [url, init] = fetchMock.mock.calls[0]
-    expect(url).toBe('/api/entity-requests')
+    expect(String(url)).toMatch(/\/entity-requests\/batch$/)
     const body = JSON.parse((init as RequestInit).body as string)
-    expect(body.confirmed).toBe(false)
-    expect(body.source_context).toBe('ai_extraction')
+    expect(body.items).toHaveLength(1)
+    expect(body.items[0].confirmed).toBe(false)
+    expect(body.items[0].source_context).toBe('ai_extraction')
 
     // Pending decision_state → "Queued" chip; create/queue button replaced.
     const chip = await screen.findByTestId(
@@ -685,7 +695,7 @@ describe('AICollectionFiller', () => {
 
   it('a replaced submission reads "Updated", not "Queued"', async () => {
     mockUser = { is_admin: false, user_tier: 'contributor' }
-    stubFetch('pending', true, undefined, true)
+    stubFetch('pending', true, undefined, 'replaced')
     const user = userEvent.setup()
     await extractOneUnmatchedRow(user)
 
@@ -710,7 +720,7 @@ describe('AICollectionFiller', () => {
 
   it('a first filing keeps "Queued" and carries no replacement explanation', async () => {
     mockUser = { is_admin: false, user_tier: 'contributor' }
-    stubFetch('pending', true, undefined, false)
+    stubFetch('pending', true, undefined, 'created')
     const user = userEvent.setup()
     await extractOneUnmatchedRow(user)
 
@@ -724,11 +734,86 @@ describe('AICollectionFiller', () => {
     expect(chip).not.toHaveAttribute('title')
   })
 
+  // ── PSY-1992: withdraw from the chip's own surface ──
+
+  it('a queued row offers Withdraw and retracts the request it filed', async () => {
+    mockUser = { is_admin: false, user_tier: 'contributor' }
+    const fetchMock = stubFetch('pending')
+    const user = userEvent.setup()
+    await extractOneUnmatchedRow(user)
+
+    await user.click(screen.getByTestId('ai-collection-filler-row-request'))
+    await screen.findByTestId('ai-collection-filler-row-request-chip')
+
+    // The withdrawal answers 200 with no body of its own.
+    fetchMock.mockResolvedValue({
+      ok: true,
+      headers: { get: () => null },
+      json: async () => ({}),
+    })
+    await user.click(screen.getByTestId('ai-collection-filler-row-withdraw'))
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('ai-collection-filler-row-request-chip')
+      ).toHaveTextContent('Withdrawn')
+    )
+    // The id came off the batch result, so the call names the stored request.
+    expect(String(fetchMock.mock.calls.at(-1)![0])).toMatch(
+      /\/entity-requests\/7\/withdraw$/
+    )
+    // Nothing is left to withdraw.
+    expect(
+      screen.queryByTestId('ai-collection-filler-row-withdraw')
+    ).not.toBeInTheDocument()
+  })
+
+  // An APPROVED request created an entity; there is nothing to retract, and an
+  // affordance that answered 409 every time would be a lie about what it does.
+  it('an approved row offers no Withdraw', async () => {
+    mockUser = { is_admin: true, user_tier: 'local_ambassador' }
+    stubFetch('approved', true, 99)
+    const user = userEvent.setup()
+    await extractOneUnmatchedRow(user)
+
+    await user.click(screen.getByTestId('ai-collection-filler-row-request'))
+    await screen.findByTestId('ai-collection-filler-row-request-chip')
+
+    expect(
+      screen.queryByTestId('ai-collection-filler-row-withdraw')
+    ).not.toBeInTheDocument()
+  })
+
+  it('a refused withdrawal shows the server message and keeps the row queued', async () => {
+    mockUser = { is_admin: false, user_tier: 'contributor' }
+    const fetchMock = stubFetch('pending')
+    const user = userEvent.setup()
+    await extractOneUnmatchedRow(user)
+
+    await user.click(screen.getByTestId('ai-collection-filler-row-request'))
+    await screen.findByTestId('ai-collection-filler-row-request-chip')
+
+    fetchMock.mockResolvedValue({
+      ok: false,
+      headers: { get: () => null },
+      json: async () => ({ detail: 'Entity request 7 is already approved' }),
+    })
+    await user.click(screen.getByTestId('ai-collection-filler-row-withdraw'))
+
+    expect(
+      await screen.findByText('Entity request 7 is already approved')
+    ).toBeInTheDocument()
+    expect(
+      screen.getByTestId('ai-collection-filler-row-request-chip')
+    ).toHaveTextContent('Queued')
+  })
+
   it('a failed entity-request shows an inline error and keeps the button', async () => {
     mockUser = { is_admin: false, user_tier: 'contributor' }
     // 403 (or any non-ok) → the mutationFn throws; the row surfaces it inline.
     const fetchMock = vi.fn().mockResolvedValue({
       ok: false,
+      headers: { get: () => null },
       json: async () => ({ message: 'Admin access required' }),
     })
     vi.stubGlobal('fetch', fetchMock)

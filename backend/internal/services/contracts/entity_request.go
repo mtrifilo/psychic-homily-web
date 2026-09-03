@@ -65,6 +65,13 @@ type EntityRequestServiceInterface interface {
 	// at fulfillment, after the row is claimed and past repair.
 	CreateRequest(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (req *communitym.EntityRequest, superseded *communitym.SupersededSubmission, err error)
 
+	// WillAutoApprove answers whether CreateRequest would stamp this user's
+	// submission 'approved' rather than queue it. A caller needs it to know what
+	// a submission is about to become BEFORE it becomes it: an auto-approved row
+	// is fulfilled into a live entity in the same request, so a check that runs
+	// after the insert can only refuse a row that already exists.
+	WillAutoApprove(user *authm.User, confirmed bool) bool
+
 	// RecordFulfillment persists created_entity_id on a request after its
 	// payload has been fulfilled into a real catalog entity (PSY-1008). The
 	// handler calls this on both the auto-approve create path and the admin
@@ -98,6 +105,15 @@ type EntityRequestServiceInterface interface {
 	// then fails with ErrEntityRequestStale (409) and stays pending. nil skips the
 	// check and is correct only for a decision that reads nothing off the row.
 	Decide(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error)
+
+	// Withdraw retracts the REQUESTER's own pending request (PSY-1992), moving
+	// it to decision_state 'withdrawn' and stamping decided_by/at with the
+	// requester. Authorization is the conditional UPDATE's, not the caller's:
+	// another user's row and an already-decided row are refused by the write.
+	// ErrEntityRequestNotFound covers a missing row and someone else's alike;
+	// ErrEntityRequestInvalidState answers the caller's own decided row. The
+	// implementation owns why the two differ.
+	Withdraw(requestID, requesterID uint) (*communitym.EntityRequest, error)
 
 	// ClaimRescueFulfillment atomically stamps created_entity_id on an
 	// APPROVED-but-UNFULFILLED row (PSY-1088 rescue path). The conditional

@@ -48,6 +48,7 @@ import {
   Loader2,
   GripVertical,
   Inbox,
+  Undo2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -87,15 +88,20 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { ENTITY_ICONS, REPLACED_REQUEST_EXPLANATION } from './collectionDetailShared'
+import {
+  ENTITY_ICONS,
+  REPLACED_REQUEST_EXPLANATION,
+  WITHDRAW_REFUSED_MESSAGE,
+} from './collectionDetailShared'
 import type { components } from '@/types/api'
 
 /**
- * The queue-create response, aliased from the generated OpenAPI types so a
+ * The batch queue-create response, aliased from the generated OpenAPI types so a
  * backend rename fails the build here instead of silently reporting every
  * submission as a first filing.
  */
-type CreateEntityRequestResponse = components['schemas']['CreateEntityRequestResponseBody']
+type EntityRequestBatchResponse = components['schemas']['CreateEntityRequestBatchResponseBody']
+type EntityRequestBatchResult = components['schemas']['EntityRequestBatchResult']
 
 // ──────────────────────────────────────────────
 // Types
@@ -170,6 +176,13 @@ interface ParsedPasteLine {
  *   - `queuing`       — zero results ⇒ entity_request POST in flight
  *   - `queued`        — zero results ⇒ request filed for admin review
  *   - `queue_failed`  — zero results ⇒ the request POST errored (retryable)
+ *   - `queue_refused` ⇒ the server refused THIS line's content (e.g. a name
+ *                       past the 255-character cap). Distinct from
+ *                       `queue_failed` because re-sending the same line is
+ *                       refused the same way: the line has to change first, so
+ *                       the row offers the reason instead of a Retry.
+ *   - `withdrawing`   ⇒ the requester is retracting the request this line filed
+ *   - `withdrawn`     ⇒ retracted; no admin will see it
  */
 type PreviewStatus =
   | 'matched'
@@ -180,6 +193,9 @@ type PreviewStatus =
   | 'queuing'
   | 'queued'
   | 'queue_failed'
+  | 'queue_refused'
+  | 'withdrawing'
+  | 'withdrawn'
 
 /** A candidate offered for an AMBIGUOUS plain-text line's [Pick] dropdown. */
 interface PreviewCandidate {
@@ -206,6 +222,26 @@ interface PreviewRow {
    * count that reads `status` still means what it meant.
    */
   replaced?: boolean
+  /**
+   * `queue_refused` rows only: the server's own words for why this line was
+   * refused. The reason is per line, so it is on the row rather than on a
+   * surface shared by the whole paste.
+   */
+  refusal?: string
+  /**
+   * The stored request this line filed. Present on `queued` and the two withdraw
+   * states; it is what the withdraw affordance names, so a row without it offers
+   * none. Lines that collapsed onto one request all carry the SAME id, so
+   * withdrawing from any of them retracts the one request they share.
+   */
+  requestId?: number
+  /**
+   * A failed withdrawal's message. It is set on every row naming the request the
+   * withdrawal was for, which is more than one when identical lines collapsed
+   * onto it: they are one request, so they carry one verdict. The rows stay
+   * `queued` on a failure, because the request they name still is.
+   */
+  withdrawError?: string
 }
 
 /** Max candidates surfaced in an AMBIGUOUS line's [Pick] dropdown. */
@@ -267,23 +303,19 @@ export function parsePasteLine(line: string): ParsedPasteLine {
 // ──────────────────────────────────────────────
 
 /**
- * LOCAL queue-create call (PSY-845). Posts an `entity_request` to PSY-997's
- * `POST /entity-requests` so a plain-text line with ZERO matches becomes an
- * admin-reviewable artist-creation request rather than being silently dropped.
+ * LOCAL queue-create call (PSY-845, batched by PSY-2005). Posts the zero-result
+ * lines of one paste to `POST /entity-requests/batch`, so a plain-text line with
+ * no matches becomes an admin-reviewable artist-creation request rather than
+ * being silently dropped. One request per QUEUE_BATCH_MAX_ITEMS names, which for
+ * every paste at or under that size is one request.
  *
- * Deliberately LOCAL (not a shared exported hook): PSY-853 posts to the same
- * endpoint from AICollectionFiller in parallel. Keeping each consumer's
- * queue-create local avoids a cross-PR file collision; a future ticket dedups
- * the two into one shared hook. The small duplication is intentional (see
- * coordination note on PSY-845).
+ * Deliberately LOCAL (not a shared exported hook): AICollectionFiller posts to
+ * the same endpoint from a different surface, one item at a time as the user
+ * acts on a row, and the two consumers share the endpoint rather than a hook.
  *
- * A plain async function, NOT a `useMutation` hook: a single paste can queue
- * several zero-result lines CONCURRENTLY (the bounded worker pool), and one
- * shared `useMutation` observer only tracks the latest in-flight mutation —
- * rapid successive `.mutate()` calls drop earlier per-call callbacks, so only
- * the last line would end up queued. Per-call `apiRequest` has no such shared
- * state; usePastePreview owns the per-row status, so the hook's
- * data/isPending/error were unused anyway.
+ * A plain async function, NOT a `useMutation` hook: usePastePreview owns the
+ * per-row status, so the hook's data/isPending/error would be unused, and a
+ * retry of one row runs beside a paste's own batch.
  *
  * Entity type is `artist`: a bare plain-text line in a music collection picker
  * is overwhelmingly an artist name, and `artist` is the only entity_request
@@ -292,19 +324,104 @@ export function parsePasteLine(line: string): ParsedPasteLine {
  * file a well-formed request. The admin reviewing the queue retypes /
  * reclassifies if it was actually a release or venue.
  *
- * The resolved `replaced` says the request landed on the requester's own queued
- * row under this name rather than filing a new one. Anything but `true` reads
- * as a first filing, which is the claim that stays true either way.
+ * Results come back one per item, and each carries the index of the name in the
+ * CALLER's list: a chunk indexes from zero on the wire, and the offset is added
+ * back before the result is returned, so the caller never sees the split.
+ *
+ * `replaced` says the request landed on the requester's own queued row under
+ * this name rather than filing a new one, and `refused` says nothing was stored
+ * for that line and why. A name with NO result is one nothing answered for; see
+ * the chunk-failure note in the body.
  */
-function queueEntityRequest(name: string): Promise<{ replaced: boolean }> {
-  return apiRequest<CreateEntityRequestResponse>(API_ENDPOINTS.COLLECTIONS.ENTITY_REQUESTS, {
+async function queueEntityRequestBatch(
+  names: string[]
+): Promise<EntityRequestBatchResult[]> {
+  const results: EntityRequestBatchResult[] = []
+  for (let sent = 0; sent < names.length; sent += QUEUE_BATCH_MAX_ITEMS) {
+    const chunk = names.slice(sent, sent + QUEUE_BATCH_MAX_ITEMS)
+    let res: EntityRequestBatchResponse
+    try {
+      res = await apiRequest<EntityRequestBatchResponse>(
+        API_ENDPOINTS.COLLECTIONS.ENTITY_REQUESTS_BATCH,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            items: chunk.map(name => ({
+              entity_type: 'artist',
+              payload: { name },
+              source_context: 'paste_mode',
+            })),
+          }),
+        }
+      )
+    } catch {
+      // A failed chunk RESOLVES with what the earlier ones answered rather than
+      // rejecting. Rejecting would mark every row failed, including the ones
+      // already filed, and retrying those would file replacements the
+      // contributor never made. Items with no result are the caller's
+      // queue_failed, which is exactly the rows this chunk and the ones after it
+      // cover. Stopping is deliberate: the next chunk is one more request at the
+      // same server the last one just failed against.
+      break
+    }
+    // Each chunk indexes from zero, so the offset restores the caller's own
+    // positions and the results read as one list.
+    for (const result of res?.results ?? []) {
+      results.push({ ...result, index: result.index + sent })
+    }
+  }
+  return results
+}
+
+/**
+ * The identity two paste lines have to share before this component treats them
+ * as ONE request: the trimmed line, byte for byte.
+ *
+ * It is deliberately NOT the server's dedup key. That key is case-folded in
+ * Postgres, and a client that guessed at the folding could fold two names the
+ * server keeps apart, which would silently never file the second one. Two
+ * identical lines are one request under any folding, so this collapse can only
+ * ever be too conservative. Lines the SERVER then merges are caught by their
+ * shared request id in the results, so the collapse is an optimisation and not
+ * the thing correctness rests on.
+ */
+function pasteQueueKey(raw: string): string {
+  return raw.trim()
+}
+
+/**
+ * How many names this component puts in one batch request. It is chosen to be at
+ * most the endpoint's own cap, which nothing here can read: the cap lives in a
+ * Go struct tag and does not reach the generated types.
+ *
+ * A paste of more zero-result lines than this is SPLIT rather than sent as one
+ * body, because a body over the endpoint's cap is refused whole. Should the
+ * endpoint's cap ever drop below this number, a full chunk is refused whole and
+ * its rows land on the retryable failed state with a Retry, rather than
+ * vanishing - which is what the chunk-failure handling below buys.
+ */
+const QUEUE_BATCH_MAX_ITEMS = 200
+
+/**
+ * Retract a request this paste filed (PSY-1992). Resolves when the request is
+ * withdrawn; rejects with the server's message otherwise, which is what the row
+ * surfaces.
+ */
+function withdrawEntityRequest(requestId: number): Promise<void> {
+  return apiRequest(API_ENDPOINTS.COLLECTIONS.ENTITY_REQUEST_WITHDRAW(requestId), {
     method: 'POST',
-    body: JSON.stringify({
-      entity_type: 'artist',
-      payload: { name },
-      source_context: 'paste_mode',
-    }),
-  }).then(res => ({ replaced: res?.replaced === true }))
+  }).then(() => undefined)
+}
+
+/**
+ * What a refused withdrawal says. The server's own message names the reason
+ * (already reviewed, no longer the caller's), which is more use than the generic
+ * line; the constant is the fallback for a failure that carries no message at
+ * all, such as a dropped connection.
+ */
+function withdrawFailureMessage(err: unknown): string {
+  const message = err instanceof Error ? err.message.trim() : ''
+  return message || WITHDRAW_REFUSED_MESSAGE
 }
 
 // ──────────────────────────────────────────────
@@ -465,6 +582,7 @@ function usePastePreview(pasteText: string): {
   previewRows: PreviewRow[]
   pickCandidate: (rowIndex: number, candidate: PreviewCandidate) => void
   retryQueue: (rowIndex: number) => void
+  withdrawQueued: (rowIndex: number) => void
 } {
   const [debouncedPaste] = useDebounce(pasteText, 400)
   const resolveMutation = useResolveCollectionItems()
@@ -486,23 +604,113 @@ function usePastePreview(pasteText: string): {
     []
   )
 
-  // File a queue-for-review request for a zero-result plain-text line.
-  // Extracted so the initial pass AND retryQueue share one code path. Each
-  // call is an independent POST (see queueEntityRequest) so concurrent
-  // zero-result lines each get their own request + row update. Returns the
-  // settle promise so the bounded worker pool can AWAIT it — that keeps a
-  // 200-junk-line paste from firing 200 simultaneous POSTs (the same
-  // "don't hammer the backend" bound the search side gets). retryQueue, a
-  // single user-triggered call, ignores the return (fire-and-forget).
-  const fileQueueRequest = useCallback(
-    (generation: number, index: number, raw: string): Promise<void> => {
-      updateRow(generation, index, { status: 'queuing' })
-      return queueEntityRequest(raw).then(
-        ({ replaced }) => updateRow(generation, index, { status: 'queued', replaced }),
-        () => updateRow(generation, index, { status: 'queue_failed' })
+  // Commit many rows at once IFF the captured generation is still current. One
+  // clone of the list for a whole batch, rather than one per row: a 200-line
+  // paste stamps and then settles every row in two passes.
+  const updateRows = useCallback(
+    (generation: number, next: Map<number, Partial<PreviewRow>>) => {
+      setPreviewRows((rows) => {
+        if (generationRef.current !== generation) return rows
+        if (next.size === 0) return rows
+        return rows.map((row, index) => {
+          const patch = next.get(index)
+          return patch ? { ...row, ...patch } : row
+        })
+      })
+    },
+    []
+  )
+
+  // File a queue-for-review request for every zero-result plain-text line of one
+  // paste, in as few round trips as the endpoint's cap allows. Extracted so the
+  // initial pass AND retryQueue share one code path.
+  //
+  // Identical lines are sent ONCE and every row sharing the line reads that one
+  // result. Lines the SERVER merges instead (a case difference, say) come back
+  // with the SAME request id, and the second one is reported as whatever the
+  // first said rather than as a replacement: it corrects nothing, it is the same
+  // line twice. Without that, a paste tells the contributor it updated a request
+  // they never filed.
+  //
+  // A 4xx item is terminal for that line, so it lands on queue_refused with the
+  // server's reason and no Retry. A 5xx item stays on the retryable queue_failed,
+  // and so does a name with no result at all, which is what a chunk that failed
+  // to send leaves behind.
+  const fileQueueBatch = useCallback(
+    (generation: number, entries: { raw: string; index: number }[]): Promise<void> => {
+      if (entries.length === 0) return Promise.resolve()
+
+      const order: string[] = []
+      const rowsByKey = new Map<string, number[]>()
+      for (const entry of entries) {
+        const key = pasteQueueKey(entry.raw)
+        const rows = rowsByKey.get(key)
+        if (rows) {
+          rows.push(entry.index)
+          continue
+        }
+        rowsByKey.set(key, [entry.index])
+        order.push(entry.raw)
+      }
+      const rowsForItem = [...rowsByKey.values()]
+
+      updateRows(
+        generation,
+        new Map(entries.map((e) => [e.index, { status: 'queuing' as const }]))
+      )
+
+      const settleAll = (next: Partial<PreviewRow>) =>
+        new Map(entries.map((e) => [e.index, next]))
+
+      return queueEntityRequestBatch(order).then(
+        (results) => {
+          const byIndex = new Map(results.map((r) => [r.index, r]))
+          // The verdict already reported for a request id, so a second item that
+          // landed on the same row repeats it instead of claiming a correction.
+          const verdictByRequest = new Map<number, Partial<PreviewRow>>()
+          const patches = new Map<number, Partial<PreviewRow>>()
+
+          rowsForItem.forEach((rowIndexes, itemIndex) => {
+            const result = byIndex.get(itemIndex)
+            let patch: Partial<PreviewRow>
+            if (!result) {
+              // An item with no result was neither filed nor refused, so the row
+              // says the request did not land and stays retryable.
+              patch = { status: 'queue_failed' }
+            } else if (result.status === 'refused') {
+              patch =
+                result.error_status !== undefined && result.error_status >= 500
+                  ? { status: 'queue_failed' }
+                  : {
+                      status: 'queue_refused',
+                      refusal: result.error ?? undefined,
+                    }
+            } else {
+              const id = result.id ?? undefined
+              const seen = id !== undefined ? verdictByRequest.get(id) : undefined
+              patch = seen ?? {
+                status: 'queued',
+                replaced: result.status === 'replaced',
+                requestId: id,
+                withdrawError: undefined,
+              }
+              if (id !== undefined && seen === undefined) {
+                verdictByRequest.set(id, patch)
+              }
+            }
+            for (const rowIndex of rowIndexes) patches.set(rowIndex, patch)
+          })
+
+          updateRows(generation, patches)
+        },
+        // queueEntityRequestBatch resolves with what it has rather than
+        // rejecting, so reaching here means it threw for a reason it does not
+        // handle. Every row settles retryable, which is the safe reading of an
+        // answer nobody got.
+        () => updateRows(generation, settleAll({ status: 'queue_failed' }))
       )
     },
-    [updateRow]
+    [updateRows]
   )
 
   useEffect(() => {
@@ -581,6 +789,11 @@ function usePastePreview(pasteText: string): {
       .filter((e) => parsed[e.index].url === null)
 
     if (plaintextEntries.length > 0) {
+      // Zero-result lines collected across the whole search pass and filed as ONE
+      // batch when it settles. The pass is concurrent, so this is appended to
+      // from several workers; JS runs them on one thread, and each push happens
+      // in a single synchronous continuation, so the array needs no lock.
+      const toQueue: { raw: string; index: number }[] = []
       void runWithConcurrency(
         plaintextEntries,
         PLAINTEXT_SEARCH_CONCURRENCY,
@@ -617,14 +830,18 @@ function usePastePreview(pasteText: string): {
                 .map(toPreviewItem),
             })
           } else {
-            // Zero results ⇒ queue for admin review. Await the POST so it
-            // counts against the concurrency budget — without this, a paste
-            // of N all-junk lines would fire N POSTs at once (the search
-            // bound would be moot for the queue side).
-            await fileQueueRequest(generation, entry.index, entry.raw)
+            // Zero results ⇒ queue for admin review, once the whole pass has
+            // settled. Collected rather than filed here so a paste of N
+            // zero-result lines is ONE request instead of N: the tail of a large
+            // paste is what a per-line POST puts at the mercy of any per-request
+            // ceiling.
+            toQueue.push({ raw: entry.raw, index: entry.index })
           }
         }
-      )
+      ).then(() => {
+        if (generationRef.current !== generation) return
+        void fileQueueBatch(generation, toQueue)
+      })
     }
     // Only re-resolve when the debounced paste text changes. alreadyStaged is
     // computed at render time off the current stagedItems prop (PastePreviewRow),
@@ -650,18 +867,63 @@ function usePastePreview(pasteText: string): {
     []
   )
 
-  // Retry a failed queue POST for a zero-result line (against the CURRENT
-  // generation so it survives the row-bounds check).
+  // Retry a failed queue request for a zero-result line (against the CURRENT
+  // generation so it survives the row-bounds check). A refused row is not
+  // retryable and has no Retry to press.
+  //
+  // The retry carries EVERY failed row sharing this one's queue key, not just
+  // the row that was pressed: they are one request, so retrying them
+  // separately would file the first and have the rest land on it and report
+  // themselves as corrections.
   const retryQueue = useCallback(
     (rowIndex: number) => {
       const row = previewRows[rowIndex]
       if (!row || row.status !== 'queue_failed') return
-      fileQueueRequest(generationRef.current, rowIndex, row.raw)
+      const key = pasteQueueKey(row.raw)
+      const entries = previewRows
+        .map((r, index) => ({ raw: r.raw, index, status: r.status }))
+        .filter(
+          (r) => r.status === 'queue_failed' && pasteQueueKey(r.raw) === key
+        )
+        .map(({ raw, index }) => ({ raw, index }))
+      void fileQueueBatch(generationRef.current, entries)
     },
-    [previewRows, fileQueueRequest]
+    [previewRows, fileQueueBatch]
   )
 
-  return { previewRows, pickCandidate, retryQueue }
+  // Retract the request a queued row filed (PSY-1992). Every row that collapsed
+  // onto the same request moves together, because they name ONE request and a
+  // row still reading "for review" beside a withdrawn twin would be false.
+  const withdrawQueued = useCallback(
+    (rowIndex: number) => {
+      const row = previewRows[rowIndex]
+      if (!row || row.status !== 'queued' || row.requestId === undefined) return
+      const requestId = row.requestId
+      const generation = generationRef.current
+
+      const applyToRequest = (next: Partial<PreviewRow>) => {
+        setPreviewRows((rows) => {
+          if (generationRef.current !== generation) return rows
+          return rows.map((r) =>
+            r.requestId === requestId ? { ...r, ...next } : r
+          )
+        })
+      }
+
+      applyToRequest({ status: 'withdrawing', withdrawError: undefined })
+      void withdrawEntityRequest(requestId).then(
+        () => applyToRequest({ status: 'withdrawn' }),
+        (err: unknown) =>
+          applyToRequest({
+            status: 'queued',
+            withdrawError: withdrawFailureMessage(err),
+          })
+      )
+    },
+    [previewRows]
+  )
+
+  return { previewRows, pickCandidate, retryQueue, withdrawQueued }
 }
 
 export function AddItemsPicker({
@@ -686,7 +948,8 @@ export function AddItemsPicker({
 
   // ─── Paste mode state (resolution lives in usePastePreview) ───
   const [pasteText, setPasteText] = useState('')
-  const { previewRows, pickCandidate, retryQueue } = usePastePreview(pasteText)
+  const { previewRows, pickCandidate, retryQueue, withdrawQueued } =
+    usePastePreview(pasteText)
 
   // Flattened search results for the active query. Mirrors the existing
   // AddItemsSection shape so users get a familiar list. The flatten order
@@ -816,6 +1079,7 @@ export function AddItemsPicker({
             onStageBatch={stageBatch}
             onPick={pickCandidate}
             onRetryQueue={retryQueue}
+            onWithdrawQueued={withdrawQueued}
           />
         )}
 
@@ -1181,6 +1445,7 @@ function PasteModePane({
   onStageBatch,
   onPick,
   onRetryQueue,
+  onWithdrawQueued,
 }: {
   text: string
   onTextChange: (v: string) => void
@@ -1191,6 +1456,7 @@ function PasteModePane({
   onStageBatch: (items: StagedCollectionItem[]) => void
   onPick: (rowIndex: number, candidate: PreviewCandidate) => void
   onRetryQueue: (rowIndex: number) => void
+  onWithdrawQueued: (rowIndex: number) => void
 }) {
   const matchedCount = previewRows.filter((r) => r.status === 'matched').length
   const unresolvedCount = previewRows.filter((r) => r.status === 'unresolved').length
@@ -1207,6 +1473,16 @@ function PasteModePane({
       r.status === 'queued' ||
       r.status === 'queuing' ||
       r.status === 'queue_failed'
+  ).length
+  // A withdrawn line has left the review queue, so it leaves that tally too;
+  // counting it there would promise an admin will see something nobody will.
+  const withdrawnCount = previewRows.filter(
+    (r) => r.status === 'withdrawn' || r.status === 'withdrawing'
+  ).length
+  // A refused line has its own tally: it is NOT for review, and counting it
+  // there would tell the user an admin will see a line nothing filed.
+  const refusedCount = previewRows.filter(
+    (r) => r.status === 'queue_refused'
   ).length
 
   // "Add all" affordance: stages every matched row at once. Bypasses the
@@ -1265,6 +1541,8 @@ function PasteModePane({
               loadingCount > 0 && `${loadingCount} resolving`,
               ambiguousCount > 0 && `${ambiguousCount} need a pick`,
               queuedCount > 0 && `${queuedCount} for review`,
+              refusedCount > 0 && `${refusedCount} refused`,
+              withdrawnCount > 0 && `${withdrawnCount} withdrawn`,
               unresolvedCount > 0 && `${unresolvedCount} unresolved`,
             ]
               .filter(Boolean)
@@ -1298,6 +1576,7 @@ function PasteModePane({
               onAdd={() => row.item && onStage(row.item)}
               onPick={(candidate) => onPick(index, candidate)}
               onRetryQueue={() => onRetryQueue(index)}
+              onWithdrawQueued={() => onWithdrawQueued(index)}
             />
           ))}
         </div>
@@ -1328,12 +1607,14 @@ function PastePreviewRow({
   onAdd,
   onPick,
   onRetryQueue,
+  onWithdrawQueued,
 }: {
   row: PreviewRow
   alreadyStaged: boolean
   onAdd: () => void
   onPick: (candidate: PreviewCandidate) => void
   onRetryQueue: () => void
+  onWithdrawQueued: () => void
 }) {
   const candidates = row.candidates ?? []
   return (
@@ -1419,17 +1700,53 @@ function PastePreviewRow({
             register and only its word changes. Both spellings of the
             explanation are required; see the constant's own contract. */}
         {row.status === 'queued' && (
+          <>
+            <Badge
+              variant="secondary"
+              className="text-[10px] px-1.5 py-0 shrink-0 bg-pending text-pending-foreground motion-safe:animate-in motion-safe:fade-in"
+              data-testid="add-items-picker-paste-row-queued"
+              title={row.replaced ? REPLACED_REQUEST_EXPLANATION : undefined}
+            >
+              <Inbox className="h-3 w-3 mr-0.5" />
+              {row.replaced ? 'UPDATED' : 'FOR REVIEW'}
+              {row.replaced && (
+                <span className="sr-only"> {REPLACED_REQUEST_EXPLANATION}</span>
+              )}
+            </Badge>
+            {/* PSY-1992: retract the request this line filed, beside the chip
+                that says it is queued. Offered only when the response named the
+                request, since the call has to name it. */}
+            {row.requestId !== undefined && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 shrink-0 text-muted-foreground"
+                onClick={onWithdrawQueued}
+                aria-label={`Withdraw the request for ${row.raw}`}
+                data-testid="add-items-picker-paste-row-withdraw"
+              >
+                <Undo2 className="h-3.5 w-3.5 mr-1" />
+                Withdraw
+              </Button>
+            )}
+          </>
+        )}
+        {row.status === 'withdrawing' && (
+          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">
+            <Loader2 className="h-3 w-3 mr-0.5 animate-spin" />
+            Withdrawing…
+          </Badge>
+        )}
+        {/* A withdrawn line is not for review and not an error: no admin will
+            see it, and nothing went wrong. */}
+        {row.status === 'withdrawn' && (
           <Badge
             variant="secondary"
-            className="text-[10px] px-1.5 py-0 shrink-0 bg-pending text-pending-foreground motion-safe:animate-in motion-safe:fade-in"
-            data-testid="add-items-picker-paste-row-queued"
-            title={row.replaced ? REPLACED_REQUEST_EXPLANATION : undefined}
+            className="text-[10px] px-1.5 py-0 shrink-0 motion-safe:animate-in motion-safe:fade-in"
+            data-testid="add-items-picker-paste-row-withdrawn"
           >
-            <Inbox className="h-3 w-3 mr-0.5" />
-            {row.replaced ? 'UPDATED' : 'FOR REVIEW'}
-            {row.replaced && (
-              <span className="sr-only"> {REPLACED_REQUEST_EXPLANATION}</span>
-            )}
+            <Undo2 className="h-3 w-3 mr-0.5" />
+            WITHDRAWN
           </Badge>
         )}
         {row.status === 'queue_failed' && (
@@ -1444,6 +1761,18 @@ function PastePreviewRow({
             Retry
           </Button>
         )}
+        {/* A refused line offers no Retry: the server refused this line's own
+            content, so re-sending it unchanged is refused the same way. */}
+        {row.status === 'queue_refused' && (
+          <Badge
+            variant="secondary"
+            className="text-[10px] px-1.5 py-0 shrink-0 bg-destructive/10 text-destructive motion-safe:animate-in motion-safe:fade-in"
+            data-testid="add-items-picker-paste-row-refused"
+          >
+            <AlertCircle className="h-3 w-3 mr-0.5" />
+            REFUSED
+          </Badge>
+        )}
         {row.status === 'unresolved' && (
           <Badge
             variant="secondary"
@@ -1454,6 +1783,29 @@ function PastePreviewRow({
           </Badge>
         )}
       </div>
+
+      {/* A failed withdrawal, on every row naming the request it was for. The
+          rows are still queued, so the message is the only thing that changed. */}
+      {row.withdrawError && (
+        <p
+          className="ml-10 mt-1.5 text-xs text-destructive"
+          data-testid="add-items-picker-paste-row-withdraw-error"
+        >
+          {row.withdrawError}
+        </p>
+      )}
+
+      {/* REFUSED: the server's own reason, on the row it belongs to. Nothing was
+          filed for this line, and the reason is what says which edit would make
+          it filable. */}
+      {row.status === 'queue_refused' && row.refusal && (
+        <p
+          className="ml-10 mt-1.5 text-xs text-destructive"
+          data-testid="add-items-picker-paste-row-refusal"
+        >
+          {row.refusal}
+        </p>
+      )}
 
       {/* AMBIGUOUS: inline [Pick] candidate dropdown (≤5). Picking promotes the
           row to MATCH. Mirrors AICollectionFiller's "did you mean" chip row. */}

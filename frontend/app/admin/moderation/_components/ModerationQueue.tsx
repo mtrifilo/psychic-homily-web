@@ -175,7 +175,14 @@ function wasRevisedSinceFiling(createdAt: string, updatedAt: string): boolean {
 
 // 'needs_attention' (PSY-1088) is the rescue view: approved-but-unfulfilled
 // requests, NOT pending ones — a separate review surface from the other four.
-type ItemTypeFilter = 'all' | 'edits' | 'reports' | 'comments' | 'requests' | 'needs_attention'
+type ItemTypeFilter =
+  | 'all'
+  | 'edits'
+  | 'reports'
+  | 'comments'
+  | 'requests'
+  | 'needs_attention'
+  | 'withdrawn'
 type EntityTypeFilter = '' | 'artist' | 'venue' | 'festival' | 'show' | 'collection' | 'release' | 'label'
 
 // ─── Unified Item Type ───────────────────────────────────────────────────────
@@ -186,6 +193,7 @@ type ModerationItem =
   | { type: 'comment'; data: PendingComment }
   | { type: 'request'; data: AdminEntityRequest }
   | { type: 'rescue'; data: AdminEntityRequest }
+  | { type: 'withdrawn'; data: AdminEntityRequest }
 
 // ─── PSY-603: success banner state ───────────────────────────────────────────
 
@@ -1088,6 +1096,86 @@ function RequestCard({
 
 // ─── Rescue Card (PSY-1088) ──────────────────────────────────────────────────
 
+// ─── Withdrawn Request Card (PSY-1992) ───────────────────────────────────────
+
+/**
+ * A request its requester retracted while it was still pending.
+ *
+ * READ-ONLY, and that is the whole design: nothing here decides anything,
+ * because a withdrawn row is not waiting on a moderator and every admin write
+ * path is scoped to a state this row is not in. It exists so the queue can still
+ * see what was asked for and by whom, which is what a withdrawal being a state
+ * rather than a delete buys.
+ *
+ * It mirrors RequestCard's scan path (badge, type, name, attribution, payload
+ * preview) so an admin reads a withdrawn row the same way they read a pending
+ * one, minus the actions.
+ */
+function WithdrawnRequestCard({ request }: { request: AdminEntityRequest }) {
+  const entityLabel = requestEntityLabel(request)
+  const previewEntries = payloadPreviewEntries(request.payload)
+
+  return (
+    <Card className="overflow-hidden" data-testid="moderation-withdrawn-card">
+      <CardContent className="p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <CategoryBadge kind="request" />
+            <Badge variant="outline" className="shrink-0">
+              {entityTypeLabel(request.entity_type)}
+            </Badge>
+            <Badge variant="outline" className="shrink-0 text-muted-foreground">
+              Withdrawn
+            </Badge>
+            <span className="text-sm font-medium text-foreground truncate">
+              {entityLabel}
+            </span>
+          </div>
+          {/* Two moments, and they are different: when it was filed, and when
+              the requester took it back. A card showing only the first cannot
+              say how long ago the withdrawal happened. */}
+          <div className="flex flex-col items-end shrink-0 text-xs text-muted-foreground">
+            <span>filed {timeAgo(request.created_at)}</span>
+            {request.decided_at && (
+              <span>withdrawn {timeAgo(request.decided_at)}</span>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-2 text-sm text-muted-foreground">
+          <span>
+            by{' '}
+            <UserAttribution
+              name={request.requester_name}
+              username={request.requester_username}
+            />
+          </span>
+          <span className="ml-1">
+            &middot; via {sourceContextLabel(request.source_context)}
+          </span>
+          <RevisedFromSource request={request} />
+        </div>
+
+        {previewEntries.length > 0 && (
+          <div className="mt-2 space-y-0.5 rounded-md border bg-muted/30 p-3 text-xs font-mono">
+            {previewEntries.map(([key, value]) => (
+              <div key={key} className="flex gap-2">
+                <span className="text-muted-foreground">{key}:</span>
+                <span className="text-foreground break-all">{value}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <p className="mt-2 text-xs text-muted-foreground">
+          The requester withdrew this before it was reviewed. Nothing is waiting
+          on you; it is kept for the record.
+        </p>
+      </CardContent>
+    </Card>
+  )
+}
+
 /**
  * A queued entity request that was APPROVED but whose catalog entity was never
  * created (created_entity_id IS NULL) — the "needs attention" rescue surface.
@@ -1771,9 +1859,39 @@ export function ModerationQueue() {
     entity_type: entityTypeFilter || undefined,
   })
 
+  // PSY-1992: requests their requester retracted while they were pending. A
+  // SEPARATE fetch, and not part of any pending view: nobody is being asked to
+  // decide these, and the queue's job is the work waiting on it. They are here
+  // so the queue can still SEE them, which is the whole reason a withdrawal is a
+  // state and not a delete.
+  //
+  // Fetched only while the tab is open, unlike the rescue queue: that one is
+  // always fetched so a "needs attention" badge can appear unprompted, and this
+  // one has nothing to prompt about.
+  const {
+    data: withdrawnData,
+    isLoading: withdrawnLoading,
+    error: withdrawnError,
+  } = useAdminEntityRequests({
+    state: 'withdrawn',
+    entity_type: entityTypeFilter || undefined,
+    enabled: itemTypeFilter === 'withdrawn',
+  })
+
   const isLoading =
-    editsLoading || reportsLoading || commentsLoading || requestsLoading || rescueLoading
-  const error = editsError || reportsError || commentsError || requestsError || rescueError
+    editsLoading ||
+    reportsLoading ||
+    commentsLoading ||
+    requestsLoading ||
+    rescueLoading ||
+    withdrawnLoading
+  const error =
+    editsError ||
+    reportsError ||
+    commentsError ||
+    requestsError ||
+    rescueError ||
+    withdrawnError
 
   // Merge and sort items by created_at (oldest first for review fairness)
   const items = useMemo<ModerationItem[]>(() => {
@@ -1798,13 +1916,19 @@ export function ModerationQueue() {
       type: 'rescue' as const,
       data: r,
     }))
+    const withdrawnItems: ModerationItem[] = (withdrawnData?.requests || []).map(
+      r => ({ type: 'withdrawn' as const, data: r })
+    )
 
-    // 'needs_attention' is a SEPARATE review surface: approved-but-unfulfilled
-    // rows, never the pending ones. The other four filters (and 'all') show the
-    // pending queue and exclude rescues; 'needs_attention' shows only rescues.
+    // 'needs_attention' and 'withdrawn' are SEPARATE review surfaces, each its
+    // own decision_state: approved-but-unfulfilled rows and retracted ones,
+    // never the pending queue. The other four filters (and 'all') show the
+    // pending queue and exclude both.
     let merged: ModerationItem[]
     if (itemTypeFilter === 'needs_attention') {
       merged = rescueItems
+    } else if (itemTypeFilter === 'withdrawn') {
+      merged = withdrawnItems
     } else {
       merged = [...editItems, ...reportItems, ...commentItems, ...requestItems]
       if (itemTypeFilter === 'edits') {
@@ -1818,20 +1942,40 @@ export function ModerationQueue() {
       }
     }
 
-    // Sort oldest first (review fairness)
+    // Sort oldest first (review fairness) on every surface that is a QUEUE.
+    // The withdrawn tab is not one: nothing there is waiting to be worked, so
+    // the useful order is the most recently withdrawn first, which is also the
+    // order the fixed server-side window selects.
+    if (itemTypeFilter === 'withdrawn') {
+      return [...merged].sort(
+        (a, b) =>
+          new Date((b.data as AdminEntityRequest).decided_at ?? b.data.created_at).getTime() -
+          new Date((a.data as AdminEntityRequest).decided_at ?? a.data.created_at).getTime()
+      )
+    }
+
     merged = [...merged].sort(
       (a, b) =>
         new Date(a.data.created_at).getTime() - new Date(b.data.created_at).getTime()
     )
 
     return merged
-  }, [editsData, reportsData, commentsData, requestsData, rescueData, itemTypeFilter])
+  }, [
+    editsData,
+    reportsData,
+    commentsData,
+    requestsData,
+    rescueData,
+    withdrawnData,
+    itemTypeFilter,
+  ])
 
   const totalEdits = editsData?.total || 0
   const totalReports = reportsData?.total || 0
   const totalComments = commentsData?.total || 0
   const totalRequests = requestsData?.total || 0
   const totalRescue = rescueData?.total || 0
+  const totalWithdrawn = withdrawnData?.total || 0
   // 'All' is the pending queue total; rescues (approved-but-unfulfilled) are a
   // separate surface and are NOT folded in here.
   const totalItems = totalEdits + totalReports + totalComments + totalRequests
@@ -1913,6 +2057,15 @@ export function ModerationQueue() {
               count={totalRescue}
             />
           )}
+          {/* PSY-1992: withdrawn requests. Always present, unlike the rescue
+              tab, because its count is only fetched while it is open, so
+              hiding it on a zero count would hide it permanently. */}
+          <FilterButton
+            active={itemTypeFilter === 'withdrawn'}
+            onClick={() => setItemTypeFilter('withdrawn')}
+            label="Withdrawn"
+            count={totalWithdrawn}
+          />
         </div>
 
         {/* Entity type filter */}
@@ -1934,7 +2087,11 @@ export function ModerationQueue() {
         {/* Summary count */}
         <span className="text-sm text-muted-foreground ml-auto">
           {items.length} item{items.length !== 1 ? 's' : ''}{' '}
-          {itemTypeFilter === 'needs_attention' ? 'needing attention' : 'pending review'}
+          {itemTypeFilter === 'needs_attention'
+            ? 'needing attention'
+            : itemTypeFilter === 'withdrawn'
+              ? 'withdrawn'
+              : 'pending review'}
         </span>
       </div>
 
@@ -1943,19 +2100,7 @@ export function ModerationQueue() {
         <AdminEmptyState
           icon={Inbox}
           title="Queue Clear"
-          message={
-            itemTypeFilter === 'edits'
-              ? 'No pending entity edits to review.'
-              : itemTypeFilter === 'reports'
-                ? 'No pending entity reports to review.'
-                : itemTypeFilter === 'comments'
-                  ? 'No pending comments to review.'
-                  : itemTypeFilter === 'requests'
-                    ? 'No pending entity-creation requests to review.'
-                    : itemTypeFilter === 'needs_attention'
-                      ? 'No approved-but-unfulfilled requests. Anything approved whose entity was never created would appear here to fulfill or void.'
-                      : 'No items need moderation. Pending entity edits, reports, comments, and creation requests will appear here when users submit them.'
-          }
+          message={EMPTY_QUEUE_MESSAGE[itemTypeFilter]}
         />
       )}
 
@@ -1990,6 +2135,14 @@ export function ModerationQueue() {
                   key={`rescue-${item.data.id}`}
                   request={item.data as AdminEntityRequest}
                   onActionSuccess={handleActionSuccess}
+                />
+              )
+            }
+            if (item.type === 'withdrawn') {
+              return (
+                <WithdrawnRequestCard
+                  key={`withdrawn-${item.data.id}`}
+                  request={item.data as AdminEntityRequest}
                 />
               )
             }
@@ -2037,6 +2190,25 @@ function formatModerationActionMessage(action: ModerationAction): string {
     default:
       return 'Rejected — submitter notified of reason'
   }
+}
+
+// ─── Empty-state copy ────────────────────────────────────────────────────────
+
+/**
+ * What an empty queue says, per filter. A Record rather than a ternary chain so
+ * a new filter is a compile error here instead of silently inheriting the copy
+ * for "everything", which describes the pending queue and nothing else.
+ */
+const EMPTY_QUEUE_MESSAGE: Record<ItemTypeFilter, string> = {
+  all: 'No items need moderation. Pending entity edits, reports, comments, and creation requests will appear here when users submit them.',
+  edits: 'No pending entity edits to review.',
+  reports: 'No pending entity reports to review.',
+  comments: 'No pending comments to review.',
+  requests: 'No pending entity-creation requests to review.',
+  needs_attention:
+    'No approved-but-unfulfilled requests. Anything approved whose entity was never created would appear here to fulfill or void.',
+  withdrawn:
+    'No withdrawn requests. A request its requester retracted while it was still pending would appear here, for the record.',
 }
 
 // ─── Filter Button ───────────────────────────────────────────────────────────

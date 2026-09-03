@@ -63,9 +63,15 @@ func (s *EntityRequestService) ListRequests(filters *contracts.EntityRequestFilt
 		offset = 0
 	}
 
+	// Newest-first on the moment that put the row in the state being asked for.
+	// For a PENDING row decided_at is NULL, so this is created_at and the queue's
+	// order is exactly what it was. For a decided or withdrawn state it is the
+	// decision, which is what a caller reading a fixed window of a state that
+	// never drains needs: ordering those by FILING date buries a request
+	// withdrawn today behind every newer one that was filed.
 	var reqs []communitym.EntityRequest
 	if err := query.Preload("Requester").
-		Order("created_at DESC").
+		Order("COALESCE(decided_at, created_at) DESC").
 		Limit(limit).Offset(offset).
 		Find(&reqs).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to list entity requests: %w", err)
