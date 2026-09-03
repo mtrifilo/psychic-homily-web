@@ -271,7 +271,7 @@ describe('ShowListenModule', () => {
       // "USA" suppressed by the locked display rule: country is included
       // UNLESS the state is set and the country is USA/US.
       expect(meta()).toHaveTextContent(
-        'Modest Mouse · from Issaquah, WA · Bandcamp'
+        'Modest Mouse · based in Issaquah, WA · Bandcamp'
       )
     })
 
@@ -289,7 +289,7 @@ describe('ShowListenModule', () => {
         />
       )
 
-      expect(meta()).toHaveTextContent('from Melbourne, Australia')
+      expect(meta()).toHaveTextContent('based in Melbourne, Australia')
     })
 
     it('renders no hometown segment for an act with nothing placeable', () => {
@@ -305,7 +305,7 @@ describe('ShowListenModule', () => {
 
       const card = meta()
       expect(card).not.toHaveTextContent('Location Unknown')
-      expect(card).not.toHaveTextContent('from')
+      expect(card).not.toHaveTextContent('based in')
       expect(card.textContent).toContain('Modest Mouse · Bandcamp')
     })
   })

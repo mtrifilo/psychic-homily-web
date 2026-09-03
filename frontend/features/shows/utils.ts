@@ -215,6 +215,30 @@ export function billHometown(artist: PlaceableArtist): string | null {
 }
 
 /**
+ * An act's home location as the page states it: `based in Issaquah, WA`.
+ * Null when there is no location to state.
+ *
+ * THE one spelling of that prefix. Beside a venue in another city, a bare
+ * place name after an artist's name reads as where the show is, which is the
+ * ambiguity the words remove; every surface that prints a location alone next
+ * to an act's name goes through here so they cannot drift into two phrasings.
+ *
+ * Takes the formatted location rather than the artist, because the surfaces
+ * differ on WHICH parts they compose (the show page's bill obeys
+ * {@link billHometown}'s country rule; a list card states city and state).
+ * The prefix is the shared decision; the parts are not.
+ *
+ * A blank or whitespace-only location yields null rather than the prefix
+ * alone, which would state a fact the caller does not have.
+ */
+export function basedInPhrase(
+  location: string | null | undefined
+): string | null {
+  const place = location?.trim()
+  return place ? `based in ${place}` : null
+}
+
+/**
  * Split a bill into the acts at the top and everyone under them.
  *
  * The curated `set_type` is authoritative when it says "headliner";

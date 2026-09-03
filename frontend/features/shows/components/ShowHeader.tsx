@@ -14,7 +14,13 @@ import { ShowBillRecurrence } from './ShowBillRecurrence'
 import { ShowGigTimeline } from './ShowGigTimeline'
 import { flyerImageSrc, sourceVenueName } from './showFlyer'
 import type { TimelineStop } from './showTimelineCopy'
-import { billHometown, byBillPosition, showTimingInput, splitBill } from '../utils'
+import {
+  basedInPhrase,
+  billHometown,
+  byBillPosition,
+  showTimingInput,
+  splitBill,
+} from '../utils'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import type {
   ArtistResponse,
@@ -129,8 +135,8 @@ function BillLabels({
 }
 
 /**
- * Where an act is from, inline after its labels: `Issaquah, WA`,
- * `Melbourne, Australia`.
+ * Where an act is from, inline after its labels: `based in Issaquah, WA`,
+ * `based in Melbourne, Australia`.
  *
  * Delegates to `billHometown` so the bill obeys the same locked display rule as
  * every other surface: country included UNLESS the state is set and the country
@@ -138,9 +144,13 @@ function BillLabels({
  * "Modest Mouse [Epic] Location Unknown" states something the bill was not
  * asked to state.
  *
- * Carries the same kind of screen-reader-only connective as {@link BillLabels}
- * and for the same reason: visually a city sits in its own typographic slot,
- * but read aloud it is one more proper noun unless something says "from".
+ * The `based in` prefix is {@link basedInPhrase}, shared with the listen
+ * module so one act's home city is worded the same twice on one page. It is
+ * VISIBLE copy rather than the screen-reader-only connective {@link BillLabels}
+ * still uses: beside a venue in another city a bare place name reads as where
+ * the show is, and the words that fix that have to be on the screen. Being
+ * visible, they are also what a screen reader announces, so there is no hidden
+ * second connective to disagree with them.
  */
 function BillHometown({
   artist,
@@ -149,14 +159,13 @@ function BillHometown({
   artist: ArtistResponse
   className?: string
 }) {
-  const hometown = billHometown(artist)
+  const hometown = basedInPhrase(billHometown(artist))
   if (!hometown) return null
   return (
     <>
       {' '}
       <span className={cn('font-normal text-muted-foreground', className)}>
-        {/* Space outside the span, for the same reason as BillLabels' "on". */}
-        <span className="sr-only">from</span> {hometown}
+        {hometown}
       </span>
     </>
   )

@@ -490,6 +490,53 @@ describe('ShowCard', () => {
       )
       expect(screen.queryByTestId('music-embed')).not.toBeInTheDocument()
     })
+
+    // The expanded card prints the act's home city right beside the SHOW's
+    // city, which is exactly the ambiguity the words remove. Same formatter as
+    // the show page, so one act reads the same on both.
+    it('prefixes the act home city with "based in"', async () => {
+      const user = userEvent.setup()
+      const show = makeShow({
+        artists: [
+          makeArtist({
+            id: 1,
+            name: 'Band',
+            is_headliner: true,
+            city: 'Tempe',
+            state: 'AZ',
+            socials: { bandcamp: 'https://band.bandcamp.com' },
+          }),
+        ],
+      })
+      render(<ShowCard show={show} isAdmin={false} />)
+
+      await user.click(
+        screen.getByRole('button', { name: /discover artist music/i })
+      )
+      expect(screen.getByText('based in Tempe, AZ')).toBeInTheDocument()
+    })
+
+    it('prints nothing for an act with no city or state', async () => {
+      const user = userEvent.setup()
+      const show = makeShow({
+        artists: [
+          makeArtist({
+            id: 1,
+            name: 'Band',
+            is_headliner: true,
+            city: '',
+            state: '',
+            socials: { bandcamp: 'https://band.bandcamp.com' },
+          }),
+        ],
+      })
+      render(<ShowCard show={show} isAdmin={false} />)
+
+      await user.click(
+        screen.getByRole('button', { name: /discover artist music/i })
+      )
+      expect(screen.queryByText(/based in/)).not.toBeInTheDocument()
+    })
   })
 
   describe('the clock is withheld on a guessed zone', () => {
