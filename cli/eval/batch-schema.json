@@ -74,6 +74,10 @@
         "state": { "type": "string", "minLength": 1 },
         "title": { "type": "string" },
         "price": { "type": ["number", "string"] },
+        "door_price": {
+          "type": ["number", "string"],
+          "description": "Price at the door. Present ONLY when the source states a separate door / day-of-show price alongside the advance price in `price`; never derived from `price`."
+        },
         "ticket_url": { "type": "string", "pattern": "^https?://" },
         "artists": {
           "type": "array",
@@ -83,7 +87,12 @@
             "required": ["name"],
             "properties": {
               "name": { "type": "string", "minLength": 1 },
-              "is_headliner": { "type": "boolean" }
+              "is_headliner": { "type": "boolean" },
+              "set_type": {
+                "type": "string",
+                "enum": ["headliner", "direct_support", "opener", "special_guest", "dj", "performer"],
+                "description": "Curated bill role. OMIT when the source does not state this act's slot; an absent key is the only way to record that the slot is unknown."
+              }
             },
             "additionalProperties": true
           }

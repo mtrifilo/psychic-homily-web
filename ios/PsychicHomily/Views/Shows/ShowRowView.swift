@@ -22,7 +22,7 @@ struct ShowRowView: View {
                     StatusBadge.soldOut()
                 } else if show.isCancelled == true {
                     StatusBadge.cancelled()
-                } else if show.price == 0 {
+                } else if show.isFree {
                     StatusBadge.free()
                 }
             }
@@ -53,11 +53,15 @@ struct ShowRowView: View {
 
                 Spacer()
 
-                if let priceText = show.priceText, show.price != 0 {
+                // Suppressed for a free show, whose only price the badge row
+                // above already carries. A show priced 0 at advance and $25 at
+                // the door is not free and still prints both numbers.
+                if let priceText = show.priceText, !show.isFree {
                     Text(priceText)
                         .font(.caption)
                         .fontWeight(.medium)
                         .foregroundStyle(.phSecondary)
+                        .accessibilityLabel(show.priceAccessibilityLabel ?? priceText)
                 }
 
                 if let time = show.formattedTime.isEmpty ? nil : show.formattedTime {

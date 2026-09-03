@@ -72,7 +72,9 @@ type Show struct {
 	// Frontend: lib/utils/showPrice.ts (or the ShowPrice component, which also
 	// carries the accessible reading of the pair). Backend:
 	// internal/services/shared.ShowPriceText — the SERVICES shared package, not
-	// api/handlers/shared. Reading the advance half by itself is not a smaller
+	// api/handlers/shared. iOS: Show.statedPrices in
+	// ios/PsychicHomily/Models/Show.swift. Reading the advance half by itself
+	// is not a smaller
 	// version of the truth, it is a wrong number about money: a reader who
 	// budgets $35 for a $40 door was misinformed by the site, not merely
 	// under-informed.
@@ -84,11 +86,9 @@ type Show struct {
 	// the frontend), and the data-quality "missing price" report, which asks
 	// whether the site knows the cost AT ALL and so accepts either column.
 	//
-	// STILL UNSWEPT, and deliberately out of PSY-1962's scope rather than
-	// forgotten: the `ph` CLI and the iOS client carry no DoorPrice at all, the
-	// dev-seed exemplars never produce a split price, and a discovery re-scrape
-	// discards an extracted door price. All four are PSY-1864 leftovers on
-	// non-web clients; follow-ups are filed rather than folded in here.
+	// STILL UNSWEPT on non-web clients: the dev-seed exemplars never produce a
+	// split price, and a discovery re-scrape discards an extracted door price.
+	// The `ph` CLI and the iOS client do carry the pair.
 	Price          *float64
 	DoorPrice      *float64 `gorm:"column:door_price"`
 	AgeRequirement *string

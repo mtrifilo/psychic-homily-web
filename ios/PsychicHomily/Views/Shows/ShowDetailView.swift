@@ -40,7 +40,7 @@ struct ShowDetailView: View {
                         HStack(spacing: 8) {
                             if show.isSoldOut == true { StatusBadge.soldOut() }
                             if show.isCancelled == true { StatusBadge.cancelled() }
-                            if show.price == 0 { StatusBadge.free() }
+                            if show.isFree { StatusBadge.free() }
                         }
                         .padding(.horizontal)
 
@@ -137,7 +137,7 @@ struct ShowDetailView: View {
                             Text("Details")
                                 .font(.headline)
 
-                            if let priceText = show.priceText {
+                            if let priceText = show.detailPriceText {
                                 Label(priceText, systemImage: "dollarsign.circle")
                                     .font(.subheadline)
                             }

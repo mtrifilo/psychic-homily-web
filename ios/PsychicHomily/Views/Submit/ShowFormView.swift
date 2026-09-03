@@ -7,6 +7,7 @@ struct ShowFormView: View {
     @State private var eventDate = ""
     @State private var eventTime = ""
     @State private var cost = ""
+    @State private var doorCost = ""
     @State private var ageRequirement = ""
     @State private var description = ""
     @State private var isSubmitting = false
@@ -91,6 +92,13 @@ struct ShowFormView: View {
                             .multilineTextAlignment(.trailing)
                     }
 
+                    // The advance/door split is OPT-IN. Left blank the show
+                    // records no door price at all.
+                    LabeledContent("Door Price") {
+                        TextField("only if it differs", text: $doorCost)
+                            .multilineTextAlignment(.trailing)
+                    }
+
                     LabeledContent("Ages") {
                         TextField("e.g. 21+", text: $ageRequirement)
                             .multilineTextAlignment(.trailing)
@@ -140,6 +148,7 @@ struct ShowFormView: View {
                 eventDate = extractedData.date ?? ""
                 eventTime = extractedData.time ?? ""
                 cost = extractedData.cost ?? ""
+                doorCost = extractedData.doorCost ?? ""
                 ageRequirement = extractedData.ages ?? ""
                 description = extractedData.description ?? ""
             }
@@ -175,8 +184,11 @@ struct ShowFormView: View {
             }
         }
 
-        // Parse price from cost string
-        let price = parsePrice(cost)
+        // Parse prices from the two cost strings. They are read independently:
+        // a blank door field means the show states no door price, never that it
+        // matches the advance price.
+        let price = ShowFormView.parsePrice(cost)
+        let doorPrice = ShowFormView.parsePrice(doorCost)
 
         // Build request body
         var body: [String: Any] = [
@@ -186,7 +198,8 @@ struct ShowFormView: View {
             "artists": artistSubmissions,
             "venues": venueSubmissions,
         ]
-        if price > 0 { body["price"] = price }
+        if let price { body["price"] = price }
+        if let doorPrice { body["door_price"] = doorPrice }
         if !ageRequirement.isEmpty { body["age_requirement"] = ageRequirement }
         if !description.isEmpty { body["description"] = description }
 
@@ -203,11 +216,24 @@ struct ShowFormView: View {
         isSubmitting = false
     }
 
-    private func parsePrice(_ text: String) -> Double {
+    /// The amount a price field states, or nil when it states none.
+    ///
+    /// Optional rather than zero: zero is a price the site prints as "Free", so
+    /// a field holding "0" has to stay distinguishable from an empty one. The
+    /// word "Free" is what the extractor emits for a free show, so it parses to
+    /// that same zero.
+    ///
+    /// Only FINITE values pass. `Double("nan")` and `Double("inf")` succeed,
+    /// and JSONSerialization raises an Objective-C exception on a non-finite
+    /// number that no Swift `catch` can take.
+    static func parsePrice(_ text: String) -> Double? {
         let cleaned = text.replacingOccurrences(of: "$", with: "")
             .replacingOccurrences(of: ",", with: "")
             .trimmingCharacters(in: .whitespaces)
-        return Double(cleaned) ?? 0
+        if cleaned.isEmpty { return nil }
+        if cleaned.caseInsensitiveCompare("free") == .orderedSame { return 0 }
+        guard let amount = Double(cleaned), amount.isFinite else { return nil }
+        return amount
     }
 }
 

@@ -26,8 +26,16 @@ struct ExtractedShowData: Codable, Sendable {
     let date: String?
     let time: String?
     let cost: String?
+    /// The door price, present only when the source stated one separately from
+    /// `cost`. The extractor never derives it from a single stated price.
+    let doorCost: String?
     let ages: String?
     let description: String?
+
+    enum CodingKeys: String, CodingKey {
+        case artists, venue, date, time, cost, ages, description
+        case doorCost = "door_cost"
+    }
 }
 
 struct ExtractedArtist: Codable, Identifiable, Sendable {
