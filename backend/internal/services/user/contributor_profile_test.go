@@ -2180,9 +2180,9 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 // AN AUDIT ACTION WITH NO DISPOSITION IS REFUSED, not judged against whichever
 // table the last branch happens to name.
 //
-// contributionCollectionActions is hand-maintained against the writers in
-// handlers/community/collection.go. A twelfth writer added without an entry
-// here withholds its rows, which is recoverable and loud on a profile page; the
+// contributionCollectionActions is hand-maintained against the four writers the
+// map's own doc names, not against collection.go alone. A writer added without an
+// entry here withholds its rows, which is recoverable and loud on a profile page; the
 // alternative reads the row's entity_id as a collections id and publishes the
 // parent slug of whatever collection shares that number.
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_UndispositionedCollectionActionIsRefused() {
@@ -2387,4 +2387,86 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	suite.EqualValues(len(own), ownTotal)
 	suite.Len(own, 2,
 		"the author sees both real legacy rows and neither the unresolvable one")
+}
+
+// A ROW WHOSE PARENT COULD NOT BE RESOLVED AT WRITE TIME IS STILL LISTED.
+//
+// resolveCollectionIDForAudit answers 0 when the lookup fails, and 0 matches no
+// collection. Stamped as `"collection_id": 0` such a row passes none of the three
+// arms — the item is gone, id 0 resolves to nothing, and the key being PRESENT
+// blocks the legacy slug arm — so it would be withheld from everyone including
+// its own author on a public collection. The writer omits the key instead, which
+// is what puts the row in the slug arm; this pins the outcome rather than the
+// spelling.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_UnresolvedParentRowsAreStillListed() {
+	actor := suite.createTestUser("zeroparentactor")
+	stranger := suite.createTestUser("zeroparentstranger")
+
+	openColl := suite.createCollectionForHistory(actor.ID, "Zero Parent Open", "zero-parent-open", true)
+
+	item := suite.createCollectionItemForHistory(openColl.ID, actor.ID)
+	itemID := item.ID
+	suite.Require().NoError(suite.db.Delete(&communitym.CollectionItem{}, itemID).Error)
+	// The shape collectionItemAuditMetadata produces when the parent resolve
+	// fails: the slug, and no collection_id key at all.
+	suite.auditLog.LogAction(actor.ID, "remove_collection_item", "collection", itemID,
+		map[string]interface{}{"slug": openColl.Slug})
+
+	entries, total, err := suite.profileService.GetContributionHistory(
+		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: stranger.ID})
+	suite.Require().NoError(err)
+	suite.EqualValues(len(entries), total)
+	suite.Require().Len(entries, 1, "an unresolved-parent row on a public collection stays listed")
+
+	// The ZERO SENTINEL is what the writer must never produce: seeded directly,
+	// it is withheld, and that is the failure this arrangement exists to avoid.
+	suite.auditLog.LogAction(actor.ID, "remove_collection_item", "collection", itemID+1,
+		map[string]interface{}{"slug": openColl.Slug, "collection_id": 0})
+	withZero, _, err := suite.profileService.GetContributionHistory(
+		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: actor.ID})
+	suite.Require().NoError(err)
+	suite.Len(withZero, 1,
+		"a row stamped with the zero sentinel passes no arm, which is why the writer omits the key")
+}
+
+// THE HEATMAP AND THE TIMELINE ANSWER FOR THE SAME ROWS. Both routes are
+// anonymous and both read audit_logs for the same actor, so a day the heatmap
+// counts while the timeline withholds locates a private collection to the day it
+// was touched, and differencing the two reports how many actions were taken on
+// it.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatmap_WithholdsPrivateCollectionDays() {
+	actor := suite.createTestUser("heatmapactor")
+	stranger := suite.createTestUser("heatmapstranger")
+
+	openColl := suite.createCollectionForHistory(actor.ID, "Heatmap Open", "heatmap-open", true)
+	shutColl := suite.createCollectionForHistory(actor.ID, "Heatmap Shut", "heatmap-shut", false)
+	suite.auditLog.LogAction(actor.ID, "create_collection", "collection", openColl.ID,
+		map[string]interface{}{"slug": openColl.Slug})
+	suite.auditLog.LogAction(actor.ID, "create_collection", "collection", shutColl.ID,
+		map[string]interface{}{"slug": shutColl.Slug})
+
+	dayTotal := func(viewer contracts.ShowViewer) int {
+		heatmap, err := suite.profileService.GetActivityHeatmap(actor.ID, viewer)
+		suite.Require().NoError(err)
+		total := 0
+		for _, d := range heatmap.Days {
+			total += d.Count
+		}
+		return total
+	}
+
+	strangerDays := dayTotal(contracts.ShowViewer{UserID: stranger.ID})
+	anonDays := dayTotal(contracts.ShowViewer{})
+	ownerDays := dayTotal(contracts.ShowViewer{UserID: actor.ID})
+
+	suite.Equal(1, strangerDays, "a stranger counts only the public collection's action")
+	suite.Equal(1, anonDays, "and so does an anonymous caller")
+	suite.Equal(2, ownerDays, "the creator counts both, which is the control")
+
+	// The TIMELINE agrees, which is the property that closes the subtraction.
+	entries, _, err := suite.profileService.GetContributionHistory(
+		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: stranger.ID})
+	suite.Require().NoError(err)
+	suite.Equal(len(entries), strangerDays,
+		"the heatmap and the timeline must count the same rows for the same viewer")
 }

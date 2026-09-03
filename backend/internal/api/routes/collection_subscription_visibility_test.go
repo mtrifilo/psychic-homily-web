@@ -782,3 +782,112 @@ func TestCollectionOwnerWritesRefuseLikeAMissingCollection(t *testing.T) {
 		}
 	})
 }
+
+// THE COMMENT-ID WRITES ANSWER LIKE THE COMMENT-ID READS.
+//
+// Editing, deleting and changing the reply permission on a comment all refuse a
+// non-author with a forbidden. Beside the reads' not-found that forbidden is
+// itself an answer: it says a comment exists at this id and its parent is hidden.
+// Comment ids are dense and sequential, so the pair is walkable into a map of
+// the discussion on every private collection.
+func TestCommentWritesRefuseAGatedParentLikeAMissingComment(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	td := testutil.SetupTestPostgres(t)
+	defer td.Cleanup()
+
+	cfg := testConfig()
+	sc := services.NewServiceContainer(td.DB, cfg)
+	router := chi.NewRouter()
+	SetupRoutes(router, sc, cfg)
+
+	creator := testhelpers.CreateUserWithTier(td.DB, "trusted_contributor")
+	author := testhelpers.CreateUserWithTier(td.DB, "trusted_contributor")
+	stranger := testhelpers.CreateTestUser(td.DB)
+	admin := testhelpers.CreateAdminUser(td.DB)
+
+	// PUBLIC while the comment is written, so the fixture exists at all; the flip
+	// is the repro.
+	gated := testhelpers.CreateCollection(t, td.DB, creator.ID,
+		"Discussion I Stopped Sharing", "discussion-i-stopped-sharing", true)
+	seeder := newCommentSeeder(td.DB)
+	commentID := seedEntityComment(t, seeder, author.ID, "collection", gated.ID,
+		"the pressing with the misprinted label")
+
+	testhelpers.SetCollectionPublic(t, td.DB, gated.ID, false)
+
+	const absentCommentID = 99999999
+	strangerToken := mintToken(t, sc, stranger)
+	authorToken := mintToken(t, sc, author)
+	adminToken := mintToken(t, sc, admin)
+
+	writes := []struct {
+		name   string
+		method string
+		path   func(id uint) string
+		body   []byte
+	}{
+		{
+			"edit the comment", http.MethodPut,
+			func(id uint) string { return fmt.Sprintf("/comments/%d", id) },
+			[]byte(`{"body":"a stranger should not be able to write this"}`),
+		},
+		{
+			"change the reply permission", http.MethodPut,
+			func(id uint) string { return fmt.Sprintf("/comments/%d/reply-permission", id) },
+			[]byte(`{"permission":"nobody"}`),
+		},
+		{
+			"delete the comment", http.MethodDelete,
+			func(id uint) string { return fmt.Sprintf("/comments/%d", id) },
+			nil,
+		},
+	}
+
+	for _, w := range writes {
+		w := w
+		t.Run(w.name, func(t *testing.T) {
+			// THE AUTHOR is the caller that makes this about the parent rather
+			// than about authorship: they own the comment, so the only thing that
+			// may refuse them is the gate.
+			for _, c := range []struct {
+				name  string
+				token string
+			}{
+				{"the comment's own author", authorToken},
+				{"a stranger", strangerToken},
+			} {
+				gatedCode, gatedBody := doRequest(t, router, w.method, w.path(commentID), c.token, w.body)
+				if gatedCode < 400 {
+					t.Fatalf("%s could %s on a comment whose parent is private: %d; body: %s",
+						c.name, w.name, gatedCode, gatedBody)
+				}
+				absentCode, absentBody := doRequest(t, router, w.method, w.path(absentCommentID), c.token, w.body)
+
+				gatedNorm := elideEntityID(string(gatedBody), commentID)
+				absentNorm := elideEntityID(string(absentBody), absentCommentID)
+				if gatedCode != absentCode || !sameErrorMessage([]byte(gatedNorm), []byte(absentNorm)) {
+					t.Errorf("%s answers %d/%s for a gated parent but %d/%s for a comment id nobody "+
+						"has used, as %s — the difference is the leak",
+						w.name, gatedCode, gatedNorm, absentCode, absentNorm, c.name)
+				}
+				if strings.Contains(string(gatedBody), gated.Title) {
+					t.Errorf("%s published the private collection's title: %s", w.name, gatedBody)
+				}
+			}
+		})
+	}
+
+	// AN ADMIN KEEPS THE DELETE, and only the delete. Removing a comment is the
+	// remedy the pending-comment moderation queue reaches, and that queue serves
+	// an admin every pending comment's body whatever its parent.
+	if code, body := doRequest(t, router, http.MethodPut, fmt.Sprintf("/comments/%d", commentID),
+		adminToken, []byte(`{"body":"an admin is not the author"}`)); code < 400 {
+		t.Errorf("an admin edited a comment on a private collection: %d; body: %s", code, body)
+	}
+	if code, body := doRequest(t, router, http.MethodDelete, fmt.Sprintf("/comments/%d", commentID),
+		adminToken, nil); code >= 400 {
+		t.Errorf("an admin was refused the moderation delete on a gated parent: %d; body: %s", code, body)
+	}
+}

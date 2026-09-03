@@ -1616,9 +1616,23 @@ func (suite *CollectionServiceIntegrationTestSuite) TestMarkVisited_Success() {
 	suite.Require().NotNil(subscriber.LastVisitedAt)
 }
 
-func (suite *CollectionServiceIntegrationTestSuite) TestMarkVisited_CollectionNotFound() {
-	err := suite.collectionService.MarkVisited("nonexistent-slug", 1)
-	suite.Require().Error(err)
+// MARKING A VISIT NEVER REPORTS WHETHER THE SLUG EXISTS. It writes only to the
+// caller's own subscription row and deletes by subquery, so an unused slug and a
+// private collection's guessable name answer alike.
+func (suite *CollectionServiceIntegrationTestSuite) TestMarkVisited_UnusedSlugAnswersSuccess() {
+	creator := suite.createTestUser("MarkVisitedOracleOwner")
+	stranger := suite.createTestUser("MarkVisitedStranger")
+	shut := suite.createBasicCollection(creator, "Mark Visited Shut")
+
+	suite.Require().NoError(suite.collectionService.MarkVisited("nonexistent-slug", stranger.ID))
+	suite.Require().NoError(suite.collectionService.MarkVisited(shut.Slug, stranger.ID))
+
+	// And nothing was written for a caller with no subscription row, which is
+	// what makes the successes above about the answer rather than about a write.
+	var touched int64
+	suite.Require().NoError(suite.db.Table("collection_subscribers").
+		Where("user_id = ?", stranger.ID).Count(&touched).Error)
+	suite.Zero(touched)
 }
 
 // =============================================================================

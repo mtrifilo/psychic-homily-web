@@ -101,6 +101,10 @@ func (suite *LeaderboardServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM revisions")
 	_, _ = sqlDB.Exec("DELETE FROM entity_tags")
 	_, _ = sqlDB.Exec("DELETE FROM tags")
+	// Collections outlive a test otherwise, and the tags dimension now decides
+	// rows against them: a leftover public collection would keep a previous
+	// test's tag row counting.
+	_, _ = sqlDB.Exec("DELETE FROM collections")
 	_, _ = sqlDB.Exec("DELETE FROM requests")
 	_, _ = sqlDB.Exec("DELETE FROM show_artists")
 	_, _ = sqlDB.Exec("DELETE FROM show_venues")
@@ -250,6 +254,8 @@ func (suite *LeaderboardServiceIntegrationTestSuite) TestGetLeaderboard_VenueDim
 func (suite *LeaderboardServiceIntegrationTestSuite) TestGetLeaderboard_TagsDimension() {
 	alice := suite.createTestUser("alice-tags")
 
+	// ARTIST tags: an always-visible type, so both count. The gated types are
+	// the sibling test's business.
 	suite.createTag(alice.ID)
 	suite.createTag(alice.ID)
 
@@ -258,6 +264,82 @@ func (suite *LeaderboardServiceIntegrationTestSuite) TestGetLeaderboard_TagsDime
 	suite.Require().Len(entries, 1)
 	suite.Equal("alice-tags", entries[0].Username)
 	suite.Equal(int64(2), entries[0].Count)
+}
+
+// A PUBLIC RANKING IS ONE SHARED NUMBER. The tags dimension is anonymous and
+// per-named-user, so counting a tag applied to a private collection or a
+// non-approved show reports that person's hidden entities as a position.
+func (suite *LeaderboardServiceIntegrationTestSuite) TestGetLeaderboard_TagsDimensionCountsOnlyPublicEntities() {
+	alice := suite.createTestUser("alice-gated-tags")
+
+	// One tag on a public collection, one on a private one, one on a collection
+	// that no longer exists. Only the first may count.
+	openColl := suite.createLeaderboardCollection(alice.ID, "Leaderboard Open", true)
+	shutColl := suite.createLeaderboardCollection(alice.ID, "Leaderboard Shut", false)
+	suite.createTagOn(alice.ID, "collection", openColl.ID)
+	suite.createTagOn(alice.ID, "collection", shutColl.ID)
+	suite.createTagOn(alice.ID, "collection", 987654321)
+
+	entries, err := suite.leaderboardService.GetLeaderboard("tags", "all_time", 25)
+	suite.Require().NoError(err)
+	suite.Require().Len(entries, 1)
+	suite.Equal("alice-gated-tags", entries[0].Username)
+	suite.Equal(int64(1), entries[0].Count,
+		"only the tag on the public collection counts")
+
+	// Flipping the private one public moves the rank, which is what makes the
+	// assertion above about the gate rather than about a broken join.
+	suite.Require().NoError(suite.db.Model(&communitym.Collection{}).
+		Where("id = ?", shutColl.ID).Update("is_public", true).Error)
+	reopened, err := suite.leaderboardService.GetLeaderboard("tags", "all_time", 25)
+	suite.Require().NoError(err)
+	suite.Require().Len(reopened, 1)
+	suite.Equal(int64(2), reopened[0].Count)
+}
+
+// An entity_tags row naming a type nobody dispositioned counts for nobody, which
+// is the registry's fail-closed default reaching the ranking.
+func (suite *LeaderboardServiceIntegrationTestSuite) TestGetLeaderboard_TagsDimensionRefusesAnUnregisteredType() {
+	alice := suite.createTestUser("alice-unregistered-tags")
+	suite.createTagOn(alice.ID, "widget", 1)
+
+	entries, err := suite.leaderboardService.GetLeaderboard("tags", "all_time", 25)
+	suite.Require().NoError(err)
+	suite.Empty(entries, "a tag on an undispositioned entity type ranks nobody")
+}
+
+func (suite *LeaderboardServiceIntegrationTestSuite) createLeaderboardCollection(creatorID uint, title string, isPublic bool) *communitym.Collection {
+	c := &communitym.Collection{
+		Title:     title,
+		Slug:      fmt.Sprintf("%s-%d", title, time.Now().UnixNano()),
+		CreatorID: creatorID,
+		IsPublic:  true,
+	}
+	suite.Require().NoError(suite.db.Create(c).Error)
+	if !isPublic {
+		// GORM omits a false boolean on Create, so the flag is written through a
+		// map and read back; a fixture that stayed public would make the
+		// assertions above pass for the wrong reason.
+		suite.Require().NoError(suite.db.Model(c).Update("is_public", false).Error)
+		var got bool
+		suite.Require().NoError(suite.db.Model(&communitym.Collection{}).
+			Where("id = ?", c.ID).Select("is_public").Scan(&got).Error)
+		suite.Require().False(got)
+		c.IsPublic = false
+	}
+	return c
+}
+
+func (suite *LeaderboardServiceIntegrationTestSuite) createTagOn(addedByUserID uint, entityType string, entityID uint) {
+	name := fmt.Sprintf("tag-%d", time.Now().UnixNano())
+	tag := &catalogm.Tag{Name: name, Slug: name, Category: "genre"}
+	suite.Require().NoError(suite.db.Create(tag).Error)
+	suite.Require().NoError(suite.db.Create(&catalogm.EntityTag{
+		TagID:         tag.ID,
+		EntityType:    entityType,
+		EntityID:      entityID,
+		AddedByUserID: addedByUserID,
+	}).Error)
 }
 
 func (suite *LeaderboardServiceIntegrationTestSuite) TestGetLeaderboard_EditsDimension() {

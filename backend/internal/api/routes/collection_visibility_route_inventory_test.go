@@ -26,12 +26,21 @@ import (
 // collection_subscription_visibility_test.go's job and the service suites'.
 //
 // KNOWN LIMIT: it matches on PATH SHAPE, so it sees only routes that carry a
-// collection slug or id in the path. Routes addressed by the CALLER
-// (/auth/collections, /auth/collections/contains), by a sub-resource id
-// (/comments/{id}), or by a tag (/tags/{id}/entities) reach collections and are
-// invisible here; so is every background job. Those are decided in SQL by
-// services/shared's spellings, and the spellings-agree suites are what keep them
-// in step.
+// collection slug or id in the path. Three families reach collections and are
+// invisible here, and they are NOT all kept in step the same way:
+//
+//   - Addressed by the CALLER (/auth/collections, /auth/collections/contains) or
+//     by a tag (/tags/{id}/entities), plus every background job: decided in SQL
+//     by services/shared's spellings, and the spellings-agree suites are what
+//     keep them in step.
+//   - Addressed by a SUB-RESOURCE id (/comments/{id} and its thread, replies,
+//     votes, edit, delete and reply-permission routes): decided in GO, by
+//     separate EntitySubResourceVisible calls in handlers/engagement. No
+//     inventory walks that family, so a new comment-id route can ship ungated
+//     with nothing here failing. Extending this guard to drive off the HANDLER
+//     set rather than the path shape is what would close it.
+//
+// Neither gap is theoretical: both produced findings on this branch.
 
 // collectionRouteDisposition records why a collection-addressable operation is
 // safe.
@@ -72,6 +81,27 @@ const (
 	// Recorded rather than omitted so widening the allowlist has to come here.
 	collectionNotAddressable
 )
+
+// String names a disposition so a failing test reads as a name rather than as an
+// integer whose meaning depends on the declaration order above, for the reason
+// entityVisibilityRule.String gives in services/shared.
+func (d collectionRouteDisposition) String() string {
+	switch d {
+	case collectionGated:
+		return "collectionGated"
+	case collectionCreatorOnly:
+		return "collectionCreatorOnly"
+	case collectionAdminModeration:
+		return "collectionAdminModeration"
+	case collectionSelfScoped:
+		return "collectionSelfScoped"
+	case collectionAdminOnly:
+		return "collectionAdminOnly"
+	case collectionNotAddressable:
+		return "collectionNotAddressable"
+	}
+	return "unknown collectionRouteDisposition"
+}
 
 // collectionAddressableRoutes is the whole inventory, keyed by "METHOD pattern"
 // as chi reports it. A route missing from this map fails the test, and adding
@@ -152,7 +182,13 @@ var collectionAddressableRoutes = map[string]collectionRouteDisposition{
 	"PUT /collections/{slug}/items/reorder":      collectionCreatorOnly,
 	"PUT /crates/{slug}/items/reorder":           collectionCreatorOnly,
 
-	// Admin.
+	// Admin, and it reaches a PRIVATE collection: SetFeatured applies no
+	// visibility test. It publishes nothing (empty response, and the chart
+	// surfaces filter is_public), so what it leaves is a 200-vs-404 slug oracle
+	// bounded to the admin group. Named in
+	// services/shared/collection_visibility.go rather than closed, because
+	// whether an admin may pre-feature an unpublished collection is a product
+	// question.
 	"PUT /collections/{slug}/feature": collectionAdminOnly,
 	"PUT /crates/{slug}/feature":      collectionAdminOnly,
 

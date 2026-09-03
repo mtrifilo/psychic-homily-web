@@ -1959,24 +1959,20 @@ func (s *CollectionService) buildLikeResponse(collectionID uint, userID uint) (*
 	}, nil
 }
 
-// MarkVisited updates the last_visited_at timestamp for a subscriber
+// MarkVisited updates the last_visited_at timestamp for a subscriber.
+//
+// IT ANSWERS THE SAME WHATEVER THE SLUG NAMES, on Unsubscribe's reasoning and by
+// the same subquery: it writes only to the caller's OWN subscription row, so
+// resolving the slug first would buy nothing and would report whether a
+// guessable slug is taken.
 func (s *CollectionService) MarkVisited(slug string, userID uint) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
 	}
 
-	var collection communitym.Collection
-	err := s.db.Where("slug = ?", slug).First(&collection).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return apperrors.ErrCollectionNotFound(slug)
-		}
-		return fmt.Errorf("failed to get collection: %w", err)
-	}
-
 	now := time.Now()
 	result := s.db.Model(&communitym.CollectionSubscriber{}).
-		Where("collection_id = ? AND user_id = ?", collection.ID, userID).
+		Where("collection_id IN (SELECT id FROM collections WHERE slug = ?) AND user_id = ?", slug, userID).
 		Update("last_visited_at", now)
 	if result.Error != nil {
 		return fmt.Errorf("failed to mark collection visited: %w", result.Error)
@@ -2480,6 +2476,15 @@ func (s *CollectionService) SetFeatured(slug string, featured bool, actorID uint
 		return fmt.Errorf("failed to get collection: %w", err)
 	}
 
+	// NO VISIBILITY TEST, and this is the third admin write that reaches a private
+	// collection. It publishes nothing: the response is empty, and both
+	// charts_featured_collection.go surfaces filter `is_public = true`, so a
+	// featured private collection appears nowhere until its creator publishes it.
+	// What an admin gets is a 200 where an unused slug gets a 404, which is a
+	// slug-existence oracle bounded to the admin group. Recorded here and in
+	// services/shared/collection_visibility.go rather than closed, because
+	// whether an admin may pre-feature an unpublished collection is a product
+	// question and the suite currently encodes that they may.
 	var actor *uint
 	if actorID != 0 {
 		actor = &actorID

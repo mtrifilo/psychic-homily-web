@@ -57,12 +57,19 @@ import (
 //     an admin can flip a reported collection public or remove it. Those two are
 //     the remedies the report queue exists to reach: a queue that showed an
 //     admin the report while every remedy refused them is a queue they cannot
-//     act on. They are moderation powers on moderated routes. The rule this file
-//     states is about the tiers a NON-admin surface answers for, and adding an
-//     admin tier here would extend those powers to the watching list, the inbox,
-//     the item writes and the comment fan-out, which is not what moderation
-//     trust was granted for. Every collection write that is NOT one of those two
-//     refuses an admin a private collection.
+//     act on. They are moderation powers on moderated routes.
+//     PUT /collections/{slug}/feature reaches one too, and it is listed here
+//     because the code does not test visibility rather than because it needs to:
+//     it publishes nothing (empty response, and both featured-collection chart
+//     surfaces filter `is_public = true`), so what it leaves is a 200-vs-404 slug
+//     oracle bounded to the admin group. Whether an admin may pre-feature an
+//     unpublished collection is a product question, and the suite encodes today
+//     that they may.
+//     The rule this file states is about the tiers a NON-admin surface answers
+//     for, and adding an admin tier here would extend those powers to the
+//     watching list, the inbox, the item writes and the comment fan-out, which is
+//     not what moderation trust was granted for. Every collection write outside
+//     the routes named above refuses an admin a private collection.
 //
 //     This propagates. VisibleCommentEntitySQL cannot take the admin
 //     short-circuit its show-only predecessor took, and the notification

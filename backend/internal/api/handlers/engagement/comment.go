@@ -255,6 +255,37 @@ type GetThreadResponse struct {
 	}
 }
 
+// refuseAsMissingComment is the answer the comment-id writes give for a comment
+// whose parent the caller may not see: the service's own not-found error, so a
+// gated parent and a comment id nobody has used are one response.
+func refuseAsMissingComment() error {
+	if mapped := shared.MapCommentError(apperrors.ErrCommentNotFound()); mapped != nil {
+		return mapped
+	}
+	return huma.Error404NotFound("Comment not found")
+}
+
+// writeParentVisible reports whether the caller may see the entity comment
+// commentID hangs off.
+//
+// The comment-id WRITES need this for the same reason the reads and the votes
+// do, and needing it is not obvious: each of them refuses a non-author with a
+// forbidden, and a forbidden beside the reads' not-found is itself the answer
+// "this id exists and its parent is hidden". Comment ids are dense and
+// sequential, so that pair is walkable. Gated after the load, because the
+// comment is what names its entity.
+func (h *CommentHandler) writeParentVisible(ctx context.Context, commentID uint) bool {
+	if h.reader == nil {
+		return false
+	}
+	comment, err := h.reader.GetComment(commentID)
+	if err != nil || comment == nil {
+		return false
+	}
+	return shared.EntitySubResourceVisible(
+		h.showVisibility, comment.EntityType, comment.EntityID, middleware.GetShowViewerFromContext(ctx))
+}
+
 // GetThreadHandler handles GET /comments/{comment_id}/thread
 func (h *CommentHandler) GetThreadHandler(ctx context.Context, req *GetThreadRequest) (*GetThreadResponse, error) {
 	commentID, err := strconv.ParseUint(req.CommentID, 10, 32)
@@ -512,6 +543,10 @@ func (h *CommentHandler) UpdateCommentHandler(ctx context.Context, req *UpdateCo
 		return nil, huma.Error400BadRequest("Comment body is required")
 	}
 
+	if !h.writeParentVisible(ctx, uint(commentID)) {
+		return nil, refuseAsMissingComment()
+	}
+
 	serviceReq := &contracts.UpdateCommentRequest{
 		Body:           req.Body.Body,
 		StructuredData: req.Body.StructuredData,
@@ -582,6 +617,10 @@ func (h *CommentHandler) UpdateReplyPermissionHandler(ctx context.Context, req *
 		return nil, huma.Error400BadRequest(shared.InvalidReplyPermissionMessage)
 	}
 
+	if !h.writeParentVisible(ctx, uint(commentID)) {
+		return nil, refuseAsMissingComment()
+	}
+
 	comment, err := h.writer.UpdateReplyPermission(user.ID, uint(commentID), perm)
 	if err != nil {
 		if mapped := shared.MapCommentError(err); mapped != nil {
@@ -623,6 +662,15 @@ func (h *CommentHandler) DeleteCommentHandler(ctx context.Context, req *DeleteCo
 	commentID, err := strconv.ParseUint(req.CommentID, 10, 32)
 	if err != nil {
 		return nil, huma.Error400BadRequest("Invalid comment ID")
+	}
+
+	// An ADMIN keeps this route on a gated parent. Removing a comment is the
+	// remedy the pending-comment moderation queue reaches, and that queue serves
+	// an admin every pending comment's body whatever its parent, so refusing the
+	// remedy would leave them a queue they cannot act on. Every other caller is
+	// answered as a missing comment.
+	if !user.IsAdmin && !h.writeParentVisible(ctx, uint(commentID)) {
+		return nil, refuseAsMissingComment()
 	}
 
 	err = h.writer.DeleteComment(user.ID, uint(commentID), user.IsAdmin)

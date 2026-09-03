@@ -88,10 +88,10 @@ func (s *TagService) CreateTag(name string, description *string, parentID *uint,
 // Parent and Children.
 //
 // Applied on the read paths that feed a response body, so no handler has to
-// remember: what a caller reads off a tag is the visible count, and the raw
-// column is reached only by ORDER BY and by the low-quality queue's thresholds.
-// See services/shared/tag_usage.go for what the number means and why the two
-// exceptions are safe.
+// remember: what a caller reads off a tag is the visible count.
+// services/shared/tag_usage.go is the single home for what the number means and
+// for the enumeration of the places that still read the raw column; this comment
+// deliberately does not restate that list.
 //
 // A tag with no visible rows counts zero, which is a missing key in the map.
 func (s *TagService) applyVisibleUsageCounts(tags []*catalogm.Tag) error {
@@ -278,14 +278,17 @@ func (s *TagService) ListTags(category string, search string, parentID *uint, so
 
 	// The GLOBAL count, on the same terms the per-entity-type count above is
 	// already gated: the ORDER BY above ranked on the raw column, and what the
-	// caller reads is the visible count. Re-sorted for the same reason the
-	// entity-scoped branch re-sorts, so the order a caller sees matches the
-	// numbers beside it.
+	// caller reads is the visible count.
+	//
+	// NOT RE-SORTED, unlike the entity-scoped branch. That branch re-sorts a page
+	// whose ordering key it has just replaced wholesale; here the SQL ORDER BY is
+	// what chose WHICH rows this page holds, so re-sorting them would order the
+	// page by one key and select it by another — a tag would sit at the bottom of
+	// page 1 while a higher-counting tag sat on page 2. The listing is ordered by
+	// raw popularity and the numbers beside it are the visible counts; see
+	// services/shared/tag_usage.go, which names that as the trade.
 	if err := s.applyVisibleUsageCounts(tagPointers(tags)); err != nil {
 		return nil, 0, fmt.Errorf("failed to compute visible tag usage counts: %w", err)
-	}
-	if sort == "" || sort == "usage" {
-		sortTagsByUsageDesc(tags)
 	}
 
 	return tags, total, nil
@@ -1169,6 +1172,12 @@ func (s *TagService) GetTrendingTags(limit int, category string) ([]catalogm.Tag
 	var tags []catalogm.Tag
 	if err := query.Order("usage_count DESC").Limit(limit).Find(&tags).Error; err != nil {
 		return nil, fmt.Errorf("failed to get trending tags: %w", err)
+	}
+
+	// The count a caller reads is the visible one, as on every other tag read.
+	// The ORDER BY above still ranks on the raw column.
+	if err := s.applyVisibleUsageCounts(tagPointers(tags)); err != nil {
+		return nil, fmt.Errorf("failed to compute visible tag usage counts: %w", err)
 	}
 
 	return tags, nil

@@ -409,3 +409,77 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUnsubscribe_IsNotASlugEx
 		Count(&remaining).Error)
 	suite.Zero(remaining)
 }
+
+// A PRIVATE FORK IS A PRIVATE COLLECTION, so counting it reports that somebody
+// cloned this one and hid the result. The count is public-tier on the detail
+// route and on the batched listings alike.
+func (suite *CollectionServiceIntegrationTestSuite) TestForksCount_CountsOnlyPublicForks() {
+	creator := suite.createTestUser("forkcountcreator")
+	forker := suite.createTestUser("forkcountforker")
+
+	source := suite.createPublicCollection(creator, "Fork Count Source")
+	clone, err := suite.collectionService.CloneCollection(source.Slug, forker.ID)
+	suite.Require().NoError(err)
+
+	detail, err := suite.collectionService.GetBySlug(source.Slug, 0)
+	suite.Require().NoError(err)
+	suite.Require().Equal(1, detail.ForksCount, "the control: a public fork counts")
+
+	listed, _, err := suite.collectionService.GetUserPublicCollections(creator.ID, 50, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(listed, 1)
+	suite.Require().Equal(1, listed[0].ForksCount, "the batched listing agrees")
+
+	// The fork goes private. It is still a fork; it is no longer a public one.
+	suite.Require().NoError(suite.db.Table("collections").
+		Where("id = ?", clone.ID).Update("is_public", false).Error)
+
+	afterDetail, err := suite.collectionService.GetBySlug(source.Slug, 0)
+	suite.Require().NoError(err)
+	suite.Equal(0, afterDetail.ForksCount, "a private fork is not counted on the detail route")
+
+	afterListed, _, err := suite.collectionService.GetUserPublicCollections(creator.ID, 50, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(afterListed, 1)
+	suite.Equal(0, afterListed[0].ForksCount, "nor in the batched listing")
+
+	// Even for the source's own creator: this is a public signal, and a count
+	// that varied by credential would report the difference.
+	asCreator, err := suite.collectionService.GetBySlug(source.Slug, creator.ID)
+	suite.Require().NoError(err)
+	suite.Equal(0, asCreator.ForksCount)
+}
+
+// THE TAG CHIPS ON A COLLECTION CARD CARRY THE SAME usage_count the tag pages
+// publish. Left on the raw column they would differ by exactly the gated
+// entities carrying the tag, and the difference is that count.
+func (suite *CollectionServiceIntegrationTestSuite) TestCollectionTagSummaries_CarryTheVisibleUsageCount() {
+	creator := suite.createTestUser("chipcreator")
+
+	open, err := suite.collectionService.CreateCollection(creator.ID, &contracts.CreateCollectionRequest{
+		Title:    "Chip Open",
+		IsPublic: true,
+	})
+	suite.Require().NoError(err)
+	shut := suite.createBasicCollection(creator, "Chip Shut")
+
+	const tagName = "chip-usage-count"
+	for _, slug := range []string{open.Slug, shut.Slug} {
+		_, err := suite.collectionService.AddTagToCollection(slug, creator.ID,
+			&contracts.AddCollectionTagRequest{TagName: tagName})
+		suite.Require().NoError(err)
+	}
+
+	// The raw column counts both, which is the disclosure the chip must not carry.
+	var rawColumn int
+	suite.Require().NoError(suite.db.Table("tags").
+		Where("name = ?", tagName).Select("usage_count").Scan(&rawColumn).Error)
+	suite.Require().Equal(2, rawColumn)
+
+	listed, _, err := suite.collectionService.GetUserPublicCollections(creator.ID, 50, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(listed, 1, "only the public collection is listed")
+	suite.Require().Len(listed[0].Tags, 1)
+	suite.Equal(1, listed[0].Tags[0].UsageCount,
+		"the chip reports the visible count, not the denormalised column")
+}

@@ -648,6 +648,7 @@ func TestUpdateComment_EmptyBody(t *testing.T) {
 
 func TestUpdateComment_NotFound(t *testing.T) {
 	mock := &testhelpers.MockCommentService{
+		GetCommentFn: writeGateParent,
 		UpdateCommentFn: func(userID uint, commentID uint, req *contracts.UpdateCommentRequest) (*contracts.CommentResponse, error) {
 			return nil, apperrors.ErrCommentNotFound()
 		},
@@ -661,6 +662,7 @@ func TestUpdateComment_NotFound(t *testing.T) {
 
 func TestUpdateComment_ForbiddenNotAuthor(t *testing.T) {
 	mock := &testhelpers.MockCommentService{
+		GetCommentFn: writeGateParent,
 		UpdateCommentFn: func(userID uint, commentID uint, req *contracts.UpdateCommentRequest) (*contracts.CommentResponse, error) {
 			return nil, apperrors.ErrCommentForbidden("only the comment author can edit this comment")
 		},
@@ -678,6 +680,7 @@ func TestUpdateComment_Success(t *testing.T) {
 	updated.IsEdited = true
 	updated.EditCount = 1
 	mock := &testhelpers.MockCommentService{
+		GetCommentFn: writeGateParent,
 		UpdateCommentFn: func(userID uint, commentID uint, req *contracts.UpdateCommentRequest) (*contracts.CommentResponse, error) {
 			if userID != 10 {
 				t.Errorf("expected userID=10, got %d", userID)
@@ -724,6 +727,7 @@ func TestDeleteComment_InvalidID(t *testing.T) {
 
 func TestDeleteComment_NotFound(t *testing.T) {
 	mock := &testhelpers.MockCommentService{
+		GetCommentFn: writeGateParent,
 		DeleteCommentFn: func(userID uint, commentID uint, isAdmin bool) error {
 			return apperrors.ErrCommentNotFound()
 		},
@@ -735,6 +739,7 @@ func TestDeleteComment_NotFound(t *testing.T) {
 
 func TestDeleteComment_ForbiddenNotAuthorOrAdmin(t *testing.T) {
 	mock := &testhelpers.MockCommentService{
+		GetCommentFn: writeGateParent,
 		DeleteCommentFn: func(userID uint, commentID uint, isAdmin bool) error {
 			return apperrors.ErrCommentForbidden("only the comment author or an admin can delete this comment")
 		},
@@ -746,6 +751,7 @@ func TestDeleteComment_ForbiddenNotAuthorOrAdmin(t *testing.T) {
 
 func TestDeleteComment_SuccessOwn(t *testing.T) {
 	mock := &testhelpers.MockCommentService{
+		GetCommentFn: writeGateParent,
 		DeleteCommentFn: func(userID uint, commentID uint, isAdmin bool) error {
 			if userID != 10 {
 				t.Errorf("expected userID=10, got %d", userID)
@@ -768,6 +774,7 @@ func TestDeleteComment_SuccessOwn(t *testing.T) {
 
 func TestDeleteComment_SuccessAdmin(t *testing.T) {
 	mock := &testhelpers.MockCommentService{
+		GetCommentFn: writeGateParent,
 		DeleteCommentFn: func(userID uint, commentID uint, isAdmin bool) error {
 			if !isAdmin {
 				t.Error("expected isAdmin=true for admin delete")
@@ -784,6 +791,7 @@ func TestDeleteComment_SuccessAdmin(t *testing.T) {
 
 func TestDeleteComment_ServiceError(t *testing.T) {
 	mock := &testhelpers.MockCommentService{
+		GetCommentFn: writeGateParent,
 		DeleteCommentFn: func(userID uint, commentID uint, isAdmin bool) error {
 			return fmt.Errorf("database error")
 		},
@@ -828,6 +836,7 @@ func TestUpdateReplyPermission_EmptyPermission(t *testing.T) {
 // short-circuit before the service is called.
 func TestUpdateReplyPermission_InvalidEnum(t *testing.T) {
 	mock := &testhelpers.MockCommentService{
+		GetCommentFn: writeGateParent,
 		UpdateReplyPermissionFn: func(userID, commentID uint, permission string) (*contracts.CommentResponse, error) {
 			t.Fatalf("service must not be invoked for invalid enum value; got call with permission=%q", permission)
 			return nil, nil
@@ -842,6 +851,7 @@ func TestUpdateReplyPermission_InvalidEnum(t *testing.T) {
 
 func TestUpdateReplyPermission_Forbidden(t *testing.T) {
 	mock := &testhelpers.MockCommentService{
+		GetCommentFn: writeGateParent,
 		UpdateReplyPermissionFn: func(userID, commentID uint, permission string) (*contracts.CommentResponse, error) {
 			return nil, apperrors.ErrCommentForbidden("only the comment author can change reply permission")
 		},
@@ -855,6 +865,7 @@ func TestUpdateReplyPermission_Forbidden(t *testing.T) {
 
 func TestUpdateReplyPermission_NotFound(t *testing.T) {
 	mock := &testhelpers.MockCommentService{
+		GetCommentFn: writeGateParent,
 		UpdateReplyPermissionFn: func(userID, commentID uint, permission string) (*contracts.CommentResponse, error) {
 			return nil, apperrors.ErrCommentNotFound()
 		},
@@ -870,6 +881,7 @@ func TestUpdateReplyPermission_Success(t *testing.T) {
 	updated := makeCommentResponse(1, "show", 5, 10)
 	updated.ReplyPermission = "followers"
 	mock := &testhelpers.MockCommentService{
+		GetCommentFn: writeGateParent,
 		UpdateReplyPermissionFn: func(userID, commentID uint, permission string) (*contracts.CommentResponse, error) {
 			if userID != 10 {
 				t.Errorf("expected userID=10, got %d", userID)
@@ -905,6 +917,7 @@ func TestUpdateReplyPermission_AcceptsAllValidEnumValues(t *testing.T) {
 			updated := makeCommentResponse(1, "show", 5, 10)
 			updated.ReplyPermission = perm
 			mock := &testhelpers.MockCommentService{
+				GetCommentFn: writeGateParent,
 				UpdateReplyPermissionFn: func(userID, commentID uint, permission string) (*contracts.CommentResponse, error) {
 					if permission != perm {
 						t.Errorf("expected permission=%q, got %q", perm, permission)
@@ -964,4 +977,14 @@ func TestCreateReply_FollowersOnlyRejected(t *testing.T) {
 	req.Body.Body = "trying to reply"
 	_, err := h.CreateReplyHandler(commentUserCtx(), req)
 	testhelpers.AssertHumaError(t, err, 403)
+}
+
+// writeGateParent resolves the comment the three comment-id WRITES decide their
+// parent from. Those routes refuse a comment whose parent the caller may not
+// see, and they answer the service's own not-found for it, so a mock that
+// resolved nothing would refuse every write and every assertion below would pass
+// for the wrong reason. The parent is a show, which testhelpers.AllShowsVisible
+// grants.
+func writeGateParent(commentID uint) (*contracts.CommentResponse, error) {
+	return makeCommentResponse(commentID, "show", 5, 10), nil
 }

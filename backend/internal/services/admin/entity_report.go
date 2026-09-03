@@ -71,11 +71,13 @@ func (s *EntityReportService) CreateEntityReport(req *contracts.CreateEntityRepo
 	// whoever guesses its id. A collection the reporter may not see answers
 	// exactly as one that does not exist.
 	//
-	// A COLLECTION is the only reportable type with a read-time rule of its own
-	// today. shows have one too, and their report route stays on the deferred
-	// list because refusing a report on a gated show would remove the only way
-	// the submitter can report their own withdrawn show; that trade does not
-	// arise for collections, whose creator is the one person who can see them.
+	// A COLLECTION is the only reportable type gated HERE. Shows have a read-time
+	// rule of their own and are deliberately not gated on this route: refusing a
+	// report on a gated show would remove the only way a submitter can report
+	// their own withdrawn show. That trade does not arise for collections, whose
+	// creator is the one person who can see them. Any OTHER reportable type that
+	// gains a read-time rule needs a case here rather than the default branch,
+	// which probes existence and nothing else.
 	//
 	// A COMMENT is decided by its PARENT, because that is where the rule lives
 	// and because the response resolves a comment's name as the first 60

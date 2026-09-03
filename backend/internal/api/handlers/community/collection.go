@@ -44,6 +44,21 @@ func NewCollectionHandler(
 // slug (PSY-1502). Handlers whose mutation service methods expose only the slug
 // use this to stamp the real entity_id. Returns 0 (and logs a warning) when the
 // lookup fails so audit logging stays best-effort and never blocks the request.
+//
+// A ZERO MUST NOT BE STAMPED. The contributions timeline decides an item row by
+// the recorded parent id, falls back to the recorded slug only when the key is
+// ABSENT, and matches no collection for id 0 — so a row carrying `"collection_id": 0`
+// passes none of the three arms and is withheld from everyone, including its own
+// author on a public collection. Callers use collectionItemAuditMetadata, which
+// omits the key rather than writing the sentinel.
+func collectionItemAuditMetadata(slug string, collectionID uint) map[string]interface{} {
+	metadata := map[string]interface{}{"slug": slug}
+	if collectionID != 0 {
+		metadata["collection_id"] = collectionID
+	}
+	return metadata
+}
+
 func (h *CollectionHandler) resolveCollectionIDForAudit(ctx context.Context, slug, action string) uint {
 	collectionID, err := h.collectionService.ResolveIDBySlug(slug)
 	if err != nil {
@@ -467,16 +482,16 @@ func (h *CollectionHandler) AddItemHandler(ctx context.Context, req *AddItemHand
 	// Audit log (fire and forget). collection_id is the DURABLE parent
 	// reference: entity_id on this row is the ITEM's id, and items are
 	// hard-deleted, so nothing else on the row survives to decide it against
-	// once the item is gone.
+	// once the item is gone. The key is omitted when the parent cannot be
+	// resolved, so the row falls back to being decided by its slug rather than
+	// by a zero that matches nothing.
 	if h.auditLogService != nil {
 		collectionID := h.resolveCollectionIDForAudit(ctx, req.Slug, "add_collection_item")
 		servicesshared.GoSafe(ctx, "audit_log", func() {
-			h.auditLogService.LogAction(user.ID, "add_collection_item", "collection", item.ID, map[string]interface{}{
-				"slug":          req.Slug,
-				"collection_id": collectionID,
-				"entity_type":   req.Body.EntityType,
-				"entity_id":     req.Body.EntityID,
-			})
+			metadata := collectionItemAuditMetadata(req.Slug, collectionID)
+			metadata["entity_type"] = req.Body.EntityType
+			metadata["entity_id"] = req.Body.EntityID
+			h.auditLogService.LogAction(user.ID, "add_collection_item", "collection", item.ID, metadata)
 		})
 	}
 
@@ -623,10 +638,8 @@ func (h *CollectionHandler) UpdateItemHandler(ctx context.Context, req *UpdateIt
 	if h.auditLogService != nil {
 		collectionID := h.resolveCollectionIDForAudit(ctx, req.Slug, "update_collection_item")
 		servicesshared.GoSafe(ctx, "audit_log", func() {
-			h.auditLogService.LogAction(user.ID, "update_collection_item", "collection", item.ID, map[string]interface{}{
-				"slug":          req.Slug,
-				"collection_id": collectionID,
-			})
+			h.auditLogService.LogAction(user.ID, "update_collection_item", "collection", item.ID,
+				collectionItemAuditMetadata(req.Slug, collectionID))
 		})
 	}
 
@@ -677,14 +690,13 @@ func (h *CollectionHandler) RemoveItemHandler(ctx context.Context, req *RemoveIt
 	// Audit log (fire and forget). collection_id is the DURABLE parent
 	// reference: entity_id on this row is the item's id and the item has just
 	// been hard-deleted, so nothing else on the row survives to decide it
-	// against. Resolved from the slug, which the service has already accepted.
+	// against. Resolved from the slug, which the service has already accepted,
+	// and omitted rather than stamped as zero when that resolve fails.
 	if h.auditLogService != nil {
 		collectionID := h.resolveCollectionIDForAudit(ctx, req.Slug, "remove_collection_item")
 		servicesshared.GoSafe(ctx, "audit_log", func() {
-			h.auditLogService.LogAction(user.ID, "remove_collection_item", "collection", uint(itemID), map[string]interface{}{
-				"slug":          req.Slug,
-				"collection_id": collectionID,
-			})
+			h.auditLogService.LogAction(user.ID, "remove_collection_item", "collection", uint(itemID),
+				collectionItemAuditMetadata(req.Slug, collectionID))
 		})
 	}
 

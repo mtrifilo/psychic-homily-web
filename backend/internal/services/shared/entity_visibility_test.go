@@ -1,6 +1,8 @@
 package shared_test
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
@@ -165,5 +167,42 @@ func TestCollectionGatesAgreeAcrossSpellings(t *testing.T) {
 		if got := countUsersMatching(t, td.DB, stranger.ID, fanSQL, fanArgs); (got > 0) != c.want {
 			t.Errorf("the fan-out gate on %s matched %d recipients, want visible=%v", c.name, got, c.want)
 		}
+	}
+}
+
+// THE PUBLIC ARMS BIND NOTHING, and that is their contract rather than an
+// observation. The leaderboard splices this condition into a subquery assembled
+// by concatenation whose placeholders are counted at a distance, so one stray
+// `?` would shift every argument after it and bind a user id into a status
+// comparison.
+func TestPublicEntityTypeArmsSQLBindsNothing(t *testing.T) {
+	sql := shared.PublicEntityTypeArmsSQL("entity_tags.entity_type", "entity_tags.entity_id")
+	if strings.Contains(sql, "?") {
+		t.Errorf("the public arms emitted a placeholder, which shifts every bind after it: %s", sql)
+	}
+	// It still judges both gated types rather than collapsing to a tautology.
+	for _, want := range []string{"shows", "collections", "is_public", "entity_tags.entity_type IN ("} {
+		if !strings.Contains(sql, want) {
+			t.Errorf("the public arms are missing %q, so they are not the rule they claim: %s", want, sql)
+		}
+	}
+}
+
+// The public tier and the anonymous bound tier are the SAME RULE. If they ever
+// disagree, a ranking and a listing decide one row two ways.
+func TestPublicEntityTypeArmsMatchTheAnonymousBoundForm(t *testing.T) {
+	bound, args := shared.VisibleCommentEntitySQL("e.entity_type", "e.entity_id", contracts.ShowViewer{})
+	public := shared.PublicEntityTypeArmsSQL("e.entity_type", "e.entity_id")
+
+	// The bound form binds the show status; the public form inlines it. Render
+	// the bound one with its arguments substituted and the two must be the same
+	// statement.
+	rendered := bound
+	for _, a := range args {
+		rendered = strings.Replace(rendered, "?", fmt.Sprintf("'%v'", a), 1)
+	}
+	if rendered != public {
+		t.Errorf("the public tier and the anonymous bound tier are different statements:\n bound:  %s\n public: %s",
+			rendered, public)
 	}
 }

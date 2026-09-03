@@ -613,6 +613,77 @@ func isCollectionItemAction(action string) bool {
 // viewer may not see; they are removed rather than the row being withheld.
 var contributionCloneSourceKeys = []string{"source_slug", "source_id"}
 
+// contributionCloneAction is the audit action that writes the keys above. Read
+// from the disposition map's own key rather than spelled again, so an action
+// rename cannot leave the scrub matching nothing.
+const contributionCloneAction = "clone_collection"
+
+// contributionVisibilitySQL returns the condition that decides ONE row of an
+// audit-shaped result against viewer, plus its bind arguments.
+//
+// The timeline's gate, extracted so the ACTIVITY HEATMAP applies the same one.
+// Both routes are anonymous and both read audit_logs for the same actor, so a
+// heatmap that counted a day the timeline withholds would locate a private
+// collection to the day it was touched, and differencing the two recovers how
+// many actions were taken on it. One condition, one home, no drift.
+//
+// alias is the table or subquery alias holding action, entity_type, entity_id
+// and metadata, and is a literal in the calling code.
+//
+// One arm per entity type that has a read-time rule: contributionShowEntityTypes
+// are the two discriminators a show row can carry, and "collection" is the third.
+// Anything else passes.
+//
+// The collection arm reads entity_id TWO WAYS because the audit writers store two
+// kinds of id under that discriminator, and contributionCollectionActions is the
+// disposition of each. The CASE picks per row, so neither family is judged
+// against the other's table, and an action with NO disposition answers FALSE
+// rather than falling into whichever branch is written last.
+//
+// Parentheses written out rather than left to the driver: the binding this pins
+// is `(not a show OR visible) AND (not a collection OR visible)`, never a form
+// where a trailing AND binds inside one of the ORs, which would publish every
+// gated row.
+//
+// Placeholders bind by POSITION, so the arguments are appended in statement
+// order.
+func contributionVisibilitySQL(alias string, viewer contracts.ShowViewer) (string, []interface{}) {
+	entityIDExpr := alias + ".entity_id"
+	parentIDExpr := alias + ".metadata->>'collection_id'"
+	legacySlugExpr := alias + ".metadata->>'slug'"
+
+	visibleShows, visibleShowsArgs := shared.VisibleShowExistsSQL(entityIDExpr, viewer)
+	visibleItemParents, visibleItemParentArgs := shared.VisibleCollectionItemExistsSQL(entityIDExpr, viewer)
+	visibleByParentID, visibleByParentIDArgs := shared.VisibleCollectionTextIDExistsSQL(parentIDExpr, viewer)
+	visibleByLegacySlug, visibleByLegacySlugArgs := shared.VisibleCollectionSlugExistsSQL(legacySlugExpr, viewer)
+	visibleCollections, visibleCollectionArgs := shared.VisibleCollectionExistsSQL(entityIDExpr, viewer)
+
+	cond := fmt.Sprintf(
+		"(%s.entity_type NOT IN ? OR %s)"+
+			" AND (%s.entity_type <> ?"+
+			" OR (CASE WHEN %s.action IN ? THEN (%s OR %s"+
+			" OR (%s IS NULL AND %s))"+
+			" WHEN %s.action IN ? THEN %s"+
+			" ELSE FALSE END))",
+		alias, visibleShows,
+		alias,
+		alias, visibleItemParents, visibleByParentID,
+		parentIDExpr, visibleByLegacySlug,
+		alias, visibleCollections)
+
+	var args []interface{}
+	args = append(args, contributionShowEntityTypes)
+	args = append(args, visibleShowsArgs...)
+	args = append(args, contributionCollectionEntityType)
+	args = append(args, contributionCollectionActionsOfKind(collectionIDIsItem))
+	args = append(args, visibleItemParentArgs...)
+	args = append(args, visibleByParentIDArgs...)
+	args = append(args, visibleByLegacySlugArgs...)
+	args = append(args, contributionCollectionActionsOfKind(collectionIDIsCollection))
+	args = append(args, visibleCollectionArgs...)
+	return cond, args
+}
+
 // GetContributionHistory returns a paginated, unified contribution timeline for
 // a user, containing only what the caller in viewer is allowed to see.
 //
@@ -678,9 +749,11 @@ func (s *ContributorProfileService) GetContributionHistory(userID uint, limit, o
 	// never reissued, so that reference stays true.
 	//
 	// A THIRD ARM CARRIES THE ROWS THAT RECORD NO collection_id, and it is keyed
-	// on the metadata SLUG. Those rows are frozen: the writers record an id now,
-	// so `collection_id IS NULL` selects exactly the rows written before they
-	// did, and no new one can enter that arm. Without it every such row whose
+	// on the metadata SLUG. `collection_id IS NULL` selects the rows written
+	// before the writers recorded an id, plus the ones whose parent could not be
+	// resolved at write time — collectionItemAuditMetadata omits the key rather
+	// than stamping a zero, precisely so those land here instead of passing no
+	// arm at all. Without this arm every such row whose
 	// item has since been removed — which is every remove_collection_item row
 	// ever written, the item being deleted by definition — is withheld from its
 	// own author on a public collection, and from the total as well as the page.
@@ -695,30 +768,9 @@ func (s *ContributorProfileService) GetContributionHistory(userID uint, limit, o
 	//
 	// Placeholders bind by POSITION, so the arguments below are appended in
 	// statement order.
-	visibleShows, visibleShowsArgs := shared.VisibleShowExistsSQL("unified.entity_id", viewer)
-	visibleItemParents, visibleItemParentArgs := shared.VisibleCollectionItemExistsSQL("unified.entity_id", viewer)
-	visibleByParentID, visibleByParentIDArgs := shared.VisibleCollectionTextIDExistsSQL(
-		"unified.metadata->>'collection_id'", viewer)
-	visibleByLegacySlug, visibleByLegacySlugArgs := shared.VisibleCollectionSlugExistsSQL(
-		"unified.metadata->>'slug'", viewer)
-	visibleCollections, visibleCollectionArgs := shared.VisibleCollectionExistsSQL("unified.entity_id", viewer)
-	entityFilter := fmt.Sprintf(
-		" WHERE (unified.entity_type NOT IN ? OR %s)"+
-			" AND (unified.entity_type <> ?"+
-			" OR (CASE WHEN unified.action IN ? THEN (%s OR %s"+
-			" OR (unified.metadata->>'collection_id' IS NULL AND %s))"+
-			" WHEN unified.action IN ? THEN %s"+
-			" ELSE FALSE END))",
-		visibleShows, visibleItemParents, visibleByParentID, visibleByLegacySlug, visibleCollections)
-	args = append(args, contributionShowEntityTypes)
-	args = append(args, visibleShowsArgs...)
-	args = append(args, contributionCollectionEntityType)
-	args = append(args, contributionCollectionActionsOfKind(collectionIDIsItem))
-	args = append(args, visibleItemParentArgs...)
-	args = append(args, visibleByParentIDArgs...)
-	args = append(args, visibleByLegacySlugArgs...)
-	args = append(args, contributionCollectionActionsOfKind(collectionIDIsCollection))
-	args = append(args, visibleCollectionArgs...)
+	filter, filterArgs := contributionVisibilitySQL("unified", viewer)
+	entityFilter := " WHERE " + filter
+	args = append(args, filterArgs...)
 	if entityType != "" {
 		entityFilter += " AND unified.entity_type = ?"
 		args = append(args, entityType)
@@ -780,7 +832,7 @@ func (s *ContributorProfileService) GetContributionHistory(userID uint, limit, o
 func (s *ContributorProfileService) scrubCloneSourceMetadata(entries []*contracts.ContributionEntry, viewer contracts.ShowViewer) {
 	sourceIDs := make([]uint, 0)
 	for _, e := range entries {
-		if e.Metadata == nil {
+		if e.Metadata == nil || e.Action != contributionCloneAction {
 			continue
 		}
 		if id, ok := metadataUint(e.Metadata["source_id"]); ok {
@@ -805,7 +857,11 @@ func (s *ContributorProfileService) scrubCloneSourceMetadata(entries []*contract
 	}
 
 	for _, e := range entries {
-		if e.Metadata == nil {
+		// SCOPED TO THE ACTION THIS FUNCTION IS ABOUT. These two keys mean "the
+		// collection that was forked" on a clone_collection row and nothing at
+		// all elsewhere, so an unscoped delete would silently strip them from a
+		// future writer that used either name for something else.
+		if e.Metadata == nil || e.Action != contributionCloneAction {
 			continue
 		}
 		id, ok := metadataUint(e.Metadata["source_id"])
@@ -844,14 +900,18 @@ func metadataUint(v interface{}) (uint, bool) {
 // is a public number, and a day this route counts while the contributions
 // timeline does not is a hidden show located to the day it was submitted.
 //
-// The audit_logs, pending_entity_edits and entity_edit_audit_logs arms are NOT
-// narrowed. Show-typed audit rows (approve_show, reject_show, create_comment,
-// create_field_note) AND collection-typed ones (every action in
-// contributionCollectionActions) therefore still contribute a day count that the
-// timeline filters, which leaves a coarser version of the same signal open:
-// a hidden show or a private collection located to the day it was touched.
-// Narrowing them is the follow-up this comment exists to name, not something
-// already done.
+// The AUDIT_LOGS arm carries the same condition the contributions timeline
+// applies, from the same builder. Both routes are anonymous and both read
+// audit_logs for the same actor, so an arm that counted a day the timeline
+// withholds would locate a private collection or a gated show to the day it was
+// touched, and differencing the two would report how many actions were taken on
+// it.
+//
+// The pending_entity_edits and entity_edit_audit_logs arms are NOT narrowed, and
+// the reason is that neither can name a gated entity: pending_entity_edits and
+// entity_edit_audit_logs carry catalog entity types (artist, venue, release,
+// label, festival), none of which has a read-time rule. A collection or show
+// discriminator appearing in either is what would make this claim false.
 func (s *ContributorProfileService) GetActivityHeatmap(userID uint, viewer contracts.ShowViewer) (*contracts.ActivityHeatmapResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -859,6 +919,7 @@ func (s *ContributorProfileService) GetActivityHeatmap(userID uint, viewer contr
 
 	heatmapShowsVisible, heatmapShowsArgs := shared.VisibleShowPredicateSQL("shows", viewer)
 	heatmapRevisionsVisible, heatmapRevisionsArgs := shared.VisibleShowRevisionsSQL(shared.RevisionsTable, viewer)
+	heatmapAuditVisible, heatmapAuditArgs := contributionVisibilitySQL("audit_logs", viewer)
 
 	query := fmt.Sprintf(`
 		SELECT activity_date, SUM(cnt) AS total_count
@@ -866,6 +927,7 @@ func (s *ContributorProfileService) GetActivityHeatmap(userID uint, viewer contr
 			SELECT DATE(created_at) AS activity_date, COUNT(*) AS cnt
 			FROM audit_logs
 			WHERE actor_id = ? AND created_at >= NOW() - INTERVAL '365 days'
+			  AND %s
 			GROUP BY DATE(created_at)
 
 			UNION ALL
@@ -910,7 +972,7 @@ func (s *ContributorProfileService) GetActivityHeatmap(userID uint, viewer contr
 		) AS combined
 		GROUP BY activity_date
 		ORDER BY activity_date ASC
-	`, heatmapShowsVisible, heatmapRevisionsVisible)
+	`, heatmapAuditVisible, heatmapShowsVisible, heatmapRevisionsVisible)
 
 	type dayRow struct {
 		ActivityDate time.Time `gorm:"column:activity_date"`
@@ -918,10 +980,12 @@ func (s *ContributorProfileService) GetActivityHeatmap(userID uint, viewer contr
 	}
 
 	// Argument order follows the placeholders left to right through the unioned
-	// arms: audit_logs, shows (+ its visibility args), venues,
-	// pending_entity_edits, revisions (+ its visibility args),
+	// arms: audit_logs (+ its visibility args), shows (+ its visibility args),
+	// venues, pending_entity_edits, revisions (+ its visibility args),
 	// entity_edit_audit_logs.
-	heatmapArgs := []interface{}{userID, userID}
+	heatmapArgs := []interface{}{userID}
+	heatmapArgs = append(heatmapArgs, heatmapAuditArgs...)
+	heatmapArgs = append(heatmapArgs, userID)
 	heatmapArgs = append(heatmapArgs, heatmapShowsArgs...)
 	heatmapArgs = append(heatmapArgs, userID, userID, userID)
 	heatmapArgs = append(heatmapArgs, heatmapRevisionsArgs...)

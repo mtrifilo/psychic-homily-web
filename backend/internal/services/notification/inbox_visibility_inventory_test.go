@@ -85,8 +85,9 @@ var inboxEntityTypeDispositions = map[string]inboxEntityDisposition{
 }
 
 func TestEveryInboxEntityTypeHasADisposition(t *testing.T) {
-	// The predicate is built for a non-admin viewer, which is the only tier that
-	// produces real SQL; an admin short-circuits to a constant.
+	// Built for a non-admin viewer because that is the tier whose arms this map
+	// describes. Every tier now produces real SQL: TestInboxPredicateHasNoBlanketAdminBypass
+	// below fails if an admin ever short-circuits to a constant again.
 	sql, _ := inboxRowsVisibleTo("nl", contracts.ShowViewer{UserID: 7})
 
 	for entityType, disposition := range inboxEntityTypeDispositions {

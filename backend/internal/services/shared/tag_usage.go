@@ -12,9 +12,10 @@ import (
 // =============================================================================
 //
 // `tags.usage_count` is a denormalised counter incremented once per entity_tags
-// row, with no visibility term in it. Two of the seven taggable entity types are
-// gated — a show can be unapproved and a collection can be private — so the
-// column counts rows their own listings withhold.
+// row, with no visibility term in it. Some taggable entity types are gated — a
+// show can be unapproved and a collection can be private — so the column counts
+// rows their own listings withhold. Which ones those are is the registry's
+// decision, in entity_visibility.go, not a list repeated here.
 //
 // That matters because the number is rendered BESIDE those listings. A tag page
 // serves the gated membership list, the per-type breakdown and the count in one
@@ -61,6 +62,21 @@ import (
 // literal in the calling code.
 func VisibleEntityTagsSQL(alias string, viewer contracts.ShowViewer) (string, []interface{}) {
 	return VisibleCommentEntitySQL(alias+".entity_type", alias+".entity_id", viewer)
+}
+
+// PublicEntityTagsSQL is VisibleEntityTagsSQL's public tier, inlined so it binds
+// nothing.
+//
+// For a leaderboard or any other shared ranking assembled by concatenation,
+// where the placeholders are counted at a distance and one more `?` would shift
+// every argument after it. It is the same rule for every caller, which is what a
+// public ranking has to be: a rank that counted rows nobody else can see would
+// publish those rows as a position.
+//
+// alias is the table alias the enclosing query binds entity_tags to and is a
+// literal in the calling code.
+func PublicEntityTagsSQL(alias string) string {
+	return PublicEntityTypeArmsSQL(alias+".entity_type", alias+".entity_id")
 }
 
 // VisibleTagUsageCounts returns, per tag id, the number of entity_tags rows

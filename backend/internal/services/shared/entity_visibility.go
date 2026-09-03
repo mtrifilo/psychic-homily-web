@@ -242,12 +242,73 @@ func commentEntityArmFor(entityType, entityTypeExpr, entityIDExpr string, viewer
 	return "(" + entityTypeExpr + " <> '" + entityType + "')", nil
 }
 
+// PublicEntityTypeArmsSQL returns VisibleCommentEntitySQL's condition for an
+// ANONYMOUS reader, inlined so it binds nothing.
+//
+// For a query that cannot carry bind arguments to this position: a subquery
+// assembled by string concatenation whose placeholders are counted elsewhere,
+// where one more `?` would shift every argument after it. It is the same
+// allowlist and the same per-type arms, with each gated type's PUBLIC spelling
+// spliced in place of its viewer-bound one.
+//
+// PUBLIC TIER, and that is the whole contract: it answers for a caller with no
+// credential, so a surface that used it for an authenticated reader would
+// withhold that reader's own rows. Every caller here wants exactly that — a
+// shared number that must not vary by credential.
+//
+// Derived from the registry, like its bound twin, so a type added there reaches
+// this statement without a second edit, and a gated type with no public arm
+// EXCLUDES its rows rather than passing them.
+//
+// Both expressions are SQL the CALLER controls and must be literals in the
+// calling code.
+func PublicEntityTypeArmsSQL(entityTypeExpr, entityIDExpr string) string {
+	if registeredEntityTypeList == "" {
+		return "1 = 0"
+	}
+	conds := []string{entityTypeExpr + " IN (" + registeredEntityTypeList + ")"}
+	for _, entityType := range gatedEntityTypes() {
+		conds = append(conds, publicEntityArmFor(entityType, entityTypeExpr, entityIDExpr))
+	}
+	return "(" + strings.Join(conds, " AND ") + ")"
+}
+
+// publicEntityArmFor returns the ANONYMOUS-reader arm that judges ONE gated
+// entity type, binding nothing.
+//
+// commentEntityArmFor's public twin, and it fails closed on the same terms: a
+// gated rule with no arm here EXCLUDES every row of its type rather than
+// passing it, so a half-added rule withholds.
+func publicEntityArmFor(entityType, entityTypeExpr, entityIDExpr string) string {
+	switch entityVisibilityRules[entityType] {
+	case ruleShow:
+		return commentEntityArmSQL(entityTypeExpr, CommentEntityTypeShow,
+			showExistsSQL(entityIDExpr, PublicShowPredicateSQL(visibleShowsAlias)))
+	case ruleCollection:
+		// The anonymous collection predicate binds nothing already: with no
+		// viewer id there is no creator branch, so it collapses to
+		// `is_public = TRUE`. Read from the same function the bound form uses
+		// rather than written out, so the two cannot drift.
+		inner, args := VisibleCollectionPredicateSQL(visibleCollectionsAlias, contracts.ShowViewer{})
+		if len(args) != 0 {
+			// Unreachable while the anonymous branch stays bind-free. Spelled
+			// out because the failure it prevents is a statement whose
+			// placeholders no longer match its arguments, which is a 500 on
+			// every surface using it at once.
+			return "(" + entityTypeExpr + " <> '" + CommentEntityTypeCollection + "')"
+		}
+		return commentEntityArmSQL(entityTypeExpr, CommentEntityTypeCollection,
+			collectionExistsSQL(entityIDExpr, inner))
+	}
+	return "(" + entityTypeExpr + " <> '" + entityType + "')"
+}
+
 // gatedEntityTypes is the sorted set of registered types that are NOT
 // alwaysVisible — the ones VisibleCommentEntitySQL needs an arm for.
 //
-// Computed per call rather than at init because it is a seven-entry scan behind
-// a database round trip, and a package var would be a second thing to keep in
-// step with the registry.
+// Computed per call rather than at init because it is a scan of a handful of
+// entries behind a database round trip, and a package var would be a second thing
+// to keep in step with the registry.
 func gatedEntityTypes() []string {
 	gated := make([]string, 0, len(entityVisibilityRules))
 	for entityType, rule := range entityVisibilityRules {
