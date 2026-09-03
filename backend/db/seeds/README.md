@@ -51,14 +51,18 @@ realistic per the ticket.
 | Show       | `the-path-tour-exemplar-at-the-rhythm-room-exemplar`   | `/shows/the-path-tour-exemplar-at-the-rhythm-room-exemplar` |
 | Collection | `psychic-homily-staff-picks-exemplar`                  | `/collections/psychic-homily-staff-picks-exemplar`      |
 | Venue (archive) | `chronology-hall-exemplar-phoenix-az`             | `/venues/chronology-hall-exemplar-phoenix-az`           |
+| Show (split price) | `exemplar-advance-door-split`                  | `/shows/exemplar-advance-door-split`                    |
+| Show (door only)   | `exemplar-door-only-price`                     | `/shows/exemplar-door-only-price`                       |
 
 ### What each exemplar exercises
 
 - **Artist** — bio, image, all 8 social links, 6 tags across genre /
-  locale / other, 2 aliases, a label link, a release credit, 3 upcoming
+  locale / other, 2 aliases, a label link, a release credit, 5 upcoming
   + 3 past tracked shows, 4 similar-artist edges, 1 festival appearance
-  (headlines day 1 of the festival exemplar).
-- **Venue** — image, all 8 social links, 6 tags, 3 upcoming + 3 past
+  (headlines day 1 of the festival exemplar). Two of the upcoming shows
+  carry a price shape rather than rich data: see Show (split price) and
+  Show (door only) below.
+- **Venue** — image, all 8 social links, 6 tags, 5 upcoming + 3 past
   shows (via the artist's tracked shows).
 - **Release** — 200+ char description with a paragraph break, cover art,
   5 external links (bandcamp / spotify / apple_music / youtube_music /
@@ -75,6 +79,12 @@ realistic per the ticket.
 - **Show** — description, flyer image, `age_requirement` 21+, ticket
   URL, 6 tags, a 5-act bill with full `set_type` variety (headliner /
   support / opener / dj / host).
+- **Show (split price)** — `price` 20 / `door_price` 25, the pair every
+  list register spells `$20/$25` and the detail page spells
+  `$20 ADV · DOOR $25`. Billed on the artist and venue exemplars.
+- **Show (door only)** — `price` NULL / `door_price` 15, the shape where
+  the door half is the only stated price: a lone number renders bare, and
+  the schema.org Offer falls back to it.
 - **Collection** — description, cover image, 6 tags, 6 items spanning
   every entity type (artist / release / festival / show / venue / label)
   with per-item notes, ranked display mode.
