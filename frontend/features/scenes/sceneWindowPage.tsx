@@ -80,8 +80,9 @@ export const getSceneWindow = cache(
     // in Berlin and one in Chicago must be shown the same Chicago weekend.
     //
     // NULL when the backend could not name it. Carried nullable rather than
-    // filled in, because the one consumer of this field is the JSON-LD, where a
-    // fallback zone would compose a UTC offset out of a guess.
+    // filled in, because it reaches the JSON-LD, where a fallback zone would
+    // compose a UTC offset out of a guess. `bucketZone` below is the other
+    // consumer and deliberately does fill it in.
     const timezone = first.timezone
     // The 6am night boundary, mirrored from the backend so this page and
     // `/tonight` cannot disagree about which date "tonight" names.

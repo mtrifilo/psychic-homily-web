@@ -281,7 +281,13 @@ func (s *DiscordService) NotifyShowReport(report *communitym.ShowReport, reporte
 	eventDate := "Unknown Date"
 	if report.Show.ID != 0 {
 		showTitle = report.Show.Title
-		eventDate = report.Show.EventDate.In(utils.EventLocation(nil, derefString(report.Show.State))).Format("Jan 2, 2006")
+		// Date only, so the show row's own state is enough: the report model
+		// carries no venue and a date read on the fallback is still the best
+		// available answer. The layout is the shared one so every Discord post
+		// prints a date the same way.
+		eventDate = report.Show.EventDate.
+			In(utils.EventLocation(nil, derefString(report.Show.State))).
+			Format(discordShowDateLayout)
 	}
 
 	fields := []DiscordEmbedField{

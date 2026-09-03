@@ -20,10 +20,10 @@ import (
 
 const alsoTonightZone = "America/Chicago"
 
-// zoneOf reads a payload's nullable zone for an assertion, mapping a withheld
-// zone to the empty string. A test that expected a name then fails on the
-// comparison instead of panicking on a nil dereference, and one that expects the
-// withholding says so by comparing against the empty string.
+// zoneOf reads a payload's nullable zone for a NAME assertion, mapping a
+// withheld zone to the empty string so the comparison fails instead of panicking
+// on a nil dereference. It cannot tell nil from a literal empty string, so a
+// test asserting the WITHHOLDING asserts Nil on the field itself.
 func zoneOf(zone *string) string {
 	if zone == nil {
 		return ""

@@ -269,7 +269,7 @@ func weekHasEnded(now, end time.Time) bool {
 
 // sceneLocation resolves the timezone a scene's week boundaries are computed
 // in: the most common explicit timezone among its verified venues, falling back
-// to the state map via utils.EventLocation.
+// to the state map, both resolved through shared.EventZone.
 //
 // Modal rather than first-row so one mis-geocoded venue cannot shift the whole
 // city's week. Metro scopes stay within a single zone in practice (a CBSA is

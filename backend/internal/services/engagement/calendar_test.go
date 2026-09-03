@@ -235,6 +235,48 @@ func TestGenerateICSFeed_UnresolvedZoneIsAllDay(t *testing.T) {
 	assert.Contains(t, icsStr, "LAST-MODIFIED:")
 }
 
+// A show with no venue row falls back to the SHOW's own state, the same rung
+// the reminder email, the Discord embed and the timeline entries use. Without
+// it every venue-less show in the archive would go all-day, including the US
+// ones whose hour is perfectly nameable.
+func TestGenerateICSFeed_VenuelessShowFallsBackToItsOwnState(t *testing.T) {
+	chicago, err := time.LoadLocation("America/Chicago")
+	assert.NoError(t, err)
+	eventDate := time.Now().Add(48 * time.Hour)
+
+	feed := func(state *string) string {
+		mockSvc := &mockSavedShowSvc{
+			shows: []*contracts.SavedShowResponse{
+				{
+					ShowResponse: contracts.ShowResponse{
+						ID:        11,
+						Slug:      "venueless-show",
+						Title:     "Venueless Show",
+						EventDate: eventDate,
+						Status:    "approved",
+						State:     state,
+						CreatedAt: time.Now(),
+						UpdatedAt: time.Now(),
+					},
+				},
+			},
+			total: 1,
+		}
+		svc := &CalendarService{db: &gorm.DB{}, savedShowSvc: mockSvc}
+		data, err := svc.GenerateICSFeed(1, "https://psychichomily.com")
+		assert.NoError(t, err)
+		return string(data)
+	}
+
+	il := "IL"
+	assert.Contains(t, feed(&il),
+		"DTSTART;TZID=America/Chicago:"+eventDate.In(chicago).Format("20060102T150405"),
+		"a venue-less Illinois show keeps the hour its state names")
+
+	assert.Contains(t, feed(nil), "DTSTART;VALUE=DATE:",
+		"a show with neither a venue nor a state has no zone to name, so it goes all-day")
+}
+
 func TestGenerateICSFeed_SoldOutLabel(t *testing.T) {
 	mockShows := []*contracts.SavedShowResponse{
 		{

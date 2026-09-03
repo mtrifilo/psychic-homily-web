@@ -282,8 +282,9 @@ export function ShowHeader({
   // pair the date line below is marked on. A trimmed venue-then-show state would
   // differ for a room whose own state is blank while the show row carries one,
   // and there it would leave the spine unmarked under a marked header. `state`
-  // is the place label's second half too, but only for a stop with no room name,
-  // and this stop has `venue_name`.
+  // is also the place label's second half, but only for a stop with no room
+  // name: a venue-less show falls through to `CITY, STATE`, which is why the
+  // city keeps its own trimmed derivation.
   const currentStop: TimelineStop = {
     event_date: show.event_date,
     timezone: timing.timezone ?? null,

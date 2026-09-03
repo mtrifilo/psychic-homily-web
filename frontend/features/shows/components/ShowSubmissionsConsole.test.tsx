@@ -245,7 +245,7 @@ describe('ShowSubmissionsConsole', () => {
     )
   })
 
-  describe('the meta line withholds a clock on a guessed zone', () => {
+  describe('the meta line on a guessed zone', () => {
     // 03:00Z is 8:00 PM the previous day in the fallback zone.
     function zonelessShow() {
       const show = makeShow(1, 'approved')
@@ -276,7 +276,24 @@ describe('ShowSubmissionsConsole', () => {
       expect(screen.getByText(/8:00\s?PM/)).toBeTruthy()
     })
 
-    it('labels the submitted hour, and leaves no doubled bullet, when it does not', () => {
+    // The card reads the zone the way `/shows/{slug}` does: the venue's state
+    // ahead of the show row's. Reading the show row's first would let this card
+    // print a bare hour for a row whose show page withholds one.
+    it('reads the venue state ahead of the show state, as the show page does', () => {
+      const show = zonelessShow()
+      mockUseMySubmissions.mockReturnValue({
+        data: { shows: [{ ...show, state: 'AZ' } as ShowResponse], total: 1 },
+        isLoading: false,
+        error: null,
+      })
+      renderWithProviders(<ShowSubmissionsConsole />)
+
+      expect(screen.getByText(/8:00\s?PM\s+·\s+zone unresolved/)).toBeTruthy()
+      // Not a second, unlabelled copy from the published segment.
+      expect(screen.queryAllByText(/8:00\s?PM/)).toHaveLength(1)
+    })
+
+    it('labels the stored hour for someone who can fix it, with no doubled bullet', () => {
       mockUseMySubmissions.mockReturnValue({
         data: { shows: [zonelessShow()], total: 1 },
         isLoading: false,
@@ -301,10 +318,13 @@ describe('ShowSubmissionsConsole', () => {
       expect(text.replace(/\s|\u00a0/g, '')).not.toContain('\u2022\u2022')
     })
 
+    // The gate is a component-level one, not a boundary: /shows/my-submissions
+    // is JWT-scoped server-side, so a row that is not the viewer's does not
+    // reach this list. It pins the rule the component states rather than a
+    // reachable exposure.
     it('shows a reader nothing when the row is not theirs to fix', () => {
       mockUseAuthContext.mockReturnValue({
-        isAuthenticated: true,
-        isLoading: false,
+        authStatus: 'authenticated',
         user: { id: '99', is_admin: false },
       })
       mockUseMySubmissions.mockReturnValue({
@@ -318,7 +338,7 @@ describe('ShowSubmissionsConsole', () => {
       expect(screen.queryByText(/zone unresolved/)).toBeNull()
     })
 
-    it('keeps the date on a row whose time it withheld', () => {
+    it('keeps the date on a row whose published clock it withheld', () => {
       mockUseMySubmissions.mockReturnValue({
         data: { shows: [zonelessShow()], total: 1 },
         isLoading: false,

@@ -113,7 +113,9 @@ function toMusicEventInput(
  *
  * `sceneTimezone` is null or absent when the payload could not name the scene's
  * zone. It then supplies no fallback, and `startDate` degrades to a bare
- * calendar date rather than composing an offset out of a guess.
+ * calendar date for any row whose own `venue_state` the US map cannot answer
+ * for either. A row carrying a US state still publishes a full offset, because
+ * the state map is a real answer.
  */
 export function sceneShowEvents(
   shows: SceneWeekShow[],

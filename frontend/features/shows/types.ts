@@ -178,11 +178,13 @@ export interface ShowResponse {
  * DERIVED from the generated schema, so a field added on the server arrives
  * here without a hand-edit.
  *
- * `timezone` is a RESOLVED IANA zone, never the venue's raw nullable column:
- * every entry names a different room, so a caller must format each date in its
- * OWN entry's zone rather than the subject show's. Passing this to
- * `formatInTimezone` is the whole contract; `resolveShowTimezone`'s
- * state-then-default fallback has already been applied server-side.
+ * `timezone` is the room's own resolved IANA zone, or NULL when the server
+ * could not name one. Every entry names a different room, so a caller must
+ * format each date in its OWN entry's zone rather than the subject show's, and
+ * must go through `resolveShowTimezone(entry.state, entry.timezone)` rather than
+ * handing the field to `formatInTimezone` directly: `Intl` raises a RangeError
+ * on a null zone. A null also means the date is a guess, which is what
+ * `components/showTimelineCopy.timelineDateLabel` marks.
  *
  * `show_slug` and `venue_slug` can be empty strings. Both columns are nullable
  * and the backend flattens null to "", and neither `/shows/` nor `/venues/` is

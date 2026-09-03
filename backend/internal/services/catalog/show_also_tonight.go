@@ -185,7 +185,7 @@ type alsoTonightSubject struct {
 }
 
 // venueZone is the room's own zone, for the branches with no scene clock to
-// use. Precedence matches utils.EventLocation everywhere else: the venue's
+// use. Precedence matches the shared resolution everywhere else: the venue's
 // explicit IANA zone, then the US state map, then its Arizona default.
 //
 // The column has to be read rather than deriving everything from the state,

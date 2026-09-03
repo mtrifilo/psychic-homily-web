@@ -27,11 +27,12 @@ export interface TimelineStop {
   /** ISO instant. */
   event_date: string
   /**
-   * The IANA zone the stop's room is on, or null when the site cannot name one.
+   * The IANA zone the stop's room is on, or null when the room supplies none.
    *
-   * NULL is a refusal, not a gap: the only zone left is the fallback, and its
-   * reading of the day is what `state` below is for. A stop that arrives null
-   * has its date marked as a guess.
+   * A null does not by itself mean the date is a guess: the date is then read on
+   * `state` through `resolveShowTimezone`, and only a `state` the US map cannot
+   * answer for leaves the label marked. Never hand this field to
+   * `formatInTimezone` directly, because `Intl` raises on a null zone.
    */
   timezone: string | null
   venue_name?: string | null

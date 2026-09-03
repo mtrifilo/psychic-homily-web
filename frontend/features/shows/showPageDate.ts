@@ -22,9 +22,9 @@ import { formatInTimezone } from '@/lib/utils/timeUtils'
  *
  * It does NOT cover every date on `/shows/{slug}`. The bill-recurrence line
  * prints a MONTH, a claim the fallback can only get wrong for a set in a
- * month's last hours, and the also-tonight rail is listing-shaped: its rows are
- * other shows, with no other estimate beside them to read a mark against. Both
- * withhold a CLOCK on the same predicate; neither marks.
+ * month's last hours. The also-tonight rail is listing-shaped: its rows are
+ * other shows, with no other estimate beside them to read a mark against, and
+ * it withholds a CLOCK on the same predicate. Neither marks.
  *
  * Sited here rather than in `lib/utils/formatters` so the list above has a home
  * a reader can find, and so a listing surface does not reach for a marking

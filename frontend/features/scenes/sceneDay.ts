@@ -132,8 +132,9 @@ export function formatPointerDay(
  * bill and venue, which is most of its value.
  *
  * `sceneTimezone` is the zone the BACKEND resolved, and it is NULL when that
- * resolution surrendered to its own fallback, so a scene the site cannot name a
- * zone for reaches the refusal above rather than printing the fallback's hour.
+ * resolution surrendered to its own fallback. The refusal is still decided per
+ * ROW: a null scene zone reaches it only for a row whose own `venue_state` the
+ * US map cannot answer for either, which is the row whose hour would be a guess.
  */
 export function formatShowStartTime(
   show: SceneDayShow,

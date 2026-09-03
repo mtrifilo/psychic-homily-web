@@ -33,9 +33,10 @@ import (
 // exists to catch.
 //
 // Both halves come from ONE call so a caller cannot read a date on one input
-// and decide publishability on another, and so time.LoadLocation runs at most
-// once per row: the explicit zone is loaded here rather than being loaded to
-// build the location and probed again to answer the question.
+// and decide publishability on another, and so a row with a loadable zone costs
+// one time.LoadLocation rather than two: the explicit zone is loaded here and
+// returned, not loaded to build the location and probed again to answer the
+// question. A malformed zone still costs two, one per rung it falls through.
 func EventLocationResolved(timezone *string, stateFallback string) (*time.Location, bool) {
 	if timezone != nil && *timezone != "" {
 		if loc, err := time.LoadLocation(*timezone); err == nil {

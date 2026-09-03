@@ -153,13 +153,17 @@ const STATE_TIMEZONES: Record<string, string> = {
  *   through here, so a zone-less venue east of Phoenix keeps ON SALE and the
  *   ticket bracket live past its own midnight. That function carries the
  *   measured consequence and why gating it is a product decision.
- * - Anything reading a zone the BACKEND already resolved. Several payloads
- *   send `utils.EventLocation(...).String()` rather than the venue's raw
- *   nullable column, and this constant's name does not survive that: the
- *   frontend cannot tell a real Phoenix zone from a surrendered one, so
- *   `isShowTimezoneResolved` answers yes for both.
- * - The Go twin, `backend/internal/utils/timezone.go`, which is the same value
- *   with the same job and feeds the reminder email, the ICS feeds and Discord.
+ * - The `is_tonight` flag on the scene-day and also-tonight payloads, which the
+ *   backend computes on its own copy of this fallback. A client that prints
+ *   TONIGHT is repeating that claim.
+ *
+ * The Go twin lives at `backend/internal/utils/timezone.go`. Its readers ask
+ * `shared.EventLocationResolved` before naming an hour, so the reminder email,
+ * the ICS feeds and Discord withhold on the same rule the three frontend read
+ * paths above do. The four payloads that used to send this constant's name
+ * rather than the venue's nullable column (scene day, scene week, also-tonight,
+ * show timeline) now send a null zone instead, so a surrendered zone is
+ * distinguishable on the wire.
  */
 export const FALLBACK_SHOW_TIMEZONE = 'America/Phoenix'
 

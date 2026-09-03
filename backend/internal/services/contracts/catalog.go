@@ -1766,6 +1766,11 @@ type SceneDayResponse struct {
 	// by the date it BEGAN on (the same 6am broadcast-day boundary the radio
 	// schedule uses). Answered here because it depends on the SCENE's clock,
 	// not the viewer's. It does not widen the day's window — see Shows.
+	//
+	// Computed on the fallback clock when Timezone is NULL, and NOT withheld
+	// there. It is a same-day claim about a DATE, and this payload publishes the
+	// date on that same fallback; withholding one and not the other would leave
+	// a client a date it cannot label.
 	IsTonight bool `json:"is_tonight"`
 	// IsPastDay says the day is over and can no longer gain shows — the only
 	// state in which a client may cache this payload hard.

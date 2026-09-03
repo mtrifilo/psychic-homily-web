@@ -144,7 +144,12 @@ func applyShowEventContent(event *ics.VEvent, show *contracts.ShowResponse, fron
 		location = sanitizeICSText(formatEventLocation(venue.Name, venue.Address, venue.City, venue.State))
 		setVenueLocalEventTimes(event, show.EventDate, defaultShowDuration, venue.Timezone, venue.State)
 	} else {
-		setVenueLocalEventTimes(event, show.EventDate, defaultShowDuration, nil, "")
+		// The show row's own state, not a blank one. It is the same fallback the
+		// reminder email, the Discord embed and the timeline entries read for a
+		// show with no room, and it is the difference between a venue-less
+		// Chicago show keeping its hour and every venue-less show in the archive
+		// going all-day.
+		setVenueLocalEventTimes(event, show.EventDate, defaultShowDuration, nil, showState(show))
 	}
 
 	applyEventSummaryAndStatus(event, show.Title, artistNames, venueName, show.IsCancelled, show.IsSoldOut)
@@ -159,4 +164,13 @@ func applyShowEventContent(event *ics.VEvent, show *contracts.ShowResponse, fron
 	if showURL != "" {
 		event.SetURL(showURL)
 	}
+}
+
+// showState reads a show row's own nullable state as the empty string, which is
+// what the zone precedence takes for "not set".
+func showState(show *contracts.ShowResponse) string {
+	if show.State == nil {
+		return ""
+	}
+	return *show.State
 }

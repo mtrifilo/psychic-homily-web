@@ -3,6 +3,10 @@ package shared
 import (
 	"testing"
 
+	// Embed the IANA tz database so LoadLocation resolves on any CI image,
+	// matching every other timezone-bearing test in this tree.
+	_ "time/tzdata"
+
 	"psychic-homily-backend/internal/utils"
 )
 
