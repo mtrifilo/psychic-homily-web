@@ -44,6 +44,14 @@ func TestParseEventPrices_SourceShapes(t *testing.T) {
 		{"day of show", "$20 / $25 day of show", floatPtr(20), floatPtr(25)},
 		{"non-breaking spaces", "$20\u00a0adv\u00a0/\u00a0$25\u00a0door", floatPtr(20), floatPtr(25)},
 		{"cents on both halves", "$20.00 adv / $25.50 door", floatPtr(20), floatPtr(25.5)},
+
+		// A thousands separator is not a second amount and not a decimal point.
+		// Reading "$1,200" as $1 understates a price a hundredfold, which is
+		// worse than reading none at all.
+		{"thousands separator", "$1,200", floatPtr(1200), nil},
+		{"thousands separator on both halves", "$1,200 adv / $1,500 door", floatPtr(1200), floatPtr(1500)},
+		{"thousands separator with cents", "$1,200.50", floatPtr(1200.5), nil},
+		{"no separator", "$1200", floatPtr(1200), nil},
 		{"space after the sign", "$ 20 adv / $ 25 door", floatPtr(20), floatPtr(25)},
 
 		// Several amounts with no door label are a ticket-tier range, and

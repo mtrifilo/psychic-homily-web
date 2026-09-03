@@ -10,7 +10,11 @@ import (
 // after the sign is deliberate: scraped price text renders "$ 20" often enough
 // to matter, and the sign is what separates an amount from a door time or an
 // age restriction sharing the same string.
-var statedAmount = regexp.MustCompile(`\$\s*(\d{1,6}(?:\.\d{1,2})?)`)
+//
+// The thousands-separated alternative comes FIRST and is not optional grouping:
+// without it "$1,200" matches only "$1", and a hundredfold understatement of a
+// price is worse than reading none at all.
+var statedAmount = regexp.MustCompile(`\$\s*(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d{1,6}(?:\.\d{1,2})?)`)
 
 // doorLabel matches the words a listing uses to mark an amount as the price AT
 // THE DOOR. "doors open at 8" is excluded by the lookalike guard in
@@ -111,9 +115,10 @@ func labelledDoorAmount(s string, amounts [][]int) int {
 	return best
 }
 
-// amountAt reads the capture group of one statedAmount match.
+// amountAt reads the capture group of one statedAmount match. The separators
+// statedAmount admits in a thousands-grouped amount are not part of the number.
 func amountAt(s string, match []int) *float64 {
-	val, err := strconv.ParseFloat(s[match[2]:match[3]], 64)
+	val, err := strconv.ParseFloat(strings.ReplaceAll(s[match[2]:match[3]], ",", ""), 64)
 	if err != nil {
 		return nil
 	}
