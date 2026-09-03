@@ -28,11 +28,13 @@ import (
 // these are locked".
 //
 // KNOWN LIMIT, stated so nobody reads this as an exhaustive sweep: it matches on
-// PATH SHAPE, so it sees only routes that carry a show id in the path. THREE
-// other families reach a show and are invisible here:
+// PATH SHAPE. The shapes it walks are a show id, a polymorphic {entity_type}
+// segment, and the COMMENT id family, whose handlers resolve the parent entity
+// out of the comment before they answer. THREE other families reach a show and
+// are invisible here:
 //
-//   - routes addressed by a SUB-RESOURCE id whose handler resolves the show from
-//     it (/comments/{id}, /comments/{id}/replies, /collections/{slug});
+//   - routes addressed by a different sub-resource id whose handler resolves the
+//     show from it (/collections/{slug});
 //   - routes that take the entity type as a QUERY parameter
 //     (/tags/{id}/entities?entity_type=show, /auth/collections/contains);
 //   - SELF-SCOPED routes addressed by the CALLER, which name no entity at all in
@@ -42,9 +44,9 @@ import (
 //     anticipate: the next /me/… surface that renders show titles (a digest, an
 //     activity feed, an export) will trip nothing here.
 //
-// All three have leaked in practice. Extending the guard to them means driving it
-// off the handler set rather than the path, which is the follow-up this paragraph
-// exists to name.
+// All three have leaked in practice. Extending the guard to them means driving
+// it off the handler set rather than the path, which is the follow-up this
+// paragraph exists to name.
 //
 // A FOURTH BLIND SPOT is closed elsewhere rather than here, and naming it keeps
 // this file honest about what it is: an inventory keyed on SHOWS cannot see a
@@ -133,6 +135,37 @@ var showAddressableRoutes = map[string]showRouteDisposition{
 	"GET /entities/{entity_type}/{entity_id}/subscribe/status": gated,
 	"POST /entities/{entity_type}/{entity_id}/mark-read":       gated,
 
+	// The COMMENT-ID family. Every one of these is addressed by a comment id and
+	// resolves the parent entity out of the comment, so a show reaches all of
+	// them without appearing in the path. They are gated in Go rather than in
+	// SQL, by separate shared.EntitySubResourceVisible calls in
+	// handlers/engagement, and the refusal is the answer a comment id nobody has
+	// used already gets.
+	//
+	// Comment ids are DENSE and sequential, which is what makes the family worth
+	// enumerating: a route here that answered differently for a gated parent
+	// would be walkable over the whole table.
+	"GET /comments/{comment_id}":                  gated,
+	"GET /comments/{comment_id}/thread":           gated,
+	"POST /comments/{comment_id}/replies":         gated,
+	"PUT /comments/{comment_id}":                  gated,
+	"DELETE /comments/{comment_id}":               gated,
+	"PUT /comments/{comment_id}/reply-permission": gated,
+	"POST /comments/{comment_id}/vote":            gated,
+	"DELETE /comments/{comment_id}/vote":          gated,
+	// Gated in the SERVICE rather than in the handler
+	// (services/admin/entity_report.go resolves the comment's parent and asks
+	// the registry), which is why it is worth an entry beside its handler-gated
+	// siblings: reading the handler alone would say it is open. Its
+	// `/shows/{show_id}/report` sibling is deliberately NOT gated; see the
+	// deferred write oracles below.
+	"POST /comments/{entity_id}/report":         gated,
+	"GET /admin/comments/{comment_id}/edits":    adminOnly,
+	"POST /admin/comments/{comment_id}/hide":    adminOnly,
+	"POST /admin/comments/{comment_id}/restore": adminOnly,
+	"POST /admin/comments/{comment_id}/approve": adminOnly,
+	"POST /admin/comments/{comment_id}/reject":  adminOnly,
+
 	// Public-tier gates: these answer the same for everyone.
 	"GET /shows/{show_id}/calendar.ics":               gated,
 	"HEAD /shows/{show_id}/calendar.ics":              gated,
@@ -199,13 +232,12 @@ var showAddressableRoutes = map[string]showRouteDisposition{
 
 // showAddressablePathPattern matches the path shapes a show id can travel in.
 //
-// Two families, and the second is why this is a regexp rather than a prefix
-// check: a show reaches half these routes through a POLYMORPHIC {entity_type}
-// segment, where nothing in the path says "show" at all. A guard that only
-// looked for "/shows/" would have missed every comment, tag and collection route
-// this ticket had to close.
+// Three families, and the last two are why this is a regexp rather than a prefix
+// check: a show reaches most of these routes through a POLYMORPHIC
+// {entity_type} segment or through a COMMENT id, where nothing in the path says
+// "show" at all. A guard that only looked for "/shows/" would see neither.
 var showAddressablePathPattern = regexp.MustCompile(
-	`/shows/\{|\{entity_type\}|/saved-shows/\{`,
+	`/shows/\{|\{entity_type\}|/saved-shows/\{|/comments/\{`,
 )
 
 func TestEveryShowAddressableRouteHasADisposition(t *testing.T) {
