@@ -7,6 +7,7 @@ import { ShowPrice } from '@/components/shared/ShowPrice'
 import { showDisplayTitle, showHref } from '../sceneWeek'
 import {
   dayShows,
+  orderNightShows,
   formatDayCountLine,
   formatShowStartTime,
   type SceneDayResponse,
@@ -200,7 +201,13 @@ function SceneDateGroup({
   day: SceneDayResponse
   sceneTimeZone?: string
 }) {
-  const shows = dayShows(day)
+  // Same live-night rule as `/scenes/{slug}/tonight`, from the same payload:
+  // the rows a reader can still get to lead, and the sets already under way
+  // sink beneath them. The root and the day page read one `/scenes/{slug}/day`
+  // body, so ordering it in only one of them would make the same night read
+  // two ways one click apart. Server-rendered only, with the same
+  // cached-prerender constraint `SceneDayView` states.
+  const shows = orderNightShows(dayShows(day), day.is_tonight)
 
   return (
     <section className="border-t border-border pt-4">

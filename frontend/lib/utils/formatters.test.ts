@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   formatShowDate,
   formatShowTime,
+  formatShowTimeCompact,
   formatPrice,
   formatContentDate,
   formatAdminDate,
@@ -16,10 +17,14 @@ import {
 // `FALLBACK_SHOW_TIMEZONE` so this suite cannot keep asserting Phoenix after the
 // one production constant moves (PSY-1696).
 vi.mock('./timeUtils', async importOriginal => {
-  const { FALLBACK_SHOW_TIMEZONE } =
+  const { FALLBACK_SHOW_TIMEZONE, formatCompactTimeInTimezone } =
     await importOriginal<typeof import('./timeUtils')>()
   return {
     FALLBACK_SHOW_TIMEZONE,
+    // The REAL compact formatter: this suite fakes the zone MAP, not the
+    // register, and the point of the assertions below is that the compact
+    // variant resolves a zone by the same rule its full-register sibling does.
+    formatCompactTimeInTimezone,
     getTimezoneForState: (state: string) => {
       const map: Record<string, string> = {
         AZ: 'America/Phoenix',
@@ -107,6 +112,23 @@ describe('formatShowTime', () => {
     expect(resultAZ).toBe('7:30 PM')
     expect(resultNY).toBe('10:30 PM')
     expect(resultAZ).not.toBe(resultNY)
+  })
+})
+
+describe('formatShowTimeCompact', () => {
+  const utcDate = '2026-03-15T02:30:00Z'
+
+  it('resolves the zone by the same chain as formatShowTime', () => {
+    // Same instant, same zones, only the register differs — which is the whole
+    // contract: a rail must never resolve a room's clock by its own rule.
+    expect(formatShowTimeCompact(utcDate)).toBe('7:30PM')
+    expect(formatShowTimeCompact(utcDate, 'NY')).toBe('10:30PM')
+  })
+
+  it('prefers the venue zone over the state map, like its sibling', () => {
+    expect(formatShowTimeCompact(utcDate, 'AZ', 'America/New_York')).toBe(
+      '10:30PM'
+    )
   })
 })
 

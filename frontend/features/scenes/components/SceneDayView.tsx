@@ -13,6 +13,7 @@ import {
   formatDayFull,
   formatPointerDay,
   formatShowStartTime,
+  orderNightShows,
   type SceneDayResponse,
   type SceneDayShow,
 } from '../sceneDay'
@@ -163,7 +164,21 @@ function EmptyNight({ day, weekHref }: { day: SceneDayResponse; weekHref: string
 }
 
 export function SceneDayView({ day }: { day: SceneDayResponse }) {
-  const shows = dayShows(day)
+  // On the LIVE night the rows a reader can still get to lead, and the ones
+  // already under way sink beneath them in the order they started (user
+  // decision, PSY-1969). Nothing is DROPPED, so the count below is still a
+  // count of everything listed; an archive or future night is untouched, since
+  // a schedule is read in clock order.
+  //
+  // The clock is read INSIDE the ordering, not injected. This component renders
+  // only on the server and hydrates nothing, so there is no second render to
+  // disagree with it — the show page threads its clock because the same tree
+  // runs twice there. What that costs is a constraint: these rows are now
+  // clock-dependent, so this component must not be placed inside a `use cache`
+  // boundary or prerendered, which would freeze one minute's order into a
+  // cached page. Today neither route reaches it during a prerender, because
+  // both await `params` first.
+  const shows = orderNightShows(dayShows(day), day.is_tonight)
   const rooms = dayTrackedVenues(day)
   const total = shows.length
 

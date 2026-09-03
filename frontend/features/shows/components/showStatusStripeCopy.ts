@@ -2,6 +2,7 @@ import {
   isShowTimezoneResolved,
   resolveShowTimezone,
 } from '@/lib/utils/formatters'
+import { formatCompactTimeInTimezone } from '@/lib/utils/timeUtils'
 import { formatShowDateBadge } from '@/lib/utils/showDateBadge'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 
@@ -85,21 +86,19 @@ function partsOf(
 /**
  * "7PM", "8:30PM", "12AM": the stripe's clock register.
  *
- * Assembled from parts rather than by string-munging a formatted time because
- * `Intl` puts a narrow no-break space before the AM/PM in current ICU and a
- * plain space in older ones. That difference is invisible on screen and fatal
- * across hydration: server and client can ship different ICU builds.
+ * The register itself lives in `formatCompactTimeInTimezone`, shared with the
+ * show page's discovery rails so the two cannot print one fact two ways. It is
+ * assembled from `formatToParts` rather than by string-munging a formatted
+ * time because `Intl` puts a narrow no-break space before the AM/PM in current
+ * ICU and a plain space in older ones — invisible on screen and fatal across
+ * hydration, since server and client can ship different ICU builds.
+ *
+ * The instant is passed as milliseconds, which the shared helper accepts:
+ * serializing it first would throw on a non-finite value before the helper's
+ * own guard could return "".
  */
 function formatStripeTime(instant: number, timeZone: string): string {
-  const part = partsOf(instant, timeZone, {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  })
-  const minute = part('minute')
-  return `${part('hour')}${minute === '00' ? '' : `:${minute}`}${part(
-    'dayPeriod'
-  ).toUpperCase()}`
+  return formatCompactTimeInTimezone(instant, timeZone)
 }
 
 /**

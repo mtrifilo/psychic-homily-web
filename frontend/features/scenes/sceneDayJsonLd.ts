@@ -35,6 +35,11 @@ export function buildSceneDayJsonLd(
   day: SceneDayResponse,
   now: Date = new Date()
 ): SceneDayJsonLd {
+  // Clock order, NOT the reader's live-night order (`orderNightShows`). An
+  // `ItemList` position is a durable claim about a page that is cached and
+  // crawled, and the live-night promotion changes with the hour: stamping it
+  // here would bake one minute's ordering into structured data that outlives
+  // it. The URLs and the membership are identical either way.
   const shows = dayShows(day)
   const dateLabel = formatDayFull(day.date)
 

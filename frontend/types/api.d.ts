@@ -15773,6 +15773,7 @@ export interface components {
             slug: string;
         };
         SceneShowSummary: {
+            age_requirement?: string;
             artist_names?: string[] | null;
             artists?: components["schemas"]["SceneShowArtist"][] | null;
             /** Format: double */
@@ -15789,6 +15790,7 @@ export interface components {
             starts_at: string;
             title: string;
             venue_address?: string;
+            venue_age_policy?: string;
             venue_city?: string;
             venue_country?: string;
             venue_name?: string;

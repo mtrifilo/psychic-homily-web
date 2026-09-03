@@ -13,6 +13,14 @@ import { connection } from 'next/server'
 // that surface eagerly reachable from this route and quietly undo the eviction
 // below. utils.ts has type-only imports of its own, so it costs nothing.
 import { showTimingInput } from '@/features/shows/utils'
+// From the policy module, not the feature barrel, for the same eviction reason
+// the note above states: `showRails.ts` renders nothing.
+import { drawsNightRail, venueRailShowsUrl } from '@/features/shows/showRails'
+import { showEndpoints } from '@/features/shows/api'
+import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
+import { CURRENT_PERIOD_REVALIDATE } from '@/features/scenes/scenePeriodApi'
+import type { ShowAlsoTonightResponse } from '@/features/shows/showRails'
+import type { VenueShowsResponse } from '@/features/venues/types'
 import type {
   ShowResponse,
   ShowTimelineResponse,
@@ -225,15 +233,43 @@ export async function generateMetadata({ params }: ShowPageProps): Promise<Metad
 async function ShowDetailWithLifecycle({
   slug,
   show,
+  rails,
 }: {
   slug: string
   show: ShowResponse
+  rails: Promise<
+    [ShowAlsoTonightResponse | null, VenueShowsResponse | null]
+  >
 }) {
   await connection()
+  // The SAME instant the lifecycle is judged against, handed down so the
+  // discovery rails order the night by a clock the client cannot disagree with.
+  // Read here, after `connection()`, because a prerender may not read the time.
+  const renderedAt = new Date()
+  const lifecycle = getShowLifecycleState(showTimingInput(show), renderedAt)
+
+  // The rails were STARTED in the page body and are only awaited here, which is
+  // the whole point of taking promises rather than URLs: everything above the
+  // fold on this page — the bill, the stripe, the venue module — renders out of
+  // this component, so a rail read that began here would hold all of it behind
+  // a request for a module that sits below the embeds. Started up there, they
+  // overlap the show and timeline reads and cost no serial time at all.
+  //
+  // The night's rail is dropped rather than un-asked on a past show: an archive
+  // page must not offer a reader other shows they equally cannot attend, and by
+  // the time the lifecycle is known the request is already in flight. It is a
+  // per-slug cached read, so the archive cost is one query an hour, not one per
+  // view.
+  const [alsoTonight, venueShows] = await rails
+  const nightRail = drawsNightRail(lifecycle) ? alsoTonight : null
+
   return (
     <ShowDetail
       showId={slug}
-      lifecycle={getShowLifecycleState(showTimingInput(show))}
+      lifecycle={lifecycle}
+      renderedAt={renderedAt.toISOString()}
+      initialAlsoTonight={nightRail ?? undefined}
+      initialVenueShows={venueShows ?? undefined}
     />
   )
 }
@@ -277,6 +313,59 @@ export default async function ShowPage({ params }: ShowPageProps) {
   // slug the route was addressed by. That is not drift: `useShowTimeline` asks
   // by id because a component holding a ShowResponse has one, and the endpoint
   // accepts either spelling.
+  // Both discovery rails, STARTED here and awaited inside
+  // `ShowDetailWithLifecycle`, so they overlap the timeline read below instead
+  // of adding a round trip in front of the whole page. Their rows go into the
+  // served HTML rather than arriving after hydration (PSY-1967): the provenance
+  // byline, RevisionHistory and CommentThread all sit under these rails, and
+  // `/shows/{slug}#comment-123` scrolls to its comment as soon as the comment
+  // query resolves, so rows inserted after that scroll take the targeted
+  // comment out from under the reader.
+  //
+  // Started UNGATED, because the gate needs a clock and this body must not read
+  // one — `ShowDetailWithLifecycle` owns that, behind `connection()`. A past
+  // show therefore asks for a night rail it will not draw; the read is cached
+  // per slug, so that costs one backend query an hour rather than one per view.
+  //
+  // Through `fetchListPayload`, the same helper every other server-seeded list
+  // on the site reads. Two of the things it brings are load-bearing here: a
+  // request budget, so a slow backend cannot hold the seed open indefinitely,
+  // and a shape guard, because a 200 that lost its `shows` array would
+  // otherwise be seeded as data and a rail renders an absent list as "nothing
+  // else on tonight" — a confident wrong answer where null is silence.
+  //
+  // A SHORT cache window, against that helper's hour-long default, which its
+  // own doc asks a period-scoped caller to shorten: the night rail's body
+  // carries `is_tonight` and every row's sold-out and cancelled state, all
+  // computed at request time, and a show mutation revalidates only that show's
+  // own page — never the neighbouring pages whose rails list it. 15 minutes is
+  // the window the scene pages already hold a live period to.
+  //
+  // Neither read rejects: `fetchListPayload` degrades to null, and a null seed
+  // simply leaves that rail to the client query it already had.
+  const railsPromise = Promise.all([
+    fetchListPayload<ShowAlsoTonightResponse>({
+      // Encoded for the reason `getShowTimeline` states: Next hands params
+      // through DECODED, so an unencoded `%2F` would re-point this server-side
+      // fetch at another backend path.
+      url: showEndpoints.ALSO_TONIGHT(encodeURIComponent(slug)),
+      collection: 'shows',
+      service: 'show-also-tonight',
+      revalidateSeconds: CURRENT_PERIOD_REVALIDATE,
+    }),
+    // `venues[0].id` is the id the show page itself addresses this venue by.
+    // Checked rather than trusted: it arrives from `res.json()` through a type
+    // assertion, and it is interpolated into a server-side URL path.
+    Number.isSafeInteger(showData.venues?.[0]?.id)
+      ? fetchListPayload<VenueShowsResponse>({
+          url: venueRailShowsUrl(showData.venues[0].id),
+          collection: 'shows',
+          service: 'show-venue-rail',
+          revalidateSeconds: CURRENT_PERIOD_REVALIDATE,
+        })
+      : null,
+  ])
+
   const dehydratedState = await prefetchEntities([
     { queryKey: queryKeys.shows.detail(slug), data: showData },
     {
@@ -343,7 +432,11 @@ export default async function ShowPage({ params }: ShowPageProps) {
       ])} />
       <HydrationBoundary state={dehydratedState}>
         <Suspense fallback={<ShowLoadingFallback />}>
-          <ShowDetailWithLifecycle slug={slug} show={showData} />
+          <ShowDetailWithLifecycle
+            slug={slug}
+            show={showData}
+            rails={railsPromise}
+          />
         </Suspense>
       </HydrationBoundary>
     </>

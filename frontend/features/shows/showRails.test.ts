@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
-  alsoTonightDrawnIds,
   alsoTonightRailTitle,
   alsoTonightSeeAllHref,
   buildAlsoTonightRail,
   buildMoreAtVenueRail,
   SHOW_RAIL_ROW_CAP,
   VENUE_RAIL_FETCH_LIMIT,
+  venueRailShowsUrl,
 } from './showRails'
 import {
   makeAlsoTonightPayload,
@@ -68,7 +68,7 @@ describe('buildAlsoTonightRail', () => {
     // names the Chicago night, so the rows must be set on Chicago's clock
     // whatever zone the runtime is in.
     const rail = buildAlsoTonightRail(makeAlsoTonightPayload(), 99)
-    expect(rail?.rows[0]?.lead).toBe('8:00 PM')
+    expect(rail?.rows[0]?.lead).toBe('8PM')
   })
 
   it('falls back to the scene’s clock for a row with no venue zone', () => {
@@ -83,7 +83,7 @@ describe('buildAlsoTonightRail', () => {
       }),
       99
     )
-    expect(rail?.rows[0]?.lead).toBe('8:00 PM')
+    expect(rail?.rows[0]?.lead).toBe('8PM')
   })
 
   it('leaves the lead null when the payload carries no usable instant', () => {
@@ -100,7 +100,7 @@ describe('buildAlsoTonightRail', () => {
     const rail = buildAlsoTonightRail(makeAlsoTonightPayload(), 99)
     expect(rail?.rows[0]?.room).toBe('Empty Bottle')
     expect(rail?.rows[0]?.figure).toBe('$15')
-    expect(rail?.hasRoomColumn).toBe(true)
+    expect(rail?.kind).toBe('night')
   })
 
   it('leaves an absent cell EMPTY rather than collapsing its column', () => {
@@ -114,7 +114,7 @@ describe('buildAlsoTonightRail', () => {
     )
     expect(rail?.rows[0]?.room).toBeNull()
     expect(rail?.rows[0]?.figure).toBeNull()
-    expect(rail?.hasRoomColumn).toBe(true)
+    expect(rail?.kind).toBe('night')
   })
 
   it('bills the row with the mock’s separator, not the scene views’ comma', () => {
@@ -355,7 +355,7 @@ describe('buildMoreAtVenueRail', () => {
 
   it('reserves no room column — the room is the heading', () => {
     const rail = buildMoreAtVenueRail(makeRailVenue(), [makeVenueShow()], 2, 99)
-    expect(rail?.hasRoomColumn).toBe(false)
+    expect(rail?.kind).toBe('room')
     expect(rail?.rows[0]?.room).toBeNull()
   })
 
@@ -429,7 +429,7 @@ describe('cross-rail overlap', () => {
     const payload = makeAlsoTonightPayload({
       shows: [makeAlsoTonightShow({ id: 500, slug: 'late-set' })],
     })
-    const drawn = alsoTonightDrawnIds(payload, 99)
+    const drawn = buildAlsoTonightRail(payload, 99)?.drawnIds ?? new Set()
     expect(drawn.has(500)).toBe(true)
 
     const rail = buildMoreAtVenueRail(
@@ -454,7 +454,7 @@ describe('cross-rail overlap', () => {
       [makeVenueShow({ id: 500 })],
       1,
       99,
-      alsoTonightDrawnIds(payload, 99)
+      buildAlsoTonightRail(payload, 99)?.drawnIds ?? new Set()
     )
     expect(rail).toBeNull()
   })
@@ -470,7 +470,7 @@ describe('cross-rail overlap', () => {
       [makeVenueShow({ id: 500 }), makeVenueShow({ id: 501 })],
       2,
       99,
-      alsoTonightDrawnIds(payload, 99)
+      buildAlsoTonightRail(payload, 99)?.drawnIds ?? new Set()
     )
     expect(rail?.rows).toHaveLength(1)
     expect(rail?.seeAllHref).toBeNull()
@@ -498,7 +498,7 @@ describe('cross-rail overlap', () => {
       fetched,
       20,
       99,
-      alsoTonightDrawnIds(payload, 99)
+      buildAlsoTonightRail(payload, 99)?.drawnIds ?? new Set()
     )
     expect(rail?.rows).toHaveLength(SHOW_RAIL_ROW_CAP)
   })
@@ -524,7 +524,7 @@ describe('cross-rail overlap', () => {
       fetched,
       20,
       99,
-      alsoTonightDrawnIds(payload, 99)
+      buildAlsoTonightRail(payload, 99)?.drawnIds ?? new Set()
     )
     expect(rail?.rows).toHaveLength(SHOW_RAIL_ROW_CAP)
   })
@@ -535,7 +535,7 @@ describe('cross-rail overlap', () => {
     const payload = makeAlsoTonightPayload({
       shows: [1, 2, 3, 4].map(id => makeAlsoTonightShow({ id: 500 + id })),
     })
-    const drawn = alsoTonightDrawnIds(payload, 99)
+    const drawn = buildAlsoTonightRail(payload, 99)?.drawnIds ?? new Set()
     expect(drawn.has(504)).toBe(false)
 
     const rail = buildMoreAtVenueRail(
@@ -633,5 +633,238 @@ describe('alsoTonightSeeAllHref', () => {
       alsoTonightSeeAllHref(makeAlsoTonightPayload({ date: 'tonight' }))
     ).toBeNull()
     expect(alsoTonightSeeAllHref(makeAlsoTonightPayload({ date: '' }))).toBeNull()
+  })
+})
+
+describe('the age column', () => {
+  // The rail states the door policy the show page's venue module would state
+  // for the same show: the event's own requirement where it has one, the
+  // room's house default otherwise.
+  const railRow = (over: Parameters<typeof makeAlsoTonightShow>[0]) =>
+    buildAlsoTonightRail(
+      makeAlsoTonightPayload({ shows: [makeAlsoTonightShow(over)] }),
+      99
+    )?.rows[0]
+
+  it('is a NIGHT-rail column, filled on its rows and absent from the room rail', () => {
+    expect(buildAlsoTonightRail(makeAlsoTonightPayload(), 99)?.rows[0]?.age)
+      .toBe('21+')
+    expect(
+      buildMoreAtVenueRail(makeRailVenue(), [makeVenueShow()], 1, 99)?.rows[0]
+        ?.age
+    ).toBeNull()
+  })
+
+  it('falls back to the room house policy when the event states none', () => {
+    expect(railRow({ age_requirement: '', venue_age_policy: '21+' })?.age).toBe(
+      '21+'
+    )
+  })
+
+  it('lets the event override the house default', () => {
+    // The case a bare house-policy column would get WRONG: an all-ages matinee
+    // in a 21+ room.
+    expect(
+      railRow({ age_requirement: 'all ages', venue_age_policy: '21+' })?.age
+    ).toBe('all ages')
+  })
+
+  it('is null when neither half is recorded, leaving the column empty', () => {
+    expect(railRow({ age_requirement: '', venue_age_policy: '' })?.age).toBeNull()
+    // Whitespace is an absence, not a value: both columns are contributor
+    // free text.
+    expect(
+      railRow({ age_requirement: '   ', venue_age_policy: '  ' })?.age
+    ).toBeNull()
+  })
+
+  it('leaves the venue rail rows with no age cell to draw', () => {
+    const rail = buildMoreAtVenueRail(makeRailVenue(), [makeVenueShow()], 1, 99)
+    expect(rail?.rows[0]?.age).toBeNull()
+  })
+})
+
+describe('live-night ordering', () => {
+  // 8PM, 9PM and 10PM Chicago on the fixtures' night.
+  const doors8 = makeAlsoTonightShow({
+    id: 8,
+    slug: 'eight',
+    starts_at: '2026-08-13T01:00:00Z',
+  })
+  const doors9 = makeAlsoTonightShow({
+    id: 9,
+    slug: 'nine',
+    starts_at: '2026-08-13T02:00:00Z',
+  })
+  const doors10 = makeAlsoTonightShow({
+    id: 10,
+    slug: 'ten',
+    starts_at: '2026-08-13T03:00:00Z',
+  })
+  const at930 = new Date('2026-08-13T02:30:00Z')
+
+  it('draws the shows still to come before the ones under way', () => {
+    const rail = buildAlsoTonightRail(
+      makeAlsoTonightPayload({ shows: [doors8, doors9, doors10] }),
+      99,
+      at930
+    )
+    expect(rail?.rows.map(row => row.href)).toEqual([
+      '/shows/ten',
+      '/shows/eight',
+      '/shows/nine',
+    ])
+  })
+
+  it('orders BEFORE the cap, so the drawn rows are the ones still to come', () => {
+    // Four started sets and one upcoming. Capping first would draw three
+    // started shows and hide the only one a reader can still get to.
+    const rail = buildAlsoTonightRail(
+      makeAlsoTonightPayload({
+        shows: [
+          makeAlsoTonightShow({
+            id: 1,
+            slug: 's1',
+            starts_at: '2026-08-13T00:00:00Z',
+          }),
+          makeAlsoTonightShow({
+            id: 2,
+            slug: 's2',
+            starts_at: '2026-08-13T00:30:00Z',
+          }),
+          makeAlsoTonightShow({
+            id: 3,
+            slug: 's3',
+            starts_at: '2026-08-13T01:00:00Z',
+          }),
+          makeAlsoTonightShow({
+            id: 4,
+            slug: 's4',
+            starts_at: '2026-08-13T01:30:00Z',
+          }),
+          doors10,
+        ],
+      }),
+      99,
+      at930
+    )
+    expect(rail?.rows[0]?.href).toBe('/shows/ten')
+    expect(rail?.rows).toHaveLength(SHOW_RAIL_ROW_CAP)
+  })
+
+  it('keeps an archive or future night earliest-first', () => {
+    const rail = buildAlsoTonightRail(
+      makeAlsoTonightPayload({
+        is_tonight: false,
+        shows: [doors8, doors9, doors10],
+      }),
+      99,
+      at930
+    )
+    expect(rail?.rows.map(row => row.href)).toEqual([
+      '/shows/eight',
+      '/shows/nine',
+      '/shows/ten',
+    ])
+  })
+
+  it('hides nothing: a night entirely under way still draws its cap', () => {
+    const rail = buildAlsoTonightRail(
+      makeAlsoTonightPayload({ shows: [doors8, doors9, doors10] }),
+      99,
+      new Date('2026-08-13T04:00:00Z')
+    )
+    expect(rail?.rows).toHaveLength(SHOW_RAIL_ROW_CAP)
+  })
+
+  it('suppresses from the venue rail exactly the rows the reordered rail drew', () => {
+    // The invariant the two share: the ids withheld from the room's column are
+    // the ones actually on screen in the night's column. A different clock on
+    // either side would break it silently.
+    const payload = makeAlsoTonightPayload({
+      shows: [
+        makeAlsoTonightShow({
+          id: 1,
+          slug: 's1',
+          starts_at: '2026-08-13T00:00:00Z',
+        }),
+        makeAlsoTonightShow({
+          id: 2,
+          slug: 's2',
+          starts_at: '2026-08-13T00:30:00Z',
+        }),
+        makeAlsoTonightShow({
+          id: 3,
+          slug: 's3',
+          starts_at: '2026-08-13T01:00:00Z',
+        }),
+        doors10,
+      ],
+    })
+    const rail = buildAlsoTonightRail(payload, 99, at930)
+    // The set comes off the rail that was actually built, so it cannot name a
+    // row the reader is not looking at — the ids and the hrefs are two readings
+    // of one pass.
+    expect([...(rail?.drawnIds ?? [])].sort((a, b) => a - b)).toEqual([1, 2, 10])
+    expect(rail?.rows.map(row => row.href)).toEqual([
+      '/shows/ten',
+      '/shows/s1',
+      '/shows/s2',
+    ])
+  })
+})
+
+// Both rails are rendered on the server and again on the hydrating client, so
+// every clock-dependent cell has to be a function of the instant it is GIVEN.
+// Two fresh reads straddling New Year would print two different headings and
+// two different leads for one payload, which fails hydration for the page.
+describe('one clock, two renders', () => {
+  const NIGHT = makeAlsoTonightPayload({
+    is_tonight: false,
+    date: '2027-03-14',
+    shows: [makeAlsoTonightShow({ starts_at: '2027-03-15T01:00:00Z' })],
+  })
+
+  it('reads the heading year off the passed instant, not a fresh clock', () => {
+    const inDecember = new Date('2026-12-31T21:00:00Z')
+    const inJanuary = new Date('2027-01-01T10:00:00Z')
+
+    expect(buildAlsoTonightRail(NIGHT, 99, inDecember)?.title).toBe(
+      'Also / Sun Mar 14, 2027 · Chicago'
+    )
+    expect(buildAlsoTonightRail(NIGHT, 99, inJanuary)?.title).toBe(
+      'Also / Sun Mar 14 · Chicago'
+    )
+    // The bracket's accessible name is composed from the same parts, so it
+    // moves with the heading rather than drifting from it.
+    expect(alsoTonightRailTitle(NIGHT, inDecember)).toBe(
+      'Also / Sun Mar 14, 2027 · Chicago'
+    )
+  })
+
+  it('reads the venue lead year off the passed instant too', () => {
+    const rows = (now: Date) =>
+      buildMoreAtVenueRail(
+        makeRailVenue(),
+        [makeVenueShow({ event_date: '2027-09-05T01:00:00Z' })],
+        1,
+        99,
+        new Set(),
+        now
+      )?.rows[0]?.lead
+
+    expect(rows(new Date('2026-12-31T21:00:00Z'))).toBe("SEP 04 '27")
+    expect(rows(new Date('2027-01-01T10:00:00Z'))).toBe('SEP 04')
+  })
+})
+
+describe('venueRailShowsUrl', () => {
+  it('sends the limit the rail hook sends, read from the constant', () => {
+    // The server and the hook must ask the same QUESTION. The rows the server
+    // reads become the only page the rail ever filters, so a smaller limit
+    // restated on the route would seed a page its two filters can empty out.
+    expect(venueRailShowsUrl(10)).toContain(`limit=${VENUE_RAIL_FETCH_LIMIT}`)
+    expect(venueRailShowsUrl(10)).toContain('time_filter=upcoming')
+    expect(venueRailShowsUrl(10)).toContain('/venues/10/shows?')
   })
 })

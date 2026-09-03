@@ -1,4 +1,5 @@
 import { doorsMusicFactSegment } from './showStatusStripeCopy'
+import { governingAgeRequirement } from '../showAge'
 import { showTimingInput } from '../utils'
 import type { ShowResponse, VenueResponse } from '../types'
 
@@ -18,12 +19,16 @@ function ageFactSegment(
 ): string | null {
   const override = show.age_requirement?.trim()
   const house = venue.age_policy?.trim()
-  if (override && house) {
-    return override.toLowerCase() === house.toLowerCase()
-      ? override
-      : `${override} (event override; house default ${house})`
+  // WHICH value governs is `governingAgeRequirement`, shared with the show
+  // page's discovery rails so the two cannot name different door policies for
+  // one night. What follows is this line's own REGISTER: it has room to name a
+  // disagreement between the halves, which a ledger cell does not.
+  const governing = governingAgeRequirement(override, house)
+  if (!governing) return null
+  if (!override || !house || override.toLowerCase() === house.toLowerCase()) {
+    return governing
   }
-  return override || house || null
+  return `${governing} (event override; house default ${house})`
 }
 
 /**

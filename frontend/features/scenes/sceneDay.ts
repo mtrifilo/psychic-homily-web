@@ -1,5 +1,6 @@
 import type { components } from '@/types/api'
-import { formatShowTime } from '@/lib/utils/formatters'
+import { formatShowTime, formatShowTimeCompact } from '@/lib/utils/formatters'
+import { hasShowStarted } from '@/lib/utils/showTiming'
 import {
   parseCalendarDate,
   startInstant,
@@ -135,6 +136,82 @@ export function formatShowStartTime(
   const raw = startInstant(show)
   if (raw === null) return null
   return formatShowTime(raw, show.venue_state, show.venue_timezone || sceneTimezone)
+}
+
+/**
+ * The same start time in the COMPACT ledger register — `8PM`, `7:30PM`.
+ *
+ * For dense fixed-width lead columns; see {@link formatShowTimeCompact} for why
+ * two registers are allowed to share a page. Identical zone resolution and
+ * identical instant guard to `formatShowStartTime` above, so a surface can move
+ * between the two registers without moving a clock.
+ */
+export function formatShowStartTimeCompact(
+  show: SceneDayShow,
+  sceneTimezone?: string | null
+): string | null {
+  const raw = startInstant(show)
+  if (raw === null) return null
+  return formatShowTimeCompact(
+    raw,
+    show.venue_state,
+    show.venue_timezone || sceneTimezone
+  )
+}
+
+/**
+ * The order a night's rows are READ in, which is not always the order they
+ * happened in (user decision, PSY-1969).
+ *
+ * On the LIVE night, a show that has already started sorts after every show
+ * that has not. A reader opening a night's page at 22:00 is deciding where to
+ * go next, and the 19:00 doors at the top of a clock-ordered list are the rows
+ * that answer that question least. Nothing is dropped: an early show may well
+ * still be going, and the reader — not this function — is entitled to decide
+ * whether it is worth walking to.
+ *
+ * Only on the live night, and `isTonight` is the BACKEND's answer, computed on
+ * the scene's clock against its 6am night boundary. An archive or future night
+ * has no started rows to sink and must stay in clock order, which is the order
+ * a schedule is read in.
+ *
+ * Stable within each half, so the input's clock order survives into both: the
+ * upcoming rows stay earliest-first and the started rows stay in the order they
+ * began.
+ *
+ * `hasShowStarted` counts an unreadable instant as started, so a row whose date
+ * cannot be parsed sinks with them rather than heading the list.
+ *
+ * TWO LIMITS, both real, neither fixable from here:
+ *
+ *  - This orders what it was GIVEN. Both producers cap their night
+ *    earliest-first, so on a metro night longer than the cap the late sets are
+ *    dropped upstream and cannot be promoted here — exactly the rows this rule
+ *    exists to surface. Raising the promotion above the cap is a backend
+ *    ordering question, not a client one.
+ *  - The WEEK and window views cannot apply it: `SceneWeekDay` carries no
+ *    `is_tonight`, and re-deriving the night on this side is the one thing
+ *    every surface here refuses to do. So a night reads one way on the scene
+ *    root and the day page and another in the week view, by omission of a
+ *    field rather than by choice.
+ */
+export function orderNightShows<T extends SceneDayShow>(
+  shows: T[],
+  isTonight: boolean,
+  now: Date = new Date()
+): T[] {
+  if (!isTonight) return shows
+  const upcoming: T[] = []
+  const started: T[] = []
+  for (const show of shows) {
+    if (hasShowStarted(show.starts_at, now)) started.push(show)
+    else upcoming.push(show)
+  }
+  // The identity is returned when nothing sank, so a caller comparing
+  // references (a memo, a test) sees no change on the overwhelming majority of
+  // nights.
+  if (started.length === 0 || upcoming.length === 0) return shows
+  return [...upcoming, ...started]
 }
 
 /**

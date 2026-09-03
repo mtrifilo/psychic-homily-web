@@ -1572,6 +1572,18 @@ type SceneShowSummary struct {
 	Price     *float64 `json:"price,omitempty"`
 	DoorPrice *float64 `json:"door_price,omitempty"`
 
+	// AgeRequirement is this event's own door policy, free text in the site-wide
+	// vocabulary ("all ages", "17+", "21+"). It is the per-event OVERRIDE and
+	// wins wherever it is present; VenueAgePolicy below is the room's house
+	// default and the value a show without an override falls back to (PSY-1682).
+	//
+	// Both halves are served because either one alone answers the reader's
+	// question wrongly on a real slice of rows: most shows record no override at
+	// all, so an override-only field leaves the column blank on a night whose
+	// rooms all have a published policy, and a house-default-only field states
+	// 21+ for the all-ages matinee that room is running tonight.
+	AgeRequirement string `json:"age_requirement,omitempty"`
+
 	// The billed venue's own details, from the SAME venue row VenueName names —
 	// enough to describe a place without a second round-trip per show.
 	//
@@ -1584,6 +1596,10 @@ type SceneShowSummary struct {
 	VenueState    string `json:"venue_state,omitempty"`
 	VenueCountry  string `json:"venue_country,omitempty"`
 	VenueTimezone string `json:"venue_timezone,omitempty"`
+	// VenueAgePolicy is the room's HOUSE DEFAULT age rule, served unredacted for
+	// unverified venues like the venue payload's own copy of it. See
+	// AgeRequirement above for how the two combine.
+	VenueAgePolicy string `json:"venue_age_policy,omitempty"`
 }
 
 // SceneWeekDay is one calendar day of a scene's week, in the scene's own
