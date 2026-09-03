@@ -2106,10 +2106,9 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 		suite.NotEqual(shutColl.ID, e.EntityID, "the private collection's id reached a stranger")
 		suite.NotEqual(shutItem.ID, e.EntityID, "the private collection's item id reached a stranger")
 		suite.NotEqual("Shut Picks", e.EntityName, "the private collection's title reached a stranger")
-		if e.Metadata != nil {
-			suite.NotEqual(shutColl.Slug, e.Metadata["slug"],
-				"the private collection's slug reached a stranger through audit metadata")
-		}
+		suite.Nil(e.Metadata,
+			"the collection family publishes no metadata key, so the private "+
+				"collection's slug cannot reach a stranger through one")
 	}
 
 	// An ANONYMOUS caller is the same tier as a stranger here, and it is the tier
@@ -2165,9 +2164,14 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 
 	openColl := suite.createCollectionForHistory(actor.ID, "Removal Open", "removal-open-history", true)
 	shutColl := suite.createCollectionForHistory(actor.ID, "Removal Shut", "removal-shut-history", false)
+	// The removed item's id is what identifies each row in the response: the
+	// timeline publishes no metadata key for this family, so the recorded slug
+	// cannot be read back to tell the two rows apart.
+	itemIDs := map[uint]uint{}
 	for _, c := range []*communitym.Collection{openColl, shutColl} {
 		item := suite.createCollectionItemForHistory(c.ID, actor.ID)
 		itemID := item.ID
+		itemIDs[c.ID] = itemID
 		suite.Require().NoError(suite.db.Delete(&communitym.CollectionItem{}, itemID).Error)
 		suite.auditLog.LogAction(actor.ID, "remove_collection_item", "collection", itemID,
 			map[string]interface{}{"slug": c.Slug, "collection_id": c.ID})
@@ -2181,7 +2185,8 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	suite.Require().NoError(err)
 	suite.EqualValues(len(entries), total)
 	suite.Require().Len(entries, 1, "a stranger sees only the public parent's removal")
-	suite.Equal(openColl.Slug, entries[0].Metadata["slug"])
+	suite.EqualValues(itemIDs[openColl.ID], entries[0].EntityID)
+	suite.Nil(entries[0].Metadata, "the recorded slug decides the row, it is not published")
 
 	own, ownTotal, err := suite.profileService.GetContributionHistory(
 		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: actor.ID})
@@ -2368,6 +2373,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	actor := suite.createTestUser("legacyactor")
 	stranger := suite.createTestUser("legacystranger")
 
+	legacyItemIDs := map[uint]uint{}
 	openColl := suite.createCollectionForHistory(actor.ID, "Legacy Open", "legacy-open-history", true)
 	shutColl := suite.createCollectionForHistory(actor.ID, "Legacy Shut", "legacy-shut-history", false)
 
@@ -2378,6 +2384,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 		item := suite.createCollectionItemForHistory(c.ID, actor.ID)
 		itemID := item.ID
 		suite.Require().NoError(suite.db.Delete(&communitym.CollectionItem{}, itemID).Error)
+		legacyItemIDs[c.ID] = itemID
 		suite.auditLog.LogAction(actor.ID, "remove_collection_item", "collection", itemID,
 			map[string]interface{}{"slug": c.Slug})
 	}
@@ -2392,7 +2399,10 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	suite.EqualValues(len(entries), total, "the total must count the same rows the page contains")
 	suite.Require().Len(entries, 1,
 		"a legacy row on a PUBLIC collection is still listed to a stranger")
-	suite.Equal(openColl.Slug, entries[0].Metadata["slug"])
+	suite.EqualValues(legacyItemIDs[openColl.ID], entries[0].EntityID)
+	suite.Nil(entries[0].Metadata,
+		"a legacy row passes on its slug and still publishes none: a rename frees "+
+			"the string for another collection to take")
 
 	own, ownTotal, err := suite.profileService.GetContributionHistory(
 		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: actor.ID})
@@ -2417,9 +2427,11 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	openColl := suite.createCollectionForHistory(actor.ID, "Zero Parent Open", "zero-parent-open", true)
 	shutColl := suite.createCollectionForHistory(actor.ID, "Zero Parent Shut", "zero-parent-shut", false)
 
+	zeroItemIDs := map[uint]uint{}
 	seedZeroRow := func(c *communitym.Collection) {
 		item := suite.createCollectionItemForHistory(c.ID, actor.ID)
 		itemID := item.ID
+		zeroItemIDs[c.ID] = itemID
 		suite.Require().NoError(suite.db.Delete(&communitym.CollectionItem{}, itemID).Error)
 		suite.auditLog.LogAction(actor.ID, "remove_collection_item", "collection", itemID,
 			map[string]interface{}{"slug": c.Slug, "collection_id": 0})
@@ -2432,7 +2444,8 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	suite.Require().NoError(err)
 	suite.EqualValues(len(entries), total)
 	suite.Require().Len(entries, 1, "the sentinel row on a PUBLIC collection is listed to a stranger")
-	suite.Equal(openColl.Slug, entries[0].Metadata["slug"])
+	suite.EqualValues(zeroItemIDs[openColl.ID], entries[0].EntityID)
+	suite.Nil(entries[0].Metadata)
 
 	// AND THE PRIVATE ONE IS NOT. Falling to the slug arm is a fallback, not a
 	// bypass: the arm still decides the named collection against the viewer.
@@ -2732,15 +2745,6 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) createEntityRequestF
 	return request
 }
 
-// metadataUintForTest reads a JSON-decoded number back as a uint. encoding/json
-// decodes every number into float64, so a direct comparison against a uint id
-// fails on the type rather than on the value.
-func (suite *ContributorProfileServiceIntegrationTestSuite) metadataUintForTest(value interface{}) uint {
-	asFloat, ok := value.(float64)
-	suite.Require().True(ok, "expected a JSON number, got %T", value)
-	return uint(asFloat)
-}
-
 // ONLY ALLOWLISTED KEYS REACH THE RESPONSE, and the default is none.
 //
 // The stored document is what the writers happened to record; the response is
@@ -2753,6 +2757,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	suite.Require().NoError(suite.db.Model(&catalogm.Show{}).Where("id = ?", gated.ID).
 		Update("status", "rejected").Error)
 	collection := suite.createCollectionForHistory(actor.ID, "Allowlist Picks", "allowlist-picks", true)
+	source := suite.createCollectionForHistory(actor.ID, "Allowlist Source", "allowlist-source", true)
 
 	// An admin's prose about another user's submission.
 	suite.auditLog.LogAction(actor.ID, "reject_show", "show", gated.ID, map[string]interface{}{
@@ -2777,13 +2782,16 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 			"entity_type":   "show",
 			"entity_id":     gated.ID,
 		})
+	suite.auditLog.LogAction(actor.ID, "clone_collection", "collection", collection.ID,
+		map[string]interface{}{"source_slug": source.Slug, "source_id": source.ID})
 
 	// THE OWNER'S OWN VIEW, which is the widest tier this endpoint serves: the
 	// allowlist does not vary by viewer, so what the owner sees is the ceiling.
 	entries, _, err := suite.profileService.GetContributionHistory(
 		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: actor.ID})
 	suite.Require().NoError(err)
-	suite.Require().Len(entries, 4, "the two audit rows, the item row and the show submission")
+	suite.Require().Len(entries, 5,
+		"two moderation rows, the item row, the clone row and the show submission")
 
 	byAction := map[string]*contracts.ContributionEntry{}
 	for _, e := range entries {
@@ -2799,13 +2807,21 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 		"a moderation note, and the id of the show it names, must not be published")
 
 	suite.Require().Contains(byAction, "add_collection_item")
-	itemMetadata := byAction["add_collection_item"].Metadata
-	suite.Require().NotNil(itemMetadata, "the two gate-derived keys are allowlisted")
-	suite.Equal(collection.Slug, itemMetadata["slug"])
-	suite.EqualValues(collection.ID, suite.metadataUintForTest(itemMetadata["collection_id"]))
-	suite.NotContains(itemMetadata, "entity_type",
-		"the item's own subject is not what this row's gate decided")
-	suite.NotContains(itemMetadata, "entity_id")
+	suite.Nil(byAction["add_collection_item"].Metadata,
+		"the item's own subject is a gated show, its parent slug can be stale, and "+
+			"the collection family publishes neither")
+
+	// THE ONE PUBLISHED PAIR, so the assertions above are about the allowlist
+	// rather than about the projection having dropped everything.
+	suite.Require().Contains(byAction, "clone_collection")
+	cloneMetadata := byAction["clone_collection"].Metadata
+	suite.Require().NotNil(cloneMetadata, "the fork attribution is allowlisted")
+	suite.Equal(source.Slug, cloneMetadata["source_slug"])
+	// Read back through the SERVICE's own reader, so the test cannot decide a
+	// JSON number differently from the scrub that gates this very key.
+	sourceID, ok := metadataUint(cloneMetadata["source_id"])
+	suite.Require().True(ok, "source_id did not read back as an id")
+	suite.Equal(source.ID, sourceID)
 }
 
 // AN ACTION WITH NO ENTRY IN THE ALLOWLIST PUBLISHES NOTHING, which is the same

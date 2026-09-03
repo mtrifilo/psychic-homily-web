@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"time"
 
@@ -751,31 +753,19 @@ var contributionEntityRequestActions = map[string]bool{
 	"rescue_void_entity_request":    true,
 }
 
-// contributionEntityRequestActionNames is the map's keys, sorted so the emitted
-// statement is byte-identical across processes and the bind order is a property
-// of the map rather than of Go's randomised map iteration.
-func contributionEntityRequestActionNames() []string {
-	names := make([]string, 0, len(contributionEntityRequestActions))
-	for action := range contributionEntityRequestActions {
-		names = append(names, action)
-	}
-	sort.Strings(names)
-	return names
-}
+var contributionEntityRequestActionNames = slices.Sorted(maps.Keys(contributionEntityRequestActions))
+
+// contributionEntityRequestActionNames is the map's keys as the IN-list the
+// gate binds.
+//
+// Built ONCE, at init: the set is a compile-time constant and the builder that
+// reads it runs three times per profile request. Sorted so a logged statement's
+// bind list can be compared between processes, which Go's randomised map
+// iteration would otherwise deny.
 
 // =============================================================================
 // WHAT audit_logs.metadata MAY PUBLISH
 // =============================================================================
-
-// contributionCollectionMetadataKeys are the two keys the collection arm of
-// contributionVisibilitySQL reads to decide a collection-typed row.
-//
-// A row served by that arm was decided AGAINST THE COLLECTION THESE NAME, so
-// publishing them adds nothing the served row does not already say. Any other
-// key on those rows is withheld, including the entity_type and entity_id
-// add_collection_item records for the item's own subject, which can name a show
-// the viewer may not see.
-var contributionCollectionMetadataKeys = []string{"collection_id", "slug"}
 
 // contributionMetadataKeys is the ALLOWLIST of audit metadata keys the
 // contributions timeline publishes, keyed by action. Every other key on every
@@ -794,6 +784,13 @@ var contributionCollectionMetadataKeys = []string{"collection_id", "slug"}
 // the projection treats undecided and withheld alike, so a writer that ships
 // before its disposition withholds rather than publishes.
 //
+// THE ENTITY REQUEST FAMILY IS NOT LISTED HERE. Its members are the keys of
+// contributionEntityRequestActions, which the gate already maintains as one
+// list, and every one of them publishes nothing: a replacement's row carries a
+// digest of the submission it destroyed and the decide rows carry the
+// requester's id. Listing them again here would be a second inventory to keep
+// in step with the first.
+//
 // THE ALLOWLIST IS NOT VIEWER-DEPENDENT. The owner reading their own timeline
 // through GET /auth/profile/contributions gets the same keys an anonymous reader
 // gets, because both handlers call one service and the page is public by
@@ -801,25 +798,30 @@ var contributionCollectionMetadataKeys = []string{"collection_id", "slug"}
 // public. Admins read whole rows on GET /admin/audit-logs, which this does not
 // touch.
 var contributionMetadataKeys = map[string][]string{
-	// The collection lifecycle and item actions, all written by
-	// handlers/community/collection.go. Uniform across the family: the gate arm
-	// that serves any of these rows decides it against the collection these two
-	// keys name.
-	"create_collection":         contributionCollectionMetadataKeys,
-	"update_collection":         contributionCollectionMetadataKeys,
-	"delete_collection":         contributionCollectionMetadataKeys,
-	"set_collection_featured":   contributionCollectionMetadataKeys,
-	"bulk_add_collection_items": contributionCollectionMetadataKeys,
-	"add_collection_tag":        contributionCollectionMetadataKeys,
-	"remove_collection_tag":     contributionCollectionMetadataKeys,
-	"add_collection_item":       contributionCollectionMetadataKeys,
-	"update_collection_item":    contributionCollectionMetadataKeys,
-	"remove_collection_item":    contributionCollectionMetadataKeys,
-
-	// The clone's forked-from attribution. The clone is public and the SOURCE
-	// may not be, so these two are gated a second time, per viewer and per row,
-	// by scrubCloneSourceMetadata.
+	// The clone's forked-from attribution, and the only key pair this timeline
+	// publishes. The clone is public and the SOURCE may not be, so the pair is
+	// gated a second time, per viewer and per row, by scrubCloneSourceMetadata.
+	//
+	// A PUBLISHED KEY NEEDS A GATE OVER ITS OWN REFERENT, which is why the
+	// collection family below publishes none. Their slug and collection_id name
+	// a collection, and the arm serving those rows is a three-way OR: a row can
+	// pass on its live parent while the key names something else. A legacy item
+	// row carrying no collection_id passes on that parent and still holds a
+	// stale slug, and a rename frees a slug for another collection to take, so
+	// the string can name a collection nothing decided.
 	contributionCloneAction: contributionCloneSourceKeys,
+
+	// handlers/community/collection.go, the collection lifecycle and items.
+	"create_collection":         nil,
+	"update_collection":         nil,
+	"delete_collection":         nil,
+	"set_collection_featured":   nil,
+	"bulk_add_collection_items": nil,
+	"add_collection_tag":        nil,
+	"remove_collection_tag":     nil,
+	"add_collection_item":       nil,
+	"update_collection_item":    nil,
+	"remove_collection_item":    nil,
 
 	// ---------------------------------------------------------------------
 	// Everything below publishes NO key. Grouped by writer, and each entry is
@@ -901,19 +903,6 @@ var contributionMetadataKeys = map[string][]string{
 	"approve_fulfillment":      nil,
 	"reject_fulfillment":       nil,
 	"close_request":            nil,
-
-	// handlers/community, entity requests. The whole family, and the reason the
-	// allowlist was worth building: a replacement's row carries a digest of the
-	// submission it destroyed, and the decide rows carry the requester's id.
-	// The rows themselves reach only the requester and admins; the metadata
-	// reaches nobody.
-	"queue_entity_request":          nil,
-	"replace_entity_request":        nil,
-	"auto_approve_entity_request":   nil,
-	"approve_entity_request":        nil,
-	"reject_entity_request":         nil,
-	"rescue_fulfill_entity_request": nil,
-	"rescue_void_entity_request":    nil,
 
 	// handlers/engagement. The comment actions record the commented-on entity's
 	// id and the comment's own id; the entity id is the one the row's gate
@@ -1061,7 +1050,7 @@ func contributionVisibilitySQL(alias string, viewer contracts.ShowViewer) (strin
 		alias, visibleCollections)
 
 	var args []interface{}
-	args = append(args, contributionEntityRequestActionNames())
+	args = append(args, contributionEntityRequestActionNames)
 	args = append(args, visibleRequestArgs...)
 	args = append(args, contributionShowEntityTypes)
 	args = append(args, visibleShowsArgs...)
@@ -1198,7 +1187,12 @@ func (s *ContributorProfileService) GetContributionHistory(userID uint, limit, o
 		// so no later pass can reintroduce a key by working from the stored
 		// document. What survives is the intersection of the action's
 		// allowlisted keys with the keys the row carries.
-		if row.Metadata != nil {
+		//
+		// The allowlist is consulted BEFORE the decode, not inside it: one
+		// action publishes any key at all, so decoding the other rows'
+		// documents would be work whose whole result is discarded, on an
+		// anonymous read that serves up to a hundred rows a page.
+		if row.Metadata != nil && len(contributionMetadataKeys[row.Action]) > 0 {
 			var metadata map[string]interface{}
 			if err := json.Unmarshal(*row.Metadata, &metadata); err == nil {
 				entry.Metadata = projectContributionMetadata(row.Action, metadata)
@@ -1267,6 +1261,13 @@ func (s *ContributorProfileService) scrubCloneSourceMetadata(entries []*contract
 		// so a source that was deleted and one that went private answer alike.
 		for _, key := range contributionCloneSourceKeys {
 			delete(e.Metadata, key)
+		}
+		// NIL, NOT AN EMPTIED MAP. These are the only keys the projection let
+		// through for this action, so removing them leaves nothing, and a row
+		// whose attribution was scrubbed must answer like a row that never
+		// carried one.
+		if len(e.Metadata) == 0 {
+			e.Metadata = nil
 		}
 	}
 }

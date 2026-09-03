@@ -60,7 +60,11 @@ func TestEntityRequestVisibilityMatrix(t *testing.T) {
 		cond, args := shared.VisibleEntityRequestExistsSQL("e.entity_id", v.viewer)
 
 		want := wantEntityRequestVisible(v.isRequester, v.isAdmin, true)
-		if got := countIDExprMatching(t, td.DB, request.ID, cond, args); (got > 0) != want {
+		// countEntityRowMatching is the synthetic-one-row probe the show and
+		// collection matrices use. Its entity_type column is inert here: this
+		// condition reads the id alone, which is what makes an ACTION-keyed
+		// family necessary in the first place.
+		if got := countEntityRowMatching(t, td.DB, "artist", request.ID, cond, args); (got > 0) != want {
 			t.Errorf("VisibleEntityRequestExistsSQL for %s matched %d rows for an existing request, want visible=%v",
 				v.name, got, want)
 		}
@@ -69,25 +73,10 @@ func TestEntityRequestVisibilityMatrix(t *testing.T) {
 		// this the pair enumerates the request id space: an id that answers
 		// "absent" and one that answers "not yours" would be distinguishable.
 		missing := request.ID + 100000
-		if got := countIDExprMatching(t, td.DB, missing, cond, args); got != 0 {
+		if got := countEntityRowMatching(t, td.DB, "artist", missing, cond, args); got != 0 {
 			t.Errorf("VisibleEntityRequestExistsSQL served %s a request id that names no row", v.name)
 		}
 	}
-}
-
-// countIDExprMatching runs a condition over one synthetic row holding an id, the
-// shape a caller holding a foreign id in its own column evaluates it in.
-func countIDExprMatching(t *testing.T, db *gorm.DB, entityID uint, cond string, args []interface{}) int64 {
-	t.Helper()
-	sqlArgs := append([]interface{}{entityID}, args...)
-	var count int64
-	if err := db.Raw(
-		"SELECT COUNT(*) FROM (SELECT ?::bigint AS entity_id) e WHERE "+cond,
-		sqlArgs...,
-	).Scan(&count).Error; err != nil {
-		t.Fatalf("count id rows with %q: %v", cond, err)
-	}
-	return count
 }
 
 func createEntityRequest(t *testing.T, db *gorm.DB, requesterID uint, entityType string) *communitym.EntityRequest {
