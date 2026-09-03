@@ -195,11 +195,23 @@ export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
 
   // ONE sign-in destination for both routes into it: the pre-tap redirect the
   // hook issues, and the expired-session link under the error below.
-  const { onClick: handleConfirm, buildAuthHrefForHere: signInHref } =
-    useAuthGatedAction(() => {
-      if (confirmInert) return
-      confirm.mutate(venue.id)
-    })
+  const { onClick: gatedConfirm, buildAuthHrefForHere: signInHref } =
+    useAuthGatedAction(() => confirm.mutate(venue.id))
+
+  // Inert outranks the auth branch, and the order is load-bearing HERE and
+  // nowhere else in this class: every sibling control renders natively
+  // `disabled`, so a click cannot reach their handler at all, while this one
+  // stays clickable on purpose (see the button below). Without this, a viewer
+  // whose session died after confirming would be pushed to /auth by tapping a
+  // button that reads "✓ Confirmed", losing the map they were panning.
+  const handleConfirm = (event: React.MouseEvent) => {
+    if (confirmInert) {
+      event.preventDefault()
+      event.stopPropagation()
+      return
+    }
+    gatedConfirm(event)
+  }
 
   return (
     <DismissableLayer
@@ -304,6 +316,11 @@ export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
               {confirm.error?.status === 401 && (
                 <>
                   {' '}
+                  {/* Called during render, which `buildAuthHrefForHere`
+                      documents as event-time only. Legal here and nowhere
+                      else in this file: the branch paints only after a client
+                      mutation returned 401, so there is no render without a
+                      browser location. */}
                   <Link
                     href={signInHref()}
                     className="underline underline-offset-4"

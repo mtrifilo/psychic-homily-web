@@ -18,10 +18,10 @@ interface LoginPromptDialogProps {
   description?: string
   /**
    * The sign-in destination, already built. Required, and an href rather than
-   * a bare `returnTo`, because the canonical destination is resolved when the
-   * prompt OPENS (`useAuthGatedAction`), while this dialog is mounted closed
-   * in server markup, where there is no location to resolve it from. A default
-   * here could only be a destination that discards where the reader was.
+   * a bare `returnTo`, because the caller resolves it at click time from the
+   * browser's own location (`useAuthGatedAction`). A default here could only
+   * be a destination that discards where the reader was, which is the bug the
+   * required prop exists to make unwritable.
    */
   authHref: string
 }

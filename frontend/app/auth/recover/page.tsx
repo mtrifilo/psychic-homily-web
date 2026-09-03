@@ -210,7 +210,7 @@ function TokenConfirmation({ token }: { token: string }) {
 function RecoverAccountPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { authStatus } = useAuthContext()
+  const { authStatus, isLoading } = useAuthContext()
   const requestRecoveryMutation = useRequestAccountRecovery()
 
   const [step, setStep] = useState<'email' | 'sent'>('email')
@@ -256,9 +256,11 @@ function RecoverAccountPageContent() {
     setError(null)
   }
 
-  // 'pending', not `isLoading`: the same unsettled window the sign-in page
-  // gates on. See AuthStatus in lib/context/AuthContext.
-  if (authStatus === 'pending') {
+  // `isLoading`, not `authStatus === 'pending'`, for the reason the sign-in
+  // page states: 'pending' is terminal for a profile fetch that failed without
+  // answering, and account recovery is the last page that may be withheld from
+  // a viewer who cannot get in.
+  if (isLoading) {
     return (
       <div className="flex min-h-[calc(100vh-64px)] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />

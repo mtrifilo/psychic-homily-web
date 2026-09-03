@@ -77,12 +77,14 @@ vi.mock('@/features/shows', () => ({
   useShowCities: () => ({ data: { cities: mockShowCities } }),
 }))
 
-let mockIsAuthenticated = false
-let mockAuthLoading = false
+let mockAuthStatus: 'pending' | 'anonymous' | 'authenticated' = 'anonymous'
 vi.mock('@/lib/context/AuthContext', () => ({
+  // `authStatus` is what the geo hook reads now; the two booleans stay derived
+  // from it so no case can describe a viewer the provider cannot produce.
   useAuthContext: () => ({
-    isAuthenticated: mockIsAuthenticated,
-    isLoading: mockAuthLoading,
+    authStatus: mockAuthStatus,
+    isAuthenticated: mockAuthStatus === 'authenticated',
+    isLoading: mockAuthStatus === 'pending',
     user: null,
   }),
 }))
@@ -154,8 +156,7 @@ describe('UpcomingShowsList', () => {
     mockReplace.mockClear()
     mockPush.mockClear()
     mockSetCities.mockClear()
-    mockIsAuthenticated = false
-    mockAuthLoading = false
+    mockAuthStatus = 'anonymous'
     mockProfileData = undefined
   })
 
@@ -367,7 +368,7 @@ describe('UpcomingShowsList', () => {
     })
 
     it('lets authed favorites win over geo (resolution order)', () => {
-      mockIsAuthenticated = true
+      mockAuthStatus = 'authenticated'
       mockProfileData = {
         user: { preferences: { favorite_cities: [{ city: 'Phoenix', state: 'AZ' }] } },
       }
@@ -395,7 +396,7 @@ describe('UpcomingShowsList', () => {
     })
 
     it('does NOT apply geo for an authed user with no favorites', () => {
-      mockIsAuthenticated = true
+      mockAuthStatus = 'authenticated'
       mockProfileData = { user: { preferences: { favorite_cities: [] } } }
       mockShowCities = [{ city: 'Omaha', state: 'NE', show_count: 3 }]
       mockUseExploreUpcomingShows.mockReturnValue({
@@ -410,7 +411,7 @@ describe('UpcomingShowsList', () => {
     })
 
     it('waits for auth to settle before applying the anon geo default', () => {
-      mockAuthLoading = true
+      mockAuthStatus = 'pending'
       mockShowCities = [{ city: 'Omaha', state: 'NE', show_count: 3 }]
       mockUseExploreUpcomingShows.mockReturnValue({
         data: omahaShow,
@@ -492,7 +493,7 @@ describe('UpcomingShowsList', () => {
   // client-side navigation.
   describe('favorites default (derived, no URL write)', () => {
     beforeEach(() => {
-      mockIsAuthenticated = true
+      mockAuthStatus = 'authenticated'
       mockProfileData = {
         user: {
           preferences: { favorite_cities: [{ city: 'Phoenix', state: 'AZ' }] },

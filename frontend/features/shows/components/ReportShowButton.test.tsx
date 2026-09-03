@@ -14,6 +14,7 @@ const mockPush = vi.fn()
 type MockAuthContextValue = {
   user: { id: string; is_admin: boolean } | null
   authStatus: 'pending' | 'anonymous' | 'authenticated'
+  isLoading?: boolean
   logout: () => void
 }
 const mockAuthContext = vi.fn<() => MockAuthContextValue>(() => ({
@@ -187,8 +188,11 @@ describe('ReportShowButton', () => {
   // not arrived. The unsettled window gets neither dialog and no redirect.
   it('offers neither dialog while auth is unsettled', async () => {
     mockAuthContext.mockReturnValue({
+      // TERMINAL pending: `isLoading` false while the status is still
+      // unsettled, which is the window an `isLoading` gate cannot see.
       user: null,
       authStatus: 'pending',
+      isLoading: false,
       logout: vi.fn(),
     })
     const user = userEvent.setup()

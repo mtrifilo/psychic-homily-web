@@ -60,35 +60,23 @@ export function deriveMockAuthSignals<
 }
 
 /**
- * Build the `authFixture` a suite hands to its mocked `useAuthContext()`.
+ * Build the whole `authFixture` a suite hands to its mocked
+ * `useAuthContext()`, for a suite whose mocked context is exactly this shape.
  *
- * Lives here rather than in each suite because the builder encodes invariants
- * of the real provider, and a copy that drifts from them keeps passing while
- * describing a viewer the provider cannot produce:
- *
- *   - `isAuthenticated` is DERIVED from `authStatus` and is not overridable,
- *     so no test can describe a viewer whose two auth signals disagree.
- *   - A non-null `user` and `authStatus === 'authenticated'` imply each other.
- *     `AuthProvider` derives the status from the user with `if (user) return
- *     'authenticated'` as its first clause, and no other clause reaches that
- *     value, so "a stale user beside an unsettled status" is not a state a
- *     component can be handed. Asking for it throws rather than passing
- *     vacuously.
- *   - `isLoading` IS overridable, because it partitions neither status. It
- *     is TanStack's `isPending && isFetching`, so 'pending' carries it true
- *     while a fetch is open and false both before one starts and after one
- *     fails, and 'authenticated' carries it true while a logout is in flight.
- *
- * Read the `AuthStatus` docblock before gating a component on any of these.
+ * The invariants are `deriveMockAuthSignals`' above; this adds the defaults
+ * and normalizes `user` to `null` first, so a fixture asking for an
+ * authenticated viewer without one is refused rather than falling into that
+ * function's `undefined` exemption. A suite that genuinely does not model
+ * `user` calls `deriveMockAuthSignals` directly.
  */
 export function makeAuthFixture<TUser>(logout: () => void) {
   return (
     overrides: Partial<Omit<MockAuthContextValue<TUser>, 'isAuthenticated'>> = {}
   ): MockAuthContextValue<TUser> =>
     deriveMockAuthSignals({
-      user: null,
       authStatus: 'anonymous' as AuthStatus,
       logout,
       ...overrides,
+      user: overrides.user ?? null,
     })
 }

@@ -622,7 +622,7 @@ function SignupForm({ returnTo, onHandoffChange }: SignupFormProps) {
 function AuthPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { authStatus } = useAuthContext()
+  const { authStatus, isLoading } = useAuthContext()
   const [activeTab, setActiveTab] = useState('login')
   const [signupHandoff, setSignupHandoff] = useState<SignupHandoff | null>(null)
   const signInTabRef = useRef<HTMLButtonElement>(null)
@@ -646,12 +646,23 @@ function AuthPageContent() {
     }
   }, [authStatus, router, returnTo, signupHandoff])
 
-  // 'pending', not `isLoading`. This page is a route the nav bars offer while
-  // the viewer's identity is unsettled, and `isLoading` is false both before
-  // the profile fetch starts and after it fails without settling, so it
-  // rendered the sign-in form to a viewer who may already hold a session. See
-  // AuthStatus in lib/context/AuthContext.
-  if (authStatus === 'pending') {
+  // `isLoading`, NOT `authStatus === 'pending'`, and this is the one page
+  // where that is the right way round.
+  //
+  // 'pending' is terminal for a profile fetch that failed without answering
+  // (429, 5xx, network, 403): `useProfile` retries twice, gives up, and only a
+  // throttled focus or reconnect refetch moves it. Withholding this form there
+  // strands the viewer who most needs it, since reaching 'pending' takes a
+  // cookie the backend did not answer for and that cookie may name a dead
+  // session. `isLoading` goes false as soon as the query errors, so the form
+  // comes back. It is the same rule the AuthStatus docblock states for the nav
+  // link: a sign-in affordance claims nothing about who is looking, and the
+  // unsettled window must not take it away.
+  //
+  // The cost is the mirror case: a signed-in viewer whose profile has not
+  // landed sees a sign-in form. They lose nothing by it, and the effect above
+  // redirects them the moment the status settles.
+  if (isLoading) {
     return (
       <div className="flex min-h-[calc(100vh-64px)] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />

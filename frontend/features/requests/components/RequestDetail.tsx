@@ -58,7 +58,7 @@ interface RequestDetailProps {
 
 export function RequestDetail({ requestId }: RequestDetailProps) {
   const router = useRouter()
-  const { user, isAuthenticated } = useAuthContext()
+  const { user, isAuthenticated, authStatus } = useAuthContext()
   const { data: request, isLoading, error } = useRequest(requestId)
   const deleteMutation = useDeleteRequest()
   const voteMutation = useVoteRequest()
@@ -157,6 +157,11 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
   const canClose = isAdmin && request.status !== 'cancelled' && request.status !== 'fulfilled'
 
   const userVote = request.user_vote ?? 0
+  // `authStatus === 'anonymous'`, not `!isAuthenticated`, for the title only:
+  // "Log in to vote" is a claim about the viewer, and the unsettled window is
+  // not entitled to make it. The control stays disabled in both, so the
+  // unsettled viewer gets the neutral name. See AuthStatus in
+  // lib/context/AuthContext.
   const isVoting = voteMutation.isPending || removeVoteMutation.isPending
 
   const handleUpvote = () => {
@@ -257,7 +262,7 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
                         : 'text-muted-foreground/50 hover:text-green-600 dark:hover:text-green-400 hover:bg-green-500/10',
                       !isAuthenticated && 'cursor-default opacity-50'
                     )}
-                    title={isAuthenticated ? 'Upvote' : 'Log in to vote'}
+                    title={authStatus === 'anonymous' ? 'Log in to vote' : 'Upvote'}
                     aria-label="Upvote"
                   >
                     <ThumbsUp className="h-5 w-5" />
@@ -284,7 +289,7 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
                         : 'text-muted-foreground/50 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-500/10',
                       !isAuthenticated && 'cursor-default opacity-50'
                     )}
-                    title={isAuthenticated ? 'Downvote' : 'Log in to vote'}
+                    title={authStatus === 'anonymous' ? 'Log in to vote' : 'Downvote'}
                     aria-label="Downvote"
                   >
                     <ThumbsDown className="h-5 w-5" />

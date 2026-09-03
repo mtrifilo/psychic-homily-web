@@ -5,12 +5,9 @@
  * `lib/auth-href.test.ts` pins the round trip between them.
  */
 
-const FALLBACK_RETURN_TO = '/'
-const BASE_ORIGIN = 'https://psychichomily.com'
+import { FALLBACK_RETURN_TO, isAuthPath } from '@/lib/auth-href'
 
-function isAuthPath(pathname: string): boolean {
-  return pathname === '/auth' || pathname.startsWith('/auth/')
-}
+const BASE_ORIGIN = 'https://psychichomily.com'
 
 export function sanitizeReturnTo(
   rawReturnTo: string | null | undefined
@@ -29,7 +26,18 @@ export function sanitizeReturnTo(
     if (parsed.origin !== BASE_ORIGIN || isAuthPath(parsed.pathname)) {
       return FALLBACK_RETURN_TO
     }
-    return `${parsed.pathname}${parsed.search}${parsed.hash}`
+
+    const destination = `${parsed.pathname}${parsed.search}${parsed.hash}`
+    // The `//` test above runs on the RAW input; this one runs on the result,
+    // and they are not the same test. URL normalization collapses `..`
+    // segments, so `/..//evil.com` arrives past the raw check as a same-origin
+    // URL whose pathname is `//evil.com`. Returned unchecked that is a
+    // protocol-relative destination, and both sinks (`router.push` and the
+    // interstitial's `<Link>`) navigate cross-origin on it.
+    if (destination.startsWith('//')) {
+      return FALLBACK_RETURN_TO
+    }
+    return destination
   } catch {
     return FALLBACK_RETURN_TO
   }

@@ -20,6 +20,7 @@ vi.mock('next/navigation', () => ({
 let mockAuthState: {
   user: { is_admin?: boolean } | null
   authStatus: 'pending' | 'anonymous' | 'authenticated'
+  isLoading?: boolean
 }
 
 vi.mock('@/lib/context/AuthContext', async () => {
@@ -38,7 +39,10 @@ describe('AdminGuard (shared admin route guard)', () => {
     // The window this guard exists to survive: a signed-in viewer whose
     // profile fetch failed on a non-definitive error reads 'pending', and
     // redirecting there dumps them on the sign-in form and loses the page.
-    mockAuthState = { user: null, authStatus: 'pending' }
+    // TERMINAL pending: `isLoading` false while the status is still
+    // unsettled, which is the window an `isLoading` gate cannot see and the
+    // one this guard exists for.
+    mockAuthState = { user: null, authStatus: 'pending', isLoading: false }
 
     render(
       <AdminGuard>

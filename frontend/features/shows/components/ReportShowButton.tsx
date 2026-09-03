@@ -38,8 +38,9 @@ export function ReportShowButton({
   const [isReportDialogOpen, setIsReportDialogOpen] = useState(false)
   const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false)
   // Captured when the prompt opens rather than derived during render: the
-  // canonical destination reads `window.location.search`, which is empty on
-  // the server, and this dialog is mounted (closed) in the server markup.
+  // canonical destination reads `window.location.search`, which a render can
+  // be produced without. Null until the first anonymous click, which is also
+  // what holds the dialog out of the tree below.
   const [loginPromptAuthHref, setLoginPromptAuthHref] = useState<string | null>(
     null
   )

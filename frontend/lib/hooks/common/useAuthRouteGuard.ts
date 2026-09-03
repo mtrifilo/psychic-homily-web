@@ -60,9 +60,10 @@ export function useAuthRouteGuard(
   if (authStatus === 'pending') return 'loading'
 
   if (authStatus === 'anonymous') {
-    // Throws, so nothing below it runs and the caller never sees 'blank' in
-    // this mode. Every hook above has already run, which is what keeps the
-    // call order stable across the throw.
+    // Throws, so the caller never sees 'blank' in this mode. It also throws
+    // BEFORE any hook the caller declares after this one, which is safe only
+    // because React discards a render that throws: there is no partial commit
+    // to leave a hook list short.
     if (navigation === 'redirect') {
       redirect(buildAuthHref(currentLocationReturnTo(pathname)))
     }

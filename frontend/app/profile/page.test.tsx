@@ -389,15 +389,15 @@ describe('ProfilePage (PSY-683)', () => {
 
       renderWithProviders(<ProfilePage />)
 
-      expect(mockRedirect).toHaveBeenCalledWith(
-        expect.stringContaining('/auth?returnTo=')
-      )
+      expect(mockRedirect).toHaveBeenCalledWith('/auth?returnTo=%2Fprofile')
     })
 
     it('shows a loading spinner (no redirect) while auth is unsettled', () => {
       // 'pending' is a signed-in viewer whose profile has not arrived as often
       // as it is anyone else, and this guard cannot tell them apart.
-      setAuthenticated({ authStatus: 'pending', user: null })
+      // TERMINAL pending: `isLoading` false while the status is still
+      // unsettled, which is the window an `isLoading` gate cannot see.
+      setAuthenticated({ authStatus: 'pending', user: null, isLoading: false })
 
       renderWithProviders(<ProfilePage />)
 

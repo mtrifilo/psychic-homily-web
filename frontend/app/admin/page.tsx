@@ -5,7 +5,6 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { Shield, Loader2 } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { useAuthRouteGuard } from '@/lib/hooks/common/useAuthRouteGuard'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { isValidTab } from '@/components/layout/adminNav'
 
@@ -178,7 +177,6 @@ function AdminPageContent() {
   // react-hooks/set-state-in-effect cascade.
   const activeTab: string = isValidTab(tabParam) ? tabParam : 'dashboard'
   const { user } = useAuthContext()
-  const gate = useAuthRouteGuard('replace')
   const isAdmin = !!user?.is_admin
   const router = useRouter()
 
@@ -189,16 +187,21 @@ function AdminPageContent() {
     router.replace(url, { scroll: false })
   }, [router])
 
-  // The sign-in redirect belongs to the guard; this only demotes a settled,
-  // signed-in non-admin.
+  // No identity gate here. `app/admin/layout.tsx` wraps every admin route in
+  // `AdminGuard`, which renders children only for a settled, signed-in admin,
+  // so this component cannot mount for anyone else. A second guard would be
+  // unreachable and free to disagree with the one that runs.
+  //
+  // The demotion stays as the layout's own belt: `AdminGuard` renders Access
+  // Denied for a non-admin, and this sends them home.
   useEffect(() => {
-    if (gate !== 'ready') return
+    if (!user) return
     if (!isAdmin) {
       router.replace('/')
     }
-  }, [gate, isAdmin, router])
+  }, [user, isAdmin, router])
 
-  if (gate !== 'ready' || !isAdmin) {
+  if (!isAdmin) {
     return (
       <div className="flex min-h-[calc(100vh-64px)] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />

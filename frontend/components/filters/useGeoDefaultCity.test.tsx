@@ -47,8 +47,7 @@ type HookParams = Parameters<typeof useGeoDefaultCity>[0]
 function baseParams(overrides: Partial<HookParams> = {}): HookParams {
   return {
     cities: ALL_CITIES,
-    isAuthenticated: false,
-    authLoading: false,
+    authStatus: 'anonymous',
     favoriteCities: [],
     hasExistingSelection: false,
     ...overrides,
@@ -136,7 +135,7 @@ describe('useGeoDefaultCity — server-prop path (/explore)', () => {
     const { result } = renderHook(() =>
       useGeoDefaultCity(
         baseParams({
-          isAuthenticated: true,
+          authStatus: 'authenticated',
           geoFromServer: { city: 'Omaha', state: 'NE' },
         }),
       ),
@@ -148,7 +147,7 @@ describe('useGeoDefaultCity — server-prop path (/explore)', () => {
     const { result } = renderHook(() =>
       useGeoDefaultCity(
         baseParams({
-          isAuthenticated: true,
+          authStatus: 'authenticated',
           favoriteCities: [{ city: 'Phoenix', state: 'AZ' }],
           geoFromServer: { city: 'Omaha', state: 'NE' },
         }),
@@ -162,7 +161,7 @@ describe('useGeoDefaultCity — server-prop path (/explore)', () => {
       (props: HookParams) => useGeoDefaultCity(props),
       {
         initialProps: baseParams({
-          authLoading: true,
+          authStatus: 'pending',
           geoFromServer: { city: 'Omaha', state: 'NE' },
         }),
       },
@@ -171,7 +170,7 @@ describe('useGeoDefaultCity — server-prop path (/explore)', () => {
     // Auth settles → the default derives on the same render pass.
     rerender(
       baseParams({
-        authLoading: false,
+        authStatus: 'anonymous',
         geoFromServer: { city: 'Omaha', state: 'NE' },
       }),
     )
@@ -211,7 +210,7 @@ describe('useGeoDefaultCity — server-prop path (/explore)', () => {
     rerender(
       baseParams({
         geoFromServer: { city: 'Omaha', state: 'NE' },
-        isAuthenticated: true,
+        authStatus: 'authenticated',
         favoriteCities: [{ city: 'Phoenix', state: 'AZ' }],
       }),
     )
@@ -301,7 +300,7 @@ describe('useGeoDefaultCity — client-fetch path (/shows + home)', () => {
     const fetchSpy = mockGeoFetch({ city: 'Omaha', state: 'NE' })
     const { result } = renderHook(() =>
       useGeoDefaultCity(
-        baseParams({ isAuthenticated: true, enableClientFetch: true }),
+        baseParams({ authStatus: 'authenticated', enableClientFetch: true }),
       ),
     )
     expect(fetchSpy).not.toHaveBeenCalled()
@@ -327,13 +326,13 @@ describe('useGeoDefaultCity — client-fetch path (/shows + home)', () => {
       (props: HookParams) => useGeoDefaultCity(props),
       {
         initialProps: baseParams({
-          authLoading: true,
+          authStatus: 'pending',
           enableClientFetch: true,
         }),
       },
     )
     expect(fetchSpy).not.toHaveBeenCalled()
-    rerender(baseParams({ authLoading: false, enableClientFetch: true }))
+    rerender(baseParams({ authStatus: 'anonymous', enableClientFetch: true }))
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith('/api/geo'))
     await waitFor(() =>
       expect(result.current.appliedGeoDefault).toEqual({

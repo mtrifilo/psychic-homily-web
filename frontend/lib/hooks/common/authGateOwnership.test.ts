@@ -5,17 +5,22 @@ import { join, relative, sep } from 'node:path'
 /**
  * The drift guard for the auth gate.
  *
- * Nine components each hand-rolled the same three-state branch (bail while
- * pending, push to /auth when settled anonymous, act when authenticated) and
- * the returnTo formula had already split into two answers, four of them
- * dropping the query string. Extracting the branch fixes today's copies; this
- * test is what stops the tenth from being written.
+ * The sign-in destination is one formula in one place. A second copy of it is
+ * free to disagree with the first, and the disagreement is invisible on any
+ * page that carries no query string, so this refuses the copy rather than
+ * waiting for the divergence.
  *
- * Two spellings are refused outside the owners below:
- *   - a hand-built `/auth?returnTo=` href, which is `buildAuthHref`'s job and
- *     is where the query string went missing
- *   - a literal navigation to '/auth', which is a redirect written without the
- *     destination the reader came from
+ * Three things are refused outside the owners below:
+ *   - a hand-built `/auth?returnTo=` href, which is `buildAuthHref`'s job
+ *   - a bare `'/auth'` string, whether pushed, redirected or handed to an
+ *     `href`, which is a sign-in route written without the destination the
+ *     reader came from. `AUTH_PATH` is the spelling for a site that genuinely
+ *     has no destination to carry.
+ *   - an import of `buildAuthHref` from anywhere but the small set of files
+ *     that legitimately compose an href themselves. That is the rule the other
+ *     two cannot express: `buildAuthHref(pathname)` inside a click handler is
+ *     the query-string loss this family exists to fix, and it names neither
+ *     forbidden string.
  *
  * The pending half of the rule cannot be caught by grep (a component may read
  * `authStatus === 'pending'` for perfectly good rendering reasons), so it is
@@ -45,6 +50,25 @@ const SKIPPED_DIR_NAMES = new Set(['node_modules', '.next', 'e2e', 'e2e-hydratio
 // routes is discarded by `sanitizeReturnTo`, so their own recovery links go to
 // a bare /auth on purpose.
 const AUTH_SURFACE_PREFIX = join('app', 'auth') + sep
+
+// The files that compose a sign-in href themselves rather than asking a hook.
+// Every one is a RENDER-time link, where `currentLocationReturnTo` cannot read
+// a query string, and each is here for one of two reasons: it sends the reader
+// back to wherever they are (the pathname, the best a render can do), or it
+// names a FIXED destination that is not the current page at all. A click
+// handler is neither, and belongs in `useAuthGatedAction`. Adding a name here
+// is the deliberate act this list exists to require.
+const AUTH_HREF_COMPOSERS = new Set(
+  [
+    // Back to the current pathname.
+    'features/auth/components/SignInPrompt.tsx',
+    'components/layout/nav/UserMenu.tsx',
+    'components/layout/nav/BottomTabBar.tsx',
+    // A fixed destination, resolved at module scope.
+    'app/shows/submit/page.tsx',
+    'app/verify-email/page.tsx',
+  ].map(f => f.split('/').join(sep))
+)
 
 // Prose is not code. Both halves of this contract are described in doc
 // comments that quote the very spellings under test, and a scan that counted
@@ -95,12 +119,20 @@ describe('auth gate ownership', () => {
     expect(offenders(/\/auth\?returnTo=/)).toEqual([])
   })
 
-  it('has no component navigating to a bare /auth of its own', () => {
-    // `router.push('/auth')` / `redirect('/auth')` and friends: a sign-in
-    // navigation with no way back to the page the reader was on.
-    const bare = offenders(
-      /(?:push|replace|redirect)\(\s*['"`]\/auth['"`]/
-    ).filter(rel => !rel.startsWith(AUTH_SURFACE_PREFIX))
+  it('has no component naming a bare /auth of its own', () => {
+    // Covers `router.push('/auth')`, `redirect('/auth')` and `href="/auth"`
+    // alike: a sign-in route with no way back to the page the reader was on.
+    // `AUTH_PATH` is how a site with genuinely nowhere to return says so.
+    const bare = offenders(/['"`]\/auth['"`]/).filter(
+      rel => !rel.startsWith(AUTH_SURFACE_PREFIX)
+    )
     expect(bare).toEqual([])
+  })
+
+  it('keeps href composition to the render-time links that need it', () => {
+    const composers = offenders(/\bbuildAuthHref\b/).filter(
+      rel => !AUTH_HREF_COMPOSERS.has(rel)
+    )
+    expect(composers).toEqual([])
   })
 })

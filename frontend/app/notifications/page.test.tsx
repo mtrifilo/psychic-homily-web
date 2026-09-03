@@ -14,10 +14,13 @@ const mockUseMarkRead = vi.fn(() => ({
   isError: false,
   error: null as Error | null,
 }))
-const mockAuthContext = vi.fn(() => ({
-  authStatus: 'authenticated' as 'pending' | 'anonymous' | 'authenticated',
-  user: { id: 1 },
-}))
+const mockAuthContext = vi.fn(
+  (): {
+    authStatus: 'pending' | 'anonymous' | 'authenticated'
+    user: { id: number }
+    isLoading?: boolean
+  } => ({ authStatus: 'authenticated', user: { id: 1 } })
+)
 const mockRedirect = vi.fn()
 
 vi.mock('@/lib/context/AuthContext', async () => {
@@ -231,7 +234,7 @@ describe('NotificationInboxPage', () => {
     })
     render(<NotificationInboxPage />)
     expect(mockRedirect).toHaveBeenCalledWith(
-      expect.stringContaining('/auth?returnTo=')
+      '/auth?returnTo=%2Fnotifications'
     )
   })
 
@@ -239,8 +242,11 @@ describe('NotificationInboxPage', () => {
     // 'pending' is a signed-in viewer whose profile has not arrived as often
     // as it is anyone else, and this guard cannot tell them apart.
     mockAuthContext.mockReturnValue({
+      // TERMINAL pending: `isLoading` false while the status is still
+      // unsettled, which is the window an `isLoading` gate cannot see.
       authStatus: 'pending',
       user: null as never,
+      isLoading: false,
     })
     mockUseUserNotifications.mockReturnValue({
       data: undefined,

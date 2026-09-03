@@ -6,15 +6,18 @@ import type { ShowResponse, ArtistResponse } from '../types'
 
 
 // Mock AuthContext
-const mockAuthContext = vi.fn(() => ({
-  user: null,
-  isAuthenticated: false,
-  isLoading: false,
-  logout: vi.fn(),
-}))
-vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => mockAuthContext(),
-}))
+const mockAuthContext = vi.fn(
+  (): {
+    user: { id: string } | null
+    authStatus: 'pending' | 'anonymous' | 'authenticated'
+    isLoading?: boolean
+    logout: () => void
+  } => ({ user: null, authStatus: 'anonymous', logout: vi.fn() })
+)
+vi.mock('@/lib/context/AuthContext', async () => {
+  const { deriveMockAuthSignals } = await import('@/test/authFixture')
+  return { useAuthContext: () => deriveMockAuthSignals(mockAuthContext()) }
+})
 
 // Mock next/navigation
 const mockPush = vi.fn()
@@ -156,8 +159,7 @@ describe('ShowList', () => {
     vi.clearAllMocks()
     mockAuthContext.mockReturnValue({
       user: null,
-      isAuthenticated: false,
-      isLoading: false,
+      authStatus: 'anonymous',
       logout: vi.fn(),
     })
     mockSearchParams.mockReturnValue({
@@ -673,8 +675,7 @@ describe('ShowList', () => {
       const fetchSpy = mockGeoFetch({ city: 'Omaha', state: 'NE' })
       mockAuthContext.mockReturnValue({
         user: { id: 1 } as never,
-        isAuthenticated: true,
-        isLoading: false,
+        authStatus: 'authenticated',
         logout: vi.fn(),
       })
       render(<ShowList />)
@@ -698,8 +699,7 @@ describe('ShowList', () => {
     const authedWithFavorite = () => {
       mockAuthContext.mockReturnValue({
         user: { id: 1 } as never,
-        isAuthenticated: true,
-        isLoading: false,
+        authStatus: 'authenticated',
         logout: vi.fn(),
       })
       mockUseProfile.mockReturnValue({

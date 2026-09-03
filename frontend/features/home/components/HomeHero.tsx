@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { openCommandPalette } from '@/lib/hooks/common/useCommandPalette'
+import { AUTH_PATH } from '@/lib/auth-href'
 import { ScryingGridWordmark } from './scrying-grid/ScryingGridWordmark'
 import { HeroLightning } from './scrying-grid/HeroLightning'
 
@@ -109,7 +110,10 @@ export function HomeHero() {
       {/* Quiet sign-up nudge */}
       <p className="pt-1 text-sm text-muted-foreground">
         <Link
-          href="/auth"
+          // The route constant, not a literal: the hero only ever renders on
+          // `/`, and `sanitizeReturnTo` discards a returnTo naming the site
+          // root, so there is no destination to carry here.
+          href={AUTH_PATH}
           className="font-semibold text-primary transition-colors hover:underline underline-offset-4"
         >
           Sign up

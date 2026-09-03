@@ -24,6 +24,7 @@ vi.mock('next/navigation', () => ({
 let mockAuthState: {
   setUser: ReturnType<typeof vi.fn>
   authStatus: 'pending' | 'anonymous' | 'authenticated'
+  isLoading?: boolean
 } = {
   setUser: vi.fn(),
   authStatus: 'anonymous',
@@ -299,20 +300,37 @@ describe('AuthPage', () => {
       })
     })
 
-    it('shows the spinner, not the sign-in form, while auth is unsettled', () => {
-      // The window this gate exists for: a viewer holding a session the
-      // backend has not answered for reads 'pending', and showing them the
-      // sign-in form claims they have no session.
+    it('spins while the profile fetch is in flight', () => {
       mockAuthState = {
         setUser: vi.fn(),
         authStatus: 'pending',
+        isLoading: true,
       }
 
       renderWithProviders(<AuthPage />)
 
       expect(mockPush).not.toHaveBeenCalled()
-      // Loading branch shows a spinner, not the tabs.
       expect(screen.queryByRole('tab', { name: 'Sign in' })).not.toBeInTheDocument()
+    })
+
+    // The page this rule exists for. A profile fetch that failed without
+    // answering (429, 5xx, network, 403) leaves `authStatus` terminally
+    // 'pending', and a viewer in that state may be carrying a dead session and
+    // needing exactly this form. Gating the form on 'pending' would spin
+    // forever; `isLoading` goes false when the query errors, so it renders.
+    it('serves the sign-in form once a failed profile settles nothing', () => {
+      mockAuthState = {
+        setUser: vi.fn(),
+        authStatus: 'pending',
+        isLoading: false,
+      }
+
+      renderWithProviders(<AuthPage />)
+
+      expect(mockPush).not.toHaveBeenCalled()
+      expect(
+        screen.getByRole('tab', { name: 'Sign in' })
+      ).toBeInTheDocument()
     })
   })
 

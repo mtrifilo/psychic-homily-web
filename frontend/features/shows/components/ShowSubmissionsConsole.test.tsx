@@ -199,8 +199,11 @@ describe('ShowSubmissionsConsole', () => {
     // 'pending' is a signed-in viewer whose profile has not arrived as often
     // as it is anyone else, and this guard cannot tell them apart.
     mockUseAuthContext.mockReturnValue({
+      // TERMINAL pending: `isLoading` false while the status is still
+      // unsettled, which is the window an `isLoading` gate cannot see.
       authStatus: 'pending',
       user: null,
+      isLoading: false,
     })
 
     renderWithProviders(<ShowSubmissionsConsole />)

@@ -218,14 +218,29 @@ function profileNamesAViewer(client: QueryClient | undefined): boolean {
   return data?.success === true && data.user != null
 }
 
-// One viewer-tier reset per expiry episode, per client. Keyed by the client
-// rather than held as a module boolean because this module is isomorphic and
-// mints a fresh client per server request (see the file header); a module flag
-// would be shared across every request in the process.
+// One viewer-tier reset per expiry episode, per client.
 //
-// Released by `refreshViewerTierQueries`, which every transition into a session
-// calls.
+// Keyed by the client rather than held as a module boolean so its lifetime is
+// the lifetime of the thing it guards. `dropExpiredSessionCaches` is only ever
+// handed the browser singleton today, so a module flag would behave the same;
+// the WeakSet is what keeps that true if a second client is ever passed one.
+//
+// Released by `releaseExpiredSessionLatch`, which is called from the profile
+// query's own success path. It cannot hang off a session-entry mutation alone:
+// a viewer who signs in on another tab re-enters a session here through
+// `useProfile`'s focus refetch, with no mutation and no cache-refresh call in
+// this tab, and a latch still held there means the NEXT expiry re-masks
+// nothing.
 const viewerTierResetForExpiredSession = new WeakSet<QueryClient>()
+
+/**
+ * Re-arm the expiry reset. Called whenever the profile query resolves to a
+ * payload that names a viewer, which is the one event that means "a session is
+ * live here now" no matter which path established it.
+ */
+export function releaseExpiredSessionLatch(queryClient: QueryClient) {
+  viewerTierResetForExpiredSession.delete(queryClient)
+}
 
 /**
  * Session expiry has no logout, so this is the only path that takes the
@@ -877,14 +892,6 @@ const VIEWER_TIER_QUERY_KEYS: readonly (readonly unknown[])[] = [
  * See `resetViewerTierQueries` for the other direction.
  */
 export function refreshViewerTierQueries(queryClient: QueryClient) {
-  // Releases the expiry latch for THIS client. A session entry is the event
-  // that makes a later expiry a new episode rather than an echo of the
-  // previous one, and every path into a session calls this
-  // (`refreshCachesForNewSession`, plus the two passkey components that
-  // establish their session with a raw fetch). A new session-entry path that
-  // does not call this leaves the latch held and the NEXT expiry re-masks
-  // nothing.
-  viewerTierResetForExpiredSession.delete(queryClient)
   return Promise.all(
     VIEWER_TIER_QUERY_KEYS.map(queryKey =>
       queryClient.invalidateQueries({ queryKey })

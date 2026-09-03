@@ -63,6 +63,8 @@ vi.mock('@/lib/utils/authLogger', () => ({
   },
 }))
 
+const mockReleaseExpiredSessionLatch = vi.fn()
+
 // Mock queryClient module
 vi.mock('@/lib/queryClient', () => ({
   queryKeys: {
@@ -81,6 +83,11 @@ vi.mock('@/lib/queryClient', () => ({
     mockRefreshViewerTierQueries(...args),
   resetViewerTierQueries: (...args: unknown[]) =>
     mockResetViewerTierQueries(...args),
+  // PSY-1946: the profile query re-arms the expiry re-mask whenever it
+  // resolves to a payload naming a viewer. The latch itself is covered in
+  // queryClient.test.ts.
+  releaseExpiredSessionLatch: (...args: unknown[]) =>
+    mockReleaseExpiredSessionLatch(...args),
 }))
 
 // Import hooks after mocks are set up

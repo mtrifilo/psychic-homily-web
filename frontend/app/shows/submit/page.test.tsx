@@ -15,6 +15,7 @@ import SubmitShowPage from './page'
 let mockAuth: {
   authStatus: 'pending' | 'anonymous' | 'authenticated'
   user: { email: string; email_verified: boolean; is_admin?: boolean } | null
+  isLoading?: boolean
 } = {
   authStatus: 'authenticated',
   user: { email: 'user@example.com', email_verified: false },
@@ -61,7 +62,10 @@ describe('SubmitShowPage verification gate', () => {
   it('neither redirects nor asks for verification while auth is unsettled', () => {
     // The verification gate asks what this viewer may do, which is only
     // answerable once the guard has settled who they are.
-    mockAuth = { authStatus: 'pending', user: null }
+    // TERMINAL pending: `isLoading` false while the status is still
+    // unsettled, which is the window an `isLoading` gate cannot see and the
+    // one this guard exists for.
+    mockAuth = { authStatus: 'pending', user: null, isLoading: false }
 
     renderWithProviders(<SubmitShowPage />)
 

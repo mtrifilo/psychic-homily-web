@@ -569,8 +569,13 @@ describe('queryClient module', () => {
       expect(resetQueries).not.toHaveBeenCalled()
     })
 
-    it('re-arms on the next session entry', async () => {
-      const { getQueryClient, refreshViewerTierQueries } = await import(
+    // The re-arm hangs off the profile query resolving to a named viewer, not
+    // off a session-entry mutation. A viewer who signs in on another tab
+    // re-enters a session here through the focus refetch, with no mutation in
+    // this tab; a latch still held then would let the next expiry re-mask
+    // nothing.
+    it('re-arms when a profile resolves to a named viewer again', async () => {
+      const { getQueryClient, releaseExpiredSessionLatch } = await import(
         './queryClient'
       )
       const client = getQueryClient()
@@ -578,14 +583,68 @@ describe('queryClient module', () => {
 
       await fail401(client, ['revisions', 'entity', 'venues', 1])
 
-      // A new session: the next expiry is a new episode, not an echo.
-      await refreshViewerTierQueries(client)
+      releaseExpiredSessionLatch(client)
       seedSignedInProfile(client)
       const resetQueries = vi.spyOn(client, 'resetQueries')
 
       await fail401(client, ['revisions', 'entity', 'venues', 1])
 
       expect(resetQueries).toHaveBeenCalled()
+    })
+
+    // The AC PSY-1946 states: expiry mid-view, on a mounted observer. A spy on
+    // `resetQueries` proves the call, not the consequence, and the consequence
+    // is the whole point: `clear()` was rejected for this job precisely because
+    // it leaves a mounted observer painting what it last saw.
+    it('takes the payload off a mounted observer, not just out of the cache', async () => {
+      const { getQueryClient } = await import('./queryClient')
+      const client = getQueryClient()
+      seedSignedInProfile(client)
+
+      const revisionsKey = ['revisions', 'entity', 'venues', 1]
+      client.setQueryData(revisionsKey, { address: '1502 E 6th St' })
+
+      const observer = new QueryObserver(client, {
+        queryKey: revisionsKey,
+        // The privileged payload is already cached, so this observer would
+        // keep painting it forever without the reset.
+        queryFn: () => Promise.resolve({ address: '(hidden)' }),
+        staleTime: Infinity,
+      })
+      const seen: unknown[] = []
+      const unsubscribe = observer.subscribe(result => seen.push(result.data))
+      expect(observer.getCurrentResult().data).toEqual({
+        address: '1502 E 6th St',
+      })
+
+      await fail401(client, ['comments', 'entity', 'venues', 1])
+      await vi.waitFor(() =>
+        expect(observer.getCurrentResult().data).toEqual({
+          address: '(hidden)',
+        })
+      )
+
+      // It left the screen rather than being swapped in place: the observer was
+      // notified with no data before the anonymous payload arrived.
+      expect(seen).toContain(undefined)
+      unsubscribe()
+    })
+
+    // A write refused for a dead session says what a read's 401 says, and the
+    // mutation cache is a separate handler that has to agree.
+    it('recovers from an expiry that surfaces through a mutation', async () => {
+      const { getQueryClient } = await import('./queryClient')
+      const client = getQueryClient()
+      seedSignedInProfile(client)
+      const resetQueries = vi.spyOn(client, 'resetQueries')
+
+      await client
+        .getMutationCache()
+        .build(client, { mutationFn: () => Promise.reject(expired()) })
+        .execute(undefined)
+        .catch(() => undefined)
+
+      expect(resetFamilies(resetQueries)).toContain('revisions')
     })
 
     it('resets on the profile query own 401, which is the settle', async () => {

@@ -236,6 +236,26 @@ describe('VenuePanel', () => {
     )
   })
 
+  it('does not route a signed-out viewer to auth from a control it already stamped', () => {
+    // `hasConfirmed` lives on the mutation, so it survives the session that
+    // produced it. The button reads "✓ Confirmed" and is deliberately still
+    // clickable; tapping it must stay a no-op rather than yanking the viewer
+    // off the map.
+    mockUseVenueConfirm.mockReturnValue({
+      mutate: mockConfirmMutate,
+      isPending: false,
+      data: { viewer_has_confirmed: true, confirmations_count: 1 },
+      error: null,
+      isError: false,
+      reset: vi.fn(),
+    })
+    mockAuthStatus = 'anonymous'
+    renderPanel()
+    fireEvent.click(screen.getByTestId('venue-panel-confirm'))
+    expect(mockConfirmMutate).not.toHaveBeenCalled()
+    expect(mockPush).not.toHaveBeenCalled()
+  })
+
   it('neither writes nor redirects while auth is unsettled', () => {
     // The redirect cannot tell "no session" from "profile in flight", so a tap
     // in this window would either write as a viewer we cannot identify or send

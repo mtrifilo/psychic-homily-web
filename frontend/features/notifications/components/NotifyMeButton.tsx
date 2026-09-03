@@ -88,11 +88,11 @@ export function NotifyMeButton({
     )
   }
 
-  // The sign-in affordance, shared by the settled-anonymous viewer it is FOR and
-  // by the unsettled one, who gets the same shape inert: this branch is a bare
-  // router push to /auth, and `!isAuthenticated` reads true for a signed-in
-  // viewer whose profile has not arrived. One branch rather than two so the two
-  // states cannot drift into different buttons.
+  // The sign-in affordance, shared by the settled-anonymous viewer it is FOR
+  // and by the unsettled one, who gets the same shape inert. One branch rather
+  // than two so the two states cannot drift into different buttons. The
+  // handler already bails on 'pending'; withholding it as well is what makes
+  // the inert arm carry no onClick at all, matching `disabled`.
   if (isUnsettled || !isAuthenticated) {
     const goToAuth = isUnsettled ? undefined : handleClick
     if (compact) {

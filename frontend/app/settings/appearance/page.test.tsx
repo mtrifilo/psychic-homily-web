@@ -20,6 +20,7 @@ vi.mock('next/navigation', () => ({
 let mockAuthState: {
   authStatus: 'pending' | 'anonymous' | 'authenticated'
   user: { nav_mode?: string } | null
+  isLoading?: boolean
 }
 vi.mock('@/lib/context/AuthContext', async () => {
   const { deriveMockAuthSignals } = await import('@/test/authFixture')
@@ -53,7 +54,10 @@ describe('AppearanceSettingsPage', () => {
   it('shows a loading state and does not redirect while auth is unsettled', () => {
     // 'pending' is a signed-in viewer whose profile has not arrived as often
     // as it is anyone else, and this guard cannot tell them apart.
-    mockAuthState = { authStatus: 'pending', user: null }
+    // TERMINAL pending: `isLoading` false while the status is still
+    // unsettled, which is the window an `isLoading` gate cannot see and the
+    // one this guard exists for.
+    mockAuthState = { authStatus: 'pending', user: null, isLoading: false }
     renderWithProviders(<AppearanceSettingsPage />)
     expect(screen.queryByRole('switch')).not.toBeInTheDocument()
     expect(mockRedirect).not.toHaveBeenCalled()

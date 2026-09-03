@@ -27,6 +27,15 @@ describe('sanitizeReturnTo', () => {
     expect(sanitizeReturnTo('/auth?returnTo=/library')).toBe('/')
     expect(sanitizeReturnTo('/auth/magic-link?token=abc')).toBe('/')
   })
+  it('refuses a destination that normalizes into a protocol-relative URL', () => {
+    // The raw `//` check cannot see this one: URL normalization collapses the
+    // `..` segment, so the parsed origin is still ours while the pathname
+    // becomes `//evil.com`, which every sink navigates cross-origin.
+    expect(sanitizeReturnTo('/..//evil.com')).toBe('/')
+    expect(sanitizeReturnTo('/./..//evil.com')).toBe('/')
+    expect(sanitizeReturnTo('/a/..//evil.com')).toBe('/')
+    expect(sanitizeReturnTo('/..//evil.com/phish?a=1')).toBe('/')
+  })
 })
 
 describe('safeDecodeQueryParam', () => {
