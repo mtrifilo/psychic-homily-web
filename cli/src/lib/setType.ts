@@ -89,10 +89,10 @@ export function isUnroundtrippableSetType(
 /**
  * The bill slot an act states, or `undefined` when it states none.
  *
- * The backend's resolution ladder, in one place: a round-trippable `set_type`
- * wins, the legacy `is_headliner` flag decides only in its absence, and
- * anything else is silence. Callers render it; none of them re-derive the
- * precedence.
+ * The backend's resolution ladder, minus its position fallback: a
+ * round-trippable `set_type` wins, the legacy `is_headliner` flag decides only
+ * in its absence, and anything else is silence. It answers what an act's OWN
+ * signal says, so it never reads bill order as a role.
  */
 export function statedSlot(act: {
   set_type?: string | null;

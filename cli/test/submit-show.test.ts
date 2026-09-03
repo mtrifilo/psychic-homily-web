@@ -479,16 +479,21 @@ describe("showPriceLine", () => {
 });
 
 describe("billRoleTag", () => {
+  // The tag is dimmed, and `dim` wraps whenever stdout is a TTY or FORCE_COLOR
+  // is set. Asserting the raw string would make these the only tests in the
+  // suite that fail under an interactive `bun test`.
+  const plain = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
+
   // The dry run is the last place an operator can catch a role that got
   // extracted wrong, so the preview has to print the one that will be written.
   test("prints a stated role", () => {
-    expect(billRoleTag({ set_type: "direct_support" })).toBe(" [direct_support]");
+    expect(plain(billRoleTag({ set_type: "direct_support" }))).toBe(" [direct_support]");
   });
 
   test("prints a stated headliner once, not twice", () => {
     // is_headliner is derived from the role on the way in, so both signals
     // agree here and the tag must not double up.
-    expect(billRoleTag({ set_type: "headliner", is_headliner: true })).toBe(
+    expect(plain(billRoleTag({ set_type: "headliner", is_headliner: true }))).toBe(
       " [headliner]",
     );
   });
@@ -508,7 +513,7 @@ describe("billRoleTag", () => {
   });
 
   test("falls back to the legacy flag when no role is stated", () => {
-    expect(billRoleTag({ is_headliner: true })).toBe(" [headliner]");
+    expect(plain(billRoleTag({ is_headliner: true }))).toBe(" [headliner]");
   });
 });
 

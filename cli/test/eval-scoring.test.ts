@@ -6,6 +6,8 @@ import {
   scoreBillingTiers,
   scoreShowFields,
   scoreExtraction,
+  listMismatches,
+  MAX_REPORTED_MISMATCHES,
   parseModelBatch,
   formatScore,
   type BatchItem,
@@ -290,9 +292,56 @@ describe("scoreShowFields", () => {
 
   test("a faithful split price and stated roles score 1", () => {
     const s = scoreShowFields(splitPriceGolden, splitPriceGolden);
-    expect(s.shows).toEqual({ expected: 1, matched: 1, missed: [], rate: 1 });
+    expect(s.shows).toEqual({
+      expected: 1,
+      matched: 1,
+      missed: [],
+      hallucinated: [],
+      rate: 1,
+    });
     expect(s.prices.rate).toBe(1);
     expect(s.billRoles.rate).toBe(1);
+  });
+
+  test("a show the model never produced leaves both rates uncomparable, not passing", () => {
+    // The disarming case: the model got the date format wrong AND copied the
+    // price into door_price AND designated a headliner. Both agreement rates
+    // are a vacuous 1 because nothing was comparable, so `missed` is the only
+    // thing that can say so, and the assertion layer has to read it.
+    const drifted: BatchItem[] = [
+      {
+        ...barePriceGolden[0],
+        event_date: "2026-05-08T00:00:00Z",
+        door_price: 15,
+        artists: [{ name: "Paper Tigers", is_headliner: true }, { name: "Glass Arcade" }],
+      },
+    ];
+    const s = scoreShowFields(barePriceGolden, drifted);
+    expect(s.shows.matched).toBe(0);
+    expect(s.shows.missed).toEqual(["2026-05-08|rhythm room"]);
+    expect(s.shows.hallucinated).toEqual(["2026-05-08T00:00:00Z|rhythm room"]);
+    expect(s.prices.rate).toBe(1);
+    expect(s.billRoles.rate).toBe(1);
+  });
+
+  test("a show no golden show claims is reported as hallucinated", () => {
+    const invented: BatchItem[] = [
+      barePriceGolden[0],
+      { ...barePriceGolden[0], event_date: "2026-05-09" },
+    ];
+    const s = scoreShowFields(barePriceGolden, invented);
+    expect(s.shows.matched).toBe(1);
+    expect(s.shows.hallucinated).toEqual(["2026-05-09|rhythm room"]);
+  });
+
+  test("two golden shows on one date and venue need two produced shows", () => {
+    // An early and a late set in one room share a key. Matching them against
+    // one produced show would grade it twice and report full recall.
+    const twoSets = [barePriceGolden[0], { ...barePriceGolden[0], title: "late set" }];
+    const s = scoreShowFields(twoSets, barePriceGolden);
+    expect(s.shows.matched).toBe(1);
+    expect(s.shows.missed).toEqual(["2026-05-08|rhythm room"]);
+    expect(s.prices.comparable).toBe(2);
   });
 
   test("a dropped door price is a price mismatch, not a silent pass", () => {
@@ -318,6 +367,29 @@ describe("scoreShowFields", () => {
   test("a price that is not a number matches nothing, including an absent one", () => {
     const actual: BatchItem[] = [{ ...barePriceGolden[0], price: "donation" }];
     expect(scoreShowFields(barePriceGolden, actual).prices.rate).toBe(0.5);
+  });
+
+  test.each([["  "], ["$"], [","], ["$ ,"]])(
+    "a price of %p is unreadable, not a free show",
+    (unreadable: string) => {
+      // Number("") is 0, so stripping currency punctuation before the empty
+      // test is what keeps these from matching a golden `price: 0`.
+      const free: BatchItem[] = [{ ...barePriceGolden[0], price: 0 }];
+      const actual: BatchItem[] = [{ ...barePriceGolden[0], price: unreadable }];
+      expect(scoreShowFields(free, actual).prices.rate).toBe(0.5);
+    }
+  );
+
+  test("a price that is not even a scalar is unreadable", () => {
+    const free: BatchItem[] = [{ ...barePriceGolden[0], price: 0 }];
+    const actual = [{ ...barePriceGolden[0], price: [] }] as unknown as BatchItem[];
+    expect(scoreShowFields(free, actual).prices.rate).toBe(0.5);
+  });
+
+  test("an empty-string price is silence, not an unreadable value", () => {
+    const omitted: BatchItem[] = [{ ...barePriceGolden[0], price: undefined }];
+    const blank: BatchItem[] = [{ ...barePriceGolden[0], price: "" }];
+    expect(scoreShowFields(omitted, blank).prices.rate).toBe(1);
   });
 
   test("zero is a stated price, not silence", () => {
@@ -394,6 +466,19 @@ describe("scoreShowFields", () => {
     expect(s.shows.expected).toBe(0);
     expect(s.prices.rate).toBe(1);
     expect(formatScore(scoreExtraction(golden, golden))).not.toContain("Show prices");
+  });
+
+  test("mismatch lines are capped so one bad lineup cannot fill the report", () => {
+    const acts = Array.from({ length: 30 }, (_, i) => ({ name: `Act ${i}` }));
+    const many: BatchItem[] = [
+      { ...barePriceGolden[0], artists: acts.map(a => ({ ...a, set_type: "opener" })) },
+    ];
+    const none: BatchItem[] = [{ ...barePriceGolden[0], artists: acts }];
+    const s = scoreShowFields(many, none);
+    expect(s.billRoles.mismatches).toHaveLength(30);
+    const listed = listMismatches(s.billRoles);
+    expect(listed).toHaveLength(MAX_REPORTED_MISMATCHES + 1);
+    expect(listed.at(-1)).toBe(`and ${30 - MAX_REPORTED_MISMATCHES} more`);
   });
 
   test("show fields are reported but do not move overall", () => {

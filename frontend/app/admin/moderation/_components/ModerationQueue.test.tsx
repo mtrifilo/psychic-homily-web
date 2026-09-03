@@ -1267,11 +1267,11 @@ describe('ModerationQueue', () => {
     render(<ModerationQueue />)
 
     const line = screen.getByTestId('moderation-bill-line')
-    expect(
-      within(line).getByText('Boris (headliner) · Sunn O))) · Big Brave (direct support)')
-    ).toBeInTheDocument()
+    expect(line).toHaveTextContent(
+      'Boris (headliner) · Sunn O))) · Big Brave (direct support)'
+    )
     // No count: the bill is short enough to print whole.
-    expect(within(line).queryByText(/^\+\d+$/)).not.toBeInTheDocument()
+    expect(within(line).queryByText(/^\+\d+/)).not.toBeInTheDocument()
   })
 
   it('leaves an act stored as performer unannotated', () => {
@@ -1288,8 +1288,7 @@ describe('ModerationQueue', () => {
 
     render(<ModerationQueue />)
 
-    expect(within(screen.getByTestId('moderation-bill-line')).getByText('Boris · Earth'))
-      .toBeInTheDocument()
+    expect(screen.getByTestId('moderation-bill-line')).toHaveTextContent('Boris · Earth')
   })
 
   it('prints the first five acts and counts the rest', () => {
@@ -1310,11 +1309,10 @@ describe('ModerationQueue', () => {
     render(<ModerationQueue />)
 
     const line = screen.getByTestId('moderation-bill-line')
-    expect(
-      within(line).getByText('A1 (headliner) · A2 (opener) · A3 · A4 · A5')
-    ).toBeInTheDocument()
-    expect(within(line).getByText('+2')).toBeInTheDocument()
-    expect(within(line).queryByText(/A6|A7/)).not.toBeInTheDocument()
+    expect(line).toHaveTextContent('A1 (headliner) · A2 (opener) · A3 · A4 · A5')
+    expect(within(line).getByText(/^\+2\b/)).toBeInTheDocument()
+    expect(line).not.toHaveTextContent('A6')
+    expect(line).not.toHaveTextContent('A7')
   })
 
   it.each([
@@ -1335,12 +1333,107 @@ describe('ModerationQueue', () => {
   })
 
   it('reads no bill off a request type that carries none', () => {
-    // Only a show payload has a bill; an artist payload's fields are not one.
-    setDefaultMocks({ requests: [mockEntityRequest] })
+    // Only a show payload has a bill, exactly as the backend's
+    // ShowPayloadArtists answers nil for every other type. The payload here
+    // carries a well-formed artists array on purpose: without the entity-type
+    // gate this renders a bill line for an artist request.
+    setDefaultMocks({
+      requests: [
+        {
+          ...mockEntityRequest,
+          entity_type: 'artist',
+          payload: {
+            name: 'Queued Band',
+            artists: [{ name: 'Boris', set_type: 'headliner' }],
+          },
+        },
+      ],
+    })
 
     render(<ModerationQueue />)
 
     expect(screen.queryByTestId('moderation-bill-line')).not.toBeInTheDocument()
+  })
+
+  it('prints exactly five acts with no count', () => {
+    // The boundary: overflow is zero, so the count must not appear at all.
+    setDefaultMocks({
+      requests: [
+        showRequestWithBill(
+          ['A1', 'A2', 'A3', 'A4', 'A5'].map(name => ({ name }))
+        ),
+      ],
+    })
+
+    render(<ModerationQueue />)
+
+    const line = screen.getByTestId('moderation-bill-line')
+    expect(line).toHaveTextContent('A1 · A2 · A3 · A4 · A5')
+    expect(within(line).queryByText(/^\+\d+/)).not.toBeInTheDocument()
+  })
+
+  it('carries the whole read bill in the title, for a line too long to show', () => {
+    setDefaultMocks({
+      requests: [
+        showRequestWithBill([
+          { name: 'Boris', set_type: 'headliner' },
+          { name: 'Earth' },
+        ]),
+      ],
+    })
+
+    render(<ModerationQueue />)
+
+    expect(screen.getByTestId('moderation-bill-line')).toHaveAttribute(
+      'title',
+      'Boris (headliner) · Earth'
+    )
+  })
+
+  it('gives an act name no way to forge a stated role', () => {
+    // Names are contributor text. A role annotation is the system speaking, so
+    // it is its own element and a name that spells one is just a name.
+    setDefaultMocks({
+      requests: [showRequestWithBill([{ name: 'Sneaky Band (headliner)' }])],
+    })
+
+    const { unmount } = render(<ModerationQueue />)
+
+    const forged = screen.getByTestId('moderation-bill-line')
+    expect(forged).toHaveTextContent('Sneaky Band (headliner)')
+    // No element carries the annotation on its own, which is what the styling
+    // hangs off.
+    expect(within(forged).queryByText('(headliner)')).not.toBeInTheDocument()
+    unmount()
+
+    // The same reading, stated by the payload: now the annotation IS its own
+    // element. Without this half the assertion above would pass on a line that
+    // never annotates anything.
+    setDefaultMocks({
+      requests: [showRequestWithBill([{ name: 'Sneaky Band', set_type: 'headliner' }])],
+    })
+    render(<ModerationQueue />)
+    const stated = screen.getByTestId('moderation-bill-line')
+    expect(stated).toHaveTextContent('Sneaky Band (headliner)')
+    expect(within(stated).getByText('(headliner)')).toBeInTheDocument()
+  })
+
+  it('yields the line to the form while the form is open', () => {
+    // The line reads the payload live; the form snapshots it at open. Showing
+    // both would let a resubmission leave them describing different bills,
+    // with only the form's rows being the ones that submit.
+    setDefaultMocks({
+      requests: [showRequestWithBill([{ name: 'Boris', set_type: 'headliner' }])],
+    })
+
+    render(<ModerationQueue />)
+    expect(screen.getByTestId('moderation-bill-line')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }))
+    expect(screen.queryByTestId('moderation-bill-line')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /^cancel$/i }))
+    expect(screen.getByTestId('moderation-bill-line')).toBeInTheDocument()
   })
 
   it('reads the bill on the rescue card, which also decides without the form', () => {
@@ -1357,9 +1450,7 @@ describe('ModerationQueue', () => {
     render(<ModerationQueue />)
     fireEvent.click(screen.getByText('Needs attention'))
 
-    expect(
-      within(screen.getByTestId('moderation-bill-line')).getByText('Boris (headliner)')
-    ).toBeInTheDocument()
+    expect(screen.getByTestId('moderation-bill-line')).toHaveTextContent('Boris (headliner)')
   })
 
   it('reads the bill on the withdrawn card, which has no form at all', async () => {
@@ -1376,9 +1467,9 @@ describe('ModerationQueue', () => {
     fireEvent.click(screen.getByText('Withdrawn'))
 
     const card = await screen.findByTestId('moderation-withdrawn-card')
-    expect(
-      within(within(card).getByTestId('moderation-bill-line')).getByText('Boris (headliner)')
-    ).toBeInTheDocument()
+    expect(within(card).getByTestId('moderation-bill-line')).toHaveTextContent(
+      'Boris (headliner)'
+    )
   })
 
   it('submits the seeded bill with each act on the role the payload stated', () => {

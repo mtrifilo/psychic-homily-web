@@ -405,9 +405,10 @@ function RevisedFromSource({ request }: { request: AdminEntityRequest }) {
 // not the already-headed entity name.
 const PREVIEW_HEADER_KEYS = ['name', 'title']
 
-// Rendered by PayloadBillLine instead of the preview. `artists` is the show
-// payload's bill, and it is the only non-scalar payload field, so the preview
-// could only stringify it.
+// Owned by PayloadBillLine, and by ShowCreateForm's editable rows once it is
+// open. `artists` is the show payload's bill, and it is the only non-scalar
+// payload field, so the preview could only stringify it. A bill neither of
+// those can read renders nowhere, which is the cost of not printing JSON.
 const PREVIEW_CONTROL_OWNED_KEYS = ['artists']
 
 const PREVIEW_OMIT_KEYS = new Set([...PREVIEW_HEADER_KEYS, ...PREVIEW_CONTROL_OWNED_KEYS])
@@ -629,8 +630,10 @@ const BILL_LINE_ROLE_LABELS: Record<SetType, string | null> = {
 /**
  * Acts printed in full on the compact line before the rest become a count.
  *
- * A scan affordance, not a cap on the bill: the count states exactly how many
- * acts it stands for, and the form still opens on every one of them.
+ * A scan affordance, not a cap on the bill: the count says how many acts it
+ * stands for, and the whole bill is in the line's title attribute. Only the
+ * approve and fulfill cards can also open it as form rows; a withdrawn card has
+ * no form.
  */
 const BILL_LINE_MAX_ACTS = 5
 
@@ -644,11 +647,18 @@ const BILL_LINE_MAX_ACTS = 5
  * Renders nothing for a payload with no readable bill, which covers a bill-less
  * request and a malformed `artists` value alike: parsePayloadBill drops what it
  * cannot read, so a malformed payload costs its own card this line and not the
- * whole queue.
+ * whole queue. It also drops individual unreadable entries, so the count stands
+ * for acts this line could read, not necessarily every entry the payload holds.
  *
  * Takes the whole request so the entity-type gate lives here rather than at
  * each card: a bill is a show's field, exactly as the backend's
  * ShowPayloadArtists answers nil for every other type.
+ *
+ * Each act and each role is its own element rather than one joined string. The
+ * names are contributor text, validated for length and little else, so an act
+ * literally named `Some Band (headliner)` would otherwise render
+ * indistinguishably from a role the payload stated: the role's own styling is
+ * what the name cannot reach.
  */
 function PayloadBillLine({ request }: { request: AdminEntityRequest }) {
   if (request.entity_type !== 'show') return null
@@ -657,22 +667,40 @@ function PayloadBillLine({ request }: { request: AdminEntityRequest }) {
 
   const shown = bill.slice(0, BILL_LINE_MAX_ACTS)
   const overflow = bill.length - shown.length
-  const acts = shown.map(row => {
-    const label = curatesABillSlot(row) ? BILL_LINE_ROLE_LABELS[row.set_type] : null
-    return label === null ? row.name : `${row.name} (${label})`
-  })
+  const acts = shown.map(row => ({
+    name: row.name,
+    // `?? null` rather than trusting the lookup: curatesABillSlot is a hand
+    // written predicate, and a widened set_type would otherwise print
+    // "(undefined)".
+    role: (curatesABillSlot(row) ? BILL_LINE_ROLE_LABELS[row.set_type] : null) ?? null,
+  }))
 
   return (
     <p
       className="mt-1 flex items-baseline gap-1 text-sm text-muted-foreground"
       data-testid="moderation-bill-line"
+      // The whole bill, for the case the line is too long for the card.
+      title={acts.map(a => (a.role ? `${a.name} (${a.role})` : a.name)).join(' · ')}
     >
       {/* Names alone read as an unlabelled list out of visual context. */}
       <span className="sr-only">Bill: </span>
-      {/* `truncate` keeps a long name from wrapping the card; the count is the
-          separate question of acts past the fifth, and stays legible. */}
-      <span className="min-w-0 truncate">{acts.join(' · ')}</span>
-      {overflow > 0 && <span className="shrink-0">+{overflow}</span>}
+      <span className="min-w-0 truncate">
+        {acts.map((act, i) => (
+          <span key={`${act.name}-${i}`}>
+            {/* Not aria-hidden: it is the only thing separating one act's name
+                from the next, in the reading as much as on screen. */}
+            {i > 0 && <span> · </span>}
+            {act.name}
+            {act.role && <span className="italic text-muted-foreground/70"> ({act.role})</span>}
+          </span>
+        ))}
+      </span>
+      {overflow > 0 && (
+        <span className="shrink-0">
+          +{overflow}
+          <span className="sr-only"> more acts</span>
+        </span>
+      )}
     </p>
   )
 }
@@ -1071,8 +1099,12 @@ function RequestCard({
           </div>
         </div>
 
-        {/* The bill, readable without opening the form */}
-        <PayloadBillLine request={request} />
+        {/* The bill, readable without opening the form. Yielded to the form
+            while it is open: the line reads the payload live and the form
+            snapshots it at open, so a resubmission landing under an open form
+            would otherwise leave the two describing different bills, with only
+            the form's rows being the one that submits. */}
+        {!showFormOpen && <PayloadBillLine request={request} />}
 
         {/* Attribution + source context */}
         <div className="mt-2 text-sm text-muted-foreground">
@@ -1350,8 +1382,9 @@ function RescueCard({
           Approved but never created — fulfill it or void it.
         </p>
 
-        {/* The bill, readable without opening the form */}
-        <PayloadBillLine request={request} />
+        {/* The bill, readable without opening the form. Yielded to the form
+            while it is open, for the same reason as the pending card. */}
+        {!showFormOpen && <PayloadBillLine request={request} />}
 
         {/* Attribution */}
         <div className="mt-2 text-sm text-muted-foreground">

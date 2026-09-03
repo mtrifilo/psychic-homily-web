@@ -45,8 +45,12 @@ trade for testing a rule no production capture in the corpus exercises; every
 other fixture should still come from a real source, human-verified against a
 dry run. The venues are real Phoenix rooms and the acts are invented.
 
-To amend one, edit `poster.html`, re-render it, and update `expected.json` to
-match:
+Each poster carries only facts the extraction rules cover, so the golden is the
+whole of what a faithful extraction produces from it.
+
+To amend one, edit `poster.html`, re-render it at the size its own `body` sets,
+and update `expected.json` to match. Nothing checks that the committed PNG was
+rendered from the committed HTML, so re-render in the same change:
 
 ```bash
 cd frontend && ./node_modules/.bin/playwright screenshot --viewport-size=800,1100 \
