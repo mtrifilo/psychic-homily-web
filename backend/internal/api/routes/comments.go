@@ -44,7 +44,7 @@ func setupCommentRoutes(rc RouteContext) {
 
 // setupCommentVoteRoutes configures comment voting endpoints.
 func setupCommentVoteRoutes(rc RouteContext) {
-	commentVoteHandler := engagementh.NewCommentVoteHandler(rc.SC.CommentVote)
+	commentVoteHandler := engagementh.NewCommentVoteHandler(rc.SC.CommentVote, rc.SC.Comment, rc.SC.ShowVisibility)
 
 	// Protected: vote and unvote on comments
 	huma.Post(rc.Protected, "/comments/{comment_id}/vote", commentVoteHandler.VoteCommentHandler)

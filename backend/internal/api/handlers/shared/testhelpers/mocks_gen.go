@@ -790,30 +790,29 @@ type MockCollectionService struct {
 	CloneCollectionFn                    func(string, uint) (*contracts.CollectionDetailResponse, error)
 	GetBySlugFn                          func(string, uint) (*contracts.CollectionDetailResponse, error)
 	GetByIDFn                            func(uint, uint) (*contracts.CollectionDetailResponse, error)
-	ResolveIDBySlugFn                    func(string) (uint, error)
 	ListCollectionsFn                    func(contracts.CollectionFilters, int, int) ([]*contracts.CollectionListResponse, int64, error)
 	UpdateCollectionFn                   func(string, uint, bool, *contracts.UpdateCollectionRequest) (*contracts.CollectionDetailResponse, error)
-	DeleteCollectionFn                   func(string, uint, bool) error
-	AddItemFn                            func(string, uint, *contracts.AddCollectionItemRequest) (*contracts.CollectionItemResponse, error)
-	BulkAddItemsFn                       func(string, uint, *contracts.BulkAddCollectionItemsRequest) (*contracts.BulkAddCollectionItemsResponse, error)
+	DeleteCollectionFn                   func(string, uint, bool) (uint, error)
+	AddItemFn                            func(string, uint, *contracts.AddCollectionItemRequest) (*contracts.CollectionItemResponse, uint, error)
+	BulkAddItemsFn                       func(string, uint, *contracts.BulkAddCollectionItemsRequest) (*contracts.BulkAddCollectionItemsResponse, uint, error)
 	ResolveCollectionItemsFn             func(*contracts.ResolveCollectionItemsRequest) (*contracts.ResolveCollectionItemsResponse, error)
-	UpdateItemFn                         func(string, uint, uint, bool, *contracts.UpdateCollectionItemRequest) (*contracts.CollectionItemResponse, error)
-	RemoveItemFn                         func(string, uint, uint, bool) error
+	UpdateItemFn                         func(string, uint, uint, bool, *contracts.UpdateCollectionItemRequest) (*contracts.CollectionItemResponse, uint, error)
+	RemoveItemFn                         func(string, uint, uint, bool) (uint, error)
 	ReorderItemsFn                       func(string, uint, *contracts.ReorderCollectionItemsRequest) error
 	SubscribeFn                          func(string, uint) error
 	UnsubscribeFn                        func(string, uint) error
 	MarkVisitedFn                        func(string, uint) error
 	LikeFn                               func(string, uint) (*contracts.CollectionLikeResponse, error)
 	UnlikeFn                             func(string, uint) (*contracts.CollectionLikeResponse, error)
-	GetStatsFn                           func(string) (*contracts.CollectionStatsResponse, error)
+	GetStatsFn                           func(string, uint) (*contracts.CollectionStatsResponse, error)
 	GetUserCollectionsFn                 func(uint, string, int, int) ([]*contracts.CollectionListResponse, int64, error)
 	GetUserCollectionsContainingEntityFn func(uint, string, uint) ([]contracts.ContainingCollectionItem, error)
 	GetEntityCollectionsFn               func(string, uint, uint, int) ([]*contracts.CollectionListResponse, error)
 	GetUserPublicCollectionsFn           func(uint, int, int) ([]*contracts.CollectionListResponse, int64, error)
 	GetUserPublicCollectionsByUsernameFn func(string, int, int) ([]*contracts.CollectionListResponse, int64, error)
-	SetFeaturedFn                        func(string, bool, uint) error
-	AddTagToCollectionFn                 func(string, uint, *contracts.AddCollectionTagRequest) (*contracts.AddCollectionTagResponse, error)
-	RemoveTagFromCollectionFn            func(string, uint, uint) error
+	SetFeaturedFn                        func(string, bool, uint) (uint, error)
+	AddTagToCollectionFn                 func(string, uint, *contracts.AddCollectionTagRequest) (*contracts.AddCollectionTagResponse, uint, error)
+	RemoveTagFromCollectionFn            func(string, uint, uint) (uint, error)
 	GetCollectionGraphFn                 func(string, uint, []string) (*contracts.CollectionGraphResponse, error)
 }
 
@@ -841,12 +840,6 @@ func (m *MockCollectionService) GetByID(id uint, viewerID uint) (*contracts.Coll
 	}
 	return nil, nil
 }
-func (m *MockCollectionService) ResolveIDBySlug(slug string) (uint, error) {
-	if m.ResolveIDBySlugFn != nil {
-		return m.ResolveIDBySlugFn(slug)
-	}
-	return 0, nil
-}
 func (m *MockCollectionService) ListCollections(filters contracts.CollectionFilters, limit int, offset int) ([]*contracts.CollectionListResponse, int64, error) {
 	if m.ListCollectionsFn != nil {
 		return m.ListCollectionsFn(filters, limit, offset)
@@ -859,23 +852,23 @@ func (m *MockCollectionService) UpdateCollection(slug string, userID uint, isAdm
 	}
 	return nil, nil
 }
-func (m *MockCollectionService) DeleteCollection(slug string, userID uint, isAdmin bool) error {
+func (m *MockCollectionService) DeleteCollection(slug string, userID uint, isAdmin bool) (uint, error) {
 	if m.DeleteCollectionFn != nil {
 		return m.DeleteCollectionFn(slug, userID, isAdmin)
 	}
-	return nil
+	return 0, nil
 }
-func (m *MockCollectionService) AddItem(slug string, userID uint, req *contracts.AddCollectionItemRequest) (*contracts.CollectionItemResponse, error) {
+func (m *MockCollectionService) AddItem(slug string, userID uint, req *contracts.AddCollectionItemRequest) (*contracts.CollectionItemResponse, uint, error) {
 	if m.AddItemFn != nil {
 		return m.AddItemFn(slug, userID, req)
 	}
-	return nil, nil
+	return nil, 0, nil
 }
-func (m *MockCollectionService) BulkAddItems(slug string, userID uint, req *contracts.BulkAddCollectionItemsRequest) (*contracts.BulkAddCollectionItemsResponse, error) {
+func (m *MockCollectionService) BulkAddItems(slug string, userID uint, req *contracts.BulkAddCollectionItemsRequest) (*contracts.BulkAddCollectionItemsResponse, uint, error) {
 	if m.BulkAddItemsFn != nil {
 		return m.BulkAddItemsFn(slug, userID, req)
 	}
-	return nil, nil
+	return nil, 0, nil
 }
 func (m *MockCollectionService) ResolveCollectionItems(req *contracts.ResolveCollectionItemsRequest) (*contracts.ResolveCollectionItemsResponse, error) {
 	if m.ResolveCollectionItemsFn != nil {
@@ -883,17 +876,17 @@ func (m *MockCollectionService) ResolveCollectionItems(req *contracts.ResolveCol
 	}
 	return nil, nil
 }
-func (m *MockCollectionService) UpdateItem(slug string, itemID uint, userID uint, isAdmin bool, req *contracts.UpdateCollectionItemRequest) (*contracts.CollectionItemResponse, error) {
+func (m *MockCollectionService) UpdateItem(slug string, itemID uint, userID uint, isAdmin bool, req *contracts.UpdateCollectionItemRequest) (*contracts.CollectionItemResponse, uint, error) {
 	if m.UpdateItemFn != nil {
 		return m.UpdateItemFn(slug, itemID, userID, isAdmin, req)
 	}
-	return nil, nil
+	return nil, 0, nil
 }
-func (m *MockCollectionService) RemoveItem(slug string, itemID uint, userID uint, isAdmin bool) error {
+func (m *MockCollectionService) RemoveItem(slug string, itemID uint, userID uint, isAdmin bool) (uint, error) {
 	if m.RemoveItemFn != nil {
 		return m.RemoveItemFn(slug, itemID, userID, isAdmin)
 	}
-	return nil
+	return 0, nil
 }
 func (m *MockCollectionService) ReorderItems(slug string, userID uint, req *contracts.ReorderCollectionItemsRequest) error {
 	if m.ReorderItemsFn != nil {
@@ -931,9 +924,9 @@ func (m *MockCollectionService) Unlike(slug string, userID uint) (*contracts.Col
 	}
 	return nil, nil
 }
-func (m *MockCollectionService) GetStats(slug string) (*contracts.CollectionStatsResponse, error) {
+func (m *MockCollectionService) GetStats(slug string, viewerID uint) (*contracts.CollectionStatsResponse, error) {
 	if m.GetStatsFn != nil {
-		return m.GetStatsFn(slug)
+		return m.GetStatsFn(slug, viewerID)
 	}
 	return nil, nil
 }
@@ -967,23 +960,23 @@ func (m *MockCollectionService) GetUserPublicCollectionsByUsername(username stri
 	}
 	return nil, 0, nil
 }
-func (m *MockCollectionService) SetFeatured(slug string, featured bool, actorID uint) error {
+func (m *MockCollectionService) SetFeatured(slug string, featured bool, actorID uint) (uint, error) {
 	if m.SetFeaturedFn != nil {
 		return m.SetFeaturedFn(slug, featured, actorID)
 	}
-	return nil
+	return 0, nil
 }
-func (m *MockCollectionService) AddTagToCollection(slug string, userID uint, req *contracts.AddCollectionTagRequest) (*contracts.AddCollectionTagResponse, error) {
+func (m *MockCollectionService) AddTagToCollection(slug string, userID uint, req *contracts.AddCollectionTagRequest) (*contracts.AddCollectionTagResponse, uint, error) {
 	if m.AddTagToCollectionFn != nil {
 		return m.AddTagToCollectionFn(slug, userID, req)
 	}
-	return nil, nil
+	return nil, 0, nil
 }
-func (m *MockCollectionService) RemoveTagFromCollection(slug string, tagID uint, userID uint) error {
+func (m *MockCollectionService) RemoveTagFromCollection(slug string, tagID uint, userID uint) (uint, error) {
 	if m.RemoveTagFromCollectionFn != nil {
 		return m.RemoveTagFromCollectionFn(slug, tagID, userID)
 	}
-	return nil
+	return 0, nil
 }
 func (m *MockCollectionService) GetCollectionGraph(slug string, viewerID uint, types []string) (*contracts.CollectionGraphResponse, error) {
 	if m.GetCollectionGraphFn != nil {
@@ -1105,7 +1098,7 @@ func (m *MockCommentService) DeleteComment(userID uint, commentID uint, isAdmin 
 
 type MockCommentSubscriptionService struct {
 	SubscribeFn               func(uint, string, uint) error
-	UnsubscribeFn             func(uint, string, uint) error
+	UnsubscribeFn             func(uint, string, uint) (int64, error)
 	IsSubscribedFn            func(uint, string, uint) (bool, error)
 	MarkReadFn                func(uint, string, uint) error
 	GetUnreadCountFn          func(uint, string, uint) (int, error)
@@ -1119,11 +1112,11 @@ func (m *MockCommentSubscriptionService) Subscribe(userID uint, entityType strin
 	}
 	return nil
 }
-func (m *MockCommentSubscriptionService) Unsubscribe(userID uint, entityType string, entityID uint) error {
+func (m *MockCommentSubscriptionService) Unsubscribe(userID uint, entityType string, entityID uint) (int64, error) {
 	if m.UnsubscribeFn != nil {
 		return m.UnsubscribeFn(userID, entityType, entityID)
 	}
-	return nil
+	return 0, nil
 }
 func (m *MockCommentSubscriptionService) IsSubscribed(userID uint, entityType string, entityID uint) (bool, error) {
 	if m.IsSubscribedFn != nil {
@@ -3770,12 +3763,19 @@ func (m *MockShowStateService) SetShowCancelled(showID uint, isCancelled bool) (
 // ============================================================================
 
 type MockShowVisibility struct {
-	ShowVisibleToFn func(uint, contracts.ShowViewer) bool
+	ShowVisibleToFn       func(uint, contracts.ShowViewer) bool
+	CollectionVisibleToFn func(uint, contracts.ShowViewer) bool
 }
 
 func (m *MockShowVisibility) ShowVisibleTo(showID uint, viewer contracts.ShowViewer) bool {
 	if m.ShowVisibleToFn != nil {
 		return m.ShowVisibleToFn(showID, viewer)
+	}
+	return false
+}
+func (m *MockShowVisibility) CollectionVisibleTo(collectionID uint, viewer contracts.ShowViewer) bool {
+	if m.CollectionVisibleToFn != nil {
+		return m.CollectionVisibleToFn(collectionID, viewer)
 	}
 	return false
 }

@@ -1239,11 +1239,49 @@ func (suite *TagServiceIntegrationTestSuite) TestGetTagEntities_Collections_Publ
 
 	// Same assertion via the entity_type filter — exercises the
 	// `entity_type=collection` query-param path the frontend uses.
-	filtered, _, err := suite.tagService.GetTagEntities(tag.ID, catalogm.TagEntityCollection, 50, 0)
+	filtered, filteredTotal, err := suite.tagService.GetTagEntities(tag.ID, catalogm.TagEntityCollection, 50, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(filtered, 1)
 	suite.Assert().Equal(publicColl.ID, filtered[0].EntityID)
 	suite.Assert().Equal("Public Picks", filtered[0].Name)
+
+	// THE TOTAL COUNTS THE SAME ROWS THE PAGE CONTAINS. A private collection
+	// dropped only in the assembly loop would leave a short page beside a total
+	// that still counted it, which reports how many private collections carry
+	// this tag: the withheld row published as arithmetic.
+	suite.Assert().EqualValues(len(filtered), filteredTotal,
+		"the total must describe the same rows as the page")
+
+	// The same property on the UNFILTERED listing, where the collection arm has
+	// to coexist with every other entity type's rows.
+	all, allTotal, err := suite.tagService.GetTagEntities(tag.ID, "", 50, 0)
+	suite.Require().NoError(err)
+	suite.Assert().EqualValues(len(all), allTotal,
+		"the unfiltered total must describe the same rows as the page")
+
+	// A HARD-DELETED collection is withheld on the same terms as a private one,
+	// and its entity_tags row outlives it. The pair has to answer alike or the
+	// listing sorts deleted collections from private ones.
+	deleted := suite.createCollection(user.ID, "Deleted Picks", true)
+	_, err = suite.tagService.AddTagToEntity(tag.ID, "", catalogm.TagEntityCollection, deleted.ID, user.ID, "")
+	suite.Require().NoError(err)
+	suite.Require().NoError(suite.db.Exec("DELETE FROM collections WHERE id = ?", deleted.ID).Error)
+
+	afterDelete, afterDeleteTotal, err := suite.tagService.GetTagEntities(tag.ID, catalogm.TagEntityCollection, 50, 0)
+	suite.Require().NoError(err)
+	suite.Assert().Len(afterDelete, 1, "a deleted collection must not appear")
+	suite.Assert().EqualValues(len(afterDelete), afterDeleteTotal,
+		"the total must not count a collection that no longer exists")
+
+	// THE USAGE BREAKDOWN IS RENDERED BESIDE THAT LISTING on the same public tag
+	// page, so a breakdown that counted the rows the listing withholds would
+	// report how many private collections carry this tag: the same number,
+	// arrived at by subtraction.
+	detail, err := suite.tagService.GetTagDetail(tag.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(detail)
+	suite.Assert().EqualValues(afterDeleteTotal, detail.UsageBreakdown[catalogm.TagEntityCollection],
+		"usage_breakdown must count the same collection rows GetTagEntities serves")
 }
 
 func (suite *TagServiceIntegrationTestSuite) TestGetTagDetail_NotFound() {
@@ -1888,4 +1926,127 @@ func TestTagServiceIntegration(t *testing.T) {
 		t.Skip("skipping integration test")
 	}
 	suite.Run(t, new(TagServiceIntegrationTestSuite))
+}
+
+// EVERY SURFACE PUBLISHES ONE usage_count, and it is the visible one.
+//
+// The number is rendered beside listings that withhold gated rows, so two
+// surfaces disagreeing about it reports the withheld rows by subtraction: the
+// browse listing's count minus the detail page's count is exactly the number of
+// private collections and gated shows carrying the tag. This walks every public
+// surface that publishes the number and requires them to agree with the
+// breakdown they are read beside.
+// THE /tags PAGE IS MONOTONIC IN THE NUMBER IT PRINTS.
+//
+// The listing is SELECTED by an ORDER BY and RENDERED with the visible counts.
+// When those are two expressions the page can show a tag counting 0 above a tag
+// counting 40, and the position then states a lower bound on the rows the count
+// withholds: the reader learns the 0 is not really 0. This pins the outcome for
+// both the global listing and the entity-scoped one.
+func (suite *TagServiceIntegrationTestSuite) TestListTags_PageIsMonotonicInTheDisplayedCount() {
+	user := suite.createTestUser("monotonic-user")
+
+	// The HIGH-RAW tag is applied only to PRIVATE collections, so its raw column
+	// outranks everything while its visible count is zero. Ordering on the raw
+	// column puts it first with a 0 beside it.
+	hidden := suite.createTag("monotonic-hidden", "genre")
+	for i := 0; i < 4; i++ {
+		shut := suite.createCollection(user.ID, fmt.Sprintf("Monotonic Shut %d", i), false)
+		_, err := suite.tagService.AddTagToEntity(hidden.ID, "", catalogm.TagEntityCollection, shut.ID, user.ID, "")
+		suite.Require().NoError(err)
+	}
+
+	// The LOW-RAW tag is applied to public collections only, so every row counts.
+	shown := suite.createTag("monotonic-shown", "genre")
+	for i := 0; i < 2; i++ {
+		open := suite.createCollection(user.ID, fmt.Sprintf("Monotonic Open %d", i), true)
+		_, err := suite.tagService.AddTagToEntity(shown.ID, "", catalogm.TagEntityCollection, open.ID, user.ID, "")
+		suite.Require().NoError(err)
+	}
+
+	assertMonotonic := func(entityType, label string) {
+		tags, _, err := suite.tagService.ListTags("", "monotonic-", nil, "usage", 50, 0, entityType, nil)
+		suite.Require().NoError(err)
+		suite.Require().Len(tags, 2, label)
+		for i := 1; i < len(tags); i++ {
+			suite.Assert().GreaterOrEqual(tags[i-1].UsageCount, tags[i].UsageCount,
+				"%s: %q shows %d above %q showing %d", label,
+				tags[i-1].Name, tags[i-1].UsageCount, tags[i].Name, tags[i].UsageCount)
+		}
+		suite.Assert().Equal(shown.Name, tags[0].Name,
+			"%s: the tag with visible rows outranks the tag whose rows are all withheld", label)
+	}
+
+	assertMonotonic("", "GET /tags")
+	assertMonotonic(catalogm.TagEntityCollection, "GET /tags?entity_type=collection")
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestUsageCountAgreesAcrossEveryPublicSurface() {
+	user := suite.createTestUser("usagecount-user")
+	tag := suite.createTag("usage-count-agreement", "genre")
+
+	openColl := suite.createCollection(user.ID, "Usage Open", true)
+	shutColl := suite.createCollection(user.ID, "Usage Shut", false)
+	for _, c := range []*communitym.Collection{openColl, shutColl} {
+		_, err := suite.tagService.AddTagToEntity(tag.ID, "", catalogm.TagEntityCollection, c.ID, user.ID, "")
+		suite.Require().NoError(err)
+	}
+
+	// The raw column counts both, which is what makes the assertions below about
+	// the gate rather than about a tag nothing carries.
+	var rawColumn int
+	suite.Require().NoError(suite.db.Model(&catalogm.Tag{}).
+		Where("id = ?", tag.ID).Select("usage_count").Scan(&rawColumn).Error)
+	suite.Require().EqualValues(2, rawColumn,
+		"the denormalised column counts the private collection, which is the disclosure")
+
+	const wantVisible = 1
+
+	detail, err := suite.tagService.GetTagDetail(tag.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(detail)
+	suite.Assert().Equal(wantVisible, detail.UsageCount, "GET /tags/{id}/detail")
+	suite.Assert().EqualValues(wantVisible, detail.UsageBreakdown[catalogm.TagEntityCollection],
+		"the breakdown the count is rendered beside")
+
+	byID, err := suite.tagService.GetTag(tag.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(byID)
+	suite.Assert().Equal(wantVisible, byID.UsageCount, "GET /tags/{id}")
+
+	bySlug, err := suite.tagService.GetTagBySlug(tag.Slug)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(bySlug)
+	suite.Assert().Equal(wantVisible, bySlug.UsageCount, "GET /tags/{slug}")
+
+	listed, _, err := suite.tagService.ListTags("", tag.Name, nil, "usage", 50, 0, "", nil)
+	suite.Require().NoError(err)
+	suite.Require().Len(listed, 1)
+	suite.Assert().Equal(wantVisible, listed[0].UsageCount, "GET /tags")
+
+	searched, err := suite.tagService.SearchTags(tag.Name, 10, "")
+	suite.Require().NoError(err)
+	suite.Require().Len(searched, 1)
+	suite.Assert().Equal(wantVisible, searched[0].Tag.UsageCount, "GET /tags/search")
+
+	// The entity-scoped facet count, which is the same number reached by a
+	// different query.
+	scoped, _, err := suite.tagService.ListTags("", tag.Name, nil, "usage", 50, 0,
+		catalogm.TagEntityCollection, nil)
+	suite.Require().NoError(err)
+	suite.Require().Len(scoped, 1)
+	suite.Assert().Equal(wantVisible, scoped[0].UsageCount, "GET /tags?entity_type=collection")
+
+	// FLIPPING IT BACK moves every surface together. A count frozen at read time
+	// would pass every assertion above and fail here.
+	suite.Require().NoError(suite.db.Model(&communitym.Collection{}).
+		Where("id = ?", shutColl.ID).Update("is_public", true).Error)
+
+	reopened, err := suite.tagService.GetTagDetail(tag.ID)
+	suite.Require().NoError(err)
+	suite.Assert().Equal(2, reopened.UsageCount)
+	reopenedList, _, err := suite.tagService.ListTags("", tag.Name, nil, "usage", 50, 0, "", nil)
+	suite.Require().NoError(err)
+	suite.Require().Len(reopenedList, 1)
+	suite.Assert().Equal(2, reopenedList[0].UsageCount)
 }

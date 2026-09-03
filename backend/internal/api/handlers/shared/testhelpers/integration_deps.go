@@ -11,6 +11,7 @@ import (
 	"psychic-homily-backend/internal/config"
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	communitym "psychic-homily-backend/internal/models/community"
 	adminsvc "psychic-homily-backend/internal/services/admin"
 	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/community"
@@ -248,6 +249,58 @@ func CreateArtist(db *gorm.DB, name string) *catalogm.Artist {
 	}
 	db.Create(artist)
 	return artist
+}
+
+// CreateCollection inserts a collection with the given visibility and returns
+// it, with is_public read back out of the database.
+//
+// Beside CreateApprovedShow / CreatePendingShow because collections are the
+// OTHER entity type with a read-time visibility rule, and a privacy
+// fixture is exactly the thing that must not be re-derived per test package.
+//
+// TWO WRITES, and both are load-bearing. GORM omits a false boolean on Create
+// because false is the zero value, so `IsPublic: false` alone leaves the column
+// at its DEFAULT of true — the same gotcha CreateCollection in
+// services/community works around. A fixture that silently stayed public makes
+// every privacy assertion built on it pass for the wrong reason, so the flag is
+// written through a map and then read back; a fixture that did not take is a
+// loud failure here rather than a quiet pass three assertions later.
+func CreateCollection(t *testing.T, db *gorm.DB, creatorID uint, title, slug string, isPublic bool) *communitym.Collection {
+	t.Helper()
+	collection := &communitym.Collection{
+		Title:     title,
+		Slug:      slug,
+		CreatorID: creatorID,
+		IsPublic:  isPublic,
+	}
+	if err := db.Create(collection).Error; err != nil {
+		t.Fatalf("create collection %q: %v", slug, err)
+	}
+	SetCollectionPublic(t, db, collection.ID, isPublic)
+	collection.IsPublic = isPublic
+	return collection
+}
+
+// SetCollectionPublic writes is_public through a map update and reads it back.
+//
+// Separate from CreateCollection because the privacy tests flip a collection
+// mid-test — that transition is the repro — and the read-back matters just as
+// much there.
+func SetCollectionPublic(t *testing.T, db *gorm.DB, collectionID uint, isPublic bool) {
+	t.Helper()
+	if err := db.Model(&communitym.Collection{}).Where("id = ?", collectionID).
+		Update("is_public", isPublic).Error; err != nil {
+		t.Fatalf("set is_public on collection %d: %v", collectionID, err)
+	}
+	var got bool
+	if err := db.Model(&communitym.Collection{}).Where("id = ?", collectionID).
+		Select("is_public").Scan(&got).Error; err != nil {
+		t.Fatalf("read back is_public for collection %d: %v", collectionID, err)
+	}
+	if got != isPublic {
+		t.Fatalf("collection %d has is_public=%v, want %v — the fixture did not take",
+			collectionID, got, isPublic)
+	}
 }
 
 // CreateApprovedShow inserts a show in the approved state, with a venue +

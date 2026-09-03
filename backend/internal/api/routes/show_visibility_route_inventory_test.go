@@ -45,6 +45,25 @@ import (
 // All three have leaked in practice. Extending the guard to them means driving it
 // off the handler set rather than the path, which is the follow-up this paragraph
 // exists to name.
+//
+// A FOURTH BLIND SPOT is closed elsewhere rather than here, and naming it keeps
+// this file honest about what it is: an inventory keyed on SHOWS cannot see a
+// route that leaks a different entity type. A `/entities/{entity_type}/…` row
+// reading `gated` says only that the route calls the gate, which can be true of
+// shows and false of collections at the same time if the gate recognises one
+// type and waves the other through. Path shape cannot catch that.
+//
+// WHAT THE REGISTRY GUARANTEES, exactly: every entity type that reaches
+// shared.EntitySubResourceVisible has a recorded answer, and a type with no
+// entry is refused. WHAT IT DOES NOT REACH: any surface that never calls that
+// helper. The digest cycle, the contributions timeline, the tag listing's own
+// query and the notification inbox each decide entity visibility in SQL of their
+// own, and no test in this file can see them; the spellings-agree tests in
+// services/shared are what keep those in step with the rule.
+//
+// So read `gated` here as "this route calls the gate", and
+// services/shared/entity_visibility.go as "and the gate has an answer for every
+// type".
 
 // showRouteDisposition records why a show-addressable operation is safe.
 type showRouteDisposition int
@@ -94,6 +113,16 @@ var showAddressableRoutes = map[string]showRouteDisposition{
 	"GET /entities/{entity_type}/{entity_id}/tags":      gated,
 	"GET /collections/entity/{entity_type}/{entity_id}": gated,
 	"GET /crates/entity/{entity_type}/{entity_id}":      gated,
+
+	// The tag WRITE family. A tag write lands on the entity, so it takes the
+	// same viewer the entity's page does; the refusal is the "tag not applied to
+	// this entity" answer an untagged pair already gets. Closing them adds no
+	// oracle in the other direction, because the gate refuses a MISSING show or
+	// collection on the same terms as a gated one.
+	"POST /entities/{entity_type}/{entity_id}/tags":                  gated,
+	"DELETE /entities/{entity_type}/{entity_id}/tags/{tag_id}":       gated,
+	"POST /tags/{tag_id}/entities/{entity_type}/{entity_id}/votes":   gated,
+	"DELETE /tags/{tag_id}/entities/{entity_type}/{entity_id}/votes": gated,
 
 	// The comment-subscription family (PSY-1983). Subscribing is a standing
 	// request for a show's activity, so it takes the same viewer its content
@@ -160,13 +189,12 @@ var showAddressableRoutes = map[string]showRouteDisposition{
 	"POST /admin/pipeline/enrichment/trigger/{show_id}":         adminOnly,
 	"GET /admin/pending-edits/entity/{entity_type}/{entity_id}": adminOnly,
 
-	// Deferred write oracles. Each needs a product call, not a code call.
-	"POST /shows/{show_id}/report":                                   writeOracleDeferred,
-	"POST /shows/{entity_id}/entity-report":                          writeOracleDeferred,
-	"POST /entities/{entity_type}/{entity_id}/tags":                  writeOracleDeferred,
-	"DELETE /entities/{entity_type}/{entity_id}/tags/{tag_id}":       writeOracleDeferred,
-	"POST /tags/{tag_id}/entities/{entity_type}/{entity_id}/votes":   writeOracleDeferred,
-	"DELETE /tags/{tag_id}/entities/{entity_type}/{entity_id}/votes": writeOracleDeferred,
+	// Deferred write oracles. Each needs a product call, not a code call. Both
+	// are report routes: refusing a report on a gated show would remove the only
+	// way to report the show a submitter can still see, so the policy question is
+	// who may file one rather than how to spell the gate.
+	"POST /shows/{show_id}/report":          writeOracleDeferred,
+	"POST /shows/{entity_id}/entity-report": writeOracleDeferred,
 }
 
 // showAddressablePathPattern matches the path shapes a show id can travel in.

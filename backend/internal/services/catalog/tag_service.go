@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -83,6 +82,73 @@ func (s *TagService) CreateTag(name string, description *string, parentID *uint,
 	return s.GetTag(tag.ID)
 }
 
+// applyVisibleUsageCounts replaces each tag's UsageCount with the count of
+// entity_tags rows a public reader may see, and does the same for any preloaded
+// Parent and Children.
+//
+// Applied on the read paths that feed a response body, so no handler has to
+// remember: what a caller reads off a tag is the visible count.
+// services/shared/tag_usage.go is the single home for what the number means and
+// for the enumeration of the places that still read the raw column; this comment
+// deliberately does not restate that list.
+//
+// A tag with no visible rows counts zero, which is a missing key in the map.
+func (s *TagService) applyVisibleUsageCounts(tags []*catalogm.Tag) error {
+	ids := make([]uint, 0, len(tags)*2)
+	for _, t := range tags {
+		if t == nil {
+			continue
+		}
+		ids = append(ids, t.ID)
+		if t.Parent != nil {
+			ids = append(ids, t.Parent.ID)
+		}
+		for i := range t.Children {
+			ids = append(ids, t.Children[i].ID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	counts, err := shared.VisibleTagUsageCounts(s.db, ids)
+	if err != nil {
+		return err
+	}
+	for _, t := range tags {
+		if t == nil {
+			continue
+		}
+		t.UsageCount = counts[t.ID]
+		if t.Parent != nil {
+			t.Parent.UsageCount = counts[t.Parent.ID]
+		}
+		for i := range t.Children {
+			t.Children[i].UsageCount = counts[t.Children[i].ID]
+		}
+	}
+	return nil
+}
+
+// applyVisibleUsageCountsToSummaries is applyVisibleUsageCounts for the
+// already-projected summary shape.
+func (s *TagService) applyVisibleUsageCountsToSummaries(summaries []contracts.TagSummary) error {
+	if len(summaries) == 0 {
+		return nil
+	}
+	ids := make([]uint, len(summaries))
+	for i := range summaries {
+		ids[i] = summaries[i].ID
+	}
+	counts, err := shared.VisibleTagUsageCounts(s.db, ids)
+	if err != nil {
+		return err
+	}
+	for i := range summaries {
+		summaries[i].UsageCount = counts[summaries[i].ID]
+	}
+	return nil
+}
+
 // GetTag retrieves a tag by ID with relationships.
 func (s *TagService) GetTag(tagID uint) (*catalogm.Tag, error) {
 	if s.db == nil {
@@ -96,6 +162,10 @@ func (s *TagService) GetTag(tagID uint) (*catalogm.Tag, error) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to get tag: %w", err)
+	}
+
+	if err := s.applyVisibleUsageCounts([]*catalogm.Tag{&tag}); err != nil {
+		return nil, err
 	}
 
 	return &tag, nil
@@ -115,6 +185,10 @@ func (s *TagService) GetTagBySlug(slug string) (*catalogm.Tag, error) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to get tag by slug: %w", err)
+	}
+
+	if err := s.applyVisibleUsageCounts([]*catalogm.Tag{&tag}); err != nil {
+		return nil, err
 	}
 
 	return &tag, nil
@@ -167,7 +241,14 @@ func (s *TagService) ListTags(category string, search string, parentID *uint, so
 	case "created":
 		query = query.Order("created_at DESC")
 	default: // "usage" or empty
-		query = query.Order("usage_count DESC, name ASC")
+		// ORDERED BY THE COUNT THIS PAGE WILL PRINT. The selection and the
+		// rendered number come from one aggregate, so the listing cannot show a
+		// tag with a lower count above one with a higher count, which is what a
+		// reader would otherwise read as a lower bound on the withheld rows.
+		// See tag_counts.go.
+		counts := s.visibleTagUsageCountQuery(entityType, cities)
+		join, joinArgs := counts.leftJoin("tags.id")
+		query = query.Select("tags.*").Joins(join, joinArgs...).Order(tagUsageCountOrderBySQL())
 	}
 
 	if limit <= 0 {
@@ -192,15 +273,29 @@ func (s *TagService) ListTags(category string, search string, parentID *uint, so
 		for i := range tags {
 			tags[i].UsageCount = int(countByID[tags[i].ID])
 		}
-		// When sorting by usage, re-order in memory so the entity-scoped count
-		// drives the order (the original SQL sorted by the global usage_count).
-		// Stable secondary sort: name ASC (matches the SQL ORDER BY tiebreaker).
-		if sort == "" || sort == "usage" {
-			sortTagsByUsageDesc(tags)
-		}
+		// NOT RE-SORTED. The ORDER BY above already ranked on this same
+		// aggregate, so the page arrives in the order these numbers describe;
+		// re-sorting it would order a page by a key it was not selected with.
+		return tags, total, nil
+	}
+
+	// The GLOBAL count, from the aggregate the ORDER BY above ranked on, so the
+	// number printed beside a tag is the number that put it on this page.
+	if err := s.applyVisibleUsageCounts(tagPointers(tags)); err != nil {
+		return nil, 0, fmt.Errorf("failed to compute visible tag usage counts: %w", err)
 	}
 
 	return tags, total, nil
+}
+
+// tagPointers addresses each element of tags so a helper can write back into the
+// slice rather than into a copy.
+func tagPointers(tags []catalogm.Tag) []*catalogm.Tag {
+	out := make([]*catalogm.Tag, len(tags))
+	for i := range tags {
+		out[i] = &tags[i]
+	}
+	return out
 }
 
 // computeEntityTypeTagCounts returns a map of tag_id → usage count scoped to
@@ -219,45 +314,9 @@ func (s *TagService) ListTags(category string, search string, parentID *uint, so
 //
 // Tags absent from the relevant tables get 0 (missing from the returned map).
 func (s *TagService) computeEntityTypeTagCounts(entityType string, tagIDs []uint, cities []contracts.CityStateFilter) (map[uint]int64, error) {
-	switch entityType {
-	case catalogm.TagEntityShow:
-		if len(cities) > 0 {
-			return CountTransitiveArtistTagUsageInShowCities(s.db, tagIDs, cities)
-		}
-		return CountTransitiveArtistTagUsage(s.db, "show_artists", "show_id", "artist_id", tagIDs)
-	case catalogm.TagEntityFestival:
-		return CountTransitiveArtistTagUsage(s.db, "festival_artists", "festival_id", "artist_id", tagIDs)
-	}
-	// Default: direct count against entity_tags for the given entity type.
-	type countRow struct {
-		TagID uint
-		Count int64
-	}
-	var rows []countRow
-	err := s.db.Table("entity_tags").
-		Select("tag_id, COUNT(*) AS count").
-		Where("entity_type = ? AND tag_id IN ?", entityType, tagIDs).
-		Group("tag_id").
-		Scan(&rows).Error
-	if err != nil {
-		return nil, err
-	}
-	out := make(map[uint]int64, len(rows))
-	for _, r := range rows {
-		out[r.TagID] = r.Count
-	}
-	return out, nil
-}
-
-// sortTagsByUsageDesc sorts in place by UsageCount DESC, name ASC. Used after
-// per-entity-type recount so the displayed order matches the new counts.
-func sortTagsByUsageDesc(tags []catalogm.Tag) {
-	sort.SliceStable(tags, func(i, j int) bool {
-		if tags[i].UsageCount != tags[j].UsageCount {
-			return tags[i].UsageCount > tags[j].UsageCount
-		}
-		return tags[i].Name < tags[j].Name
-	})
+	// One aggregate per scope, shared with the listing's ORDER BY so the number
+	// rendered here is the number that chose this page. See tag_counts.go.
+	return s.visibleTagUsageCountQuery(entityType, cities).countsFor(s.db, tagIDs)
 }
 
 // UpdateTag updates a tag's fields.
@@ -984,12 +1043,28 @@ func (s *TagService) SearchTags(query string, limit int, category string) ([]con
 		db = db.Where("category = ?", category)
 	}
 
+	// ORDERED BY THE COUNT THIS RESPONSE WILL PRINT, on ListTags' terms: the raw
+	// column both SELECTED the rows (the limit is applied to that order) and
+	// ranked them, while the number rendered beside each is the visible count, so
+	// a tag applied only to gated entities could outrank one with public rows and
+	// its position would state a lower bound on what its 0 withholds. Global
+	// scope, because this route has no entity_type facet. See tag_counts.go.
+	counts := s.visibleTagUsageCountQuery("", nil)
+	join, joinArgs := counts.leftJoin("tags.id")
+
 	var tags []catalogm.Tag
-	err := db.Order("usage_count DESC").
+	err := db.Model(&catalogm.Tag{}).
+		Select("tags.*").
+		Joins(join, joinArgs...).
+		Order(tagUsageCountOrderBySQL()).
 		Limit(limit).
 		Find(&tags).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to search tags: %w", err)
+	}
+
+	if err := s.applyVisibleUsageCounts(tagPointers(tags)); err != nil {
+		return nil, fmt.Errorf("failed to compute visible tag usage counts: %w", err)
 	}
 
 	// Build the result set. For tags whose name does NOT match the query,
@@ -1054,6 +1129,12 @@ func (s *TagService) GetTrendingTags(limit int, category string) ([]catalogm.Tag
 	var tags []catalogm.Tag
 	if err := query.Order("usage_count DESC").Limit(limit).Find(&tags).Error; err != nil {
 		return nil, fmt.Errorf("failed to get trending tags: %w", err)
+	}
+
+	// The count a caller reads is the visible one, as on every other tag read.
+	// The ORDER BY above still ranks on the raw column.
+	if err := s.applyVisibleUsageCounts(tagPointers(tags)); err != nil {
+		return nil, fmt.Errorf("failed to compute visible tag usage counts: %w", err)
 	}
 
 	return tags, nil
@@ -1150,19 +1231,26 @@ func (s *TagService) GetTagEntities(tagID uint, entityType string, limit, offset
 		query = query.Where("entity_type = ?", entityType)
 	}
 
-	// Gated shows leave this listing in the QUERY, not in the assembly loop
-	// below, so the total, the page and the offset all describe the same rows
-	// (PSY-1939). Dropping them later would answer an empty page beside a total
-	// that counts them, which is the withheld count published as arithmetic and
-	// is exactly what a gate on this listing exists to prevent.
+	// Gated entities leave this listing in the QUERY, not in the assembly loop
+	// below, so the total, the page and the offset all describe the same rows.
+	// Dropping them later would answer a short page beside a total that counts
+	// them, which is the withheld count published as arithmetic and is exactly
+	// what a gate on this listing exists to prevent.
 	//
-	// PUBLIC tier: this route is anonymous, and a tag's membership is a shared
-	// listing whose contents must not vary by credential.
+	// PUBLIC tier for both arms: this route is anonymous, and a tag's membership
+	// is a shared listing whose contents must not vary by credential. The
+	// anonymous ShowViewer is what makes VisibleCollectionExistsSQL collapse to
+	// `is_public = TRUE`, which is the rule enrichCollections applies below.
 	visibleShows, visibleShowsArgs := shared.VisibleShowExistsSQL(
 		"entity_tags.entity_id", contracts.ShowViewer{})
 	query = query.Where(
 		"(entity_tags.entity_type <> ? OR "+visibleShows+")",
 		append([]interface{}{catalogm.TagEntityShow}, visibleShowsArgs...)...)
+	visibleCollections, visibleCollectionsArgs := shared.VisibleCollectionExistsSQL(
+		"entity_tags.entity_id", contracts.ShowViewer{})
+	query = query.Where(
+		"(entity_tags.entity_type <> ? OR "+visibleCollections+")",
+		append([]interface{}{catalogm.TagEntityCollection}, visibleCollectionsArgs...)...)
 
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
@@ -1229,21 +1317,13 @@ func (s *TagService) GetTagEntities(tagID uint, entityType string, limit, offset
 				enriched.EntityType = et.EntityType
 				enriched.EntityID = et.EntityID
 				item = enriched
-			} else if et.EntityType == "collection" || et.EntityType == catalogm.TagEntityShow {
-				// PSY-553: enrichCollections drops private + deleted
-				// collections so the public tag detail page can't leak
-				// them; skip rather than emit an empty-name placeholder.
-				//
-				// KNOWN GAP for collections, stated rather than implied: the
-				// total above still counts the rows this drops, so a short page
-				// beside a larger total reports how many private collections
-				// carry the tag. Closing it needs the collection visibility
-				// rule in the query, the way the show rule now is.
-				//
-				// Shows never reach this branch: the query already excluded
-				// them, which is what keeps their total honest. The arm stays
-				// as defence in depth, so a future edit that loosens the query
-				// still cannot emit a nameless card asserting a show is there.
+			} else if et.EntityType == catalogm.TagEntityCollection || et.EntityType == catalogm.TagEntityShow {
+				// DEFENCE IN DEPTH, not the gate. Neither type reaches this
+				// branch: the query above excludes gated shows, private
+				// collections and rows whose entity no longer exists, which is
+				// what keeps the total describing the same rows as the page. The
+				// arm stays so that an edit loosening the query cannot emit a
+				// nameless card asserting the entity is there.
 				continue
 			}
 		}
@@ -1810,19 +1890,39 @@ func (s *TagService) GetTagDetail(tagID uint) (*contracts.TagDetailResponse, err
 		EntityType string
 		Count      int64
 	}
+	// GATED THE SAME WAY GetTagEntities IS, and for the same reason. This count
+	// and that listing's total are rendered on one page, so a breakdown that
+	// counted rows the listing withholds would report how many gated shows and
+	// private collections carry this tag: the withheld rows published as
+	// arithmetic. Public tier for both, because the tag page is anonymous.
+	//
+	// One predicate, from the registry, rather than an arm per gated type written
+	// out here: the same condition decides the usage count on every other tag
+	// surface, so a type that gains a rule reaches this query in the same edit.
+	breakdownVisible, breakdownVisibleArgs := shared.VisibleEntityTagsSQL(
+		"entity_tags", contracts.ShowViewer{})
 	var rows []breakdownRow
 	if err := s.db.Model(&catalogm.EntityTag{}).
 		Select("entity_type, COUNT(*) AS count").
 		Where("tag_id = ?", tagID).
+		Where(breakdownVisible, breakdownVisibleArgs...).
 		Group("entity_type").
 		Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("failed to compute usage breakdown: %w", err)
 	}
+	var visibleUsage int64
 	for _, r := range rows {
 		if _, ok := resp.UsageBreakdown[r.EntityType]; ok {
 			resp.UsageBreakdown[r.EntityType] = r.Count
+			visibleUsage += r.Count
 		}
 	}
+	// The count is the SUM OF THE BREAKDOWN IT IS RENDERED WITH, taken from the
+	// same rows rather than from a second query, so the pair cannot disagree.
+	// Every other surface that publishes this tag's count reaches the same number
+	// through shared.VisibleTagUsageCounts, which applies the same predicate
+	// grouped by tag instead of by entity type.
+	resp.UsageCount = int(visibleUsage)
 
 	// Top contributors: top 5 users by tag application count.
 	type contribRow struct {
@@ -1830,11 +1930,17 @@ func (s *TagService) GetTagDetail(tagID uint) (*contracts.TagDetailResponse, err
 		Username *string
 		Count    int64
 	}
+	// GATED ON THE SAME TERMS as the breakdown above. A contributor's count is
+	// per-user, so an unfenced one attributes the withheld rows to a NAMED
+	// person: "alice applied this tag five times, two are visible" says alice has
+	// three gated shows or private collections carrying it.
+	contribVisible, contribVisibleArgs := shared.VisibleEntityTagsSQL("et", contracts.ShowViewer{})
 	var contribRows []contribRow
 	if err := s.db.Table("entity_tags AS et").
 		Select("et.added_by_user_id AS user_id, u.username AS username, COUNT(*) AS count").
 		Joins("LEFT JOIN users u ON u.id = et.added_by_user_id").
 		Where("et.tag_id = ?", tagID).
+		Where(contribVisible, contribVisibleArgs...).
 		Group("et.added_by_user_id, u.username").
 		Order("count DESC, et.added_by_user_id ASC").
 		Limit(5).
@@ -1863,6 +1969,20 @@ func (s *TagService) GetTagDetail(tagID uint) (*contracts.TagDetailResponse, err
 		IsOfficial bool
 		UsageCount int
 	}
+	// BOTH SIDES OF THE SELF-JOIN ARE GATED. Co-occurrence is computed over the
+	// entities carrying the two tags, so an ungated join reports which tags share
+	// a private collection with this one: the collection's contents restated as a
+	// relationship. The self side and the other side name the same entity, so
+	// judging one would be enough, and both carry the condition because the join
+	// is on a pair of columns that a later edit could loosen.
+	//
+	// Placeholders bind by POSITION, so the arguments below are appended in
+	// statement order: the self gate, the other gate, then the two tag ids.
+	selfVisible, selfVisibleArgs := shared.VisibleEntityTagsSQL("et_self", contracts.ShowViewer{})
+	otherVisible, otherVisibleArgs := shared.VisibleEntityTagsSQL("et_other", contracts.ShowViewer{})
+	relatedArgs := append([]interface{}{}, selfVisibleArgs...)
+	relatedArgs = append(relatedArgs, otherVisibleArgs...)
+	relatedArgs = append(relatedArgs, tagID, tagID)
 	var relatedRows []relatedRow
 	err = s.db.Raw(`
 		SELECT t.id, t.name, t.slug, t.category, t.is_official, t.usage_count
@@ -1871,12 +1991,14 @@ func (s *TagService) GetTagDetail(tagID uint) (*contracts.TagDetailResponse, err
 		  ON et_self.entity_type = et_other.entity_type
 		 AND et_self.entity_id   = et_other.entity_id
 		JOIN tags t ON t.id = et_other.tag_id
-		WHERE et_self.tag_id = ?
+		WHERE `+selfVisible+`
+		  AND `+otherVisible+`
+		  AND et_self.tag_id = ?
 		  AND et_other.tag_id <> ?
 		GROUP BY t.id, t.name, t.slug, t.category, t.is_official, t.usage_count
 		ORDER BY COUNT(*) DESC, t.usage_count DESC, t.name ASC
 		LIMIT 5
-	`, tagID, tagID).Scan(&relatedRows).Error
+	`, relatedArgs...).Scan(&relatedRows).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to compute related tags: %w", err)
 	}
@@ -1889,6 +2011,11 @@ func (s *TagService) GetTagDetail(tagID uint) (*contracts.TagDetailResponse, err
 			IsOfficial: r.IsOfficial,
 			UsageCount: r.UsageCount,
 		})
+	}
+	// The related tags' own counts, on the same terms as every other published
+	// count. The ORDER BY above still ranks on the raw column.
+	if err := s.applyVisibleUsageCountsToSummaries(resp.RelatedTags); err != nil {
+		return nil, fmt.Errorf("failed to compute visible tag usage counts: %w", err)
 	}
 
 	return resp, nil

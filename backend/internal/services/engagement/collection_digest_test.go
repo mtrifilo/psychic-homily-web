@@ -679,3 +679,52 @@ func (s *CollectionDigestServiceIntegrationSuite) TestDigest_PrefDefaultsToFalse
 
 // strPtr returns a pointer to s. Test helper.
 func strPtr(s string) *string { return &s }
+
+// A COLLECTION THAT GOES PRIVATE STOPS MAILING, and it stops mailing to the
+// people already subscribed to it.
+//
+// The subscribe-time gate cannot cover this on its own: it decides the moment a
+// row is made, and the collection's flag moves afterwards. Mail is final, so a
+// cycle that read only the subscription would keep delivering a private
+// collection's contents to a stranger who subscribed while it was public, one
+// item summary at a time, forever.
+//
+// The creator is asserted in the same run: withholding from THEM would be a
+// broken feature rather than a closed leak, and the two halves are what make
+// this about visibility rather than about the query having stopped working.
+func (s *CollectionDigestServiceIntegrationSuite) TestDigest_PrivateCollectionMailsOnlyItsCreator() {
+	creator := s.createUserWithDigestPref("creator", true)
+	stranger := s.createUserWithDigestPref("stranger", true)
+	coll := s.createCollection(creator, "Goes Private", "goes-private")
+	s.subscribe(coll, creator, nil, nil)
+	s.subscribe(coll, stranger, nil, nil)
+
+	// A third party adds the item, so neither subscriber is excluded by the
+	// added_by_user_id <> cs.user_id join condition.
+	adder := s.createUser("adder")
+	a := s.createArtist("PrivateFlipArtist")
+	s.addItem(coll, adder, communitym.CollectionEntityArtist, a.ID, time.Now().Add(-1*time.Hour))
+
+	// Public first: both subscribers are candidates, which is the control.
+	s.svc.RunDigestCycleNow()
+	require.Len(s.T(), s.mock.calls, 2,
+		"while the collection is public both subscribers should be mailed")
+
+	// Now flip it private, and reset the per-subscriber cursors the first cycle
+	// stamped so the same item is a candidate again.
+	s.Require().NoError(s.db.Model(&communitym.Collection{}).
+		Where("id = ?", coll.ID).Update("is_public", false).Error)
+	s.Require().NoError(s.db.Model(&communitym.CollectionSubscriber{}).
+		Where("collection_id = ?", coll.ID).Update("last_digest_sent_at", nil).Error)
+	s.mock.calls = nil
+
+	s.svc.RunDigestCycleNow()
+
+	require.Len(s.T(), s.mock.calls, 1,
+		"a private collection must mail its creator and nobody else")
+	s.Require().NotNil(creator.Email)
+	assert.Equal(s.T(), *creator.Email, s.mock.calls[0].ToEmail,
+		"the one remaining recipient must be the creator")
+	s.Require().NotNil(stranger.Email)
+	assert.NotEqual(s.T(), *stranger.Email, s.mock.calls[0].ToEmail)
+}

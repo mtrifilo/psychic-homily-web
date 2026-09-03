@@ -27,6 +27,29 @@ func NewEntityReportService(database *gorm.DB) *EntityReportService {
 	return &EntityReportService{db: database}
 }
 
+// commentParentVisible reports whether viewer may see the entity comment
+// commentID hangs off.
+//
+// A comment that does not exist answers false, which is what lets a gated parent
+// and a missing comment id produce one response. Which entity types have a rule
+// is services/shared's registry, so a comment on an always-visible parent passes
+// without a second lookup.
+func (s *EntityReportService) commentParentVisible(commentID uint, viewer contracts.ShowViewer) bool {
+	var parent struct {
+		EntityType string
+		EntityID   uint
+	}
+	err := s.db.Table("comments").
+		Select("entity_type, entity_id").
+		Where("id = ?", commentID).
+		Scan(&parent).Error
+	if err != nil || parent.EntityType == "" {
+		return false
+	}
+	return shared.EntityVisibleTo(
+		shared.NewShowVisibilityService(s.db), parent.EntityType, parent.EntityID, viewer)
+}
+
 // CreateEntityReport submits a new report for an entity.
 func (s *EntityReportService) CreateEntityReport(req *contracts.CreateEntityReportRequest) (*contracts.EntityReportResponse, error) {
 	if s.db == nil {
@@ -40,18 +63,47 @@ func (s *EntityReportService) CreateEntityReport(req *contracts.CreateEntityRepo
 		return nil, apperrors.ErrEntityReportInvalidReportType(req.ReportType, req.EntityType)
 	}
 
-	// Verify the entity exists
-	tableName := req.EntityType + "s"
-	// Comments table is already plural
-	if req.EntityType == "comment" {
-		tableName = "comments"
-	}
-	var count int64
-	if err := s.db.Table(tableName).Where("id = ?", req.EntityID).Count(&count).Error; err != nil {
-		return nil, apperrors.ErrEntityReportInternal(fmt.Errorf("failed to verify entity: %w", err))
-	}
-	if count == 0 {
-		return nil, apperrors.ErrEntityReportEntityNotFound(req.EntityType, req.EntityID)
+	// Verify the entity exists AND that the reporter may see it.
+	//
+	// The existence probe alone is an oracle over a dense id space, and the
+	// response this call returns carries the entity's resolved name and slug
+	// (toResponse), so a bare probe hands a private collection's identity to
+	// whoever guesses its id. A collection the reporter may not see answers
+	// exactly as one that does not exist.
+	//
+	// A COLLECTION is the only reportable type gated HERE. Shows have a read-time
+	// rule of their own and are deliberately not gated on this route: refusing a
+	// report on a gated show would remove the only way a submitter can report
+	// their own withdrawn show. That trade does not arise for collections, whose
+	// creator is the one person who can see them. Any OTHER reportable type that
+	// gains a read-time rule needs a case here rather than the default branch,
+	// which probes existence and nothing else.
+	//
+	// A COMMENT is decided by its PARENT, because that is where the rule lives
+	// and because the response resolves a comment's name as the first 60
+	// characters of its body. Comment ids are dense, so an ungated probe is both
+	// a content disclosure and an enumeration primitive.
+	viewer := contracts.ShowViewer{UserID: req.UserID}
+	switch req.EntityType {
+	case communitym.EntityReportEntityCollection:
+		if !shared.CollectionVisibleTo(s.db, req.EntityID, viewer) {
+			return nil, apperrors.ErrEntityReportEntityNotFound(req.EntityType, req.EntityID)
+		}
+	case communitym.EntityReportEntityComment:
+		if !s.commentParentVisible(req.EntityID, viewer) {
+			return nil, apperrors.ErrEntityReportEntityNotFound(req.EntityType, req.EntityID)
+		}
+	default:
+		// Every type reaching here has a plural table name and no read-time rule.
+		// The two that do not are the cases above.
+		tableName := req.EntityType + "s"
+		var count int64
+		if err := s.db.Table(tableName).Where("id = ?", req.EntityID).Count(&count).Error; err != nil {
+			return nil, apperrors.ErrEntityReportInternal(fmt.Errorf("failed to verify entity: %w", err))
+		}
+		if count == 0 {
+			return nil, apperrors.ErrEntityReportEntityNotFound(req.EntityType, req.EntityID)
+		}
 	}
 
 	// Check for existing pending report from this user for this entity
@@ -80,7 +132,7 @@ func (s *EntityReportService) CreateEntityReport(req *contracts.CreateEntityRepo
 	}
 
 	// Auto-hide comments with 3+ reports
-	if req.EntityType == "comment" {
+	if req.EntityType == communitym.EntityReportEntityComment {
 		var totalReports int64
 		if err := s.db.Model(&communitym.EntityReport{}).
 			Where("entity_type = 'comment' AND entity_id = ? AND status = ?",

@@ -1,11 +1,9 @@
 package routes
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -88,44 +86,24 @@ func TestCommentSubscriptionsMirrorTheDetailRoute(t *testing.T) {
 	gatedCommentID := seedComment(t, seeder, commenter.ID, gated.ID, watchGatedComment)
 	openCommentID := seedComment(t, seeder, commenter.ID, open.ID, watchOpenComment)
 
-	token := func(u *authm.User) string {
-		t.Helper()
-		tok, err := sc.JWT.CreateToken(u)
-		if err != nil {
-			t.Fatalf("mint token for user %d: %v", u.ID, err)
-		}
-		return tok
-	}
+	token := func(u *authm.User) string { return mintToken(t, sc, u) }
 
-	// Credentials ride the cookie, which is the carrier the product uses.
+	// Bound to this test's router; the carrier and the raw-body contract live
+	// in routes_test.go, shared with the sibling matrices.
 	do := func(t *testing.T, method, path, credential string, body []byte) (int, []byte) {
-		t.Helper()
-		var req *http.Request
-		if body == nil {
-			req = httptest.NewRequest(method, path, nil)
-		} else {
-			req = httptest.NewRequest(method, path, bytes.NewReader(body))
-			req.Header.Set("Content-Type", "application/json")
-		}
-		if credential != "" {
-			req.AddCookie(&http.Cookie{Name: "auth_token", Value: credential})
-		}
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
-		return w.Code, w.Body.Bytes()
+		return doRequest(t, router, method, path, credential, body)
 	}
 	get := func(t *testing.T, path, credential string) (int, []byte) {
-		t.Helper()
-		return do(t, http.MethodGet, path, credential, nil)
+		return getRequest(t, router, path, credential)
 	}
 	subscribePath := func(showID uint) string {
 		return fmt.Sprintf("/entities/show/%d/subscribe", showID)
 	}
 
 	// Everybody subscribes to BOTH shows WHILE THEY ARE APPROVED, over the real
-	// route. That is the repro, and it is also what makes the assertions below
-	// about a show taken private afterwards mean anything: the subscribe gate
-	// alone would leave every row made before this ticket shipped still leaking.
+	// route, which is what makes the assertions below about a show taken private
+	// afterwards mean anything: a gate on the subscribe route alone leaves every
+	// row made before the flip still leaking.
 	for _, u := range []*authm.User{stranger, quitter, submitter, admin} {
 		for _, show := range []*catalogm.Show{gated, open} {
 			if code, body := do(t, http.MethodPost, subscribePath(show.ID), token(u), nil); code != http.StatusOK {
@@ -528,16 +506,24 @@ func newCommentSeeder(db *gorm.DB) *engagement.CommentService {
 	return engagement.NewCommentService(db, utils.NewMarkdownRenderer())
 }
 
-// seedComment writes one comment and returns its id, without fanning it out.
+// seedComment writes one comment on a SHOW and returns its id, without fanning
+// it out.
 func seedComment(t *testing.T, seeder *engagement.CommentService, authorID, showID uint, body string) uint {
 	t.Helper()
+	return seedEntityComment(t, seeder, authorID, "show", showID, body)
+}
+
+// seedEntityComment is seedComment for any comment parent, for the sibling
+// matrix that gates collections.
+func seedEntityComment(t *testing.T, seeder *engagement.CommentService, authorID uint, entityType string, entityID uint, body string) uint {
+	t.Helper()
 	comment, err := seeder.CreateComment(authorID, &contracts.CreateCommentRequest{
-		EntityType: "show",
-		EntityID:   showID,
+		EntityType: entityType,
+		EntityID:   entityID,
 		Body:       body,
 	})
 	if err != nil {
-		t.Fatalf("seed comment on show %d: %v", showID, err)
+		t.Fatalf("seed comment on %s %d: %v", entityType, entityID, err)
 	}
 	return comment.ID
 }
@@ -574,8 +560,18 @@ func watchingList(t *testing.T, get func(*testing.T, string, string) (int, []byt
 // hasWatchingEntry reports whether the list names the given show id on a
 // show-typed row.
 func hasWatchingEntry(items []contracts.WatchingItem, showID uint) bool {
+	return hasWatchingEntryOfType(items, "show", showID)
+}
+
+// hasWatchingEntryOfType is hasWatchingEntry for any comment parent.
+//
+// The TYPE is compared as well as the id, and that is not defensive tidiness:
+// entity_id means a different thing per entity_type, so a show and a collection
+// routinely share a number and a check on the id alone would report the wrong
+// row present.
+func hasWatchingEntryOfType(items []contracts.WatchingItem, entityType string, entityID uint) bool {
 	for _, item := range items {
-		if item.EntityType == "show" && item.EntityID == showID {
+		if item.EntityType == entityType && item.EntityID == entityID {
 			return true
 		}
 	}

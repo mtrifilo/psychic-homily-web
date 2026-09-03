@@ -45,20 +45,22 @@ func (s *CommentSubscriptionService) Subscribe(userID uint, entityType string, e
 	return s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&sub).Error
 }
 
-// Unsubscribe removes a subscription. Idempotent — if not subscribed, no error.
-func (s *CommentSubscriptionService) Unsubscribe(userID uint, entityType string, entityID uint) error {
+// Unsubscribe removes a subscription and reports how many rows went with it.
+// Idempotent: a caller who was not subscribed gets (0, nil).
+func (s *CommentSubscriptionService) Unsubscribe(userID uint, entityType string, entityID uint) (int64, error) {
 	if s.db == nil {
-		return errors.New("database not initialized")
+		return 0, errors.New("database not initialized")
 	}
 
 	if _, err := validateCommentEntityType(entityType); err != nil {
-		return err
+		return 0, err
 	}
 
-	return s.db.Where(
+	result := s.db.Where(
 		"user_id = ? AND entity_type = ? AND entity_id = ?",
 		userID, entityType, entityID,
-	).Delete(&engagementm.CommentSubscription{}).Error
+	).Delete(&engagementm.CommentSubscription{})
+	return result.RowsAffected, result.Error
 }
 
 // IsSubscribed checks whether a user is subscribed to an entity's comments.
@@ -173,18 +175,22 @@ type watchingRow struct {
 // in one batch query per distinct entity table plus two for users — no
 // per-row queries.
 //
-// A subscription whose show viewer may no longer see is SUPPRESSED, and
-// suppressed from the total as well as the page (PSY-1983). Dropping the row
-// while leaving the count whole would publish the same fact as arithmetic:
-// total minus the rows on the page is a count of gated shows this account
-// watches, and the account already knows which shows it subscribed to.
+// A subscription whose ENTITY viewer may no longer see is SUPPRESSED, and
+// suppressed from the total as well as the page. Dropping
+// the row while leaving the count whole would publish the same fact as
+// arithmetic: total minus the rows on the page is a count of gated entities this
+// account watches, and the account already knows what it subscribed to.
+//
+// Which entities those are is VisibleCommentEntitySQL's decision — a withdrawn
+// show, a collection turned private, and a row naming an entity type nobody has
+// dispositioned. This list does not keep its own copy of that judgement.
 //
 // Suppression, not deletion. The row stays, the gate is re-evaluated on every
-// read, and republishing the show brings the entry back with its unread count
+// read, and republishing the entity brings the entry back with its unread count
 // intact — the unread count reads the comments table directly, so it recovers
-// even for comments posted while the show was gated. The NOTIFICATIONS about
+// even for comments posted while the entity was gated. The NOTIFICATIONS about
 // those comments do not: the fan-out declined to mint them and nothing restores
-// what was never written (see VisibleShowRecipientsSQL).
+// what was never written (see CommentEntityRecipientsSQL).
 func (s *CommentSubscriptionService) ListWatching(viewer contracts.ShowViewer, limit, offset int) ([]contracts.WatchingItem, int64, error) {
 	if s.db == nil {
 		return nil, 0, errors.New("database not initialized")
@@ -210,7 +216,7 @@ func (s *CommentSubscriptionService) ListWatching(viewer contracts.ShowViewer, l
 	// The same condition on the count and on the page, so the two agree by
 	// construction rather than by two edits staying in step. `cs` is the alias
 	// the page query binds the table to; the count query is given it explicitly.
-	visibleSQL, visibleArgs := shared.VisibleShowCommentEntitySQL("cs.entity_type", "cs.entity_id", viewer)
+	visibleSQL, visibleArgs := shared.VisibleCommentEntitySQL("cs.entity_type", "cs.entity_id", viewer)
 
 	var total int64
 	err := s.db.Table("comment_subscriptions cs").

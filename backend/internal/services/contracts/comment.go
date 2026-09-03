@@ -335,8 +335,13 @@ type CommentSubscriptionServiceInterface interface {
 	// Subscribe adds a subscription for a user to an entity's comments.
 	Subscribe(userID uint, entityType string, entityID uint) error
 
-	// Unsubscribe removes a subscription for a user from an entity's comments.
-	Unsubscribe(userID uint, entityType string, entityID uint) error
+	// Unsubscribe removes a subscription for a user from an entity's comments and
+	// reports how many rows it removed. The count is 0 for a caller who was not
+	// subscribed, which is what lets the route stay idempotent to the caller and
+	// still record nothing when nothing happened: this route is ungated, so an
+	// audit row per call would let anybody stamp the log with arbitrary
+	// (entity_type, entity_id) pairs.
+	Unsubscribe(userID uint, entityType string, entityID uint) (int64, error)
 
 	// IsSubscribed checks whether a user is subscribed to an entity's comments.
 	IsSubscribed(userID uint, entityType string, entityID uint) (bool, error)

@@ -423,32 +423,37 @@ func (s *CommentNotificationService) NotifySubscribers(commentID uint) error {
 }
 
 // whereRecipientMaySeeCommentParent narrows a recipient query to the users who
-// may see the show the comment hangs off, when it hangs off a show at all
-// (PSY-1983).
+// may see the entity the comment hangs off.
 //
 // The fan-out is the channel a read-time gate cannot reach. Both callers below
 // send EMAIL carrying the parent's title, the comment's excerpt and a link, and
 // a message already in somebody's mailbox is not withdrawn by a later 404. A
-// stranger who subscribed while the show was public would otherwise keep being
-// mailed its private activity indefinitely.
+// stranger who subscribed while the show was public, or while the collection was
+// public, would otherwise keep being mailed its private activity indefinitely.
+//
+// UNCONDITIONAL: the gate is spliced in for every parent entity type, with no
+// early return for the types that have no rule. An early return there is the
+// fan-out's half of a default-open, and it is how a collection turned private
+// keeps mailing its comments to everyone who ever subscribed.
+// shared.CommentEntityRecipientsSQL answers for every entity type, including
+// "nobody" for one that has no recorded rule.
 //
 // recipientIDExpr names the column holding each candidate's user id, and it is a
 // literal at each call site: the subscriber query joins users through
 // comment_subscriptions, the mention query reads the users table directly, so
 // they name different columns for the same thing. Both already have the users
-// table in scope, which is why the admin tier is read from u.is_admin rather
-// than dropped: this gate is FINAL, so an admin left out of a fan-out never
-// receives that activity at all, and their inbox would permanently disagree with
-// what all three read gates say they may see.
+// table in scope, which is why the admin tier is passed as u.is_admin rather
+// than dropped — the SHOW arm reads it, because that gate is FINAL and an admin
+// left out of a fan-out never receives that activity at all. The COLLECTION arm
+// ignores it, because no collection read grants an admin anything to disagree
+// with. The asymmetry lives in services/shared, where both rules are.
 //
 // Takes the comment by POINTER: both callers hold one with its User association
 // preloaded, and a value parameter copies that whole graph on every fan-out to
 // read two fields off it.
 func whereRecipientMaySeeCommentParent(q *gorm.DB, comment *engagementm.Comment, recipientIDExpr, recipientIsAdminExpr string) *gorm.DB {
-	if string(comment.EntityType) != shared.CommentEntityTypeShow {
-		return q
-	}
-	cond, args := shared.VisibleShowRecipientsSQL(comment.EntityID, recipientIDExpr, recipientIsAdminExpr)
+	cond, args := shared.CommentEntityRecipientsSQL(
+		string(comment.EntityType), comment.EntityID, recipientIDExpr, recipientIsAdminExpr)
 	return q.Where(cond, args...)
 }
 

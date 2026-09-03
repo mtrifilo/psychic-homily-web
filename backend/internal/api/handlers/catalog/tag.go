@@ -10,6 +10,7 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
+	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
@@ -20,10 +21,29 @@ import (
 type TagHandler struct {
 	tagService contracts.TagServiceInterface
 	auditLog   contracts.AuditLogServiceInterface
-	// showVisibility gates the per-entity tag routes when the entity is a show,
-	// on the rule GET /shows/{id} enforces (PSY-1939). Required; see
-	// shared.ShowSubResourceVisible.
+	// showVisibility gates every per-entity tag route, read and write alike, on
+	// the rule the entity's own detail route enforces. Which entity types have
+	// such a rule is services/shared/entity_visibility.go's registry. Required;
+	// see shared.EntitySubResourceVisible.
 	showVisibility contracts.ShowVisibilityInterface
+}
+
+// refuseTagWriteAsMissingPair is the answer every gated tag WRITE route gives:
+// the service's own "tag not applied to this entity" error.
+//
+// It is what the remove and vote routes already answer for a pair that does not
+// exist, so a gated entity and an untagged one produce one response. The message
+// echoes only the caller's own request parameters, and 0 where the add route's
+// caller named a tag by name rather than by id.
+//
+// The gate refuses a MISSING show or collection on the same terms it refuses a
+// gated one, so closing these routes adds no oracle in the other direction: the
+// two cases were already indistinguishable and stay so.
+func refuseTagWriteAsMissingPair(tagID uint, entityType string, entityID uint) error {
+	if mapped := shared.MapTagError(apperrors.ErrEntityTagNotFound(tagID, entityType, entityID)); mapped != nil {
+		return mapped
+	}
+	return huma.Error404NotFound("Entity not found")
 }
 
 // NewTagHandler creates a new TagHandler.
@@ -328,9 +348,11 @@ func (h *TagHandler) ListEntityTagsHandler(ctx context.Context, req *ListEntityT
 		return nil, huma.Error400BadRequest("Invalid entity ID")
 	}
 
-	// A show's tags are the show's own sub-resource, reached by the id GET
-	// /shows/{id} refuses for a non-approved show, so they answer to the same
-	// viewer rule (PSY-1939). Other entity types pass untouched.
+	// An entity's tags are that entity's own sub-resource, reached by the id its
+	// detail route refuses, so they answer to the same viewer rule. Which entity
+	// types have such a rule, and which are genuinely public, is
+	// services/shared/entity_visibility.go's registry: an entity type with no
+	// entry there is refused, not waved through.
 	//
 	// The EMPTY LIST, not a 404: an untagged entity already answers that way and
 	// the two must be indistinguishable. The array is allocated, never nil, so
@@ -386,6 +408,14 @@ func (h *TagHandler) AddTagToEntityHandler(ctx context.Context, req *AddTagToEnt
 		return nil, huma.Error422UnprocessableEntity("Either tag_id or tag_name is required")
 	}
 
+	// The read gate's twin. A tag write lands ON the entity: it appears on the
+	// owner's page, it counts toward the per-collection tag cap, and it is
+	// attributed to the caller. So a caller who may not see the entity may not
+	// write to it either, and the refusal is the missing-pair answer above.
+	if !shared.EntitySubResourceVisible(h.showVisibility, req.EntityType, uint(entityID), middleware.GetShowViewerFromContext(ctx)) {
+		return nil, refuseTagWriteAsMissingPair(req.Body.TagID, req.EntityType, uint(entityID))
+	}
+
 	_, err = h.tagService.AddTagToEntity(req.Body.TagID, req.Body.TagName, req.EntityType, uint(entityID), user.ID, req.Body.Category)
 	if err != nil {
 		// PSY-354: AddTagToEntity returns a CollectionError when the
@@ -433,6 +463,12 @@ func (h *TagHandler) RemoveTagFromEntityHandler(ctx context.Context, req *Remove
 		return nil, huma.Error400BadRequest("Invalid tag ID")
 	}
 
+	// Removing somebody else's tag from an entity is a write on that entity, so
+	// it takes the same viewer its tags do.
+	if !shared.EntitySubResourceVisible(h.showVisibility, req.EntityType, uint(entityID), middleware.GetShowViewerFromContext(ctx)) {
+		return nil, refuseTagWriteAsMissingPair(uint(tagID), req.EntityType, uint(entityID))
+	}
+
 	err = h.tagService.RemoveTagFromEntity(uint(tagID), req.EntityType, uint(entityID))
 	if err != nil {
 		mapped := shared.MapTagError(err)
@@ -473,6 +509,12 @@ func (h *TagHandler) VoteTagHandler(ctx context.Context, req *VoteTagRequest) (*
 		return nil, huma.Error400BadRequest("Invalid entity ID")
 	}
 
+	// A vote is a write on the entity's tag row and it moves that tag's rank on
+	// the entity's page, so it takes the same viewer the page does.
+	if !shared.EntitySubResourceVisible(h.showVisibility, req.EntityType, uint(entityID), middleware.GetShowViewerFromContext(ctx)) {
+		return nil, refuseTagWriteAsMissingPair(uint(tagID), req.EntityType, uint(entityID))
+	}
+
 	err = h.tagService.VoteOnTag(uint(tagID), req.EntityType, uint(entityID), user.ID, req.Body.IsUpvote)
 	if err != nil {
 		mapped := shared.MapTagError(err)
@@ -508,6 +550,13 @@ func (h *TagHandler) RemoveTagVoteHandler(ctx context.Context, req *RemoveTagVot
 	entityID, err := strconv.ParseUint(req.EntityID, 10, 32)
 	if err != nil {
 		return nil, huma.Error400BadRequest("Invalid entity ID")
+	}
+
+	// The vote route's twin, gated for the same reason. All four write
+	// registrations on this path family carry the gate, so none of them is the
+	// one a later sweep has to notice.
+	if !shared.EntitySubResourceVisible(h.showVisibility, req.EntityType, uint(entityID), middleware.GetShowViewerFromContext(ctx)) {
+		return nil, refuseTagWriteAsMissingPair(uint(tagID), req.EntityType, uint(entityID))
 	}
 
 	err = h.tagService.RemoveTagVote(uint(tagID), req.EntityType, uint(entityID), user.ID)

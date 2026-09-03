@@ -240,19 +240,27 @@ func buildCountSubquery(dimension string, periodFilter string) string {
 			GROUP BY submitted_by
 		`, periodFilter)
 	case "tags":
+		// Tag applications on entities the public can see, for every caller
+		// including the ranked user and an admin. A public ranking is one shared
+		// number on the terms the shows dimension states, and this count is
+		// per-NAMED-user: unfenced it says "alice applied tags five times, two of
+		// them where you can see", which is her private collections and gated
+		// shows reported as a position. entity_tags is polymorphic, so the
+		// condition is the shared registry's, inlined because this subquery is
+		// assembled by concatenation and binds nothing.
 		return fmt.Sprintf(`
 			SELECT added_by_user_id AS user_id, COUNT(*) AS count
 			FROM entity_tags
-			WHERE 1=1 %s
+			WHERE %s %s
 			GROUP BY added_by_user_id
-		`, periodFilter)
+		`, shared.PublicEntityTagsSQL("entity_tags"), periodFilter)
 	case "edits":
 		// Combine approved pending edits + revisions.
 		//
 		// The revisions arm counts only edits on shows the public can see, for
-		// the reason the shows dimension gives (PSY-1939). Non-show revisions
-		// count whatever their entity: show is the only entity type with a
-		// read-time visibility rule.
+		// the reason the shows dimension gives. Non-show revisions count
+		// whatever their entity: the revisions table carries no collection
+		// entity_type, so `show` is the only gated type that reaches it.
 		return fmt.Sprintf(`
 			SELECT user_id, SUM(count) AS count FROM (
 				SELECT submitted_by AS user_id, COUNT(*) AS count

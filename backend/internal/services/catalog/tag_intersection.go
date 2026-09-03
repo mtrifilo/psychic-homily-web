@@ -118,6 +118,11 @@ func (s *TagService) resolveTagSummaries(tagSlugs []string) ([]contracts.TagSumm
 			UsageCount: t.UsageCount,
 		})
 	}
+	// The count a caller reads is the visible one, on this route as on the
+	// listings it links back to.
+	if err := s.applyVisibleUsageCountsToSummaries(out); err != nil {
+		return nil, fmt.Errorf("failed to compute visible tag usage counts: %w", err)
+	}
 	return out, nil
 }
 

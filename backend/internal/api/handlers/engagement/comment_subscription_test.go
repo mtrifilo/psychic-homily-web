@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	apperrors "psychic-homily-backend/internal/errors"
@@ -150,14 +151,48 @@ func TestSubscribe_InvalidEntityID(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 400)
 }
 
-func TestSubscribe_InvalidEntityType(t *testing.T) {
+// An entity type with no registered visibility rule is refused AT THE GATE, as
+// a missing entity, before the service that would name it runs.
+//
+// The service is not merely un-consulted, it is asserted un-consulted: the
+// refusal has to come from the gate, or a later edit could restore the
+// default-open and this test would still pass on the service's error.
+//
+// The answer is 404, not the service's 400 for an invalid type. One answer for a
+// gated entity, a missing one and an unknown type is the point: a pair of
+// answers that differ tells a caller which entity types the vocabulary contains.
+// The service's own invalid-type error still maps to 400 for a REGISTERED type,
+// which the case below and shared.TestMapCommentError pin.
+func TestSubscribe_UnregisteredEntityTypeIsRefusedAtTheGate(t *testing.T) {
+	serviceCalled := false
+	h := NewCommentSubscriptionHandler(&testhelpers.MockCommentSubscriptionService{
+		SubscribeFn: func(userID uint, entityType string, entityID uint) error {
+			serviceCalled = true
+			return nil
+		},
+	}, nil, testhelpers.AllShowsVisible())
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &SubscribeRequest{EntityType: "invalid", EntityID: "1"}
+
+	_, err := h.SubscribeHandler(ctx, req)
+	testhelpers.AssertHumaError(t, err, 404)
+	if serviceCalled {
+		t.Error("the subscribe service ran for an unregistered entity type — the gate did not refuse it")
+	}
+}
+
+// The service's invalid-entity-type error still maps to 400, reached through an
+// entity type the gate DOES recognise. Without this arm, moving the refusal to
+// the gate would have silently deleted the only coverage of that mapping on this
+// route.
+func TestSubscribe_InvalidEntityTypeFromTheService(t *testing.T) {
 	h := NewCommentSubscriptionHandler(&testhelpers.MockCommentSubscriptionService{
 		SubscribeFn: func(userID uint, entityType string, entityID uint) error {
 			return apperrors.ErrCommentInvalidEntityType(entityType)
 		},
 	}, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
-	req := &SubscribeRequest{EntityType: "invalid", EntityID: "1"}
+	req := &SubscribeRequest{EntityType: "artist", EntityID: "1"}
 
 	_, err := h.SubscribeHandler(ctx, req)
 	testhelpers.AssertHumaError(t, err, 400)
@@ -247,8 +282,8 @@ func TestUnsubscribe_InvalidEntityID(t *testing.T) {
 
 func TestUnsubscribe_InvalidEntityType(t *testing.T) {
 	h := NewCommentSubscriptionHandler(&testhelpers.MockCommentSubscriptionService{
-		UnsubscribeFn: func(userID uint, entityType string, entityID uint) error {
-			return apperrors.ErrCommentInvalidEntityType(entityType)
+		UnsubscribeFn: func(userID uint, entityType string, entityID uint) (int64, error) {
+			return 0, apperrors.ErrCommentInvalidEntityType(entityType)
 		},
 	}, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
@@ -260,11 +295,11 @@ func TestUnsubscribe_InvalidEntityType(t *testing.T) {
 
 func TestUnsubscribe_Success(t *testing.T) {
 	h := NewCommentSubscriptionHandler(&testhelpers.MockCommentSubscriptionService{
-		UnsubscribeFn: func(userID uint, entityType string, entityID uint) error {
+		UnsubscribeFn: func(userID uint, entityType string, entityID uint) (int64, error) {
 			if userID != 1 || entityType != "show" || entityID != 42 {
-				return fmt.Errorf("unexpected args")
+				return 0, fmt.Errorf("unexpected args")
 			}
-			return nil
+			return 1, nil
 		},
 	}, nil, testhelpers.AllShowsVisible())
 
@@ -279,8 +314,8 @@ func TestUnsubscribe_Success(t *testing.T) {
 
 func TestUnsubscribe_ServiceError(t *testing.T) {
 	h := NewCommentSubscriptionHandler(&testhelpers.MockCommentSubscriptionService{
-		UnsubscribeFn: func(userID uint, entityType string, entityID uint) error {
-			return fmt.Errorf("database error")
+		UnsubscribeFn: func(userID uint, entityType string, entityID uint) (int64, error) {
+			return 0, fmt.Errorf("database error")
 		},
 	}, nil, testhelpers.AllShowsVisible())
 
@@ -312,14 +347,43 @@ func TestSubscriptionStatus_InvalidEntityID(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 400)
 }
 
-func TestSubscriptionStatus_InvalidEntityType(t *testing.T) {
+// The status route is the one gated route that must NOT refuse, so an
+// unregistered entity type gets the same quiet `{subscribed:false,
+// unread_count:0}` a gated show gets, not a 400 naming the vocabulary.
+func TestSubscriptionStatus_UnregisteredEntityTypeAnswersNotSubscribed(t *testing.T) {
+	serviceCalled := false
+	h := NewCommentSubscriptionHandler(&testhelpers.MockCommentSubscriptionService{
+		IsSubscribedFn: func(userID uint, entityType string, entityID uint) (bool, error) {
+			serviceCalled = true
+			return true, nil
+		},
+	}, nil, testhelpers.AllShowsVisible())
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &SubscriptionStatusRequest{EntityType: "invalid", EntityID: "1"}
+
+	resp, err := h.SubscriptionStatusHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("the status route refused an unregistered entity type: %v", err)
+	}
+	if resp.Body.Subscribed || resp.Body.UnreadCount != 0 {
+		t.Errorf("the status route answered subscribed=%v unread=%d for an unregistered entity type",
+			resp.Body.Subscribed, resp.Body.UnreadCount)
+	}
+	if serviceCalled {
+		t.Error("the subscription service ran for an unregistered entity type — the gate did not refuse it")
+	}
+}
+
+// The service's invalid-entity-type error still maps to 400, through a type the
+// gate recognises.
+func TestSubscriptionStatus_InvalidEntityTypeFromTheService(t *testing.T) {
 	h := NewCommentSubscriptionHandler(&testhelpers.MockCommentSubscriptionService{
 		IsSubscribedFn: func(userID uint, entityType string, entityID uint) (bool, error) {
 			return false, apperrors.ErrCommentInvalidEntityType(entityType)
 		},
 	}, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
-	req := &SubscriptionStatusRequest{EntityType: "invalid", EntityID: "1"}
+	req := &SubscriptionStatusRequest{EntityType: "artist", EntityID: "1"}
 
 	_, err := h.SubscriptionStatusHandler(ctx, req)
 	testhelpers.AssertHumaError(t, err, 400)
@@ -464,14 +528,37 @@ func TestMarkRead_InvalidEntityID(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 400)
 }
 
-func TestMarkRead_InvalidEntityType(t *testing.T) {
+// Mark-read is a WRITE that advances a pointer over an entity's discussion, so
+// an unregistered entity type is refused as a missing entity, exactly as
+// subscribe is.
+func TestMarkRead_UnregisteredEntityTypeIsRefusedAtTheGate(t *testing.T) {
+	serviceCalled := false
+	h := NewCommentSubscriptionHandler(&testhelpers.MockCommentSubscriptionService{
+		MarkReadFn: func(userID uint, entityType string, entityID uint) error {
+			serviceCalled = true
+			return nil
+		},
+	}, nil, testhelpers.AllShowsVisible())
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &MarkReadRequest{EntityType: "invalid", EntityID: "1"}
+
+	_, err := h.MarkReadHandler(ctx, req)
+	testhelpers.AssertHumaError(t, err, 404)
+	if serviceCalled {
+		t.Error("the mark-read service ran for an unregistered entity type — the gate did not refuse it")
+	}
+}
+
+// The service's invalid-entity-type error still maps to 400, through a type the
+// gate recognises.
+func TestMarkRead_InvalidEntityTypeFromTheService(t *testing.T) {
 	h := NewCommentSubscriptionHandler(&testhelpers.MockCommentSubscriptionService{
 		MarkReadFn: func(userID uint, entityType string, entityID uint) error {
 			return apperrors.ErrCommentInvalidEntityType(entityType)
 		},
 	}, nil, testhelpers.AllShowsVisible())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
-	req := &MarkReadRequest{EntityType: "invalid", EntityID: "1"}
+	req := &MarkReadRequest{EntityType: "artist", EntityID: "1"}
 
 	_, err := h.MarkReadHandler(ctx, req)
 	testhelpers.AssertHumaError(t, err, 400)
@@ -561,4 +648,59 @@ func TestSubscribe_NilSubscriptionService(t *testing.T) {
 	}()
 	//nolint:errcheck // intentionally calling for panic side effect; recover() above handles outcome
 	h.SubscribeHandler(ctx, req)
+}
+
+// AN UNSUBSCRIBE THAT REMOVED NOTHING RECORDS NOTHING.
+//
+// This route is deliberately ungated and accepts any (entity_type, entity_id)
+// pair the caller names, so an audit row per call lets anybody stamp the audit
+// log with ids they have no relationship with. The response is identical either
+// way, so the caller cannot tell which branch ran.
+//
+// The audit write is fire-and-forget, so both halves wait on a channel: the
+// no-op case waits long enough for a call that should never come, and the real
+// case waits for one that must.
+func TestUnsubscribe_AuditRowOnlyWhenARowWasRemoved(t *testing.T) {
+	const auditSettleWindow = 250 * time.Millisecond
+
+	newHandler := func(removed int64, logged chan<- string) *CommentSubscriptionHandler {
+		return NewCommentSubscriptionHandler(
+			&testhelpers.MockCommentSubscriptionService{
+				UnsubscribeFn: func(uint, string, uint) (int64, error) { return removed, nil },
+			},
+			&testhelpers.MockAuditLogService{
+				LogActionFn: func(_ uint, action string, _ string, _ uint, _ map[string]interface{}) {
+					logged <- action
+				},
+			},
+			testhelpers.AllShowsVisible(),
+		)
+	}
+
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &UnsubscribeRequest{EntityType: "collection", EntityID: "77"}
+
+	// Buffered so an unexpected write cannot block the goroutine and leak it.
+	noop := make(chan string, 1)
+	if _, err := newHandler(0, noop).UnsubscribeHandler(ctx, req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	select {
+	case action := <-noop:
+		t.Errorf("a delete that removed nothing wrote the audit action %q", action)
+	case <-time.After(auditSettleWindow):
+	}
+
+	real := make(chan string, 1)
+	if _, err := newHandler(1, real).UnsubscribeHandler(ctx, req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	select {
+	case action := <-real:
+		if action != "unsubscribe_comments" {
+			t.Errorf("audit action = %q, want unsubscribe_comments", action)
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("a delete that removed a row wrote no audit action")
+	}
 }

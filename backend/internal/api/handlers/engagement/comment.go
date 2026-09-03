@@ -147,9 +147,10 @@ func (h *CommentHandler) ListCommentsHandler(ctx context.Context, req *ListComme
 		return nil, huma.Error400BadRequest("Invalid entity ID")
 	}
 
-	// Discussion on a show is the show's own sub-resource, reached by the id GET
-	// /shows/{id} refuses for a non-approved show, so it answers to the same
-	// viewer rule (PSY-1939). Other entity types pass untouched.
+	// Discussion on an entity is that entity's own sub-resource, reached by the id
+	// its detail route refuses, so it answers to the same viewer rule (PSY-1939,
+	// PSY-1987). An entity type with no registered rule is refused rather than
+	// waved through.
 	//
 	// The EMPTY LIST, not a 404: an entity id with no comments already answers
 	// that way and the two must be indistinguishable. Total 0 comes with it, or
@@ -221,11 +222,11 @@ func (h *CommentHandler) GetCommentHandler(ctx context.Context, req *GetCommentR
 		return nil, huma.Error500InternalServerError("Failed to fetch comment")
 	}
 
-	// Gated after the load, because the comment is what names its entity
-	// (PSY-1939). Comment ids are dense and sequential, so a caller refused the
-	// listing can otherwise walk them until one lands on the show. The answer is
-	// the service's own not-found error, so a comment on a gated show and a
-	// comment id that never existed are one response.
+	// Gated after the load, because the comment is what names its entity. Comment
+	// ids are dense and sequential, so a caller refused the listing can otherwise
+	// walk them until one lands on a gated entity. The answer is the service's own
+	// not-found error, so a comment on a gated entity and a comment id that never
+	// existed are one response.
 	if comment == nil || !shared.EntitySubResourceVisible(h.showVisibility, comment.EntityType, comment.EntityID, middleware.GetShowViewerFromContext(ctx)) {
 		if mapped := shared.MapCommentError(apperrors.ErrCommentNotFound()); mapped != nil {
 			return nil, mapped
@@ -254,6 +255,62 @@ type GetThreadResponse struct {
 	}
 }
 
+// refuseAsMissingComment is the answer the comment-id writes give for a comment
+// whose parent the caller may not see: the service's own not-found error, so a
+// gated parent and a comment id nobody has used are one response.
+func refuseAsMissingComment() error {
+	if mapped := shared.MapCommentError(apperrors.ErrCommentNotFound()); mapped != nil {
+		return mapped
+	}
+	return huma.Error404NotFound("Comment not found")
+}
+
+// refuseWriteOnHiddenParent decides a comment-id write against the caller.
+// It returns nil when the write may proceed, the missing-comment answer when
+// the caller may not see the entity the comment hangs off, and a 500 when the
+// lookup itself failed.
+//
+// The comment-id WRITES need this for the same reason the reads and the votes
+// do, and needing it is not obvious: each of them refuses a non-author with a
+// forbidden, and a forbidden beside the reads' not-found is itself the answer
+// "this id exists and its parent is hidden". Comment ids are dense and
+// sequential, so that pair is walkable. Gated after the load, because the
+// comment is what names its entity.
+//
+// A FAILED LOOKUP IS NOT A HIDDEN PARENT. The visibility answer itself fails
+// closed, but a database error rendered as "Comment not found" tells the caller
+// their comment is gone and tells the operator nothing. A genuine error answers
+// 500 and is logged, on the terms CreateReplyHandler answers a failed parent
+// load; only the not-found and the invisible parent share the one response.
+func (h *CommentHandler) refuseWriteOnHiddenParent(ctx context.Context, commentID uint) error {
+	if h.reader == nil {
+		return refuseAsMissingComment()
+	}
+	comment, err := h.reader.GetComment(commentID)
+	if err != nil {
+		if mapped := shared.MapCommentError(err); mapped != nil {
+			return mapped
+		}
+		requestID := logger.GetRequestID(ctx)
+		logger.FromContext(ctx).Error("comment_write_parent_lookup_failed",
+			"comment_id", commentID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to fetch comment (request_id: %s)", requestID),
+		)
+	}
+	if comment == nil {
+		return refuseAsMissingComment()
+	}
+	if !shared.EntitySubResourceVisible(
+		h.showVisibility, comment.EntityType, comment.EntityID, middleware.GetShowViewerFromContext(ctx)) {
+		return refuseAsMissingComment()
+	}
+	return nil
+}
+
 // GetThreadHandler handles GET /comments/{comment_id}/thread
 func (h *CommentHandler) GetThreadHandler(ctx context.Context, req *GetThreadRequest) (*GetThreadResponse, error) {
 	commentID, err := strconv.ParseUint(req.CommentID, 10, 32)
@@ -270,11 +327,11 @@ func (h *CommentHandler) GetThreadHandler(ctx context.Context, req *GetThreadReq
 	}
 
 	// Every comment in a thread shares the root's entity, so the root decides
-	// for all of them (PSY-1939). An empty thread has no entity to read and
-	// nothing to disclose, so it passes.
+	// for all of them. An empty thread has no entity to read and nothing to
+	// disclose, so it passes.
 	//
 	// The answer is the service's own root-not-found error: a thread on a gated
-	// show is indistinguishable from a root id that never existed.
+	// entity is indistinguishable from a root id that never existed.
 	if len(comments) > 0 && comments[0] != nil &&
 		!shared.EntitySubResourceVisible(h.showVisibility, comments[0].EntityType, comments[0].EntityID, middleware.GetShowViewerFromContext(ctx)) {
 		if mapped := shared.MapCommentError(apperrors.ErrCommentThreadRootNotFound()); mapped != nil {
@@ -511,6 +568,10 @@ func (h *CommentHandler) UpdateCommentHandler(ctx context.Context, req *UpdateCo
 		return nil, huma.Error400BadRequest("Comment body is required")
 	}
 
+	if err := h.refuseWriteOnHiddenParent(ctx, uint(commentID)); err != nil {
+		return nil, err
+	}
+
 	serviceReq := &contracts.UpdateCommentRequest{
 		Body:           req.Body.Body,
 		StructuredData: req.Body.StructuredData,
@@ -581,6 +642,10 @@ func (h *CommentHandler) UpdateReplyPermissionHandler(ctx context.Context, req *
 		return nil, huma.Error400BadRequest(shared.InvalidReplyPermissionMessage)
 	}
 
+	if err := h.refuseWriteOnHiddenParent(ctx, uint(commentID)); err != nil {
+		return nil, err
+	}
+
 	comment, err := h.writer.UpdateReplyPermission(user.ID, uint(commentID), perm)
 	if err != nil {
 		if mapped := shared.MapCommentError(err); mapped != nil {
@@ -622,6 +687,16 @@ func (h *CommentHandler) DeleteCommentHandler(ctx context.Context, req *DeleteCo
 	commentID, err := strconv.ParseUint(req.CommentID, 10, 32)
 	if err != nil {
 		return nil, huma.Error400BadRequest("Invalid comment ID")
+	}
+
+	// AN ADMIN IS REFUSED HERE TOO, so all six comment-id writes answer alike.
+	// The moderation queue's remedies are its own routes, /admin/comments/{id}
+	// approve, reject, hide and restore, and this route's only product caller is
+	// the author's own delete button, so an admin arm here would buy the queue
+	// nothing and would leave a destructive existence walk over the comments of
+	// collections the detail route refuses that admin.
+	if err := h.refuseWriteOnHiddenParent(ctx, uint(commentID)); err != nil {
+		return nil, err
 	}
 
 	err = h.writer.DeleteComment(user.ID, uint(commentID), user.IsAdmin)

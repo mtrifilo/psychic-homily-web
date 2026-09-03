@@ -80,9 +80,10 @@ func (s *CollectionGraphHandlerSuite) TestHandler_AnonymousViewerSeesPublicColle
 	s.Equal(pub.Slug, resp.Body.Collection.Slug)
 }
 
-// TestHandler_AuthedNonOwnerOnPrivateCollection_403: an authed user who is
-// not the creator hitting a private collection's graph endpoint gets a 403.
-func (s *CollectionGraphHandlerSuite) TestHandler_AuthedNonOwnerOnPrivateCollection_403() {
+// TestHandler_AuthedNonOwnerOnPrivateCollection_NotFound: an authed user who is
+// not the creator hitting a private collection's graph endpoint gets the answer
+// a slug nobody has used gets.
+func (s *CollectionGraphHandlerSuite) TestHandler_AuthedNonOwnerOnPrivateCollection_NotFound() {
 	creator := testhelpers.CreateTestUser(s.deps.DB)
 	other := testhelpers.CreateTestUser(s.deps.DB)
 	priv := s.seedPrivateCollection(creator, "Locked Down")
@@ -94,7 +95,14 @@ func (s *CollectionGraphHandlerSuite) TestHandler_AuthedNonOwnerOnPrivateCollect
 
 	var statusErr huma.StatusError
 	s.Require().True(errors.As(err, &statusErr), "expected huma.StatusError, got %T", err)
-	s.Equal(403, statusErr.GetStatus())
+	s.Equal(404, statusErr.GetStatus())
+
+	// And the same answer for a slug nobody has used, which is what makes the
+	// pair indistinguishable.
+	_, missingErr := s.handler.GetCollectionGraphHandler(ctx, &GetCollectionGraphRequest{Slug: "no-such-collection"})
+	var missingStatus huma.StatusError
+	s.Require().True(errors.As(missingErr, &missingStatus))
+	s.Equal(statusErr.GetStatus(), missingStatus.GetStatus())
 }
 
 // TestHandler_OwnerOnPrivateCollection_200: the creator authed in the context
@@ -141,7 +149,7 @@ func (s *CollectionGraphHandlerSuite) TestHandler_TypesQueryStringPassesThrough(
 	a2 := testhelpers.CreateArtist(s.deps.DB, fmt.Sprintf("TypeB-%d", time.Now().UnixNano()+1))
 
 	for _, art := range []*catalogm.Artist{a1, a2} {
-		_, err := s.deps.CollectionService.AddItem(priv.Slug, creator.ID, &contracts.AddCollectionItemRequest{
+		_, _, err := s.deps.CollectionService.AddItem(priv.Slug, creator.ID, &contracts.AddCollectionItemRequest{
 			EntityType: communitym.CollectionEntityArtist,
 			EntityID:   art.ID,
 		})

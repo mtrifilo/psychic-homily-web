@@ -178,11 +178,15 @@ func (s *CollectionHandlerIntegrationSuite) TestGetCollection_ByNumericID_Privat
 	viewer := testhelpers.CreateTestUser(s.deps.DB)
 	coll := s.createCollectionViaService(owner, "Private By ID", false)
 
-	// ID lookups must enforce the same privacy gate as slug lookups.
+	// ID lookups must enforce the same privacy gate as slug lookups, and answer
+	// NOT FOUND: this route is walkable by a dense integer, so a refusal that
+	// resolved and echoed the slug would publish the title of every private
+	// collection.
 	ctx := testhelpers.CtxWithUser(viewer)
 	req := &GetCollectionHandlerRequest{Slug: fmt.Sprintf("%d", coll.ID)}
 	_, err := s.handler.GetCollectionHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 403)
+	testhelpers.AssertHumaError(s.T(), err, 404)
+	s.NotContains(err.Error(), coll.Slug, "the refusal resolved and published the private slug")
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestGetCollection_ByNumericID_PrivateVisibleToOwner() {
@@ -203,11 +207,11 @@ func (s *CollectionHandlerIntegrationSuite) TestGetCollection_ByNumericID_Privat
 
 func (s *CollectionHandlerIntegrationSuite) TestGetCollectionStats_Success() {
 	user := testhelpers.CreateTestUser(s.deps.DB)
-	coll := s.createCollectionViaService(user, "Stats Collection", false)
+	coll := s.createCollectionViaService(user, "Stats Collection", true)
 
 	// Add an artist item
 	artist := testhelpers.CreateArtist(s.deps.DB, "Stats Artist")
-	_, err := s.deps.CollectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
+	_, _, err := s.deps.CollectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist",
 		EntityID:   artist.ID,
 	})
@@ -218,6 +222,22 @@ func (s *CollectionHandlerIntegrationSuite) TestGetCollectionStats_Success() {
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(1, resp.Body.ItemCount)
+}
+
+// The counts ARE the collection's activity, so a private collection answers the
+// same not-found a slug nobody has used gets. Its creator still gets the real
+// numbers, which is what makes this about visibility rather than a broken route.
+func (s *CollectionHandlerIntegrationSuite) TestGetCollectionStats_PrivateCollectionAnswersLikeAMissingOne() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	coll := s.createCollectionViaService(user, "Private Stats Collection", false)
+
+	req := &GetCollectionStatsHandlerRequest{Slug: coll.Slug}
+	_, err := s.handler.GetCollectionStatsHandler(context.Background(), req)
+	testhelpers.AssertHumaError(s.T(), err, 404)
+
+	resp, err := s.handler.GetCollectionStatsHandler(testhelpers.CtxWithUser(user), req)
+	s.Require().NoError(err)
+	s.NotNil(resp)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestGetCollectionStats_NotFound() {
@@ -318,7 +338,7 @@ func (s *CollectionHandlerIntegrationSuite) TestListCollections_FeaturedFilter()
 	s.createCollectionViaService(user, "Not Featured", true)
 
 	// Set one as featured
-	err := s.deps.CollectionService.SetFeatured(coll.Slug, true, user.ID)
+	_, err := s.deps.CollectionService.SetFeatured(coll.Slug, true, user.ID)
 	s.Require().NoError(err)
 
 	req := &ListCollectionsHandlerRequest{Featured: 1}
@@ -362,7 +382,7 @@ func (s *CollectionHandlerIntegrationSuite) seedSearchableCollection(
 			notes := itemNotes
 			req.Notes = &notes
 		}
-		_, err = s.deps.CollectionService.AddItem(pub.Slug, user.ID, req)
+		_, _, err = s.deps.CollectionService.AddItem(pub.Slug, user.ID, req)
 		s.Require().NoError(err)
 	}
 
@@ -839,7 +859,7 @@ func (s *CollectionHandlerIntegrationSuite) TestRemoveItem_Success() {
 	artist := testhelpers.CreateArtist(s.deps.DB, "Removable Artist")
 
 	// Add item via service
-	item, err := s.deps.CollectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
+	item, _, err := s.deps.CollectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist",
 		EntityID:   artist.ID,
 	})
@@ -875,7 +895,7 @@ func (s *CollectionHandlerIntegrationSuite) TestRemoveItem_NotOwner() {
 	coll := s.createCollectionViaService(owner, "Not My Remove", true)
 	artist := testhelpers.CreateArtist(s.deps.DB, "Not My Artist")
 
-	item, err := s.deps.CollectionService.AddItem(coll.Slug, owner.ID, &contracts.AddCollectionItemRequest{
+	item, _, err := s.deps.CollectionService.AddItem(coll.Slug, owner.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist",
 		EntityID:   artist.ID,
 	})
@@ -909,13 +929,13 @@ func (s *CollectionHandlerIntegrationSuite) TestReorderItems_Success() {
 	artist1 := testhelpers.CreateArtist(s.deps.DB, "Reorder Artist 1")
 	artist2 := testhelpers.CreateArtist(s.deps.DB, "Reorder Artist 2")
 
-	item1, err := s.deps.CollectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
+	item1, _, err := s.deps.CollectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist",
 		EntityID:   artist1.ID,
 	})
 	s.Require().NoError(err)
 
-	item2, err := s.deps.CollectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
+	item2, _, err := s.deps.CollectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist",
 		EntityID:   artist2.ID,
 	})
@@ -1020,13 +1040,16 @@ func (s *CollectionHandlerIntegrationSuite) TestUnsubscribe_NoAuth() {
 	testhelpers.AssertHumaError(s.T(), err, 401)
 }
 
-func (s *CollectionHandlerIntegrationSuite) TestUnsubscribe_CollectionNotFound() {
+// UNSUBSCRIBING NEVER REPORTS WHETHER THE SLUG EXISTS. Quitting is always
+// allowed and the route deletes by subquery, so an unused slug and a private
+// collection's guessable name get the same success.
+func (s *CollectionHandlerIntegrationSuite) TestUnsubscribe_UnusedSlugAnswersSuccess() {
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	ctx := testhelpers.CtxWithUser(user)
 
 	req := &UnsubscribeHandlerRequest{Slug: "nonexistent"}
 	_, err := s.handler.UnsubscribeHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 404)
+	s.Require().NoError(err)
 }
 
 // ============================================================================
@@ -1058,7 +1081,7 @@ func (s *CollectionHandlerIntegrationSuite) TestSetFeatured_Unfeature() {
 	coll := s.createCollectionViaService(user, "Unfeature Me", true)
 
 	// Feature first
-	err := s.deps.CollectionService.SetFeatured(coll.Slug, true, user.ID)
+	_, err := s.deps.CollectionService.SetFeatured(coll.Slug, true, user.ID)
 	s.Require().NoError(err)
 
 	ctx := testhelpers.CtxWithUser(admin)
@@ -1117,6 +1140,66 @@ func (s *CollectionHandlerIntegrationSuite) TestSetFeatured_AuditEntityID() {
 	s.Equal(coll.ID, log.EntityID)
 	s.Require().NotNil(log.ActorID)
 	s.Equal(admin.ID, *log.ActorID)
+}
+
+// EVERY COLLECTION-LEVEL AUDIT WRITER STAMPS THE REAL PARENT ID.
+//
+// These four actions are dispositioned as carrying a COLLECTIONS id and have no
+// slug fallback, so a row stamped with 0 matches no collection and is withheld
+// from everyone, including its own author on a public collection, and from the
+// contributions total as well as the page. The id comes from the service that
+// authorised each write, which loaded the collection to authorise it.
+func (s *CollectionHandlerIntegrationSuite) TestCollectionLevelAuditRowsCarryTheParentID() {
+	// A trusted contributor, because the tag write below creates a new tag and
+	// the tier gate refuses a new account that.
+	user := testhelpers.CreateUserWithTier(s.deps.DB, "trusted_contributor")
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	coll := s.createCollectionViaService(user, "Audit Parent ID", true)
+	artist := testhelpers.CreateArtist(s.deps.DB, fmt.Sprintf("Audit Parent Artist %d", time.Now().UnixNano()))
+
+	ctx := testhelpers.CtxWithUser(user)
+
+	bulk := &BulkAddItemsHandlerRequest{Slug: coll.Slug}
+	bulk.Body.Items = []BulkAddItemRow{{EntityType: "artist", EntityID: artist.ID}}
+	_, err := s.handler.BulkAddItemsHandler(ctx, bulk)
+	s.Require().NoError(err)
+
+	feature := &SetFeaturedHandlerRequest{Slug: coll.Slug}
+	feature.Body.Featured = true
+	_, err = s.handler.SetFeaturedHandler(testhelpers.CtxWithUser(admin), feature)
+	s.Require().NoError(err)
+
+	addTag := &AddCollectionTagHandlerRequest{Slug: coll.Slug}
+	addTag.Body.TagName = fmt.Sprintf("audit-parent-%d", time.Now().UnixNano())
+	tagResp, err := s.handler.AddCollectionTagHandler(ctx, addTag)
+	s.Require().NoError(err)
+	s.Require().NotEmpty(tagResp.Body.Tags)
+	tagID := tagResp.Body.Tags[0].TagID
+
+	_, err = s.handler.RemoveCollectionTagHandler(ctx, &RemoveCollectionTagHandlerRequest{
+		Slug:  coll.Slug,
+		TagID: fmt.Sprintf("%d", tagID),
+	})
+	s.Require().NoError(err)
+
+	// The audit writes are fire-and-forget, so poll for each action's row on
+	// THIS collection. A row stamped 0 never matches and the poll times out,
+	// which is the failure this pins.
+	for _, action := range []string{
+		"bulk_add_collection_items",
+		"set_collection_featured",
+		"add_collection_tag",
+		"remove_collection_tag",
+	} {
+		action := action
+		var log adminm.AuditLog
+		s.Require().Eventually(func() bool {
+			return s.deps.DB.Where(
+				"action = ? AND entity_type = ? AND entity_id = ?",
+				action, "collection", coll.ID,
+			).Order("id DESC").First(&log).Error == nil
+		}, 2*time.Second, 20*time.Millisecond, "%s did not stamp the parent collection id", action)
+	}
 }
 
 // ============================================================================
@@ -1199,12 +1282,12 @@ func (s *CollectionHandlerIntegrationSuite) TestGetUserCollectionsContaining_Onl
 	collC := s.createCollectionViaService(user, "No Artist", false)
 
 	target := testhelpers.CreateArtist(s.deps.DB, fmt.Sprintf("contains-target-%d", time.Now().UnixNano()))
-	_, err := s.deps.CollectionService.AddItem(collA.Slug, user.ID, &contracts.AddCollectionItemRequest{
+	_, _, err := s.deps.CollectionService.AddItem(collA.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist",
 		EntityID:   target.ID,
 	})
 	s.Require().NoError(err)
-	_, err = s.deps.CollectionService.AddItem(collB.Slug, user.ID, &contracts.AddCollectionItemRequest{
+	_, _, err = s.deps.CollectionService.AddItem(collB.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist",
 		EntityID:   target.ID,
 	})
@@ -1242,11 +1325,11 @@ func (s *CollectionHandlerIntegrationSuite) TestGetUserCollectionsContaining_Doe
 	user2Coll := s.createCollectionViaService(user2, "User2 Coll", false)
 
 	target := testhelpers.CreateArtist(s.deps.DB, fmt.Sprintf("crossuser-%d", time.Now().UnixNano()))
-	_, err := s.deps.CollectionService.AddItem(user1Coll.Slug, user1.ID, &contracts.AddCollectionItemRequest{
+	_, _, err := s.deps.CollectionService.AddItem(user1Coll.Slug, user1.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist", EntityID: target.ID,
 	})
 	s.Require().NoError(err)
-	_, err = s.deps.CollectionService.AddItem(user2Coll.Slug, user2.ID, &contracts.AddCollectionItemRequest{
+	_, _, err = s.deps.CollectionService.AddItem(user2Coll.Slug, user2.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist", EntityID: target.ID,
 	})
 	s.Require().NoError(err)
@@ -1333,15 +1416,15 @@ func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_CopiesItemsNotes
 	a3 := testhelpers.CreateArtist(s.deps.DB, "Artist Three")
 	notes1 := "first note"
 	notes3 := "third note"
-	_, err := s.deps.CollectionService.AddItem(src.Slug, owner.ID, &contracts.AddCollectionItemRequest{
+	_, _, err := s.deps.CollectionService.AddItem(src.Slug, owner.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist", EntityID: a1.ID, Notes: &notes1,
 	})
 	s.Require().NoError(err)
-	_, err = s.deps.CollectionService.AddItem(src.Slug, owner.ID, &contracts.AddCollectionItemRequest{
+	_, _, err = s.deps.CollectionService.AddItem(src.Slug, owner.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist", EntityID: a2.ID,
 	})
 	s.Require().NoError(err)
-	_, err = s.deps.CollectionService.AddItem(src.Slug, owner.ID, &contracts.AddCollectionItemRequest{
+	_, _, err = s.deps.CollectionService.AddItem(src.Slug, owner.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist", EntityID: a3.ID, Notes: &notes3,
 	})
 	s.Require().NoError(err)
@@ -1393,9 +1476,11 @@ func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_NoAuth() {
 	testhelpers.AssertHumaError(s.T(), err, 401)
 }
 
-// TestCloneCollection_PrivateSourceForbidden ensures the visibility check
-// matches GetBySlug — non-owners cannot clone a private collection.
-func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_PrivateSourceForbidden() {
+// TestCloneCollection_PrivateSourceNotFound ensures the visibility check matches
+// GetBySlug: a non-owner cannot clone a private collection, and the refusal is
+// the one an unused slug gets. TestCloneCollection_SourceNotFound below asserts
+// the other half of that pair.
+func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_PrivateSourceNotFound() {
 	owner := testhelpers.CreateTestUser(s.deps.DB)
 	other := testhelpers.CreateTestUser(s.deps.DB)
 	private := s.createCollectionViaService(owner, "Private Source", false)
@@ -1403,7 +1488,7 @@ func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_PrivateSourceFor
 	ctx := testhelpers.CtxWithUser(other)
 	req := &CloneCollectionHandlerRequest{Slug: private.Slug}
 	_, err := s.handler.CloneCollectionHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 403)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 // TestCloneCollection_SourceNotFound ensures unknown slugs return 404.
@@ -1449,7 +1534,7 @@ func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_DeletingOriginal
 	cloneSlug := cloneResp.Body.Slug
 
 	// Delete the source.
-	delErr := s.deps.CollectionService.DeleteCollection(src.Slug, owner.ID, false)
+	_, delErr := s.deps.CollectionService.DeleteCollection(src.Slug, owner.ID, false)
 	s.Require().NoError(delErr)
 
 	// Clone still exists; ForkedFromCollectionID must be NULL post-cascade.
@@ -1594,9 +1679,9 @@ func (s *CollectionHandlerIntegrationSuite) TestAddCollectionTag_NonOwner_Forbid
 	owner := testhelpers.CreateTestUser(s.deps.DB)
 	stranger := testhelpers.CreateTestUser(s.deps.DB)
 	s.promoteContributorForTags(stranger)
-	coll := s.createCollectionViaService(owner, "Solo Owner", false)
-	// createCollectionViaService leaves Collaborative=false (CreateCollection's
-	// GORM-bool dance), so the stranger cannot tag the collection.
+	// PUBLIC and non-collaborative: the visibility test runs first, so a private
+	// fixture would stop exercising the collaborative branch this test is about.
+	coll := s.createCollectionViaService(owner, "Solo Owner", true)
 
 	ctx := testhelpers.CtxWithUser(stranger)
 	req := &AddCollectionTagHandlerRequest{Slug: coll.Slug}

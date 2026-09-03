@@ -17,7 +17,7 @@ import (
 //
 // Coverage matrix:
 //   - public collection, anonymous viewer (viewerID=0)
-//   - private collection, non-creator viewer  → ErrCollectionForbidden
+//   - private collection, non-creator viewer  → ErrCollectionNotFound
 //   - private collection, creator viewer      → graph returned
 //   - missing slug                             → ErrCollectionNotFound
 //   - mixed entity types in collection         → only artist items in graph
@@ -113,7 +113,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_Publi
 	suite.Equal(1, isolated, "charlie has no edges")
 }
 
-func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_PrivateForbiddenForNonCreator() {
+func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_PrivateNotFoundForNonCreator() {
 	creator := suite.createTestUser("PrivateGraphOwner")
 	other := suite.createTestUser("OtherViewer")
 	priv := suite.createBasicCollection(creator, "Private Graph") // private by default
@@ -123,7 +123,9 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_Priva
 	suite.Nil(graph)
 	var collErr *apperrors.CollectionError
 	suite.Require().ErrorAs(err, &collErr)
-	suite.Equal(apperrors.CodeCollectionForbidden, collErr.Code)
+	// NOT FOUND, on the terms GetBySlug states: a private collection and a slug
+	// nobody has used answer alike.
+	suite.Equal(apperrors.CodeCollectionNotFound, collErr.Code)
 }
 
 func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_PrivateAllowedForCreator() {
