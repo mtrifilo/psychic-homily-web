@@ -47,17 +47,20 @@ export function resolveShowTimezone(
  * next to a venue name. Formatting a date is a weaker claim and can live with
  * the fallback; naming an hour cannot.
  *
- * That split is site-wide, not a per-surface preference. The refusing half runs
- * through {@link formatShowTime}, which returns null rather than a guessed
- * clock, through `startTimeFactSegment` and `doorsMusicFactSegment` in
+ * The refusing half runs through {@link formatShowTime}, which returns null
+ * rather than a guessed clock, through `startTimeFactSegment` and
+ * `doorsMusicFactSegment` in
  * `features/shows/components/showStatusStripeCopy.ts`, which drop DOORS, MUSIC
  * and TONIGHT, and through `MusicEvent.startDate` in `lib/seo/jsonld.ts`, which
  * degrades to a bare calendar date. The accepting half is every date render,
  * which prints the fallback's calendar day rather than printing nothing, marked
  * with `~` on the show page (`features/shows/showPageDate`).
- * `FALLBACK_SHOW_TIMEZONE` (`./timeUtils`) carries why that day is the best
- * available answer instead of an arbitrary one, and names the one consumer
- * that still resolves through it ungated.
+ *
+ * ANSWERS ABOUT NAMEABILITY, NOT ACCURACY. A state the map lists is `true` even
+ * where the state spans zones, so El Paso reads on America/Chicago and prints
+ * an hour that is one out. `FALLBACK_SHOW_TIMEZONE` (`./timeUtils`) carries why
+ * its own day is still the best available answer, and enumerates what is not
+ * gated at all.
  */
 export function isShowTimezoneResolved(
   state?: string | null,
@@ -208,8 +211,10 @@ export function formatShowMonth(
  * `timezone` and a state outside the US map, and that clock can be many hours
  * off. Returning `null` puts the decision in the type, so a caller cannot print
  * an hour on the guess without first writing the branch that says what its row
- * shows instead. Every caller drops the time AND whatever separator introduced
- * it; no surface substitutes placeholder copy for the withheld clock.
+ * shows instead. The contract for that branch: drop the time AND whatever
+ * separator introduced it, and put no placeholder copy in its place. A row in a
+ * fixed table keeps its cell and leaves it empty, which is the same statement
+ * in a shape a column count cannot lose.
  *
  * Formatting a DATE on the same guess is a weaker claim and stays allowed; see
  * {@link isShowTimezoneResolved}.

@@ -7,19 +7,25 @@ import { formatInTimezone } from '@/lib/utils/timeUtils'
 
 /**
  * The show page's date renders, and the one place the guessed-day marking rule
- * lives.
+ * is applied.
  *
  * A show whose venue has no resolved `timezone` and a state outside the US map
  * is dated on `FALLBACK_SHOW_TIMEZONE`. That day is still the best available
- * answer (see the constant in `lib/utils/timeUtils`), but on this page it is
- * printed among facts the page has already qualified, so an unmarked one reads
- * as a checked one.
+ * answer (see the constant in `lib/utils/timeUtils`), but the show page prints
+ * it among facts that page has already qualified, so an unmarked one reads as a
+ * checked one.
  *
- * Scoped to the show page rather than sited in `lib/utils/formatters` because
- * the marking is a decision about THIS surface: a listing row carries no other
- * estimate to read the mark against (user decision). A module boundary states
- * that, where a docstring on a shared formatter only asks readers to remember
- * it.
+ * WHICH RENDERS MARK is a decided list, not a property of the page: the header
+ * date, both stripe registers, the meta description, and the share card. It
+ * does NOT cover every date a reader can see on `/shows/{slug}` — the gig
+ * timeline spine, the bill-recurrence line and the discovery rails print their
+ * days through zones the payload already resolved, which is a shape this module
+ * cannot reach. So a zone-less venue shows `~SEP 5` in the header above an
+ * unmarked `SEP 5` on the spine.
+ *
+ * Sited here rather than in `lib/utils/formatters` so the list above has a home
+ * a reader can find, and so a listing surface does not reach for a marking
+ * formatter by accident.
  */
 
 /**
@@ -73,9 +79,13 @@ export function showPageDate(
  * The long form the meta description and the share card print: `Friday,
  * November 13, 2026`, or `Fri, Nov 13, 2026` abbreviated, marked on a guess.
  *
- * Both of those used to hand-roll `toLocaleDateString` over
- * `resolveShowTimezone`. Two private copies of one policy is how a marker gets
- * applied to three date renders and missed by the fourth.
+ * ONE function for both so the two cannot answer differently, and so the mark
+ * is not a step either call site can skip.
+ *
+ * Both of those renders travel: the description into a search snippet and a
+ * chat unfurl, the card into the same. The mark goes with them, which is the
+ * decided behaviour and not an oversight — a reader who cannot check the day
+ * against the page is the reader most helped by being told it is a guess.
  *
  * `abbreviated` is a FIT decision the caller owns (the share card narrows its
  * date beside a flyer plate; `showOgLayout.test.ts` holds the widths), not a

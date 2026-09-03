@@ -312,8 +312,10 @@ export function ShowHeader({
               `ShowTicketRow` and refuses on a guessed zone, as the stripe above
               does for DOORS / MUSIC / TONIGHT.
 
-              A guessed day is MARKED `~`; `showPageDate` owns that rule for
-              every date render on this page. */}
+              A guessed day is MARKED `~`. `features/shows/showPageDate` carries
+              which renders mark and which do not: the gig timeline spine below
+              prints this same day unmarked, because its zone arrives already
+              resolved. */}
           <span className="text-lg font-bold text-primary">
             {showPageDate(show.event_date, timing.state, timing.timezone)}
           </span>

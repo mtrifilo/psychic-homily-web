@@ -127,9 +127,14 @@ export function formatPointerDay(
  * ends up disagreeing with the date heading above it.
  *
  * Returns null when the payload cannot supply a usable instant, and again when
- * neither the row nor the scene supplies a zone to read it against, because
- * `formatShowTime` refuses an hour built on the fallback. A row with no time
- * still lists its bill and venue, which is most of its value.
+ * `formatShowTime` refuses: no row timezone, no scene zone, and a
+ * `venue_state` the US map does not list. A row with no time still lists its
+ * bill and venue, which is most of its value.
+ *
+ * The refusal is narrower than it looks, because `sceneTimezone` reaches it as
+ * a zone the BACKEND already resolved. When that resolution surrendered to its
+ * own fallback the string is indistinguishable from a real one here, so this
+ * still prints an hour. Closing that needs the payload to say it surrendered.
  */
 export function formatShowStartTime(
   show: SceneDayShow,

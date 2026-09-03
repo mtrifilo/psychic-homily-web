@@ -247,7 +247,7 @@ describe('ShowSubmissionsConsole', () => {
       expect(screen.getByText(/8:00\s?PM/)).toBeTruthy()
     })
 
-    it('names no hour, and leaves no orphaned bullet, when it does not', () => {
+    it('names no hour, and leaves no doubled bullet, when it does not', () => {
       mockUseMySubmissions.mockReturnValue({
         data: { shows: [zonelessShow()], total: 1 },
         isLoading: false,
@@ -255,11 +255,15 @@ describe('ShowSubmissionsConsole', () => {
       })
       renderWithProviders(<ShowSubmissionsConsole />)
       expect(screen.queryByText(/8:00\s?PM/)).toBeNull()
-      // The row still states the facts the zone has nothing to do with, and
-      // the meta line ends on the last of them rather than on a divider.
+
+      // The segment leaves WITH its leading bullet. A trailing-bullet check
+      // could not see that: `Details` always follows, so the line never ends on
+      // a divider either way. What the dropped segment can leave behind is two
+      // adjacent ones, which is what this asserts.
       const meta = screen.getByText(/Venue 1/).closest('div') as HTMLElement
-      expect(meta.textContent).toContain('$20')
-      expect(meta.textContent?.trimEnd().endsWith('\u2022')).toBe(false)
+      const text = meta.textContent ?? ''
+      expect(text).toContain('$20')
+      expect(text.replace(/\s|\u00a0/g, '')).not.toContain('\u2022\u2022')
     })
 
     it('keeps the date on a row whose time it withheld', () => {

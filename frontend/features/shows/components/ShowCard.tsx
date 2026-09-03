@@ -163,9 +163,9 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
     isAdmin ||
     (resolvedUserId && show.submitted_by && String(show.submitted_by) === resolvedUserId)
 
-  // One memo for both, because they read the same three fields on the same
-  // zone: splitting them would have the badge skip a formatter construction per
-  // re-render while the clock beside it pays for one.
+  // One memo for both: they read the same three fields and resolve the same
+  // zone, so a second hook would duplicate that lookup and give a future editor
+  // two dependency lists to keep in step.
   //
   // `startTime` is null when this row's venue has no resolved zone, and every
   // density below then renders no time element at all rather than an empty one.

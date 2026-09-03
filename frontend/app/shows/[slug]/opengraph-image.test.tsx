@@ -143,12 +143,14 @@ describe('the show OG route', () => {
     expect(isPng(bytes)).toBe(true)
   }, 30000)
 
-  // PSY-1964. The card is the fourth date render on this page, and the string
-  // it draws is asserted in `formatShowDateLong`'s own suite. What only this
-  // test can see is that the route reaches that helper at all: a zoneless
-  // venue must produce DIFFERENT pixels from a zoned one, which it cannot if
-  // the route reverted to a local formatter or the marker never reached Satori.
-  it('draws a different date row for a venue whose zone is a guess', async () => {
+  // The marked STRING is asserted in `features/shows/showPageDate.test.ts`, and
+  // its width budgets in `features/shows/showOgLayout.test.ts`. What only this
+  // test can see is that the route still reaches that helper and still returns
+  // a card: a zone-less venue must produce different pixels from a zoned one on
+  // the same instant and the same fallback zone. Pixel inequality is a weak
+  // signal — it cannot say WHICH glyph differed — so read it as a wiring check,
+  // not as an assertion that the tilde was drawn.
+  it('still renders a card, with a different date row, for a guessed zone', async () => {
     const zoneless = {
       ...BASE_SHOW,
       venues: [{ name: 'Sleeping Village', city: 'Chicago', state: '' }],

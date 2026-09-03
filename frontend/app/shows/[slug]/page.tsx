@@ -143,13 +143,15 @@ export async function generateMetadata({ params }: ShowPageProps): Promise<Metad
   if (show) {
     const headliner = show.artists?.find(a => a.is_headliner)?.name || show.artists?.[0]?.name || 'Live Music'
     const venueName = show.venues?.[0]?.name || 'TBA'
-    // The shared long-form formatter, not a local `toLocaleDateString`: the
-    // description states the same day the page's header, stripe and share card
-    // state, including the `~` when that day is read on a guessed zone.
+    // `showTimingInput`, not `venues[0].state` alone: a venue-less show carries
+    // its own `state`, and reading the day on the venue's absent one would name
+    // a different day here than the header, the stripe and the share card do.
+    // The share card mirrors this same derivation for the same reason.
+    const timing = showTimingInput(show)
     const showDate = showPageDateLong(
       show.event_date,
-      show.venues?.[0]?.state,
-      show.venues?.[0]?.timezone
+      timing.state,
+      timing.timezone
     )
     const title = `${headliner} at ${venueName}`
     const generatedDesc = `${headliner} live at ${venueName} on ${showDate}`

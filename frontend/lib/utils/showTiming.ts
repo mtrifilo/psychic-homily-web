@@ -182,19 +182,18 @@ export function showIsArchived(
  * `isShowTimezoneResolved` gate on the zone above. A venue with no resolved
  * `timezone` and a state outside the US map is judged on
  * `FALLBACK_SHOW_TIMEZONE` (UTC-7, no DST), so for a room east of it the
- * boundary lands late by that room's own offset plus seven hours: about nine
- * hours for Berlin. `ShowTicketRow` gates ON SALE and the ticket bracket on
- * `lifecycle !== 'past'`, so those keep standing for that window after the
- * show's own day ended.
+ * boundary lands late by that room's own offset plus seven hours: eight hours
+ * for Berlin in winter, nine in summer. `ShowTicketRow` gates ON SALE and the
+ * ticket bracket on `lifecycle !== 'past'`, so those keep standing for that
+ * window after the show's own day ended.
  *
  * It is NOT gated because withholding is not the obviously safe direction here.
- * This function already answers `past` for an undateable show, a default
- * inherited from a cache-window caller, so a gate that refused a zone-less row
- * would have to pick between granting `past` (retiring a listing whose day may
- * not be over) and granting `upcoming` (the current defect, one branch further
- * from the data). Which way an ungated row should fail is a product decision.
- * The one repair that needs no such decision is populating `venues.timezone`,
- * which removes the row from this population entirely.
+ * This function answers `past` for an undateable show, so a gate that refused a
+ * zone-less row would have to pick between granting `past` (retiring a listing
+ * whose day may not be over) and granting `upcoming` (the current defect, one
+ * branch further from the data). Which way an ungated row should fail is a
+ * product decision. The one repair that needs no such decision is populating
+ * `venues.timezone`, which removes the row from this population entirely.
  */
 export function getShowLifecycleState(
   show: ShowTimingInput,

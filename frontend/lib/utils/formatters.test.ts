@@ -109,8 +109,9 @@ describe('formatShowTime', () => {
   })
 
   describe('withholds the clock rather than naming an hour on a guess', () => {
-    // Each of these would previously have printed 7:30 PM, the fallback zone's
-    // reading, with nothing distinguishing it from the Phoenix row above.
+    // Every case below resolves to the fallback zone, whose reading of this
+    // instant is 7:30 PM — the same string the genuine Phoenix row above
+    // prints, and therefore indistinguishable from it once rendered.
     it('is null when nothing at all is known about the venue', () => {
       expect(formatShowTime(utcDate)).toBeNull()
     })

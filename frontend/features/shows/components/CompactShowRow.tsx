@@ -128,8 +128,8 @@ export function CompactShowRow({
   // passes the raw state.
   const detailsHref = `/shows/${show.slug || show.id}`
   const dateBadge = formatShowDateBadge(show.event_date, state, timezone)
-  // Null on a guessed zone, and the row then renders no time line at all: the
-  // price moves up under the date badge rather than sitting below a blank.
+  // Null on a guessed zone, and the right column then renders no time line at
+  // all: the price takes its place rather than sitting below a blank.
   const startTime = formatShowTime(show.event_date, state, timezone)
 
   return (

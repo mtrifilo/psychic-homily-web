@@ -53,9 +53,12 @@ function ShowRow({
       <td className="whitespace-nowrap text-right font-mono text-xs text-muted-foreground">
         <ShowPrice show={show} fallback={ABSENT} />
       </td>
-      {/* Empty, not `ABSENT`, on a guessed zone: the en dash means "nobody
-          recorded a price", which is a different statement. */}
       <td className="whitespace-nowrap text-right text-muted-foreground">
+        {/* Empty, not `ABSENT`, on a guessed zone. The en dash next door says
+            "nobody recorded a price"; a withheld clock is a time the row HAS and
+            declines to name on a zone it cannot trust. The cell stays for the
+            column count, and the column stays because `show.state` overrides the
+            venue's per row, so emptiness here is never uniform. */}
         {formatShowTime(show.event_date, state, zone.venueTimezone)}
       </td>
     </tr>
