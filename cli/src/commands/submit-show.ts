@@ -62,7 +62,17 @@ interface ShowInput {
   title?: string;
   city: string;
   state: string;
+  /**
+   * The advance price when a door price is also stated, otherwise the show's
+   * only price.
+   */
   price?: number;
+  /**
+   * The price at the door, carried ONLY when the source states one separately
+   * from the advance price. Never derived from `price`: a door price nobody
+   * stated is a number a reader finds out is wrong at the door.
+   */
+  door_price?: number;
   age_requirement?: string;
   description?: string;
   ticket_url?: string;
@@ -266,7 +276,11 @@ export function buildShowPayload(plan: ShowPlan): Record<string, unknown> {
   };
 
   if (plan.input.title) payload.title = plan.input.title;
+  // `!== undefined`, not truthiness: zero is a price the site prints as "Free".
   if (plan.input.price !== undefined) payload.price = plan.input.price;
+  if (plan.input.door_price !== undefined) {
+    payload.door_price = plan.input.door_price;
+  }
   if (plan.input.age_requirement) payload.age_requirement = plan.input.age_requirement;
   if (plan.input.description) payload.description = plan.input.description;
   if (plan.input.ticket_url) payload.ticket_url = plan.input.ticket_url;
@@ -418,6 +432,29 @@ export async function submitShows(
 
 // -- Display helpers ---------------------------------------------------------
 
+/**
+ * The dry run's `Price` line: `$20`, `$25 door`, `$20 / $25 door`, or null when
+ * the show states no price at all.
+ *
+ * A preview of the PAYLOAD, so both numbers are printed whenever both will be
+ * sent, including two equal ones. The site collapses an equal pair when it
+ * renders a show; collapsing here would hide a duplicated number from the one
+ * reader who can still fix it before it is written.
+ *
+ * Zero prints as `$0` rather than being dropped, because the guards test
+ * `!== undefined`: a free show states a price, and `door_price` is opt-in
+ * rather than derived, so neither half is ever inferred from the other.
+ */
+export function showPriceLine(input: {
+  price?: number;
+  door_price?: number;
+}): string | null {
+  const parts: string[] = [];
+  if (input.price !== undefined) parts.push(`$${input.price}`);
+  if (input.door_price !== undefined) parts.push(`$${input.door_price} door`);
+  return parts.length > 0 ? parts.join(" / ") : null;
+}
+
 function displayPreview(plans: ShowPlan[], resolvedTags?: ResolvedTag[][]): void {
   for (let i = 0; i < plans.length; i++) {
     const plan = plans[i];
@@ -453,8 +490,9 @@ function displayPreview(plans: ShowPlan[], resolvedTags?: ResolvedTag[][]): void
     );
     display.kv("Location", `${plan.input.city}, ${plan.input.state}`);
 
-    if (plan.input.price !== undefined) {
-      display.kv("Price", `$${plan.input.price}`);
+    const priceLine = showPriceLine(plan.input);
+    if (priceLine) {
+      display.kv("Price", priceLine);
     }
     if (plan.input.age_requirement) {
       display.kv("Ages", plan.input.age_requirement);

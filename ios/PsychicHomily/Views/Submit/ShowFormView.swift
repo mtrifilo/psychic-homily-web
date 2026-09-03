@@ -7,6 +7,7 @@ struct ShowFormView: View {
     @State private var eventDate = ""
     @State private var eventTime = ""
     @State private var cost = ""
+    @State private var doorCost = ""
     @State private var ageRequirement = ""
     @State private var description = ""
     @State private var isSubmitting = false
@@ -91,6 +92,14 @@ struct ShowFormView: View {
                             .multilineTextAlignment(.trailing)
                     }
 
+                    // The advance/door split is OPT-IN. Left blank the show
+                    // records no door price at all, which is the honest answer
+                    // whenever the source stated only one number.
+                    LabeledContent("Door Price") {
+                        TextField("only if it differs", text: $doorCost)
+                            .multilineTextAlignment(.trailing)
+                    }
+
                     LabeledContent("Ages") {
                         TextField("e.g. 21+", text: $ageRequirement)
                             .multilineTextAlignment(.trailing)
@@ -140,6 +149,7 @@ struct ShowFormView: View {
                 eventDate = extractedData.date ?? ""
                 eventTime = extractedData.time ?? ""
                 cost = extractedData.cost ?? ""
+                doorCost = extractedData.doorCost ?? ""
                 ageRequirement = extractedData.ages ?? ""
                 description = extractedData.description ?? ""
             }
@@ -175,8 +185,11 @@ struct ShowFormView: View {
             }
         }
 
-        // Parse price from cost string
+        // Parse prices from the two cost strings. They are read independently:
+        // a blank door field means the show states no door price, never that it
+        // matches the advance price.
         let price = parsePrice(cost)
+        let doorPrice = parsePrice(doorCost)
 
         // Build request body
         var body: [String: Any] = [
@@ -187,6 +200,7 @@ struct ShowFormView: View {
             "venues": venueSubmissions,
         ]
         if price > 0 { body["price"] = price }
+        if doorPrice > 0 { body["door_price"] = doorPrice }
         if !ageRequirement.isEmpty { body["age_requirement"] = ageRequirement }
         if !description.isEmpty { body["description"] = description }
 

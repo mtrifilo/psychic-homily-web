@@ -74,6 +74,10 @@
         "state": { "type": "string", "minLength": 1 },
         "title": { "type": "string" },
         "price": { "type": ["number", "string"] },
+        "door_price": {
+          "type": ["number", "string"],
+          "description": "Price at the door. Present ONLY when the source states a separate door / day-of-show price alongside the advance price in `price`; never derived from `price`."
+        },
         "ticket_url": { "type": "string", "pattern": "^https?://" },
         "artists": {
           "type": "array",

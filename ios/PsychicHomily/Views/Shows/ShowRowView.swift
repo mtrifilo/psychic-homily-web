@@ -22,7 +22,7 @@ struct ShowRowView: View {
                     StatusBadge.soldOut()
                 } else if show.isCancelled == true {
                     StatusBadge.cancelled()
-                } else if show.price == 0 {
+                } else if show.isFree {
                     StatusBadge.free()
                 }
             }
@@ -53,7 +53,10 @@ struct ShowRowView: View {
 
                 Spacer()
 
-                if let priceText = show.priceText, show.price != 0 {
+                // Suppressed only when the badge above already says Free; a
+                // show priced 0 at advance and $25 at the door still has a
+                // second number this row must carry.
+                if let priceText = show.priceText, !show.isFree {
                     Text(priceText)
                         .font(.caption)
                         .fontWeight(.medium)

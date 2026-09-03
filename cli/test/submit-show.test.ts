@@ -5,6 +5,7 @@ import {
   resolveVenues,
   buildShowPayload,
   normalizeDate,
+  showPriceLine,
   submitShows,
   type ShowPlan,
 } from "../src/commands/submit-show";
@@ -358,6 +359,27 @@ describe("buildShowPayload", () => {
     expect(venues[0].state).toBe("AZ");
   });
 
+  /** A minimal valid plan carrying only the prices under test. */
+  function planWithPrices(prices: {
+    price?: number;
+    door_price?: number;
+  }): ShowPlan {
+    return {
+      input: {
+        event_date: "2026-04-15",
+        city: "Phoenix",
+        state: "AZ",
+        artists: [{ name: "Test" }],
+        venues: [{ name: "Test Venue" }],
+        ...prices,
+      },
+      artists: [{ name: "Test", status: "new" }],
+      venues: [{ name: "Test Venue", status: "new" }],
+      valid: true,
+      errors: [],
+    };
+  }
+
   test("includes optional fields when provided", () => {
     const plan: ShowPlan = {
       input: {
@@ -382,6 +404,55 @@ describe("buildShowPayload", () => {
     expect(payload.price).toBe(25);
     expect(payload.age_requirement).toBe("21+");
     expect(payload.description).toBe("A great show");
+  });
+
+  test("carries an advance/door pair through to the payload", () => {
+    const payload = buildShowPayload(planWithPrices({ price: 20, door_price: 25 }));
+    expect(payload.price).toBe(20);
+    expect(payload.door_price).toBe(25);
+  });
+
+  test("a lone stated price never grows a door price", () => {
+    const payload = buildShowPayload(planWithPrices({ price: 20 }));
+    expect(payload.price).toBe(20);
+    expect("door_price" in payload).toBe(false);
+  });
+
+  test("carries a door-only price with no advance price", () => {
+    const payload = buildShowPayload(planWithPrices({ door_price: 25 }));
+    expect(payload.door_price).toBe(25);
+    expect("price" in payload).toBe(false);
+  });
+
+  test("carries a free show's zero rather than dropping it", () => {
+    const payload = buildShowPayload(planWithPrices({ price: 0 }));
+    expect(payload.price).toBe(0);
+  });
+});
+
+describe("showPriceLine", () => {
+  test("prints the advance/door split", () => {
+    expect(showPriceLine({ price: 20, door_price: 25 })).toBe("$20 / $25 door");
+  });
+
+  test("prints a lone advance price bare", () => {
+    expect(showPriceLine({ price: 20 })).toBe("$20");
+  });
+
+  test("labels a door-only price", () => {
+    expect(showPriceLine({ door_price: 25 })).toBe("$25 door");
+  });
+
+  test("prints an equal pair as both numbers, matching the payload", () => {
+    expect(showPriceLine({ price: 20, door_price: 20 })).toBe("$20 / $20 door");
+  });
+
+  test("prints a zero price rather than reading it as silence", () => {
+    expect(showPriceLine({ price: 0 })).toBe("$0");
+  });
+
+  test("is null when the show states no price", () => {
+    expect(showPriceLine({})).toBeNull();
   });
 });
 
