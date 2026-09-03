@@ -7,7 +7,7 @@ import (
 )
 
 // =============================================================================
-// PSY-1992 — Withdraw: the requester retracts their own PENDING request
+// PSY-1992, Withdraw: the requester retracts their own PENDING request
 //
 // These run against a real Postgres through the shared suite, because every
 // claim here is a claim about a conditional UPDATE and a partial index, and a

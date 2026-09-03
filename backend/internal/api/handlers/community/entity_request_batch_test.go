@@ -18,7 +18,7 @@ import (
 )
 
 // ============================================================================
-// Tests: batch queue-create — POST /entity-requests/batch (PSY-2005)
+// Tests: batch queue-create, POST /entity-requests/batch (PSY-2005)
 //
 // These share erUserCtx / artistPayload / pendingRequest / approvedRequest /
 // supersededSubmission with entity_request_test.go on purpose: the route's whole

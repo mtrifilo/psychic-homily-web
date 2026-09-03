@@ -274,9 +274,9 @@ func (h *EntityRequestHandler) submitEntityRequest(
 	// submission that will be QUEUED may defer under a route that cannot afford
 	// the lookup; imageHostPolicy owns why that is safe.
 	//
-	// The resolving check is NOT re-applied at fulfillment — validatePayloadImageURL
+	// The resolving check is NOT re-applied at fulfillment, validatePayloadImageURL
 	// has exactly two call sites, this one and the decide handler's pre-claim
-	// check — which is why that check's read has to be the one the claim commits
+	// check, which is why that check's read has to be the one the claim commits
 	// against.
 	if imagePolicy == resolveImageHostNow ||
 		h.entityRequestService.WillAutoApprove(user, sub.Confirmed) {

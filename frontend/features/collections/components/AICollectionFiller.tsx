@@ -215,7 +215,7 @@ interface QueueEntityRequestVars {
 
 /**
  * Local queue-create mutation (PSY-853, moved onto the batch route by PSY-2005).
- * Intentionally NOT a shared exported hook — AddItemsPicker posts to the same
+ * Intentionally NOT a shared exported hook, AddItemsPicker posts to the same
  * endpoint from a different surface with a different lifecycle (a whole paste at
  * once, versus one row when the user acts on it), so the two share the endpoint
  * rather than a hook.
@@ -630,7 +630,7 @@ export function AICollectionFiller({
           onSuccess: ({ outcome, createdEntityId, requestId }) => {
             // PSY-853 inline create-and-add: when the auto-approve path
             // fulfilled the entity (PSY-1008 returns created_entity_id), stage
-            // the new entity into the collection immediately — same bulk-add
+            // the new entity into the collection immediately, same bulk-add
             // pipeline a matched row uses. The chip flips to "Added" via the
             // 'created' outcome.
             if (createdEntityId !== undefined) {

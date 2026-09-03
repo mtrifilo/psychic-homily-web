@@ -15,7 +15,7 @@ import (
 )
 
 // ============================================================================
-// User: Withdraw one's own queued request — POST /entity-requests/{id}/withdraw
+// User: Withdraw one's own queued request, POST /entity-requests/{id}/withdraw
 // ============================================================================
 
 // WithdrawEntityRequestRequest is the Huma request for
@@ -24,7 +24,7 @@ import (
 // A verb sub-resource POST, not a DELETE, and the shape is the one the family
 // already uses: /admin/entity-requests/{id}/decide and .../fulfill are both a
 // named transition posted onto a row. This is a third transition on the same
-// row, and it destroys nothing — the row survives in 'withdrawn' — so a DELETE
+// row, and it destroys nothing, the row survives in 'withdrawn', so a DELETE
 // would describe the wrong thing to every reader of the route table.
 //
 // No body: a withdrawal states nothing but its own occurrence. decision_note is

@@ -2,8 +2,8 @@
 --
 -- DESTRUCTIVE where any request has been withdrawn: the narrowed CHECK cannot be
 -- added while such a row exists, so those rows are rejected first with a note
--- saying what they were. Rejected is the nearest surviving state — the request
--- will not be fulfilled — and it misstates WHO ended the row, which is why the
+-- saying what they were. Rejected is the nearest surviving state, the request
+-- will not be fulfilled, and it misstates WHO ended the row, which is why the
 -- note is written rather than left to be inferred. Nothing recovers the
 -- distinction afterwards, and decided_by still names the requester.
 --

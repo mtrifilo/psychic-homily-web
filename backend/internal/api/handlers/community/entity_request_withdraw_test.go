@@ -11,7 +11,7 @@ import (
 )
 
 // ============================================================================
-// Tests: withdraw — POST /entity-requests/{id}/withdraw (PSY-1992)
+// Tests: withdraw, POST /entity-requests/{id}/withdraw (PSY-1992)
 // ============================================================================
 
 func withdrawRequest(id string) *WithdrawEntityRequestRequest {

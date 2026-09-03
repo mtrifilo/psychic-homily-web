@@ -176,13 +176,13 @@ interface ParsedPasteLine {
  *   - `queuing`       — zero results ⇒ entity_request POST in flight
  *   - `queued`        — zero results ⇒ request filed for admin review
  *   - `queue_failed`  — zero results ⇒ the request POST errored (retryable)
- *   - `queue_refused` — zero results ⇒ the server refused THIS line's content
- *                       (e.g. a name past the 255-character cap). Distinct from
+ *   - `queue_refused` ⇒ the server refused THIS line's content (e.g. a name
+ *                       past the 255-character cap). Distinct from
  *                       `queue_failed` because re-sending the same line is
  *                       refused the same way: the line has to change first, so
  *                       the row offers the reason instead of a Retry.
- *   - `withdrawing`   — the requester is retracting the request this line filed
- *   - `withdrawn`     — retracted; no admin will see it
+ *   - `withdrawing`   ⇒ the requester is retracting the request this line filed
+ *   - `withdrawn`     ⇒ retracted; no admin will see it
  */
 type PreviewStatus =
   | 'matched'

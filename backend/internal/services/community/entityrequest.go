@@ -736,8 +736,8 @@ func isValidSourceContext(sourceContext string) bool {
 
 // Withdraw retracts the requester's OWN pending request (PSY-1992).
 //
-// The whole precondition is in the UPDATE — this row, this requester, still
-// pending — so the write is self-guarding rather than trusting a prior read.
+// The whole precondition is in the UPDATE, this row, this requester, still
+// pending, so the write is self-guarding rather than trusting a prior read.
 // Nothing else can be withdrawn: another user's row is not the caller's to
 // retract, and a decided row's outcome is the admin's.
 //
@@ -754,7 +754,7 @@ func isValidSourceContext(sourceContext string) bool {
 //
 // decided_by is the REQUESTER, and decided_at the moment they withdrew: the
 // columns record who ended the row's pending life, and for this transition that
-// is them. decision_note is left alone — it is the moderator's words, and a
+// is them. decision_note is left alone, it is the moderator's words, and a
 // withdrawal has none to add.
 //
 // Returns the refreshed row.

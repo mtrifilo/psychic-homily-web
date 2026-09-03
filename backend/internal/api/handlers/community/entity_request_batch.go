@@ -13,7 +13,7 @@ import (
 )
 
 // ============================================================================
-// User: Queue many entity-creation requests at once — POST /entity-requests/batch
+// User: Queue many entity-creation requests at once, POST /entity-requests/batch
 // ============================================================================
 
 // maxEntityRequestSubmissions caps one batch: how many submissions one request
