@@ -64,7 +64,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetUserCollectionsContai
 
 	shut := suite.createPublicCollection(creator, "Contains Shut")
 	suite.Require().NoError(suite.collectionService.Subscribe(shut.Slug, stranger.ID))
-	_, err := suite.collectionService.AddItem(shut.Slug, creator.ID, &contracts.AddCollectionItemRequest{
+	_, _, err := suite.collectionService.AddItem(shut.Slug, creator.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist",
 		EntityID:   artist.ID,
 	})
@@ -163,7 +163,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddTagToCollection_Refus
 	suite.Require().NoError(err)
 
 	// The control: a stranger may tag a PUBLIC collaborative collection.
-	tagged, err := suite.collectionService.AddTagToCollection(open.Slug, stranger.ID,
+	tagged, _, err := suite.collectionService.AddTagToCollection(open.Slug, stranger.ID,
 		&contracts.AddCollectionTagRequest{TagName: "public-collab-tag"})
 	suite.Require().NoError(err)
 	suite.Require().Len(tagged.Tags, 1)
@@ -172,7 +172,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddTagToCollection_Refus
 	suite.Require().NoError(suite.db.Table("collections").
 		Where("id = ?", open.ID).Update("is_public", false).Error)
 
-	_, err = suite.collectionService.AddTagToCollection(open.Slug, stranger.ID,
+	_, _, err = suite.collectionService.AddTagToCollection(open.Slug, stranger.ID,
 		&contracts.AddCollectionTagRequest{TagName: "private-collab-tag"})
 	suite.Require().Error(err, "a stranger may not tag a private collaborative collection")
 	var addErr *apperrors.CollectionError
@@ -184,14 +184,14 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddTagToCollection_Refus
 	// RemoveTagFromCollection takes (slug, tagID, userID), the opposite argument
 	// order to AddTagToCollection. Passing a tag that IS on the collection is
 	// what makes this about the gate rather than about a missing tag.
-	err = suite.collectionService.RemoveTagFromCollection(open.Slug, tagID, stranger.ID)
+	_, err = suite.collectionService.RemoveTagFromCollection(open.Slug, tagID, stranger.ID)
 	suite.Require().Error(err, "nor remove one")
 	var removeErr *apperrors.CollectionError
 	suite.Require().True(stderrors.As(err, &removeErr))
 	suite.Equal(apperrors.CodeCollectionNotFound, removeErr.Code)
 
 	// The creator still can, so the gate did not break the feature.
-	_, err = suite.collectionService.AddTagToCollection(open.Slug, creator.ID, &contracts.AddCollectionTagRequest{
+	_, _, err = suite.collectionService.AddTagToCollection(open.Slug, creator.ID, &contracts.AddCollectionTagRequest{
 		TagName: "creator-tag",
 	})
 	suite.Require().NoError(err)
@@ -214,7 +214,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_RefusesAPrivateC
 	suite.Require().NoError(err)
 
 	// The control: a stranger may add to a PUBLIC collaborative collection.
-	_, err = suite.collectionService.AddItem(open.Slug, stranger.ID, &contracts.AddCollectionItemRequest{
+	_, _, err = suite.collectionService.AddItem(open.Slug, stranger.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist",
 		EntityID:   artist.ID,
 	})
@@ -223,7 +223,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_RefusesAPrivateC
 	suite.Require().NoError(suite.db.Table("collections").
 		Where("id = ?", open.ID).Update("is_public", false).Error)
 
-	_, err = suite.collectionService.AddItem(open.Slug, stranger.ID, &contracts.AddCollectionItemRequest{
+	_, _, err = suite.collectionService.AddItem(open.Slug, stranger.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist",
 		EntityID:   other.ID,
 	})
@@ -234,7 +234,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_RefusesAPrivateC
 		"a private collaborative collection answers an outsider like a missing one")
 
 	// The creator still can, so the gate did not break the feature.
-	_, err = suite.collectionService.AddItem(open.Slug, creator.ID, &contracts.AddCollectionItemRequest{
+	_, _, err = suite.collectionService.AddItem(open.Slug, creator.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist",
 		EntityID:   other.ID,
 	})
@@ -253,7 +253,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestBulkAddItems_RefusesAPri
 	})
 	suite.Require().NoError(err)
 
-	_, err = suite.collectionService.AddItem(open.Slug, creator.ID, &contracts.AddCollectionItemRequest{
+	_, _, err = suite.collectionService.AddItem(open.Slug, creator.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist",
 		EntityID:   artist.ID,
 	})
@@ -265,14 +265,14 @@ func (suite *CollectionServiceIntegrationTestSuite) TestBulkAddItems_RefusesAPri
 
 	// The control: while it is public the duplicate is reported, which is exactly
 	// the row-by-row disclosure the gate has to stop once it is private.
-	before, err := suite.collectionService.BulkAddItems(open.Slug, stranger.ID, req)
+	before, _, err := suite.collectionService.BulkAddItems(open.Slug, stranger.ID, req)
 	suite.Require().NoError(err)
 	suite.Require().Len(before.Errors, 1, "the control: a duplicate is reported on a public collection")
 
 	suite.Require().NoError(suite.db.Table("collections").
 		Where("id = ?", open.ID).Update("is_public", false).Error)
 
-	after, err := suite.collectionService.BulkAddItems(open.Slug, stranger.ID, req)
+	after, _, err := suite.collectionService.BulkAddItems(open.Slug, stranger.ID, req)
 	suite.Require().Error(err)
 	suite.Nil(after, "no per-row report may be returned for a collection the caller cannot see")
 	var bulkErr *apperrors.CollectionError
@@ -315,7 +315,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestOwnerWritesRefuseAPrivat
 	artist := suite.createTestArtist("Owner Write Artist")
 
 	shut := suite.createBasicCollection(creator, "Owner Write Shut")
-	item, err := suite.collectionService.AddItem(shut.Slug, creator.ID, &contracts.AddCollectionItemRequest{
+	item, _, err := suite.collectionService.AddItem(shut.Slug, creator.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist",
 		EntityID:   artist.ID,
 	})
@@ -330,6 +330,9 @@ func (suite *CollectionServiceIntegrationTestSuite) TestOwnerWritesRefuseAPrivat
 		suite.Require().True(stderrors.As(err, &collErr))
 		return collErr.Code
 	}
+	// The mutations hand their parent's id back beside the error; a refused
+	// write has no parent to stamp, so the comparisons below read the error only.
+	codeOfWrite := func(_ uint, err error) string { return codeOf(err) }
 
 	// UpdateCollection and DeleteCollection admit an admin (the moderation
 	// remedies), so the stranger is the caller here and the admin arm is asserted
@@ -341,22 +344,22 @@ func (suite *CollectionServiceIntegrationTestSuite) TestOwnerWritesRefuseAPrivat
 	suite.Equal(codeOf(updateMissingErr), codeOf(updateErr), "PUT /collections/{slug}")
 
 	suite.Equal(
-		codeOf(suite.collectionService.DeleteCollection(missingSlug, stranger.ID, false)),
-		codeOf(suite.collectionService.DeleteCollection(shut.Slug, stranger.ID, false)),
+		codeOfWrite(suite.collectionService.DeleteCollection(missingSlug, stranger.ID, false)),
+		codeOfWrite(suite.collectionService.DeleteCollection(shut.Slug, stranger.ID, false)),
 		"DELETE /collections/{slug}")
 
 	// The item writes, with an item id that IS in this collection. A gate placed
 	// after the item lookup would answer item-not-found here and forbidden for an
 	// id from another collection, and that pair is membership.
-	_, itemErr := suite.collectionService.UpdateItem(shut.Slug, item.ID, stranger.ID, false,
+	_, _, itemErr := suite.collectionService.UpdateItem(shut.Slug, item.ID, stranger.ID, false,
 		&contracts.UpdateCollectionItemRequest{Notes: &notes})
-	_, itemMissingErr := suite.collectionService.UpdateItem(missingSlug, item.ID, stranger.ID, false,
+	_, _, itemMissingErr := suite.collectionService.UpdateItem(missingSlug, item.ID, stranger.ID, false,
 		&contracts.UpdateCollectionItemRequest{Notes: &notes})
 	suite.Equal(codeOf(itemMissingErr), codeOf(itemErr), "PATCH /collections/{slug}/items/{item_id}")
 
 	suite.Equal(
-		codeOf(suite.collectionService.RemoveItem(missingSlug, item.ID, stranger.ID, false)),
-		codeOf(suite.collectionService.RemoveItem(shut.Slug, item.ID, stranger.ID, false)),
+		codeOfWrite(suite.collectionService.RemoveItem(missingSlug, item.ID, stranger.ID, false)),
+		codeOfWrite(suite.collectionService.RemoveItem(shut.Slug, item.ID, stranger.ID, false)),
 		"DELETE /collections/{slug}/items/{item_id}")
 
 	reorder := &contracts.ReorderCollectionItemsRequest{
@@ -369,17 +372,18 @@ func (suite *CollectionServiceIntegrationTestSuite) TestOwnerWritesRefuseAPrivat
 
 	// AN ADMIN IS REFUSED THE ITEM WRITES, and admitted to the two moderation
 	// remedies. Both halves are the assertion.
-	_, adminItemErr := suite.collectionService.UpdateItem(shut.Slug, item.ID, stranger.ID, true,
+	_, _, adminItemErr := suite.collectionService.UpdateItem(shut.Slug, item.ID, stranger.ID, true,
 		&contracts.UpdateCollectionItemRequest{Notes: &notes})
 	suite.Equal(apperrors.CodeCollectionNotFound, codeOf(adminItemErr),
 		"an admin is refused a private collection's item writes")
 
 	// The creator still holds all of them, which is the control.
-	_, err = suite.collectionService.UpdateItem(shut.Slug, item.ID, creator.ID, false,
+	_, _, err = suite.collectionService.UpdateItem(shut.Slug, item.ID, creator.ID, false,
 		&contracts.UpdateCollectionItemRequest{Notes: &notes})
 	suite.Require().NoError(err)
 	suite.Require().NoError(suite.collectionService.ReorderItems(shut.Slug, creator.ID, reorder))
-	suite.Require().NoError(suite.collectionService.RemoveItem(shut.Slug, item.ID, creator.ID, false))
+	_, removeErr := suite.collectionService.RemoveItem(shut.Slug, item.ID, creator.ID, false)
+	suite.Require().NoError(removeErr)
 }
 
 // UNSUBSCRIBING NEVER REPORTS WHETHER THE SLUG EXISTS. Quitting is always
@@ -465,7 +469,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestCollectionTagSummaries_C
 
 	const tagName = "chip-usage-count"
 	for _, slug := range []string{open.Slug, shut.Slug} {
-		_, err := suite.collectionService.AddTagToCollection(slug, creator.ID,
+		_, _, err := suite.collectionService.AddTagToCollection(slug, creator.ID,
 			&contracts.AddCollectionTagRequest{TagName: tagName})
 		suite.Require().NoError(err)
 	}

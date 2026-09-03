@@ -149,7 +149,7 @@ func (s *CollectionGraphHandlerSuite) TestHandler_TypesQueryStringPassesThrough(
 	a2 := testhelpers.CreateArtist(s.deps.DB, fmt.Sprintf("TypeB-%d", time.Now().UnixNano()+1))
 
 	for _, art := range []*catalogm.Artist{a1, a2} {
-		_, err := s.deps.CollectionService.AddItem(priv.Slug, creator.ID, &contracts.AddCollectionItemRequest{
+		_, _, err := s.deps.CollectionService.AddItem(priv.Slug, creator.ID, &contracts.AddCollectionItemRequest{
 			EntityType: communitym.CollectionEntityArtist,
 			EntityID:   art.ID,
 		})

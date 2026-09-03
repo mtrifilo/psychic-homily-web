@@ -125,7 +125,7 @@ func TestShowSubResourcesMirrorTheDetailRoute(t *testing.T) {
 		if err != nil {
 			t.Fatalf("seed collection for show %d: %v", show.ID, err)
 		}
-		if _, err := sc.Collection.AddItem(created.Slug, submitter.ID, &contracts.AddCollectionItemRequest{
+		if _, _, err := sc.Collection.AddItem(created.Slug, submitter.ID, &contracts.AddCollectionItemRequest{
 			EntityType: "show",
 			EntityID:   show.ID,
 		}); err != nil {

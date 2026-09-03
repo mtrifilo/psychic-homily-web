@@ -99,19 +99,18 @@ func VisibleTagUsageCounts(db *gorm.DB, tagIDs []uint) (map[uint]int, error) {
 		return counts, nil
 	}
 
-	visible, visibleArgs := VisibleEntityTagsSQL("entity_tags", contracts.ShowViewer{})
+	aggregate, aggregateArgs := VisibleTagUsageCountSQL()
 
 	type countRow struct {
 		TagID uint
 		Count int64
 	}
 	var rows []countRow
-	err := db.Table("entity_tags").
-		Select("tag_id, COUNT(*) AS count").
-		Where("tag_id IN ?", tagIDs).
-		Where(visible, visibleArgs...).
-		Group("tag_id").
-		Scan(&rows).Error
+	args := append(append([]interface{}{}, aggregateArgs...), tagIDs)
+	err := db.Raw(
+		"SELECT tag_id, count FROM ("+aggregate+") AS visible_tag_usage WHERE tag_id IN ?",
+		args...,
+	).Scan(&rows).Error
 	if err != nil {
 		logger.Default().Error("visible_tag_usage_count_failed", "error", err.Error())
 		return nil, err
@@ -120,4 +119,25 @@ func VisibleTagUsageCounts(db *gorm.DB, tagIDs []uint) (map[uint]int, error) {
 		counts[r.TagID] = int(r.Count)
 	}
 	return counts, nil
+}
+
+// VisibleTagUsageCountSQL returns the (tag_id, count) aggregate over the whole
+// entity_tags table, counting only rows whose tagged entity a public reader may
+// see, plus its bind arguments.
+//
+// THE NUMBER AND THE ORDERING KEY ARE ONE EXPRESSION. A /tags page is SELECTED
+// by an ORDER BY and RENDERED with these counts, and if the two came from
+// different expressions the page would be ordered by one number and show
+// another: a tag displaying 0 could sit above a tag displaying 40, and position
+// beside number would state a lower bound on the rows the count withholds. So
+// this is the aggregate the listing joins to order itself, and the aggregate
+// VisibleTagUsageCounts reads the displayed number from.
+//
+// UNRESTRICTED BY TAG, because the ordering has to be computed before the page
+// is chosen; callers wanting a subset filter the result.
+func VisibleTagUsageCountSQL() (string, []interface{}) {
+	visible, visibleArgs := VisibleEntityTagsSQL("entity_tags", contracts.ShowViewer{})
+	return "SELECT entity_tags.tag_id AS tag_id, COUNT(*) AS count" +
+		" FROM entity_tags WHERE " + visible +
+		" GROUP BY entity_tags.tag_id", visibleArgs
 }

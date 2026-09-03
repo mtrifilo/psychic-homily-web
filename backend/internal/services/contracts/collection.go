@@ -499,25 +499,32 @@ type CollectionServiceInterface interface {
 	// accept ID-or-slug like the other entity GET endpoints (PSY-940 —
 	// enables ID→slug lookups for ISR revalidation).
 	GetByID(id uint, viewerID uint) (*CollectionDetailResponse, error)
-	// ResolveIDBySlug returns a collection's numeric ID from its slug with no
-	// access-control gate and no heavy relation loading. Handlers use it to
-	// stamp audit-log rows with the real entity_id when the mutation service
-	// method only exposes the slug (PSY-1502).
-	ResolveIDBySlug(slug string) (uint, error)
+	// THE MUTATIONS BELOW RETURN THE PARENT COLLECTION'S ID beside their result,
+	// and it is the audit writers' only source for it.
+	//
+	// An audit row's entity_id is the durable identity a mutable slug is not, and
+	// for the item writes it is the ITEM's id, so the parent has to travel in the
+	// metadata. Resolving the parent by slug a second time after the write is a
+	// query that can fail, and the id its failure yields is 0, which the
+	// contributions timeline matches against no collection: the row is then
+	// withheld from everyone including its own author on a public collection.
+	// Each of these methods has already loaded the collection to authorise the
+	// write, so the id is free here and cannot fail. A zero comes back only with
+	// an error, and callers must not stamp it.
 	ListCollections(filters CollectionFilters, limit, offset int) ([]*CollectionListResponse, int64, error)
 	UpdateCollection(slug string, userID uint, isAdmin bool, req *UpdateCollectionRequest) (*CollectionDetailResponse, error)
-	DeleteCollection(slug string, userID uint, isAdmin bool) error
-	AddItem(slug string, userID uint, req *AddCollectionItemRequest) (*CollectionItemResponse, error)
+	DeleteCollection(slug string, userID uint, isAdmin bool) (uint, error)
+	AddItem(slug string, userID uint, req *AddCollectionItemRequest) (*CollectionItemResponse, uint, error)
 	// BulkAddItems commits a batch of items in one transaction with
 	// partial-success semantics: invalid rows are returned in Errors and do
 	// not roll back valid inserts. PSY-823.
-	BulkAddItems(slug string, userID uint, req *BulkAddCollectionItemsRequest) (*BulkAddCollectionItemsResponse, error)
+	BulkAddItems(slug string, userID uint, req *BulkAddCollectionItemsRequest) (*BulkAddCollectionItemsResponse, uint, error)
 	// ResolveCollectionItems maps (entity_type, slug) entries to entity_ids
 	// for the Paste-URLs preview in the AddItemsPicker. Returns Resolved /
 	// Unresolved partitions; never an error for unknown slugs. PSY-823.
 	ResolveCollectionItems(req *ResolveCollectionItemsRequest) (*ResolveCollectionItemsResponse, error)
-	UpdateItem(slug string, itemID uint, userID uint, isAdmin bool, req *UpdateCollectionItemRequest) (*CollectionItemResponse, error)
-	RemoveItem(slug string, itemID uint, userID uint, isAdmin bool) error
+	UpdateItem(slug string, itemID uint, userID uint, isAdmin bool, req *UpdateCollectionItemRequest) (*CollectionItemResponse, uint, error)
+	RemoveItem(slug string, itemID uint, userID uint, isAdmin bool) (uint, error)
 	ReorderItems(slug string, userID uint, req *ReorderCollectionItemsRequest) error
 	Subscribe(slug string, userID uint) error
 	Unsubscribe(slug string, userID uint) error
@@ -558,16 +565,16 @@ type CollectionServiceInterface interface {
 	// collection_feature_runs journal row in one transaction (PSY-1500).
 	// actorID is the acting admin (featured_by / unfeatured_by); pass 0 for an
 	// unknown/system actor.
-	SetFeatured(slug string, featured bool, actorID uint) error
+	SetFeatured(slug string, featured bool, actorID uint) (uint, error)
 	// AddTagToCollection applies a tag to a collection (PSY-354). Caller must be
 	// able to SEE the collection, and then must have edit access (creator OR
 	// collaborative-and-authenticated, mirroring AddItem). A collection the
 	// caller cannot see answers not-found. Enforces MaxCollectionTags. Returns
 	// the post-mutation tag list.
-	AddTagToCollection(slug string, userID uint, req *AddCollectionTagRequest) (*AddCollectionTagResponse, error)
+	AddTagToCollection(slug string, userID uint, req *AddCollectionTagRequest) (*AddCollectionTagResponse, uint, error)
 	// RemoveTagFromCollection removes a tag from a collection (PSY-354).
 	// Same visibility and edit-access rules as AddTagToCollection.
-	RemoveTagFromCollection(slug string, tagID uint, userID uint) error
+	RemoveTagFromCollection(slug string, tagID uint, userID uint) (uint, error)
 	// GetCollectionGraph returns the artist-relationship subgraph for the
 	// collection's artist items. Visibility gate mirrors GetBySlug
 	// (private → not found unless viewer is creator). PSY-366.

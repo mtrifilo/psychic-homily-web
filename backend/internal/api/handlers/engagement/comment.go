@@ -265,8 +265,10 @@ func refuseAsMissingComment() error {
 	return huma.Error404NotFound("Comment not found")
 }
 
-// writeParentVisible reports whether the caller may see the entity comment
-// commentID hangs off.
+// refuseWriteOnHiddenParent decides a comment-id write against the caller.
+// It returns nil when the write may proceed, the missing-comment answer when
+// the caller may not see the entity the comment hangs off, and a 500 when the
+// lookup itself failed.
 //
 // The comment-id WRITES need this for the same reason the reads and the votes
 // do, and needing it is not obvious: each of them refuses a non-author with a
@@ -274,16 +276,39 @@ func refuseAsMissingComment() error {
 // "this id exists and its parent is hidden". Comment ids are dense and
 // sequential, so that pair is walkable. Gated after the load, because the
 // comment is what names its entity.
-func (h *CommentHandler) writeParentVisible(ctx context.Context, commentID uint) bool {
+//
+// A FAILED LOOKUP IS NOT A HIDDEN PARENT. The visibility answer itself fails
+// closed, but a database error rendered as "Comment not found" tells the caller
+// their comment is gone and tells the operator nothing. A genuine error answers
+// 500 and is logged, on the terms CreateReplyHandler answers a failed parent
+// load; only the not-found and the invisible parent share the one response.
+func (h *CommentHandler) refuseWriteOnHiddenParent(ctx context.Context, commentID uint) error {
 	if h.reader == nil {
-		return false
+		return refuseAsMissingComment()
 	}
 	comment, err := h.reader.GetComment(commentID)
-	if err != nil || comment == nil {
-		return false
+	if err != nil {
+		if mapped := shared.MapCommentError(err); mapped != nil {
+			return mapped
+		}
+		requestID := logger.GetRequestID(ctx)
+		logger.FromContext(ctx).Error("comment_write_parent_lookup_failed",
+			"comment_id", commentID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to fetch comment (request_id: %s)", requestID),
+		)
 	}
-	return shared.EntitySubResourceVisible(
-		h.showVisibility, comment.EntityType, comment.EntityID, middleware.GetShowViewerFromContext(ctx))
+	if comment == nil {
+		return refuseAsMissingComment()
+	}
+	if !shared.EntitySubResourceVisible(
+		h.showVisibility, comment.EntityType, comment.EntityID, middleware.GetShowViewerFromContext(ctx)) {
+		return refuseAsMissingComment()
+	}
+	return nil
 }
 
 // GetThreadHandler handles GET /comments/{comment_id}/thread
@@ -543,8 +568,8 @@ func (h *CommentHandler) UpdateCommentHandler(ctx context.Context, req *UpdateCo
 		return nil, huma.Error400BadRequest("Comment body is required")
 	}
 
-	if !h.writeParentVisible(ctx, uint(commentID)) {
-		return nil, refuseAsMissingComment()
+	if err := h.refuseWriteOnHiddenParent(ctx, uint(commentID)); err != nil {
+		return nil, err
 	}
 
 	serviceReq := &contracts.UpdateCommentRequest{
@@ -617,8 +642,8 @@ func (h *CommentHandler) UpdateReplyPermissionHandler(ctx context.Context, req *
 		return nil, huma.Error400BadRequest(shared.InvalidReplyPermissionMessage)
 	}
 
-	if !h.writeParentVisible(ctx, uint(commentID)) {
-		return nil, refuseAsMissingComment()
+	if err := h.refuseWriteOnHiddenParent(ctx, uint(commentID)); err != nil {
+		return nil, err
 	}
 
 	comment, err := h.writer.UpdateReplyPermission(user.ID, uint(commentID), perm)
@@ -664,13 +689,14 @@ func (h *CommentHandler) DeleteCommentHandler(ctx context.Context, req *DeleteCo
 		return nil, huma.Error400BadRequest("Invalid comment ID")
 	}
 
-	// An ADMIN keeps this route on a gated parent. Removing a comment is the
-	// remedy the pending-comment moderation queue reaches, and that queue serves
-	// an admin every pending comment's body whatever its parent, so refusing the
-	// remedy would leave them a queue they cannot act on. Every other caller is
-	// answered as a missing comment.
-	if !user.IsAdmin && !h.writeParentVisible(ctx, uint(commentID)) {
-		return nil, refuseAsMissingComment()
+	// AN ADMIN IS REFUSED HERE TOO, so all six comment-id writes answer alike.
+	// The moderation queue's remedies are its own routes, /admin/comments/{id}
+	// approve, reject, hide and restore, and this route's only product caller is
+	// the author's own delete button, so an admin arm here would buy the queue
+	// nothing and would leave a destructive existence walk over the comments of
+	// collections the detail route refuses that admin.
+	if err := h.refuseWriteOnHiddenParent(ctx, uint(commentID)); err != nil {
+		return nil, err
 	}
 
 	err = h.writer.DeleteComment(user.ID, uint(commentID), user.IsAdmin)

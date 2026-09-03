@@ -31,11 +31,11 @@ func TestUpdateItem_InvalidItemID(t *testing.T) {
 func TestUpdateItem_Success(t *testing.T) {
 	notes := "great record"
 	mock := &testhelpers.MockCollectionService{
-		UpdateItemFn: func(slug string, itemID, userID uint, isAdmin bool, req *contracts.UpdateCollectionItemRequest) (*contracts.CollectionItemResponse, error) {
+		UpdateItemFn: func(slug string, itemID, userID uint, isAdmin bool, req *contracts.UpdateCollectionItemRequest) (*contracts.CollectionItemResponse, uint, error) {
 			if slug != "mix" || itemID != 5 || userID != 1 {
 				t.Errorf("unexpected params slug=%q itemID=%d userID=%d", slug, itemID, userID)
 			}
-			return &contracts.CollectionItemResponse{ID: 5, Notes: req.Notes}, nil
+			return &contracts.CollectionItemResponse{ID: 5, Notes: req.Notes}, 42, nil
 		},
 	}
 	h := NewCollectionHandler(mock, nil, testhelpers.AllShowsVisible())
@@ -55,8 +55,8 @@ func TestUpdateItem_Success(t *testing.T) {
 func TestUpdateItem_NotFoundMapsThroughCollectionError(t *testing.T) {
 	// A CollectionError flows through shared.MapCollectionError → 404.
 	mock := &testhelpers.MockCollectionService{
-		UpdateItemFn: func(_ string, _, _ uint, _ bool, _ *contracts.UpdateCollectionItemRequest) (*contracts.CollectionItemResponse, error) {
-			return nil, apperrors.ErrCollectionItemNotFound(5)
+		UpdateItemFn: func(_ string, _, _ uint, _ bool, _ *contracts.UpdateCollectionItemRequest) (*contracts.CollectionItemResponse, uint, error) {
+			return nil, 0, apperrors.ErrCollectionItemNotFound(5)
 		},
 	}
 	h := NewCollectionHandler(mock, nil, testhelpers.AllShowsVisible())
@@ -68,8 +68,8 @@ func TestUpdateItem_NotFoundMapsThroughCollectionError(t *testing.T) {
 func TestUpdateItem_ServiceError(t *testing.T) {
 	// A non-CollectionError falls through to a generic 500.
 	mock := &testhelpers.MockCollectionService{
-		UpdateItemFn: func(_ string, _, _ uint, _ bool, _ *contracts.UpdateCollectionItemRequest) (*contracts.CollectionItemResponse, error) {
-			return nil, fmt.Errorf("db error")
+		UpdateItemFn: func(_ string, _, _ uint, _ bool, _ *contracts.UpdateCollectionItemRequest) (*contracts.CollectionItemResponse, uint, error) {
+			return nil, 0, fmt.Errorf("db error")
 		},
 	}
 	h := NewCollectionHandler(mock, nil, testhelpers.AllShowsVisible())

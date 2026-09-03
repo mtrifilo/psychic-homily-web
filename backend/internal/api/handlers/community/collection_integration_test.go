@@ -211,7 +211,7 @@ func (s *CollectionHandlerIntegrationSuite) TestGetCollectionStats_Success() {
 
 	// Add an artist item
 	artist := testhelpers.CreateArtist(s.deps.DB, "Stats Artist")
-	_, err := s.deps.CollectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
+	_, _, err := s.deps.CollectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist",
 		EntityID:   artist.ID,
 	})
@@ -338,7 +338,7 @@ func (s *CollectionHandlerIntegrationSuite) TestListCollections_FeaturedFilter()
 	s.createCollectionViaService(user, "Not Featured", true)
 
 	// Set one as featured
-	err := s.deps.CollectionService.SetFeatured(coll.Slug, true, user.ID)
+	_, err := s.deps.CollectionService.SetFeatured(coll.Slug, true, user.ID)
 	s.Require().NoError(err)
 
 	req := &ListCollectionsHandlerRequest{Featured: 1}
@@ -382,7 +382,7 @@ func (s *CollectionHandlerIntegrationSuite) seedSearchableCollection(
 			notes := itemNotes
 			req.Notes = &notes
 		}
-		_, err = s.deps.CollectionService.AddItem(pub.Slug, user.ID, req)
+		_, _, err = s.deps.CollectionService.AddItem(pub.Slug, user.ID, req)
 		s.Require().NoError(err)
 	}
 
@@ -859,7 +859,7 @@ func (s *CollectionHandlerIntegrationSuite) TestRemoveItem_Success() {
 	artist := testhelpers.CreateArtist(s.deps.DB, "Removable Artist")
 
 	// Add item via service
-	item, err := s.deps.CollectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
+	item, _, err := s.deps.CollectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist",
 		EntityID:   artist.ID,
 	})
@@ -895,7 +895,7 @@ func (s *CollectionHandlerIntegrationSuite) TestRemoveItem_NotOwner() {
 	coll := s.createCollectionViaService(owner, "Not My Remove", true)
 	artist := testhelpers.CreateArtist(s.deps.DB, "Not My Artist")
 
-	item, err := s.deps.CollectionService.AddItem(coll.Slug, owner.ID, &contracts.AddCollectionItemRequest{
+	item, _, err := s.deps.CollectionService.AddItem(coll.Slug, owner.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist",
 		EntityID:   artist.ID,
 	})
@@ -929,13 +929,13 @@ func (s *CollectionHandlerIntegrationSuite) TestReorderItems_Success() {
 	artist1 := testhelpers.CreateArtist(s.deps.DB, "Reorder Artist 1")
 	artist2 := testhelpers.CreateArtist(s.deps.DB, "Reorder Artist 2")
 
-	item1, err := s.deps.CollectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
+	item1, _, err := s.deps.CollectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist",
 		EntityID:   artist1.ID,
 	})
 	s.Require().NoError(err)
 
-	item2, err := s.deps.CollectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
+	item2, _, err := s.deps.CollectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist",
 		EntityID:   artist2.ID,
 	})
@@ -1081,7 +1081,7 @@ func (s *CollectionHandlerIntegrationSuite) TestSetFeatured_Unfeature() {
 	coll := s.createCollectionViaService(user, "Unfeature Me", true)
 
 	// Feature first
-	err := s.deps.CollectionService.SetFeatured(coll.Slug, true, user.ID)
+	_, err := s.deps.CollectionService.SetFeatured(coll.Slug, true, user.ID)
 	s.Require().NoError(err)
 
 	ctx := testhelpers.CtxWithUser(admin)
@@ -1140,6 +1140,66 @@ func (s *CollectionHandlerIntegrationSuite) TestSetFeatured_AuditEntityID() {
 	s.Equal(coll.ID, log.EntityID)
 	s.Require().NotNil(log.ActorID)
 	s.Equal(admin.ID, *log.ActorID)
+}
+
+// EVERY COLLECTION-LEVEL AUDIT WRITER STAMPS THE REAL PARENT ID.
+//
+// These four actions are dispositioned as carrying a COLLECTIONS id and have no
+// slug fallback, so a row stamped with 0 matches no collection and is withheld
+// from everyone, including its own author on a public collection, and from the
+// contributions total as well as the page. The id comes from the service that
+// authorised each write, which loaded the collection to authorise it.
+func (s *CollectionHandlerIntegrationSuite) TestCollectionLevelAuditRowsCarryTheParentID() {
+	// A trusted contributor, because the tag write below creates a new tag and
+	// the tier gate refuses a new account that.
+	user := testhelpers.CreateUserWithTier(s.deps.DB, "trusted_contributor")
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	coll := s.createCollectionViaService(user, "Audit Parent ID", true)
+	artist := testhelpers.CreateArtist(s.deps.DB, fmt.Sprintf("Audit Parent Artist %d", time.Now().UnixNano()))
+
+	ctx := testhelpers.CtxWithUser(user)
+
+	bulk := &BulkAddItemsHandlerRequest{Slug: coll.Slug}
+	bulk.Body.Items = []BulkAddItemRow{{EntityType: "artist", EntityID: artist.ID}}
+	_, err := s.handler.BulkAddItemsHandler(ctx, bulk)
+	s.Require().NoError(err)
+
+	feature := &SetFeaturedHandlerRequest{Slug: coll.Slug}
+	feature.Body.Featured = true
+	_, err = s.handler.SetFeaturedHandler(testhelpers.CtxWithUser(admin), feature)
+	s.Require().NoError(err)
+
+	addTag := &AddCollectionTagHandlerRequest{Slug: coll.Slug}
+	addTag.Body.TagName = fmt.Sprintf("audit-parent-%d", time.Now().UnixNano())
+	tagResp, err := s.handler.AddCollectionTagHandler(ctx, addTag)
+	s.Require().NoError(err)
+	s.Require().NotEmpty(tagResp.Body.Tags)
+	tagID := tagResp.Body.Tags[0].TagID
+
+	_, err = s.handler.RemoveCollectionTagHandler(ctx, &RemoveCollectionTagHandlerRequest{
+		Slug:  coll.Slug,
+		TagID: fmt.Sprintf("%d", tagID),
+	})
+	s.Require().NoError(err)
+
+	// The audit writes are fire-and-forget, so poll for each action's row on
+	// THIS collection. A row stamped 0 never matches and the poll times out,
+	// which is the failure this pins.
+	for _, action := range []string{
+		"bulk_add_collection_items",
+		"set_collection_featured",
+		"add_collection_tag",
+		"remove_collection_tag",
+	} {
+		action := action
+		var log adminm.AuditLog
+		s.Require().Eventually(func() bool {
+			return s.deps.DB.Where(
+				"action = ? AND entity_type = ? AND entity_id = ?",
+				action, "collection", coll.ID,
+			).Order("id DESC").First(&log).Error == nil
+		}, 2*time.Second, 20*time.Millisecond, "%s did not stamp the parent collection id", action)
+	}
 }
 
 // ============================================================================
@@ -1222,12 +1282,12 @@ func (s *CollectionHandlerIntegrationSuite) TestGetUserCollectionsContaining_Onl
 	collC := s.createCollectionViaService(user, "No Artist", false)
 
 	target := testhelpers.CreateArtist(s.deps.DB, fmt.Sprintf("contains-target-%d", time.Now().UnixNano()))
-	_, err := s.deps.CollectionService.AddItem(collA.Slug, user.ID, &contracts.AddCollectionItemRequest{
+	_, _, err := s.deps.CollectionService.AddItem(collA.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist",
 		EntityID:   target.ID,
 	})
 	s.Require().NoError(err)
-	_, err = s.deps.CollectionService.AddItem(collB.Slug, user.ID, &contracts.AddCollectionItemRequest{
+	_, _, err = s.deps.CollectionService.AddItem(collB.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist",
 		EntityID:   target.ID,
 	})
@@ -1265,11 +1325,11 @@ func (s *CollectionHandlerIntegrationSuite) TestGetUserCollectionsContaining_Doe
 	user2Coll := s.createCollectionViaService(user2, "User2 Coll", false)
 
 	target := testhelpers.CreateArtist(s.deps.DB, fmt.Sprintf("crossuser-%d", time.Now().UnixNano()))
-	_, err := s.deps.CollectionService.AddItem(user1Coll.Slug, user1.ID, &contracts.AddCollectionItemRequest{
+	_, _, err := s.deps.CollectionService.AddItem(user1Coll.Slug, user1.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist", EntityID: target.ID,
 	})
 	s.Require().NoError(err)
-	_, err = s.deps.CollectionService.AddItem(user2Coll.Slug, user2.ID, &contracts.AddCollectionItemRequest{
+	_, _, err = s.deps.CollectionService.AddItem(user2Coll.Slug, user2.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist", EntityID: target.ID,
 	})
 	s.Require().NoError(err)
@@ -1356,15 +1416,15 @@ func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_CopiesItemsNotes
 	a3 := testhelpers.CreateArtist(s.deps.DB, "Artist Three")
 	notes1 := "first note"
 	notes3 := "third note"
-	_, err := s.deps.CollectionService.AddItem(src.Slug, owner.ID, &contracts.AddCollectionItemRequest{
+	_, _, err := s.deps.CollectionService.AddItem(src.Slug, owner.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist", EntityID: a1.ID, Notes: &notes1,
 	})
 	s.Require().NoError(err)
-	_, err = s.deps.CollectionService.AddItem(src.Slug, owner.ID, &contracts.AddCollectionItemRequest{
+	_, _, err = s.deps.CollectionService.AddItem(src.Slug, owner.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist", EntityID: a2.ID,
 	})
 	s.Require().NoError(err)
-	_, err = s.deps.CollectionService.AddItem(src.Slug, owner.ID, &contracts.AddCollectionItemRequest{
+	_, _, err = s.deps.CollectionService.AddItem(src.Slug, owner.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist", EntityID: a3.ID, Notes: &notes3,
 	})
 	s.Require().NoError(err)
@@ -1474,7 +1534,7 @@ func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_DeletingOriginal
 	cloneSlug := cloneResp.Body.Slug
 
 	// Delete the source.
-	delErr := s.deps.CollectionService.DeleteCollection(src.Slug, owner.ID, false)
+	_, delErr := s.deps.CollectionService.DeleteCollection(src.Slug, owner.ID, false)
 	s.Require().NoError(delErr)
 
 	// Clone still exists; ForkedFromCollectionID must be NULL post-cascade.

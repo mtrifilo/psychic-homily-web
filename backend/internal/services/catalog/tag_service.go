@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -242,7 +241,14 @@ func (s *TagService) ListTags(category string, search string, parentID *uint, so
 	case "created":
 		query = query.Order("created_at DESC")
 	default: // "usage" or empty
-		query = query.Order("usage_count DESC, name ASC")
+		// ORDERED BY THE COUNT THIS PAGE WILL PRINT. The selection and the
+		// rendered number come from one aggregate, so the listing cannot show a
+		// tag with a lower count above one with a higher count, which is what a
+		// reader would otherwise read as a lower bound on the withheld rows.
+		// See tag_counts.go.
+		counts := s.visibleTagUsageCountQuery(entityType, cities)
+		join, joinArgs := counts.leftJoin("tags.id")
+		query = query.Select("tags.*").Joins(join, joinArgs...).Order(tagUsageCountOrderBySQL())
 	}
 
 	if limit <= 0 {
@@ -267,26 +273,14 @@ func (s *TagService) ListTags(category string, search string, parentID *uint, so
 		for i := range tags {
 			tags[i].UsageCount = int(countByID[tags[i].ID])
 		}
-		// When sorting by usage, re-order in memory so the entity-scoped count
-		// drives the order (the original SQL sorted by the global usage_count).
-		// Stable secondary sort: name ASC (matches the SQL ORDER BY tiebreaker).
-		if sort == "" || sort == "usage" {
-			sortTagsByUsageDesc(tags)
-		}
+		// NOT RE-SORTED. The ORDER BY above already ranked on this same
+		// aggregate, so the page arrives in the order these numbers describe;
+		// re-sorting it would order a page by a key it was not selected with.
 		return tags, total, nil
 	}
 
-	// The GLOBAL count, on the same terms the per-entity-type count above is
-	// already gated: the ORDER BY above ranked on the raw column, and what the
-	// caller reads is the visible count.
-	//
-	// NOT RE-SORTED, unlike the entity-scoped branch. That branch re-sorts a page
-	// whose ordering key it has just replaced wholesale; here the SQL ORDER BY is
-	// what chose WHICH rows this page holds, so re-sorting them would order the
-	// page by one key and select it by another — a tag would sit at the bottom of
-	// page 1 while a higher-counting tag sat on page 2. The listing is ordered by
-	// raw popularity and the numbers beside it are the visible counts; see
-	// services/shared/tag_usage.go, which names that as the trade.
+	// The GLOBAL count, from the aggregate the ORDER BY above ranked on, so the
+	// number printed beside a tag is the number that put it on this page.
 	if err := s.applyVisibleUsageCounts(tagPointers(tags)); err != nil {
 		return nil, 0, fmt.Errorf("failed to compute visible tag usage counts: %w", err)
 	}
@@ -320,56 +314,9 @@ func tagPointers(tags []catalogm.Tag) []*catalogm.Tag {
 //
 // Tags absent from the relevant tables get 0 (missing from the returned map).
 func (s *TagService) computeEntityTypeTagCounts(entityType string, tagIDs []uint, cities []contracts.CityStateFilter) (map[uint]int64, error) {
-	switch entityType {
-	case catalogm.TagEntityShow:
-		if len(cities) > 0 {
-			return CountTransitiveArtistTagUsageInShowCities(s.db, tagIDs, cities)
-		}
-		return CountTransitiveArtistTagUsage(s.db, "show_artists", "show_id", "artist_id", tagIDs)
-	case catalogm.TagEntityFestival:
-		return CountTransitiveArtistTagUsage(s.db, "festival_artists", "festival_id", "artist_id", tagIDs)
-	}
-	// Default: direct count against entity_tags for the given entity type.
-	//
-	// GATED FOR COLLECTIONS. This count is rendered on the same anonymous tag
-	// listing whose per-tag membership GetTagEntities now filters, so counting
-	// private collections here would report, by subtraction, how many carry each
-	// tag. Public tier, matching the listing it is read beside.
-	type countRow struct {
-		TagID uint
-		Count int64
-	}
-	var rows []countRow
-	query := s.db.Table("entity_tags").
-		Select("tag_id, COUNT(*) AS count").
-		Where("entity_type = ? AND tag_id IN ?", entityType, tagIDs)
-	if entityType == catalogm.TagEntityCollection {
-		visible, visibleArgs := shared.VisibleCollectionExistsSQL(
-			"entity_tags.entity_id", contracts.ShowViewer{})
-		query = query.Where(visible, visibleArgs...)
-	}
-	err := query.
-		Group("tag_id").
-		Scan(&rows).Error
-	if err != nil {
-		return nil, err
-	}
-	out := make(map[uint]int64, len(rows))
-	for _, r := range rows {
-		out[r.TagID] = r.Count
-	}
-	return out, nil
-}
-
-// sortTagsByUsageDesc sorts in place by UsageCount DESC, name ASC. Used after
-// per-entity-type recount so the displayed order matches the new counts.
-func sortTagsByUsageDesc(tags []catalogm.Tag) {
-	sort.SliceStable(tags, func(i, j int) bool {
-		if tags[i].UsageCount != tags[j].UsageCount {
-			return tags[i].UsageCount > tags[j].UsageCount
-		}
-		return tags[i].Name < tags[j].Name
-	})
+	// One aggregate per scope, shared with the listing's ORDER BY so the number
+	// rendered here is the number that chose this page. See tag_counts.go.
+	return s.visibleTagUsageCountQuery(entityType, cities).countsFor(s.db, tagIDs)
 }
 
 // UpdateTag updates a tag's fields.

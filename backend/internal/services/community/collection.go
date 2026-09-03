@@ -466,27 +466,6 @@ func (s *CollectionService) GetByID(id uint, viewerID uint) (*contracts.Collecti
 	return s.GetBySlug(collection.Slug, viewerID)
 }
 
-// ResolveIDBySlug returns a collection's numeric ID from its slug. It performs
-// a single indexed lookup with no access-control gate and no relation loading,
-// so handlers can stamp audit-log rows with the real entity_id when the
-// mutation service method only exposes the slug (PSY-1502).
-func (s *CollectionService) ResolveIDBySlug(slug string) (uint, error) {
-	if s.db == nil {
-		return 0, fmt.Errorf("database not initialized")
-	}
-
-	var collection communitym.Collection
-	err := s.db.Select("id").Where("slug = ?", slug).First(&collection).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return 0, apperrors.ErrCollectionNotFound(slug)
-		}
-		return 0, fmt.Errorf("failed to resolve collection id: %w", err)
-	}
-
-	return collection.ID, nil
-}
-
 // GetBySlug retrieves a collection by slug with full detail
 func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.CollectionDetailResponse, error) {
 	if s.db == nil {
@@ -1088,51 +1067,53 @@ func (s *CollectionService) UpdateCollection(slug string, userID uint, isAdmin b
 // is the other moderation remedy for a reported collection, and a queue that
 // shows an admin the report while every remedy refuses them is a queue they
 // cannot act on. It publishes nothing — the response is empty either way.
-func (s *CollectionService) DeleteCollection(slug string, userID uint, isAdmin bool) error {
+func (s *CollectionService) DeleteCollection(slug string, userID uint, isAdmin bool) (uint, error) {
 	if s.db == nil {
-		return fmt.Errorf("database not initialized")
+		return 0, fmt.Errorf("database not initialized")
 	}
 
 	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return apperrors.ErrCollectionNotFound(slug)
+			return 0, apperrors.ErrCollectionNotFound(slug)
 		}
-		return fmt.Errorf("failed to get collection: %w", err)
+		return 0, fmt.Errorf("failed to get collection: %w", err)
 	}
 
 	// Invisible answers as missing, BEFORE ownership.
 	if !collection.IsPublic && collection.CreatorID != userID && !isAdmin {
-		return apperrors.ErrCollectionNotFound(slug)
+		return 0, apperrors.ErrCollectionNotFound(slug)
 	}
 
 	// Check ownership
 	if collection.CreatorID != userID && !isAdmin {
-		return apperrors.ErrCollectionForbidden(slug)
+		return 0, apperrors.ErrCollectionForbidden(slug)
 	}
 
 	// Delete collection (FK cascades handle items and subscribers)
 	if err := s.db.Delete(&collection).Error; err != nil {
-		return fmt.Errorf("failed to delete collection: %w", err)
+		return 0, fmt.Errorf("failed to delete collection: %w", err)
 	}
 
-	return nil
+	// The id OUTLIVES the row, which is the whole reason it travels back: the
+	// audit writer stamps it after this returns and the collection is gone.
+	return collection.ID, nil
 }
 
 // AddItem adds an entity to a collection
-func (s *CollectionService) AddItem(slug string, userID uint, req *contracts.AddCollectionItemRequest) (*contracts.CollectionItemResponse, error) {
+func (s *CollectionService) AddItem(slug string, userID uint, req *contracts.AddCollectionItemRequest) (*contracts.CollectionItemResponse, uint, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
 	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, apperrors.ErrCollectionNotFound(slug)
+			return nil, 0, apperrors.ErrCollectionNotFound(slug)
 		}
-		return nil, fmt.Errorf("failed to get collection: %w", err)
+		return nil, 0, fmt.Errorf("failed to get collection: %w", err)
 	}
 
 	// Check permission: creator or (collaborative and authenticated)
@@ -1141,11 +1122,11 @@ func (s *CollectionService) AddItem(slug string, userID uint, req *contracts.Add
 	// this, a bulk add reports a per-row duplicate for every entity already in a
 	// private collection, which enumerates its contents 200 at a time.
 	if !collection.IsPublic && collection.CreatorID != userID {
-		return nil, apperrors.ErrCollectionNotFound(slug)
+		return nil, 0, apperrors.ErrCollectionNotFound(slug)
 	}
 
 	if collection.CreatorID != userID && !collection.Collaborative {
-		return nil, apperrors.ErrCollectionForbidden(slug)
+		return nil, 0, apperrors.ErrCollectionForbidden(slug)
 	}
 
 	// PSY-823: validate entity_type before insert. The polymorphic
@@ -1154,14 +1135,14 @@ func (s *CollectionService) AddItem(slug string, userID uint, req *contracts.Add
 	// "Unknown" on every read. BulkAddItems already validates this — the
 	// gate here keeps the two write paths contract-aligned.
 	if !communitym.IsValidCollectionEntityType(req.EntityType) {
-		return nil, apperrors.ErrCollectionInvalidRequest(
+		return nil, 0, apperrors.ErrCollectionInvalidRequest(
 			fmt.Sprintf("Unsupported entity_type %q", req.EntityType),
 		)
 	}
 
 	// Validate notes length on save (mirrors comment body limit).
 	if req.Notes != nil && len(*req.Notes) > contracts.MaxCollectionItemNotesLength {
-		return nil, fmt.Errorf("notes exceed maximum length of %d characters", contracts.MaxCollectionItemNotesLength)
+		return nil, 0, fmt.Errorf("notes exceed maximum length of %d characters", contracts.MaxCollectionItemNotesLength)
 	}
 
 	// Check for duplicate
@@ -1170,7 +1151,7 @@ func (s *CollectionService) AddItem(slug string, userID uint, req *contracts.Add
 		Where("collection_id = ? AND entity_type = ? AND entity_id = ?", collection.ID, req.EntityType, req.EntityID).
 		Count(&existingCount)
 	if existingCount > 0 {
-		return nil, apperrors.ErrCollectionItemExists(collection.ID, req.EntityType, req.EntityID)
+		return nil, 0, apperrors.ErrCollectionItemExists(collection.ID, req.EntityType, req.EntityID)
 	}
 
 	// Get max position
@@ -1193,7 +1174,7 @@ func (s *CollectionService) AddItem(slug string, userID uint, req *contracts.Add
 	}
 
 	if err := s.db.Create(item).Error; err != nil {
-		return nil, fmt.Errorf("failed to add item to collection: %w", err)
+		return nil, 0, fmt.Errorf("failed to add item to collection: %w", err)
 	}
 
 	// PSY-350: collection-subscription digest notifications are emitted by
@@ -1219,7 +1200,7 @@ func (s *CollectionService) AddItem(slug string, userID uint, req *contracts.Add
 		Notes:         item.Notes,
 		NotesHTML:     s.renderNotes(item.Notes),
 		CreatedAt:     item.CreatedAt,
-	}, nil
+	}, collection.ID, nil
 }
 
 // BulkAddItems adds a batch of items to a collection in a single transaction
@@ -1230,15 +1211,15 @@ func (s *CollectionService) AddItem(slug string, userID uint, req *contracts.Add
 // The handler is responsible for emitting the one audit-log entry per
 // bulk-add invocation — the service intentionally does NOT fan out per-row
 // audit events so the activity feed stays readable at N=200.
-func (s *CollectionService) BulkAddItems(slug string, userID uint, req *contracts.BulkAddCollectionItemsRequest) (*contracts.BulkAddCollectionItemsResponse, error) {
+func (s *CollectionService) BulkAddItems(slug string, userID uint, req *contracts.BulkAddCollectionItemsRequest) (*contracts.BulkAddCollectionItemsResponse, uint, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, 0, fmt.Errorf("database not initialized")
 	}
 	if req == nil || len(req.Items) == 0 {
-		return nil, apperrors.ErrCollectionInvalidRequest("Items list cannot be empty")
+		return nil, 0, apperrors.ErrCollectionInvalidRequest("Items list cannot be empty")
 	}
 	if len(req.Items) > contracts.MaxBulkAddCollectionItems {
-		return nil, apperrors.ErrCollectionInvalidRequest(
+		return nil, 0, apperrors.ErrCollectionInvalidRequest(
 			fmt.Sprintf("Cannot add more than %d items in a single request", contracts.MaxBulkAddCollectionItems),
 		)
 	}
@@ -1246,20 +1227,20 @@ func (s *CollectionService) BulkAddItems(slug string, userID uint, req *contract
 	var collection communitym.Collection
 	if err := s.db.Where("slug = ?", slug).First(&collection).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, apperrors.ErrCollectionNotFound(slug)
+			return nil, 0, apperrors.ErrCollectionNotFound(slug)
 		}
-		return nil, fmt.Errorf("failed to get collection: %w", err)
+		return nil, 0, fmt.Errorf("failed to get collection: %w", err)
 	}
 	// A COLLECTION THE CALLER CANNOT READ IS NOT ONE THEY MAY WRITE TO, whatever
 	// `collaborative` says, and `collaborative` is the model default. Without
 	// this, a bulk add reports a per-row duplicate for every entity already in a
 	// private collection, which enumerates its contents 200 at a time.
 	if !collection.IsPublic && collection.CreatorID != userID {
-		return nil, apperrors.ErrCollectionNotFound(slug)
+		return nil, 0, apperrors.ErrCollectionNotFound(slug)
 	}
 
 	if collection.CreatorID != userID && !collection.Collaborative {
-		return nil, apperrors.ErrCollectionForbidden(slug)
+		return nil, 0, apperrors.ErrCollectionForbidden(slug)
 	}
 
 	response := &contracts.BulkAddCollectionItemsResponse{
@@ -1273,7 +1254,7 @@ func (s *CollectionService) BulkAddItems(slug string, userID uint, req *contract
 	if err := s.db.Select("entity_type, entity_id").
 		Where("collection_id = ?", collection.ID).
 		Find(&existing).Error; err != nil {
-		return nil, fmt.Errorf("failed to load existing items: %w", err)
+		return nil, 0, fmt.Errorf("failed to load existing items: %w", err)
 	}
 	existingKeys := make(map[string]bool, len(existing))
 	for _, it := range existing {
@@ -1346,7 +1327,7 @@ func (s *CollectionService) BulkAddItems(slug string, userID uint, req *contract
 	}
 
 	if len(pending) == 0 {
-		return response, nil
+		return response, collection.ID, nil
 	}
 
 	txErr := s.db.Transaction(func(tx *gorm.DB) error {
@@ -1358,7 +1339,7 @@ func (s *CollectionService) BulkAddItems(slug string, userID uint, req *contract
 		return nil
 	})
 	if txErr != nil {
-		return nil, fmt.Errorf("failed to bulk-add items: %w", txErr)
+		return nil, 0, fmt.Errorf("failed to bulk-add items: %w", txErr)
 	}
 
 	models := make([]communitym.CollectionItem, len(pending))
@@ -1367,7 +1348,7 @@ func (s *CollectionService) BulkAddItems(slug string, userID uint, req *contract
 	}
 	response.Added = s.buildItemResponses(models)
 
-	return response, nil
+	return response, collection.ID, nil
 }
 
 // ResolveCollectionItems batches (entity_type, slug) lookups for the
@@ -1657,41 +1638,41 @@ func festivalSubtitle(city, state string, editionYear int) *string {
 // forbidden for one in this collection, which is membership. Without isAdmin,
 // because an item response carries the item's entity name, slug and the display
 // name of whoever added it, and no collection READ grants an admin any of that.
-func (s *CollectionService) UpdateItem(slug string, itemID uint, userID uint, isAdmin bool, req *contracts.UpdateCollectionItemRequest) (*contracts.CollectionItemResponse, error) {
+func (s *CollectionService) UpdateItem(slug string, itemID uint, userID uint, isAdmin bool, req *contracts.UpdateCollectionItemRequest) (*contracts.CollectionItemResponse, uint, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
 	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, apperrors.ErrCollectionNotFound(slug)
+			return nil, 0, apperrors.ErrCollectionNotFound(slug)
 		}
-		return nil, fmt.Errorf("failed to get collection: %w", err)
+		return nil, 0, fmt.Errorf("failed to get collection: %w", err)
 	}
 
 	if !collection.IsPublic && collection.CreatorID != userID {
-		return nil, apperrors.ErrCollectionNotFound(slug)
+		return nil, 0, apperrors.ErrCollectionNotFound(slug)
 	}
 
 	var item communitym.CollectionItem
 	err = s.db.Where("id = ? AND collection_id = ?", itemID, collection.ID).First(&item).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, apperrors.ErrCollectionItemNotFound(itemID)
+			return nil, 0, apperrors.ErrCollectionItemNotFound(itemID)
 		}
-		return nil, fmt.Errorf("failed to get collection item: %w", err)
+		return nil, 0, fmt.Errorf("failed to get collection item: %w", err)
 	}
 
 	// Check permission: collection creator, item adder, or admin
 	if collection.CreatorID != userID && item.AddedByUserID != userID && !isAdmin {
-		return nil, apperrors.ErrCollectionForbidden(slug)
+		return nil, 0, apperrors.ErrCollectionForbidden(slug)
 	}
 
 	// Validate notes length on save (mirrors comment body limit).
 	if req.Notes != nil && len(*req.Notes) > contracts.MaxCollectionItemNotesLength {
-		return nil, fmt.Errorf("notes exceed maximum length of %d characters", contracts.MaxCollectionItemNotesLength)
+		return nil, 0, fmt.Errorf("notes exceed maximum length of %d characters", contracts.MaxCollectionItemNotesLength)
 	}
 
 	// Update notes
@@ -1700,7 +1681,7 @@ func (s *CollectionService) UpdateItem(slug string, itemID uint, userID uint, is
 	}
 
 	if err := s.db.Save(&item).Error; err != nil {
-		return nil, fmt.Errorf("failed to update collection item: %w", err)
+		return nil, 0, fmt.Errorf("failed to update collection item: %w", err)
 	}
 
 	// Resolve entity name and slug
@@ -1719,49 +1700,49 @@ func (s *CollectionService) UpdateItem(slug string, itemID uint, userID uint, is
 		Notes:         item.Notes,
 		NotesHTML:     s.renderNotes(item.Notes),
 		CreatedAt:     item.CreatedAt,
-	}, nil
+	}, collection.ID, nil
 }
 
 // RemoveItem removes an item from a collection.
 //
 // Gated on UpdateItem's terms: before the item lookup, and with no isAdmin term.
-func (s *CollectionService) RemoveItem(slug string, itemID uint, userID uint, isAdmin bool) error {
+func (s *CollectionService) RemoveItem(slug string, itemID uint, userID uint, isAdmin bool) (uint, error) {
 	if s.db == nil {
-		return fmt.Errorf("database not initialized")
+		return 0, fmt.Errorf("database not initialized")
 	}
 
 	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return apperrors.ErrCollectionNotFound(slug)
+			return 0, apperrors.ErrCollectionNotFound(slug)
 		}
-		return fmt.Errorf("failed to get collection: %w", err)
+		return 0, fmt.Errorf("failed to get collection: %w", err)
 	}
 
 	if !collection.IsPublic && collection.CreatorID != userID {
-		return apperrors.ErrCollectionNotFound(slug)
+		return 0, apperrors.ErrCollectionNotFound(slug)
 	}
 
 	var item communitym.CollectionItem
 	err = s.db.Where("id = ? AND collection_id = ?", itemID, collection.ID).First(&item).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return apperrors.ErrCollectionItemNotFound(itemID)
+			return 0, apperrors.ErrCollectionItemNotFound(itemID)
 		}
-		return fmt.Errorf("failed to get collection item: %w", err)
+		return 0, fmt.Errorf("failed to get collection item: %w", err)
 	}
 
 	// Check permission: collection creator, item adder, or admin
 	if collection.CreatorID != userID && item.AddedByUserID != userID && !isAdmin {
-		return apperrors.ErrCollectionForbidden(slug)
+		return 0, apperrors.ErrCollectionForbidden(slug)
 	}
 
 	if err := s.db.Delete(&item).Error; err != nil {
-		return fmt.Errorf("failed to remove item from collection: %w", err)
+		return 0, fmt.Errorf("failed to remove item from collection: %w", err)
 	}
 
-	return nil
+	return collection.ID, nil
 }
 
 // ReorderItems reorders items in a collection
@@ -2468,18 +2449,18 @@ func (s *CollectionService) GetUserPublicCollectionsByUsername(username string, 
 //
 // actorID is the admin performing the action, recorded as featured_by /
 // unfeatured_by; pass 0 for an unknown/system actor (stored as NULL).
-func (s *CollectionService) SetFeatured(slug string, featured bool, actorID uint) error {
+func (s *CollectionService) SetFeatured(slug string, featured bool, actorID uint) (uint, error) {
 	if s.db == nil {
-		return fmt.Errorf("database not initialized")
+		return 0, fmt.Errorf("database not initialized")
 	}
 
 	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return apperrors.ErrCollectionNotFound(slug)
+			return 0, apperrors.ErrCollectionNotFound(slug)
 		}
-		return fmt.Errorf("failed to get collection: %w", err)
+		return 0, fmt.Errorf("failed to get collection: %w", err)
 	}
 
 	// NO VISIBILITY TEST, and this is the third admin write that reaches a private
@@ -2496,7 +2477,7 @@ func (s *CollectionService) SetFeatured(slug string, featured bool, actorID uint
 		actor = &actorID
 	}
 
-	return s.db.Transaction(func(tx *gorm.DB) error {
+	if err := s.db.Transaction(func(tx *gorm.DB) error {
 		// Explicit single-column update — GORM's skip-zero-value-on-Create
 		// bool gotcha does not apply to a named Update, so `false` persists.
 		if err := tx.Model(&collection).Update("is_featured", featured).Error; err != nil {
@@ -2536,7 +2517,11 @@ func (s *CollectionService) SetFeatured(slug string, featured bool, actorID uint
 			return fmt.Errorf("failed to close feature run: %w", err)
 		}
 		return nil
-	})
+	}); err != nil {
+		return 0, err
+	}
+
+	return collection.ID, nil
 }
 
 // ============================================================================
@@ -3105,26 +3090,26 @@ func (s *CollectionService) canEditCollectionTags(collection *communitym.Collect
 //
 // Returns the post-mutation tag list so the frontend can refresh the chip
 // row from a single round-trip.
-func (s *CollectionService) AddTagToCollection(slug string, userID uint, req *contracts.AddCollectionTagRequest) (*contracts.AddCollectionTagResponse, error) {
+func (s *CollectionService) AddTagToCollection(slug string, userID uint, req *contracts.AddCollectionTagRequest) (*contracts.AddCollectionTagResponse, uint, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, 0, fmt.Errorf("database not initialized")
 	}
 	if s.tagService == nil {
-		return nil, fmt.Errorf("tag service not initialized")
+		return nil, 0, fmt.Errorf("tag service not initialized")
 	}
 	if req == nil {
-		return nil, apperrors.ErrCollectionInvalidRequest("request body is required")
+		return nil, 0, apperrors.ErrCollectionInvalidRequest("request body is required")
 	}
 	if req.TagID == 0 && strings.TrimSpace(req.TagName) == "" {
-		return nil, apperrors.ErrCollectionInvalidRequest("tag_id or tag_name is required")
+		return nil, 0, apperrors.ErrCollectionInvalidRequest("tag_id or tag_name is required")
 	}
 
 	var collection communitym.Collection
 	if err := s.db.Where("slug = ?", slug).First(&collection).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, apperrors.ErrCollectionNotFound(slug)
+			return nil, 0, apperrors.ErrCollectionNotFound(slug)
 		}
-		return nil, fmt.Errorf("failed to get collection: %w", err)
+		return nil, 0, fmt.Errorf("failed to get collection: %w", err)
 	}
 
 	if !s.canEditCollectionTags(&collection, userID) {
@@ -3132,9 +3117,9 @@ func (s *CollectionService) AddTagToCollection(slug string, userID uint, req *co
 			// Invisible answers as missing, on the terms GetBySlug states; the
 			// forbidden case below is a PUBLIC collection the caller may see and
 			// may not edit.
-			return nil, apperrors.ErrCollectionNotFound(slug)
+			return nil, 0, apperrors.ErrCollectionNotFound(slug)
 		}
-		return nil, apperrors.ErrCollectionForbidden(slug)
+		return nil, 0, apperrors.ErrCollectionForbidden(slug)
 	}
 
 	// PSY-354: the per-collection cap (MaxCollectionTags) is now enforced
@@ -3152,51 +3137,55 @@ func (s *CollectionService) AddTagToCollection(slug string, userID uint, req *co
 	}
 
 	if _, err := s.tagService.AddTagToEntity(req.TagID, req.TagName, catalogm.TagEntityCollection, collection.ID, userID, category); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// Re-list and return the post-mutation set.
 	tags, err := s.tagService.ListEntityTags(catalogm.TagEntityCollection, collection.ID, userID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list collection tags: %w", err)
+		return nil, 0, fmt.Errorf("failed to list collection tags: %w", err)
 	}
 	if tags == nil {
 		tags = []contracts.EntityTagResponse{}
 	}
-	return &contracts.AddCollectionTagResponse{Tags: tags}, nil
+	return &contracts.AddCollectionTagResponse{Tags: tags}, collection.ID, nil
 }
 
 // RemoveTagFromCollection removes a tag from a collection (PSY-354). Same
 // edit-access rule as AddTagToCollection. Idempotency is delegated to the
 // tag service — removing a non-existent application returns ErrEntityTagNotFound.
-func (s *CollectionService) RemoveTagFromCollection(slug string, tagID uint, userID uint) error {
+func (s *CollectionService) RemoveTagFromCollection(slug string, tagID uint, userID uint) (uint, error) {
 	if s.db == nil {
-		return fmt.Errorf("database not initialized")
+		return 0, fmt.Errorf("database not initialized")
 	}
 	if s.tagService == nil {
-		return fmt.Errorf("tag service not initialized")
+		return 0, fmt.Errorf("tag service not initialized")
 	}
 	if tagID == 0 {
-		return apperrors.ErrCollectionInvalidRequest("tag_id is required")
+		return 0, apperrors.ErrCollectionInvalidRequest("tag_id is required")
 	}
 
 	var collection communitym.Collection
 	if err := s.db.Where("slug = ?", slug).First(&collection).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return apperrors.ErrCollectionNotFound(slug)
+			return 0, apperrors.ErrCollectionNotFound(slug)
 		}
-		return fmt.Errorf("failed to get collection: %w", err)
+		return 0, fmt.Errorf("failed to get collection: %w", err)
 	}
 
 	if !s.canEditCollectionTags(&collection, userID) {
 		if !collection.IsPublic && collection.CreatorID != userID {
 			// Invisible answers as missing; see the add path.
-			return apperrors.ErrCollectionNotFound(slug)
+			return 0, apperrors.ErrCollectionNotFound(slug)
 		}
-		return apperrors.ErrCollectionForbidden(slug)
+		return 0, apperrors.ErrCollectionForbidden(slug)
 	}
 
-	return s.tagService.RemoveTagFromEntity(tagID, catalogm.TagEntityCollection, collection.ID)
+	if err := s.tagService.RemoveTagFromEntity(tagID, catalogm.TagEntityCollection, collection.ID); err != nil {
+		return 0, err
+	}
+
+	return collection.ID, nil
 }
 
 // listCollectionTags returns the EntityTagResponse list for a single

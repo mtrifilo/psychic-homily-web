@@ -497,16 +497,37 @@ func (s *ContributorProfileService) GetContributionStats(userID uint, viewer con
 // and a direct-edit audit row, and the synthetic "<type>_edit" the
 // pending_entity_edits union emits.
 //
-// Both are gated. A "show_edit" row resolves to no name today, which makes it
-// look harmless, but it publishes the show's ID, and an id is the whole of what
-// an enumeration oracle needs.
+// Both are gated, and only the plain one is written today:
+// adminm.ValidPendingEditEntityTypes admits artist, venue, festival, release and
+// label, so the union emits no "show_edit". It is dispositioned anyway because
+// admitting show there is a one-line edit in another package, and such a row
+// resolves to no name while still publishing the show's id, which is the whole of
+// what an enumeration oracle needs.
 var contributionShowEntityTypes = []string{"show", "show_edit"}
 
+// heatmapGatedEntityTypes are the entity_type values the heatmap's two
+// undecided arms refuse outright: every discriminator this file gates anywhere.
+//
+// Derived from the two lists above rather than written again, so a type that
+// gains a rule is excluded from those arms by the same edit that gates it. The
+// arms cannot decide a row against its entity because they carry catalog types
+// whose gate is "no rule at all"; refusing the gated ones is what keeps a writer
+// that starts recording one from publishing a day.
+//
+// Sorted so the emitted statement is byte-identical across processes.
+func heatmapGatedEntityTypes() []string {
+	types := make([]string, 0, len(contributionShowEntityTypes)+1)
+	types = append(types, contributionShowEntityTypes...)
+	types = append(types, contributionCollectionEntityType)
+	sort.Strings(types)
+	return types
+}
+
 // contributionCollectionEntityType is the discriminator a contribution row
-// carries when it names a collection. There is no "collection_edit" twin:
-// pending_entity_edits and entity_edit_audit_logs accept artist, venue,
-// festival, release, label and show, so the synthetic "<type>_edit" the union
-// emits never says collection.
+// carries when it names a collection. There is no "collection_edit" twin: the
+// synthetic "<type>_edit" comes from pending_entity_edits alone, and
+// adminm.ValidPendingEditEntityTypes admits artist, venue, festival, release and
+// label, so the union never says collection.
 const contributionCollectionEntityType = "collection"
 
 // contributionCollectionIDKind says WHICH id an audit action stores under
@@ -558,7 +579,7 @@ var contributionCollectionActions = map[string]contributionCollectionIDKind{
 	"create_collection":         collectionIDIsCollection,
 	"update_collection":         collectionIDIsCollection,
 	"delete_collection":         collectionIDIsCollection,
-	"clone_collection":          collectionIDIsCollection,
+	contributionCloneAction:     collectionIDIsCollection,
 	"set_collection_featured":   collectionIDIsCollection,
 	"bulk_add_collection_items": collectionIDIsCollection,
 	"add_collection_tag":        collectionIDIsCollection,
@@ -613,9 +634,9 @@ func isCollectionItemAction(action string) bool {
 // viewer may not see; they are removed rather than the row being withheld.
 var contributionCloneSourceKeys = []string{"source_slug", "source_id"}
 
-// contributionCloneAction is the audit action that writes the keys above. Read
-// from the disposition map's own key rather than spelled again, so an action
-// rename cannot leave the scrub matching nothing.
+// contributionCloneAction is the audit action that writes the keys above. It is
+// the disposition map's key too, so a rename cannot leave the scrub matching an
+// action nothing writes.
 const contributionCloneAction = "clone_collection"
 
 // contributionVisibilitySQL returns the condition that decides ONE row of an
@@ -658,17 +679,24 @@ func contributionVisibilitySQL(alias string, viewer contracts.ShowViewer) (strin
 	visibleByLegacySlug, visibleByLegacySlugArgs := shared.VisibleCollectionSlugExistsSQL(legacySlugExpr, viewer)
 	visibleCollections, visibleCollectionArgs := shared.VisibleCollectionExistsSQL(entityIDExpr, viewer)
 
+	// THE SENTINEL COUNTS AS ABSENT on the slug arm's key test. A stored
+	// `"collection_id": 0` names no collection, so the parent-id arm answers no
+	// for it, and reading the key as PRESENT would leave those rows passing no
+	// arm at all and withheld from their own author. The writers cannot produce
+	// one any more; the rows that already carry it are what this reads.
+	parentIDAbsent := "(" + parentIDExpr + " IS NULL OR " + parentIDExpr + " = '0')"
+
 	cond := fmt.Sprintf(
 		"(%s.entity_type NOT IN ? OR %s)"+
 			" AND (%s.entity_type <> ?"+
 			" OR (CASE WHEN %s.action IN ? THEN (%s OR %s"+
-			" OR (%s IS NULL AND %s))"+
+			" OR (%s AND %s))"+
 			" WHEN %s.action IN ? THEN %s"+
 			" ELSE FALSE END))",
 		alias, visibleShows,
 		alias,
 		alias, visibleItemParents, visibleByParentID,
-		parentIDExpr, visibleByLegacySlug,
+		parentIDAbsent, visibleByLegacySlug,
 		alias, visibleCollections)
 
 	var args []interface{}
@@ -748,17 +776,17 @@ func (s *ContributorProfileService) GetContributionHistory(userID uint, limit, o
 	// remove_collection_item row names an item that no longer exists. An id is
 	// never reissued, so that reference stays true.
 	//
-	// A THIRD ARM CARRIES THE ROWS THAT RECORD NO collection_id, and it is keyed
-	// on the metadata SLUG. `collection_id IS NULL` selects the rows written
-	// before the writers recorded an id, plus the ones whose parent could not be
-	// resolved at write time — collectionItemAuditMetadata omits the key rather
-	// than stamping a zero, precisely so those land here instead of passing no
-	// arm at all. Without this arm every such row whose
-	// item has since been removed — which is every remove_collection_item row
-	// ever written, the item being deleted by definition — is withheld from its
-	// own author on a public collection, and from the total as well as the page.
-	// The slug's weakness is real (a rename frees the string, so a later
-	// collection can take it) and it is confined to this arm for that reason.
+	// A THIRD ARM CARRIES THE ROWS THAT RECORD NO USABLE collection_id, and it is
+	// keyed on the metadata SLUG. It selects the rows written before the writers
+	// recorded an id, and the rows that recorded the 0 sentinel, which names no
+	// collection and so passes the id arm no more than a missing key does.
+	// Without this arm every such row whose item has since been removed, which
+	// is every remove_collection_item row ever written since the item is deleted
+	// by definition, is withheld from its own author on a public collection, and
+	// from the total as well as the page. The slug's weakness is real (a rename
+	// frees the string, so a later collection can take it) and it is confined to
+	// this arm for that reason. The item writers now take the parent id from the
+	// service that authorised the write, so the arm takes no new rows.
 	//
 	// Parentheses written out rather than left to the driver, and the entity-type
 	// filter ANDed after: the binding this pins is
@@ -907,11 +935,17 @@ func metadataUint(v interface{}) (uint, bool) {
 // touched, and differencing the two would report how many actions were taken on
 // it.
 //
-// The pending_entity_edits and entity_edit_audit_logs arms are NOT narrowed, and
-// the reason is that neither can name a gated entity: pending_entity_edits and
-// entity_edit_audit_logs carry catalog entity types (artist, venue, release,
-// label, festival), none of which has a read-time rule. A collection or show
-// discriminator appearing in either is what would make this claim false.
+// The pending_entity_edits and entity_edit_audit_logs arms are not decided row by
+// row. Neither table writes a gated entity type today: pending_entity_edits is
+// held to adminm.ValidPendingEditEntityTypes (artist, venue, festival, release,
+// label) and entity_edit_audit_logs is written with artist, release, label,
+// festival and scene. But entity_edit_audit_logs.entity_type is a free column
+// with no allowlist behind it, so that is a property of the writers rather than a
+// constraint. Both arms therefore EXCLUDE the gated discriminators outright:
+// heatmapUngatedEntityTypesSQL drops any row naming a show or a collection, so a
+// writer that starts recording one withholds those days instead of locating a
+// gated entity to the day it was touched. Narrowing them to the real per-row gate
+// is the follow-up; refusing is the recoverable direction until then.
 func (s *ContributorProfileService) GetActivityHeatmap(userID uint, viewer contracts.ShowViewer) (*contracts.ActivityHeatmapResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -950,6 +984,7 @@ func (s *ContributorProfileService) GetActivityHeatmap(userID uint, viewer contr
 			SELECT DATE(created_at) AS activity_date, COUNT(*) AS cnt
 			FROM pending_entity_edits
 			WHERE submitted_by = ? AND created_at >= NOW() - INTERVAL '365 days'
+			  AND entity_type NOT IN ?
 			GROUP BY DATE(created_at)
 
 			UNION ALL
@@ -968,6 +1003,7 @@ func (s *ContributorProfileService) GetActivityHeatmap(userID uint, viewer contr
 			SELECT DATE(created_at) AS activity_date, COUNT(*) AS cnt
 			FROM entity_edit_audit_logs
 			WHERE actor_id = ? AND created_at >= NOW() - INTERVAL '365 days'
+			  AND entity_type NOT IN ?
 			GROUP BY DATE(created_at)
 		) AS combined
 		GROUP BY activity_date
@@ -981,15 +1017,16 @@ func (s *ContributorProfileService) GetActivityHeatmap(userID uint, viewer contr
 
 	// Argument order follows the placeholders left to right through the unioned
 	// arms: audit_logs (+ its visibility args), shows (+ its visibility args),
-	// venues, pending_entity_edits, revisions (+ its visibility args),
-	// entity_edit_audit_logs.
+	// venues, pending_entity_edits (+ its refused types), revisions (+ its
+	// visibility args), entity_edit_audit_logs (+ its refused types).
+	gatedTypes := heatmapGatedEntityTypes()
 	heatmapArgs := []interface{}{userID}
 	heatmapArgs = append(heatmapArgs, heatmapAuditArgs...)
 	heatmapArgs = append(heatmapArgs, userID)
 	heatmapArgs = append(heatmapArgs, heatmapShowsArgs...)
-	heatmapArgs = append(heatmapArgs, userID, userID, userID)
+	heatmapArgs = append(heatmapArgs, userID, userID, gatedTypes, userID)
 	heatmapArgs = append(heatmapArgs, heatmapRevisionsArgs...)
-	heatmapArgs = append(heatmapArgs, userID)
+	heatmapArgs = append(heatmapArgs, userID, gatedTypes)
 
 	var rows []dayRow
 	err := s.db.Raw(query, heatmapArgs...).Scan(&rows).Error

@@ -308,11 +308,17 @@ const visibleCollectionSlugAlias = "visible_collection_slug"
 // relation to it. Every spelling that has an id available must use the id, and
 // the id forms above are what the writers feed today.
 //
-// The one case that has no id is an audit row written before the writers
-// recorded one. Its metadata carries the slug alone, its entity_id names a
-// hard-deleted collection_items row, and judging it by id therefore withholds it
-// from everyone including its own author on a public collection. A slug match is
-// the only reference such a row still has.
+// The cases that have no id are audit rows written before the writers recorded
+// one, and rows that recorded the 0 sentinel, which names no collection. Such a
+// row carries the slug alone, its entity_id names a hard-deleted
+// collection_items row, and judging it by id therefore withholds it from
+// everyone including its own author on a public collection. A slug match is the
+// only reference it still has.
+//
+// THE SET IS CLOSED. Every item writer now takes the parent id from the service
+// that authorised the write, which loaded the parent row to authorise it, so a
+// successful write cannot omit the key or stamp a zero. What this condition
+// decides is the rows that already exist, and it gains no new ones.
 //
 // A row whose slugExpr matches no collection is NOT visible, which is the same
 // fail-closed answer every spelling here gives.

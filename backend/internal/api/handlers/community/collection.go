@@ -39,37 +39,26 @@ func NewCollectionHandler(
 	}
 }
 
-// resolveCollectionIDForAudit returns the numeric collection ID for a slug so
-// audit-log rows carry the durable entity identity instead of only a mutable
-// slug (PSY-1502). Handlers whose mutation service methods expose only the slug
-// use this to stamp the real entity_id. Returns 0 (and logs a warning) when the
-// lookup fails so audit logging stays best-effort and never blocks the request.
+// collectionItemAuditMetadata builds the metadata an ITEM audit row carries: the
+// slug it was written against, and the durable id of the parent collection.
 //
-// A ZERO MUST NOT BE STAMPED. The contributions timeline decides an item row by
-// the recorded parent id, falls back to the recorded slug only when the key is
-// ABSENT, and matches no collection for id 0 — so a row carrying `"collection_id": 0`
-// passes none of the three arms and is withheld from everyone, including its own
-// author on a public collection. Callers use collectionItemAuditMetadata, which
-// omits the key rather than writing the sentinel.
+// entity_id on an item row is the ITEM's id and items are hard-deleted, so the
+// parent id in this document is the only reference that survives the item.
+//
+// A ZERO IS NEVER STAMPED. The contributions timeline decides an item row by the
+// recorded parent id, falls back to the recorded slug only when the key is
+// ABSENT, and matches no collection for id 0, so a row carrying
+// `"collection_id": 0` passes none of the three arms and is withheld from
+// everyone including its own author on a public collection. Callers take the id
+// from the service that authorised the write, which loaded the parent row to
+// authorise it, so a successful write always has a real one; the guard below is
+// what keeps the sentinel out if that ever stops being true.
 func collectionItemAuditMetadata(slug string, collectionID uint) map[string]interface{} {
 	metadata := map[string]interface{}{"slug": slug}
 	if collectionID != 0 {
 		metadata["collection_id"] = collectionID
 	}
 	return metadata
-}
-
-func (h *CollectionHandler) resolveCollectionIDForAudit(ctx context.Context, slug, action string) uint {
-	collectionID, err := h.collectionService.ResolveIDBySlug(slug)
-	if err != nil {
-		logger.FromContext(ctx).Warn("audit_collection_id_resolve_failed",
-			"action", action,
-			"slug", slug,
-			"error", err.Error(),
-		)
-		return 0
-	}
-	return collectionID
 }
 
 // ============================================================================
@@ -389,14 +378,9 @@ func (h *CollectionHandler) DeleteCollectionHandler(ctx context.Context, req *De
 		return nil, huma.Error401Unauthorized("Authentication required")
 	}
 
-	// Resolve the collection ID before deletion so the audit row carries the
-	// real entity_id; the row is gone once DeleteCollection commits (PSY-1502).
-	var collectionID uint
-	if h.auditLogService != nil {
-		collectionID = h.resolveCollectionIDForAudit(ctx, req.Slug, "delete_collection")
-	}
-
-	err := h.collectionService.DeleteCollection(req.Slug, user.ID, user.IsAdmin)
+	// The service hands back the collection's id, which is the only place it can
+	// come from here: the row is gone once DeleteCollection commits.
+	collectionID, err := h.collectionService.DeleteCollection(req.Slug, user.ID, user.IsAdmin)
 	if err != nil {
 		mappedErr := shared.MapCollectionError(err)
 		if mappedErr != nil {
@@ -463,7 +447,7 @@ func (h *CollectionHandler) AddItemHandler(ctx context.Context, req *AddItemHand
 		Notes:      req.Body.Notes,
 	}
 
-	item, err := h.collectionService.AddItem(req.Slug, user.ID, serviceReq)
+	item, collectionID, err := h.collectionService.AddItem(req.Slug, user.ID, serviceReq)
 	if err != nil {
 		mappedErr := shared.MapCollectionError(err)
 		if mappedErr != nil {
@@ -482,11 +466,9 @@ func (h *CollectionHandler) AddItemHandler(ctx context.Context, req *AddItemHand
 	// Audit log (fire and forget). collection_id is the DURABLE parent
 	// reference: entity_id on this row is the ITEM's id, and items are
 	// hard-deleted, so nothing else on the row survives to decide it against
-	// once the item is gone. The key is omitted when the parent cannot be
-	// resolved, so the row falls back to being decided by its slug rather than
-	// by a zero that matches nothing.
+	// once the item is gone. The id comes from the service that authorised the
+	// write, so a successful write always has one.
 	if h.auditLogService != nil {
-		collectionID := h.resolveCollectionIDForAudit(ctx, req.Slug, "add_collection_item")
 		servicesshared.GoSafe(ctx, "audit_log", func() {
 			metadata := collectionItemAuditMetadata(req.Slug, collectionID)
 			metadata["entity_type"] = req.Body.EntityType
@@ -545,7 +527,7 @@ func (h *CollectionHandler) BulkAddItemsHandler(ctx context.Context, req *BulkAd
 	}
 	serviceReq := &contracts.BulkAddCollectionItemsRequest{Items: items}
 
-	resp, err := h.collectionService.BulkAddItems(req.Slug, user.ID, serviceReq)
+	resp, collectionID, err := h.collectionService.BulkAddItems(req.Slug, user.ID, serviceReq)
 	if err != nil {
 		mappedErr := shared.MapCollectionError(err)
 		if mappedErr != nil {
@@ -567,11 +549,10 @@ func (h *CollectionHandler) BulkAddItemsHandler(ctx context.Context, req *BulkAd
 	if h.auditLogService != nil && (len(resp.Added) > 0 || len(resp.Errors) > 0) {
 		addedCount := len(resp.Added)
 		errorCount := len(resp.Errors)
-		collectionID := h.resolveCollectionIDForAudit(ctx, req.Slug, "bulk_add_collection_items")
 		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "bulk_add_collection_items", "collection", collectionID, map[string]interface{}{
-				"slug":          req.Slug,
-				"added_count":   addedCount,
+				"slug":           req.Slug,
+				"added_count":    addedCount,
 				"rejected_count": errorCount,
 			})
 		})
@@ -616,7 +597,7 @@ func (h *CollectionHandler) UpdateItemHandler(ctx context.Context, req *UpdateIt
 		Notes: req.Body.Notes,
 	}
 
-	item, err := h.collectionService.UpdateItem(req.Slug, uint(itemID), user.ID, user.IsAdmin, serviceReq)
+	item, collectionID, err := h.collectionService.UpdateItem(req.Slug, uint(itemID), user.ID, user.IsAdmin, serviceReq)
 	if err != nil {
 		mappedErr := shared.MapCollectionError(err)
 		if mappedErr != nil {
@@ -636,7 +617,6 @@ func (h *CollectionHandler) UpdateItemHandler(ctx context.Context, req *UpdateIt
 	// Audit log (fire and forget). collection_id is the durable parent
 	// reference; see the add path.
 	if h.auditLogService != nil {
-		collectionID := h.resolveCollectionIDForAudit(ctx, req.Slug, "update_collection_item")
 		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "update_collection_item", "collection", item.ID,
 				collectionItemAuditMetadata(req.Slug, collectionID))
@@ -670,7 +650,7 @@ func (h *CollectionHandler) RemoveItemHandler(ctx context.Context, req *RemoveIt
 		return nil, huma.Error400BadRequest("Invalid item ID")
 	}
 
-	err = h.collectionService.RemoveItem(req.Slug, uint(itemID), user.ID, user.IsAdmin)
+	collectionID, err := h.collectionService.RemoveItem(req.Slug, uint(itemID), user.ID, user.IsAdmin)
 	if err != nil {
 		mappedErr := shared.MapCollectionError(err)
 		if mappedErr != nil {
@@ -690,10 +670,9 @@ func (h *CollectionHandler) RemoveItemHandler(ctx context.Context, req *RemoveIt
 	// Audit log (fire and forget). collection_id is the DURABLE parent
 	// reference: entity_id on this row is the item's id and the item has just
 	// been hard-deleted, so nothing else on the row survives to decide it
-	// against. Resolved from the slug, which the service has already accepted,
-	// and omitted rather than stamped as zero when that resolve fails.
+	// against. The service that removed the item hands the parent back, so this
+	// row always carries one.
 	if h.auditLogService != nil {
-		collectionID := h.resolveCollectionIDForAudit(ctx, req.Slug, "remove_collection_item")
 		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "remove_collection_item", "collection", uint(itemID),
 				collectionItemAuditMetadata(req.Slug, collectionID))
@@ -816,7 +795,7 @@ func (h *CollectionHandler) SetFeaturedHandler(ctx context.Context, req *SetFeat
 		actorID = user.ID
 	}
 
-	err := h.collectionService.SetFeatured(req.Slug, req.Body.Featured, actorID)
+	collectionID, err := h.collectionService.SetFeatured(req.Slug, req.Body.Featured, actorID)
 	if err != nil {
 		mappedErr := shared.MapCollectionError(err)
 		if mappedErr != nil {
@@ -832,12 +811,9 @@ func (h *CollectionHandler) SetFeaturedHandler(ctx context.Context, req *SetFeat
 		)
 	}
 
-	// Audit log (fire and forget). Resolve the real collection ID so the audit
-	// row's entity_id is the durable identity rather than a mutable slug
-	// (PSY-1502). The SetFeatured service call already confirmed the row
-	// exists, so a failure here is unexpected; fall back to 0 with a warning.
+	// Audit log (fire and forget). entity_id is the durable identity rather than
+	// a mutable slug, and it comes from the service that applied the flip.
 	if h.auditLogService != nil {
-		collectionID := h.resolveCollectionIDForAudit(ctx, req.Slug, "set_collection_featured")
 		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "set_collection_featured", "collection", collectionID, map[string]interface{}{
 				"slug":     req.Slug,
@@ -1175,7 +1151,7 @@ func (h *CollectionHandler) AddCollectionTagHandler(ctx context.Context, req *Ad
 		Category: req.Body.Category,
 	}
 
-	resp, err := h.collectionService.AddTagToCollection(req.Slug, user.ID, serviceReq)
+	resp, collectionID, err := h.collectionService.AddTagToCollection(req.Slug, user.ID, serviceReq)
 	if err != nil {
 		// Collection-domain errors first (forbidden / cap / not-found / invalid).
 		if mapped := shared.MapCollectionError(err); mapped != nil {
@@ -1196,7 +1172,6 @@ func (h *CollectionHandler) AddCollectionTagHandler(ctx context.Context, req *Ad
 	}
 
 	if h.auditLogService != nil {
-		collectionID := h.resolveCollectionIDForAudit(ctx, req.Slug, "add_collection_tag")
 		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "add_collection_tag", "collection", collectionID, map[string]interface{}{
 				"slug":     req.Slug,
@@ -1229,7 +1204,8 @@ func (h *CollectionHandler) RemoveCollectionTagHandler(ctx context.Context, req 
 		return nil, huma.Error400BadRequest("Invalid tag ID")
 	}
 
-	if err := h.collectionService.RemoveTagFromCollection(req.Slug, uint(tagID), user.ID); err != nil {
+	collectionID, err := h.collectionService.RemoveTagFromCollection(req.Slug, uint(tagID), user.ID)
+	if err != nil {
 		if mapped := shared.MapCollectionError(err); mapped != nil {
 			return nil, mapped
 		}
@@ -1248,7 +1224,6 @@ func (h *CollectionHandler) RemoveCollectionTagHandler(ctx context.Context, req 
 	}
 
 	if h.auditLogService != nil {
-		collectionID := h.resolveCollectionIDForAudit(ctx, req.Slug, "remove_collection_tag")
 		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "remove_collection_tag", "collection", collectionID, map[string]interface{}{
 				"slug":   req.Slug,

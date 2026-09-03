@@ -36,7 +36,8 @@ func (suite *CollectionServiceIntegrationTestSuite) TestSetFeatured_OpensRunAndR
 	user := suite.createTestUser("Featurer")
 	coll := suite.createBasicCollection(user, "Open A Run")
 
-	suite.Require().NoError(suite.collectionService.SetFeatured(coll.Slug, true, user.ID))
+	_, featErr := suite.collectionService.SetFeatured(coll.Slug, true, user.ID)
+	suite.Require().NoError(featErr)
 
 	detail, err := suite.collectionService.GetBySlug(coll.Slug, user.ID)
 	suite.Require().NoError(err)
@@ -57,8 +58,10 @@ func (suite *CollectionServiceIntegrationTestSuite) TestSetFeatured_FeatureTwice
 	user := suite.createTestUser("DoubleFeaturer")
 	coll := suite.createBasicCollection(user, "Feature Twice")
 
-	suite.Require().NoError(suite.collectionService.SetFeatured(coll.Slug, true, user.ID))
-	suite.Require().NoError(suite.collectionService.SetFeatured(coll.Slug, true, user.ID))
+	_, featErr := suite.collectionService.SetFeatured(coll.Slug, true, user.ID)
+	suite.Require().NoError(featErr)
+	_, featErr = suite.collectionService.SetFeatured(coll.Slug, true, user.ID)
+	suite.Require().NoError(featErr)
 
 	suite.Len(suite.openRunsFor(coll.ID), 1)
 	suite.Len(suite.allRunsFor(coll.ID), 1)
@@ -69,8 +72,10 @@ func (suite *CollectionServiceIntegrationTestSuite) TestSetFeatured_UnfeatureClo
 	user := suite.createTestUser("Closer")
 	coll := suite.createBasicCollection(user, "Close The Run")
 
-	suite.Require().NoError(suite.collectionService.SetFeatured(coll.Slug, true, user.ID))
-	suite.Require().NoError(suite.collectionService.SetFeatured(coll.Slug, false, user.ID))
+	_, featErr := suite.collectionService.SetFeatured(coll.Slug, true, user.ID)
+	suite.Require().NoError(featErr)
+	_, featErr = suite.collectionService.SetFeatured(coll.Slug, false, user.ID)
+	suite.Require().NoError(featErr)
 
 	detail, err := suite.collectionService.GetBySlug(coll.Slug, user.ID)
 	suite.Require().NoError(err)
@@ -89,7 +94,8 @@ func (suite *CollectionServiceIntegrationTestSuite) TestSetFeatured_UnfeatureWhe
 	user := suite.createTestUser("NoopCloser")
 	coll := suite.createBasicCollection(user, "Never Featured")
 
-	suite.Require().NoError(suite.collectionService.SetFeatured(coll.Slug, false, user.ID))
+	_, featErr := suite.collectionService.SetFeatured(coll.Slug, false, user.ID)
+	suite.Require().NoError(featErr)
 
 	suite.Empty(suite.allRunsFor(coll.ID))
 }
@@ -100,9 +106,12 @@ func (suite *CollectionServiceIntegrationTestSuite) TestSetFeatured_RefeatureCre
 	user := suite.createTestUser("Refeaturer")
 	coll := suite.createBasicCollection(user, "Re-feature Me")
 
-	suite.Require().NoError(suite.collectionService.SetFeatured(coll.Slug, true, user.ID))
-	suite.Require().NoError(suite.collectionService.SetFeatured(coll.Slug, false, user.ID))
-	suite.Require().NoError(suite.collectionService.SetFeatured(coll.Slug, true, user.ID))
+	_, featErr := suite.collectionService.SetFeatured(coll.Slug, true, user.ID)
+	suite.Require().NoError(featErr)
+	_, featErr = suite.collectionService.SetFeatured(coll.Slug, false, user.ID)
+	suite.Require().NoError(featErr)
+	_, featErr = suite.collectionService.SetFeatured(coll.Slug, true, user.ID)
+	suite.Require().NoError(featErr)
 
 	all := suite.allRunsFor(coll.ID)
 	suite.Require().Len(all, 2)
@@ -120,7 +129,8 @@ func (suite *CollectionServiceIntegrationTestSuite) TestFeatureRuns_PartialUniqu
 	user := suite.createTestUser("IndexProver")
 	coll := suite.createBasicCollection(user, "One Open Only")
 
-	suite.Require().NoError(suite.collectionService.SetFeatured(coll.Slug, true, user.ID))
+	_, featErr := suite.collectionService.SetFeatured(coll.Slug, true, user.ID)
+	suite.Require().NoError(featErr)
 
 	second := &communitym.CollectionFeatureRun{
 		CollectionID: coll.ID,
@@ -147,7 +157,8 @@ func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FoldsOpe
 	featured := suite.createBasicCollection(user, "Featured Row")
 	suite.createBasicCollection(user, "Plain Row")
 
-	suite.Require().NoError(suite.collectionService.SetFeatured(featured.Slug, true, user.ID))
+	_, featErr := suite.collectionService.SetFeatured(featured.Slug, true, user.ID)
+	suite.Require().NoError(featErr)
 
 	resp, _, err := suite.collectionService.ListCollections(contracts.CollectionFilters{CreatorID: user.ID}, 20, 0)
 	suite.Require().NoError(err)

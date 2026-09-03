@@ -2,6 +2,7 @@ package engagement
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -977,6 +978,42 @@ func TestCreateReply_FollowersOnlyRejected(t *testing.T) {
 	req.Body.Body = "trying to reply"
 	_, err := h.CreateReplyHandler(commentUserCtx(), req)
 	testhelpers.AssertHumaError(t, err, 403)
+}
+
+// A FAILED PARENT LOOKUP IS A 500, NOT "Comment not found".
+//
+// The three comment-id writes gate on the parent the comment names, and the
+// visibility answer fails closed. A database error is not that answer: rendered
+// as a not-found it tells the caller their comment is gone, tells the operator
+// nothing, and is indistinguishable from the gate doing its job.
+func TestCommentIDWrites_ParentLookupFailureIs500(t *testing.T) {
+	broken := &testhelpers.MockCommentService{
+		GetCommentFn: func(uint) (*contracts.CommentResponse, error) {
+			return nil, errors.New("connection reset by peer")
+		},
+	}
+
+	t.Run("edit the comment", func(t *testing.T) {
+		h := NewCommentHandler(broken, broken, nil, nil, testhelpers.AllShowsVisible())
+		req := &UpdateCommentRequest{CommentID: "1"}
+		req.Body.Body = "an edit that never reaches the writer"
+		_, err := h.UpdateCommentHandler(commentUserCtx(), req)
+		testhelpers.AssertHumaError(t, err, 500)
+	})
+
+	t.Run("change the reply permission", func(t *testing.T) {
+		h := NewCommentHandler(broken, broken, nil, nil, testhelpers.AllShowsVisible())
+		req := &UpdateReplyPermissionRequest{CommentID: "1"}
+		req.Body.Permission = "author_only"
+		_, err := h.UpdateReplyPermissionHandler(commentUserCtx(), req)
+		testhelpers.AssertHumaError(t, err, 500)
+	})
+
+	t.Run("delete the comment", func(t *testing.T) {
+		h := NewCommentHandler(broken, broken, nil, nil, testhelpers.AllShowsVisible())
+		_, err := h.DeleteCommentHandler(commentUserCtx(), &DeleteCommentRequest{CommentID: "1"})
+		testhelpers.AssertHumaError(t, err, 500)
+	})
 }
 
 // writeGateParent resolves the comment the three comment-id WRITES decide their

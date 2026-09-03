@@ -1,0 +1,187 @@
+package catalog
+
+import (
+	"strings"
+
+	"gorm.io/gorm"
+
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
+)
+
+// =============================================================================
+// A TAG'S DISPLAYED COUNT IS ALSO ITS ORDERING KEY
+// =============================================================================
+//
+// The /tags listing renders a number beside every tag and orders the listing by
+// popularity, and the two have to be the same expression. When they are not, the
+// page is SELECTED on one key and SHOWN with another: a tag displaying 0 sits
+// above a tag displaying 40, and a reader who can see the order but not the
+// gated rows learns from the position that the 0 is not really 0. Ordering by a
+// count that includes withheld rows publishes those rows as a rank.
+//
+// So each facet scope has ONE aggregate, built here. The listing LEFT JOINs it to
+// order itself and then reads the same aggregate for the numbers it prints.
+// `tags.usage_count`, the denormalised column, is not an ordering key for any
+// public listing; services/shared/tag_usage.go names the three places it is still
+// read and why each is not this.
+//
+// EVERY SCOPE IS PUBLIC TIER. These listings are anonymous, and a shared ranking
+// that varied by credential would report the difference between two callers.
+
+// tagUsageCountAlias is the alias the listing binds the count aggregate to.
+// Distinct from `tags` and from every table the aggregates name, so the join
+// cannot shadow the outer query's own alias.
+const tagUsageCountAlias = "tag_usage_counts"
+
+// tagUsageCountQuery is a (tag_id, count) aggregate over ALL tags in one facet
+// scope, carried as SQL plus binds so the same statement can be read for the
+// numbers and joined for the ordering.
+//
+// Unrestricted by tag id: the ordering is computed before the page is chosen, so
+// an aggregate that only knew the page's tags could not have selected it.
+type tagUsageCountQuery struct {
+	sql  string
+	args []interface{}
+}
+
+// countsFor returns the aggregate restricted to tagIDs, as tag_id → count.
+//
+// A tag with no counted rows is ABSENT from the map, and callers read a missing
+// key as zero, which is the same contract shared.VisibleTagUsageCounts states.
+func (q tagUsageCountQuery) countsFor(db *gorm.DB, tagIDs []uint) (map[uint]int64, error) {
+	out := make(map[uint]int64, len(tagIDs))
+	if db == nil || len(tagIDs) == 0 {
+		return out, nil
+	}
+	type countRow struct {
+		TagID uint
+		Count int64
+	}
+	var rows []countRow
+	args := append(append([]interface{}{}, q.args...), tagIDs)
+	err := db.Raw(
+		"SELECT tag_id, count FROM ("+q.sql+") AS "+tagUsageCountAlias+" WHERE tag_id IN ?",
+		args...,
+	).Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		out[r.TagID] = r.Count
+	}
+	return out, nil
+}
+
+// leftJoin renders the aggregate as a LEFT JOIN onto tagIDExpr, plus its binds.
+//
+// LEFT, so a tag the aggregate counts nothing for still appears in the listing
+// with a NULL the ORDER BY coalesces to zero. An inner join would drop it, and a
+// tag applied only to gated entities would then vanish from a listing that has
+// always shown it.
+//
+// tagIDExpr is SQL the CALLER controls and is a literal in the calling code.
+func (q tagUsageCountQuery) leftJoin(tagIDExpr string) (string, []interface{}) {
+	return "LEFT JOIN (" + q.sql + ") " + tagUsageCountAlias +
+		" ON " + tagUsageCountAlias + ".tag_id = " + tagIDExpr, q.args
+}
+
+// orderBySQL is the popularity ordering over this aggregate: the visible count
+// descending, name ascending as the tiebreaker the listing has always used.
+func tagUsageCountOrderBySQL() string {
+	return "COALESCE(" + tagUsageCountAlias + ".count, 0) DESC, tags.name ASC"
+}
+
+// visibleTagUsageCountQuery returns the aggregate for one facet scope.
+//
+// entityType empty is the GLOBAL count the /tags browse renders. Otherwise the
+// count is scoped to that entity type, and for show and festival it is
+// TRANSITIVE through the lineup, because no show carries a genre tag directly
+// and a facet reading 0 beside three matching shows dead-ends the reader.
+//
+// cities narrows the show scope to the active city filter and is ignored for
+// every other type, which is the rule computeEntityTypeTagCounts already states.
+func (s *TagService) visibleTagUsageCountQuery(entityType string, cities []contracts.CityStateFilter) tagUsageCountQuery {
+	switch entityType {
+	case "":
+		sql, args := shared.VisibleTagUsageCountSQL()
+		return tagUsageCountQuery{sql: sql, args: args}
+	case catalogm.TagEntityShow:
+		if len(cities) > 0 {
+			return transitiveArtistTagUsageInShowCitiesQuery(cities)
+		}
+		return transitiveArtistTagUsageQuery("show_artists", "show_id", "artist_id")
+	case catalogm.TagEntityFestival:
+		return transitiveArtistTagUsageQuery("festival_artists", "festival_id", "artist_id")
+	}
+	return directEntityTypeTagUsageQuery(entityType)
+}
+
+// directEntityTypeTagUsageQuery counts entity_tags rows of one entity type.
+//
+// GATED FOR COLLECTIONS, and for nothing else here: a collection is the only
+// directly-taggable type with a read-time rule, and this count is rendered on the
+// same anonymous listing whose membership is filtered, so counting private
+// collections would report by subtraction how many carry each tag.
+func directEntityTypeTagUsageQuery(entityType string) tagUsageCountQuery {
+	sql := "SELECT entity_tags.tag_id AS tag_id, COUNT(*) AS count" +
+		" FROM entity_tags WHERE entity_tags.entity_type = ?"
+	args := []interface{}{entityType}
+	if entityType == catalogm.TagEntityCollection {
+		visible, visibleArgs := shared.VisibleCollectionExistsSQL(
+			"entity_tags.entity_id", contracts.ShowViewer{})
+		sql += " AND " + visible
+		args = append(args, visibleArgs...)
+	}
+	return tagUsageCountQuery{sql: sql + " GROUP BY entity_tags.tag_id", args: args}
+}
+
+// transitiveArtistTagUsageQuery counts DISTINCT container entities (shows or
+// festivals) whose lineup includes an artist carrying the tag.
+//
+// junctionTable, containerIDColumn and artistIDColumn are SQL identifiers the
+// CALLER controls and are literals in the calling code.
+func transitiveArtistTagUsageQuery(junctionTable, containerIDColumn, artistIDColumn string) tagUsageCountQuery {
+	return tagUsageCountQuery{
+		sql: "SELECT entity_tags.tag_id AS tag_id," +
+			" COUNT(DISTINCT " + junctionTable + "." + containerIDColumn + ") AS count" +
+			" FROM " + junctionTable +
+			" JOIN entity_tags ON entity_tags.entity_type = ?" +
+			" AND entity_tags.entity_id = " + junctionTable + "." + artistIDColumn +
+			" GROUP BY entity_tags.tag_id",
+		args: []interface{}{catalogm.TagEntityArtist},
+	}
+}
+
+// transitiveArtistTagUsageInShowCitiesQuery is the city-scoped show variant.
+//
+// It filters on the denormalized shows.(city, state), which is the predicate
+// GetUpcomingShows uses for its multi-city filter. Sharing that predicate is
+// load-bearing: a facet count derived from a different filter than the list can
+// offer a non-zero chip that dead-ends at "0 shows".
+//
+// An empty cities set falls back to the unscoped query rather than emitting an
+// empty disjunction.
+func transitiveArtistTagUsageInShowCitiesQuery(cities []contracts.CityStateFilter) tagUsageCountQuery {
+	if len(cities) == 0 {
+		return transitiveArtistTagUsageQuery("show_artists", "show_id", "artist_id")
+	}
+	conds := make([]string, 0, len(cities))
+	args := []interface{}{catalogm.TagEntityArtist}
+	for _, cs := range cities {
+		conds = append(conds, "(shows.city = ? AND shows.state = ?)")
+		args = append(args, cs.City, cs.State)
+	}
+	return tagUsageCountQuery{
+		sql: "SELECT entity_tags.tag_id AS tag_id," +
+			" COUNT(DISTINCT show_artists.show_id) AS count" +
+			" FROM show_artists" +
+			" JOIN entity_tags ON entity_tags.entity_type = ?" +
+			" AND entity_tags.entity_id = show_artists.artist_id" +
+			" JOIN shows ON shows.id = show_artists.show_id" +
+			" WHERE (" + strings.Join(conds, " OR ") + ")" +
+			" GROUP BY entity_tags.tag_id",
+		args: args,
+	}
+}

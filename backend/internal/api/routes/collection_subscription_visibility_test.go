@@ -857,6 +857,11 @@ func TestCommentWritesRefuseAGatedParentLikeAMissingComment(t *testing.T) {
 			}{
 				{"the comment's own author", authorToken},
 				{"a stranger", strangerToken},
+				// AN ADMIN IS A CALLER HERE LIKE ANY OTHER. The moderation
+				// remedies live on /admin/comments/{id}, so an admin arm on any
+				// of these would be a destructive existence walk bought for
+				// nothing.
+				{"an admin", adminToken},
 			} {
 				gatedCode, gatedBody := doRequest(t, router, w.method, w.path(commentID), c.token, w.body)
 				if gatedCode < 400 {
@@ -879,15 +884,23 @@ func TestCommentWritesRefuseAGatedParentLikeAMissingComment(t *testing.T) {
 		})
 	}
 
-	// AN ADMIN KEEPS THE DELETE, and only the delete. Removing a comment is the
-	// remedy the pending-comment moderation queue reaches, and that queue serves
-	// an admin every pending comment's body whatever its parent.
-	if code, body := doRequest(t, router, http.MethodPut, fmt.Sprintf("/comments/%d", commentID),
-		adminToken, []byte(`{"body":"an admin is not the author"}`)); code < 400 {
-		t.Errorf("an admin edited a comment on a private collection: %d; body: %s", code, body)
+	// THE COMMENT SURVIVES every caller above, which is the destructive half of
+	// the claim: an admin DELETE that had been let through would have removed it
+	// and the walk would be a delete-and-observe rather than a probe.
+	var surviving int64
+	if err := td.DB.Table("comments").Where("id = ?", commentID).Count(&surviving).Error; err != nil {
+		t.Fatalf("count the seeded comment: %v", err)
 	}
-	if code, body := doRequest(t, router, http.MethodDelete, fmt.Sprintf("/comments/%d", commentID),
-		adminToken, nil); code >= 400 {
-		t.Errorf("an admin was refused the moderation delete on a gated parent: %d; body: %s", code, body)
+	if surviving != 1 {
+		t.Errorf("the comment on the private collection was removed by a caller the gate refuses")
+	}
+
+	// THE MODERATION REMEDIES ARE ELSEWHERE, and they still reach this comment.
+	// /admin/comments/{id}/hide is the queue's own route, and it is what makes
+	// refusing the admin above cost the queue nothing.
+	if code, body := doRequest(t, router, http.MethodPost,
+		fmt.Sprintf("/admin/comments/%d/hide", commentID), adminToken,
+		[]byte(`{"reason":"moderated from the queue"}`)); code >= 400 {
+		t.Errorf("the admin moderation route was refused a comment on a gated parent: %d; body: %s", code, body)
 	}
 }

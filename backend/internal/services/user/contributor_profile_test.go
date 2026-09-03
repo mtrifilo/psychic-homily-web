@@ -2389,44 +2389,92 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 		"the author sees both real legacy rows and neither the unresolvable one")
 }
 
-// A ROW WHOSE PARENT COULD NOT BE RESOLVED AT WRITE TIME IS STILL LISTED.
+// A ROW CARRYING THE ZERO SENTINEL IS STILL LISTED.
 //
-// resolveCollectionIDForAudit answers 0 when the lookup fails, and 0 matches no
-// collection. Stamped as `"collection_id": 0` such a row passes none of the three
-// arms — the item is gone, id 0 resolves to nothing, and the key being PRESENT
-// blocks the legacy slug arm — so it would be withheld from everyone including
-// its own author on a public collection. The writer omits the key instead, which
-// is what puts the row in the slug arm; this pins the outcome rather than the
-// spelling.
-func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_UnresolvedParentRowsAreStillListed() {
+// Id 0 matches no collection, so a row stamped `"collection_id": 0` passes the
+// parent-id arm no more than a row with no key at all does: its item is gone,
+// the id resolves to nothing, and reading the key as PRESENT would leave the row
+// passing no arm and withheld from everyone including its own author on a public
+// collection. The gate reads the sentinel as absent and the row falls to the
+// slug arm. Rows in this shape exist; the writers can no longer produce one.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_ZeroSentinelParentRowsAreStillListed() {
 	actor := suite.createTestUser("zeroparentactor")
 	stranger := suite.createTestUser("zeroparentstranger")
 
 	openColl := suite.createCollectionForHistory(actor.ID, "Zero Parent Open", "zero-parent-open", true)
+	shutColl := suite.createCollectionForHistory(actor.ID, "Zero Parent Shut", "zero-parent-shut", false)
 
-	item := suite.createCollectionItemForHistory(openColl.ID, actor.ID)
-	itemID := item.ID
-	suite.Require().NoError(suite.db.Delete(&communitym.CollectionItem{}, itemID).Error)
-	// The shape collectionItemAuditMetadata produces when the parent resolve
-	// fails: the slug, and no collection_id key at all.
-	suite.auditLog.LogAction(actor.ID, "remove_collection_item", "collection", itemID,
-		map[string]interface{}{"slug": openColl.Slug})
+	seedZeroRow := func(c *communitym.Collection) {
+		item := suite.createCollectionItemForHistory(c.ID, actor.ID)
+		itemID := item.ID
+		suite.Require().NoError(suite.db.Delete(&communitym.CollectionItem{}, itemID).Error)
+		suite.auditLog.LogAction(actor.ID, "remove_collection_item", "collection", itemID,
+			map[string]interface{}{"slug": c.Slug, "collection_id": 0})
+	}
+	seedZeroRow(openColl)
+	seedZeroRow(shutColl)
 
 	entries, total, err := suite.profileService.GetContributionHistory(
 		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: stranger.ID})
 	suite.Require().NoError(err)
 	suite.EqualValues(len(entries), total)
-	suite.Require().Len(entries, 1, "an unresolved-parent row on a public collection stays listed")
+	suite.Require().Len(entries, 1, "the sentinel row on a PUBLIC collection is listed to a stranger")
+	suite.Equal(openColl.Slug, entries[0].Metadata["slug"])
 
-	// The ZERO SENTINEL is what the writer must never produce: seeded directly,
-	// it is withheld, and that is the failure this arrangement exists to avoid.
-	suite.auditLog.LogAction(actor.ID, "remove_collection_item", "collection", itemID+1,
-		map[string]interface{}{"slug": openColl.Slug, "collection_id": 0})
-	withZero, _, err := suite.profileService.GetContributionHistory(
+	// AND THE PRIVATE ONE IS NOT. Falling to the slug arm is a fallback, not a
+	// bypass: the arm still decides the named collection against the viewer.
+	own, ownTotal, err := suite.profileService.GetContributionHistory(
 		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: actor.ID})
 	suite.Require().NoError(err)
-	suite.Len(withZero, 1,
-		"a row stamped with the zero sentinel passes no arm, which is why the writer omits the key")
+	suite.EqualValues(len(own), ownTotal)
+	suite.Len(own, 2, "the creator sees both")
+}
+
+// THE HEATMAP'S UNDECIDED ARMS REFUSE A GATED DISCRIMINATOR.
+//
+// pending_entity_edits and entity_edit_audit_logs are counted without a per-row
+// visibility test, on the evidence that their writers record catalog types with
+// no read-time rule. entity_edit_audit_logs.entity_type has no allowlist behind
+// it, so the arms exclude the gated discriminators outright rather than trusting
+// that evidence: a row naming a show or a collection is not counted, whoever is
+// asking, including the actor themselves.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatmap_UndecidedArmsRefuseGatedTypes() {
+	actor := suite.createTestUser("undecidedarmsactor")
+	shutColl := suite.createCollectionForHistory(actor.ID, "Arms Shut", "arms-shut", false)
+
+	dayTotal := func() int {
+		heatmap, err := suite.profileService.GetActivityHeatmap(actor.ID, contracts.ShowViewer{UserID: actor.ID})
+		suite.Require().NoError(err)
+		total := 0
+		for _, d := range heatmap.Days {
+			total += d.Count
+		}
+		return total
+	}
+	before := dayTotal()
+
+	// An UNGATED type in the same table is the control: it is counted, so a zero
+	// delta below is the exclusion rather than an arm that counts nothing.
+	suite.Require().NoError(suite.db.Create(&adminm.EntityEditAuditLog{
+		ActorID: &actor.ID, EntityType: "artist", EntityID: 1, CreatedAt: time.Now().UTC(),
+	}).Error)
+	suite.Equal(before+1, dayTotal(), "an artist edit is counted, which is the control")
+
+	// The gated pair, in both undecided tables.
+	suite.Require().NoError(suite.db.Create(&adminm.EntityEditAuditLog{
+		ActorID: &actor.ID, EntityType: "collection", EntityID: shutColl.ID, CreatedAt: time.Now().UTC(),
+	}).Error)
+	suite.Require().NoError(suite.db.Create(&adminm.EntityEditAuditLog{
+		ActorID: &actor.ID, EntityType: "show", EntityID: 987654, CreatedAt: time.Now().UTC(),
+	}).Error)
+	suite.Require().NoError(suite.db.Exec(
+		`INSERT INTO pending_entity_edits (entity_type, entity_id, submitted_by, field_changes, summary, status, created_at, updated_at)
+		 VALUES (?, ?, ?, ?::jsonb, ?, ?, NOW(), NOW())`,
+		"collection", shutColl.ID, actor.ID, `{"title":"x"}`, "a gated pending edit",
+		adminm.PendingEditStatusPending).Error)
+
+	suite.Equal(before+1, dayTotal(),
+		"a show- or collection-typed row in either undecided arm is not counted")
 }
 
 // THE HEATMAP AND THE TIMELINE ANSWER FOR THE SAME ROWS. Both routes are
@@ -2464,9 +2512,19 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatm
 	suite.Equal(2, ownerDays, "the creator counts both, which is the control")
 
 	// The TIMELINE agrees, which is the property that closes the subtraction.
+	// Counted over the AUDIT rows alone, because the two routes union different
+	// source sets (the heatmap reads revisions and the timeline does not) and
+	// an equality over everything would hold here only by the fixture carrying
+	// none of the sources they do not share.
 	entries, _, err := suite.profileService.GetContributionHistory(
 		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: stranger.ID})
 	suite.Require().NoError(err)
-	suite.Equal(len(entries), strangerDays,
-		"the heatmap and the timeline must count the same rows for the same viewer")
+	auditEntries := 0
+	for _, e := range entries {
+		if e.Source == "audit_log" {
+			auditEntries++
+		}
+	}
+	suite.Equal(auditEntries, strangerDays,
+		"the heatmap and the timeline must count the same audit rows for the same viewer")
 }

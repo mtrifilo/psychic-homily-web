@@ -1936,6 +1936,51 @@ func TestTagServiceIntegration(t *testing.T) {
 // private collections and gated shows carrying the tag. This walks every public
 // surface that publishes the number and requires them to agree with the
 // breakdown they are read beside.
+// THE /tags PAGE IS MONOTONIC IN THE NUMBER IT PRINTS.
+//
+// The listing is SELECTED by an ORDER BY and RENDERED with the visible counts.
+// When those are two expressions the page can show a tag counting 0 above a tag
+// counting 40, and the position then states a lower bound on the rows the count
+// withholds: the reader learns the 0 is not really 0. This pins the outcome for
+// both the global listing and the entity-scoped one.
+func (suite *TagServiceIntegrationTestSuite) TestListTags_PageIsMonotonicInTheDisplayedCount() {
+	user := suite.createTestUser("monotonic-user")
+
+	// The HIGH-RAW tag is applied only to PRIVATE collections, so its raw column
+	// outranks everything while its visible count is zero. Ordering on the raw
+	// column puts it first with a 0 beside it.
+	hidden := suite.createTag("monotonic-hidden", "genre")
+	for i := 0; i < 4; i++ {
+		shut := suite.createCollection(user.ID, fmt.Sprintf("Monotonic Shut %d", i), false)
+		_, err := suite.tagService.AddTagToEntity(hidden.ID, "", catalogm.TagEntityCollection, shut.ID, user.ID, "")
+		suite.Require().NoError(err)
+	}
+
+	// The LOW-RAW tag is applied to public collections only, so every row counts.
+	shown := suite.createTag("monotonic-shown", "genre")
+	for i := 0; i < 2; i++ {
+		open := suite.createCollection(user.ID, fmt.Sprintf("Monotonic Open %d", i), true)
+		_, err := suite.tagService.AddTagToEntity(shown.ID, "", catalogm.TagEntityCollection, open.ID, user.ID, "")
+		suite.Require().NoError(err)
+	}
+
+	assertMonotonic := func(entityType, label string) {
+		tags, _, err := suite.tagService.ListTags("", "monotonic-", nil, "usage", 50, 0, entityType, nil)
+		suite.Require().NoError(err)
+		suite.Require().Len(tags, 2, label)
+		for i := 1; i < len(tags); i++ {
+			suite.Assert().GreaterOrEqual(tags[i-1].UsageCount, tags[i].UsageCount,
+				"%s: %q shows %d above %q showing %d", label,
+				tags[i-1].Name, tags[i-1].UsageCount, tags[i].Name, tags[i].UsageCount)
+		}
+		suite.Assert().Equal(shown.Name, tags[0].Name,
+			"%s: the tag with visible rows outranks the tag whose rows are all withheld", label)
+	}
+
+	assertMonotonic("", "GET /tags")
+	assertMonotonic(catalogm.TagEntityCollection, "GET /tags?entity_type=collection")
+}
+
 func (suite *TagServiceIntegrationTestSuite) TestUsageCountAgreesAcrossEveryPublicSurface() {
 	user := suite.createTestUser("usagecount-user")
 	tag := suite.createTag("usage-count-agreement", "genre")
