@@ -608,6 +608,47 @@ func TestGetShowHandler_NonApproved_Denied(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 404)
 }
 
+// THE TWO REFUSALS ARE ONE RESPONSE.
+//
+// GET /shows/{id} is the rule every other show gate mirrors, and its own two
+// 404s used different bodies: the access refusal said "Show not found" and the
+// lookup failure said "Show not found [SHOW_NOT_FOUND]". Show ids are dense and
+// sequential, so a caller who can tell the pair apart walks the id space and
+// learns which unpublished shows exist, which is the disclosure the 404 was
+// chosen over a 403 to prevent.
+func TestGetShowHandler_GatedAndMissingAnswerAlike(t *testing.T) {
+	otherUser := uint(99)
+	gated := &testhelpers.MockShowService{
+		GetShowFn: func(_ uint) (*contracts.ShowResponse, error) {
+			return &contracts.ShowResponse{ID: 1, Status: "pending", SubmittedBy: &otherUser}, nil
+		},
+	}
+	missing := &testhelpers.MockShowService{
+		GetShowFn: func(_ uint) (*contracts.ShowResponse, error) {
+			return nil, fmt.Errorf("record not found")
+		},
+	}
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
+
+	refusal := func(svc *testhelpers.MockShowService, id string) *huma.ErrorModel {
+		t.Helper()
+		h := NewShowHandler(svc, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
+		_, err := h.GetShowHandler(ctx, &GetShowRequest{ShowID: id})
+		var model *huma.ErrorModel
+		if !errors.As(err, &model) {
+			t.Fatalf("expected a *huma.ErrorModel, got %T: %v", err, err)
+		}
+		return model
+	}
+
+	got := refusal(gated, "1")
+	want := refusal(missing, "99999999")
+	if got.Status != want.Status || got.Title != want.Title || got.Detail != want.Detail {
+		t.Errorf("a gated show answers %d/%q/%q and a show id nobody has used answers %d/%q/%q",
+			got.Status, got.Title, got.Detail, want.Status, want.Title, want.Detail)
+	}
+}
+
 // ============================================================================
 // Mock-based tests: GetShowsHandler
 // ============================================================================

@@ -652,6 +652,18 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 	return &CreateShowResponse{Body: *show}, nil
 }
 
+// refuseShowAsMissing is the ONE answer GET /shows/{id} gives for a show the
+// caller may not see and for a show that is not there.
+//
+// Both refusals are built here rather than written out at the two return sites,
+// because the value of the gate is that the pair is indistinguishable: a caller
+// who can tell the two apart can walk the id space and learn which unpublished
+// shows exist. Show ids are dense and sequential.
+func refuseShowAsMissing() error {
+	showErr := apperrors.ErrShowNotFound(0)
+	return huma.Error404NotFound(fmt.Sprintf("%s [%s]", showErr.Message, showErr.Code))
+}
+
 // GetShowHandler handles GET /shows/{show_id} - accepts either numeric ID or slug
 func (h *ShowHandler) GetShowHandler(ctx context.Context, req *GetShowRequest) (*GetShowResponse, error) {
 	requestID := logger.GetRequestID(ctx)
@@ -675,16 +687,12 @@ func (h *ShowHandler) GetShowHandler(ctx context.Context, req *GetShowRequest) (
 	}
 
 	if err != nil {
-		showErr := apperrors.ErrShowNotFound(0)
 		logger.FromContext(ctx).Warn("show_not_found",
 			"show_id_or_slug", req.ShowID,
 			"error", err.Error(),
-			"error_code", showErr.Code,
 			"request_id", requestID,
 		)
-		return nil, huma.Error404NotFound(
-			fmt.Sprintf("%s [%s]", showErr.Message, showErr.Code),
-		)
+		return nil, refuseShowAsMissing()
 	}
 
 	// Access control. THIS ROUTE IS THE RULE, and it evaluates the rule from the
@@ -700,7 +708,7 @@ func (h *ShowHandler) GetShowHandler(ctx context.Context, req *GetShowRequest) (
 			"status", show.Status,
 			"request_id", requestID,
 		)
-		return nil, huma.Error404NotFound("Show not found")
+		return nil, refuseShowAsMissing()
 	}
 
 	logger.FromContext(ctx).Debug("show_get_success",
