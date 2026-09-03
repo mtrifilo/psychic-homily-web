@@ -748,6 +748,12 @@ var contributionEntityRequestActions = map[string]bool{
 	"approve_entity_request": true,
 	"reject_entity_request":  true,
 
+	// handlers/community/entity_request_withdraw.go: the requester retracting
+	// their own pending request. It writes the same shape as the create actions,
+	// requested catalog type in entity_type and the request's id beside it, so it
+	// is judged here rather than by the entity-type arms.
+	"withdraw_entity_request": true,
+
 	// handlers/community/entity_request_rescue.go.
 	"rescue_fulfill_entity_request": true,
 	"rescue_void_entity_request":    true,
