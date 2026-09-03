@@ -217,8 +217,9 @@ describe('buildShowStatusStripeSegments', () => {
     })
 
     // Outside that map the zone silently becomes Arizona's, which is what put
-    // "DOORS 3AM" on a 7 PM Tokyo show. The band says the date and stops.
-    it('prints the date alone for a venue the state map does not know', () => {
+    // "DOORS 3AM" on a 7 PM Tokyo show. The band says the date, marked as read
+    // on a guess, and stops.
+    it('prints the marked date alone for a venue the state map does not know', () => {
       expect(
         buildShowStatusStripeSegments(
           input({
@@ -229,7 +230,7 @@ describe('buildShowStatusStripeSegments', () => {
             musicAt: '2026-04-16T10:00:00Z',
           })
         )
-      ).toEqual(['THU', 'APR 16'])
+      ).toEqual(['~THU', 'APR 16'])
     })
 
     // Including the same-day claim: TONIGHT on a guessed clock stayed true for
@@ -245,7 +246,57 @@ describe('buildShowStatusStripeSegments', () => {
             doorsAt: '2026-04-16T09:00:00Z',
           })
         )
-      ).toEqual(['THU', 'APR 16'])
+      ).toEqual(['~THU', 'APR 16'])
+    })
+
+    // The marker rides on the leading segment only: two segments are one date.
+    it('marks the guessed day once, not once per segment', () => {
+      const segments = buildShowStatusStripeSegments(
+        input({ timezone: null, state: 'England' })
+      )
+      expect(segments.filter(segment => segment.includes('~'))).toHaveLength(1)
+    })
+
+    // A cancelled show keeps its date band, so it has to mark the same way.
+    it('marks the guessed day on a cancelled show too', () => {
+      expect(
+        buildShowStatusStripeSegments(
+          input({
+            timezone: null,
+            state: '',
+            isCancelled: true,
+            eventDate: '2026-04-16T10:00:00Z',
+          })
+        )
+      ).toEqual(['CANCELLED', '~THU', 'APR 16'])
+    })
+
+    // And so does the past band, which uses the full-date register rather than
+    // the badge pair.
+    it('marks the guessed day in the past register', () => {
+      expect(
+        buildShowStatusStripeSegments(
+          input({
+            timezone: null,
+            state: '',
+            lifecycle: 'past',
+            eventDate: '2026-04-16T10:00:00Z',
+          })
+        )
+      ).toEqual(['PAST SHOW', '~THU, APR 16 2026'])
+    })
+
+    it('leaves the past register unmarked when the zone is known', () => {
+      expect(
+        buildShowStatusStripeSegments(
+          input({
+            timezone: 'Asia/Tokyo',
+            state: '',
+            lifecycle: 'past',
+            eventDate: '2026-04-16T10:00:00Z',
+          })
+        )
+      ).toEqual(['PAST SHOW', 'THU, APR 16 2026'])
     })
 
     // A resolved venue timezone is enough on its own; the state is only ever

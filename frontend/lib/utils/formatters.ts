@@ -53,7 +53,8 @@ export function resolveShowTimezone(
  * `features/shows/components/showStatusStripeCopy.ts`, which drop DOORS, MUSIC
  * and TONIGHT, and through `MusicEvent.startDate` in `lib/seo/jsonld.ts`, which
  * degrades to a bare calendar date. The accepting half is every date render,
- * which prints the fallback's calendar day rather than printing nothing.
+ * which prints the fallback's calendar day rather than printing nothing, marked
+ * with `~` on the show page (see {@link markGuessedShowDay}).
  * `FALLBACK_SHOW_TIMEZONE` (`./timeUtils`) carries why that day is the best
  * available answer instead of an arbitrary one, and names the one consumer
  * that still resolves through it ungated.
@@ -100,8 +101,80 @@ export function isValidTimeZone(tz: string): boolean {
 }
 
 /**
+ * The site's mark for a number it is estimating rather than reporting. Already
+ * the register of `ENDS ~11PM` in the show page's status stripe and `CAP ~500`
+ * in its venue facts, which is why the guessed calendar day borrows it instead
+ * of introducing a second vocabulary for the same idea (user decision).
+ */
+export const GUESSED_VALUE_MARKER = '~'
+
+/**
+ * Prefix a rendered date with {@link GUESSED_VALUE_MARKER} when the zone that
+ * decided which calendar day it is was {@link FALLBACK_SHOW_TIMEZONE} rather
+ * than one the row supplies. Returns the string untouched otherwise.
+ *
+ * Takes the FORMATTED string, not the instant, because the four renders it
+ * serves are in four registers ("Fri, Nov 13", "Friday, November 13, 2026",
+ * "WED, AUG 12 2026", and the stripe's "SAT · AUG 15" pair) and only the
+ * marking rule is common to them. One prefix per date, never one per segment:
+ * the reader is being told one thing is a guess, and a date printed in parts is
+ * still one date.
+ *
+ * Applied on the SHOW PAGE, whose whole design is a run of qualified facts a
+ * reader scans together, so an unqualified date there reads as a checked one.
+ * Listing surfaces deliberately do not mark: a row carries no other estimate to
+ * read the mark against, so a bare `~` beside a date in a table of dates raises
+ * a question it has no room to answer.
+ */
+export function markGuessedShowDay(
+  formatted: string,
+  state?: string | null,
+  timezone?: string | null
+): string {
+  if (isShowTimezoneResolved(state, timezone)) return formatted
+  return `${GUESSED_VALUE_MARKER}${formatted}`
+}
+
+/**
+ * The long-form show date: "Saturday, October 24, 2026", or "Sat, Oct 24, 2026"
+ * abbreviated, venue-local and marked when the day is a guess.
+ *
+ * Exists because the meta description and the share card each want the long
+ * form, and each used to hand-roll `toLocaleDateString` over
+ * `resolveShowTimezone`. Two private copies of one policy is how the guess
+ * marker gets applied to three date renders and missed by the fourth, which is
+ * exactly the shape of the bug they were both already carrying.
+ *
+ * `abbreviated` is a FIT decision the caller owns (the share card narrows its
+ * date beside a flyer plate), not a second policy: both widths mark the same
+ * days.
+ */
+export function formatShowDateLong(
+  dateString: string,
+  state?: string | null,
+  timezone?: string | null,
+  abbreviated = false
+): string {
+  const formatted = formatInTimezone(
+    dateString,
+    resolveShowTimezone(state, timezone),
+    {
+      weekday: abbreviated ? 'short' : 'long',
+      year: 'numeric',
+      month: abbreviated ? 'short' : 'long',
+      day: 'numeric',
+    }
+  )
+  return markGuessedShowDay(formatted, state, timezone)
+}
+
+/**
  * Format a show date in the venue's timezone: "Mon, Dec 1" or "Mon Dec 1, 2026".
  * Pass the venue's `timezone` when available; `state` is the fallback.
+ *
+ * Unmarked even when the zone is a guess: this serves listing tables and cards
+ * as well as the show page, and {@link markGuessedShowDay} carries why the two
+ * are treated differently. The show page wraps this call itself.
  */
 export function formatShowDate(
   dateString: string,
@@ -207,7 +280,7 @@ export function formatShowMonth(
  * it; no surface substitutes placeholder copy for the withheld clock.
  *
  * Formatting a DATE on the same guess is a weaker claim and stays allowed; see
- * {@link isShowTimezoneResolved}.
+ * {@link isShowTimezoneResolved} and {@link markGuessedShowDay}.
  *
  * There is no NaN guard: an unreadable `dateString` still formats as "Invalid
  * Date". A caller that also renders a date has already had to answer that,

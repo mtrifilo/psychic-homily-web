@@ -4,7 +4,11 @@ import { Fragment, useCallback, useState } from 'react'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
-import { formatShowDate, resolveShowTimezone } from '@/lib/utils/formatters'
+import {
+  formatShowDate,
+  markGuessedShowDay,
+  resolveShowTimezone,
+} from '@/lib/utils/formatters'
 import { ShowFlyerPlate } from './ShowFlyerPlate'
 import { ShowTicketRow } from './ShowTicketRow'
 import { saysSoldOut } from './showSaleState'
@@ -307,16 +311,21 @@ export function ShowHeader({
           {/* A DATE AND NOTHING ELSE. The zone here may be the fallback
               (`FALLBACK_SHOW_TIMEZONE` in `lib/utils/timeUtils`, which carries
               why that day is still the best available answer), so this line
-              deliberately builds nothing hour-level on it: the start time moved
-              to `ShowTicketRow` in Wave 1C and refuses on a guessed zone, as the
-              stripe above does for DOORS / MUSIC / TONIGHT.
+              builds nothing hour-level on it: the start time lives in
+              `ShowTicketRow` and refuses on a guessed zone, as the stripe above
+              does for DOORS / MUSIC / TONIGHT.
 
-              Whether a guessed day should also be MARKED as one for the reader
-              is a design question with no locked answer; it is deliberately not
-              invented here. PSY-1964 holds it, and lists the other three date
-              renders on this page any answer has to cover. */}
+              A guessed day is MARKED `~`, in the same register as the stripe's
+              `ENDS ~11PM` and the venue facts' `CAP ~500`. All four date
+              renders on this page mark together (this one, the stripe, the meta
+              description, the share card) or the page qualifies one claim and
+              states the identical one as fact a few pixels away. */}
           <span className="text-lg font-bold text-primary">
-            {formatShowDate(show.event_date, timing.state, false, timing.timezone)}
+            {markGuessedShowDay(
+              formatShowDate(show.event_date, timing.state, false, timing.timezone),
+              timing.state,
+              timing.timezone
+            )}
           </span>
           {/* Through the shared derivation, not `show.is_sold_out` directly.
               This page states SOLD OUT twice — here and in the ticket row

@@ -1,7 +1,7 @@
 import { ImageResponse } from 'next/og'
 import * as Sentry from '@sentry/nextjs'
 import { API_BASE_URL } from '@/lib/api-base'
-import { resolveShowTimezone } from '@/lib/utils/formatters'
+import { formatShowDateLong } from '@/lib/utils/formatters'
 import {
   OG_COLORS,
   OG_CONTENT_TYPE,
@@ -80,44 +80,6 @@ interface ShowData {
   image_url?: string | null
   venues: Array<{ name: string; city: string; state: string; timezone?: string | null }>
   artists: Array<{ name: string; is_headliner?: boolean | null }>
-}
-
-/**
- * `abbreviated` is what the plate card uses, and it is a fit decision, not a
- * stylistic one.
- *
- * The date row is the one row with no fit function — its size is fixed, because
- * on the full-width card it always fits. Beside a plate it does not:
- * "Wednesday, September 30, 2026" measures 603px, and the SOLD OUT badge adds
- * another 209px, against a 640px column. Both then WRAP — the date breaking
- * mid-phrase and the badge stacking to "SOLD / OUT" — which is legible but
- * scrappy, and it steals vertical space from the headline.
- *
- * Abbreviating takes the same row to 563px with the badge, on one line, with no
- * information dropped. At the 300px share size the short form is the more
- * readable of the two anyway.
- *
- * This is the share card's own copy of the date formatter, and it carries the
- * same unmarked missing-timezone fallback as the page's meta description and
- * the header (PSY-1696): `resolveShowTimezone` ends at
- * `FALLBACK_SHOW_TIMEZONE`, so a venue with no geocoded zone and a non-US state
- * gets a guessed calendar day here with nothing saying so. Whether to mark it
- * is PSY-1964.
- */
-function formatDate(
-  dateString: string,
-  state?: string | null,
-  timezone?: string | null,
-  abbreviated = false
-): string {
-  const date = new Date(dateString)
-  return date.toLocaleDateString('en-US', {
-    weekday: abbreviated ? 'short' : 'long',
-    year: 'numeric',
-    month: abbreviated ? 'short' : 'long',
-    day: 'numeric',
-    timeZone: resolveShowTimezone(state, timezone), // venue-local for share card (PSY-986)
-  })
 }
 
 export default async function Image({ params }: { params: Promise<{ slug: string }> }) {
@@ -238,7 +200,20 @@ function renderCard(
     state: venue?.state ?? show.state,
     timezone: venue?.timezone,
   }
-  const showDate = formatDate(
+  // The shared formatter, not a local copy: the card states the same day the
+  // page states, marked the same way when the zone is a guess.
+  //
+  // The last argument abbreviates, and it is a FIT decision, not a stylistic
+  // one. The date row is the one row with no fit function: its size is fixed,
+  // because on the full-width card it always fits. Beside a plate it does not.
+  // "Wednesday, September 30, 2026" measures 603px and the SOLD OUT badge adds
+  // another 209px, against a 640px column, so both WRAP: the date breaks
+  // mid-phrase and the badge stacks to "SOLD / OUT", which is legible but
+  // scrappy and steals vertical space from the headline. Abbreviating takes the
+  // same row to 563px with the badge, on one line, with no information dropped.
+  // At the 300px share size the short form is the more readable of the two
+  // anyway.
+  const showDate = formatShowDateLong(
     show.event_date,
     showTiming.state,
     showTiming.timezone,

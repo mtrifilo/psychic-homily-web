@@ -138,8 +138,10 @@ const STATE_TIMEZONES: Record<string, string> = {
  * `MusicEvent.startDate` in `lib/seo/jsonld.ts` degrades to a bare calendar
  * date rather than composing an offset out of this zone.
  *
- * A DATE is a weaker claim and is still rendered on this constant, unmarked.
- * Whether a guessed day should be marked for the reader is PSY-1964.
+ * A DATE is a weaker claim and is still rendered on this constant, marked with
+ * `~` on the show page (`markGuessedShowDay` in `./formatters`, the same
+ * register as `ENDS ~11PM` and `CAP ~500`). Listing surfaces render the day
+ * unmarked: they carry no other guess marks to read it against.
  *
  * ONE CONSUMER IS UNGATED, and it is not a string:
  * `getShowLifecycleState` (`./showTiming`) resolves through here to compare

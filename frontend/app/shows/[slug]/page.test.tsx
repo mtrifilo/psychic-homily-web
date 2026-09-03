@@ -274,6 +274,37 @@ describe('generateMetadata', () => {
     expect(meta.description).toContain('Headliner Band live at The Rebel Lounge on')
   })
 
+  it('dates the generated description on the venue calendar', async () => {
+    // 03:00Z is the previous evening in Phoenix, so a description built on the
+    // raw instant would name the wrong day in the search result.
+    fetchMock.mockResolvedValueOnce(
+      okResponse(buildShow({ event_date: '2026-09-10T03:00:00Z' }))
+    )
+
+    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'test-show' }) })
+
+    expect(meta.description).toContain('on Wednesday, September 9, 2026')
+  })
+
+  it('marks the day in the description when the venue zone is a guess', async () => {
+    // PSY-1964: the meta description is one of the four date renders on this
+    // page, and they mark together or the page contradicts itself.
+    fetchMock.mockResolvedValueOnce(
+      okResponse(
+        buildShow({
+          event_date: '2026-09-10T03:00:00Z',
+          venues: [
+            { name: 'Hall Ohne Zone', slug: 'hall', city: 'Berlin', state: '' },
+          ],
+        })
+      )
+    )
+
+    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'test-show' }) })
+
+    expect(meta.description).toContain('on ~Wednesday, September 9, 2026')
+  })
+
   it('sets the canonical URL to https://psychichomily.com/shows/{slug}', async () => {
     fetchMock.mockResolvedValueOnce(okResponse(buildShow()))
 

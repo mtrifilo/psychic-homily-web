@@ -27,7 +27,7 @@ import type {
 } from '@/features/shows/types'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicEventSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
-import { resolveShowTimezone } from '@/lib/utils/formatters'
+import { formatShowDateLong } from '@/lib/utils/formatters'
 import { getShowLifecycleState, hasShowStarted } from '@/lib/utils/showTiming'
 import { API_BASE_URL } from '@/lib/api-base'
 import { queryKeys } from '@/lib/queryClient'
@@ -136,32 +136,6 @@ async function getShowTimeline(
   return null
 }
 
-/**
- * A hand-rolled sibling of `lib/utils/formatters.formatShowDate`, kept separate
- * because the meta description wants the long form ("Saturday, October 24").
- *
- * It inherits that helper's missing-timezone policy without saying so, which is
- * why this pointer exists (PSY-1696): `resolveShowTimezone` ends at
- * `FALLBACK_SHOW_TIMEZONE`, so for a venue with no geocoded zone and a non-US
- * state this prints a guessed calendar day, unmarked. Same for the share card's
- * own copy in `opengraph-image.tsx`. Whether to mark it is PSY-1964, and any
- * answer has to change all four date renders on this page together.
- */
-function formatShowDate(
-  dateString: string,
-  state?: string | null,
-  timezone?: string | null
-): string {
-  const date = new Date(dateString)
-  return date.toLocaleDateString('en-US', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    timeZone: resolveShowTimezone(state, timezone), // venue-local for SEO (PSY-986)
-  })
-}
-
 export async function generateMetadata({ params }: ShowPageProps): Promise<Metadata> {
   const { slug } = await params
   const show = await getShow(slug)
@@ -169,7 +143,14 @@ export async function generateMetadata({ params }: ShowPageProps): Promise<Metad
   if (show) {
     const headliner = show.artists?.find(a => a.is_headliner)?.name || show.artists?.[0]?.name || 'Live Music'
     const venueName = show.venues?.[0]?.name || 'TBA'
-    const showDate = formatShowDate(show.event_date, show.venues?.[0]?.state, show.venues?.[0]?.timezone)
+    // The shared long-form formatter, not a local `toLocaleDateString`: the
+    // description states the same day the page's header, stripe and share card
+    // state, including the `~` when that day is read on a guessed zone.
+    const showDate = formatShowDateLong(
+      show.event_date,
+      show.venues?.[0]?.state,
+      show.venues?.[0]?.timezone
+    )
     const title = `${headliner} at ${venueName}`
     const generatedDesc = `${headliner} live at ${venueName} on ${showDate}`
     const description = show.description

@@ -268,6 +268,22 @@ describe('the text column beside a plate', () => {
     expect(dateRowWidth('Wednesday, September 30, 2026', true)).toBeLessThanOrEqual(CONTENT_WIDTH)
   })
 
+  // A guessed day carries a leading `~` (PSY-1964), which is one more mono
+  // glyph on the row that has no fit function. Both budgets are re-asserted
+  // with it, because the marker lands on exactly the rows already closest to
+  // their limit.
+  it('still fits the marked abbreviated date beside a plate when sold out', () => {
+    for (const date of ['~Wed, Sep 30, 2026', '~Sat, Nov 28, 2026']) {
+      expect(dateRowWidth(date, true), date).toBeLessThanOrEqual(TEXT_WIDTH_WITH_PLATE)
+    }
+  })
+
+  it('still fits the marked long date form on the full-width card', () => {
+    expect(
+      dateRowWidth('~Wednesday, September 30, 2026', true)
+    ).toBeLessThanOrEqual(CONTENT_WIDTH)
+  })
+
   // Every element is still consumed at a 4× downscale, plate or no plate.
   it('holds the narrow column to the same legibility floor', () => {
     expect(

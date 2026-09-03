@@ -143,6 +143,37 @@ describe('the show OG route', () => {
     expect(isPng(bytes)).toBe(true)
   }, 30000)
 
+  // PSY-1964. The card is the fourth date render on this page, and the string
+  // it draws is asserted in `formatShowDateLong`'s own suite. What only this
+  // test can see is that the route reaches that helper at all: a zoneless
+  // venue must produce DIFFERENT pixels from a zoned one, which it cannot if
+  // the route reverted to a local formatter or the marker never reached Satori.
+  it('draws a different date row for a venue whose zone is a guess', async () => {
+    const zoneless = {
+      ...BASE_SHOW,
+      venues: [{ name: 'Sleeping Village', city: 'Chicago', state: '' }],
+    }
+    const zoned = {
+      ...BASE_SHOW,
+      venues: [
+        {
+          name: 'Sleeping Village',
+          city: 'Chicago',
+          state: '',
+          timezone: 'America/Phoenix',
+        },
+      ],
+    }
+    const { res, bytes } = await render(zoneless)
+    const { bytes: control } = await render(zoned)
+
+    expect(res.status).toBe(200)
+    expect(isPng(bytes)).toBe(true)
+    // Same instant, same fallback zone, same day: the only difference between
+    // these two cards is the marker.
+    expect(bytes.byteLength).not.toBe(control.byteLength)
+  }, 30000)
+
   // The badge is the one reader-facing CLAIM this card makes about state, and
   // it outlives a correction: a settled card holds for a day with an equal
   // stale-while-revalidate window, so a stale SOLD OUT can survive the page

@@ -9,7 +9,9 @@ import {
   formatAdminTime,
   formatShortDate,
   formatTimestamp,
+  formatShowDateLong,
   isShowTimezoneResolved,
+  markGuessedShowDay,
 } from './formatters'
 
 // Mock timeUtils to control timezone behavior deterministically. The three-state
@@ -206,6 +208,58 @@ describe('isShowTimezoneResolved', () => {
 
   it('accepts a known state even when the timezone is malformed', () => {
     expect(isShowTimezoneResolved('AZ', 'Not/AZone')).toBe(true)
+  })
+})
+
+describe('markGuessedShowDay', () => {
+  it('leaves a date alone when the row supplies its own zone', () => {
+    expect(markGuessedShowDay('Fri, Nov 13', null, 'Europe/Berlin')).toBe(
+      'Fri, Nov 13'
+    )
+  })
+
+  it('leaves a date alone when the state map knows the state', () => {
+    expect(markGuessedShowDay('Fri, Nov 13', 'AZ')).toBe('Fri, Nov 13')
+  })
+
+  it('prefixes the tilde when the day was read on the fallback', () => {
+    expect(markGuessedShowDay('Fri, Nov 13', '')).toBe('~Fri, Nov 13')
+    expect(markGuessedShowDay('Fri, Nov 13', 'England')).toBe('~Fri, Nov 13')
+  })
+
+  it('marks once, whatever the register', () => {
+    // The four show-page renders differ in shape; the marker does not.
+    expect(markGuessedShowDay('WED, AUG 12 2026', '')).toBe('~WED, AUG 12 2026')
+    expect(markGuessedShowDay('SAT', '')).toBe('~SAT')
+  })
+})
+
+describe('formatShowDateLong', () => {
+  // 03:00 UTC is the evening BEFORE in the fallback zone, so a formatter that
+  // quietly read this in UTC would name the wrong day as well as skip the mark.
+  const utcDate = '2026-11-14T03:00:00Z'
+
+  it('spells the long form in the venue zone', () => {
+    expect(formatShowDateLong(utcDate, 'AZ')).toBe('Friday, November 13, 2026')
+  })
+
+  it('abbreviates on request without changing the day', () => {
+    expect(formatShowDateLong(utcDate, 'AZ', null, true)).toBe(
+      'Fri, Nov 13, 2026'
+    )
+  })
+
+  it('marks the day when the zone is a guess, in both widths', () => {
+    expect(formatShowDateLong(utcDate, '')).toBe('~Friday, November 13, 2026')
+    expect(formatShowDateLong(utcDate, 'England', null, true)).toBe(
+      '~Fri, Nov 13, 2026'
+    )
+  })
+
+  it('prefers the venue timezone over the state', () => {
+    expect(formatShowDateLong(utcDate, 'AZ', 'Europe/Berlin')).toBe(
+      'Saturday, November 14, 2026'
+    )
   })
 })
 
