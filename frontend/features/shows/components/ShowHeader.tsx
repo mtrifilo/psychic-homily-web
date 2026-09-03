@@ -4,11 +4,8 @@ import { Fragment, useCallback, useState } from 'react'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
-import {
-  formatShowDate,
-  markGuessedShowDay,
-  resolveShowTimezone,
-} from '@/lib/utils/formatters'
+import { resolveShowTimezone } from '@/lib/utils/formatters'
+import { showPageDate } from '../showPageDate'
 import { ShowFlyerPlate } from './ShowFlyerPlate'
 import { ShowTicketRow } from './ShowTicketRow'
 import { saysSoldOut } from './showSaleState'
@@ -315,17 +312,10 @@ export function ShowHeader({
               `ShowTicketRow` and refuses on a guessed zone, as the stripe above
               does for DOORS / MUSIC / TONIGHT.
 
-              A guessed day is MARKED `~`, in the same register as the stripe's
-              `ENDS ~11PM` and the venue facts' `CAP ~500`. All four date
-              renders on this page mark together (this one, the stripe, the meta
-              description, the share card) or the page qualifies one claim and
-              states the identical one as fact a few pixels away. */}
+              A guessed day is MARKED `~`; `showPageDate` owns that rule for
+              every date render on this page. */}
           <span className="text-lg font-bold text-primary">
-            {markGuessedShowDay(
-              formatShowDate(show.event_date, timing.state, false, timing.timezone),
-              timing.state,
-              timing.timezone
-            )}
+            {showPageDate(show.event_date, timing.state, timing.timezone)}
           </span>
           {/* Through the shared derivation, not `show.is_sold_out` directly.
               This page states SOLD OUT twice — here and in the ticket row

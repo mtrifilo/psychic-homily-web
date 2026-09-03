@@ -9,9 +9,7 @@ import {
   formatAdminTime,
   formatShortDate,
   formatTimestamp,
-  formatShowDateLong,
   isShowTimezoneResolved,
-  markGuessedShowDay,
 } from './formatters'
 
 // Mock timeUtils to control timezone behavior deterministically. The three-state
@@ -146,7 +144,7 @@ describe('formatShowTimeCompact', () => {
   it('resolves the zone by the same chain as formatShowTime', () => {
     // Same instant, same zones, only the register differs — which is the whole
     // contract: a rail must never resolve a room's clock by its own rule.
-    expect(formatShowTimeCompact(utcDate)).toBe('7:30PM')
+    expect(formatShowTimeCompact(utcDate, 'AZ')).toBe('7:30PM')
     expect(formatShowTimeCompact(utcDate, 'NY')).toBe('10:30PM')
   })
 
@@ -155,6 +153,31 @@ describe('formatShowTimeCompact', () => {
       '10:30PM'
     )
   })
+
+  // The refusal is shared too, or a rail would print an hour under a header
+  // that withheld one. Same predicate, same cases as `formatShowTime` above.
+  it('withholds the clock on a guessed zone, like its sibling', () => {
+    expect(formatShowTimeCompact(utcDate)).toBeNull()
+    expect(formatShowTimeCompact(utcDate, '')).toBeNull()
+    expect(formatShowTimeCompact(utcDate, 'England')).toBeNull()
+    expect(formatShowTimeCompact(utcDate, 'England', 'Not/AZone')).toBeNull()
+  })
+
+  it('still prints when a non-US venue carries its own IANA zone', () => {
+    expect(formatShowTimeCompact(utcDate, 'England', 'Europe/Berlin')).toBe(
+      '3:30AM'
+    )
+  })
+
+  // Both registers refuse the same rows, so a surface can move between them
+  // without gaining a clock it had withheld.
+  it.each(['', 'England', 'Tokyo'])(
+    'agrees with formatShowTime about withholding (%s)',
+    state => {
+      expect(formatShowTimeCompact(utcDate, state)).toBeNull()
+      expect(formatShowTime(utcDate, state)).toBeNull()
+    }
+  )
 })
 
 describe('venue timezone preference (PSY-986)', () => {
@@ -208,58 +231,6 @@ describe('isShowTimezoneResolved', () => {
 
   it('accepts a known state even when the timezone is malformed', () => {
     expect(isShowTimezoneResolved('AZ', 'Not/AZone')).toBe(true)
-  })
-})
-
-describe('markGuessedShowDay', () => {
-  it('leaves a date alone when the row supplies its own zone', () => {
-    expect(markGuessedShowDay('Fri, Nov 13', null, 'Europe/Berlin')).toBe(
-      'Fri, Nov 13'
-    )
-  })
-
-  it('leaves a date alone when the state map knows the state', () => {
-    expect(markGuessedShowDay('Fri, Nov 13', 'AZ')).toBe('Fri, Nov 13')
-  })
-
-  it('prefixes the tilde when the day was read on the fallback', () => {
-    expect(markGuessedShowDay('Fri, Nov 13', '')).toBe('~Fri, Nov 13')
-    expect(markGuessedShowDay('Fri, Nov 13', 'England')).toBe('~Fri, Nov 13')
-  })
-
-  it('marks once, whatever the register', () => {
-    // The four show-page renders differ in shape; the marker does not.
-    expect(markGuessedShowDay('WED, AUG 12 2026', '')).toBe('~WED, AUG 12 2026')
-    expect(markGuessedShowDay('SAT', '')).toBe('~SAT')
-  })
-})
-
-describe('formatShowDateLong', () => {
-  // 03:00 UTC is the evening BEFORE in the fallback zone, so a formatter that
-  // quietly read this in UTC would name the wrong day as well as skip the mark.
-  const utcDate = '2026-11-14T03:00:00Z'
-
-  it('spells the long form in the venue zone', () => {
-    expect(formatShowDateLong(utcDate, 'AZ')).toBe('Friday, November 13, 2026')
-  })
-
-  it('abbreviates on request without changing the day', () => {
-    expect(formatShowDateLong(utcDate, 'AZ', null, true)).toBe(
-      'Fri, Nov 13, 2026'
-    )
-  })
-
-  it('marks the day when the zone is a guess, in both widths', () => {
-    expect(formatShowDateLong(utcDate, '')).toBe('~Friday, November 13, 2026')
-    expect(formatShowDateLong(utcDate, 'England', null, true)).toBe(
-      '~Fri, Nov 13, 2026'
-    )
-  })
-
-  it('prefers the venue timezone over the state', () => {
-    expect(formatShowDateLong(utcDate, 'AZ', 'Europe/Berlin')).toBe(
-      'Saturday, November 14, 2026'
-    )
   })
 })
 

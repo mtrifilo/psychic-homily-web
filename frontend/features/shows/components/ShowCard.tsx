@@ -163,19 +163,19 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
     isAdmin ||
     (resolvedUserId && show.submitted_by && String(show.submitted_by) === resolvedUserId)
 
-  const dateBadge = useMemo(
-    () => formatShowDateBadge(show.event_date, show.state, show.venues?.[0]?.timezone),
-    [show.event_date, show.state, show.venues]
-  )
-
-  // Null when this row's venue has no resolved zone, and every density below
-  // then renders no time element at all rather than an empty one. Derived once
-  // so the three densities cannot disagree about whether the clock is sayable.
-  const startTime = formatShowTime(
-    show.event_date,
-    show.state,
-    show.venues?.[0]?.timezone
-  )
+  // One memo for both, because they read the same three fields on the same
+  // zone: splitting them would have the badge skip a formatter construction per
+  // re-render while the clock beside it pays for one.
+  //
+  // `startTime` is null when this row's venue has no resolved zone, and every
+  // density below then renders no time element at all rather than an empty one.
+  const { dateBadge, startTime } = useMemo(() => {
+    const timezone = show.venues?.[0]?.timezone
+    return {
+      dateBadge: formatShowDateBadge(show.event_date, show.state, timezone),
+      startTime: formatShowTime(show.event_date, show.state, timezone),
+    }
+  }, [show.event_date, show.state, show.venues])
 
   const handleEditSuccess = () => {
     setIsEditing(false)

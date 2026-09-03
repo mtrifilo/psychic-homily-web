@@ -1,7 +1,7 @@
 import { ImageResponse } from 'next/og'
 import * as Sentry from '@sentry/nextjs'
 import { API_BASE_URL } from '@/lib/api-base'
-import { formatShowDateLong } from '@/lib/utils/formatters'
+import { showPageDateLong } from '@/features/shows/showPageDate'
 import {
   OG_COLORS,
   OG_CONTENT_TYPE,
@@ -201,19 +201,10 @@ function renderCard(
     timezone: venue?.timezone,
   }
   // The shared formatter, not a local copy: the card states the same day the
-  // page states, marked the same way when the zone is a guess.
-  //
-  // The last argument abbreviates, and it is a FIT decision, not a stylistic
-  // one. The date row is the one row with no fit function: its size is fixed,
-  // because on the full-width card it always fits. Beside a plate it does not.
-  // "Wednesday, September 30, 2026" measures 603px and the SOLD OUT badge adds
-  // another 209px, against a 640px column, so both WRAP: the date breaks
-  // mid-phrase and the badge stacks to "SOLD / OUT", which is legible but
-  // scrappy and steals vertical space from the headline. Abbreviating takes the
-  // same row to 563px with the badge, on one line, with no information dropped.
-  // At the 300px share size the short form is the more readable of the two
-  // anyway.
-  const showDate = formatShowDateLong(
+  // page states, marked the same way when the zone is a guess. Abbreviating
+  // beside a plate is a fit decision; `showOgLayout.test.ts` holds the widths
+  // that make the long form wrap in the narrow column.
+  const showDate = showPageDateLong(
     show.event_date,
     showTiming.state,
     showTiming.timezone,

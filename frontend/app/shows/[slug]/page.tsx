@@ -27,7 +27,7 @@ import type {
 } from '@/features/shows/types'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicEventSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
-import { formatShowDateLong } from '@/lib/utils/formatters'
+import { showPageDateLong } from '@/features/shows/showPageDate'
 import { getShowLifecycleState, hasShowStarted } from '@/lib/utils/showTiming'
 import { API_BASE_URL } from '@/lib/api-base'
 import { queryKeys } from '@/lib/queryClient'
@@ -146,7 +146,7 @@ export async function generateMetadata({ params }: ShowPageProps): Promise<Metad
     // The shared long-form formatter, not a local `toLocaleDateString`: the
     // description states the same day the page's header, stripe and share card
     // state, including the `~` when that day is read on a guessed zone.
-    const showDate = formatShowDateLong(
+    const showDate = showPageDateLong(
       show.event_date,
       show.venues?.[0]?.state,
       show.venues?.[0]?.timezone

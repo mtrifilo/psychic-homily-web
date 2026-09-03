@@ -8,6 +8,7 @@ import {
   formatTimeInTimezone,
   formatCompactTimeInTimezone,
   parseISOToDateAndTime,
+  toZonedDateOnly,
   toZonedISOString,
 } from './timeUtils'
 
@@ -476,5 +477,36 @@ describe('formatCompactTimeInTimezone', () => {
     // `formatToParts` THROWS on an invalid date, and a rail row must not take
     // the page down because one payload field was junk.
     expect(formatCompactTimeInTimezone('not-a-date', 'America/Phoenix')).toBe('')
+  })
+})
+
+describe('toZonedDateOnly', () => {
+  // Same instant as the suite above: 8 PM Phoenix on Mar 14, stored 03:00Z on
+  // the 15th, so every zone below disagrees about the calendar day.
+  const utc = '2026-03-15T03:00:00Z'
+
+  // Direct assertions rather than a comparison against `toZonedISOString`,
+  // which this is derived from: a test written as a slice of the thing under
+  // test could not fail if that thing's date half moved.
+  it('names the venue-local calendar day, zero-padded', () => {
+    expect(toZonedDateOnly(utc, 'America/Phoenix')).toBe('2026-03-14')
+    expect(toZonedDateOnly(utc, 'America/New_York')).toBe('2026-03-14')
+    expect(toZonedDateOnly(utc, 'Europe/Berlin')).toBe('2026-03-15')
+    expect(toZonedDateOnly(utc, 'UTC')).toBe('2026-03-15')
+  })
+
+  it('pads a single-digit month and day', () => {
+    expect(toZonedDateOnly('2026-01-05T18:00:00Z', 'UTC')).toBe('2026-01-05')
+  })
+
+  it('names the day the venue-local midnight boundary falls on', () => {
+    // 07:00Z is exactly midnight in Phoenix, which is the day AFTER the
+    // instant's own UTC evening in every negative-offset zone.
+    expect(toZonedDateOnly('2026-03-15T07:00:00Z', 'America/Phoenix')).toBe(
+      '2026-03-15'
+    )
+    expect(toZonedDateOnly('2026-03-15T06:59:00Z', 'America/Phoenix')).toBe(
+      '2026-03-14'
+    )
   })
 })

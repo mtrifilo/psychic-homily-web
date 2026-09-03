@@ -406,12 +406,11 @@ function StepButton({
 function NextShowRow({ show, artistId }: { show: ArtistShow; artistId: number }) {
   const venue = show.venue
   const date = formatPanelShowDate(show.event_date, venue?.state, venue?.timezone)
-  // Two independent reasons this row names no hour, both landing on an absent
-  // segment that `filter(Boolean)` below removes along with its separator: an
-  // unparseable date (`formatShowTime` has no NaN guard and would render the
-  // literal "Invalid Date", so the row's own date check gates it, exactly as
-  // VenuePanel's ShowRow does), and a venue zone that resolves only to the
-  // fallback, which `formatShowTime` answers with null itself.
+  // An unparseable date means we can't state a time either — `formatShowTime`
+  // has no NaN guard and would render the literal "Invalid Date". One check
+  // gates both halves, exactly as VenuePanel's ShowRow does. A guessed venue
+  // zone is the helper's own null, and `filter(Boolean)` below drops either
+  // absence along with its separator.
   const time = date
     ? formatShowTime(show.event_date, venue?.state, venue?.timezone)
     : null

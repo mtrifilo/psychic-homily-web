@@ -61,13 +61,9 @@ describe('VenueShowsTable time column', () => {
     expect(timeCell()).toBeEmptyDOMElement()
   })
 
-  it('renders an empty time cell for a state outside the US map', () => {
+  it('leaves the cell empty for a state outside the US map, with no en-dash placeholder', () => {
     renderTable({ venueState: 'England', venueTimezone: null })
     expect(timeCell()).toBeEmptyDOMElement()
-  })
-
-  it('withholds no placeholder: the cell is empty, not an en dash', () => {
-    renderTable({ venueState: 'England', venueTimezone: null })
     expect(timeCell().textContent).toBe('')
   })
 

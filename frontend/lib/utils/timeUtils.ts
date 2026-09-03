@@ -139,9 +139,9 @@ const STATE_TIMEZONES: Record<string, string> = {
  * date rather than composing an offset out of this zone.
  *
  * A DATE is a weaker claim and is still rendered on this constant, marked with
- * `~` on the show page (`markGuessedShowDay` in `./formatters`, the same
- * register as `ENDS ~11PM` and `CAP ~500`). Listing surfaces render the day
- * unmarked: they carry no other guess marks to read it against.
+ * `~` on the show page (`features/shows/showPageDate`, the same register as
+ * `ENDS ~11PM` and `CAP ~500`). Listing surfaces render the day unmarked: they
+ * carry no other guess marks to read it against.
  *
  * ONE CONSUMER IS UNGATED, and it is not a string:
  * `getShowLifecycleState` (`./showTiming`) resolves through here to compare
@@ -395,14 +395,12 @@ export function toZonedDateOnly(
   utcDateString: string,
   timezone: string
 ): string {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(new Date(utcDateString))
-  const p = (type: string) => parts.find(x => x.type === type)?.value ?? ''
-  return `${p('year')}-${p('month')}-${p('day')}`
+  // The date half of the sibling above rather than a second formatter of its
+  // own: that function ASSEMBLES its result as `YYYY-MM-DD` + `T` + clock, so
+  // the first ten characters are the calendar day by construction, and the two
+  // cannot answer different days for one instant. The direct assertions in
+  // `timeUtils.test.ts` are what hold that prefix in place.
+  return toZonedISOString(utcDateString, timezone).slice(0, 10)
 }
 
 /**

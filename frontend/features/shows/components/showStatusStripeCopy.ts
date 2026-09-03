@@ -1,9 +1,9 @@
 import {
   isShowTimezoneResolved,
-  markGuessedShowDay,
   resolveShowTimezone,
 } from '@/lib/utils/formatters'
 import { formatCompactTimeInTimezone } from '@/lib/utils/timeUtils'
+import { markGuessedShowDay } from '../showPageDate'
 import { formatShowDateBadge } from '@/lib/utils/showDateBadge'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 
@@ -162,17 +162,15 @@ export function startTimeFactSegment(
  * "WED, AUG 12 2026", or "~WED, AUG 12 2026" when the zone that decided the day
  * is the fallback.
  *
- * Takes the input rather than just the resolved zone so it can ask
- * `markGuessedShowDay` the question the zone string can no longer answer: by
- * the time `resolveShowTimezone` has returned, a guessed America/Phoenix and a
- * Phoenix venue's real one are the same string.
+ * Takes the input rather than the resolved zone: by the time
+ * `resolveShowTimezone` has returned, a guessed America/Phoenix and a Phoenix
+ * venue's real one are the same string, so the marker cannot be derived from it.
  */
 function formatStripeFullDate(
   instant: number,
-  timeZone: string,
   input: Pick<ShowStatusStripeInput, 'state' | 'timezone'>
 ): string {
-  const part = partsOf(instant, timeZone, {
+  const part = partsOf(instant, resolveShowTimezone(input.state, input.timezone), {
     weekday: 'short',
     month: 'short',
     day: 'numeric',
@@ -242,7 +240,7 @@ export function buildShowStatusStripeSegments(
     // The mock's tail ("SETLIST + RECORDINGS BELOW") is deliberately absent:
     // those modules are not built, and a band that points at them would be
     // pointing at nothing. It belongs to the ticket that ships them.
-    return ['PAST SHOW', formatStripeFullDate(startedAt, timeZone, input)]
+    return ['PAST SHOW', formatStripeFullDate(startedAt, input)]
   }
 
   // The whole times line hangs off `doors_at`. A show with only a music time

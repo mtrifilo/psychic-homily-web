@@ -220,12 +220,21 @@ function ticketVendorName(ticketUrl: string | undefined): string | undefined {
 }
 
 /**
- * `MusicEvent.startDate` for one show: an offset-bearing local timestamp, a
- * bare calendar date, or the raw instant. See the call site for which case is
- * which and why the middle one exists.
+ * `MusicEvent.startDate` for one show, in three forms of descending strength,
+ * because the payload supports three different amounts of knowledge and stating
+ * more than is known is the failure mode structured data punishes hardest: a
+ * crawler repeats it.
  *
- * Split out so the choice is one named expression rather than nested ternaries
- * inside a literal, and so it can be exercised without building a whole event.
+ * A venue whose zone is KNOWN gets the venue-local start time with its UTC
+ * offset (PSY-986), so the indexed local time is the one on the door.
+ *
+ * A venue whose zone resolves only to `FALLBACK_SHOW_TIMEZONE` gets a bare
+ * `YYYY-MM-DD`. schema.org accepts a Date here, and the fallback supports a day
+ * but not an hour: composing an offset from it would publish a wall clock
+ * nobody entered, attributed to a real room.
+ *
+ * A venue-less show gets the raw instant, which is what the payload holds and
+ * all it holds.
  */
 function startDateForSchema(
   date: string,
@@ -296,20 +305,6 @@ export function generateMusicEventSchema(show: {
     '@context': 'https://schema.org',
     '@type': 'MusicEvent',
     name: eventName,
-    // Three forms, in descending strength, because the payload supports three
-    // different amounts of knowledge and stating more than is known is the
-    // failure mode structured data punishes hardest: a crawler repeats it.
-    //
-    // A venue whose zone is KNOWN gets the venue-local start time with its UTC
-    // offset (PSY-986), so the indexed local time is the one on the door.
-    //
-    // A venue whose zone resolves only to `FALLBACK_SHOW_TIMEZONE` gets a bare
-    // `YYYY-MM-DD`. schema.org accepts a Date here, and the fallback supports a
-    // day but not an hour: composing an offset from it would publish a wall
-    // clock nobody entered, attributed to a real room.
-    //
-    // A venue-less show gets the raw instant, which is what the payload holds
-    // and all it holds.
     startDate: startDateForSchema(show.date, show.venue),
     eventStatus: show.is_cancelled
       ? 'https://schema.org/EventCancelled'
