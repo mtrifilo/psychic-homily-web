@@ -201,7 +201,14 @@ vi.mock('@/lib/hooks/admin/useAdminComments', () => ({
   useAdminCommentEditHistory: () => ({ data: undefined as unknown, isLoading: false, error: null as Error | null }),
 }))
 
-vi.mock('@/lib/hooks/admin/useAdminEntityRequests', () => ({
+// The three hooks are stubbed; everything else in the module is kept REAL.
+// `isConflict` is one of those, and it must be: a double for it would be a
+// second copy of the rule the card branches on, free to disagree with the one
+// that ships.
+vi.mock('@/lib/hooks/admin/useAdminEntityRequests', async importOriginal => ({
+  ...(await importOriginal<
+    typeof import('@/lib/hooks/admin/useAdminEntityRequests')
+  >()),
   useAdminEntityRequests: (...args: unknown[]) => mockUseAdminEntityRequests(...args),
   useDecideEntityRequest: () => mockUseDecideEntityRequest(),
   useRescueEntityRequest: () => mockUseRescueEntityRequest(),
@@ -386,6 +393,113 @@ describe('ModerationQueue', () => {
       expect.objectContaining({ id: 9, decision: 'rejected', note: 'not notable' }),
       expect.anything()
     )
+  })
+
+  // PSY-1974: a queued payload stays mutable until it is decided, so every
+  // decision states the version it was made against and the endpoint refuses a
+  // row revised since. The version travels as the STRING the endpoint returned:
+  // a `Date` round-trip would drop the microseconds a timestamptz stores and
+  // turn every decision into a spurious 409.
+  describe('reviewed-version on decide (PSY-1974)', () => {
+    const revised: AdminEntityRequest = {
+      ...mockEntityRequest,
+      updated_at: '2026-04-08T02:03:04.123456Z',
+    }
+
+    it('sends the rendered updated_at verbatim when creating', () => {
+      const mutate = vi.fn()
+      mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+      setDefaultMocks({ requests: [revised] })
+
+      render(<ModerationQueue />)
+      fireEvent.click(screen.getByRole('button', { name: /create/i }))
+
+      expect(mutate).toHaveBeenCalledWith(
+        expect.objectContaining({ expected_updated_at: '2026-04-08T02:03:04.123456Z' }),
+        expect.anything()
+      )
+    })
+
+    it('sends the rendered updated_at verbatim when rejecting', () => {
+      const mutate = vi.fn()
+      mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+      setDefaultMocks({ requests: [revised] })
+
+      render(<ModerationQueue />)
+      fireEvent.click(screen.getByRole('button', { name: /^reject$/i }))
+      fireEvent.change(screen.getByPlaceholderText(/rejection reason/i), {
+        target: { value: 'not notable' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: /confirm reject/i }))
+
+      expect(mutate).toHaveBeenCalledWith(
+        expect.objectContaining({ expected_updated_at: '2026-04-08T02:03:04.123456Z' }),
+        expect.anything()
+      )
+    })
+
+    it('sends the show form submission against the version the card rendered', () => {
+      const mutate = vi.fn()
+      mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+      setDefaultMocks({
+        requests: [
+          {
+            ...revised,
+            id: 12,
+            entity_type: 'show',
+            payload: { title: 'Big Fest', event_date: '2026-07-01', city: 'Phoenix', state: 'AZ' },
+            source_detail: null,
+          },
+        ],
+      })
+
+      render(<ModerationQueue />)
+      fireEvent.click(screen.getByRole('button', { name: /^create$/i }))
+      fireEvent.change(screen.getByLabelText('Venue name'), { target: { value: 'Valley Bar' } })
+      fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
+      fireEvent.click(screen.getByRole('button', { name: /create show/i }))
+
+      expect(mutate).toHaveBeenCalledWith(
+        expect.objectContaining({ expected_updated_at: '2026-04-08T02:03:04.123456Z' }),
+        expect.anything()
+      )
+    })
+
+    it('tells the admin the card was refreshed when the decision conflicts', () => {
+      const conflict: Error & { status?: number } = new Error(
+        'Entity request 9 was revised by its requester after you loaded it; review it again'
+      )
+      conflict.status = 409
+      mockUseDecideEntityRequest.mockReturnValue({
+        ...defaultMutationReturn,
+        isError: true,
+        error: conflict,
+      })
+      setDefaultMocks({ requests: [revised] })
+
+      render(<ModerationQueue />)
+
+      expect(screen.getByText(/was revised by its requester/i)).toBeInTheDocument()
+      expect(screen.getByText(/refreshed with the request as it stands now/i)).toBeInTheDocument()
+    })
+
+    it('does not claim a refresh for a failure that is not a conflict', () => {
+      const failure: Error & { status?: number } = new Error('Image URL must not point to a private address')
+      failure.status = 422
+      mockUseDecideEntityRequest.mockReturnValue({
+        ...defaultMutationReturn,
+        isError: true,
+        error: failure,
+      })
+      setDefaultMocks({ requests: [revised] })
+
+      render(<ModerationQueue />)
+
+      expect(screen.getByText(/Image URL must not point/i)).toBeInTheDocument()
+      expect(
+        screen.queryByText(/refreshed with the request as it stands now/i)
+      ).not.toBeInTheDocument()
+    })
   })
 
   it('renders the source line, safe external link, and excerpt for AI requests', () => {

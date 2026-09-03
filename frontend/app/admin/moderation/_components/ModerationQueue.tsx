@@ -50,6 +50,7 @@ import {
   useAdminEntityRequests,
   useDecideEntityRequest,
   useRescueEntityRequest,
+  isConflict,
   type ShowArtistInput,
   type ShowVenueInput,
 } from '@/lib/hooks/admin/useAdminEntityRequests'
@@ -847,6 +848,13 @@ function RequestCard({
   // submission and nothing else.
   const isRevised = wasRevisedSinceFiling(request.created_at, request.updated_at)
 
+  // PSY-1974: the version of the row this card is rendering. A queued payload is
+  // mutable until it is decided, so every decision states which payload it was
+  // made against and a row revised since is refused rather than decided. Passed
+  // through as the STRING the endpoint returned: routing it via `Date` would
+  // drop the microseconds a timestamptz stores and 409 every decision.
+  const reviewedVersion = request.updated_at
+
   const handleCreate = useCallback(() => {
     if (isShow) {
       // Open-only: the form's own Cancel closes it (a "Create" button that
@@ -855,29 +863,48 @@ function RequestCard({
       return
     }
     decideMutation.mutate(
-      { id: request.id, decision: 'approved' },
+      { id: request.id, decision: 'approved', expected_updated_at: reviewedVersion },
       { onSuccess: () => onActionSuccess({ verb: 'created', entityLabel }) }
     )
-  }, [isShow, setShowFormOpen, decideMutation, request.id, onActionSuccess, entityLabel])
+  }, [
+    isShow,
+    setShowFormOpen,
+    decideMutation,
+    request.id,
+    reviewedVersion,
+    onActionSuccess,
+    entityLabel,
+  ])
 
   const handleCreateShow = useCallback(
     (venue: ShowVenueInput, artists: ShowArtistInput[]) => {
       decideMutation.mutate(
-        { id: request.id, decision: 'approved', show_venue: venue, show_artists: artists },
+        {
+          id: request.id,
+          decision: 'approved',
+          show_venue: venue,
+          show_artists: artists,
+          expected_updated_at: reviewedVersion,
+        },
         { onSuccess: () => onActionSuccess({ verb: 'created', entityLabel }) }
       )
     },
-    [decideMutation, request.id, onActionSuccess, entityLabel]
+    [decideMutation, request.id, reviewedVersion, onActionSuccess, entityLabel]
   )
 
   const handleReject = useCallback(
     (reason: string) => {
       decideMutation.mutate(
-        { id: request.id, decision: 'rejected', note: reason },
+        {
+          id: request.id,
+          decision: 'rejected',
+          note: reason,
+          expected_updated_at: reviewedVersion,
+        },
         { onSuccess: () => onActionSuccess({ verb: 'rejected', entityLabel }) }
       )
     },
-    [decideMutation, request.id, onActionSuccess, entityLabel]
+    [decideMutation, request.id, reviewedVersion, onActionSuccess, entityLabel]
   )
 
   return (
@@ -992,9 +1019,20 @@ function RequestCard({
         />
 
         {decideMutation.isError && (
-          <p className="mt-2 text-xs text-destructive">
-            {decideMutation.error?.message || 'Action failed'}
-          </p>
+          <>
+            <p className="mt-2 text-xs text-destructive">
+              {decideMutation.error?.message || 'Action failed'}
+            </p>
+            {/* PSY-1974: the mutation refetches the queue on a 409, so this card
+                is already re-rendering against the row as it stands now. Say so,
+                because the message above tells the admin to look again and the
+                only thing that answers it is a fresh read. */}
+            {isConflict(decideMutation.error) && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                This card has been refreshed with the request as it stands now.
+              </p>
+            )}
+          </>
         )}
       </CardContent>
     </Card>

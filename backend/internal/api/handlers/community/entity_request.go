@@ -11,6 +11,7 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
+	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
@@ -511,6 +512,10 @@ type AdminDecideEntityRequestRequest struct {
 		// other entity type and for rejections.
 		ShowVenue   *ShowVenueInput   `json:"show_venue,omitempty" required:"false" doc:"Venue for fulfilling a show request (required when approving a show)"`
 		ShowArtists []ShowArtistInput `json:"show_artists,omitempty" required:"false" doc:"Artists for fulfilling a show request (required when approving a show, unless use_payload_artists adopts the bill the request payload carries)"`
+		// ExpectedUpdatedAt is the version of the row the CALLER reviewed
+		// (PSY-1974). See the handler's pre-claim block for what it defends and
+		// what it does not.
+		ExpectedUpdatedAt *time.Time `json:"expected_updated_at,omitempty" required:"false" doc:"The updated_at this decision was made against, echoed VERBATIM from the queue read that produced it. When present, a row the requester has revised since that read is refused with 409 rather than decided, on both approve and reject. Send the string the list endpoint returned; re-serializing it through a millisecond-resolution clock (a JavaScript Date, for one) drops the microseconds a timestamptz stores and turns every decision into a spurious 409. Omit it to decide against whatever the row currently holds."`
 		// UsePayloadArtists is the admin's affirmative adoption of the bill the
 		// CONTRIBUTOR recorded (PSY-1858). See resolveShowBill for the rule and
 		// why the flag exists rather than an omitted show_artists meaning the
@@ -542,6 +547,10 @@ type AdminDecideEntityRequestResponse struct {
 // for never double-creating an entity.
 //
 // Reject flow: marks rejected + optional note. No entity is created.
+//
+// Either decision may carry expected_updated_at, the version of the row the
+// caller reviewed. A row revised since then is a 409 and stays pending, whether
+// the caller was approving or rejecting.
 func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Context, req *AdminDecideEntityRequestRequest) (*AdminDecideEntityRequestResponse, error) {
 	admin := middleware.GetUserFromContext(ctx)
 
@@ -586,14 +595,18 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 	// performs, and an adopted show bill can be fulfilled against scalar fields
 	// from a different payload.
 	//
-	// This closes the window between THIS read and the claim. It does NOT close
-	// the window between the admin READING the queue and pressing approve: that
-	// body carries no version, so the payload can change under a human review.
-	// The queue badges a request whose updated_at has moved since it was filed,
-	// which reports a revision the admin's last list fetch happened to see; it
-	// is not a version check, and nothing refuses an approve issued against a
-	// payload the admin never read. Closing that needs a client-supplied
-	// version on the decide body.
+	// That closes the window between THIS read and the claim. The window between
+	// the ADMIN reading the queue and pressing approve is closed by
+	// expected_updated_at, which the caller echoes from that read (PSY-1974). It
+	// is optional, so a caller that sends nothing still gets exactly the
+	// pre-claim guarantee above and nothing more. The queue's Revised badge is
+	// not that guarantee: it reports a revision the admin's last list fetch
+	// happened to see, and refuses nothing.
+	//
+	// The two versions are compared HERE rather than only at the claim, and the
+	// distinction is worth stating: the claim would refuse the same row, but only
+	// after the checks below have run, and the last of them resolves DNS. A
+	// mismatch is known the moment the row is read.
 	//
 	// PSY-1037: approving a show REQUIRES the associations — guard before the
 	// claim. Decide only operates on pending rows, so a post-claim failure
@@ -616,9 +629,12 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 	// read that ERRORS still reports ahead of any complaint about the body, and a
 	// read that finds nothing (GetRequest answers (nil, nil) for a missing row)
 	// still falls through to Decide, which is what turns it into the 404.
-	// nil for a rejection: it reads nothing off the row and creates nothing, so
-	// there is no validated version to defend.
-	var reviewedVersion *time.Time
+	// A rejection reads nothing off the row and creates nothing, so it takes no
+	// pre-claim read and has no server-side version to defend. It still carries
+	// the CALLER's version when one was sent: a reject is a judgement on a
+	// payload too, and rejecting the submission that replaced the one the admin
+	// read tells the contributor their correction was refused unseen.
+	reviewedVersion := req.Body.ExpectedUpdatedAt
 	var showAssoc *showAssociations
 	if newState == communitym.EntityRequestStateApproved {
 		existing, gerr := h.entityRequestService.GetRequest(uint(requestID))
@@ -648,9 +664,20 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 		var eligible *communitym.EntityRequest
 		if existing != nil && existing.DecisionState == communitym.EntityRequestStatePending {
 			eligible = existing
+			// A caller-supplied version is answered against THIS read before any
+			// check runs, so a decision aimed at a payload the row no longer holds
+			// costs no DNS lookup (PSY-1974).
+			if reviewedVersion != nil && !eligible.UpdatedAt.Equal(*reviewedVersion) {
+				stale := apperrors.ErrEntityRequestStale(uint(requestID))
+				if mapped := shared.MapEntityRequestError(stale); mapped != nil {
+					return nil, mapped
+				}
+				return nil, huma.Error409Conflict(stale.Message)
+			}
 			// The version every check below is about to run against. Passed to the
 			// claim so a row the requester revised in between refuses instead of
-			// fulfilling a payload none of these checks ever saw (PSY-1948).
+			// fulfilling a payload none of these checks ever saw (PSY-1948). Equal
+			// to the caller's by the comparison directly above when they sent one.
 			reviewedVersion = &eligible.UpdatedAt
 		}
 

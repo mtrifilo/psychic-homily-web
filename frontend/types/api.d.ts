@@ -7624,6 +7624,11 @@ export interface components {
             readonly $schema?: string;
             /** @description Decision: approved or rejected */
             decision: string;
+            /**
+             * Format: date-time
+             * @description The updated_at this decision was made against, echoed VERBATIM from the queue read that produced it. When present, a row the requester has revised since that read is refused with 409 rather than decided, on both approve and reject. Send the string the list endpoint returned; re-serializing it through a millisecond-resolution clock (a JavaScript Date, for one) drops the microseconds a timestamptz stores and turns every decision into a spurious 409. Omit it to decide against whatever the row currently holds.
+             */
+            expected_updated_at?: string;
             /** @description Optional decision note (shown to the requester) */
             note?: string | null;
             /** @description Artists for fulfilling a show request (required when approving a show, unless use_payload_artists adopts the bill the request payload carries) */
