@@ -25,6 +25,13 @@ export interface ShowPrices {
  * The prices this show actually STATES, advance first: `[]`, `[35]`, or the
  * pair `[35, 40]`.
  *
+ * MIRRORED in two other languages, which render the same column to the same
+ * reader with no compiler holding the three together: `ShowPriceText` in
+ * `backend/internal/services/shared/show_price.go` (the ICS feeds) and
+ * `Show.statedPrices` in `ios/PsychicHomily/Models/Show.swift` (the iOS list
+ * and detail screens). A collapse rule changed here needs the same change in
+ * both.
+ *
  * THE one derivation of "what does this show cost", and the reason a list and
  * the detail page cannot disagree about the answer. They render it differently
  * — a list says `$35/$40`, the detail page says `$35 ADV · DOOR $40` — but they

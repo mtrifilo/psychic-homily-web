@@ -72,7 +72,9 @@ type Show struct {
 	// Frontend: lib/utils/showPrice.ts (or the ShowPrice component, which also
 	// carries the accessible reading of the pair). Backend:
 	// internal/services/shared.ShowPriceText — the SERVICES shared package, not
-	// api/handlers/shared. Reading the advance half by itself is not a smaller
+	// api/handlers/shared. iOS: Show.statedPrices in
+	// ios/PsychicHomily/Models/Show.swift. Reading the advance half by itself
+	// is not a smaller
 	// version of the truth, it is a wrong number about money: a reader who
 	// budgets $35 for a $40 door was misinformed by the site, not merely
 	// under-informed.

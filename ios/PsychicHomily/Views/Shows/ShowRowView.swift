@@ -53,14 +53,15 @@ struct ShowRowView: View {
 
                 Spacer()
 
-                // Suppressed only when the badge above already says Free; a
-                // show priced 0 at advance and $25 at the door still has a
-                // second number this row must carry.
+                // Suppressed for a free show, whose only price the badge row
+                // above already carries. A show priced 0 at advance and $25 at
+                // the door is not free and still prints both numbers.
                 if let priceText = show.priceText, !show.isFree {
                     Text(priceText)
                         .font(.caption)
                         .fontWeight(.medium)
                         .foregroundStyle(.phSecondary)
+                        .accessibilityLabel(show.priceAccessibilityLabel ?? priceText)
                 }
 
                 if let time = show.formattedTime.isEmpty ? nil : show.formattedTime {

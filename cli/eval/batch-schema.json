@@ -87,7 +87,12 @@
             "required": ["name"],
             "properties": {
               "name": { "type": "string", "minLength": 1 },
-              "is_headliner": { "type": "boolean" }
+              "is_headliner": { "type": "boolean" },
+              "set_type": {
+                "type": "string",
+                "enum": ["headliner", "direct_support", "opener", "special_guest", "dj", "performer"],
+                "description": "Curated bill role. OMIT when the source does not state this act's slot; an absent key is the only way to record that the slot is unknown."
+              }
             },
             "additionalProperties": true
           }

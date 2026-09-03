@@ -73,6 +73,12 @@ struct Show: Codable, Identifiable, Hashable, Sendable {
     /// THE derivation of "what does this show cost", so a row and the detail
     /// screen cannot disagree about whether there are one or two numbers.
     ///
+    /// MIRRORED in two other languages, which render the same column to the
+    /// same reader with no compiler holding the three together:
+    /// `statedShowPrices` in `frontend/lib/utils/showPrice.ts` and
+    /// `ShowPriceText` in `backend/internal/services/shared/show_price.go`. A
+    /// collapse rule changed here needs the same change in both.
+    ///
     /// An equal pair COLLAPSES to one: two slots and a separator to say one
     /// thing reads as a rendering bug. A lone DOOR price comes back
     /// indistinguishable from a lone advance price, deliberately — with one
@@ -104,6 +110,19 @@ struct Show: Codable, Identifiable, Hashable, Sendable {
         let prices = statedPrices
         if prices.isEmpty { return nil }
         return prices.map(Show.formatPrice).joined(separator: "/")
+    }
+
+    /// How a screen reader should say the row's price, or nil when the visible
+    /// text already reads correctly.
+    ///
+    /// Present ONLY for a pair: `$20/$25` is announced as "twenty slash
+    /// twenty-five", a fact about money read out as punctuation. A lone price
+    /// has nothing to be disambiguated from, and labelling it would make the
+    /// reader say it twice.
+    var priceAccessibilityLabel: String? {
+        let prices = statedPrices
+        guard prices.count == 2 else { return nil }
+        return "\(Show.formatPrice(prices[0])) advance, \(Show.formatPrice(prices[1])) at the door"
     }
 
     /// The detail screen's price: `$20`, `Free`, or the qualified pair

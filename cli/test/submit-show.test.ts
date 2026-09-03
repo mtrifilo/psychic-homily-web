@@ -11,6 +11,7 @@ import {
 } from "../src/commands/submit-show";
 import { APIClient } from "../src/lib/api";
 import { checkShowDuplicate } from "../src/lib/duplicates";
+import { validateShow } from "../src/lib/schemas";
 
 // -- Mock helpers ------------------------------------------------------------
 
@@ -459,6 +460,93 @@ describe("showPriceLine", () => {
 
   test("is null when the show states no price", () => {
     expect(showPriceLine({})).toBeNull();
+  });
+
+  test("prints a non-numeric price verbatim rather than throwing", () => {
+    // The batch schema types both price fields as number-or-string and nothing
+    // coerces, so a preview that threw here would abort a partially-written run.
+    const stringy = { price: "$20", door_price: "25" } as unknown as {
+      price?: number;
+      door_price?: number;
+    };
+    expect(showPriceLine(stringy)).toBe("$20 / 25 door");
+  });
+
+  test("prints a NaN price verbatim rather than throwing", () => {
+    expect(showPriceLine({ price: Number.NaN })).toBe("NaN");
+  });
+});
+
+describe("bill roles on the create path", () => {
+  function planWithArtist(artist: Record<string, unknown>): ShowPlan {
+    return {
+      input: {
+        event_date: "2026-04-15",
+        city: "Phoenix",
+        state: "AZ",
+        artists: [artist as never],
+        venues: [{ name: "Test Venue" }],
+      },
+      artists: [{ id: 42, name: "Test", status: "existing", ...artist } as never],
+      venues: [{ name: "Test Venue", status: "new" }],
+      valid: true,
+      errors: [],
+    };
+  }
+
+  test("carries a stated role and derives is_headliner from it", () => {
+    const artists = buildShowPayload(
+      planWithArtist({ name: "Test", set_type: "direct_support" }),
+    ).artists as Array<Record<string, unknown>>;
+    expect(artists[0].set_type).toBe("direct_support");
+    expect(artists[0].is_headliner).toBe(false);
+  });
+
+  test("derives is_headliner true from a stated headliner role", () => {
+    const artists = buildShowPayload(
+      planWithArtist({ name: "Test", set_type: "headliner" }),
+    ).artists as Array<Record<string, unknown>>;
+    expect(artists[0].is_headliner).toBe(true);
+  });
+
+  test("leaves the key off an act that states no role", () => {
+    const artists = buildShowPayload(
+      planWithArtist({ name: "Test" }),
+    ).artists as Array<Record<string, unknown>>;
+    expect("set_type" in artists[0]).toBe(false);
+  });
+
+  test("a stated role outranks the legacy flag", () => {
+    const artists = buildShowPayload(
+      planWithArtist({ name: "Test", set_type: "opener", is_headliner: true }),
+    ).artists as Array<Record<string, unknown>>;
+    expect(artists[0].set_type).toBe("opener");
+    expect(artists[0].is_headliner).toBe(false);
+  });
+
+  test("an out-of-vocabulary role fails validation instead of being dropped", () => {
+    const result = validateShow({
+      event_date: "2026-04-15",
+      city: "Phoenix",
+      state: "AZ",
+      artists: [{ name: "Test", set_type: "co-headliner" }],
+      venues: [{ name: "Test Venue" }],
+    });
+    expect(result.valid).toBe(false);
+    expect(result.errors[0].field).toBe("artists[0].set_type");
+    expect(result.errors[0].message).toContain("direct_support");
+  });
+
+  test("a valid role passes validation", () => {
+    expect(
+      validateShow({
+        event_date: "2026-04-15",
+        city: "Phoenix",
+        state: "AZ",
+        artists: [{ name: "Test", set_type: "dj" }],
+        venues: [{ name: "Test Venue" }],
+      }).valid,
+    ).toBe(true);
   });
 });
 

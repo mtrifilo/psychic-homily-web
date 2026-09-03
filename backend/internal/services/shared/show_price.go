@@ -12,8 +12,9 @@ import (
 // EXPORTED AND SHARED on purpose. The rule stated on catalog.Show.Price is that
 // a surface must render the pair through the common derivation rather than
 // reading Price alone, and a rule pointing at an unexported helper is a rule
-// nobody can follow. This is the Go half of it; the frontend half is
-// lib/utils/showPrice.ts, and the two spell the same register.
+// nobody can follow. This is the Go statement of it; the others are
+// statedShowPrices in frontend/lib/utils/showPrice.ts and Show.statedPrices in
+// ios/PsychicHomily/Models/Show.swift, and all three spell the same register.
 //
 // It lives here rather than in the one service that first needed it because
 // "what does this show cost" is not calendar-specific. The ICS feeds are the

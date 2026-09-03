@@ -4,7 +4,7 @@ import * as display from "../lib/display";
 import { green, yellow, gray, dim } from "../lib/ansi";
 import { resolveArtistId } from "./festival";
 import {
-  curatedSetType,
+  roundTrippableRole,
   isUnroundtrippableSetType,
   isValidSetType,
   SET_TYPE_VOCABULARY_CSV,
@@ -73,7 +73,10 @@ interface ShowResponse {
 
 /**
  * Fetch a show by numeric ID.
- * Returns the show object or null if not found.
+ *
+ * Null means the show is NOT THERE. Every other failure throws, because a 401,
+ * a 429 or a dead connection answers a different question than "no such show",
+ * and reporting them alike is how a run that wrote nothing exits 0.
  */
 export async function getShow(
   client: APIClient,
@@ -81,13 +84,17 @@ export async function getShow(
 ): Promise<ShowResponse | null> {
   try {
     const result = await client.get<ShowResponse>(`/shows/${showId}`);
-    if (result?.id) {
-      return result;
-    }
-    return null;
-  } catch {
-    return null;
+    return result?.id ? result : null;
+  } catch (err) {
+    if (err instanceof APIError && err.status === 404) return null;
+    throw err;
   }
+}
+
+/** How a failed show fetch reads to the operator. */
+function showFetchMessage(showId: string, err: unknown): string {
+  const detail = err instanceof Error ? err.message : "unknown error";
+  return `Could not read show "${showId}": ${detail}`;
 }
 
 /**
@@ -116,7 +123,7 @@ function preserveBillEntry(existing: ShowArtistResponse): ShowArtistUpdate {
     id: existing.id,
     is_headliner: existing.is_headliner ?? false,
   };
-  const role = curatedSetType(existing.set_type);
+  const role = roundTrippableRole(existing.set_type);
   if (role) entry.set_type = role;
   return entry;
 }
@@ -129,22 +136,30 @@ function preserveBillEntry(existing: ShowArtistResponse): ShowArtistUpdate {
  * entirely: the act's slot is then unknown, which is a fact the API records as
  * such rather than a role it has to invent.
  *
+ * The default does NOT reach an act that stated `is_headliner`, so a per-act
+ * statement always outranks a command-level one. Deriving a role over that flag
+ * would let `--role opener` demote an act the caller named the headliner.
+ *
  * Returns a validated role, so the payload cannot carry a value the API would
  * refuse. An out-of-vocabulary role reads as unstated here; invalidRoleErrors
  * is what reports it, and it runs first.
  *
  * `performer` is a role an operator may state, unlike the `performer` READ off
- * a stored row, which is that row's slot being unknown (curatedSetType). The
+ * a stored row, which is that row's slot being unknown (roundTrippableRole). The
  * two are asymmetric on purpose: stating it holds bill position out of the
  * API's headliner inference, which silence does not.
  */
 function requestedRole(
   artist: ShowArtistInput,
-  fallbackRole?: string,
+  defaultRole?: string,
 ): SetType | undefined {
-  const stated = artist.set_type ?? fallbackRole;
-  if (stated === undefined || stated.trim() === "") return undefined;
-  return isValidSetType(stated) ? stated : undefined;
+  const own = artist.set_type;
+  if (own !== undefined && own.trim() !== "") {
+    return isValidSetType(own) ? own : undefined;
+  }
+  if (artist.is_headliner !== undefined) return undefined;
+  if (defaultRole === undefined || defaultRole.trim() === "") return undefined;
+  return isValidSetType(defaultRole) ? defaultRole : undefined;
 }
 
 /**
@@ -154,52 +169,110 @@ function requestedRole(
  * vocabulary here instead of arriving as a 422 body, and no partial bill is
  * written on the way to finding out.
  */
-function invalidRoleErrors(
+export function invalidRoleErrors(
   artists: ShowArtistInput[],
-  fallbackRole?: string,
-): string[] {
-  const errors: string[] = [];
+  defaultRole?: string,
+): { flag?: string; byArtist: Map<number, string>; all: string[] } {
+  const byArtist = new Map<number, string>();
+  let flag: string | undefined;
   if (
-    fallbackRole !== undefined &&
-    fallbackRole.trim() !== "" &&
-    !isValidSetType(fallbackRole)
+    defaultRole !== undefined &&
+    defaultRole.trim() !== "" &&
+    !isValidSetType(defaultRole)
   ) {
-    errors.push(
-      `--role "${fallbackRole}" is not a valid bill role (allowed: ${SET_TYPE_VOCABULARY_CSV})`,
-    );
+    flag = `--role "${defaultRole}" is not a valid bill role (allowed: ${SET_TYPE_VOCABULARY_CSV})`;
   }
-  for (const artist of artists) {
+  artists.forEach((artist, index) => {
     const stated = artist.set_type;
-    if (stated === undefined || stated.trim() === "") continue;
-    if (isValidSetType(stated)) continue;
-    errors.push(
+    if (stated === undefined || stated.trim() === "") return;
+    if (isValidSetType(stated)) return;
+    byArtist.set(
+      index,
       `"${artist.name}": set_type "${stated}" is not a valid bill role (allowed: ${SET_TYPE_VOCABULARY_CSV})`,
     );
-  }
-  return errors;
+  });
+  const all = flag ? [flag, ...byArtist.values()] : [...byArtist.values()];
+  return { flag, byArtist, all };
 }
 
 /**
- * Shows the operator the acts this edit KEEPS, and warns about any whose stored
- * role cannot be sent back.
+ * Whether this act's own stated signal puts it in the headline slot.
  *
- * Takes the surviving bill, so both subcommands preview exactly the list they
- * are about to send. Dropping an unroundtrippable role is a real change to a
- * row nobody named, so it is never made silently.
+ * A curated role decides it; the legacy flag answers only for an act that
+ * states no role, which is the order the API resolves them in.
+ */
+function claimsHeadlineSlot(role: SetType | undefined, isHeadliner?: boolean): boolean {
+  return role ? role === "headliner" : isHeadliner === true;
+}
+
+/**
+ * The acts being added that claim a headline slot a kept act already holds,
+ * paired with the act they collide with.
+ *
+ * The API validates each role but not how many acts claim the top of the bill,
+ * so two stated headliners are written as asked, and charts read a curated
+ * bill's headline slot as EVERY row curated 'headliner'. Reporting the
+ * collision rather than refusing it: two headliners is a real bill shape and
+ * this is the caller's own statement, not an inference.
+ */
+export function headlinerCollisions(
+  kept: ShowArtistResponse[],
+  additions: Array<{
+    input: ShowArtistInput;
+    resolved: { id: number; name: string } | null;
+    role: SetType | undefined;
+  }>,
+  alreadyLinked: Set<number>,
+): Array<{ added: string; existing: string }> {
+  const existingHeadliner = kept.find(
+    (a) => roundTrippableRole(a.set_type) === "headliner",
+  );
+  if (!existingHeadliner) return [];
+  const collisions: Array<{ added: string; existing: string }> = [];
+  for (const addition of additions) {
+    if (!addition.resolved || alreadyLinked.has(addition.resolved.id)) continue;
+    if (!claimsHeadlineSlot(addition.role, addition.input.is_headliner)) continue;
+    collisions.push({
+      added: addition.resolved.name,
+      existing: existingHeadliner.name,
+    });
+  }
+  return collisions;
+}
+
+/**
+ * Acts on the surviving bill whose stored role cannot be sent back, so the
+ * rewrite is about to reset them to the default.
+ *
+ * A role nobody named is being changed, so the caller says so out loud rather
+ * than letting it happen quietly.
+ */
+export function unroundtrippableActs(
+  kept: ShowArtistResponse[],
+): ShowArtistResponse[] {
+  return kept.filter((act) => isUnroundtrippableSetType(act.set_type));
+}
+
+/**
+ * Prints the CURATED roles on the bill that survives this edit, and warns about
+ * any the rewrite cannot send back.
+ *
+ * Only acts carrying a curated role print a line: an act whose slot is unknown
+ * has nothing being preserved, and listing every act would bury the ones that
+ * do. Takes the surviving bill, so both subcommands preview the list they are
+ * about to send.
  */
 function previewKeptBill(kept: ShowArtistResponse[]): void {
   for (const act of kept) {
-    const role = curatedSetType(act.set_type);
+    const role = roundTrippableRole(act.set_type);
     if (role) {
       display.info(`  ${gray("KEEP")} "${act.name}" ${dim(`[${role}]`)}`);
     }
   }
-  for (const act of kept) {
-    if (isUnroundtrippableSetType(act.set_type)) {
-      display.warn(
-        `  "${act.name}" (ID: ${act.id}) has an unrecognized role "${act.set_type}" — it will be reset to the default (allowed: ${SET_TYPE_VOCABULARY_CSV})`,
-      );
-    }
+  for (const act of unroundtrippableActs(kept)) {
+    display.warn(
+      `  "${act.name}" (ID: ${act.id}) has an unrecognized role "${act.set_type}" — it will be reset to the default (allowed: ${SET_TYPE_VOCABULARY_CSV})`,
+    );
   }
 }
 
@@ -231,23 +304,41 @@ export async function addArtistsToShow(
 
   // --- Step 0: Refuse invalid roles before any request goes out ---
   const roleErrors = invalidRoleErrors(artists, defaultRole);
-  if (roleErrors.length > 0) {
-    for (const message of roleErrors) {
+  if (roleErrors.all.length > 0) {
+    for (const message of roleErrors.all) {
       display.error(message);
     }
-    return artists.map((artist) => ({
+    // Each act reports its OWN bad role; a bad --role is everyone's problem
+    // because it is the default they would all have taken.
+    return artists.map((artist, index) => ({
       name: artist.name,
       action: "error" as const,
-      error: roleErrors[0],
+      error: roleErrors.byArtist.get(index) ?? roleErrors.flag ?? roleErrors.all[0],
     }));
   }
 
   // --- Step 1: Fetch the show ---
   display.header("Resolving show...");
-  const show = await getShow(client, showId);
+  let show: ShowResponse | null;
+  try {
+    show = await getShow(client, showId);
+  } catch (err) {
+    const message = showFetchMessage(showId, err);
+    display.error(message);
+    return artists.map((artist) => ({
+      name: artist.name,
+      action: "error" as const,
+      error: message,
+    }));
+  }
   if (!show) {
-    display.error(`Show "${showId}" not found.`);
-    return [];
+    const message = `Show "${showId}" not found.`;
+    display.error(message);
+    return artists.map((artist) => ({
+      name: artist.name,
+      action: "error" as const,
+      error: message,
+    }));
   }
   display.success(
     `Found show: "${show.title || "(untitled)"}" (ID: ${show.id}, slug: ${show.slug})`,
@@ -282,6 +373,15 @@ export async function addArtistsToShow(
     `Show currently has ${show.artists.length} artist(s): ${show.artists.map((a) => `"${a.name}"`).join(", ") || "(none)"}`,
   );
   previewKeptBill(show.artists);
+  for (const collision of headlinerCollisions(
+    show.artists,
+    resolutions,
+    existingArtistIds,
+  )) {
+    display.warn(
+      `  "${collision.added}" is being added as headliner, and "${collision.existing}" already holds that slot — the show will have two.`,
+    );
+  }
   display.info("");
 
   let addCount = 0;
@@ -294,6 +394,14 @@ export async function addArtistsToShow(
         display.info(
           `  ${gray("SKIP")} "${r.input.name}" -> "${r.resolved.name}" (ID: ${r.resolved.id}) — already linked`,
         );
+        // This subcommand ADDS acts; it never restates the role of one already
+        // on the bill, whose stored role is preserved instead. Saying so beats
+        // discarding the operator's stated role in silence.
+        if (r.role) {
+          display.warn(
+            `  "${r.resolved.name}" is already on this bill, so the stated role "${r.role}" is not applied; its stored role is kept.`,
+          );
+        }
         alreadyLinkedCount++;
       } else {
         const conf = `${(r.resolved.confidence * 100).toFixed(0)}%`;
@@ -355,6 +463,11 @@ export async function addArtistsToShow(
   // Build the merged artist list: keep existing + add new
   const updatedArtists: ShowArtistUpdate[] = show.artists.map(preserveBillEntry);
 
+  // Every act on the bill, including the ones appended below. `show_artists` is
+  // keyed on (show_id, artist_id), so two inputs that fuzzy-resolve to the same
+  // artist would send that id twice and roll the whole edit back.
+  const billArtistIds = new Set(existingArtistIds);
+
   // Add new artists
   for (const r of resolutions) {
     if (!r.resolved) {
@@ -370,6 +483,19 @@ export async function addArtistsToShow(
       });
       continue;
     }
+
+    if (billArtistIds.has(r.resolved.id)) {
+      display.warn(
+        `  "${r.input.name}" resolved to "${r.resolved.name}" (ID: ${r.resolved.id}), which another entry in this request already adds — sending it once.`,
+      );
+      results.push({
+        name: r.input.name,
+        action: "already_linked",
+        artistId: r.resolved.id,
+      });
+      continue;
+    }
+    billArtistIds.add(r.resolved.id);
 
     // A stated role is authoritative and is_headliner is DERIVED from it, so
     // the two halves of the payload cannot contradict each other.
@@ -468,7 +594,14 @@ export async function removeArtistFromShow(
 
   // --- Step 1: Fetch the show ---
   display.header("Resolving show...");
-  const show = await getShow(client, showId);
+  let show: ShowResponse | null;
+  try {
+    show = await getShow(client, showId);
+  } catch (err) {
+    const message = showFetchMessage(showId, err);
+    display.error(message);
+    return { name: artistRef, action: "error", error: message };
+  }
   if (!show) {
     display.error(`Show "${showId}" not found.`);
     return { name: artistRef, action: "not_found" };
@@ -526,6 +659,21 @@ export async function removeArtistFromShow(
   // The bill that survives this removal, resolved once so the preview and the
   // payload cannot describe different bills.
   const kept = show.artists.filter((a) => a.id !== artistId);
+
+  // An empty `artists` array reads as "no bill supplied" on the update
+  // endpoint, so the show keeps every act. Refusing here is the difference
+  // between saying so and reporting a removal that did not happen.
+  if (kept.length === 0) {
+    display.error(
+      `"${artistName}" is the only act on this show; the update endpoint cannot empty a bill. Delete the show instead.`,
+    );
+    return {
+      name: artistRef,
+      action: "error",
+      artistId,
+      error: "cannot remove the last act on a show",
+    };
+  }
 
   // --- Step 4: Preview ---
   display.header("Preview");

@@ -1,4 +1,5 @@
 import type { EntityType } from "./types";
+import { isValidSetType, SET_TYPE_VOCABULARY_CSV } from "./setType";
 
 export interface ValidationError {
   field: string;
@@ -89,6 +90,22 @@ export function validateShow(data: unknown): ValidationResult {
     if (!url.startsWith("http://") && !url.startsWith("https://")) {
       errors.push({ field: "ticket_url", message: "ticket_url must be a valid URL (http:// or https://)" });
     }
+  }
+
+  // A bill role the API would refuse fails the show here rather than being
+  // dropped from the payload, which would create the act with its slot silently
+  // unknown.
+  if (Array.isArray(d.artists)) {
+    d.artists.forEach((artist, index) => {
+      if (!artist || typeof artist !== "object") return;
+      const stated = (artist as Record<string, unknown>).set_type;
+      if (stated === undefined || stated === null || stated === "") return;
+      if (typeof stated === "string" && isValidSetType(stated)) return;
+      errors.push({
+        field: `artists[${index}].set_type`,
+        message: `"${String(stated)}" is not a valid bill role (allowed: ${SET_TYPE_VOCABULARY_CSV})`,
+      });
+    });
   }
 
   return { valid: errors.length === 0, errors };

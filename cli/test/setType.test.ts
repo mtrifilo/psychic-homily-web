@@ -3,7 +3,7 @@ import {
   SET_TYPE_VOCABULARY,
   SET_TYPE_UNCURATED,
   SET_TYPE_VOCABULARY_CSV,
-  curatedSetType,
+  roundTrippableRole,
   isUnroundtrippableSetType,
   isValidSetType,
 } from "../src/lib/setType";
@@ -40,29 +40,61 @@ describe("SET_TYPE_VOCABULARY_CSV", () => {
   });
 });
 
-describe("curatedSetType", () => {
+describe("roundTrippableRole", () => {
   test("returns a curated role unchanged", () => {
-    expect(curatedSetType("direct_support")).toBe("direct_support");
-    expect(curatedSetType("headliner")).toBe("headliner");
-    expect(curatedSetType("dj")).toBe("dj");
+    expect(roundTrippableRole("direct_support")).toBe("direct_support");
+    expect(roundTrippableRole("headliner")).toBe("headliner");
+    expect(roundTrippableRole("dj")).toBe("dj");
   });
 
   test("reads the two spellings of an unknown slot as nothing to state", () => {
-    expect(curatedSetType(SET_TYPE_UNCURATED)).toBeUndefined();
-    expect(curatedSetType("")).toBeUndefined();
-    expect(curatedSetType("   ")).toBeUndefined();
-    expect(curatedSetType(null)).toBeUndefined();
-    expect(curatedSetType(undefined)).toBeUndefined();
+    expect(roundTrippableRole(SET_TYPE_UNCURATED)).toBeUndefined();
+    expect(roundTrippableRole("")).toBeUndefined();
+    expect(roundTrippableRole("   ")).toBeUndefined();
+    expect(roundTrippableRole(null)).toBeUndefined();
+    expect(roundTrippableRole(undefined)).toBeUndefined();
   });
 
   test("returns nothing for a role the API would reject", () => {
-    expect(curatedSetType("co-headliner")).toBeUndefined();
-    expect(curatedSetType("Headliner")).toBeUndefined();
+    expect(roundTrippableRole("co-headliner")).toBeUndefined();
+    expect(roundTrippableRole("Headliner")).toBeUndefined();
   });
 
   test("judges the value untrimmed, exactly as the API would", () => {
-    expect(curatedSetType("  opener  ")).toBeUndefined();
+    expect(roundTrippableRole("  opener  ")).toBeUndefined();
     expect(isUnroundtrippableSetType("  opener  ")).toBe(true);
+  });
+});
+
+describe("vocabulary drift", () => {
+  /**
+   * The CLI's copy of the enum against its source of truth: the OpenAPI tag on
+   * the shared show `Artist` schema, which is what the API actually enforces.
+   *
+   * Read from the Go file rather than restated, because a hand-copied enum with
+   * only a hand-copied test is self-referential — it passes just as happily
+   * when the CLI is the stale side. Drift here is not cosmetic: a role the CLI
+   * does not know is dropped from every preserved act on every bill edit.
+   */
+  test("matches the enum the API publishes, value for value and in order", async () => {
+    const source = await Bun.file(
+      new URL(
+        "../../backend/internal/api/handlers/catalog/show.go",
+        import.meta.url,
+      ).pathname,
+    ).text();
+    const match = source.match(/SetType\s+\*string\s+`json:"set_type,omitempty"\s+enum:"([^"]+)"/);
+    expect(match).not.toBeNull();
+    expect(match![1].split(",")).toEqual([...SET_TYPE_VOCABULARY]);
+  });
+
+  test("matches the batch schema's show-artist enum", async () => {
+    const schema = await Bun.file(
+      new URL("../eval/batch-schema.json", import.meta.url).pathname,
+    ).json();
+    expect(
+      schema.definitions.show.properties.artists.items.properties.set_type.enum,
+    ).toEqual([...SET_TYPE_VOCABULARY]);
   });
 });
 

@@ -95,4 +95,51 @@ struct ShowPriceTests {
     @Test func spellsFractionalAmountsToTheCent() throws {
         #expect(try show(price: 20.5, doorPrice: nil).priceText == "$20.50")
     }
+
+    @Test func spellsAPairOutLoudForAScreenReader() throws {
+        #expect(
+            try show(price: 20, doorPrice: 25).priceAccessibilityLabel
+                == "$20 advance, $25 at the door"
+        )
+    }
+
+    @Test func leavesALonePriceUnlabelled() throws {
+        #expect(try show(price: 20, doorPrice: nil).priceAccessibilityLabel == nil)
+        #expect(try show(price: nil, doorPrice: nil).priceAccessibilityLabel == nil)
+    }
+}
+
+@Suite("Show form price parsing")
+struct ShowFormPriceParsingTests {
+    @Test func readsAPlainAmount() {
+        #expect(ShowFormView.parsePrice("20") == 20)
+        #expect(ShowFormView.parsePrice("$25") == 25)
+        #expect(ShowFormView.parsePrice(" $1,250 ") == 1250)
+        #expect(ShowFormView.parsePrice("12.50") == 12.5)
+    }
+
+    @Test func readsAStatedZeroAsAPrice() {
+        #expect(ShowFormView.parsePrice("0") == 0)
+        #expect(ShowFormView.parsePrice("$0") == 0)
+    }
+
+    @Test func readsTheExtractorsWordForAFreeShow() {
+        #expect(ShowFormView.parsePrice("Free") == 0)
+        #expect(ShowFormView.parsePrice("free") == 0)
+    }
+
+    @Test func readsAnEmptyFieldAsNoPrice() {
+        #expect(ShowFormView.parsePrice("") == nil)
+        #expect(ShowFormView.parsePrice("   ") == nil)
+        #expect(ShowFormView.parsePrice("call venue") == nil)
+    }
+
+    @Test func refusesNonFiniteAmounts() {
+        // JSONSerialization raises an Objective-C exception on these, which no
+        // Swift catch can take.
+        #expect(ShowFormView.parsePrice("nan") == nil)
+        #expect(ShowFormView.parsePrice("inf") == nil)
+        #expect(ShowFormView.parsePrice("-inf") == nil)
+        #expect(ShowFormView.parsePrice("infinity") == nil)
+    }
 }

@@ -66,7 +66,7 @@ function statesASlot(value: string | null | undefined): value is string {
  * The value is judged EXACTLY as stored, untrimmed, which is the same verdict
  * the API gives a role stated on the way in. Only emptiness is forgiving.
  */
-export function curatedSetType(
+export function roundTrippableRole(
   value: string | null | undefined,
 ): SetType | undefined {
   if (!statesASlot(value)) return undefined;
@@ -77,11 +77,11 @@ export function curatedSetType(
  * Whether a stored value is one this CLI cannot round-trip: it states a slot,
  * but not one the API would accept back.
  *
- * Derived from {@link curatedSetType} rather than restating its test, so the
+ * Derived from {@link roundTrippableRole} rather than restating its test, so the
  * value that gets dropped is exactly the value that gets warned about.
  */
 export function isUnroundtrippableSetType(
   value: string | null | undefined,
 ): boolean {
-  return statesASlot(value) && curatedSetType(value) === undefined;
+  return statesASlot(value) && roundTrippableRole(value) === undefined;
 }

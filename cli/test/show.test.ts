@@ -4,6 +4,8 @@ import {
   removeArtistFromShow,
   parseShowArtistInput,
   getShow,
+  headlinerCollisions,
+  unroundtrippableActs,
   type ArtistAddResult,
   type ArtistRemoveResult,
 } from "../src/commands/show";
@@ -277,12 +279,14 @@ describe("addArtistsToShow", () => {
     expect(putCalls).toHaveLength(0);
   });
 
-  test("returns empty when show not found", async () => {
+  test("reports an error when show not found, so the run does not exit 0", async () => {
     // No show mock — will get 404
     const artists = [{ name: "Pavement" }];
     const results = await addArtistsToShow("99999", artists, TEST_ENV, true);
 
-    expect(results).toHaveLength(0);
+    expect(results).toHaveLength(1);
+    expect(results[0].action).toBe("error");
+    expect(results[0].error).toContain("not found");
   });
 
   test("handles PUT error gracefully", async () => {
@@ -361,7 +365,12 @@ describe("addArtistsToShow", () => {
 
 describe("removeArtistFromShow", () => {
   test("removes artist by name in dry-run mode (no mutations)", async () => {
-    setupShowMock();
+    setupShowMock({
+      artists: [
+        { id: 10, name: "Pavement", slug: "pavement", is_headliner: true },
+        { id: 20, name: "Soapbox Derby", slug: "soapbox-derby", is_headliner: false },
+      ],
+    });
     setupArtistSearchMock({
       "Pavement": { id: 10, name: "Pavement", slug: "pavement" },
     });
@@ -468,7 +477,12 @@ describe("removeArtistFromShow", () => {
   });
 
   test("handles PUT error gracefully", async () => {
-    setupShowMock();
+    setupShowMock({
+      artists: [
+        { id: 10, name: "Pavement", slug: "pavement", is_headliner: true },
+        { id: 20, name: "Soapbox Derby", slug: "soapbox-derby", is_headliner: false },
+      ],
+    });
     setupArtistSearchMock({
       "Pavement": { id: 10, name: "Pavement", slug: "pavement" },
     });
@@ -727,6 +741,151 @@ describe("bill roles round-trip", () => {
     expect(bill[1]).toEqual({ id: 11, is_headliner: false });
   });
 
+  test("refuses to remove the only act rather than reporting a no-op as done", async () => {
+    setupShowMock({
+      artists: [
+        { id: 10, name: "Pavement", slug: "pavement", is_headliner: true, set_type: "headliner" },
+      ],
+    });
+    addMockRoute("PUT", /\/shows\/668$/, () => ({ id: 668 }));
+
+    const result = await removeArtistFromShow("668", "10", TEST_ENV, true);
+
+    expect(result.action).toBe("error");
+    expect(result.error).toContain("last act");
+    expect(fetchCalls.filter((c) => c.method === "PUT")).toHaveLength(0);
+  });
+
+  test("an added headliner still lands when a kept act already holds the slot", async () => {
+    setupCuratedBillMock();
+    setupArtistSearchMock({
+      "Nite Fields": { id: 20, name: "Nite Fields", slug: "nite-fields" },
+    });
+    addMockRoute("PUT", /\/shows\/668$/, () => ({ id: 668 }));
+
+    // Two stated headliners is the caller's own statement, so the edit goes
+    // through; the collision is reported, not refused.
+    await addArtistsToShow(
+      "668",
+      [{ name: "Nite Fields" }],
+      TEST_ENV,
+      true,
+      "headliner",
+    );
+
+    expect(putBill()[3]).toEqual({
+      id: 20,
+      is_headliner: true,
+      set_type: "headliner",
+    });
+  });
+
+  test("an explicit per-act is_headliner outranks the --role default", async () => {
+    setupShowMock({
+      artists: [
+        { id: 11, name: "Bosses Band", slug: "bosses-band", is_headliner: false, set_type: "opener" },
+      ],
+    });
+    setupArtistSearchMock({
+      "Nite Fields": { id: 20, name: "Nite Fields", slug: "nite-fields" },
+    });
+    addMockRoute("PUT", /\/shows\/668$/, () => ({ id: 668 }));
+
+    await addArtistsToShow(
+      "668",
+      [{ name: "Nite Fields", is_headliner: true }],
+      TEST_ENV,
+      true,
+      "opener",
+    );
+
+    const added = putBill()[1];
+    expect("set_type" in added).toBe(false);
+    expect(added).toEqual({ id: 20, is_headliner: true });
+  });
+
+  test("each act reports its OWN invalid role, not another act's", async () => {
+    setupCuratedBillMock();
+
+    const results = await addArtistsToShow(
+      "668",
+      [
+        { name: "Good Act", set_type: "opener" },
+        { name: "Bad Act", set_type: "co-headliner" },
+      ],
+      TEST_ENV,
+      true,
+    );
+
+    expect(results[0].error).toContain("Bad Act");
+    expect(results[1].error).toContain("Bad Act");
+    expect(results[1].error).toContain("co-headliner");
+    expect(fetchCalls).toHaveLength(0);
+  });
+
+  test("sends an artist once when two inputs resolve to the same act", async () => {
+    setupShowMock({
+      artists: [
+        { id: 11, name: "Bosses Band", slug: "bosses-band", is_headliner: false, set_type: "opener" },
+      ],
+    });
+    addMockRoute("GET", /\/artists\/search/, () => ({
+      artists: [{ id: 20, name: "Nite Fields", slug: "nite-fields" }],
+    }));
+    addMockRoute("PUT", /\/shows\/668$/, () => ({ id: 668 }));
+
+    await addArtistsToShow(
+      "668",
+      [{ name: "Nite Fields" }, { name: "Nite Fields" }],
+      TEST_ENV,
+      true,
+    );
+
+    const bill = putBill();
+    expect(bill.filter((a) => a.id === 20)).toHaveLength(1);
+  });
+
+  test("a transport failure on the show fetch is an error, not a missing show", async () => {
+    addMockRouteWithStatus("GET", /\/shows\/\d+$/, 500, () => ({
+      message: "Internal server error",
+    }));
+
+    const added = await addArtistsToShow(
+      "668",
+      [{ name: "Nite Fields" }],
+      TEST_ENV,
+      true,
+    );
+    expect(added).toHaveLength(1);
+    expect(added[0].action).toBe("error");
+
+    const removed = await removeArtistFromShow("668", "11", TEST_ENV, true);
+    expect(removed.action).toBe("error");
+  });
+
+  test("a genuine 404 still reports the show as missing", async () => {
+    const removed = await removeArtistFromShow("99999", "11", TEST_ENV, true);
+    expect(removed.action).toBe("not_found");
+  });
+
+  test("remove-artist drops an unroundtrippable role on a kept act", async () => {
+    setupShowMock({
+      artists: [
+        { id: 10, name: "Pavement", slug: "pavement", is_headliner: true, set_type: "headliner" },
+        { id: 11, name: "Bosses Band", slug: "bosses-band", is_headliner: false, set_type: "co-headliner" },
+        { id: 12, name: "Soapbox Derby", slug: "soapbox-derby", is_headliner: false, set_type: "opener" },
+      ],
+    });
+    addMockRoute("PUT", /\/shows\/668$/, () => ({ id: 668 }));
+
+    await removeArtistFromShow("668", "12", TEST_ENV, true);
+
+    expect(putBill()).toEqual([
+      { id: 10, is_headliner: true, set_type: "headliner" },
+      { id: 11, is_headliner: false },
+    ]);
+  });
+
   test("dry-run sends no PUT for either subcommand", async () => {
     setupCuratedBillMock();
     setupArtistSearchMock({
@@ -737,5 +896,106 @@ describe("bill roles round-trip", () => {
     await removeArtistFromShow("668", "12", TEST_ENV, false);
 
     expect(fetchCalls.filter((c) => c.method === "PUT")).toHaveLength(0);
+  });
+});
+
+describe("unroundtrippableActs", () => {
+  test("names exactly the acts whose stored role cannot be sent back", () => {
+    expect(
+      unroundtrippableActs([
+        { id: 1, name: "Curated", slug: "curated", set_type: "opener" },
+        { id: 2, name: "Silent", slug: "silent", set_type: "performer" },
+        { id: 3, name: "Blank", slug: "blank", set_type: "" },
+        { id: 4, name: "Legacy", slug: "legacy", set_type: "co-headliner" },
+        { id: 5, name: "Absent", slug: "absent" },
+      ]).map((a) => a.name),
+    ).toEqual(["Legacy"]);
+  });
+});
+
+describe("headlinerCollisions", () => {
+  const curatedBill = [
+    { id: 10, name: "Pavement", slug: "pavement", is_headliner: true, set_type: "headliner" },
+    { id: 11, name: "Bosses Band", slug: "bosses-band", is_headliner: false, set_type: "opener" },
+  ];
+  const nite = { id: 20, name: "Nite Fields" };
+
+  test("reports an added headliner against the act already holding the slot", () => {
+    expect(
+      headlinerCollisions(
+        curatedBill,
+        [{ input: { name: "Nite Fields" }, resolved: nite, role: "headliner" }],
+        new Set(),
+      ),
+    ).toEqual([{ added: "Nite Fields", existing: "Pavement" }]);
+  });
+
+  test("reads the legacy flag as a claim on the slot", () => {
+    expect(
+      headlinerCollisions(
+        curatedBill,
+        [
+          {
+            input: { name: "Nite Fields", is_headliner: true },
+            resolved: nite,
+            role: undefined,
+          },
+        ],
+        new Set(),
+      ),
+    ).toHaveLength(1);
+  });
+
+  test("a stated role outranks the legacy flag", () => {
+    expect(
+      headlinerCollisions(
+        curatedBill,
+        [
+          {
+            input: { name: "Nite Fields", is_headliner: true },
+            resolved: nite,
+            role: "opener",
+          },
+        ],
+        new Set(),
+      ),
+    ).toHaveLength(0);
+  });
+
+  test("is silent for an act claiming no headline slot", () => {
+    expect(
+      headlinerCollisions(
+        curatedBill,
+        [{ input: { name: "Nite Fields" }, resolved: nite, role: "dj" }],
+        new Set(),
+      ),
+    ).toHaveLength(0);
+  });
+
+  test("is silent when the kept bill holds no headliner", () => {
+    expect(
+      headlinerCollisions(
+        [{ id: 11, name: "Bosses Band", slug: "bosses-band", set_type: "opener" }],
+        [{ input: { name: "Nite Fields" }, resolved: nite, role: "headliner" }],
+        new Set(),
+      ),
+    ).toHaveLength(0);
+  });
+
+  test("is silent for an unresolved or already-linked act", () => {
+    expect(
+      headlinerCollisions(
+        curatedBill,
+        [{ input: { name: "Ghost" }, resolved: null, role: "headliner" }],
+        new Set(),
+      ),
+    ).toHaveLength(0);
+    expect(
+      headlinerCollisions(
+        curatedBill,
+        [{ input: { name: "Nite Fields" }, resolved: nite, role: "headliner" }],
+        new Set([20]),
+      ),
+    ).toHaveLength(0);
   });
 });

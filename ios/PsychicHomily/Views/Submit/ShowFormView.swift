@@ -187,8 +187,8 @@ struct ShowFormView: View {
         // Parse prices from the two cost strings. They are read independently:
         // a blank door field means the show states no door price, never that it
         // matches the advance price.
-        let price = parsePrice(cost)
-        let doorPrice = parsePrice(doorCost)
+        let price = ShowFormView.parsePrice(cost)
+        let doorPrice = ShowFormView.parsePrice(doorCost)
 
         // Build request body
         var body: [String: Any] = [
@@ -219,12 +219,21 @@ struct ShowFormView: View {
     /// The amount a price field states, or nil when it states none.
     ///
     /// Optional rather than zero: zero is a price the site prints as "Free", so
-    /// a field holding "0" has to stay distinguishable from an empty one.
-    private func parsePrice(_ text: String) -> Double? {
+    /// a field holding "0" has to stay distinguishable from an empty one. The
+    /// word "Free" is what the extractor emits for a free show, so it parses to
+    /// that same zero.
+    ///
+    /// Only FINITE values pass. `Double("nan")` and `Double("inf")` succeed,
+    /// and JSONSerialization raises an Objective-C exception on a non-finite
+    /// number that no Swift `catch` can take.
+    static func parsePrice(_ text: String) -> Double? {
         let cleaned = text.replacingOccurrences(of: "$", with: "")
             .replacingOccurrences(of: ",", with: "")
             .trimmingCharacters(in: .whitespaces)
-        return Double(cleaned)
+        if cleaned.isEmpty { return nil }
+        if cleaned.caseInsensitiveCompare("free") == .orderedSame { return 0 }
+        guard let amount = Double(cleaned), amount.isFinite else { return nil }
+        return amount
     }
 }
 

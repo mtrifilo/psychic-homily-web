@@ -8,6 +8,7 @@ import type { TagInput, ResolvedTag } from "../lib/tags";
 import * as display from "../lib/display";
 import { green, yellow, dim, gray } from "../lib/ansi";
 import { resolveVenueTimezone, localTimeToUTC } from "../lib/timezone";
+import { isValidSetType } from "../lib/setType";
 
 /**
  * Normalize a date string to an ISO 8601 UTC timestamp.
@@ -48,6 +49,11 @@ export function normalizeDate(
 interface ShowArtistInput {
   name: string;
   is_headliner?: boolean;
+  /**
+   * Curated bill role. Absent means the slot is unknown, which is what the API
+   * records when the key is omitted; a default here would publish a guess.
+   */
+  set_type?: string;
 }
 
 interface ShowVenueInput {
@@ -84,6 +90,7 @@ interface ResolvedArtist {
   id?: number;
   name: string;
   is_headliner?: boolean;
+  set_type?: string;
   status: "existing" | "new";
   confidence?: number;
 }
@@ -159,6 +166,7 @@ export async function resolveArtists(
           id: best.id,
           name: best.name,
           is_headliner: artist.is_headliner,
+          set_type: artist.set_type,
           status: "existing",
           confidence: best.score,
         });
@@ -166,6 +174,7 @@ export async function resolveArtists(
         resolved.push({
           name: artist.name,
           is_headliner: artist.is_headliner,
+          set_type: artist.set_type,
           status: "new",
         });
       }
@@ -174,6 +183,7 @@ export async function resolveArtists(
       resolved.push({
         name: artist.name,
         is_headliner: artist.is_headliner,
+        set_type: artist.set_type,
         status: "new",
       });
     }
@@ -258,7 +268,19 @@ export function buildShowPayload(plan: ShowPlan): Record<string, unknown> {
       const artist: Record<string, unknown> = {};
       if (a.id) artist.id = a.id;
       if (!a.id) artist.name = a.name;
-      if (a.is_headliner !== undefined) artist.is_headliner = a.is_headliner;
+      // A stated role is authoritative and is_headliner is DERIVED from it, so
+      // the two halves cannot contradict. An UNSTATED role leaves the key off,
+      // which is the only way to tell the API the slot is unknown.
+      const role =
+        a.set_type !== undefined && isValidSetType(a.set_type)
+          ? a.set_type
+          : undefined;
+      if (role) {
+        artist.set_type = role;
+        artist.is_headliner = role === "headliner";
+      } else if (a.is_headliner !== undefined) {
+        artist.is_headliner = a.is_headliner;
+      }
       return artist;
     }),
     venues: plan.venues.map((v) => {
@@ -434,8 +456,24 @@ export async function submitShows(
 /**
  * One amount as the site spells it: `Free` for zero, `$20` for a whole number,
  * `$20.50` otherwise.
+ *
+ * The fourth statement of the site's money register, alongside `formatPrice` in
+ * `frontend/lib/utils/formatters.ts`, `showPriceAmount` in
+ * `backend/internal/services/shared/show_price.go` and `Show.formatPrice` in
+ * `ios/PsychicHomily/Models/Show.swift`. No compiler holds the four together,
+ * so a change here needs the same change in the other three. The whole-number
+ * test is the part that drifts: rendering everything as whole dollars turns
+ * $12.50 into `$12` and a fifty-cent door into `$0`.
+ *
+ * Anything that is not a finite number prints VERBATIM. The batch schema types
+ * both price fields as number-or-string and nothing coerces them, so the
+ * preview's job is to show the value that is about to be sent -- which the API
+ * will reject -- rather than to throw and take the rest of the run with it.
  */
 function formatAmount(amount: number): string {
+  if (typeof amount !== "number" || !Number.isFinite(amount)) {
+    return String(amount);
+  }
   if (amount === 0) return "Free";
   return Number.isInteger(amount) ? `$${amount}` : `$${amount.toFixed(2)}`;
 }
