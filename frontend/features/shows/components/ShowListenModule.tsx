@@ -12,7 +12,7 @@ import {
 } from '@/components/shared'
 import { MiddotSegments } from './MiddotSegments'
 import { listenCardsForBill, type ListenCard } from './showListenCards'
-import { billHometown } from '../utils'
+import { basedInPhrase, billHometown } from '../utils'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import type { ArtistResponse } from '../types'
 
@@ -140,7 +140,7 @@ export function ShowListenModule({
  */
 function ShowListenCard({ card }: { card: ListenCard }) {
   const { artist, source, buyHref } = card
-  const hometown = billHometown(artist)
+  const hometown = basedInPhrase(billHometown(artist))
 
   // Segment and key pushed together, the way ShowProvenanceLine builds its
   // byline: `MiddotSegments` reads the two as parallel arrays, so building them
@@ -170,15 +170,9 @@ function ShowListenCard({ card }: { card: ListenCard }) {
     )
   )
   if (hometown) {
-    push(
-      'hometown',
-      // Read aloud, a city is one more proper noun in a row of them unless
-      // something says "from". Same connective, and the same
-      // space-outside-the-hidden-span placement, as the bill block's hometown.
-      <span>
-        <span className="sr-only">from</span> {hometown}
-      </span>
-    )
+    // The shared formatter, so this reads the same as the bill block above.
+    // Visible copy, so the announced text matches what is on screen.
+    push('hometown', hometown)
   }
   push('source', source)
   const verbs = listenVerbs(card)

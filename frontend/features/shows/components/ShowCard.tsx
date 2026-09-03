@@ -26,8 +26,33 @@ import { ExportShowButton } from './ExportShowButton'
 import { ShowStatusBadge } from './ShowStatusBadge'
 import { SHOW_LIST_FEATURE_POLICY } from './showListFeaturePolicy'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { splitBill } from '../utils'
+import { basedInPhrase, billHometown, splitBill } from '../utils'
 import type { ShowResponse, ArtistResponse } from '../types'
+
+/**
+ * Where an expanded card's act is based: `based in Tempe, AZ`, or nothing when
+ * the act has no placeable location.
+ *
+ * Both halves are shared with the show page: {@link billHometown} for the
+ * parts and {@link basedInPhrase} for the prefix. This line sits beside the
+ * SHOW's city, where a bare place name after an act's name reads as where the
+ * show is, and one act must not be worded two ways across the card and the
+ * page it opens.
+ *
+ * {@link billHometown} counts COUNTRY as placeable, so an act carrying only a
+ * country states it, and its country is included unless the state is set and
+ * the country is USA/US.
+ */
+function ArtistBase({ artist }: { artist: ArtistResponse }) {
+  const base = basedInPhrase(billHometown(artist))
+  if (!base) return null
+  return (
+    <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
+      <MapPin className="h-3 w-3" />
+      <span>{base}</span>
+    </div>
+  )
+}
 
 /**
  * Whether an artist's music block will render anything. A stored Bandcamp URL
@@ -446,16 +471,7 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
                       ) : (
                         <span className="font-medium">{artist.name}</span>
                       )}
-                      {(artist.city || artist.state) && (
-                        <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
-                          <MapPin className="h-3 w-3" />
-                          <span>
-                            {[artist.city, artist.state]
-                              .filter(Boolean)
-                              .join(', ')}
-                          </span>
-                        </div>
-                      )}
+                      <ArtistBase artist={artist} />
                     </div>
                     <SocialLinks social={artist.socials} className="shrink-0" />
                   </div>
@@ -688,16 +704,7 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
                     ) : (
                       <span className="font-medium">{artist.name}</span>
                     )}
-                    {(artist.city || artist.state) && (
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
-                        <MapPin className="h-3 w-3" />
-                        <span>
-                          {[artist.city, artist.state]
-                            .filter(Boolean)
-                            .join(', ')}
-                        </span>
-                      </div>
-                    )}
+                    <ArtistBase artist={artist} />
                   </div>
                   <SocialLinks social={artist.socials} className="shrink-0" />
                 </div>

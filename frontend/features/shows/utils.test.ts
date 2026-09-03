@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  basedInPhrase,
   splitBill,
   dedupVenueShows,
   formatShowCountLabel,
@@ -231,5 +232,24 @@ describe('splitBill', () => {
 
   it('returns nothing for a show with no bill at all', () => {
     expect(splitBill([])).toEqual({ headliners: [], support: [] })
+  })
+})
+
+describe('basedInPhrase', () => {
+  // Beside a venue in another city, a bare place name after an act's name
+  // reads as where the show is. The words are what remove that.
+  it('prefixes a location with "based in"', () => {
+    expect(basedInPhrase('Silver Spring, United States')).toBe(
+      'based in Silver Spring, United States'
+    )
+    expect(basedInPhrase('Issaquah, WA')).toBe('based in Issaquah, WA')
+  })
+
+  // The prefix alone states a fact the caller does not have.
+  it('renders nothing without a location', () => {
+    expect(basedInPhrase(null)).toBeNull()
+    expect(basedInPhrase(undefined)).toBeNull()
+    expect(basedInPhrase('')).toBeNull()
+    expect(basedInPhrase('   ')).toBeNull()
   })
 })

@@ -27,6 +27,10 @@ interface ShowStatusStripeProps {
  * Full-bleed background with the shared detail-page gutter inside it, so the
  * text starts on the same line as the breadcrumb and everything below.
  *
+ * TONAL, not inverted: the muted surface and foreground text of the page's own
+ * palette, bounded by hairline rules in the border token. The band separates
+ * itself from the page by tint rather than by reversing the page's contrast.
+ *
  * `min-h-11` rather than a hard height so the longest state (TONIGHT with
  * doors, music and the estimated end) can wrap on a narrow screen instead of
  * clipping. The band is server-rendered from server-computed state, so its
@@ -56,7 +60,7 @@ export function ShowStatusStripe({ show, lifecycle }: ShowStatusStripeProps) {
       role="status"
       aria-live="polite"
       data-testid="show-status-stripe"
-      className="w-full bg-foreground text-background"
+      className="w-full border-y border-border bg-muted text-foreground"
     >
       <EntityDetailContainer className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 py-2 font-mono text-[11px] uppercase tracking-[1.4px] sm:text-xs">
         {segments.map((segment, index) => (
@@ -70,7 +74,7 @@ export function ShowStatusStripe({ show, lifecycle }: ShowStatusStripeProps) {
           // whitespace-only child of a flex container, so it costs no layout.
           <span key={segment} className="flex items-center gap-x-3">
             {index > 0 && (
-              <span aria-hidden="true" className="text-background/50">
+              <span aria-hidden="true" className="text-muted-foreground">
                 &middot;
               </span>
             )}

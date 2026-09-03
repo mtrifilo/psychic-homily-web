@@ -6,8 +6,9 @@ import type { TicketTagEntityType } from './plantedTagTelemetry'
 import type { PlantedTicketTag } from './ticketVendors'
 
 /**
- * Reports a planted affiliate tag once the link is actually on a reader's
- * screen.
+ * Reports a planted affiliate tag once the page carrying it is on a reader's
+ * screen. NOT once the link is: `ticketOffer` withholds the anchor for a
+ * planted tag, so this fires precisely when there is no link to see.
  *
  * An EFFECT, not a call during render, for the ordinary reason: reporting is a
  * side effect, and render runs twice under StrictMode and again on every

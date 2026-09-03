@@ -641,15 +641,19 @@ describe('ShowHeader bill rendering', () => {
 
       // Exact, so the mock's locked SEQUENCE is pinned: name, then labels,
       // then hometown, with nothing interposed.
-      expect(headlineText()).toBe('Modest Mouse on [Epic] from Issaquah, WA')
+      expect(headlineText()).toBe(
+        'Modest Mouse on [Epic] based in Issaquah, WA'
+      )
       // Locked location rule: the country is suppressed for a US state.
       expect(headlineText()).not.toContain('USA')
       // The accessible name is the assertion that actually pins the a11y
       // decisions: it honours `aria-hidden` (so the brackets vanish) and keeps
-      // `sr-only` (so the connectives stay). Deleting either would leave the
-      // textContent assertion above green.
+      // `sr-only` (so the label connective stays). The hometown connective is
+      // VISIBLE copy, so it appears in both strings and cannot drift from what
+      // is on screen. Deleting either would leave the textContent assertion
+      // above green.
       expect(screen.getByRole('heading', { level: 1 })).toHaveAccessibleName(
-        'Modest Mouse on Epic from Issaquah, WA'
+        'Modest Mouse on Epic based in Issaquah, WA'
       )
       expect(screen.getByRole('link', { name: 'Epic' })).toHaveAttribute(
         'href',
@@ -724,8 +728,8 @@ describe('ShowHeader bill rendering', () => {
       // matters is that the SPACES around it are their own text nodes, outside
       // the hidden span, and that the span itself is hidden.
       expect(headlineText()).toBe(
-        'First Name on [Label One] from Chicago, IL • ' +
-          'Second Name on [Label Two] from Melbourne, Australia'
+        'First Name on [Label One] based in Chicago, IL • ' +
+          'Second Name on [Label Two] based in Melbourne, Australia'
       )
       expect(screen.getByText('•')).toHaveAttribute('aria-hidden', 'true')
       expect(screen.getByRole('link', { name: 'Label Two' })).toHaveAttribute(
@@ -752,7 +756,7 @@ describe('ShowHeader bill rendering', () => {
 
       render(<ShowHeader lifecycle="upcoming" show={show} />)
 
-      expect(headlineText()).toBe('No Label Band from Phoenix, AZ')
+      expect(headlineText()).toBe('No Label Band based in Phoenix, AZ')
     })
 
     // The list endpoints omit the key entirely (absent means "not looked up").
@@ -811,7 +815,9 @@ describe('ShowHeader bill rendering', () => {
 
       render(<ShowHeader lifecycle="upcoming" show={show} />)
 
-      expect(headlineText()).toBe('Rolling Blackouts from Melbourne, Australia')
+      expect(headlineText()).toBe(
+        'Rolling Blackouts based in Melbourne, Australia'
+      )
     })
 
     // `formatLocation`'s placeholder is designed to stand alone in a location
@@ -857,7 +863,7 @@ describe('ShowHeader bill rendering', () => {
 
       render(<ShowHeader lifecycle="upcoming" show={show} />)
 
-      expect(headlineText()).toBe('Edge Case from Location Unknown')
+      expect(headlineText()).toBe('Edge Case based in Location Unknown')
     })
   })
 
@@ -915,7 +921,7 @@ describe('ShowHeader bill rendering', () => {
 
       expect(screen.getByText('(special guest)')).toBeInTheDocument()
       expect(supportLineText()).toBe(
-        'w/ The Guest on [Dead Oceans] from Chicago, IL (special guest)'
+        'w/ The Guest on [Dead Oceans] based in Chicago, IL (special guest)'
       )
     })
 

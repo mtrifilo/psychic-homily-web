@@ -6,27 +6,36 @@
 const HYGIENE_TOKENS = ['noopener', 'noreferrer']
 
 /**
- * The `rel` for an outbound anchor: the hygiene tokens, plus `sponsored` when
- * the link is monetized.
+ * The `rel` for an outbound anchor: the hygiene tokens, plus the link-spam
+ * qualifiers Google defines.
  *
- * One owner for the rule as it applies to MONETIZED links, which is set by
- * Google's link-spam policy rather than by this codebase. Two call sites need
- * that and cannot share a component: `BracketLink` is a generic primitive that
- * must not learn what a ticket vendor is, and the festival page's ticket link
- * is an icon-and-text anchor matched to its neighbours rather than a bracket.
+ * One owner for the rule, which is set by Google's link-spam policy rather
+ * than by this codebase. `sponsored` is for a paid link; `ugc` is for a
+ * destination a contributor chose that earns the site nothing. Both are hints
+ * not to pass ranking credit, and both are ADDITIVE by construction:
+ * qualifying a link can never cost it its opener and referrer protection.
  *
- * NOT yet the owner for outbound `rel` site-wide. Roughly thirty anchors still
- * hardcode `rel="noopener noreferrer"` — including the "Official Website" link
- * directly above the festival ticket link, and the radio station/show links,
- * which are the contributor-submitted destinations a future `ugc` token would
- * target. Adding such a token is still a grep until those are swept; this
- * function is where the sweep should land, not evidence that it happened.
+ * NOT yet the owner for outbound `rel` site-wide: many anchors still hardcode
+ * the hygiene pair, including the "Official Website" link directly above the
+ * festival ticket link. This function is where that sweep should land, not
+ * evidence that it happened.
  *
- * `sponsored` is ADDITIVE by construction: qualifying a paid link can never
- * cost that link its opener and referrer protection.
+ * An OPTIONS object rather than positional flags. The qualifiers are
+ * same-typed and read as order-independent, so a transposed pair would
+ * produce a plausible-but-wrong `rel` with no type error.
  */
-export function outboundRel(sponsored = false): string {
-  return (sponsored ? [...HYGIENE_TOKENS, 'sponsored'] : HYGIENE_TOKENS).join(
-    ' '
-  )
+export interface OutboundRelOptions {
+  sponsored?: boolean
+  ugc?: boolean
+}
+
+export function outboundRel({
+  sponsored = false,
+  ugc = false,
+}: OutboundRelOptions = {}): string {
+  return [
+    ...HYGIENE_TOKENS,
+    ...(sponsored ? ['sponsored'] : []),
+    ...(ugc ? ['ugc'] : []),
+  ].join(' ')
 }

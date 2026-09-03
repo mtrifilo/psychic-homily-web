@@ -209,11 +209,13 @@ export function generateBreadcrumbSchema(
  * Name the ticket vendor behind a show's `ticket_url`, or `undefined` when it
  * is not one we recognize.
  *
- * Reads the shared vendor table (`lib/tickets/ticketVendors`), which is also
- * what the visible Buy Tickets link resolves against, so the company this page
- * names and the company it links to can never disagree. The URL itself is
- * never emitted here — only the name — so this reads a user-supplied field
- * purely to look up a constant.
+ * `resolveTicketVendor`, deliberately, and NOT the visible surface's
+ * `ticketVendorLabel`: that one falls back to the URL's hostname, and a
+ * hostname is not a company `seller.name` may claim. Both read the same vendor
+ * table, so a vendor this page CAN name is named identically on both.
+ *
+ * The URL itself is never emitted here — only the name — so this reads a
+ * user-supplied field purely to look up a constant.
  */
 function ticketVendorName(ticketUrl: string | undefined): string | undefined {
   return resolveTicketVendor(ticketUrl)?.name

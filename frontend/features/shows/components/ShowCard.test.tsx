@@ -490,6 +490,107 @@ describe('ShowCard', () => {
       )
       expect(screen.queryByTestId('music-embed')).not.toBeInTheDocument()
     })
+
+    // The expanded card prints the act's home city right beside the SHOW's
+    // city, which is exactly the ambiguity the words remove. Same formatter as
+    // the show page, so one act reads the same on both.
+    it('prefixes the act home city with "based in"', async () => {
+      const user = userEvent.setup()
+      const show = makeShow({
+        artists: [
+          makeArtist({
+            id: 1,
+            name: 'Band',
+            is_headliner: true,
+            city: 'Tempe',
+            state: 'AZ',
+            socials: { bandcamp: 'https://band.bandcamp.com' },
+          }),
+        ],
+      })
+      render(<ShowCard show={show} isAdmin={false} />)
+
+      await user.click(
+        screen.getByRole('button', { name: /discover artist music/i })
+      )
+      expect(screen.getByText('based in Tempe, AZ')).toBeInTheDocument()
+    })
+
+    // Same parts rule as the show page: country included unless the state is
+    // set and the country is USA/US. Sharing only the prefix would have one
+    // act read two ways across the card and the page it opens.
+    it('obeys the shared location rule for an act outside the US', async () => {
+      const user = userEvent.setup()
+      const show = makeShow({
+        artists: [
+          makeArtist({
+            id: 1,
+            name: 'Band',
+            is_headliner: true,
+            city: 'Melbourne',
+            state: '',
+            country: 'Australia',
+            socials: { bandcamp: 'https://band.bandcamp.com' },
+          }),
+        ],
+      })
+      render(<ShowCard show={show} isAdmin={false} />)
+
+      await user.click(
+        screen.getByRole('button', { name: /discover artist music/i })
+      )
+      expect(
+        screen.getByText('based in Melbourne, Australia')
+      ).toBeInTheDocument()
+    })
+
+    // COUNTRY ALONE now counts, because the shared rule counts it. This card
+    // printed nothing for such an act before it adopted `billHometown`.
+    it('states a country-only location', async () => {
+      const user = userEvent.setup()
+      const show = makeShow({
+        artists: [
+          makeArtist({
+            id: 1,
+            name: 'Band',
+            is_headliner: true,
+            city: '',
+            state: '',
+            country: 'Japan',
+            socials: { bandcamp: 'https://band.bandcamp.com' },
+          }),
+        ],
+      })
+      render(<ShowCard show={show} isAdmin={false} />)
+
+      await user.click(
+        screen.getByRole('button', { name: /discover artist music/i })
+      )
+      expect(screen.getByText('based in Japan')).toBeInTheDocument()
+    })
+
+    it('prints nothing for an act with no placeable location at all', async () => {
+      const user = userEvent.setup()
+      const show = makeShow({
+        artists: [
+          makeArtist({
+            id: 1,
+            name: 'Band',
+            is_headliner: true,
+            city: '',
+            state: '',
+            country: '',
+            socials: { bandcamp: 'https://band.bandcamp.com' },
+          }),
+        ],
+      })
+      render(<ShowCard show={show} isAdmin={false} />)
+
+      await user.click(
+        screen.getByRole('button', { name: /discover artist music/i })
+      )
+      expect(screen.queryByText(/based in/)).not.toBeInTheDocument()
+    })
   })
 
   describe('the clock is withheld on a guessed zone', () => {

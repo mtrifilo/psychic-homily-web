@@ -50,8 +50,7 @@ interface SceneDetailProps {
  * mode, and in dark mode it becomes a cream masthead. The mock also drew
  * the strip as the top of the page — no site chrome in the file. Under the
  * real nav, a filled invert is a second header. PSY-1815 demotes it to a
- * hairline + muted mono so it recedes in both themes. ShowStatusStripe
- * stays inverted: on a show page it is the top of the content.
+ * hairline + muted mono so it recedes in both themes.
  *
  * City/state is not in this line. Breadcrumb and H1 already name the place.
  *

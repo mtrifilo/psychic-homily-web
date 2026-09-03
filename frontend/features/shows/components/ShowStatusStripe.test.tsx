@@ -82,6 +82,35 @@ describe('ShowStatusStripe', () => {
     expect(screen.queryByTestId('show-status-stripe')).not.toBeInTheDocument()
   })
 
+  // TONAL, not inverted: the band tints itself out of the page's own palette
+  // and bounds itself with hairline rules rather than reversing the page's
+  // contrast. jsdom computes no colors, so the class names are the mechanism
+  // and what is pinned; the negatives pin that the inversion is gone, which an
+  // element carrying both sets of classes would otherwise satisfy.
+  it('paints the band and its separators with the surface tokens', () => {
+    render(
+      <ShowStatusStripe
+        show={makeShow({ doors_at: '2026-04-16T02:00:00Z' })}
+        lifecycle="today"
+      />
+    )
+    const stripe = screen.getByTestId('show-status-stripe')
+    expect(stripe).toHaveClass(
+      'bg-muted',
+      'text-foreground',
+      'border-y',
+      'border-border'
+    )
+    expect(stripe).not.toHaveClass('bg-foreground')
+    expect(stripe).not.toHaveClass('text-background')
+
+    const separators = screen.getAllByText('\u00b7')
+    expect(separators.length).toBeGreaterThan(0)
+    for (const separator of separators) {
+      expect(separator).toHaveClass('text-muted-foreground')
+    }
+  })
+
   // The band is one row of type in every state, reserving the same height, so
   // nothing below it moves when a show crosses from upcoming to tonight to
   // past. `min-h-11` is the mechanism; assert it rather than the rendered

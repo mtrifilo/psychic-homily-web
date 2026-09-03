@@ -9,7 +9,7 @@ import {
 import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 import { MiddotSegments } from './MiddotSegments'
 import { ShowAddToCalendar } from './ShowAddToCalendar'
-import { buyTicketsLink, ticketLineSegments } from './showTicketLine'
+import { showTicketOffer, ticketLineSegments } from './showTicketLine'
 import { usePlantedTicketTagReport } from '@/lib/tickets/usePlantedTicketTagReport'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import type { ShowResponse } from '../types'
@@ -49,41 +49,44 @@ interface ShowTicketRowProps {
  * it.
  */
 export function ShowTicketRow({ show, lifecycle }: ShowTicketRowProps) {
-  const segments = ticketLineSegments(show, lifecycle)
+  // Derived ONCE and handed to the line, because the vendor NAME and the
+  // anchor are mutually exclusive: two derivations would agree only by
+  // coincidence. Null for cancelled, sold-out and past shows, so neither the
+  // sale-state words nor this bracket can argue with the stripe; `linked`
+  // false for a referral nobody pays us for, which is when the line above
+  // names the vendor instead.
+  const offer = showTicketOffer(show, lifecycle)
+  const segments = ticketLineSegments(show, lifecycle, offer)
   const showTitle = showDisplayTitle(
     show.title,
     show.artists.map(artist => artist.name)
   )
-  // The one derivation of "is there somewhere to buy" (showTicketLine):
-  // null for cancelled, sold-out, and past shows, so neither the sale-state
-  // words nor this bracket can argue with the stripe. It also carries the
-  // vendor's affiliate tagging, which is a pass-through until a partner ID is
-  // configured.
-  const buyLink = buyTicketsLink(show, lifecycle)
   // An affiliate tag in a STORED ticket url was planted by whoever submitted
-  // the show, since we only ever append ours at render. The link still renders
-  // as stored; this only makes the row findable.
-  usePlantedTicketTagReport('show', show.id, buyLink?.plantedTag)
+  // the show, since we only ever append ours at render. Reported whenever this
+  // row has an offer at all, linked or not; the states with no offer (past,
+  // cancelled, sold out) report nothing.
+  usePlantedTicketTagReport('show', show.id, offer?.plantedTag)
 
   return (
     <div data-testid="show-ticket-row">
       <MiddotSegments
         segments={segments}
         data-testid="ticket-line"
-        className="font-mono text-sm font-medium tabular-nums"
+        className="font-mono text-sm font-medium tabular-nums break-words"
       />
 
       <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-        {buyLink && (
+        {offer?.linked && (
           // Keeps the pre-existing announced name: the ↗ is a VISUAL outbound
           // marker, and letting it into the accessible name has a screen
           // reader read "north east arrow" right before the suffix says the
           // same thing in words. Only the new-tab claim moved to BracketLink.
           <BracketLink
             label="Buy Tickets ↗"
-            href={buyLink.href}
+            href={offer.href}
             external
-            sponsored={buyLink.sponsored}
+            sponsored={offer.sponsored}
+            ugc={offer.ugc}
             ariaLabel="Buy tickets"
           />
         )}

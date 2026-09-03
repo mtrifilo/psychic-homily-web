@@ -2,9 +2,12 @@ import { describe, it, expect, afterEach } from 'vitest'
 import {
   TICKET_VENDORS_BY_DOMAIN,
   affiliatePartnerIds,
+  carriesOurAffiliateTag,
   repairTicketUrl,
   resolveTicketVendor,
   ticketLink,
+  ticketOffer,
+  ticketVendorLabel,
 } from './ticketVendors'
 import type { AffiliatePartnerIds } from './ticketVendors'
 
@@ -512,6 +515,219 @@ describe('ticketLink with an Impact partner ID configured', () => {
     ]
     for (const url of hostile) {
       expect(() => ticketLink(url, IMPACT)).not.toThrow()
+    }
+  })
+})
+
+describe('plantedTag.matchesConfiguredPartner', () => {
+  // A partner ID rides in public URLs, so anyone can append ours to any host.
+  // The flag drives an operator filter, so a bare value match would hide the
+  // reports worth reading behind the benign one.
+  it('is false when our id sits on a host we do not tag', () => {
+    for (const raw of [
+      'https://evil.example/x?irmp=1234567',
+      'https://tix.example/e/1?irmp=1234567',
+      // A vendor in the table, but with no affiliate entry of its own.
+      'https://www.eventbrite.com/e/1?irmp=1234567',
+    ]) {
+      expect(ticketLink(raw, IMPACT).plantedTag).toMatchObject({
+        matchesConfiguredPartner: false,
+      })
+    }
+  })
+
+  it('is true for our own tagged link copied back in', () => {
+    expect(
+      ticketLink('https://www.ticketweb.com/event/2?irmp=1234567', IMPACT)
+        .plantedTag
+    ).toMatchObject({ matchesConfiguredPartner: true })
+  })
+
+  it('is false for somebody else on a vendor we do tag', () => {
+    expect(
+      ticketLink('https://www.ticketweb.com/event/2?irmp=9999999', IMPACT)
+        .plantedTag
+    ).toMatchObject({ matchesConfiguredPartner: false })
+  })
+})
+
+describe('ticketVendorLabel', () => {
+  it('prints the written-down name for a known vendor', () => {
+    expect(ticketVendorLabel('https://www.ticketweb.com/event/1')).toBe(
+      'TicketWeb'
+    )
+    expect(ticketVendorLabel('https://dice.fm/event/1')).toBe('DICE')
+  })
+
+  // A host we have not written a name for still has to be nameable on a
+  // surface that no longer links to it, and its own hostname is the only fact
+  // available. `www.` is not part of how a reader names a site.
+  it('falls back to the hostname for an unknown vendor', () => {
+    expect(ticketVendorLabel('https://www.tix.example/1')).toBe('tix.example')
+    expect(ticketVendorLabel('https://box-office.venue.example/e/2')).toBe(
+      'box-office.venue.example'
+    )
+  })
+
+  it('resolves a scheme-less value, matching classification', () => {
+    expect(ticketVendorLabel('ticketweb.com/e/1')).toBe('TicketWeb')
+    expect(ticketVendorLabel('tix.example/1')).toBe('tix.example')
+  })
+
+  it('is null when there is no host to name', () => {
+    expect(ticketVendorLabel(null)).toBeNull()
+    expect(ticketVendorLabel('   ')).toBeNull()
+    expect(ticketVendorLabel('http://')).toBeNull()
+  })
+})
+
+describe('carriesOurAffiliateTag', () => {
+  const TICKETWEB = 'https://www.ticketweb.com/event/2'
+
+  it('is false for every link on a build with no partner ID', () => {
+    expect(carriesOurAffiliateTag(ticketLink(TICKETWEB, NO_PARTNERS))).toBe(
+      false
+    )
+    expect(
+      carriesOurAffiliateTag(ticketLink('https://tix.example/1', NO_PARTNERS))
+    ).toBe(false)
+  })
+
+  it('is true only for a link this build tagged itself', () => {
+    expect(carriesOurAffiliateTag(ticketLink(TICKETWEB, IMPACT))).toBe(true)
+    // A vendor outside every program can never be tagged, however the build is
+    // configured.
+    expect(
+      carriesOurAffiliateTag(ticketLink('https://tix.example/1', IMPACT))
+    ).toBe(false)
+  })
+
+  // The whole point of the separate derivation: a planted tag makes the link
+  // SPONSORED (it is a paid link, and Google's policy is about the link) while
+  // crediting somebody else, so it is not one we are paid for.
+  it('is false for a sponsored link carrying somebody else\'s tag', () => {
+    const planted = ticketLink(`${TICKETWEB}?irmp=9999999`, IMPACT)
+    expect(planted.sponsored).toBe(true)
+    expect(carriesOurAffiliateTag(planted)).toBe(false)
+  })
+})
+
+describe('ticketOffer', () => {
+  const TICKETWEB = 'https://www.ticketweb.com/event/2'
+  const UNKNOWN = 'https://box-office.example/e/1'
+  const PLANTED = `${TICKETWEB}?irmp=9999999`
+
+  // THE paid-referral rule. Read with no partner ID configured, which is the
+  // state the site ships in.
+  it('names the vendor and withholds the link when nobody pays us', () => {
+    const known = ticketOffer(TICKETWEB)
+    expect(known.linked).toBe(false)
+    expect(known.vendorName).toBe('TicketWeb')
+
+    const unknown = ticketOffer(UNKNOWN)
+    expect(unknown.linked).toBe(false)
+    expect(unknown.vendorName).toBe('box-office.example')
+  })
+
+  it('links a vendor this build tagged, and only that vendor', () => {
+    const known = ticketOffer(TICKETWEB, { partnerIds: IMPACT })
+    expect(known.linked).toBe(true)
+    if (!known.linked) throw new Error('unreachable')
+    expect(known.href).toBe(`${TICKETWEB}?irmp=1234567`)
+    expect(known.sponsored).toBe(true)
+    expect(known.ugc).toBe(false)
+    expect(ticketOffer(UNKNOWN, { partnerIds: IMPACT }).linked).toBe(false)
+  })
+
+  // A tag somebody else planted makes the link sponsored without making it
+  // ours, so it is not a click we are paid for.
+  it('withholds the link for a planted tag on a configured vendor', () => {
+    const planted = ticketOffer(PLANTED, { partnerIds: IMPACT })
+    expect(planted.linked).toBe(false)
+    expect(planted.plantedTag).not.toBeNull()
+    expect(planted.vendorName).toBe('TicketWeb')
+  })
+
+  // The exemption is an INPUT because only the caller knows whether admission
+  // is free; festivals record no price and never pass it.
+  it('links any vendor when the caller says admission is free', () => {
+    const offer = ticketOffer(UNKNOWN, { freeAdmission: true })
+    expect(offer.linked).toBe(true)
+    if (!offer.linked) throw new Error('unreachable')
+    expect(offer.href).toBe(UNKNOWN)
+    expect(offer.sponsored).toBe(false)
+    // Contributor-chosen destination that earns the site nothing.
+    expect(offer.ugc).toBe(true)
+  })
+
+  // THE REGRESSION THIS PAIR EXISTS FOR. A zero price and a ticket URL are
+  // both contributor-writable on the same unreviewed form, so an exemption
+  // that ignored the planted tag would be a two-field switch for publishing
+  // any stranger's affiliate link as a live anchor.
+  it('refuses the free-admission exemption for a planted tag', () => {
+    expect(ticketOffer(PLANTED, { freeAdmission: true }).linked).toBe(false)
+    expect(
+      ticketOffer(PLANTED, { freeAdmission: true, partnerIds: IMPACT }).linked
+    ).toBe(false)
+  })
+
+  // Our OWN tag still wins on a free show: the click is paid for, so it is
+  // qualified as sponsored rather than as user-generated.
+  it('prefers our own tag over the exemption on a free show', () => {
+    const offer = ticketOffer(TICKETWEB, {
+      freeAdmission: true,
+      partnerIds: IMPACT,
+    })
+    expect(offer.linked).toBe(true)
+    if (!offer.linked) throw new Error('unreachable')
+    expect(offer.href).toBe(`${TICKETWEB}?irmp=1234567`)
+    expect(offer.sponsored).toBe(true)
+    expect(offer.ugc).toBe(false)
+  })
+
+  // The report is about the STORED value, so it survives the refusal to link.
+  it('carries the planted tag even when the anchor is withheld', () => {
+    const offer = ticketOffer(PLANTED)
+    expect(offer.linked).toBe(false)
+    expect(offer.plantedTag).toEqual({
+      param: 'irmp',
+      host: 'www.ticketweb.com',
+      matchesConfiguredPartner: false,
+    })
+  })
+
+  // AN IMPACT PARTNER ID IS PUBLIC: it rides in every tagged href the site
+  // renders and is inlined into the browser bundle. Accepting a stored tag
+  // that merely carries it would let any URL buy a `rel="sponsored"` anchor to
+  // an arbitrary host that pays us nothing.
+  it('refuses a stored tag carrying our own public partner id', () => {
+    for (const raw of [
+      'https://evil.example/anything?irmp=1234567',
+      'https://tix.example/x?irmp=1234567',
+      // Repeated parameter: which value the vendor reads is a guess, so the
+      // presence of ours in one segment settles nothing.
+      `${TICKETWEB}?irmp=1234567&irmp=9999999`,
+    ]) {
+      expect(ticketOffer(raw, { partnerIds: IMPACT }).linked).toBe(false)
+    }
+  })
+
+  // The href a render site receives is the value the floor tested.
+  it('links a trimmed href', () => {
+    const offer = ticketOffer('   https://box-office.example/e/1  ', {
+      freeAdmission: true,
+    })
+    expect(offer.linked).toBe(true)
+    if (!offer.linked) throw new Error('unreachable')
+    expect(offer.href).toBe('https://box-office.example/e/1')
+  })
+
+  // A value naming no host has nothing to link and nothing to name.
+  it('has neither a link nor a name for a value that names no host', () => {
+    for (const raw of ['https://', 'https:///', 'https://javascript:alert(1)']) {
+      const offer = ticketOffer(raw, { freeAdmission: true })
+      expect(offer.linked).toBe(false)
+      expect(offer.vendorName).toBeNull()
     }
   })
 })

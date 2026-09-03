@@ -29,7 +29,7 @@ import {
   StatsList,
 } from '@/components/shared'
 import { EntityCollections } from '@/features/collections'
-import { repairTicketUrl, ticketLink } from '@/lib/tickets/ticketVendors'
+import { repairTicketUrl, ticketOffer } from '@/lib/tickets/ticketVendors'
 import { usePlantedTicketTagReport } from '@/lib/tickets/usePlantedTicketTagReport'
 import { outboundRel } from '@/lib/outboundRel'
 import { Badge } from '@/components/ui/badge'
@@ -106,11 +106,10 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
   // report below is a hook and cannot sit behind them. Tolerates an absent
   // festival: every branch yields null until the fetch resolves.
   //
-  // The same repair and the same vendor table the show page's Buy Tickets
-  // bracket reads, so a stored value means one thing on both surfaces. Without
-  // the repair a scheme-less `ticket_url` rendered as a relative href that
-  // navigated under /festivals/, and could never be tagged. A pass-through
-  // until a partner ID is configured.
+  // The same repair and the same vendor table the show page's ticket row
+  // reads, so a stored value means one thing on both surfaces. The repair is
+  // what keeps a scheme-less `ticket_url` from resolving as a relative href
+  // under /festivals/.
   //
   // The http(s) floor is this anchor's own, because it is a raw <a> rather
   // than a BracketLink (which carries the same floor for the same reason).
@@ -126,15 +125,13 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
   // rather than a safety rule, and a future "don't invent a scheme" change to
   // it would otherwise land here silently.
   const repairedTicketUrl = repairTicketUrl(festival?.ticket_url)
-  const ticketBuyLink =
+  // The shared paid-referral rule, with no `freeAdmission` to pass: festivals
+  // record no price, so a ticket link here is a vendor referral or nothing.
+  const offer =
     repairedTicketUrl && /^https?:\/\//i.test(repairedTicketUrl)
-      ? ticketLink(repairedTicketUrl)
+      ? ticketOffer(repairedTicketUrl)
       : null
-  usePlantedTicketTagReport(
-    'festival',
-    festival?.id ?? '',
-    ticketBuyLink?.plantedTag
-  )
+  usePlantedTicketTagReport('festival', festival?.id ?? '', offer?.plantedTag)
 
   if (isLoading) {
     return (
@@ -204,7 +201,11 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
   // what a bare `website` means on every surface that reads it, which is a
   // wider change than this one.
   const websiteHref = festival.website?.trim() || null
-  const hasLinks = !!websiteHref || !!ticketBuyLink || hasSocialLinks
+  // The section gate admits exactly what the JSX below renders: the anchor
+  // when the offer is linked, the vendor's name when it is not and there is
+  // one. Deriving them apart puts a Links heading over nothing.
+  const hasTicketRow = !!offer?.linked || !!offer?.vendorName
+  const hasLinks = !!websiteHref || hasTicketRow || hasSocialLinks
 
   const statsItems = [
     { label: 'Artists', value: festival.artist_count },
@@ -406,16 +407,28 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
                   Official Website
                 </a>
               )}
-              {ticketBuyLink && (
+              {offer?.linked && (
                 <a
-                  href={ticketBuyLink.href}
+                  href={offer.href}
                   target="_blank"
-                  rel={outboundRel(ticketBuyLink.sponsored)}
+                  rel={outboundRel({
+                    sponsored: offer.sponsored,
+                    ugc: offer.ugc,
+                  })}
                   className="flex items-center gap-2 text-primary hover:text-primary/80 transition-colors text-sm"
                 >
                   <Ticket className="h-4 w-4" />
                   Buy Tickets
                 </a>
+              )}
+              {offer && !offer.linked && offer.vendorName && (
+                <span
+                  data-testid="festival-ticket-vendor"
+                  className="flex min-w-0 items-center gap-2 break-words text-muted-foreground text-sm"
+                >
+                  <Ticket className="h-4 w-4 shrink-0" />
+                  {offer.vendorName}
+                </span>
               )}
               {hasSocialLinks && <SocialLinks social={festival.social!} />}
             </div>

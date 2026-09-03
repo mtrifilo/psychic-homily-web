@@ -228,6 +228,20 @@ describe('BracketLink', () => {
       expect(link.getAttribute('rel') ?? '').not.toContain('sponsored')
     })
 
+    it('qualifies an external contributor destination with ugc', () => {
+      render(<BracketLink label="RSVP" href="https://rsvp.example/1" external ugc />)
+      const link = screen.getByRole('link', { name: /^RSVP/ })
+      expect(link).toHaveAttribute('rel', 'noopener noreferrer ugc')
+    })
+
+    // Same `external` gate as `sponsored`: the internal branch is a Next
+    // <Link> pointing inside this site, where the qualifier means nothing.
+    it('never puts ugc on an internal link', () => {
+      render(<BracketLink label="Shows" href="/shows" ugc />)
+      const link = screen.getByRole('link', { name: 'Shows' })
+      expect(link.getAttribute('rel') ?? '').not.toContain('ugc')
+    })
+
     // The announcement belongs to the component so that no call site can write
     // it, forget it, or let it drift from the target it describes.
     //
