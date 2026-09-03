@@ -449,82 +449,127 @@ func TestTagWriteRoutes_AllowAVisibleEntity(t *testing.T) {
 // The acceptance criterion is the last assertion. A write against a gated show
 // has to be indistinguishable from a write against a show that never existed, or
 // the write route is an existence oracle over a dense id space, which is what
-// the tag family was.
+// the tag family was. All four routes are walked, because the claim is about the
+// family and each spells its own call.
 func TestTagWriteRoutes_RefuseAGatedShowExactlyLikeAMissingOne(t *testing.T) {
 	const submitterID = uint(2)
-	const gatedShowID = uint(7)
+	const gatedShowID = uint(4242)
 	const neverUsedShowID = uint(99999999)
 
-	// The real show rule, plus the one fact that outranks it: NO caller sees a
-	// show that is not there, an admin included. Without that arm the never-used
-	// id would be granted to the admin and the pair below would not be a pair.
+	// The show rule as the real checker answers it. It is asked only about the
+	// GATED id here: the real ShowVisibleTo short-circuits an admin BEFORE its
+	// lookup, so it grants an admin a show id that carries no row, and a mock that
+	// refused one would be asserting a rule production does not have. What the
+	// never-used id has to answer is a question for the STRANGER, which is the
+	// pair the last assertion compares.
 	showRule := &testhelpers.MockShowVisibility{
-		ShowVisibleToFn: func(showID uint, viewer contracts.ShowViewer) bool {
-			if showID == neverUsedShowID {
-				return false
-			}
+		ShowVisibleToFn: func(_ uint, viewer contracts.ShowViewer) bool {
 			return viewer.IsAdmin || viewer.UserID == submitterID
 		},
 		CollectionVisibleToFn: func(uint, contracts.ShowViewer) bool { return false },
 	}
 
-	addTag := func(user *authm.User, showID uint) (int, error) {
-		reached := 0
-		mock := &testhelpers.MockTagService{
-			AddTagToEntityFn: func(uint, string, string, uint, uint, string) (*catalogm.EntityTag, error) {
-				reached++
-				return &catalogm.EntityTag{}, nil
-			},
-		}
-		h := NewTagHandler(mock, nil, showRule)
-		req := &AddTagToEntityRequest{EntityType: "show", EntityID: fmt.Sprint(showID)}
-		req.Body.TagID = 3
-		_, err := h.AddTagToEntityHandler(testhelpers.CtxWithUser(user), req)
-		return reached, err
+	// Each write route, driven with the same entity type and the same gate, so a
+	// route that forgot the call fails on its own row.
+	writes := []struct {
+		name string
+		call func(user *authm.User, showID uint) (int, error)
+	}{
+		{"add", func(user *authm.User, showID uint) (int, error) {
+			reached := 0
+			mock := &testhelpers.MockTagService{
+				AddTagToEntityFn: func(uint, string, string, uint, uint, string) (*catalogm.EntityTag, error) {
+					reached++
+					return &catalogm.EntityTag{}, nil
+				},
+			}
+			req := &AddTagToEntityRequest{EntityType: "show", EntityID: fmt.Sprint(showID)}
+			req.Body.TagID = 3
+			_, err := NewTagHandler(mock, nil, showRule).
+				AddTagToEntityHandler(testhelpers.CtxWithUser(user), req)
+			return reached, err
+		}},
+		{"remove", func(user *authm.User, showID uint) (int, error) {
+			reached := 0
+			mock := &testhelpers.MockTagService{
+				RemoveTagFromEntityFn: func(uint, string, uint) error { reached++; return nil },
+			}
+			_, err := NewTagHandler(mock, nil, showRule).
+				RemoveTagFromEntityHandler(testhelpers.CtxWithUser(user), &RemoveTagFromEntityRequest{
+					EntityType: "show", EntityID: fmt.Sprint(showID), TagID: "3",
+				})
+			return reached, err
+		}},
+		{"vote", func(user *authm.User, showID uint) (int, error) {
+			reached := 0
+			mock := &testhelpers.MockTagService{
+				VoteOnTagFn: func(uint, string, uint, uint, bool) error { reached++; return nil },
+			}
+			req := &VoteTagRequest{EntityType: "show", EntityID: fmt.Sprint(showID), TagID: "3"}
+			req.Body.IsUpvote = true
+			_, err := NewTagHandler(mock, nil, showRule).
+				VoteTagHandler(testhelpers.CtxWithUser(user), req)
+			return reached, err
+		}},
+		{"remove vote", func(user *authm.User, showID uint) (int, error) {
+			reached := 0
+			mock := &testhelpers.MockTagService{
+				RemoveTagVoteFn: func(uint, string, uint, uint) error { reached++; return nil },
+			}
+			_, err := NewTagHandler(mock, nil, showRule).
+				RemoveTagVoteHandler(testhelpers.CtxWithUser(user), &RemoveTagVoteRequest{
+					EntityType: "show", EntityID: fmt.Sprint(showID), TagID: "3",
+				})
+			return reached, err
+		}},
 	}
 
 	stranger := &authm.User{ID: 3}
-	admin := &authm.User{ID: 6, IsAdmin: true}
-
-	for _, tier := range []struct {
-		name   string
-		user   *authm.User
-		showID uint
-		want   int
+	tiers := []struct {
+		name string
+		user *authm.User
+		want int
 	}{
-		{"an authenticated stranger", stranger, gatedShowID, 404},
-		{"the show's submitter", &authm.User{ID: submitterID}, gatedShowID, 0},
-		{"an admin", admin, gatedShowID, 0},
-		{"an admin, on a show id nobody has used", admin, neverUsedShowID, 404},
-	} {
-		t.Run(tier.name, func(t *testing.T) {
-			reached, err := addTag(tier.user, tier.showID)
-			if tier.want == 0 {
-				if err != nil {
-					t.Fatalf("a caller entitled to the show was refused: %v", err)
-				}
-				if reached != 1 {
-					t.Errorf("the tag service ran %d times for a granted caller, want 1", reached)
-				}
-				return
-			}
-			testhelpers.AssertHumaError(t, err, tier.want)
-			if reached != 0 {
-				t.Errorf("the tag service ran %d times for a refused caller, want 0", reached)
-			}
-		})
+		{"an authenticated stranger", stranger, 404},
+		{"the show's submitter", &authm.User{ID: submitterID}, 0},
+		{"an admin", &authm.User{ID: 6, IsAdmin: true}, 0},
 	}
 
-	// The pair that has to be one answer.
-	//
-	// The detail ECHOES the id the caller sent, which is not a disclosure: they
-	// chose it. The normalizer substitutes each request's own id back out so what
-	// is compared is everything else; comparing raw would pass a refusal that named
-	// the show's TITLE for the gated id, which is the shape this guards against.
-	_, gatedErr := addTag(stranger, gatedShowID)
-	_, missingErr := addTag(stranger, neverUsedShowID)
-	testhelpers.AssertSameRefusal(t, gatedErr, missingErr, func(detail string) string {
-		detail = strings.ReplaceAll(detail, fmt.Sprint(gatedShowID), "{id}")
-		return strings.ReplaceAll(detail, fmt.Sprint(neverUsedShowID), "{id}")
-	})
+	for _, w := range writes {
+		t.Run(w.name, func(t *testing.T) {
+			for _, tier := range tiers {
+				t.Run(tier.name, func(t *testing.T) {
+					reached, err := w.call(tier.user, gatedShowID)
+					if tier.want == 0 {
+						if err != nil {
+							t.Fatalf("a caller entitled to the show was refused: %v", err)
+						}
+						if reached != 1 {
+							t.Errorf("the tag service ran %d times for a granted caller, want 1", reached)
+						}
+						return
+					}
+					testhelpers.AssertHumaError(t, err, tier.want)
+					if reached != 0 {
+						t.Errorf("the tag service ran %d times for a refused caller, want 0", reached)
+					}
+				})
+			}
+
+			// The pair that has to be one answer.
+			//
+			// The detail ECHOES the id the caller sent, which is not a disclosure:
+			// they chose it. The normalizer substitutes each request's own id back
+			// out so what is compared is everything else; comparing raw would pass a
+			// refusal that named the show's TITLE for the gated id, which is the
+			// shape this guards against. The ids are QUALIFIED and multi-digit in the
+			// pattern, so the substitution cannot rewrite an unrelated number.
+			_, gatedErr := w.call(stranger, gatedShowID)
+			_, missingErr := w.call(stranger, neverUsedShowID)
+			testhelpers.AssertSameRefusal(t, gatedErr, missingErr, func(detail string) string {
+				detail = strings.ReplaceAll(detail, fmt.Sprintf("show %d", gatedShowID), "show {id}")
+				return strings.ReplaceAll(detail, fmt.Sprintf("show %d", neverUsedShowID), "show {id}")
+			})
+		})
+	}
 }

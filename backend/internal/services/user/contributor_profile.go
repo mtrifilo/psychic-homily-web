@@ -112,8 +112,15 @@ func festivalsCreatedCounter(s *contracts.ContributionStats) *int64  { return &s
 // the comment and subscription rows that pay it outnumber the rows that are
 // counted, and this is an anonymous, uncached read.
 //
-// None of these actions is ever written with entity_type "collection", so the
-// filter also makes the collection arm of the condition unreachable.
+// None of these actions is written with entity_type "collection" by any writer
+// today, so the filter also makes the collection arm of the condition
+// unreachable. That is an observation about the writers with no guard behind it,
+// and it is stated because the failure direction is safe: an action that started
+// carrying a collection id would be DECIDED by the arm rather than skipping it.
+//
+// A content action added here without an entry counts zero, which is also the
+// safe direction, and the disposition test forces the counter it feeds to record
+// a position before it can ship.
 var contributionStatActions = map[string]contributionStatCounter{
 	// Moderation, not content creation.
 	"approve_show":          moderationActionsCounter,
@@ -356,9 +363,13 @@ func (s *ContributorProfileService) UpdatePrivacySettings(userID uint, settings 
 // contributionStatDispositions in the test beside this file, and a counter added
 // over a gated entity fails that test until it records one.
 //
-// The counts a viewer is allowed to see therefore differ per caller, and the
-// owner and an admin see their own totals unchanged. Nothing about this
-// response may be cached across credentials.
+// The counts therefore differ per caller, and nothing about this response may be
+// cached across credentials. An admin's totals are whole. THE PROFILE OWNER'S
+// ARE NOT, quite: a moderator reading their own profile loses the approve_show
+// and reject_show rows naming shows they did not submit, and any tag vote on a
+// collection they can no longer see. The alternative is a per-caller special
+// case on a count whose whole purpose is to be the same rule the timeline
+// applies.
 func (s *ContributorProfileService) GetContributionStats(userID uint, viewer contracts.ShowViewer) (*contracts.ContributionStats, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -410,6 +421,16 @@ func (s *ContributorProfileService) GetContributionStats(userID uint, viewer con
 	// Count edit events from entity_edit_audit_logs (PSY-618). Edits used to
 	// live in audit_logs as "edit_<type>" actions but were split out so
 	// trusted-user direct-edits stop dual-rendering in the activity feed.
+	//
+	// entity_edit_audit_logs.entity_type is a FREE COLUMN with no allowlist
+	// behind it, so which types it can carry is a property of its writers rather
+	// than a constraint. It therefore excludes the gated discriminators outright,
+	// from the same list the heatmap's two undecided arms use: a writer that
+	// starts recording a show or a collection withholds those rows instead of
+	// adding them to a counter whose recorded disposition says it is narrowed.
+	// Three of the four counters this arm feeds are also fed by the gated
+	// audit_logs scan above, so an ungated arm beside a gated one would make the
+	// pair mean two things.
 	type entityEditCount struct {
 		EntityType string
 		Count      int64
@@ -418,6 +439,7 @@ func (s *ContributorProfileService) GetContributionStats(userID uint, viewer con
 	s.db.Model(&adminm.EntityEditAuditLog{}).
 		Select("entity_type, count(*) as count").
 		Where("actor_id = ?", userID).
+		Where("entity_type NOT IN ?", heatmapGatedEntityTypes()).
 		Group("entity_type").
 		Scan(&entityEditCounts)
 
@@ -1334,9 +1356,20 @@ func (s *ContributorProfileService) GetPercentileRankings(userID uint) (*contrac
 	s.db.Model(&catalogm.Venue{}).Where("submitted_by = ?", userID).Count(&venueCount)
 	userCounts["venues_submitted"] = venueCount
 
-	// tags_applied
+	// tags_applied, PUBLIC tier like its two gated siblings above.
+	//
+	// entity_tags is polymorphic, so a row can name a gated show or a private
+	// collection, and this count is published as a VALUE for a NAMED user on an
+	// optional-auth route. The leaderboard's tags dimension already reports the
+	// public-tier count for the same user through the same predicate
+	// (services/user/leaderboard.go), so a whole count here would have been that
+	// user's private collections and gated shows recoverable by subtracting one
+	// public number from another.
 	var tagCount int64
-	s.db.Model(&catalogm.EntityTag{}).Where("added_by_user_id = ?", userID).Count(&tagCount)
+	s.db.Model(&catalogm.EntityTag{}).
+		Where("added_by_user_id = ?", userID).
+		Where(shared.PublicEntityTagsSQL("entity_tags")).
+		Count(&tagCount)
 	userCounts["tags_applied"] = tagCount
 
 	// edits_approved: pending_entity_edits approved + revisions
@@ -1395,11 +1428,16 @@ func (s *ContributorProfileService) GetPercentileRankings(userID uint) (*contrac
 				) sub WHERE sub.cnt < ?
 			`, userVal).Scan(&usersWithLess)
 		case "tags_applied":
+			// The COHORT takes the same public-tier condition the user's own
+			// count above takes. A narrowed numerator over a whole population
+			// would place the user against a cohort measured differently from
+			// them, which is the shape the shows dimension avoids by carrying
+			// its predicate into the join.
 			s.db.Raw(`
 				SELECT COUNT(*) FROM (
 					SELECT u.id, COUNT(et.id) AS cnt
 					FROM users u
-					LEFT JOIN entity_tags et ON et.added_by_user_id = u.id
+					LEFT JOIN entity_tags et ON et.added_by_user_id = u.id AND `+shared.PublicEntityTagsSQL("et")+`
 					WHERE u.is_active = true
 					GROUP BY u.id
 				) sub WHERE sub.cnt < ?

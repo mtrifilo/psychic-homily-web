@@ -2607,14 +2607,69 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 	suite.Equal(int64(2), toAdmin.ModerationActions)
 	suite.Equal(int64(2), toAdmin.TagVotesCast)
 
-	// AND THE COUNT AGREES WITH THE LISTING it sits beside. The equality is the
-	// point: a difference between these two numbers is the withheld row reported
-	// as arithmetic, which is what the gate exists to close. Scoped to the show
-	// entity type so the two really are counting the same rows.
+	// AND THE COUNT IS A SUBSET OF THE LISTING it sits beside, for the same
+	// viewer. That direction is the property: a row the timeline withholds must
+	// not be counted, or the count reports the withheld row as arithmetic.
+	//
+	// A SUBSET, not an equality. The show-scoped timeline also carries this
+	// actor's own show SUBMISSIONS, which no counter here reads, so an equality
+	// would hold only for a fixture whose moderator submitted nothing and would
+	// break on an unrelated seeding change. The moderator's own moderation rows
+	// are identified by action instead.
 	entries, total, err := suite.profileService.GetContributionHistory(
 		moderator.ID, 50, 0, "show", contracts.ShowViewer{})
 	suite.Require().NoError(err)
-	suite.Equal(anonymous.ModerationActions, total,
-		"the anonymous moderation count and the anonymous show timeline disagree")
-	suite.Len(entries, int(total))
+	suite.Require().Len(entries, int(total), "the timeline's page and total disagree")
+
+	listedModeration := int64(0)
+	for _, e := range entries {
+		if moderationActionNames[e.Action] {
+			listedModeration++
+		}
+	}
+	suite.Equal(anonymous.ModerationActions, listedModeration,
+		"the anonymous moderation count and the moderation rows the anonymous timeline "+
+			"lists disagree, so one of them is counting a row the other withholds")
+}
+
+// tags_applied IS THE PUBLIC-TIER COUNT, on the value as well as the position.
+//
+// entity_tags is polymorphic, so a row can name a gated show or a private
+// collection, and this route publishes the number as a VALUE for a NAMED user
+// with no viewer to vary by. The leaderboard's tags dimension already reports
+// the public-tier count for the same user, so a whole count here was that user's
+// private collections and gated shows recoverable by subtracting one public
+// number from another.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPercentileRankings_TagsAppliedIsPublicTier() {
+	// The route answers nil below ten active users, so the cohort is seeded first.
+	users := suite.createManyUsers("rankingcohort", 12)
+	tagger := users[0]
+
+	open := suite.createShow(tagger.ID, "Ranked Open Show")
+	gated := suite.createShow(tagger.ID, "Ranked Gated Show")
+	suite.Require().NoError(
+		suite.db.Model(&catalogm.Show{}).Where("id = ?", gated.ID).
+			Update("status", catalogm.ShowStatusRejected).Error)
+
+	tag := &catalogm.Tag{Name: "ranked tag", Slug: "ranked-tag", Category: "genre"}
+	suite.Require().NoError(suite.db.Create(tag).Error)
+	for _, showID := range []uint{open.ID, gated.ID} {
+		suite.Require().NoError(suite.db.Create(&catalogm.EntityTag{
+			TagID: tag.ID, EntityType: "show", EntityID: showID, AddedByUserID: tagger.ID,
+		}).Error)
+	}
+
+	result, err := suite.profileService.GetPercentileRankings(tagger.ID)
+	suite.Require().NoError(err)
+
+	var tagsApplied *contracts.PercentileRanking
+	for i := range result.Rankings {
+		if result.Rankings[i].Dimension == "tags_applied" {
+			tagsApplied = &result.Rankings[i]
+		}
+	}
+	suite.Require().NotNil(tagsApplied, "tags_applied is missing from the rankings")
+	suite.Equal(int64(1), tagsApplied.Value,
+		"the tag on the rejected show is still counted, so subtracting the leaderboard's "+
+			"public-tier count for this user reports it")
 }

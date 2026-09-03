@@ -130,16 +130,22 @@ func LoadedShowVisibleTo(status catalogm.ShowStatus, submittedBy *uint, viewer c
 // ShowVisibleTo reports whether viewer may see show showID at all.
 //
 // LoadedShowVisibleTo with a lookup in front, for a caller holding an id rather
-// than a row. Returns false when the show does not exist, which is the same
-// answer GET /shows/{id} gives by 404ing, and false on any lookup failure.
-//
-// It reads the two columns and asks the predicate rather than asking the
-// database to decide, which also removes the OR-precedence hazard a compound
+// than a row. It reads the two columns and asks the predicate rather than asking
+// the database to decide, which also removes the OR-precedence hazard a compound
 // WHERE carries: there is no OR left in this statement to parenthesise.
+//
+// For a NON-ADMIN it answers false when the show does not exist, which is the
+// same answer GET /shows/{id} gives by 404ing, and false on any lookup failure.
+// An ADMIN is answered true without a lookup, so this is the one input on which
+// it and LoadedShowVisibleTo differ: an admin asking about an id that carries no
+// row gets true here and false from the predicate, which has a row to look at.
+// Neither answer is a disclosure, because an admin may see every show that
+// exists; the callers that must not serve a deleted show say so themselves
+// (VisibleShowRecipientsSQL puts its admin term INSIDE the shows EXISTS).
 func ShowVisibleTo(db *gorm.DB, showID uint, viewer contracts.ShowViewer) bool {
-	// A LOOKUP SHORT-CIRCUIT, not a second rule. LoadedShowVisibleTo answers the
-	// same for an admin; skipping the read here also keeps an admin's answer true
-	// for a show id that carries no row, which the load below would refuse.
+	// A LOOKUP SHORT-CIRCUIT, and the one input on which this and the predicate
+	// disagree: an admin is answered true without a read, so an id that carries
+	// no row answers true here and false from the predicate below.
 	if viewer.IsAdmin {
 		return true
 	}

@@ -57,8 +57,13 @@ func ShowSubResourceVisible(checker contracts.ShowVisibilityInterface, showID ui
 // Here rather than called directly from the handler so that every show gate in
 // the handler layer goes through one door, and a reader comparing two routes in
 // the same file finds one vocabulary.
-func ShowRowVisible(status string, submittedBy *uint, viewer contracts.ShowViewer) bool {
-	return servicesshared.LoadedShowVisibleTo(catalogm.ShowStatus(status), submittedBy, viewer)
+//
+// status is catalogm.ShowStatus rather than a bare string, and the conversion is
+// the CALLER's, for the reason the predicate below it gives: a response DTO
+// carries the status as a plain string, and a door that took one would decide a
+// security boundary on whatever that field holds.
+func ShowRowVisible(status catalogm.ShowStatus, submittedBy *uint, viewer contracts.ShowViewer) bool {
+	return servicesshared.LoadedShowVisibleTo(status, submittedBy, viewer)
 }
 
 // EntitySubResourceVisible is ShowSubResourceVisible for a polymorphic route,

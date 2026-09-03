@@ -11,6 +11,7 @@ package testhelpers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -70,6 +71,13 @@ func HumaErrorModel(t *testing.T, err error) *huma.ErrorModel {
 // ECHOES the id the caller supplied. Echoing it back is not a disclosure, so
 // those callers substitute their own id out and compare the shape. Pass nil when
 // the two details must match byte for byte.
+//
+// It compares the whole rendered ErrorModel, so a field added to huma's error
+// body is covered without an edit here. WHAT IT CANNOT SEE, stated so nobody
+// reads it as a proof of indistinguishability: response HEADERS (huma carries
+// Retry-After on the rate-limited arms through a wrapper this never unwraps),
+// and TIMING, which is the channel a gate placed after an expensive load leaves
+// open however identical the bodies are.
 func AssertSameRefusal(t *testing.T, gotErr, wantErr error, normalize func(string) string) {
 	t.Helper()
 	got := HumaErrorModel(t, gotErr)
@@ -77,14 +85,19 @@ func AssertSameRefusal(t *testing.T, gotErr, wantErr error, normalize func(strin
 	if got == nil || want == nil {
 		return
 	}
-	gotDetail, wantDetail := got.Detail, want.Detail
-	if normalize != nil {
-		gotDetail, wantDetail = normalize(gotDetail), normalize(wantDetail)
+	render := func(m *huma.ErrorModel) string {
+		encoded, err := json.Marshal(m)
+		if err != nil {
+			t.Fatalf("marshal error model: %v", err)
+		}
+		if normalize != nil {
+			return normalize(string(encoded))
+		}
+		return string(encoded)
 	}
-	if got.Status != want.Status || got.Title != want.Title || gotDetail != wantDetail {
-		t.Errorf("the two refusals differ: %d/%q/%q vs %d/%q/%q — a caller who can tell "+
-			"them apart can walk the id space",
-			got.Status, got.Title, got.Detail, want.Status, want.Title, want.Detail)
+	if render(got) != render(want) {
+		t.Errorf("the two refusals differ:\n  %s\n  %s\na caller who can tell them apart "+
+			"can walk the id space", render(got), render(want))
 	}
 }
 

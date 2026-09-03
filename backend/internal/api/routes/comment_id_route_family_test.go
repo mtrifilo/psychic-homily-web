@@ -1,5 +1,11 @@
 package routes
 
+import (
+	"fmt"
+	"sort"
+	"testing"
+)
+
 // THE COMMENT-ID ROUTE FAMILY, recorded once for both visibility inventories.
 //
 // A comment hangs off a show as readily as off a private collection, so every
@@ -51,13 +57,44 @@ var commentIDAdminRoutes = []string{
 	"POST /admin/comments/{comment_id}/reject",
 }
 
+// commentIDRouteConflicts records any route this file stamped over an entry the
+// inventory's own literal already carried.
+//
+// A package-level map literal is built BEFORE init() runs, so a bare assignment
+// here would overwrite a hand-written disposition and leave the line a reader
+// reads asserting something the tests never evaluate. The conflict is collected
+// rather than panicked so the failure names the file that has to change; the
+// test below is what fails.
+var commentIDRouteConflicts []string
+
 // addRoutes stamps one disposition onto every route in keys.
 //
 // Generic over the two inventories' disposition types, which are separate
 // vocabularies on purpose: `gated` and `collectionGated` are claims about
 // different entities and must not become interchangeable.
+//
+// A route that needs to be dispositioned DIFFERENTLY in the two inventories does
+// not belong in this file's lists; take it out of them and write it into both
+// map literals, the way DELETE /entities/{entity_type}/{entity_id}/subscribe is
+// selfScoped for shows and collectionSelfScoped for collections.
 func addRoutes[D comparable](m map[string]D, keys []string, disposition D) {
 	for _, key := range keys {
+		if existing, ok := m[key]; ok {
+			commentIDRouteConflicts = append(commentIDRouteConflicts,
+				fmt.Sprintf("%s (inventory says %v, comment-id family says %v)", key, existing, disposition))
+			continue
+		}
 		m[key] = disposition
+	}
+}
+
+func TestCommentIDFamilyDoesNotOverwriteAnInventoryEntry(t *testing.T) {
+	if len(commentIDRouteConflicts) > 0 {
+		sort.Strings(commentIDRouteConflicts)
+		t.Errorf("%d route(s) are dispositioned twice:\n  %v\n\nThe map literal is built "+
+			"before init() runs, so one of the two claims decides and the other is dead text. "+
+			"Remove the route from commentIDGatedRoutes/commentIDAdminRoutes if the inventories "+
+			"need to disagree about it, or delete the literal entry if they do not.",
+			len(commentIDRouteConflicts), commentIDRouteConflicts)
 	}
 }

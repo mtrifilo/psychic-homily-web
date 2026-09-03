@@ -15,6 +15,7 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/respond"
 	"psychic-homily-backend/internal/services/contracts"
 	servicesshared "psychic-homily-backend/internal/services/shared"
@@ -656,9 +657,15 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 // caller may not see and for a show that is not there.
 //
 // Both refusals are built here rather than written out at the two return sites,
-// because the value of the gate is that the pair is indistinguishable: a caller
-// who can tell the two apart can walk the id space and learn which unpublished
-// shows exist. Show ids are dense and sequential.
+// so the two BODIES are one response: a caller who can tell them apart can walk
+// the id space and learn which unpublished shows exist, and show ids are dense
+// and sequential.
+//
+// The bodies, exactly. The gate runs after the show and its bill are loaded, so
+// a gated id costs several more queries than an id that carries no row, and that
+// difference is measurable over enough samples. Closing it means deciding the
+// rule before the hydration, which this route cannot do on its slug path without
+// a second lookup.
 func refuseShowAsMissing() error {
 	showErr := apperrors.ErrShowNotFound(0)
 	return huma.Error404NotFound(fmt.Sprintf("%s [%s]", showErr.Message, showErr.Code))
@@ -698,7 +705,8 @@ func (h *ShowHandler) GetShowHandler(ctx context.Context, req *GetShowRequest) (
 	// Access control, from the one place the rule lives
 	// (services/shared/show_visibility.go), reached through the same
 	// handlers/shared door every other gated show route in this file uses.
-	if !shared.ShowRowVisible(show.Status, show.SubmittedBy, middleware.GetShowViewerFromContext(ctx)) {
+	if !shared.ShowRowVisible(
+		catalogm.ShowStatus(show.Status), show.SubmittedBy, middleware.GetShowViewerFromContext(ctx)) {
 		logger.FromContext(ctx).Warn("show_access_denied",
 			"show_id", show.ID,
 			"status", show.Status,

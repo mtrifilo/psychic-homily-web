@@ -25,6 +25,22 @@ import (
 // It pins the INVENTORY, not the behaviour. That a narrowed counter actually
 // moves with the viewer is contributor_profile_test.go's job.
 
+// moderationActionNames is the set of audit actions that feed ModerationActions,
+// derived from the dispatch map rather than written out, so the timeline-subset
+// assertion in contributor_profile_test.go cannot drift from what is counted.
+var moderationActionNames = func() map[string]bool {
+	// One struct, so the selectors are compared by the ADDRESS they return
+	// within it: two selectors naming the same field yield the same pointer.
+	stats := &contracts.ContributionStats{}
+	names := map[string]bool{}
+	for action, counter := range contributionStatActions {
+		if counter(stats) == &stats.ModerationActions {
+			names[action] = true
+		}
+	}
+	return names
+}()
+
 // statsDisposition records why a counter is safe.
 type statsDisposition int
 
@@ -40,8 +56,10 @@ const (
 	// entry carries the reason, and the reason is a product question rather than
 	// a missing spelling. Adding one of these is a disclosure, not a default.
 	statsOpen
-	// statsDerived: the field is computed from the others in this struct, so it
-	// inherits their dispositions and has no query of its own.
+	// statsDerived: the field is computed from the others in this struct and runs
+	// NO QUERY OF ITS OWN, so it inherits their dispositions. A field that reads
+	// like a ratio of two others but issues its own queries is not this; it takes
+	// the disposition its queries earn.
 	statsDerived
 )
 
@@ -65,11 +83,18 @@ func (d statsDisposition) String() string {
 // field name. A field missing here fails the test, and adding one is a claim
 // about it.
 var contributionStatDispositions = map[string]statsDisposition{
-	// Sourced from audit_logs through the timeline's own condition, so these
-	// four count exactly the rows GET /users/{username}/contributions lists for
-	// the same actor. moderation_actions is the one that needed it:
-	// approve_show and reject_show name shows, and a rejected show is gated by
-	// definition.
+	// Sourced from audit_logs through the timeline's own condition, so a row
+	// counted here is a row that timeline lists for the same actor. The reverse
+	// does not hold: the counters read 17 named actions and the timeline reads
+	// every row, so these are a subset of it, which is the direction that
+	// matters. moderation_actions is the one that needed the gate: approve_show
+	// and reject_show name shows, and a rejected show is gated by definition.
+	//
+	// The last three are ALSO fed by a second query, the entity_edit_audit_logs
+	// group-by. That table's entity_type is a free column, so the second arm
+	// excludes the gated discriminators outright rather than relying on its
+	// writers; without that, one label here would be covering one gated query and
+	// one open one.
 	"ModerationActions": statsNarrowed,
 	"ReleasesCreated":   statsNarrowed,
 	"LabelsCreated":     statsNarrowed,
@@ -101,6 +126,14 @@ var contributionStatDispositions = map[string]statsDisposition{
 	"FollowersCount":        statsUngated,
 	"FollowingCount":        statsUngated,
 
+	// ApprovalRate is not derived from the fields above despite reading like a
+	// ratio of them: it runs two queries of its own over pending_entity_edits,
+	// which ValidPendingEditEntityTypes holds to artist, venue, festival, release
+	// and label. Recorded UNGATED rather than derived, so that extending approval
+	// rate to show submissions — the obvious next step, since approve_show and
+	// reject_show already exist — has to come back here.
+	"ApprovalRate": statsUngated,
+
 	// OPEN, and named rather than hidden. Both read the three report TABLES
 	// rather than audit_logs, so the timeline's condition does not reach them,
 	// and entity_reports carries a polymorphic entity_type whose vocabulary is
@@ -112,8 +145,7 @@ var contributionStatDispositions = map[string]statsDisposition{
 	"ReportsFiled":    statsOpen,
 	"ReportsResolved": statsOpen,
 
-	// Computed from the fields above.
-	"ApprovalRate":       statsDerived,
+	// The one field genuinely computed from the others: a sum, with no query.
 	"TotalContributions": statsDerived,
 }
 

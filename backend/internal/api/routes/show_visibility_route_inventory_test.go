@@ -97,6 +97,25 @@ const (
 	notShowAddressable
 )
 
+// String names a disposition so a failure reads as a name rather than as an
+// integer whose meaning depends on the declaration order above, for the reason
+// collectionRouteDisposition.String gives.
+func (d showRouteDisposition) String() string {
+	switch d {
+	case gated:
+		return "gated"
+	case selfScoped:
+		return "selfScoped"
+	case adminOnly:
+		return "adminOnly"
+	case writeOracleDeferred:
+		return "writeOracleDeferred"
+	case notShowAddressable:
+		return "notShowAddressable"
+	}
+	return "unknown showRouteDisposition"
+}
+
 // showAddressableRoutes is the whole inventory, keyed by "METHOD pattern" as chi
 // reports it.
 //
