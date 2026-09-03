@@ -81,13 +81,34 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 	start := date.start(loc)
 	end := date.addDays(1).start(loc)
 
+	// ONE clock read for the whole answer. The night's order, the link's
+	// servability and IsTonight are three readings of the same instant, and a
+	// second time.Now() could split them across a 6am or midnight boundary.
+	nowLocal := time.Now().In(loc)
+	isTonight := date == tonightDate(nowLocal)
+
+	// On the LIVE night the rows a reader can still get to outrank the ones already
+	// playing, and that ordering belongs to the QUERY because the cap is applied
+	// there: a night longer than the rail would otherwise be truncated in clock
+	// order, dropping exactly the late sets the promotion exists to surface. The
+	// client applies the same rule to what it receives, so an ordering computed
+	// here and a page hydrating minutes later agree.
+	//
+	// Only the live night. An archive or future night has no started rows to
+	// separate from upcoming ones and stays in clock order.
+	var sinkStartedAt *time.Time
+	if isTonight {
+		startedBy := nowLocal
+		sinkStartedAt = &startedBy
+	}
+
 	// TWO over the cap, and both are load-bearing. One pays for the subject, which
 	// is itself in the metro's night and about to be dropped: fetching exactly the
 	// cap would quietly serve nineteen rows on a night that has twenty others. The
 	// second pays for HasMore, which otherwise cannot tell "exactly the cap" from
 	// "the cap and then some" — with only cap+1 fetched, a subject inside the
 	// window consumes the spare row and every full rail looks complete.
-	rows, err := s.GetSceneShowsInRange(city, state, start.UTC(), end.UTC(), loc, showAlsoTonightCap+2)
+	rows, err := s.sceneShowsInRange(city, state, start.UTC(), end.UTC(), loc, showAlsoTonightCap+2, sinkStartedAt)
 	if err != nil {
 		// Below the scene threshold is not a failure here. The rail's question is
 		// "what else is on tonight", and "this room is not part of a scene we
@@ -101,10 +122,8 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 	}
 
 	shows := make([]contracts.SceneShowSummary, 0, len(rows))
-	subjectOnTheRail := false
 	for _, row := range rows {
 		if row.ID == subject.ShowID {
-			subjectOnTheRail = true
 			continue
 		}
 		shows = append(shows, row)
@@ -117,8 +136,6 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 		shows = shows[:showAlsoTonightCap]
 	}
 
-	nowLocal := time.Now().In(loc)
-
 	// The slug is a LINK, so it is served only when following it lands somewhere
 	// honest. Two ways it would not:
 	//
@@ -130,11 +147,22 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 	//     this date provably does not list the show the reader came from, and
 	//     sending them there is worse than sending them nowhere.
 	//
+	// The membership half is asked of the scope, not read off the rows above: the
+	// rows are capped and ordered, so a subject the scene-day page does list can
+	// still be absent from them. Ordered second so a date with no page to point at
+	// pays for no query.
+	//
 	// Display identity below stays unconditional, because naming the metro is
 	// true either way. Same split as SceneDayResponse.PrevDate/NextDate.
 	sceneSlug := ""
-	if dateIsServable(date, nowLocal) && subjectOnTheRail {
-		sceneSlug = buildSceneSlug(city, state)
+	if dateIsServable(date, nowLocal) {
+		listed, err := s.sceneListsShow(scope, subject.ShowID)
+		if err != nil {
+			return nil, err
+		}
+		if listed {
+			sceneSlug = buildSceneSlug(city, state)
+		}
 	}
 
 	return &contracts.ShowAlsoTonightResponse{
@@ -144,11 +172,37 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 		State:     state,
 		Date:      date.String(),
 		Timezone:  zone,
-		IsTonight: date == tonightDate(nowLocal),
+		IsTonight: isTonight,
 		ShowCount: len(shows),
 		HasMore:   hasMore,
 		Shows:     shows,
 	}, nil
+}
+
+// sceneListsShow answers whether the metro's scene-day page for this show's date
+// would list this show: the venue predicate and status filter GetSceneShowsInRange
+// applies, asked about one row. The date needs no term, because this rail's date
+// is derived from the subject's own instant.
+//
+// A multi-room show can match on more than one of its rooms, so this counts
+// rather than expecting one row.
+func (s *SceneService) sceneListsShow(scope sceneScope, showID uint) (bool, error) {
+	vp, vargs := scope.venuePredicate("v")
+	args := append(append([]any{}, vargs...), showID, catalogm.ShowStatusApproved)
+
+	var matches int64
+	if err := s.db.Raw(`
+		SELECT COUNT(*)
+		FROM shows s
+		JOIN show_venues sv ON sv.show_id = s.id
+		JOIN venues v ON v.id = sv.venue_id
+		WHERE `+vp+`
+		  AND s.id = ?
+		  AND s.status = ?
+	`, args...).Scan(&matches).Error; err != nil {
+		return false, fmt.Errorf("failed to check scene membership: %w", err)
+	}
+	return matches > 0, nil
 }
 
 // alsoTonightClock is the clock this show's date is read on, plus the zone name

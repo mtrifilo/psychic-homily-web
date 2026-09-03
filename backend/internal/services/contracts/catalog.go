@@ -1860,12 +1860,24 @@ type ShowAlsoTonightResponse struct {
 	// count and not the metro's true total for the night. Read it with HasMore.
 	ShowCount int `json:"show_count"`
 	// HasMore says the night held more shows than the rail can carry, so a client
-	// can say so rather than implying it listed everything. Note the cap keeps the
-	// EARLIEST rows of the date, so on a dense night the dropped shows are the
-	// late ones; a client that needs the full night follows SceneSlug + Date.
+	// can say so rather than implying it listed everything. What the cap drops
+	// follows the order below: the latest rows of an archive or future date, and
+	// on the live night the started ones. A client that needs the full night
+	// follows SceneSlug + Date.
 	HasMore bool `json:"has_more"`
-	// Shows excludes the subject show and is capped, earliest first. Always
-	// non-nil, so a quiet night marshals as `[]` rather than `null`.
+	// Shows excludes the subject show and is capped.
+	//
+	// Ordered earliest first, EXCEPT on the live night (IsTonight), where shows
+	// that have already started sort after every show still to come and each half
+	// keeps clock order. That rule is applied before the cap, so a reader is never
+	// shown a set that began hours ago in place of one they can still get to.
+	// Nothing is hidden by it: the started rows are still listed, below.
+	//
+	// A client is free to apply the same rule again on its own clock, which is
+	// what a page hydrating some minutes after the response was built does; the
+	// rule is stable under a second application.
+	//
+	// Always non-nil, so a quiet night marshals as `[]` rather than `null`.
 	Shows []SceneShowSummary `json:"shows"`
 }
 
