@@ -52,11 +52,12 @@ func (s *SkipRateLimitAPITokenSuite) TearDownSuite() {
 }
 
 func (s *SkipRateLimitAPITokenSuite) TearDownTest() {
-	sqlDB, _ := s.db.DB()
-	_, _ = sqlDB.Exec("DELETE FROM api_tokens")
-	_, _ = sqlDB.Exec("DELETE FROM user_preferences")
-	_, _ = sqlDB.Exec("DELETE FROM oauth_accounts")
-	_, _ = sqlDB.Exec("DELETE FROM users")
+	sqlDB, err := s.db.DB()
+	s.Require().NoError(err)
+	for _, table := range []string{"api_tokens", "user_preferences", "oauth_accounts", "users"} {
+		_, err := sqlDB.Exec("DELETE FROM " + table)
+		s.Require().NoError(err, "cleanup %s", table)
+	}
 }
 
 func (s *SkipRateLimitAPITokenSuite) createUser(email string, isAdmin bool) *authm.User {
@@ -155,7 +156,7 @@ func (s *SkipRateLimitAPITokenSuite) TestForgedAPITokenOverCookieSessionIsLimite
 		"Bearer " + created.Token + " trailing",
 	}
 	for i, header := range headers {
-		s.Run(header, func() {
+		s.Run([]string{"unknown token", "malformed header"}[i], func() {
 			// A fresh limiter and a distinct IP per case, so one case never
 			// spends the other's one-request budget.
 			handler, hits := s.newHandler()

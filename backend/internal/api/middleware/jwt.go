@@ -42,22 +42,7 @@ func JWTMiddleware(jwtService *auth.JWTService) func(http.Handler) http.Handler 
 				"path", r.URL.Path,
 			)
 
-			var tokenSource string
-
-			// First, try to get token from Authorization header
-			token := bearerTokenFromHeader(r.Header.Get("Authorization"))
-			if token != "" {
-				tokenSource = "header"
-			}
-
-			// If no token in header, try to get from HTTP-only cookie
-			if token == "" {
-				cookie, err := r.Cookie("auth_token")
-				if err == nil && cookie.Value != "" {
-					token = cookie.Value
-					tokenSource = "cookie"
-				}
-			}
+			token, tokenSource := credentialFromRequest(r)
 
 			if token == "" {
 				logger.AuthWarn(ctx, "jwt_token_missing",
@@ -108,20 +93,61 @@ func JWTMiddleware(jwtService *auth.JWTService) func(http.Handler) http.Handler 
 const APITokenPrefix = adminsvc.TokenPrefix
 
 // bearerTokenFromHeader returns the credential in a "Bearer <token>"
-// Authorization header, or "" when the header is anything else, including one
-// carrying more than the two fields.
-//
-// Every Authorization reader in this package parses through this function, so
-// the middleware that decides whether to meter a request and the middleware
-// that decides who the caller is always read the same credential. Two parses
-// that disagreed about a header shape would let a request be exempted as one
-// principal while being authenticated as another.
+// Authorization header, or "" for anything else: another scheme, a different
+// case, more than the two fields, or a separator that is not a single space.
+// The accepted set is deliberately narrow, and narrower than RFC 7235 allows;
+// the ph CLI and the web client both send exactly "Bearer <token>".
 func bearerTokenFromHeader(authHeader string) string {
 	scheme, token, ok := strings.Cut(authHeader, " ")
 	if !ok || scheme != "Bearer" || token == "" || strings.ContainsRune(token, ' ') {
 		return ""
 	}
 	return token
+}
+
+// credentialFromRequest returns the credential a request presents and where it
+// came from ("header", "cookie", or "" for neither): a parseable Bearer header
+// wins, otherwise the auth cookie.
+//
+// Every credential reader in this package goes through this function or its
+// huma twin, so the middleware that decides whether to meter a request and the
+// middleware that decides who the caller is always read the same credential
+// from the same place. Two readers that disagreed about a request would let it
+// be exempted as one principal while being authenticated as another, which is
+// a rate-limit bypass rather than a parsing detail.
+func credentialFromRequest(r *http.Request) (token, source string) {
+	if t := bearerTokenFromHeader(r.Header.Get("Authorization")); t != "" {
+		return t, "header"
+	}
+	if c, err := r.Cookie(config.AuthCookieName); err == nil && c.Value != "" {
+		return c.Value, "cookie"
+	}
+	return "", ""
+}
+
+// credentialFromHumaContext is credentialFromRequest for a huma.Context.
+//
+// It collects EVERY Cookie header line rather than the first, because
+// net/http's Request.Cookie does, and the two must not disagree about which
+// cookie a request carries.
+func credentialFromHumaContext(ctx huma.Context) (token, source string) {
+	if t := bearerTokenFromHeader(ctx.Header("Authorization")); t != "" {
+		return t, "header"
+	}
+	var cookieLines []string
+	ctx.EachHeader(func(name, value string) {
+		if http.CanonicalHeaderKey(name) == "Cookie" {
+			cookieLines = append(cookieLines, value)
+		}
+	})
+	if len(cookieLines) == 0 {
+		return "", ""
+	}
+	req := &http.Request{Header: http.Header{"Cookie": cookieLines}}
+	if c, err := req.Cookie(config.AuthCookieName); err == nil && c.Value != "" {
+		return c.Value, "cookie"
+	}
+	return "", ""
 }
 
 // HumaJWTMiddleware validates JWT tokens or API tokens (Huma middleware version)
@@ -149,24 +175,7 @@ func HumaJWTMiddleware(jwtService *auth.JWTService, sessionConfig ...config.Sess
 			"path", url.Path,
 		)
 
-		var tokenSource string
-
-		// First, try to get token from Authorization header
-		token := bearerTokenFromHeader(ctx.Header("Authorization"))
-		if token != "" {
-			tokenSource = "header"
-		}
-
-		// If no token in header, try to get from HTTP-only cookie
-		if token == "" {
-			if cookie := ctx.Header("Cookie"); cookie != "" {
-				req := &http.Request{Header: http.Header{"Cookie": []string{cookie}}}
-				if c, err := req.Cookie("auth_token"); err == nil && c.Value != "" {
-					token = c.Value
-					tokenSource = "cookie"
-				}
-			}
-		}
+		token, tokenSource := credentialFromHumaContext(ctx)
 
 		if token == "" {
 			logger.AuthWarn(ctx.Context(), "huma_jwt_token_missing",
@@ -249,24 +258,7 @@ func LenientHumaJWTMiddleware(jwtService *auth.JWTService, gracePeriod time.Dura
 			"path", url.Path,
 		)
 
-		var tokenSource string
-
-		// Try Authorization header first
-		token := bearerTokenFromHeader(ctx.Header("Authorization"))
-		if token != "" {
-			tokenSource = "header"
-		}
-
-		// Fall back to cookie
-		if token == "" {
-			if cookie := ctx.Header("Cookie"); cookie != "" {
-				req := &http.Request{Header: http.Header{"Cookie": []string{cookie}}}
-				if c, err := req.Cookie("auth_token"); err == nil && c.Value != "" {
-					token = c.Value
-					tokenSource = "cookie"
-				}
-			}
-		}
+		token, tokenSource := credentialFromHumaContext(ctx)
 
 		if token == "" {
 			logger.AuthWarn(ctx.Context(), "lenient_jwt_token_missing",
@@ -316,18 +308,7 @@ func OptionalHumaJWTMiddleware(jwtService *auth.JWTService) func(ctx huma.Contex
 	apiTokenService := adminsvc.NewAPITokenService(nil)
 
 	return func(ctx huma.Context, next func(huma.Context)) {
-		// Try Authorization header
-		token := bearerTokenFromHeader(ctx.Header("Authorization"))
-
-		// Try cookie
-		if token == "" {
-			if cookie := ctx.Header("Cookie"); cookie != "" {
-				req := &http.Request{Header: http.Header{"Cookie": []string{cookie}}}
-				if c, err := req.Cookie("auth_token"); err == nil && c.Value != "" {
-					token = c.Value
-				}
-			}
-		}
+		token, _ := credentialFromHumaContext(ctx)
 
 		// No token — continue without user context
 		if token == "" {

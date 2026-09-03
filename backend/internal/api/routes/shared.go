@@ -31,12 +31,12 @@ type RouteContext struct {
 	ValidateAPIToken func(string) bool
 }
 
-// rateLimitUnlessAPIToken is a per-IP limiter with ONE hatch: a validated API
-// token, so batch imports by the ph CLI are not throttled. It is
-// SkipRateLimitForAdmin with the admin-JWT hatch withheld (the nil JWT service),
-// which is the difference show creation keeps from tag creation: contributing a
-// show is not something an admin session should be able to do unmetered.
-func rateLimitUnlessAPIToken(validateAPIToken func(string) bool, requestLimit int, windowLength time.Duration) func(http.Handler) http.Handler {
+// rateLimitUnlessValidatedAPIToken is a per-IP limiter with ONE hatch: a
+// validated API token, so batch imports by the ph CLI are not throttled. It is
+// SkipRateLimitForAdmin with the admin-JWT hatch withheld, which is the nil JWT
+// service: an admin session is metered here even though it is exempt on tag
+// creation. TestAPITokenBypassThroughRouter pins both halves of that asymmetry.
+func rateLimitUnlessValidatedAPIToken(validateAPIToken func(string) bool, requestLimit int, windowLength time.Duration) func(http.Handler) http.Handler {
 	return middleware.SkipRateLimitForAdmin(nil, validateAPIToken, httprate.Limit(
 		requestLimit,
 		windowLength,

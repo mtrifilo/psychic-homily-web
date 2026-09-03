@@ -27,16 +27,14 @@ import (
 // Note the two groups do NOT share a bypass mechanism, which the ticket's plan
 // had merged into one:
 //
-//	POST /shows            rateLimitUnlessAPIToken     (validated API token only)
-//	POST /shows/ai-process plain httprate.Limit        (no bypass)
-//	tag create / tag vote  SkipRateLimitForAdmin       (validated API token OR admin JWT)
+//	POST /shows            rateLimitUnlessValidatedAPIToken  (validated API token only)
+//	POST /shows/ai-process plain httprate.Limit               (no bypass)
+//	tag create / tag vote  SkipRateLimitForAdmin              (validated API token OR admin JWT)
 //
-// The router these tests build has no database, so no phk_ string resolves to a
-// live token here. That makes this file the NEGATIVE half of the bypass
-// contract: an unvalidated phk_ earns nothing. The positive half, that a live
-// token really does bypass, is pinned where the validator can be injected:
-// TestRateLimitUnlessAPIToken_ValidatedTokenBypasses below, and
-// middleware.TestSkipRateLimitForAdmin_ValidatedAPITokenBypassesLimit.
+// The tokens these tests send resolve to no row in any database, so this file
+// is the NEGATIVE half of the bypass contract: an unvalidated phk_ earns
+// nothing. The positive half, that a live token really does bypass through this
+// same router, is TestAPITokenBypassThroughRouter.
 
 func newTestRouter(t *testing.T) *chi.Mux {
 	t.Helper()
@@ -176,12 +174,12 @@ func TestShowCreateUnvalidatedAPITokenDoesNotBypass(t *testing.T) {
 	}
 }
 
-// The hatch the ph CLI depends on, pinned where a live token can exist: a token
-// the validator accepts stays unthrottled past the cap, or bulk show imports
-// start failing partway.
-func TestRateLimitUnlessAPIToken_ValidatedTokenBypasses(t *testing.T) {
+// The hatch the ph CLI depends on, at the limiter: a token the validator
+// accepts stays unthrottled past the cap, or bulk show imports start failing
+// partway.
+func TestRateLimitUnlessValidatedAPIToken_ValidatedTokenBypasses(t *testing.T) {
 	const live = "phk_live"
-	mw := rateLimitUnlessAPIToken(func(token string) bool { return token == live }, 1, time.Hour)
+	mw := rateLimitUnlessValidatedAPIToken(func(token string) bool { return token == live }, 1, time.Hour)
 	handler := mw(okRoutesHandler())
 
 	for i := 0; i < 5; i++ {

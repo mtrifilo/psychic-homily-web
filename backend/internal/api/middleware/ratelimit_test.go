@@ -193,9 +193,9 @@ func TestExtractJWT_MalformedBearerHeaderFallsBackToCookieLikeTheAuthenticator(t
 	}
 }
 
-// ValidatedAPIToken calls the validator only for a phk_-prefixed bearer, so an
-// ordinary browser request costs no database round trip, and it reports the
-// validator's answer rather than the prefix.
+// validatedAPIToken calls the validator only for a phk_-prefixed Authorization
+// header, so an ordinary browser request costs no database round trip, and it
+// reports the validator's answer rather than the prefix.
 func TestValidatedAPIToken(t *testing.T) {
 	const live = APITokenPrefix + "live"
 
@@ -231,8 +231,8 @@ func TestValidatedAPIToken(t *testing.T) {
 			if tc.cookie != "" {
 				req.AddCookie(&http.Cookie{Name: "auth_token", Value: tc.cookie})
 			}
-			if got := ValidatedAPIToken(validate, req); got != tc.want {
-				t.Errorf("ValidatedAPIToken() = %v, want %v", got, tc.want)
+			if got := validatedAPIToken(validate, req); got != tc.want {
+				t.Errorf("validatedAPIToken() = %v, want %v", got, tc.want)
 			}
 			if gotQueried := queried != ""; gotQueried != tc.wantQueried {
 				t.Errorf("validator queried = %v, want %v (queried %q)", gotQueried, tc.wantQueried, queried)
@@ -245,8 +245,8 @@ func TestValidatedAPIToken(t *testing.T) {
 func TestValidatedAPIToken_NilValidatorFailsClosed(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/tag", nil)
 	req.Header.Set("Authorization", "Bearer "+APITokenPrefix+"whatever")
-	if ValidatedAPIToken(nil, req) {
-		t.Error("ValidatedAPIToken(nil, ...) = true, want false: a missing validator must not exempt anything")
+	if validatedAPIToken(nil, req) {
+		t.Error("validatedAPIToken(nil, ...) = true, want false: a missing validator must not exempt anything")
 	}
 }
 

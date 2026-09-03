@@ -12,8 +12,8 @@ import (
 
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/respond"
+	adminsvc "psychic-homily-backend/internal/services/admin"
 	"psychic-homily-backend/internal/services/auth"
-	"psychic-homily-backend/internal/services/contracts"
 )
 
 // Rate limit configurations for different endpoint types
@@ -149,15 +149,20 @@ func SkipRateLimitForAdmin(jwtService *auth.JWTService, validateAPIToken func(st
 			// Two hatches, both earned by a credential the caller actually
 			// holds: an API token that passes validateAPIToken, and a JWT whose
 			// user is an admin. The bare phk_ prefix is not one of them, so a
-			// request the authenticator resolves to a cookie session is metered
-			// as that session whatever its Authorization header claims.
+			// request the authenticator resolves to a cookie session reaches
+			// the limiter whatever its Authorization header claims. Which
+			// bucket it then lands in is the wrapped limiter's business: the
+			// tag and show limiters passed in here key by IP, the engagement
+			// one by user.
 			//
-			// Both checks are database lookups, and validateAPIToken runs
-			// BEFORE the limiter so a live token never increments the bucket.
-			// A phk_-prefixed bearer therefore costs one api_tokens lookup even
-			// when it names nothing, which is the same trade
-			// RateLimitPublicReadsByAuthState documents for public reads.
-			if ValidatedAPIToken(validateAPIToken, r) || isAdminTokenRequest(jwtService, r) {
+			// Both checks are database lookups, and both run BEFORE the
+			// limiter, so a phk_-prefixed bearer costs an api_tokens lookup
+			// even when it names nothing and even when the request is about to
+			// be rejected. Validating after the limiter instead would make a
+			// live token increment the bucket it is meant to skip. The same
+			// trade is taken on public reads; see
+			// RateLimitPublicReadsByAuthState.
+			if validatedAPIToken(validateAPIToken, r) || isAdminTokenRequest(jwtService, r) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -168,13 +173,18 @@ func SkipRateLimitForAdmin(jwtService *auth.JWTService, validateAPIToken func(st
 
 // APITokenValidator adapts an API token service to the predicate the limiter
 // bypasses take: true only for a token APITokenService.ValidateToken resolves
-// to a live row (hash lookup, plus its revoked, expired, inactive and scope
-// checks). A nil service yields a nil predicate, which ValidatedAPIToken reads
-// as "no usable token".
+// to a live row. Whatever that method rejects, the bypass rejects, including a
+// database error, so a degraded database meters callers rather than exempting
+// them.
+//
+// It takes the concrete service rather than the interface so that a nil service
+// is detectable here: a nil pointer boxed in an interface is not == nil, and
+// the predicate would panic on its first phk_ request instead of yielding the
+// nil the callers below treat as "no usable token".
 //
 // Pure: it holds no per-process state, so callers may build it wherever they
 // wire a limiter.
-func APITokenValidator(svc contracts.APITokenServiceInterface) func(string) bool {
+func APITokenValidator(svc *adminsvc.APITokenService) func(string) bool {
 	if svc == nil {
 		return nil
 	}
@@ -270,9 +280,10 @@ func RateLimitPublicReadAuthenticatedIPCeiling() func(http.Handler) http.Handler
 // revoked/expired/inactive checks), injected as validateAPIToken, exempts a
 // request from the anonymous bucket. A forged phk_ prefix grants neither a
 // higher cap nor a bypass on these public reads, which have no downstream
-// authentication to catch it. The callback is invoked only when the bearer has the phk_ prefix, so
-// visitor GETs with no Authorization never hit the database. Admin session JWTs
-// still route to the per-user 300/min bucket, not this bypass.
+// authentication to catch it. The callback is invoked only when the
+// Authorization header carries the phk_ prefix, so a visitor GET never hits the
+// database here. Admin session JWTs still route to the per-user 300/min bucket,
+// not this bypass.
 //
 // Failed validation falls through to anonLimiter, so the DB lookup runs BEFORE
 // the per-IP cap. That order is load-bearing: validating after the limiter
@@ -313,7 +324,7 @@ func RateLimitPublicReadsByAuthState(jwtService *auth.JWTService, validateAPITok
 				user.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
-			if ValidatedAPIToken(validateAPIToken, r) {
+			if validatedAPIToken(validateAPIToken, r) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -336,39 +347,36 @@ func sessionUserID(jwtService *auth.JWTService, r *http.Request) (uint, bool) {
 	return jwtService.SessionUserID(token)
 }
 
-// ValidatedAPIToken is the one spelling of "the caller holds a usable API
+// validatedAPIToken is the one spelling of "the caller holds a usable API
 // token": every limiter bypass resolves the question here rather than deriving
 // it from the prefix. The callback is the DB lookup
-// (APITokenService.ValidateToken, adapted by APITokenValidator), invoked only
-// when the credential carries the phk_ prefix, so requests with no API token
-// never reach the database through this path.
+// (APITokenService.ValidateToken, adapted by APITokenValidator).
+//
+// Only the Authorization header is consulted. API clients send their token
+// there, and reading the cookie too would let any request carrying a
+// phk_-shaped cookie value spend a hash and a query before the limiter it is
+// about to be rejected by. A cookie-delivered API token authenticates but is
+// metered, which is the safe direction to be wrong in.
 //
 // A nil callback answers false, so a limiter wired without a token service
 // meters every request rather than exempting them all.
-func ValidatedAPIToken(validate func(string) bool, r *http.Request) bool {
+func validatedAPIToken(validate func(string) bool, r *http.Request) bool {
 	if validate == nil {
 		return false
 	}
-	token := extractJWT(r)
+	token := bearerTokenFromHeader(r.Header.Get("Authorization"))
 	if !strings.HasPrefix(token, APITokenPrefix) {
 		return false
 	}
 	return validate(token)
 }
 
-// extractJWT reads the credential from either the Authorization header or the
-// auth_token cookie, in the same order and with the same header parsing
-// (bearerTokenFromHeader) the authenticating middleware uses, so the limiter
-// and the authenticator always see the same credential. Returns empty string
-// when no token is present.
+// extractJWT reads the session credential through credentialFromRequest, the
+// same function the authenticating middleware reads it through. Returns empty
+// string when the request presents none.
 func extractJWT(r *http.Request) string {
-	if token := bearerTokenFromHeader(r.Header.Get("Authorization")); token != "" {
-		return token
-	}
-	if cookie, err := r.Cookie("auth_token"); err == nil {
-		return cookie.Value
-	}
-	return ""
+	token, _ := credentialFromRequest(r)
+	return token
 }
 
 // RateLimitExceededHandler handles rate limit exceeded responses

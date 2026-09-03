@@ -38,7 +38,7 @@ func setupTagRoutes(rc RouteContext) {
 	// collide with a limiter meant for anonymous/IP-level abuse.
 	//
 	// PSY-1598: on the MAIN api via a Huma group. Note this group's bypass is
-	// SkipRateLimitForAdmin, NOT rateLimitUnlessAPIToken — it exempts admin JWTs
+	// SkipRateLimitForAdmin, NOT rateLimitUnlessValidatedAPIToken — it exempts admin JWTs
 	// as well as validated API tokens, so the conversion has to preserve two
 	// escape hatches, not one.
 	tagCreateGroup := huma.NewGroup(rc.API, "")
