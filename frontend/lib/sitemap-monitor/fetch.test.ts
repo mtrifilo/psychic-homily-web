@@ -3,12 +3,23 @@ import {
   ENTITY_SHARD_IDS,
   PAGES_SHARD_ID,
   RELEASE_SHARD_IDS,
+  SHOW_SHARD_IDS,
+  shardFamily,
   SITEMAP_FAMILIES,
 } from '@/app/sitemap-shards'
 import { resolveConfig } from './config'
-import { fetchExpectedCounts, rebaseOnTarget, sampleUrls, walkSitemap } from './fetch'
+import {
+  fetchExpectedCounts,
+  rebaseOnTarget,
+  sampleUrls,
+  SHARD_FETCH_CONCURRENCY,
+  walkSitemap,
+} from './fetch'
 
 const STAGE = 'https://stage.psychichomily.com'
+
+/** The shows sub-shard the shows-family fixtures below serve rows from. */
+const [SHOW_SHARD] = SHOW_SHARD_IDS
 
 /** Retry delay 0 — the real 5s backoff would add 5s to every failure-path test. */
 function testConfig(env: Record<string, string> = {}) {
@@ -87,7 +98,7 @@ describe('walkSitemap', () => {
     const bodies: Record<string, string> = {
       [`${STAGE}/sitemap-index`]: index(ALL_IDS),
       [`${STAGE}/sitemap/pages.xml`]: urlset(['https://psychichomily.com/']),
-      [`${STAGE}/sitemap/shows.xml`]: urlset([
+      [`${STAGE}/sitemap/${SHOW_SHARD}.xml`]: urlset([
         'https://psychichomily.com/shows/2026-08-01-a',
         'https://psychichomily.com/shows/2025-01-01-b',
       ]),
@@ -155,6 +166,83 @@ describe('walkSitemap', () => {
     for (const id of ALL_IDS) {
       expect(spy).toHaveBeenCalledWith(`${STAGE}/sitemap/${id}.xml`, expect.anything())
     }
+  })
+
+  /**
+   * The shards are fetched concurrently, and both halves of that are
+   * load-bearing.
+   *
+   * The BOUND is what keeps the walk off the origin's anonymous per-IP rate
+   * limiter: unbounded, a 40-shard index would open 40 sockets at once and the
+   * monitor would be measuring the limiter. The ORDER is what keeps the report
+   * diffable — `errors`, `showDates` and `locsByBucket` are order-dependent
+   * accumulators, so folding results as they land would make two runs over an
+   * identical sitemap print different documents.
+   */
+  it('fetches shards with bounded concurrency and folds them in index order', async () => {
+    let inFlight = 0
+    let peak = 0
+    const release: Array<() => void> = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.endsWith('/sitemap-index')) return xmlResponse(index(ALL_IDS))
+        inFlight++
+        peak = Math.max(peak, inFlight)
+        // Hold every shard open until the whole first wave has arrived, so the
+        // peak is a real observation rather than a scheduling accident. The
+        // LAST-listed shard resolves first, which is what makes the ordering
+        // assertion below meaningful.
+        await new Promise<void>(resolve => {
+          release.push(resolve)
+          if (release.length >= SHARD_FETCH_CONCURRENCY) release.reverse().forEach(r => r())
+        })
+        inFlight--
+        return xmlResponse('not a sitemap document', 500)
+      })
+    )
+
+    const observation = await walkSitemap(testConfig({ SITEMAP_MONITOR_TARGET: STAGE }))
+
+    expect(peak).toBeGreaterThan(1)
+    expect(peak).toBeLessThanOrEqual(SHARD_FETCH_CONCURRENCY)
+    // Every shard failed, so the errors are one per shard and must appear in
+    // the order the index listed them, not the order the fetches settled.
+    expect(observation.errors).toEqual(
+      ALL_IDS.map(id => expect.stringContaining(`shard "${id}"`))
+    )
+  })
+
+  /**
+   * PARSING failures stay per-shard too, not just fetch failures.
+   *
+   * Both inputs below reach a throw AFTER the fetch succeeded: `fetchDocument`
+   * checks only `response.ok`, so a 200 carrying an edge interstitial reaches
+   * `detectShape`, and a `<loc>` that is not a URL reaches `new URL` inside
+   * `rebaseOnTarget`. If either escaped, the run would lose every other shard's
+   * observations and report a crash naming no shard at all.
+   */
+  it.each([
+    ['a 200 that is not a sitemap document', '<html><body>gateway</body></html>'],
+    ['a malformed loc', `<urlset><url><loc>not a url</loc></url></urlset>`],
+  ])('keeps going when one shard serves %s', async (_label, body) => {
+    const [broken] = ENTITY_SHARD_IDS
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.endsWith('/sitemap-index')) return xmlResponse(index(ALL_IDS))
+        if (url.endsWith(`/${broken}.xml`)) return xmlResponse(body)
+        return xmlResponse(urlset(['https://psychichomily.com/artists/a']))
+      })
+    )
+
+    const observation = await walkSitemap(testConfig({ SITEMAP_MONITOR_TARGET: STAGE }))
+
+    expect(observation.errors.some(e => e.includes(`shard "${broken}"`))).toBe(true)
+    // The rest of the walk still happened, which is what makes this a per-shard
+    // boundary rather than a caught-and-abandoned run.
+    expect(observation.observedByFamily.artists).toBeGreaterThan(0)
   })
 
   /**
@@ -234,6 +322,33 @@ describe('walkSitemap', () => {
         expect(observation.errors).not.toContain(emptyShardError(id))
       }
     })
+
+    /**
+     * The shows shards are calendar months, so an empty one is a month nobody
+     * has booked yet rather than a lost document — subShardsCanBeEmpty.
+     * Reported, this would fire on almost every run: the enumerated span runs
+     * to the end of the year after next.
+     */
+    it('is NOT reported for a family whose ranges are legitimately sparse', async () => {
+      const showShards: readonly string[] = SHOW_SHARD_IDS
+      const [darkMonth, ...litMonths] = showShards
+      expect(litMonths.length).toBeGreaterThan(0)
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string) => {
+          if (url.endsWith('/sitemap-index')) return xmlResponse(index(ALL_IDS))
+          const id = url.split('/sitemap/')[1]?.replace('.xml', '') ?? ''
+          return xmlResponse(
+            urlset(id === darkMonth ? [] : [`https://psychichomily.com/shows/${id}-one`])
+          )
+        })
+      )
+
+      const observation = await walkSitemap(testConfig({ SITEMAP_MONITOR_TARGET: STAGE }))
+
+      expect(observation.errors).toEqual([])
+    })
   })
 
   it('records an error when a shard fails to fetch, and keeps going', async () => {
@@ -241,13 +356,13 @@ describe('walkSitemap', () => {
       'fetch',
       vi.fn(async (url: string) => {
         if (url.endsWith('/sitemap-index')) return xmlResponse(index(ALL_IDS))
-        if (url.endsWith('/shows.xml')) return xmlResponse('server error', 503)
+        if (url.endsWith(`/${SHOW_SHARD}.xml`)) return xmlResponse('server error', 503)
         return xmlResponse(urlset(['https://psychichomily.com/artists/a']))
       })
     )
 
     const observation = await walkSitemap(testConfig({ SITEMAP_MONITOR_TARGET: STAGE }))
-    expect(observation.errors.some(e => e.includes('shard "shows"') && e.includes('503'))).toBe(
+    expect(observation.errors.some(e => e.includes(`shard "${SHOW_SHARD}"`) && e.includes('503'))).toBe(
       true
     )
     expect(observation.observedByFamily.artists).toBe(1)

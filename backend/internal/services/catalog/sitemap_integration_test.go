@@ -288,6 +288,219 @@ func TestSitemapEntriesReleaseSubShardsCoverTheFamilyExactly(t *testing.T) {
 	}
 }
 
+// TestSitemapEntriesShowSubShardsCoverTheFamilyExactly is the behavioural half
+// of the shows sub-shard guard (PSY-2018), the same pair of assertions the
+// releases test above makes against a different partition key.
+//
+//   - Set equality against the unsharded family. A gap (URLs silently absent
+//     from the sitemap) and an overlap (a URL announced twice) both fail it.
+//   - Exact placement of the boundary instants. The ranges are half-open on UTC
+//     month starts, so the instant AT a cut point belongs to the later shard and
+//     the last microsecond before it to the earlier one. That is the property a
+//     hand-edited bound gets wrong, and the one no set-equality check can see.
+//
+// The visibility predicate is asserted too: narrowing a scope must not lose the
+// approved-only filter, or a shard would announce URLs GetShowHandler rejects.
+func TestSitemapEntriesShowSubShardsCoverTheFamilyExactly(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	td := testutil.SetupTestPostgres(t)
+	defer td.Cleanup()
+
+	// Keyed by slug so a failure names the row. Every instant is UTC, which is
+	// what event_date holds (migration 000028 made the column timestamptz).
+	wantShard := map[string]struct {
+		at   time.Time
+		want string
+	}{
+		"long-ago":            {time.Date(2020, 3, 1, 0, 0, 0, 0, time.UTC), "shows-before-2026"},
+		"last-instant-before": {time.Date(2025, 12, 31, 23, 59, 59, 999999000, time.UTC), "shows-before-2026"},
+		"first-enumerated":    {time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), "shows-2026-01"},
+		"mid-month":           {time.Date(2026, 9, 17, 3, 30, 0, 0, time.UTC), "shows-2026-09"},
+		"month-end":           {time.Date(2026, 9, 30, 23, 59, 59, 999999000, time.UTC), "shows-2026-09"},
+		"month-start":         {time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), "shows-2026-10"},
+		"year-end":            {time.Date(2026, 12, 31, 23, 59, 59, 999999000, time.UTC), "shows-2026-12"},
+		"year-start":          {time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), "shows-2027-01"},
+		"last-enumerated":     {time.Date(2027, 12, 31, 23, 59, 59, 999999000, time.UTC), "shows-2027-12"},
+		"first-after-span":    {time.Date(2028, 1, 1, 0, 0, 0, 0, time.UTC), "shows-from-2028"},
+		"far-future":          {time.Date(2031, 6, 15, 12, 0, 0, 0, time.UTC), "shows-from-2028"},
+	}
+
+	seeded := make([]string, 0, len(wantShard))
+	for slug := range wantShard {
+		seeded = append(seeded, slug)
+	}
+	sort.Strings(seeded)
+	for _, slug := range seeded {
+		show := &catalogm.Show{
+			Title:     "Show " + slug,
+			Slug:      strPtr(slug),
+			EventDate: wantShard[slug].at,
+			Status:    catalogm.ShowStatusApproved,
+		}
+		if err := td.DB.Create(show).Error; err != nil {
+			t.Fatalf("seed show %q: %v", slug, err)
+		}
+	}
+	// Dated inside an enumerated month, so a shard that dropped the status
+	// predicate while narrowing would announce it.
+	pending := &catalogm.Show{
+		Title:     "Pending Show",
+		Slug:      strPtr("pending-show"),
+		EventDate: time.Date(2026, 9, 18, 1, 0, 0, 0, time.UTC),
+		Status:    catalogm.ShowStatusPending,
+	}
+	if err := td.DB.Create(pending).Error; err != nil {
+		t.Fatalf("seed pending show: %v", err)
+	}
+
+	service := NewSitemapService(td.DB)
+	whole, err := service.Entries(context.Background(), "shows")
+	if err != nil {
+		t.Fatalf("Entries(shows): %v", err)
+	}
+	wholeSlugs := sitemapSlugsOf(whole.Shows)
+	if len(wholeSlugs) != len(seeded) {
+		t.Fatalf("unsharded shows = %v, want the %d approved seeded slugs", wholeSlugs, len(seeded))
+	}
+
+	owner := map[string]string{}
+	for _, shard := range sitemapShardsByFamily["shows"] {
+		entries, err := service.Entries(context.Background(), shard.id)
+		if err != nil {
+			t.Fatalf("Entries(%s): %v", shard.id, err)
+		}
+		// A sub-shard addresses ONE family: anything else leaking into the
+		// response would be paid for by every shard, which is the cost sharding
+		// exists to avoid.
+		if len(entries.Artists)+len(entries.Releases)+len(entries.Labels) != 0 {
+			t.Errorf("Entries(%s) populated families other than shows", shard.id)
+		}
+		for _, slug := range sitemapSlugsOf(entries.Shows) {
+			if prev, dup := owner[slug]; dup {
+				t.Errorf("slug %q is served by both %q and %q — the shards overlap", slug, prev, shard.id)
+			}
+			owner[slug] = shard.id
+		}
+	}
+
+	for _, slug := range wholeSlugs {
+		if _, ok := owner[slug]; !ok {
+			t.Errorf("slug %q belongs to no sub-shard — the partition has a gap and this URL would leave the sitemap", slug)
+		}
+	}
+	if len(owner) != len(wholeSlugs) {
+		t.Errorf("sub-shards served %d slugs, the whole family has %d", len(owner), len(wholeSlugs))
+	}
+	if shard, served := owner["pending-show"]; served {
+		t.Errorf("shard %q announced a pending show — narrowing dropped the approved-only predicate", shard)
+	}
+
+	for slug, want := range wantShard {
+		if got := owner[slug]; got != want.want {
+			t.Errorf("a show dated %s is served by %q, want %q — the month bounds are half-open on UTC month starts",
+				want.at.Format(time.RFC3339Nano), got, want.want)
+		}
+	}
+}
+
+// TestEverySubShardedFamilyIsActuallyNarrowed is the guard the two family-
+// specific tests above cannot be: it is driven by the shard TABLE, so a family
+// added to sitemapShardsByFamily inherits it without anyone writing a third
+// hand-rolled near-duplicate.
+//
+// The failure it exists to catch is a missing `shard.narrow` at a new family's
+// call site in Entries. Nothing else notices: the table is generic, the wire
+// enum accepts the ids, every shard answers 200, and each one returns the WHOLE
+// family — so the over-cap payload sharding exists to prevent is served by every
+// shard at once, with a green build and a green test run. Here it shows up as
+// each shard serving the full row set instead of a slice of it.
+//
+// Deliberately does NOT assert per-family placement or emptiness: which rows
+// land where is the business of the family-specific tests above, which seed for
+// it. This asserts only the two properties that must hold for EVERY sub-sharded
+// family — the shards partition the family, and no shard is the whole of it.
+func TestEverySubShardedFamilyIsActuallyNarrowed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	td := testutil.SetupTestPostgres(t)
+	defer td.Cleanup()
+
+	// Two rows per family, placed in different shards, so "narrowed" is
+	// distinguishable from "returns everything". The shows pair straddles a
+	// month boundary and the releases pair a slug cut point.
+	for i, slug := range []string{"aardvark-tapes", "zephyr"} {
+		release := &catalogm.Release{Title: fmt.Sprintf("Narrow Release %d", i), Slug: strPtr(slug)}
+		if err := td.DB.Create(release).Error; err != nil {
+			t.Fatalf("seed release %q: %v", slug, err)
+		}
+	}
+	for i, at := range []time.Time{
+		time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC),
+	} {
+		show := &catalogm.Show{
+			Title:     fmt.Sprintf("Narrow Show %d", i),
+			Slug:      strPtr(fmt.Sprintf("narrow-show-%d", i)),
+			EventDate: at,
+			Status:    catalogm.ShowStatusApproved,
+		}
+		if err := td.DB.Create(show).Error; err != nil {
+			t.Fatalf("seed show %d: %v", i, err)
+		}
+	}
+
+	service := NewSitemapService(td.DB)
+	// Read the populated field by family so the assertions below stay generic.
+	rowsOf := map[string]func(*contracts.SitemapEntries) []contracts.SitemapEntry{
+		"shows":    func(e *contracts.SitemapEntries) []contracts.SitemapEntry { return e.Shows },
+		"releases": func(e *contracts.SitemapEntries) []contracts.SitemapEntry { return e.Releases },
+	}
+
+	for family, shards := range sitemapShardsByFamily {
+		read, ok := rowsOf[family]
+		if !ok {
+			t.Fatalf("family %q is sub-sharded but this test cannot read its rows — add it to rowsOf", family)
+		}
+
+		whole, err := service.Entries(context.Background(), family)
+		if err != nil {
+			t.Fatalf("Entries(%s): %v", family, err)
+		}
+		wholeSlugs := sitemapSlugsOf(read(whole))
+		if len(wholeSlugs) < 2 {
+			t.Fatalf("family %q seeded %d rows, need at least 2 in different shards", family, len(wholeSlugs))
+		}
+
+		owner := map[string]string{}
+		for _, shard := range shards {
+			entries, err := service.Entries(context.Background(), shard.id)
+			if err != nil {
+				t.Fatalf("Entries(%s): %v", shard.id, err)
+			}
+			slugs := sitemapSlugsOf(read(entries))
+			if len(slugs) == len(wholeSlugs) && len(wholeSlugs) > 1 {
+				t.Errorf("shard %q served all %d rows of %q — its call site in Entries is not narrowing",
+					shard.id, len(slugs), family)
+			}
+			for _, slug := range slugs {
+				if prev, dup := owner[slug]; dup {
+					t.Errorf("slug %q is served by both %q and %q — the %q shards overlap", slug, prev, shard.id, family)
+				}
+				owner[slug] = shard.id
+			}
+		}
+
+		for _, slug := range wholeSlugs {
+			if _, ok := owner[slug]; !ok {
+				t.Errorf("slug %q of family %q belongs to no shard — the partition has a gap", slug, family)
+			}
+		}
+	}
+}
+
 // TestSitemapEntriesIssuesOneQueryPerSimpleFamily is the regression guard for
 // the defect this service was built to fix — see contracts.SitemapEntry.
 // Scene and scene_weeks use their own multi-query projections (joins + timezone

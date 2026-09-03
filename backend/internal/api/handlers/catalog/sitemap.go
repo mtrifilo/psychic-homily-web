@@ -47,17 +47,17 @@ type GetSitemapEntriesRequest struct {
 	// frontend shards by family so each Data Cache entry stays under Next's
 	// ~1.50 MiB effective budget (PSY-1622). Omit to receive every family.
 	//
-	// The trailing `releases-*` values are SUB-SHARDS: each returns one slug
-	// range of the releases family, which outgrew a single cache entry
-	// (PSY-1763). They ride in this parameter rather than a second one because
-	// an unrecognised value here is a 422 the generator degrades on, whereas an
-	// unrecognised extra parameter would be silently ignored — see
-	// catalog.SitemapService.Entries.
+	// The values after the ten family names are SUB-SHARDS, each returning one
+	// slice of a family that outgrew a single cache entry: a UTC event month of
+	// `shows` (PSY-2018) or a slug range of `releases` (PSY-1763). They ride in
+	// this parameter rather than a second one because an unrecognised value here
+	// is a 422 the generator degrades on, whereas an unrecognised extra
+	// parameter would be silently ignored — see catalog.SitemapService.Entries.
 	//
 	// This literal cannot be built from catalog.SitemapFamilyValues() — huma
 	// reads it off the struct tag — so TestSitemapFamilyEnumMatchesTheService
 	// asserts the two agree.
-	Family string `query:"family" required:"false" enum:"shows,artists,venues,venue_years,scenes,scene_weeks,labels,releases,festivals,tags,releases-a-e,releases-f-m,releases-n-s,releases-t-z" doc:"When set, only this family is populated; others are empty arrays."`
+	Family string `query:"family" required:"false" enum:"shows,artists,venues,venue_years,scenes,scene_weeks,labels,releases,festivals,tags,shows-before-2026,shows-2026-01,shows-2026-02,shows-2026-03,shows-2026-04,shows-2026-05,shows-2026-06,shows-2026-07,shows-2026-08,shows-2026-09,shows-2026-10,shows-2026-11,shows-2026-12,shows-2027-01,shows-2027-02,shows-2027-03,shows-2027-04,shows-2027-05,shows-2027-06,shows-2027-07,shows-2027-08,shows-2027-09,shows-2027-10,shows-2027-11,shows-2027-12,shows-from-2028,releases-a-e,releases-f-m,releases-n-s,releases-t-z" doc:"When set, only this family is populated; others are empty arrays."`
 }
 
 type GetSitemapEntriesResponse struct {

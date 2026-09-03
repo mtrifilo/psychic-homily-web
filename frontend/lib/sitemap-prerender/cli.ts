@@ -87,11 +87,19 @@ async function probeFamily(shardId: string): Promise<FamilyVerdict> {
     const res = await fetch(url, {
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     })
+    // Read the status BEFORE releasing the body. Only the status decides the
+    // verdict, and a rejected `cancel()` inside this try would otherwise turn a
+    // perfectly good answer into `unreachable`, which blocks the deploy under a
+    // message blaming the backend.
+    const { status, ok } = res
+    // Released rather than left dangling: nothing reads it, and an unconsumed
+    // body holds its stream open for the rest of the process.
+    await res.body?.cancel()
     // Keep this list identical to UNKNOWN_FAMILY_STATUSES in app/sitemap.ts:
     // the two answer the same question, one at render time and one after the
     // build, and a shard excused here must be one the route degrades to empty.
-    if (res.status === 400 || res.status === 422) return 'unknown'
-    return res.ok ? 'served' : 'unreachable'
+    if (status === 400 || status === 422) return 'unknown'
+    return ok ? 'served' : 'unreachable'
   } catch {
     return 'unreachable'
   }

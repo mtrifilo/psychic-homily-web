@@ -23,8 +23,9 @@ export const PAGES_SHARD_ID = 'pages'
 /**
  * The entity families the sitemap covers.
  *
- * FAMILIES, not shard ids — the two stopped being the same thing when
- * `releases` was sub-sharded (see RELEASE_SHARD_IDS). Anything counting or
+ * FAMILIES, not shard ids — the two are not the same thing, because `shows` and
+ * `releases` are each served by several documents (SHOW_SHARD_IDS and
+ * RELEASE_SHARD_IDS). Anything counting or
  * classifying URLs wants this list; anything enumerating DOCUMENTS wants
  * ENTITY_SHARD_IDS below. Keep in sync with the Huma `family` enum on
  * GET /sitemap/entries and with `sitemapFamilies` in
@@ -60,6 +61,61 @@ const _assertNoMissingFamily: AssertNoMissingFamily = true
 void _assertNoMissingFamily
 
 /**
+ * The UTC event months the `shows` family is served in (PSY-2018).
+ *
+ * WHY MONTHS, why the span runs to the end of the year after next, and what
+ * extending it costs: all of that lives with the predicate that enforces it, in
+ * `showShards` in backend/internal/services/catalog/sitemap.go. That is the
+ * normative statement; this note carries only what is frontend-specific and
+ * points there for the rest, the way RELEASE_SHARD_IDS below does.
+ *
+ * What a build actually wrote, read out of `.next/cache/fetch-cache` against
+ * the production show catalogue — these are the entry sizes Next's own cap is
+ * applied to, not the raw body scaled by the base64 ratio:
+ *
+ *   shows-2026-09  508,268  24.2% of the cap
+ *   shows-2026-10  504,636  24.1%
+ *   shows-2026-11  300,744  14.3%
+ *   shows-2026-08  278,752  13.3%
+ *
+ * against 80.6% for the family as one document, which is what failed the
+ * production build. Every other shows shard is under 4%. `artists`, at 918,744
+ * raw bytes and so 58.4% of the cap, is now the largest sitemap entry — the
+ * shard family to watch next, and a whole family rather than a range.
+ *
+ * SHARDS HERE ARE LEGITIMATELY EMPTY, which slug ranges never are. See
+ * subShardsCanBeEmpty below.
+ */
+export const SHOW_SHARD_IDS = [
+  'shows-before-2026',
+  'shows-2026-01',
+  'shows-2026-02',
+  'shows-2026-03',
+  'shows-2026-04',
+  'shows-2026-05',
+  'shows-2026-06',
+  'shows-2026-07',
+  'shows-2026-08',
+  'shows-2026-09',
+  'shows-2026-10',
+  'shows-2026-11',
+  'shows-2026-12',
+  'shows-2027-01',
+  'shows-2027-02',
+  'shows-2027-03',
+  'shows-2027-04',
+  'shows-2027-05',
+  'shows-2027-06',
+  'shows-2027-07',
+  'shows-2027-08',
+  'shows-2027-09',
+  'shows-2027-10',
+  'shows-2027-11',
+  'shows-2027-12',
+  'shows-from-2028',
+] as const satisfies readonly WireFamily[]
+
+/**
  * The slug ranges the `releases` family is served in (PSY-1763).
  *
  * WHY. Sharding per family (PSY-1622) exists to keep each fetch under Next's
@@ -86,9 +142,8 @@ void _assertNoMissingFamily
  *   releases-n-s  489,967  23.4%
  *   releases-t-z  428,751  20.4%
  *
- * against 97.3% for the family as one document. `artists`, at 40.8%, is now the
- * largest sitemap entry — so this is the shard family to watch next, and it is
- * a whole family rather than a range.
+ * against 97.3% for the family as one document. The family to watch next is
+ * named on SHOW_SHARD_IDS above, alongside the measurement that ranks it.
  *
  * HOW IT GROWS. Add a cut point and split ONE range. Every other range keeps
  * both its id and its exact contents, so re-tuning churns only the range being
@@ -133,7 +188,9 @@ export const RELEASE_SHARD_IDS = [
  */
 type UnservedWireFamily = Exclude<
   WireFamily,
-  (typeof SITEMAP_FAMILIES)[number] | (typeof RELEASE_SHARD_IDS)[number]
+  | (typeof SITEMAP_FAMILIES)[number]
+  | (typeof RELEASE_SHARD_IDS)[number]
+  | (typeof SHOW_SHARD_IDS)[number]
 >
 type AssertEveryWireValueServed = [UnservedWireFamily] extends [never]
   ? true
@@ -145,15 +202,32 @@ void _assertEveryWireValueServed
  * Families served by more than one document, and the ids those documents use.
  *
  * A family absent from this table is served by a single shard whose id IS the
- * family name, which is the case for nine of the ten.
+ * family name, which is the case for eight of the ten.
  *
- * Valued `readonly WireFamily[]`, not `readonly string[]`: an id written here
+ * `ids` is `readonly WireFamily[]`, not `readonly string[]`: an id written here
  * that the backend does not accept would be fetched, 422'd, and degraded to an
  * empty document — a shard silently serving nothing. Typing it against the
  * generated enum makes that a compile error instead.
+ *
+ * `partitionKey` is REQUIRED so that declaring a family sub-sharded forces
+ * saying how, in the same edit. It is what the monitor's empty-shard rule turns
+ * on, and defaulting it would default a new calendar-keyed family into alarming
+ * on nearly every run — see subShardsCanBeEmpty and its call site in
+ * lib/sitemap-monitor/fetch.ts, which carry the reasoning and the residual gap.
  */
-const SUB_SHARD_IDS: Partial<Record<Family, readonly WireFamily[]>> = {
-  releases: RELEASE_SHARD_IDS,
+interface SubShards {
+  ids: readonly WireFamily[]
+  /** What the ranges are cut on. See subShardsCanBeEmpty. */
+  partitionKey: 'slug' | 'calendar'
+}
+const SUB_SHARDS: Partial<Record<Family, SubShards>> = {
+  shows: { ids: SHOW_SHARD_IDS, partitionKey: 'calendar' },
+  releases: { ids: RELEASE_SHARD_IDS, partitionKey: 'slug' },
+}
+
+/** Whether a family's sub-shards can be empty without anything being wrong. */
+export function subShardsCanBeEmpty(family: Family): boolean {
+  return SUB_SHARDS[family]?.partitionKey === 'calendar'
 }
 
 /**
@@ -167,7 +241,7 @@ const SUB_SHARD_IDS: Partial<Record<Family, readonly WireFamily[]>> = {
  */
 const FAMILY_BY_SHARD_ID = new Map<string, Family>()
 for (const family of SITEMAP_FAMILIES) {
-  for (const id of SUB_SHARD_IDS[family] ?? [family]) {
+  for (const id of SUB_SHARDS[family]?.ids ?? [family]) {
     // THROW rather than overwrite. `Map.set` would silently keep the last
     // writer, so two families claiming one id would yield a table that looks
     // consistent, an ENTITY_SHARD_IDS one entry short, and a family whose URLs

@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   ENTITY_SHARD_IDS,
   PAGES_SHARD_ID,
+  SHOW_SHARD_IDS,
   SITEMAP_FAMILIES,
 } from '@/app/sitemap-shards'
 import type { Env } from './config'
@@ -22,6 +23,9 @@ const TARGET = 'https://sitemap-monitor.test'
 const API = 'https://api.sitemap-monitor.test'
 
 const ALL_IDS = [PAGES_SHARD_ID, ...ENTITY_SHARD_IDS]
+
+/** The shows sub-shard the stubbed sitemap serves show URLs from. */
+const [SHOW_SHARD] = SHOW_SHARD_IDS
 
 function urlset(locs: string[]): string {
   return `<urlset>${locs.map(l => `<url><loc>${l}</loc></url>`).join('')}</urlset>`
@@ -82,7 +86,7 @@ function stubWorld(options: WorldOptions = {}) {
       return new Response(index(), { headers: { 'content-type': 'application/xml' } })
     }
     if (url.startsWith(`${TARGET}/sitemap/`)) {
-      const isShows = url.endsWith('/shows.xml')
+      const isShows = url.endsWith(`/${SHOW_SHARD}.xml`)
       return new Response(urlset(isShows ? shows : []), {
         headers: { 'content-type': 'application/xml' },
       })
