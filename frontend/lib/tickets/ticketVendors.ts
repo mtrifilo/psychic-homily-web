@@ -275,13 +275,19 @@ export interface PlantedTicketTag {
   /** Hostname the link points at. Never the path, query or fragment. */
   host: string
   /**
-   * The tag credits an ID this deployment is configured with, so it is our own
-   * link copied back in rather than somebody redirecting our commission.
+   * This tag is plausibly OUR OWN rendered link copied back into a submission:
+   * it credits an ID this deployment is configured with, on a vendor whose own
+   * domain we tag, through that vendor's own parameter.
    *
-   * Benign, and once the config is flipped it is the LIKELIEST source, because
-   * our own rendered links are the ones in circulation. Separated so the noisy
-   * case cannot bury the one worth acting on. Always false on a build with no
-   * partner ID configured, which has no tag of its own.
+   * All three clauses are load-bearing. A partner ID rides in public URLs, so
+   * the value alone is attacker-settable on any host; an operator filtering
+   * this away would then miss exactly the reports worth reading.
+   *
+   * Benign when true, and once the config is flipped it is the likeliest
+   * source, because our own rendered links are the ones in circulation.
+   * Separated so the noisy case cannot bury the one worth acting on. Always
+   * false on a build with no partner ID configured, which has no tag of its
+   * own.
    */
   matchesConfiguredPartner: boolean
 }
@@ -560,6 +566,10 @@ export function ticketLink(
     return passthrough
   }
 
+  // The vendor behind this URL, read once: qualification below is deliberately
+  // NOT scoped to it, but `matchesConfiguredPartner` is.
+  const vendorAffiliate = resolveTicketVendor(rawUrl)?.affiliate
+
   // Qualification comes FIRST, and is not scoped to the matched vendor or to
   // this build's configuration: a planted tag on a vendor we have not
   // onboarded, or on a host not in the table at all, is still a monetized link
@@ -574,20 +584,29 @@ export function ticketLink(
           param,
           host: normalizeHost(parsed.hostname),
           // Our own rendered links circulate, so a contributor copying one
-          // back in is the most likely source once the config is flipped, and
-          // it is entirely benign. Told apart here so the common case cannot
-          // drown the one that redirects our commission to somebody else. The
-          // boolean ships; the ID never does.
-          matchesConfiguredPartner: creditsConfiguredPartner(pair, partnerIds),
+          // back in is the most likely source once the config is flipped.
+          // Told apart here so the common case cannot drown the one that
+          // redirects our commission to somebody else. The boolean ships; the
+          // ID never does.
+          //
+          // A CONJUNCTION, not a value comparison. A partner ID rides in
+          // public URLs, so anyone can append ours to any host; matching the
+          // value alone would call that "our own link" and hide the report
+          // behind the benign filter. It is only our link if it is also on a
+          // vendor whose own domain we tag, through that vendor's own
+          // parameter.
+          matchesConfiguredPartner:
+            !!vendorAffiliate &&
+            affiliateParamKey(vendorAffiliate.param) === param &&
+            creditsConfiguredPartner(pair, partnerIds),
         },
       }
     }
   }
 
-  const affiliate = resolveTicketVendor(rawUrl)?.affiliate
-  if (!affiliate) return passthrough
+  if (!vendorAffiliate) return passthrough
 
-  const partnerId = partnerIds[affiliate.network]
+  const partnerId = partnerIds[vendorAffiliate.network]
   if (!partnerId) return passthrough
 
   // REWRITING, unlike detection, refuses a value whose scheme it would have to
@@ -597,7 +616,7 @@ export function ticketLink(
 
   const { base, pairs, fragment } = splitUrlForTagging(trimmed)
 
-  const param = affiliateParamKey(affiliate.param)
+  const param = affiliateParamKey(vendorAffiliate.param)
   const isOurParam = (key: string) => affiliateParamKey(key) === param
 
   // A valueless occurrence hidden inside a `;`-bearing segment cannot be
@@ -621,7 +640,7 @@ export function ticketLink(
   )
   const query = [
     ...kept.map(pair => pair.raw),
-    `${affiliate.param}=${encodeURIComponent(partnerId)}`,
+    `${vendorAffiliate.param}=${encodeURIComponent(partnerId)}`,
   ].join('&')
   return {
     href: `${base}?${query}${fragment}`,
@@ -768,7 +787,10 @@ export function ticketOffer(
   return {
     ...shared,
     linked: true,
-    href: link.href,
+    // Trimmed, so the href handed to a render site is the value the floor
+    // above actually tested. `ticketLink` preserves surrounding whitespace on
+    // its pass-through branch, and a raw <a href> would carry it out.
+    href: link.href.trim(),
     sponsored: paid,
     ugc: !paid,
   }

@@ -450,8 +450,8 @@ describe('ShowTicketRow', () => {
     expect(
       buy.getAttribute('aria-label')?.match(/opens in a new tab/g)
     ).toHaveLength(1)
-    // The vendor name is what an unlinked referral leaves behind; a linked one
-    // already names the vendor by being clickable.
+    // The vendor segment belongs to the unlinked state: the locked mock's
+    // linked row is the bracket alone.
     expect(ticketLine()).not.toContain('rsvp.example')
   })
 

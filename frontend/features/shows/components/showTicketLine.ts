@@ -45,10 +45,12 @@ function storedTicketUrl(show: ShowResponse): string | null {
  * only caller, so a refusal added here reaches the words and the affordance
  * together.
  *
- * Null too for a value that names no HOST (`https://`, `/`, a repaired
- * `javascript:` value). Such a value is not somewhere to buy: there is no
- * anchor to render and no vendor to name, so without this refusal the line
- * would claim ON SALE and then point the reader nowhere.
+ * Null too for a value that names no HOST, which is not somewhere to buy:
+ * there is no anchor to render and no vendor to name, so without this refusal
+ * the line would claim ON SALE and then point the reader nowhere. The test is
+ * whether a host can be parsed at all, NOT whether it resolves: a stored `/x`
+ * repairs to the parseable host `x`, and a plausible-looking hostname that
+ * does not exist is indistinguishable from one that does.
  *
  * The repair itself is {@link repairTicketUrl}, shared with the festival
  * page's ticket link so the two surfaces cannot disagree about what a stored
@@ -241,9 +243,11 @@ function saysPastRegister(
  *
  * The VENDOR segment is what an unpaid referral leaves behind: with the
  * outbound anchor withheld, the line still names who sells the ticket
- * (`$25 · TicketWeb`), so a reader knows where to go. It is absent whenever
- * the anchor renders, which names the vendor by being clickable, and absent
- * on every state that has nothing to offer.
+ * (`$25 · TicketWeb`), so a reader knows where to go. It is absent when the
+ * anchor renders, because the locked mock's linked row is the bracket alone;
+ * the bracket's own label does NOT name the vendor, so that state tells a
+ * reader less about the destination than this one does. Absent too on every
+ * state with nothing to offer.
  *
  * `offer` is REQUIRED, and required rather than defaulted so the caller
  * cannot end up with two of them: the vendor name here and the anchor beside

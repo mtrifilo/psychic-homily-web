@@ -519,6 +519,38 @@ describe('ticketLink with an Impact partner ID configured', () => {
   })
 })
 
+describe('plantedTag.matchesConfiguredPartner', () => {
+  // A partner ID rides in public URLs, so anyone can append ours to any host.
+  // The flag drives an operator filter, so a bare value match would hide the
+  // reports worth reading behind the benign one.
+  it('is false when our id sits on a host we do not tag', () => {
+    for (const raw of [
+      'https://evil.example/x?irmp=1234567',
+      'https://tix.example/e/1?irmp=1234567',
+      // A vendor in the table, but with no affiliate entry of its own.
+      'https://www.eventbrite.com/e/1?irmp=1234567',
+    ]) {
+      expect(ticketLink(raw, IMPACT).plantedTag).toMatchObject({
+        matchesConfiguredPartner: false,
+      })
+    }
+  })
+
+  it('is true for our own tagged link copied back in', () => {
+    expect(
+      ticketLink('https://www.ticketweb.com/event/2?irmp=1234567', IMPACT)
+        .plantedTag
+    ).toMatchObject({ matchesConfiguredPartner: true })
+  })
+
+  it('is false for somebody else on a vendor we do tag', () => {
+    expect(
+      ticketLink('https://www.ticketweb.com/event/2?irmp=9999999', IMPACT)
+        .plantedTag
+    ).toMatchObject({ matchesConfiguredPartner: false })
+  })
+})
+
 describe('ticketVendorLabel', () => {
   it('prints the written-down name for a known vendor', () => {
     expect(ticketVendorLabel('https://www.ticketweb.com/event/1')).toBe(
@@ -678,6 +710,16 @@ describe('ticketOffer', () => {
     ]) {
       expect(ticketOffer(raw, { partnerIds: IMPACT }).linked).toBe(false)
     }
+  })
+
+  // The href a render site receives is the value the floor tested.
+  it('links a trimmed href', () => {
+    const offer = ticketOffer('   https://box-office.example/e/1  ', {
+      freeAdmission: true,
+    })
+    expect(offer.linked).toBe(true)
+    if (!offer.linked) throw new Error('unreachable')
+    expect(offer.href).toBe('https://box-office.example/e/1')
   })
 
   // A value naming no host has nothing to link and nothing to name.
