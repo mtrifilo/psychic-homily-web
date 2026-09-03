@@ -440,18 +440,11 @@ func TestPayloadImageURL_FailsClosed(t *testing.T) {
 // entity_type added to the registry without a branch here fails this test
 // rather than quietly returning "unknown entity type" at a write boundary.
 func TestPayloadImageURL_CoversEveryRegisteredType(t *testing.T) {
-	minimal := map[string]string{
-		EntityRequestArtist:   `{"name":"Boris"}`,
-		EntityRequestRelease:  `{"title":"Pink"}`,
-		EntityRequestLabel:    `{"name":"Hydra Head"}`,
-		EntityRequestVenue:    `{"name":"Trunk Space","city":"Phoenix","state":"AZ"}`,
-		EntityRequestShow:     `{"title":"Boris","event_date":"2026-07-04"}`,
-		EntityRequestFestival: `{"name":"Fest","edition_year":2026,"start_date":"2026-07-04","end_date":"2026-07-05"}`,
-	}
+	// namedPayload is the package's one minimal-valid-payload fixture table, so a
+	// seventh entity type is added in one place and both this test and the
+	// name-cap tests pick it up.
 	for entityType := range payloadRegistry {
-		raw, ok := minimal[entityType]
-		require.Truef(t, ok, "entity type %q has no fixture here — add one, and give PayloadImageURL a branch for it", entityType)
-		_, err := PayloadImageURL(entityType, json.RawMessage(raw))
+		_, err := PayloadImageURL(entityType, namedPayload(t, entityType, "Boris"))
 		assert.NoErrorf(t, err, "PayloadImageURL has no branch for registered entity type %q", entityType)
 	}
 }

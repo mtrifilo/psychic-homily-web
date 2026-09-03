@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"psychic-homily-backend/internal/utils"
 )
@@ -49,31 +50,103 @@ type EntityRequestPayload interface {
 	// parity check enforces against the migration's CHECK constraint.
 	entityRequestType() string
 
-	// dedupOccurrenceJSONKey returns the JSON key of the payload field that
-	// distinguishes two requests sharing a name, or "" for a type that has none
-	// (PSY-1977). It is the occurrence term of the pending-request dedup key:
-	// without it, one requester's two "Open Mic" shows collide and the second
-	// submission destroys the first.
+	// dedupOccurrenceTerm returns the payload value that distinguishes two of this
+	// type's requests sharing a name, or the zero term for a type that has none
+	// (PSY-1977; PSY-1989 gave it a fallback chain and a width so that types other
+	// than show could express one). It is the occurrence term of the
+	// pending-request dedup key: without it, one requester's two "Open Mic" shows
+	// collide and the second submission destroys the first.
 	//
 	// It is on the INTERFACE so that a seventh payload type has to write this
 	// method to compile. Be clear about how much that buys: the compiler forces a
-	// method, NOT a correct answer, and "" is both a legitimate answer and the
-	// easiest one to copy from the neighbours. It puts the question in front of
-	// the author; it does not answer it for them.
+	// method, NOT a correct answer, and the zero term is both a legitimate answer
+	// and the easiest one to copy from the neighbours. It puts the question in
+	// front of the author; it does not answer it for them.
 	//
-	// FIVE of the six types answer "" today. Two of those (artist, label) are
-	// uncontested. The other three (release, venue, festival) each document a
-	// destructive collision this key does NOT fix, so read the comment before
-	// copying the answer.
+	// TWO RULES decide the answer, and the second is the one that is easy to miss.
 	//
-	// Only a REQUIRED field belongs here. An optional one turns "queued without a
-	// date, resubmitted with one" into a second request rather than the correction
-	// it is — that is what rules out release_date.
+	// PRESENT ON EVERY REQUEST. A value that may be absent turns "queued without
+	// it, resubmitted with it" into a second request rather than the correction it
+	// is. That rules out release_date and an artist's optional city. Present is
+	// not the same as required at the boundary: a festival's edition_year is
+	// optional and derived from the required start_date when it is missing, so the
+	// DERIVED value is always present and is what the term reads. Derive it the
+	// way fulfillment derives it, or the queue partitions requests differently
+	// from the catalog they become.
 	//
-	// One key, not a list. That is a real limit, not a simplification: a venue
-	// needs city AND state together and therefore cannot be expressed here at all.
-	// See VenueRequestPayload.
-	dedupOccurrenceJSONKey() string
+	// NO FINER THAN THE CATALOG'S OWN UNIQUENESS. Two pending rows this key
+	// separates that the catalog would merge are two requests an admin can
+	// approve, and the second fulfilment then fails AFTER its row has been
+	// claimed, leaving an approved-but-unfulfilled orphan for the rescue flow.
+	// Trading a destroyed request for an orphaned one is not a fix. So each term
+	// is read off the catalog constraint the fulfilled entity meets: a venue's is
+	// venues (LOWER(name), LOWER(city)), a festival's is (series_slug,
+	// edition_year). Where that constraint is the NAME alone the answer is the
+	// zero term, and it is a correct answer rather than a deferral.
+	//
+	// THREE of the six types answer with the zero term (artist, label, release).
+	// Each documents on its own struct which of the two rules decided it.
+	dedupOccurrenceTerm() DedupOccurrenceTerm
+}
+
+// DedupOccurrenceTerm is a payload type's occurrence: the value the
+// pending-dedup key reads out of the payload beside the name, and how it is
+// normalized before it is keyed. The zero value means the type has none, and its
+// key is the name alone.
+//
+// Exported because the SQL that renders it lives in the service layer, which
+// owns every other piece of the dedup query and the index it mirrors; models
+// must not grow SQL. TestDedupOccurrenceMatchesTheIndex asserts that rendering
+// against the index Postgres actually built.
+type DedupOccurrenceTerm struct {
+	// JSONKeys is a fallback chain, tried in order: the term takes the first key
+	// whose payload value is present and is not AbsentAs. More than one key
+	// expresses ONE derived value (a festival's edition year, stated or taken from
+	// its start date), never two independent values.
+	JSONKeys []string
+
+	// AbsentAs is a stored spelling of the FIRST key that means "not supplied",
+	// beyond an empty or all-space value, which always means that for every key.
+	// It exists because a JSON number field has no absent spelling: a client
+	// marshalling the payload struct writes "edition_year": 0, and 0 is exactly
+	// what fulfillment reads as "derive it from start_date". Without this, one
+	// festival keys two different ways depending on whether the client omitted the
+	// field or sent its zero value, and those two rows fulfil to the same catalog
+	// edition.
+	//
+	// The first key only, because that is the STATED value; the keys after it are
+	// the derivation that runs when nothing was stated, and a derivation has no
+	// "not supplied" spelling of its own.
+	AbsentAs string
+
+	// Width is how many leading CHARACTERS of the resolved value the term keeps.
+	// Characters, because Postgres left() counts characters, and requireBoundedField
+	// counts runes for the same reason: the two units agree, so the pairing below
+	// is exact rather than approximate.
+	//
+	// It serves two purposes that must not be confused. For event_date and city it
+	// is INDEX SAFETY, and it equals that field's boundary cap so it can never
+	// truncate a legal value — keep the two equal, since a width below the cap
+	// keys a prefix of a value the boundary accepted whole and folds two distinct
+	// values into one bucket. For a festival's edition year it is SEMANTIC: 4 is
+	// what turns a start date into the year the catalog keys on, and there
+	// maxRequestEditionYear is what keeps a legal value from being truncated.
+	//
+	// A character width of n bounds the indexed term at 4n BYTES, which is the unit
+	// the btree row limit is counted in. That headroom is what the dedup migrations'
+	// size preflights are sized against.
+	Width int
+
+	// CaseFold lowercases the value, for a term whose catalog constraint is
+	// case-insensitive: venues are unique on (LOWER(name), LOWER(city)), so
+	// "Phoenix" and "phoenix" are ONE venue and must be one bucket here.
+	//
+	// It is off by default rather than always on, and event_date is why. Folding a
+	// term NARROWS the key, so two pending rows the unfolded key kept apart can
+	// newly collide, and a rebuild of a live index can then fail on uniqueness
+	// rather than only on size. A date carries no meaningful case, so folding it
+	// would buy nothing for that risk.
+	CaseFold bool
 }
 
 // ArtistRequestPayload carries the user-supplied fields to create an artist.
@@ -89,8 +162,15 @@ type ArtistRequestPayload struct {
 
 func (ArtistRequestPayload) entityRequestType() string { return EntityRequestArtist }
 
-// An artist is not an occurrence; two requests for one name are one request.
-func (ArtistRequestPayload) dedupOccurrenceJSONKey() string { return "" }
+// The name is the whole key by the catalog's own rule: artists_lower_name_uniq
+// makes an artist name globally unique, case-insensitively (PSY-1256), so two
+// same-named artist requests are one catalog artist however different the bands
+// are. Keying them apart on city would file two requests an admin can approve,
+// and the second fulfilment would 409 after its row was claimed — a destroyed
+// request traded for an orphaned one. city is optional here besides.
+func (ArtistRequestPayload) dedupOccurrenceTerm() DedupOccurrenceTerm {
+	return DedupOccurrenceTerm{}
+}
 
 // ReleaseRequestPayload carries the user-supplied fields to create a release.
 type ReleaseRequestPayload struct {
@@ -104,12 +184,23 @@ type ReleaseRequestPayload struct {
 
 func (ReleaseRequestPayload) entityRequestType() string { return EntityRequestRelease }
 
-// release_date is OPTIONAL, so it cannot be the occurrence term: a release
-// queued without a date and resubmitted with one would file a second request
-// instead of correcting the first. Two same-titled releases from one requester
-// therefore still collide. Promoting release_date to required is what would make
-// it eligible — revisit the dedup index in the same change.
-func (ReleaseRequestPayload) dedupOccurrenceJSONKey() string { return "" }
+// UNFIXED, and the one type whose fix this payload cannot express. Two
+// same-titled releases from one requester still collide destructively, and the
+// second destroys the first — which a self-titled album makes ordinary. The
+// catalog permits both (uniqueReleaseSlugTx suffixes a taken slug), so unlike an
+// artist these really are two entities.
+//
+// What separates them is their ARTIST, and this payload has no artist field —
+// neither does the CreateReleaseRequest that fulfillment builds from it, so the
+// credit is attached elsewhere entirely. Every other field here is optional, so
+// release_date and release_year each fail the presence rule above.
+//
+// Adding an artist to the payload is the fix, and it is a contract change
+// carrying a product call (whether a contributor must name the artist to request
+// a release), so it is not made here. Revisit this term in the same change.
+func (ReleaseRequestPayload) dedupOccurrenceTerm() DedupOccurrenceTerm {
+	return DedupOccurrenceTerm{}
+}
 
 // LabelRequestPayload carries the user-supplied fields to create a label.
 type LabelRequestPayload struct {
@@ -124,8 +215,16 @@ type LabelRequestPayload struct {
 
 func (LabelRequestPayload) entityRequestType() string { return EntityRequestLabel }
 
-// A label is not an occurrence; two requests for one name are one request.
-func (LabelRequestPayload) dedupOccurrenceJSONKey() string { return "" }
+// UNFIXED, for the same reason as a release and with the same shape. The catalog
+// permits two same-named labels (CreateLabel suffixes a taken slug), so two
+// same-named label requests really can be two labels, and the second still
+// destroys the first. Every field that would separate them — city, state,
+// country, founded_year — is OPTIONAL and so fails the presence rule above.
+// Two same-named labels are rarer than two same-named venues, which is why this
+// one is left rather than solved by making a field required.
+func (LabelRequestPayload) dedupOccurrenceTerm() DedupOccurrenceTerm {
+	return DedupOccurrenceTerm{}
+}
 
 // ShowRequestPayload carries the user-supplied fields to create a show.
 type ShowRequestPayload struct {
@@ -244,7 +343,15 @@ func (ShowRequestPayload) entityRequestType() string { return EntityRequestShow 
 // A recurring night is the domain's normal case, so a show's date is what
 // separates two requests sharing a title. event_date is required, so the term is
 // present on every show request.
-func (ShowRequestPayload) dedupOccurrenceJSONKey() string { return "event_date" }
+//
+// Not case-folded, and compared as the STRING rather than the instant it
+// denotes; see the field's own comment for what that costs.
+func (ShowRequestPayload) dedupOccurrenceTerm() DedupOccurrenceTerm {
+	return DedupOccurrenceTerm{
+		JSONKeys: []string{"event_date"},
+		Width:    maxRequestDateLen,
+	}
+}
 
 // ShowRequestArtist is one act on the bill a contributor recorded with a show
 // request (PSY-1858).
@@ -286,17 +393,30 @@ type VenueRequestPayload struct {
 
 func (VenueRequestPayload) entityRequestType() string { return EntityRequestVenue }
 
-// UNFIXED, and the weakest of the five empty answers: chain and franchise venue
+// The city separates two requests sharing a name: chain and franchise venue
 // names repeat across cities (The Fillmore, House of Blues), so two requests for
-// one name are frequently two venues, and the second still destroys the first.
+// one name are frequently two venues.
 //
-// city and state are both REQUIRED here, so unlike release_date they clear the
-// eligibility rule above. What blocks them is the shape of this method: it names
-// ONE key, and a venue needs city AND state together — either alone puts two
-// different venues in one bucket. Widening the method to a key LIST is the fix,
-// and it is a change to every implementation, so PSY-1977 left it rather than
-// half-doing it for one type.
-func (VenueRequestPayload) dedupOccurrenceJSONKey() string { return "" }
+// CITY ALONE, not city and state, because the catalog's constraint is
+// venues (LOWER(name), LOWER(city)) and CreateVenue refuses a second venue with
+// that pair — so a state in the key would separate two rows the catalog merges,
+// and the second approval would fail after its row was claimed. That refusal is a
+// bare error, not a typed one, so MapVenueError does not reach it and the admin
+// sees a 500 rather than the 409 an artist duplicate answers with. Either way the
+// row is left approved-but-unfulfilled for the rescue flow.
+//
+// Case-folded to match that same constraint: "Phoenix" and "phoenix" are one
+// venue there and so are one bucket here.
+//
+// city is required on this payload, so the term is present on every venue
+// request.
+func (VenueRequestPayload) dedupOccurrenceTerm() DedupOccurrenceTerm {
+	return DedupOccurrenceTerm{
+		JSONKeys: []string{"city"},
+		Width:    maxRequestVenueCityLen,
+		CaseFold: true,
+	}
+}
 
 // FestivalRequestPayload carries the user-supplied fields to create a festival.
 type FestivalRequestPayload struct {
@@ -316,20 +436,40 @@ type FestivalRequestPayload struct {
 
 func (FestivalRequestPayload) entityRequestType() string { return EntityRequestFestival }
 
-// UNFIXED, and deliberately so: two editions of one festival share a name and
-// still collide destructively.
+// The EDITION YEAR separates two requests sharing a name: two editions of one
+// festival are two entities, and before this term the second destroyed the first.
 //
-// start_date is required and looks like the obvious term, but it is FINER than
-// the catalog's own uniqueness, which is (series_slug, edition_year) — see
-// CreateFestival. Two pending rows differing only in start_date within one year
-// are two requests here and one festival there, so an admin approving both gets
-// a 409 on the second AFTER the row is claimed: an approved-but-unfulfilled row
-// needing the rescue flow. Trading a destroyed request for an orphaned one is not
-// obviously the better deal, and PSY-1977 was scoped to shows, so this stays as
-// it is until someone decides it. An edition-derived term is the candidate:
-// edition_year is optional (0 derives it from start_date at fulfillment), so it
-// would have to be coalesced with start_date's year rather than used directly.
-func (FestivalRequestPayload) dedupOccurrenceJSONKey() string { return "" }
+// The year, never start_date itself, because the catalog's constraint is
+// UNIQUE (series_slug, edition_year). Two pending rows differing only in
+// start_date within one year are two requests here and one festival there, so
+// keying on the date would trade a destroyed request for an orphaned one.
+//
+// It is derived exactly the way fulfillment derives it (see fulfillEntity): the
+// stated edition_year, else the start_date's calendar year, with 0 read as "not
+// stated" because that is what a marshalled zero value looks like and what
+// fulfillment treats as absent. Width 4 is what takes the year off the front of a
+// YYYY-MM-DD start_date; it also truncates a stated edition_year past four
+// digits, which no real edition has.
+//
+// start_date is required, so the derived term is present on every festival
+// request. Not case-folded: the value is digits.
+//
+// RESIDUAL: an edition whose stated year differs from its start date's year (a
+// New Year's edition) is keyed on the stated year, which is right; but two such
+// editions that OMIT the year and start in the same calendar year still collide.
+func (FestivalRequestPayload) dedupOccurrenceTerm() DedupOccurrenceTerm {
+	return DedupOccurrenceTerm{
+		JSONKeys: []string{"edition_year", "start_date"},
+		AbsentAs: "0",
+		Width:    festivalEditionYearDigits,
+	}
+}
+
+// festivalEditionYearDigits is the width of the festival occurrence term: four
+// digits of a calendar year, which is also the YYYY prefix of a YYYY-MM-DD
+// start_date. Unlike the other widths this one is semantic, not an index bound,
+// so it is not paired with a boundary cap.
+const festivalEditionYearDigits = 4
 
 // payloadRegistry is the authoritative map from entity_type discriminator to
 // a zero-value of its payload struct. It is the runtime mirror of the
@@ -352,29 +492,50 @@ var payloadRegistry = map[string]EntityRequestPayload{
 // boundary accepted whole, folding two legal dates into one bucket.
 func MaxRequestDateLen() int { return maxRequestDateLen }
 
-// DedupOccurrenceJSONKeys returns, sorted and deduplicated, every JSON key the
-// registered payloads name as their occurrence term (PSY-1977). It is what the
-// pending-request dedup key's occurrence expression must read, in the
-// uq_entity_requests_pending_dedup index and in the query that mirrors it.
+// MaxRequestVenueCityLen exposes the venue city cap for the same reason
+// MaxRequestDateLen exists: a venue's city is an occurrence term, and the index's
+// truncation of it must equal this cap (PSY-1989).
+func MaxRequestVenueCityLen() int { return maxRequestVenueCityLen }
+
+// MaxRequestNameLen and MaxRequestEditionYear exist so the create endpoint's
+// payload doc string, which cannot be built from constants because it is a struct
+// tag, can be pinned to the values the boundary actually enforces. The payload is
+// json.RawMessage, so that doc string is the only contract a producer sees.
+func MaxRequestNameLen() int { return maxRequestNameLen }
+
+// MaxRequestEditionYear exposes the festival edition-year bound; see
+// MaxRequestNameLen for why it is exported.
+func MaxRequestEditionYear() int { return maxRequestEditionYear }
+
+// DedupOccurrenceTermFor returns the occurrence term entityType's payload
+// declares, or the zero term when it declares none or the type is unregistered
+// (PSY-1977, per-type since PSY-1989).
 //
-// Exported so the service holding that SQL can assert against it, against the
-// index as Postgres actually built it, or both — which is the point. The
-// interface method makes a new payload type STATE whether it has an occurrence;
-// this is what turns a stated key the SQL does not read into a test failure
-// rather than a silent return of the destructive collision.
-func DedupOccurrenceJSONKeys() []string {
-	seen := make(map[string]struct{}, len(payloadRegistry))
-	for _, p := range payloadRegistry {
-		if key := p.dedupOccurrenceJSONKey(); key != "" {
-			seen[key] = struct{}{}
+// Exported so the service holding the dedup SQL renders the term from the same
+// declaration the payload struct documents, rather than from a second copy of it.
+// The interface method makes a new payload type STATE whether it has an
+// occurrence; this is what turns a stated term the SQL does not read into a test
+// failure rather than a silent return of the destructive collision.
+func DedupOccurrenceTermFor(entityType string) DedupOccurrenceTerm {
+	p, ok := payloadRegistry[entityType]
+	if !ok {
+		return DedupOccurrenceTerm{}
+	}
+	return p.dedupOccurrenceTerm()
+}
+
+// DedupOccurrenceTypes returns, sorted, the entity types whose payload declares
+// an occurrence term. It is the set of branches the dedup index's per-type
+// expression must carry; every other type keys on the name alone.
+func DedupOccurrenceTypes() []string {
+	types := make([]string, 0, len(payloadRegistry))
+	for entityType, p := range payloadRegistry {
+		if len(p.dedupOccurrenceTerm().JSONKeys) > 0 {
+			types = append(types, entityType)
 		}
 	}
-	keys := make([]string, 0, len(seen))
-	for key := range seen {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
+	sort.Strings(types)
+	return types
 }
 
 // IsValidEntityRequestType reports whether entityType has a registered payload
@@ -402,7 +563,7 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		if err != nil {
 			return err
 		}
-		if err := requireField("artist", "name", p.Name); err != nil {
+		if err := requireBoundedField("artist", "name", p.Name, maxRequestNameLen); err != nil {
 			return err
 		}
 		if err := optionalHTTPURL("artist", "image_url", p.ImageURL, maxRequestURLLen); err != nil {
@@ -423,7 +584,7 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		if err != nil {
 			return err
 		}
-		if err := requireField("release", "title", p.Title); err != nil {
+		if err := requireBoundedField("release", "title", p.Title, maxRequestNameLen); err != nil {
 			return err
 		}
 		if err := optionalHTTPURL("release", "cover_art_url", p.CoverArtURL, maxRequestURLLen); err != nil {
@@ -435,7 +596,7 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		if err != nil {
 			return err
 		}
-		if err := requireField("label", "name", p.Name); err != nil {
+		if err := requireBoundedField("label", "name", p.Name, maxRequestNameLen); err != nil {
 			return err
 		}
 		if err := optionalHTTPURL("label", "image_url", p.ImageURL, maxRequestURLLen); err != nil {
@@ -447,13 +608,15 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		if err != nil {
 			return err
 		}
-		if err := requireField("venue", "name", p.Name); err != nil {
+		if err := requireBoundedField("venue", "name", p.Name, maxRequestNameLen); err != nil {
 			return err
 		}
-		if err := requireField("venue", "city", p.City); err != nil {
+		// city is the venue's OCCURRENCE term (PSY-1989), so its cap bounds an index
+		// term and not just the venues.city column. state is column parity only.
+		if err := requireBoundedField("venue", "city", p.City, maxRequestVenueCityLen); err != nil {
 			return err
 		}
-		if err := requireField("venue", "state", p.State); err != nil {
+		if err := requireBoundedField("venue", "state", p.State, maxRequestVenueStateLen); err != nil {
 			return err
 		}
 		if err := optionalHTTPURL("venue", "image_url", p.ImageURL, maxRequestURLLen); err != nil {
@@ -465,7 +628,7 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		if err != nil {
 			return err
 		}
-		if err := requireField("show", "title", p.Title); err != nil {
+		if err := requireBoundedField("show", "title", p.Title, maxRequestNameLen); err != nil {
 			return err
 		}
 		// event_date drives the created show's timestamp (PSY-1037): RFC3339 is
@@ -496,14 +659,11 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		// Shows are fulfillable when the admin supplies associations (PSY-1037),
 		// so the payload's fields ride onto a created show — validate them with
 		// the SAME caps the direct show-create handler enforces (title ≤255,
-		// age_requirement ≤50, price and door_price 0–10000, description
-		// ≤5000; image_url
-		// VARCHAR(2048), ticket_url VARCHAR(500)). A value that slipped past
-		// here would 500 at INSERT after the row is claimed, leaving an
-		// approved-but-unfulfilled row no decide call can re-process.
-		if err := optionalMaxLen("show", "title", &p.Title, maxRequestTitleLen); err != nil {
-			return err
-		}
+		// checked above with the other name terms, age_requirement ≤50, price and
+		// door_price 0–10000, description ≤5000; image_url VARCHAR(2048),
+		// ticket_url VARCHAR(500)). A value that slipped past here would 500 at
+		// INSERT after the row is claimed, leaving an approved-but-unfulfilled row
+		// no decide call can re-process.
 		if err := optionalMaxLen("show", "age_requirement", p.AgeRequirement, maxRequestAgeLen); err != nil {
 			return err
 		}
@@ -534,14 +694,17 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		if err != nil {
 			return err
 		}
-		if err := requireField("festival", "name", p.Name); err != nil {
+		if err := requireBoundedField("festival", "name", p.Name, maxRequestNameLen); err != nil {
 			return err
 		}
-		// edition_year is optional (0 → derived from start_date at fulfill), but a
-		// negative value is never valid — reject it at the boundary (422) instead
-		// of letting the fulfiller surface it as a server-side 500.
-		if p.EditionYear < 0 {
-			return fmt.Errorf("festival payload: edition_year must not be negative")
+		// edition_year is optional (0 → derived from start_date at fulfill), but it
+		// is bounded on BOTH sides. A negative value is never valid and would
+		// otherwise surface from the fulfiller as a server-side 500. A value past
+		// four digits is worse than invalid: the dedup occurrence term keeps four
+		// digits, so 20261 and 2026 share a bucket and the second submission
+		// destroys the first. See maxRequestEditionYear.
+		if p.EditionYear < 0 || p.EditionYear > maxRequestEditionYear {
+			return fmt.Errorf("festival payload: edition_year must be between 0 and %d", maxRequestEditionYear)
 		}
 		// start_date/end_date feed a DATE column, and start_date drives the
 		// derived edition_year (PSY-998) — reject a malformed date here (422)
@@ -714,6 +877,22 @@ func ValidateShowBill(field string, names []string) error {
 // claimed, so a structurally broken stored bill discovered there is an orphan no
 // decide call can re-process.
 func ValidateShowPayloadArtists(artists []ShowRequestArtist) error {
+	// The RAW name is bounded first, because ValidateShowBill measures the trimmed
+	// one and the two trims do not agree: strings.TrimSpace strips 25 Unicode space
+	// runes, so a five-character act name padded with U+3000 measures 5 there and
+	// is stored in full. It then flows untrimmed through fulfillment into
+	// artists.name VARCHAR(255) and fails at INSERT with SQLSTATE 22001, after the
+	// decide path has claimed the row. Same rule, same reason, as
+	// requireBoundedField: bound what is STORED, not what a trim makes of it.
+	//
+	// Only the queue path measures the raw value. ValidateShowBill is shared with
+	// the admin approve path, which supplies names already trimmed.
+	for i := range artists {
+		if utf8.RuneCountInString(artists[i].Name) > MaxShowRequestArtistNameLen {
+			return fmt.Errorf("%s[%d].name must be %d characters or fewer",
+				ShowPayloadBillField, i, MaxShowRequestArtistNameLen)
+		}
+	}
 	return ValidateShowBill(ShowPayloadBillField, TrimmedBillNames(artists))
 }
 
@@ -771,6 +950,42 @@ func ShowPayloadArtists(entityType string, raw json.RawMessage) ([]ShowRequestAr
 func requireField(entityType, field, value string) error {
 	if strings.TrimSpace(value) == "" {
 		return fmt.Errorf("%s payload: %s is required", entityType, field)
+	}
+	return nil
+}
+
+// requireBoundedField is requireField plus a ceiling, for a required field whose
+// value reaches a bounded destination column, the pending-dedup INDEX, or both.
+//
+// It measures the UNTRIMMED value, and that is the load-bearing half. Go's
+// strings.TrimSpace strips 25 Unicode space runes while SQL trim() strips ASCII
+// 0x20 only, so a name measured after Go's trim can be 5 characters here and
+// kilobytes in the expression Postgres indexes. Measuring the raw value is
+// stricter than either trim and independent of both, so no future change to
+// either one can open a gap. Same rule, same reason, as requireDateTimeOrDate.
+//
+// It counts RUNES, unlike optionalMaxLen, which counts bytes. Every cap passed
+// here mirrors a VARCHAR(n), and VARCHAR counts characters, so runes is the unit
+// that makes this check agree with the column exactly: it refuses nothing the
+// column would hold and admits nothing it would not. Bytes would be stricter, and
+// stricter is wrong HERE specifically, because fulfillEntity re-runs this
+// validation over the STORED payload after the decide path has claimed the row —
+// so a cap that refuses a legal value turns an already-queued request into an
+// approved-but-unfulfilled orphan that no decide call can re-process. The direct
+// venue handler counts runes for the same reason.
+//
+// Index safety survives the change: a rune cap of n bounds the indexed term at
+// 4n bytes worst case, and the occurrence terms truncate in CHARACTERS too
+// (Postgres left()), so the boundary and the index agree on units.
+//
+// Emptiness is reported before length so a field of nothing but whitespace reads
+// as missing rather than oversized.
+func requireBoundedField(entityType, field, value string, max int) error {
+	if err := requireField(entityType, field, value); err != nil {
+		return err
+	}
+	if utf8.RuneCountInString(value) > max {
+		return fmt.Errorf("%s payload: %s must be %d characters or fewer", entityType, field, max)
 	}
 	return nil
 }
@@ -841,13 +1056,29 @@ const (
 	maxRequestURLLen         = 2048
 	maxRequestShortURLLen    = 500
 	maxRequestDescriptionLen = 5000
-	// Show-specific caps, mirroring the direct show-create handler's Resolve
-	// limits (PSY-1037): title ≤255 (column is VARCHAR(500); 255 keeps boundary
-	// parity with the direct path), age_requirement ≤50, price and door_price
-	// 0–10000.
-	// city/state mirror the shows columns (VARCHAR(255)/VARCHAR(10)).
-	maxRequestTitleLen = 255
-	maxRequestAgeLen   = 50
+	// maxRequestNameLen caps the payload field the pending-dedup key's NAME term
+	// reads: name on artist, label, venue and festival, title on release and show.
+	//
+	// 255 is the destination column on every one of those types (artists.name,
+	// labels.name, venues.name, festivals.name, releases.title are all
+	// VARCHAR(255); shows.title is VARCHAR(500), where 255 keeps boundary parity
+	// with the direct show-create handler's Resolve limit). One constant rather
+	// than six, because the value it bounds is one thing: the term
+	// uq_entity_requests_pending_dedup indexes.
+	//
+	// It is an INDEX bound before it is a column bound. The name term has been in
+	// that index since PSY-1008 UNTRUNCATED, so an oversized value is not a
+	// tidiness problem: it blows the btree index-row limit (SQLSTATE 54000, which
+	// GORM does not translate to ErrDuplicatedKey, so the dedup branch does not
+	// fire and a contributor turns their own input into a 500), and it can abort
+	// the build of any migration that touches that index. See maxRequestDateLen
+	// for the same reasoning applied to the occurrence term.
+	//
+	// Unlike the occurrence term, the index does NOT truncate this one, so this
+	// cap does not bound rows queued before it existed. Those still need the
+	// preflight the dedup migrations carry.
+	maxRequestNameLen = 255
+	maxRequestAgeLen  = 50
 	// maxRequestPrice deliberately DUPLICATES contracts.MaxShowPrice rather
 	// than importing it: models must not depend on services, and this package
 	// imports nothing from there.
@@ -858,9 +1089,41 @@ const (
 	// test package holds the two together instead -- see
 	// TestMaxRequestPriceMatchesContractRail in the _test package, which CAN
 	// import contracts without inverting the layering.
-	maxRequestPrice    = 10000
+	maxRequestPrice = 10000
+	// city/state mirror their destination columns. Both widths cover the show
+	// payload's optional pair (shows.city VARCHAR(255), shows.state VARCHAR(10))
+	// and the venue payload's required pair (venues.city VARCHAR(255),
+	// venues.state VARCHAR(10)).
+	//
+	// maxRequestCityLen and maxRequestStateLen bound a SHOW's optional pair,
+	// mirroring shows.city VARCHAR(255) and shows.state VARCHAR(10).
 	maxRequestCityLen  = 255
 	maxRequestStateLen = 10
+	// maxRequestVenueCityLen bounds a VENUE's required city, which is a different
+	// number from a show's for a reason: venues.city is VARCHAR(255) but the direct
+	// admin create body declares maxLength 100, and the strictest applicable limit
+	// is the rule this block follows. A queue-fulfilled venue must not hold a city
+	// the direct API would refuse.
+	//
+	// It is ALSO an index bound: city is the venue's dedup occurrence term
+	// (PSY-1989), and that term's Width equals this cap, asserted by
+	// TestDedupOccurrenceTermsAreBoundedAtTheBoundary. Both count CHARACTERS —
+	// requireBoundedField counts runes and Postgres left() counts characters — so
+	// the index can never key a prefix of a value the boundary accepted whole.
+	maxRequestVenueCityLen = 100
+	// maxRequestVenueStateLen takes the COLUMN rather than the direct create
+	// body's maxLength 100, because venues.state is VARCHAR(10) and the wider tag
+	// lets the direct path fail at INSERT. A venue's state is deliberately not in
+	// the dedup key, since the catalog's constraint is (LOWER(name), LOWER(city)).
+	maxRequestVenueStateLen = 10
+	// maxRequestEditionYear bounds a festival's edition_year, which is not a
+	// formatting preference: the festival occurrence term keeps four digits, so a
+	// five-digit year is truncated to its first four and shares a dedup bucket with
+	// a real edition. A requester who mistypes 20261 and then submits 2026 would
+	// otherwise DESTROY the first request, which is the exact collision PSY-1989
+	// removes. Four digits is what a calendar year has; this is not a policy call
+	// about how far ahead an edition may be announced.
+	maxRequestEditionYear = 9999
 	// maxRequestDateLen bounds a date/timestamp field that feeds the pending-dedup
 	// INDEX (PSY-1977). It is a hard boundary check, not a formatting preference:
 	// time.Parse accepts an RFC3339 value with an arbitrarily long fractional
@@ -881,14 +1144,11 @@ const (
 	// out of the stored payload and refuses the value rather than silently
 	// indexing a prefix of it.
 	//
-	// It bounds ONLY what the index newly reads. The name/title terms have been in
-	// that index since PSY-1008 and are still uncapped on five of the six types.
-	// That is the same contributor-triggerable 500 on INSERT by a different door,
-	// AND — verified against a live Postgres — it can abort the index build in the
-	// PSY-1977 migration, because that migration adds a column to the same tuple
-	// and "it fit the old index" stops being a bound. See that migration's
-	// preflight. Capping those five is a boundary change with its own product call
-	// about limits and is not made here.
+	// The name/title term is bounded by maxRequestNameLen, which is the same rule
+	// one door over: that term is indexed UNTRUNCATED, so the boundary cap is the
+	// only thing keeping it index-safe, and it does not reach rows queued before
+	// the cap existed. A dedup migration that widens the index tuple can therefore
+	// still abort on an old row, which is why each of them carries a preflight.
 	maxRequestDateLen = 64
 )
 

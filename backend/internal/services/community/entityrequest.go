@@ -180,15 +180,15 @@ func (s *EntityRequestService) CreateRequest(
 			// inserts a fresh pending row, not a data fault.
 			//
 			// One shape reaching here is NOT transient and no retry clears it:
-			// THIS binary running against the OLD, narrow index, which is what the
-			// down migration leaves behind if it is run without also rolling the
-			// binary back. The narrow index collides on the title alone; this
-			// binary's lookup also requires the event_date to match, so it finds
-			// nothing, and every retry fails identically until the two are back in
-			// step. A deterministic 500 on one requester's title, not a destroyed
-			// request. The up migration's rollback note covers the mirror image
-			// (old binary, new index), which surfaces one branch above as a failed
-			// UPDATE rather than here.
+			// THIS binary running against a NARROWER index than its own key, which
+			// is what a down migration leaves behind if it is run without also
+			// rolling the binary back. The narrower index collides on fewer terms
+			// than this binary's lookup requires, so the lookup finds nothing, and
+			// every retry fails identically until the two are back in step. A
+			// deterministic 500 on one requester's name, not a destroyed request.
+			// The up migration's rollback note covers the mirror image (old binary,
+			// new index), which surfaces one branch above as a failed UPDATE rather
+			// than here.
 		}
 		return nil, false, fmt.Errorf("failed to create entity request: %w", err)
 	}
@@ -289,8 +289,8 @@ func (s *EntityRequestService) replacePendingSubmission(
 		"updated_at":     now,
 	}
 
-	storedName, storedOccurrence := dedupKeyExprs(dedupStoredPayload)
-	candidateName, candidateOccurrence := dedupKeyExprs(dedupCandidatePayload)
+	storedName, storedOccurrence := dedupKeyExprs(dedupStoredPayload, entityType)
+	candidateName, candidateOccurrence := dedupKeyExprs(dedupCandidatePayload, entityType)
 	candidate := string(payload)
 
 	result := s.db.Model(&communitym.EntityRequest{}).
@@ -327,42 +327,101 @@ const (
 	dedupCandidatePayload = "?::jsonb"
 )
 
-// dedupOccurrenceTruncation is how many characters of the occurrence term the
-// dedup key keeps. It MUST equal the number in uq_entity_requests_pending_dedup
-// and communitym's maxRequestDateLen; TestDedupOccurrenceMatchesTheIndex asserts
-// the first of those against the live index definition. See dedupKeyExprs for why
-// the term is truncated at all.
-const dedupOccurrenceTruncation = 64
-
 // dedupKeyExprs renders the two payload-derived terms of the pending-request
-// dedup key as SQL reading from source. ONE literal renders both sides of the
-// comparison, so the stored and candidate expressions cannot drift apart — which
-// they silently could while each was written out by hand.
+// dedup key as SQL reading from source, for one entity type. ONE literal renders
+// both sides of the comparison, so the stored and candidate expressions cannot
+// drift apart — which they silently could while each was written out by hand.
 //
-// They must also match uq_entity_requests_pending_dedup, and that pairing IS
-// enforced: TestDedupOccurrenceMatchesTheIndex reads the index definition back
-// out of a real Postgres that ran the real migrations, and asserts it against
-// both this expression and the payload registry's declarations.
+// The occurrence is PER TYPE (PSY-1989), and the type is a parameter rather than
+// a SQL CASE because the candidate side is a bound `?::jsonb` with no
+// entity_type column to switch on. Both sides of a comparison are always the same
+// type: findPendingDuplicate and replacePendingSubmission each filter on
+// entity_type in the same WHERE. The INDEX cannot take a parameter, so it carries
+// the CASE instead — dedupOccurrenceIndexExpr renders exactly that, from these
+// same terms, and TestDedupOccurrenceMatchesTheIndex reads the index back out of
+// a real Postgres and asserts the pairing.
 //
-// The occurrence coalesces to the empty string rather than falling through to
-// NULL: a NULL key column makes every row DISTINCT under a Postgres unique index,
-// so a NULL here would disable dedup entirely for the types whose payloads carry
-// no date.
+// entityType MUST be a registered type; an unregistered one renders the
+// empty-occurrence expression, which is what a type declaring no term gets.
+func dedupKeyExprs(source, entityType string) (name, occurrence string) {
+	return dedupNameExpr(source), dedupOccurrenceExpr(source, communitym.DedupOccurrenceTermFor(entityType))
+}
+
+// dedupNameExpr renders the NAME term of the pending-request dedup key.
 //
-// It is also TRUNCATED to 64, which is what makes the term index-safe by
-// construction. A btree index row has a hard size limit, and exceeding it is
-// SQLSTATE 54000 — not a duplicate-key error, so the dedup branch would not fire
-// and a contributor's own input would surface as a 500. The API boundary already
-// caps event_date at the same 64 (maxRequestDateLen), so this truncation is a
-// no-op for anything that came through it; it exists for the values that did not,
-// namely rows queued BEFORE that cap existed, which the migration has to index.
-// Keep the two numbers equal — a truncation shorter than the cap would fold two
-// legal, distinct dates into one bucket.
-func dedupKeyExprs(source string) (name, occurrence string) {
-	name = "lower(trim(coalesce(" + source + "->>'name', " + source + "->>'title')))"
-	occurrence = "left(trim(coalesce(" + source + "->>'event_date', '')), " +
-		strconv.Itoa(dedupOccurrenceTruncation) + ")"
-	return name, occurrence
+// It takes no entity type: 'name' and 'title' are the two spellings the payload
+// SCHEMA uses, not a per-type declaration, so one expression covers every type
+// and the coalesce order is the whole rule. That is why the payload registry has
+// nothing to say about this half, and why only the occurrence is per type.
+func dedupNameExpr(source string) string {
+	return "lower(trim(coalesce(" + source + "->>'name', " + source + "->>'title')))"
+}
+
+// dedupOccurrenceExpr renders one payload type's occurrence term as SQL reading
+// from source.
+//
+// The term coalesces to the empty string rather than falling through to NULL: a
+// NULL key column makes every row DISTINCT under a Postgres unique index, so a
+// NULL here would disable dedup entirely for the types that declare no term.
+//
+// Each key is trimmed and then nullif'd against the empty string, so a value of
+// nothing but spaces falls through to the next key exactly as an absent one does.
+// A term may name a second key as a fallback: a festival's edition year is the
+// stated edition_year, else the year off the front of its required start_date,
+// which is the derivation fulfillment performs.
+//
+// The result is TRUNCATED, which for the index-bound terms is what makes them
+// index-safe by construction. A btree index row has a hard size limit, and
+// exceeding it is SQLSTATE 54000 — not a duplicate-key error, so the dedup branch
+// would not fire and a contributor's own input would surface as a 500. Each such
+// width equals that field's API boundary cap, so the truncation is a no-op for
+// anything that came through the boundary; it exists for the values that did not,
+// namely rows queued BEFORE those caps existed, which the migration has to index.
+// Keep each pair equal — a truncation below the cap folds two legal, distinct
+// values into one bucket. A festival's width is semantic instead: 4 is the year.
+func dedupOccurrenceExpr(source string, term communitym.DedupOccurrenceTerm) string {
+	if len(term.JSONKeys) == 0 {
+		return "''"
+	}
+	var b strings.Builder
+	b.WriteString("left(coalesce(")
+	for i, key := range term.JSONKeys {
+		// The empty value always means absent, so every key is nullif'd against it.
+		// A type's own sentinel nests INSIDE that, since both spellings mean absent
+		// and nullif takes one comparand. It applies to the FIRST key only: that is
+		// the STATED value, and the keys after it are the derivation that runs when
+		// nothing was stated.
+		read := "nullif(trim(" + source + "->>'" + key + "'), '')"
+		if i == 0 && term.AbsentAs != "" {
+			read = "nullif(" + read + ", '" + term.AbsentAs + "')"
+		}
+		b.WriteString(read + ", ")
+	}
+	b.WriteString("''), " + strconv.Itoa(term.Width) + ")")
+	if term.CaseFold {
+		return "lower(" + b.String() + ")"
+	}
+	return b.String()
+}
+
+// dedupOccurrenceIndexExpr renders the occurrence as the index must carry it: a
+// CASE over entity_type, with a branch per type that declares a term and the
+// empty string for every other. It is the expression
+// uq_entity_requests_pending_dedup indexes.
+//
+// It exists so the index's expression and the query's are rendered from ONE
+// declaration and ONE renderer. The migration still spells the expression out —
+// SQL files are not generated here — so this is what the drift test compares the
+// live index definition against.
+func dedupOccurrenceIndexExpr(source string) string {
+	var b strings.Builder
+	b.WriteString("CASE entity_type")
+	for _, entityType := range communitym.DedupOccurrenceTypes() {
+		b.WriteString(" WHEN '" + entityType + "' THEN " +
+			dedupOccurrenceExpr(source, communitym.DedupOccurrenceTermFor(entityType)))
+	}
+	b.WriteString(" ELSE '' END")
+	return b.String()
 }
 
 // dedupKeyArgs binds candidate once per placeholder in expr.
@@ -403,8 +462,8 @@ func dedupKeyArgs(expr, candidate string) []interface{} {
 // selects. A future consumer that needs Requester on a replacement's response
 // has to preload it HERE — the row will not acquire it later.
 func (s *EntityRequestService) findPendingDuplicate(entityType string, requesterID uint, payload []byte) (*communitym.EntityRequest, error) {
-	storedName, storedOccurrence := dedupKeyExprs(dedupStoredPayload)
-	candidateName, candidateOccurrence := dedupKeyExprs(dedupCandidatePayload)
+	storedName, storedOccurrence := dedupKeyExprs(dedupStoredPayload, entityType)
+	candidateName, candidateOccurrence := dedupKeyExprs(dedupCandidatePayload, entityType)
 	candidate := string(payload)
 
 	var existing communitym.EntityRequest
