@@ -7,7 +7,9 @@ import {
   formatDayFull,
   formatPointerDay,
   formatShowStartTime,
+  formatShowStartTimeCompact,
   looksLikeCalendarDate,
+  orderNightShows,
   type SceneDayResponse,
   type SceneDayShow,
 } from './sceneDay'
@@ -192,5 +194,78 @@ describe('dayShows', () => {
   // ever agree — or state a number the page cannot show.
   it('ignores a show_count that disagrees with the rows', () => {
     expect(dayShows(day({ show_count: 99 }))).toHaveLength(1)
+  })
+})
+
+describe('formatShowStartTimeCompact', () => {
+  it('renders the same instant in the compact register', () => {
+    // 03:00Z is 20:00 in Phoenix; the full register says 8:00 PM for the row.
+    expect(formatShowStartTimeCompact(show())).toBe('8PM')
+    expect(formatShowStartTime(show())).toBe('8:00 PM')
+  })
+
+  it('keeps the minutes off the hour', () => {
+    expect(
+      formatShowStartTimeCompact(show({ starts_at: '2026-08-01T02:30:00Z' }))
+    ).toBe('7:30PM')
+  })
+
+  it('falls back to the scene clock exactly as its sibling does', () => {
+    const roomless = show({ venue_timezone: undefined, venue_state: undefined })
+    expect(formatShowStartTimeCompact(roomless, 'America/New_York')).toBe('11PM')
+  })
+
+  it('returns null when the payload has no usable instant', () => {
+    expect(formatShowStartTimeCompact(show({ starts_at: 'not-a-date' }))).toBeNull()
+  })
+})
+
+describe('orderNightShows', () => {
+  // 20:00, 21:00 and 22:00 Phoenix on the same night.
+  const doors8 = show({ id: 8, starts_at: '2026-08-01T03:00:00Z' })
+  const doors9 = show({ id: 9, starts_at: '2026-08-01T04:00:00Z' })
+  const doors10 = show({ id: 10, starts_at: '2026-08-01T05:00:00Z' })
+  const night = [doors8, doors9, doors10]
+  const ids = (rows: SceneDayShow[]) => rows.map(row => row.id)
+
+  it('sinks started shows below the ones still to come, on the live night', () => {
+    // 21:30 Phoenix: the 20:00 and 21:00 sets are on, the 22:00 is not.
+    const at2130 = new Date('2026-08-01T04:30:00Z')
+    expect(ids(orderNightShows(night, true, at2130))).toEqual([10, 8, 9])
+  })
+
+  it('keeps started shows in the order they began', () => {
+    const at2230 = new Date('2026-08-01T05:30:00Z')
+    expect(ids(orderNightShows(night, true, at2230))).toEqual([8, 9, 10])
+  })
+
+  it('sinks a show the INSTANT it starts, and not before', () => {
+    // The boundary both ways, against the same predicate the offer gate uses:
+    // at the start instant the show has begun; a millisecond earlier it has not.
+    const atDoors = new Date('2026-08-01T04:00:00Z')
+    expect(ids(orderNightShows(night, true, atDoors))).toEqual([10, 8, 9])
+
+    const oneMsBefore = new Date('2026-08-01T03:59:59.999Z')
+    expect(ids(orderNightShows(night, true, oneMsBefore))).toEqual([9, 10, 8])
+  })
+
+  it('leaves an archive or future night in clock order', () => {
+    const wellAfter = new Date('2026-08-02T03:00:00Z')
+    expect(orderNightShows(night, false, wellAfter)).toBe(night)
+  })
+
+  it('returns the input untouched when nothing has started yet', () => {
+    const beforeDoors = new Date('2026-08-01T02:00:00Z')
+    expect(orderNightShows(night, true, beforeDoors)).toBe(night)
+  })
+
+  it('sinks a row whose instant cannot be read', () => {
+    // `hasShowStarted` counts an unreadable date as started, so such a row must
+    // not head a list of shows a reader can still get to.
+    const undated = show({ id: 99, starts_at: 'not-a-date' })
+    const beforeDoors = new Date('2026-08-01T02:00:00Z')
+    expect(ids(orderNightShows([undated, doors8], true, beforeDoors))).toEqual([
+      8, 99,
+    ])
   })
 })

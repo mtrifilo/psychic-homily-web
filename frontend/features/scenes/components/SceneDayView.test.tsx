@@ -508,3 +508,48 @@ describe('SceneDayView — the edges of the servable window', () => {
     ])
   })
 })
+
+describe('SceneDayView — live-night ordering', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const doors8 = show({ id: 8, artist_names: ['Doors Eight'], starts_at: '2026-08-01T03:00:00Z' })
+  const doors9 = show({ id: 9, artist_names: ['Doors Nine'], starts_at: '2026-08-01T04:00:00Z' })
+  const doors10 = show({ id: 10, artist_names: ['Doors Ten'], starts_at: '2026-08-01T05:00:00Z' })
+
+  const billsInOrder = (container: HTMLElement) =>
+    [...container.querySelectorAll('a[href^="/shows/"]')].map(a => a.textContent)
+
+  it('sinks the sets already under way on the live night', () => {
+    // 21:30 Phoenix. The 20:00 and 21:00 sets are on; the 22:00 is the one a
+    // reader can still get to, so it leads.
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-01T04:30:00Z'))
+    const { container } = render(
+      <SceneDayView day={day({ shows: [doors8, doors9, doors10], is_tonight: true })} />
+    )
+
+    const bills = billsInOrder(container)
+    expect(bills[0]).toContain('Doors Ten')
+    expect(bills[1]).toContain('Doors Eight')
+    expect(bills[2]).toContain('Doors Nine')
+    // Nothing is hidden: the count still names every listed show.
+    expect(screen.getByText(/3 shows/)).toBeInTheDocument()
+  })
+
+  it('leaves an archive night in clock order', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-05T04:30:00Z'))
+    const { container } = render(
+      <SceneDayView
+        day={day({ shows: [doors8, doors9, doors10], is_tonight: false, is_past_day: true })}
+      />
+    )
+
+    const bills = billsInOrder(container)
+    expect(bills[0]).toContain('Doors Eight')
+    expect(bills[1]).toContain('Doors Nine')
+    expect(bills[2]).toContain('Doors Ten')
+  })
+})

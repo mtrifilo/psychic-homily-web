@@ -13,6 +13,7 @@ import {
   formatDayFull,
   formatPointerDay,
   formatShowStartTime,
+  orderNightShows,
   type SceneDayResponse,
   type SceneDayShow,
 } from '../sceneDay'
@@ -163,9 +164,15 @@ function EmptyNight({ day, weekHref }: { day: SceneDayResponse; weekHref: string
 }
 
 export function SceneDayView({ day }: { day: SceneDayResponse }) {
-  const shows = dayShows(day)
+  const listed = dayShows(day)
+  // On the LIVE night the rows a reader can still get to lead, and the ones
+  // already under way sink beneath them in the order they started (user
+  // decision, PSY-1969). Nothing is dropped, and an archive or future night is
+  // untouched: a schedule is read in clock order. The count below is taken from
+  // the LISTED rows, which are the same rows either way.
+  const shows = orderNightShows(listed, day.is_tonight)
   const rooms = dayTrackedVenues(day)
-  const total = shows.length
+  const total = listed.length
 
   // The rolling week for tonight, the dated week permalink otherwise — a page
   // about a night two months ago must not link to whatever week it happens to
