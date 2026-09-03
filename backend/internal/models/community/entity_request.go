@@ -44,11 +44,25 @@ type EntityRequest struct {
 	// the AI source article URL + excerpt — stored opaquely as JSONB and typed
 	// in Go via EntityRequestSourceDetail. NULL for requests with no source
 	// context. Distinct from SourceContext (the origin enum discriminator).
-	SourceDetail  *json.RawMessage           `json:"source_detail,omitempty" gorm:"column:source_detail;type:jsonb"`
-	DecisionState EntityRequestDecisionState `json:"decision_state" gorm:"column:decision_state;not null;default:'pending'"`
-	DecidedBy     *uint                      `json:"decided_by,omitempty" gorm:"column:decided_by"`
-	DecidedAt     *time.Time                 `json:"decided_at,omitempty" gorm:"column:decided_at"`
-	DecisionNote  *string                    `json:"decision_note,omitempty" gorm:"column:decision_note"`
+	SourceDetail *json.RawMessage `json:"source_detail,omitempty" gorm:"column:source_detail;type:jsonb"`
+	// OriginalSourceContext is the source_context of the submission ORIGINALLY
+	// filed under this row, and NULL while the row still holds that submission
+	// (PSY-1978). A resubmission replaces payload, source_context and
+	// source_detail together, so without this the row cannot say it was ever
+	// anything but what it currently claims — and a requester who files under
+	// ai_extraction and resubmits as manual erases the discriminator the
+	// human-verify-AI-data policy reads.
+	//
+	// It records the FIRST filing, not the previous one: it is written only when
+	// it is still NULL, so a row replaced three times still names what was
+	// originally filed rather than the second-to-last thing it said. The full
+	// per-replacement history, including the superseded payload, is the
+	// replace_entity_request audit row.
+	OriginalSourceContext *string                    `json:"original_source_context,omitempty" gorm:"column:original_source_context"`
+	DecisionState         EntityRequestDecisionState `json:"decision_state" gorm:"column:decision_state;not null;default:'pending'"`
+	DecidedBy             *uint                      `json:"decided_by,omitempty" gorm:"column:decided_by"`
+	DecidedAt             *time.Time                 `json:"decided_at,omitempty" gorm:"column:decided_at"`
+	DecisionNote          *string                    `json:"decision_note,omitempty" gorm:"column:decision_note"`
 	// CreatedEntityID (PSY-1008) is the catalog entity created when this request
 	// was fulfilled (auto-approve create or admin approve). Cross-type id keyed
 	// by EntityType (no FK). NULL while pending/rejected, or when an approval is
@@ -60,6 +74,22 @@ type EntityRequest struct {
 	// Relationships
 	Requester auth.User  `json:"-" gorm:"foreignKey:RequesterID"`
 	Decider   *auth.User `json:"-" gorm:"foreignKey:DecidedBy"`
+}
+
+// SupersededSubmission is the submission a resubmission overwrote (PSY-1978).
+//
+// It is NOT a column. A row holds exactly one submission; this is the one it
+// stopped holding, and it exists only long enough for the caller that performed
+// the replacement to record it. Payload, SourceContext and SourceDetail are
+// carried together because they described one submission — the same reason the
+// replacement writes all three.
+//
+// Payload and SourceDetail are the values read off the row, so both can be nil
+// exactly as the columns can.
+type SupersededSubmission struct {
+	Payload       *json.RawMessage
+	SourceContext string
+	SourceDetail  *json.RawMessage
 }
 
 // EntityRequestSourceDetail is the typed shape of the source_detail JSONB

@@ -64,9 +64,9 @@ func TestCreateEntityRequest_RejectsSSRFImageURL(t *testing.T) {
 			t.Run(entityType+"/"+c.name, func(t *testing.T) {
 				h := NewEntityRequestHandler(
 					&testhelpers.MockEntityRequestService{
-						CreateRequestFn: func(*authm.User, string, []byte, string, []byte, bool) (*communitym.EntityRequest, bool, error) {
+						CreateRequestFn: func(*authm.User, string, []byte, string, []byte, bool) (*communitym.EntityRequest, *communitym.SupersededSubmission, error) {
 							t.Fatal("service must NOT be called for an SSRF image_url")
-							return nil, false, nil
+							return nil, nil, nil
 						},
 					},
 					nil, nil,
@@ -87,9 +87,9 @@ func TestCreateEntityRequest_AcceptsPublicImageURL(t *testing.T) {
 	called := false
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(*authm.User, string, []byte, string, []byte, bool) (*communitym.EntityRequest, bool, error) {
+			CreateRequestFn: func(*authm.User, string, []byte, string, []byte, bool) (*communitym.EntityRequest, *communitym.SupersededSubmission, error) {
 				called = true
-				return pendingRequest(9, "artist"), false, nil
+				return pendingRequest(9, "artist"), nil, nil
 			},
 		},
 		nil,

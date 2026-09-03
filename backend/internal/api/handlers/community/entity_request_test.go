@@ -49,6 +49,21 @@ func pendingRequest(id uint, entityType string) *communitym.EntityRequest {
 	}
 }
 
+// supersededSubmission is what CreateRequest answers with when a resubmission
+// REPLACED a queued row: the submission that row stopped holding (PSY-1978). Its
+// source_context is deliberately ai_extraction, the value a replacement can
+// silently erase, so a test asserting the audit trail is asserting the case that
+// matters.
+func supersededSubmission() *communitym.SupersededSubmission {
+	raw := json.RawMessage(`{"name":"Test","description":"from the source article"}`)
+	detail := json.RawMessage(`{"url":"https://example.com/article"}`)
+	return &communitym.SupersededSubmission{
+		Payload:       &raw,
+		SourceContext: communitym.EntityRequestSourceAIExtraction,
+		SourceDetail:  &detail,
+	}
+}
+
 // approvedRequest is a pendingRequest already flipped to approved — the shape an
 // auto-approve tier's CreateRequest returns (the service stamps the decision).
 func approvedRequest(id uint, entityType string) *communitym.EntityRequest {
@@ -103,9 +118,9 @@ func TestCreateEntityRequest_EmptyPayload(t *testing.T) {
 func TestCreateEntityRequest_PayloadMissingRequiredField(t *testing.T) {
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, *communitym.SupersededSubmission, error) {
 				t.Fatal("service must NOT be called for an invalid payload")
-				return nil, false, nil
+				return nil, nil, nil
 			},
 		},
 		nil, nil,
@@ -122,9 +137,9 @@ func TestCreateEntityRequest_PayloadMissingRequiredField(t *testing.T) {
 func TestCreateEntityRequest_PayloadUnknownField(t *testing.T) {
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, *communitym.SupersededSubmission, error) {
 				t.Fatal("service must NOT be called for an invalid payload")
-				return nil, false, nil
+				return nil, nil, nil
 			},
 		},
 		nil, nil,
@@ -145,7 +160,7 @@ func TestCreateEntityRequest_ContributorQueuesPending(t *testing.T) {
 	want := pendingRequest(7, "artist")
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, *communitym.SupersededSubmission, error) {
 				if user.ID != 2 {
 					t.Errorf("expected requester 2, got %d", user.ID)
 				}
@@ -155,7 +170,7 @@ func TestCreateEntityRequest_ContributorQueuesPending(t *testing.T) {
 				if sourceContext != communitym.EntityRequestSourceManual {
 					t.Errorf("expected default source manual, got %s", sourceContext)
 				}
-				return want, false, nil
+				return want, nil, nil
 			},
 		},
 		nil,
@@ -193,8 +208,8 @@ func TestCreateEntityRequest_Replaced_IsReportedOnTheResponse(t *testing.T) {
 	queued := pendingRequest(7, "artist")
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
-				return queued, true, nil
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, *communitym.SupersededSubmission, error) {
+				return queued, supersededSubmission(), nil
 			},
 		},
 		nil,
@@ -226,8 +241,8 @@ func TestCreateEntityRequest_Replaced_AuditsAsAReplacement(t *testing.T) {
 	logged := make(chan string, 1)
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
-				return pendingRequest(7, "artist"), true, nil
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, *communitym.SupersededSubmission, error) {
+				return pendingRequest(7, "artist"), supersededSubmission(), nil
 			},
 		},
 		nil,
@@ -313,8 +328,8 @@ func TestCreateEntityRequest_Replaced_NeverFulfills(t *testing.T) {
 	decidedUnderneath := approvedRequest(7, "artist")
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
-				return decidedUnderneath, true, nil
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, *communitym.SupersededSubmission, error) {
+				return decidedUnderneath, supersededSubmission(), nil
 			},
 			RecordFulfillmentFn: func(requestID, createdEntityID uint) error {
 				t.Fatal("a replacement must not record a fulfillment")
@@ -365,8 +380,8 @@ func TestCreateEntityRequest_AutoApprove_FulfillsAndReturnsID(t *testing.T) {
 
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
-				return approved, false, nil
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, *communitym.SupersededSubmission, error) {
+				return approved, nil, nil
 			},
 			RecordFulfillmentFn: func(requestID, createdEntityID uint) error {
 				if requestID != 11 {
@@ -416,8 +431,8 @@ func TestCreateEntityRequest_AutoApprove_ShowDeferredNotError(t *testing.T) {
 
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
-				return approved, false, nil
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, *communitym.SupersededSubmission, error) {
+				return approved, nil, nil
 			},
 			RecordFulfillmentFn: func(requestID, createdEntityID uint) error {
 				t.Fatal("RecordFulfillment must NOT be called when fulfillment is unsupported")
@@ -455,8 +470,8 @@ func TestCreateEntityRequest_AutoApprove_FulfillFails(t *testing.T) {
 
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
-				return approved, false, nil
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, *communitym.SupersededSubmission, error) {
+				return approved, nil, nil
 			},
 		},
 		&testhelpers.MockEntityRequestFulfiller{
@@ -483,8 +498,8 @@ func TestCreateEntityRequest_AutoApprove_ExistsConflictIs409(t *testing.T) {
 
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
-				return approved, false, nil
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, *communitym.SupersededSubmission, error) {
+				return approved, nil, nil
 			},
 		},
 		&testhelpers.MockEntityRequestFulfiller{
@@ -510,9 +525,9 @@ func TestCreateEntityRequest_SourceDetailPassthrough(t *testing.T) {
 
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, *communitym.SupersededSubmission, error) {
 				gotDetail = sourceDetail
-				return want, false, nil
+				return want, nil, nil
 			},
 		},
 		nil,
@@ -553,9 +568,9 @@ func TestCreateEntityRequest_EmptySourceDetailDropped(t *testing.T) {
 
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, *communitym.SupersededSubmission, error) {
 				sawDetail = sourceDetail != nil
-				return want, false, nil
+				return want, nil, nil
 			},
 		},
 		nil,
@@ -581,9 +596,9 @@ func TestCreateEntityRequest_EmptySourceDetailDropped(t *testing.T) {
 func TestCreateEntityRequest_SourceDetailTooLong(t *testing.T) {
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, *communitym.SupersededSubmission, error) {
 				t.Fatal("service must NOT be called when source_detail is invalid")
-				return nil, false, nil
+				return nil, nil, nil
 			},
 		},
 		nil, nil,
@@ -601,8 +616,8 @@ func TestCreateEntityRequest_SourceDetailTooLong(t *testing.T) {
 func TestCreateEntityRequest_ServiceError(t *testing.T) {
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
-				return nil, false, fmt.Errorf("db down")
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, *communitym.SupersededSubmission, error) {
+				return nil, nil, fmt.Errorf("db down")
 			},
 		},
 		nil,
@@ -618,8 +633,8 @@ func TestCreateEntityRequest_ServiceError(t *testing.T) {
 func TestCreateEntityRequest_MapsTypedError(t *testing.T) {
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, bool, error) {
-				return nil, false, apperrors.ErrEntityRequestEmptyPayload("artist")
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, *communitym.SupersededSubmission, error) {
+				return nil, nil, apperrors.ErrEntityRequestEmptyPayload("artist")
 			},
 		},
 		nil,

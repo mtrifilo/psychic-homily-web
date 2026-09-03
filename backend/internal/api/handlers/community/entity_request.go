@@ -230,7 +230,8 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 	// Every check above this line runs before a replacement too, so a
 	// resubmission that fails validation is a 422 that leaves the queued payload
 	// exactly as it was (PSY-1948).
-	created, replaced, err := h.entityRequestService.CreateRequest(user, entityType, req.Body.Payload, sourceContext, sourceDetail, req.Body.Confirmed)
+	created, superseded, err := h.entityRequestService.CreateRequest(user, entityType, req.Body.Payload, sourceContext, sourceDetail, req.Body.Confirmed)
+	replaced := superseded != nil
 	if err != nil {
 		if mapped := shared.MapEntityRequestError(err); mapped != nil {
 			return nil, mapped
@@ -306,9 +307,10 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 	// queued so the activity feed reads correctly.
 	//
 	// PSY-1948: a replacement gets its own action because it OVERWRITES a stored
-	// payload. Nothing else records that the queued submission an admin is about
-	// to moderate is not the one originally filed, and the row keeps no history of
-	// what it replaced.
+	// payload. PSY-1978: it also carries WHAT it overwrote, because the row does
+	// not. Without that the audit row was byte-identical to a fresh
+	// queue_entity_request, and nothing in the system could answer what was
+	// originally filed versus what the admin approved.
 	if h.auditLogService != nil {
 		action := "queue_entity_request"
 		switch {
@@ -327,6 +329,7 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 		if created.CreatedEntityID != nil {
 			metadata["created_entity_id"] = *created.CreatedEntityID
 		}
+		addSupersededMetadata(metadata, superseded)
 		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, action, entityType, reqID, metadata)
 		})
@@ -365,18 +368,25 @@ type AdminListEntityRequestsRequest struct {
 // preview, source context (+ AI source_detail), requester attribution, and the
 // decision/fulfillment fields for non-pending views.
 type AdminEntityRequestView struct {
-	ID                uint             `json:"id"`
-	EntityType        string           `json:"entity_type"`
-	Payload           *json.RawMessage `json:"payload"`
-	SourceContext     string           `json:"source_context"`
-	SourceDetail      *json.RawMessage `json:"source_detail,omitempty"`
-	RequesterID       uint             `json:"requester_id"`
-	RequesterName     string           `json:"requester_name"`
-	RequesterUsername *string          `json:"requester_username"`
-	DecisionState     string           `json:"decision_state"`
-	DecisionNote      *string          `json:"decision_note,omitempty"`
-	CreatedEntityID   *uint            `json:"created_entity_id,omitempty"`
-	CreatedAt         time.Time        `json:"created_at"`
+	ID            uint             `json:"id"`
+	EntityType    string           `json:"entity_type"`
+	Payload       *json.RawMessage `json:"payload"`
+	SourceContext string           `json:"source_context"`
+	SourceDetail  *json.RawMessage `json:"source_detail,omitempty"`
+	// OriginalSourceContext is the source_context this request was ORIGINALLY
+	// filed with, absent while the row still holds its first submission
+	// (PSY-1978). A resubmission replaces source_context along with the payload,
+	// so a request filed as ai_extraction and resubmitted as manual otherwise
+	// presents as a plain manual request and drops out of the ai_extraction
+	// filter, with nothing on the card saying the evidence existed.
+	OriginalSourceContext *string   `json:"original_source_context,omitempty" doc:"The source_context this request was originally filed with, present only when a resubmission has since replaced it"`
+	RequesterID           uint      `json:"requester_id"`
+	RequesterName         string    `json:"requester_name"`
+	RequesterUsername     *string   `json:"requester_username"`
+	DecisionState         string    `json:"decision_state"`
+	DecisionNote          *string   `json:"decision_note,omitempty"`
+	CreatedEntityID       *uint     `json:"created_entity_id,omitempty"`
+	CreatedAt             time.Time `json:"created_at"`
 	// UpdatedAt is the only field that distinguishes a request whose payload the
 	// contributor has since corrected from one that still holds what they first
 	// filed (PSY-1948). created_at does not move on a replacement, so a queue
@@ -389,19 +399,20 @@ type AdminEntityRequestView struct {
 // preloaded by the caller (ListRequests preloads it).
 func toAdminEntityRequestView(r *communitym.EntityRequest) AdminEntityRequestView {
 	return AdminEntityRequestView{
-		ID:                r.ID,
-		EntityType:        r.EntityType,
-		Payload:           r.Payload,
-		SourceContext:     r.SourceContext,
-		SourceDetail:      r.SourceDetail,
-		RequesterID:       r.RequesterID,
-		RequesterName:     servicesshared.ResolveUserName(&r.Requester),
-		RequesterUsername: servicesshared.ResolveUserUsername(&r.Requester),
-		DecisionState:     string(r.DecisionState),
-		DecisionNote:      r.DecisionNote,
-		CreatedEntityID:   r.CreatedEntityID,
-		CreatedAt:         r.CreatedAt,
-		UpdatedAt:         r.UpdatedAt,
+		ID:                    r.ID,
+		EntityType:            r.EntityType,
+		Payload:               r.Payload,
+		SourceContext:         r.SourceContext,
+		SourceDetail:          r.SourceDetail,
+		OriginalSourceContext: r.OriginalSourceContext,
+		RequesterID:           r.RequesterID,
+		RequesterName:         servicesshared.ResolveUserName(&r.Requester),
+		RequesterUsername:     servicesshared.ResolveUserUsername(&r.Requester),
+		DecisionState:         string(r.DecisionState),
+		DecisionNote:          r.DecisionNote,
+		CreatedEntityID:       r.CreatedEntityID,
+		CreatedAt:             r.CreatedAt,
+		UpdatedAt:             r.UpdatedAt,
 	}
 }
 
@@ -837,6 +848,48 @@ func (h *EntityRequestHandler) fulfillAndRecord(ctx context.Context, req *commun
 		)
 	}
 	return createdID, nil
+}
+
+// maxSupersededPayloadBytes bounds what a replacement's audit row copies of the
+// payload it overwrote.
+//
+// A payload that came through this boundary is far below it: the largest legal
+// one is a show with a 50-act bill, and every field it can carry is capped
+// (255-character name/title, 5000-character description, 2048-character URLs).
+// The cap therefore only ever bites a row queued BEFORE those caps existed,
+// which is exactly the row whose superseded content is least worth writing
+// unbounded into audit_logs. Over it, the metadata records the length and omits
+// the content, so the audit row still says a payload was destroyed and how big
+// it was.
+const maxSupersededPayloadBytes = 65536
+
+// addSupersededMetadata records what a replacement overwrote onto the audit
+// row's metadata, and does nothing when there was no replacement (PSY-1978).
+//
+// It is the only durable record of the superseded submission: the UPDATE that
+// replaced it keeps no history, and the row's own original_source_context
+// answers a narrower question (what was FIRST filed, not what this particular
+// replacement destroyed).
+//
+// The payload goes in as RAW JSON, not a string, so a query can read into it the
+// same way it reads the live column. It is copied only when it fits
+// maxSupersededPayloadBytes; the byte count is always recorded, so an omission is
+// visible rather than indistinguishable from a row that carried no payload.
+func addSupersededMetadata(metadata map[string]interface{}, superseded *communitym.SupersededSubmission) {
+	if superseded == nil {
+		return
+	}
+	metadata["superseded_source_context"] = superseded.SourceContext
+	if superseded.SourceDetail != nil {
+		metadata["superseded_source_detail"] = superseded.SourceDetail
+	}
+	if superseded.Payload == nil {
+		return
+	}
+	metadata["superseded_payload_bytes"] = len(*superseded.Payload)
+	if len(*superseded.Payload) <= maxSupersededPayloadBytes {
+		metadata["superseded_payload"] = superseded.Payload
+	}
 }
 
 // normalizeSourceDetail trims + length-caps the optional source detail and

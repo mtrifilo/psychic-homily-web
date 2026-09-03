@@ -395,6 +395,77 @@ describe('ModerationQueue', () => {
     )
   })
 
+  // PSY-1978: a resubmission overwrites source_context along with the payload,
+  // so a request filed under ai_extraction with a source article and resubmitted
+  // as manual presents as a plain manual request. The row's
+  // original_source_context is the only thing on the card that can say otherwise.
+  describe('dropped provenance on a revised request (PSY-1978)', () => {
+    it('names the source a request was originally filed under', () => {
+      setDefaultMocks({
+        requests: [
+          {
+            ...mockEntityRequest,
+            source_context: 'manual',
+            source_detail: null,
+            original_source_context: 'ai_extraction',
+          },
+        ],
+      })
+
+      render(<ModerationQueue />)
+
+      expect(screen.getByText(/via manual/i)).toBeInTheDocument()
+      expect(screen.getByText(/revised from AI extraction/i)).toBeInTheDocument()
+    })
+
+    it('says nothing when a revision kept its provenance', () => {
+      setDefaultMocks({
+        requests: [
+          {
+            ...mockEntityRequest,
+            source_context: 'manual',
+            source_detail: null,
+            original_source_context: 'manual',
+          },
+        ],
+      })
+
+      render(<ModerationQueue />)
+
+      expect(screen.queryByText(/revised from/i)).not.toBeInTheDocument()
+    })
+
+    it('says nothing for a request that was never replaced', () => {
+      setDefaultMocks({ requests: [mockEntityRequest] })
+
+      render(<ModerationQueue />)
+
+      expect(screen.queryByText(/revised from/i)).not.toBeInTheDocument()
+    })
+
+    // A decision writes no source_context, so unlike a timestamp-derived
+    // "revised" signal this one stays truthful on an approved orphan.
+    it('names it on a rescue card too', () => {
+      setDefaultMocks({
+        rescue: [
+          {
+            ...mockEntityRequest,
+            id: 77,
+            decision_state: 'approved',
+            source_context: 'manual',
+            source_detail: null,
+            original_source_context: 'ai_extraction',
+          },
+        ],
+      })
+
+      render(<ModerationQueue />)
+      fireEvent.click(screen.getByText('Needs attention'))
+
+      expect(screen.getByText(/revised from AI extraction/i)).toBeInTheDocument()
+    })
+  })
+
   // PSY-1974: a queued payload stays mutable until it is decided, so every
   // decision states the version it was made against and the endpoint refuses a
   // row revised since. The version travels as the STRING the endpoint returned:
