@@ -82,6 +82,42 @@ describe('ShowStatusStripe', () => {
     expect(screen.queryByTestId('show-status-stripe')).not.toBeInTheDocument()
   })
 
+  // TONAL, not inverted. The band tints itself out of the page's own palette
+  // and bounds itself with hairline rules; inverting the page's contrast
+  // (`bg-foreground text-background`) reads as a slab in both themes. Classes
+  // are the mechanism, and jsdom computes no colors, so they are what is
+  // pinned.
+  it('paints the band with the surface tokens, not inverted', () => {
+    render(<ShowStatusStripe show={makeShow()} lifecycle="upcoming" />)
+    const stripe = screen.getByTestId('show-status-stripe')
+    expect(stripe).toHaveClass(
+      'bg-muted',
+      'text-foreground',
+      'border-y',
+      'border-border'
+    )
+    expect(stripe).not.toHaveClass('bg-foreground')
+    expect(stripe).not.toHaveClass('text-background')
+  })
+
+  // The separator is the quietest thing on the band, and on an inverted band
+  // that was a translucent tint of the inverted text. On the tonal band it is
+  // the palette's own muted foreground.
+  it('draws the separator in the muted foreground token', () => {
+    render(
+      <ShowStatusStripe
+        show={makeShow({ doors_at: '2026-04-16T02:00:00Z' })}
+        lifecycle="today"
+      />
+    )
+    const stripe = screen.getByTestId('show-status-stripe')
+    const separators = stripe.querySelectorAll('[aria-hidden="true"]')
+    expect(separators.length).toBeGreaterThan(0)
+    for (const separator of separators) {
+      expect(separator).toHaveClass('text-muted-foreground')
+    }
+  })
+
   // The band is one row of type in every state, reserving the same height, so
   // nothing below it moves when a show crosses from upcoming to tonight to
   // past. `min-h-11` is the mechanism; assert it rather than the rendered
