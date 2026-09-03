@@ -25,22 +25,21 @@ import (
 // It pins the INVENTORY, not the behaviour. What each gated route answers is
 // collection_subscription_visibility_test.go's job and the service suites'.
 //
-// KNOWN LIMIT: it matches on PATH SHAPE, so it sees only routes that carry a
-// collection slug or id in the path. Three families reach collections and are
-// invisible here, and they are NOT all kept in step the same way:
+// KNOWN LIMIT: it matches on PATH SHAPE. The shapes it walks are a collection
+// slug or id, a polymorphic {entity_type} segment, and the COMMENT id family,
+// whose handlers resolve the parent entity out of the comment and decide it in
+// GO rather than in SQL, by separate EntitySubResourceVisible calls in
+// handlers/engagement.
 //
-//   - Addressed by the CALLER (/auth/collections, /auth/collections/contains) or
-//     by a tag (/tags/{id}/entities), plus every background job: decided in SQL
-//     by services/shared's spellings, and the spellings-agree suites are what
-//     keep them in step.
-//   - Addressed by a SUB-RESOURCE id (/comments/{id} and its thread, replies,
-//     votes, edit, delete and reply-permission routes): decided in GO, by
-//     separate EntitySubResourceVisible calls in handlers/engagement. No
-//     inventory walks that family, so a new comment-id route can ship ungated
-//     with nothing here failing. Extending this guard to drive off the HANDLER
-//     set rather than the path shape is what would close it.
+// One family reaches collections and is invisible here: routes addressed by the
+// CALLER (/auth/collections, /auth/collections/contains) or by a tag
+// (/tags/{id}/entities), plus every background job. Those are decided in SQL by
+// services/shared's spellings, and the spellings-agree suites are what keep them
+// in step.
 //
-// Neither gap is theoretical: both produced findings on this branch.
+// That gap is not theoretical: it produced findings on the branch this file
+// arrived on. Closing it means driving the guard off the HANDLER set rather than
+// the path shape.
 
 // collectionRouteDisposition records why a collection-addressable operation is
 // safe.
@@ -205,10 +204,11 @@ var collectionAddressableRoutes = map[string]collectionRouteDisposition{
 }
 
 // collectionAddressablePathPattern matches the path shapes a collection can
-// travel in: its own slug family, its report route's id, and every polymorphic
-// {entity_type} segment.
+// travel in: its own slug family, its report route's id, every polymorphic
+// {entity_type} segment, and the comment ids whose handlers resolve a parent
+// collection out of the comment.
 var collectionAddressablePathPattern = regexp.MustCompile(
-	`/collections/\{|/crates/\{|\{entity_type\}`,
+	`/collections/\{|/crates/\{|\{entity_type\}|/comments/\{`,
 )
 
 func TestEveryCollectionAddressableRouteHasADisposition(t *testing.T) {
@@ -297,4 +297,11 @@ func TestCollectionAndCrateRoutesAgree(t *testing.T) {
 				"and must answer alike", key, disposition, twin, twinDisposition)
 		}
 	}
+}
+
+// The comment-id family reaches a collection through the comment's parent, and
+// is enumerated once for both inventories in comment_id_route_family_test.go.
+func init() {
+	addRoutes(collectionAddressableRoutes, commentIDGatedRoutes, collectionGated)
+	addRoutes(collectionAddressableRoutes, commentIDAdminRoutes, collectionAdminOnly)
 }

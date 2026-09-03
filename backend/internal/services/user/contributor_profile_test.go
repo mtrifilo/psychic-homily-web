@@ -453,9 +453,17 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionStats_ModerationActions() {
 	user := suite.createTestUser("moderator")
 
-	suite.auditLog.LogAction(user.ID, "approve_show", "show", 1, nil)
-	suite.auditLog.LogAction(user.ID, "reject_show", "show", 2, nil)
-	suite.auditLog.LogAction(user.ID, "verify_venue", "venue", 1, nil)
+	// REAL shows, because the audit arm is now gated: a row naming a show that
+	// does not exist fails closed, exactly as the same row does in the
+	// contributions timeline this count sits beside.
+	submitter := suite.createTestUser("moderatedsubmitter")
+	approved := suite.createShow(submitter.ID, "Approved Show")
+	alsoApproved := suite.createShow(submitter.ID, "Another Approved Show")
+	venue := suite.createVenue(submitter.ID, "Moderated Venue")
+
+	suite.auditLog.LogAction(user.ID, "approve_show", "show", approved.ID, nil)
+	suite.auditLog.LogAction(user.ID, "reject_show", "show", alsoApproved.ID, nil)
+	suite.auditLog.LogAction(user.ID, "verify_venue", "venue", venue.ID, nil)
 
 	stats, err := suite.profileService.GetContributionStats(user.ID, contracts.ShowViewer{UserID: user.ID})
 
@@ -471,9 +479,12 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 	suite.createShow(user.ID, "My Show")
 	suite.createVenue(user.ID, "My Venue")
 
-	// Audit actions
+	// Audit actions. The show-typed row names a real approved show, because the
+	// audit arm withholds a row naming a show nobody can resolve. Submitted by
+	// somebody else, so it moderates rather than inflating shows_submitted.
+	moderated := suite.createShow(suite.createTestUser("mixedsubmitter").ID, "Moderated Show")
 	suite.auditLog.LogAction(user.ID, "create_release", "release", 1, nil)
-	suite.auditLog.LogAction(user.ID, "approve_show", "show", 99, nil)
+	suite.auditLog.LogAction(user.ID, "approve_show", "show", moderated.ID, nil)
 
 	stats, err := suite.profileService.GetContributionStats(user.ID, contracts.ShowViewer{UserID: user.ID})
 
@@ -2533,4 +2544,167 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatm
 	}
 	suite.Equal(auditEntries, strangerDays,
 		"the heatmap and the timeline must count the same audit rows for the same viewer")
+}
+
+// THE AUDIT-SOURCED COUNTERS MOVE WITH THE VIEWER, and they agree with the
+// timeline that lists the same rows.
+//
+// moderation_actions counts approve_show and reject_show, and a REJECTED show is
+// gated by definition, so the whole count sat beside a filtered listing of its
+// own rows: subtracting one from the other reported how many gated shows this
+// moderator had touched. Both now read audit_logs through one condition.
+//
+// The tag-vote count is here for the same reason on a different table: tag_votes
+// is polymorphic, so a vote on a gated show or a private collection was counted
+// for everyone.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionStats_NarrowsGatedAuditRows() {
+	moderator := suite.createTestUser("gatedauditmod")
+	submitter := suite.createTestUser("gatedauditsubmitter")
+
+	open := suite.createShow(submitter.ID, "Open Show")
+	gated := suite.createShow(submitter.ID, "Gated Show")
+	suite.Require().NoError(
+		suite.db.Model(&catalogm.Show{}).Where("id = ?", gated.ID).
+			Update("status", catalogm.ShowStatusRejected).Error)
+
+	suite.auditLog.LogAction(moderator.ID, "approve_show", "show", open.ID, nil)
+	suite.auditLog.LogAction(moderator.ID, "reject_show", "show", gated.ID, nil)
+
+	// One tag vote on each show, cast by the moderator.
+	for i, showID := range []uint{open.ID, gated.ID} {
+		tag := &catalogm.Tag{
+			Name:     fmt.Sprintf("gated audit tag %d", i),
+			Slug:     fmt.Sprintf("gated-audit-tag-%d-%d", i, showID),
+			Category: "genre",
+		}
+		suite.Require().NoError(suite.db.Create(tag).Error)
+		suite.Require().NoError(suite.db.Create(&catalogm.TagVote{
+			TagID: tag.ID, EntityType: "show", EntityID: showID,
+			UserID: moderator.ID, Vote: 1,
+		}).Error)
+	}
+
+	anonymous, err := suite.profileService.GetContributionStats(moderator.ID, contracts.ShowViewer{})
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), anonymous.ModerationActions,
+		"the rejected show's moderation row is still counted for an anonymous reader")
+	suite.Equal(int64(1), anonymous.TagVotesCast,
+		"the tag vote on the rejected show is still counted for an anonymous reader")
+
+	// The submitter sees their own gated show, so both of its rows come back.
+	toSubmitter, err := suite.profileService.GetContributionStats(
+		moderator.ID, contracts.ShowViewer{UserID: submitter.ID})
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), toSubmitter.ModerationActions)
+	suite.Equal(int64(2), toSubmitter.TagVotesCast)
+
+	// An admin sees every show, so the counts are whole for them too. This arm is
+	// what proves the narrowing is a VISIBILITY test rather than a filter that
+	// drops non-approved rows for everybody.
+	toAdmin, err := suite.profileService.GetContributionStats(
+		moderator.ID, contracts.ShowViewer{UserID: moderator.ID, IsAdmin: true})
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), toAdmin.ModerationActions)
+	suite.Equal(int64(2), toAdmin.TagVotesCast)
+
+	// AND THE COUNT IS A SUBSET OF THE LISTING it sits beside, for the same
+	// viewer. That direction is the property: a row the timeline withholds must
+	// not be counted, or the count reports the withheld row as arithmetic.
+	//
+	// The rows are matched BY ACTION rather than by comparing two totals. The
+	// show-scoped timeline also carries this actor's own show submissions, which
+	// no counter here reads, so a total-to-total equality would hold only for a
+	// fixture whose moderator submitted nothing.
+	//
+	// The comparison is still like-for-like only while every moderation row this
+	// actor has is show-typed, which is what the fixture seeds. Asserted rather
+	// than assumed, so a later fixture that adds a venue or report action fails
+	// with a sentence saying why instead of an unexplained off-by-one.
+	var nonShowModeration int64
+	suite.Require().NoError(suite.db.Model(&adminm.AuditLog{}).
+		Where("actor_id = ?", moderator.ID).
+		Where("action IN ?", moderationActionNameList()).
+		Where("entity_type NOT IN ?", []string{"show", "show_edit"}).
+		Count(&nonShowModeration).Error)
+	suite.Require().Zero(nonShowModeration,
+		"this fixture's moderator has a moderation row that is not show-typed, so the "+
+			"show-scoped timeline below cannot list it and the counts are no longer "+
+			"comparable; seed it show-typed or widen the timeline query")
+
+	entries, total, err := suite.profileService.GetContributionHistory(
+		moderator.ID, 50, 0, "show", contracts.ShowViewer{})
+	suite.Require().NoError(err)
+	suite.Require().Len(entries, int(total), "the timeline's page and total disagree")
+
+	listedModeration := int64(0)
+	for _, e := range entries {
+		if moderationActionNames[e.Action] {
+			listedModeration++
+		}
+	}
+	suite.Equal(anonymous.ModerationActions, listedModeration,
+		"the anonymous moderation count and the moderation rows the anonymous timeline "+
+			"lists disagree, so one of them is counting a row the other withholds")
+}
+
+// tags_applied IS THE PUBLIC-TIER COUNT, on the value as well as the position.
+//
+// entity_tags is polymorphic, so a row can name a gated show or a private
+// collection, and this route publishes the number as a VALUE for a NAMED user
+// with no viewer to vary by. The leaderboard's tags dimension already reports
+// the public-tier count for the same user, so a whole count here was that user's
+// private collections and gated shows recoverable by subtracting one public
+// number from another.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPercentileRankings_TagsAppliedIsPublicTier() {
+	// The route answers nil below ten active users, so the cohort is seeded first.
+	users := suite.createManyUsers("rankingcohort", 12)
+	tagger := users[0]
+
+	open := suite.createShow(tagger.ID, "Ranked Open Show")
+	gated := suite.createShow(tagger.ID, "Ranked Gated Show")
+	suite.Require().NoError(
+		suite.db.Model(&catalogm.Show{}).Where("id = ?", gated.ID).
+			Update("status", catalogm.ShowStatusRejected).Error)
+
+	tag := &catalogm.Tag{Name: "ranked tag", Slug: "ranked-tag", Category: "genre"}
+	suite.Require().NoError(suite.db.Create(tag).Error)
+	for _, showID := range []uint{open.ID, gated.ID} {
+		suite.Require().NoError(suite.db.Create(&catalogm.EntityTag{
+			TagID: tag.ID, EntityType: "show", EntityID: showID, AddedByUserID: tagger.ID,
+		}).Error)
+	}
+
+	// A PEER whose only tag is on the rejected show. This row is what separates
+	// the two halves of the gate: the value comes from the subject's own count,
+	// the POSITION comes from the cohort join, and without the predicate on that
+	// join this peer counts 1 and stops being "a user with fewer than the
+	// subject", moving the percentile. With it, the peer counts 0.
+	// A second tag, because entity_tags is unique on (tag, entity): the peer has
+	// to apply a different one to the same gated show.
+	peer := users[1]
+	peerTag := &catalogm.Tag{Name: "ranked peer tag", Slug: "ranked-peer-tag", Category: "genre"}
+	suite.Require().NoError(suite.db.Create(peerTag).Error)
+	suite.Require().NoError(suite.db.Create(&catalogm.EntityTag{
+		TagID: peerTag.ID, EntityType: "show", EntityID: gated.ID, AddedByUserID: peer.ID,
+	}).Error)
+
+	result, err := suite.profileService.GetPercentileRankings(tagger.ID)
+	suite.Require().NoError(err)
+
+	var tagsApplied *contracts.PercentileRanking
+	for i := range result.Rankings {
+		if result.Rankings[i].Dimension == "tags_applied" {
+			tagsApplied = &result.Rankings[i]
+		}
+	}
+	suite.Require().NotNil(tagsApplied, "tags_applied is missing from the rankings")
+	suite.Equal(int64(1), tagsApplied.Value,
+		"the tag on the rejected show is still counted, so subtracting the leaderboard's "+
+			"public-tier count for this user reports it")
+
+	// Eleven of the twelve users hold no visible tag, the peer included, so the
+	// subject sits above all eleven.
+	suite.Equal(11*100/12, tagsApplied.Percentile,
+		"the cohort counts the peer's tag on the rejected show, so the position is "+
+			"measured against a population counted differently from the subject")
 }

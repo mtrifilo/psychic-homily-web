@@ -305,3 +305,166 @@ func TestCommentVote_RefusesAParentTheCallerCannotSee(t *testing.T) {
 		testhelpers.AssertHumaError(t, err, 404)
 	})
 }
+
+// ============================================================================
+// The vote gate, tier by tier and entity type by entity type
+// ============================================================================
+
+// commentVoteTier is one caller in the matrix below.
+//
+// A gate proven only against a checker that refuses everything is proven only
+// against itself: it would pass with the entity type ignored and with the viewer
+// discarded. These cases carry the REAL rules instead, so the entity type and
+// the viewer both have to reach the checker for the expected answer to come out.
+type commentVoteTier struct {
+	name string
+	// user is nil for the anonymous caller, who never reaches the gate: the
+	// route needs a session before it has anything to decide.
+	user *authm.User
+	want int
+}
+
+// commentVoteOwnerID is the user who submitted the show and created the
+// collection both parents in this matrix hang off.
+const commentVoteOwnerID = uint(2)
+
+// commentParentReader resolves every comment id to a parent of one entity type.
+func commentParentReader(entityType string) *testhelpers.MockCommentService {
+	return &testhelpers.MockCommentService{
+		GetCommentFn: func(commentID uint) (*contracts.CommentResponse, error) {
+			return &contracts.CommentResponse{ID: commentID, EntityType: entityType, EntityID: 7}, nil
+		},
+	}
+}
+
+// voteServiceRecordingReach answers successfully and records that it was
+// reached, so a refusal can assert the write never ran and a grant can assert it
+// did.
+func voteServiceRecordingReach(reached *int) *testhelpers.MockCommentVoteService {
+	return &testhelpers.MockCommentVoteService{
+		VoteFn:   func(uint, uint, int) error { *reached++; return nil },
+		UnvoteFn: func(uint, uint) error { *reached++; return nil },
+		GetCommentVoteCountsFn: func(uint) (int, int, float64, error) {
+			return 1, 0, 1, nil
+		},
+	}
+}
+
+// BOTH VOTE ROUTES ANSWER THE PARENT'S OWN VISIBILITY RULE, for both gated
+// entity types, across the four caller tiers.
+//
+// The response carries the comment's live score, so a caller refused the thread
+// would otherwise watch its activity move; the write itself is attributed and
+// lands inside a discussion they may not read. Comment ids are dense and
+// sequential, so an answer that varied with the parent's existence is walkable.
+//
+// The two tier tables differ on the ADMIN row, and that difference is the reason
+// both run: a gate that granted every admin would pass the show half and publish
+// every private collection's comment scores.
+func TestCommentVote_ParentVisibilityMatrix(t *testing.T) {
+	stranger := &authm.User{ID: 3}
+	owner := &authm.User{ID: commentVoteOwnerID}
+	admin := &authm.User{ID: 6, IsAdmin: true}
+
+	for _, tc := range []struct {
+		entityType string
+		tiers      []commentVoteTier
+	}{
+		{"show", []commentVoteTier{
+			{"anonymous", nil, 401},
+			{"an authenticated stranger", stranger, 404},
+			{"the show's submitter", owner, 200},
+			{"an admin", admin, 200},
+		}},
+		{"collection", []commentVoteTier{
+			{"anonymous", nil, 401},
+			{"an authenticated stranger", stranger, 404},
+			{"the collection's creator", owner, 200},
+			{"an admin", admin, 404},
+		}},
+	} {
+		t.Run(tc.entityType, func(t *testing.T) {
+			for _, tier := range tc.tiers {
+				t.Run(tier.name, func(t *testing.T) {
+					ctx := context.Background()
+					if tier.user != nil {
+						ctx = testhelpers.CtxWithUser(tier.user)
+					}
+					gate := testhelpers.GatedEntityVisibility(commentVoteOwnerID)
+
+					t.Run("vote", func(t *testing.T) {
+						reached := 0
+						h := NewCommentVoteHandler(voteServiceRecordingReach(&reached),
+							commentParentReader(tc.entityType), gate)
+						req := &VoteCommentRequest{CommentID: "42"}
+						req.Body.Direction = 1
+						resp, err := h.VoteCommentHandler(ctx, req)
+						assertVoteOutcome(t, tier.want, reached, err, resp == nil)
+					})
+
+					t.Run("unvote", func(t *testing.T) {
+						reached := 0
+						h := NewCommentVoteHandler(voteServiceRecordingReach(&reached),
+							commentParentReader(tc.entityType), gate)
+						resp, err := h.UnvoteCommentHandler(ctx, &UnvoteCommentRequest{CommentID: "42"})
+						assertVoteOutcome(t, tier.want, reached, err, resp == nil)
+					})
+				})
+			}
+		})
+	}
+}
+
+// assertVoteOutcome checks the status AND whether the vote service ran, because
+// a status-only assertion passes for a gate that refuses after writing.
+func assertVoteOutcome(t *testing.T, want, reached int, err error, respNil bool) {
+	t.Helper()
+	if want == 200 {
+		if err != nil {
+			t.Fatalf("a caller entitled to the parent was refused: %v", err)
+		}
+		if respNil {
+			t.Error("no response body for a granted vote")
+		}
+		if reached != 1 {
+			t.Errorf("the vote service ran %d times for a granted caller, want 1", reached)
+		}
+		return
+	}
+	testhelpers.AssertHumaError(t, err, want)
+	if reached != 0 {
+		t.Errorf("the vote service ran %d times for a refused caller, want 0", reached)
+	}
+}
+
+// A stranger's refusal on a gated show and on a private collection is the answer
+// a comment id nobody has used gets.
+func TestCommentVote_EveryRefusalIsTheSameResponse(t *testing.T) {
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 3})
+
+	refusal := func(reader CommentReader, vis *testhelpers.MockShowVisibility) error {
+		h := NewCommentVoteHandler(&testhelpers.MockCommentVoteService{}, reader, vis)
+		req := &VoteCommentRequest{CommentID: "42"}
+		req.Body.Direction = 1
+		_, err := h.VoteCommentHandler(ctx, req)
+		return err
+	}
+
+	absent := &testhelpers.MockCommentService{
+		GetCommentFn: func(uint) (*contracts.CommentResponse, error) { return nil, nil },
+	}
+	want := refusal(absent, testhelpers.AllShowsVisible())
+	gate := testhelpers.GatedEntityVisibility(commentVoteOwnerID)
+
+	for _, tc := range []struct {
+		name   string
+		reader CommentReader
+	}{
+		{"a comment on a gated show", commentParentReader("show")},
+		{"a comment on a private collection", commentParentReader("collection")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			testhelpers.AssertSameRefusal(t, refusal(tc.reader, gate), want, nil)
+		})
+	}
+}

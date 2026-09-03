@@ -15,6 +15,7 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/respond"
 	"psychic-homily-backend/internal/services/contracts"
 	servicesshared "psychic-homily-backend/internal/services/shared"
@@ -652,6 +653,24 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 	return &CreateShowResponse{Body: *show}, nil
 }
 
+// refuseShowAsMissing is the ONE answer GET /shows/{id} gives for a show the
+// caller may not see and for a show that is not there.
+//
+// Both refusals are built here rather than written out at the two return sites,
+// so the two BODIES are one response: a caller who can tell them apart can walk
+// the id space and learn which unpublished shows exist, and show ids are dense
+// and sequential.
+//
+// The bodies, exactly. The gate runs after the show and its bill are loaded, so
+// a gated id costs several more queries than an id that carries no row, and that
+// difference is measurable over enough samples. Closing it means deciding the
+// rule before the hydration, which this route cannot do on its slug path without
+// a second lookup.
+func refuseShowAsMissing() error {
+	showErr := apperrors.ErrShowNotFound(0)
+	return huma.Error404NotFound(fmt.Sprintf("%s [%s]", showErr.Message, showErr.Code))
+}
+
 // GetShowHandler handles GET /shows/{show_id} - accepts either numeric ID or slug
 func (h *ShowHandler) GetShowHandler(ctx context.Context, req *GetShowRequest) (*GetShowResponse, error) {
 	requestID := logger.GetRequestID(ctx)
@@ -675,32 +694,25 @@ func (h *ShowHandler) GetShowHandler(ctx context.Context, req *GetShowRequest) (
 	}
 
 	if err != nil {
-		showErr := apperrors.ErrShowNotFound(0)
 		logger.FromContext(ctx).Warn("show_not_found",
 			"show_id_or_slug", req.ShowID,
 			"error", err.Error(),
-			"error_code", showErr.Code,
 			"request_id", requestID,
 		)
-		return nil, huma.Error404NotFound(
-			fmt.Sprintf("%s [%s]", showErr.Message, showErr.Code),
-		)
+		return nil, refuseShowAsMissing()
 	}
 
-	// Access control: non-approved shows require authorization
-	if show.Status != "approved" {
-		user := middleware.GetUserFromContext(ctx)
-		isAdmin := user != nil && user.IsAdmin
-		isSubmitter := user != nil && show.SubmittedBy != nil && *show.SubmittedBy == user.ID
-
-		if !isAdmin && !isSubmitter {
-			logger.FromContext(ctx).Warn("show_access_denied",
-				"show_id", show.ID,
-				"status", show.Status,
-				"request_id", requestID,
-			)
-			return nil, huma.Error404NotFound("Show not found")
-		}
+	// Access control, from the one place the rule lives
+	// (services/shared/show_visibility.go), reached through the same
+	// handlers/shared door every other gated show route in this file uses.
+	if !shared.ShowRowVisible(
+		catalogm.ShowStatus(show.Status), show.SubmittedBy, middleware.GetShowViewerFromContext(ctx)) {
+		logger.FromContext(ctx).Warn("show_access_denied",
+			"show_id", show.ID,
+			"status", show.Status,
+			"request_id", requestID,
+		)
+		return nil, refuseShowAsMissing()
 	}
 
 	logger.FromContext(ctx).Debug("show_get_success",

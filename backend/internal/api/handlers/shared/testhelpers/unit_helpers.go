@@ -11,6 +11,7 @@ package testhelpers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -39,6 +40,93 @@ func humaErrorModel(t *testing.T, err error, expectedStatus int) *huma.ErrorMode
 		t.Errorf("expected status %d, got %d (detail: %s)", expectedStatus, he.Status, he.Detail)
 	}
 	return he
+}
+
+// HumaErrorModel extracts the *huma.ErrorModel from err without asserting a
+// status, for a caller that wants to compare two refusals against each other
+// rather than against a constant. Fatals if err is not one.
+func HumaErrorModel(t *testing.T, err error) *huma.ErrorModel {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected error, got nil")
+		return nil
+	}
+	var he *huma.ErrorModel
+	if !errors.As(err, &he) {
+		t.Fatalf("expected *huma.ErrorModel, got %T: %v", err, err)
+		return nil
+	}
+	return he
+}
+
+// AssertSameRefusal asserts that two refusals are ONE response.
+//
+// The acceptance criterion of every entity-visibility gate in this codebase: a
+// gated entity and an id nobody has used must answer alike, or the route is an
+// existence oracle over a dense id space. Lives here rather than being respelled
+// per package so the definition of "same response" has one home and a field
+// added to the comparison covers every gated route at once.
+//
+// It compares the WHOLE RENDERED ErrorModel, so a field added to huma's error
+// body is covered without an edit here.
+//
+// normalize is applied to that rendered JSON, not to Detail alone, for routes
+// whose refusal ECHOES the id the caller supplied. Echoing it back is not a
+// disclosure, so those callers substitute their own id out and compare the rest.
+// It sees the whole document, so a pattern must be QUALIFIED enough not to match
+// inside another field: `"show 4242"`, never a bare `4242`. Pass nil when the two
+// responses must match byte for byte.
+//
+// WHAT IT CANNOT SEE, stated so nobody reads a pass as proof of
+// indistinguishability:
+//   - response HEADERS, which huma carries through a wrapper this never unwraps;
+//   - TIMING, the channel a gate placed after an expensive load leaves open
+//     however identical the bodies are;
+//   - anything a MOCK cannot vary. A handler test whose checker decides on the
+//     viewer alone reaches the same branch for a gated id and a missing one, so
+//     the assertion pins the refusal helper rather than the production rule. The
+//     manual repro against a real database is what covers that.
+func AssertSameRefusal(t *testing.T, gotErr, wantErr error, normalize func(string) string) {
+	t.Helper()
+	got := HumaErrorModel(t, gotErr)
+	want := HumaErrorModel(t, wantErr)
+	if got == nil || want == nil {
+		return
+	}
+	render := func(m *huma.ErrorModel) string {
+		encoded, err := json.Marshal(m)
+		if err != nil {
+			t.Fatalf("marshal error model: %v", err)
+		}
+		if normalize != nil {
+			return normalize(string(encoded))
+		}
+		return string(encoded)
+	}
+	if render(got) != render(want) {
+		t.Errorf("the two refusals differ:\n  %s\n  %s\na caller who can tell them apart "+
+			"can walk the id space", render(got), render(want))
+	}
+}
+
+// GatedEntityVisibility is the REAL pair of visibility rules for entities owned
+// by ownerID, for a test whose subject IS the gate.
+//
+// AllShowsVisible is the permissive opt-out; this is its counterpart, and the
+// two rules deliberately DIFFER on the admin: an admin sees every show and no
+// private collection (services/shared/collection_visibility.go). A gate proven
+// only against a checker that refuses everything would pass with the entity type
+// ignored and the viewer discarded, so the asymmetry is what makes a matrix
+// using this non-vacuous.
+func GatedEntityVisibility(ownerID uint) *MockShowVisibility {
+	return &MockShowVisibility{
+		ShowVisibleToFn: func(_ uint, viewer contracts.ShowViewer) bool {
+			return viewer.IsAdmin || viewer.UserID == ownerID
+		},
+		CollectionVisibleToFn: func(_ uint, viewer contracts.ShowViewer) bool {
+			return viewer.UserID == ownerID
+		},
+	}
 }
 
 // AssertHumaError checks that an error is a *huma.ErrorModel with the

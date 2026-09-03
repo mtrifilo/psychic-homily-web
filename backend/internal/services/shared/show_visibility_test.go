@@ -22,13 +22,19 @@ import (
 // the one Postgres parses, not the one a reviewer reads.
 //
 // So these tests enumerate the whole viewer x status matrix and run every
-// spelling against a real database. The five viewer-taking spellings are checked
+// spelling against a real database. The six viewer-taking forms are checked
 // against every viewer; the two inlined public-tier forms take no viewer and are
 // checked against the anonymous row only, which is exactly what they claim to
 // be; the recipient form takes its viewer from a row and is checked against the
 // no-admin half of the table, which is what it claims to be. A change to one
 // that the others do not follow fails here rather than in whichever route
 // happens to use it.
+//
+// LoadedShowVisibleTo is the ONE Go spelling, and ShowVisibleTo is it with a
+// lookup in front; both are checked, because a lookup that selected the wrong
+// columns would disagree with the predicate it feeds. GET /shows/{id} evaluates
+// the former, so the route the truth table below describes is inside the matrix
+// rather than beside it.
 
 // showCase is one row of the matrix: a show in some state, and who submitted it.
 type showCase struct {
@@ -129,11 +135,28 @@ func TestShowVisibilitySpellingsAgree(t *testing.T) {
 				t.Fatalf("create revision: %v", err)
 			}
 
+			// Read back what the database actually STORED, rather than what the
+			// fixture asked for, so a column default or a hook that rewrites
+			// either fact is exercised by the row-holding spelling below. Read
+			// once: it depends on the show, not on the viewer.
+			var stored catalogm.Show
+			if err := td.DB.Select("status", "submitted_by").
+				First(&stored, show.ID).Error; err != nil {
+				t.Fatalf("reload show: %v", err)
+			}
+
 			for _, v := range viewers {
 				want := wantVisible(c, v.isSelf, v.viewer.IsAdmin)
 
 				if got := shared.ShowVisibleTo(td.DB, show.ID, v.viewer); got != want {
 					t.Errorf("ShowVisibleTo for %s = %v, want %v", v.name, got, want)
+				}
+
+				// The row-holding spelling, which is what GET /shows/{id}
+				// evaluates, handed the values the database actually stored.
+				if got := shared.LoadedShowVisibleTo(
+					stored.Status, stored.SubmittedBy, v.viewer); got != want {
+					t.Errorf("LoadedShowVisibleTo for %s = %v, want %v", v.name, got, want)
 				}
 
 				predSQL, predArgs := shared.VisibleShowPredicateSQL("shows", v.viewer)

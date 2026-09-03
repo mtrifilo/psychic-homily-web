@@ -28,11 +28,13 @@ import (
 // these are locked".
 //
 // KNOWN LIMIT, stated so nobody reads this as an exhaustive sweep: it matches on
-// PATH SHAPE, so it sees only routes that carry a show id in the path. THREE
-// other families reach a show and are invisible here:
+// PATH SHAPE. The shapes it walks are a show id, a polymorphic {entity_type}
+// segment, and the COMMENT id family, whose handlers resolve the parent entity
+// out of the comment before they answer. THREE other families reach a show and
+// are invisible here:
 //
-//   - routes addressed by a SUB-RESOURCE id whose handler resolves the show from
-//     it (/comments/{id}, /comments/{id}/replies, /collections/{slug});
+//   - routes addressed by a different sub-resource id whose handler resolves the
+//     show from it (/collections/{slug});
 //   - routes that take the entity type as a QUERY parameter
 //     (/tags/{id}/entities?entity_type=show, /auth/collections/contains);
 //   - SELF-SCOPED routes addressed by the CALLER, which name no entity at all in
@@ -42,9 +44,9 @@ import (
 //     anticipate: the next /me/… surface that renders show titles (a digest, an
 //     activity feed, an export) will trip nothing here.
 //
-// All three have leaked in practice. Extending the guard to them means driving it
-// off the handler set rather than the path, which is the follow-up this paragraph
-// exists to name.
+// All three have leaked in practice. Extending the guard to them means driving
+// it off the handler set rather than the path, which is the follow-up this
+// paragraph exists to name.
 //
 // A FOURTH BLIND SPOT is closed elsewhere rather than here, and naming it keeps
 // this file honest about what it is: an inventory keyed on SHOWS cannot see a
@@ -94,6 +96,25 @@ const (
 	// rather than omitted so that widening the allowlist has to come here.
 	notShowAddressable
 )
+
+// String names a disposition so a failure reads as a name rather than as an
+// integer whose meaning depends on the declaration order above, for the reason
+// collectionRouteDisposition.String gives.
+func (d showRouteDisposition) String() string {
+	switch d {
+	case gated:
+		return "gated"
+	case selfScoped:
+		return "selfScoped"
+	case adminOnly:
+		return "adminOnly"
+	case writeOracleDeferred:
+		return "writeOracleDeferred"
+	case notShowAddressable:
+		return "notShowAddressable"
+	}
+	return "unknown showRouteDisposition"
+}
 
 // showAddressableRoutes is the whole inventory, keyed by "METHOD pattern" as chi
 // reports it.
@@ -199,13 +220,12 @@ var showAddressableRoutes = map[string]showRouteDisposition{
 
 // showAddressablePathPattern matches the path shapes a show id can travel in.
 //
-// Two families, and the second is why this is a regexp rather than a prefix
-// check: a show reaches half these routes through a POLYMORPHIC {entity_type}
-// segment, where nothing in the path says "show" at all. A guard that only
-// looked for "/shows/" would have missed every comment, tag and collection route
-// this ticket had to close.
+// Three families, and the last two are why this is a regexp rather than a prefix
+// check: a show reaches most of these routes through a POLYMORPHIC
+// {entity_type} segment or through a COMMENT id, where nothing in the path says
+// "show" at all. A guard that only looked for "/shows/" would see neither.
 var showAddressablePathPattern = regexp.MustCompile(
-	`/shows/\{|\{entity_type\}|/saved-shows/\{`,
+	`/shows/\{|\{entity_type\}|/saved-shows/\{|/comments/\{`,
 )
 
 func TestEveryShowAddressableRouteHasADisposition(t *testing.T) {
@@ -312,4 +332,11 @@ func TestFollowRoutesRefuseShows(t *testing.T) {
 				"body: %s", path, w.Code, w.Body.String())
 		}
 	}
+}
+
+// The comment-id family reaches a show through the comment's parent, and is
+// enumerated once for both inventories in comment_id_route_family_test.go.
+func init() {
+	addRoutes(showAddressableRoutes, commentIDGatedRoutes, gated)
+	addRoutes(showAddressableRoutes, commentIDAdminRoutes, adminOnly)
 }

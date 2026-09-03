@@ -146,11 +146,14 @@ func CollectionVisibleTo(db *gorm.DB, collectionID uint, viewer contracts.ShowVi
 		return false
 	}
 
-	// One condition carrying its own parentheses, for the reason ShowVisibleTo
-	// gives: written out, the binding this pins is `id = X AND (is_public = TRUE
-	// OR creator_id = Y)` — never `id = X AND is_public = TRUE OR creator_id =
-	// Y`, which would answer yes for a private collection whenever the caller
-	// created ANY collection at all.
+	// One condition carrying its own parentheses, written out here rather than
+	// left to the query builder: the binding this pins is `id = X AND (is_public
+	// = TRUE OR creator_id = Y)`, never `id = X AND is_public = TRUE OR
+	// creator_id = Y`, which would answer yes for a private collection whenever
+	// the caller created ANY collection at all. A deliberate refusal to let a
+	// security boundary rest on framework behaviour, not a workaround for a bug.
+	// The show rule closed the same hazard by removing the OR entirely; this one
+	// still has it.
 	q := db.Model(&communitym.Collection{})
 	if viewer.UserID != 0 {
 		q = q.Where("id = ? AND (is_public = TRUE OR creator_id = ?)", collectionID, viewer.UserID)

@@ -608,6 +608,42 @@ func TestGetShowHandler_NonApproved_Denied(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 404)
 }
 
+// THE TWO REFUSALS ARE ONE RESPONSE.
+//
+// GET /shows/{id} is the rule every other show gate mirrors, and its own two
+// 404s used different bodies: the access refusal said "Show not found" and the
+// lookup failure said "Show not found [SHOW_NOT_FOUND]". Show ids are dense and
+// sequential, so a caller who can tell the pair apart walks the id space and
+// learns which unpublished shows exist, which is the disclosure the 404 was
+// chosen over a 403 to prevent.
+func TestGetShowHandler_GatedAndMissingAnswerAlike(t *testing.T) {
+	otherUser := uint(99)
+	gated := &testhelpers.MockShowService{
+		GetShowFn: func(_ uint) (*contracts.ShowResponse, error) {
+			return &contracts.ShowResponse{ID: 1, Status: "pending", SubmittedBy: &otherUser}, nil
+		},
+	}
+	missing := &testhelpers.MockShowService{
+		GetShowFn: func(_ uint) (*contracts.ShowResponse, error) {
+			return nil, fmt.Errorf("record not found")
+		},
+	}
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
+
+	// The injected gate is the ZERO MockShowVisibility, which refuses everything,
+	// and it is not consulted on this path: the detail route holds the row it is
+	// deciding about, so it evaluates the rule from that row's own status and
+	// submitter. Passing the permissive helper here would suggest the refusal
+	// came from the checker.
+	refusal := func(svc *testhelpers.MockShowService, id string) error {
+		h := NewShowHandler(svc, nil, nil, nil, nil, nil, nil, &testhelpers.MockShowVisibility{})
+		_, err := h.GetShowHandler(ctx, &GetShowRequest{ShowID: id})
+		return err
+	}
+
+	testhelpers.AssertSameRefusal(t, refusal(gated, "1"), refusal(missing, "99999999"), nil)
+}
+
 // ============================================================================
 // Mock-based tests: GetShowsHandler
 // ============================================================================

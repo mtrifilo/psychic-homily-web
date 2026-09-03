@@ -1,6 +1,8 @@
 package shared
 
 import (
+	"errors"
+
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/logger"
@@ -27,7 +29,11 @@ import (
 //
 // The spellings differ because the callers are not the same shape:
 //
-//   - ShowVisibleTo answers for ONE already-identified show. Handlers use it.
+//   - LoadedShowVisibleTo is the Go spelling, over a show's status and
+//     submitter, for a caller that already holds the row. The detail route is
+//     one, through handlers/shared.ShowRowVisible.
+//   - ShowVisibleTo is that same predicate with a LOOKUP in front, for a caller
+//     holding only an id. It is not a second spelling of the rule.
 //   - VisibleShowPredicateSQL is the same rule over a shows-table alias, for a
 //     query already reading shows.
 //   - VisibleShowExistsSQL wraps that in a correlated EXISTS, for a query
@@ -47,6 +53,9 @@ import (
 // show_visibility_test.go enumerates the whole viewer x status matrix against
 // every one of them, comparing each to a hand-written truth table rather than
 // to the others. A shared bug cannot make them agree and be wrong together.
+//
+// GET /shows/{id} is INSIDE that matrix rather than beside it, because the
+// handler evaluates one of the forms above instead of restating the rule.
 //
 // EVERY spelling fails closed. A missing show row, a nil db, a zero id and a
 // failed lookup all resolve to "not visible" for a non-admin. Withholding a
@@ -92,12 +101,51 @@ import (
 // pass an expression qualified with this alias.
 const visibleShowsAlias = "visible_show"
 
+// LoadedShowVisibleTo reports whether viewer may see a show whose status and
+// submitter are ALREADY IN HAND.
+//
+// The rule as a pure function of the two facts it decides on, for a caller
+// holding the row: the detail route, which has just loaded the show it is about
+// to serve, and ShowVisibleTo, which loads those two columns and asks this.
+//
+// submittedBy is a pointer because the column is nullable, and a NULL submitter
+// matches nobody: an anonymous submission is not the caller's own, whoever the
+// caller is. The zero viewer is the anonymous tier and matches no submitter
+// either, since user ids start at 1.
+//
+// status is catalogm.ShowStatus rather than a bare string so a caller holding a
+// response DTO has to convert deliberately. A security predicate that accepted
+// any string would decide on display text the day one of those fields is
+// repurposed.
+func LoadedShowVisibleTo(status catalogm.ShowStatus, submittedBy *uint, viewer contracts.ShowViewer) bool {
+	if viewer.IsAdmin {
+		return true
+	}
+	if status == catalogm.ShowStatusApproved {
+		return true
+	}
+	return viewer.UserID != 0 && submittedBy != nil && *submittedBy == viewer.UserID
+}
+
 // ShowVisibleTo reports whether viewer may see show showID at all.
 //
-// The Go spelling of the detail route's predicate. Returns false when the show
-// does not exist, which is the same answer GET /shows/{id} gives by 404ing, and
-// false on any lookup failure.
+// LoadedShowVisibleTo with a lookup in front, for a caller holding an id rather
+// than a row. It reads the two columns and asks the predicate rather than asking
+// the database to decide, which also removes the OR-precedence hazard a compound
+// WHERE carries: there is no OR left in this statement to parenthesise.
+//
+// For a NON-ADMIN it answers false when the show does not exist, which is the
+// same answer GET /shows/{id} gives by 404ing, and false on any lookup failure.
+// An ADMIN is answered true without a lookup, so this is the one input on which
+// it and LoadedShowVisibleTo differ: an admin asking about an id that carries no
+// row gets true here and false from the predicate, which has a row to look at.
+// Neither answer is a disclosure, because an admin may see every show that
+// exists; the callers that must not serve a deleted show say so themselves
+// (VisibleShowRecipientsSQL puts its admin term INSIDE the shows EXISTS).
 func ShowVisibleTo(db *gorm.DB, showID uint, viewer contracts.ShowViewer) bool {
+	// A LOOKUP SHORT-CIRCUIT, and the one input on which this and the predicate
+	// disagree: an admin is answered true without a read, so an id that carries
+	// no row answers true here and false from the predicate below.
 	if viewer.IsAdmin {
 		return true
 	}
@@ -105,30 +153,27 @@ func ShowVisibleTo(db *gorm.DB, showID uint, viewer contracts.ShowViewer) bool {
 		return false
 	}
 
-	// One condition carrying its own parentheses. GORM does parenthesize a raw
-	// condition containing OR today, so this is a deliberate refusal to let a
-	// security boundary rest on framework behaviour, not a workaround for a bug.
-	// Written out, the binding this pins is `id = X AND (status = 'approved' OR
-	// submitted_by = Y)` — never `id = X AND status = 'approved' OR
-	// submitted_by = Y`, which would answer yes for a gated show whenever the
-	// caller submitted ANY show at all.
-	q := db.Model(&catalogm.Show{})
-	if viewer.UserID != 0 {
-		q = q.Where("id = ? AND (status = ? OR submitted_by = ?)",
-			showID, catalogm.ShowStatusApproved, viewer.UserID)
-	} else {
-		q = q.Where("id = ? AND status = ?", showID, catalogm.ShowStatusApproved)
+	var row struct {
+		Status      catalogm.ShowStatus
+		SubmittedBy *uint
 	}
-
-	var count int64
-	if err := q.Count(&count).Error; err != nil {
-		logger.Default().Error("show_visibility_lookup_failed",
-			"show_id", showID,
-			"error", err.Error(),
-		)
+	err := db.Model(&catalogm.Show{}).
+		Select("status, submitted_by").
+		Where("id = ?", showID).
+		Take(&row).Error
+	if err != nil {
+		// A show that is not there is not a failure, and it is the answer this
+		// gate is built to give: absent and gated are one response. Only a real
+		// lookup failure is logged, so the log stays a signal.
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			logger.Default().Error("show_visibility_lookup_failed",
+				"show_id", showID,
+				"error", err.Error(),
+			)
+		}
 		return false
 	}
-	return count > 0
+	return LoadedShowVisibleTo(row.Status, row.SubmittedBy, viewer)
 }
 
 // VisibleShowPredicateSQL returns a SQL condition, true for the rows of a shows
