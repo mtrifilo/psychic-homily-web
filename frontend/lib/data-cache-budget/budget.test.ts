@@ -17,9 +17,9 @@ import {
  *
  * It is worth verifying because the rule is a scoping control on a build-gate
  * waiver: an entry must excuse exactly the fetch it was measured against. The
- * sub-shard ids introduced by PSY-1763 (`releases-a-e`, …) are precisely the
- * shape the doc warns about — names that EXTEND an existing family name — so a
- * regression to substring or prefix matching would waive four routes at once.
+ * sub-shard ids (`releases-b0`, and its siblings) are precisely the shape the
+ * doc warns about: names that EXTEND an existing family name, so a regression
+ * to substring or prefix matching would waive a whole family at once.
  */
 describe('isWarnBandAllowlisted', () => {
   const allowlist = [{ match: '/sitemap/entries?family=releases' }]
@@ -34,15 +34,13 @@ describe('isWarnBandAllowlisted', () => {
   })
 
   /**
-   * The property the doc calls out by name, and the one this ticket made real:
-   * `releases-a-e` is not `releases`, so an entry for the family must not
-   * excuse a sub-shard of it (or vice versa).
+   * The property the doc calls out by name: `releases-b0` is not `releases`, so
+   * an entry for the family must not excuse a sub-shard of it, or vice versa.
    */
   it.each([
-    'https://api.psychichomily.com/sitemap/entries?family=releases-a-e',
-    'https://api.psychichomily.com/sitemap/entries?family=releases-f-m',
-    'https://api.psychichomily.com/sitemap/entries?family=releases-n-s',
-    'https://api.psychichomily.com/sitemap/entries?family=releases-t-z',
+    'https://api.psychichomily.com/sitemap/entries?family=releases-b0',
+    'https://api.psychichomily.com/sitemap/entries?family=releases-b1',
+    'https://api.psychichomily.com/sitemap/entries?family=releases-b7',
     'https://api.psychichomily.com/sitemap/entries?family=releases_v2',
   ])('does not excuse %s', url => {
     expect(at(url)).toBe(false)

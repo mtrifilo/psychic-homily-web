@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { SITEMAP_FAMILIES, type Family } from '@/app/sitemap-shards'
+import { shardIdsFor, SITEMAP_FAMILIES, type Family } from '@/app/sitemap-shards'
 import { resolveConfig, type MonitorConfig } from './config'
 import {
   allowedDrift,
@@ -26,6 +26,8 @@ function input(overrides: Partial<EvaluationInput> = {}): EvaluationInput {
     observedPages: 12,
     observedOther: 0,
     expectedByFamily: counts(),
+    observedByShard: new Map(),
+    expectedByShard: new Map(),
     futureShowCount: 500,
     samples: [],
     errors: [],
@@ -213,6 +215,95 @@ describe('evaluate', () => {
     const observed = { observedByFamily: counts({ shows: 1457 }), expectedByFamily: counts({ shows: 1458 }) }
     expect(evaluate(input(observed), config).ok).toBe(true)
     expect(evaluate(input(observed), strict).ok).toBe(false)
+  })
+})
+
+/**
+ * The per-document half of the verdict, and the reason it exists: a family
+ * comparison cannot see one document of a sub-sharded family going dark,
+ * because a bucket is a fraction of its family and that fraction sits inside
+ * the drift tolerance.
+ */
+describe('evaluate, per shard', () => {
+  const SHOWS_BUCKETS = shardIdsFor('shows')
+
+  /** Every shows bucket healthy at `each` rows, with `overrides` applied. */
+  function showBuckets(each: number, overrides: Record<string, number> = {}) {
+    const observed = new Map<string, number>()
+    const expected = new Map<string, number>()
+    for (const shard of SHOWS_BUCKETS) {
+      expected.set(shard, each)
+      observed.set(shard, overrides[shard] ?? each)
+    }
+    const total = SHOWS_BUCKETS.length * each
+    const served = [...observed.values()].reduce((sum, n) => sum + n, 0)
+    return input({
+      observedByShard: observed,
+      expectedByShard: expected,
+      observedByFamily: counts({ shows: served }),
+      expectedByFamily: counts({ shows: total }),
+    })
+  }
+
+  it('passes when every document matches the feed', () => {
+    const report = evaluate(showBuckets(1600), config)
+
+    expect(report.ok).toBe(true)
+    expect(report.shards.filter(s => s.family === 'shows')).toHaveLength(SHOWS_BUCKETS.length)
+  })
+
+  it('names a document that serves nothing while the API has rows', () => {
+    const dark = SHOWS_BUCKETS[2]
+    const report = evaluate(showBuckets(1600, { [dark]: 0 }), config)
+
+    expect(report.ok).toBe(false)
+    expect(report.failures).toContainEqual(
+      `vanished — shard ${dark}: the API has 1600 entries and the document serves NONE`
+    )
+    expect(report.shards.find(s => s.shard === dark)?.vanished).toBe(true)
+  })
+
+  /**
+   * The whole reason for the per-document check. One bucket of eight is 12.5%
+   * of its family, which clears the default 20% family tolerance, so without
+   * this the loss would be reported nowhere.
+   */
+  it('catches a loss the family comparison passes', () => {
+    const dark = SHOWS_BUCKETS[0]
+    const report = evaluate(showBuckets(1600, { [dark]: 0 }), config)
+
+    expect(report.families.find(f => f.family === 'shows')?.ok).toBe(true)
+    expect(report.ok).toBe(false)
+  })
+
+  it('reports a document that drifted past its own tolerance', () => {
+    const drifted = SHOWS_BUCKETS[1]
+    const report = evaluate(showBuckets(1600, { [drifted]: 1000 }), config)
+
+    expect(report.failures).toContainEqual(
+      `drift — shard ${drifted}: sitemap 1000 vs API 1600 (600 missing, tolerance ±320)`
+    )
+  })
+
+  // A document that never answered is already reported as a fetch error. Scoring
+  // it as zero observed would blame the sitemap for a transport failure.
+  it('stays silent about a document that was never fetched', () => {
+    const missing = SHOWS_BUCKETS[3]
+    const base = showBuckets(1600)
+    const observed = new Map(base.observedByShard)
+    observed.delete(missing)
+    const report = evaluate({ ...base, observedByShard: observed }, config)
+
+    expect(report.failures).toEqual([])
+    expect(report.shards.find(s => s.shard === missing)?.unobserved).toBe(true)
+  })
+
+  // A single-document family is already covered by its FamilyComparison, and
+  // comparing it twice would print one problem as two failures.
+  it('does not compare a family served by one document', () => {
+    const report = evaluate(showBuckets(1600), config)
+
+    expect(report.shards.map(s => s.shard)).not.toContain('venues')
   })
 })
 

@@ -34102,7 +34102,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description When set, only this family is populated; others are empty arrays. */
-                family?: "shows" | "artists" | "venues" | "venue_years" | "scenes" | "scene_weeks" | "labels" | "releases" | "festivals" | "tags" | "shows-before-2026" | "shows-2026-01" | "shows-2026-02" | "shows-2026-03" | "shows-2026-04" | "shows-2026-05" | "shows-2026-06" | "shows-2026-07" | "shows-2026-08" | "shows-2026-09" | "shows-2026-10" | "shows-2026-11" | "shows-2026-12" | "shows-2027-01" | "shows-2027-02" | "shows-2027-03" | "shows-2027-04" | "shows-2027-05" | "shows-2027-06" | "shows-2027-07" | "shows-2027-08" | "shows-2027-09" | "shows-2027-10" | "shows-2027-11" | "shows-2027-12" | "shows-from-2028" | "releases-a-e" | "releases-f-m" | "releases-n-s" | "releases-t-z";
+                family?: "shows" | "artists" | "venues" | "venue_years" | "scenes" | "scene_weeks" | "labels" | "releases" | "festivals" | "tags" | "shows-b0" | "shows-b1" | "shows-b2" | "shows-b3" | "shows-b4" | "shows-b5" | "shows-b6" | "shows-b7" | "artists-b0" | "artists-b1" | "artists-b2" | "artists-b3" | "artists-b4" | "artists-b5" | "artists-b6" | "artists-b7" | "releases-b0" | "releases-b1" | "releases-b2" | "releases-b3" | "releases-b4" | "releases-b5" | "releases-b6" | "releases-b7";
             };
             header?: never;
             path?: never;

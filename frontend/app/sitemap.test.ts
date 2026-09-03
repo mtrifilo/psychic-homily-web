@@ -26,11 +26,15 @@ vi.mock('@/features/blog', () => ({
 import sitemap, { generateSitemaps } from './sitemap'
 import {
   ALL_SHARD_IDS,
+  ARTIST_SHARD_IDS,
   ENTITY_SHARD_IDS,
   RELEASE_SHARD_IDS,
   SHOW_SHARD_IDS,
   shardFamily,
 } from './sitemap-shards'
+
+/** The artists sub-shard the artists cases drive. */
+const [ARTIST_SHARD] = ARTIST_SHARD_IDS
 
 /** The releases sub-shard the sub-sharding cases drive. */
 const [RELEASE_SHARD] = RELEASE_SHARD_IDS
@@ -133,7 +137,7 @@ describe('sitemap', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     expect(await urlsOf(SHOW_SHARD)).toContain('https://psychichomily.com/shows/a-shows')
-    expect(await urlsOf('artists')).toContain(
+    expect(await urlsOf(ARTIST_SHARD)).toContain(
       'https://psychichomily.com/artists/a-artists'
     )
     expect(await urlsOf('venues')).toContain(

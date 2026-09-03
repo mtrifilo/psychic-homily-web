@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  ARTIST_SHARD_IDS,
   ENTITY_SHARD_IDS,
   PAGES_SHARD_ID,
   RELEASE_SHARD_IDS,
@@ -20,6 +21,9 @@ const STAGE = 'https://stage.psychichomily.com'
 
 /** The shows sub-shard the shows-family fixtures below serve rows from. */
 const [SHOW_SHARD] = SHOW_SHARD_IDS
+
+/** The artists sub-shard the artists-family fixtures below serve rows from. */
+const [ARTIST_SHARD] = ARTIST_SHARD_IDS
 
 /** Retry delay 0 — the real 5s backoff would add 5s to every failure-path test. */
 function testConfig(env: Record<string, string> = {}) {
@@ -102,7 +106,7 @@ describe('walkSitemap', () => {
         'https://psychichomily.com/shows/2026-08-01-a',
         'https://psychichomily.com/shows/2025-01-01-b',
       ]),
-      [`${STAGE}/sitemap/artists.xml`]: urlset(['https://psychichomily.com/artists/a']),
+      [`${STAGE}/sitemap/${ARTIST_SHARD}.xml`]: urlset(['https://psychichomily.com/artists/a']),
     }
     for (const id of ALL_IDS) {
       bodies[`${STAGE}/sitemap/${id}.xml`] ??= urlset([])
@@ -265,82 +269,24 @@ describe('walkSitemap', () => {
   })
 
   /**
-   * The other half of the same hole, and the one the per-shard membership check
-   * above cannot see: a shard that IS listed but serves an empty document.
-   * A generator fetch that 400/422s degrades to an empty-but-valid <urlset>, so
-   * a range can go dark while its siblings are healthy — and neither the
-   * membership check (the shard is present) nor `vanished` (the family is not
-   * at zero) fires. All that would be left is drift, which one range of four may
-   * or may not clear depending on where the cut points fell.
+   * The per-document counts the verdict is built from.
    *
-   * Scoped to SIBLINGS rather than to the API's expected counts, which
-   * walkSitemap does not have. The second case pins that scoping as deliberate:
-   * a whole family at zero must stay SILENT here, because that is `vanished`'s
-   * job and double-reporting it would train the reader to ignore both.
+   * A shard that is LISTED but serves an empty document is a loss wearing a
+   * healthy face, and the membership check above cannot see it. walkSitemap
+   * does not judge it: it records what each document served and the evaluator
+   * compares that against the API's per-shard counts, which is the only thing
+   * that can tell an empty document apart from an empty catalogue.
    */
-  describe('a listed shard that serves nothing', () => {
-    const [darkShard, ...litShards] = RELEASE_SHARD_IDS
-
-    function serveWith(emptyIds: readonly string[]) {
-      vi.stubGlobal(
-        'fetch',
-        vi.fn(async (url: string) => {
-          if (url.endsWith('/sitemap-index')) return xmlResponse(index(ALL_IDS))
-          const id = url.split('/sitemap/')[1]?.replace('.xml', '') ?? ''
-          // Every non-releases shard serves a URL so the releases ranges are
-          // the only thing under test.
-          const isEmpty = emptyIds.includes(id)
-          return xmlResponse(
-            urlset(isEmpty ? [] : [`https://psychichomily.com/releases/${id}-one`])
-          )
-        })
-      )
-    }
-
-    const emptyShardError = (id: string) =>
-      `shard "${id}" served an empty document while other shards of the ` +
-      `"releases" family served URLs — that range is not being announced`
-
-    it('is reported when its siblings served URLs', async () => {
-      serveWith([darkShard])
-
-      const observation = await walkSitemap(testConfig({ SITEMAP_MONITOR_TARGET: STAGE }))
-
-      expect(observation.errors).toContain(emptyShardError(darkShard))
-      // Only the dark one — a healthy sibling must not be reported too.
-      for (const lit of litShards) {
-        expect(observation.errors).not.toContain(emptyShardError(lit))
-      }
-    })
-
-    it('is NOT reported when the whole family is empty — that is `vanished`', async () => {
-      serveWith(RELEASE_SHARD_IDS)
-
-      const observation = await walkSitemap(testConfig({ SITEMAP_MONITOR_TARGET: STAGE }))
-
-      for (const id of RELEASE_SHARD_IDS) {
-        expect(observation.errors).not.toContain(emptyShardError(id))
-      }
-    })
-
-    /**
-     * The shows shards are calendar months, so an empty one is a month nobody
-     * has booked yet rather than a lost document — subShardsCanBeEmpty.
-     * Reported, this would fire on almost every run: the enumerated span runs
-     * to the end of the year after next.
-     */
-    it('is NOT reported for a family whose ranges are legitimately sparse', async () => {
-      const showShards: readonly string[] = SHOW_SHARD_IDS
-      const [darkMonth, ...litMonths] = showShards
-      expect(litMonths.length).toBeGreaterThan(0)
-
+  describe('per-shard counts', () => {
+    it('records what every fetched shard served, empty documents included', async () => {
+      const [darkShard, ...litShards] = RELEASE_SHARD_IDS
       vi.stubGlobal(
         'fetch',
         vi.fn(async (url: string) => {
           if (url.endsWith('/sitemap-index')) return xmlResponse(index(ALL_IDS))
           const id = url.split('/sitemap/')[1]?.replace('.xml', '') ?? ''
           return xmlResponse(
-            urlset(id === darkMonth ? [] : [`https://psychichomily.com/shows/${id}-one`])
+            urlset(id === darkShard ? [] : [`https://psychichomily.com/releases/${id}-one`])
           )
         })
       )
@@ -348,24 +294,34 @@ describe('walkSitemap', () => {
       const observation = await walkSitemap(testConfig({ SITEMAP_MONITOR_TARGET: STAGE }))
 
       expect(observation.errors).toEqual([])
+      expect(observation.observedByShard.get(darkShard)).toBe(0)
+      for (const lit of litShards) {
+        expect(observation.observedByShard.get(lit)).toBe(1)
+      }
     })
-  })
 
-  it('records an error when a shard fails to fetch, and keeps going', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: string) => {
-        if (url.endsWith('/sitemap-index')) return xmlResponse(index(ALL_IDS))
-        if (url.endsWith(`/${SHOW_SHARD}.xml`)) return xmlResponse('server error', 503)
-        return xmlResponse(urlset(['https://psychichomily.com/artists/a']))
-      })
-    )
+    // A document that never answered has no count. Recording it as zero would
+    // let the evaluator report a transport failure as a vanished document, and
+    // one failed document must not cost the rest of the walk.
+    it('records an error for a shard that failed to fetch, omits its count, and keeps going', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string) => {
+          if (url.endsWith('/sitemap-index')) return xmlResponse(index(ALL_IDS))
+          if (url.endsWith(`/${SHOW_SHARD}.xml`)) return xmlResponse('server error', 503)
+          return xmlResponse(urlset(['https://psychichomily.com/artists/a']))
+        })
+      )
 
-    const observation = await walkSitemap(testConfig({ SITEMAP_MONITOR_TARGET: STAGE }))
-    expect(observation.errors.some(e => e.includes(`shard "${SHOW_SHARD}"`) && e.includes('503'))).toBe(
-      true
-    )
-    expect(observation.observedByFamily.artists).toBe(1)
+      const observation = await walkSitemap(testConfig({ SITEMAP_MONITOR_TARGET: STAGE }))
+
+      expect(
+        observation.errors.some(e => e.includes(`shard "${SHOW_SHARD}"`) && e.includes('503'))
+      ).toBe(true)
+      expect(observation.observedByShard.has(SHOW_SHARD)).toBe(false)
+      // Every other document still answered, artists across all of its buckets.
+      expect(observation.observedByFamily.artists).toBe(ARTIST_SHARD_IDS.length)
+    })
   })
 
   // Production served this shape until the sharding deployed; the monitor has
@@ -405,32 +361,37 @@ describe('walkSitemap', () => {
 })
 
 describe('fetchExpectedCounts', () => {
-  function entriesBody(overrides: Record<string, unknown> = {}) {
-    // Keyed by FAMILY: this stands in for the unsharded `/sitemap/entries`
-    // response, whose keys are the schema's families whatever the sitemap
-    // chooses to shard them into.
-    const base = Object.fromEntries(SITEMAP_FAMILIES.map(family => [family, []]))
-    return JSON.stringify({ ...base, ...overrides })
+  /**
+   * One response per SHARD request, keyed by the family the shard populates:
+   * `?family=shows-b3` answers with the `shows` key, the same as the whole
+   * family would, so the counter reads the family field either way.
+   */
+  function serveCounts(rowsByShard: Record<string, number> = {}, defaultRows = 0) {
+    return vi.fn(async (url: string) => {
+      const shardId = new URL(url).searchParams.get('family') ?? ''
+      const family = shardFamily(shardId)
+      const rows = rowsByShard[shardId] ?? defaultRows
+      const body = Object.fromEntries(SITEMAP_FAMILIES.map(f => [f, [] as unknown[]]))
+      if (family) {
+        body[family] = Array.from({ length: rows }, (_, i) => ({ slug: `${shardId}-${i}` }))
+      }
+      return new Response(JSON.stringify(body))
+    })
   }
 
-  it('counts the rows of each family', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(
-        async () =>
-          new Response(
-            entriesBody({
-              shows: [{ slug: 'a' }, { slug: 'b' }],
-              artists: [{ slug: 'c' }],
-            })
-          )
-      )
-    )
+  it('asks for every entity shard and counts each one', async () => {
+    const fetchMock = serveCounts({ [SHOW_SHARD]: 2, artists: 0 }, 1)
+    vi.stubGlobal('fetch', fetchMock)
 
     const counts = await fetchExpectedCounts(testConfig())
-    expect(counts.shows).toBe(2)
-    expect(counts.artists).toBe(1)
-    expect(counts.venues).toBe(0)
+
+    expect(fetchMock).toHaveBeenCalledTimes(ENTITY_SHARD_IDS.length)
+    expect([...counts.byShard.keys()].sort()).toEqual([...ENTITY_SHARD_IDS].sort())
+    expect(counts.byShard.get(SHOW_SHARD)).toBe(2)
+    // A family total is the sum of its documents, which is what makes the
+    // family comparison and the per-shard comparison agree.
+    expect(counts.byFamily.shows).toBe(2 + (SHOW_SHARD_IDS.length - 1))
+    expect(counts.byFamily.venues).toBe(1)
   })
 
   // app/sitemap.ts drops empty slugs, so counting them here would manufacture
@@ -438,23 +399,28 @@ describe('fetchExpectedCounts', () => {
   it('ignores rows the sitemap would not emit', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(
-        async () =>
-          new Response(entriesBody({ shows: [{ slug: 'a' }, { slug: '' }, { notASlug: 1 }] }))
-      )
+      vi.fn(async (url: string) => {
+        const shardId = new URL(url).searchParams.get('family') ?? ''
+        const body = Object.fromEntries(SITEMAP_FAMILIES.map(f => [f, [] as unknown[]]))
+        const family = shardFamily(shardId)
+        if (family === 'shows' && shardId === SHOW_SHARD) {
+          body.shows = [{ slug: 'a' }, { slug: '' }, { notASlug: 1 }]
+        }
+        return new Response(JSON.stringify(body))
+      })
     )
-    expect((await fetchExpectedCounts(testConfig())).shows).toBe(1)
+
+    const counts = await fetchExpectedCounts(testConfig())
+    expect(counts.byShard.get(SHOW_SHARD)).toBe(1)
   })
 
   // Coercing a missing family to zero would blame the sitemap for an API fault.
-  it('throws when a family is missing from the response', async () => {
+  it('throws when the family a shard populates is missing from the response', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => new Response(JSON.stringify({ shows: [] })))
+      vi.fn(async () => new Response(JSON.stringify({ venues: [] })))
     )
-    await expect(fetchExpectedCounts(testConfig())).rejects.toThrow(
-      /missing the "artists" family/
-    )
+    await expect(fetchExpectedCounts(testConfig())).rejects.toThrow(/missing the "shows" family/)
   })
 
   it('throws when the endpoint is unavailable', async () => {
@@ -462,35 +428,41 @@ describe('fetchExpectedCounts', () => {
     await expect(fetchExpectedCounts(testConfig())).rejects.toThrow(/returned 404/)
   })
 
+  // Every failed shard is named in one message rather than whichever request
+  // lost the race, so a partial API outage says how much of the feed is missing.
+  it('names how many shards failed', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 404 })))
+    await expect(fetchExpectedCounts(testConfig())).rejects.toThrow(
+      new RegExp(`for ${ENTITY_SHARD_IDS.length} of ${ENTITY_SHARD_IDS.length} shards`)
+    )
+  })
+
   // A routine backend redeploy landing on the cron must not alarm.
   it('retries a 5xx once and succeeds on the second attempt', async () => {
-    let calls = 0
+    const serve = serveCounts({}, 1)
+    let failed = false
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => {
-        calls++
-        if (calls === 1) return new Response('bad gateway', { status: 502 })
-        return new Response(entriesBody({ shows: [{ slug: 'a' }] }))
+      vi.fn(async (url: string) => {
+        if (!failed) {
+          failed = true
+          return new Response('bad gateway', { status: 502 })
+        }
+        return serve(url)
       })
     )
 
-    expect((await fetchExpectedCounts(testConfig())).shows).toBe(1)
-    expect(calls).toBe(2)
+    const counts = await fetchExpectedCounts(testConfig())
+    expect(counts.byShard.size).toBe(ENTITY_SHARD_IDS.length)
   })
 
   // A 404 is a stable answer; retrying only doubles the time to the same verdict.
   it('does not retry a 4xx', async () => {
-    let calls = 0
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => {
-        calls++
-        return new Response('nope', { status: 404 })
-      })
-    )
+    const fetchMock = vi.fn(async () => new Response('nope', { status: 404 }))
+    vi.stubGlobal('fetch', fetchMock)
 
     await expect(fetchExpectedCounts(testConfig())).rejects.toThrow(/returned 404/)
-    expect(calls).toBe(1)
+    expect(fetchMock).toHaveBeenCalledTimes(ENTITY_SHARD_IDS.length)
   })
 })
 

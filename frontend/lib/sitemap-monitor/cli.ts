@@ -38,7 +38,7 @@ export async function runCheck(config: MonitorConfig, now: Date): Promise<Report
   // Sequential, not Promise.all: if the API feed is down there is nothing to
   // compare against, and crawling every shard first would waste a minute of
   // runner time to reach the same conclusion.
-  const expectedByFamily = await fetchExpectedCounts(config)
+  const expected = await fetchExpectedCounts(config)
   const observation = await walkSitemap(config)
 
   const sampled = pickStratifiedSample(observation.locsByBucket, config.sampleSize)
@@ -51,7 +51,9 @@ export async function runCheck(config: MonitorConfig, now: Date): Promise<Report
       observedByFamily: observation.observedByFamily,
       observedPages: observation.observedPages,
       observedOther: observation.observedOther,
-      expectedByFamily,
+      expectedByFamily: expected.byFamily,
+      observedByShard: observation.observedByShard,
+      expectedByShard: expected.byShard,
       futureShowCount: countFutureShows(observation.showDates, isoDate(now)),
       samples,
       errors: observation.errors,

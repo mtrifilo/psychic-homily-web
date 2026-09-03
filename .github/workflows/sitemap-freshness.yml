@@ -87,25 +87,25 @@ jobs:
   check:
     name: Sitemap vs API
     runs-on: ubuntu-latest
-    # Walking every shard means tens of thousands of URLs across 40 documents
-    # (the index, 39 shards) plus the projection feed and the sampled probes; a
-    # couple of minutes is normal, so this ceiling only catches a genuinely
-    # wedged endpoint.
+    # Walking every shard means tens of thousands of URLs across 33 documents
+    # (the index, 32 shards), plus one projection-feed request per entity shard
+    # and the sampled probes; a couple of minutes is normal, so this ceiling
+    # only catches a genuinely wedged endpoint.
     #
     # DERIVE IT, don't guess it — this job goes silent when it trips (the runner
     # kills the process, main()'s crash handler never runs, and no Discord alert
     # is posted). Worst case per document is one fetch timeout, one retry delay,
     # one more fetch: 30s + 5s + 30s = 65s from the SITEMAP_MONITOR_* defaults
-    # in lib/sitemap-monitor/config.ts. The index, the projection feed and the
-    # sampled probes are each one depth of that; the shards go through
-    # walkSitemap's bounded pool, so their depth is waves, not documents:
+    # in lib/sitemap-monitor/config.ts. The index and the sampled probes are one
+    # depth of that each; the shard documents and the per-shard feed requests
+    # each go through a bounded pool, so their depth is waves, not documents:
     #
-    #   (1 index + ceil(N / SHARD_FETCH_CONCURRENCY) + 1 feed + 1 probe wave)
-    #     x 65s
+    #   (1 index + ceil(N / SHARD_FETCH_CONCURRENCY)
+    #      + ceil(E / SHARD_FETCH_CONCURRENCY) + 1 probe wave) x 65s
     #
-    # At N=39 and a pool of 6 that is 10 x 65s = 10.8 minutes. 25 holds it with
-    # room for several more family splits, and each 6 shards added costs one
-    # more wave, i.e. ~1 minute rather than ~6.5.
+    # At N=32 documents, E=31 entity shards and a pool of 6 that is 14 x 65s =
+    # 15.2 minutes. 25 holds it with room for another family split, and each 6
+    # shards added costs two more waves, i.e. ~2 minutes rather than ~6.5.
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4

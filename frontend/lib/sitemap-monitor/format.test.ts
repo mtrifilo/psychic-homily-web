@@ -26,6 +26,8 @@ function report(overrides: Partial<EvaluationInput> = {}) {
       observedPages: 12,
       observedOther: 0,
       expectedByFamily: counts({ shows: 1458 }),
+      observedByShard: new Map(),
+      expectedByShard: new Map(),
       futureShowCount: 500,
       samples: [{ url: 'https://psychichomily.com/shows/a', status: 200, ok: true }],
       errors: [],

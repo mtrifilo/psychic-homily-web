@@ -64,6 +64,24 @@ function familyLines(report: Report): string[] {
   })
 }
 
+/**
+ * `ok   shows-b3  sitemap 1637 / api 1637  (+0, tol ±328)` per sub-shard.
+ *
+ * Written to the Actions log only. The Discord embed carries the family table
+ * plus the failure list, because 24 more lines would push a healthy report past
+ * the description limit and take the failures with it.
+ */
+function shardLines(report: Report): string[] {
+  if (report.shards.length === 0) return []
+  const width = Math.max(...report.shards.map(c => c.shard.length))
+  return report.shards.map(c => {
+    const mark = c.ok ? 'ok  ' : 'FAIL'
+    const sign = c.delta > 0 ? '+' : ''
+    const note = c.vanished ? ' VANISHED' : c.unobserved ? ' NOT FETCHED' : ''
+    return `${mark} ${c.shard.padEnd(width)}  sitemap ${c.observed} / api ${c.expected}  (${sign}${c.delta}, tol ±${c.allowed})${note}`
+  })
+}
+
 /** The full human-readable report written to the Actions log. */
 export function formatConsoleReport(report: Report): string {
   const lines: string[] = [
@@ -78,6 +96,8 @@ export function formatConsoleReport(report: Report): string {
     '',
     ...familyLines(report),
     '',
+    ...shardLines(report),
+    ...(report.shards.length > 0 ? [''] : []),
     `${report.futureShows.ok ? 'ok  ' : 'FAIL'} upcoming shows  ${report.futureShows.observed} (need ≥ ${report.futureShows.required})`,
     `${report.samples.every(s => s.ok) ? 'ok  ' : 'FAIL'} sampled URLs    ${sampleTally(report)} reachable`,
   ]

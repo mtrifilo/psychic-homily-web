@@ -7,7 +7,7 @@
  * isolation if it does no I/O. fetch.ts gathers, this file judges.
  */
 
-import { SITEMAP_FAMILIES, type Family } from '@/app/sitemap-shards'
+import { shardIdsFor, SITEMAP_FAMILIES, type Family } from '@/app/sitemap-shards'
 import type { MonitorConfig } from './config'
 import type { SitemapShape } from './parse'
 
@@ -24,6 +24,31 @@ export interface FamilyComparison {
   ok: boolean
   /** The API has entries but the sitemap serves none — a failure at any tolerance. */
   vanished: boolean
+}
+
+/**
+ * One sub-shard's served count against what the API says it should hold.
+ *
+ * Only sub-shards are compared here. A family served by a single document is
+ * already covered by its FamilyComparison, and comparing it twice would print
+ * the same drift as two failures.
+ */
+export interface ShardComparison {
+  shard: string
+  family: Family
+  /** `<loc>` count for this document in the served sitemap. */
+  observed: number
+  /** Entry count the API reports for this document. */
+  expected: number
+  /** observed - expected. Negative means the document is missing URLs. */
+  delta: number
+  /** The largest |delta| tolerated for this document under the current config. */
+  allowed: number
+  ok: boolean
+  /** The API has entries but the document serves none. */
+  vanished: boolean
+  /** The document was never fetched or parsed, so there is nothing to compare. */
+  unobserved: boolean
 }
 
 export interface SampleResult {
@@ -43,6 +68,10 @@ export interface EvaluationInput {
   /** `<loc>`s matching no known family — informational, never a failure. */
   observedOther: number
   expectedByFamily: Record<Family, number>
+  /** `<loc>` count per shard document actually fetched from the sitemap. */
+  observedByShard: ReadonlyMap<string, number>
+  /** Entry count the API reports for each entity shard document. */
+  expectedByShard: ReadonlyMap<string, number>
   /** Shows dated today or later, by slug date. */
   futureShowCount: number
   samples: SampleResult[]
@@ -56,6 +85,8 @@ export interface Report {
   shape: SitemapShape
   shardCount: number
   families: FamilyComparison[]
+  /** Per-document comparisons, for the sub-sharded families only. */
+  shards: ShardComparison[]
   observedPages: number
   observedOther: number
   observedTotal: number
@@ -111,6 +142,52 @@ function compareFamilies(
   })
 }
 
+/**
+ * Compare every sub-shard document against the count the API reports for it.
+ *
+ * This is what covers the loss a family comparison cannot see: one document of
+ * a sub-sharded family going dark costs a fraction of its family, and whether
+ * that fraction clears `driftRatio` is an accident of the bucket count rather
+ * than something a check should depend on. Per document, an empty answer where
+ * the API has rows is a failure at any tolerance and names which document.
+ *
+ * Single-document families are deliberately skipped: their FamilyComparison is
+ * the same comparison, and running both would report one problem twice.
+ */
+function compareShards(
+  input: EvaluationInput,
+  config: MonitorConfig
+): ShardComparison[] {
+  const comparisons: ShardComparison[] = []
+  for (const family of SITEMAP_FAMILIES) {
+    const ids = shardIdsFor(family)
+    if (ids.length < 2) continue
+    for (const shard of ids) {
+      const expected = input.expectedByShard.get(shard) ?? 0
+      const observed = input.observedByShard.get(shard)
+      // An unfetched document is reported as an error by the walk, not as a
+      // count: scoring it as zero observed would add a second failure line
+      // blaming the sitemap for a transport problem.
+      const unobserved = observed === undefined
+      const delta = (observed ?? 0) - expected
+      const allowed = allowedDrift(expected, config)
+      const vanished = !unobserved && expected > 0 && observed === 0
+      comparisons.push({
+        shard,
+        family,
+        observed: observed ?? 0,
+        expected,
+        delta,
+        allowed,
+        ok: unobserved || (!vanished && Math.abs(delta) <= allowed),
+        vanished,
+        unobserved,
+      })
+    }
+  }
+  return comparisons
+}
+
 function describeDrift(c: FamilyComparison): string {
   const direction = c.delta < 0 ? 'missing' : 'extra'
   return `${c.family}: sitemap ${c.observed} vs API ${c.expected} (${Math.abs(c.delta)} ${direction}, tolerance ±${c.allowed})`
@@ -118,6 +195,7 @@ function describeDrift(c: FamilyComparison): string {
 
 export function evaluate(input: EvaluationInput, config: MonitorConfig): Report {
   const families = compareFamilies(input, config)
+  const shards = compareShards(input, config)
   const futureShows = {
     observed: input.futureShowCount,
     required: config.minFutureShows,
@@ -140,6 +218,20 @@ export function evaluate(input: EvaluationInput, config: MonitorConfig): Report 
     }
   }
 
+  for (const comparison of shards) {
+    if (comparison.vanished) {
+      failures.push(
+        `vanished — shard ${comparison.shard}: the API has ${comparison.expected} entries and the document serves NONE`
+      )
+    } else if (!comparison.ok) {
+      const direction = comparison.delta < 0 ? 'missing' : 'extra'
+      failures.push(
+        `drift — shard ${comparison.shard}: sitemap ${comparison.observed} vs API ${comparison.expected} ` +
+          `(${Math.abs(comparison.delta)} ${direction}, tolerance ±${comparison.allowed})`
+      )
+    }
+  }
+
   if (!futureShows.ok) {
     failures.push(
       `stale — only ${futureShows.observed} upcoming show URLs (need ≥ ${futureShows.required}); ` +
@@ -158,6 +250,7 @@ export function evaluate(input: EvaluationInput, config: MonitorConfig): Report 
     shape: input.shape,
     shardCount: input.shardCount,
     families,
+    shards,
     observedPages: input.observedPages,
     observedOther: input.observedOther,
     observedTotal:

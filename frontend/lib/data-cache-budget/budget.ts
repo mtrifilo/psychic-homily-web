@@ -174,8 +174,8 @@ export function isWarnBandAllowlisted(
   // Injectable ONLY so the matching rule itself stays testable while the real
   // list is empty. Without it the whole body below is dead code under test —
   // `[].some()` is false for every input — and the "must not also excuse
-  // `?family=releases_v2`" property would go unverified at exactly the moment
-  // PSY-1763 introduced four families whose names extend `releases`.
+  // `?family=releases_v2`" property would go unverified, and the sub-shard ids
+  // are names that extend a family name: `releases-b0` extends `releases`.
   allowlist: ReadonlyArray<{ match: string }> = WARN_BAND_ALLOWLIST
 ): boolean {
   if (!url) return false
