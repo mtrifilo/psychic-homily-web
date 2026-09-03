@@ -16437,6 +16437,8 @@ export interface components {
             ageRequirement?: string;
             artists?: string[] | null;
             description?: string;
+            /** Format: double */
+            doorPrice?: number;
             eventDate?: string;
             isCancelled: boolean;
             isSoldOut: boolean;
