@@ -194,6 +194,17 @@ func (s *DiscoveryService) ImportFromJSON(filepath string, dryRun bool) (*contra
 // internal/services/catalog/show.go, carries the rationale and the reason not to
 // align it.
 //
+// The venue match is by NAME ALONE, deliberately, and does NOT copy the
+// (name, city) scoping catalog's guard uses. The city here could only come from
+// VenueConfig, which is a compile-time constant, while venues.city is editable
+// from the admin surface. The moment the two disagree this predicate stops
+// matching, the import proceeds, and FindOrCreateVenue -- city-scoped in both its
+// exact and its normalized branch -- forks a SECOND venue row, which the
+// id-keyed shows_artist_venue_eventdate_uniq cannot see either. That is the
+// duplicate-venue failure the normalized branch exists to prevent. No two
+// VenueConfig entries share a name, so scoping would refuse nothing new in
+// exchange.
+//
 // Local consequence: a hit tallies the event as DUPLICATE and skips it, while a miss
 // falls through to the import, where the dedup index refuses a single-venue collision
 // as a raw error instead. Narrowing this predicate turns clean DUPLICATE tallies into
@@ -297,7 +308,8 @@ func (s *DiscoveryService) importEvent(event *contracts.DiscoveredEvent, dryRun 
 	// Check if there's a rejected show at the same venue at the same exact
 	// event_date. This prevents re-importing events that were previously
 	// rejected. Keyed on the FULL event_date timestamp (PSY-559) so a rejected
-	// matinee does not block a legitimate evening import at the same venue.
+	// matinee does not block a legitimate evening import at the same venue, and on
+	// the venue NAME alone for the reason recorded on checkHeadlinerDuplicate.
 	var rejectedShow catalogm.Show
 	err = s.db.Joins("JOIN show_venues ON shows.id = show_venues.show_id").
 		Joins("JOIN venues ON show_venues.venue_id = venues.id").
@@ -476,6 +488,11 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 			}
 		}
 
+		// Built from the loop below rather than from artistEntries, so the slug
+		// ranks exactly the rows this import writes: same sanitized name, same
+		// resolved position, same resolved set_type, and skipped entries absent.
+		billForSlug := make([]catalog.HeadlineCandidate, 0, len(artistEntries))
+
 		for idx, entry := range artistEntries {
 			// Sanitize at the boundary — this covers all three sources above
 			// (billing data, artist list, title fallback) with one rule, so a
@@ -546,12 +563,22 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 			if err := tx.Create(&showArtist).Error; err != nil {
 				return fmt.Errorf("failed to create show-artist association: %w", err)
 			}
+
+			billForSlug = append(billForSlug, catalog.HeadlineCandidate{
+				Name:     artistName,
+				SetType:  setType,
+				Position: position,
+			})
 		}
 
-		// Generate slug for the show
-		headlinerName := ""
-		if len(artistEntries) > 0 {
-			headlinerName = artistEntries[0].Name
+		// Generate slug for the show. Ranked on the curated role first, because
+		// the slug is persisted and does not regenerate when the bill is
+		// curated later. Falls back to the same placeholder CreateShow uses when
+		// every entry was skipped as an empty name, so the slug never carries an
+		// empty artist segment.
+		headlinerName := catalog.ResolveHeadlinerName(billForSlug)
+		if headlinerName == "" {
+			headlinerName = "unknown"
 		}
 		// The slug date is read in the venue's own zone (PSY-1873); venueConfig
 		// carries only a state, and the state map answers Phoenix for anything

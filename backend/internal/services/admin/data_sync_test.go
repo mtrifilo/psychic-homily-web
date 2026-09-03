@@ -645,6 +645,97 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_Success() {
 	suite.Require().NoError(err)
 }
 
+// PSY-1959: the persisted slug must name the act the export CURATED as the
+// headliner, not whichever act happens to hold position 0. A slug does not
+// regenerate, so a position-only read writes the wrong act down permanently.
+func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_SlugNamesTheCuratedHeadliner() {
+	result, err := suite.service.ImportData(contracts.DataImportRequest{
+		Shows: []contracts.ExportedShow{
+			{
+				Title:     "Curated Slug Show",
+				EventDate: time.Date(2027, 5, 12, 20, 0, 0, 0, time.UTC).Format(time.RFC3339),
+				Status:    "approved",
+				Venues:    []contracts.ExportedVenue{{Name: "Curated Slug Venue", City: "NYC", State: "NY"}},
+				Artists: []contracts.ExportedShowArtist{
+					{Name: "Slug Opener", Position: 0, SetType: "opener"},
+					{Name: "Slug Headliner", Position: 1, SetType: "headliner"},
+				},
+			},
+		},
+	})
+	suite.Require().NoError(err)
+	suite.Require().Equal(1, result.Shows.Imported, result.Shows.Messages)
+
+	var show catalogm.Show
+	suite.Require().NoError(suite.db.Where("title = ?", "Curated Slug Show").First(&show).Error)
+	suite.Require().NotNil(show.Slug)
+	suite.Contains(*show.Slug, "slug-headliner", "the curated headliner names the slug")
+	suite.NotContains(*show.Slug, "slug-opener")
+}
+
+// backfillShowSlugs is the second persisted-slug writer in this file and runs on
+// the DUPLICATE branch, filling a slug an existing show never got. It ranks the
+// same way importShow does, so the act named there is the curated headliner.
+func (suite *DataSyncServiceIntegrationTestSuite) TestBackfillShowSlugs_NamesTheCuratedHeadliner() {
+	venue := suite.createVenue("Backfill Slug Venue", "NYC", "NY", true)
+	eventDate := time.Date(2027, 4, 22, 20, 0, 0, 0, time.UTC)
+	existing := suite.createShow("Backfill Slug Show", eventDate, catalogm.ShowStatusApproved, venue)
+
+	// The show exists with no slug, so re-importing it takes the duplicate
+	// branch and backfills instead of creating.
+	suite.Require().NoError(suite.db.Model(&catalogm.Show{}).
+		Where("id = ?", existing.ID).Update("slug", nil).Error)
+
+	result, err := suite.service.ImportData(contracts.DataImportRequest{
+		Shows: []contracts.ExportedShow{
+			{
+				Title:     "Backfill Slug Show",
+				EventDate: eventDate.Format(time.RFC3339),
+				Status:    "approved",
+				Venues:    []contracts.ExportedVenue{{Name: "Backfill Slug Venue", City: "NYC", State: "NY"}},
+				Artists: []contracts.ExportedShowArtist{
+					{Name: "Backfill Opener", Position: 0, SetType: "opener"},
+					{Name: "Backfill Headliner", Position: 1, SetType: "headliner"},
+				},
+			},
+		},
+	})
+	suite.Require().NoError(err)
+	suite.Require().Equal(1, result.Shows.Duplicates, result.Shows.Messages)
+
+	var backfilled catalogm.Show
+	suite.Require().NoError(suite.db.First(&backfilled, existing.ID).Error)
+	suite.Require().NotNil(backfilled.Slug)
+	suite.Contains(*backfilled.Slug, "backfill-headliner", "the curated headliner names the backfilled slug")
+	suite.NotContains(*backfilled.Slug, "backfill-opener")
+}
+
+// The other half of the rule: an export that curates nobody still dates its slug
+// from the lowest position, so an uncurated import is unchanged.
+func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_UncuratedSlugStillNamesLowestPosition() {
+	result, err := suite.service.ImportData(contracts.DataImportRequest{
+		Shows: []contracts.ExportedShow{
+			{
+				Title:     "Uncurated Slug Show",
+				EventDate: time.Date(2027, 5, 13, 20, 0, 0, 0, time.UTC).Format(time.RFC3339),
+				Status:    "approved",
+				Venues:    []contracts.ExportedVenue{{Name: "Uncurated Slug Venue", City: "NYC", State: "NY"}},
+				Artists: []contracts.ExportedShowArtist{
+					{Name: "Uncurated Second", Position: 1, SetType: "performer"},
+					{Name: "Uncurated First", Position: 0, SetType: "performer"},
+				},
+			},
+		},
+	})
+	suite.Require().NoError(err)
+	suite.Require().Equal(1, result.Shows.Imported, result.Shows.Messages)
+
+	var show catalogm.Show
+	suite.Require().NoError(suite.db.Where("title = ?", "Uncurated Slug Show").First(&show).Error)
+	suite.Require().NotNil(show.Slug)
+	suite.Contains(*show.Slug, "uncurated-first", "position, not list order, decides an uncurated bill")
+}
+
 func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_Duplicate() {
 	venue := suite.createVenue("Dupe Venue", "NYC", "NY", true)
 	eventDate := time.Date(2025, 6, 15, 20, 0, 0, 0, time.UTC)
@@ -663,6 +754,30 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_Duplicate() {
 	suite.Require().NoError(err)
 	suite.Equal(1, result.Shows.Duplicates)
 	suite.Contains(result.Shows.Messages[0], "DUPLICATE")
+}
+
+// The import's title+venue duplicate gate is scoped to (name, city), the pair
+// venues are unique on and the pair FindOrCreateVenue resolves below it. A tour
+// playing the same-named room in two cities on one night is two shows.
+func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_SameNamedVenueInAnotherCityIsNotADuplicate() {
+	venue := suite.createVenue("Twin Name Room", "NYC", "NY", true)
+	eventDate := time.Date(2027, 4, 9, 20, 0, 0, 0, time.UTC)
+	suite.createShow("Twin Name Show", eventDate, catalogm.ShowStatusApproved, venue)
+
+	result, err := suite.service.ImportData(contracts.DataImportRequest{
+		Shows: []contracts.ExportedShow{
+			{
+				Title:     "Twin Name Show",
+				EventDate: eventDate.Format(time.RFC3339),
+				Status:    "approved",
+				Venues:    []contracts.ExportedVenue{{Name: "Twin Name Room", City: "Boston", State: "MA"}},
+				Artists:   []contracts.ExportedShowArtist{{Name: "Twin Name Act", Position: 0, SetType: "headliner"}},
+			},
+		},
+	})
+	suite.Require().NoError(err)
+	suite.Equal(0, result.Shows.Duplicates, result.Shows.Messages)
+	suite.Equal(1, result.Shows.Imported, result.Shows.Messages)
 }
 
 func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_SameDayDifferentTime_NotDuplicate() {

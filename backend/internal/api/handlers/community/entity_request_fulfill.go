@@ -565,36 +565,31 @@ func payloadShowBill(req *communitym.EntityRequest) ([]ShowArtistInput, error) {
 // is not a second opinion. ConfirmShowImport reaches the same outcome for
 // markdown exports, which always state a label, but NOT by the same mechanism:
 // it pins the flag false on every frontmatter entry unconditionally, so an
-// unlabelled import file gets a bill with no headliner row at all. The direct
-// show-CREATE handler is immune for that same blunter reason: initializeArtist,
-// called at the top of CreateShowRequestBody.Resolve, pins the flag false on
-// every act before the show service ever sees the bill. The show UPDATE handler had
-// the same exposure (it forwards a nil IsHeadliner through replaceShowArtists ->
-// associateArtists -> resolveArtistRole) and was fixed separately, in the show
-// service rather than the handler, by
-// catalog.suppressPositionInferenceWhenHeadlinerNamed (PSY-1860). That one arms
-// only when some act NAMES itself the headliner, rather than on any stated role,
-// because suppressing on a described bill where nobody claims the top would make
-// the shape PSY-1704 calls a write-path defect routine; see its doc comment for
-// the open disagreement between the two rules. The product's own show form was
-// unaffected either way because it derives an explicit is_headliner per act.
+// unlabelled import file gets a bill with no headliner row at all. The show
+// service's own CREATE and UPDATE paths reach it a third way, in the service
+// rather than a handler, by catalog.suppressPositionInferenceWhenHeadlinerNamed.
+// That one arms only when some act NAMES itself the headliner, rather than on
+// any stated role, because suppressing on a described bill where nobody claims
+// the top makes the shape PSY-1704 calls a write-path defect routine; that
+// function's doc comment carries the rule its two paths share. The product's own
+// show form is unaffected either way because it derives an explicit is_headliner
+// per act.
 //
-// KNOWN GAP on THIS endpoint, not fixed by that ticket: buildShowAssociations
-// arms billIsCurated from a stated set_type ALONE and never reads IsHeadliner,
-// so a bill stated only through the legacy flag -- [{Earth}, {Boris,
-// is_headliner:true}] -- never reaches this function and still writes two
-// set_type='headliner' rows. That is the same corruption PSY-1860 fixed next
-// door. The ShowArtistInput doc tags disclose the gap rather than promising the
-// fix, so what remains is the code change and its test.
+// buildShowAssociations arms billIsCurated from a stated set_type ALONE and
+// never reads IsHeadliner, so a bill stated only through the legacy flag --
+// [{Earth}, {Boris, is_headliner:true}] -- does not reach this function at all.
+// It is caught downstream instead: the fulfiller calls ShowService.CreateShow,
+// whose own suppression reads both spellings of the claim, so such a bill still
+// writes exactly one set_type='headliner' row.
 //
-// Scoped deliberately narrower than initializeArtist: acts that state their own
-// set_type or is_headliner are left untouched. For an ADMIN-typed bill the
-// caller adds a second narrowing, leaving a bill where NOBODY states anything
-// untouched as a whole, so no caller that predates set_type on this endpoint can
-// see a different outcome; pinning those unconditionally would turn an
-// undescribed admin bill into a bill with no headliner at all. A PAYLOAD bill
-// gets exactly that outcome on purpose, because there the alternative is
-// asserting a headliner nobody chose.
+// Scoped deliberately: acts that state their own set_type or is_headliner are
+// left untouched, so this never overwrites a caller's own claim. For an
+// ADMIN-typed bill the caller adds a second narrowing, leaving a bill where
+// NOBODY states anything untouched as a whole, so no caller that predates
+// set_type on this endpoint can see a different outcome; pinning those
+// unconditionally would turn an undescribed admin bill into a bill with no
+// headliner at all. A PAYLOAD bill gets exactly that outcome on purpose, because
+// there the alternative is asserting a headliner nobody chose.
 //
 // A bill that ends up with no headliner row is still safe, and is sometimes the
 // honest answer (an admin who states only "performer" and "dj" has not named a

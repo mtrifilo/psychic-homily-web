@@ -302,6 +302,39 @@ func TestResolve_TooManyArtists(t *testing.T) {
 	}
 }
 
+// TestResolve_PreservesUnstatedHeadlinerFlag: Resolve must leave a nil
+// is_headliner nil. A defaulted false is indistinguishable from a caller that
+// chose false, and the show service reads the difference: a silent act keeps the
+// position-0 headliner fallback, an act pinned false is held out of it.
+//
+// The pair below is what makes this a guard rather than a snapshot: defaulting
+// the flag again would leave a stated flag untouched, so only the nil case
+// catches it.
+func TestResolve_PreservesUnstatedHeadlinerFlag(t *testing.T) {
+	stated := false
+	body := &CreateShowRequestBody{
+		EventDate: time.Now().UTC().AddDate(0, 0, 7),
+		City:      "Phoenix",
+		State:     "AZ",
+		Venues:    namedVenues(1),
+		Artists: []Artist{
+			{Name: testhelpers.StringPtr("Silent Act")},
+			{Name: testhelpers.StringPtr("Stated Act"), IsHeadliner: &stated},
+		},
+	}
+
+	errs := body.Resolve(nil)
+	if hasErrorAt(errs, "body.artists") {
+		t.Fatalf("valid bill must resolve cleanly, got: %v", errs)
+	}
+	if body.Artists[0].IsHeadliner != nil {
+		t.Errorf("an act that stated nothing must keep a nil is_headliner, got %v", *body.Artists[0].IsHeadliner)
+	}
+	if body.Artists[1].IsHeadliner == nil || *body.Artists[1].IsHeadliner {
+		t.Errorf("an explicit false must survive Resolve unchanged")
+	}
+}
+
 // TestResolve_TooManyVenues: same cap for venues.
 func TestResolve_TooManyVenues(t *testing.T) {
 	body := &CreateShowRequestBody{

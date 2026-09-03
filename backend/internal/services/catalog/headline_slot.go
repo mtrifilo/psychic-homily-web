@@ -39,20 +39,21 @@ import (
 // nobody has said anything better about it.
 //
 // KNOWN CONSEQUENCE, disclosed on PSY-1704 rather than papered over: a
-// PARTIALLY curated bill has no headline slot at all. The show form always
-// states a role for every act (artist 1 seeds as Headliner), but an API client
-// can send `set_type` on one act and nothing on another, and
-// handlers/catalog.initializeArtist then defaults the silent act's
-// is_headliner to a non-nil FALSE, which means resolveArtistRole's
-// position-0 fallback never fires on POST /shows, and the top act is stored
-// 'performer'. On such a bill the genuine headliner is counted as a support
-// slot and becomes eligible for Openers to Watch.
+// PARTIALLY curated bill has no headline slot at all. This rule is not the place
+// to repair one. Narrowing the fallback to "no row states 'headliner'" would
+// re-introduce the position heuristic on bills whose curator described an opener
+// and no headliner, which is exactly what the curated arm exists to stop.
 //
-// That is a write-path defect (initializeArtist destroys the "caller stated
-// nothing" signal that resolveArtistRole is built to detect); reading it as a
-// headline slot here would only hide it. Narrowing the fallback to "no row
-// states 'headliner'" would also mask it, and would re-introduce the position
-// heuristic on bills whose curator described an opener and no headliner.
+// Which bills arrive in that shape is a write-path question. On the show
+// service's create and update paths, an act that states neither set_type nor
+// is_headliner keeps its "caller stated nothing" signal, so resolveArtistRole's
+// position-0 fallback names a headliner on any bill where no other act claims
+// the slot (suppressPositionInferenceWhenHeadlinerNamed). A bill reaches this
+// shape when its top act is pinned off the headline slot instead: by its own
+// caller (set_type 'performer', or is_headliner false), by ConfirmShowImport,
+// which pins every frontmatter entry unconditionally, or by the community
+// fulfiller, which pins the silent acts of an admin-typed bill that states any
+// set_type, and of every bill adopted from a contributor's request payload.
 //
 // NOT covered here, deliberately, in three groups:
 //
@@ -114,27 +115,26 @@ import (
 //     pipeline/discovery.createShowFromEvent, and two in
 //     internal/services/admin/data_sync.go -- importShow and
 //     backfillShowSlugs. (Note that path: there is also an
-//     internal/api/handlers/admin, which is NOT where this lives.) They are
-//     not reachable by the SQL rule above and need their own audit. cmd/seed
-//     has two more; it is dev tooling and is not audited here.
+//     internal/api/handlers/admin, which is NOT where this lives.) cmd/seed has
+//     two more; it is dev tooling and is not audited here.
 //
-//     NOTE that three of the four ignore set_type entirely, by two different
-//     mechanisms. createShowFromEvent takes artistEntries[0] by list index.
-//     The two data_sync sites read the EXPORTED Position field and keep the
-//     LAST artist whose Position is 0, falling back to the first in the list
-//     when none is -- so do not go looking for an [0] index there. Either way
-//     the role was in hand: discovery carries it on artistEntries[i].SetType
-//     (a per-artist setType is computed in the loop immediately above the slug
-//     call), and the export payload carries ExportedShowArtist.SetType. So a
-//     curated bill whose headliner is not first can persist a slug naming the
-//     wrong act, and because a slug is written down that outlives any
-//     read-path fix. Left alone here only because the SQL rule above cannot
-//     reach it. catalog.CreateShow is the one that reads the stated role.
+//     ResolveHeadlinerName below is that group's shared rule and all four call
+//     it. It has to be a separate function rather than headlineSlotSQL because
+//     the rows it ranks may not exist to query yet, and because a slug needs a
+//     name even from a bill that names no headliner. A slug is written down and
+//     outlives any read-path fix, which is why this group ranks on the curated
+//     role rather than on list position.
 //
 //  3. The duplicate-headliner GUARDS at show.go's checkDuplicateHeadlinerConflicts
-//     and pipeline/discovery.go's checkHeadlinerDuplicate (the latter fed by
-//     discovery.resolveHeadlinerName, which unlike its slug-writing sibling
-//     DOES honor set_type). They keep the
+//     and pipeline/discovery.go's checkHeadlinerDuplicate. The act each one
+//     PROBES is resolved separately from the slug: catalog's by
+//     probedHeadlinerNames off the request, discovery's by its own
+//     resolveHeadlinerName off the scraped payload, which takes the FIRST act in
+//     list order that states 'headliner' and otherwise the lowest 1-based
+//     billing_order, where 0 means absent. ResolveHeadlinerName takes the
+//     lowest-POSITION curated headliner on a 0-based position, so the two
+//     disagree on a tied or multi-headliner bill and are not interchangeable as
+//     written. They keep the
 //     `(set_type = 'headliner' OR position = 0)` disjunction, which is NOT
 //     equivalent to this rule and is deliberately broader: they ask whether a
 //     write would collide, not which row tops a bill. The error directions stay
@@ -178,4 +178,75 @@ func headlineSlotSQL(alias string) string {
 		THEN COALESCE(` + alias + `.set_type, '') = '` + contracts.SetTypeHeadliner + `'
 		ELSE ` + alias + `.position = 0
 	END)`
+}
+
+// HeadlineCandidate is one act of a bill as an in-memory writer holds it. Name
+// and Position are what that writer will store. SetType is normalized here, so a
+// caller may pass either the label its payload carried or the value it has
+// already resolved.
+type HeadlineCandidate struct {
+	Name     string
+	SetType  string
+	Position int
+}
+
+// ResolveHeadlinerName names the act that tops `bill`, for writers that must
+// pick a headliner from a request or export payload rather than from
+// show_artists. It is the in-memory counterpart of the group-1 RESOLVE reads
+// documented above and ranks on the same two keys, curated 'headliner' first and
+// then lowest position. The third key differs: those reads break a tie on a
+// stable row id, which does not exist yet here, so this breaks it on bill order.
+//
+// It always names an act when the bill has one, because its callers write the
+// answer into a slug and a slug needs a name. That is what separates it from
+// headlineSlotSQL, which reports that a curated bill naming no headliner has no
+// headline slot at all. Returns "" only for an empty bill.
+//
+// Position is read from the value the caller will store, not from slice index,
+// because discovery derives position from billing_order and the data-sync import
+// carries an exported Position that need not match list order.
+func ResolveHeadlinerName(bill []HeadlineCandidate) string {
+	if len(bill) == 0 {
+		return ""
+	}
+
+	// Comparisons are strict, so an act that ties the incumbent leaves it in
+	// place and bill order is the final tiebreak.
+	best := bill[0]
+	bestCurated := claimsHeadlinerRole(best)
+	for _, act := range bill[1:] {
+		curated := claimsHeadlinerRole(act)
+		if curated != bestCurated {
+			if curated {
+				best, bestCurated = act, curated
+			}
+			continue
+		}
+		if act.Position < best.Position {
+			best = act
+		}
+	}
+	return best.Name
+}
+
+// claimsHeadlinerRole reports whether this act's stated role is the headline
+// slot. Normalized rather than compared raw, so a caller may pass the label its
+// payload carried.
+func claimsHeadlinerRole(act HeadlineCandidate) bool {
+	return contracts.NormalizeSetType(act.SetType) == contracts.SetTypeHeadliner
+}
+
+// storedBillCandidates maps the rows a create just wrote onto the shape
+// ResolveHeadlinerName ranks, so the slug reads the stored set_type and position
+// rather than response order.
+func storedBillCandidates(artists []contracts.ArtistResponse) []HeadlineCandidate {
+	bill := make([]HeadlineCandidate, 0, len(artists))
+	for _, artist := range artists {
+		bill = append(bill, HeadlineCandidate{
+			Name:     artist.Name,
+			SetType:  artist.SetType,
+			Position: artist.Position,
+		})
+	}
+	return bill
 }

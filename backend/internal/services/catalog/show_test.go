@@ -2518,9 +2518,8 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_DuplicateErrorClaim
 }
 
 // TestCreateShow_PartiallyCuratedTopActIsStillDuplicateChecked covers a
-// PARTIALLY CURATED bill: one act states 'opener', the top act states nothing
-// and is stored 'performer' at position 0 (handlers/catalog.initializeArtist
-// pins is_headliner=false on any act that did not state a role).
+// PARTIALLY CURATED bill: one act states 'opener', the top act is pinned
+// is_headliner=false by its caller and is stored 'performer' at position 0.
 //
 // Because some act is curated, headlineSlotSQL takes its CURATED arm and finds
 // no 'headliner' row, so it reads this bill as having no headline slot. That is
@@ -2528,10 +2527,11 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_DuplicateErrorClaim
 // headlineSlotSQL falls back to position 0 and agrees with the guard.
 //
 // Reachability, since it decides how much the divergence matters. The REQUEST
-// shape built here (an act carrying no set_type, whose is_headliner the handler
-// pins false) is API-only, because the form sends a set_type for every act. The
-// STORED bill is not API-only: the form offers every act, including the first,
-// the full role list with "slot unknown" among them, and flyer extraction
+// shape built here needs a caller that pins the flag false on an act it has not
+// otherwise described, which the community fulfiller and ConfirmShowImport both
+// do; an act that simply omits both fields keeps the headline slot instead. The
+// STORED bill is not caller-specific: the form offers every act, including the
+// first, the full role list with "slot unknown" among them, and flyer extraction
 // resolves an act the extractor said nothing about to 'performer'. So a curated
 // bill with no 'headliner' row arrives from ordinary form use too.
 //
@@ -2548,7 +2548,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_PartiallyCuratedTop
 		State:     "AZ",
 		Venues:    venue,
 		Artists: []contracts.CreateShowArtist{
-			// Silent top act, exactly as initializeArtist leaves it.
+			// Top act pinned out of the headline slot by its caller.
 			{Name: "Partial Top Act", IsHeadliner: boolPtr(false)},
 			{Name: "Partial Support Act", SetType: strPtr(contracts.SetTypeOpener)},
 		},
@@ -3996,17 +3996,283 @@ artists:
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(resp)
-	// Should still be importable but with a warning
-	suite.True(resp.CanImport)
+	// The confirm path refuses this, so the preview must not offer it.
+	suite.False(resp.CanImport, "a preview must not promise an import the confirm path refuses")
 	suite.Require().NotEmpty(resp.Warnings)
 	found := false
 	for _, w := range resp.Warnings {
-		if strings.Contains(w, "already has a show") {
+		if strings.Contains(w, "'Dup Preview Headliner' is already performing") {
 			found = true
 			break
 		}
 	}
-	suite.True(found, "expected duplicate headliner warning, got: %v", resp.Warnings)
+	suite.True(found, "expected duplicate warning, got: %v", resp.Warnings)
+
+	// The other half of "one predicate": the outcome the warning predicted.
+	_, err = suite.showService.ConfirmShowImport(content, true)
+	suite.Require().Error(err, "confirm must refuse exactly what preview refused")
+	suite.Contains(err.Error(), "'Dup Preview Headliner' is already performing")
+}
+
+// PSY-1982: the preview's predicate used to be NARROWER than the confirm
+// guard's on two counts, and this file trips both. Nothing states 'headliner',
+// so the confirm guard falls back to the first-billed act, which the preview
+// never probed; and the stored row it collides with is a curated opener the
+// preview's `set_type='headliner'` filter could not see.
+func (suite *ShowServiceIntegrationTestSuite) TestPreviewShowImport_RefusesWhatTheConfirmGuardRefuses() {
+	user := suite.createTestUser()
+	eventDate := suite.uniqueEventDate()
+	_, err := suite.showService.CreateShow(&contracts.CreateShowRequest{
+		Title:     "Narrower Predicate Original",
+		EventDate: eventDate,
+		City:      "Phoenix",
+		State:     "AZ",
+		Venues:    []contracts.CreateShowVenue{{Name: "Narrower Predicate Venue", City: "Phoenix", State: "AZ"}},
+		Artists: []contracts.CreateShowArtist{
+			{Name: "Narrower Predicate Act", SetType: strPtr(contracts.SetTypeOpener)},
+			{Name: "Narrower Predicate Top", SetType: strPtr(contracts.SetTypeHeadliner)},
+		},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	})
+	suite.Require().NoError(err)
+
+	content := []byte(fmt.Sprintf(`---
+show:
+  title: "Narrower Predicate Import"
+  event_date: "%s"
+  city: "Phoenix"
+  state: "AZ"
+  status: "pending"
+venues:
+  - name: "Narrower Predicate Venue"
+    city: "Phoenix"
+    state: "AZ"
+artists:
+  - name: "Narrower Predicate Act"
+    position: 0
+---
+`, eventDate.Format(time.RFC3339)))
+
+	resp, err := suite.showService.PreviewShowImport(content)
+	suite.Require().NoError(err)
+	suite.False(resp.CanImport, "the file states no headliner, so the guard probes the first-billed act")
+
+	_, err = suite.showService.ConfirmShowImport(content, true)
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "'Narrower Predicate Act' is already performing")
+}
+
+// ConfirmShowImport pins is_headliner=false on EVERY frontmatter entry, so an
+// unlabelled import file stores a bill with no headliner row at all. That is a
+// deliberate carry-over rather than something PSY-1943 changed: what an
+// unlabelled export means is the export format's decision, not the create
+// path's. Pinned so it is asserted rather than assumed.
+func (suite *ShowServiceIntegrationTestSuite) TestConfirmShowImport_UnlabelledFileStoresNoHeadliner() {
+	eventDate := suite.uniqueEventDate()
+	content := []byte(fmt.Sprintf(`---
+show:
+  title: "Unlabelled Import"
+  event_date: "%s"
+  city: "Phoenix"
+  state: "AZ"
+  status: "approved"
+venues:
+  - name: "Unlabelled Import Room"
+    city: "Phoenix"
+    state: "AZ"
+artists:
+  - name: "Unlabelled Top Act"
+    position: 0
+  - name: "Unlabelled Second Act"
+    position: 1
+---
+`, eventDate.Format(time.RFC3339)))
+
+	created, err := suite.showService.ConfirmShowImport(content, true)
+	suite.Require().NoError(err)
+	suite.Equal([]string{contracts.SetTypePerformer, contracts.SetTypePerformer}, suite.storedSetTypes(created.ID))
+	suite.Equal(0, suite.storedHeadlinerCount(created.ID))
+}
+
+// A file the confirm path cannot accept must not preview as importable.
+// FindOrCreateVenue requires name, city and state, so a venue missing any of
+// them 422s on confirm however the duplicate predicate answers.
+func (suite *ShowServiceIntegrationTestSuite) TestPreviewShowImport_VenueMissingCityCannotImport() {
+	content := []byte(`---
+show:
+  title: "No Venue City Import"
+  event_date: "2027-12-01T20:00:00Z"
+  city: "Phoenix"
+  state: "AZ"
+  status: "approved"
+venues:
+  - name: "No City Room"
+    state: "AZ"
+artists:
+  - name: "No City Act"
+    position: 0
+    set_type: "headliner"
+---
+`)
+
+	resp, err := suite.showService.PreviewShowImport(content)
+	suite.Require().NoError(err)
+	suite.False(resp.CanImport, "the confirm path refuses this, so the preview must not offer it")
+	suite.Contains(resp.Warnings, "Venue 'No City Room' is missing city")
+
+	_, err = suite.showService.ConfirmShowImport(content, true)
+	suite.Require().Error(err, "confirm must refuse exactly what preview refused")
+}
+
+// The city half of PSY-1982, through both surfaces: a same-named venue in
+// ANOTHER city is a different room, so neither the preview nor the confirm may
+// treat it as a duplicate.
+func (suite *ShowServiceIntegrationTestSuite) TestShowImport_SameNamedVenueInAnotherCityIsNotADuplicate() {
+	user := suite.createTestUser()
+	eventDate := suite.uniqueEventDate()
+	_, err := suite.showService.CreateShow(&contracts.CreateShowRequest{
+		Title:             "Touring Act In Phoenix",
+		EventDate:         eventDate,
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{Name: "The Rebel Lounge", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Same Name Venue Act", SetType: strPtr(contracts.SetTypeHeadliner)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	})
+	suite.Require().NoError(err)
+
+	content := []byte(fmt.Sprintf(`---
+show:
+  title: "Touring Act In Tucson"
+  event_date: "%s"
+  city: "Tucson"
+  state: "AZ"
+  status: "pending"
+venues:
+  - name: "The Rebel Lounge"
+    city: "Tucson"
+    state: "AZ"
+artists:
+  - name: "Same Name Venue Act"
+    position: 0
+    set_type: "headliner"
+---
+`, eventDate.Format(time.RFC3339)))
+
+	resp, err := suite.showService.PreviewShowImport(content)
+	suite.Require().NoError(err)
+	suite.True(resp.CanImport, "a same-named room in another city is not a collision")
+	suite.Empty(resp.Warnings)
+
+	created, err := suite.showService.ConfirmShowImport(content, true)
+	suite.Require().NoError(err, "the confirm path must accept what the preview offered")
+	suite.Require().NotNil(created)
+}
+
+// The venue-ID branch of the guard, which is what the show form sends. Before
+// this branch existed the guard built its venue predicate from an empty name and
+// matched nothing, so an id-identified create skipped it entirely.
+//
+// The request carries NO venue name, so it also exercises the id fallback in the
+// refusal message.
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_VenueIdentifiedByIDIsDuplicateChecked() {
+	user := suite.createTestUser()
+	eventDate := suite.uniqueEventDate()
+
+	seeded, err := suite.showService.CreateShow(&contracts.CreateShowRequest{
+		Title:             "Venue By ID Original",
+		EventDate:         eventDate,
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{Name: "Venue By ID Room", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Venue By ID Act", SetType: strPtr(contracts.SetTypeHeadliner)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	})
+	suite.Require().NoError(err)
+	suite.Require().Len(seeded.Venues, 1)
+	venueID := seeded.Venues[0].ID
+
+	_, err = suite.showService.CreateShow(&contracts.CreateShowRequest{
+		Title:             "Venue By ID Rebill",
+		EventDate:         eventDate,
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{ID: &venueID}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Venue By ID Act", SetType: strPtr(contracts.SetTypeHeadliner)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	})
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "'Venue By ID Act' is already performing",
+		"an id-identified venue must be duplicate-checked, not skipped")
+	suite.Contains(err.Error(), fmt.Sprintf("venue '#%d'", venueID),
+		"a request that names no venue is labelled by the id it gave")
+	suite.NotContains(strings.ToLower(err.Error()), "duplicate key",
+		"the guard refuses this, so the index never has to")
+
+	// A DIFFERENT room, also given by id, on the same night. This is the half
+	// that catches an over-broad id branch: a scope that forgot its venue term
+	// would refuse this too.
+	other, err := suite.showService.CreateShow(&contracts.CreateShowRequest{
+		Title:             "Venue By ID Other Night",
+		EventDate:         suite.uniqueEventDate(),
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{Name: "Venue By ID Other Room", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Venue By ID Other Act", SetType: strPtr(contracts.SetTypeHeadliner)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	})
+	suite.Require().NoError(err)
+	suite.Require().Len(other.Venues, 1)
+	otherVenueID := other.Venues[0].ID
+
+	_, err = suite.showService.CreateShow(&contracts.CreateShowRequest{
+		Title:             "Venue By ID Elsewhere",
+		EventDate:         eventDate,
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{ID: &otherVenueID}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Venue By ID Act", SetType: strPtr(contracts.SetTypeHeadliner)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	})
+	suite.Require().NoError(err, "a different room, also given by id, is not a collision")
+}
+
+// The same city scoping at the guard itself, without the import surface: the
+// venue join is scoped to (name, city), the pair venues are unique on and the
+// pair associateVenues resolves.
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_SameNamedVenueInAnotherCityIsNotADuplicate() {
+	user := suite.createTestUser()
+	eventDate := suite.uniqueEventDate()
+
+	build := func(title, city string) *contracts.CreateShowRequest {
+		return &contracts.CreateShowRequest{
+			Title:             title,
+			EventDate:         eventDate,
+			City:              city,
+			State:             "AZ",
+			Venues:            []contracts.CreateShowVenue{{Name: "Crescent Ballroom", City: city, State: "AZ"}},
+			Artists:           []contracts.CreateShowArtist{{Name: "Cross City Act", SetType: strPtr(contracts.SetTypeHeadliner)}},
+			SubmittedByUserID: &user.ID,
+			SubmitterIsAdmin:  true,
+		}
+	}
+
+	_, err := suite.showService.CreateShow(build("Cross City Phoenix", "Phoenix"))
+	suite.Require().NoError(err)
+
+	_, err = suite.showService.CreateShow(build("Cross City Tucson", "Tucson"))
+	suite.Require().NoError(err, "a same-named room in another city must not be refused as a duplicate")
+
+	// The same room on the same night still is one.
+	_, err = suite.showService.CreateShow(build("Cross City Phoenix Again", "Phoenix"))
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "'Cross City Act' is already performing")
 }
 
 func (suite *ShowServiceIntegrationTestSuite) TestPreviewShowImport_MissingEventDate() {

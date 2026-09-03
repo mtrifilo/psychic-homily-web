@@ -629,10 +629,14 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 		return fmt.Sprintf("ERROR: Invalid musicAt '%s': %v", *show.MusicAt, err), "error"
 	}
 
-	// Get venue name for deduplication
-	venueName := ""
+	// Get venue identity for deduplication: name, and city when the payload
+	// carries one. Venues are unique on (lower(name), lower(city)) and the venue
+	// lookup further down resolves on that pair, so a name alone reaches
+	// same-named rooms in other cities.
+	venueName, venueCity := "", ""
 	if len(show.Venues) > 0 {
 		venueName = show.Venues[0].Name
+		venueCity = show.Venues[0].City
 	}
 
 	// Check for duplicate: same title + venue + event_date. The dedup key is the
@@ -641,11 +645,19 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 	// EventDate round-trips through RFC3339 on export/import, preserving time-of-day.
 	if venueName != "" {
 		var existingShow catalogm.Show
-		err := s.db.Joins("JOIN show_venues ON shows.id = show_venues.show_id").
+		dupQuery := s.db.Joins("JOIN show_venues ON shows.id = show_venues.show_id").
 			Joins("JOIN venues ON show_venues.venue_id = venues.id").
 			Where("LOWER(shows.title) = LOWER(?) AND LOWER(venues.name) = LOWER(?) AND shows.event_date = ?",
-				show.Title, venueName, eventDate).
-			First(&existingShow).Error
+				show.Title, venueName, eventDate)
+		// ExportedVenue.City is a plain string with no validation, so a
+		// hand-written or pre-city payload can arrive blank. Narrowing on a blank
+		// city would match nothing, let the import proceed, and fork a second
+		// venue row that the id-keyed dedup index cannot see; matching on the
+		// name alone there keeps the pre-city behaviour.
+		if venueCity != "" {
+			dupQuery = dupQuery.Where("LOWER(venues.city) = LOWER(?)", venueCity)
+		}
+		err := dupQuery.First(&existingShow).Error
 		if err == nil {
 			// Backfill slugs for the existing show and its associated entities
 			if !dryRun {
@@ -675,13 +687,10 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 			status = catalogm.ShowStatusPrivate
 		}
 
-		// Determine headliner name for show slug
-		headlinerName := ""
-		for _, a := range show.Artists {
-			if a.Position == 0 || headlinerName == "" {
-				headlinerName = a.Name
-			}
-		}
+		// Determine headliner name for show slug. Ranked on the curated role
+		// first, because the slug is persisted and does not regenerate when the
+		// bill is curated later.
+		headlinerName := catalog.ResolveHeadlinerName(exportedBillCandidates(show.Artists))
 
 		// Determine state for timezone-aware slug
 		showState := ""
@@ -840,16 +849,27 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 	return fmt.Sprintf("IMPORTED: Show '%s' at %s on %s", show.Title, venueName, eventDate.Format("2006-01-02")), "imported"
 }
 
+// exportedBillCandidates maps an export payload's bill onto the shape
+// catalog.ResolveHeadlinerName ranks. SetType is passed through raw and
+// normalized there; an unmappable label ranks as no claim, which is what the
+// import writes for it.
+func exportedBillCandidates(artists []contracts.ExportedShowArtist) []catalog.HeadlineCandidate {
+	out := make([]catalog.HeadlineCandidate, 0, len(artists))
+	for _, a := range artists {
+		out = append(out, catalog.HeadlineCandidate{
+			Name:     a.Name,
+			SetType:  a.SetType,
+			Position: a.Position,
+		})
+	}
+	return out
+}
+
 // backfillShowSlugs generates slugs for an existing show and its associated artists/venues if missing.
 func (s *DataSyncService) backfillShowSlugs(existingShow *catalogm.Show, show *contracts.ExportedShow, eventDate time.Time, venueName string) {
 	// Backfill show slug
 	if existingShow.Slug == nil {
-		headlinerName := ""
-		for _, a := range show.Artists {
-			if a.Position == 0 || headlinerName == "" {
-				headlinerName = a.Name
-			}
-		}
+		headlinerName := catalog.ResolveHeadlinerName(exportedBillCandidates(show.Artists))
 		showState := ""
 		if show.State != nil {
 			showState = *show.State

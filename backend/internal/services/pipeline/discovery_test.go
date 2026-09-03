@@ -1087,6 +1087,65 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_WithBillingArtists(
 	suite.Equal(2, showArtists[2].Position)
 }
 
+// PSY-1959: the persisted slug names the act the scrape CURATED as the
+// headliner, even when another act is billed first. A slug does not regenerate,
+// so a position-only read writes the wrong act down permanently.
+func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_SlugNamesTheCuratedHeadliner() {
+	events := []contracts.DiscoveredEvent{
+		{
+			ID:        "evt-curated-slug-1",
+			Title:     "Curated Slug Bill",
+			Date:      "2026-12-17",
+			Venue:     "Valley Bar",
+			VenueSlug: "valley-bar",
+			BillingArtists: []contracts.DiscoveredArtist{
+				{Name: "Discovery Slug Opener", SetType: "opener", BillingOrder: 1},
+				{Name: "Discovery Slug Headliner", SetType: "headliner", BillingOrder: 2},
+			},
+			ScrapedAt: time.Now().UTC().Format(time.RFC3339),
+		},
+	}
+
+	result, err := suite.svc.ImportEvents(events, false, false, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Require().Equal(1, result.Imported, result.Messages)
+
+	var show catalogm.Show
+	suite.Require().NoError(suite.db.Where("source_event_id = ?", "evt-curated-slug-1").First(&show).Error)
+	suite.Require().NotNil(show.Slug)
+	suite.Contains(*show.Slug, "discovery-slug-headliner", "the curated headliner names the slug")
+	suite.NotContains(*show.Slug, "discovery-slug-opener")
+}
+
+// The uncurated arm of the same slug rule. billing_order is 1-based and decides
+// position, so a scrape that lists the acts out of billing order still dates its
+// slug from the act billed first, not the one listed first.
+func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_UncuratedSlugNamesTheLowestBillingOrder() {
+	events := []contracts.DiscoveredEvent{
+		{
+			ID:        "evt-uncurated-slug-1",
+			Title:     "Uncurated Slug Bill",
+			Date:      "2026-12-18",
+			Venue:     "Valley Bar",
+			VenueSlug: "valley-bar",
+			BillingArtists: []contracts.DiscoveredArtist{
+				{Name: "Discovery Uncurated Second", SetType: "performer", BillingOrder: 2},
+				{Name: "Discovery Uncurated First", SetType: "performer", BillingOrder: 1},
+			},
+			ScrapedAt: time.Now().UTC().Format(time.RFC3339),
+		},
+	}
+
+	result, err := suite.svc.ImportEvents(events, false, false, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Require().Equal(1, result.Imported, result.Messages)
+
+	var show catalogm.Show
+	suite.Require().NoError(suite.db.Where("source_event_id = ?", "evt-uncurated-slug-1").First(&show).Error)
+	suite.Require().NotNil(show.Slug)
+	suite.Contains(*show.Slug, "discovery-uncurated-first", "position, not list order, decides an uncurated bill")
+}
+
 func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_FallbackWithoutBillingArtists() {
 	// When BillingArtists is empty, the fallback infers ONLY the headliner
 	// from bill order (PSY-1673). Positions past 0 get the neutral default:
