@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -67,10 +68,20 @@ func TestValidatePayload_NameLengthCappedOnEveryType(t *testing.T) {
 			require.Error(t, err, "one byte past the cap must be refused")
 			assert.Contains(t, err.Error(), wantErr)
 
-			// 2.6 KB is the size that aborted a dedup-index build.
+			// A multi-kilobyte name is what blows the btree index-row limit.
 			err = ValidateEntityRequestPayload(entityType, namedPayload(t, entityType, strings.Repeat("a", 2600)))
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), wantErr)
+
+			// CHARACTERS, not bytes. The cap mirrors a VARCHAR(255), and
+			// fulfillEntity re-runs this validation over the STORED payload after
+			// the decide path has claimed the row, so a cap stricter than the column
+			// turns an already-queued request into an orphan.
+			multibyte := strings.Repeat("東", maxRequestNameLen)
+			require.Greater(t, len(multibyte), maxRequestNameLen,
+				"the fixture must exceed the cap in BYTES, or it is not testing the unit")
+			assert.NoError(t, ValidateEntityRequestPayload(entityType, namedPayload(t, entityType, multibyte)),
+				"a name the column would hold must not be refused for being multi-byte")
 
 			// UNICODE WHITESPACE must not smuggle an oversized value past the cap.
 			// Go's strings.TrimSpace strips 25 space runes while SQL trim() strips
@@ -101,28 +112,102 @@ func TestValidateVenue_CityAndStateCapped(t *testing.T) {
 	base := VenueRequestPayload{Name: "The Fillmore", City: "Phoenix", State: "AZ"}
 
 	overCity := base
-	overCity.City = strings.Repeat("c", maxRequestCityLen+1)
+	overCity.City = strings.Repeat("c", maxRequestVenueCityLen+1)
 	raw, err := MarshalPayload(overCity)
 	require.NoError(t, err)
 	err = ValidateEntityRequestPayload(EntityRequestVenue, raw)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "city must be "+strconv.Itoa(maxRequestCityLen)+" characters or fewer")
+	assert.Contains(t, err.Error(), "city must be "+strconv.Itoa(maxRequestVenueCityLen)+" characters or fewer")
 
 	overState := base
-	overState.State = strings.Repeat("s", maxRequestStateLen+1)
+	overState.State = strings.Repeat("s", maxRequestVenueStateLen+1)
 	raw, err = MarshalPayload(overState)
 	require.NoError(t, err)
 	err = ValidateEntityRequestPayload(EntityRequestVenue, raw)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "state must be "+strconv.Itoa(maxRequestStateLen)+" characters or fewer")
+	assert.Contains(t, err.Error(), "state must be "+strconv.Itoa(maxRequestVenueStateLen)+" characters or fewer")
 
 	atCap := base
-	atCap.City = strings.Repeat("c", maxRequestCityLen)
-	atCap.State = strings.Repeat("s", maxRequestStateLen)
+	atCap.City = strings.Repeat("c", maxRequestVenueCityLen)
+	atCap.State = strings.Repeat("s", maxRequestVenueStateLen)
 	raw, err = MarshalPayload(atCap)
 	require.NoError(t, err)
 	assert.NoError(t, ValidateEntityRequestPayload(EntityRequestVenue, raw),
 		"values exactly at the caps are legal, and the index must not truncate them")
+
+	// CHARACTERS, not bytes, on both halves. The cap has to match the VARCHAR it
+	// mirrors, because fulfillEntity re-runs this validation over the STORED
+	// payload after the decide path has claimed the row: a cap stricter than the
+	// column turns an already-queued request into an approved-but-unfulfilled
+	// orphan no decide call can re-process.
+	multibyte := base
+	multibyte.City = strings.Repeat("東", maxRequestVenueCityLen)
+	multibyte.State = strings.Repeat("都", maxRequestVenueStateLen)
+	raw, err = MarshalPayload(multibyte)
+	require.NoError(t, err)
+	require.Greater(t, len(multibyte.City), maxRequestVenueCityLen,
+		"the fixture must exceed the cap in BYTES, or it is not testing the unit")
+	assert.NoError(t, ValidateEntityRequestPayload(EntityRequestVenue, raw),
+		"a city the column would hold must not be refused for being multi-byte")
+}
+
+// PSY-1989: the festival occurrence term keeps four digits, so edition_year must
+// be bounded to four digits at the boundary. Without that, 20261 truncates to
+// "2026" and a mistyped edition DESTROYS the real one on resubmission, which is
+// the collision this key exists to remove. The width and the bound are the pair.
+func TestFestivalEditionYearIsBoundedToTheTermWidth(t *testing.T) {
+	term := DedupOccurrenceTermFor(EntityRequestFestival)
+	require.Equal(t, len(strconv.Itoa(maxRequestEditionYear)), term.Width,
+		"the edition_year bound and the occurrence term's width must have the same "+
+			"number of digits, or a legal year is truncated into another year's bucket")
+
+	base := FestivalRequestPayload{
+		Name: "Psycho Las Vegas", StartDate: "2026-08-14", EndDate: "2026-08-16",
+	}
+
+	over := base
+	over.EditionYear = maxRequestEditionYear + 1
+	raw, err := MarshalPayload(over)
+	require.NoError(t, err)
+	err = ValidateEntityRequestPayload(EntityRequestFestival, raw)
+	require.Error(t, err, "a five-digit edition year shares a dedup bucket with a four-digit one")
+	assert.Contains(t, err.Error(), "edition_year must be between 0 and "+strconv.Itoa(maxRequestEditionYear))
+
+	negative := base
+	negative.EditionYear = -1
+	raw, err = MarshalPayload(negative)
+	require.NoError(t, err)
+	assert.Error(t, ValidateEntityRequestPayload(EntityRequestFestival, raw))
+
+	for _, year := range []int{0, 1, maxRequestEditionYear} {
+		ok := base
+		ok.EditionYear = year
+		raw, err = MarshalPayload(ok)
+		require.NoError(t, err)
+		assert.NoErrorf(t, ValidateEntityRequestPayload(EntityRequestFestival, raw),
+			"edition_year %d is within the bound", year)
+	}
+}
+
+// PSY-1990: the same Unicode-whitespace bypass the name cap closes was open one
+// function over. ValidateShowBill measures the TRIMMED act name, and Go's trim
+// strips U+3000 while the stored payload keeps it, so a padded name reached
+// artists.name VARCHAR(255) and failed at INSERT after the decide path had
+// claimed the row.
+func TestValidateShowPayloadArtists_BoundsTheStoredName(t *testing.T) {
+	padded := "Boris" + strings.Repeat("　", 1000)
+	require.Equal(t, "Boris", strings.TrimSpace(padded),
+		"the fixture must LOOK short to Go, or it is not testing the bypass")
+
+	err := ValidateShowPayloadArtists([]ShowRequestArtist{{Name: padded}})
+	require.Error(t, err, "a Unicode-padded act name must not pass the bill cap")
+	assert.Contains(t, err.Error(), "must be "+strconv.Itoa(MaxShowRequestArtistNameLen)+" characters or fewer")
+
+	// Ordinary padding is still fine, so the new bound refuses nothing a trim would
+	// have accepted. It deliberately does NOT widen ValidateShowBill's own cap,
+	// which measures the trimmed name in BYTES and is shared with the admin approve
+	// path; this check only closes the gap between the raw value and that trim.
+	assert.NoError(t, ValidateShowPayloadArtists([]ShowRequestArtist{{Name: "  Boris  "}}))
 }
 
 // occurrenceKeyBounds records, for every JSON key an occurrence term may read,
@@ -140,8 +225,13 @@ var occurrenceKeyBounds = map[string]struct {
 	cap      int
 	semantic bool
 }{
-	"event_date":   {cap: maxRequestDateLen},
-	"city":         {cap: maxRequestCityLen},
+	"event_date": {cap: maxRequestDateLen},
+	"city":       {cap: maxRequestVenueCityLen},
+	// edition_year and start_date are truncated to the four digits of a year, so
+	// the width is the meaning rather than a safety bound. They still have to be
+	// BOUNDED, or a value longer than the truncation shares a bucket with a
+	// shorter one: maxRequestEditionYear and requireDate do that, and
+	// TestFestivalEditionYearIsBoundedToTheTermWidth pins it.
 	"edition_year": {semantic: true},
 	"start_date":   {semantic: true},
 }
@@ -191,6 +281,7 @@ func TestAcceptedNameIsIndexTermSafe(t *testing.T) {
 		"Boris　", // one U+3000, which SQL trim() does NOT strip
 		"Boris" + strings.Repeat("　", 1000),
 		strings.Repeat("a", 2600),
+		strings.Repeat("東", maxRequestNameLen),
 		"Sun City Girls",
 	}
 
@@ -202,10 +293,13 @@ func TestAcceptedNameIsIndexTermSafe(t *testing.T) {
 					continue // refused values never reach the index
 				}
 				accepted++
-				assert.LessOrEqual(t, len(sqlTrim(name)), maxRequestNameLen,
+				// CHARACTERS under either trim, because Postgres left() truncates in
+				// characters too. The BYTE bound follows: a term of n characters is at
+				// most 4n bytes, which is what keeps it inside the btree row limit.
+				assert.LessOrEqual(t, utf8.RuneCountInString(sqlTrim(name)), maxRequestNameLen,
 					"an ACCEPTED payload's SQL-trimmed name term exceeds the cap, "+
 						"so the boundary does not bound what the index stores")
-				assert.LessOrEqual(t, len(strings.TrimSpace(name)), maxRequestNameLen)
+				assert.LessOrEqual(t, utf8.RuneCountInString(strings.TrimSpace(name)), maxRequestNameLen)
 			}
 			require.NotZero(t, accepted, "every candidate was refused; the assertions above ran on nothing")
 		})

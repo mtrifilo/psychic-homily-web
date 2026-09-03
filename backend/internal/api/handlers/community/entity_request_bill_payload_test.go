@@ -285,6 +285,19 @@ func TestCreateEntityRequestPayloadDocMatchesTheRules(t *testing.T) {
 		"the headliner rule is the one thing a producer cannot discover by trying it: "+
 			"omitting set_type and stating 'performer' produce identical rows, so a "+
 			"producer who assumes bill order names the headliner ships shows with none")
+
+	// PSY-1990/PSY-1989: the payload is json.RawMessage, so the boundary's hard
+	// 422s reach no schema and this string is the only place a producer can read
+	// them. A cap changed without changing the doc leaves a producer building
+	// against a limit that no longer exists.
+	assert.Contains(t, doc, fmt.Sprintf("must be %d characters or fewer", communitym.MaxRequestNameLen()),
+		"the documented name/title cap must be the cap the boundary enforces")
+	assert.Contains(t, doc, fmt.Sprintf("city must be %d characters or fewer", communitym.MaxRequestVenueCityLen()),
+		"the documented venue city cap must be the cap the boundary enforces, and it is "+
+			"also the width the dedup index truncates that term to")
+	assert.Contains(t, doc, fmt.Sprintf("between 0 and %d", communitym.MaxRequestEditionYear()),
+		"the documented edition_year bound must be the bound the boundary enforces; it "+
+			"exists because the dedup term keeps four digits")
 }
 
 // ============================================================================

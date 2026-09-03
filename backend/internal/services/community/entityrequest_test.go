@@ -910,8 +910,9 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_SameVenueSameC
 // PSY-1989 deliberately leaves STATE out of the venue key, because the catalog's
 // constraint is (LOWER(name), LOWER(city)) and CreateVenue refuses a second venue
 // with that pair. Keying on state would file two requests that fulfil to one
-// venue, and the second approval would 409 after its row was claimed. Pinned so
-// that adding state is a decision rather than an accident.
+// venue, and the second approval would fail after its row was claimed, leaving an
+// approved-but-unfulfilled row. Pinned so that adding state is a decision rather
+// than an accident.
 func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_SameVenueNameAndCityDifferentState_StillReplaces() {
 	user := suite.createUser("chainstate", tierContributor, false)
 
@@ -1509,6 +1510,8 @@ func mustMarshalLabel(suite *EntityRequestServiceIntegrationTestSuite, name stri
 //
 // What IS worth asserting is the asymmetry, because it is an assumption both call
 // sites make silently: they bind args for the CANDIDATE expression only.
+// See TestDedupKeyStoredSideCarriesNoPlaceholder below.
+
 // dedupIndexMigration is the migration that currently defines
 // uq_entity_requests_pending_dedup. A migration that redefines that index must
 // move this pointer, which is the same "edit them as a pair" discipline the
@@ -1519,15 +1522,18 @@ const dedupIndexMigration = "../../../db/migrations/20260902223753_entity_reques
 // expression, character for character modulo whitespace.
 //
 // TestDedupOccurrenceMatchesTheIndex compares against the index Postgres actually
-// built, which is the stronger claim but a lossy one: pg_indexes rewrites the
-// expression, so that test can only compare the literals and widths Postgres
-// preserves. Everything between them is invisible there — the venue term's
-// lower(), a re-nested coalesce or nullif — and dropping the lower() alone would
-// leave the query case-folding a term the index does not, which selects the wrong
-// row rather than erroring.
+// built, which is the stronger claim about deployment but a weaker one about
+// structure: Postgres rewrites the expression (trim becomes btrim, casts appear),
+// so that test compares only the literals and widths that survive verbatim.
+// pg_indexes DOES render everything else, including lower() — it is this
+// COMPARISON that cannot see it, not Postgres. Dropping the venue term's lower()
+// would leave the query case-folding a term the index does not, which selects the
+// wrong row rather than erroring, and that test would still pass.
 //
-// This closes that gap, and needs no database, so the structural half of the pair
-// fails in `go test` rather than only under an integration run.
+// This closes that gap structurally and needs no database, so the pair's
+// structural half fails in `go test` rather than only under an integration run.
+// The two are complementary: this one cannot see whether the deployed database
+// actually ran this migration, and that one can.
 func TestDedupOccurrenceIndexExprMatchesTheMigration(t *testing.T) {
 	sqlBytes, err := os.ReadFile(dedupIndexMigration)
 	if err != nil {
@@ -1549,6 +1555,24 @@ func TestDedupOccurrenceIndexExprMatchesTheMigration(t *testing.T) {
 		t.Errorf("the migration's occurrence expression and dedupOccurrenceIndexExpr differ.\n"+
 			"migration: %s\nGo:        %s\n"+
 			"They must be edited as a pair, in a NEW migration.", fromFile, fromGo)
+	}
+}
+
+// The occurrence renderer interpolates a term's JSON keys and absent-sentinel
+// into SQL as quoted literals, and it does not escape them. That is safe only
+// because every one of those values is a package constant in the payload
+// registry, never contributor input — the payload itself is always a bound
+// parameter. This asserts the premise rather than leaving it to be assumed by
+// whoever adds the seventh payload type.
+func TestDedupOccurrenceLiteralsCannotBreakOutOfSQL(t *testing.T) {
+	for _, entityType := range communitym.ValidEntityRequestTypes() {
+		term := communitym.DedupOccurrenceTermFor(entityType)
+		for _, literal := range append(append([]string{}, term.JSONKeys...), term.AbsentAs) {
+			if strings.ContainsAny(literal, "'\\") {
+				t.Errorf("%s declares occurrence literal %q, which would break out of the "+
+					"quoted SQL the renderer builds", entityType, literal)
+			}
+		}
 	}
 }
 
@@ -1674,7 +1698,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestDedupOccurrenceMatche
 		communitym.DedupOccurrenceTermFor(communitym.EntityRequestShow).Width,
 		"a show's occurrence truncation and the API boundary's event_date cap must be equal")
 	suite.Assert().Equal(
-		communitym.MaxRequestCityLen(),
+		communitym.MaxRequestVenueCityLen(),
 		communitym.DedupOccurrenceTermFor(communitym.EntityRequestVenue).Width,
 		"a venue's occurrence truncation and the API boundary's city cap must be equal")
 }

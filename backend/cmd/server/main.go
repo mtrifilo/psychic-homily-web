@@ -296,11 +296,10 @@ func main() {
 		return err == nil
 	}, os.Getenv))
 
-	// PSY-1482/PSY-1991: rate-limit authenticated contribution mutations
-	// (save/unsave show+release, follow/unfollow entity+scene, venue confirm, and
-	// POST /entity-requests) against a SHARED per-USER budget (60/min burst +
-	// 600/hr sustained, both must pass). Public-read limiting exempts writes, so
-	// these mutations otherwise had no ceiling on rc.Protected.
+	// PSY-1482: rate-limit authenticated engagement-toggle mutations (save/unsave
+	// show+release, follow/unfollow entity+scene) against a SHARED per-USER budget
+	// (60/min burst + 600/hr sustained, both must pass). Public-read limiting
+	// exempts writes, so these mutations otherwise had no ceiling on rc.Protected.
 	// Admin JWTs and trusted phk_ tokens bypass. Mounted after sc (needs sc.JWT),
 	// before SetupRoutes (chi middleware must register before routes). OPT-IN
 	// (default noop): set ENABLE_ENGAGEMENT_MUTATION_RATE_LIMITS=1 per environment

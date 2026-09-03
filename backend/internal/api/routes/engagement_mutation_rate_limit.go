@@ -9,9 +9,8 @@ import (
 	"psychic-homily-backend/internal/testenv"
 )
 
-// PSY-1482: dedicated rate limit for authenticated contribution mutations —
-// engagement toggles (save/unsave show+release, follow/unfollow entity+scene,
-// venue confirm) and entity-request creation (PSY-1991) — mounted globally in
+// PSY-1482: dedicated rate limit for authenticated engagement-toggle mutations
+// (save/unsave show+release, follow/unfollow entity+scene), mounted globally in
 // cmd/server/main.go. Public-read limiting (PSY-1362/1373) explicitly exempts
 // writes, so these mutations had no ceiling on rc.Protected (JWT only).
 //
@@ -19,12 +18,6 @@ import (
 // instance meters every in-scope path, so save and follow cannot be spammed
 // independently. It keys per USER (not IP), so shared-IP logged-in users never
 // collide.
-//
-// Everything here is named for engagement because ENABLE_ENGAGEMENT_MUTATION_RATE_LIMITS
-// is, and that flag is set per environment, so renaming it is a deploy-ordering
-// hazard for a cosmetic gain. The Go identifiers could be renamed freely and are
-// deliberately not, to stay in step with the flag. The scope is the path list
-// below, not the name.
 
 // EnableEngagementMutationRateLimitsEnvVar is an OPT-IN flag: the limiter is a
 // pass-through noop unless this is set to "1". Opt-in (not a default-on
@@ -42,48 +35,34 @@ func IsEngagementMutationRateLimitEnabled(getenv func(string) string) bool {
 	return testenv.IsFlagEnabled(EnableEngagementMutationRateLimitsEnvVar, getenv)
 }
 
-// engagementMutationPathPatterns match the in-scope endpoints on their concrete
-// request paths (path params already substituted):
+// engagementMutationPathPatterns match the in-scope engagement-toggle endpoints
+// on their concrete request paths (path params already substituted):
 //   - /saved-shows/{show_id}        (save/unsave show)
 //   - /saved-releases/{release_id}  (save/unsave release)
 //   - /{entity_type}/{entity_id}/follow AND /scenes/{slug}/follow (follow/unfollow)
 //   - /venues/{venue_id}/confirm    (PSY-1542 venue confirm-current)
-//   - /entity-requests              (PSY-1991 queue an entity-creation request)
 //
 // Both follow shapes are three-segment paths ending in /follow, so one pattern
 // covers them. Read-shaped helpers are deliberately NOT matched: /follows/batch
 // (POST body of ids) does not end in /follow, and the save-count batch paths are
 // on the public-read allowlist — both stay off the mutation budget per policy.
-// The ADMIN entity-request paths are not matched either: they are three segments
-// deep, and an admin bypasses this limiter anyway.
 //
 // Venue confirm joins the SHARED budget rather than getting its own: it is the
 // same class of one-tap authenticated toggle, and a separate budget would let a
 // farmer spend a full allowance on confirmations while still spending a full
 // allowance on follows. Confirmation counts are freshness evidence, so cheap
 // mass-confirming is exactly the abuse this ceiling exists to bound.
-//
-// Entity-request creation joins it for the same structural reason and one more.
-// The structural reason: a contributor files these one row at a time from a
-// per-row affordance, so it is the same interaction shape, and a separate budget
-// would just be another allowance to spend. The other reason is that a separate
-// budget would need its own ceiling, and choosing one is a policy call this
-// endpoint has no evidence for yet — 60/min and 600/hr are the numbers PSY-1460
-// locked, and applying them turns an UNBOUNDED write into a bounded one without
-// inventing a second policy. If moderation-queue volume later argues for a
-// tighter ceiling than an engagement toggle deserves, that is a policy change
-// with its own budget, not a tweak to this list.
 var engagementMutationPathPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`^/saved-shows/[^/]+$`),
 	regexp.MustCompile(`^/saved-releases/[^/]+$`),
 	regexp.MustCompile(`^/[^/]+/[^/]+/follow$`),
 	regexp.MustCompile(`^/venues/[^/]+/confirm$`),
-	regexp.MustCompile(`^/entity-requests$`),
 }
 
-// isEngagementMutationRequest reports whether a request is an in-scope mutation
-// (POST/DELETE on one of the paths above). GETs (e.g. /saved-shows list,
-// /saved-shows/{id}/check, follower counts) are reads and never matched.
+// isEngagementMutationRequest reports whether a request is an in-scope
+// engagement toggle mutation (POST/DELETE on one of the paths above). GETs
+// (e.g. /saved-shows list, /saved-shows/{id}/check, follower counts) are reads
+// and never matched.
 func isEngagementMutationRequest(r *http.Request) bool {
 	if r.Method != http.MethodPost && r.Method != http.MethodDelete {
 		return false

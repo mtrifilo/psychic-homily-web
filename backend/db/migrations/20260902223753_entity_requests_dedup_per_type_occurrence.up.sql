@@ -8,8 +8,13 @@
 -- cases. The occurrence is now a CASE over entity_type, and each type's term is
 -- declared beside its payload struct in Go
 -- (EntityRequestPayload.dedupOccurrenceTerm), which is where the per-type
--- reasoning lives. TestDedupOccurrenceMatchesTheIndex reads THIS index out of
--- Postgres and asserts it against those declarations, so the two cannot drift.
+-- reasoning lives. Two tests hold the pair together, and neither alone is
+-- enough: TestDedupOccurrenceIndexExprMatchesTheMigration compares the Go
+-- renderer against THIS FILE structurally, and TestDedupOccurrenceMatchesTheIndex
+-- reads the index back out of Postgres and compares the literals and widths it
+-- preserves. A NEW migration that redefines this index must move the
+-- dedupIndexMigration constant the first of those reads, or it will keep passing
+-- against this file.
 --
 -- EACH TERM IS READ OFF THE CATALOG CONSTRAINT THE FULFILLED ENTITY MEETS. A key
 -- FINER than the catalog's uniqueness is not a fix: it files two requests an
@@ -64,12 +69,15 @@
 -- collide two pending rows differing only in the case of an RFC3339 T or Z.
 --
 -- SIZE CAN FAIL. A btree index tuple has a hard ~2704-byte limit, and this
--- migration ADDS UP TO 255 BYTES (a venue's city) to that tuple, so "it fit the
--- previous index" is not a bound on whether it fits this one. The name term is
--- still indexed UNTRUNCATED and, on rows queued before PSY-1990, still uncapped:
--- a pending row with a ~2.6 KB name is what aborted the PSY-1977 build with
--- SQLSTATE 54000. PSY-1990 caps name/title at 255 at the API boundary in this
+-- migration ADDS a venue's city to that tuple, so "it fit the previous index" is
+-- not a bound on whether it fits this one. left(city, 100) counts CHARACTERS, not
+-- bytes, so a legacy multi-byte city can add up to ~400 bytes. The name term is
+-- still indexed UNTRUNCATED and, on rows queued before PSY-1990, still uncapped,
+-- so a pending row with a multi-kilobyte name aborts the build with SQLSTATE
+-- 54000. PSY-1990 caps name/title at 255 characters at the API boundary in this
 -- same PR, which bounds every NEW row but does nothing for rows already queued.
+-- The preflight below measures octet_length of the UNTRUNCATED values, so it
+-- over-counts rather than under-counts.
 --
 -- PREFLIGHT before deploying this, and resolve anything it returns by shortening
 -- or deciding the row:
@@ -88,13 +96,22 @@
 -- version: recover with `migrate force 20260831065648` and then `up` once the
 -- row is shortened.
 --
+-- A PRE-PSY-1989 BINARY AGAINST THIS INDEX is a broken pair for venues and
+-- festivals: its lookup keys on the name alone, so it can select a row this
+-- INSERT never collided with, and the replacement it then attempts violates this
+-- index. The contributor's correction 500s deterministically until the rows are
+-- resolved; it does not destroy the other row, because this index refuses that
+-- write.
+--
+-- THAT PAIRING OCCURS ON THE WAY FORWARD TOO, not only on a rollback. Migrations
+-- run in the NEW container's entrypoint while the old container is still serving,
+-- so during a rolling replacement the old binary meets this index. The window is
+-- short and the failure is a 500 rather than data loss, but it is a real window
+-- and it is not the rollback's alone.
+--
 -- ROLLING THIS BACK: run the down migration and deploy the pre-PSY-1989 build
--- TOGETHER, in that order. A pre-PSY-1989 binary against this index is a broken
--- pair for venues and festivals: its lookup keys on the name alone, so it can
--- select a row this INSERT never collided with, and the replacement it then
--- attempts violates this index. The contributor's correction 500s
--- deterministically until the rows are resolved; it does not destroy the other
--- row, because this index refuses that write. See the down migration.
+-- TOGETHER, in that order. See the down migration, which describes both
+-- mismatched pairings.
 --
 -- Multi-statement file ⇒ golang-migrate wraps it in a transaction, so these are
 -- plain (NOT CONCURRENTLY) statements. entity_requests is a small moderation
@@ -110,7 +127,7 @@ CREATE UNIQUE INDEX uq_entity_requests_pending_dedup
         (CASE entity_type
             WHEN 'festival' THEN left(coalesce(nullif(nullif(trim(payload->>'edition_year'), ''), '0'), nullif(trim(payload->>'start_date'), ''), ''), 4)
             WHEN 'show' THEN left(coalesce(nullif(trim(payload->>'event_date'), ''), ''), 64)
-            WHEN 'venue' THEN lower(left(coalesce(nullif(trim(payload->>'city'), ''), ''), 255))
+            WHEN 'venue' THEN lower(left(coalesce(nullif(trim(payload->>'city'), ''), ''), 100))
             ELSE ''
         END)
     )

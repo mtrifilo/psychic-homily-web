@@ -7,17 +7,23 @@
 -- sharing a name in different editions, the unique index cannot be built. Those
 -- rows exist only because the per-type key allowed them.
 --
--- ORDER: run this migration and the pre-PSY-1989 deploy TOGETHER. Unlike the
--- usual convention in this directory (roll the app back first), the old binary
--- is the half incompatible with the NEW schema: against the per-type index its
--- name-only venue lookup can select a row the INSERT never collided with, and
--- the replacement it attempts then violates that index, so a contributor's
--- correction 500s deterministically. It does not destroy the other row, because
--- the index refuses that write. The new binary works correctly against the
--- narrow index this file restores for every type but venue and festival, where
--- its lookup is wider than the index and can pick the wrong row — which is why
--- the two halves move together. So: resolve the rows, then migrate down, then
--- deploy the old build.
+-- ORDER: run this migration and the pre-PSY-1989 deploy TOGETHER. Both mismatched
+-- pairings are broken, in different ways, and NEITHER destroys a row.
+--
+-- OLD binary against the NEW (per-type) index: its name-only venue lookup can
+-- select a row the INSERT never collided with, and the replacement it attempts
+-- then violates that index, so a contributor's correction 500s deterministically
+-- until the rows are resolved. The index refuses the write, so the other row
+-- survives.
+--
+-- NEW binary against the NARROW index this file restores: the opposite direction.
+-- Its lookup requires MORE terms than the index collides on, so after a unique
+-- violation the lookup finds nothing and the create falls through to the same
+-- deterministic 500. It cannot pick a wrong row, because under the narrow index
+-- at most one pending row exists per (entity_type, requester_id, name). The
+-- CreateRequest fall-through comment describes this case.
+--
+-- So: resolve the rows, then migrate down, then deploy the old build.
 --
 -- The operator's remedy is to resolve the collision EXPLICITLY before rolling
 -- back, never to let a rollback pick a winner: decide (approve or reject) all
