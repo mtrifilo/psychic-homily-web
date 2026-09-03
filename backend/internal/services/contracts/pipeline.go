@@ -192,9 +192,9 @@ type CheckEventInput struct {
 
 // ShowCurrentData contains the current stored data for a show, used for diff comparison
 type ShowCurrentData struct {
-	// Price is the advance price on a show that also records DoorPrice, and
-	// both are reported because the import path writes both: a caller diffing
-	// against Price alone cannot see a door price move.
+	// Price is the advance price on a show that also records DoorPrice. Both
+	// are reported because the import path writes both, so a diff taken
+	// against Price alone would be blind to half of what an import changes.
 	Price          *float64 `json:"price,omitempty"`
 	DoorPrice      *float64 `json:"doorPrice,omitempty"`
 	AgeRequirement *string  `json:"ageRequirement,omitempty"`

@@ -2,9 +2,12 @@ package pipeline
 
 import (
 	"fmt"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // priceOf renders a parsed half for a failure message without dereferencing nil.
@@ -41,9 +44,18 @@ func TestParseEventPrices_SourceShapes(t *testing.T) {
 		{"presale comma door", "$20 presale, $25 at the door", floatPtr(20), floatPtr(25)},
 		{"labels lead the amounts", "adv $20 / door $25", floatPtr(20), floatPtr(25)},
 		{"door stated first", "$25 door / $20 adv", floatPtr(20), floatPtr(25)},
-		{"day of show", "$20 / $25 day of show", floatPtr(20), floatPtr(25)},
-		{"non-breaking spaces", "$20\u00a0adv\u00a0/\u00a0$25\u00a0door", floatPtr(20), floatPtr(25)},
+		{"day of show", "$20 adv / $25 day of show", floatPtr(20), floatPtr(25)},
+		{"day of THE show", "$20 in advance, $25 the day of the show", floatPtr(20), floatPtr(25)},
+		{"day-of-show abbreviated", "$20 ADV / $25 DOS", floatPtr(20), floatPtr(25)},
 		{"cents on both halves", "$20.00 adv / $25.50 door", floatPtr(20), floatPtr(25.5)},
+		{"age restriction after the door label", "$20 adv / $25 door 21+", floatPtr(20), floatPtr(25)},
+		{"labels flush against their amounts", "$20adv/$25door", floatPtr(20), floatPtr(25)},
+
+		// Whitespace folding is what lets statedAmount's `\s*` see these at
+		// all: RE2's `\s` does not cover U+00A0, so the sign and its digits
+		// would not read as one amount.
+		{"non-breaking spaces between the words", "$20\u00a0adv\u00a0/\u00a0$25\u00a0door", floatPtr(20), floatPtr(25)},
+		{"non-breaking space after the sign", "$\u00a020 adv / $\u00a025 door", floatPtr(20), floatPtr(25)},
 
 		// A thousands separator is not a second amount and not a decimal point.
 		// Reading "$1,200" as $1 understates a price a hundredfold, which is
@@ -54,23 +66,65 @@ func TestParseEventPrices_SourceShapes(t *testing.T) {
 		{"no separator", "$1200", floatPtr(1200), nil},
 		{"space after the sign", "$ 20 adv / $ 25 door", floatPtr(20), floatPtr(25)},
 
-		// Several amounts with no door label are a ticket-tier range, and
-		// neither bound is the cost of getting in. SeeTickets serves these
-		// verbatim out of span.price -- "$10.00-$30.00" was read off the live
-		// Rebel Lounge calendar -- and both halves stay unstated, which is what
-		// this parser already did with them.
+		// A tier range is not a split, and neither bound is the cost of getting
+		// in. SeeTickets serves these verbatim out of span.price -- the
+		// four-figure shapes below were read off the live Rebel Lounge calendar
+		// -- and it prefixes ONE sign to the whole span, so the second bound
+		// often carries none. Counting signed amounts would miss exactly those.
 		{"tier range", "$10.00-$30.00", nil, nil},
+		{"tier range with one sign", "$10.00-30.00", nil, nil},
+		{"short tier range", "$20-25", nil, nil},
+		{"spaced tier range", "$10 - 30", nil, nil},
+		{"spelled range", "$20 to $30", nil, nil},
 		{"bare slash pair", "$20/$25", nil, nil},
+
+		// Every half is read from a label. Nothing becomes the advance price by
+		// being the amount left over, which is what published a three dollar
+		// advance for a twenty-five dollar door.
+		{"door label without an advance label", "$20 / $25 door", nil, nil},
+		{"fee beside a door price", "$25 at the door (plus $3 fees)", nil, nil},
 		{"price plus a fee", "$20 (plus $3 fees)", nil, nil},
+		{"tier ahead of the split", "$30 VIP / $20 adv / $25 door", nil, nil},
+		{"both labels on one amount", "adv $20 door $25", nil, nil},
 
 		// A door word that belongs to the doors TIME states no second price.
 		{"doors time", "$20, doors at 7", floatPtr(20), nil},
 		{"doors open", "$20 doors open 8pm", floatPtr(20), nil},
-		{"doors time beside a range", "$20/$25, doors at 7", nil, nil},
+		{"doors time beside a pair", "$20/$25, doors at 7", nil, nil},
 
-		// A lone amount is the show's price whatever word sits beside it.
-		{"lone door amount", "$25 at the door", floatPtr(25), nil},
+		// A free word beside a figure is ambiguous, and none of these readings
+		// is the show's price.
+		{"free with a door price", "Free / $10 at the door", nil, nil},
+		{"free with an rsvp", "Free w/ RSVP, $10 door", nil, nil},
+		{"free before a time", "Free before 10pm, $10 after", nil, nil},
+		{"free parking", "$20 free parking", nil, nil},
+
+		// A lone amount goes to the half its own label names. A door-only
+		// listing is a real shape, and reading it as an advance price is what
+		// lets a re-scrape publish an advance dearer than the door.
+		{"lone door amount", "$25 at the door", nil, floatPtr(25)},
+		{"lone door word", "$25 door", nil, floatPtr(25)},
 		{"lone advance amount", "$20 adv", floatPtr(20), nil},
+		{"lone unlabelled amount", "$20 general admission", floatPtr(20), nil},
+
+		// The door label reaches across a phrase, but not across a sentence.
+		// Both sides of labelReach, so the constant is pinned rather than
+		// merely plausible.
+		{"label within reach", "$20 adv / $25 cash or card at the door", floatPtr(20), floatPtr(25)},
+		{"label out of reach", "$20 adv / $25 plus a two dollar service charge at the door", nil, nil},
+
+		// A price this parser cannot read is a reason to state none, never to
+		// report a trimmed number. ParseFloat alone would take every one of
+		// these; none of them is a price.
+		{"digits past the bound", "$1234567", nil, nil},
+		{"three decimal places", "$25.999", nil, nil},
+		{"one unreadable amount refuses the string", "$20 adv / $1234567 door", nil, nil},
+		{"exponent", "1e10", nil, nil},
+		{"infinity", "Infinity", nil, nil},
+		{"not a number", "NaN", nil, nil},
+		{"negative", "-5", nil, nil},
+		{"hex float", "0x1p10", nil, nil},
+		{"at the digit bound", "$999999", floatPtr(999999), nil},
 	}
 
 	for _, tc := range cases {
@@ -82,15 +136,37 @@ func TestParseEventPrices_SourceShapes(t *testing.T) {
 	}
 }
 
+// labelledDoorAmount compares every door label against every amount, so cost
+// grows with the square of the input and nothing upstream bounds the field.
+// The length guard is what keeps a scraped page from spending seconds here,
+// and on the create path that time would be spent inside an open transaction.
+func TestParseEventPrices_RefusesAnOversizedString(t *testing.T) {
+	oversized := strings.Repeat("$1 door ", 4000)
+	require.Greater(t, len(oversized), maxPriceTextBytes)
+
+	start := time.Now()
+	advance, door := parseEventPrices(oversized)
+	elapsed := time.Since(start)
+
+	assert.Nil(t, advance)
+	assert.Nil(t, door)
+	assert.Less(t, elapsed, time.Second, "an oversized string must be refused, not parsed")
+}
+
 // The explicit-only rule, stated as a property rather than a table row: no
-// input that names a single amount may ever produce a door price. Inventing one
-// would publish a wrong number about money, which is the failure the poster
+// input may produce a price for a half no word in it names. Inventing one would
+// publish a wrong number about money, which is the failure the poster
 // extraction refuses in the same words.
-func TestParseEventPrices_NeverInfersADoorPriceFromOneAmount(t *testing.T) {
+func TestParseEventPrices_NeverInventsAHalfNoWordNames(t *testing.T) {
 	for _, in := range []string{
-		"$20", "20", "$20 adv", "$25 at the door", "$20 door", "Free", "$20 general admission",
+		"$20", "20", "$20 adv", "Free", "$20 general admission", "$20 (plus $3 fees)",
 	} {
 		_, door := parseEventPrices(in)
-		assert.Nil(t, door, "%q states one price and must yield no door price", in)
+		assert.Nil(t, door, "%q names no door price and must yield none", in)
+	}
+
+	for _, in := range []string{"$25 at the door", "$25 door", "$25 day of show"} {
+		advance, _ := parseEventPrices(in)
+		assert.Nil(t, advance, "%q names no advance price and must yield none", in)
 	}
 }

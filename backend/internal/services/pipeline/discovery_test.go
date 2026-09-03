@@ -934,6 +934,89 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_UpdateKeepsAPriceTh
 	suite.InDelta(25.0, *show.DoorPrice, 0.001)
 }
 
+func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_WritesAFreeShow() {
+	event := suite.makeEvent("evt-price-005", "Dry Cleaning", "valley-bar", "2026-06-20", []string{"Dry Cleaning"})
+	event.Price = strPtr("Free")
+
+	result, err := suite.svc.ImportEvents([]contracts.DiscoveredEvent{event}, false, false, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Equal(1, result.Imported)
+
+	var show catalogm.Show
+	suite.Require().NoError(suite.db.Where("source_event_id = ?", "evt-price-005").First(&show).Error)
+	suite.Require().NotNil(show.Price, "free is a stated price, not a missing one")
+	suite.InDelta(0.0, *show.Price, 0.001)
+	suite.Nil(show.DoorPrice)
+}
+
+// A listing that collapses to a door-only price moves the DOOR half. Reading it
+// as an advance price would publish "$30 advance, $25 at the door" off a
+// listing that says the door costs thirty.
+func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_UpdateFromADoorOnlyRescrape() {
+	event := suite.makeEvent("evt-price-006", "Water From Your Eyes", "valley-bar", "2026-06-21", []string{"Water From Your Eyes"})
+	event.Price = strPtr("$20 adv / $25 door")
+
+	_, err := suite.svc.ImportEvents([]contracts.DiscoveredEvent{event}, false, false, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+
+	event.Price = strPtr("$30 at the door")
+	updated, err := suite.svc.ImportEvents([]contracts.DiscoveredEvent{event}, false, true, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Require().Len(updated.Messages, 1)
+	suite.Contains(updated.Messages[0], "doorPrice: $25.00 -> $30.00")
+	suite.NotContains(updated.Messages[0], "price: ")
+
+	var show catalogm.Show
+	suite.Require().NoError(suite.db.Where("source_event_id = ?", "evt-price-006").First(&show).Error)
+	suite.Require().NotNil(show.Price)
+	suite.Require().NotNil(show.DoorPrice)
+	suite.InDelta(20.0, *show.Price, 0.001, "the advance half was not restated and must not move")
+	suite.InDelta(30.0, *show.DoorPrice, 0.001)
+}
+
+// Free states the cost of the whole show, so the stored door price goes with
+// it. Leaving it would publish "Free advance, $25 at the door".
+func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_UpdateToFreeClearsTheDoorPrice() {
+	event := suite.makeEvent("evt-price-007", "Wednesday", "valley-bar", "2026-06-22", []string{"Wednesday"})
+	event.Price = strPtr("$20 adv / $25 door")
+
+	_, err := suite.svc.ImportEvents([]contracts.DiscoveredEvent{event}, false, false, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+
+	event.Price = strPtr("Free")
+	updated, err := suite.svc.ImportEvents([]contracts.DiscoveredEvent{event}, false, true, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Require().Len(updated.Messages, 1)
+	suite.Contains(updated.Messages[0], "doorPrice: $25.00 -> nil")
+
+	var show catalogm.Show
+	suite.Require().NoError(suite.db.Where("source_event_id = ?", "evt-price-007").First(&show).Error)
+	suite.Require().NotNil(show.Price)
+	suite.InDelta(0.0, *show.Price, 0.001)
+	suite.Nil(show.DoorPrice)
+}
+
+// The dry run reports what it would write and writes nothing.
+func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_DryRunUpdateReportsTheDoorPriceWithoutWriting() {
+	event := suite.makeEvent("evt-price-008", "Truth Club", "valley-bar", "2026-06-23", []string{"Truth Club"})
+	event.Price = strPtr("$20 adv / $25 door")
+
+	_, err := suite.svc.ImportEvents([]contracts.DiscoveredEvent{event}, false, false, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+
+	event.Price = strPtr("$20 adv / $30 door")
+	dry, err := suite.svc.ImportEvents([]contracts.DiscoveredEvent{event}, true, true, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Require().Len(dry.Messages, 1)
+	suite.Contains(dry.Messages[0], "WOULD UPDATE")
+	suite.Contains(dry.Messages[0], "doorPrice: $25.00 -> $30.00")
+
+	var show catalogm.Show
+	suite.Require().NoError(suite.db.Where("source_event_id = ?", "evt-price-008").First(&show).Error)
+	suite.Require().NotNil(show.DoorPrice)
+	suite.InDelta(25.0, *show.DoorPrice, 0.001, "a dry run must not persist")
+}
+
 func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_SourceDuplicate() {
 	events := []contracts.DiscoveredEvent{
 		suite.makeEvent("evt-002", "Radiohead", "valley-bar", "2026-07-01", []string{"Radiohead"}),
