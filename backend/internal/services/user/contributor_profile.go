@@ -717,6 +717,278 @@ var contributionCloneSourceKeys = []string{"source_slug", "source_id"}
 // action nothing writes.
 const contributionCloneAction = "clone_collection"
 
+// contributionEntityRequestActions is every audit action whose entity_id is an
+// entity_requests row id.
+//
+// THE ROW'S entity_type LIES ABOUT WHICH TABLE THAT ID BELONGS TO. The entity
+// request writers store the REQUESTED catalog type ("show", "artist", …) so an
+// admin query by entity_type reaches them, and the request's own id beside it.
+// Nothing else on the row distinguishes it from an audit row that really names a
+// show, so the ACTION is the only discriminator, and it is the one this map
+// keys on.
+//
+// An action missing here is judged by the entity-type arms, which read entity_id
+// as an id in the table entity_type names. For a request that is an unrelated
+// record with the same number.
+//
+// The rescue void path writes entity_type "entity_request" when a re-read failed
+// and it has no requested type to record; that row is a member of this family
+// like every other row its action writes, which is why the family is keyed on
+// the action alone.
+var contributionEntityRequestActions = map[string]bool{
+	// handlers/community/entity_request.go, create: one of three actions
+	// depending on what the create did.
+	"queue_entity_request":        true,
+	"replace_entity_request":      true,
+	"auto_approve_entity_request": true,
+
+	// handlers/community/entity_request.go, admin decide.
+	"approve_entity_request": true,
+	"reject_entity_request":  true,
+
+	// handlers/community/entity_request_rescue.go.
+	"rescue_fulfill_entity_request": true,
+	"rescue_void_entity_request":    true,
+}
+
+// contributionEntityRequestActionNames is the map's keys, sorted so the emitted
+// statement is byte-identical across processes and the bind order is a property
+// of the map rather than of Go's randomised map iteration.
+func contributionEntityRequestActionNames() []string {
+	names := make([]string, 0, len(contributionEntityRequestActions))
+	for action := range contributionEntityRequestActions {
+		names = append(names, action)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// =============================================================================
+// WHAT audit_logs.metadata MAY PUBLISH
+// =============================================================================
+
+// contributionCollectionMetadataKeys are the two keys the collection arm of
+// contributionVisibilitySQL reads to decide a collection-typed row.
+//
+// A row served by that arm was decided AGAINST THE COLLECTION THESE NAME, so
+// publishing them adds nothing the served row does not already say. Any other
+// key on those rows is withheld, including the entity_type and entity_id
+// add_collection_item records for the item's own subject, which can name a show
+// the viewer may not see.
+var contributionCollectionMetadataKeys = []string{"collection_id", "slug"}
+
+// contributionMetadataKeys is the ALLOWLIST of audit metadata keys the
+// contributions timeline publishes, keyed by action. Every other key on every
+// other action is dropped.
+//
+// audit_logs.metadata is written by ~100 call sites across nine packages and is
+// served, verbatim before this map existed, by GET /users/{username}/contributions
+// — optional auth, `contributions` visible by default, so an ANONYMOUS caller
+// under the ACTOR's own username. Without an allowlist every writer decides by
+// accident what becomes public: an admin's rejection reason, a moderation note,
+// a report id, the id of a gated show a report names.
+//
+// AN ACTION WITH NO ENTRY PUBLISHES NO METADATA, and an entry naming no key is
+// how a writer records that it publishes none. The distinction is presence, not
+// emptiness: the disposition test fails for an action nobody has decided, while
+// the projection treats undecided and withheld alike, so a writer that ships
+// before its disposition withholds rather than publishes.
+//
+// THE ALLOWLIST IS NOT VIEWER-DEPENDENT. The owner reading their own timeline
+// through GET /auth/profile/contributions gets the same keys an anonymous reader
+// gets, because both handlers call one service and the page is public by
+// default: a key safe only for the owner would be one privacy-setting flip from
+// public. Admins read whole rows on GET /admin/audit-logs, which this does not
+// touch.
+var contributionMetadataKeys = map[string][]string{
+	// The collection lifecycle and item actions, all written by
+	// handlers/community/collection.go. Uniform across the family: the gate arm
+	// that serves any of these rows decides it against the collection these two
+	// keys name.
+	"create_collection":         contributionCollectionMetadataKeys,
+	"update_collection":         contributionCollectionMetadataKeys,
+	"delete_collection":         contributionCollectionMetadataKeys,
+	"set_collection_featured":   contributionCollectionMetadataKeys,
+	"bulk_add_collection_items": contributionCollectionMetadataKeys,
+	"add_collection_tag":        contributionCollectionMetadataKeys,
+	"remove_collection_tag":     contributionCollectionMetadataKeys,
+	"add_collection_item":       contributionCollectionMetadataKeys,
+	"update_collection_item":    contributionCollectionMetadataKeys,
+	"remove_collection_item":    contributionCollectionMetadataKeys,
+
+	// The clone's forked-from attribution. The clone is public and the SOURCE
+	// may not be, so these two are gated a second time, per viewer and per row,
+	// by scrubCloneSourceMetadata.
+	contributionCloneAction: contributionCloneSourceKeys,
+
+	// ---------------------------------------------------------------------
+	// Everything below publishes NO key. Grouped by writer, and each entry is
+	// a decision about that writer's metadata rather than an omission.
+	// ---------------------------------------------------------------------
+
+	// handlers/admin. Reasons, edit ids and submitter ids are moderation
+	// artifacts; a rejection reason in particular is an admin's prose about
+	// another user's submission.
+	"approve_show":      nil,
+	"reject_show":       nil,
+	"verify_venue":      nil,
+	"revision_rollback": nil,
+
+	// handlers/catalog. Names and ids the entity's own public route already
+	// serves, plus batch counters nobody reads. Withheld because the timeline
+	// resolves an entity's name through enrichEntityNames, which is gated,
+	// while these are copies frozen at write time behind no gate at all.
+	"create_artist":                     nil,
+	"add_artist_alias":                  nil,
+	"delete_artist_alias":               nil,
+	"merge_artists":                     nil,
+	"create_artist_relationship":        nil,
+	"delete_artist_relationship":        nil,
+	"derive_artist_relationships":       nil,
+	"create_festival":                   nil,
+	"delete_festival":                   nil,
+	"add_festival_artist":               nil,
+	"update_festival_artist":            nil,
+	"remove_festival_artist":            nil,
+	"add_festival_venue":                nil,
+	"remove_festival_venue":             nil,
+	"create_label":                      nil,
+	"delete_label":                      nil,
+	"add_artist_to_label":               nil,
+	"add_release_to_label":              nil,
+	"create_release":                    nil,
+	"delete_release":                    nil,
+	"add_release_link":                  nil,
+	"remove_release_link":               nil,
+	"create_tag":                        nil,
+	"update_tag":                        nil,
+	"delete_tag":                        nil,
+	"create_tag_alias":                  nil,
+	"delete_tag_alias":                  nil,
+	"bulk_import_tag_aliases":           nil,
+	"snooze_low_quality_tag":            nil,
+	"bulk_low_quality_tags":             nil,
+	"create_venue":                      nil,
+	"create_radio_station":              nil,
+	"update_radio_station":              nil,
+	"delete_radio_station":              nil,
+	"create_radio_show":                 nil,
+	"update_radio_show":                 nil,
+	"delete_radio_show":                 nil,
+	"trigger_radio_station_sync":        nil,
+	"trigger_radio_show_backfill":       nil,
+	"link_radio_play":                   nil,
+	"bulk_link_radio_plays":             nil,
+	"rematch_radio_plays":               nil,
+	"cancel_radio_sync_run":             nil,
+	"update_streaming_discovery_status": nil,
+	"accept_link_suggestion":            nil,
+	"reject_link_suggestion":            nil,
+
+	// handlers/community, reports and requests. report_id, report_type and
+	// notes are the moderation queue's own fields, and show_id on the two show
+	// report actions names a show that may be gated while the row itself is
+	// typed "show_report" and passes every entity-type arm untouched.
+	"resolve_entity_report":    nil,
+	"dismiss_entity_report":    nil,
+	"dismiss_report":           nil,
+	"resolve_report":           nil,
+	"resolve_report_with_flag": nil,
+	"create_request":           nil,
+	"update_request":           nil,
+	"delete_request":           nil,
+	"fulfill_request":          nil,
+	"approve_fulfillment":      nil,
+	"reject_fulfillment":       nil,
+	"close_request":            nil,
+
+	// handlers/community, entity requests. The whole family, and the reason the
+	// allowlist was worth building: a replacement's row carries a digest of the
+	// submission it destroyed, and the decide rows carry the requester's id.
+	// The rows themselves reach only the requester and admins; the metadata
+	// reaches nobody.
+	"queue_entity_request":          nil,
+	"replace_entity_request":        nil,
+	"auto_approve_entity_request":   nil,
+	"approve_entity_request":        nil,
+	"reject_entity_request":         nil,
+	"rescue_fulfill_entity_request": nil,
+	"rescue_void_entity_request":    nil,
+
+	// handlers/engagement. The comment actions record the commented-on entity's
+	// id and the comment's own id; the entity id is the one the row's gate
+	// already decided, and the comment id names a comment whose own route
+	// decides who may read it.
+	"create_comment":          nil,
+	"edit_comment":            nil,
+	"delete_comment":          nil,
+	"update_reply_permission": nil,
+	"hide_comment":            nil,
+	"restore_comment":         nil,
+	"approve_comment":         nil,
+	"reject_comment":          nil,
+	"subscribe_comments":      nil,
+	"unsubscribe_comments":    nil,
+	"create_field_note":       nil,
+
+	// entity_edit_audit_logs, whose rows enter the union with a synthesised
+	// "edit_<entity_type>" action and their metadata intact. Four writers pass
+	// none; admin_scenes.go records which field it cleared.
+	"edit_artist":   nil,
+	"edit_festival": nil,
+	"edit_label":    nil,
+	"edit_release":  nil,
+	"edit_scene":    nil,
+}
+
+// contributionMetadataWithheldPrefixes are the action PREFIXES of the writers
+// that build an action by concatenating a literal onto an entity type, so the
+// full action string exists only at run time.
+//
+// Every family here publishes NO metadata, which is also the projection's
+// default for an action it does not recognise, so the projection never consults
+// this list: it exists so the disposition test can tell a family that was
+// decided from one nobody has looked at.
+//
+// AN ACTION REACHABLE ONLY THROUGH A PREFIX THEREFORE PUBLISHES NOTHING. To
+// publish a key for one, spell the exact action into contributionMetadataKeys,
+// where a reader sees which action it is rather than which letters it starts
+// with.
+var contributionMetadataWithheldPrefixes = []string{
+	// handlers/admin/pending_edit.go: "approve_edit_" / "reject_edit_" + the
+	// edit's entity type. Both carry the edit id, the submitter's user id and,
+	// on a rejection, the admin's reason.
+	"approve_edit_",
+	"reject_edit_",
+
+	// handlers/community/entity_report.go: "report_" + the reported entity's
+	// type. Carries the report id and the report type.
+	"report_",
+}
+
+// projectContributionMetadata returns the metadata one contribution row may
+// publish: the allowlisted keys of its action that the row actually carries.
+//
+// Returns nil rather than an empty map when nothing survives, so the field is
+// omitted from the response instead of rendering as `{}` — a row with a
+// withheld key and a row with no metadata at all answer alike.
+func projectContributionMetadata(action string, metadata map[string]interface{}) map[string]interface{} {
+	keys := contributionMetadataKeys[action]
+	if len(keys) == 0 || len(metadata) == 0 {
+		return nil
+	}
+	projected := make(map[string]interface{}, len(keys))
+	for _, key := range keys {
+		if value, ok := metadata[key]; ok {
+			projected[key] = value
+		}
+	}
+	if len(projected) == 0 {
+		return nil
+	}
+	return projected
+}
+
 // contributionVisibilitySQL returns the condition that decides ONE row of an
 // audit-shaped result against viewer, plus its bind arguments.
 //
@@ -729,9 +1001,16 @@ const contributionCloneAction = "clone_collection"
 // alias is the table or subquery alias holding action, entity_type, entity_id
 // and metadata, and is a literal in the calling code.
 //
-// One arm per entity type that has a read-time rule: contributionShowEntityTypes
-// are the two discriminators a show row can carry, and "collection" is the third.
-// Anything else passes.
+// THE ACTION IS READ BEFORE THE ENTITY TYPE, because a row's entity_type does
+// not by itself say which table its entity_id belongs to. The entity request
+// writers store the REQUESTED catalog type beside a REQUEST id, so an
+// outermost CASE splits those rows off by action first and decides them against
+// entity_requests; only the remaining rows reach the entity-type arms, where
+// entity_id does mean an id in the table entity_type names.
+//
+// Then one arm per entity type that has a read-time rule:
+// contributionShowEntityTypes are the two discriminators a show row can carry,
+// and "collection" is the third. Anything else passes.
 //
 // The collection arm reads entity_id TWO WAYS because the audit writers store two
 // kinds of id under that discriminator, and contributionCollectionActions is the
@@ -740,9 +1019,9 @@ const contributionCloneAction = "clone_collection"
 // rather than falling into whichever branch is written last.
 //
 // Parentheses written out rather than left to the driver: the binding this pins
-// is `(not a show OR visible) AND (not a collection OR visible)`, never a form
-// where a trailing AND binds inside one of the ORs, which would publish every
-// gated row.
+// is `IF a request THEN visible ELSE (not a show OR visible) AND (not a
+// collection OR visible)`, never a form where a trailing AND binds inside one of
+// the ORs, which would publish every gated row.
 //
 // Placeholders bind by POSITION, so the arguments are appended in statement
 // order.
@@ -756,6 +1035,7 @@ func contributionVisibilitySQL(alias string, viewer contracts.ShowViewer) (strin
 	visibleByParentID, visibleByParentIDArgs := shared.VisibleCollectionTextIDExistsSQL(parentIDExpr, viewer)
 	visibleByLegacySlug, visibleByLegacySlugArgs := shared.VisibleCollectionSlugExistsSQL(legacySlugExpr, viewer)
 	visibleCollections, visibleCollectionArgs := shared.VisibleCollectionExistsSQL(entityIDExpr, viewer)
+	visibleRequests, visibleRequestArgs := shared.VisibleEntityRequestExistsSQL(entityIDExpr, viewer)
 
 	// THE SENTINEL COUNTS AS ABSENT on the slug arm's key test. A stored
 	// `"collection_id": 0` names no collection, so the parent-id arm answers no
@@ -765,12 +1045,15 @@ func contributionVisibilitySQL(alias string, viewer contracts.ShowViewer) (strin
 	parentIDAbsent := "(" + parentIDExpr + " IS NULL OR " + parentIDExpr + " = '0')"
 
 	cond := fmt.Sprintf(
-		"(%s.entity_type NOT IN ? OR %s)"+
+		"(CASE WHEN %s.action IN ? THEN %s ELSE ("+
+			"(%s.entity_type NOT IN ? OR %s)"+
 			" AND (%s.entity_type <> ?"+
 			" OR (CASE WHEN %s.action IN ? THEN (%s OR %s"+
 			" OR (%s AND %s))"+
 			" WHEN %s.action IN ? THEN %s"+
-			" ELSE FALSE END))",
+			" ELSE FALSE END))"+
+			") END)",
+		alias, visibleRequests,
 		alias, visibleShows,
 		alias,
 		alias, visibleItemParents, visibleByParentID,
@@ -778,6 +1061,8 @@ func contributionVisibilitySQL(alias string, viewer contracts.ShowViewer) (strin
 		alias, visibleCollections)
 
 	var args []interface{}
+	args = append(args, contributionEntityRequestActionNames())
+	args = append(args, visibleRequestArgs...)
 	args = append(args, contributionShowEntityTypes)
 	args = append(args, visibleShowsArgs...)
 	args = append(args, contributionCollectionEntityType)
@@ -909,10 +1194,14 @@ func (s *ContributorProfileService) GetContributionHistory(userID uint, limit, o
 			CreatedAt:  row.CreatedAt,
 			Source:     row.Source,
 		}
+		// THE ALLOWLIST IS APPLIED HERE, before anything else reads the row,
+		// so no later pass can reintroduce a key by working from the stored
+		// document. What survives is the intersection of the action's
+		// allowlisted keys with the keys the row carries.
 		if row.Metadata != nil {
 			var metadata map[string]interface{}
 			if err := json.Unmarshal(*row.Metadata, &metadata); err == nil {
-				entry.Metadata = metadata
+				entry.Metadata = projectContributionMetadata(row.Action, metadata)
 			}
 		}
 		entries[i] = entry
@@ -1517,10 +1806,7 @@ func (s *ContributorProfileService) enrichEntityNames(entries []*contracts.Contr
 
 	idsByType := make(map[string][]uint)
 	for _, e := range entries {
-		// A collection item action's entity_id is a collection_items id, so
-		// looking it up in collections resolves an unrelated collection's title.
-		// Those entries carry no name at all rather than a wrong one.
-		if e.EntityType == contributionCollectionEntityType && isCollectionItemAction(e.Action) {
+		if skipContributionNameLookup(e) {
 			continue
 		}
 		idsByType[e.EntityType] = append(idsByType[e.EntityType], e.EntityID)
@@ -1625,7 +1911,7 @@ func (s *ContributorProfileService) enrichEntityNames(entries []*contracts.Contr
 	}
 
 	for _, e := range entries {
-		if e.EntityType == contributionCollectionEntityType && isCollectionItemAction(e.Action) {
+		if skipContributionNameLookup(e) {
 			continue
 		}
 		if names, ok := nameMap[e.EntityType]; ok {
@@ -1634,4 +1920,30 @@ func (s *ContributorProfileService) enrichEntityNames(entries []*contracts.Contr
 			}
 		}
 	}
+}
+
+// skipContributionNameLookup reports whether an entry's entity_id names
+// something other than a row of the table its entity_type names, so resolving it
+// there would publish an unrelated record's name.
+//
+// Two families qualify, and they are the two the gate itself has to special-case
+// for the same reason:
+//
+//   - a collection ITEM action's entity_id is a collection_items id, so looking
+//     it up in collections resolves whichever collection shares that number;
+//   - an ENTITY REQUEST action's entity_id is an entity_requests id while its
+//     entity_type names the requested catalog type, so looking it up resolves
+//     whichever artist, venue or show shares that number.
+//
+// Both carry no name at all rather than a wrong one. Neither reads the request's
+// own payload for a name: what a queued request may publish about itself is a
+// question for the surface that decides to show one.
+//
+// Both loops in enrichEntityNames consult this, so a type that is skipped in the
+// gathering pass cannot be assigned a name in the writing one.
+func skipContributionNameLookup(e *contracts.ContributionEntry) bool {
+	if contributionEntityRequestActions[e.Action] {
+		return true
+	}
+	return e.EntityType == contributionCollectionEntityType && isCollectionItemAction(e.Action)
 }

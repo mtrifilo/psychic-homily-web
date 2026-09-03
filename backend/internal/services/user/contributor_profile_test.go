@@ -222,6 +222,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM show_artists")
 	_, _ = sqlDB.Exec("DELETE FROM show_venues")
 	_, _ = sqlDB.Exec("DELETE FROM shows")
+	_, _ = sqlDB.Exec("DELETE FROM entity_requests")
 	_, _ = sqlDB.Exec("DELETE FROM venues")
 	_, _ = sqlDB.Exec("DELETE FROM artists")
 	_, _ = sqlDB.Exec("DELETE FROM releases")
@@ -889,8 +890,9 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	suite.Equal("create_release", entries[0].Action)
 	suite.Equal("release", entries[0].EntityType)
 	suite.Equal("audit_log", entries[0].Source)
-	suite.Require().NotNil(entries[0].Metadata)
-	suite.Equal("New Album", entries[0].Metadata["title"])
+	// create_release publishes no metadata key, so a row carrying one arrives
+	// with the field absent rather than with the stored document.
+	suite.Nil(entries[0].Metadata)
 }
 
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_MergesSources() {
@@ -2707,4 +2709,236 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPercentileRan
 	suite.Equal(11*100/12, tagsApplied.Percentile,
 		"the cohort counts the peer's tag on the rejected show, so the position is "+
 			"measured against a population counted differently from the subject")
+}
+
+// =============================================================================
+// PSY-2015: the metadata allowlist and the entity-request id space
+// =============================================================================
+
+// createEntityRequestForHistory writes an entity_requests row, which is the
+// table the entity-request arm decides its audit rows against.
+func (suite *ContributorProfileServiceIntegrationTestSuite) createEntityRequestForHistory(
+	requesterID uint, entityType string,
+) *communitym.EntityRequest {
+	payload := json.RawMessage(`{"name":"Requested Thing"}`)
+	request := &communitym.EntityRequest{
+		EntityType:    entityType,
+		Payload:       &payload,
+		RequesterID:   requesterID,
+		SourceContext: communitym.EntityRequestSourceManual,
+		DecisionState: communitym.EntityRequestStatePending,
+	}
+	suite.Require().NoError(suite.db.Create(request).Error)
+	return request
+}
+
+// metadataUintForTest reads a JSON-decoded number back as a uint. encoding/json
+// decodes every number into float64, so a direct comparison against a uint id
+// fails on the type rather than on the value.
+func (suite *ContributorProfileServiceIntegrationTestSuite) metadataUintForTest(value interface{}) uint {
+	asFloat, ok := value.(float64)
+	suite.Require().True(ok, "expected a JSON number, got %T", value)
+	return uint(asFloat)
+}
+
+// ONLY ALLOWLISTED KEYS REACH THE RESPONSE, and the default is none.
+//
+// The stored document is what the writers happened to record; the response is
+// what contributionMetadataKeys says the action may publish. Three rows here
+// carry the three shapes that matter: a moderation artifact, an id naming an
+// entity the row's own gate never looked at, and an allowlisted key.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_ProjectsOnlyAllowlistedMetadata() {
+	actor := suite.createTestUser("allowlistactor")
+	gated := suite.createShow(actor.ID, "Gated Show")
+	suite.Require().NoError(suite.db.Model(&catalogm.Show{}).Where("id = ?", gated.ID).
+		Update("status", "rejected").Error)
+	collection := suite.createCollectionForHistory(actor.ID, "Allowlist Picks", "allowlist-picks", true)
+
+	// An admin's prose about another user's submission.
+	suite.auditLog.LogAction(actor.ID, "reject_show", "show", gated.ID, map[string]interface{}{
+		"reason":   "spam, do not resubmit",
+		"batch":    true,
+		"category": "spam",
+	})
+	// A report row: entity_type "show_report" passes every entity-type arm
+	// untouched, so nothing has decided the show_id it records.
+	suite.auditLog.LogAction(actor.ID, "dismiss_report", "show_report", 4242, map[string]interface{}{
+		"show_id": gated.ID,
+		"notes":   "reporter is a repeat offender",
+	})
+	// The allowlisted control, plus two keys on the same row that are not:
+	// entity_type and entity_id name the item's own subject, which no arm on
+	// this row has looked at.
+	item := suite.createCollectionItemForHistory(collection.ID, actor.ID)
+	suite.auditLog.LogAction(actor.ID, "add_collection_item", "collection", item.ID,
+		map[string]interface{}{
+			"slug":          collection.Slug,
+			"collection_id": collection.ID,
+			"entity_type":   "show",
+			"entity_id":     gated.ID,
+		})
+
+	// THE OWNER'S OWN VIEW, which is the widest tier this endpoint serves: the
+	// allowlist does not vary by viewer, so what the owner sees is the ceiling.
+	entries, _, err := suite.profileService.GetContributionHistory(
+		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: actor.ID})
+	suite.Require().NoError(err)
+	suite.Require().Len(entries, 4, "the two audit rows, the item row and the show submission")
+
+	byAction := map[string]*contracts.ContributionEntry{}
+	for _, e := range entries {
+		byAction[e.Action] = e
+	}
+
+	suite.Require().Contains(byAction, "reject_show")
+	suite.Nil(byAction["reject_show"].Metadata,
+		"an admin's rejection reason must not be published under the actor's username")
+
+	suite.Require().Contains(byAction, "dismiss_report")
+	suite.Nil(byAction["dismiss_report"].Metadata,
+		"a moderation note, and the id of the show it names, must not be published")
+
+	suite.Require().Contains(byAction, "add_collection_item")
+	itemMetadata := byAction["add_collection_item"].Metadata
+	suite.Require().NotNil(itemMetadata, "the two gate-derived keys are allowlisted")
+	suite.Equal(collection.Slug, itemMetadata["slug"])
+	suite.EqualValues(collection.ID, suite.metadataUintForTest(itemMetadata["collection_id"]))
+	suite.NotContains(itemMetadata, "entity_type",
+		"the item's own subject is not what this row's gate decided")
+	suite.NotContains(itemMetadata, "entity_id")
+}
+
+// AN ACTION WITH NO ENTRY IN THE ALLOWLIST PUBLISHES NOTHING, which is the same
+// answer an entry naming no key gives. The row itself is served either way.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_UndispositionedActionPublishesNoMetadata() {
+	actor := suite.createTestUser("undispositionedmeta")
+
+	suite.auditLog.LogAction(actor.ID, "an_action_nobody_dispositioned", "artist", 1,
+		map[string]interface{}{"secret": "value"})
+
+	entries, total, err := suite.profileService.GetContributionHistory(
+		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: actor.ID})
+	suite.Require().NoError(err)
+	suite.EqualValues(len(entries), total)
+	suite.Require().Len(entries, 1, "the ROW is served; only its metadata is withheld")
+	suite.Nil(entries[0].Metadata)
+}
+
+// ENTITY-REQUEST ROWS ARE DECIDED AGAINST entity_requests, NEVER AGAINST THE
+// TABLE THEIR entity_type NAMES.
+//
+// The writers record the REQUESTED type in entity_type and the REQUEST's id in
+// entity_id, so the show arm was testing a request id against shows.id: a
+// request was withheld or served on the basis of whichever show happened to
+// share its number.
+//
+// The rule: requester or admin. A pending request names content that has not
+// been published and the only route that reads the table is
+// GET /admin/entity-requests, so anonymous and stranger tiers get nothing.
+//
+// Four tiers, and the total moves with the page in every one of them.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_EntityRequestRowsAreDecidedAgainstEntityRequests() {
+	requester := suite.createTestUser("requestactor")
+	stranger := suite.createTestUser("requeststranger")
+
+	// A show whose id is made to COLLIDE with the request's, which is the number
+	// the show arm was reading. Approved and public, so the id-space mistake
+	// served this request row to every tier on the strength of an unrelated show.
+	request := suite.createEntityRequestForHistory(requester.ID, "show")
+	collidingShow := suite.createShow(requester.ID, "Unrelated Colliding Show")
+	suite.Require().NoError(suite.db.Model(&catalogm.Show{}).
+		Where("id = ?", collidingShow.ID).Update("id", request.ID).Error)
+
+	suite.auditLog.LogAction(requester.ID, "queue_entity_request", "show", request.ID,
+		map[string]interface{}{"request_id": request.ID, "decision_state": "pending"})
+
+	// The colliding show is still this actor's own approved submission, so every
+	// tier sees that one row whatever it is told about the request.
+	const submissionRows = 1
+
+	for _, tier := range []struct {
+		name      string
+		viewer    contracts.ShowViewer
+		seesRow   bool
+		reasoning string
+	}{
+		{"anonymous", contracts.ShowViewer{}, false,
+			"a pending request names unpublished content and no route serves it anonymously"},
+		{"stranger", contracts.ShowViewer{UserID: stranger.ID}, false,
+			"a signed-in stranger is the same tier as an anonymous reader here"},
+		{"requester", contracts.ShowViewer{UserID: requester.ID}, true,
+			"the requester filed the row and already holds its content"},
+		{"admin", contracts.ShowViewer{UserID: stranger.ID, IsAdmin: true}, true,
+			"GET /admin/entity-requests already serves an admin the whole row"},
+	} {
+		entries, total, err := suite.profileService.GetContributionHistory(
+			requester.ID, 50, 0, "", tier.viewer)
+		suite.Require().NoError(err, tier.name)
+		suite.EqualValues(len(entries), total,
+			"%s: the total must count the same rows the page contains", tier.name)
+
+		var sawRequest bool
+		for _, e := range entries {
+			if e.Action == "queue_entity_request" {
+				sawRequest = true
+				suite.Empty(e.EntityName,
+					"%s: a request id resolved a name out of the shows table", tier.name)
+				suite.Nil(e.Metadata,
+					"%s: the entity-request family publishes no metadata key", tier.name)
+			}
+		}
+		suite.Equal(tier.seesRow, sawRequest, "%s: %s", tier.name, tier.reasoning)
+
+		expected := submissionRows
+		if tier.seesRow {
+			expected++
+		}
+		suite.Len(entries, expected, "%s", tier.name)
+	}
+}
+
+// A REQUEST THAT NO LONGER EXISTS IS WITHHELD FROM EVERYONE, including the
+// actor who filed it and an admin. Absent and refused are one answer, which is
+// what stops the pair from enumerating the request id space.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_DeletedEntityRequestRowsAreWithheld() {
+	requester := suite.createTestUser("deletedrequestactor")
+	request := suite.createEntityRequestForHistory(requester.ID, "artist")
+	requestID := request.ID
+	suite.Require().NoError(suite.db.Delete(&communitym.EntityRequest{}, requestID).Error)
+
+	suite.auditLog.LogAction(requester.ID, "queue_entity_request", "artist", requestID, nil)
+
+	for _, viewer := range []contracts.ShowViewer{
+		{},
+		{UserID: requester.ID},
+		{UserID: requester.ID, IsAdmin: true},
+	} {
+		entries, total, err := suite.profileService.GetContributionHistory(
+			requester.ID, 50, 0, "", viewer)
+		suite.Require().NoError(err)
+		suite.EqualValues(len(entries), total)
+		suite.Empty(entries, "a row naming no request must be withheld from every tier")
+	}
+}
+
+// THE HEATMAP WITHHOLDS THE SAME DAYS THE TIMELINE WITHHOLDS.
+//
+// Both routes are anonymous and both read audit_logs for the same actor from one
+// condition builder. A day counted here that the timeline does not list would
+// locate a pending request to the day it was filed, and differencing the two
+// reports how many were filed that day.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatmap_WithholdsEntityRequestDays() {
+	requester := suite.createTestUser("heatmaprequester")
+	request := suite.createEntityRequestForHistory(requester.ID, "artist")
+	suite.auditLog.LogAction(requester.ID, "queue_entity_request", "artist", request.ID, nil)
+
+	anon, err := suite.profileService.GetActivityHeatmap(requester.ID, contracts.ShowViewer{})
+	suite.Require().NoError(err)
+	suite.Empty(anon.Days, "an anonymous reader must not be told the day a request was filed")
+
+	own, err := suite.profileService.GetActivityHeatmap(
+		requester.ID, contracts.ShowViewer{UserID: requester.ID})
+	suite.Require().NoError(err)
+	suite.Require().Len(own.Days, 1, "the requester's own day is counted")
+	suite.Equal(1, own.Days[0].Count)
 }
