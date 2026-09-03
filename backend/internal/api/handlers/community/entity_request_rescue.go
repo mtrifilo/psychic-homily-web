@@ -81,6 +81,14 @@ type AdminFulfillEntityRequestResponse struct {
 //
 // Void flow: atomically reject the orphan (scoped so a fulfilled row can never
 // be voided out from under its entity).
+//
+// This body carries NO expected_updated_at, unlike the decide endpoint's
+// (PSY-1974), and the reason is a property of the rows it acts on rather than an
+// omission. A submission is only ever replaced by replacePendingSubmission,
+// whose UPDATE is scoped to decision_state = 'pending'; every row reachable here
+// is approved. So an approved-but-unfulfilled row's payload is immutable, and
+// there is no window between this handler's read and its claim for a version to
+// defend.
 func (h *EntityRequestHandler) AdminFulfillEntityRequestHandler(ctx context.Context, req *AdminFulfillEntityRequestRequest) (*AdminFulfillEntityRequestResponse, error) {
 	admin := middleware.GetUserFromContext(ctx)
 

@@ -2,6 +2,8 @@ package community
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"strconv"
 	"strings"
@@ -11,6 +13,7 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
+	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
@@ -229,7 +232,8 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 	// Every check above this line runs before a replacement too, so a
 	// resubmission that fails validation is a 422 that leaves the queued payload
 	// exactly as it was (PSY-1948).
-	created, replaced, err := h.entityRequestService.CreateRequest(user, entityType, req.Body.Payload, sourceContext, sourceDetail, req.Body.Confirmed)
+	created, superseded, err := h.entityRequestService.CreateRequest(user, entityType, req.Body.Payload, sourceContext, sourceDetail, req.Body.Confirmed)
+	replaced := superseded != nil
 	if err != nil {
 		if mapped := shared.MapEntityRequestError(err); mapped != nil {
 			return nil, mapped
@@ -305,9 +309,11 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 	// queued so the activity feed reads correctly.
 	//
 	// PSY-1948: a replacement gets its own action because it OVERWRITES a stored
-	// payload. Nothing else records that the queued submission an admin is about
-	// to moderate is not the one originally filed, and the row keeps no history of
-	// what it replaced.
+	// payload. PSY-1978: it also says something ABOUT what it overwrote. The
+	// action already distinguished the two events; the METADATA did not, so a
+	// replacement's row named the submission that survived and nothing named the
+	// one it destroyed. What may be recorded here is constrained by where this
+	// metadata is published; see addSupersededMetadata.
 	if h.auditLogService != nil {
 		action := "queue_entity_request"
 		switch {
@@ -326,6 +332,7 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 		if created.CreatedEntityID != nil {
 			metadata["created_entity_id"] = *created.CreatedEntityID
 		}
+		addSupersededMetadata(metadata, superseded)
 		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, action, entityType, reqID, metadata)
 		})
@@ -364,23 +371,32 @@ type AdminListEntityRequestsRequest struct {
 // preview, source context (+ AI source_detail), requester attribution, and the
 // decision/fulfillment fields for non-pending views.
 type AdminEntityRequestView struct {
-	ID                uint             `json:"id"`
-	EntityType        string           `json:"entity_type"`
-	Payload           *json.RawMessage `json:"payload"`
-	SourceContext     string           `json:"source_context"`
-	SourceDetail      *json.RawMessage `json:"source_detail,omitempty"`
-	RequesterID       uint             `json:"requester_id"`
-	RequesterName     string           `json:"requester_name"`
-	RequesterUsername *string          `json:"requester_username"`
-	DecisionState     string           `json:"decision_state"`
-	DecisionNote      *string          `json:"decision_note,omitempty"`
-	CreatedEntityID   *uint            `json:"created_entity_id,omitempty"`
-	CreatedAt         time.Time        `json:"created_at"`
+	ID            uint             `json:"id"`
+	EntityType    string           `json:"entity_type"`
+	Payload       *json.RawMessage `json:"payload"`
+	SourceContext string           `json:"source_context"`
+	SourceDetail  *json.RawMessage `json:"source_detail,omitempty"`
+	// OriginalSourceContext is absent while the row still holds its first
+	// submission; communitym.EntityRequest.OriginalSourceContext owns what it
+	// records and why. The moderation card reads it to say a request was filed
+	// under a source it no longer claims.
+	OriginalSourceContext *string   `json:"original_source_context,omitempty" doc:"The source_context this request was originally filed with, present only when a resubmission has since replaced it"`
+	RequesterID           uint      `json:"requester_id"`
+	RequesterName         string    `json:"requester_name"`
+	RequesterUsername     *string   `json:"requester_username"`
+	DecisionState         string    `json:"decision_state"`
+	DecisionNote          *string   `json:"decision_note,omitempty"`
+	CreatedEntityID       *uint     `json:"created_entity_id,omitempty"`
+	CreatedAt             time.Time `json:"created_at"`
 	// UpdatedAt is the only field that distinguishes a request whose payload the
 	// contributor has since corrected from one that still holds what they first
 	// filed (PSY-1948). created_at does not move on a replacement, so a queue
 	// that shows only "filed 2 hours ago" cannot tell the two apart.
-	UpdatedAt time.Time `json:"updated_at"`
+	//
+	// It is also the VERSION a client echoes into the decide endpoint's
+	// expected_updated_at (PSY-1974), which is why the value on the wire has to
+	// survive the round trip byte for byte.
+	UpdatedAt time.Time `json:"updated_at" doc:"When the request was last written. A resubmission replaces a queued payload in place and moves this while created_at stays put. Echo this value VERBATIM into a decide call's expected_updated_at to state which payload the decision was made against."`
 }
 
 // toAdminEntityRequestView projects a model row onto the admin view, resolving
@@ -388,19 +404,20 @@ type AdminEntityRequestView struct {
 // preloaded by the caller (ListRequests preloads it).
 func toAdminEntityRequestView(r *communitym.EntityRequest) AdminEntityRequestView {
 	return AdminEntityRequestView{
-		ID:                r.ID,
-		EntityType:        r.EntityType,
-		Payload:           r.Payload,
-		SourceContext:     r.SourceContext,
-		SourceDetail:      r.SourceDetail,
-		RequesterID:       r.RequesterID,
-		RequesterName:     servicesshared.ResolveUserName(&r.Requester),
-		RequesterUsername: servicesshared.ResolveUserUsername(&r.Requester),
-		DecisionState:     string(r.DecisionState),
-		DecisionNote:      r.DecisionNote,
-		CreatedEntityID:   r.CreatedEntityID,
-		CreatedAt:         r.CreatedAt,
-		UpdatedAt:         r.UpdatedAt,
+		ID:                    r.ID,
+		EntityType:            r.EntityType,
+		Payload:               r.Payload,
+		SourceContext:         r.SourceContext,
+		SourceDetail:          r.SourceDetail,
+		OriginalSourceContext: r.OriginalSourceContext,
+		RequesterID:           r.RequesterID,
+		RequesterName:         servicesshared.ResolveUserName(&r.Requester),
+		RequesterUsername:     servicesshared.ResolveUserUsername(&r.Requester),
+		DecisionState:         string(r.DecisionState),
+		DecisionNote:          r.DecisionNote,
+		CreatedEntityID:       r.CreatedEntityID,
+		CreatedAt:             r.CreatedAt,
+		UpdatedAt:             r.UpdatedAt,
 	}
 }
 
@@ -511,6 +528,10 @@ type AdminDecideEntityRequestRequest struct {
 		// other entity type and for rejections.
 		ShowVenue   *ShowVenueInput   `json:"show_venue,omitempty" required:"false" doc:"Venue for fulfilling a show request (required when approving a show)"`
 		ShowArtists []ShowArtistInput `json:"show_artists,omitempty" required:"false" doc:"Artists for fulfilling a show request (required when approving a show, unless use_payload_artists adopts the bill the request payload carries)"`
+		// ExpectedUpdatedAt is the version of the row the CALLER reviewed
+		// (PSY-1974). See the handler's pre-claim block for what it defends and
+		// what it does not.
+		ExpectedUpdatedAt *time.Time `json:"expected_updated_at,omitempty" required:"false" doc:"The updated_at this decision was made against, echoed VERBATIM from the queue read that produced it. When present, a row the requester has revised since that read is refused with 409 rather than decided, on both approve and reject. Send the string the list endpoint returned; re-serializing it through a millisecond-resolution clock (a JavaScript Date, for one) drops the microseconds a timestamptz stores and turns every decision into a spurious 409. Omit it to decide against whatever the row currently holds."`
 		// UsePayloadArtists is the admin's affirmative adoption of the bill the
 		// CONTRIBUTOR recorded (PSY-1858). See resolveShowBill for the rule and
 		// why the flag exists rather than an omitted show_artists meaning the
@@ -542,6 +563,10 @@ type AdminDecideEntityRequestResponse struct {
 // for never double-creating an entity.
 //
 // Reject flow: marks rejected + optional note. No entity is created.
+//
+// Either decision may carry expected_updated_at, the version of the row the
+// caller reviewed. A row revised since then is a 409 and stays pending, whether
+// the caller was approving or rejecting.
 func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Context, req *AdminDecideEntityRequestRequest) (*AdminDecideEntityRequestResponse, error) {
 	admin := middleware.GetUserFromContext(ctx)
 
@@ -586,14 +611,18 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 	// performs, and an adopted show bill can be fulfilled against scalar fields
 	// from a different payload.
 	//
-	// This closes the window between THIS read and the claim. It does NOT close
-	// the window between the admin READING the queue and pressing approve: that
-	// body carries no version, so the payload can change under a human review.
-	// The queue badges a request whose updated_at has moved since it was filed,
-	// which reports a revision the admin's last list fetch happened to see; it
-	// is not a version check, and nothing refuses an approve issued against a
-	// payload the admin never read. Closing that needs a client-supplied
-	// version on the decide body.
+	// That closes the window between THIS read and the claim. The window between
+	// the ADMIN reading the queue and pressing approve is closed by
+	// expected_updated_at, which the caller echoes from that read (PSY-1974). It
+	// is optional, so a caller that sends nothing still gets exactly the
+	// pre-claim guarantee above and nothing more. The queue's Revised badge is
+	// not that guarantee: it reports a revision the admin's last list fetch
+	// happened to see, and refuses nothing.
+	//
+	// The two versions are compared HERE rather than only at the claim, and the
+	// distinction is worth stating: the claim would refuse the same row, but only
+	// after the checks below have run, and the last of them resolves DNS. A
+	// mismatch is known the moment the row is read.
 	//
 	// PSY-1037: approving a show REQUIRES the associations — guard before the
 	// claim. Decide only operates on pending rows, so a post-claim failure
@@ -616,9 +645,15 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 	// read that ERRORS still reports ahead of any complaint about the body, and a
 	// read that finds nothing (GetRequest answers (nil, nil) for a missing row)
 	// still falls through to Decide, which is what turns it into the 404.
-	// nil for a rejection: it reads nothing off the row and creates nothing, so
-	// there is no validated version to defend.
-	var reviewedVersion *time.Time
+	//
+	// The version the claim will be conditioned on, and the two decisions reach it
+	// differently. A rejection reads nothing off the row and creates nothing, so
+	// it takes no pre-claim read and this stays the CALLER's version: a reject is
+	// a judgement on a payload too, and rejecting the submission that replaced the
+	// one the admin read refuses a correction nobody saw. An approve overwrites it
+	// with its own read below, which the caller's version has already been
+	// checked against.
+	reviewedVersion := req.Body.ExpectedUpdatedAt
 	var showAssoc *showAssociations
 	if newState == communitym.EntityRequestStateApproved {
 		existing, gerr := h.entityRequestService.GetRequest(uint(requestID))
@@ -648,6 +683,15 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 		var eligible *communitym.EntityRequest
 		if existing != nil && existing.DecisionState == communitym.EntityRequestStatePending {
 			eligible = existing
+			// A caller-supplied version is answered against THIS read before any
+			// check runs, so a decision aimed at a payload the row no longer holds
+			// costs no DNS lookup (PSY-1974).
+			if req.Body.ExpectedUpdatedAt != nil && !eligible.UpdatedAt.Equal(*req.Body.ExpectedUpdatedAt) {
+				// One spelling of the 409: MapEntityRequestError owns the status and
+				// the copy for this code, and this is the same refusal the claim would
+				// raise a few statements later.
+				return nil, shared.MapEntityRequestError(apperrors.ErrEntityRequestStale(uint(requestID)))
+			}
 			// The version every check below is about to run against. Passed to the
 			// claim so a row the requester revised in between refuses instead of
 			// fulfilling a payload none of these checks ever saw (PSY-1948).
@@ -810,6 +854,38 @@ func (h *EntityRequestHandler) fulfillAndRecord(ctx context.Context, req *commun
 		)
 	}
 	return createdID, nil
+}
+
+// addSupersededMetadata records what a replacement overwrote onto the audit
+// row's metadata, and does nothing when there was no replacement (PSY-1978).
+//
+// NOTHING USER-AUTHORED GOES IN HERE. audit_logs.metadata is not a private
+// moderation artifact: GetContributionHistory selects it verbatim by actor_id
+// and /users/{username}/contributions serves that to an ANONYMOUS caller under
+// the default privacy settings. This row's actor is the REQUESTER, so anything
+// written here is published under their own username, unmoderated. What goes in
+// is therefore the superseded source_context (an enum, and this same metadata
+// already carries the live one), the payload's SHA-256 and byte length, and
+// whether a source detail existed.
+//
+// A digest is what the ticket asks this record for: enough to tell that AI
+// provenance was dropped, and enough to identify a candidate payload as the one
+// superseded. It cannot reconstruct the text, which is the point. It is also
+// fixed-size and always valid JSON, so a replacement cannot grow this column
+// without bound and a malformed stored payload cannot fail the marshal that
+// writes the whole row.
+func addSupersededMetadata(metadata map[string]interface{}, superseded *communitym.SupersededSubmission) {
+	if superseded == nil {
+		return
+	}
+	metadata["superseded_source_context"] = superseded.SourceContext
+	metadata["superseded_source_detail_present"] = superseded.SourceDetail != nil
+	if superseded.Payload == nil {
+		return
+	}
+	sum := sha256.Sum256(*superseded.Payload)
+	metadata["superseded_payload_sha256"] = hex.EncodeToString(sum[:])
+	metadata["superseded_payload_bytes"] = len(*superseded.Payload)
 }
 
 // normalizeSourceDetail trims + length-caps the optional source detail and

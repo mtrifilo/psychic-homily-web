@@ -53,6 +53,7 @@ import {
   type ShowArtistInput,
   type ShowVenueInput,
 } from '@/lib/hooks/admin/useAdminEntityRequests'
+import { isConflictError } from '@/lib/api'
 import { CommentEditHistory } from '@/features/comments'
 import { EntitySaveSuccessBanner } from '@/features/contributions'
 // Imported by path, not through the '@/features/shows' barrel, which is
@@ -362,6 +363,33 @@ function sourceContextLabel(source: string): string {
     default:
       return source
   }
+}
+
+/**
+ * Names the source_context a request was ORIGINALLY filed with, when a
+ * resubmission has since replaced it with a different one (PSY-1978). Renders
+ * nothing otherwise, so both cards can drop it into their source line
+ * unconditionally.
+ *
+ * A resubmission overwrites payload, source_context and source_detail together,
+ * so a request filed as `ai_extraction` with a source article and resubmitted as
+ * `manual` presents as a plain manual request; this is what stops that being
+ * silent. It stays silent when the value is unchanged, because "revised from
+ * manual" beside "via manual" says nothing — a revision as such is not this
+ * field's subject.
+ *
+ * Amber is this file's "worth knowing before you act" register. Unlike a
+ * timestamp-derived revision signal, `original_source_context` does not move
+ * when a row is decided, so it is equally truthful on an approved orphan.
+ */
+function RevisedFromSource({ request }: { request: AdminEntityRequest }) {
+  const original = request.original_source_context
+  if (!original || original === request.source_context) return null
+  return (
+    <span className="ml-1 text-amber-700 dark:text-amber-400">
+      &middot; revised from {sourceContextLabel(original)}
+    </span>
+  )
 }
 
 // Surfaced as the card header (requestEntityLabel), so the preview does not
@@ -846,38 +874,77 @@ function RequestCard({
   // This card renders pending rows only, so a moved updated_at is a rewritten
   // submission and nothing else.
   const isRevised = wasRevisedSinceFiling(request.created_at, request.updated_at)
+  // PSY-1974: the version the SHOW FORM was opened against, held for as long as
+  // it is open.
+  //
+  // Every other action reads request.updated_at live, and should: the card
+  // re-renders the payload it decides on, so live IS what the admin is looking
+  // at. The form is the exception because its seeds are read once when it opens
+  // — city, state and the bill (parsePayloadBill) — so a refetch landing while
+  // the admin is typing leaves those rows describing a payload the row no longer
+  // holds. Sending the live version there would let exactly that submission
+  // through, which is the one case the version exists to refuse.
+  const [showFormVersion, setShowFormVersion] = useState<string | null>(null)
 
   const handleCreate = useCallback(() => {
     if (isShow) {
       // Open-only: the form's own Cancel closes it (a "Create" button that
       // toggles closed reads as a broken submit).
+      setShowFormVersion(request.updated_at)
       setShowFormOpen(true)
       return
     }
     decideMutation.mutate(
-      { id: request.id, decision: 'approved' },
+      { id: request.id, decision: 'approved', expected_updated_at: request.updated_at },
       { onSuccess: () => onActionSuccess({ verb: 'created', entityLabel }) }
     )
-  }, [isShow, setShowFormOpen, decideMutation, request.id, onActionSuccess, entityLabel])
+  }, [
+    isShow,
+    setShowFormOpen,
+    setShowFormVersion,
+    decideMutation,
+    request.id,
+    request.updated_at,
+    onActionSuccess,
+    entityLabel,
+  ])
 
   const handleCreateShow = useCallback(
     (venue: ShowVenueInput, artists: ShowArtistInput[]) => {
       decideMutation.mutate(
-        { id: request.id, decision: 'approved', show_venue: venue, show_artists: artists },
+        {
+          id: request.id,
+          decision: 'approved',
+          show_venue: venue,
+          show_artists: artists,
+          expected_updated_at: showFormVersion ?? request.updated_at,
+        },
         { onSuccess: () => onActionSuccess({ verb: 'created', entityLabel }) }
       )
     },
-    [decideMutation, request.id, onActionSuccess, entityLabel]
+    [
+      decideMutation,
+      request.id,
+      request.updated_at,
+      showFormVersion,
+      onActionSuccess,
+      entityLabel,
+    ]
   )
 
   const handleReject = useCallback(
     (reason: string) => {
       decideMutation.mutate(
-        { id: request.id, decision: 'rejected', note: reason },
+        {
+          id: request.id,
+          decision: 'rejected',
+          note: reason,
+          expected_updated_at: request.updated_at,
+        },
         { onSuccess: () => onActionSuccess({ verb: 'rejected', entityLabel }) }
       )
     },
-    [decideMutation, request.id, onActionSuccess, entityLabel]
+    [decideMutation, request.id, request.updated_at, onActionSuccess, entityLabel]
   )
 
   return (
@@ -924,6 +991,7 @@ function RequestCard({
           <span className="ml-1">
             &middot; via {sourceContextLabel(request.source_context)}
           </span>
+          <RevisedFromSource request={request} />
           {sourceUrl && (
             <a
               href={sourceUrl}
@@ -974,7 +1042,10 @@ function RequestCard({
             payload={request.payload}
             isSubmitting={pendingDecision === 'approved'}
             onSubmit={handleCreateShow}
-            onCancel={() => setShowFormOpen(false)}
+            onCancel={() => {
+              setShowFormOpen(false)
+              setShowFormVersion(null)
+            }}
           />
         )}
 
@@ -992,9 +1063,23 @@ function RequestCard({
         />
 
         {decideMutation.isError && (
-          <p className="mt-2 text-xs text-destructive">
-            {decideMutation.error?.message || 'Action failed'}
-          </p>
+          <>
+            <p className="mt-2 text-xs text-destructive">
+              {decideMutation.error?.message || 'Action failed'}
+            </p>
+            {/* PSY-1974: a 409 means this client's view of the row is out of
+                date, and the mutation answers every one of them by refetching
+                the queue. It says the refetch is under way and nothing more:
+                the three 409s the endpoint can return (revised, decided by
+                someone else, catalog entity already exists) call for three
+                different next steps, and only the server's own message above
+                knows which one this is. */}
+            {isConflictError(decideMutation.error) && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Refreshing the queue.
+              </p>
+            )}
+          </>
         )}
       </CardContent>
     </Card>
@@ -1097,6 +1182,7 @@ function RescueCard({
             />
           </span>
           <span className="ml-1">&middot; via {sourceContextLabel(request.source_context)}</span>
+          <RevisedFromSource request={request} />
         </div>
 
         {/* Payload preview */}

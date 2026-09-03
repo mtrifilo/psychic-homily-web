@@ -95,10 +95,15 @@ func autoApproves(user *authm.User, confirmed bool) bool {
 // an admin, but the columns must record WHO/WHEN the auto-decision happened
 // for the audit trail.
 //
-// replaced reports that the submission landed on the requester's EXISTING
-// pending row rather than a new one (PSY-1948); see the dedup branch below. It
-// is always false for an auto-approving tier: the row is stamped 'approved'
-// BEFORE the INSERT, so it never collides with the pending-only dedup index.
+// superseded is non-nil exactly when the submission landed on the requester's
+// EXISTING pending row rather than a new one (PSY-1948), and holds the
+// submission that row stopped carrying (PSY-1978). It is always nil for an
+// auto-approving tier: the row is stamped 'approved' BEFORE the INSERT, so it
+// never collides with the pending-only dedup index.
+//
+// It is a value rather than a bool because the write it reports is DESTRUCTIVE
+// and unrecoverable from the table, and the caller that performs it is the only
+// one positioned to record what it destroyed.
 func (s *EntityRequestService) CreateRequest(
 	user *authm.User,
 	entityType string,
@@ -106,21 +111,21 @@ func (s *EntityRequestService) CreateRequest(
 	sourceContext string,
 	sourceDetail []byte,
 	confirmed bool,
-) (*communitym.EntityRequest, bool, error) {
+) (*communitym.EntityRequest, *communitym.SupersededSubmission, error) {
 	if s.db == nil {
-		return nil, false, fmt.Errorf("database not initialized")
+		return nil, nil, fmt.Errorf("database not initialized")
 	}
 	if user == nil {
-		return nil, false, fmt.Errorf("user is required")
+		return nil, nil, fmt.Errorf("user is required")
 	}
 	if !communitym.IsValidEntityRequestType(entityType) {
-		return nil, false, apperrors.ErrEntityRequestInvalidType(entityType)
+		return nil, nil, apperrors.ErrEntityRequestInvalidType(entityType)
 	}
 	if !isValidSourceContext(sourceContext) {
-		return nil, false, apperrors.ErrEntityRequestInvalidSource(sourceContext)
+		return nil, nil, apperrors.ErrEntityRequestInvalidSource(sourceContext)
 	}
 	if len(payload) == 0 {
-		return nil, false, apperrors.ErrEntityRequestEmptyPayload(entityType)
+		return nil, nil, apperrors.ErrEntityRequestEmptyPayload(entityType)
 	}
 
 	raw := json.RawMessage(payload)
@@ -162,12 +167,12 @@ func (s *EntityRequestService) CreateRequest(
 		// behind a success response.
 		if servicesshared.IsDuplicateKey(err) {
 			if existing, ferr := s.findPendingDuplicate(entityType, user.ID, payload); ferr == nil && existing != nil {
-				refreshed, rerr := s.replacePendingSubmission(existing, entityType, payload, sourceContext, sourceDetail)
+				refreshed, superseded, rerr := s.replacePendingSubmission(existing, entityType, payload, sourceContext, sourceDetail)
 				if rerr != nil {
-					return nil, false, rerr
+					return nil, nil, rerr
 				}
 				if refreshed != nil {
-					return refreshed, true, nil
+					return refreshed, superseded, nil
 				}
 			}
 			// Three cases fall through to the wrapped duplicate-key error, and
@@ -190,9 +195,9 @@ func (s *EntityRequestService) CreateRequest(
 			// new index), which surfaces one branch above as a failed UPDATE rather
 			// than here.
 		}
-		return nil, false, fmt.Errorf("failed to create entity request: %w", err)
+		return nil, nil, fmt.Errorf("failed to create entity request: %w", err)
 	}
-	return req, false, nil
+	return req, nil, nil
 }
 
 // replacePendingSubmission overwrites the submission fields of a PENDING request
@@ -249,16 +254,24 @@ func (s *EntityRequestService) CreateRequest(
 // any term of the key is a different request and never reaches here — its INSERT
 // simply succeeds.
 //
-// Returns (nil, nil) ONLY when no row matched, i.e. nothing was written. Once the
-// UPDATE commits this cannot fail: the refreshed row is built from `existing`
-// plus the fields just written, never re-read.
+// original_source_context is the one field the replacement ADDS rather than
+// overwrites (PSY-1978). It is set with COALESCE so it takes the row's current
+// source_context only while it is still NULL: the row then names what was
+// ORIGINALLY filed, however many times it is replaced afterwards. Doing it in
+// SQL rather than in Go is what makes that true under two concurrent
+// replacements, where both read the same NULL and the second would otherwise
+// stamp the first one's already-superseded value.
+//
+// Returns (nil, nil, nil) ONLY when no row matched, i.e. nothing was written.
+// Once the UPDATE commits this cannot fail: the refreshed row is built from
+// `existing` plus the fields just written, never re-read.
 func (s *EntityRequestService) replacePendingSubmission(
 	existing *communitym.EntityRequest,
 	entityType string,
 	payload []byte,
 	sourceContext string,
 	sourceDetail []byte,
-) (*communitym.EntityRequest, error) {
+) (*communitym.EntityRequest, *communitym.SupersededSubmission, error) {
 	requestID := existing.ID
 	// The write DESTROYS the stored payload, and the superseded one is not
 	// recoverable, so the structure is checked here as well as at the API
@@ -268,7 +281,7 @@ func (s *EntityRequestService) replacePendingSubmission(
 	// caller bug, not contributor input — the API boundary answers a bad payload
 	// with a 422 long before here.
 	if err := communitym.ValidateEntityRequestPayload(entityType, payload); err != nil {
-		return nil, fmt.Errorf("refusing to replace pending entity request %d with an invalid %s payload: %w",
+		return nil, nil, fmt.Errorf("refusing to replace pending entity request %d with an invalid %s payload: %w",
 			requestID, entityType, err)
 	}
 
@@ -287,6 +300,8 @@ func (s *EntityRequestService) replacePendingSubmission(
 		"source_context": sourceContext,
 		"source_detail":  newDetail,
 		"updated_at":     now,
+		"original_source_context": gorm.Expr(
+			"COALESCE(original_source_context, ?)", existing.SourceContext),
 	}
 
 	storedName, storedOccurrence := dedupKeyExprs(dedupStoredPayload, entityType)
@@ -300,10 +315,25 @@ func (s *EntityRequestService) replacePendingSubmission(
 		Where(storedOccurrence+" = "+candidateOccurrence, dedupKeyArgs(candidateOccurrence, candidate)...).
 		Updates(updates)
 	if result.Error != nil {
-		return nil, fmt.Errorf("failed to replace pending entity request: %w", result.Error)
+		return nil, nil, fmt.Errorf("failed to replace pending entity request: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {
-		return nil, nil
+		return nil, nil, nil
+	}
+
+	// The submission the write destroyed, as the LOOKUP read it. That is the row
+	// this UPDATE matched in every case but one: two concurrent resubmissions on
+	// the same key both read the pre-replacement row and both write, so the second
+	// reports the first's superseded submission rather than the first's own. The
+	// UPDATE re-asserts the dedup key, which catches a concurrent write that
+	// CHANGES the key, and nothing catches one that preserves it. Recording it
+	// exactly would take a RETURNING of the old row, which this statement does not
+	// do; original_source_context is the half that is race-proof, because its
+	// COALESCE runs in SQL.
+	superseded := &communitym.SupersededSubmission{
+		Payload:       existing.Payload,
+		SourceContext: existing.SourceContext,
+		SourceDetail:  existing.SourceDetail,
 	}
 
 	// The refreshed row is BUILT from the row we matched plus the fields we just
@@ -317,7 +347,15 @@ func (s *EntityRequestService) replacePendingSubmission(
 	refreshed.SourceContext = sourceContext
 	refreshed.SourceDetail = newDetail
 	refreshed.UpdatedAt = now
-	return &refreshed, nil
+	// Mirrors the COALESCE above for the returned row. It agrees with the column
+	// except under the same concurrent-replacement race as the capture above,
+	// where this copy stamps a value COALESCE discarded. Only the create
+	// RESPONSE reads it; every admin surface re-reads the row.
+	if refreshed.OriginalSourceContext == nil {
+		original := existing.SourceContext
+		refreshed.OriginalSourceContext = &original
+	}
+	return &refreshed, superseded, nil
 }
 
 // The two payload sources the dedup key is read from: the stored row's column,
@@ -578,8 +616,13 @@ func (s *EntityRequestService) ListPending(entityType string, limit, offset int)
 // fulfillment — can otherwise claim a row whose payload changed underneath it and
 // fulfill content nothing validated. Pass the updated_at that read saw and the
 // claim refuses a revised row with ErrEntityRequestStale, leaving it pending for
-// the caller to re-read. nil skips the check, which is correct only for a
-// decision that reads nothing off the row (a rejection creates no entity).
+// the caller to re-read.
+//
+// It is not only for callers that read the row. Any version the caller is willing
+// to be held to belongs here: the HTTP handler passes a client-supplied one on a
+// REJECTION too (PSY-1974), where nothing is read and nothing is created, because
+// refusing a submission the requester replaced under a review is still a decision
+// made against a payload nobody saw. nil skips the check entirely.
 func (s *EntityRequestService) Decide(
 	requestID, adminID uint,
 	newState communitym.EntityRequestDecisionState,

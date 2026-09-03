@@ -10,7 +10,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '../../api'
+import { apiRequest, API_ENDPOINTS, isConflictError } from '../../api'
 import { queryKeys, createInvalidateQueries } from '../../queryClient'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -150,6 +150,18 @@ export interface DecideEntityRequestVars {
    * and sending neither is also a 422, so a bill is never adopted by default.
    */
   use_payload_artists?: boolean
+  /**
+   * PSY-1974: the row's `updated_at` AS THE LIST ENDPOINT RETURNED IT, echoed
+   * verbatim. A queued payload stays mutable until it is decided, so this is
+   * what states which payload the decision was made against; a row the
+   * requester has revised since is refused 409 instead of decided.
+   *
+   * It is a STRING and has to stay one. `timestamptz` holds microseconds and a
+   * JavaScript `Date` holds milliseconds, so parsing this and re-serializing it
+   * drops precision and turns every decision into a spurious 409. Never route
+   * it through `Date`.
+   */
+  expected_updated_at?: string
 }
 
 /**
@@ -172,12 +184,21 @@ export function useDecideEntityRequest() {
   const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
-    mutationFn: async ({ id, decision, note, show_venue, show_artists, use_payload_artists }: DecideEntityRequestVars) => {
+    mutationFn: async ({
+      id,
+      decision,
+      note,
+      show_venue,
+      show_artists,
+      use_payload_artists,
+      expected_updated_at,
+    }: DecideEntityRequestVars) => {
       return apiRequest(API_ENDPOINTS.ADMIN.ENTITY_REQUESTS.DECIDE(id), {
         method: 'POST',
         body: JSON.stringify({
           decision,
           ...(note ? { note } : {}),
+          ...(expected_updated_at ? { expected_updated_at } : {}),
           ...(show_venue ? { show_venue } : {}),
           // Lossless on purpose (PSY-1858): an empty array reaches the server as
           // an empty array. Both spellings are a 422, so this changes nothing
@@ -189,6 +210,16 @@ export function useDecideEntityRequest() {
           ...(use_payload_artists ? { use_payload_artists } : {}),
         }),
       })
+    },
+    onError: error => {
+      // A 409 says this client's view of the row is out of date, in one of the
+      // two ways the endpoint distinguishes: another admin decided it, or the
+      // requester revised the payload under the open queue (PSY-1974). Both
+      // resolve the same way — look at the row again — so refetch, and let the
+      // card render the server's message for which of the two it was.
+      if (isConflictError(error)) {
+        invalidateQueries.adminEntityRequests()
+      }
     },
     onSuccess: () => {
       invalidateQueries.adminEntityRequests()
@@ -237,6 +268,15 @@ export function useRescueEntityRequest() {
   const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
+    onError: error => {
+      // Same rule as the decide mutation: a 409 here (already fulfilled by a
+      // concurrent rescue, or no longer approved-but-unfulfilled) means this
+      // client's view of the row is out of date, and a refetch is what answers
+      // it.
+      if (isConflictError(error)) {
+        invalidateQueries.adminEntityRequests()
+      }
+    },
     mutationFn: async ({ id, action, note, show_venue, show_artists, use_payload_artists }: RescueEntityRequestVars) => {
       return apiRequest(API_ENDPOINTS.ADMIN.ENTITY_REQUESTS.FULFILL(id), {
         method: 'POST',

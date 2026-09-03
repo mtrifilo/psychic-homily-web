@@ -388,6 +388,221 @@ describe('ModerationQueue', () => {
     )
   })
 
+  // PSY-1978: a resubmission overwrites source_context along with the payload,
+  // so a request filed under ai_extraction with a source article and resubmitted
+  // as manual presents as a plain manual request. The row's
+  // original_source_context is the only thing on the card that can say otherwise.
+  describe('dropped provenance on a revised request (PSY-1978)', () => {
+    it('names the source a request was originally filed under', () => {
+      setDefaultMocks({
+        requests: [
+          {
+            ...mockEntityRequest,
+            source_context: 'manual',
+            source_detail: null,
+            original_source_context: 'ai_extraction',
+          },
+        ],
+      })
+
+      render(<ModerationQueue />)
+
+      expect(screen.getByText(/via manual/i)).toBeInTheDocument()
+      expect(screen.getByText(/revised from AI extraction/i)).toBeInTheDocument()
+    })
+
+    it('says nothing when a revision kept its provenance', () => {
+      setDefaultMocks({
+        requests: [
+          {
+            ...mockEntityRequest,
+            source_context: 'manual',
+            source_detail: null,
+            original_source_context: 'manual',
+          },
+        ],
+      })
+
+      render(<ModerationQueue />)
+
+      expect(screen.queryByText(/revised from/i)).not.toBeInTheDocument()
+    })
+
+    it('says nothing for a request that was never replaced', () => {
+      setDefaultMocks({ requests: [mockEntityRequest] })
+
+      render(<ModerationQueue />)
+
+      expect(screen.queryByText(/revised from/i)).not.toBeInTheDocument()
+    })
+
+    // A decision writes no source_context, so unlike a timestamp-derived
+    // "revised" signal this one stays truthful on an approved orphan.
+    it('names it on a rescue card too', () => {
+      setDefaultMocks({
+        rescue: [
+          {
+            ...mockEntityRequest,
+            id: 77,
+            decision_state: 'approved',
+            source_context: 'manual',
+            source_detail: null,
+            original_source_context: 'ai_extraction',
+          },
+        ],
+      })
+
+      render(<ModerationQueue />)
+      fireEvent.click(screen.getByText('Needs attention'))
+
+      expect(screen.getByText(/revised from AI extraction/i)).toBeInTheDocument()
+    })
+  })
+
+  // PSY-1974: a queued payload stays mutable until it is decided, so every
+  // decision states the version it was made against and the endpoint refuses a
+  // row revised since. The version travels as the STRING the endpoint returned:
+  // a `Date` round-trip would drop the microseconds a timestamptz stores and
+  // turn every decision into a spurious 409.
+  describe('reviewed-version on decide (PSY-1974)', () => {
+    const revised: AdminEntityRequest = {
+      ...mockEntityRequest,
+      updated_at: '2026-04-08T02:03:04.123456Z',
+    }
+
+    it('sends the rendered updated_at verbatim when creating', () => {
+      const mutate = vi.fn()
+      mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+      setDefaultMocks({ requests: [revised] })
+
+      render(<ModerationQueue />)
+      fireEvent.click(screen.getByRole('button', { name: /create/i }))
+
+      expect(mutate).toHaveBeenCalledWith(
+        expect.objectContaining({ expected_updated_at: '2026-04-08T02:03:04.123456Z' }),
+        expect.anything()
+      )
+    })
+
+    it('sends the rendered updated_at verbatim when rejecting', () => {
+      const mutate = vi.fn()
+      mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+      setDefaultMocks({ requests: [revised] })
+
+      render(<ModerationQueue />)
+      fireEvent.click(screen.getByRole('button', { name: /^reject$/i }))
+      fireEvent.change(screen.getByPlaceholderText(/rejection reason/i), {
+        target: { value: 'not notable' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: /confirm reject/i }))
+
+      expect(mutate).toHaveBeenCalledWith(
+        expect.objectContaining({ expected_updated_at: '2026-04-08T02:03:04.123456Z' }),
+        expect.anything()
+      )
+    })
+
+    it('sends the show form submission against the version the form OPENED on', () => {
+      const mutate = vi.fn()
+      mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+      setDefaultMocks({
+        requests: [
+          {
+            ...revised,
+            id: 12,
+            entity_type: 'show',
+            payload: { title: 'Big Fest', event_date: '2026-07-01', city: 'Phoenix', state: 'AZ' },
+            source_detail: null,
+          },
+        ],
+      })
+
+      render(<ModerationQueue />)
+      fireEvent.click(screen.getByRole('button', { name: /^create$/i }))
+      fireEvent.change(screen.getByLabelText('Venue name'), { target: { value: 'Valley Bar' } })
+      fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
+      fireEvent.click(screen.getByRole('button', { name: /create show/i }))
+
+      expect(mutate).toHaveBeenCalledWith(
+        expect.objectContaining({ expected_updated_at: '2026-04-08T02:03:04.123456Z' }),
+        expect.anything()
+      )
+    })
+
+    // The form's seeds (city, state, and after PSY-1955 the bill) are read once
+    // when it opens, so the version has to be too. Reading it live at submit
+    // would let a refetch that landed mid-review carry the NEW version with the
+    // OLD rows, which is exactly the approve the version exists to refuse.
+    it('keeps the version the show form opened on across a refetch', () => {
+      const mutate = vi.fn()
+      mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+      const showRequest: AdminEntityRequest = {
+        ...revised,
+        id: 12,
+        entity_type: 'show',
+        payload: { title: 'Big Fest', event_date: '2026-07-01', city: 'Phoenix', state: 'AZ' },
+        source_detail: null,
+      }
+      setDefaultMocks({ requests: [showRequest] })
+
+      const { rerender } = render(<ModerationQueue />)
+      fireEvent.click(screen.getByRole('button', { name: /^create$/i }))
+      fireEvent.change(screen.getByLabelText('Venue name'), { target: { value: 'Valley Bar' } })
+      fireEvent.change(screen.getByLabelText('Artist 1 name'), { target: { value: 'Boris' } })
+
+      // A resubmission lands and the queue refetches under the open form.
+      setDefaultMocks({
+        requests: [
+          { ...showRequest, updated_at: '2026-04-09T00:00:00.999999Z', payload: { title: 'Other' } },
+        ],
+      })
+      rerender(<ModerationQueue />)
+
+      fireEvent.click(screen.getByRole('button', { name: /create show/i }))
+
+      expect(mutate).toHaveBeenCalledWith(
+        expect.objectContaining({ expected_updated_at: '2026-04-08T02:03:04.123456Z' }),
+        expect.anything()
+      )
+    })
+
+    it('says the queue is refreshing when the decision conflicts', () => {
+      const conflict: Error & { status?: number } = new Error(
+        'Entity request 9 was revised by its requester after you loaded it; review it again'
+      )
+      conflict.status = 409
+      mockUseDecideEntityRequest.mockReturnValue({
+        ...defaultMutationReturn,
+        isError: true,
+        error: conflict,
+      })
+      setDefaultMocks({ requests: [revised] })
+
+      render(<ModerationQueue />)
+
+      expect(screen.getByText(/was revised by its requester/i)).toBeInTheDocument()
+      expect(screen.getByText(/Refreshing the queue/i)).toBeInTheDocument()
+    })
+
+    it('says nothing about refreshing for a failure that is not a conflict', () => {
+      const failure: Error & { status?: number } = new Error('Image URL must not point to a private address')
+      failure.status = 422
+      mockUseDecideEntityRequest.mockReturnValue({
+        ...defaultMutationReturn,
+        isError: true,
+        error: failure,
+      })
+      setDefaultMocks({ requests: [revised] })
+
+      render(<ModerationQueue />)
+
+      expect(screen.getByText(/Image URL must not point/i)).toBeInTheDocument()
+      expect(
+        screen.queryByText(/Refreshing the queue/i)
+      ).not.toBeInTheDocument()
+    })
+  })
+
   it('renders the source line, safe external link, and excerpt for AI requests', () => {
     setDefaultMocks({ requests: [mockEntityRequest] })
 

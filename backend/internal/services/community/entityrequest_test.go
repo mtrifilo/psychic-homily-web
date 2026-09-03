@@ -471,20 +471,20 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestListRequests_EntityTy
 func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_DuplicatePending_ReplacesPayload() {
 	user := suite.createUser("dup", tierContributor, false)
 
-	first, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+	first, superseded, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
 		suite.marshalArtist("Duplicate Band"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 	suite.Require().Equal(communitym.EntityRequestStatePending, first.DecisionState)
-	suite.Assert().False(replaced, "the first submission files a new row")
+	suite.Assert().Nil(superseded, "the first submission files a new row")
 
 	// The timestamp baseline, read back BEFORE the resubmission so it is what
 	// Postgres holds and not what GORM stamped in memory. See the note below.
 	beforeReplace := suite.requireStored(first.ID)
 
-	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+	second, superseded, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
 		suite.marshalArtist("  duplicate band  "), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
-	suite.Assert().True(replaced, "a resubmission must report that it corrected the queued row")
+	suite.Assert().NotNil(superseded, "a resubmission must report that it corrected the queued row")
 	suite.Assert().Equal(first.ID, second.ID, "a resubmission corrects the queued row, it does not file a second")
 	suite.Assert().Equal(communitym.EntityRequestStatePending, second.DecisionState,
 		"a replacement leaves the row queued, it does not decide it")
@@ -527,16 +527,16 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_DuplicatePendi
 func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_AutoApprovingTier_DoesNotReplaceItsPendingRow() {
 	user := suite.createUser("trusted-redo", tierTrustedContributor, false)
 
-	queued, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+	queued, superseded, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
 		suite.marshalArtist("Boris"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 	suite.Require().Equal(communitym.EntityRequestStatePending, queued.DecisionState)
-	suite.Require().False(replaced)
+	suite.Require().Nil(superseded)
 
-	confirmed, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+	confirmed, superseded, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
 		suite.marshalArtist("Boris"), communitym.EntityRequestSourceManual, nil, true)
 	suite.Require().NoError(err)
-	suite.Assert().False(replaced, "an auto-approved submission replaces nothing")
+	suite.Assert().Nil(superseded, "an auto-approved submission replaces nothing")
 	suite.Assert().NotEqual(queued.ID, confirmed.ID, "it files its own approved row")
 	suite.Assert().Equal(communitym.EntityRequestStateApproved, confirmed.DecisionState)
 
@@ -561,10 +561,10 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_ResubmittedSho
 		communitym.ShowRequestArtist{Name: "Boris", SetType: &headliner},
 		communitym.ShowRequestArtist{Name: "Earth"},
 	)
-	corrected, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
+	corrected, superseded, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
 		correctedPayload, communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
-	suite.Require().True(replaced)
+	suite.Require().NotNil(superseded)
 	suite.Require().Equal(first.ID, corrected.ID)
 
 	// Read the row back rather than trusting the returned struct: the moderation
@@ -591,10 +591,10 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_Resubmission_R
 	suite.Require().NoError(err)
 	suite.Require().NotNil(first.SourceDetail)
 
-	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+	second, superseded, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
 		suite.marshalArtist("Sourced Correction"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
-	suite.Require().True(replaced)
+	suite.Require().NotNil(superseded)
 
 	suite.Assert().Equal(communitym.EntityRequestSourceManual, second.SourceContext,
 		"the resubmission's origin replaces the superseded one")
@@ -616,10 +616,10 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_DuplicateAfter
 	_, err = suite.service.Decide(first.ID, admin.ID, communitym.EntityRequestStateRejected, nil, nil)
 	suite.Require().NoError(err)
 
-	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+	second, superseded, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
 		suite.marshalArtist("REBORN BAND"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
-	suite.Assert().False(replaced, "a decided row is never replaced")
+	suite.Assert().Nil(superseded, "a decided row is never replaced")
 	suite.Assert().NotEqual(first.ID, second.ID, "after the prior request is decided, a re-request is a new row")
 
 	decided, err := suite.service.GetRequest(first.ID)
@@ -641,10 +641,10 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_ResubmissionUn
 		suite.marshalArtist("Borsi"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
-	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+	second, superseded, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
 		suite.marshalArtist("Boris"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
-	suite.Assert().False(replaced, "a different name is a different request")
+	suite.Assert().Nil(superseded, "a different name is a different request")
 	suite.Assert().NotEqual(first.ID, second.ID)
 
 	var count int64
@@ -660,17 +660,17 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_ResubmissionUn
 func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_SameTitleDifferentDate_FilesASecondRequest() {
 	user := suite.createUser("recurring", tierContributor, false)
 
-	september, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
+	september, superseded, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
 		suite.marshalShowOn("Open Mic", "2026-09-03T20:00:00-07:00"),
 		communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
-	suite.Require().False(replaced)
+	suite.Require().Nil(superseded)
 
-	october, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
+	october, superseded, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
 		suite.marshalShowOn("Open Mic", "2026-10-01T20:00:00-07:00"),
 		communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
-	suite.Assert().False(replaced, "a different date is a different show, not a correction")
+	suite.Assert().Nil(superseded, "a different date is a different show, not a correction")
 	suite.Assert().NotEqual(september.ID, october.ID, "it files its own row")
 
 	// The September request must still hold the September date. Read it back
@@ -700,10 +700,10 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_SameTitleSameD
 
 	corrected := suite.marshalShowOn("  open mic  ", "2026-09-03T20:00:00-07:00",
 		communitym.ShowRequestArtist{Name: "Boris"})
-	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
+	second, superseded, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
 		corrected, communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
-	suite.Assert().True(replaced, "the same night resubmitted is a correction")
+	suite.Assert().NotNil(superseded, "the same night resubmitted is a correction")
 	suite.Assert().Equal(first.ID, second.ID)
 
 	stored := suite.requireStored(first.ID)
@@ -734,11 +734,11 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_SameDateWithSu
 		communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
-	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
+	second, superseded, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
 		suite.marshalShowOn("Emo Night", " 2026-09-03T20:00:00-07:00 "),
 		communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
-	suite.Assert().True(replaced, "whitespace around the date is not a different night")
+	suite.Assert().NotNil(superseded, "whitespace around the date is not a different night")
 	suite.Assert().Equal(first.ID, second.ID)
 }
 
@@ -752,11 +752,11 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_FestivalEditio
 		communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
-	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestFestival,
+	second, superseded, err := suite.service.CreateRequest(user, communitym.EntityRequestFestival,
 		suite.marshalFestival("Psycho Las Vegas", 2027, "2027-08-13", "2027-08-15"),
 		communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
-	suite.Assert().False(replaced, "a second edition is a second request, not a correction")
+	suite.Assert().Nil(superseded, "a second edition is a second request, not a correction")
 	suite.Assert().NotEqual(first.ID, second.ID)
 
 	var count int64
@@ -776,11 +776,11 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_SameFestivalEd
 
 	// A corrected end date, same edition: the term reads the edition year, not the
 	// dates, so this lands on the queued row.
-	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestFestival,
+	second, superseded, err := suite.service.CreateRequest(user, communitym.EntityRequestFestival,
 		suite.marshalFestival("Psycho Las Vegas", 2026, "2026-08-14", "2026-08-17"),
 		communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
-	suite.Assert().True(replaced, "one edition resubmitted is a correction")
+	suite.Assert().NotNil(superseded, "one edition resubmitted is a correction")
 	suite.Assert().Equal(first.ID, second.ID)
 }
 
@@ -799,21 +799,21 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_FestivalEditio
 
 	// EditionYear 0 is what a marshalled payload carries when the client states no
 	// edition; fulfillment reads it as "derive from start_date".
-	derived, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestFestival,
+	derived, superseded, err := suite.service.CreateRequest(user, communitym.EntityRequestFestival,
 		suite.marshalFestival("Gilead Fest", 0, "2026-07-10", "2026-07-12"),
 		communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
-	suite.Assert().True(replaced,
+	suite.Assert().NotNil(superseded,
 		"a stated 2026 and a derived 2026 are one edition; keying them apart would file "+
 			"two requests that fulfil to the same festival")
 	suite.Assert().Equal(stated.ID, derived.ID)
 
 	// And a different derived year is still a different edition.
-	next, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestFestival,
+	next, superseded, err := suite.service.CreateRequest(user, communitym.EntityRequestFestival,
 		suite.marshalFestival("Gilead Fest", 0, "2027-07-09", "2027-07-11"),
 		communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
-	suite.Assert().False(replaced)
+	suite.Assert().Nil(superseded)
 	suite.Assert().NotEqual(stated.ID, next.ID)
 }
 
@@ -837,10 +837,10 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_SameTitleSameD
 		phoenix, communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
-	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
+	second, superseded, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
 		tucson, communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
-	suite.Assert().True(replaced, "UNFIXED: the Tucson night replaces the Phoenix one")
+	suite.Assert().NotNil(superseded, "UNFIXED: the Tucson night replaces the Phoenix one")
 	suite.Assert().Equal(first.ID, second.ID)
 
 	stored := suite.requireStored(first.ID)
@@ -866,10 +866,10 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_SameVenueNameD
 		sf, communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
-	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestVenue,
+	second, superseded, err := suite.service.CreateRequest(user, communitym.EntityRequestVenue,
 		philly, communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
-	suite.Assert().False(replaced, "two different Fillmores are two requests")
+	suite.Assert().Nil(superseded, "two different Fillmores are two requests")
 	suite.Assert().NotEqual(first.ID, second.ID)
 
 	stored := suite.requireStored(first.ID)
@@ -899,10 +899,10 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_SameVenueSameC
 		first, communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
-	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestVenue,
+	second, superseded, err := suite.service.CreateRequest(user, communitym.EntityRequestVenue,
 		corrected, communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
-	suite.Assert().True(replaced,
+	suite.Assert().NotNil(superseded,
 		"the catalog compares city case-insensitively, so these are one venue")
 	suite.Assert().Equal(created.ID, second.ID)
 }
@@ -929,10 +929,10 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_SameVenueNameA
 		az, communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
-	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestVenue,
+	second, superseded, err := suite.service.CreateRequest(user, communitym.EntityRequestVenue,
 		ny, communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
-	suite.Assert().True(replaced, "the catalog treats these as one venue, so the queue does too")
+	suite.Assert().NotNil(superseded, "the catalog treats these as one venue, so the queue does too")
 	suite.Assert().Equal(first.ID, second.ID)
 }
 
@@ -956,10 +956,10 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_SameArtistName
 		phx, communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
-	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+	second, superseded, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
 		chi, communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
-	suite.Assert().True(replaced, "the catalog holds one artist per name, so the queue does too")
+	suite.Assert().NotNil(superseded, "the catalog holds one artist per name, so the queue does too")
 	suite.Assert().Equal(first.ID, second.ID)
 }
 
@@ -982,10 +982,10 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_SameLabelNameD
 		phx, communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
-	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestLabel,
+	second, superseded, err := suite.service.CreateRequest(user, communitym.EntityRequestLabel,
 		ldn, communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
-	suite.Assert().True(replaced, "UNFIXED: two different labels sharing a name are one request")
+	suite.Assert().NotNil(superseded, "UNFIXED: two different labels sharing a name are one request")
 	suite.Assert().Equal(first.ID, second.ID)
 }
 
@@ -1011,10 +1011,10 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_ReleasesWithDi
 		early, communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
-	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestRelease,
+	second, superseded, err := suite.service.CreateRequest(user, communitym.EntityRequestRelease,
 		late, communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
-	suite.Assert().True(replaced, "UNFIXED: two distinct releases sharing a title still collide")
+	suite.Assert().NotNil(superseded, "UNFIXED: two distinct releases sharing a title still collide")
 	suite.Assert().Equal(first.ID, second.ID)
 }
 
@@ -1038,19 +1038,19 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_SameInstantDif
 		suite.marshalShowOn("Emo Night", local), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
-	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
+	second, superseded, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
 		suite.marshalShowOn("Emo Night", utc), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
-	suite.Assert().False(replaced, "byte-different spellings do not match, so this is not a correction")
+	suite.Assert().Nil(superseded, "byte-different spellings do not match, so this is not a correction")
 	suite.Assert().NotEqual(first.ID, second.ID)
 
 	// The date-only form is the same trap on the more common path: it is anchored
 	// at 20:00 venue-local at fulfillment, so for an Arizona venue it denotes this
 	// same evening, and it still files its own row.
-	third, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
+	third, superseded, err := suite.service.CreateRequest(user, communitym.EntityRequestShow,
 		suite.marshalShowOn("Emo Night", "2026-09-03"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
-	suite.Assert().False(replaced)
+	suite.Assert().Nil(superseded)
 	suite.Assert().NotEqual(first.ID, third.ID)
 }
 
@@ -1110,7 +1110,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestReplacePendingSubmiss
 	_, err = suite.service.Decide(queued.ID, admin.ID, communitym.EntityRequestStateApproved, nil, nil)
 	suite.Require().NoError(err)
 
-	refreshed, err := suite.service.replacePendingSubmission(queued, communitym.EntityRequestArtist,
+	refreshed, _, err := suite.service.replacePendingSubmission(queued, communitym.EntityRequestArtist,
 		suite.marshalArtist("Raced Band Corrected"), communitym.EntityRequestSourceManual, nil)
 	suite.Require().NoError(err)
 	suite.Assert().Nil(refreshed, "a decided row matches no pending update")
@@ -1142,10 +1142,10 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestDecide_RefusesARowRev
 	// reason: the claim would be refused by the nanosecond remainder rather than
 	// by the replacement.
 	reviewedVersion := suite.requireStored(reviewed.ID).UpdatedAt
-	_, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+	_, superseded, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
 		suite.marshalArtist("boris"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
-	suite.Require().True(replaced)
+	suite.Require().NotNil(superseded)
 
 	_, err = suite.service.Decide(reviewed.ID, admin.ID,
 		communitym.EntityRequestStateApproved, nil, &reviewedVersion)
@@ -1197,7 +1197,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestReplacePendingSubmiss
 		suite.marshalArtist("Good Band"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
-	refreshed, err := suite.service.replacePendingSubmission(queued, communitym.EntityRequestArtist,
+	refreshed, _, err := suite.service.replacePendingSubmission(queued, communitym.EntityRequestArtist,
 		[]byte(`{"name":""}`), communitym.EntityRequestSourceManual, nil)
 	suite.Require().Error(err)
 	suite.Assert().Nil(refreshed)
@@ -1244,11 +1244,11 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_DuplicateRelea
 	})
 	suite.Require().NoError(err)
 
-	second, replaced, err := suite.service.CreateRequest(user, communitym.EntityRequestRelease, corrected,
+	second, superseded, err := suite.service.CreateRequest(user, communitym.EntityRequestRelease, corrected,
 		communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 	suite.Assert().Equal(first.ID, second.ID, "release dedup keys on title")
-	suite.Assert().True(replaced, "a release resubmission corrects the queued row")
+	suite.Assert().NotNil(superseded, "a release resubmission corrects the queued row")
 	suite.Require().NotNil(second.Payload)
 	suite.Assert().JSONEq(string(corrected), string(*second.Payload))
 }
