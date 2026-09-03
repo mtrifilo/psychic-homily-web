@@ -19,7 +19,8 @@ import { accountNavItems, visibleNavItems } from './navData'
 import { NotificationBell } from '@/features/notifications'
 
 // The right-hand actions cluster. Signed in (PSY-1018, Figma 537:91): the
-// "+ Submit" primary CTA → notification bell → avatar dropdown. Signed out: the
+// "+ Submit" primary CTA → notification bell → avatar dropdown. Not signed in,
+// which covers both a settled-anonymous viewer and an unsettled one: the
 // "login / sign-up" text link (matching the deployed app). The authenticated
 // bar deliberately promotes Submit to a standalone CTA — unlike the anonymous
 // bar, where Submit stays inside the Contribute menu (OQ-2), since logged-in
@@ -30,24 +31,12 @@ import { NotificationBell } from '@/features/notifications'
 export function UserMenu() {
   const { user, authStatus, logout } = useAuthContext()
 
-  // The `login / sign-up` link below is an identity claim about the viewer, so
-  // the gate is `authStatus` per the rule stated on the AuthStatus type.
-  //
-  // The unsettled slot renders neither that link nor a spinner. Pending covers
-  // two windows: the profile in flight, which resolves in a moment, and a
-  // profile that failed on a non-definitive error, which resolves only on the
-  // throttled focus/reconnect refetch `useProfile` arms. So the slot can stay
-  // empty for a long time, and while it does this bar offers no route to
-  // /auth; typing the URL still works, and /auth redirects a viewer who turns
-  // out to be signed in.
-  //
-  // The box is the avatar trigger's size. The row still reflows when auth
-  // settles, because the two settled states are a text link and a
-  // three-control cluster.
-  if (authStatus === 'pending') {
-    return <div aria-hidden="true" className="size-9 shrink-0" />
-  }
-
+  // Only the cluster below names a viewer, so only it requires a settled
+  // 'authenticated' (see the AuthStatus type). The `login / sign-up` link is
+  // the fall-through for every other status, 'pending' included: it names no
+  // viewer, and it is this bar's only route to /auth, which an unsettled
+  // viewer may need, since 'pending' does not say whether their session is
+  // live or dead.
   if (authStatus === 'authenticated' && user) {
     // The canonical account destination list (navData, PSY-1821) — Profile's
     // username-aware href, the Profile/Settings split, and each entry's icon

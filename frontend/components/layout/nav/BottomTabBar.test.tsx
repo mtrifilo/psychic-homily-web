@@ -6,6 +6,8 @@ import { BottomTabBar } from './BottomTabBar'
 import { primaryLinks } from './PrimaryNav'
 import { mobileBrowseHrefs, primaryTabs, sidebarGroups } from './navData'
 import { BOTTOM_TAB_BAR_BOX } from '@/test/layoutContracts'
+import type { AuthStatus } from '@/lib/context/AuthContext'
+import { makeAuthFixture, type MockAuthContextValue } from '@/test/authFixture'
 
 let mockPathname = '/'
 vi.mock('next/navigation', () => ({
@@ -33,18 +35,16 @@ vi.mock('next/link', () => {
 })
 
 const mockLogout = vi.fn()
-type MockAuthContextValue = {
-  user: { email: string; username?: string; is_admin: boolean } | null
-  isAuthenticated: boolean
-  isLoading: boolean
-  logout: () => void
-}
-const mockAuthContext = vi.fn<() => MockAuthContextValue>(() => ({
-  user: null,
-  isAuthenticated: false,
-  isLoading: false,
-  logout: mockLogout,
-}))
+type MockUser = { email: string; username?: string; is_admin: boolean }
+
+// The same shared builder TopBar.test.tsx uses (test/authFixture.ts), because
+// the two bars gate the Account affordance on the same signal and must be
+// described in the same terms.
+const authFixture = makeAuthFixture<MockUser>(mockLogout)
+
+const mockAuthContext = vi.fn<() => MockAuthContextValue<MockUser>>(() =>
+  authFixture()
+)
 vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => mockAuthContext(),
 }))
@@ -70,13 +70,8 @@ vi.mock('next-themes', () => ({
   }),
 }))
 
-function authedAs(user: { email: string; username?: string; is_admin: boolean }) {
-  mockAuthContext.mockReturnValue({
-    user,
-    isAuthenticated: true,
-    isLoading: false,
-    logout: mockLogout,
-  })
+function authedAs(user: MockUser) {
+  mockAuthContext.mockReturnValue(authFixture({ user, authStatus: 'authenticated' }))
 }
 
 describe('BottomTabBar', () => {
@@ -84,12 +79,7 @@ describe('BottomTabBar', () => {
     vi.clearAllMocks()
     mockPathname = '/'
     mockUnreadCount.mockReturnValue(0)
-    mockAuthContext.mockReturnValue({
-      user: null,
-      isAuthenticated: false,
-      isLoading: false,
-      logout: mockLogout,
-    })
+    mockAuthContext.mockReturnValue(authFixture())
   })
 
   // Mobile-reachability guard, simplified per PSY-1821: primaryLinks and
@@ -384,16 +374,69 @@ describe('BottomTabBar', () => {
       )
     })
 
-    it('is inert while auth is hydrating', () => {
-      mockAuthContext.mockReturnValue({
-        user: null,
-        isAuthenticated: false,
-        isLoading: true,
-        logout: mockLogout,
-      })
+    // PSY-1986. Two pending windows that differ only in `isLoading`: the
+    // profile is in flight (true), or a non-definitive failure (5xx, 429,
+    // network, 403) has left the query errored without settling the viewer
+    // (false). The cell keeps the /auth link in both and opens no sheet, so a
+    // gate written on `isLoading` fails one window or the other.
+    it.each([
+      ['while the profile is in flight', true],
+      ['after the profile failed without settling', false],
+    ])('keeps the login link and opens no account sheet %s', (_label, isLoading) => {
+      mockPathname = '/auth'
+      mockAuthContext.mockReturnValue(authFixture({ authStatus: 'pending', isLoading }))
       render(<BottomTabBar />)
-      expect(screen.queryByRole('link', { name: 'Account' })).not.toBeInTheDocument()
+      const tab = screen.getByRole('link', { name: 'Account' })
+      expect(tab).toHaveAttribute('href', '/auth')
+      // A real destination, so it carries the current-page state its route
+      // earns: `accountActive` falls to `isActive('/auth')` on this arm.
+      expect(tab).toHaveAttribute('aria-current', 'page')
       expect(screen.queryByRole('button', { name: 'Account' })).not.toBeInTheDocument()
+    })
+
+    // A logout in flight is 'authenticated' with `isLoading` true: the profile
+    // payload is still cached, so the context still names this viewer until
+    // the mutation resolves and clears it. The old `isLoading` gate went inert
+    // here; the cell now keeps the sheet, which is what the desktop bar has
+    // always done in the same window.
+    it('keeps the account sheet while a logout is in flight', () => {
+      mockAuthContext.mockReturnValue(
+        authFixture({
+          user: { email: 'user@test.com', is_admin: false },
+          authStatus: 'authenticated',
+          isLoading: true,
+        })
+      )
+      render(<BottomTabBar />)
+      expect(screen.getByRole('button', { name: 'Account' })).toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: 'Account' })).not.toBeInTheDocument()
+    })
+
+    // The pending and settled-anonymous cells are the SAME markup, which is
+    // what keeps the tab row from changing shape when a pending read settles
+    // to anonymous. Two things are compared, because either alone passes a
+    // reflow: the cell's whole subtree (a spacer or spinner rendered beside
+    // the link would differ) and the grid's child count (a sixth child in a
+    // `grid-cols-5` row wraps Account outside the fixed bar height, the
+    // PSY-1820 failure). Account is the grid's last child in both arms.
+    it('renders the pending cell identically to the settled-anonymous cell', () => {
+      const cellOf = (authStatus: AuthStatus) => {
+        mockAuthContext.mockReturnValue(authFixture({ authStatus }))
+        const { container, unmount } = render(<BottomTabBar />)
+        const grid = container.querySelector(
+          'nav[aria-label="Mobile navigation"] > div'
+        )
+        const shape = {
+          gridChildren: grid?.children.length,
+          account: grid?.lastElementChild?.outerHTML,
+        }
+        unmount()
+        return shape
+      }
+      const pending = cellOf('pending')
+      expect(pending.gridChildren).toBe(primaryTabs.length + 2)
+      expect(pending.account).toContain('href="/auth"')
+      expect(pending).toEqual(cellOf('anonymous'))
     })
 
     it('opens the account sheet with the UserMenu-mirror entries when signed in', async () => {
@@ -465,22 +508,17 @@ describe('BottomTabBar', () => {
       expect(screen.getAllByTestId('unread-count-badge')).toHaveLength(2)
     })
 
-    // Both non-authed Account renderings are badge-less by construction, not
-    // just because the hook happens to return 0 — so force a non-zero count and
-    // assert nothing renders.
+    // The link arm is badge-less by construction, not just because the hook
+    // happens to return 0, so force a non-zero count and assert nothing
+    // renders, for both statuses that reach it.
     it('never badges an anonymous visitor', () => {
       mockUnreadCount.mockReturnValue(5)
       render(<BottomTabBar />)
       expect(screen.queryByTestId('unread-count-badge')).not.toBeInTheDocument()
     })
 
-    it('never badges the inert placeholder while auth is hydrating', () => {
-      mockAuthContext.mockReturnValue({
-        user: null,
-        isAuthenticated: false,
-        isLoading: true,
-        logout: mockLogout,
-      })
+    it('never badges the Account tab while auth is unsettled', () => {
+      mockAuthContext.mockReturnValue(authFixture({ authStatus: 'pending' }))
       mockUnreadCount.mockReturnValue(5)
       render(<BottomTabBar />)
       expect(screen.queryByTestId('unread-count-badge')).not.toBeInTheDocument()

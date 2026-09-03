@@ -31,6 +31,23 @@ import { AuthError, isDefinitiveUnauthenticated } from '@/lib/errors'
  * bounced logged-in users to /auth. Anything that acts on "this viewer is
  * anonymous" must gate on `authStatus === 'anonymous'`.
  *
+ * What 'pending' has to suppress is narrower than "everything an anonymous
+ * viewer would see". A control that NAMES a viewer (an avatar, an email, a
+ * personal count, an account menu, a CTA offered only to signed-in users)
+ * requires `authStatus === 'authenticated'`.
+ *
+ * A plain NAVIGATION affordance does not. A sign-in link says nothing about
+ * who is looking, and reaching 'pending' takes a session cookie the backend
+ * did not answer for (lib/auth-hydration.ts settles a viewer holding no
+ * cookie without asking anyone), so the viewer may be carrying a dead session
+ * and needing exactly that route. Withholding it strands them.
+ *
+ * That carve-out is for a link, NOT for an action control whose sign-in
+ * WORDING is itself the claim. `SaveButton`, `UserFollowButton` and
+ * `NotifyMeButton` are disabled while pending and keep their neutral names on
+ * purpose, because "Sign in to save" on a control that cannot act names the
+ * viewer and points at a dead end. Do not carry this paragraph over to them.
+ *
  * The guarantee, stated exactly, because a weaker version of this sentence was
  * wrong once already: 'anonymous' is reached only from a DEFINITIVE answer:
  * the profile query resolved with no user, or it failed with a 401, which is

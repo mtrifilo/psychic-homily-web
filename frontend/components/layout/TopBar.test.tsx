@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { TopBar } from './TopBar'
 import type { AuthStatus } from '@/lib/context/AuthContext'
+import { makeAuthFixture, type MockAuthContextValue } from '@/test/authFixture'
 
 let mockPathname = '/'
 vi.mock('next/navigation', () => ({
@@ -17,40 +18,23 @@ vi.mock('next/image', () => ({
 }))
 
 const mockLogout = vi.fn()
-type MockAuthContextValue = {
-  user: {
-    email: string
-    username?: string
-    first_name?: string
-    last_name?: string
-    is_admin: boolean
-  } | null
-  isAuthenticated: boolean
-  authStatus: AuthStatus
-  isLoading: boolean
-  logout: () => void
+type MockUser = {
+  email: string
+  username?: string
+  first_name?: string
+  last_name?: string
+  is_admin: boolean
 }
 
-// One fixture builder rather than a literal per test. It pins one coupling:
-// `isAuthenticated` derives from `authStatus` and cannot be overridden, so no
-// test asserts against a viewer whose two auth signals disagree. `user` and
-// `isLoading` stay overridable, because the cells that matter here differ in
-// them.
-function authFixture(
-  overrides: Partial<Omit<MockAuthContextValue, 'isAuthenticated'>> = {}
-): MockAuthContextValue {
-  const authStatus = overrides.authStatus ?? 'anonymous'
-  return {
-    user: null,
-    authStatus,
-    isLoading: authStatus === 'pending',
-    logout: mockLogout,
-    ...overrides,
-    isAuthenticated: authStatus === 'authenticated',
-  }
-}
+// The shared builder (test/authFixture.ts) states the coupling this suite
+// relies on: `isAuthenticated` derives from `authStatus` and is not
+// overridable, while `isLoading` is, because the two pending cells below
+// differ in it.
+const authFixture = makeAuthFixture<MockUser>(mockLogout)
 
-const mockAuthContext = vi.fn<() => MockAuthContextValue>(() => authFixture())
+const mockAuthContext = vi.fn<() => MockAuthContextValue<MockUser>>(() =>
+  authFixture()
+)
 vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => mockAuthContext(),
 }))
@@ -197,25 +181,42 @@ describe('TopBar', () => {
       expect(screen.getByRole('link', { name: '+ Submit' })).toHaveAttribute('href', '/shows/submit')
     })
 
-    // PSY-1986. Both pending cells, because they differ in the signal the bar
-    // used to read: the ordinary pre-profile window has `isLoading` true, and
-    // the terminal window a non-definitive failure (5xx, network, 403) leaves
-    // behind has it false. That second cell is where the bar claimed the
-    // viewer was anonymous beside bracket controls that rendered disabled, so
-    // a regression to an `isLoading` gate has to fail here.
+    // PSY-1986. Two pending cells that differ only in `isLoading`: the profile
+    // is in flight (true), or a non-definitive failure (5xx, 429, network,
+    // 403) has left the query errored without settling the viewer (false).
+    // Nothing under test reads `isLoading`, which is the point: the bar keeps
+    // the /auth route and suppresses every control that names a viewer in
+    // both, so a gate written on `isLoading` fails one cell or the other.
     it.each([
       ['while the profile is in flight', true],
       ['after the profile failed without settling', false],
-    ])('claims no identity %s', (_label, isLoading) => {
+    ])('keeps the login link and asserts no identity %s', (_label, isLoading) => {
       mockAuthContext.mockReturnValue(authFixture({ authStatus: 'pending', isLoading }))
       render(<TopBar />)
-      expect(screen.queryByText('login / sign-up')).not.toBeInTheDocument()
+      expect(screen.getByText('login / sign-up')).toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'User menu' })).not.toBeInTheDocument()
       expect(screen.queryByRole('link', { name: '+ Submit' })).not.toBeInTheDocument()
       expect(screen.queryByTestId('notification-bell')).not.toBeInTheDocument()
       // No spinner either. Lucide's Loader2 renders a bare svg with no role,
       // so the class is what this assertion has to look for.
       expect(document.querySelector('.animate-spin')).toBeNull()
+    })
+
+    // The pending and settled-anonymous slots are the SAME markup, which is
+    // what keeps the row from reflowing when a pending read settles to
+    // anonymous. The comparison is of the whole SLOT, not of the link alone:
+    // a pending branch that rendered this link beside a spacer or a spinner
+    // would reflow and would still match on the link.
+    it('renders the pending slot identically to the settled-anonymous slot', () => {
+      const slotOf = (authStatus: AuthStatus) => {
+        mockAuthContext.mockReturnValue(authFixture({ authStatus }))
+        const { unmount } = render(<TopBar />)
+        const slot = screen.getByText('login / sign-up').parentElement
+        const html = slot?.innerHTML
+        unmount()
+        return html
+      }
+      expect(slotOf('pending')).toEqual(slotOf('anonymous'))
     })
 
     // The override built at login makes the viewer authenticated before the

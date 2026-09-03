@@ -33,11 +33,12 @@ import type { NavDestination, NavLink } from './navData'
 // PSY-1057, so the static mock and shipped reality agree here). Browse opens the
 // long-tail bottom sheet (every desktop Browse/Contribute/Editorial destination,
 // composed in navData's mobileBrowseGroups — one source of truth, no forked
-// lists). Account is auth-aware: a /auth link for anonymous visitors, an
-// account sheet mirroring the UserMenu entries when signed in, carrying the
-// unread-notification badge on both the tab and the sheet's Notifications row
-// (PSY-1819 — below `sm` the top bar's bell is hidden, so without this there is
-// no unread affordance on a phone at all).
+// lists). Account is auth-aware: a /auth link for every viewer not settled as
+// signed in (anonymous, and unsettled too), an account sheet mirroring the
+// UserMenu entries once signed in, carrying the unread-notification badge on
+// both the tab and the sheet's Notifications row (PSY-1819 — below `sm` the
+// top bar's bell is hidden, so without this there is no unread affordance on
+// a phone at all).
 //
 // Rendered by AppShell below `xl` on every page — matching PrimaryNav's
 // xl:flex, so the lg–xl band (tablets) keeps a primary nav; AppShell adds the
@@ -302,18 +303,29 @@ function AccountSheetBody({
 
 export function BottomTabBar() {
   const pathname = usePathname()
-  const { user, isAuthenticated, isLoading, logout } = useAuthContext()
+  const { user, authStatus, logout } = useAuthContext()
 
   // Costs no request and self-gates to 0 when signed out — see the hook.
   const unreadCount = useUnreadNotificationCount()
 
   const isActive = (href: string) => isNavActive(pathname, href)
 
+  // The one signal every viewer-derived part of the Account cell reads, so
+  // the tab's destination, its active set and its badge cannot disagree about
+  // who is looking. `user !== null` narrows the type for `user.email` below
+  // and adds nothing else: AuthProvider derives 'authenticated' from a
+  // non-null user, so each implies the other.
+  //
+  // What this cell must NOT read is `isLoading`, which is false both before
+  // the profile fetch starts and after it fails, and so has windows where it
+  // falls through to a claim the context has not settled. See the AuthStatus
+  // type for the rule.
+  const isSettledAuthenticated = authStatus === 'authenticated' && user !== null
+
   // The canonical account list (navData, PSY-1821) with the username-aware
   // Profile href already resolved. Admin stays in the list (adminOnly) so the
   // tab's active state covers every account route; rendering filters it.
-  // Anonymous visitors never read it, so don't build it for them.
-  const accountItems = isAuthenticated && user ? accountNavItems(user) : []
+  const accountItems = isSettledAuthenticated ? accountNavItems(user) : []
 
   // At most one tab lights up (off-map routes like /help light none). Primary
   // tabs win on shared prefixes (e.g.
@@ -322,7 +334,7 @@ export function BottomTabBar() {
   // sheet's destinations. The claim-view alias stays in the active set even
   // when Profile deep-links to /users/<username>.
   const primaryActive = primaryTabs.some(t => isActive(t.href))
-  const accountActive = isAuthenticated
+  const accountActive = isSettledAuthenticated
     ? accountItems.some(i => isActive(i.href)) || isActive(PROFILE_CLAIM_HREF)
     : isActive('/auth')
   const browseActive =
@@ -360,22 +372,14 @@ export function BottomTabBar() {
           <BrowseSheetBody user={user} pathname={pathname} />
         </SheetTab>
 
-        {/* Account — auth-aware */}
-        {isLoading ? (
-          // Inert placeholder during auth hydration so the 5-tab grid doesn't
-          // jump: this cell is one of five equal columns, so it has to occupy
-          // its column whatever the viewer turns out to be. aria-hidden: it
-          // looks tappable but is deliberately inert until auth settles.
-          //
-          // The gate is the context's `isLoading`, which is false both before
-          // the profile fetch starts and after it fails. In either window this
-          // cell falls through to the anonymous Account link below and states
-          // an identity the context has not settled.
-          <div aria-hidden className={tabClassName(false)}>
-            <User className="size-5" />
-            Account
-          </div>
-        ) : isAuthenticated && user ? (
+        {/* The auth-aware Account cell. The sheet names a viewer, so it is
+            what a settled 'authenticated' buys; every other status gets the
+            /auth link, which names none. That is the rule UserMenu applies in
+            the top bar, and the two are on screen together from `sm` up to
+            this bar's own `xl:hidden`, so they have to agree. Either arm fills
+            the same one of five equal grid columns, so the cell does not jump
+            on settle. */}
+        {isSettledAuthenticated ? (
           <SheetTab
             label="Account"
             icon={User}
