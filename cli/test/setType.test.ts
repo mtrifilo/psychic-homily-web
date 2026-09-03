@@ -6,6 +6,8 @@ import {
   roundTrippableRole,
   isUnroundtrippableSetType,
   isValidSetType,
+  statesASlot,
+  statedSlot,
 } from "../src/lib/setType";
 
 describe("isValidSetType", () => {
@@ -112,5 +114,43 @@ describe("isUnroundtrippableSetType", () => {
     expect(isUnroundtrippableSetType("  ")).toBe(false);
     expect(isUnroundtrippableSetType(null)).toBe(false);
     expect(isUnroundtrippableSetType(undefined)).toBe(false);
+  });
+});
+
+describe("statesASlot", () => {
+  test("the three spellings of silence are all silence", () => {
+    expect(statesASlot(undefined)).toBe(false);
+    expect(statesASlot(null)).toBe(false);
+    expect(statesASlot("")).toBe(false);
+    expect(statesASlot("   ")).toBe(false);
+    expect(statesASlot(SET_TYPE_UNCURATED)).toBe(false);
+  });
+
+  test("any other value states a slot, vocabulary or not", () => {
+    expect(statesASlot("headliner")).toBe(true);
+    // Out of vocabulary is still a claim about the slot: the API refuses it,
+    // it does not read it as silence.
+    expect(statesASlot("co-headliner")).toBe(true);
+  });
+});
+
+describe("statedSlot", () => {
+  test("a curated role wins", () => {
+    expect(statedSlot({ set_type: "direct_support" })).toBe("direct_support");
+    expect(statedSlot({ set_type: "opener", is_headliner: true })).toBe("opener");
+  });
+
+  test("the legacy flag decides only when no role is stated", () => {
+    expect(statedSlot({ is_headliner: true })).toBe("headliner");
+    expect(statedSlot({ set_type: SET_TYPE_UNCURATED, is_headliner: true })).toBe(
+      "headliner",
+    );
+  });
+
+  test("silence and an unusable role state nothing", () => {
+    expect(statedSlot({})).toBeUndefined();
+    expect(statedSlot({ set_type: SET_TYPE_UNCURATED })).toBeUndefined();
+    expect(statedSlot({ set_type: "co-headliner" })).toBeUndefined();
+    expect(statedSlot({ is_headliner: false })).toBeUndefined();
   });
 });

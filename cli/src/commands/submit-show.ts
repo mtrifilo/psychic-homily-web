@@ -8,7 +8,7 @@ import type { TagInput, ResolvedTag } from "../lib/tags";
 import * as display from "../lib/display";
 import { green, yellow, dim, gray } from "../lib/ansi";
 import { resolveVenueTimezone, localTimeToUTC } from "../lib/timezone";
-import { isValidSetType, roundTrippableRole } from "../lib/setType";
+import { isValidSetType, statedSlot } from "../lib/setType";
 
 /**
  * Normalize a date string to an ISO 8601 UTC timestamp.
@@ -505,19 +505,12 @@ export function showPriceLine(input: {
 /**
  * The dry run's per-act role tag: `[headliner]`, `[direct_support]`, or nothing.
  *
- * The role is the thing an operator cannot check anywhere else before the write
- * — the API stores it, the poster stated it, and the preview is the last place
- * it can be caught wrong.
- *
- * Only a role that curates a slot prints. `roundTrippableRole` is the same test
- * the edit commands apply, so `performer`, blank and out-of-vocabulary values
- * are all silent here; with no stated role the legacy `is_headliner` flag is
- * the only signal left, and it prints as the headliner it means.
+ * Formatting only. Which slot an act states is {@link statedSlot}'s question,
+ * so `performer`, blank and out-of-vocabulary values are all silent here.
  */
 export function billRoleTag(artist: { is_headliner?: boolean; set_type?: string }): string {
-  const role = roundTrippableRole(artist.set_type);
-  if (role) return dim(` [${role}]`);
-  return artist.is_headliner ? dim(" [headliner]") : "";
+  const role = statedSlot(artist);
+  return role ? dim(` [${role}]`) : "";
 }
 
 function displayPreview(plans: ShowPlan[], resolvedTags?: ResolvedTag[][]): void {

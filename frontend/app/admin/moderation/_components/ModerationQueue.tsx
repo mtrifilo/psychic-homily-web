@@ -405,9 +405,9 @@ function RevisedFromSource({ request }: { request: AdminEntityRequest }) {
 // not the already-headed entity name.
 const PREVIEW_HEADER_KEYS = ['name', 'title']
 
-// Shown by a control instead of the preview. `artists` is the show payload's
-// bill, which ShowCreateForm renders as editable rows; it is also the only
-// non-scalar payload field, so the preview could only stringify it.
+// Rendered by PayloadBillLine instead of the preview. `artists` is the show
+// payload's bill, and it is the only non-scalar payload field, so the preview
+// could only stringify it.
 const PREVIEW_CONTROL_OWNED_KEYS = ['artists']
 
 const PREVIEW_OMIT_KEYS = new Set([...PREVIEW_HEADER_KEYS, ...PREVIEW_CONTROL_OWNED_KEYS])
@@ -589,18 +589,29 @@ function parsePayloadBill(payload: Record<string, unknown> | null): ShowArtistRo
 }
 
 /**
- * How a stated bill role reads inside the compact card line, or `null` for a
- * role that designates nothing and is therefore not annotated at all.
+ * Whether a row states a slot on the bill.
  *
- * Lowercase, matching the show page's parenthetical annotation register rather
- * than the form's sentence-case option labels: this is a reading of the bill,
- * not a control.
+ * "Curated" is the BACKEND's test, not the form's. `performer` is one of the
+ * two spellings of "slot unknown" (headlineSlotUnknownValues), the other being
+ * the absent key that parsePayloadBill reads as UNSTATED_ROLE, so a bill whose
+ * acts are all explicitly "Performer (slot unknown)" is still uncurated and DOES
+ * get a headline slot from position 0. Testing `!== UNSTATED_ROLE` alone would
+ * read that bill as curated.
  *
- * `performer` maps to `null` because it is one of the two spellings of "slot
- * unknown" (the other being an absent key, which parsePayloadBill reads as
- * UNSTATED_ROLE). Annotating it would print a role nobody stated, which is
- * exactly what this line must not do. The same distinction curatesABillSlot
- * makes for the warning predicate.
+ * One predicate for both readers of it: the card line, which annotates only a
+ * stated role, and the form's partial-curation warning, which must match
+ * headlineSlotSQL's notion of curated or it misfires.
+ */
+function curatesABillSlot(row: ShowArtistRow): row is ShowArtistRow & { set_type: SetType } {
+  return row.set_type !== UNSTATED_ROLE && row.set_type !== DEFAULT_SET_TYPE
+}
+
+/**
+ * How a stated bill role reads inside the compact card line.
+ *
+ * Lowercase, because this is a reading of the bill rather than a control: the
+ * form's sentence-case option labels are a separate register and stay in
+ * show-form-utils, which reserves annotation copy as its own decision.
  *
  * Typed as an exhaustive Record so a role added to the backend vocabulary stops
  * this file building until somebody decides how it reads here.
@@ -611,6 +622,7 @@ const BILL_LINE_ROLE_LABELS: Record<SetType, string | null> = {
   opener: 'opener',
   special_guest: 'special guest',
   dj: 'DJ',
+  // Unreachable: curatesABillSlot rejects the neutral default before the lookup.
   performer: null,
 }
 
@@ -627,26 +639,26 @@ const BILL_LINE_MAX_ACTS = 5
  * opening the form.
  *
  * The reject and scan paths never open the form, so without this the bill is
- * invisible on them. It is a READING, never an editing surface: the form is
- * where a bill is changed.
+ * invisible on them. It is a READING, never an editing surface.
  *
- * Renders nothing at all for a payload with no readable bill, which covers a
- * bill-less request and a malformed `artists` value alike — parsePayloadBill
- * drops what it cannot read, so a malformed payload costs its own card this
- * line and not the whole queue.
+ * Renders nothing for a payload with no readable bill, which covers a bill-less
+ * request and a malformed `artists` value alike: parsePayloadBill drops what it
+ * cannot read, so a malformed payload costs its own card this line and not the
+ * whole queue.
  *
  * Takes the whole request so the entity-type gate lives here rather than at
  * each card: a bill is a show's field, exactly as the backend's
  * ShowPayloadArtists answers nil for every other type.
  */
 function PayloadBillLine({ request }: { request: AdminEntityRequest }) {
-  const bill = request.entity_type === 'show' ? parsePayloadBill(request.payload) : []
+  if (request.entity_type !== 'show') return null
+  const bill = parsePayloadBill(request.payload)
   if (bill.length === 0) return null
 
   const shown = bill.slice(0, BILL_LINE_MAX_ACTS)
   const overflow = bill.length - shown.length
   const acts = shown.map(row => {
-    const label = row.set_type === UNSTATED_ROLE ? null : BILL_LINE_ROLE_LABELS[row.set_type]
+    const label = curatesABillSlot(row) ? BILL_LINE_ROLE_LABELS[row.set_type] : null
     return label === null ? row.name : `${row.name} (${label})`
   })
 
@@ -657,6 +669,8 @@ function PayloadBillLine({ request }: { request: AdminEntityRequest }) {
     >
       {/* Names alone read as an unlabelled list out of visual context. */}
       <span className="sr-only">Bill: </span>
+      {/* `truncate` keeps a long name from wrapping the card; the count is the
+          separate question of acts past the fifth, and stays legible. */}
       <span className="min-w-0 truncate">{acts.join(' · ')}</span>
       {overflow > 0 && <span className="shrink-0">+{overflow}</span>}
     </p>
@@ -740,16 +754,11 @@ function ShowCreateForm({
   // a legitimate description of a real bill, and the display reconciliation
   // belongs to PSY-1943's one-rule scope, not to a gate here.
   //
-  // "Curated" is the BACKEND's test, not the form's. 'performer' is one of the
-  // two spellings of "slot unknown" (headlineSlotUnknownValues), so a bill whose
-  // acts are all explicitly "Performer (slot unknown)" is still uncurated and
-  // DOES get a headline slot from position 0. Testing `!== UNSTATED_ROLE` alone
-  // would warn about that bill wrongly.
+  // What counts as curated is curatesABillSlot's question, and the card's bill
+  // line asks it too, so the two cannot disagree about what a stated role is.
   //
   // Read off filledArtists because that is the bill that gets sent: a nameless
   // row is dropped (and separately blocks the submit above).
-  const curatesABillSlot = (row: ShowArtistRow) =>
-    row.set_type !== UNSTATED_ROLE && row.set_type !== DEFAULT_SET_TYPE
   const hasCuratedBillWithoutHeadliner =
     filledArtists.some(curatesABillSlot) &&
     !filledArtists.some(row => row.set_type === 'headliner')

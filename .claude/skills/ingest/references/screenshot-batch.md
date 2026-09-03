@@ -125,7 +125,6 @@ CLI processes: labels → artists → releases → venues → festivals → show
 - Release types: `lp`, `ep`, `single`, `compilation`, `live`
 - Skip non-music: DJ interludes, commercials, trivia nights
 - Festival billing tiers: headliner, sub_headliner, mid_card, undercard, local, dj, host
-- Show `door_price` and `artists[].set_type` only when the source states them — see [show prices](#show-prices) and [bill roles](#bill-roles)
 
 ## Steps 3–5: Dry-run, confirm, fix-ups
 

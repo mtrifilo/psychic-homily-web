@@ -6,8 +6,10 @@
  * hallucinated, venue correctness, festival field correctness, and billing-tier
  * agreement. Kept free of any promptfoo / I/O dependency so it is unit-testable
  * with `bun test` (cli/test/eval-scoring.test.ts) and reusable by a fallback
- * harness if promptfoo is ever dropped.
+ * harness if promptfoo is ever dropped. The one CLI import is pure and carries
+ * the same vocabulary rules the product enforces.
  */
+import { statesASlot } from "../src/lib/setType.ts";
 
 export interface BatchItem {
   entity_type: string;
@@ -61,8 +63,11 @@ export interface FieldAgreement {
 }
 
 export interface ShowFieldScore {
-  /** Golden shows the model produced at all (matched on date + venue). */
-  shows: { expected: number; matched: number; missed: string[] };
+  /**
+   * Golden shows the model produced at all (matched on date + venue). Carries
+   * a rate like every other metric, so no consumer re-derives the ratio.
+   */
+  shows: { expected: number; matched: number; missed: string[]; rate: number };
   /**
    * `price` and `door_price` compared INCLUDING absence: a show the source
    * states one price for must carry no `door_price` at all.
@@ -81,7 +86,7 @@ export interface ExtractionScore {
   /** Per-festival field correctness (name, dates, slug, year). */
   festivalFields: FestivalFieldScore[];
   /** Fraction of golden lineup artists whose billing_tier matches in the model output. */
-  billingTierAgreement: { matched: number; comparable: number; rate: number };
+  billingTierAgreement: FieldAgreement;
   /** Show price + bill-role agreement, both scored on absence as well as value. */
   showFields: ShowFieldScore;
   /** Weighted overall score in [0, 1]. */
@@ -161,28 +166,63 @@ export function scoreFestivalFields(
   });
 }
 
-/** Fraction of golden lineup artists whose billing_tier matches the model's. */
-export function scoreBillingTiers(
-  expectedFestival: BatchItem | undefined,
-  actualFestival: BatchItem | undefined,
-): { matched: number; comparable: number; rate: number } {
-  const expArtists = expectedFestival?.artists ?? [];
-  const actArtists = actualFestival?.artists ?? [];
-  const actByName = new Map<string, string | undefined>();
-  for (const a of actArtists) {
-    if (a.name) actByName.set(normalizeName(a.name), a.billing_tier);
+function agreement(matched: number, comparable: number, mismatches: string[]): FieldAgreement {
+  return { matched, comparable, rate: comparable === 0 ? 1 : matched / comparable, mismatches };
+}
+
+/** One entry on a bill or a lineup, as far as the per-act metrics are concerned. */
+type Act = NonNullable<BatchItem["artists"]>[number];
+
+/**
+ * Agreement on one per-act field, over the acts the model actually produced.
+ *
+ * An act the model omitted entirely is skipped rather than counted wrong: that
+ * is a recall miss, and recall is the metric that owns it.
+ *
+ * `stated` reads the value to compare. `undefined` on a GOLDEN act means this
+ * metric cannot judge that act, which is how billing tiers skip an act the
+ * golden left untiered. Bill roles never return it, because absence is one of
+ * the values they compare.
+ */
+function scoreActField(
+  expectedActs: readonly Act[],
+  actualActs: readonly Act[],
+  stated: (act: Act) => string | null | undefined,
+  context: string,
+): FieldAgreement {
+  const actByName = new Map<string, Act>();
+  for (const a of actualActs) {
+    if (a.name) actByName.set(normalizeName(a.name), a);
   }
 
   let matched = 0;
   let comparable = 0;
-  for (const e of expArtists) {
-    if (!e.name || e.billing_tier === undefined) continue;
-    const key = normalizeName(e.name);
-    if (!actByName.has(key)) continue; // artist missing entirely — counted by recall, not here
+  const mismatches: string[] = [];
+  for (const e of expectedActs) {
+    if (!e.name) continue;
+    const expValue = stated(e);
+    if (expValue === undefined) continue;
+    const a = actByName.get(normalizeName(e.name));
+    if (!a) continue;
     comparable++;
-    if (actByName.get(key) === e.billing_tier) matched++;
+    const actValue = stated(a) ?? null;
+    if (expValue === actValue) matched++;
+    else mismatches.push(`${context}${e.name}: expected ${expValue}, got ${actValue}`);
   }
-  return { matched, comparable, rate: comparable === 0 ? 1 : matched / comparable };
+  return agreement(matched, comparable, mismatches);
+}
+
+/** Fraction of golden lineup artists whose billing_tier matches the model's. */
+export function scoreBillingTiers(
+  expectedFestival: BatchItem | undefined,
+  actualFestival: BatchItem | undefined,
+): FieldAgreement {
+  return scoreActField(
+    expectedFestival?.artists ?? [],
+    actualFestival?.artists ?? [],
+    act => act.billing_tier,
+    "",
+  );
 }
 
 /**
@@ -200,14 +240,12 @@ function showKey(show: BatchItem): string {
 /**
  * The value a show states for a price field, or `null` when it states none.
  *
- * Absence is a value here, and the point of the metric: the extraction rules
- * forbid deriving `door_price` from `price`, so a show whose source names one
- * price must come back with no `door_price` key at all. `null`, `undefined` and
- * `""` are all the same silence.
+ * Absence is one of the compared values: the extraction rules forbid deriving
+ * `door_price` from `price`, so a show whose source names one price must carry
+ * no `door_price` key at all.
  *
- * A present value that is not a number yields `NaN`, which equals nothing —
- * including itself — so an unreadable price is scored as a disagreement rather
- * than quietly matching an absent one.
+ * A present value that is not a number yields `NaN`, which equals nothing,
+ * itself included, so an unreadable price never matches an absent one.
  */
 function statedPrice(show: BatchItem, field: "price" | "door_price"): number | null {
   const raw = show[field];
@@ -220,27 +258,18 @@ function statedPrice(show: BatchItem, field: "price" | "door_price"): number | n
 /**
  * The bill slot an act states, or `null` when it states none.
  *
- * The backend's own resolution ladder: a curated `set_type` wins, the legacy
- * `is_headliner` flag decides only in its absence, and anything else is silence.
- * Reading `is_headliner` here is what makes the metric catch the failure the
- * rules exist to prevent — a model that infers the headliner from the top of
- * the poster reports a slot the source never stated.
+ * `statesASlot` is the CLI's own definition of that silence, so `performer`,
+ * blank and absent all read the same here as they do at the write paths. The
+ * value is compared as stated rather than validated, because a role outside the
+ * vocabulary is a disagreement with the golden, not silence.
  *
- * `performer` is silence, not a role: it is the value every uncurated row
- * holds, so a model that spells "slot unknown" as `performer` and one that
- * omits the key are saying the same thing and score the same.
+ * Reading `is_headliner` is what makes the metric catch the failure the rules
+ * exist to prevent: a model that designates the top of the poster reports a
+ * slot the source never stated.
  */
-function statedSlot(act: { set_type?: string; is_headliner?: boolean }): string | null {
-  const raw = act.set_type;
-  if (typeof raw === "string") {
-    const trimmed = raw.trim();
-    if (trimmed !== "" && trimmed !== "performer") return trimmed;
-  }
+function statedSlot(act: Act): string | null {
+  if (statesASlot(act.set_type)) return act.set_type.trim();
   return act.is_headliner === true ? "headliner" : null;
-}
-
-function agreement(matched: number, comparable: number, mismatches: string[]): FieldAgreement {
-  return { matched, comparable, rate: comparable === 0 ? 1 : matched / comparable, mismatches };
 }
 
 /**
@@ -285,25 +314,19 @@ export function scoreShowFields(expected: BatchItem[], actual: BatchItem[]): Sho
       else priceMismatches.push(`${key} ${field}: expected ${e}, got ${a}`);
     }
 
-    const actByName = new Map<string, { set_type?: string; is_headliner?: boolean }>();
-    for (const a of act.artists ?? []) {
-      if (a.name) actByName.set(normalizeName(a.name), a);
-    }
-    for (const e of exp.artists ?? []) {
-      if (!e.name) continue;
-      const a = actByName.get(normalizeName(e.name));
-      // Missing act: counted by artist recall, not here.
-      if (!a) continue;
-      roleComparable++;
-      const expSlot = statedSlot(e);
-      const actSlot = statedSlot(a);
-      if (expSlot === actSlot) roleMatched++;
-      else roleMismatches.push(`${key} ${e.name}: expected ${expSlot}, got ${actSlot}`);
-    }
+    const roles = scoreActField(exp.artists ?? [], act.artists ?? [], statedSlot, `${key} `);
+    roleMatched += roles.matched;
+    roleComparable += roles.comparable;
+    roleMismatches.push(...roles.mismatches);
   }
 
   return {
-    shows: { expected: expectedShows.length, matched: matchedShows, missed },
+    shows: {
+      expected: expectedShows.length,
+      matched: matchedShows,
+      missed,
+      rate: expectedShows.length === 0 ? 1 : matchedShows / expectedShows.length,
+    },
     prices: agreement(priceMatched, priceComparable, priceMismatches),
     billRoles: agreement(roleMatched, roleComparable, roleMismatches),
   };
@@ -383,25 +406,19 @@ export function formatScore(score: ExtractionScore): string {
     lines.push(`  [${mark}] ${f.field}: expected ${JSON.stringify(f.expected)}, got ${JSON.stringify(f.actual)}`);
   }
 
-  const b = score.billingTierAgreement;
-  lines.push(
-    `Billing-tier agreement: ${b.matched}/${b.comparable} (${(b.rate * 100).toFixed(1)}%)`,
-  );
+  const pushAgreement = (label: string, a: FieldAgreement) => {
+    lines.push(`${label}: ${a.matched}/${a.comparable} (${(a.rate * 100).toFixed(1)}%)`);
+    for (const m of a.mismatches) lines.push(`  ${m}`);
+  };
+
+  pushAgreement("Billing-tier agreement", score.billingTierAgreement);
 
   const s = score.showFields;
   if (s.shows.expected > 0) {
     lines.push(`Shows: ${s.shows.matched}/${s.shows.expected} matched`);
     if (s.shows.missed.length) lines.push(`  missed: ${s.shows.missed.join(", ")}`);
-    lines.push(
-      `Show prices (absence included): ${s.prices.matched}/${s.prices.comparable} ` +
-        `(${(s.prices.rate * 100).toFixed(1)}%)`,
-    );
-    for (const m of s.prices.mismatches) lines.push(`  ${m}`);
-    lines.push(
-      `Bill roles (absence included): ${s.billRoles.matched}/${s.billRoles.comparable} ` +
-        `(${(s.billRoles.rate * 100).toFixed(1)}%)`,
-    );
-    for (const m of s.billRoles.mismatches) lines.push(`  ${m}`);
+    pushAgreement("Show prices (absence included)", s.prices);
+    pushAgreement("Bill roles (absence included)", s.billRoles);
   }
 
   lines.push(`Overall score: ${(score.overall * 100).toFixed(1)}%`);

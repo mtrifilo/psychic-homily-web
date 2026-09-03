@@ -11,6 +11,7 @@ output against the golden JSON.
 fixtures/
 └── <fixture-slug>/
     ├── poster.png      # the input image (flyer / lineup / playlist screenshot)
+    ├── poster.html     # (synthetic fixtures only) the source the PNG renders from
     └── expected.json   # the human-verified golden batch JSON
 ```
 
@@ -37,18 +38,24 @@ and `artists[].set_type` are emitted ONLY when the source states them.
   type size. A model that copies `price` into `door_price`, or reads a headliner
   off the top of the list, fails it.
 
-They are **synthetic**: the flyers are rendered from HTML in this repo's history
-rather than captured from a promoter, and the golden JSON is verified by
-construction because the poster text was authored alongside it. That is the
+They are **synthetic**: each `poster.png` renders from the `poster.html` beside
+it rather than being captured from a promoter, and the golden JSON is verified
+by construction because the poster text was authored alongside it. That is the
 trade for testing a rule no production capture in the corpus exercises; every
 other fixture should still come from a real source, human-verified against a
 dry run. The venues are real Phoenix rooms and the acts are invented.
 
-Scored by `show_price_agreement` and `bill_role_agreement`, which compare
-ABSENCE as well as value — an unstated door price must come back unstated. Both
-grade at 1.0 rather than the 0.8 the recall metrics use, because a single
-spurious value is the whole failure. Neither feeds `overall`, so the Riot Fest
-baseline stays comparable.
+To amend one, edit `poster.html`, re-render it, and update `expected.json` to
+match:
+
+```bash
+cd frontend && ./node_modules/.bin/playwright screenshot --viewport-size=800,1100 \
+  "file://$(git rev-parse --show-toplevel)/cli/eval/fixtures/<slug>/poster.html" \
+  "$(git rev-parse --show-toplevel)/cli/eval/fixtures/<slug>/poster.png"
+```
+
+They are scored by `show_price_agreement` and `bill_role_agreement` (see
+`cli/eval/assert.ts` for how those are graded).
 
 ## Adding a new fixture
 

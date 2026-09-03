@@ -17,6 +17,7 @@ import {
   parseModelBatch,
   formatScore,
   type BatchItem,
+  type FieldAgreement,
 } from "./scoring.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -41,6 +42,27 @@ function getSchemaValidator() {
   const validate = ajv.compile(schema);
   schemaValidator = (data: unknown) => validate(data) as boolean;
   return schemaValidator;
+}
+
+/**
+ * One component result for an exact-agreement metric, graded at 1.0.
+ *
+ * The mismatch lines go in the reason so a failing run says which value
+ * disagreed without a second read of the output file.
+ */
+function agreementResult(
+  label: string,
+  a: FieldAgreement,
+  scoreName: string,
+): GradingResult {
+  return {
+    pass: a.rate >= 1,
+    score: a.rate,
+    reason:
+      `${label} ${a.matched}/${a.comparable}` +
+      (a.mismatches.length ? `: ${a.mismatches.join("; ")}` : ""),
+    namedScores: { [scoreName]: a.rate },
+  };
 }
 
 export default function assert(output: string, context: AssertContext): GradingResult {
@@ -119,44 +141,18 @@ export default function assert(output: string, context: AssertContext): GradingR
       reason: `Billing-tier agreement ${score.billingTierAgreement.matched}/${score.billingTierAgreement.comparable}`,
       namedScores: { billing_tier_agreement: score.billingTierAgreement.rate },
     },
-    // Show prices and bill roles are graded at 1.0, not 0.8: both are
-    // "state it only when the source states it" rules, so a single spurious
-    // door price or inferred headliner is the whole failure the metric exists
-    // to see. A fixture with no golden shows scores a vacuous 1 and reports
-    // nothing, which is why the reason line names the counts.
-    {
-      pass: score.showFields.prices.rate >= 1,
-      score: score.showFields.prices.rate,
-      reason:
-        `Show prices (absence included) ${score.showFields.prices.matched}/${score.showFields.prices.comparable}` +
-        (score.showFields.prices.mismatches.length
-          ? `: ${score.showFields.prices.mismatches.join("; ")}`
-          : ""),
-      namedScores: { show_price_agreement: score.showFields.prices.rate },
-    },
-    {
-      pass: score.showFields.billRoles.rate >= 1,
-      score: score.showFields.billRoles.rate,
-      reason:
-        `Bill roles (absence included) ${score.showFields.billRoles.matched}/${score.showFields.billRoles.comparable}` +
-        (score.showFields.billRoles.mismatches.length
-          ? `: ${score.showFields.billRoles.mismatches.join("; ")}`
-          : ""),
-      namedScores: { bill_role_agreement: score.showFields.billRoles.rate },
-    },
+    // Show prices and bill roles are graded at 1.0, not the 0.8 the recall
+    // metrics use: both are "state it only when the source states it" rules, so
+    // one spurious door price or inferred headliner is the whole failure the
+    // metric exists to see. A fixture with no golden shows scores a vacuous 1,
+    // which is why the reason line names the counts.
+    agreementResult("Show prices (absence included)", score.showFields.prices, "show_price_agreement"),
+    agreementResult("Bill roles (absence included)", score.showFields.billRoles, "bill_role_agreement"),
     {
       pass: score.showFields.shows.missed.length === 0,
-      score:
-        score.showFields.shows.expected === 0
-          ? 1
-          : score.showFields.shows.matched / score.showFields.shows.expected,
+      score: score.showFields.shows.rate,
       reason: `Shows ${score.showFields.shows.matched}/${score.showFields.shows.expected} matched on date + venue`,
-      namedScores: {
-        show_recall:
-          score.showFields.shows.expected === 0
-            ? 1
-            : score.showFields.shows.matched / score.showFields.shows.expected,
-      },
+      namedScores: { show_recall: score.showFields.shows.rate },
     },
   ];
 
@@ -173,6 +169,7 @@ export default function assert(output: string, context: AssertContext): GradingR
       artist_recall: score.artists.recall,
       venue_recall: score.venues.recall,
       billing_tier_agreement: score.billingTierAgreement.rate,
+      show_recall: score.showFields.shows.rate,
       show_price_agreement: score.showFields.prices.rate,
       bill_role_agreement: score.showFields.billRoles.rate,
       schema_valid: schemaValid ? 1 : 0,

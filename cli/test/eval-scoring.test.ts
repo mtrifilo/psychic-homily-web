@@ -290,7 +290,7 @@ describe("scoreShowFields", () => {
 
   test("a faithful split price and stated roles score 1", () => {
     const s = scoreShowFields(splitPriceGolden, splitPriceGolden);
-    expect(s.shows).toEqual({ expected: 1, matched: 1, missed: [] });
+    expect(s.shows).toEqual({ expected: 1, matched: 1, missed: [], rate: 1 });
     expect(s.prices.rate).toBe(1);
     expect(s.billRoles.rate).toBe(1);
   });
