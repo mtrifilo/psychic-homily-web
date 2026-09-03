@@ -1289,7 +1289,12 @@ func (h *{{.NameTitle}}Handler) Create{{.NameTitle}}Handler(ctx context.Context,
 		)
 	}
 
-	// Audit log (fire and forget)
+	// Audit log (fire and forget). A NEW ACTION NEEDS A METADATA DISPOSITION:
+	// add it to contributionMetadataKeys in
+	// internal/services/user/contributor_profile.go, or
+	// TestEveryAuditActionHasAMetadataDisposition fails. audit_logs.metadata is
+	// served on the public contributions timeline, so what a new writer records
+	// is published under its actor's own username unless that map says otherwise.
 	if h.auditLogService != nil {
 		go func() {
 			h.auditLogService.LogAction(user.ID, "create_{{.NameSnake}}", "{{.NameSnake}}", result.ID, nil)

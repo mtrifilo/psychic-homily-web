@@ -155,8 +155,10 @@ func (h *FieldNoteHandler) CreateFieldNoteHandler(ctx context.Context, req *Crea
 	// migration can recover it, but a data migration is not this change's job.
 	// The gate fails closed on them, which is the safe direction.
 	//
-	// show_id stays in metadata: it is what the frontend reads, and dropping it
-	// would break the row's link.
+	// show_id stays in metadata for the admin audit log, which serves whole
+	// rows. The contributions timeline publishes no key for this action
+	// (services/user/contributor_profile.go), so nothing user-facing reads it
+	// from here.
 	if h.auditLogService != nil {
 		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "create_field_note", "show", uint(showID), map[string]interface{}{

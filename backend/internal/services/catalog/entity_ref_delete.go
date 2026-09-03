@@ -234,8 +234,9 @@ var entityRefDeleteDispositions = map[string]refDeleteDisposition{
 	// admin review queue naming a deleted entity; that is the accepted cost of the
 	// decision, and pruning it belongs to the review workflow rather than here.
 	"pending_entity_edits": keepRefRowsAsTombstone,
-	// The append-only trail beside it, served on the anonymous contributions feed
-	// scoped by ACTOR (services/user/contributor_profile.go), never by entity.
+	// The append-only trail beside it, read on the contributions feed scoped by
+	// ACTOR (services/user/contributor_profile.go), never by entity. That feed
+	// publishes the row and withholds its metadata.
 	"entity_edit_audit_logs": keepRefRowsAsTombstone,
 
 	// entity_requests looks like `requests` below and must NOT be treated like it.

@@ -222,6 +222,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM show_artists")
 	_, _ = sqlDB.Exec("DELETE FROM show_venues")
 	_, _ = sqlDB.Exec("DELETE FROM shows")
+	_, _ = sqlDB.Exec("DELETE FROM entity_requests")
 	_, _ = sqlDB.Exec("DELETE FROM venues")
 	_, _ = sqlDB.Exec("DELETE FROM artists")
 	_, _ = sqlDB.Exec("DELETE FROM releases")
@@ -889,8 +890,9 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	suite.Equal("create_release", entries[0].Action)
 	suite.Equal("release", entries[0].EntityType)
 	suite.Equal("audit_log", entries[0].Source)
-	suite.Require().NotNil(entries[0].Metadata)
-	suite.Equal("New Album", entries[0].Metadata["title"])
+	// create_release publishes no metadata key, so a row carrying one arrives
+	// with the field absent rather than with the stored document.
+	suite.Nil(entries[0].Metadata)
 }
 
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_MergesSources() {
@@ -2104,10 +2106,9 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 		suite.NotEqual(shutColl.ID, e.EntityID, "the private collection's id reached a stranger")
 		suite.NotEqual(shutItem.ID, e.EntityID, "the private collection's item id reached a stranger")
 		suite.NotEqual("Shut Picks", e.EntityName, "the private collection's title reached a stranger")
-		if e.Metadata != nil {
-			suite.NotEqual(shutColl.Slug, e.Metadata["slug"],
-				"the private collection's slug reached a stranger through audit metadata")
-		}
+		suite.Nil(e.Metadata,
+			"the collection family publishes no metadata key, so the private "+
+				"collection's slug cannot reach a stranger through one")
 	}
 
 	// An ANONYMOUS caller is the same tier as a stranger here, and it is the tier
@@ -2163,9 +2164,14 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 
 	openColl := suite.createCollectionForHistory(actor.ID, "Removal Open", "removal-open-history", true)
 	shutColl := suite.createCollectionForHistory(actor.ID, "Removal Shut", "removal-shut-history", false)
+	// The removed item's id is what identifies each row in the response: the
+	// timeline publishes no metadata key for this family, so the recorded slug
+	// cannot be read back to tell the two rows apart.
+	itemIDs := map[uint]uint{}
 	for _, c := range []*communitym.Collection{openColl, shutColl} {
 		item := suite.createCollectionItemForHistory(c.ID, actor.ID)
 		itemID := item.ID
+		itemIDs[c.ID] = itemID
 		suite.Require().NoError(suite.db.Delete(&communitym.CollectionItem{}, itemID).Error)
 		suite.auditLog.LogAction(actor.ID, "remove_collection_item", "collection", itemID,
 			map[string]interface{}{"slug": c.Slug, "collection_id": c.ID})
@@ -2179,7 +2185,8 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	suite.Require().NoError(err)
 	suite.EqualValues(len(entries), total)
 	suite.Require().Len(entries, 1, "a stranger sees only the public parent's removal")
-	suite.Equal(openColl.Slug, entries[0].Metadata["slug"])
+	suite.EqualValues(itemIDs[openColl.ID], entries[0].EntityID)
+	suite.Nil(entries[0].Metadata, "the recorded slug decides the row, it is not published")
 
 	own, ownTotal, err := suite.profileService.GetContributionHistory(
 		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: actor.ID})
@@ -2240,8 +2247,9 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: stranger.ID})
 	suite.Require().NoError(err)
 	suite.Require().Len(entries, 1, "the clone is public, so the contribution stays")
-	suite.NotContains(entries[0].Metadata, "source_slug")
-	suite.NotContains(entries[0].Metadata, "source_id")
+	suite.Nil(entries[0].Metadata,
+		"the two source keys are the only ones this action publishes, so scrubbing them "+
+			"must leave the entry answering like one that carried no metadata")
 
 	own, _, err := suite.profileService.GetContributionHistory(
 		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: actor.ID})
@@ -2249,6 +2257,117 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	suite.Require().Len(own, 1)
 	suite.Equal(source.Slug, own[0].Metadata["source_slug"],
 		"the creator keeps the attribution to their own private source")
+}
+
+// A CATALOG MERGE DOES NOT MOVE AN ENTITY-REQUEST ROW ONTO ANOTHER USER'S
+// REQUEST.
+//
+// repointEntityRefs (services/catalog/entity_ref_repoint.go) rewrites
+// audit_logs.entity_id keyed on (entity_type, entity_id) alone. Entity-request
+// rows store the REQUESTED catalog type in entity_type, so merging the artist
+// whose id equals a request's id rewrites that request's rows to the canonical
+// artist's number. Deciding those rows by entity_id would then judge them
+// against whichever request holds THAT number, which is somebody else's.
+//
+// The gate reads the metadata's request_id instead, which no merge statement
+// touches. This replays the merge's UPDATE against a row whose rewritten
+// entity_id names a stranger's request, and the row must still answer for the
+// request that wrote it.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_EntityRequestRowsSurviveAMergeRepoint() {
+	requester := suite.createTestUser("mergerequester")
+	stranger := suite.createTestUser("mergestranger")
+
+	mine := suite.createEntityRequestForHistory(requester.ID, "artist")
+	// The request the rewritten entity_id will land on. A DIFFERENT user's, so
+	// a gate reading entity_id would serve this row to them and withhold it
+	// from its own author.
+	theirs := suite.createEntityRequestForHistory(stranger.ID, "artist")
+
+	suite.auditLog.LogAction(requester.ID, "queue_entity_request", "artist", mine.ID,
+		map[string]interface{}{"request_id": mine.ID})
+
+	// The merge's own statement, replayed verbatim over the same key.
+	suite.Require().NoError(suite.db.Exec(
+		"UPDATE audit_logs SET entity_id = ? WHERE entity_type = ? AND entity_id = ?",
+		theirs.ID, "artist", mine.ID).Error)
+
+	own, ownTotal, err := suite.profileService.GetContributionHistory(
+		requester.ID, 50, 0, "", contracts.ShowViewer{UserID: requester.ID})
+	suite.Require().NoError(err)
+	suite.EqualValues(len(own), ownTotal)
+	suite.Require().Len(own, 1, "the author keeps their own row after a merge rewrote its entity_id")
+	suite.Equal("queue_entity_request", own[0].Action)
+
+	other, otherTotal, err := suite.profileService.GetContributionHistory(
+		requester.ID, 50, 0, "", contracts.ShowViewer{UserID: stranger.ID})
+	suite.Require().NoError(err)
+	suite.EqualValues(len(other), otherTotal)
+	suite.Empty(other,
+		"the user who owns the request the merge pointed at must not be served this row")
+}
+
+// A ROW THAT RECORDS NO USABLE request_id FALLS BACK TO entity_id, which is what
+// keeps the rows written before the key was recorded on their own author's
+// timeline. A stored 0 names no request and counts as absent, the same reading
+// the collection arm gives its own sentinel.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_EntityRequestRowsFallBackToEntityID() {
+	requester := suite.createTestUser("fallbackrequester")
+	stranger := suite.createTestUser("fallbackstranger")
+	request := suite.createEntityRequestForHistory(requester.ID, "artist")
+
+	suite.auditLog.LogAction(requester.ID, "queue_entity_request", "artist", request.ID, nil)
+	suite.auditLog.LogAction(requester.ID, "approve_entity_request", "artist", request.ID,
+		map[string]interface{}{"request_id": 0})
+
+	own, ownTotal, err := suite.profileService.GetContributionHistory(
+		requester.ID, 50, 0, "", contracts.ShowViewer{UserID: requester.ID})
+	suite.Require().NoError(err)
+	suite.EqualValues(len(own), ownTotal)
+	suite.Len(own, 2, "a missing key and a zero sentinel both fall back to entity_id")
+
+	for _, viewer := range []contracts.ShowViewer{{}, {UserID: stranger.ID}} {
+		refused, refusedTotal, err := suite.profileService.GetContributionHistory(
+			requester.ID, 50, 0, "", viewer)
+		suite.Require().NoError(err)
+		suite.EqualValues(len(refused), refusedTotal)
+		suite.Empty(refused, "the fallback is a reference, not a bypass")
+	}
+}
+
+// A STALE FORK SLUG IS DROPPED EVEN WHEN THE SOURCE IS VISIBLE.
+//
+// clone_collection freezes the source's slug at clone time while the id beside
+// it keeps naming the source. A rename regenerates the slug and frees the old
+// string for another collection to claim, so publishing the frozen one names a
+// collection this row's gate never looked at. The id survives; the stale slug
+// does not.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_DropsAStaleCloneSourceSlug() {
+	actor := suite.createTestUser("staleslugactor")
+	stranger := suite.createTestUser("staleslugstranger")
+
+	source := suite.createCollectionForHistory(actor.ID, "Stale Source", "stale-source-history", true)
+	clone := suite.createCollectionForHistory(actor.ID, "Stale Clone", "stale-clone-history", true)
+	suite.auditLog.LogAction(actor.ID, "clone_collection", "collection", clone.ID,
+		map[string]interface{}{"source_slug": source.Slug, "source_id": source.ID})
+
+	// The source is renamed, and a DIFFERENT collection takes the freed slug.
+	suite.Require().NoError(suite.db.Model(&communitym.Collection{}).
+		Where("id = ?", source.ID).Update("slug", "stale-source-history-renamed").Error)
+	claimer := suite.createTestUser("staleslugclaimer")
+	suite.createCollectionForHistory(claimer.ID, "Claimed", "stale-source-history", false)
+
+	entries, _, err := suite.profileService.GetContributionHistory(
+		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: stranger.ID})
+	suite.Require().NoError(err)
+	suite.Require().Len(entries, 1, "the clone row is the only audited action here")
+	cloneRow := entries[0]
+	suite.Require().Equal(contributionCloneAction, cloneRow.Action)
+	suite.Require().NotNil(cloneRow.Metadata, "the source is visible, so the id survives")
+	suite.NotContains(cloneRow.Metadata, "source_slug",
+		"the frozen slug now names another collection and must not be published")
+	sourceID, ok := metadataUint(cloneRow.Metadata["source_id"])
+	suite.Require().True(ok)
+	suite.Equal(source.ID, sourceID, "the id still names the source it was recorded for")
 }
 
 // THE PROFILE'S COLLECTION COUNTS ARE NARROWED TOO, because they sit on the same
@@ -2366,6 +2485,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	actor := suite.createTestUser("legacyactor")
 	stranger := suite.createTestUser("legacystranger")
 
+	legacyItemIDs := map[uint]uint{}
 	openColl := suite.createCollectionForHistory(actor.ID, "Legacy Open", "legacy-open-history", true)
 	shutColl := suite.createCollectionForHistory(actor.ID, "Legacy Shut", "legacy-shut-history", false)
 
@@ -2376,6 +2496,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 		item := suite.createCollectionItemForHistory(c.ID, actor.ID)
 		itemID := item.ID
 		suite.Require().NoError(suite.db.Delete(&communitym.CollectionItem{}, itemID).Error)
+		legacyItemIDs[c.ID] = itemID
 		suite.auditLog.LogAction(actor.ID, "remove_collection_item", "collection", itemID,
 			map[string]interface{}{"slug": c.Slug})
 	}
@@ -2390,7 +2511,10 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	suite.EqualValues(len(entries), total, "the total must count the same rows the page contains")
 	suite.Require().Len(entries, 1,
 		"a legacy row on a PUBLIC collection is still listed to a stranger")
-	suite.Equal(openColl.Slug, entries[0].Metadata["slug"])
+	suite.EqualValues(legacyItemIDs[openColl.ID], entries[0].EntityID)
+	suite.Nil(entries[0].Metadata,
+		"a legacy row passes on its slug and still publishes none: a rename frees "+
+			"the string for another collection to take")
 
 	own, ownTotal, err := suite.profileService.GetContributionHistory(
 		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: actor.ID})
@@ -2415,9 +2539,11 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	openColl := suite.createCollectionForHistory(actor.ID, "Zero Parent Open", "zero-parent-open", true)
 	shutColl := suite.createCollectionForHistory(actor.ID, "Zero Parent Shut", "zero-parent-shut", false)
 
+	zeroItemIDs := map[uint]uint{}
 	seedZeroRow := func(c *communitym.Collection) {
 		item := suite.createCollectionItemForHistory(c.ID, actor.ID)
 		itemID := item.ID
+		zeroItemIDs[c.ID] = itemID
 		suite.Require().NoError(suite.db.Delete(&communitym.CollectionItem{}, itemID).Error)
 		suite.auditLog.LogAction(actor.ID, "remove_collection_item", "collection", itemID,
 			map[string]interface{}{"slug": c.Slug, "collection_id": 0})
@@ -2430,7 +2556,8 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	suite.Require().NoError(err)
 	suite.EqualValues(len(entries), total)
 	suite.Require().Len(entries, 1, "the sentinel row on a PUBLIC collection is listed to a stranger")
-	suite.Equal(openColl.Slug, entries[0].Metadata["slug"])
+	suite.EqualValues(zeroItemIDs[openColl.ID], entries[0].EntityID)
+	suite.Nil(entries[0].Metadata)
 
 	// AND THE PRIVATE ONE IS NOT. Falling to the slug arm is a fallback, not a
 	// bypass: the arm still decides the named collection against the viewer.
@@ -2707,4 +2834,339 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPercentileRan
 	suite.Equal(11*100/12, tagsApplied.Percentile,
 		"the cohort counts the peer's tag on the rejected show, so the position is "+
 			"measured against a population counted differently from the subject")
+}
+
+// =============================================================================
+// PSY-2015: the metadata allowlist and the entity-request id space
+// =============================================================================
+
+// createEntityRequestForHistory writes an entity_requests row, which is the
+// table the entity-request arm decides its audit rows against.
+func (suite *ContributorProfileServiceIntegrationTestSuite) createEntityRequestForHistory(
+	requesterID uint, entityType string,
+) *communitym.EntityRequest {
+	return suite.createDecidedEntityRequest(requesterID, entityType, nil,
+		communitym.EntityRequestStatePending)
+}
+
+// createDecidedEntityRequest writes a request in a chosen state. createEntityID
+// is what the visibility rule actually reads: a request that created a catalog
+// entity is public, whatever its decision_state says.
+func (suite *ContributorProfileServiceIntegrationTestSuite) createDecidedEntityRequest(
+	requesterID uint, entityType string, createdEntityID *uint,
+	state communitym.EntityRequestDecisionState,
+) *communitym.EntityRequest {
+	payload := json.RawMessage(`{"name":"Requested Thing"}`)
+	request := &communitym.EntityRequest{
+		EntityType:      entityType,
+		Payload:         &payload,
+		RequesterID:     requesterID,
+		SourceContext:   communitym.EntityRequestSourceManual,
+		DecisionState:   state,
+		CreatedEntityID: createdEntityID,
+	}
+	suite.Require().NoError(suite.db.Create(request).Error)
+	return request
+}
+
+// ONLY ALLOWLISTED KEYS REACH THE RESPONSE, and the default is none.
+//
+// The stored document is what the writers happened to record; the response is
+// what contributionMetadataKeys says the action may publish. Three rows here
+// carry the three shapes that matter: a moderation artifact, an id naming an
+// entity the row's own gate never looked at, and an allowlisted key.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_ProjectsOnlyAllowlistedMetadata() {
+	actor := suite.createTestUser("allowlistactor")
+	gated := suite.createShow(actor.ID, "Gated Show")
+	suite.Require().NoError(suite.db.Model(&catalogm.Show{}).Where("id = ?", gated.ID).
+		Update("status", "rejected").Error)
+	collection := suite.createCollectionForHistory(actor.ID, "Allowlist Picks", "allowlist-picks", true)
+	source := suite.createCollectionForHistory(actor.ID, "Allowlist Source", "allowlist-source", true)
+
+	// An admin's prose about another user's submission.
+	suite.auditLog.LogAction(actor.ID, "reject_show", "show", gated.ID, map[string]interface{}{
+		"reason":   "spam, do not resubmit",
+		"batch":    true,
+		"category": "spam",
+	})
+	// A report row: entity_type "show_report" passes every entity-type arm
+	// untouched, so nothing has decided the show_id it records.
+	suite.auditLog.LogAction(actor.ID, "dismiss_report", "show_report", 4242, map[string]interface{}{
+		"show_id": gated.ID,
+		"notes":   "reporter is a repeat offender",
+	})
+	// The allowlisted control, plus two keys on the same row that are not:
+	// entity_type and entity_id name the item's own subject, which no arm on
+	// this row has looked at.
+	item := suite.createCollectionItemForHistory(collection.ID, actor.ID)
+	suite.auditLog.LogAction(actor.ID, "add_collection_item", "collection", item.ID,
+		map[string]interface{}{
+			"slug":          collection.Slug,
+			"collection_id": collection.ID,
+			"entity_type":   "show",
+			"entity_id":     gated.ID,
+		})
+	suite.auditLog.LogAction(actor.ID, "clone_collection", "collection", collection.ID,
+		map[string]interface{}{
+			"source_slug": source.Slug,
+			"source_id":   source.ID,
+			// NOT ALLOWLISTED, on the one action that publishes anything. This
+			// is what makes the assertion below about the per-key projection
+			// rather than about the action's presence in the map.
+			"source_creator_id": actor.ID,
+		})
+
+	// THE OWNER'S OWN VIEW, which is the widest tier this endpoint serves: the
+	// allowlist does not vary by viewer, so what the owner sees is the ceiling.
+	entries, _, err := suite.profileService.GetContributionHistory(
+		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: actor.ID})
+	suite.Require().NoError(err)
+	suite.Require().Len(entries, 5,
+		"two moderation rows, the item row, the clone row and the show submission")
+
+	byAction := map[string]*contracts.ContributionEntry{}
+	for _, e := range entries {
+		byAction[e.Action] = e
+	}
+
+	suite.Require().Contains(byAction, "reject_show")
+	suite.Nil(byAction["reject_show"].Metadata,
+		"an admin's rejection reason must not be published under the actor's username")
+
+	suite.Require().Contains(byAction, "dismiss_report")
+	suite.Nil(byAction["dismiss_report"].Metadata,
+		"a moderation note, and the id of the show it names, must not be published")
+
+	suite.Require().Contains(byAction, "add_collection_item")
+	suite.Nil(byAction["add_collection_item"].Metadata,
+		"the item's own subject is a gated show, its parent slug can be stale, and "+
+			"the collection family publishes neither")
+
+	// THE ONE PUBLISHED PAIR, so the assertions above are about the allowlist
+	// rather than about the projection having dropped everything.
+	suite.Require().Contains(byAction, "clone_collection")
+	cloneMetadata := byAction["clone_collection"].Metadata
+	suite.Require().NotNil(cloneMetadata, "the fork attribution is allowlisted")
+	suite.Equal(source.Slug, cloneMetadata["source_slug"])
+	// Read back through the SERVICE's own reader, so the test cannot decide a
+	// JSON number differently from the scrub that gates this very key.
+	sourceID, ok := metadataUint(cloneMetadata["source_id"])
+	suite.Require().True(ok, "source_id did not read back as an id")
+	suite.Equal(source.ID, sourceID)
+	suite.NotContains(cloneMetadata, "source_creator_id",
+		"an unlisted key on an action that publishes other keys must still be dropped")
+}
+
+// AN ACTION WITH NO ENTRY IN THE ALLOWLIST PUBLISHES NOTHING, which is the same
+// answer an entry naming no key gives. The row itself is served either way.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_UndispositionedActionPublishesNoMetadata() {
+	actor := suite.createTestUser("undispositionedmeta")
+
+	suite.auditLog.LogAction(actor.ID, "an_action_nobody_dispositioned", "artist", 1,
+		map[string]interface{}{"secret": "value"})
+
+	entries, total, err := suite.profileService.GetContributionHistory(
+		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: actor.ID})
+	suite.Require().NoError(err)
+	suite.EqualValues(len(entries), total)
+	suite.Require().Len(entries, 1, "the ROW is served; only its metadata is withheld")
+	suite.Nil(entries[0].Metadata)
+}
+
+// ENTITY-REQUEST ROWS ARE DECIDED AGAINST entity_requests, NEVER AGAINST THE
+// TABLE THEIR entity_type NAMES.
+//
+// The writers record the REQUESTED type in entity_type and the REQUEST's id in
+// entity_id, so the show arm was testing a request id against shows.id: a
+// request was withheld or served on the basis of whichever show happened to
+// share its number.
+//
+// The rule is keyed on created_entity_id. A request that produced a catalog
+// entity is PUBLIC, because that entity is public and this row is the only
+// record that its contributor made it. A request that produced nothing, whatever
+// its decision_state, is REQUESTER-OR-ADMIN, because it names content that has
+// not been published and may never be.
+//
+// Four viewer tiers against three request states, and the total moves with the
+// page in every combination.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_EntityRequestRowsAreDecidedAgainstEntityRequests() {
+	requester := suite.createTestUser("requestactor")
+	stranger := suite.createTestUser("requeststranger")
+
+	// A show whose id is made to COLLIDE with the request's, which is the number
+	// the show arm was reading. Approved and public, so the id-space mistake
+	// served this request row to every tier on the strength of an unrelated show.
+	request := suite.createEntityRequestForHistory(requester.ID, "show")
+	collidingShow := suite.createShow(requester.ID, "Unrelated Colliding Show")
+	suite.Require().NoError(suite.db.Model(&catalogm.Show{}).
+		Where("id = ?", collidingShow.ID).Update("id", request.ID).Error)
+
+	suite.auditLog.LogAction(requester.ID, "queue_entity_request", "show", request.ID,
+		map[string]interface{}{"request_id": request.ID, "decision_state": "pending"})
+
+	// A REJECTED request, which names content that will never be published.
+	rejected := suite.createDecidedEntityRequest(requester.ID, "artist", nil,
+		communitym.EntityRequestStateRejected)
+	suite.auditLog.LogAction(requester.ID, "reject_entity_request", "artist", rejected.ID,
+		map[string]interface{}{"request_id": rejected.ID})
+
+	// An APPROVED AND FULFILLED request. Its artist is public, and for every
+	// requested type but show this row is the only record that the requester
+	// created it.
+	createdArtistID := uint(31337)
+	fulfilled := suite.createDecidedEntityRequest(requester.ID, "artist", &createdArtistID,
+		communitym.EntityRequestStateApproved)
+	suite.auditLog.LogAction(requester.ID, "auto_approve_entity_request", "artist", fulfilled.ID,
+		map[string]interface{}{"request_id": fulfilled.ID, "created_entity_id": createdArtistID})
+
+	// The colliding show is still this actor's own approved submission, so every
+	// tier sees that one row whatever it is told about the requests.
+	const submissionRows = 1
+
+	for _, tier := range []struct {
+		name              string
+		viewer            contracts.ShowViewer
+		seesUnfulfilled   bool
+		unfulfilledReason string
+	}{
+		{"anonymous", contracts.ShowViewer{}, false,
+			"a request that created nothing names unpublished content"},
+		{"stranger", contracts.ShowViewer{UserID: stranger.ID}, false,
+			"a signed-in stranger is the same tier as an anonymous reader for those"},
+		{"requester", contracts.ShowViewer{UserID: requester.ID}, true,
+			"the requester filed the row and already holds its content"},
+		{"admin", contracts.ShowViewer{UserID: stranger.ID, IsAdmin: true}, true,
+			"GET /admin/entity-requests already serves an admin the whole row"},
+	} {
+		entries, total, err := suite.profileService.GetContributionHistory(
+			requester.ID, 50, 0, "", tier.viewer)
+		suite.Require().NoError(err, tier.name)
+		suite.EqualValues(len(entries), total,
+			"%s: the total must count the same rows the page contains", tier.name)
+
+		seen := map[string]bool{}
+		for _, e := range entries {
+			if !contributionEntityRequestActions[e.Action] {
+				continue
+			}
+			seen[e.Action] = true
+			suite.Empty(e.EntityName,
+				"%s: a request id resolved a name out of the catalog table its type names", tier.name)
+			suite.Nil(e.Metadata,
+				"%s: the entity-request family publishes no metadata key", tier.name)
+		}
+
+		// THE FULFILLED ROW IS PUBLIC IN EVERY TIER, and it is what makes the
+		// two assertions below about the RULE rather than about the arm having
+		// withheld everything.
+		suite.True(seen["auto_approve_entity_request"],
+			"%s: a request that created a public artist must be public too", tier.name)
+
+		suite.Equal(tier.seesUnfulfilled, seen["queue_entity_request"],
+			"%s (pending): %s", tier.name, tier.unfulfilledReason)
+		suite.Equal(tier.seesUnfulfilled, seen["reject_entity_request"],
+			"%s (rejected): %s", tier.name, tier.unfulfilledReason)
+
+		expected := submissionRows + 1 // the fulfilled row, always
+		if tier.seesUnfulfilled {
+			expected += 2 // the pending and rejected rows
+		}
+		suite.Len(entries, expected, "%s", tier.name)
+	}
+}
+
+// AN APPROVED REQUEST THAT CREATED NOTHING IS STILL PRIVATE, which is the case
+// that decides whether the rule reads created_entity_id or decision_state.
+//
+// A show approval whose fulfilment deferred is approved and has created no show
+// (handlers/community/entity_request.go leaves it for the PSY-1088 rescue
+// queue). Reading the state would publish a row naming a show that does not
+// exist; reading the column withholds it until the rescue endpoint fills it in.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_ApprovedButUnfulfilledRequestsStayPrivate() {
+	requester := suite.createTestUser("orphanrequester")
+	stranger := suite.createTestUser("orphanstranger")
+
+	orphan := suite.createDecidedEntityRequest(requester.ID, "show", nil,
+		communitym.EntityRequestStateApproved)
+	suite.auditLog.LogAction(requester.ID, "approve_entity_request", "show", orphan.ID,
+		map[string]interface{}{"request_id": orphan.ID})
+
+	for _, viewer := range []contracts.ShowViewer{{}, {UserID: stranger.ID}} {
+		entries, total, err := suite.profileService.GetContributionHistory(
+			requester.ID, 50, 0, "", viewer)
+		suite.Require().NoError(err)
+		suite.EqualValues(len(entries), total)
+		suite.Empty(entries,
+			"an approval that created nothing names a show that does not exist")
+	}
+
+	own, ownTotal, err := suite.profileService.GetContributionHistory(
+		requester.ID, 50, 0, "", contracts.ShowViewer{UserID: requester.ID})
+	suite.Require().NoError(err)
+	suite.EqualValues(len(own), ownTotal)
+	suite.Require().Len(own, 1, "the requester still sees their own orphaned approval")
+
+	// AND IT BECOMES PUBLIC WHEN THE RESCUE ENDPOINT FILLS THE COLUMN IN, which
+	// is what makes the assertions above about the column rather than about the
+	// arm refusing this row on some other ground.
+	createdShowID := uint(909)
+	suite.Require().NoError(suite.db.Model(&communitym.EntityRequest{}).
+		Where("id = ?", orphan.ID).Update("created_entity_id", createdShowID).Error)
+
+	entries, total, err := suite.profileService.GetContributionHistory(
+		requester.ID, 50, 0, "", contracts.ShowViewer{})
+	suite.Require().NoError(err)
+	suite.EqualValues(len(entries), total)
+	suite.Require().Len(entries, 1, "a fulfilled approval is public")
+	suite.Equal("approve_entity_request", entries[0].Action)
+	suite.Empty(entries[0].EntityName)
+	suite.Nil(entries[0].Metadata)
+}
+
+// A REQUEST THAT NO LONGER EXISTS IS WITHHELD FROM EVERYONE, including the
+// actor who filed it and an admin. Absent and refused are one answer, which is
+// what stops the pair from enumerating the request id space.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_DeletedEntityRequestRowsAreWithheld() {
+	requester := suite.createTestUser("deletedrequestactor")
+	request := suite.createEntityRequestForHistory(requester.ID, "artist")
+	requestID := request.ID
+	suite.Require().NoError(suite.db.Delete(&communitym.EntityRequest{}, requestID).Error)
+
+	suite.auditLog.LogAction(requester.ID, "queue_entity_request", "artist", requestID,
+		map[string]interface{}{"request_id": requestID})
+
+	for _, viewer := range []contracts.ShowViewer{
+		{},
+		{UserID: requester.ID},
+		{UserID: requester.ID, IsAdmin: true},
+	} {
+		entries, total, err := suite.profileService.GetContributionHistory(
+			requester.ID, 50, 0, "", viewer)
+		suite.Require().NoError(err)
+		suite.EqualValues(len(entries), total)
+		suite.Empty(entries, "a row naming no request must be withheld from every tier")
+	}
+}
+
+// THE HEATMAP WITHHOLDS THE SAME DAYS THE TIMELINE WITHHOLDS.
+//
+// Both routes are anonymous and both read audit_logs for the same actor from one
+// condition builder. A day counted here that the timeline does not list would
+// locate a pending request to the day it was filed, and differencing the two
+// reports how many were filed that day.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatmap_WithholdsEntityRequestDays() {
+	requester := suite.createTestUser("heatmaprequester")
+	request := suite.createEntityRequestForHistory(requester.ID, "artist")
+	suite.auditLog.LogAction(requester.ID, "queue_entity_request", "artist", request.ID,
+		map[string]interface{}{"request_id": request.ID})
+
+	anon, err := suite.profileService.GetActivityHeatmap(requester.ID, contracts.ShowViewer{})
+	suite.Require().NoError(err)
+	suite.Empty(anon.Days, "an anonymous reader must not be told the day a request was filed")
+
+	own, err := suite.profileService.GetActivityHeatmap(
+		requester.ID, contracts.ShowViewer{UserID: requester.ID})
+	suite.Require().NoError(err)
+	suite.Require().Len(own.Days, 1, "the requester's own day is counted")
+	suite.Equal(1, own.Days[0].Count)
 }
