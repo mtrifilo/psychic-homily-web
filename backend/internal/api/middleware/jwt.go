@@ -95,8 +95,11 @@ const APITokenPrefix = adminsvc.TokenPrefix
 // bearerTokenFromHeader returns the credential in a "Bearer <token>"
 // Authorization header, or "" for anything else: another scheme, a different
 // case, more than the two fields, or a separator that is not a single space.
-// The accepted set is deliberately narrow, and narrower than RFC 7235 allows;
-// the ph CLI and the web client both send exactly "Bearer <token>".
+//
+// The accepted set is narrower than RFC 7235 allows. It is the set the
+// authenticating middleware accepted before this became the shared parse, so a
+// lowercase scheme or a tab separator is rejected here exactly as it always
+// was, rather than newly accepted somewhere it once was not.
 func bearerTokenFromHeader(authHeader string) string {
 	scheme, token, ok := strings.Cut(authHeader, " ")
 	if !ok || scheme != "Bearer" || token == "" || strings.ContainsRune(token, ' ') {
@@ -109,12 +112,15 @@ func bearerTokenFromHeader(authHeader string) string {
 // came from ("header", "cookie", or "" for neither): a parseable Bearer header
 // wins, otherwise the auth cookie.
 //
-// Every credential reader in this package goes through this function or its
-// huma twin, so the middleware that decides whether to meter a request and the
-// middleware that decides who the caller is always read the same credential
-// from the same place. Two readers that disagreed about a request would let it
-// be exempted as one principal while being authenticated as another, which is
-// a rate-limit bypass rather than a parsing detail.
+// Every middleware that resolves a caller reads the request through this
+// function or through credentialFromHumaContext, and the two agree on every
+// header shape (TestCredentialReadersAgree). Two readers that disagreed would
+// let a request be exempted from a rate limit as one principal while being
+// authenticated as another, which is a bypass rather than a parsing detail.
+//
+// validatedAPIToken is the one deliberate exception: it reads only the
+// Authorization header, which can only meter a caller this would have exempted,
+// never the reverse. Its doc says why.
 func credentialFromRequest(r *http.Request) (token, source string) {
 	if t := bearerTokenFromHeader(r.Header.Get("Authorization")); t != "" {
 		return t, "header"
@@ -127,24 +133,17 @@ func credentialFromRequest(r *http.Request) (token, source string) {
 
 // credentialFromHumaContext is credentialFromRequest for a huma.Context.
 //
-// It collects EVERY Cookie header line rather than the first, because
-// net/http's Request.Cookie does, and the two must not disagree about which
-// cookie a request carries.
+// huma.ReadCookie searches EVERY Cookie header line, which is what net/http's
+// Request.Cookie does and what this middleware previously did not: it read the
+// first line only, so an auth cookie on a second line went unseen here while
+// the limiter saw it. Reading every line widens what the huma-authenticated
+// routes accept, to exactly what the net/http middleware next to them already
+// accepted.
 func credentialFromHumaContext(ctx huma.Context) (token, source string) {
 	if t := bearerTokenFromHeader(ctx.Header("Authorization")); t != "" {
 		return t, "header"
 	}
-	var cookieLines []string
-	ctx.EachHeader(func(name, value string) {
-		if http.CanonicalHeaderKey(name) == "Cookie" {
-			cookieLines = append(cookieLines, value)
-		}
-	})
-	if len(cookieLines) == 0 {
-		return "", ""
-	}
-	req := &http.Request{Header: http.Header{"Cookie": cookieLines}}
-	if c, err := req.Cookie(config.AuthCookieName); err == nil && c.Value != "" {
+	if c, err := huma.ReadCookie(ctx, config.AuthCookieName); err == nil && c.Value != "" {
 		return c.Value, "cookie"
 	}
 	return "", ""

@@ -134,9 +134,15 @@ func RateLimitTagVoteEndpoints() func(http.Handler) http.Handler {
 	)
 }
 
-// SkipRateLimitForAdmin wraps a rate-limit middleware so authenticated admins
-// bypass the per-IP limiter. Non-admin requests — including unauthenticated
-// traffic — still hit the underlying limiter.
+// SkipRateLimitForAdmin wraps a rate-limit middleware with two hatches: a
+// request carrying an API token that passes validateAPIToken, and a request
+// carrying a JWT whose user is an admin. Everything else, unauthenticated
+// traffic included, reaches the wrapped limiter.
+//
+// Pass nil for validateAPIToken to withhold the token hatch, or nil for
+// jwtService to withhold the admin hatch; both are then metered like anyone
+// else. Withholding by accident is silent, because it fails closed: callers
+// that should be exempt are merely throttled.
 //
 // PSY-345: admins doing bulk contributor work (e.g. tagging sessions) hit the
 // 20/hour tag-create and 30/minute tag-vote limits against their own IP. This
@@ -146,22 +152,25 @@ func SkipRateLimitForAdmin(jwtService *auth.JWTService, validateAPIToken func(st
 	return func(next http.Handler) http.Handler {
 		limited := limiter(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Two hatches, both earned by a credential the caller actually
-			// holds: an API token that passes validateAPIToken, and a JWT whose
-			// user is an admin. The bare phk_ prefix is not one of them, so a
-			// request the authenticator resolves to a cookie session reaches
-			// the limiter whatever its Authorization header claims. Which
-			// bucket it then lands in is the wrapped limiter's business: the
-			// tag and show limiters passed in here key by IP, the engagement
-			// one by user.
+			// The bare phk_ prefix is not a hatch, so a request the
+			// authenticator resolves to a cookie session reaches the limiter
+			// whatever its Authorization header claims. Which bucket it lands
+			// in is the wrapped limiter's business: the tag and show limiters
+			// passed in here key by IP, the engagement one by user.
 			//
-			// Both checks are database lookups, and both run BEFORE the
-			// limiter, so a phk_-prefixed bearer costs an api_tokens lookup
-			// even when it names nothing and even when the request is about to
-			// be rejected. Validating after the limiter instead would make a
-			// live token increment the bucket it is meant to skip. The same
-			// trade is taken on public reads; see
-			// RateLimitPublicReadsByAuthState.
+			// COST, both checks being database lookups that run BEFORE the
+			// limiter: a phk_-prefixed bearer costs an api_tokens read plus the
+			// last_used_at write ValidateToken fires on success, and pays it
+			// again in the authenticating middleware, which validates the same
+			// token independently. It pays that even when the token names
+			// nothing and even when the limiter is about to reject the request,
+			// so a forged-prefix flood is an unmetered read amplifier on these
+			// write routes, which have no anonymous per-IP budget in front of
+			// them the way public reads do.
+			//
+			// The order is still the right one: validating after the limiter
+			// would make a live token increment the bucket it is meant to skip,
+			// which is the guarantee bulk imports depend on.
 			if validatedAPIToken(validateAPIToken, r) || isAdminTokenRequest(jwtService, r) {
 				next.ServeHTTP(w, r)
 				return
@@ -177,13 +186,13 @@ func SkipRateLimitForAdmin(jwtService *auth.JWTService, validateAPIToken func(st
 // database error, so a degraded database meters callers rather than exempting
 // them.
 //
-// It takes the concrete service rather than the interface so that a nil service
-// is detectable here: a nil pointer boxed in an interface is not == nil, and
-// the predicate would panic on its first phk_ request instead of yielding the
-// nil the callers below treat as "no usable token".
+// The predicate is not cheap: each call is a hashed api_tokens read, and a
+// successful one also queues a last_used_at write. Callers reach it through
+// validatedAPIToken, which invokes it only for a phk_-prefixed bearer.
 //
-// Pure: it holds no per-process state, so callers may build it wherever they
-// wire a limiter.
+// A nil service yields a nil predicate, which validatedAPIToken reads as "no
+// usable token". The parameter is the concrete service rather than an
+// interface so that comparison sees an actual nil.
 func APITokenValidator(svc *adminsvc.APITokenService) func(string) bool {
 	if svc == nil {
 		return nil
@@ -371,9 +380,11 @@ func validatedAPIToken(validate func(string) bool, r *http.Request) bool {
 	return validate(token)
 }
 
-// extractJWT reads the session credential through credentialFromRequest, the
-// same function the authenticating middleware reads it through. Returns empty
-// string when the request presents none.
+// extractJWT reads whatever credential the request presents through
+// credentialFromRequest, the same function the authenticating middleware reads
+// it through. The name predates API tokens: the value may be a session JWT or
+// an API token, and callers that care check the prefix. Returns empty string
+// when the request presents no credential.
 func extractJWT(r *http.Request) string {
 	token, _ := credentialFromRequest(r)
 	return token

@@ -46,14 +46,20 @@ func TestAPITokenBypassThroughRouter(t *testing.T) {
 		t.Fatalf("create admin session token: %v", err)
 	}
 
-	router := chi.NewRouter()
-	SetupRoutes(router, sc, cfg)
+	// A router per case: the limiters keep their counters in memory, so a
+	// shared one would let an earlier case spend a later case's budget and
+	// every failure would read as "already throttled".
+	newRouter := func() *chi.Mux {
+		router := chi.NewRouter()
+		SetupRoutes(router, sc, cfg)
+		return router
+	}
 
-	post := func(path, header string) int {
+	post := func(router *chi.Mux, path, header, ip string) int {
 		req := httptest.NewRequest("POST", path, strings.NewReader(`{}`))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", header)
-		req.RemoteAddr = "198.51.100.77:4444"
+		req.RemoteAddr = ip
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 		return w.Code
@@ -73,8 +79,9 @@ func TestAPITokenBypassThroughRouter(t *testing.T) {
 	}
 	for _, h := range hatches {
 		t.Run(h.name, func(t *testing.T) {
+			router := newRouter()
 			for i := 0; i < h.limit+5; i++ {
-				if code := post(h.path, liveToken); code == http.StatusTooManyRequests {
+				if code := post(router, h.path, liveToken, "198.51.100.77:4444"); code == http.StatusTooManyRequests {
 					t.Fatalf("request %d returned 429: the live API token is not reaching the %s bypass, so RouteContext.ValidateAPIToken is not wired", i+1, h.name)
 				}
 			}
@@ -84,22 +91,23 @@ func TestAPITokenBypassThroughRouter(t *testing.T) {
 	// Show creation withholds the admin-JWT hatch that tag creation grants, so
 	// an admin session is metered here. Nothing else pins that asymmetry.
 	t.Run("admin session is still limited on show create", func(t *testing.T) {
+		router := newRouter()
 		limit := middleware.ShowCreateRequestsPerHour
 		for i := 0; i < limit; i++ {
-			if code := post("/shows", "Bearer "+adminSession); code == http.StatusTooManyRequests {
-				t.Fatalf("request %d/%d was rate limited early", i+1, limit)
+			if code := post(router, "/shows", "Bearer "+adminSession, "198.51.100.78:4444"); code == http.StatusTooManyRequests {
+				t.Fatalf("request %d/%d was rate limited early on a fresh router", i+1, limit)
 			}
 		}
-		if code := post("/shows", "Bearer "+adminSession); code != http.StatusTooManyRequests {
+		if code := post(router, "/shows", "Bearer "+adminSession, "198.51.100.78:4444"); code != http.StatusTooManyRequests {
 			t.Errorf("request %d returned %d, want 429: show creation has no admin-JWT hatch", limit+1, code)
 		}
 	})
 
-	// Tag creation does grant it, on a budget the show-create burst above did
-	// not touch (separate limiter instances).
+	// Tag creation does grant it.
 	t.Run("admin session bypasses tag create", func(t *testing.T) {
+		router := newRouter()
 		for i := 0; i < middleware.TagCreateRequestsPerHour+5; i++ {
-			if code := post("/entities/artist/1/tags", "Bearer "+adminSession); code == http.StatusTooManyRequests {
+			if code := post(router, "/entities/artist/1/tags", "Bearer "+adminSession, "198.51.100.79:4444"); code == http.StatusTooManyRequests {
 				t.Fatalf("request %d returned 429: the admin-JWT hatch on tag creation is shut", i+1)
 			}
 		}

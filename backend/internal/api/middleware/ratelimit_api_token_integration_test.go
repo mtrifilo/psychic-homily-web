@@ -149,8 +149,8 @@ func (s *SkipRateLimitAPITokenSuite) TestForgedAPITokenOverCookieSessionIsLimite
 	member := s.createUser("member@test.com", false)
 	session := s.sessionToken(member)
 
-	// Both shapes: one the authenticator rejects outright, one it ignores
-	// entirely so the request is authenticated from the cookie instead.
+	// Both shapes must be metered against the real validator. Which credential
+	// each one presents is pinned by TestCredentialReadersAgree.
 	headers := []string{
 		"Bearer " + APITokenPrefix + "forged",
 		"Bearer " + created.Token + " trailing",

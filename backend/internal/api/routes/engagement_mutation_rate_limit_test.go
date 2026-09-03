@@ -252,8 +252,8 @@ func TestEngagementMutationRateLimiter_ValidatedAPITokenBypasses(t *testing.T) {
 // its cookie; the limiter must therefore meter it as that cookie session. A
 // well-formed "Bearer phk_forged" is the opposite case: the header wins over
 // the cookie for both layers, so the request is not a session to the limiter
-// and is a 401 to the authenticator (TestHumaJWTMiddleware_JunkAPITokenHeader
-// DoesNotConsultCookie pins that half).
+// and is a 401 to the authenticator. middleware's
+// TestHumaJWT_JunkAPITokenHeader_DoesNotFallBackToCookie pins that half.
 func TestEngagementMutationRateLimiter_ForgedAPITokenOverCookieSessionIsLimited(t *testing.T) {
 	const live = "phk_live"
 	validate := func(token string) bool { return token == live }

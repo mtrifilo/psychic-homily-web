@@ -283,6 +283,10 @@ func main() {
 	// Create service container (all services instantiated once)
 	sc := services.NewServiceContainer(database, cfg)
 
+	// A phk_ bearer is trusted only where APITokenService.ValidateToken resolves
+	// it to a live token. The route-level limiters build the same adapter from
+	// the same service (RouteContext.ValidateAPIToken).
+	//
 	// PSY-1362/1373/1814: rate-limit public-READ traffic (GET/HEAD) by auth state —
 	// anonymous per-IP (100/min), authenticated per-USER (300/min, so shared-IP
 	// logged-in users don't collide), validated phk_ API tokens exempt (ingest
@@ -291,9 +295,6 @@ func main() {
 	// registered before routes). OPT-IN (default noop) for stage-first rollout:
 	// set ENABLE_PUBLIC_READ_RATE_LIMITS=1 per environment (stage, observe 429
 	// rates, then prod).
-	// A phk_ bearer is trusted only where APITokenService.ValidateToken resolves
-	// it to a live token. The route-level limiters build the same adapter from
-	// the same service (RouteContext.ValidateAPIToken).
 	validateAPIToken := middleware.APITokenValidator(sc.APIToken)
 
 	router.Use(routes.PublicReadRateLimiter(sc.JWT, validateAPIToken, os.Getenv))

@@ -47,10 +47,18 @@ func TestCredentialReadersAgree(t *testing.T) {
 			wantSource:  "cookie",
 		},
 		{
+			name:        "first auth cookie wins over a later duplicate",
+			cookieLines: []string{"auth_token=first", "auth_token=second"},
+			wantToken:   "first",
+			wantSource:  "cookie",
+		},
+		{
 			name:        "empty auth cookie is no credential",
 			cookieLines: []string{"auth_token="},
 		},
 		{name: "non-bearer header", authHeader: "Basic dXNlcjpwYXNz"},
+		{name: "lowercase scheme is not a Bearer credential", authHeader: "bearer session-jwt"},
+		{name: "tab separator is not a Bearer credential", authHeader: "Bearer\tsession-jwt"},
 	}
 
 	for _, tc := range cases {
@@ -79,36 +87,58 @@ func TestCredentialReadersAgree(t *testing.T) {
 	}
 }
 
-// The centralization is only worth anything while it holds, and nothing in the
-// compiler holds it: a new middleware can read the Authorization header or the
-// auth cookie its own way and still build. This walks the package source and
-// requires every such read to go through the shared helpers.
+// credentialReaderFiles are the files allowed to reach into an Authorization
+// header or a cookie directly. Everything else asks one of them.
+var credentialReaderFiles = map[string]bool{
+	"internal/api/middleware/jwt.go": true,
+	// validatedAPIToken reads the Authorization header through
+	// bearerTokenFromHeader and deliberately does not read the cookie.
+	"internal/api/middleware/ratelimit.go": true,
+}
+
+// A parse this centralized is worth only as much as its last copy: nothing in
+// the compiler stops a new middleware from reading the Authorization header or
+// the auth cookie its own way, and the bypass this ticket removed lived in the
+// routes package, not this one. This walks both packages' sources and requires
+// every such read to sit in a file that owns the shared helpers.
+//
+// It catches a SECOND PARSE, which is the divergence half of the defect. It
+// does not catch prefix trust: code that reads the credential correctly and
+// then exempts on strings.HasPrefix passes this and is still the bug. That half
+// is held by the behavioral tests, not here.
 func TestCredentialReadsGoThroughTheSharedHelpers(t *testing.T) {
-	entries, err := os.ReadDir(".")
-	if err != nil {
-		t.Fatalf("read package dir: %v", err)
+	packages := []struct {
+		dir    string
+		prefix string
+	}{
+		{dir: ".", prefix: "internal/api/middleware/"},
+		{dir: "../routes", prefix: "internal/api/routes/"},
 	}
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		body, err := os.ReadFile(filepath.Clean(name))
+
+	for _, pkg := range packages {
+		entries, err := os.ReadDir(pkg.dir)
 		if err != nil {
-			t.Fatalf("read %s: %v", name, err)
+			t.Fatalf("read %s: %v", pkg.dir, err)
 		}
-		for i, line := range strings.Split(string(body), "\n") {
-			trimmed := strings.TrimSpace(line)
-			if strings.HasPrefix(trimmed, "//") {
+		for _, entry := range entries {
+			name := entry.Name()
+			if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 				continue
 			}
-			if strings.Contains(line, `Header.Get("Authorization")`) || strings.Contains(line, `Header("Authorization")`) {
-				if !strings.Contains(line, "bearerTokenFromHeader") {
-					t.Errorf("%s:%d reads the Authorization header without bearerTokenFromHeader; a second parse is how a limiter and an authenticator start disagreeing about the caller", name, i+1)
-				}
+			path := pkg.prefix + name
+			body, err := os.ReadFile(filepath.Join(pkg.dir, name))
+			if err != nil {
+				t.Fatalf("read %s: %v", path, err)
 			}
-			if strings.Contains(line, ".Cookie(") && name != "jwt.go" {
-				t.Errorf("%s:%d reads a cookie directly; the auth cookie is read by credentialFromRequest / credentialFromHumaContext in jwt.go", name, i+1)
+			// Collapse the file so a read split across lines is still one
+			// token sequence to the checks below.
+			flat := strings.Join(strings.Fields(string(body)), " ")
+
+			if strings.Contains(flat, `"Authorization"`) && !credentialReaderFiles[path] {
+				t.Errorf("%s reads the Authorization header; a second parse is how a limiter and an authenticator start disagreeing about the caller. Call credentialFromRequest, credentialFromHumaContext, or bearerTokenFromHeader.", path)
+			}
+			if strings.Contains(flat, `Cookie(config.AuthCookieName)`) && path != "internal/api/middleware/jwt.go" {
+				t.Errorf("%s reads the auth cookie directly; credentialFromRequest and credentialFromHumaContext own that read.", path)
 			}
 		}
 	}

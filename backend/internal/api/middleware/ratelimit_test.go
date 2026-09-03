@@ -212,6 +212,11 @@ func TestValidatedAPIToken(t *testing.T) {
 		{name: "non-bearer header", header: "Basic dXNlcjpwYXNz"},
 		{name: "no credential at all"},
 		{name: "session cookie only", cookie: "session-jwt"},
+		// An API token delivered in the cookie authenticates downstream but is
+		// not a bypass here: reading it would let any request carrying a
+		// phk_-shaped cookie value spend a hash and a query ahead of the
+		// limiter about to reject it.
+		{name: "phk_ in the cookie is not an API-token credential", cookie: live},
 		// The limiter and the authenticator must read the same header. A
 		// three-field header is not a Bearer credential to either of them, so
 		// the phk_ inside it buys nothing.
@@ -296,10 +301,11 @@ func TestSkipRateLimitForAdmin_ValidatedAPITokenBypassesLimit(t *testing.T) {
 // The headline regression. A cookie-authenticated caller that names a phk_
 // token it does not hold is metered like the session it actually rides on.
 func TestSkipRateLimitForAdmin_ForgedAPITokenOverCookieSessionIsLimited(t *testing.T) {
+	// Both shapes must be metered. Which credential the limiter READ is pinned
+	// by TestCredentialReadersAgree; here the assertion is the outcome, so
+	// these stay green for either reason.
 	headers := []string{
 		"Bearer " + APITokenPrefix + "forged",
-		// The header shape the authenticator ignores entirely, falling back to
-		// the cookie: the limiter must ignore it the same way.
 		"Bearer " + APITokenPrefix + "live trailing",
 	}
 	for _, header := range headers {

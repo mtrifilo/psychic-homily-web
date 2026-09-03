@@ -149,8 +149,10 @@ func TestShowCreateStillRateLimited(t *testing.T) {
 	}
 }
 
-// A phk_ header that names no live token does not open the show-create hatch. Show creation feeds the admin approval queue, so the limiter is the
-// only thing standing between a logged-in account and a flooded queue.
+// A phk_ header that names no live token does not open the show-create hatch,
+// in either the well-formed or the trailing-field shape. Show creation feeds
+// the admin approval queue, so the limiter is the only thing standing between
+// a logged-in account and a flooded queue.
 func TestShowCreateUnvalidatedAPITokenDoesNotBypass(t *testing.T) {
 	const ip = "203.0.113.22:1234"
 	limit := middleware.ShowCreateRequestsPerHour
