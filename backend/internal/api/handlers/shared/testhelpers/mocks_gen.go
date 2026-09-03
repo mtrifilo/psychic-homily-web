@@ -1737,6 +1737,7 @@ type MockEntityRequestService struct {
 	ListPendingFn             func(string, int, int) ([]communitym.EntityRequest, int64, error)
 	ListRequestsFn            func(*contracts.EntityRequestFilters) ([]communitym.EntityRequest, int64, error)
 	DecideFn                  func(uint, uint, communitym.EntityRequestDecisionState, *string, *time.Time) (*communitym.EntityRequest, error)
+	WithdrawFn                func(uint, uint) (*communitym.EntityRequest, error)
 	ClaimRescueFulfillmentFn  func(uint, uint) (bool, error)
 	VoidApprovedUnfulfilledFn func(uint, uint, *string) (bool, error)
 }
@@ -1774,6 +1775,12 @@ func (m *MockEntityRequestService) ListRequests(filters *contracts.EntityRequest
 func (m *MockEntityRequestService) Decide(requestID uint, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error) {
 	if m.DecideFn != nil {
 		return m.DecideFn(requestID, adminID, newState, note, expectedUpdatedAt)
+	}
+	return nil, nil
+}
+func (m *MockEntityRequestService) Withdraw(requestID uint, requesterID uint) (*communitym.EntityRequest, error) {
+	if m.WithdrawFn != nil {
+		return m.WithdrawFn(requestID, requesterID)
 	}
 	return nil, nil
 }

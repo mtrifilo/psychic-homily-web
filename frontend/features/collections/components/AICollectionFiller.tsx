@@ -162,8 +162,14 @@ function createAffordanceFor(
 // artists an admin can only supply while the request is still pending —
 // PSY-1037); 'queued' = pending admin review; 'updated' = pending admin review
 // on the requester's OWN earlier request, which this submission replaced
-// (PSY-1948's `replaced`).
-type RequestOutcome = 'created' | 'requested' | 'queued' | 'updated'
+// (PSY-1948's `replaced`); 'withdrawn' = the requester retracted it (PSY-1992),
+// which only a queued or updated row can reach.
+type RequestOutcome =
+  | 'created'
+  | 'requested'
+  | 'queued'
+  | 'updated'
+  | 'withdrawn'
 
 /** The batch queue-create response, aliased from the generated OpenAPI types. */
 type EntityRequestBatchResponse = components['schemas']['CreateEntityRequestBatchResponseBody']
@@ -174,7 +180,17 @@ const REQUEST_OUTCOME_LABEL: Record<RequestOutcome, string> = {
   requested: 'Requested',
   queued: 'Queued',
   updated: 'Updated',
+  withdrawn: 'Withdrawn',
 }
+
+/**
+ * The outcomes a row can be withdrawn FROM: the request is still pending, so the
+ * requester can still retract it. Every other outcome is decided or gone.
+ */
+const WITHDRAWABLE_OUTCOMES: ReadonlySet<RequestOutcome> = new Set<RequestOutcome>([
+  'queued',
+  'updated',
+])
 
 interface QueueEntityRequestVars {
   /** The unmatched row this request was filed from (used for per-row state). */
@@ -272,7 +288,42 @@ function useQueueEntityRequest() {
             : result.status === 'replaced'
               ? 'updated'
               : 'queued'
-      return { outcome, rowKey: vars.rowKey, createdEntityId }
+      return {
+        outcome,
+        rowKey: vars.rowKey,
+        createdEntityId,
+        // The stored request, so the row can name it when the requester
+        // withdraws (PSY-1992). Absent on an outcome that has nothing to
+        // withdraw.
+        requestId: typeof result.id === 'number' ? result.id : undefined,
+      }
+    },
+  })
+}
+
+/**
+ * Retract a request filed from this surface (PSY-1992). Rejects with the
+ * server's message, which the row's own error line surfaces.
+ */
+function useWithdrawEntityRequest() {
+  return useMutation({
+    mutationFn: async (vars: { rowKey: string; requestId: number }) => {
+      const response = await fetch(
+        `/api/entity-requests/${vars.requestId}/withdraw`,
+        { method: 'POST', credentials: 'include' }
+      )
+      if (!response.ok) {
+        const problem = (await response.json().catch(() => null)) as {
+          detail?: string
+          message?: string
+        } | null
+        throw new Error(
+          problem?.detail ||
+            problem?.message ||
+            'Could not withdraw this request. It may already have been reviewed.'
+        )
+      }
+      return { rowKey: vars.rowKey }
     },
   })
 }
@@ -319,6 +370,9 @@ export function AICollectionFiller({
   const [requestedRows, setRequestedRows] = useState<
     Record<string, RequestOutcome>
   >({})
+  // The stored request each acted-on row filed, so the withdraw affordance can
+  // name it. Keyed the same as requestedRows.
+  const [requestIds, setRequestIds] = useState<Record<string, number>>({})
   // Per-row error message for a failed entity-request POST (403 / 422 / 5xx /
   // network). Surfaced inline on the row so the action isn't a silent no-op;
   // the create/queue button stays so the user can retry.
@@ -334,6 +388,7 @@ export function AICollectionFiller({
   const { user } = useAuthContext()
   const affordance = createAffordanceFor(user?.is_admin, user?.user_tier)
   const queueRequest = useQueueEntityRequest()
+  const withdrawRequest = useWithdrawEntityRequest()
 
   const { mutate, isPending, error, reset } = useCollectionExtraction()
 
@@ -574,7 +629,7 @@ export function AICollectionFiller({
     queueRequest.mutate(
       { rowKey, entityType: 'artist', name, confirmed },
       {
-        onSuccess: ({ outcome, createdEntityId }) => {
+        onSuccess: ({ outcome, createdEntityId, requestId }) => {
           // PSY-853 inline create-and-add: when the auto-approve path fulfilled
           // the entity (PSY-1008 returns created_entity_id), stage the new
           // entity into the collection immediately — same bulk-add pipeline a
@@ -586,6 +641,9 @@ export function AICollectionFiller({
             ])
           }
           setRequestedRows(prev => ({ ...prev, [rowKey]: outcome }))
+          if (requestId !== undefined) {
+            setRequestIds(prev => ({ ...prev, [rowKey]: requestId }))
+          }
           clearInFlight()
         },
         onError: (err: unknown) => {
@@ -595,6 +653,47 @@ export function AICollectionFiller({
               err instanceof Error
                 ? err.message
                 : 'Failed to submit. Please try again.',
+          }))
+          clearInFlight()
+        },
+      }
+    )
+  }
+
+  // Retract a request this surface filed (PSY-1992). The row's own error line is
+  // the feedback surface, the same one a failed filing uses, so a withdrawal that
+  // the server refused reads where the row's other failures read.
+  const withdrawRow = (rowKey: string) => {
+    const requestId = requestIds[rowKey]
+    if (requestId === undefined) return
+    if (inFlightRows.has(rowKey)) return
+    setRequestErrors(prev => {
+      if (!(rowKey in prev)) return prev
+      const next = { ...prev }
+      delete next[rowKey]
+      return next
+    })
+    setInFlightRows(prev => new Set(prev).add(rowKey))
+    const clearInFlight = () =>
+      setInFlightRows(prev => {
+        const next = new Set(prev)
+        next.delete(rowKey)
+        return next
+      })
+    withdrawRequest.mutate(
+      { rowKey, requestId },
+      {
+        onSuccess: () => {
+          setRequestedRows(prev => ({ ...prev, [rowKey]: 'withdrawn' }))
+          clearInFlight()
+        },
+        onError: (err: unknown) => {
+          setRequestErrors(prev => ({
+            ...prev,
+            [rowKey]:
+              err instanceof Error
+                ? err.message
+                : 'Could not withdraw this request.',
           }))
           clearInFlight()
         },
@@ -778,6 +877,11 @@ export function AICollectionFiller({
                     onRequest={confirmed =>
                       requestRow(rowKey, item.artist_name, confirmed)
                     }
+                    onWithdraw={
+                      requestIds[rowKey] !== undefined
+                        ? () => withdrawRow(rowKey)
+                        : undefined
+                    }
                   />
                 )
               })}
@@ -814,6 +918,7 @@ function ExtractedRow({
   onAcceptSuggestion,
   onDismissSuggestions,
   onRequest,
+  onWithdraw,
 }: {
   item: ExtractedCollectionItem
   alreadyStaged: boolean
@@ -830,6 +935,11 @@ function ExtractedRow({
   onDismissSuggestions: () => void
   /** Files the entity-request. `confirmed` is the trusted_contributor step. */
   onRequest: (confirmed: boolean) => void
+  /**
+   * Retracts the request this row filed (PSY-1992). Undefined when the row has
+   * no request to withdraw, which is what hides the affordance.
+   */
+  onWithdraw: (() => void) | undefined
 }) {
   // trusted_contributor confirm step is INLINE (not a Dialog) so the picker
   // context stays visible — entity creation is irreversible, so the extra
@@ -840,6 +950,10 @@ function ExtractedRow({
     !item.matched_artist_id && (item.artist_suggestions?.length ?? 0) > 0
   const isNew = !item.matched_artist_id && !hasSuggestions
   const isReplaced = requestOutcome === 'updated'
+  const canWithdraw =
+    onWithdraw !== undefined &&
+    requestOutcome !== undefined &&
+    WITHDRAWABLE_OUTCOMES.has(requestOutcome)
 
   return (
     <div
@@ -914,19 +1028,41 @@ function ExtractedRow({
             low-trust tiers (a contributor only ever sees [Queue for review]). */}
         {isNew &&
           (requestOutcome ? (
-            <Badge
-              variant="secondary"
-              className="text-xs shrink-0 motion-safe:animate-in motion-safe:fade-in"
-              data-testid="ai-collection-filler-row-request-chip"
-              // Both spellings of the explanation are required; see the
-              // constant's own contract.
-              title={isReplaced ? REPLACED_REQUEST_EXPLANATION : undefined}
-            >
-              {REQUEST_OUTCOME_LABEL[requestOutcome]}
-              {isReplaced && (
-                <span className="sr-only"> {REPLACED_REQUEST_EXPLANATION}</span>
+            <div className="flex items-center gap-1 shrink-0">
+              <Badge
+                variant="secondary"
+                className="text-xs shrink-0 motion-safe:animate-in motion-safe:fade-in"
+                data-testid="ai-collection-filler-row-request-chip"
+                // Both spellings of the explanation are required; see the
+                // constant's own contract.
+                title={isReplaced ? REPLACED_REQUEST_EXPLANATION : undefined}
+              >
+                {REQUEST_OUTCOME_LABEL[requestOutcome]}
+                {isReplaced && (
+                  <span className="sr-only"> {REPLACED_REQUEST_EXPLANATION}</span>
+                )}
+              </Badge>
+              {/* PSY-1992: retract the request, beside the chip that says it is
+                  queued. Only a still-pending outcome offers it: an approved
+                  request's entity exists, and a withdrawn one is already gone. */}
+              {canWithdraw && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-muted-foreground"
+                  disabled={isRequesting}
+                  onClick={onWithdraw}
+                  aria-label={`Withdraw the request for ${displayName}`}
+                  data-testid="ai-collection-filler-row-withdraw"
+                >
+                  {isRequesting ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    'Withdraw'
+                  )}
+                </Button>
               )}
-            </Badge>
+            </div>
           ) : affordance === 'none' ? null : confirming ? (
             // trusted_contributor inline confirm — irreversible creation.
             <div className="flex items-center gap-1 shrink-0">

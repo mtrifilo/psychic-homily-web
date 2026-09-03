@@ -48,6 +48,7 @@ import {
   Loader2,
   GripVertical,
   Inbox,
+  Undo2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -176,6 +177,8 @@ interface ParsedPasteLine {
  *                       `queue_failed` because re-sending the same line is
  *                       refused the same way: the line has to change first, so
  *                       the row offers the reason instead of a Retry.
+ *   - `withdrawing`   — the requester is retracting the request this line filed
+ *   - `withdrawn`     — retracted; no admin will see it
  */
 type PreviewStatus =
   | 'matched'
@@ -187,6 +190,8 @@ type PreviewStatus =
   | 'queued'
   | 'queue_failed'
   | 'queue_refused'
+  | 'withdrawing'
+  | 'withdrawn'
 
 /** A candidate offered for an AMBIGUOUS plain-text line's [Pick] dropdown. */
 interface PreviewCandidate {
@@ -219,6 +224,18 @@ interface PreviewRow {
    * surface shared by the whole paste.
    */
   refusal?: string
+  /**
+   * The stored request this line filed. Present on `queued` and the two withdraw
+   * states; it is what the withdraw affordance names, so a row without it offers
+   * none. Lines that collapsed onto one request all carry the SAME id, so
+   * withdrawing from any of them retracts the one request they share.
+   */
+  requestId?: number
+  /**
+   * A failed withdrawal's message, shown on the row that tried it. The row stays
+   * `queued` on a failure, because the request it filed is still queued.
+   */
+  withdrawError?: string
 }
 
 /** Max candidates surfaced in an AMBIGUOUS line's [Pick] dropdown. */
@@ -334,6 +351,21 @@ function queueEntityRequestBatch(names: string[]): Promise<EntityRequestBatchRes
 function pasteQueueKey(raw: string): string {
   return raw.trim().toLowerCase()
 }
+
+/**
+ * Retract a request this paste filed (PSY-1992). Resolves when the request is
+ * withdrawn; rejects with the server's message otherwise, which is what the row
+ * surfaces.
+ */
+function withdrawEntityRequest(requestId: number): Promise<void> {
+  return apiRequest(API_ENDPOINTS.COLLECTIONS.ENTITY_REQUEST_WITHDRAW(requestId), {
+    method: 'POST',
+  }).then(() => undefined)
+}
+
+/** Copy for a withdrawal the server refused. */
+const WITHDRAW_FAILED_MESSAGE =
+  'Could not withdraw this request. It may already have been reviewed.'
 
 // ──────────────────────────────────────────────
 // Component
@@ -493,6 +525,7 @@ function usePastePreview(pasteText: string): {
   previewRows: PreviewRow[]
   pickCandidate: (rowIndex: number, candidate: PreviewCandidate) => void
   retryQueue: (rowIndex: number) => void
+  withdrawQueued: (rowIndex: number) => void
 } {
   const [debouncedPaste] = useDebounce(pasteText, 400)
   const resolveMutation = useResolveCollectionItems()
@@ -577,6 +610,8 @@ function usePastePreview(pasteText: string): {
             applyToRows(key, {
               status: 'queued',
               replaced: result.status === 'replaced',
+              requestId: result.id ?? undefined,
+              withdrawError: undefined,
             })
           })
         },
@@ -756,7 +791,39 @@ function usePastePreview(pasteText: string): {
     [previewRows, fileQueueBatch]
   )
 
-  return { previewRows, pickCandidate, retryQueue }
+  // Retract the request a queued row filed (PSY-1992). Every row that collapsed
+  // onto the same request moves together, because they name ONE request and a
+  // row still reading "for review" beside a withdrawn twin would be false.
+  const withdrawQueued = useCallback(
+    (rowIndex: number) => {
+      const row = previewRows[rowIndex]
+      if (!row || row.status !== 'queued' || row.requestId === undefined) return
+      const requestId = row.requestId
+      const generation = generationRef.current
+
+      const applyToRequest = (next: Partial<PreviewRow>) => {
+        setPreviewRows((rows) => {
+          if (generationRef.current !== generation) return rows
+          return rows.map((r) =>
+            r.requestId === requestId ? { ...r, ...next } : r
+          )
+        })
+      }
+
+      applyToRequest({ status: 'withdrawing', withdrawError: undefined })
+      void withdrawEntityRequest(requestId).then(
+        () => applyToRequest({ status: 'withdrawn' }),
+        () =>
+          applyToRequest({
+            status: 'queued',
+            withdrawError: WITHDRAW_FAILED_MESSAGE,
+          })
+      )
+    },
+    [previewRows]
+  )
+
+  return { previewRows, pickCandidate, retryQueue, withdrawQueued }
 }
 
 export function AddItemsPicker({
@@ -781,7 +848,8 @@ export function AddItemsPicker({
 
   // ─── Paste mode state (resolution lives in usePastePreview) ───
   const [pasteText, setPasteText] = useState('')
-  const { previewRows, pickCandidate, retryQueue } = usePastePreview(pasteText)
+  const { previewRows, pickCandidate, retryQueue, withdrawQueued } =
+    usePastePreview(pasteText)
 
   // Flattened search results for the active query. Mirrors the existing
   // AddItemsSection shape so users get a familiar list. The flatten order
@@ -911,6 +979,7 @@ export function AddItemsPicker({
             onStageBatch={stageBatch}
             onPick={pickCandidate}
             onRetryQueue={retryQueue}
+            onWithdrawQueued={withdrawQueued}
           />
         )}
 
@@ -1276,6 +1345,7 @@ function PasteModePane({
   onStageBatch,
   onPick,
   onRetryQueue,
+  onWithdrawQueued,
 }: {
   text: string
   onTextChange: (v: string) => void
@@ -1286,6 +1356,7 @@ function PasteModePane({
   onStageBatch: (items: StagedCollectionItem[]) => void
   onPick: (rowIndex: number, candidate: PreviewCandidate) => void
   onRetryQueue: (rowIndex: number) => void
+  onWithdrawQueued: (rowIndex: number) => void
 }) {
   const matchedCount = previewRows.filter((r) => r.status === 'matched').length
   const unresolvedCount = previewRows.filter((r) => r.status === 'unresolved').length
@@ -1302,6 +1373,11 @@ function PasteModePane({
       r.status === 'queued' ||
       r.status === 'queuing' ||
       r.status === 'queue_failed'
+  ).length
+  // A withdrawn line has left the review queue, so it leaves that tally too;
+  // counting it there would promise an admin will see something nobody will.
+  const withdrawnCount = previewRows.filter(
+    (r) => r.status === 'withdrawn' || r.status === 'withdrawing'
   ).length
   // A refused line has its own tally: it is NOT for review, and counting it
   // there would tell the user an admin will see a line nothing filed.
@@ -1366,6 +1442,7 @@ function PasteModePane({
               ambiguousCount > 0 && `${ambiguousCount} need a pick`,
               queuedCount > 0 && `${queuedCount} for review`,
               refusedCount > 0 && `${refusedCount} refused`,
+              withdrawnCount > 0 && `${withdrawnCount} withdrawn`,
               unresolvedCount > 0 && `${unresolvedCount} unresolved`,
             ]
               .filter(Boolean)
@@ -1399,6 +1476,7 @@ function PasteModePane({
               onAdd={() => row.item && onStage(row.item)}
               onPick={(candidate) => onPick(index, candidate)}
               onRetryQueue={() => onRetryQueue(index)}
+              onWithdrawQueued={() => onWithdrawQueued(index)}
             />
           ))}
         </div>
@@ -1429,12 +1507,14 @@ function PastePreviewRow({
   onAdd,
   onPick,
   onRetryQueue,
+  onWithdrawQueued,
 }: {
   row: PreviewRow
   alreadyStaged: boolean
   onAdd: () => void
   onPick: (candidate: PreviewCandidate) => void
   onRetryQueue: () => void
+  onWithdrawQueued: () => void
 }) {
   const candidates = row.candidates ?? []
   return (
@@ -1520,17 +1600,53 @@ function PastePreviewRow({
             register and only its word changes. Both spellings of the
             explanation are required; see the constant's own contract. */}
         {row.status === 'queued' && (
+          <>
+            <Badge
+              variant="secondary"
+              className="text-[10px] px-1.5 py-0 shrink-0 bg-pending text-pending-foreground motion-safe:animate-in motion-safe:fade-in"
+              data-testid="add-items-picker-paste-row-queued"
+              title={row.replaced ? REPLACED_REQUEST_EXPLANATION : undefined}
+            >
+              <Inbox className="h-3 w-3 mr-0.5" />
+              {row.replaced ? 'UPDATED' : 'FOR REVIEW'}
+              {row.replaced && (
+                <span className="sr-only"> {REPLACED_REQUEST_EXPLANATION}</span>
+              )}
+            </Badge>
+            {/* PSY-1992: retract the request this line filed, beside the chip
+                that says it is queued. Offered only when the response named the
+                request, since the call has to name it. */}
+            {row.requestId !== undefined && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 shrink-0 text-muted-foreground"
+                onClick={onWithdrawQueued}
+                aria-label={`Withdraw the request for ${row.raw}`}
+                data-testid="add-items-picker-paste-row-withdraw"
+              >
+                <Undo2 className="h-3.5 w-3.5 mr-1" />
+                Withdraw
+              </Button>
+            )}
+          </>
+        )}
+        {row.status === 'withdrawing' && (
+          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">
+            <Loader2 className="h-3 w-3 mr-0.5 animate-spin" />
+            Withdrawing…
+          </Badge>
+        )}
+        {/* A withdrawn line is not for review and not an error: no admin will
+            see it, and nothing went wrong. */}
+        {row.status === 'withdrawn' && (
           <Badge
             variant="secondary"
-            className="text-[10px] px-1.5 py-0 shrink-0 bg-pending text-pending-foreground motion-safe:animate-in motion-safe:fade-in"
-            data-testid="add-items-picker-paste-row-queued"
-            title={row.replaced ? REPLACED_REQUEST_EXPLANATION : undefined}
+            className="text-[10px] px-1.5 py-0 shrink-0 motion-safe:animate-in motion-safe:fade-in"
+            data-testid="add-items-picker-paste-row-withdrawn"
           >
-            <Inbox className="h-3 w-3 mr-0.5" />
-            {row.replaced ? 'UPDATED' : 'FOR REVIEW'}
-            {row.replaced && (
-              <span className="sr-only"> {REPLACED_REQUEST_EXPLANATION}</span>
-            )}
+            <Undo2 className="h-3 w-3 mr-0.5" />
+            WITHDRAWN
           </Badge>
         )}
         {row.status === 'queue_failed' && (
@@ -1567,6 +1683,17 @@ function PastePreviewRow({
           </Badge>
         )}
       </div>
+
+      {/* A failed withdrawal, on the row that tried it. The row is still queued,
+          so the message is the only thing that changed. */}
+      {row.withdrawError && (
+        <p
+          className="ml-10 mt-1.5 text-xs text-destructive"
+          data-testid="add-items-picker-paste-row-withdraw-error"
+        >
+          {row.withdrawError}
+        </p>
+      )}
 
       {/* REFUSED: the server's own reason, on the row it belongs to. Nothing was
           filed for this line, and the reason is what says which edit would make

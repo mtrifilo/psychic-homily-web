@@ -237,6 +237,8 @@ describe('ModerationQueue', () => {
     // PSY-1088: approved-but-unfulfilled rescue rows (the second
     // useAdminEntityRequests call, with state=approved + unfulfilled=true).
     rescue?: unknown[]
+    // PSY-1992: rows their requester retracted (state='withdrawn').
+    withdrawn?: unknown[]
   }) {
     mockUseAdminPendingEdits.mockReturnValue({
       data: { edits: overrides?.edits ?? [], total: overrides?.edits?.length ?? 0 },
@@ -253,18 +255,62 @@ describe('ModerationQueue', () => {
       isLoading: false,
       error: null,
     })
-    // The queue calls useAdminEntityRequests TWICE: the pending queue
-    // (state='pending') and the rescue queue (state='approved' +
-    // unfulfilled=true). Route by the filter arg so each gets its own data.
-    mockUseAdminEntityRequests.mockImplementation((filters?: { unfulfilled?: boolean }) => {
-      const rows = filters?.unfulfilled ? (overrides?.rescue ?? []) : (overrides?.requests ?? [])
-      return {
-        data: { requests: rows, total: rows.length },
-        isLoading: false,
-        error: null,
+    // The queue calls useAdminEntityRequests THREE times: the pending queue
+    // (state='pending'), the rescue queue (state='approved' +
+    // unfulfilled=true), and the withdrawn tab (state='withdrawn', fetched only
+    // while it is open). Route by the filter arg so each gets its own data.
+    mockUseAdminEntityRequests.mockImplementation(
+      (filters?: { unfulfilled?: boolean; state?: string; enabled?: boolean }) => {
+        let rows: unknown[]
+        if (filters?.state === 'withdrawn') {
+          rows = filters.enabled === false ? [] : (overrides?.withdrawn ?? [])
+        } else if (filters?.unfulfilled) {
+          rows = overrides?.rescue ?? []
+        } else {
+          rows = overrides?.requests ?? []
+        }
+        return {
+          data: { requests: rows, total: rows.length },
+          isLoading: false,
+          error: null,
+        }
       }
-    })
+    )
   }
+
+  // ── PSY-1992: withdrawn requests are out of the queue by default ──
+
+  it('keeps withdrawn requests out of the default queue', () => {
+    setDefaultMocks({
+      requests: [mockEntityRequest],
+      withdrawn: [{ ...mockEntityRequest, id: 4242, decision_state: 'withdrawn' }],
+    })
+
+    render(<ModerationQueue />)
+
+    // The withdrawn tab is not fetched while it is closed, so nothing from it
+    // can reach the pending surface.
+    expect(screen.queryByTestId('moderation-withdrawn-card')).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /Withdrawn/ })
+    ).toBeInTheDocument()
+  })
+
+  it('shows withdrawn requests read-only under the Withdrawn tab', async () => {
+    const user = userEvent.setup()
+    setDefaultMocks({
+      withdrawn: [{ ...mockEntityRequest, id: 4242, decision_state: 'withdrawn' }],
+    })
+
+    render(<ModerationQueue />)
+    await user.click(screen.getByRole('button', { name: /Withdrawn/ }))
+
+    const card = await screen.findByTestId('moderation-withdrawn-card')
+    // Read-only: a withdrawn row is not waiting on a decision, and every admin
+    // write path is scoped to a state it is not in.
+    expect(within(card).queryByRole('button')).not.toBeInTheDocument()
+    expect(card).toHaveTextContent('Withdrawn')
+  })
 
   it('renders empty state when no items', () => {
     setDefaultMocks()

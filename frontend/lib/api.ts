@@ -297,6 +297,10 @@ export const API_ENDPOINTS = {
     // single route, one result per item, so a refused line never withholds its
     // siblings.
     ENTITY_REQUESTS_BATCH: `${API_BASE_URL}/entity-requests/batch`,
+    // PSY-1992: retract one's own PENDING request. Another user's row and a
+    // decided one refuse.
+    ENTITY_REQUEST_WITHDRAW: (requestId: number) =>
+      `${API_BASE_URL}/entity-requests/${requestId}/withdraw`,
     ITEM: (slug: string, itemId: number) =>
       `${API_BASE_URL}/collections/${slug}/items/${itemId}`,
     UPDATE_ITEM: (slug: string, itemId: number) =>

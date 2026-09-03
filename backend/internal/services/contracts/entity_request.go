@@ -99,6 +99,19 @@ type EntityRequestServiceInterface interface {
 	// check and is correct only for a decision that reads nothing off the row.
 	Decide(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string, expectedUpdatedAt *time.Time) (*communitym.EntityRequest, error)
 
+	// Withdraw retracts the REQUESTER's own pending request (PSY-1992), moving
+	// it to decision_state 'withdrawn' and stamping decided_by/at with the
+	// requester. The conditional UPDATE carries the whole precondition (this row,
+	// this requester, still pending), so authorization is not the caller's to
+	// enforce here: another user's row and an already-decided row are both
+	// refused by the write itself.
+	//
+	// Refusals are told apart: a row that does not exist OR belongs to someone
+	// else is ErrEntityRequestNotFound (the caller learns nothing about a row
+	// that is not theirs), and the caller's OWN non-pending row is
+	// ErrEntityRequestInvalidState naming the state it is in.
+	Withdraw(requestID, requesterID uint) (*communitym.EntityRequest, error)
+
 	// ClaimRescueFulfillment atomically stamps created_entity_id on an
 	// APPROVED-but-UNFULFILLED row (PSY-1088 rescue path). The conditional
 	// UPDATE (WHERE decision_state='approved' AND created_entity_id IS NULL)

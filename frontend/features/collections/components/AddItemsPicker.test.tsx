@@ -133,6 +133,8 @@ vi.mock('@/lib/api', () => ({
     COLLECTIONS: {
       ENTITY_REQUESTS: 'http://test/entity-requests',
       ENTITY_REQUESTS_BATCH: 'http://test/entity-requests/batch',
+      ENTITY_REQUEST_WITHDRAW: (requestId: number) =>
+        `http://test/entity-requests/${requestId}/withdraw`,
     },
   },
 }))
@@ -1037,6 +1039,78 @@ describe('AddItemsPicker', () => {
       screen.getAllByTestId('add-items-picker-paste-row-queued')
     ).toHaveLength(2)
     expect(screen.getByText(/1 refused/)).toBeInTheDocument()
+  })
+
+  // ── PSY-1992: withdraw a queued request from the chip's own surface ──
+
+  it('Paste mode: withdraws the request a queued line filed', async () => {
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await user.click(screen.getByTestId('tab-paste'))
+    await pasteInto(user, 'Regretted Artist')
+
+    await screen.findByTestId('add-items-picker-paste-row-queued')
+    mockApiRequest.mockClear()
+    mockApiRequest.mockResolvedValue({})
+
+    await user.click(screen.getByTestId('add-items-picker-paste-row-withdraw'))
+
+    expect(
+      await screen.findByTestId('add-items-picker-paste-row-withdrawn')
+    ).toHaveTextContent('WITHDRAWN')
+    // The id came off the batch result, so the call names the stored request.
+    expect(mockApiRequest).toHaveBeenCalledTimes(1)
+    expect(mockApiRequest.mock.calls[0][0]).toContain('/entity-requests/100/withdraw')
+    // A withdrawn line has left the review tally.
+    expect(screen.queryByText(/1 for review/)).not.toBeInTheDocument()
+    expect(screen.getByText(/1 withdrawn/)).toBeInTheDocument()
+  })
+
+  // Lines that collapsed onto ONE request name one request, so withdrawing from
+  // any of them moves all of them. A row still reading "for review" beside a
+  // withdrawn twin would be false.
+  it('Paste mode: withdrawing moves every line that shares the request', async () => {
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await user.click(screen.getByTestId('tab-paste'))
+    await pasteInto(user, 'Boris\nboris')
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByTestId('add-items-picker-paste-row-queued')
+      ).toHaveLength(2)
+    )
+    mockApiRequest.mockResolvedValue({})
+    await user.click(
+      screen.getAllByTestId('add-items-picker-paste-row-withdraw')[0]
+    )
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByTestId('add-items-picker-paste-row-withdrawn')
+      ).toHaveLength(2)
+    )
+  })
+
+  // A refused withdrawal leaves the row queued, because the request it filed
+  // still is, and says so where the row can be read.
+  it('Paste mode: a refused withdrawal leaves the row queued and explains itself', async () => {
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await user.click(screen.getByTestId('tab-paste'))
+    await pasteInto(user, 'Already Reviewed')
+
+    await screen.findByTestId('add-items-picker-paste-row-queued')
+    mockApiRequest.mockRejectedValueOnce(new Error('conflict'))
+
+    await user.click(screen.getByTestId('add-items-picker-paste-row-withdraw'))
+
+    expect(
+      await screen.findByTestId('add-items-picker-paste-row-withdraw-error')
+    ).toHaveTextContent('Could not withdraw this request')
+    expect(
+      screen.getByTestId('add-items-picker-paste-row-queued')
+    ).toHaveTextContent('FOR REVIEW')
   })
 
   // ── PSY-962: overview strip + drag-reorder ──

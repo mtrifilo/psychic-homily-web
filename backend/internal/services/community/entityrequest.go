@@ -715,3 +715,63 @@ func isValidSourceContext(sourceContext string) bool {
 		return false
 	}
 }
+
+// Withdraw retracts the requester's OWN pending request (PSY-1992).
+//
+// The whole precondition is in the UPDATE — this row, this requester, still
+// pending — so the write is self-guarding rather than trusting a prior read.
+// Nothing else can be withdrawn: another user's row is not the caller's to
+// retract, and a decided row's outcome is the admin's.
+//
+// The refusals are told apart by a re-read, and they answer DIFFERENT questions,
+// so the two are deliberately not collapsed:
+//
+//   - the row does not exist, OR it exists and belongs to someone else →
+//     ErrEntityRequestNotFound. A caller learns nothing about a row that is not
+//     theirs, so guessing ids reveals no more than guessing at random.
+//   - the row is the caller's own and is no longer pending →
+//     ErrEntityRequestInvalidState, naming the state it is in. It is the
+//     caller's own row, so there is nothing to withhold, and "already approved"
+//     is the only answer that tells them why the affordance did nothing.
+//
+// decided_by is the REQUESTER, and decided_at the moment they withdrew: the
+// columns record who ended the row's pending life, and for this transition that
+// is them. decision_note is left alone — it is the moderator's words, and a
+// withdrawal has none to add.
+//
+// Returns the refreshed row.
+func (s *EntityRequestService) Withdraw(requestID, requesterID uint) (*communitym.EntityRequest, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	now := time.Now().UTC()
+	deciderID := requesterID
+	result := s.db.Model(&communitym.EntityRequest{}).
+		Where("id = ? AND requester_id = ? AND decision_state = ?",
+			requestID, requesterID, communitym.EntityRequestStatePending).
+		Updates(map[string]interface{}{
+			"decision_state": communitym.EntityRequestStateWithdrawn,
+			"decided_by":     deciderID,
+			"decided_at":     now,
+		})
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to withdraw entity request: %w", result.Error)
+	}
+
+	if result.RowsAffected == 0 {
+		// Nothing was written. Read the row back to say which of the two refusals
+		// this is; a row that vanished between the UPDATE and this read is not
+		// found, which is also the answer for one that was never the caller's.
+		existing, err := s.GetRequest(requestID)
+		if err != nil {
+			return nil, err
+		}
+		if existing == nil || existing.RequesterID != requesterID {
+			return nil, apperrors.ErrEntityRequestNotFound(requestID)
+		}
+		return nil, apperrors.ErrEntityRequestInvalidState(requestID, string(existing.DecisionState))
+	}
+
+	return s.GetRequest(requestID)
+}

@@ -4368,6 +4368,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/entity-requests/{id}/withdraw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post entity requests by ID withdraw */
+        post: operations["post-entity-requests-by-id-withdraw"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/explore/shuffle-target": {
         parameters: {
             query?: never;
@@ -18466,6 +18483,15 @@ export interface components {
             count: number;
             week: string;
         };
+        WithdrawEntityRequestResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/WithdrawEntityRequestResponseBody.json
+             */
+            readonly $schema?: string;
+            request: components["schemas"]["EntityRequest"];
+        };
     };
     responses: never;
     parameters: never;
@@ -28656,6 +28682,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CreateEntityRequestBatchResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "post-entity-requests-by-id-withdraw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Entity request ID to withdraw */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WithdrawEntityRequestResponseBody"];
                 };
             };
             /** @description Error */

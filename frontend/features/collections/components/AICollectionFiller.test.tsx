@@ -732,6 +732,75 @@ describe('AICollectionFiller', () => {
     expect(chip).not.toHaveAttribute('title')
   })
 
+  // ── PSY-1992: withdraw from the chip's own surface ──
+
+  it('a queued row offers Withdraw and retracts the request it filed', async () => {
+    mockUser = { is_admin: false, user_tier: 'contributor' }
+    const fetchMock = stubFetch('pending')
+    const user = userEvent.setup()
+    await extractOneUnmatchedRow(user)
+
+    await user.click(screen.getByTestId('ai-collection-filler-row-request'))
+    await screen.findByTestId('ai-collection-filler-row-request-chip')
+
+    // The withdrawal answers 200 with no body of its own.
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) })
+    await user.click(screen.getByTestId('ai-collection-filler-row-withdraw'))
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('ai-collection-filler-row-request-chip')
+      ).toHaveTextContent('Withdrawn')
+    )
+    // The id came off the batch result, so the call names the stored request.
+    expect(fetchMock.mock.calls.at(-1)![0]).toBe(
+      '/api/entity-requests/7/withdraw'
+    )
+    // Nothing is left to withdraw.
+    expect(
+      screen.queryByTestId('ai-collection-filler-row-withdraw')
+    ).not.toBeInTheDocument()
+  })
+
+  // An APPROVED request created an entity; there is nothing to retract, and an
+  // affordance that answered 409 every time would be a lie about what it does.
+  it('an approved row offers no Withdraw', async () => {
+    mockUser = { is_admin: true, user_tier: 'local_ambassador' }
+    stubFetch('approved', true, 99)
+    const user = userEvent.setup()
+    await extractOneUnmatchedRow(user)
+
+    await user.click(screen.getByTestId('ai-collection-filler-row-request'))
+    await screen.findByTestId('ai-collection-filler-row-request-chip')
+
+    expect(
+      screen.queryByTestId('ai-collection-filler-row-withdraw')
+    ).not.toBeInTheDocument()
+  })
+
+  it('a refused withdrawal shows the server message and keeps the row queued', async () => {
+    mockUser = { is_admin: false, user_tier: 'contributor' }
+    const fetchMock = stubFetch('pending')
+    const user = userEvent.setup()
+    await extractOneUnmatchedRow(user)
+
+    await user.click(screen.getByTestId('ai-collection-filler-row-request'))
+    await screen.findByTestId('ai-collection-filler-row-request-chip')
+
+    fetchMock.mockResolvedValue({
+      ok: false,
+      json: async () => ({ detail: 'Entity request 7 is already approved' }),
+    })
+    await user.click(screen.getByTestId('ai-collection-filler-row-withdraw'))
+
+    expect(
+      await screen.findByText('Entity request 7 is already approved')
+    ).toBeInTheDocument()
+    expect(
+      screen.getByTestId('ai-collection-filler-row-request-chip')
+    ).toHaveTextContent('Queued')
+  })
+
   it('a failed entity-request shows an inline error and keeps the button', async () => {
     mockUser = { is_admin: false, user_tier: 'contributor' }
     // 403 (or any non-ok) → the mutationFn throws; the row surfaces it inline.

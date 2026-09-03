@@ -32,6 +32,11 @@ func setupEntityRequestRoutes(rc RouteContext) {
 	// than one per line. Same validation and dedup as the single route, per item.
 	huma.Post(rc.Protected, "/entity-requests/batch", entityRequestHandler.CreateEntityRequestBatchHandler)
 
+	// User: retract one's own PENDING request (PSY-1992). A verb sub-resource
+	// POST, the shape the decide and fulfill transitions already use. Ownership
+	// is enforced in the service's conditional UPDATE, not by this registration.
+	huma.Post(rc.Protected, "/entity-requests/{id}/withdraw", entityRequestHandler.WithdrawEntityRequestHandler)
+
 	// Admin: moderation queue (consumed by PSY-871).
 	huma.Get(rc.Admin, "/admin/entity-requests", entityRequestHandler.AdminListEntityRequestsHandler)
 	huma.Post(rc.Admin, "/admin/entity-requests/{id}/decide", entityRequestHandler.AdminDecideEntityRequestHandler)
