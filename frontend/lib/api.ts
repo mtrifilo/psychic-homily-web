@@ -714,11 +714,16 @@ export const getEnvironmentInfo = () => ({
 })
 
 /**
- * Whether a thrown value is an HTTP 409 from {@link apiRequest}.
+ * Whether a thrown value carries HTTP status 409.
  *
  * A thrown value is `unknown` to its catcher, so the narrowing lives beside the
- * {@link ApiError} shape it narrows rather than being re-declared per feature.
+ * {@link ApiError} shape it reads rather than being re-declared per feature.
  * Sits next to {@link getRequestIdFromError} for the same reason.
+ *
+ * It reads `status` and nothing else, so it says only that SOMETHING answered
+ * 409 — never which conflict. An endpoint that returns several is not
+ * distinguishable here, and a caller that needs to tell them apart needs the
+ * server to carry a code.
  */
 export function isConflictError(error: unknown): boolean {
   return (

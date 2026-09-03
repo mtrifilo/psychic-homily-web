@@ -7679,7 +7679,10 @@ export interface components {
             requester_username: string | null;
             source_context: string;
             source_detail?: unknown;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the request was last written. A resubmission replaces a queued payload in place and moves this while created_at stays put. Echo this value VERBATIM into a decide call's expected_updated_at to state which payload the decision was made against.
+             */
             updated_at: string;
         };
         AdminFulfillEntityRequestRequestBody: {
@@ -9820,6 +9823,7 @@ export interface components {
             entity_type: string;
             /** Format: int64 */
             id: number;
+            /** @description The source_context the submission ORIGINALLY filed under this row carried, absent while the row still holds that first submission. A resubmission replaces source_context along with the payload; this records what the row stopped claiming. It names the FIRST filing, not the previous one, so it does not change again on a second replacement. */
             original_source_context?: string;
             payload: unknown;
             /** @description True when this submission replaced the requester's existing pending request (a correction) rather than filing a new one. Matching is per entity_type, and every key starts with the case-folded, trimmed name (or title). For 'show' the key adds the trimmed event_date string, compared byte for byte: a show on a different date files its own row, and two spellings of one moment (a bare date vs a timestamp, or an offset vs the equivalent Z) do NOT match, so resend the event_date string you sent the first time. Two shows sharing a title AND a date still match even if they are at different venues, because the payload has no venue field. For 'venue' the key adds the case-folded city, matching the catalog's own uniqueness, so one name in two cities is two requests but one name and city in two states is one. For 'festival' the key adds the edition year: the stated edition_year, or the year of start_date when none is stated. For 'artist', 'label' and 'release' the name (or title) alone is the whole key, so a second pending request under that name replaces the first; for an artist that matches the catalog, which holds one artist per name, while a label or a release really can be two things sharing a name and the second still replaces the first. The returned id is the queued request's. Only a PENDING request is ever replaced; read decision_state for the row's state, which an admin can decide the moment the replacement lands. */
@@ -10748,6 +10752,7 @@ export interface components {
             entity_type: string;
             /** Format: int64 */
             id: number;
+            /** @description The source_context the submission ORIGINALLY filed under this row carried, absent while the row still holds that first submission. A resubmission replaces source_context along with the payload; this records what the row stopped claiming. It names the FIRST filing, not the previous one, so it does not change again on a second replacement. */
             original_source_context?: string;
             payload: unknown;
             /** Format: int64 */

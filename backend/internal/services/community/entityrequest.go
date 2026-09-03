@@ -321,8 +321,15 @@ func (s *EntityRequestService) replacePendingSubmission(
 		return nil, nil, nil
 	}
 
-	// The submission the write just destroyed, captured from the row that was
-	// matched. It exists nowhere else once this returns.
+	// The submission the write destroyed, as the LOOKUP read it. That is the row
+	// this UPDATE matched in every case but one: two concurrent resubmissions on
+	// the same key both read the pre-replacement row and both write, so the second
+	// reports the first's superseded submission rather than the first's own. The
+	// UPDATE re-asserts the dedup key, which catches a concurrent write that
+	// CHANGES the key, and nothing catches one that preserves it. Recording it
+	// exactly would take a RETURNING of the old row, which this statement does not
+	// do; original_source_context is the half that is race-proof, because its
+	// COALESCE runs in SQL.
 	superseded := &communitym.SupersededSubmission{
 		Payload:       existing.Payload,
 		SourceContext: existing.SourceContext,
@@ -340,9 +347,10 @@ func (s *EntityRequestService) replacePendingSubmission(
 	refreshed.SourceContext = sourceContext
 	refreshed.SourceDetail = newDetail
 	refreshed.UpdatedAt = now
-	// Mirrors the COALESCE above. It reads the same on the refreshed row for the
-	// same reason every other field here does: this statement is the only writer
-	// of a pending row's submission columns.
+	// Mirrors the COALESCE above for the returned row. It agrees with the column
+	// except under the same concurrent-replacement race as the capture above,
+	// where this copy stamps a value COALESCE discarded. Only the create
+	// RESPONSE reads it; every admin surface re-reads the row.
 	if refreshed.OriginalSourceContext == nil {
 		original := existing.SourceContext
 		refreshed.OriginalSourceContext = &original
@@ -608,8 +616,13 @@ func (s *EntityRequestService) ListPending(entityType string, limit, offset int)
 // fulfillment — can otherwise claim a row whose payload changed underneath it and
 // fulfill content nothing validated. Pass the updated_at that read saw and the
 // claim refuses a revised row with ErrEntityRequestStale, leaving it pending for
-// the caller to re-read. nil skips the check, which is correct only for a
-// decision that reads nothing off the row (a rejection creates no entity).
+// the caller to re-read.
+//
+// It is not only for callers that read the row. Any version the caller is willing
+// to be held to belongs here: the HTTP handler passes a client-supplied one on a
+// REJECTION too (PSY-1974), where nothing is read and nothing is created, because
+// refusing a submission the requester replaced under a review is still a decision
+// made against a payload nobody saw. nil skips the check entirely.
 func (s *EntityRequestService) Decide(
 	requestID, adminID uint,
 	newState communitym.EntityRequestDecisionState,

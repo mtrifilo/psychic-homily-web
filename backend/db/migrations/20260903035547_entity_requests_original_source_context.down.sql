@@ -5,11 +5,15 @@
 -- as, and a resubmission has already overwritten source_context with the current
 -- claim.
 --
--- The replace_entity_request audit_logs rows carry the superseded values per
--- replacement, but they are NOT a guarantee: that write is fire-and-forget after
--- the response and its failures are logged, not retried. This column is the only
--- record of a dropped provenance that is written in the same statement as the
--- write that dropped it. Dropping it makes the fact best-effort.
+-- The replace_entity_request audit_logs rows name the superseded source_context
+-- per replacement, but they are NOT a guarantee: that write is fire-and-forget
+-- after the response and its failures are logged, not retried. This column is
+-- written in the same statement as the write it describes, so dropping it makes
+-- the fact best-effort.
+--
+-- What the column records is the FIRST filing, so it is not a complete history
+-- either: a row filed manual, revised to ai_extraction and revised back reads as
+-- unchanged. The audit rows are what cover the intermediate states.
 --
 -- Roll the BINARY back first, then run this. A binary that writes this column
 -- against a table without it fails every replacement with an undefined-column

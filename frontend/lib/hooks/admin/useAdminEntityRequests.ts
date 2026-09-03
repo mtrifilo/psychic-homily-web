@@ -268,6 +268,15 @@ export function useRescueEntityRequest() {
   const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
+    onError: error => {
+      // Same rule as the decide mutation: a 409 here (already fulfilled by a
+      // concurrent rescue, or no longer approved-but-unfulfilled) means this
+      // client's view of the row is out of date, and a refetch is what answers
+      // it.
+      if (isConflictError(error)) {
+        invalidateQueries.adminEntityRequests()
+      }
+    },
     mutationFn: async ({ id, action, note, show_venue, show_artists, use_payload_artists }: RescueEntityRequestVars) => {
       return apiRequest(API_ENDPOINTS.ADMIN.ENTITY_REQUESTS.FULFILL(id), {
         method: 'POST',

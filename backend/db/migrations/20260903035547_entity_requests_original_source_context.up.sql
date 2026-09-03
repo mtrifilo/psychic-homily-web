@@ -5,16 +5,19 @@
 -- source_context and source_detail. That was deliberate — the three describe one
 -- submission, and a resubmission is the requester's current intent. What it also
 -- means is that a request filed as 'ai_extraction' with a source article, then
--- resubmitted as 'manual' with nothing, becomes a plain manual request. It drops
--- out of the source_context=ai_extraction admin filter and no admin can tell the
--- evidence ever existed.
+-- resubmitted as 'manual' with nothing, becomes a plain manual request. Nothing
+-- on the row, and nothing an admin reads, says the AI extraction happened. The
+-- admin list endpoint's source_context filter narrows on the live value, so a
+-- client asking for ai_extraction rows does not get that one back either.
 --
 -- This column answers ONE question the row otherwise cannot: what was filed
 -- first. It is NULL for a row that still holds its first submission, and is
 -- written only when it is still NULL, so a row replaced repeatedly keeps naming
--- the ORIGINAL filing rather than the second-to-last thing it said. The full
--- per-replacement record — including the payload that was overwritten — is the
--- replace_entity_request audit_logs row, which this column does not duplicate.
+-- the ORIGINAL filing rather than the second-to-last thing it said. Each
+-- individual replacement is recorded on its own replace_entity_request
+-- audit_logs row, which names the source_context that replacement superseded and
+-- a digest of the payload it destroyed. Neither is a filter: this column is a
+-- column, and it is the one a query can narrow on.
 --
 -- No CHECK constraint and no backfill:
 --

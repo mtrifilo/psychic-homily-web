@@ -663,7 +663,7 @@ describe('API Module', () => {
   })
 
   describe('isConflictError', () => {
-    it('recognises a 409 thrown by apiRequest', async () => {
+    it('recognises an error carrying status 409', async () => {
       const { isConflictError } = await import('./api')
 
       const error: Error & { status?: number } = new Error('Conflict')

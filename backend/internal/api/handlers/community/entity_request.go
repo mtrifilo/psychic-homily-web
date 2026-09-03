@@ -2,6 +2,8 @@ package community
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"strconv"
 	"strings"
@@ -307,10 +309,11 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 	// queued so the activity feed reads correctly.
 	//
 	// PSY-1948: a replacement gets its own action because it OVERWRITES a stored
-	// payload. PSY-1978: it also carries WHAT it overwrote, because the row does
-	// not. Without that the audit row was byte-identical to a fresh
-	// queue_entity_request, and nothing in the system could answer what was
-	// originally filed versus what the admin approved.
+	// payload. PSY-1978: it also says something ABOUT what it overwrote. The
+	// action already distinguished the two events; the METADATA did not, so a
+	// replacement's row named the submission that survived and nothing named the
+	// one it destroyed. What may be recorded here is constrained by where this
+	// metadata is published; see addSupersededMetadata.
 	if h.auditLogService != nil {
 		action := "queue_entity_request"
 		switch {
@@ -389,7 +392,11 @@ type AdminEntityRequestView struct {
 	// contributor has since corrected from one that still holds what they first
 	// filed (PSY-1948). created_at does not move on a replacement, so a queue
 	// that shows only "filed 2 hours ago" cannot tell the two apart.
-	UpdatedAt time.Time `json:"updated_at"`
+	//
+	// It is also the VERSION a client echoes into the decide endpoint's
+	// expected_updated_at (PSY-1974), which is why the value on the wire has to
+	// survive the round trip byte for byte.
+	UpdatedAt time.Time `json:"updated_at" doc:"When the request was last written. A resubmission replaces a queued payload in place and moves this while created_at stays put. Echo this value VERBATIM into a decide call's expected_updated_at to state which payload the decision was made against."`
 }
 
 // toAdminEntityRequestView projects a model row onto the admin view, resolving
@@ -638,6 +645,7 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 	// read that ERRORS still reports ahead of any complaint about the body, and a
 	// read that finds nothing (GetRequest answers (nil, nil) for a missing row)
 	// still falls through to Decide, which is what turns it into the 404.
+	//
 	// The version the claim will be conditioned on, and the two decisions reach it
 	// differently. A rejection reads nothing off the row and creates nothing, so
 	// it takes no pre-claim read and this stays the CALLER's version: a reject is
@@ -848,47 +856,36 @@ func (h *EntityRequestHandler) fulfillAndRecord(ctx context.Context, req *commun
 	return createdID, nil
 }
 
-// maxSupersededPayloadBytes bounds what a replacement's audit row copies of the
-// payload it overwrote.
-//
-// A payload that came through this boundary is far below it: the largest legal
-// one is a show with a 50-act bill, and every field it can carry is capped
-// (255-character name/title, 5000-character description, 2048-character URLs).
-// The cap therefore only ever bites a row queued BEFORE those caps existed,
-// which is exactly the row whose superseded content is least worth writing
-// unbounded into audit_logs. Over it, the metadata records the length and omits
-// the content, so the audit row still says a payload was destroyed and how big
-// it was.
-const maxSupersededPayloadBytes = 65536
-
 // addSupersededMetadata records what a replacement overwrote onto the audit
 // row's metadata, and does nothing when there was no replacement (PSY-1978).
 //
-// It is the only durable record of the superseded submission: the UPDATE that
-// replaced it keeps no history, and the row's own original_source_context
-// answers a narrower question (what was FIRST filed, not what this particular
-// replacement destroyed).
+// NOTHING USER-AUTHORED GOES IN HERE. audit_logs.metadata is not a private
+// moderation artifact: GetContributionHistory selects it verbatim by actor_id
+// and /users/{username}/contributions serves that to an ANONYMOUS caller under
+// the default privacy settings. This row's actor is the REQUESTER, so anything
+// written here is published under their own username, unmoderated. What goes in
+// is therefore the superseded source_context (an enum, and this same metadata
+// already carries the live one), the payload's SHA-256 and byte length, and
+// whether a source detail existed.
 //
-// The payload goes in as RAW JSON, not a string, so a query can read into it the
-// same way it reads the live column. Over the cap it is replaced by its length
-// under a name that says why it is missing, so an omission is never mistaken for
-// a row that carried no payload.
+// A digest is what the ticket asks this record for: enough to tell that AI
+// provenance was dropped, and enough to identify a candidate payload as the one
+// superseded. It cannot reconstruct the text, which is the point. It is also
+// fixed-size and always valid JSON, so a replacement cannot grow this column
+// without bound and a malformed stored payload cannot fail the marshal that
+// writes the whole row.
 func addSupersededMetadata(metadata map[string]interface{}, superseded *communitym.SupersededSubmission) {
 	if superseded == nil {
 		return
 	}
 	metadata["superseded_source_context"] = superseded.SourceContext
-	if superseded.SourceDetail != nil {
-		metadata["superseded_source_detail"] = superseded.SourceDetail
-	}
+	metadata["superseded_source_detail_present"] = superseded.SourceDetail != nil
 	if superseded.Payload == nil {
 		return
 	}
-	if len(*superseded.Payload) <= maxSupersededPayloadBytes {
-		metadata["superseded_payload"] = superseded.Payload
-		return
-	}
-	metadata["superseded_payload_omitted_bytes"] = len(*superseded.Payload)
+	sum := sha256.Sum256(*superseded.Payload)
+	metadata["superseded_payload_sha256"] = hex.EncodeToString(sum[:])
+	metadata["superseded_payload_bytes"] = len(*superseded.Payload)
 }
 
 // normalizeSourceDetail trims + length-caps the optional source detail and

@@ -100,6 +100,59 @@ func TestAdminDecide_StaleClientVersionRefusesAheadOfThePayloadGuards(t *testing
 	testhelpers.AssertHumaError(t, derr, 409)
 }
 
+// The ticket's torn show: a bill adopted from payload A fulfilled against the
+// scalars of payload B. The version refuses the whole approve, so no show is
+// created from two payloads. Driven on a SHOW with use_payload_artists, because
+// that is the only shape where the adopted bill and the scalars are read
+// separately.
+func TestAdminDecide_StaleClientVersionRefusesAnAdoptedShowBill(t *testing.T) {
+	headliner := "headliner"
+	payload, err := communitym.MarshalPayload(communitym.ShowRequestPayload{
+		Title:     "Repro Night",
+		EventDate: "2026-11-14T21:00:00-07:00",
+		Artists:   []communitym.ShowRequestArtist{{Name: "Boris", SetType: &headliner}},
+	})
+	if err != nil {
+		t.Fatalf("marshal show payload: %v", err)
+	}
+	stored := pendingAt(13, "show", reviewedAt.Add(time.Second))
+	stored.Payload = &payload
+
+	decideCalled := false
+	createCalled := false
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			GetRequestFn: func(uint) (*communitym.EntityRequest, error) { return stored, nil },
+			DecideFn: func(uint, uint, communitym.EntityRequestDecisionState, *string, *time.Time) (*communitym.EntityRequest, error) {
+				decideCalled = true
+				return stored, nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateShowFn: func(*contracts.CreateShowRequest) (*contracts.ShowResponse, error) {
+				createCalled = true
+				return &contracts.ShowResponse{ID: 1}, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	req := &AdminDecideEntityRequestRequest{ID: "13"}
+	req.Body.Decision = "approved"
+	req.Body.ExpectedUpdatedAt = &reviewedAt
+	req.Body.ShowVenue = &ShowVenueInput{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
+	req.Body.UsePayloadArtists = true
+
+	_, derr := h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
+	testhelpers.AssertHumaError(t, derr, 409)
+	if decideCalled {
+		t.Error("the row must not be claimed against a payload the caller never read")
+	}
+	if createCalled {
+		t.Error("no show may be assembled from a bill and scalars the caller never read together")
+	}
+}
+
 func TestAdminDecide_ApproveWithMatchingClientVersion_ClaimsWithIt(t *testing.T) {
 	var claimedWith *time.Time
 	decided := pendingAt(9, "artist", reviewedAt)

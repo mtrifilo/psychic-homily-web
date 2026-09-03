@@ -1,6 +1,8 @@
 package community
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -62,9 +64,8 @@ func captureAuditMetadata(
 }
 
 // The provenance case the ticket names: filed as ai_extraction with a source
-// article, resubmitted as manual with nothing. The live row now says 'manual'
-// and drops out of the ai_extraction filter, so the audit row has to carry what
-// it stopped saying.
+// article, resubmitted as manual with nothing. The live row now says 'manual',
+// so the audit row has to name what it stopped saying.
 func TestCreateEntityRequest_ReplacementAuditCarriesTheSupersededSubmission(t *testing.T) {
 	action, md := captureAuditMetadata(t, supersededSubmission())
 
@@ -78,28 +79,46 @@ func TestCreateEntityRequest_ReplacementAuditCarriesTheSupersededSubmission(t *t
 	if md["source_context"] != communitym.EntityRequestSourceManual {
 		t.Errorf("the row's CURRENT source_context is still recorded, got %v", md["source_context"])
 	}
-
-	payload, ok := md["superseded_payload"].(*json.RawMessage)
-	if !ok || payload == nil {
-		t.Fatalf("expected the superseded payload as raw JSON, got %T", md["superseded_payload"])
-	}
-	if !strings.Contains(string(*payload), "from the source article") {
-		t.Errorf("expected the superseded payload's content, got %s", string(*payload))
+	if md["superseded_source_detail_present"] != true {
+		t.Errorf("expected the superseded source detail to be reported as present, got %v",
+			md["superseded_source_detail_present"])
 	}
 
-	detail, ok := md["superseded_source_detail"].(*json.RawMessage)
-	if !ok || detail == nil {
-		t.Fatalf("expected the superseded source_detail as raw JSON, got %T",
-			md["superseded_source_detail"])
+	superseded := supersededSubmission()
+	sum := sha256.Sum256(*superseded.Payload)
+	if md["superseded_payload_sha256"] != hex.EncodeToString(sum[:]) {
+		t.Errorf("expected the superseded payload's digest, got %v", md["superseded_payload_sha256"])
 	}
-	if !strings.Contains(string(*detail), "example.com/article") {
-		t.Errorf("expected the superseded source article, got %s", string(*detail))
+	if md["superseded_payload_bytes"] != len(*superseded.Payload) {
+		t.Errorf("expected the superseded payload's length %d, got %v",
+			len(*superseded.Payload), md["superseded_payload_bytes"])
 	}
 }
 
-// A first filing supersedes nothing, so it must not claim to. An audit consumer
-// keys on the presence of these fields to tell a correction from a fresh
-// request.
+// audit_logs.metadata is served to anonymous callers through the contributor
+// profile, so a replacement must put NOTHING contributor-authored in it. This
+// pins the rule by asserting the content is absent and unrecoverable, which a
+// future "just record the payload, it is more useful" edit would break.
+func TestCreateEntityRequest_ReplacementAuditPublishesNoSubmissionContent(t *testing.T) {
+	_, md := captureAuditMetadata(t, supersededSubmission())
+
+	for _, key := range []string{"superseded_payload", "superseded_source_detail"} {
+		if _, present := md[key]; present {
+			t.Errorf("%s carries contributor-authored content into a publicly readable column", key)
+		}
+	}
+	for key, value := range md {
+		text, ok := value.(string)
+		if !ok {
+			continue
+		}
+		if strings.Contains(text, "from the source article") || strings.Contains(text, "example.com") {
+			t.Errorf("metadata key %s leaks superseded submission content: %s", key, text)
+		}
+	}
+}
+
+// A first filing supersedes nothing, so it must not claim to.
 func TestCreateEntityRequest_FreshFilingAuditRecordsNothingSuperseded(t *testing.T) {
 	action, md := captureAuditMetadata(t, nil)
 
@@ -108,9 +127,9 @@ func TestCreateEntityRequest_FreshFilingAuditRecordsNothingSuperseded(t *testing
 	}
 	for _, key := range []string{
 		"superseded_source_context",
-		"superseded_source_detail",
-		"superseded_payload",
-		"superseded_payload_omitted_bytes",
+		"superseded_source_detail_present",
+		"superseded_payload_sha256",
+		"superseded_payload_bytes",
 	} {
 		if _, present := md[key]; present {
 			t.Errorf("a fresh filing must not carry %s", key)
@@ -118,43 +137,46 @@ func TestCreateEntityRequest_FreshFilingAuditRecordsNothingSuperseded(t *testing
 	}
 }
 
-// A payload too large to copy still says a payload was destroyed and how big it
-// was. Reachable only for a row queued before the boundary caps existed, which
-// is precisely the row worth not writing unbounded into audit_logs.
-func TestAddSupersededMetadata_OversizedPayloadIsCountedNotCopied(t *testing.T) {
-	oversized := json.RawMessage(`{"name":"` + strings.Repeat("x", maxSupersededPayloadBytes) + `"}`)
-	md := map[string]interface{}{}
+// Every value written is a string, a bool or an int, so the map marshals
+// whatever the stored payload contains. A *json.RawMessage holding invalid JSON
+// fails json.Marshal for the WHOLE map, and LogAction answers that by storing a
+// NULL metadata column — losing request_id and the action's own fields along
+// with it. A row queued before a validator existed is exactly such a payload.
+func TestAddSupersededMetadata_MarshalsWithAnUnparseableStoredPayload(t *testing.T) {
+	junk := json.RawMessage("not json at all")
+	md := map[string]interface{}{"request_id": uint(1)}
 
 	addSupersededMetadata(md, &communitym.SupersededSubmission{
-		Payload:       &oversized,
+		Payload:       &junk,
 		SourceContext: communitym.EntityRequestSourceAIExtraction,
 	})
 
-	if _, present := md["superseded_payload"]; present {
-		t.Error("a payload over the cap must not be copied into the audit row")
+	encoded, err := json.Marshal(md)
+	if err != nil {
+		t.Fatalf("the audit metadata must marshal whatever the row held: %v", err)
 	}
-	if md["superseded_payload_omitted_bytes"] != len(oversized) {
-		t.Errorf("expected the byte count %d to be recorded in its place, got %v",
-			len(oversized), md["superseded_payload_omitted_bytes"])
+	if !strings.Contains(string(encoded), `"request_id":1`) {
+		t.Errorf("the action's own fields must survive: %s", encoded)
 	}
-	if md["superseded_source_context"] != communitym.EntityRequestSourceAIExtraction {
-		t.Error("the superseded source_context is small and is always recorded")
+	if md["superseded_payload_bytes"] != len(junk) {
+		t.Errorf("expected the length of what was destroyed, got %v", md["superseded_payload_bytes"])
 	}
 }
 
-// A payload EXACTLY at the cap is copied: the bound is inclusive, and a test
-// that only drives the two extremes would not say which side the boundary sits.
-func TestAddSupersededMetadata_PayloadAtTheCapIsCopied(t *testing.T) {
-	atCap := json.RawMessage(strings.Repeat("x", maxSupersededPayloadBytes))
+// The record is fixed-size whatever the row held, which is what keeps a
+// resubmission loop from growing an append-only table without bound.
+func TestAddSupersededMetadata_IsFixedSizeForAnyPayload(t *testing.T) {
+	huge := json.RawMessage(`{"name":"` + strings.Repeat("x", 1<<20) + `"}`)
 	md := map[string]interface{}{}
 
-	addSupersededMetadata(md, &communitym.SupersededSubmission{Payload: &atCap})
+	addSupersededMetadata(md, &communitym.SupersededSubmission{Payload: &huge})
 
-	if _, present := md["superseded_payload"]; !present {
-		t.Error("a payload at the cap is within it")
+	encoded, err := json.Marshal(md)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
 	}
-	if _, present := md["superseded_payload_omitted_bytes"]; present {
-		t.Error("nothing was omitted, so nothing should say so")
+	if len(encoded) > 256 {
+		t.Errorf("a 1 MB payload must not produce a large audit row; got %d bytes", len(encoded))
 	}
 }
 

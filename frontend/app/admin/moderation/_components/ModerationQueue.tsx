@@ -874,14 +874,23 @@ function RequestCard({
   // This card renders pending rows only, so a moved updated_at is a rewritten
   // submission and nothing else.
   const isRevised = wasRevisedSinceFiling(request.created_at, request.updated_at)
+  // PSY-1974: the version the SHOW FORM was opened against, held for as long as
+  // it is open.
+  //
+  // Every other action reads request.updated_at live, and should: the card
+  // re-renders the payload it decides on, so live IS what the admin is looking
+  // at. The form is the exception because its seeds are read once when it opens
+  // — city, state and the bill (parsePayloadBill) — so a refetch landing while
+  // the admin is typing leaves those rows describing a payload the row no longer
+  // holds. Sending the live version there would let exactly that submission
+  // through, which is the one case the version exists to refuse.
+  const [showFormVersion, setShowFormVersion] = useState<string | null>(null)
 
-  // PSY-1974: every decision below states the version of the row this card
-  // rendered, so a payload the requester replaced under an open queue is refused
-  // rather than decided.
   const handleCreate = useCallback(() => {
     if (isShow) {
       // Open-only: the form's own Cancel closes it (a "Create" button that
       // toggles closed reads as a broken submit).
+      setShowFormVersion(request.updated_at)
       setShowFormOpen(true)
       return
     }
@@ -892,6 +901,7 @@ function RequestCard({
   }, [
     isShow,
     setShowFormOpen,
+    setShowFormVersion,
     decideMutation,
     request.id,
     request.updated_at,
@@ -907,12 +917,19 @@ function RequestCard({
           decision: 'approved',
           show_venue: venue,
           show_artists: artists,
-          expected_updated_at: request.updated_at,
+          expected_updated_at: showFormVersion ?? request.updated_at,
         },
         { onSuccess: () => onActionSuccess({ verb: 'created', entityLabel }) }
       )
     },
-    [decideMutation, request.id, request.updated_at, onActionSuccess, entityLabel]
+    [
+      decideMutation,
+      request.id,
+      request.updated_at,
+      showFormVersion,
+      onActionSuccess,
+      entityLabel,
+    ]
   )
 
   const handleReject = useCallback(
@@ -1025,7 +1042,10 @@ function RequestCard({
             payload={request.payload}
             isSubmitting={pendingDecision === 'approved'}
             onSubmit={handleCreateShow}
-            onCancel={() => setShowFormOpen(false)}
+            onCancel={() => {
+              setShowFormOpen(false)
+              setShowFormVersion(null)
+            }}
           />
         )}
 
@@ -1047,13 +1067,16 @@ function RequestCard({
             <p className="mt-2 text-xs text-destructive">
               {decideMutation.error?.message || 'Action failed'}
             </p>
-            {/* PSY-1974: the mutation refetches the queue on a 409, so this card
-                is already re-rendering against the row as it stands now. Say so,
-                because the message above tells the admin to look again and the
-                only thing that answers it is a fresh read. */}
+            {/* PSY-1974: a 409 means this client's view of the row is out of
+                date, and the mutation answers every one of them by refetching
+                the queue. It says the refetch is under way and nothing more:
+                the three 409s the endpoint can return (revised, decided by
+                someone else, catalog entity already exists) call for three
+                different next steps, and only the server's own message above
+                knows which one this is. */}
             {isConflictError(decideMutation.error) && (
               <p className="mt-1 text-xs text-muted-foreground">
-                This card has been refreshed with the request as it stands now.
+                Refreshing the queue.
               </p>
             )}
           </>
