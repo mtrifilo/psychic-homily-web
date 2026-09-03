@@ -397,6 +397,8 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 		aiConfidence := 0.8
 		now := time.Now()
 
+		advancePrice, doorPrice := parseEventPrices(ptrStr(event.Price))
+
 		show := &catalogm.Show{
 			Title:             event.Title,
 			EventDate:         eventDate.UTC(),
@@ -414,7 +416,8 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 			SourceConfidence:  &aiConfidence,
 			LastVerifiedAt:    &now,
 			DuplicateOfShowID: duplicateOfShowID,
-			Price:             parsePriceString(ptrStr(event.Price)),
+			Price:             advancePrice,
+			DoorPrice:         doorPrice,
 			AgeRequirement:    event.AgeRestriction,
 		}
 
@@ -632,18 +635,27 @@ func (s *DiscoveryService) updateShowFromEvent(existing *catalogm.Show, event *c
 	updates := make(map[string]interface{})
 	var changes []string
 
-	// Compare price
+	// Compare price. One rule, applied to both halves: a re-scrape that states
+	// no price, or states one this parser cannot read, leaves the stored value
+	// alone rather than clearing it. A venue dropping the door line from a
+	// listing has not announced that the door is free.
+	recordPrice := func(column, label string, stored, scraped *float64) {
+		if scraped == nil || (stored != nil && *stored == *scraped) {
+			return
+		}
+		updates[column] = *scraped
+		oldStr := "nil"
+		if stored != nil {
+			oldStr = fmt.Sprintf("$%.2f", *stored)
+		}
+		changes = append(changes, fmt.Sprintf("%s: %s -> $%.2f", label, oldStr, *scraped))
+	}
+
 	if event.Price != nil {
-		newPrice := parsePriceString(*event.Price)
-		if newPrice != nil {
-			if existing.Price == nil || *existing.Price != *newPrice {
-				updates["price"] = *newPrice
-				oldStr := "nil"
-				if existing.Price != nil {
-					oldStr = fmt.Sprintf("$%.2f", *existing.Price)
-				}
-				changes = append(changes, fmt.Sprintf("price: %s -> $%.2f", oldStr, *newPrice))
-			}
+		newPrice, newDoorPrice := parseEventPrices(*event.Price)
+		if composedPairIsSane(existing, newPrice, newDoorPrice) {
+			recordPrice("price", "price", existing.Price, newPrice)
+			recordPrice("door_price", "doorPrice", existing.DoorPrice, newDoorPrice)
 		}
 	}
 
@@ -703,6 +715,35 @@ func (s *DiscoveryService) updateShowFromEvent(existing *catalogm.Show, event *c
 	}
 
 	return fmt.Sprintf("UPDATED: %s (show #%d) -- %s", event.Title, existing.ID, changeStr), "updated"
+}
+
+// composedPairIsSane reports whether writing the scraped halves onto the stored
+// row leaves a pair a listing could have stated.
+//
+// A re-scrape that states ONE half is combined with a stored half that came
+// from a different scrape, and the absence rule means that combination is then
+// permanent. An advance price above the door price is the combination that
+// cannot be true of one listing: the door half exists to say the price goes UP
+// on the night, and the registers spell the pair "$28/$25" and "$28 ADV · DOOR
+// $25", which is a wrong number about money rather than an odd-looking one.
+// Neither half is written in that case, so the row keeps what it had.
+//
+// A scrape that states BOTH halves is trusted, because then the pair is one
+// listing's own claim rather than something this function composed.
+func composedPairIsSane(existing *catalogm.Show, scrapedPrice, scrapedDoorPrice *float64) bool {
+	if scrapedPrice != nil && scrapedDoorPrice != nil {
+		return true
+	}
+
+	price := existing.Price
+	if scrapedPrice != nil {
+		price = scrapedPrice
+	}
+	doorPrice := existing.DoorPrice
+	if scrapedDoorPrice != nil {
+		doorPrice = scrapedDoorPrice
+	}
+	return price == nil || doorPrice == nil || *price <= *doorPrice
 }
 
 // getTimezoneForState delegates to the shared utils.GetTimezoneForState.
@@ -1031,25 +1072,6 @@ func ptrStr(s *string) string {
 	return *s
 }
 
-// parsePriceString parses a price string like "$18", "$23.81", "Free" into a float64
-func parsePriceString(s string) *float64 {
-	if s == "" {
-		return nil
-	}
-	lower := strings.ToLower(strings.TrimSpace(s))
-	if lower == "free" || lower == "no cover" {
-		val := 0.0
-		return &val
-	}
-	// Strip "$" prefix
-	cleaned := strings.TrimPrefix(lower, "$")
-	val, err := strconv.ParseFloat(cleaned, 64)
-	if err != nil {
-		return nil
-	}
-	return &val
-}
-
 // splitAndTrim splits a string by separator and trims whitespace from each part
 func splitAndTrim(s, sep string) []string {
 	parts := strings.Split(s, sep)
@@ -1110,7 +1132,10 @@ func (s *DiscoveryService) CheckEvents(events []contracts.CheckEventInput) (*con
 
 	var shows []catalogm.Show
 	err := s.db.Where("(source_venue, source_event_id) IN ?", pairs).
-		Select("id, source_venue, source_event_id, status, price, age_requirement, description, event_date, is_sold_out, is_cancelled").
+		// Every column buildCheckEventStatus reads has to be named here: an
+		// omitted one arrives as the field's zero value, which this contract
+		// reports as "not recorded" rather than as a missing read.
+		Select("id, source_venue, source_event_id, status, price, door_price, age_requirement, description, event_date, is_sold_out, is_cancelled").
 		Find(&shows).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to check events: %w", err)
@@ -1200,7 +1225,7 @@ func (s *DiscoveryService) CheckEvents(events []contracts.CheckEventInput) (*con
 			Joins("JOIN venues ON show_venues.venue_id = venues.id").
 			Where("LOWER(venues.name) = LOWER(?) AND shows.event_date >= ? AND shows.event_date < ?",
 				venueConfig.Name, startOfDay, endOfDay).
-			Select("shows.id, shows.source_venue, shows.source_event_id, shows.status, shows.price, shows.age_requirement, shows.description, shows.event_date, shows.is_sold_out, shows.is_cancelled").
+			Select("shows.id, shows.source_venue, shows.source_event_id, shows.status, shows.price, shows.door_price, shows.age_requirement, shows.description, shows.event_date, shows.is_sold_out, shows.is_cancelled").
 			First(&matchedShow).Error
 		if err != nil {
 			continue // No match found — that's fine
@@ -1247,6 +1272,7 @@ func buildCheckEventStatus(show catalogm.Show, artistNames []string) contracts.C
 		Status: string(show.Status),
 		CurrentData: &contracts.ShowCurrentData{
 			Price:          show.Price,
+			DoorPrice:      show.DoorPrice,
 			AgeRequirement: show.AgeRequirement,
 			Description:    show.Description,
 			EventDate:      show.EventDate.Format(time.RFC3339),

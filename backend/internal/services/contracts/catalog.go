@@ -558,8 +558,13 @@ const (
 // resolver, the show update handler, and the entity-request payload validator
 // (which keeps its own copy of the ceiling -- see maxRequestPrice).
 //
-// NOT enforced on three ADMIN-ONLY paths:
+// NOT enforced on four ADMIN-ONLY paths:
 //
+//   - pipeline.DiscoveryService's import (cmd/discovery-import and
+//     POST /admin/discovery/import) writes whatever parseEventPrices reads out
+//     of a scraped price string, straight onto the row. That parser's own digit
+//     bound is a text-shape guard on what counts as a stated amount, not a copy
+//     of this rail.
 //   - catalog.ConfirmShowImport (markdown frontmatter) and admin.importShow
 //     (the JSON data-sync import) map a price straight onto the row. A value
 //     above the rail but under the column's DECIMAL(10,2) width is stored and
@@ -570,10 +575,10 @@ const (
 //     the reasoning on Rollback: history can hold values that predate a bound,
 //     so refusing them would break undo for exactly the rows most likely to
 //     need it), and restore-only -- it cannot introduce a value the rails never
-//     saw, except one that arrived via the two import paths above.
+//     saw, except one that arrived via the import paths above.
 //
 // A PRE-EXISTING gap that `price` already had and `door_price` now inherits.
-// All three are admin-gated, so it is a trusted-operator footgun, not an
+// All four are admin-gated, so it is a trusted-operator footgun, not an
 // escalation. Closing the import half means validating at the service
 // chokepoint (ShowService.CreateShow / showUpdatesToMap) rather than adding a
 // fourth copy of the check.
