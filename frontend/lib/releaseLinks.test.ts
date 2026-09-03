@@ -87,7 +87,46 @@ describe('cross-language corpus (the write gate and this gate are one rule)', ()
   )
 })
 
+// The two functions answer different questions and are allowed to disagree in
+// exactly one direction. These pin that direction, since a client hint that
+// green-lit a value the server refuses is worse than no hint.
+describe('the write-side hint and the render gate', () => {
+  const normalizesOntoPlatform = 'https://ünicode.bandcamp.com/album/x'
+
+  it('refuses a host the server refuses, even though a browser normalizes it', () => {
+    expect(
+      releaseLinkRefusal({ platform: 'bandcamp', url: normalizesOntoPlatform })
+    ).toContain('must be an http or https URL on bandcamp.com')
+  })
+
+  it('still renders that same value for a row already stored', () => {
+    expect(
+      isRenderableReleaseLink({ platform: 'bandcamp', url: normalizesOntoPlatform })
+    ).toBe(true)
+  })
+
+  it('refuses an untrimmed value up front, and renders a stored one', () => {
+    const padded = 'https://kingbuffalo.bandcamp.com/album/x '
+    expect(releaseLinkRefusal({ platform: 'bandcamp', url: padded })).not.toBeNull()
+    expect(isRenderableReleaseLink({ platform: 'bandcamp', url: padded })).toBe(true)
+  })
+})
+
 describe('isRenderableReleaseLink', () => {
+  // String.trim() strips these; the URL parser does not, so the href would be a
+  // relative path that lands nowhere. Certifying it would be worse than hiding it.
+  it.each([
+    ['non-breaking space', '\u00A0'],
+    ['byte order mark', '\uFEFF'],
+  ])('refuses a URL padded with a %s, which a browser will not follow', (_name, pad) => {
+    expect(
+      isRenderableReleaseLink({
+        platform: 'bandcamp',
+        url: `${pad}https://kingbuffalo.bandcamp.com/album/x`,
+      })
+    ).toBe(false)
+  })
+
   it('refuses a URL longer than the shared cap', () => {
     const long = `https://kingbuffalo.bandcamp.com/album/${'a'.repeat(MAX_RELEASE_LINK_URL_LENGTH)}`
     expect(isRenderableReleaseLink({ platform: 'bandcamp', url: long })).toBe(false)

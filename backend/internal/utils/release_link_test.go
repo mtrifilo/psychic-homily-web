@@ -87,7 +87,7 @@ func TestReleaseLinkPlatformHostsIsNotMutable(t *testing.T) {
 	require.True(t, ok)
 	hosts[0] = "evil.test"
 
-	assert.False(t, IsRenderableReleaseLink("bandcamp", "https://evil.test/album/x"))
+	assert.Error(t, ValidateReleaseLink("bandcamp", "https://evil.test/album/x"))
 	again, _ := ReleaseLinkPlatformHosts("bandcamp")
 	assert.Equal(t, []string{"bandcamp.com"}, again)
 }
@@ -96,14 +96,29 @@ func TestValidateReleaseLinkRefusesEmptyValues(t *testing.T) {
 	assert.ErrorContains(t, ValidateReleaseLink("", "https://bandcamp.com/album/x"), "Platform is required")
 	assert.ErrorContains(t, ValidateReleaseLink("bandcamp", ""), "URL is required")
 	assert.ErrorContains(t, ValidateReleaseLink("bandcamp", "   "), "URL is required")
-	assert.False(t, IsRenderableReleaseLink("bandcamp", ""))
+}
+
+// TestValidateReleaseLinkRefusesUnbrowsableURL covers the two shapes where Go is
+// the LENIENT parser: it takes any run of digits as a port and any bytes as a
+// host label, while the WHATWG parser refuses a port above 65535 and a malformed
+// punycode label outright. Either would be stored here and unparseable, and so
+// unrenderable, there.
+func TestValidateReleaseLinkRefusesUnbrowsableURL(t *testing.T) {
+	assert.NoError(t, ValidateReleaseLink("bandcamp", "https://kingbuffalo.bandcamp.com:65535/album/x"))
+	assert.Error(t, ValidateReleaseLink("bandcamp", "https://kingbuffalo.bandcamp.com:65536/album/x"))
+	assert.Error(t, ValidateReleaseLink("bandcamp", "https://kingbuffalo.bandcamp.com:99999/album/x"))
+
+	assert.Error(t, ValidateReleaseLink("bandcamp", "https://xn--a.bandcamp.com/album/x"))
+	// Well-formed punycode is refused too: no platform host in the registry is
+	// an IDN, so the whole spelling is out rather than only the malformed ones.
+	assert.Error(t, ValidateReleaseLink("bandcamp", "https://xn--80ak6aa92e.bandcamp.com/album/x"))
 }
 
 func TestValidateReleaseLinkRefusesOverlongURL(t *testing.T) {
 	long := "https://kingbuffalo.bandcamp.com/album/" + strings.Repeat("a", MaxReleaseLinkURLLen)
 	require.Greater(t, len(long), MaxReleaseLinkURLLen)
 
-	assert.False(t, IsRenderableReleaseLink("bandcamp", long))
+	assert.Error(t, ValidateReleaseLink("bandcamp", long))
 	assert.ErrorContains(t, ValidateReleaseLink("bandcamp", long), "characters or fewer")
 }
 
@@ -128,7 +143,8 @@ func TestValidateReleaseLinkNamesTheAcceptedValue(t *testing.T) {
 // padded value is a different string that would be stored padded.
 func TestReleaseLinkPlatformMatchIsCaseInsensitive(t *testing.T) {
 	for _, platform := range []string{"bandcamp", "Bandcamp", "BANDCAMP"} {
-		assert.True(t, IsRenderableReleaseLink(platform, "https://kingbuffalo.bandcamp.com/album/regenerator"),
+		assert.NoError(t,
+			ValidateReleaseLink(platform, "https://kingbuffalo.bandcamp.com/album/regenerator"),
 			"platform %q", platform)
 	}
 	assert.ErrorContains(t,
@@ -141,7 +157,7 @@ func TestReleaseLinkPlatformMatchIsCaseInsensitive(t *testing.T) {
 // not refused. A path rule here would refuse these and buy nothing, because the
 // host already decides where a click lands.
 func TestReleaseLinkAcceptsNoPathRule(t *testing.T) {
-	assert.True(t, IsRenderableReleaseLink("spotify", "https://open.spotify.com/intl-pt/album/x"))
-	assert.True(t, IsRenderableReleaseLink("apple_music", "https://music.apple.com/gb/album/x/1"))
-	assert.True(t, IsRenderableReleaseLink("bandcamp", "https://kingbuffalo.bandcamp.com/merch/vinyl"))
+	assert.NoError(t, ValidateReleaseLink("spotify", "https://open.spotify.com/intl-pt/album/x"))
+	assert.NoError(t, ValidateReleaseLink("apple_music", "https://music.apple.com/gb/album/x/1"))
+	assert.NoError(t, ValidateReleaseLink("bandcamp", "https://kingbuffalo.bandcamp.com/merch/vinyl"))
 }

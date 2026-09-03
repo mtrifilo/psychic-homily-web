@@ -538,8 +538,8 @@ func (h *ReleaseHandler) AddExternalLinkHandler(ctx context.Context, req *AddExt
 	}
 
 	// The platform and URL are gated by ReleaseService.AddExternalLink, which is
-	// where every writer of the column meets, and its refusal arrives here as a
-	// 422 through MapReleaseError carrying the validator's own sentence.
+	// where every writer of a single link meets, and its refusal arrives here as
+	// a 422 through MapReleaseError carrying the validator's own sentence.
 	link, err := h.releaseService.AddExternalLink(uint(releaseID), req.Body.Platform, req.Body.URL)
 	if err != nil {
 		if mapped := shared.MapReleaseError(err); mapped != nil {
@@ -555,10 +555,16 @@ func (h *ReleaseHandler) AddExternalLinkHandler(ctx context.Context, req *AddExt
 		)
 	}
 
-	// Audit log (fire and forget)
+	// Audit log (fire and forget). The values are recorded, not just the fact of
+	// the write: the table carries no created_by, so this entry is the only
+	// record of who put a given URL under a given platform label.
 	if h.auditLogService != nil {
 		servicesshared.GoSafe(ctx, "audit_log", func() {
-			h.auditLogService.LogAction(user.ID, "add_release_link", "release", uint(releaseID), nil)
+			h.auditLogService.LogAction(user.ID, "add_release_link", "release", uint(releaseID), map[string]interface{}{
+				"link_id":  link.ID,
+				"platform": link.Platform,
+				"url":      link.URL,
+			})
 		})
 	}
 

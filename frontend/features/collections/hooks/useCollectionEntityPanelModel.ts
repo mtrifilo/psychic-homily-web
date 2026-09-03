@@ -50,8 +50,9 @@ import {
 } from '../lib/collectionGraphNeighbors'
 
 // The finders live in lib/releaseLinks so this panel and the release page share
-// one selection rule and one render gate; keeping private copies here is how the
-// panel previously fed MusicEmbed a link the page would not have shown.
+// one selection rule and one render gate. They were private copies here, byte
+// for byte identical to the release page's, which is a divergence waiting to
+// happen rather than one that had happened.
 import { findBandcampEmbedUrl, findSpotifyEmbedUrl } from '@/lib/releaseLinks'
 
 function locationMeta(node: CollectionGraphNode): string | null {

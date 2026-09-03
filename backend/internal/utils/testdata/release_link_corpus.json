@@ -9,34 +9,37 @@
     "Go reads this file in utils.TestReleaseLinkCorpus; TypeScript reads the same",
     "file in frontend/lib/releaseLinks.test.ts. Both assert their own half plus the",
     "platform table itself, so a platform, a host, or a rule added to one language",
-    "and not the other fails the other language's suite and names the value.",
+    "and not the other fails the other language's suite and names the value. A rule",
+    "the corpus carries no case for is a rule it cannot police, so add cases with",
+    "rules.",
     "",
     "platforms   = the whole registry. Each side asserts its own table equals this,",
     "              which is what stops the two lists drifting.",
     "maxUrlLength= the shared cap. Here rather than as a literal in each language,",
-    "              for the same reason the platform table is.",
+    "              for the same reason the platform table is. Only the NUMBER is",
+    "              shared: Go counts bytes, TypeScript counts UTF-16 code units.",
     "renderable  = both gates accept.",
     "refused     = the Go write gate refuses. `alsoRefusedByReader` marks the ones",
     "              the reader must ALSO refuse, i.e. every case where a click would",
     "              leave the platform. The rest are cases where the WRITER is",
-    "              deliberately the stricter side: the browser's parser runs UTS-46",
-    "              over the host and normalizes these back onto the platform, so a",
-    "              legacy row of that shape does land on-platform and stripping its",
-    "              link would remove a working affordance. Go refuses them at write",
-    "              time rather than reimplementing UTS-46 to decide."
+    "              deliberately the stricter side and a legacy row of that shape",
+    "              still opens the right page: surrounding whitespace, which the",
+    "              browser strips, and host spellings the browser's UTS-46 mapping",
+    "              folds back onto the platform. Refusing those on the read side",
+    "              would take away links that work."
   ],
   "maxUrlLength": 2048,
   "platforms": {
-    "amazon_music": ["amazon.com"],
-    "apple_music": ["apple.com"],
+    "amazon_music": ["music.amazon.com"],
+    "apple_music": ["music.apple.com", "itunes.apple.com"],
     "bandcamp": ["bandcamp.com"],
     "deezer": ["deezer.com"],
     "discogs": ["discogs.com"],
     "soundcloud": ["soundcloud.com"],
-    "spotify": ["spotify.com"],
+    "spotify": ["open.spotify.com"],
     "tidal": ["tidal.com"],
     "youtube": ["youtube.com", "youtu.be"],
-    "youtube_music": ["youtube.com"]
+    "youtube_music": ["music.youtube.com"]
   },
   "renderable": [
     { "platform": "bandcamp", "url": "https://marissanadler.bandcamp.com/album/the-path-of-the-clouds" },
@@ -57,7 +60,8 @@
     { "platform": "spotify", "url": "http://open.spotify.com/album/6gEwqCwB2n4bXGiCz9lJoR" },
     { "platform": "spotify", "url": "https://OPEN.SPOTIFY.COM/album/6gEwqCwB2n4bXGiCz9lJoR" },
     { "platform": "Bandcamp", "url": "https://kingbuffalo.bandcamp.com/album/regenerator" },
-    { "platform": "spotify", "url": "https://open.spotify.com:443/album/6gEwqCwB2n4bXGiCz9lJoR" }
+    { "platform": "spotify", "url": "https://open.spotify.com:443/album/6gEwqCwB2n4bXGiCz9lJoR" },
+    { "platform": "bandcamp", "url": "https://kingbuffalo.bandcamp.com:65535/album/x" }
   ],
   "refused": [
     {
@@ -117,13 +121,31 @@
     {
       "platform": "spotify",
       "url": "https://open.spotify.com/album/x ",
-      "why": "trailing whitespace: it survives Go's parser and is trimmed by the browser's, so the two layers would disagree about the stored value",
-      "alsoRefusedByReader": true
+      "why": "trailing whitespace: refused at write time so the column never holds a value the two parsers disagree about, but the browser strips it, so a legacy row of this shape opens the right page and the reader still renders it",
+      "alsoRefusedByReader": false
     },
     {
       "platform": "spotify",
       "url": " https://open.spotify.com/album/x",
       "why": "leading whitespace, same reason",
+      "alsoRefusedByReader": false
+    },
+    {
+      "platform": "apple_music",
+      "url": "https://discussions.apple.com/thread/1234567",
+      "why": "an Apple-owned host, but one that publishes writing by strangers; the anchor names the music host so an Apple Music label cannot head a forum post",
+      "alsoRefusedByReader": true
+    },
+    {
+      "platform": "spotify",
+      "url": "https://community.spotify.com/t5/Music-Chat/x/td-p/1234567",
+      "why": "same shape on Spotify's forum",
+      "alsoRefusedByReader": true
+    },
+    {
+      "platform": "amazon_music",
+      "url": "https://www.amazon.com/review/R1234567",
+      "why": "same shape on Amazon's retail domain",
       "alsoRefusedByReader": true
     },
     {
@@ -151,27 +173,51 @@
       "alsoRefusedByReader": true
     },
     {
-      "platform": "spotify",
-      "url": "https://ⓞpen.spotify.com/album/x",
-      "why": "circled letter: UTS-46 maps it to o, so the browser resolves this ONTO open.spotify.com and renders it",
+      "platform": "bandcamp",
+      "url": "https://kingbuffalo.bandcamp.com:65536/album/x",
+      "why": "port above the WHATWG ceiling: the browser's parser throws, so the row could never render. Go takes any run of digits, which is the one divergence where Go is the lenient parser",
+      "alsoRefusedByReader": true
+    },
+    {
+      "platform": "bandcamp",
+      "url": "https://kingbuffalo.bandcamp.com:99999/album/x",
+      "why": "same ceiling, five digits",
+      "alsoRefusedByReader": true
+    },
+    {
+      "platform": "bandcamp",
+      "url": "https://xn--a.bandcamp.com/album/x",
+      "why": "malformed punycode label: Go sees four ordinary bytes, the browser's parser decodes it, fails, and throws, so the row could never render",
+      "alsoRefusedByReader": true
+    },
+    {
+      "platform": "bandcamp",
+      "url": "https://xn--80ak6aa92e.bandcamp.com/album/x",
+      "why": "well-formed punycode label. No platform host in the registry is an IDN, so the writer refuses the whole spelling rather than deciding which decode; the reader still renders it, because a legacy row of this shape does open the right page",
       "alsoRefusedByReader": false
     },
     {
-      "platform": "spotify",
-      "url": "https://evil.test。spotify.com/album/x",
-      "why": "ideographic full stop: UTS-46 makes it a label separator, so the browser resolves this to a spotify.com SUBDOMAIN",
+      "platform": "bandcamp",
+      "url": "https://ⓞne.bandcamp.com/album/x",
+      "why": "circled letter: UTS-46 maps it to o, so the browser resolves this onto a bandcamp.com subdomain and renders it",
       "alsoRefusedByReader": false
     },
     {
-      "platform": "spotify",
-      "url": "https://evil.test­.spotify.com/album/x",
-      "why": "soft hyphen: UTS-46 deletes it, leaving a spotify.com subdomain",
+      "platform": "bandcamp",
+      "url": "https://evil.test。bandcamp.com/album/x",
+      "why": "ideographic full stop: UTS-46 makes it a label separator, so the browser resolves this to a bandcamp.com SUBDOMAIN",
       "alsoRefusedByReader": false
     },
     {
-      "platform": "spotify",
-      "url": "https://ünicode.spotify.com/album/x",
-      "why": "non-ASCII label: the browser punycodes it and it stays a spotify.com subdomain",
+      "platform": "bandcamp",
+      "url": "https://evil.test­.bandcamp.com/album/x",
+      "why": "soft hyphen: UTS-46 deletes it, leaving a bandcamp.com subdomain",
+      "alsoRefusedByReader": false
+    },
+    {
+      "platform": "bandcamp",
+      "url": "https://ünicode.bandcamp.com/album/x",
+      "why": "non-ASCII label: the browser punycodes it and it stays a bandcamp.com subdomain",
       "alsoRefusedByReader": false
     },
     {

@@ -6,11 +6,13 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 )
 
-// The service is the chokepoint (PSY-1996), not just the HTTP handler: the
-// enrichment sweep, the backfill CLI, the discography importer and the
-// entity-request fulfiller all reach these two functions without passing
-// through a handler, so a gate that lived only at the boundary would leave them
-// writing rows the release page refuses to link.
+// The service is the chokepoint (PSY-1996), not the HTTP handler: the
+// enrichment sweep and the backfill CLI reach AddExternalLinkWithSource without
+// passing through a handler, so a gate that lived only at the boundary would
+// leave them writing rows the release page refuses to link. The create funnel
+// is gated for the same reason one layer up: the discography importer and the
+// entity-request fulfiller build a CreateReleaseRequest directly, and although
+// neither sets ExternalLinks today, the funnel is what a future one would meet.
 
 func (suite *ReleaseServiceIntegrationTestSuite) TestAddExternalLink_RefusesForeignHost() {
 	created, err := suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "Service Gate Album"})

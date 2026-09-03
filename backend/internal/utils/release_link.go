@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -40,25 +41,39 @@ const (
 // host, not a general redirector. A host that cannot be shown statically to
 // land on-platform defeats the anchor.
 //
-// amazon_music is anchored to amazon.com alone: Amazon's regional storefronts
+// Where a company runs a music service AND a forum on the same registrable
+// domain, the anchor names the MUSIC host rather than the domain: apple.com
+// would admit discussions.apple.com and spotify.com would admit
+// community.spotify.com, both of which host writing by strangers, which is the
+// surface this table exists to keep out from under a platform's name. The
+// platforms whose whole catalogue is user-uploaded (bandcamp, soundcloud,
+// youtube, discogs) cannot be narrowed that way, and that residual is accepted:
+// there the anchor buys "on the platform", never "vouched for by it".
+//
+// amazon_music is anchored to music.amazon.com: Amazon's regional storefronts
 // are separate registrable domains, and each one added here is a claim about
 // Amazon's TLD list.
+//
+// What it does NOT close, stated so nobody reads more into it: an allowlisted
+// host may run its own redirector (youtube.com/redirect), so a click can still
+// leave the platform. Closing that needs a path rule this deliberately has not
+// got; the platforms' own interstitials are the mitigation.
 //
 // CROSS-LANGUAGE MIRROR: RELEASE_LINK_PLATFORMS in frontend/lib/releaseLinks.ts.
 // Both sides assert this table against the shared corpus in
 // testdata/release_link_corpus.json, so a platform or host added to one
 // language and not the other fails the other language's suite by name.
 var releaseLinkPlatformHosts = map[string][]string{
-	"amazon_music":  {"amazon.com"},
-	"apple_music":   {"apple.com"},
+	"amazon_music":  {"music.amazon.com"},
+	"apple_music":   {"music.apple.com", "itunes.apple.com"},
 	"bandcamp":      {"bandcamp.com"},
 	"deezer":        {"deezer.com"},
 	"discogs":       {"discogs.com"},
 	"soundcloud":    {"soundcloud.com"},
-	"spotify":       {"spotify.com"},
+	"spotify":       {"open.spotify.com"},
 	"tidal":         {"tidal.com"},
 	"youtube":       {"youtube.com", "youtu.be"},
-	"youtube_music": {"youtube.com"},
+	"youtube_music": {"music.youtube.com"},
 }
 
 // asciiHostRe is the character allowlist a host must satisfy before the suffix
@@ -100,22 +115,19 @@ func ReleaseLinkPlatformHosts(platform string) ([]string, bool) {
 	return slices.Clone(bases), true
 }
 
-// IsRenderableReleaseLink is the named predicate for what a
-// release_external_links row is allowed to be. Every write path gates on it and
-// the release page renders only rows that satisfy it, so a value that is stored
-// always produces a link and a value that would not produce a link is never
-// stored.
-//
-// It is ValidateReleaseLink's answer as a boolean, so the two cannot disagree
-// about a value; the rules and the reasoning live there.
-func IsRenderableReleaseLink(platform, rawURL string) bool {
-	return ValidateReleaseLink(platform, rawURL) == nil
-}
-
 // ValidateReleaseLink is the write-boundary check, and the single statement of
-// what a release link may be. It returns the refusal message every path that
-// stores a link shows, so the same rejection cannot read three different ways
-// across the contributor endpoint, the admin create funnel and the CLIs.
+// what a release link may be. Every writer of the column gates on it (cmd/seed
+// checks its own literals; everything else goes through ReleaseService), so a
+// value that is stored is a value the release page will render.
+//
+// It returns the refusal message every path that stores a link shows, so the
+// same rejection cannot read three different ways across the contributor
+// endpoint, the admin create funnel and the CLIs.
+//
+// CROSS-LANGUAGE MIRROR: isRenderableReleaseLink in frontend/lib/releaseLinks.ts
+// is the render gate, and it is the one that decides what the page shows. The
+// two are held together by the shared corpus in
+// testdata/release_link_corpus.json, which both suites assert.
 //
 // The messages name the accepted value rather than the rule that failed: a
 // submitter cannot act on "host anchor failed", but can act on seeing the
@@ -138,6 +150,16 @@ func IsRenderableReleaseLink(platform, rawURL string) bool {
 //     refused.
 //   - The host is ASCII-only in the [a-z0-9.-] set, so the suffix anchor means
 //     the same thing to Go and to a browser (see asciiHostRe).
+//   - No label spelled in punycode. Go treats "xn--" as four ordinary bytes,
+//     while the WHATWG parser decodes it and THROWS on a malformed one, so
+//     "xn--a.bandcamp.com" is storable here and unparseable, and therefore
+//     unrenderable, there. No platform host in the registry is an IDN, so the
+//     rule costs nothing; the render gate stays lenient about the well-formed
+//     ones a legacy row might hold.
+//   - A port, if present, is one a browser would accept. Go's parser takes any
+//     run of digits, while the WHATWG parser refuses anything above 65535
+//     outright, so without this a value is storable here and unparseable, and
+//     therefore unrenderable, there.
 //   - The host equals one of the platform's bases or is a subdomain of it.
 //
 // It deliberately says nothing about the PATH. A release link is "this release
@@ -196,5 +218,28 @@ func isAnchoredPlatformURL(rawURL string, bases []string) bool {
 	if !asciiHostRe.MatchString(host) {
 		return false
 	}
+	for _, label := range strings.Split(host, ".") {
+		if strings.HasPrefix(label, punycodePrefix) {
+			return false
+		}
+	}
+	if port := u.Port(); port != "" {
+		// url.Parse has already established the port is all digits.
+		n, err := strconv.Atoi(port)
+		if err != nil || n > maxTCPPort {
+			return false
+		}
+	}
 	return hostMatchesBase(host, bases)
 }
+
+const (
+	// maxTCPPort is where the WHATWG URL parser stops accepting a port. Go's
+	// parser has no such ceiling, and the difference is the whole reason the
+	// check exists.
+	maxTCPPort = 65535
+	// punycodePrefix marks a host label as an encoded IDN. Go passes it through
+	// as bytes; a browser decodes it and refuses the whole URL if it does not
+	// decode.
+	punycodePrefix = "xn--"
+)

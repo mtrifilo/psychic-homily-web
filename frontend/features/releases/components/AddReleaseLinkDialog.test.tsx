@@ -3,6 +3,7 @@ import { screen, within, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import {
+  OFFERED_RELEASE_LINK_PLATFORM_KEYS,
   RELEASE_LINK_PLATFORMS,
   RELEASE_LINK_PLATFORM_KEYS,
 } from '@/lib/releaseLinks'
@@ -58,9 +59,9 @@ describe('AddReleaseLinkDialog', () => {
   })
 
   // Driven by the registry rather than a hand-copied count: the picker, the
-  // render gate and the backend write gate are one list, so a platform added to
-  // that list has to appear here without editing this test.
-  it('offers every registered platform in the Select', async () => {
+  // render gate and the backend write gate read one list, so a platform marked
+  // offered has to appear here without editing this test.
+  it('offers every offered platform in the Select, and only those', async () => {
     const user = userEvent.setup()
     renderDialog()
 
@@ -69,11 +70,14 @@ describe('AddReleaseLinkDialog', () => {
     // Radix renders options into a portaled listbox.
     const listbox = await screen.findByRole('listbox')
     const options = within(listbox).getAllByRole('option')
-    expect(options).toHaveLength(RELEASE_LINK_PLATFORM_KEYS.length)
+    expect(options).toHaveLength(OFFERED_RELEASE_LINK_PLATFORM_KEYS.length)
     for (const key of RELEASE_LINK_PLATFORM_KEYS) {
-      expect(
-        within(listbox).getByText(RELEASE_LINK_PLATFORMS[key].label)
-      ).toBeInTheDocument()
+      const label = RELEASE_LINK_PLATFORMS[key].label
+      if (RELEASE_LINK_PLATFORMS[key].offered) {
+        expect(within(listbox).getByText(label)).toBeInTheDocument()
+      } else {
+        expect(within(listbox).queryByText(label)).not.toBeInTheDocument()
+      }
     }
   })
 

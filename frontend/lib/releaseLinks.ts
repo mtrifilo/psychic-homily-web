@@ -1,8 +1,8 @@
 import { isBandcampReleaseUrl } from './bandcamp'
 
 /**
- * The platforms a release's "Listen / Buy" link may name, and the hosts each
- * one's URL may sit on.
+ * The platforms a release's "Listen / Buy" link may name, the hosts each one's
+ * URL may sit on, and whether the pickers offer it.
  *
  * This object is the single registry: the picker's options, the label printed
  * beside a link, and the gate that decides whether a stored row becomes an
@@ -10,48 +10,76 @@ import { isBandcampReleaseUrl } from './bandcamp'
  * hand-written lists, and the display map already knew three platforms the
  * picker could not produce.
  *
+ * `offered` is what keeps those two questions distinct without a second list.
+ * "What may be stored and rendered" is wider than "what do we invite a curator
+ * to type": the seed writes youtube_music rows, and a platform is only offered
+ * once its anchor is known to accept the URLs a curator would actually paste.
+ *
  * The platform key is what a reader sees next to the URL, so an unanchored URL
  * is worse than a dead link: an arbitrary host wearing a name they trust.
  * Anchoring is on the parsed hostname, never a substring of the URL. A host
  * matches when it equals a base or is a subdomain of it, which is what covers
- * open.spotify.com, <artist>.bandcamp.com, itunes.apple.com and www.discogs.com
- * without listing each. youtu.be is YouTube's own share host; no other
- * redirector belongs here, because one that cannot be shown statically to land
- * on-platform defeats the anchor.
+ * <artist>.bandcamp.com, geo.music.apple.com and www.discogs.com without
+ * listing each.
  *
- * Key order is the order the picker offers.
+ * Key order is the order the pickers offer.
  *
  * CROSS-LANGUAGE MIRROR: releaseLinkPlatformHosts in
- * backend/internal/utils/release_link.go, where the reasoning behind each rule
- * lives. Both sides assert this table against
+ * backend/internal/utils/release_link.go, where the reasoning behind each host
+ * choice lives. Both sides assert this table against
  * backend/internal/utils/testdata/release_link_corpus.json, so a platform or
  * host added to one language and not the other fails the other language's suite
- * by name.
+ * by name. `offered` is a UI concern and has no backend counterpart.
  */
 export const RELEASE_LINK_PLATFORMS = {
-  bandcamp: { label: 'Bandcamp', hosts: ['bandcamp.com'] },
-  spotify: { label: 'Spotify', hosts: ['spotify.com'] },
-  apple_music: { label: 'Apple Music', hosts: ['apple.com'] },
-  youtube: { label: 'YouTube', hosts: ['youtube.com', 'youtu.be'] },
-  youtube_music: { label: 'YouTube Music', hosts: ['youtube.com'] },
-  soundcloud: { label: 'SoundCloud', hosts: ['soundcloud.com'] },
-  tidal: { label: 'Tidal', hosts: ['tidal.com'] },
-  deezer: { label: 'Deezer', hosts: ['deezer.com'] },
-  amazon_music: { label: 'Amazon Music', hosts: ['amazon.com'] },
-  discogs: { label: 'Discogs', hosts: ['discogs.com'] },
-} as const satisfies Record<string, { label: string; hosts: readonly string[] }>
+  bandcamp: { label: 'Bandcamp', hosts: ['bandcamp.com'], offered: true },
+  spotify: { label: 'Spotify', hosts: ['open.spotify.com'], offered: true },
+  apple_music: {
+    label: 'Apple Music',
+    hosts: ['music.apple.com', 'itunes.apple.com'],
+    offered: true,
+  },
+  youtube: { label: 'YouTube', hosts: ['youtube.com', 'youtu.be'], offered: true },
+  // Not offered: the anchor is the US music host, and Amazon Music's regional
+  // storefronts are separate registrable domains, so a picker entry would invite
+  // a URL the gate refuses. Kept in the registry because the label and the
+  // render gate still have to answer for rows that exist.
+  amazon_music: { label: 'Amazon Music', hosts: ['music.amazon.com'], offered: false },
+  youtube_music: {
+    label: 'YouTube Music',
+    hosts: ['music.youtube.com'],
+    offered: false,
+  },
+  deezer: { label: 'Deezer', hosts: ['deezer.com'], offered: false },
+  discogs: { label: 'Discogs', hosts: ['discogs.com'], offered: true },
+  tidal: { label: 'Tidal', hosts: ['tidal.com'], offered: true },
+  soundcloud: { label: 'SoundCloud', hosts: ['soundcloud.com'], offered: true },
+} as const satisfies Record<
+  string,
+  { label: string; hosts: readonly string[]; offered: boolean }
+>
 
 export type ReleaseLinkPlatform = keyof typeof RELEASE_LINK_PLATFORMS
 
-/** Every platform key, in picker order. */
+/** Every platform key the gate knows, in registry order. */
 export const RELEASE_LINK_PLATFORM_KEYS = Object.keys(
   RELEASE_LINK_PLATFORMS
 ) as ReleaseLinkPlatform[]
+
+/** The keys the pickers offer, in the order they offer them. */
+export const OFFERED_RELEASE_LINK_PLATFORM_KEYS = RELEASE_LINK_PLATFORM_KEYS.filter(
+  key => RELEASE_LINK_PLATFORMS[key].offered
+)
 
 /**
  * Mirrors utils.MaxReleaseLinkURLLen. The column is TEXT, so this cap exists so
  * the write boundary and this gate agree about what fits rather than because
  * anything below objects.
+ *
+ * The two count differently: Go counts BYTES, this counts UTF-16 code units, so
+ * a long multibyte URL can be refused by the writer and accepted here. That is
+ * the safe direction (nothing storable becomes unrenderable) and the corpus pins
+ * only the number.
  */
 export const MAX_RELEASE_LINK_URL_LENGTH = 2048
 
@@ -62,11 +90,12 @@ export interface ReleaseLinkLike {
 }
 
 /**
- * Only [a-z0-9.-], so the suffix anchor below means the same thing here and in
- * Go. A browser runs UTS-46 over a non-ASCII host and several code points map
- * to something else there (U+3002 becomes a label separator, U+00AD is deleted);
- * Go keeps those bytes verbatim. Restricting the host to the bytes a real
- * platform host is made of removes every such case on both sides.
+ * Only [a-z0-9.-]. Used by the write-side mirror alone, because it is a rule
+ * about what may be STORED: a browser runs UTS-46 over a non-ASCII host and
+ * several code points map to something else there (U+3002 becomes a label
+ * separator, U+00AD is deleted) while Go keeps those bytes verbatim, so the two
+ * would judge the same stored value differently. Restricting to the bytes a real
+ * platform host is made of removes every such case.
  */
 const ASCII_HOST = /^[a-z0-9.-]+$/
 
@@ -99,75 +128,120 @@ export function releaseLinkPlatformLabel(platform: string): string {
 }
 
 /**
- * The single statement of what a release link may be, as the sentence to show
- * whoever wrote it, or null when the pair is fine.
+ * Whether a parsed URL's host is anchored to one of the platform's bases.
  *
- * The rules mirror utils.ValidateReleaseLink in Go, judged by this language's
- * URL parser; the shared corpus records every input where the two parsers
- * disagree and why each is safe. The messages name the accepted value rather
- * than the rule that failed, because that is the only form a submitter can act
- * on.
+ * The leading dot is load-bearing: it rejects "notbandcamp.com" and
+ * "bandcamp.com.evil.test" while accepting "<artist>.bandcamp.com".
+ */
+function hostIsAnchored(parsed: URL, bases: readonly string[]): boolean {
+  const host = parsed.hostname.toLowerCase()
+  return bases.some(base => host === base || host.endsWith(`.${base}`))
+}
+
+function parseHttpUrl(raw: string): URL | null {
+  let parsed: URL
+  try {
+    parsed = new URL(raw)
+  } catch {
+    return null
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
+  return parsed
+}
+
+/**
+ * The refusal to show beside a URL field someone is filling in, or null.
+ *
+ * This mirrors the WRITE gate, utils.ValidateReleaseLink, not the render gate
+ * below: its job is to say in advance what the server will say, so it has to be
+ * the same strictness. Notably it refuses a host a browser would normalize onto
+ * the platform (a fullwidth letter, a soft hyphen), because the server does; the
+ * render gate deliberately does not, and that asymmetry is the point of having
+ * two functions rather than one.
+ *
+ * An empty URL returns null: an untouched field is not yet a mistake. Whether
+ * empty may be submitted is the caller's own concern.
  *
  * It deliberately says nothing about the PATH. A release link is "this release
  * on that platform" and each platform spells that differently, so a path rule
  * would refuse real links (locale-prefixed Spotify URLs, Apple Music's country
  * segment) to buy nothing: the host anchor already decides where a click lands.
- * The path-strict rules are the embed parsers (isBandcampReleaseUrl,
- * parseSpotifyEmbed), which answer a narrower question about one URL.
  */
-function releaseLinkFailure(link: ReleaseLinkLike): string | null {
+export function releaseLinkRefusal(link: ReleaseLinkLike): string | null {
+  if (!link.platform.trim()) return 'Platform is required'
   const entry = platformEntry(link.platform)
   if (!entry) {
     return `Platform must be one of: ${RELEASE_LINK_PLATFORM_KEYS.join(', ')}`
   }
-  if (!link.url.trim()) return 'URL is required'
+  if (!link.url.trim()) return null
   if (link.url.length > MAX_RELEASE_LINK_URL_LENGTH) {
     return `URL must be ${MAX_RELEASE_LINK_URL_LENGTH} characters or fewer`
   }
 
-  const hostAnchored = (() => {
-    // Judged exactly as stored: this parser trims before resolving, so a value
-    // that only validates after trimming is one the two layers disagree about.
+  const onPlatform = (() => {
+    // Judged exactly as it would be stored, like the server: the callers submit
+    // url.trim(), so this sees the value that will be written.
     if (link.url !== link.url.trim()) return false
-    let parsed: URL
-    try {
-      parsed = new URL(link.url)
-    } catch {
-      return false
-    }
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
+    const parsed = parseHttpUrl(link.url)
+    if (parsed === null) return false
     const host = parsed.hostname.toLowerCase()
     if (!ASCII_HOST.test(host)) return false
-    // The leading dot is load-bearing: it rejects "notbandcamp.com" and
-    // "bandcamp.com.evil.test" while accepting "<artist>.bandcamp.com".
-    return entry.hosts.some(base => host === base || host.endsWith(`.${base}`))
+    if (host.split('.').some(label => label.startsWith('xn--'))) return false
+    if (parsed.port !== '' && Number(parsed.port) > MAX_TCP_PORT) return false
+    return hostIsAnchored(parsed, entry.hosts)
   })()
 
-  return hostAnchored
+  return onPlatform
     ? null
     : `${entry.label} link must be an http or https URL on ${entry.hosts.join(' or ')}`
 }
 
 /**
- * The refusal to show beside a URL field the user is still filling in, or null.
- *
- * The one difference from the gate: an empty field is not yet a mistake, so it
- * says nothing. Whether empty may be submitted is the caller's own concern.
+ * Where the WHATWG URL parser stops accepting a port. It throws above this, so
+ * in practice `new URL` has already refused; the explicit bound keeps the
+ * mirror readable next to the Go one.
  */
-export function releaseLinkRefusal(link: ReleaseLinkLike): string | null {
-  return link.url.trim() ? releaseLinkFailure(link) : null
+const MAX_TCP_PORT = 65535
+
+/**
+ * Surrounding characters the WHATWG URL parser itself strips: C0 controls and
+ * space, and nothing else.
+ *
+ * `String.trim()` is the wrong tool for deciding whether a stored value will
+ * resolve, because it also strips U+00A0 and U+FEFF, which the URL parser keeps.
+ * A value padded with those is not a link a browser will follow, so certifying
+ * it would render an href that lands nowhere.
+ */
+function stripUrlWhitespace(raw: string): string {
+  return raw.replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, '')
 }
 
 /**
- * The predicate for what a release external link is allowed to be. The backend
- * gates every write path on the same rules, so a stored row always produces a
- * link and a row that would not produce a link is never stored.
+ * The render gate: whether a stored row may become an `<a href>`.
  *
- * Legacy rows are the reason the read side asks at all: nothing backfills, so a
- * row written before the gate existed keeps its value and renders no link.
+ * The backend refuses to store anything this refuses, so a row written from now
+ * on always produces a link. Legacy rows are why the read side asks at all:
+ * nothing backfills, so a row written before the gate existed keeps its value
+ * and renders no link.
+ *
+ * Where the two sides differ, this one is the LENIENT side, never the stricter.
+ * It asks only what a browser will do with the value: parse it, and see whether
+ * the host it resolves to is on the platform. So a legacy row whose host a
+ * browser normalizes onto the platform (a UTS-46 mapping, a punycode label)
+ * keeps its link, where the writer refuses to store any more of them. The shared
+ * corpus records each such case and why the value still lands on-platform.
+ *
+ * Being lenient is not the same as being loose: what it will not do is certify a
+ * value the browser would refuse to follow, which is why the whitespace it
+ * strips is exactly the whitespace the URL parser strips.
  */
 export function isRenderableReleaseLink(link: ReleaseLinkLike): boolean {
-  return releaseLinkFailure(link) === null
+  const entry = platformEntry(link.platform)
+  if (!entry) return false
+  const url = stripUrlWhitespace(link.url)
+  if (!url || url.length > MAX_RELEASE_LINK_URL_LENGTH) return false
+  const parsed = parseHttpUrl(url)
+  return parsed !== null && hostIsAnchored(parsed, entry.hosts)
 }
 
 /**

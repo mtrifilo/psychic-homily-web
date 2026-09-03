@@ -6,8 +6,8 @@
  */
 
 import {
+  OFFERED_RELEASE_LINK_PLATFORM_KEYS,
   RELEASE_LINK_PLATFORMS,
-  RELEASE_LINK_PLATFORM_KEYS,
 } from '@/lib/releaseLinks'
 
 export type ReleaseType =
@@ -61,12 +61,16 @@ export interface ReleaseExternalLink {
  *
  * Derived from `RELEASE_LINK_PLATFORMS`, the registry the render gate and the
  * backend write gate both read, so the picker cannot offer a platform the
- * backend refuses or miss one the release page knows how to label.
+ * backend refuses. It offers the registry's `offered` subset rather than all of
+ * it: a platform whose anchor would refuse the URLs a curator can actually
+ * paste has no business in a dropdown.
  */
-export const EXTERNAL_LINK_PLATFORMS = RELEASE_LINK_PLATFORM_KEYS.map(value => ({
-  value,
-  label: RELEASE_LINK_PLATFORMS[value].label,
-}))
+export const EXTERNAL_LINK_PLATFORMS = OFFERED_RELEASE_LINK_PLATFORM_KEYS.map(
+  value => ({
+    value,
+    label: RELEASE_LINK_PLATFORMS[value].label,
+  })
+)
 
 export interface ReleaseLabel {
   id: number

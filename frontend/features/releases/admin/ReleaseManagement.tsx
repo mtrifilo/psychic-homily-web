@@ -309,7 +309,7 @@ function LinkAddRow({
           variant="outline"
           size="sm"
           onClick={() => void handleAdd()}
-          disabled={pending || refusal !== null}
+          disabled={pending || refusal !== null || url.trim().length === 0}
           aria-label="Add external link"
         >
           {pending ? (

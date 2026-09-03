@@ -3,6 +3,7 @@ package catalog
 import (
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -90,8 +91,9 @@ func (s *ReleaseHandlerIntegrationSuite) TestAddExternalLink_RefusesEmptyValues(
 	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
-// A platform the picker did not previously offer is accepted: the registry is
-// one list, and the seed already writes youtube_music rows.
+// A registered platform the pickers do not offer is still accepted here: the
+// API's accepted set is wider than what a curator is invited to type, and the
+// seed already writes youtube_music rows.
 func (s *ReleaseHandlerIntegrationSuite) TestAddExternalLink_AcceptsEveryRegisteredPlatform() {
 	user := testhelpers.CreateUserWithTier(s.deps.DB, "trusted_contributor")
 	release := s.createReleaseViaService("Every Platform Album")
@@ -152,26 +154,41 @@ func (s *ReleaseHandlerIntegrationSuite) TestCreateRelease_AcceptsAnchoredExtern
 	s.Len(resp.Body.ExternalLinks, 2)
 }
 
+// platformDocPrefix is the fixed half of the two `doc:` tags below. The list
+// after it is parsed back out and compared as a SET, so a stale name is caught
+// as well as a missing one, and a new key that happens to be a substring of an
+// existing one ("youtube" inside "youtube_music") cannot pass by accident.
+const platformDocPrefix = "Platform key. One of: "
+
 // TestPlatformDocListsEveryRegisteredPlatform pins the two `doc:` tags that
 // publish the accepted platforms in the OpenAPI document (and, through
 // bun run api:types, in the frontend's generated types).
 //
 // The tag is a string literal because huma reads struct tags statically, so it
 // is the one copy of the registry that nothing else forces to stay current.
-// This is that force: adding a platform without editing both tags fails here
-// rather than shipping a document that lies about the contract.
+// This is that force: changing the registry without editing both tags fails
+// here rather than shipping a document that lies about the contract.
 func TestPlatformDocListsEveryRegisteredPlatform(t *testing.T) {
+	// The field lookups are positional, so they are asserted by name first:
+	// inserting a field ahead of these would otherwise retarget the test
+	// silently.
+	linkInput := reflect.TypeOf(CreateReleaseLinkInput{}).Field(0)
+	require.Equal(t, "Platform", linkInput.Name)
+	addBody := reflect.TypeOf(AddExternalLinkRequest{}).Field(1)
+	require.Equal(t, "Body", addBody.Name)
+	addPlatform := addBody.Type.Field(0)
+	require.Equal(t, "Platform", addPlatform.Name)
+
 	docs := map[string]string{
-		"CreateReleaseLinkInput": reflect.TypeOf(CreateReleaseLinkInput{}).
-			Field(0).Tag.Get("doc"),
-		"AddExternalLinkRequest.Body": reflect.TypeOf(AddExternalLinkRequest{}).
-			Field(1).Type.Field(0).Tag.Get("doc"),
+		"CreateReleaseLinkInput":      linkInput.Tag.Get("doc"),
+		"AddExternalLinkRequest.Body": addPlatform.Tag.Get("doc"),
 	}
 
 	for name, doc := range docs {
-		require.NotEmpty(t, doc, "%s has no doc tag", name)
-		for _, platform := range utils.ReleaseLinkPlatforms() {
-			assert.Contains(t, doc, platform, "%s doc omits %q", name, platform)
-		}
+		require.True(t, strings.HasPrefix(doc, platformDocPrefix),
+			"%s doc must start with %q, got %q", name, platformDocPrefix, doc)
+		listed := strings.Split(strings.TrimPrefix(doc, platformDocPrefix), ", ")
+		assert.ElementsMatch(t, utils.ReleaseLinkPlatforms(), listed,
+			"%s doc and the registry name different platforms", name)
 	}
 }
