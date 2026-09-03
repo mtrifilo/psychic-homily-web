@@ -82,13 +82,18 @@ describe('ShowStatusStripe', () => {
     expect(screen.queryByTestId('show-status-stripe')).not.toBeInTheDocument()
   })
 
-  // TONAL, not inverted. The band tints itself out of the page's own palette
-  // and bounds itself with hairline rules; inverting the page's contrast
-  // (`bg-foreground text-background`) reads as a slab in both themes. Classes
-  // are the mechanism, and jsdom computes no colors, so they are what is
-  // pinned.
-  it('paints the band with the surface tokens, not inverted', () => {
-    render(<ShowStatusStripe show={makeShow()} lifecycle="upcoming" />)
+  // TONAL, not inverted: the band tints itself out of the page's own palette
+  // and bounds itself with hairline rules rather than reversing the page's
+  // contrast. jsdom computes no colors, so the class names are the mechanism
+  // and what is pinned; the negatives pin that the inversion is gone, which an
+  // element carrying both sets of classes would otherwise satisfy.
+  it('paints the band and its separators with the surface tokens', () => {
+    render(
+      <ShowStatusStripe
+        show={makeShow({ doors_at: '2026-04-16T02:00:00Z' })}
+        lifecycle="today"
+      />
+    )
     const stripe = screen.getByTestId('show-status-stripe')
     expect(stripe).toHaveClass(
       'bg-muted',
@@ -98,20 +103,8 @@ describe('ShowStatusStripe', () => {
     )
     expect(stripe).not.toHaveClass('bg-foreground')
     expect(stripe).not.toHaveClass('text-background')
-  })
 
-  // The separator is the quietest thing on the band, and on an inverted band
-  // that was a translucent tint of the inverted text. On the tonal band it is
-  // the palette's own muted foreground.
-  it('draws the separator in the muted foreground token', () => {
-    render(
-      <ShowStatusStripe
-        show={makeShow({ doors_at: '2026-04-16T02:00:00Z' })}
-        lifecycle="today"
-      />
-    )
-    const stripe = screen.getByTestId('show-status-stripe')
-    const separators = stripe.querySelectorAll('[aria-hidden="true"]')
+    const separators = screen.getAllByText('\u00b7')
     expect(separators.length).toBeGreaterThan(0)
     for (const separator of separators) {
       expect(separator).toHaveClass('text-muted-foreground')

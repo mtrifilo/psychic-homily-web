@@ -9,7 +9,7 @@ import {
 import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 import { MiddotSegments } from './MiddotSegments'
 import { ShowAddToCalendar } from './ShowAddToCalendar'
-import { ticketLineSegments, ticketOffer } from './showTicketLine'
+import { showTicketOffer, ticketLineSegments } from './showTicketLine'
 import { usePlantedTicketTagReport } from '@/lib/tickets/usePlantedTicketTagReport'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import type { ShowResponse } from '../types'
@@ -49,17 +49,18 @@ interface ShowTicketRowProps {
  * it.
  */
 export function ShowTicketRow({ show, lifecycle }: ShowTicketRowProps) {
-  const segments = ticketLineSegments(show, lifecycle)
+  // Derived ONCE and handed to the line, because the vendor NAME and the
+  // anchor are mutually exclusive: two derivations would agree only by
+  // coincidence. Null for cancelled, sold-out and past shows, so neither the
+  // sale-state words nor this bracket can argue with the stripe; `linked`
+  // false for a referral nobody pays us for, which is when the line above
+  // names the vendor instead.
+  const offer = showTicketOffer(show, lifecycle)
+  const segments = ticketLineSegments(show, lifecycle, offer)
   const showTitle = showDisplayTitle(
     show.title,
     show.artists.map(artist => artist.name)
   )
-  // The one derivation of "is there somewhere to buy" and of whether this site
-  // links there (showTicketLine): null for cancelled, sold-out and past shows,
-  // so neither the sale-state words nor this bracket can argue with the
-  // stripe, and `linked` false for a referral nobody pays us for, in which
-  // case the vendor is named in the line above instead.
-  const offer = ticketOffer(show, lifecycle)
   // An affiliate tag in a STORED ticket url was planted by whoever submitted
   // the show, since we only ever append ours at render. Reported for every
   // show that has one, including the ones this row declines to link.

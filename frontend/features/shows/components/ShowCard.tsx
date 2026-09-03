@@ -26,23 +26,22 @@ import { ExportShowButton } from './ExportShowButton'
 import { ShowStatusBadge } from './ShowStatusBadge'
 import { SHOW_LIST_FEATURE_POLICY } from './showListFeaturePolicy'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { basedInPhrase, splitBill } from '../utils'
+import { basedInPhrase, billHometown, splitBill } from '../utils'
 import type { ShowResponse, ArtistResponse } from '../types'
 
 /**
  * Where an expanded card's act is based: `based in Tempe, AZ`, or nothing when
- * the act carries no city or state.
+ * the act has no placeable location.
  *
- * The prefix is {@link basedInPhrase}, shared with the show page, because this
- * line sits beside the SHOW's city too and a bare place name after an artist's
- * name reads as where the show is. The parts are city and state only: the card
- * has no country column to compose, which is why it reads the fields here
- * rather than through the bill's hometown rule.
+ * Both halves are shared with the show page: {@link billHometown} for the
+ * parts (country included unless the state is set and the country is USA/US)
+ * and {@link basedInPhrase} for the prefix. This line sits beside the SHOW's
+ * city, where a bare place name after an act's name reads as where the show
+ * is, and one act must not be worded two ways across the card and the page it
+ * opens.
  */
 function ArtistBase({ artist }: { artist: ArtistResponse }) {
-  const base = basedInPhrase(
-    [artist.city, artist.state].filter(Boolean).join(', ')
-  )
+  const base = basedInPhrase(billHometown(artist))
   if (!base) return null
   return (
     <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">

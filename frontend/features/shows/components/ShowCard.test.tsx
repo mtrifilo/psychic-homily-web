@@ -516,6 +516,34 @@ describe('ShowCard', () => {
       expect(screen.getByText('based in Tempe, AZ')).toBeInTheDocument()
     })
 
+    // Same parts rule as the show page: country included unless the state is
+    // set and the country is USA/US. Sharing only the prefix would have one
+    // act read two ways across the card and the page it opens.
+    it('obeys the shared location rule for an act outside the US', async () => {
+      const user = userEvent.setup()
+      const show = makeShow({
+        artists: [
+          makeArtist({
+            id: 1,
+            name: 'Band',
+            is_headliner: true,
+            city: 'Melbourne',
+            state: '',
+            country: 'Australia',
+            socials: { bandcamp: 'https://band.bandcamp.com' },
+          }),
+        ],
+      })
+      render(<ShowCard show={show} isAdmin={false} />)
+
+      await user.click(
+        screen.getByRole('button', { name: /discover artist music/i })
+      )
+      expect(
+        screen.getByText('based in Melbourne, Australia')
+      ).toBeInTheDocument()
+    })
+
     it('prints nothing for an act with no city or state', async () => {
       const user = userEvent.setup()
       const show = makeShow({
@@ -526,6 +554,7 @@ describe('ShowCard', () => {
             is_headliner: true,
             city: '',
             state: '',
+            country: '',
             socials: { bandcamp: 'https://band.bandcamp.com' },
           }),
         ],

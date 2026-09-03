@@ -6,6 +6,7 @@ import {
   repairTicketUrl,
   resolveTicketVendor,
   ticketLink,
+  ticketOffer,
   ticketVendorLabel,
 } from './ticketVendors'
 import type { AffiliatePartnerIds } from './ticketVendors'
@@ -576,5 +577,62 @@ describe('carriesOurAffiliateTag', () => {
     const planted = ticketLink(`${TICKETWEB}?irmp=9999999`, IMPACT)
     expect(planted.sponsored).toBe(true)
     expect(carriesOurAffiliateTag(planted)).toBe(false)
+  })
+})
+
+describe('ticketOffer', () => {
+  const TICKETWEB = 'https://www.ticketweb.com/event/2'
+  const UNKNOWN = 'https://box-office.example/e/1'
+
+  // THE paid-referral rule. Read with no partner ID configured, which is the
+  // state the site ships in.
+  it('names the vendor and withholds the link when nobody pays us', () => {
+    const known = ticketOffer(TICKETWEB)
+    expect(known.linked).toBe(false)
+    expect(known.vendorName).toBe('TicketWeb')
+
+    const unknown = ticketOffer(UNKNOWN)
+    expect(unknown.linked).toBe(false)
+    expect(unknown.vendorName).toBe('box-office.example')
+  })
+
+  it('links a vendor this build tagged, and only that vendor', () => {
+    process.env.NEXT_PUBLIC_IMPACT_PARTNER_ID = '1234567'
+    const known = ticketOffer(TICKETWEB)
+    expect(known.linked).toBe(true)
+    expect(known.link.href).toBe(`${TICKETWEB}?irmp=1234567`)
+    expect(known.link.sponsored).toBe(true)
+    expect(ticketOffer(UNKNOWN).linked).toBe(false)
+  })
+
+  // A tag somebody else planted makes the link sponsored without making it
+  // ours, so it is not a click we are paid for.
+  it('withholds the link for a planted tag on a configured vendor', () => {
+    process.env.NEXT_PUBLIC_IMPACT_PARTNER_ID = '1234567'
+    const planted = ticketOffer(`${TICKETWEB}?irmp=9999999`)
+    expect(planted.link.sponsored).toBe(true)
+    expect(planted.link.plantedTag).not.toBeNull()
+    expect(planted.linked).toBe(false)
+    expect(planted.vendorName).toBe('TicketWeb')
+  })
+
+  // The exemption is an INPUT because only the caller knows whether admission
+  // is free; festivals record no price and never pass it.
+  it('links any vendor when the caller says admission is free', () => {
+    const offer = ticketOffer(UNKNOWN, { freeAdmission: true })
+    expect(offer.linked).toBe(true)
+    expect(offer.link.href).toBe(UNKNOWN)
+    expect(offer.link.sponsored).toBe(false)
+  })
+
+  // The report is about the STORED value, so it survives the refusal to link.
+  it('carries the link even when the anchor is withheld', () => {
+    const offer = ticketOffer(`${TICKETWEB}?irmp=9999999`)
+    expect(offer.linked).toBe(false)
+    expect(offer.link.plantedTag).toEqual({
+      param: 'irmp',
+      host: 'www.ticketweb.com',
+      matchesConfiguredPartner: false,
+    })
   })
 })

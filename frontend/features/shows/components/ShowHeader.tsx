@@ -146,11 +146,11 @@ function BillLabels({
  *
  * The `based in` prefix is {@link basedInPhrase}, shared with the listen
  * module so one act's home city is worded the same twice on one page. It is
- * VISIBLE copy rather than the screen-reader-only connective {@link BillLabels}
- * still uses: beside a venue in another city a bare place name reads as where
- * the show is, and the words that fix that have to be on the screen. Being
- * visible, they are also what a screen reader announces, so there is no hidden
- * second connective to disagree with them.
+ * VISIBLE copy, unlike the screen-reader-only connective {@link BillLabels}
+ * carries: beside a venue in another city a bare place name reads as where
+ * the show is, and the words that fix that belong on the screen. Being
+ * visible, they are also the announced text, so no hidden connective can
+ * disagree with them.
  */
 function BillHometown({
   artist,

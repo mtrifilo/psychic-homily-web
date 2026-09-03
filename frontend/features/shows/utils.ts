@@ -215,18 +215,17 @@ export function billHometown(artist: PlaceableArtist): string | null {
 }
 
 /**
- * An act's home location as the page states it: `based in Issaquah, WA`.
+ * An act's home location as a show surface states it: `based in Issaquah, WA`.
  * Null when there is no location to state.
  *
- * THE one spelling of that prefix. Beside a venue in another city, a bare
- * place name after an artist's name reads as where the show is, which is the
- * ambiguity the words remove; every surface that prints a location alone next
- * to an act's name goes through here so they cannot drift into two phrasings.
+ * THE one spelling of that prefix for the surfaces that print a location
+ * beside a VENUE's city — the show page's bill and listen cards, and the
+ * expanded show card. There a bare place name after an act's name reads as
+ * where the show is, and the words remove that. Other features print an act's
+ * location with no venue beside it and do not use this.
  *
- * Takes the formatted location rather than the artist, because the surfaces
- * differ on WHICH parts they compose (the show page's bill obeys
- * {@link billHometown}'s country rule; a list card states city and state).
- * The prefix is the shared decision; the parts are not.
+ * Takes the formatted location rather than the artist so the caller keeps its
+ * own composition; every current caller pairs it with {@link billHometown}.
  *
  * A blank or whitespace-only location yields null rather than the prefix
  * alone, which would state a fact the caller does not have.

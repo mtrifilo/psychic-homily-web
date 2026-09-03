@@ -170,13 +170,10 @@ function ShowListenCard({ card }: { card: ListenCard }) {
     )
   )
   if (hometown) {
-    push(
-      'hometown',
-      // The same `based in` wording as the bill block above, from the same
-      // formatter: one act's home city is stated twice on this page and the
-      // two must read alike. Visible copy, so the announced text matches it.
-      <span>{hometown}</span>
-    )
+    // Same formatter as the bill block above: one act's home city is stated
+    // twice on this page and the two must read alike. Visible copy, so the
+    // announced text matches what is on screen.
+    push('hometown', hometown)
   }
   push('source', source)
   const verbs = listenVerbs(card)

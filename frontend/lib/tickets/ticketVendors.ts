@@ -10,11 +10,12 @@
  *
  * It owns classification ({@link resolveTicketVendor}), naming
  * ({@link ticketVendorLabel}), repair ({@link repairTicketUrl}), tagging
- * ({@link ticketLink}) and the paid-link test
- * ({@link carriesOurAffiliateTag}). Call sites own only their own POLICY:
- * `ticketHref` in `features/shows/components/showTicketLine` layers the show's
- * refusals (cancelled, sold out, past) on top of the repair, and `ticketOffer`
- * beside it layers the free-admission exemption on top of the paid-link test.
+ * ({@link ticketLink}), the paid-link test ({@link carriesOurAffiliateTag})
+ * and the rule the visible surfaces render ({@link ticketOffer}). Call sites
+ * own only their own POLICY: `showTicketOffer` in
+ * `features/shows/components/showTicketLine` layers the show's refusals
+ * (cancelled, sold out, past) and computes the free-admission exemption
+ * {@link ticketOffer} takes as an input.
  *
  * {@link ticketLink} must stay TOTAL. Callers are not required to repair
  * first, and `show.ticket_url` is open contribution that publishes without
@@ -155,23 +156,44 @@ function normalizeHost(hostname: string): string {
 export function resolveTicketVendor(
   rawUrl: string | undefined | null
 ): TicketVendor | undefined {
-  const raw = rawUrl?.trim()
-  if (!raw) return undefined
+  const host = ticketUrlHost(rawUrl)
+  if (host === null) return undefined
+  const domain = vendorDomainFor(host)
+  return domain ? TICKET_VENDORS_BY_DOMAIN[domain] : undefined
+}
 
+/**
+ * The normalized host a stored ticket URL points at, or null when it names
+ * none.
+ *
+ * The ONE reading of contributor paste in this module: everything that asks
+ * what host a value is on goes through here, so classification and naming
+ * cannot answer differently. A value with no scheme is given one, because
+ * submitters type bare hosts.
+ */
+function ticketUrlHost(rawUrl: string | undefined | null): string | null {
+  const raw = rawUrl?.trim()
+  if (!raw) return null
   const candidate = ABSOLUTE_HTTP_URL.test(raw)
     ? raw
     : `https://${raw.replace(/^\/+/, '')}`
-  let host: string
   try {
-    host = normalizeHost(new URL(candidate).hostname)
+    return normalizeHost(new URL(candidate).hostname) || null
   } catch {
-    return undefined
+    return null
   }
+}
 
-  const domain = Object.keys(TICKET_VENDORS_BY_DOMAIN).find(
-    d => host === d || host.endsWith(`.${d}`)
+/**
+ * The table key this host belongs to, or undefined.
+ *
+ * Host-anchored, never a substring test: that is what stops `evil-dice.fm`
+ * and `dice.fm.evil.test` borrowing a real vendor's name or affiliate tag.
+ */
+function vendorDomainFor(host: string): string | undefined {
+  return Object.keys(TICKET_VENDORS_BY_DOMAIN).find(
+    domain => host === domain || host.endsWith(`.${domain}`)
   )
-  return domain ? TICKET_VENDORS_BY_DOMAIN[domain] : undefined
 }
 
 /**
@@ -595,51 +617,80 @@ export function ticketLink(
 
 /**
  * The name to print for the vendor behind a stored ticket URL, or null when
- * the value yields no host at all.
+ * the value names no host.
  *
  * A known vendor prints the name written down in
  * {@link TICKET_VENDORS_BY_DOMAIN}; anything else prints its own hostname,
  * which is a fact about the URL rather than a claim about a company. That
- * split is why this is not `resolveTicketVendor(...)?.name`: an unrecognized
- * host still has to be nameable on a surface that no longer links to it.
+ * split is why this is not `resolveTicketVendor(...)?.name`: a surface that
+ * declines to LINK an unrecognized vendor still has to name it. Structured
+ * data must not use this — a `seller` is a claim about a real company, so
+ * `lib/seo/jsonld` stays on {@link resolveTicketVendor}.
  *
- * Scheme-less values resolve, matching {@link resolveTicketVendor}'s tolerance
- * for contributor paste. `www.` is dropped because it is not part of how a
- * reader names the site.
+ * `www.` is dropped because it is not part of how a reader names a site.
  */
 export function ticketVendorLabel(
   rawUrl: string | undefined | null
 ): string | null {
-  const known = resolveTicketVendor(rawUrl)
-  if (known) return known.name
-
-  const raw = rawUrl?.trim()
-  if (!raw) return null
-  const candidate = ABSOLUTE_HTTP_URL.test(raw)
-    ? raw
-    : `https://${raw.replace(/^\/+/, '')}`
-  try {
-    const host = normalizeHost(new URL(candidate).hostname)
-    return host.replace(/^www\./, '') || null
-  } catch {
-    return null
-  }
+  const host = ticketUrlHost(rawUrl)
+  if (host === null) return null
+  const domain = vendorDomainFor(host)
+  return domain
+    ? TICKET_VENDORS_BY_DOMAIN[domain].name
+    : host.replace(/^www\./, '') || null
 }
 
 /**
  * Whether the href in this {@link TicketLink} carries OUR partner ID, i.e.
  * whether a click on it is paid.
  *
- * The one derivation of that, because `sponsored` deliberately answers the
- * different question of whether the link must be qualified: it is also true
- * for a tag a contributor planted, which credits somebody else. Only
+ * A different question from `sponsored`, which is also true for a tag a
+ * contributor planted and therefore credits somebody else. Only
  * {@link ticketLink}'s tagging branch produces a sponsored link with no
  * planted tag, so the conjunction is the whole test.
- *
- * False for every link on a build with no partner ID configured, which is the
- * gate the show and festival ticket surfaces render their outbound anchor
- * behind.
  */
 export function carriesOurAffiliateTag(link: TicketLink): boolean {
   return link.sponsored && link.plantedTag === null
+}
+
+/**
+ * What a ticket surface renders for one stored URL: the resolved link,
+ * whether an outbound anchor is offered at all, and the vendor's name.
+ *
+ * THE paid-referral rule, and the reason it lives here rather than on either
+ * surface: an outbound vendor anchor renders only when the click is paid for,
+ * so a vendor with no affiliate entry, a network with no partner ID
+ * configured, and a URL carrying a tag somebody else planted all render as
+ * the vendor's NAME instead of a link. The show page and the festival page
+ * both call this, so the rule cannot have two answers.
+ *
+ * `freeAdmission` is the one exemption, and it is an INPUT because only the
+ * caller knows: an RSVP or guestlist link on an event that states a price of
+ * zero is not a ticket referral, nobody is paid either way, and the click is
+ * the reader's only route in. Festivals record no price, so they never pass
+ * it.
+ *
+ * `link` is present even when `linked` is false: the planted-tag report is
+ * about the STORED value, not about what a page renders.
+ *
+ * `vendorName` is null only for a value that names no host
+ * ({@link ticketVendorLabel}), so a caller with nothing to link has nothing
+ * to name either.
+ */
+export interface TicketOffer {
+  link: TicketLink
+  linked: boolean
+  vendorName: string | null
+}
+
+export function ticketOffer(
+  rawUrl: string,
+  { freeAdmission = false }: { freeAdmission?: boolean } = {}
+): TicketOffer {
+  const link = ticketLink(rawUrl)
+  return {
+    link,
+    linked: freeAdmission || carriesOurAffiliateTag(link),
+    vendorName: ticketVendorLabel(rawUrl),
+  }
 }
