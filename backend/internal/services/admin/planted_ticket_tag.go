@@ -40,28 +40,24 @@ var plantedTagSources = map[string]plantedTagSource{
 	},
 }
 
-// plantedTagCandidateSQL is a COARSE pre-filter, not the answer.
+// plantedTagCandidateSQL is a COARSE pre-filter, not the answer. The Go matcher
+// below decides, so the count, the list and the reason are one implementation
+// rather than a SQL dialect and a parser that read a query differently.
 //
-// It only has to admit every row plantedAffiliateTag would match; the Go
-// matcher below decides. Keeping the decision in one implementation is what
-// stops the count, the list and the reason from disagreeing, which they would
-// the moment a SQL regex and a parser read a query differently.
+// It admits every value that could carry a parameter at all, which is every
+// value containing an `=`: a vendor splits a pair on a LITERAL `=`, so a pair
+// spelled without one credits nobody. Matching the parameter NAMES here instead
+// would miss a percent-encoded spelling (`%69rmp=`) that the vendor decodes and
+// pays on, and the matcher below reads.
 func plantedTagCandidateSQL() (string, []any) {
-	clauses := make([]string, 0, len(knownAffiliateParams))
-	args := make([]any, 0, len(knownAffiliateParams))
-	for _, param := range knownAffiliateParams {
-		clauses = append(clauses, "ticket_url LIKE ?")
-		args = append(args, "%"+param+"=%")
-	}
-	return "ticket_url IS NOT NULL AND (" + strings.Join(clauses, " OR ") + ")", args
+	return "ticket_url IS NOT NULL AND ticket_url LIKE ?", []any{"%=%"}
 }
 
 // plantedTagFindings returns every row of one source whose stored ticket URL
 // credits an affiliate, newest first.
 //
-// Whole set, not a page: the count and the list are the same answer, and the
-// candidate set is bounded by rows whose ticket URL literally spells an
-// affiliate parameter. Callers page the slice.
+// Whole set, not a page: the count and the list are then the same answer.
+// Callers page the slice.
 func (s *DataQualityService) plantedTagFindings(category string) ([]*contracts.DataQualityItem, error) {
 	source := plantedTagSources[category]
 

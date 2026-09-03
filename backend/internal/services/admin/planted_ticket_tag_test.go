@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"strings"
 	"testing"
 	"time"
 
@@ -95,16 +94,10 @@ func TestPlantedAffiliateTag(t *testing.T) {
 	}
 }
 
-// The SQL pre-filter has one job: admit every row the Go matcher would match.
-// A parameter it cannot spell is a row the console never sees.
-func TestPlantedTagCandidateSQLNamesEveryKnownParam(t *testing.T) {
+// The generated parameter list is what the matcher reads; an empty one would
+// make the whole category silently report nothing.
+func TestKnownAffiliateParamsIsPopulated(t *testing.T) {
 	assert.NotEmpty(t, knownAffiliateParams)
-	where, args := plantedTagCandidateSQL()
-	assert.Equal(t, len(knownAffiliateParams), len(args))
-	assert.Equal(t, len(knownAffiliateParams), strings.Count(where, "ticket_url LIKE ?"))
-	for _, param := range knownAffiliateParams {
-		assert.Contains(t, args, "%"+param+"=%")
-	}
 }
 
 // The planted-tag categories are moderation findings; the public /contribute
@@ -199,20 +192,33 @@ func (suite *DataQualityServiceIntegrationTestSuite) TestShowsPlantedTicketTag()
 		"Pending", catalogm.ShowStatusPending,
 		"https://www.ticketweb.com/event/6?irmp=9999999",
 	)
+	// A spelling the vendor decodes and pays on. The SQL pre-filter matches on
+	// the presence of a parameter, not on the parameter's name, so this reaches
+	// the matcher that reads it.
+	encoded := suite.createShowWithTicketURL(
+		"Percent Encoded", catalogm.ShowStatusApproved,
+		"https://www.ticketweb.com/event/7?%69rmp=9999999",
+	)
 
 	items, total, err := suite.service.GetCategoryItems(categoryShowsPlantedTicketTag, 50, 0)
 	suite.Require().NoError(err)
-	suite.Equal(int64(1), total)
-	suite.Require().Len(items, 1)
-	suite.Equal("show", items[0].EntityType)
-	suite.Equal(planted.ID, items[0].EntityID)
+	suite.Equal(int64(2), total)
+	suite.Require().Len(items, 2)
+	byID := map[uint]*contracts.DataQualityItem{}
+	for _, item := range items {
+		byID[item.EntityID] = item
+	}
+	suite.Require().Contains(byID, planted.ID)
+	suite.Require().Contains(byID, encoded.ID)
+	suite.Equal("show", byID[planted.ID].EntityType)
 	// The parameter and the host, never the partner ID or the rest of the URL.
-	suite.Equal("irmp on www.ticketweb.com", items[0].Reason)
-	suite.NotContains(items[0].Reason, "9999999")
+	suite.Equal("irmp on www.ticketweb.com", byID[planted.ID].Reason)
+	suite.NotContains(byID[planted.ID].Reason, "9999999")
+	suite.Equal("irmp on www.ticketweb.com", byID[encoded.ID].Reason)
 
 	summary, err := suite.service.GetSummary()
 	suite.Require().NoError(err)
-	suite.Equal(1, summaryCategoryCount(summary, categoryShowsPlantedTicketTag))
+	suite.Equal(2, summaryCategoryCount(summary, categoryShowsPlantedTicketTag))
 }
 
 // summaryCategoryCount reads one category's count out of a summary.
