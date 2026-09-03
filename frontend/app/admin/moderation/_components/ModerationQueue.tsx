@@ -144,9 +144,14 @@ function renderValue(value: unknown): string {
 }
 
 /**
- * The gap below which the two stamps are read as one INSERT rather than a
- * revision: they are written from separate clock reads, so an untouched row
- * carries a sub-second difference.
+ * How far updated_at must lead created_at before a pending request reads as
+ * revised. One minute, by product decision.
+ *
+ * It is a floor, not a correction for clock skew: an untouched row's two
+ * stamps are EQUAL, because GORM writes every auto-timestamp on a row from one
+ * clock read and the column defaults are both NOW(). So the cost of the floor
+ * is its own blind spot, a resubmission inside the first minute never badging,
+ * and not a false-positive risk it is buying that back.
  */
 const REVISED_MIN_GAP_MS = 60 * 1000
 
@@ -580,18 +585,25 @@ function ShowCreateForm({
   const [venueName, setVenueName] = useState('')
   const [venueCity, setVenueCity] = useState(() => payloadString(payload, 'city'))
   const [venueState, setVenueState] = useState(() => payloadString(payload, 'state'))
-  const payloadBill = parsePayloadBill(payload)
+  // The bill the request carried WHEN THIS FORM OPENED. Read once, like every
+  // other seed here: a queued payload is mutable (a resubmission replaces it in
+  // place), and the queue refetches, so a live read would let the rows and
+  // everything describing them disagree while the admin is typing.
+  const [payloadBill] = useState(() => parsePayloadBill(payload))
   const seededFromPayload = payloadBill.length > 0
-  // Seeded from the bill the request carries, else a single blank row. A seeded
-  // act keeps the role the payload stated and stays UNSTATED when it stated
-  // none: bill order is not a designation, on this form or at the endpoint.
-  //
-  // Every seed is read ONCE, through a lazy initializer. The rows are the
-  // admin's working copy from here on, and re-seeding from a refetched payload
-  // would discard edits mid-review.
+  // A seeded act keeps the role the payload stated and stays UNSTATED when it
+  // stated none: bill order is not a designation, on this form or at the
+  // endpoint. From here the rows are the admin's working copy; re-seeding them
+  // from a refetched payload would discard edits mid-review.
   const [artists, setArtists] = useState<ShowArtistRow[]>(() =>
-    seededFromPayload ? payloadBill : [{ name: '', set_type: UNSTATED_ROLE }]
+    payloadBill.length > 0 ? payloadBill : [{ name: '', set_type: UNSTATED_ROLE }]
   )
+
+  // A seeded act is removable even when it is the only one: the bill came from
+  // somebody else, possibly an AI extraction, so a single hallucinated act must
+  // be droppable in one click. A form that seeded blank keeps its one-row floor,
+  // where removal would only mean clearing a field the admin just typed into.
+  const canRemoveRows = artists.length > 1 || seededFromPayload
 
   const updateArtist = (index: number, patch: Partial<ShowArtistRow>) => {
     setArtists(rows => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)))
@@ -723,7 +735,7 @@ function ShowCreateForm({
                 ))}
               </SelectContent>
             </Select>
-            {artists.length > 1 && (
+            {canRemoveRows && (
               <Button
                 type="button"
                 variant="ghost"

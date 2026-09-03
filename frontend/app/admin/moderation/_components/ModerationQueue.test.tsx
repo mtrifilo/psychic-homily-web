@@ -1081,6 +1081,82 @@ describe('ModerationQueue', () => {
     )
   })
 
+  it('removes a seeded act even when it is the only one on the bill', () => {
+    setDefaultMocks({
+      requests: [showRequestWithBill([{ name: 'Hallucinated Solo Act' }])],
+    })
+
+    render(<ModerationQueue />)
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }))
+
+    // The bill came from somebody else, so a single act must still be
+    // droppable in one click rather than only clearable.
+    fireEvent.click(screen.getByRole('button', { name: 'Remove artist 1' }))
+    expect(screen.queryByLabelText('Artist 1 name')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /create show/i })).toBeDisabled()
+
+    // Add artist restores an empty row, so the form is not a dead end.
+    fireEvent.click(screen.getByRole('button', { name: /add artist/i }))
+    expect(screen.getByLabelText('Artist 1 name')).toHaveValue('')
+  })
+
+  it('keeps the blank form one-row floor when no bill seeded it', () => {
+    setDefaultMocks({ requests: [showRequestWithBill(undefined)] })
+
+    render(<ModerationQueue />)
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }))
+
+    expect(
+      screen.queryByRole('button', { name: 'Remove artist 1' })
+    ).not.toBeInTheDocument()
+  })
+
+  it('says which job the form is asking the admin to do', () => {
+    const seeded = /check the bill the requester recorded/i
+    const unseeded = /supply the venue and artist\(s\)/i
+
+    setDefaultMocks({ requests: [showRequestWithBill([{ name: 'Boris' }])] })
+    const { unmount } = render(<ModerationQueue />)
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }))
+    expect(screen.getByText(seeded)).toBeInTheDocument()
+    expect(screen.queryByText(unseeded)).not.toBeInTheDocument()
+    unmount()
+
+    setDefaultMocks({ requests: [showRequestWithBill(undefined)] })
+    render(<ModerationQueue />)
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }))
+    expect(screen.getByText(unseeded)).toBeInTheDocument()
+    expect(screen.queryByText(seeded)).not.toBeInTheDocument()
+  })
+
+  it('keeps the seeded rows when the payload is replaced under an open form', () => {
+    // A queued payload is mutable and the queue refetches, so an open form can
+    // be re-rendered with a payload the admin never saw. The rows are their
+    // working copy: they must not be re-seeded, and nothing describing them may
+    // follow the new payload either.
+    const request = showRequestWithBill([
+      { name: 'Boris', set_type: 'headliner' },
+      { name: 'Earth' },
+    ])
+    setDefaultMocks({ requests: [request] })
+    const { rerender } = render(<ModerationQueue />)
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }))
+    fireEvent.change(screen.getByLabelText('Artist 2 name'), {
+      target: { value: 'Melvins' },
+    })
+
+    // The contributor resubmits, dropping the bill entirely.
+    setDefaultMocks({ requests: [{ ...request, artists: undefined, payload: { title: 'Big Fest', event_date: '2026-07-01' } }] })
+    rerender(<ModerationQueue />)
+
+    expect(screen.getByLabelText('Artist 1 name')).toHaveValue('Boris')
+    expect(screen.getByLabelText('Artist 2 name')).toHaveValue('Melvins')
+    // The header still describes the form on screen, not the new payload.
+    expect(
+      screen.getByText(/check the bill the requester recorded/i)
+    ).toBeInTheDocument()
+  })
+
   it('seeds the rescue form from the payload bill too', () => {
     const mutate = vi.fn()
     mockUseRescueEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
@@ -1437,8 +1513,9 @@ describe('ModerationQueue', () => {
     })
 
     it('ignores a sub-minute gap between the two stamps', () => {
-      // One INSERT writes both, and not from a single clock read, so a row
-      // nobody has touched can carry a small gap.
+      // The floor is a product decision, not a clock-skew correction: an
+      // untouched row's two stamps are equal. Pinned so the threshold cannot
+      // move without somebody deciding to move it.
       setDefaultMocks({
         requests: [
           {
@@ -1454,16 +1531,18 @@ describe('ModerationQueue', () => {
     })
 
     it('keeps the revised card in its filed-at position', () => {
+      // Discriminating on purpose: the queue sorts oldest-first, and this pair
+      // orders one way by created_at and the OTHER way by updated_at. `older`
+      // was filed first but revised most recently, so swapping the comparator's
+      // key would swap these two rows and reshuffle the queue under a reader.
       const older: AdminEntityRequest = {
         ...mockEntityRequest,
         id: 61,
         payload: { name: 'Older Band' },
         source_detail: null,
         created_at: '2026-04-07T00:00:00Z',
-        updated_at: '2026-04-07T00:00:00Z',
+        updated_at: '2026-04-09T00:00:00Z',
       }
-      // The revised row was filed LAST but revised most recently: sorting on
-      // updated_at would move it ahead of the older card under the reader.
       setDefaultMocks({ requests: [older, revisedRequest] })
       render(<ModerationQueue />)
 

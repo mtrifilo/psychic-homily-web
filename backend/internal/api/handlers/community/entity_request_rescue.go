@@ -238,9 +238,11 @@ func (h *EntityRequestHandler) AdminFulfillEntityRequestHandler(ctx context.Cont
 			"requester_id":      existing.RequesterID,
 			"created_entity_id": createdID,
 		}
-		// PSY-1858: record WHICH bill was fulfilled. Matters most on this endpoint,
-		// where the row may never have been reviewed by a human, so "who chose
-		// these acts" is the first question a bad-extraction incident asks.
+		// PSY-1858: record WHICH INPUT the fulfilled bill arrived on. Matters most
+		// on this endpoint, where the row may never have been reviewed by a human.
+		// It names the input, not the author: the rescue form seeds from this
+		// payload and submits the result, so billSourceBody covers a stored bill
+		// the admin passed through as well as one they typed.
 		if showAssoc != nil && showAssoc.billSource != "" {
 			metadata["bill_source"] = string(showAssoc.billSource)
 		}

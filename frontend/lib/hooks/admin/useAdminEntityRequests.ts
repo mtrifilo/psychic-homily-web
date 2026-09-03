@@ -216,9 +216,11 @@ export interface RescueEntityRequestVars {
   show_artists?: ShowArtistInput[]
   /**
    * PSY-1858: adopt the bill stored on the request's own payload. Same rules as
-   * on decide, and it matters more here — this is where a trusted tier's
-   * auto-approved show lands, so without the flag a bill could be fulfilled
-   * having never been seen by an admin.
+   * on decide, and unused by the rescue form for the same reason: it seeds its
+   * rows from that payload and submits them as show_artists, so the acts reach
+   * the endpoint having been shown to the admin either way. That matters most
+   * on THIS endpoint, where a trusted tier's auto-approved show lands and the
+   * row may never have been read by a human.
    */
   use_payload_artists?: boolean
 }

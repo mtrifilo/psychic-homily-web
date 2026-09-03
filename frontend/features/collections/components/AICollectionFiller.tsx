@@ -42,6 +42,7 @@ import { InlineErrorBanner } from '@/components/shared'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useCollectionExtraction } from '../hooks'
 import { REPLACED_REQUEST_EXPLANATION } from './collectionDetailShared'
+import type { components } from '@/types/api'
 import type {
   ExtractedCollectionData,
   ExtractedCollectionItem,
@@ -164,6 +165,9 @@ function createAffordanceFor(
 // (PSY-1948's `replaced`).
 type RequestOutcome = 'created' | 'requested' | 'queued' | 'updated'
 
+/** The queue-create response, aliased from the generated OpenAPI types. */
+type CreateEntityRequestResponse = components['schemas']['CreateEntityRequestResponseBody']
+
 /** The chip word for each outcome. Exhaustive: a new outcome is a build error. */
 const REQUEST_OUTCOME_LABEL: Record<RequestOutcome, string> = {
   created: 'Added',
@@ -211,21 +215,29 @@ function useQueueEntityRequest() {
         }),
       })
 
-      const data = await response.json().catch(() => null)
+      const body: unknown = await response.json().catch(() => null)
 
       if (!response.ok) {
+        const problem = body as { detail?: string; message?: string } | null
         throw new Error(
-          (data && (data.detail || data.message)) ||
+          problem?.detail ||
+            problem?.message ||
             'Failed to submit entity request'
         )
       }
+
+      // Read through the GENERATED schema, not a hand-written shape, so a
+      // backend rename fails the build here rather than reporting every
+      // submission as a first filing forever. Partial because the response is
+      // parsed, not validated: the fields are still narrowed below.
+      const data = (body ?? {}) as Partial<CreateEntityRequestResponse>
 
       // PSY-1008: an auto-approved request now fulfills the entity inline and
       // returns created_entity_id. When present, the caller stages the new
       // entity into the collection (true create-and-add). decision_state still
       // distinguishes approved from pending for the non-fulfilled fallback.
       const createdEntityId =
-        typeof data?.created_entity_id === 'number'
+        typeof data.created_entity_id === 'number'
           ? data.created_entity_id
           : undefined
       // `replaced` reports a correction to the requester's own queued request.
@@ -234,9 +246,9 @@ function useQueueEntityRequest() {
       const outcome: RequestOutcome =
         createdEntityId !== undefined
           ? 'created'
-          : data?.decision_state === 'approved'
+          : data.decision_state === 'approved'
             ? 'requested'
-            : data?.replaced === true
+            : data.replaced === true
               ? 'updated'
               : 'queued'
       return { outcome, rowKey: vars.rowKey, createdEntityId }
