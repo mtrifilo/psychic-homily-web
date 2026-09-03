@@ -143,8 +143,10 @@ export const useShowAlsoTonight = (
    *
    * Seeded here rather than through a `HydrationBoundary` on the route, the
    * same choice `useVenueShows` documents: the key is built from this hook's
-   * own argument, so the seed cannot land on an entry the hook does not read.
-   * Pass it only for the show this hook is asking about.
+   * own argument, so no seed can land on an entry this hook does not read.
+   * Pass it only for the show this hook is asking about — react-query attaches
+   * `initialData` to whatever key is current, so another show's rail would be
+   * seeded as this one's.
    */
   initialData?: ShowAlsoTonightResponse
 ) => {

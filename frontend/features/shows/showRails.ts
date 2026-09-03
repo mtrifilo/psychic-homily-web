@@ -76,14 +76,18 @@ export const VENUE_RAIL_FETCH_LIMIT = SHOW_RAIL_ROW_CAP * 2 + 1
 /**
  * The venue rail's request, as the ONE place that spells it.
  *
- * The server prefetch and `useVenueShows` have to describe the SAME request or
- * the prefetched rows answer a question the component never asks: the hook keys
- * on what it SENT, so a limit restated on the route would seed rows the rail
- * cannot read, leaving it to fetch client-side anyway with every test green.
- * Reading this function is what makes the two sides one decision.
+ * The server and `useVenueShows` must ask the same QUESTION — the same window
+ * at the same limit — because the rows the server reads are handed to the hook
+ * as `initialData` and are then the only page the rail ever filters. A smaller
+ * limit restated on the route does not miss a cache entry; it seeds a SHORTER
+ * page, which the rail's two filters (the subject show, and the rows the other
+ * rail already drew) can empty out. Reading the constant is what keeps the two
+ * sides one decision.
  *
- * Parameter order matches the hook's own `URLSearchParams` assembly so the two
- * URLs are byte-identical and share a data-cache entry.
+ * The URL itself does NOT have to match the hook's character for character:
+ * `initialData` reaches the client as a prop, and a browser fetch could not
+ * read a server-side Data Cache entry however the URL were spelled (the same
+ * point `features/venues/archiveApi.ts` makes about its own server reads).
  */
 export function venueRailShowsUrl(venueId: number): string {
   const params = new URLSearchParams()
@@ -116,36 +120,40 @@ export interface ShowRail {
    */
   seeAllLabel: string
   /**
-   * Whether this rail reserves a room column at all.
+   * WHICH rail this is: the metro's night, or the room's calendar.
    *
-   * A per-RAIL question, not a per-row one: the also-tonight rail names a room
-   * on every row and must keep the column even for a row missing its venue
-   * name, while the venue rail has no room column because its room is the
-   * heading. Deriving it from the rows would collapse the column on a rail
-   * whose every row happened to lack a name.
-   */
-  hasRoomColumn: boolean
-  /**
-   * Whether this rail reserves an age column.
+   * One discriminator rather than a flag per column, because every
+   * column-shaped question about a rail has the same answer as every other:
+   * the night rail leads with a clock time and reserves a room and an age
+   * column, the room rail leads with a date and reserves neither (its room is
+   * the heading, and its rows carry no age). Flags would make eight
+   * representable shapes of which two are real, and let a new column's
+   * presence flag drift from the row field it is paired with.
    *
-   * A per-RAIL question for the same reason `hasRoomColumn` is: presence is a
-   * property of the payload the rail was built from, not of the rows that
-   * happened to survive. The also-tonight rows carry an event override and a
-   * house default, and the venue rail's do not.
-   */
-  hasAgeColumn: boolean
-  /**
-   * What the lead column holds, which is what its width has to fit.
+   * A per-RAIL fact, never derived from the rows: a night whose every row
+   * happened to lack a venue name would otherwise collapse the room column and
+   * pull every cell after it out of line.
    *
-   * The two rails lead with different things — a clock time on the night's
-   * rail, a date on the room's — and the compact time register (PSY-1970) makes
-   * them different WIDTHS: `10:30PM` fits in less than half of what `SEP 04 '27`
-   * needs. Stated as the fact rather than as a width so the policy module keeps
-   * saying what a column means and the renderer keeps owning how wide it is.
+   * Which columns each variant draws, and how wide, is the renderer's — see
+   * `RailRow`. This says only what the rail IS.
    */
-  leadKind: 'time' | 'date'
+  variant: 'night' | 'room'
   /** Non-empty, and already rendered to primitives. */
   rows: RailRowData[]
+  /**
+   * The show ids this rail drew, for a sibling rail that must not repeat them.
+   *
+   * Returned WITH the rail rather than recomputed by a second exported
+   * function, which is what makes the real invariant structural instead of
+   * documented: the ids the venue rail suppresses are exactly the rows a reader
+   * can see in the other column. Two entry points over the same payload could
+   * be handed different clocks — and on the live night a different clock is a
+   * different set of three rows — so the venue rail would hide a bill that
+   * appears nowhere on the page.
+   *
+   * Empty on the room rail, which has no sibling that yields to it.
+   */
+  drawnIds: ReadonlySet<number>
   /** Where "see all" goes, or null when it must not be offered. */
   seeAllHref: string | null
 }
@@ -154,16 +162,17 @@ export interface ShowRail {
 const RAIL_TITLE_SEPARATOR = ' / '
 
 /**
- * The rows the also-tonight rail will draw — the ONE definition of that set.
+ * The rows the also-tonight rail will draw — the ONE definition of that set,
+ * computed ONCE per rail and published as both the rows and `drawnIds`.
  *
- * Everything that needs to know what the left rail shows goes through here:
- * the rail itself, and the id set the venue rail excludes. That is the real
- * invariant, and it is not "the two filters look alike" — it is "the ids the
- * venue rail suppresses are exactly the rows the reader can see in the left
- * column." Two look-alike `filter().slice()` chains could not hold it, and the
- * ordering below is why: the three rows drawn on the live night are the three
- * earliest UPCOMING ones, so a second chain sorting differently would suppress
- * a bill from the venue rail that appears nowhere on the page.
+ * Everything that needs to know what the left rail shows reads that one
+ * result: the rail itself, and the id set the venue rail excludes. That is the
+ * real invariant, and it is not "the two filters look alike" — it is "the ids
+ * the venue rail suppresses are exactly the rows the reader can see in the left
+ * column." A second pass could not hold it, and the ordering below is why: the
+ * three rows drawn on the live night are the three earliest UPCOMING ones, so a
+ * second pass given a different clock would suppress a bill from the venue rail
+ * that appears nowhere on the page.
  *
  * The subject-show exclusion here is belt-and-braces: the endpoint already
  * documents that it excludes the subject show, and this is the boundary where
@@ -244,33 +253,11 @@ export function buildAlsoTonightRail(
       scope.length > 0
         ? `See every show ${scope.join(', ')}`
         : 'See every show that night',
-    hasRoomColumn: true,
-    hasAgeColumn: true,
-    leadKind: 'time',
+    variant: 'night',
     rows: drawn.map(show => alsoTonightRow(show, rail.timezone)),
+    drawnIds: new Set(drawn.map(show => show.id)),
     seeAllHref: hasMore ? alsoTonightSeeAllHref(rail) : null,
   }
-}
-
-/**
- * The show ids the also-tonight rail draws, for the venue rail to exclude.
- *
- * Reads the same `listableAlsoTonight` the rail itself is built from, so the
- * two cannot describe different sets. Not read back off the built rail because
- * `ShowRail.rows` are primitives with no ids on them by design, and giving
- * them ids purely so a sibling could read them would put payload back into a
- * presentational type.
- */
-export function alsoTonightDrawnIds(
-  rail: ShowAlsoTonightResponse | undefined,
-  currentShowId: number,
-  /** Must be the SAME instant `buildAlsoTonightRail` was given, or the ids
-   * suppressed from the venue rail stop being the rows actually on screen. */
-  now: Date = new Date()
-): ReadonlySet<number> {
-  return new Set(
-    listableAlsoTonight(rail, currentShowId, now).drawn.map(show => show.id)
-  )
 }
 
 /**
@@ -348,13 +335,14 @@ export function buildMoreAtVenueRail(
   return {
     title: `More at${RAIL_TITLE_SEPARATOR}${venue.name}`,
     seeAllLabel: `See every upcoming show at ${venue.name}`,
-    hasRoomColumn: false,
-    // No age column, though `VenueShow` does carry an `age_requirement`: the
-    // locked mock draws that column on the night's rail, and a field being
-    // available is not the same as a column being designed.
-    hasAgeColumn: false,
-    leadKind: 'date',
+    // No room column (its room is the heading) and no age column, though
+    // `VenueShow` does carry an `age_requirement`: the locked mock draws that
+    // column on the night's rail, and a field being available is not the same
+    // as a column being designed.
+    variant: 'room',
     rows: drawn.map(show => moreAtVenueRow(show, venue)),
+    // Nothing yields to this rail, so it publishes no exclusion set.
+    drawnIds: new Set(),
     // Guarded on the slug as well as on truncation: entity slugs are nullable
     // in this schema and an empty one resolves `/venues/` to the INDEX rather
     // than 404ing, so an unguarded href silently lands a reader on the wrong
@@ -666,8 +654,7 @@ export function moreAtVenueRow(show: VenueShow, venue: VenueResponse): RailRowDa
     isCancelled: show.is_cancelled,
     // No room column: every row on this rail is at the room in the heading.
     room: null,
-    // No age column on this rail, so nothing to fill: see `hasAgeColumn` in
-    // `buildMoreAtVenueRail`.
+    // The room variant draws no age column, so there is nothing to fill.
     age: null,
     ...railFigure(show),
   }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
@@ -54,10 +54,10 @@ interface ShowDetailProps {
    * and again on the hydrating client. Two clock reads could order the rows two
    * ways and fail hydration for the whole page.
    *
-   * Optional so a test or a future caller can mount this page without staging a
-   * clock; it then falls back to the render's own.
+   * REQUIRED, so that cannot happen by omission. It is produced one place, by
+   * the route's own `toISOString()`, which is why nothing here re-validates it.
    */
-  renderedAt?: string
+  renderedAt: string
   /**
    * Both discovery rails as the SERVER fetched them, threaded straight through
    * to `ShowDiscoveryRails` — see its own props for why they are seeded there
@@ -74,14 +74,7 @@ export function ShowDetail({
   initialAlsoTonight,
   initialVenueShows,
 }: ShowDetailProps) {
-  // Parsed once per render rather than per rail, and guarded: every comparison
-  // against an Invalid Date is false, so an unparseable value would silently
-  // report the whole night as not yet started. It degrades to this render's own
-  // clock instead.
-  const now = useMemo(() => {
-    const at = renderedAt ? new Date(renderedAt) : null
-    return at && Number.isFinite(at.getTime()) ? at : new Date()
-  }, [renderedAt])
+  const now = new Date(renderedAt)
   const queryClient = useQueryClient()
   const { data: show, isLoading, error } = useShow(showId)
   const { isAuthenticated, user } = useAuthContext()

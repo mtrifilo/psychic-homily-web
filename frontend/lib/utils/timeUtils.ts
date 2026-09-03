@@ -308,9 +308,10 @@ export function formatTimeInTimezone(
  * minutes are not zero.
  *
  * A dense fixed-width column, not a second site-wide clock format. The full
- * register above is what a sentence or a status line says; this one is for a
- * ledger row whose lead column is measured in pixels — `8PM` is about 22px in
- * the rails' `text-xs` mono against `8:00 PM`'s ~57px.
+ * register above is what a sentence or a form says; this one is for a ledger
+ * row whose lead column is measured in pixels — `8PM` is about 22px in the
+ * rails' `text-xs` mono against `8:00 PM`'s ~57px — and for the show page's
+ * status stripe and venue facts line, which set the same register.
  *
  * The half-hour case keeps its minutes because there is no shorter true way to
  * say 19:30, and dropping them would move a door time by half an hour.

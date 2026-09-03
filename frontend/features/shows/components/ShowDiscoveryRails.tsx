@@ -6,7 +6,6 @@ import { BracketLink, SectionHeader } from '@/components/shared'
 import { useVenueShows } from '@/features/venues/hooks/useVenues'
 import { useShowAlsoTonight } from '../hooks'
 import {
-  alsoTonightDrawnIds,
   buildAlsoTonightRail,
   buildMoreAtVenueRail,
   VENUE_RAIL_FETCH_LIMIT,
@@ -80,12 +79,11 @@ export function ShowDiscoveryRails({
    * Rows the SERVER already fetched for exactly these two requests.
    *
    * Passed to the hooks as `initialData` rather than seeded into a query key on
-   * the route, following the venue archive's precedent: the key is then built
-   * in this component from this component's own arguments, so the URL and the
-   * key cannot describe different requests. Seeding a key from the route would
-   * mean restating `VENUE_RAIL_FETCH_LIMIT` there, and a stale copy of it would
-   * register an entry the hook never reads — a silent miss that leaves the
-   * layout shift in place with every test still green.
+   * the route, following the venue archive's precedent (PSY-1756): the key is
+   * then built by the hook from the hook's own arguments, so no seed can land
+   * on an entry nothing reads. What the caller still owes is that the server
+   * asked the SAME question — see `venueRailShowsUrl`, which is why the route
+   * reads the rail's own limit rather than restating it.
    */
   initialAlsoTonight?: ShowAlsoTonightResponse
   initialVenueShows?: VenueShowsResponse
@@ -136,12 +134,11 @@ export function ShowDiscoveryRails({
     venueShows?.shows,
     venueShows?.total,
     show.id,
-    // Nothing to yield to when the other rail is not drawn: an exclusion set
-    // built from a rail the reader cannot see would silently drop bills from
+    // The ids come off the built rail, so they are by construction the rows the
+    // reader can see. Nothing to yield to when that rail was not drawn: an
+    // exclusion set from a rail nobody can see would silently drop bills from
     // the only rail they can.
-    alsoTonight
-      ? alsoTonightDrawnIds(alsoTonightPayload, show.id, now)
-      : undefined
+    alsoTonight?.drawnIds
   )
 
   if (!alsoTonight && !moreAtVenue) return null
@@ -212,13 +209,7 @@ function Rail({ rail, testId }: { rail: ShowRail; testId: string }) {
       />
       <ul>
         {rail.rows.map(row => (
-          <RailRow
-            key={row.href}
-            row={row}
-            hasRoomColumn={rail.hasRoomColumn}
-            hasAgeColumn={rail.hasAgeColumn}
-            leadKind={rail.leadKind}
-          />
+          <RailRow key={row.href} row={row} variant={rail.variant} />
         ))}
       </ul>
     </section>
@@ -243,20 +234,21 @@ function Rail({ rail, testId }: { rail: ShowRail; testId: string }) {
  */
 function RailRow({
   row,
-  hasRoomColumn,
-  hasAgeColumn,
-  leadKind,
+  variant,
 }: {
   row: RailRowData
-  hasRoomColumn: boolean
-  hasAgeColumn: boolean
-  leadKind: ShowRail['leadKind']
+  variant: ShowRail['variant']
 }) {
+  // Which columns a rail draws follows from WHICH rail it is, decided here
+  // rather than carried as a flag per column: the night's rail leads with a
+  // clock time and names a room and a door policy on every row, the room's
+  // rail leads with a date and states neither.
+  const isNight = variant === 'night'
   // A clock time in the compact register is at most `10:30PM`; a date is at
   // most `SEP 04 '27`, which is three characters longer and needs the wider
   // reservation. Both are `text-xs` mono, so the difference is real width, not
   // a rounding.
-  const leadWidth = leadKind === 'time' ? 'sm:w-14' : 'sm:w-20'
+  const leadWidth = isNight ? 'sm:w-14' : 'sm:w-20'
 
   return (
     <li className="border-b border-border/40 last:border-0">
@@ -315,7 +307,7 @@ function RailRow({
 
             Not `shrink-0`: under pressure this cell yields to the bill rather
             than pushing it out. */}
-        {hasRoomColumn && (
+        {isNight && (
           <span className="block min-w-0 truncate font-mono text-xs text-muted-foreground sm:hidden xl:block xl:w-1/6">
             {row.room ?? ''}
           </span>
@@ -333,7 +325,7 @@ function RailRow({
             below it. The width fits the short forms this column is mostly
             made of (`21+`, `18+`); a longer one truncates and the `title`
             carries the whole of it. */}
-        {hasAgeColumn && (
+        {isNight && (
           <span
             className="block min-w-0 truncate font-mono text-xs uppercase text-muted-foreground sm:hidden xl:block xl:w-10"
             title={row.age ?? undefined}

@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  alsoTonightDrawnIds,
   alsoTonightRailTitle,
   alsoTonightSeeAllHref,
   buildAlsoTonightRail,
@@ -101,7 +100,7 @@ describe('buildAlsoTonightRail', () => {
     const rail = buildAlsoTonightRail(makeAlsoTonightPayload(), 99)
     expect(rail?.rows[0]?.room).toBe('Empty Bottle')
     expect(rail?.rows[0]?.figure).toBe('$15')
-    expect(rail?.hasRoomColumn).toBe(true)
+    expect(rail?.variant).toBe('night')
   })
 
   it('leaves an absent cell EMPTY rather than collapsing its column', () => {
@@ -115,7 +114,7 @@ describe('buildAlsoTonightRail', () => {
     )
     expect(rail?.rows[0]?.room).toBeNull()
     expect(rail?.rows[0]?.figure).toBeNull()
-    expect(rail?.hasRoomColumn).toBe(true)
+    expect(rail?.variant).toBe('night')
   })
 
   it('bills the row with the mock’s separator, not the scene views’ comma', () => {
@@ -356,7 +355,7 @@ describe('buildMoreAtVenueRail', () => {
 
   it('reserves no room column — the room is the heading', () => {
     const rail = buildMoreAtVenueRail(makeRailVenue(), [makeVenueShow()], 2, 99)
-    expect(rail?.hasRoomColumn).toBe(false)
+    expect(rail?.variant).toBe('room')
     expect(rail?.rows[0]?.room).toBeNull()
   })
 
@@ -430,7 +429,7 @@ describe('cross-rail overlap', () => {
     const payload = makeAlsoTonightPayload({
       shows: [makeAlsoTonightShow({ id: 500, slug: 'late-set' })],
     })
-    const drawn = alsoTonightDrawnIds(payload, 99)
+    const drawn = buildAlsoTonightRail(payload, 99)?.drawnIds ?? new Set()
     expect(drawn.has(500)).toBe(true)
 
     const rail = buildMoreAtVenueRail(
@@ -455,7 +454,7 @@ describe('cross-rail overlap', () => {
       [makeVenueShow({ id: 500 })],
       1,
       99,
-      alsoTonightDrawnIds(payload, 99)
+      buildAlsoTonightRail(payload, 99)?.drawnIds ?? new Set()
     )
     expect(rail).toBeNull()
   })
@@ -471,7 +470,7 @@ describe('cross-rail overlap', () => {
       [makeVenueShow({ id: 500 }), makeVenueShow({ id: 501 })],
       2,
       99,
-      alsoTonightDrawnIds(payload, 99)
+      buildAlsoTonightRail(payload, 99)?.drawnIds ?? new Set()
     )
     expect(rail?.rows).toHaveLength(1)
     expect(rail?.seeAllHref).toBeNull()
@@ -499,7 +498,7 @@ describe('cross-rail overlap', () => {
       fetched,
       20,
       99,
-      alsoTonightDrawnIds(payload, 99)
+      buildAlsoTonightRail(payload, 99)?.drawnIds ?? new Set()
     )
     expect(rail?.rows).toHaveLength(SHOW_RAIL_ROW_CAP)
   })
@@ -525,7 +524,7 @@ describe('cross-rail overlap', () => {
       fetched,
       20,
       99,
-      alsoTonightDrawnIds(payload, 99)
+      buildAlsoTonightRail(payload, 99)?.drawnIds ?? new Set()
     )
     expect(rail?.rows).toHaveLength(SHOW_RAIL_ROW_CAP)
   })
@@ -536,7 +535,7 @@ describe('cross-rail overlap', () => {
     const payload = makeAlsoTonightPayload({
       shows: [1, 2, 3, 4].map(id => makeAlsoTonightShow({ id: 500 + id })),
     })
-    const drawn = alsoTonightDrawnIds(payload, 99)
+    const drawn = buildAlsoTonightRail(payload, 99)?.drawnIds ?? new Set()
     expect(drawn.has(504)).toBe(false)
 
     const rail = buildMoreAtVenueRail(
@@ -647,14 +646,13 @@ describe('the age column', () => {
       99
     )?.rows[0]
 
-  it('reserves the column on the night rail and not on the room rail', () => {
+  it('is a NIGHT-rail column, filled on its rows and absent from the room rail', () => {
+    expect(buildAlsoTonightRail(makeAlsoTonightPayload(), 99)?.rows[0]?.age)
+      .toBe('21+')
     expect(
-      buildAlsoTonightRail(makeAlsoTonightPayload(), 99)?.hasAgeColumn
-    ).toBe(true)
-    expect(
-      buildMoreAtVenueRail(makeRailVenue(), [makeVenueShow()], 1, 99)
-        ?.hasAgeColumn
-    ).toBe(false)
+      buildMoreAtVenueRail(makeRailVenue(), [makeVenueShow()], 1, 99)?.rows[0]
+        ?.age
+    ).toBeNull()
   })
 
   it('falls back to the room house policy when the event states none', () => {
@@ -804,17 +802,23 @@ describe('live-night ordering', () => {
       ],
     })
     const rail = buildAlsoTonightRail(payload, 99, at930)
-    const drawn = alsoTonightDrawnIds(payload, 99, at930)
-    expect([...drawn].sort((a, b) => a - b)).toEqual([1, 2, 10])
-    expect(rail?.rows).toHaveLength(3)
+    // The set comes off the rail that was actually built, so it cannot name a
+    // row the reader is not looking at — the ids and the hrefs are two readings
+    // of one pass.
+    expect([...(rail?.drawnIds ?? [])].sort((a, b) => a - b)).toEqual([1, 2, 10])
+    expect(rail?.rows.map(row => row.href)).toEqual([
+      '/shows/ten',
+      '/shows/s1',
+      '/shows/s2',
+    ])
   })
 })
 
 describe('venueRailShowsUrl', () => {
   it('sends the limit the rail hook sends, read from the constant', () => {
-    // The seed and the hook must describe the SAME request: the hook keys on
-    // what it sent, so a restated limit here would seed an entry it never
-    // reads and the rail would fetch client-side anyway.
+    // The server and the hook must ask the same QUESTION. The rows the server
+    // reads become the only page the rail ever filters, so a smaller limit
+    // restated on the route would seed a page its two filters can empty out.
     expect(venueRailShowsUrl(10)).toContain(`limit=${VENUE_RAIL_FETCH_LIMIT}`)
     expect(venueRailShowsUrl(10)).toContain('time_filter=upcoming')
     expect(venueRailShowsUrl(10)).toContain('/venues/10/shows?')

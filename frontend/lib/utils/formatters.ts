@@ -207,13 +207,16 @@ export function formatShowTime(
  * A show time in the COMPACT ledger register: "8PM", or "7:30PM" on the half
  * hour (user decision, PSY-1970).
  *
- * For DENSE LEDGER surfaces only — a fixed-width lead column in a row of
- * columns, where the full register's width is the difference between a legible
- * bill and an ellipsis. Everything that sets a time into prose, a status line
- * or a form uses {@link formatShowTime}, which stays the site's spoken clock.
- * The two registers therefore appear on one page, which is accepted: a stripe
- * saying DOORS 8:00 PM above a ledger row reading 8PM is two voices, not two
- * facts.
+ * For DENSE LEDGER surfaces — a fixed-width lead column in a row of columns,
+ * where the full register's width is the difference between a legible bill and
+ * an ellipsis. Everything that sets a time into prose, a form or a sentence
+ * uses {@link formatShowTime}, which stays the site's spoken clock. Both
+ * registers can appear on one page, and that is accepted: the same fact said
+ * in two voices is not two facts.
+ *
+ * The show page's status stripe and venue facts line already read this register
+ * through `formatCompactTimeInTimezone`, which is where the assembly rule
+ * lives; this function only adds the show-shaped zone resolution.
  *
  * Shares `resolveShowTimezone` with `formatShowTime` deliberately: the register
  * is the only thing that differs, so a rail can never resolve a room's clock by
