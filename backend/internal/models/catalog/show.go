@@ -86,10 +86,12 @@ type Show struct {
 	// the frontend), and the data-quality "missing price" report, which asks
 	// whether the site knows the cost AT ALL and so accepts either column.
 	//
-	// STILL UNSWEPT: the discovery ingest path carries no door price end to
-	// end -- neither contracts.DiscoveredEvent nor the scrapers that fill it
-	// name one, so createShowFromEvent has nothing to write. The `ph` CLI and
-	// the iOS client do carry the pair.
+	// The discovery ingest reads a split out of the single price STRING a
+	// scrape reports (parseEventPrices), so it carries one exactly as far as
+	// that string does. Of the five scrapers only the raw-text one can hand a
+	// split over at all: ticketweb's extractPrice keeps the first "$N" in the
+	// page, and the JSON-LD and Wix ones build "$N" from a numeric offer. The
+	// `ph` CLI and the iOS client carry the pair.
 	Price          *float64
 	DoorPrice      *float64 `gorm:"column:door_price"`
 	AgeRequirement *string

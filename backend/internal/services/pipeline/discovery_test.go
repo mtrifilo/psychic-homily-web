@@ -589,6 +589,90 @@ func TestSplitAndTrim_NoSeparator(t *testing.T) {
 }
 
 // =============================================================================
+// UNIT TESTS — parseEventPrices
+// =============================================================================
+
+// priceOf renders a parsed half for a failure message without dereferencing nil.
+func priceOf(p *float64) string {
+	if p == nil {
+		return "nil"
+	}
+	return fmt.Sprintf("%.2f", *p)
+}
+
+func TestParseEventPrices_SourceShapes(t *testing.T) {
+	f := func(v float64) *float64 { return &v }
+
+	cases := []struct {
+		name    string
+		in      string
+		advance *float64
+		door    *float64
+	}{
+		// The shapes that already worked, which must keep working.
+		{"bare dollar amount", "$18", f(18), nil},
+		{"cents", "$23.81", f(23.81), nil},
+		{"no dollar sign", "20", f(20), nil},
+		{"free", "Free", f(0), nil},
+		{"no cover", "No Cover", f(0), nil},
+		{"empty", "", nil, nil},
+		{"unpriced text", "TBA", nil, nil},
+
+		// The data loss this parser exists to fix: every one of these stored
+		// NULL for BOTH halves, because the whole string was handed to
+		// ParseFloat.
+		{"adv slash door", "$20 adv / $25 door", f(20), f(25)},
+		{"advance spelled out", "$20 advance / $25 at the door", f(20), f(25)},
+		{"presale comma door", "$20 presale, $25 at the door", f(20), f(25)},
+		{"labels lead the amounts", "adv $20 / door $25", f(20), f(25)},
+		{"door stated first", "$25 door / $20 adv", f(20), f(25)},
+		{"day of show", "$20 / $25 day of show", f(20), f(25)},
+		{"non-breaking spaces", "$20\u00a0adv\u00a0/\u00a0$25\u00a0door", f(20), f(25)},
+		{"cents on both halves", "$20.00 adv / $25.50 door", f(20), f(25.5)},
+		{"space after the sign", "$ 20 adv / $ 25 door", f(20), f(25)},
+
+		// Several amounts with no door label are a ticket-tier range, and
+		// neither bound is the cost of getting in. SeeTickets serves these
+		// verbatim out of span.price -- "$10.00-$30.00" was read off the live
+		// Rebel Lounge calendar -- and both halves stay unstated, which is what
+		// this parser already did with them.
+		{"tier range", "$10.00-$30.00", nil, nil},
+		{"bare slash pair", "$20/$25", nil, nil},
+		{"price plus a fee", "$20 (plus $3 fees)", nil, nil},
+
+		// A door word that belongs to the doors TIME states no second price.
+		{"doors time", "$20, doors at 7", f(20), nil},
+		{"doors open", "$20 doors open 8pm", f(20), nil},
+		{"doors time beside a range", "$20/$25, doors at 7", nil, nil},
+
+		// A lone amount is the show's price whatever word sits beside it.
+		{"lone door amount", "$25 at the door", f(25), nil},
+		{"lone advance amount", "$20 adv", f(20), nil},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			advance, door := parseEventPrices(tc.in)
+			assert.Equal(t, tc.advance, advance, "advance: got %s", priceOf(advance))
+			assert.Equal(t, tc.door, door, "door: got %s", priceOf(door))
+		})
+	}
+}
+
+// The explicit-only rule, stated as a property rather than a table row: no
+// input that names a single amount may ever produce a door price. Inventing one
+// would publish a wrong number about money, which is the failure the poster
+// extraction refuses in the same words.
+func TestParseEventPrices_NeverInfersADoorPriceFromOneAmount(t *testing.T) {
+	for _, in := range []string{
+		"$20", "20", "$20 adv", "$25 at the door", "$20 door", "Free", "$20 general admission",
+	} {
+		_, door := parseEventPrices(in)
+		assert.Nil(t, door, "%q states one price and must yield no door price", in)
+	}
+}
+
+// =============================================================================
 // testVenueFinderCreator — lightweight impl of venueFinderCreator for tests
 // =============================================================================
 
@@ -837,6 +921,101 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_UpdateLeavesTimeCol
 	suite.Require().NoError(suite.db.Where("source_event_id = ?", "evt-times-005").First(&show).Error)
 	suite.Nil(show.DoorsAt)
 	suite.Nil(show.MusicAt)
+}
+
+// =============================================================================
+// ImportEvents — advance / door price split
+// =============================================================================
+
+func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_WritesAStatedPriceSplit() {
+	event := suite.makeEvent("evt-price-001", "Duster", "valley-bar", "2026-06-15", []string{"Duster"})
+	event.Price = strPtr("$20 adv / $25 door")
+
+	result, err := suite.svc.ImportEvents([]contracts.DiscoveredEvent{event}, false, false, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Equal(1, result.Imported)
+
+	var show catalogm.Show
+	suite.Require().NoError(suite.db.Where("source_event_id = ?", "evt-price-001").First(&show).Error)
+	suite.Require().NotNil(show.Price)
+	suite.Require().NotNil(show.DoorPrice)
+	suite.InDelta(20.0, *show.Price, 0.001)
+	suite.InDelta(25.0, *show.DoorPrice, 0.001)
+}
+
+func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_LeavesDoorPriceUnsetForOneStatedPrice() {
+	event := suite.makeEvent("evt-price-002", "Codeine", "valley-bar", "2026-06-16", []string{"Codeine"})
+	event.Price = strPtr("$20")
+
+	result, err := suite.svc.ImportEvents([]contracts.DiscoveredEvent{event}, false, false, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Equal(1, result.Imported)
+
+	var show catalogm.Show
+	suite.Require().NoError(suite.db.Where("source_event_id = ?", "evt-price-002").First(&show).Error)
+	suite.Require().NotNil(show.Price)
+	suite.InDelta(20.0, *show.Price, 0.001)
+	suite.Nil(show.DoorPrice, "a door price must never be derived from the advance price")
+}
+
+// A re-scrape moves each half on its own, and moves neither without a stated
+// replacement. Advance and door are separate facts about money, so a venue
+// raising the advance price must not silently drag the door price with it.
+func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_UpdateMovesEachPriceHalfSeparately() {
+	event := suite.makeEvent("evt-price-003", "Ovlov", "valley-bar", "2026-06-17", []string{"Ovlov"})
+	event.Price = strPtr("$20 adv / $25 door")
+
+	result, err := suite.svc.ImportEvents([]contracts.DiscoveredEvent{event}, false, false, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Equal(1, result.Imported)
+
+	event.Price = strPtr("$22 adv / $25 door")
+	updated, err := suite.svc.ImportEvents([]contracts.DiscoveredEvent{event}, false, true, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Equal(1, updated.Updated)
+	suite.Require().Len(updated.Messages, 1)
+	suite.Contains(updated.Messages[0], "price: $20.00 -> $22.00")
+	suite.NotContains(updated.Messages[0], "doorPrice:", "an unchanged door price is not a change")
+
+	var show catalogm.Show
+	suite.Require().NoError(suite.db.Where("source_event_id = ?", "evt-price-003").First(&show).Error)
+	suite.Require().NotNil(show.Price)
+	suite.Require().NotNil(show.DoorPrice)
+	suite.InDelta(22.0, *show.Price, 0.001)
+	suite.InDelta(25.0, *show.DoorPrice, 0.001)
+
+	// The door half alone moving names itself in the change log.
+	event.Price = strPtr("$22 adv / $30 door")
+	updated, err = suite.svc.ImportEvents([]contracts.DiscoveredEvent{event}, false, true, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Equal(1, updated.Updated)
+	suite.Require().Len(updated.Messages, 1)
+	suite.Contains(updated.Messages[0], "doorPrice: $25.00 -> $30.00")
+
+	suite.Require().NoError(suite.db.Where("source_event_id = ?", "evt-price-003").First(&show).Error)
+	suite.Require().NotNil(show.DoorPrice)
+	suite.InDelta(30.0, *show.DoorPrice, 0.001)
+}
+
+// The absence rule both halves share: a listing that stops stating a price
+// leaves the stored one alone. Dropping the door line is not an announcement
+// that the door is free.
+func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_UpdateKeepsAPriceTheRescrapeStopsStating() {
+	event := suite.makeEvent("evt-price-004", "Hovvdy", "valley-bar", "2026-06-18", []string{"Hovvdy"})
+	event.Price = strPtr("$20 adv / $25 door")
+
+	result, err := suite.svc.ImportEvents([]contracts.DiscoveredEvent{event}, false, false, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Equal(1, result.Imported)
+
+	event.Price = strPtr("$20")
+	_, err = suite.svc.ImportEvents([]contracts.DiscoveredEvent{event}, false, true, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+
+	var show catalogm.Show
+	suite.Require().NoError(suite.db.Where("source_event_id = ?", "evt-price-004").First(&show).Error)
+	suite.Require().NotNil(show.DoorPrice)
+	suite.InDelta(25.0, *show.DoorPrice, 0.001)
 }
 
 func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_SourceDuplicate() {

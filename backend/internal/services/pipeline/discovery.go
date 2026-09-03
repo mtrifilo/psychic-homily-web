@@ -397,6 +397,8 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 		aiConfidence := 0.8
 		now := time.Now()
 
+		advancePrice, doorPrice := parseEventPrices(ptrStr(event.Price))
+
 		show := &catalogm.Show{
 			Title:             event.Title,
 			EventDate:         eventDate.UTC(),
@@ -414,7 +416,8 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 			SourceConfidence:  &aiConfidence,
 			LastVerifiedAt:    &now,
 			DuplicateOfShowID: duplicateOfShowID,
-			Price:             parsePriceString(ptrStr(event.Price)),
+			Price:             advancePrice,
+			DoorPrice:         doorPrice,
 			AgeRequirement:    event.AgeRestriction,
 		}
 
@@ -632,9 +635,12 @@ func (s *DiscoveryService) updateShowFromEvent(existing *catalogm.Show, event *c
 	updates := make(map[string]interface{})
 	var changes []string
 
-	// Compare price
+	// Compare price. Both halves follow the same absence rule: a re-scrape that
+	// states no price, or states one this parser cannot read, leaves the stored
+	// value alone rather than clearing it. A venue that drops the door line from
+	// a listing has not announced that the door is free.
 	if event.Price != nil {
-		newPrice := parsePriceString(*event.Price)
+		newPrice, newDoorPrice := parseEventPrices(*event.Price)
 		if newPrice != nil {
 			if existing.Price == nil || *existing.Price != *newPrice {
 				updates["price"] = *newPrice
@@ -643,6 +649,16 @@ func (s *DiscoveryService) updateShowFromEvent(existing *catalogm.Show, event *c
 					oldStr = fmt.Sprintf("$%.2f", *existing.Price)
 				}
 				changes = append(changes, fmt.Sprintf("price: %s -> $%.2f", oldStr, *newPrice))
+			}
+		}
+		if newDoorPrice != nil {
+			if existing.DoorPrice == nil || *existing.DoorPrice != *newDoorPrice {
+				updates["door_price"] = *newDoorPrice
+				oldStr := "nil"
+				if existing.DoorPrice != nil {
+					oldStr = fmt.Sprintf("$%.2f", *existing.DoorPrice)
+				}
+				changes = append(changes, fmt.Sprintf("doorPrice: %s -> $%.2f", oldStr, *newDoorPrice))
 			}
 		}
 	}
@@ -1031,23 +1047,140 @@ func ptrStr(s *string) string {
 	return *s
 }
 
-// parsePriceString parses a price string like "$18", "$23.81", "Free" into a float64
-func parsePriceString(s string) *float64 {
-	if s == "" {
-		return nil
+// statedAmount matches one dollar amount a listing states. The optional space
+// after the sign is deliberate: scraped price text renders "$ 20" often enough
+// to matter, and the sign is what separates an amount from a door time or an
+// age restriction sharing the same string.
+var statedAmount = regexp.MustCompile(`\$\s*(\d{1,6}(?:\.\d{1,2})?)`)
+
+// doorLabel matches the words a listing uses to mark an amount as the price AT
+// THE DOOR. "doors open at 8" is excluded by the lookalike guard in
+// labelledDoorAmount rather than here, because Go's RE2 has no lookahead.
+var doorLabel = regexp.MustCompile(`(?i)\b(?:at\s+the\s+door|doors?|day[\s-]of[\s-]show)\b`)
+
+// doorLabelLookalike matches the door word used for the DOORS TIME rather than
+// a price. A listing reading "$20, doors at 7" states one price, not two.
+var doorLabelLookalike = regexp.MustCompile(`(?i)^\s*(?:open|at\b|@|\d)`)
+
+// doorLabelReach bounds how far from an amount a door label may sit and still
+// describe it, in bytes of the gap between them. "$20 presale, $25 at the door"
+// puts eight characters between the amount and the word.
+const doorLabelReach = 24
+
+// parseEventPrices reads the ADVANCE price and the DOOR price out of the single
+// price string a scrape reports.
+//
+// A listing states one price ("$18"), no price, "free", or two prices with the
+// door half labelled ("$20 adv / $25 door", "$20 presale, $25 at the door").
+//
+// SEVERAL STATED AMOUNTS WITH NO DOOR LABEL YIELD NO PRICE AT ALL. They are a
+// ticket-tier range -- SeeTickets serves "$10.00-$30.00" verbatim out of
+// span.price -- and neither bound is the cost of getting in. Publishing the
+// lower one would tell a reader $10 about a $30 show, which is the same failure
+// as rendering an advance price alone on a show with a dearer door: not a
+// smaller version of the truth, a wrong number about money. Silence is the
+// truthful answer, and it is what this parser already returned for them.
+//
+// Nothing is ever inferred: no amount becomes a door price without a word
+// naming it one, the rule the poster extraction follows in the same words (see
+// extractionSystemPrompt).
+//
+// A nil return on either half means "not stated". Zero means free, so both are
+// pointers.
+func parseEventPrices(s string) (advance, door *float64) {
+	normalized := normalizePriceWhitespace(s)
+	if normalized == "" {
+		return nil, nil
 	}
-	lower := strings.ToLower(strings.TrimSpace(s))
+
+	lower := strings.ToLower(normalized)
 	if lower == "free" || lower == "no cover" {
 		val := 0.0
-		return &val
+		return &val, nil
 	}
-	// Strip "$" prefix
-	cleaned := strings.TrimPrefix(lower, "$")
-	val, err := strconv.ParseFloat(cleaned, 64)
+
+	amounts := statedAmount.FindAllStringSubmatchIndex(normalized, -1)
+	if len(amounts) == 0 {
+		// A bare number with no sign, which some listings serve.
+		val, err := strconv.ParseFloat(lower, 64)
+		if err != nil {
+			return nil, nil
+		}
+		return &val, nil
+	}
+
+	// One stated amount is the show's price whatever word sits beside it.
+	// "$25 at the door" and "$20 adv" each name one number, and every register
+	// renders a lone price the same way regardless of which column holds it.
+	if len(amounts) == 1 {
+		return amountAt(normalized, amounts[0]), nil
+	}
+
+	doorIdx := labelledDoorAmount(normalized, amounts)
+	if doorIdx < 0 {
+		return nil, nil
+	}
+
+	advanceIdx := 0
+	if doorIdx == 0 {
+		advanceIdx = 1
+	}
+	return amountAt(normalized, amounts[advanceIdx]), amountAt(normalized, amounts[doorIdx])
+}
+
+// labelledDoorAmount returns the index in amounts of the one a door label
+// describes, or -1 when the string labels none. A label between two amounts
+// describes the nearer of the two, which is what separates "$20 adv / $25 door"
+// from "adv $20 / door $25" without needing to know the order.
+func labelledDoorAmount(s string, amounts [][]int) int {
+	best := -1
+	bestDistance := doorLabelReach + 1
+
+	for _, label := range doorLabel.FindAllStringIndex(s, -1) {
+		if doorLabelLookalike.MatchString(s[label[1]:]) {
+			continue
+		}
+		for i, m := range amounts {
+			distance := 0
+			switch {
+			case label[1] <= m[0]:
+				distance = m[0] - label[1]
+			case label[0] >= m[1]:
+				distance = label[0] - m[1]
+			}
+			if distance < bestDistance {
+				bestDistance = distance
+				best = i
+			}
+		}
+	}
+	return best
+}
+
+// amountAt reads the capture group of one statedAmount match.
+func amountAt(s string, match []int) *float64 {
+	val, err := strconv.ParseFloat(s[match[2]:match[3]], 64)
 	if err != nil {
 		return nil
 	}
 	return &val
+}
+
+// normalizePriceWhitespace folds every kind of space a scrape can carry into a
+// plain one and trims the ends. Scraped venue HTML renders U+00A0 inside price
+// and time strings, and the labels this parser reads are separated by exactly
+// that character often enough to lose a door price to it.
+func normalizePriceWhitespace(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if unicode.IsSpace(r) {
+			b.WriteRune(' ')
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return strings.TrimSpace(b.String())
 }
 
 // splitAndTrim splits a string by separator and trims whitespace from each part
