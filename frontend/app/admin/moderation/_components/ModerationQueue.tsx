@@ -143,6 +143,32 @@ function renderValue(value: unknown): string {
   return String(value)
 }
 
+/**
+ * How far updated_at must lead created_at before a pending request counts as
+ * revised (PSY-1975).
+ *
+ * The two stamps are written by the same INSERT but not from one clock read, so
+ * a row nobody has touched can carry a sub-second gap. A minute is far above
+ * that and far below any real correction, which needs a human round trip.
+ */
+const REVISED_MIN_GAP_MS = 60 * 1000
+
+/**
+ * True when a PENDING entity request was rewritten after it was filed: a
+ * resubmission replaces the queued row's payload in place (PSY-1948), moving
+ * updated_at while created_at stays where the queue sorts on it.
+ *
+ * Scoped to pending rows by its callers. On a decided row the same gap only
+ * means the decision was stamped, which is not a revision.
+ */
+function wasRevisedSinceFiling(createdAt: string, updatedAt: string | undefined): boolean {
+  if (!updatedAt) return false
+  const created = new Date(createdAt).getTime()
+  const updated = new Date(updatedAt).getTime()
+  if (Number.isNaN(created) || Number.isNaN(updated)) return false
+  return updated - created > REVISED_MIN_GAP_MS
+}
+
 // ─── Filter Types ────────────────────────────────────────────────────────────
 
 // 'needs_attention' (PSY-1088) is the rescue view: approved-but-unfulfilled
@@ -813,6 +839,9 @@ function RequestCard({
     () => (isShow ? parsePayloadBill(request.payload) : []),
     [isShow, request.payload]
   )
+  // This card renders pending rows only, so a moved updated_at is a rewritten
+  // submission and nothing else (PSY-1975).
+  const isRevised = wasRevisedSinceFiling(request.created_at, request.updated_at)
 
   const handleCreate = useCallback(() => {
     if (isShow) {
@@ -857,13 +886,28 @@ function RequestCard({
             <Badge variant="outline" className="shrink-0">
               {entityTypeLabel(request.entity_type)}
             </Badge>
+            {/* PSY-1975: the payload under this card is not the one that was
+                filed. Amber is this file's "worth knowing before you act"
+                register and is legible in both themes. */}
+            {isRevised && (
+              <Badge
+                variant="outline"
+                className="shrink-0 border-amber-500/40 text-amber-700 dark:text-amber-400"
+              >
+                Revised
+              </Badge>
+            )}
             <span className="text-sm font-medium text-foreground truncate">
               {entityLabel}
             </span>
           </div>
-          <span className="text-xs text-muted-foreground shrink-0">
-            {timeAgo(request.created_at)}
-          </span>
+          {/* created_at stays the headline stamp: it is what the queue sorts
+              on, so the card keeps its place while the revision reads as the
+              second line. */}
+          <div className="flex flex-col items-end shrink-0 text-xs text-muted-foreground">
+            <span>{timeAgo(request.created_at)}</span>
+            {isRevised && <span>revised {timeAgo(request.updated_at)}</span>}
+          </div>
         </div>
 
         {/* Attribution + source context */}

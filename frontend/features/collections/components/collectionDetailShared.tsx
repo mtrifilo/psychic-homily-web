@@ -34,6 +34,18 @@ export const ENTITY_ICONS: Record<string, React.ElementType> = {
 }
 
 /**
+ * What a `replaced: true` creation request means to the person who filed it
+ * (PSY-1975): the queue holds ONE request under this name, and it now carries
+ * what they just submitted.
+ *
+ * Defined once because both queue-create surfaces (the AI filler's per-row chip
+ * and the paste picker's per-line chip) say it, and two copies of a sentence
+ * the owner wrote are two sentences that drift.
+ */
+export const REPLACED_REQUEST_EXPLANATION =
+  'Your earlier request was replaced with this one'
+
+/**
  * PSY-609: render a 4xx mutation failure with copy that handles the common
  * "this collection is private" case (403). Falls back to the server's
  * `detail`/`message` for everything else, then to a generic copy.

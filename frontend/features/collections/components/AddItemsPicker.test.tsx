@@ -840,6 +840,52 @@ describe('AddItemsPicker', () => {
     })
   })
 
+  // PSY-1975: `replaced: true` means the POST corrected the requester's own
+  // queued request rather than filing a new one.
+  it('Paste mode: a replaced request reads UPDATED and explains itself', async () => {
+    mockApiRequest.mockResolvedValue({ replaced: true })
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await user.click(screen.getByTestId('tab-paste'))
+    await pasteInto(user, 'Corrected Artist')
+
+    const chip = await screen.findByTestId('add-items-picker-paste-row-queued')
+    expect(chip).toHaveTextContent('UPDATED')
+    expect(chip).not.toHaveTextContent('FOR REVIEW')
+    expect(chip).toHaveTextContent(
+      'Your earlier request was replaced with this one'
+    )
+    expect(chip).toHaveAttribute(
+      'title',
+      'Your earlier request was replaced with this one'
+    )
+    // The row is still queued for review, so it still counts toward the tally.
+    expect(screen.getByText('1 for review')).toBeInTheDocument()
+  })
+
+  it('Paste mode: a retry does not inherit the previous attempt UPDATED verdict', async () => {
+    mockApiRequest.mockResolvedValueOnce({ replaced: true })
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await user.click(screen.getByTestId('tab-paste'))
+    await pasteInto(user, 'Corrected Artist')
+
+    expect(
+      await screen.findByTestId('add-items-picker-paste-row-queued')
+    ).toHaveTextContent('UPDATED')
+
+    // A second paste of the same line re-files it; the endpoint reports a
+    // first filing this time, and the chip must follow.
+    mockApiRequest.mockResolvedValue({ replaced: false })
+    await pasteInto(user, 'Corrected Artist Again')
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('add-items-picker-paste-row-queued')
+      ).toHaveTextContent('FOR REVIEW')
+    )
+  })
+
   it('Paste mode: a failed queue POST shows a Retry that re-fires the request', async () => {
     mockApiRequest.mockRejectedValueOnce(new Error('boom'))
     const user = userEvent.setup()

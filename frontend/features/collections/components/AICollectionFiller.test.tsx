@@ -491,13 +491,17 @@ describe('AICollectionFiller', () => {
   function stubFetch(
     decisionState: 'approved' | 'pending',
     ok = true,
-    createdEntityId?: number
+    createdEntityId?: number,
+    // PSY-1948's replacement flag. The endpoint always sends it; default false
+    // so the existing callers keep describing a first filing.
+    replaced = false
   ) {
     const fetchMock = vi.fn().mockResolvedValue({
       ok,
       json: async () => ({
         id: 7,
         decision_state: decisionState,
+        replaced,
         ...(createdEntityId !== undefined
           ? { created_entity_id: createdEntityId }
           : {}),
@@ -675,6 +679,49 @@ describe('AICollectionFiller', () => {
     )
     expect(chip).toHaveTextContent('Requested')
     expect(onStage).not.toHaveBeenCalled()
+  })
+
+  // ─── Replaced submissions (PSY-1975) ───────────────────────────────────────
+
+  it('a replaced submission reads "Updated", not "Queued"', async () => {
+    mockUser = { is_admin: false, user_tier: 'contributor' }
+    stubFetch('pending', true, undefined, true)
+    const user = userEvent.setup()
+    await extractOneUnmatchedRow(user)
+
+    await user.click(screen.getByTestId('ai-collection-filler-row-request'))
+
+    const chip = await screen.findByTestId(
+      'ai-collection-filler-row-request-chip'
+    )
+    expect(chip).toHaveTextContent('Updated')
+    expect(chip).not.toHaveTextContent('Queued')
+    // The word alone does not say which request the queue now holds, and the
+    // Badge is a bare <div>, so the sentence must be in the accessible name's
+    // own text rather than an aria-label.
+    expect(chip).toHaveTextContent(
+      'Your earlier request was replaced with this one'
+    )
+    expect(chip).toHaveAttribute(
+      'title',
+      'Your earlier request was replaced with this one'
+    )
+  })
+
+  it('a first filing keeps "Queued" and carries no replacement explanation', async () => {
+    mockUser = { is_admin: false, user_tier: 'contributor' }
+    stubFetch('pending', true, undefined, false)
+    const user = userEvent.setup()
+    await extractOneUnmatchedRow(user)
+
+    await user.click(screen.getByTestId('ai-collection-filler-row-request'))
+
+    const chip = await screen.findByTestId(
+      'ai-collection-filler-row-request-chip'
+    )
+    expect(chip).toHaveTextContent('Queued')
+    expect(chip).not.toHaveTextContent('replaced')
+    expect(chip).not.toHaveAttribute('title')
   })
 
   it('a failed entity-request shows an inline error and keeps the button', async () => {

@@ -41,6 +41,7 @@ import { Badge } from '@/components/ui/badge'
 import { InlineErrorBanner } from '@/components/shared'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useCollectionExtraction } from '../hooks'
+import { REPLACED_REQUEST_EXPLANATION } from './collectionDetailShared'
 import type {
   ExtractedCollectionData,
   ExtractedCollectionItem,
@@ -158,8 +159,10 @@ function createAffordanceFor(
 // is staged into the collection (true inline create-and-add); 'requested' =
 // approved but the entity wasn't auto-created (e.g. a show, whose venue +
 // artists an admin can only supply while the request is still pending —
-// PSY-1037); 'queued' = pending admin review.
-type RequestOutcome = 'created' | 'requested' | 'queued'
+// PSY-1037); 'queued' = pending admin review; 'updated' = pending admin review
+// on the requester's OWN earlier request, which this submission replaced
+// (PSY-1948's `replaced`).
+type RequestOutcome = 'created' | 'requested' | 'queued' | 'updated'
 
 interface QueueEntityRequestVars {
   /** The unmatched row this request was filed from (used for per-row state). */
@@ -217,12 +220,21 @@ function useQueueEntityRequest() {
         typeof data?.created_entity_id === 'number'
           ? data.created_entity_id
           : undefined
+      // PSY-1948 answers `replaced: true` when the submission corrected the
+      // requester's own queued request instead of filing a new one. It is
+      // read AFTER the two approved outcomes because it can only ever be true
+      // of a pending row (an auto-approving tier is stamped 'approved' before
+      // the insert and so never meets the pending-only dedup index), and
+      // because "the entity exists" is the more useful thing to say when both
+      // could apply.
       const outcome: RequestOutcome =
         createdEntityId !== undefined
           ? 'created'
           : data?.decision_state === 'approved'
             ? 'requested'
-            : 'queued'
+            : data?.replaced === true
+              ? 'updated'
+              : 'queued'
       return { outcome, rowKey: vars.rowKey, createdEntityId }
     },
   })
@@ -868,12 +880,24 @@ function ExtractedRow({
               variant="secondary"
               className="text-xs shrink-0 motion-safe:animate-in motion-safe:fade-in"
               data-testid="ai-collection-filler-row-request-chip"
+              title={
+                requestOutcome === 'updated' ? REPLACED_REQUEST_EXPLANATION : undefined
+              }
             >
               {requestOutcome === 'created'
                 ? 'Added'
                 : requestOutcome === 'queued'
                   ? 'Queued'
-                  : 'Requested'}
+                  : requestOutcome === 'updated'
+                    ? 'Updated'
+                    : 'Requested'}
+              {/* The chip's own word does not say WHICH request is queued, and
+                  a title attribute reaches neither a screen reader nor a touch
+                  device. An aria-label would not survive either: the Badge
+                  renders a bare <div>, on which browsers drop it. */}
+              {requestOutcome === 'updated' && (
+                <span className="sr-only"> {REPLACED_REQUEST_EXPLANATION}</span>
+              )}
             </Badge>
           ) : affordance === 'none' ? null : confirming ? (
             // trusted_contributor inline confirm — irreversible creation.

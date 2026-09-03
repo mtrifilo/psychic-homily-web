@@ -1405,6 +1405,75 @@ describe('ModerationQueue', () => {
     })
   })
 
+  // ── PSY-1975: a request whose payload was rewritten after it was filed ────
+  //
+  // A resubmission replaces the queued row's submission in place, so updated_at
+  // moves and created_at does not. The card says so; the queue does not
+  // reshuffle, because it still sorts on created_at.
+  describe('revised request (PSY-1975)', () => {
+    const revisedRequest: AdminEntityRequest = {
+      ...mockEntityRequest,
+      id: 60,
+      payload: { name: 'Corrected Band' },
+      source_detail: null,
+      created_at: '2026-04-08T00:00:00Z',
+      updated_at: '2026-04-08T04:00:00Z',
+    }
+
+    it('badges a revised request and stamps when the revision landed', () => {
+      setDefaultMocks({ requests: [revisedRequest] })
+      render(<ModerationQueue />)
+
+      expect(screen.getByText('Revised')).toBeInTheDocument()
+      // The filing stamp stays the headline; the revision reads beside it.
+      expect(screen.getByText(/^revised /)).toBeInTheDocument()
+    })
+
+    it('leaves an untouched request unbadged', () => {
+      setDefaultMocks({ requests: [mockEntityRequest] })
+      render(<ModerationQueue />)
+
+      expect(screen.queryByText('Revised')).not.toBeInTheDocument()
+    })
+
+    it('ignores a sub-minute gap between the two stamps', () => {
+      // One INSERT writes both, and not from a single clock read, so a row
+      // nobody has touched can carry a small gap.
+      setDefaultMocks({
+        requests: [
+          {
+            ...revisedRequest,
+            created_at: '2026-04-08T00:00:00Z',
+            updated_at: '2026-04-08T00:00:30Z',
+          },
+        ],
+      })
+      render(<ModerationQueue />)
+
+      expect(screen.queryByText('Revised')).not.toBeInTheDocument()
+    })
+
+    it('keeps the revised card in its filed-at position', () => {
+      const older: AdminEntityRequest = {
+        ...mockEntityRequest,
+        id: 61,
+        payload: { name: 'Older Band' },
+        source_detail: null,
+        created_at: '2026-04-07T00:00:00Z',
+        updated_at: '2026-04-07T00:00:00Z',
+      }
+      // The revised row was filed LAST but revised most recently: sorting on
+      // updated_at would move it ahead of the older card under the reader.
+      setDefaultMocks({ requests: [older, revisedRequest] })
+      render(<ModerationQueue />)
+
+      const names = screen
+        .getAllByText(/Band$/)
+        .map(node => node.textContent)
+      expect(names).toEqual(['Older Band', 'Corrected Band'])
+    })
+  })
+
   // ── PSY-1088: approved-but-unfulfilled rescue queue ──────────────────────
   describe('rescue queue (needs attention)', () => {
     const orphanArtist: AdminEntityRequest = {
