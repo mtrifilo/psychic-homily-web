@@ -57,6 +57,7 @@ export async function runCheck(config: MonitorConfig, now: Date): Promise<Report
       expectedByFamily: expected.byFamily,
       observedByShard: observation.observedByShard,
       expectedByShard: expected.byShard,
+      unservedShards: expected.unservedShards,
       futureShowCount: countFutureShows(observation.showDates, isoDate(now)),
       samples,
       errors: observation.errors,

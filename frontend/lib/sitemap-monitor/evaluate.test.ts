@@ -28,6 +28,7 @@ function input(overrides: Partial<EvaluationInput> = {}): EvaluationInput {
     expectedByFamily: counts(),
     observedByShard: new Map(),
     expectedByShard: new Map(),
+    unservedShards: [],
     futureShowCount: 500,
     samples: [],
     errors: [],
@@ -291,18 +292,48 @@ describe('evaluate, per shard', () => {
     expect(report.shards.map(s => s.shard)).not.toContain(missing)
   })
 
-  // fetchExpectedCounts throws rather than return a partial expectation, so a
-  // missing count means a caller built one by hand. Zero would read as
-  // over-coverage, which blames the sitemap for a feed problem.
-  it('fails a document the feed reported no count for', () => {
+  // A document with no expected count is not scored: inventing a zero would
+  // print a failure whose own numbers say nothing failed. The reason it has no
+  // count is reported by its own class, below.
+  it('does not score a document the feed reported no count for', () => {
     const unexpected = SHOWS_BUCKETS[4]
     const base = showBuckets(1600)
     const expected = new Map(base.expectedByShard)
     expected.delete(unexpected)
     const report = evaluate({ ...base, expectedByShard: expected }, config)
 
+    expect(report.shards.map(s => s.shard)).not.toContain(unexpected)
+  })
+
+  /**
+   * The deploy window this whole scheme is built to tolerate: the frontend
+   * lists an id the deployed backend does not recognise yet. It has to be a
+   * red report naming the ids, not a crash alert, because the sitemap really is
+   * short and "the monitor could not run" says the opposite.
+   */
+  it('fails, naming the ids, when the API does not serve a shard', () => {
+    const unserved = SHOWS_BUCKETS[5]
+    const report = evaluate({ ...showBuckets(1600), unservedShards: [unserved] }, config)
+
     expect(report.ok).toBe(false)
-    expect(report.shards.find(s => s.shard === unexpected)?.ok).toBe(false)
+    expect(report.failures).toContainEqual(
+      `unserved — shard ${unserved}: the API does not serve this id, so its URLs are announced by nobody`
+    )
+  })
+
+  /**
+   * Ordering, not wording: the Discord field truncates, so the one-line classes
+   * have to precede the class that arrives eight or twenty-four lines at a time.
+   */
+  it('reports a vanished document before proportional drift', () => {
+    const dark = SHOWS_BUCKETS[0]
+    const drifted = SHOWS_BUCKETS[1]
+    const report = evaluate(showBuckets(1600, { [dark]: 0, [drifted]: 800 }), config)
+    const vanishedAt = report.failures.findIndex(f => f.startsWith('vanished — shard'))
+    const driftAt = report.failures.findIndex(f => f.startsWith('drift — shard'))
+
+    expect(vanishedAt).toBeGreaterThanOrEqual(0)
+    expect(driftAt).toBeGreaterThan(vanishedAt)
   })
 
   // A single-document family is already covered by its FamilyComparison, and

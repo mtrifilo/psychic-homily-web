@@ -64,6 +64,8 @@ export interface EvaluationInput {
   observedByShard: ReadonlyMap<string, number>
   /** Entry count the API reports for each entity shard document. */
   expectedByShard: ReadonlyMap<string, number>
+  /** Shard ids the API says it does not serve. */
+  unservedShards: readonly string[]
   /** Shows dated today or later, by slug date. */
   futureShowCount: number
   samples: SampleResult[]
@@ -152,9 +154,10 @@ function compareFamilies(
  * Single-document families are deliberately skipped: their FamilyComparison is
  * the same comparison, and running both would report one problem twice.
  *
- * A document missing from `observedByShard` is skipped rather than scored: the
- * walk reports why it is missing, and inventing an observed count for it would
- * blame the sitemap for a transport failure.
+ * A document missing from either side is skipped rather than scored: the walk
+ * reports why it was not fetched, and an absent expected count is reported by
+ * `unservedShards` or by fetchExpectedCounts throwing. Inventing a number for
+ * either would produce a failure line whose own figures say nothing failed.
  */
 function compareShards(
   input: EvaluationInput,
@@ -168,13 +171,7 @@ function compareShards(
       const observed = input.observedByShard.get(shard)
       if (observed === undefined) continue
       const expected = input.expectedByShard.get(shard)
-      if (expected === undefined) {
-        // Reachable only if a caller supplies a partial expectation:
-        // fetchExpectedCounts throws rather than return one. Coercing it to
-        // zero would read as over-coverage, so say what is actually missing.
-        comparisons.push({ shard, family, ...compare(observed, 0, config), ok: false })
-        continue
-      }
+      if (expected === undefined) continue
       comparisons.push({ shard, family, ...compare(observed, expected, config) })
     }
   }
@@ -196,10 +193,23 @@ export function evaluate(input: EvaluationInput, config: MonitorConfig): Report 
     ok: input.futureShowCount >= config.minFutureShows,
   }
 
+  // ORDERED BY CLASS, WORST FIRST, because this list is rendered into a Discord
+  // field that truncates at MAX_FIELD_VALUE characters (characters, not bytes:
+  // these lines carry em dashes and ± signs). Proportional drift
+  // trips a family and every one of its documents at once (buckets hold equal
+  // shares), so the drift classes are the repetitive ones and go last; a
+  // vanished document is one line and names thousands of missing URLs, so it
+  // must not be the line that gets cut.
   const failures: string[] = []
 
   for (const error of input.errors) {
     failures.push(`fetch: ${error}`)
+  }
+
+  for (const shard of input.unservedShards) {
+    failures.push(
+      `unserved — shard ${shard}: the API does not serve this id, so its URLs are announced by nobody`
+    )
   }
 
   for (const comparison of families) {
@@ -207,8 +217,14 @@ export function evaluate(input: EvaluationInput, config: MonitorConfig): Report 
       failures.push(
         `vanished — ${comparison.family}: the API has ${comparison.expected} entries and the sitemap serves NONE`
       )
-    } else if (!comparison.ok) {
-      failures.push(`drift — ${describeDrift(comparison.family, comparison)}`)
+    }
+  }
+
+  for (const comparison of shards) {
+    if (comparison.vanished) {
+      failures.push(
+        `vanished — shard ${comparison.shard}: the API has ${comparison.expected} entries and the document serves NONE`
+      )
     }
   }
 
@@ -219,25 +235,20 @@ export function evaluate(input: EvaluationInput, config: MonitorConfig): Report 
     )
   }
 
+  for (const comparison of families) {
+    if (!comparison.vanished && !comparison.ok) {
+      failures.push(`drift — ${describeDrift(comparison.family, comparison)}`)
+    }
+  }
+
   const badSamples = input.samples.filter(sample => !sample.ok)
   for (const sample of badSamples) {
     failures.push(`unreachable — ${sample.url} → ${sample.error ?? sample.status}`)
   }
 
-  // LAST, and that is about the alert rather than the severity. A proportional
-  // drift trips a family and every one of its documents at once, because
-  // buckets hold equal shares, so up to 24 of these can arrive together and the
-  // Discord field they are rendered into is capped at 1024 bytes. Appended
-  // here, the classes with one line each survive the truncation and the
-  // repetitive class is what gets cut.
   for (const comparison of shards) {
-    const label = `shard ${comparison.shard}`
-    if (comparison.vanished) {
-      failures.push(
-        `vanished — ${label}: the API has ${comparison.expected} entries and the document serves NONE`
-      )
-    } else if (!comparison.ok) {
-      failures.push(`drift — ${describeDrift(label, comparison)}`)
+    if (!comparison.vanished && !comparison.ok) {
+      failures.push(`drift — ${describeDrift(`shard ${comparison.shard}`, comparison)}`)
     }
   }
 
@@ -265,7 +276,7 @@ export function evaluate(input: EvaluationInput, config: MonitorConfig): Report 
  * Draw at least one URL from EVERY bucket, `size` in total where possible.
  *
  * Sampling uniformly from all URLs pooled together would make the reachability
- * probe a releases-only check: measured on 2026-09-03, releases is 28,720 of
+ * probe a releases-only check: measured on 2026-09-03, releases is 28,720 emitted slugs of
  * the ~57k entity URLs, and the small families are hundreds each, so a 10-URL
  * sample expects 0.05 scene weeks and would probe the newest routes
  * essentially never. A broken `/scenes/{city}/{iso-week}` route could ship and

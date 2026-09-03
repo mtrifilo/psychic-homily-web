@@ -6,6 +6,7 @@ import {
   RELEASE_SHARD_IDS,
   SHOW_SHARD_IDS,
   shardFamily,
+  shardIdsFor,
   SITEMAP_FAMILIES,
 } from '@/app/sitemap-shards'
 import { resolveConfig } from './config'
@@ -362,14 +363,18 @@ describe('walkSitemap', () => {
 
 describe('fetchExpectedCounts', () => {
   /**
-   * One response per SHARD request, keyed by the family the shard populates:
-   * `?family=shows-b3` answers with the `shows` key, the same as the whole
-   * family would, so the counter reads the family field either way.
+   * One response per request, keyed by the family it populates: `?family=shows-b3`
+   * and `?family=shows` both answer under the `shows` key, so the counter reads
+   * the family field either way.
    */
   function serveCounts(rowsByShard: Record<string, number> = {}, defaultRows = 0) {
     return vi.fn(async (url: string) => {
       const shardId = new URL(url).searchParams.get('family') ?? ''
-      const family = shardFamily(shardId)
+      // The value is a shard id or, for a sub-sharded family's own query, the
+      // family name; both answer under the family key.
+      const family =
+        shardFamily(shardId) ??
+        SITEMAP_FAMILIES.find(candidate => candidate === shardId)
       const rows = rowsByShard[shardId] ?? defaultRows
       const body = Object.fromEntries(SITEMAP_FAMILIES.map(f => [f, [] as unknown[]]))
       if (family) {
@@ -379,19 +384,69 @@ describe('fetchExpectedCounts', () => {
     })
   }
 
-  it('asks for every entity shard and counts each one', async () => {
-    const fetchMock = serveCounts({ [SHOW_SHARD]: 2, artists: 0 }, 1)
+  /** The families served by more than one document, so asked for separately. */
+  const SUB_SHARDED = SITEMAP_FAMILIES.filter(family => shardIdsFor(family).length > 1)
+
+  it('asks for every entity shard, and for each sub-sharded family on its own', async () => {
+    const fetchMock = serveCounts({ [SHOW_SHARD]: 2, shows: 99 }, 1)
     vi.stubGlobal('fetch', fetchMock)
 
     const counts = await fetchExpectedCounts(testConfig())
 
-    expect(fetchMock).toHaveBeenCalledTimes(ENTITY_SHARD_IDS.length)
+    expect(fetchMock).toHaveBeenCalledTimes(ENTITY_SHARD_IDS.length + SUB_SHARDED.length)
     expect([...counts.byShard.keys()].sort()).toEqual([...ENTITY_SHARD_IDS].sort())
     expect(counts.byShard.get(SHOW_SHARD)).toBe(2)
-    // A family total is the sum of its documents, which is what makes the
-    // family comparison and the per-shard comparison agree.
-    expect(counts.byFamily.shows).toBe(2 + (SHOW_SHARD_IDS.length - 1))
+    // THE FAMILY TOTAL IS THE UNBUCKETED ANSWER, not the sum of the buckets:
+    // 99 here, against 2 + 7 if it were summed. That independence is what lets
+    // the family comparison catch a bucket predicate that answers every bucket
+    // short, which a sum of those same buckets cannot see.
+    expect(counts.byFamily.shows).toBe(99)
+    // A single-document family is asked once; its shard count IS its family
+    // count.
     expect(counts.byFamily.venues).toBe(1)
+    expect(counts.unservedShards).toEqual([])
+  })
+
+  /**
+   * The deploy window: the frontend lists ids the deployed backend does not
+   * know yet. That is a definite answer, not a failure, so the run has to
+   * complete and report them rather than crash.
+   */
+  it('collects the shards the API rejects instead of failing the run', async () => {
+    const serve = serveCounts({}, 1)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const value = new URL(url).searchParams.get('family') ?? ''
+        if (value === SHOW_SHARD) return new Response('unknown family', { status: 422 })
+        return serve(url)
+      })
+    )
+
+    const counts = await fetchExpectedCounts(testConfig())
+
+    expect(counts.unservedShards).toEqual([SHOW_SHARD])
+    expect(counts.byShard.has(SHOW_SHARD)).toBe(false)
+  })
+
+  // A rejected id is a stable answer; retrying it doubles the time to the same
+  // verdict, the same way a 404 does.
+  it('does not retry a rejected shard id', async () => {
+    let calls = 0
+    const serve = serveCounts({}, 1)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const value = new URL(url).searchParams.get('family') ?? ''
+        if (value !== SHOW_SHARD) return serve(url)
+        calls++
+        return new Response('unknown family', { status: 422 })
+      })
+    )
+
+    await fetchExpectedCounts(testConfig())
+
+    expect(calls).toBe(1)
   })
 
   // app/sitemap.ts drops empty slugs, so counting them here would manufacture
@@ -430,10 +485,11 @@ describe('fetchExpectedCounts', () => {
 
   // Every failed shard is named in one message rather than whichever request
   // lost the race, so a partial API outage says how much of the feed is missing.
-  it('names how many shards failed', async () => {
+  it('names how many queries failed', async () => {
+    const total = ENTITY_SHARD_IDS.length + SUB_SHARDED.length
     vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 404 })))
     await expect(fetchExpectedCounts(testConfig())).rejects.toThrow(
-      new RegExp(`for ${ENTITY_SHARD_IDS.length} of ${ENTITY_SHARD_IDS.length} shards`)
+      new RegExp(`for ${total} of ${total} queries`)
     )
   })
 
@@ -462,7 +518,7 @@ describe('fetchExpectedCounts', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     await expect(fetchExpectedCounts(testConfig())).rejects.toThrow(/returned 404/)
-    expect(fetchMock).toHaveBeenCalledTimes(ENTITY_SHARD_IDS.length)
+    expect(fetchMock).toHaveBeenCalledTimes(ENTITY_SHARD_IDS.length + SUB_SHARDED.length)
   })
 })
 

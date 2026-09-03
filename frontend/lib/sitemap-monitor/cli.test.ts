@@ -73,13 +73,14 @@ function stubWorld(options: WorldOptions = {}) {
     }
     if (url.startsWith(`${API}/sitemap/entries`)) {
       if (apiDown) return new Response('down', { status: 503 })
-      // One request per SHARD, answered under the FAMILY key that shard
-      // populates. The stubbed sitemap serves every show URL from SHOW_SHARD,
-      // so the feed has to agree: rows for that shard and none for its
-      // siblings, or the per-shard comparison reports drift the fixture did
-      // not intend.
+      // One request per SHARD, plus one per sub-sharded FAMILY, each answered
+      // under the family key it populates. The stubbed sitemap serves every
+      // show URL from SHOW_SHARD, so the feed has to agree: rows for that
+      // shard, none for its siblings, and the family total for the unbucketed
+      // `shows` query, or the comparisons report drift the fixture did not
+      // intend.
       const shardId = new URL(url).searchParams.get('family') ?? ''
-      const rows = shardId === SHOW_SHARD ? apiShows : 0
+      const rows = shardId === SHOW_SHARD || shardId === 'shows' ? apiShows : 0
       const body = Object.fromEntries(
         SITEMAP_FAMILIES.map(f => [
           f,

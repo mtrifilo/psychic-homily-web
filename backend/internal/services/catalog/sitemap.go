@@ -64,7 +64,7 @@ var sitemapFamilies = []string{
 //     thing that moves a URL between documents is a change of `buckets`.
 //   - BUCKETS STAY BALANCED WITHOUT RE-CUTTING, because membership is
 //     independent of what a row contains. Measured spread inside a family is
-//     under half a percentage point; see SHOW_SHARD_IDS in
+//     under one percentage point of the cache-item cap; see SHOW_SHARD_IDS in
 //     frontend/app/sitemap-shards.ts for the per-bucket byte table.
 //
 // WHAT IT COSTS. A bucket has no locality, so an insert dirties one bucket at
@@ -102,12 +102,12 @@ type sitemapShard struct {
 //
 // HOW N IS CHOSEN. The bar is that a family's largest bucket stays under 50% of
 // the cache-item cap with room for the corpus to double, i.e. under 25% today.
-// Against the 2026-09-03 production measurements on sitemapShard above, one
-// value clears it for all three families with the largest bucket at 16.2%:
-//
-//	releases  129.8% of the cap / 8 = 16.2%, doubling to 32.5%
-//	shows      80.6% / 8 = 10.1%, doubling to 20.2%
-//	artists    58.4% / 8 =  7.3%, doubling to 14.6%
+// Dividing the 2026-09-03 family shares on sitemapShard above by 8 gives 16.2%
+// for releases, 10.1% for shows and 7.3% for artists; the division understates
+// by about a point and a half, because each document carries its own envelope,
+// so the numbers that clear the bar are the MEASURED maxima: releases 17.6%,
+// shows 11.2%, artists 8.1% (the table on SHOW_SHARD_IDS in
+// frontend/app/sitemap-shards.ts).
 //
 // So the table holds one number three times rather than three tuned numbers.
 // It stays per family because the families grow at different rates and the next
@@ -120,9 +120,31 @@ type sitemapShard struct {
 // WHEN TO DOUBLE ONE. The frontend's data-cache budget gate fails the build at
 // 80% of the cap and does not warn first, so the signal to act on is the
 // measured share in a build log rather than the gate itself. Doubling a family
-// re-buckets every row in it: half its URLs change document, every crawler
-// refetches both documents once, and the frontend id lists, the wire enum and
-// the generated types are one edit each.
+// re-buckets every row in it: half its URLs change document and every crawler
+// refetches both documents once.
+//
+// DOUBLING IS FOUR CODE EDITS, each with the gate that catches skipping it, and
+// then the prose. Doing only the first leaves the new ids rejected with 422,
+// which the generator degrades to empty documents, and every test in this
+// package passes for ANY bucket count:
+//
+//  1. this map;
+//  2. the `enum` tag on GetSitemapEntriesRequest.Family in
+//     internal/api/handlers/catalog/sitemap.go. It is a struct-tag literal huma
+//     reads directly, so it cannot call SitemapFamilyValuesCSV() — print the
+//     value to paste with `go test ./internal/api/handlers/catalog/ -run
+//     TestSitemapFamilyEnumMatchesTheService`, whose diff is the new tag;
+//  3. `bun run api:types` in frontend/, which regenerates the wire enum and is
+//     enforced by the drift job in .github/workflows/ci.yml;
+//  4. the id list for that family in frontend/app/sitemap-shards.ts, which tsc
+//     then checks against that enum in both directions: `satisfies readonly
+//     WireFamily[]` catches an id renamed or removed, AssertEveryWireValueServed
+//     catches one added.
+//
+// Then the counts written into prose: the shard and request totals in
+// frontend/app/sitemap.ts, frontend/lib/sitemap-prerender/check.ts,
+// frontend/lib/sitemap-monitor/fetch.ts and the timeout derivation in
+// .github/workflows/sitemap-freshness.yml. Nothing fails when those go stale.
 var sitemapShardsPerFamily = map[string]int{
 	"shows":    8,
 	"artists":  8,
@@ -157,7 +179,8 @@ func sitemapShardID(family string, bucket int) string {
 // enum on GetSitemapEntriesRequest, the same way sitemapFamilies above is. The
 // enum half is test-enforced (TestSitemapFamilyEnumMatchesTheService); the
 // frontend half is enforced by `bun run api:types` regenerating the wire enum
-// those lists are declared against, so a renamed id fails tsc there.
+// those lists are declared against, which fails tsc on a renamed id through
+// `satisfies` and on an ADDED id through AssertEveryWireValueServed.
 var sitemapShardsByFamily = buildSitemapShards()
 
 func buildSitemapShards() map[string][]sitemapShard {
@@ -220,18 +243,21 @@ func sitemapShardByID(id string) *sitemapShard {
 // narrow restricts a family's scope to this shard's bucket. A nil shard is the
 // whole family, which is what an unsharded `?family=releases` still asks for.
 //
-// The predicate is taken on the primary key, which every family's table has, so
-// a shard filed under the wrong family narrows silently rather than failing as
-// an unknown column. What rules that out is the shard table being generated per
-// family from sitemapShardsPerFamily, plus the family a caller reaches being
-// the shard's own (see Entries).
+// The predicate is taken on the primary key, so it needs no per-family
+// spelling, and it is applied to whichever scope its own family's branch in
+// Entries passes in. The failure it cannot catch is a family added to
+// sitemapShardsPerFamily whose branch never calls narrow: every bucket then
+// serves the whole family. TestSitemapSubShardsBucketEveryFamilyExactly is what
+// catches that, by asserting no shard serves the whole row set.
 //
 // The bucket count and residue are package-owned integers from
 // sitemapShardsPerFamily, never caller input: a caller supplies only an id,
 // which sitemapShardByID either resolves to one of these shards or rejects.
 //
 // THE PREDICATE IS NOT SARGABLE, and that is measured rather than assumed. On
-// the production catalogue (28,725 releases, 13,163 shows, 13,499 artists) the
+// the production catalogue mirrored into a local database (28,725 release,
+// 13,163 show and 13,499 artist ROWS, which is the dev seed on top of the
+// production slug sets counted on sitemapShard above) the
 // planner takes a sequential scan plus a quicksort per bucket: releases 4.9 ms
 // and 345 shared buffers against 5.6 ms and 1,123 for the whole family through
 // idx_releases_slug, shows 1.5 ms, artists 1.0 ms. So serving a family in eight

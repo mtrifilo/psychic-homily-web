@@ -89,8 +89,8 @@ jobs:
     runs-on: ubuntu-latest
     # Walking every shard means tens of thousands of URLs across 33 documents
     # (the index, 32 shards), plus one projection-feed request per entity shard
-    # and the sampled probes; a couple of minutes is normal, so this ceiling
-    # only catches a genuinely wedged endpoint.
+    # and per sub-sharded family, and the sampled probes; a couple of minutes is
+    # normal, so this ceiling only catches a genuinely wedged endpoint.
     #
     # DERIVE IT, don't guess it — this job goes silent when it trips (the runner
     # kills the process, main()'s crash handler never runs, and no Discord alert
@@ -103,14 +103,20 @@ jobs:
     #   (1 index + ceil(N / SHARD_FETCH_CONCURRENCY)
     #      + ceil(E / SHARD_FETCH_CONCURRENCY) + 1 probe wave) x 65s
     #
-    # At N=32 documents, E=31 entity shards and a pool of 6 that is 14 x 65s =
+    # At N=32 documents, E=34 count requests and a pool of 6 that is 14 x 65s =
     # 15.2 minutes. 25 holds it with room for another family split, and each 6
     # shards added costs two more waves, i.e. ~2 minutes rather than ~6.5.
     #
-    # TIME IS NOT THE ONLY CEILING. The run also makes E requests to the API on
-    # top of the document walk, against an anonymous per-IP limiter of 100 per
-    # minute, so a family doubling adds 8 to E as well as to N. Check both
-    # before doubling more than one family.
+    # The derivation covers the check itself. Checkout, setup-bun and
+    # `bun install` run before it and are not in the arithmetic, so reserve a
+    # few minutes of the difference for them rather than reading it all as
+    # headroom for family splits.
+    #
+    # TIME IS NOT THE ONLY CEILING. The run also makes one API request per
+    # entity shard plus one per sub-sharded family, against an anonymous per-IP
+    # limiter of 100 per minute where it is enabled, so a family doubling adds
+    # to that number as well as to N. Check both before doubling more than one
+    # family.
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4

@@ -9,6 +9,7 @@ import {
   ALL_SHARD_IDS,
   ENTITY_SHARD_IDS,
   shardFamily,
+  shardIdsFor,
   SITEMAP_FAMILIES,
   PAGES_SHARD_ID,
   type Family,
@@ -157,15 +158,19 @@ async function requestFollowing(
  *
  * 4xx is NOT retried: a 404 on the entries feed is a real, stable answer, and
  * retrying it just doubles the time to the same verdict. 429 is the exception,
- * because it is the one 4xx that says "ask again": the API rate-limits
- * anonymous callers per IP (APIRequestsPerMinute, 100) and this job asks for
- * one document plus one count per shard, so a burst that clips the limiter must
- * cost a retry rather than the whole run.
+ * because it is the one 4xx that says "ask again": the API can rate-limit
+ * anonymous callers per IP (APIRequestsPerMinute, 100, when
+ * ENABLE_PUBLIC_READ_RATE_LIMITS is set) and this job asks for one document
+ * plus one count per shard, so a burst that clips the limiter must cost a retry
+ * rather than the whole run. The retry waits retryDelayMs, which is shorter
+ * than the limiter's window, so a sustained clip still fails the run rather
+ * than waiting it out.
  */
 async function withRetry<T>(attempt: () => Promise<T>, retryDelayMs: number): Promise<T> {
   try {
     return await attempt()
   } catch (error) {
+    if (error instanceof UnservedShardError) throw error
     const message = (error as Error).message
     const isClientError = /returned 4\d\d/.test(message) && !/returned 429/.test(message)
     if (isClientError) throw error
@@ -237,7 +242,7 @@ async function fetchDocument(url: string, config: MonitorConfig): Promise<string
  *
  * NOT cosmetic. app/sitemap-index/route.ts hardcodes the production base URL in
  * every `<loc>`, so the index served by stage — or by a preview deployment —
- * lists `https://psychichomily.com/sitemap/artists.xml`. Following those links
+ * lists `https://psychichomily.com/sitemap/artists-b0.xml`. Following those links
  * verbatim would silently measure PRODUCTION while reporting the stage target,
  * which is worse than not checking at all. Verified against stage on
  * 2026-07-30.
@@ -269,10 +274,11 @@ export function rebaseOnTarget(loc: string, target: string): string {
  * clock, and it does not have to move when the shard count does.
  *
  * It bounds CONCURRENCY, not rate. The rate is what has to clear the API's
- * anonymous per-IP limiter (APIRequestsPerMinute, 100): today the count phase
- * is one request per entity shard, so 31 per run against that 100. Doubling a
- * family's bucket count adds 8 to both that number and the document walk, which
- * is the term to check before doubling more than one family.
+ * anonymous per-IP limiter (APIRequestsPerMinute, 100, when
+ * ENABLE_PUBLIC_READ_RATE_LIMITS is set): the count phase asks once per entity
+ * shard plus once per sub-sharded family. Doubling a family's bucket count adds
+ * to both that number and the document walk, which is the term to check before
+ * doubling more than one family.
  */
 export const SHARD_FETCH_CONCURRENCY = 6
 
@@ -419,6 +425,14 @@ export async function walkSitemap(config: MonitorConfig): Promise<SitemapObserva
   })
 
   for (const outcome of outcomes) {
+    // A document listed twice is counted twice into its family while the
+    // per-document table keeps the last write, so the inflation shows up
+    // nowhere else. One bucket of eight is 12.5% of its family, inside the
+    // default tolerance.
+    if (listed.has(outcome.id)) {
+      observation.errors.push(`sitemap index lists the "${outcome.id}" shard more than once`)
+      continue
+    }
     listed.add(outcome.id)
     if (outcome.error !== undefined) {
       observation.errors.push(outcome.error)
@@ -496,61 +510,116 @@ export async function walkSitemap(config: MonitorConfig): Promise<SitemapObserva
 export interface ExpectedCounts {
   /** Emitted-slug count per entity shard id. */
   byShard: Map<string, number>
-  /** The same counts summed per family. */
+  /**
+   * Emitted-slug count per family, from the UNBUCKETED query for a sub-sharded
+   * family. Not the sum of its buckets: see fetchExpectedCounts.
+   */
   byFamily: Record<Family, number>
+  /**
+   * Shard ids the API answered "I do not serve that" for.
+   *
+   * A definite answer, not a failure, and the same one app/sitemap.ts degrades
+   * on: it is what a backend that predates a shard id says. Carried rather than
+   * thrown so the run still produces a verdict, because this is precisely the
+   * deploy window every other component is built to tolerate, and a crash alert
+   * there says "the monitor is broken" about a sitemap that is genuinely short.
+   */
+  unservedShards: string[]
 }
 
 /**
- * Slug counts per SHARD, straight from the projection feed, plus the family
- * totals they sum to.
+ * The statuses that mean "this backend does not serve that shard id", matching
+ * UNKNOWN_FAMILY_STATUSES in app/sitemap.ts. 422 is huma rejecting the value
+ * against its enum, 400 is the service's own unknown-family guard.
+ */
+const UNSERVED_SHARD_STATUSES = new Set([400, 422])
+
+/**
+ * What the projection feed says each document, and each family, should hold.
  *
- * PER SHARD, not per family, because a per-family count cannot see one document
- * of a sub-sharded family going dark: eight buckets carry an eighth of their
- * family each, which sits inside the default 20% drift tolerance, so the family
+ * PER SHARD, because a per-family count cannot see one document of a
+ * sub-sharded family going dark: eight buckets carry an eighth of their family
+ * each, which sits inside the default 20% drift tolerance, so the family
  * comparison would pass while thousands of URLs were missing. Asking the API
- * what each shard should hold turns that into a named, exact failure.
+ * what each document should hold turns that into a named, exact failure.
  *
- * One request per entity shard rather than one for every family at once. The
- * cost is 31 requests instead of 1 against an API that rate-limits anonymous
- * callers per IP, which is why they go through the same bounded pool the
- * document walk uses, and why .github/workflows/sitemap-freshness.yml counts
- * these waves in its timeout derivation.
+ * AND PER FAMILY, asked SEPARATELY rather than summed from the buckets. Summing
+ * them would make the family expectation a product of the same bucketed queries
+ * the sitemap is built from, so a fault in the bucket predicate would answer
+ * every bucket empty, expect zero, and report green with a whole family absent
+ * from the index. The unbucketed query is a different predicate over the same
+ * table, which is what makes it an oracle rather than an echo.
+ *
+ * One request per entity shard plus one per sub-sharded family, so 34 today,
+ * against an API that rate-limits anonymous callers per IP. That is why they go
+ * through the same bounded pool the document walk uses, and why
+ * .github/workflows/sitemap-freshness.yml counts these waves in its timeout
+ * derivation.
  *
  * Failures are collected rather than thrown from inside the pool: a rejection
  * there would abandon in-flight requests and report whichever one lost the race,
- * so the throw happens once, after the fold, naming how many shards failed.
+ * so the throw happens once, after the fold, naming how many requests failed.
  */
 export async function fetchExpectedCounts(config: MonitorConfig): Promise<ExpectedCounts> {
+  // A family whose shard id IS its name is asked for exactly once: its shard
+  // count is its family count, and asking twice would be the same query.
+  const subShardedFamilies = SITEMAP_FAMILIES.filter(family => shardIdsFor(family).length > 1)
+  const queries: Array<{ value: string; family: Family; isFamily: boolean }> = [
+    ...ENTITY_SHARD_IDS.map(shardId => ({
+      value: shardId,
+      family: shardFamily(shardId),
+      isFamily: false,
+    })),
+    ...subShardedFamilies.map(family => ({ value: family, family, isFamily: true })),
+  ].filter((query): query is { value: string; family: Family; isFamily: boolean } =>
+    query.family !== undefined
+  )
+
   const outcomes = await mapWithConcurrency(
-    ENTITY_SHARD_IDS,
+    queries,
     SHARD_FETCH_CONCURRENCY,
-    async (shardId): Promise<{ shardId: string; count?: number; error?: string }> => {
-      const family = shardFamily(shardId)
-      if (!family) {
-        return {
-          shardId,
-          error: `shard "${shardId}" maps to no family — the shard table is inconsistent`,
-        }
-      }
+    async (
+      query
+    ): Promise<{ value: string; count?: number; unserved?: boolean; error?: string }> => {
       try {
-        return { shardId, count: await fetchShardCount(shardId, family, config) }
+        return { value: query.value, count: await fetchShardCount(query.value, query.family, config) }
       } catch (error) {
-        return { shardId, error: (error as Error).message }
+        if (error instanceof UnservedShardError) return { value: query.value, unserved: true }
+        return { value: query.value, error: (error as Error).message }
       }
     }
   )
 
   const byShard = new Map<string, number>()
   const byFamily = emptyCounts()
+  const unservedShards: string[] = []
   const errors: string[] = []
-  for (const outcome of outcomes) {
-    if (outcome.count === undefined) {
-      errors.push(outcome.error ?? `shard "${outcome.shardId}" returned no count`)
+  // A shard id that maps to no family is a table inconsistency, not a request
+  // to make: it is dropped above and reported here so the count is not silently
+  // short.
+  for (const shardId of ENTITY_SHARD_IDS) {
+    if (!shardFamily(shardId)) {
+      errors.push(`shard "${shardId}" maps to no family — the shard table is inconsistent`)
+    }
+  }
+  for (const [index, outcome] of outcomes.entries()) {
+    const query = queries[index]
+    if (outcome.unserved) {
+      unservedShards.push(outcome.value)
       continue
     }
-    byShard.set(outcome.shardId, outcome.count)
-    const family = shardFamily(outcome.shardId)
-    if (family) byFamily[family] += outcome.count
+    if (outcome.count === undefined) {
+      errors.push(outcome.error ?? `"${outcome.value}" returned no count`)
+      continue
+    }
+    if (query.isFamily) {
+      byFamily[query.family] = outcome.count
+      continue
+    }
+    byShard.set(outcome.value, outcome.count)
+    // A single-document family: its one shard's count is the family's, and no
+    // separate family query was made for it.
+    if (outcome.value === query.family) byFamily[query.family] = outcome.count
   }
 
   // Fail the whole run rather than compare against a partial expectation. A
@@ -558,11 +627,14 @@ export async function fetchExpectedCounts(config: MonitorConfig): Promise<Expect
   // makes a served document look like over-coverage instead of an API problem.
   if (errors.length > 0) {
     throw new Error(
-      `could not read expected counts for ${errors.length} of ${ENTITY_SHARD_IDS.length} shards: ${errors.join('; ')}`
+      `could not read expected counts for ${errors.length} of ${queries.length} queries: ${errors.join('; ')}`
     )
   }
-  return { byShard, byFamily }
+  return { byShard, byFamily, unservedShards }
 }
+
+/** The API answered that it does not serve this shard id. Not a failure. */
+class UnservedShardError extends Error {}
 
 /** Emitted-slug count for one shard, from the family field it populates. */
 async function fetchShardCount(
@@ -577,10 +649,18 @@ async function fetchShardCount(
       headers: { 'user-agent': USER_AGENT },
       signal: AbortSignal.timeout(config.fetchTimeoutMs),
     })
+    if (UNSERVED_SHARD_STATUSES.has(response.status)) {
+      await response.body?.cancel()
+      throw new UnservedShardError(`GET ${url} returned ${response.status}`)
+    }
     if (!response.ok) {
+      await response.body?.cancel()
       throw new Error(`GET ${url} returned ${response.status}`)
     }
-    return response.json()
+    // Read through the same cap the document walk uses: this path pulls a
+    // shard's whole payload to count its rows, six at a time, and an unbounded
+    // read here kills the process without an alert.
+    return JSON.parse(await readCapped(response, url))
   }, config.retryDelayMs)
   if (typeof body !== 'object' || body === null) {
     throw new Error(`GET ${url} did not return a JSON object`)

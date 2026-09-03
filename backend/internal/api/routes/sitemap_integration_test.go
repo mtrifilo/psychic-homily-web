@@ -52,7 +52,7 @@ func TestSitemapEntriesEndToEnd(t *testing.T) {
 	}
 
 	var body struct {
-		Shows      []struct {
+		Shows []struct {
 			Slug      string    `json:"slug"`
 			UpdatedAt time.Time `json:"updated_at"`
 		} `json:"shows"`
@@ -82,12 +82,56 @@ func TestSitemapEntriesEndToEnd(t *testing.T) {
 	// and silent when forgotten.
 	for name, raw := range map[string][]json.RawMessage{
 		"artists": body.Artists, "venues": body.Venues, "venue_years": body.VenueYears,
-		"scenes": body.Scenes,
+		"scenes":      body.Scenes,
 		"scene_weeks": body.SceneWeeks, "labels": body.Labels, "releases": body.Releases,
 		"festivals": body.Festivals, "tags": body.Tags,
 	} {
 		if raw == nil {
 			t.Errorf("%s serialised as null, want []; body: %s", name, w.Body.String())
 		}
+	}
+}
+
+// TestSitemapEntriesRejectsAnUnknownFamilyOverHTTP pins the one status the
+// whole sub-shard rollout design rests on.
+//
+// A shard id rides in `family` precisely because a backend that predates it
+// answers 422, which the generator degrades to an empty document for one deploy
+// window (UNKNOWN_FAMILY_STATUSES in frontend/app/sitemap.ts), the prerender
+// gate excuses, and the freshness monitor reports as an unserved shard. All
+// three read the STATUS, and huma produces it from the enum tag rather than
+// from any code a service test exercises, so it needs a test that speaks HTTP.
+//
+// The `shows-2026-01` case is a retired id: an old shard id must be rejected
+// the same way an invented one is, or a stale frontend would be served a
+// silently wrong answer instead of a degradable one.
+func TestSitemapEntriesRejectsAnUnknownFamilyOverHTTP(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	td := testutil.SetupTestPostgres(t)
+	defer td.Cleanup()
+
+	cfg := testConfig()
+	router := chi.NewRouter()
+	SetupRoutes(router, services.NewServiceContainer(td.DB, cfg), cfg)
+
+	for _, family := range []string{"collections", "shows-b99", "shows-2026-01", "releases-a-e", "shows-"} {
+		req := httptest.NewRequest(http.MethodGet, "/sitemap/entries?family="+family, nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusUnprocessableEntity {
+			t.Errorf("GET /sitemap/entries?family=%s = %d, want 422; body: %s", family, w.Code, w.Body.String())
+		}
+	}
+
+	// A served id answers 200 through the same path, so the check above is
+	// about the value and not about the route being broken.
+	req := httptest.NewRequest(http.MethodGet, "/sitemap/entries?family=shows-b0", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("GET /sitemap/entries?family=shows-b0 = %d, want 200; body: %s", w.Code, w.Body.String())
 	}
 }

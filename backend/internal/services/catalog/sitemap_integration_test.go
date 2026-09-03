@@ -249,12 +249,17 @@ func TestSitemapSubShardsBucketEveryFamilyExactly(t *testing.T) {
 
 	service := NewSitemapService(td.DB)
 
+	// EVERY family is seeded before ANY is asserted. Seeding inside the
+	// assertion loop would make the cross-family isolation check vacuous for
+	// whichever family Go's map iteration reached first, since the others would
+	// still be empty and could not leak.
+	seededIDs := map[string][]uint{}
+	wantShardByFamily := map[string]map[string]string{}
 	for family, shards := range sitemapShardsByFamily {
 		under, ok := subShardedFamilies[family]
 		if !ok {
 			t.Fatalf("family %q is sub-sharded but this test cannot seed or read it, so add it to subShardedFamilies", family)
 		}
-		seed, read := under.seed, under.rows
 
 		buckets := len(shards)
 		// Two full turns of the modulus plus one id far above the run, so every
@@ -265,15 +270,23 @@ func TestSitemapSubShardsBucketEveryFamilyExactly(t *testing.T) {
 			ids = append(ids, uint(id))
 		}
 		ids = append(ids, uint(10*buckets+3))
+		seededIDs[family] = ids
 
 		wantShard := map[string]string{}
 		for _, id := range ids {
 			slug := fmt.Sprintf("%s-bucketed-%d", family, id)
-			if err := seed(td.DB, id, slug); err != nil {
+			if err := under.seed(td.DB, id, slug); err != nil {
 				t.Fatalf("seed %s %d: %v", family, id, err)
 			}
 			wantShard[slug] = sitemapShardID(family, int(id)%buckets)
 		}
+		wantShardByFamily[family] = wantShard
+	}
+
+	for family, shards := range sitemapShardsByFamily {
+		read := subShardedFamilies[family].rows
+		ids := seededIDs[family]
+		wantShard := wantShardByFamily[family]
 
 		whole, err := service.Entries(context.Background(), family)
 		if err != nil {

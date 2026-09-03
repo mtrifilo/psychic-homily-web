@@ -78,8 +78,9 @@ function familyLines(report: Report): string[] {
  * One line per sub-shard document.
  *
  * Written to the Actions log only. The Discord embed carries the family table
- * plus the failure list, because 24 more lines would push a healthy report past
- * the description limit and take the failures with it.
+ * plus the failure list: a per-document table is one line per bucket of every
+ * sub-sharded family, which is noise in a phone notification, and the failing
+ * documents are named in the failure list anyway.
  */
 function shardLines(report: Report): string[] {
   return comparisonLines(report.shards.map(c => ({ ...c, label: c.shard })))

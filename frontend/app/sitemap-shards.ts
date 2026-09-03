@@ -86,9 +86,9 @@ void _assertNoMissingFamily
  *   artists-b0 .. b7    162,454 to 169,714    7.8% to  8.1%
  *
  * against 129.8% of the cap for `releases` as one document, 80.6% for `shows`
- * and 58.4% for `artists`. The spread inside a family is under half a point,
- * which is the balance the key buys: bucket membership is independent of what
- * a row contains, so the shares hold as the catalogue grows.
+ * and 58.4% for `artists`. The spread inside a family is under one point, which
+ * is the balance the key buys: bucket membership is independent of what a row
+ * contains, so the shares hold as the catalogue grows.
  *
  * Sub-shards here are never legitimately empty while their family holds rows:
  * residues of a serial key are equidistributed, so an empty bucket beside
