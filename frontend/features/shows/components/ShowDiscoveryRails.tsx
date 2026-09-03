@@ -7,8 +7,10 @@ import { useVenueShows } from '@/features/venues/hooks/useVenues'
 import { useShowAlsoTonight } from '../hooks'
 import {
   buildAlsoTonightRail,
+  drawsNightRail,
   buildMoreAtVenueRail,
   VENUE_RAIL_FETCH_LIMIT,
+  VENUE_RAIL_TIME_FILTER,
   type RailRowData,
   type ShowAlsoTonightResponse,
   type ShowRail,
@@ -24,8 +26,10 @@ import type { ShowResponse } from '../types'
  * Both rails are GRAPH-DERIVED and say so in their headings — "what else is on
  * in this metro that night" and "what else this room has booked" are questions
  * with answers, not a personalization surface. Neither is ever labelled "you
- * may also like", and neither ranks: the left rail is the night in clock
- * order, the right rail is the room's calendar in date order.
+ * may also like", and neither RANKS: the left rail is the night, the right one
+ * the room's calendar in date order. The night is in clock order except on the
+ * live night, where the sets already under way sink below the ones a reader can
+ * still get to — an ordering by the clock, not by a judgement about the bands.
  *
  * This file is markup and hook wiring only. Which rows survive, what the
  * headings say, and whether a "see all" is offered all live in `showRails.ts`,
@@ -90,16 +94,9 @@ export function ShowDiscoveryRails({
 }) {
   const venue = show.venues[0]
 
-  // The two rails answer different questions, and only one survives the show.
-  //
-  // ALSO-TONIGHT is scoped to THIS show's night: on a past page it would offer
-  // a reader other shows they equally cannot attend, under a heading naming a
-  // date that has gone by. It is withheld, and not fetched.
-  //
-  // MORE-AT-VENUE queries the venue's UPCOMING window, so it is forward-looking
-  // whatever the subject show's date: from an archive page it is the live "this
-  // room is still putting on shows" thread, and it stays.
-  const showsAlsoTonight = lifecycle !== 'past'
+  // One predicate, shared with the route that decides whether to seed this rail
+  // (see `drawsNightRail` for which rail survives a past show, and why).
+  const showsAlsoTonight = drawsNightRail(lifecycle)
 
   // Both hooks run unconditionally. `useVenueShows` is DISABLED rather than
   // skipped for a venue-less show, because a conditional hook would change the
@@ -115,7 +112,7 @@ export function ShowDiscoveryRails({
   )
   const { data: venueShows } = useVenueShows({
     venueId: venue?.id ?? 0,
-    timeFilter: 'upcoming',
+    timeFilter: VENUE_RAIL_TIME_FILTER,
     limit: VENUE_RAIL_FETCH_LIMIT,
     enabled: Boolean(venue),
     initialData: venue ? initialVenueShows : undefined,
@@ -138,7 +135,8 @@ export function ShowDiscoveryRails({
     // reader can see. Nothing to yield to when that rail was not drawn: an
     // exclusion set from a rail nobody can see would silently drop bills from
     // the only rail they can.
-    alsoTonight?.drawnIds
+    alsoTonight?.drawnIds,
+    now
   )
 
   if (!alsoTonight && !moreAtVenue) return null
@@ -209,7 +207,7 @@ function Rail({ rail, testId }: { rail: ShowRail; testId: string }) {
       />
       <ul>
         {rail.rows.map(row => (
-          <RailRow key={row.href} row={row} variant={rail.variant} />
+          <RailRow key={row.href} row={row} kind={rail.kind} />
         ))}
       </ul>
     </section>
@@ -217,8 +215,8 @@ function Rail({ rail, testId }: { rail: ShowRail; testId: string }) {
 }
 
 /**
- * The ledger row both rails draw: lead, bill, room, figure — fixed columns,
- * hairline beneath.
+ * The ledger row both rails draw: lead, bill, room, age, figure — fixed
+ * columns, hairline beneath.
  *
  * It takes primitives, not a payload, which is what lets one renderer serve
  * two different wire types without a mode flag — and what keeps the hairline,
@@ -234,16 +232,16 @@ function Rail({ rail, testId }: { rail: ShowRail; testId: string }) {
  */
 function RailRow({
   row,
-  variant,
+  kind,
 }: {
   row: RailRowData
-  variant: ShowRail['variant']
+  kind: ShowRail['kind']
 }) {
   // Which columns a rail draws follows from WHICH rail it is, decided here
   // rather than carried as a flag per column: the night's rail leads with a
   // clock time and names a room and a door policy on every row, the room's
   // rail leads with a date and states neither.
-  const isNight = variant === 'night'
+  const isNight = kind === 'night'
   // A clock time in the compact register is at most `10:30PM`; a date is at
   // most `SEP 04 '27`, which is three characters longer and needs the wider
   // reservation. Both are `text-xs` mono, so the difference is real width, not
@@ -322,9 +320,14 @@ function RailRow({
             Fixed-width and truncating rather than sized to the value: this is
             contributor-written free text with no vocabulary enforced, so a
             column sized to fit whatever arrived would move under the row
-            below it. The width fits the short forms this column is mostly
-            made of (`21+`, `18+`); a longer one truncates and the `title`
-            carries the whole of it. */}
+            below it. 40px is about five glyphs of `text-xs` mono, so `21+`
+            and `18+` fit and `ALL AGES` does not — it truncates, and `title`
+            carries the whole of it. That recovery is mouse-only, which is
+            exactly where the truncation happens: the column is full-width and
+            uncut in the stacked band below `sm`, and hidden between `sm` and
+            `xl`, so a touch reader never meets the clipped form. Widening it
+            comes straight off the bill, which is the cell the arithmetic
+            above is budgeted around. */}
         {isNight && (
           <span
             className="block min-w-0 truncate font-mono text-xs uppercase text-muted-foreground sm:hidden xl:block xl:w-10"

@@ -872,6 +872,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_IncludesUn
 		name: "The Basement", city: "Chicago", state: "IL", tz: alsoTonightZone, unverified: true,
 	})
 	suite.Require().NoError(suite.db.Model(house).Update("address", address).Error)
+	suite.Require().NoError(suite.db.Model(house).Update("age_policy", "all ages").Error)
 
 	subject := suite.createAlsoTonightShow("subject", chicago.ID,
 		time.Date(2026, time.September, 18, 20, 0, 0, 0, loc), catalogm.ShowStatusApproved)
@@ -885,6 +886,8 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_IncludesUn
 	suite.Equal("The Basement", rail.Shows[0].VenueName)
 	suite.Empty(rail.Shows[0].VenueAddress,
 		"an unverified room's street address must never be published, here as anywhere else")
+	suite.Equal("all ages", rail.Shows[0].VenueAgePolicy,
+		"the house age policy is NOT address-gated: it is served for unverified rooms here exactly as the venue payload serves it")
 }
 
 // The rail row carries BOTH halves of the age answer: the event's own override

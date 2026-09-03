@@ -319,13 +319,17 @@ export function formatTimeInTimezone(
  * Built from `formatToParts` rather than a format string so the hour, minute
  * and AM/PM are read from the SAME formatted instant. An unreadable instant
  * yields "" rather than a `RangeError`, which `formatToParts` throws on an
- * invalid date and `toLocaleString` does not.
+ * invalid date and `toLocaleString` does not. Epoch milliseconds are accepted
+ * beside the wire string so a caller holding an instant reaches that guard
+ * rather than `toISOString`, which throws on a non-finite one before any guard
+ * here could run.
  */
 export function formatCompactTimeInTimezone(
-  utcDateString: string,
+  /** The wire's own spelling of a time, or epoch milliseconds. */
+  utcDateStringOrInstant: string | number,
   timezone: string
 ): string {
-  const date = new Date(utcDateString)
+  const date = new Date(utcDateStringOrInstant)
   if (!Number.isFinite(date.getTime())) return ''
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: timezone,

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { screen, within } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 import { buildSceneSlice, type SceneSliceData } from '../sceneSlice'
@@ -423,6 +423,68 @@ describe('SceneCalendar', () => {
       renderWithProviders(<SceneCalendar scene={buildScene()} slice={null} />)
       const nav = screen.getByRole('navigation', { name: /show windows/i })
       expect(within(nav).getAllByRole('link')).toHaveLength(4)
+    })
+  })
+
+  // The root and `/scenes/{slug}/tonight` render ONE `/scenes/{slug}/day`
+  // body, so the live-night rule has to reach both or the same night reads two
+  // ways one click apart.
+  describe('live-night ordering', () => {
+    const doors8 = buildShow({
+      id: 8,
+      artist_names: ['Doors Eight'],
+      starts_at: '2026-08-09T03:00:00Z',
+    })
+    const doors9 = buildShow({
+      id: 9,
+      artist_names: ['Doors Nine'],
+      starts_at: '2026-08-09T04:00:00Z',
+    })
+    const doors10 = buildShow({
+      id: 10,
+      artist_names: ['Doors Ten'],
+      starts_at: '2026-08-09T05:00:00Z',
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    const billsInOrder = (container: HTMLElement) =>
+      [...container.querySelectorAll('a[href^="/shows/"]')].map(a => a.textContent)
+
+    it('sinks the sets already under way on the live night', () => {
+      // 21:30 Phoenix: the 20:00 and 21:00 sets are on, the 22:00 is the one a
+      // reader can still get to.
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-08-09T04:30:00Z'))
+      const { container } = renderWithProviders(
+        <SceneCalendar
+          scene={buildScene()}
+          slice={buildSlice([doors8, doors9, doors10])}
+        />
+      )
+
+      const bills = billsInOrder(container)
+      expect(bills[0]).toContain('Doors Ten')
+      expect(bills[1]).toContain('Doors Eight')
+      expect(bills[2]).toContain('Doors Nine')
+    })
+
+    it('leaves a night that is not tonight in clock order', () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-08-09T04:30:00Z'))
+      const { container } = renderWithProviders(
+        <SceneCalendar
+          scene={buildScene()}
+          slice={buildSlice([], [doors8, doors9, doors10])}
+        />
+      )
+
+      const bills = billsInOrder(container)
+      expect(bills[0]).toContain('Doors Eight')
+      expect(bills[1]).toContain('Doors Nine')
+      expect(bills[2]).toContain('Doors Ten')
     })
   })
 })

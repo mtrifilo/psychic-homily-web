@@ -181,6 +181,19 @@ export function formatShowStartTimeCompact(
  *
  * `hasShowStarted` counts an unreadable instant as started, so a row whose date
  * cannot be parsed sinks with them rather than heading the list.
+ *
+ * TWO LIMITS, both real, neither fixable from here:
+ *
+ *  - This orders what it was GIVEN. Both producers cap their night
+ *    earliest-first, so on a metro night longer than the cap the late sets are
+ *    dropped upstream and cannot be promoted here — exactly the rows this rule
+ *    exists to surface. Raising the promotion above the cap is a backend
+ *    ordering question, not a client one.
+ *  - The WEEK and window views cannot apply it: `SceneWeekDay` carries no
+ *    `is_tonight`, and re-deriving the night on this side is the one thing
+ *    every surface here refuses to do. So a night reads one way on the scene
+ *    root and the day page and another in the week view, by omission of a
+ *    field rather than by choice.
  */
 export function orderNightShows<T extends SceneDayShow>(
   shows: T[],

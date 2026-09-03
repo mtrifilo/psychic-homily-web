@@ -93,11 +93,12 @@ function partsOf(
  * ICU and a plain space in older ones — invisible on screen and fatal across
  * hydration, since server and client can ship different ICU builds.
  *
- * The instant is re-serialized because the shared helper takes the wire's own
- * spelling of a time, which is what every other caller holds.
+ * The instant is passed as milliseconds, which the shared helper accepts:
+ * serializing it first would throw on a non-finite value before the helper's
+ * own guard could return "".
  */
 function formatStripeTime(instant: number, timeZone: string): string {
-  return formatCompactTimeInTimezone(new Date(instant).toISOString(), timeZone)
+  return formatCompactTimeInTimezone(instant, timeZone)
 }
 
 /**

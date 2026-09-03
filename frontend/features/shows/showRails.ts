@@ -14,6 +14,7 @@ import {
   formatShowMonthDayPadded,
   showYearInZone,
 } from '@/lib/utils/showDateBadge'
+import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import type { VenueShow } from '@/features/venues/types'
 import type { VenueResponse } from './types'
 
@@ -84,15 +85,40 @@ export const VENUE_RAIL_FETCH_LIMIT = SHOW_RAIL_ROW_CAP * 2 + 1
  * rail already drew) can empty out. Reading the constant is what keeps the two
  * sides one decision.
  *
+ * Both halves of the question are read from constants — the window as well as
+ * the limit — because a component switched to `past` or `all` would otherwise
+ * keep being seeded with upcoming rows under its new key, held for a full
+ * staleTime, with nothing to catch it.
+ *
  * The URL itself does NOT have to match the hook's character for character:
  * `initialData` reaches the client as a prop, and a browser fetch could not
  * read a server-side Data Cache entry however the URL were spelled (the same
  * point `features/venues/archiveApi.ts` makes about its own server reads).
  */
+/**
+ * Whether the night rail is drawn at all.
+ *
+ * The two rails answer different questions and only one survives the show.
+ * ALSO-TONIGHT is scoped to THIS show's night, so on a past page it would offer
+ * a reader other shows they equally cannot attend, under a heading naming a
+ * date that has gone by. MORE-AT-VENUE queries the room's UPCOMING window and
+ * is forward-looking whatever the subject show's date, so it stays.
+ *
+ * Exported because the route decides whether to hand this rail a server seed
+ * and the component decides whether to render it, and two restatements of one
+ * predicate drift silently: a seed withheld from a rail that does render shows
+ * up only as the layout shift quietly coming back.
+ */
+export function drawsNightRail(lifecycle: ShowLifecycleState): boolean {
+  return lifecycle !== 'past'
+}
+
+export const VENUE_RAIL_TIME_FILTER = 'upcoming' as const
+
 export function venueRailShowsUrl(venueId: number): string {
   const params = new URLSearchParams()
   params.set('limit', String(VENUE_RAIL_FETCH_LIMIT))
-  params.set('time_filter', 'upcoming')
+  params.set('time_filter', VENUE_RAIL_TIME_FILTER)
   return `${venueEndpoints.SHOWS(venueId)}?${params.toString()}`
 }
 
@@ -122,6 +148,10 @@ export interface ShowRail {
   /**
    * WHICH rail this is: the metro's night, or the room's calendar.
    *
+   * `kind`, not `variant`: in this repo `variant` is the visual-style token the
+   * `components/ui` primitives take, and this decides which COLUMNS the rail
+   * has data for.
+   *
    * One discriminator rather than a flag per column, because every
    * column-shaped question about a rail has the same answer as every other:
    * the night rail leads with a clock time and reserves a room and an age
@@ -137,7 +167,7 @@ export interface ShowRail {
    * Which columns each variant draws, and how wide, is the renderer's — see
    * `RailRow`. This says only what the rail IS.
    */
-  variant: 'night' | 'room'
+  kind: 'night' | 'room'
   /** Non-empty, and already rendered to primitives. */
   rows: RailRowData[]
   /**
@@ -207,8 +237,11 @@ function listableAlsoTonight(
  * disambiguate Portland OR from Portland ME is added here, and both consumers
  * get it.
  */
-function alsoTonightScopeParts(rail: ShowAlsoTonightResponse): string[] {
-  return [alsoTonightQualifier(rail), rail.city].filter(
+function alsoTonightScopeParts(
+  rail: ShowAlsoTonightResponse,
+  now: Date
+): string[] {
+  return [alsoTonightQualifier(rail, now), rail.city].filter(
     (part): part is string => Boolean(part)
   )
 }
@@ -245,15 +278,15 @@ export function buildAlsoTonightRail(
   // this rail's cap of three. Either one hiding a show is a reason to offer
   // the full night.
   const hasMore = rail.has_more || listableCount > drawn.length
-  const scope = alsoTonightScopeParts(rail)
+  const scope = alsoTonightScopeParts(rail, now)
 
   return {
-    title: alsoTonightRailTitle(rail),
+    title: alsoTonightRailTitle(rail, now),
     seeAllLabel:
       scope.length > 0
         ? `See every show ${scope.join(', ')}`
         : 'See every show that night',
-    variant: 'night',
+    kind: 'night',
     rows: drawn.map(show => alsoTonightRow(show, rail.timezone)),
     drawnIds: new Set(drawn.map(show => show.id)),
     seeAllHref: hasMore ? alsoTonightSeeAllHref(rail) : null,
@@ -312,7 +345,13 @@ export function buildMoreAtVenueRail(
    * visible way a discovery row can look broken, so the venue rail — the one
    * whose heading already names the room — yields.
    */
-  alreadyDrawn: ReadonlySet<number> = new Set()
+  alreadyDrawn: ReadonlySet<number> = new Set(),
+  /**
+   * The render's own clock, for the same reason `buildAlsoTonightRail` takes
+   * one: a row's lead prints a year only when it is not the current one, and
+   * this rail is now in the server HTML.
+   */
+  now: Date = new Date()
 ): ShowRail | null {
   if (!venue) return null
 
@@ -339,8 +378,8 @@ export function buildMoreAtVenueRail(
     // `VenueShow` does carry an `age_requirement`: the locked mock draws that
     // column on the night's rail, and a field being available is not the same
     // as a column being designed.
-    variant: 'room',
-    rows: drawn.map(show => moreAtVenueRow(show, venue)),
+    kind: 'room',
+    rows: drawn.map(show => moreAtVenueRow(show, venue, now)),
     // Nothing yields to this rail, so it publishes no exclusion set.
     drawnIds: new Set(),
     // Guarded on the slug as well as on truncation: entity slugs are nullable
@@ -377,17 +416,24 @@ export function buildMoreAtVenueRail(
  * `Also / Thu Aug 15` on a 2019 archive page reads as this August to every
  * reader, and unlike the scene day view there is no full date elsewhere in the
  * row to correct the impression — the same reasoning, and the same remedy, as
- * `formatPointerDay`. Comparing against the viewer's clock is safe here
- * because these rails are client-only and render nothing until their query
- * resolves, so there is no server pass to disagree with.
+ * `formatPointerDay`.
+ *
+ * WHICH year is current is read from the passed `now`, never from a fresh
+ * clock. This heading is rendered on the server and again on the hydrating
+ * client, and two reads that straddle New Year would produce two different
+ * headings for one payload — a hydration failure for the whole page, and the
+ * `aria-labelledby` name of a landmark changing under a screen reader.
  */
-function alsoTonightQualifier(rail: ShowAlsoTonightResponse): string | null {
+function alsoTonightQualifier(
+  rail: ShowAlsoTonightResponse,
+  now: Date
+): string | null {
   if (rail.is_tonight) return 'Tonight'
   if (!isCalendarDate(rail.date ?? '')) return null
 
   const chip = formatDayChip(rail.date)
   const year = parseCalendarDate(rail.date).getFullYear()
-  return year === new Date().getFullYear() ? chip : `${chip}, ${year}`
+  return year === now.getFullYear() ? chip : `${chip}, ${year}`
 }
 
 /**
@@ -401,8 +447,12 @@ function alsoTonightQualifier(rail: ShowAlsoTonightResponse): string | null {
  * Each half degrades independently, so an unusable date still leaves a heading
  * that names its scope (`Also / Chicago`) rather than a dangling separator.
  */
-export function alsoTonightRailTitle(rail: ShowAlsoTonightResponse): string {
-  const parts = alsoTonightScopeParts(rail)
+export function alsoTonightRailTitle(
+  rail: ShowAlsoTonightResponse,
+  /** The render's own clock; see `alsoTonightQualifier` for why it is passed. */
+  now: Date = new Date()
+): string {
+  const parts = alsoTonightScopeParts(rail, now)
   // Both halves absent means the payload had neither a readable date nor a
   // scene — which is also the case where it carries no rows, so this heading
   // is unreachable in practice. It degrades to the bare section name rather
@@ -515,7 +565,8 @@ function railBillLine(
 function railShowDate(
   eventDate: string | null | undefined,
   state: string | null | undefined,
-  timezone: string | null | undefined
+  timezone: string | null | undefined,
+  now: Date
 ): string | null {
   if (typeof eventDate !== 'string' || !Number.isFinite(Date.parse(eventDate))) {
     return null
@@ -537,8 +588,12 @@ function railShowDate(
   // different years. The left one is headed `Also / Thu Aug 15, 2019` while
   // this one lists the room's UPCOMING dates, so a bare `AUG 15` beside that
   // heading reads as 2019 — inverting the one fact the row exists to convey.
+  //
+  // WHICH year is current comes from the passed `now`, never a fresh clock:
+  // this cell is rendered on the server and again on the hydrating client, and
+  // two reads straddling New Year would print two different leads for one row.
   const year = showYearInZone(eventDate, state, timezone)
-  const currentYear = showYearInZone(new Date().toISOString(), state, timezone)
+  const currentYear = showYearInZone(now.toISOString(), state, timezone)
   if (year === currentYear) return label
   // Apostrophe, not a bare `27`: `SEP 04 27` reads as a date range in an
   // uppercase mono column.
@@ -603,10 +658,10 @@ export interface RailRowData {
 }
 
 /**
- * One also-tonight row: time, bill, room, price.
+ * One also-tonight row: time, bill, room, age, price.
  *
- * The time is VENUE-LOCAL, never the reader's. `formatShowStartTime` prefers
- * the row's own `venue_timezone` and falls back to the zone the BACKEND
+ * The time is VENUE-LOCAL, never the reader's. `formatShowStartTimeCompact`
+ * prefers the row's own `venue_timezone` and falls back to the zone the BACKEND
  * computed this night's window in — the scene's modal clock, the same one that
  * decided this show belongs to this night. Falling back to the viewer's device
  * instead is how a listed time comes to disagree with the heading above it: a
@@ -615,9 +670,11 @@ export interface RailRowData {
  * Every column of the mock's ledger is drawn here: the compact time register
  * (`8PM`, and `7:30PM` on the half hour), the bill, the room, the price through
  * the site's shared `formatPrice`, and the age. The age is the show's own
- * requirement where it has one and the room's house policy otherwise — the same
- * derivation the venue module on this page states in words, so the two cannot
- * name different door policies for the same night.
+ * requirement where it has one and the room's house policy otherwise, through
+ * the same `governingAgeRequirement` the venue module's facts line reads. That
+ * shares the RULE, not a subject: the rail never lists the show being read, so
+ * the two never describe one show. What it buys is that a reader who opens a
+ * rail row is not told which half governs by a different rule on arrival.
  */
 export function alsoTonightRow(
   show: AlsoTonightShow,
@@ -646,10 +703,19 @@ export function alsoTonightRow(
  * page's own table uses, so the two surfaces cannot print different dates for
  * one show.
  */
-export function moreAtVenueRow(show: VenueShow, venue: VenueResponse): RailRowData {
+export function moreAtVenueRow(
+  show: VenueShow,
+  venue: VenueResponse,
+  now: Date
+): RailRowData {
   return {
     href: railShowHref(show),
-    lead: railShowDate(show.event_date, show.state ?? venue.state, venue.timezone),
+    lead: railShowDate(
+      show.event_date,
+      show.state ?? venue.state,
+      venue.timezone,
+      now
+    ),
     title: railBillLine(show.artists.map(artist => artist.name), show.title),
     isCancelled: show.is_cancelled,
     // No room column: every row on this rail is at the room in the heading.

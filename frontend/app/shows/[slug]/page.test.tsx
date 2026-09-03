@@ -16,6 +16,13 @@ vi.mock('next/navigation', () => ({
   notFound: () => notFoundMock(),
 }))
 
+// `connection()` marks the subtree dynamic at request time and has nothing to
+// do here. Stubbed so the tests below can invoke the async component that
+// awaits it and read the props it hands the client tree.
+vi.mock('next/server', () => ({
+  connection: async () => {},
+}))
+
 
 // These tests exercise the page-level metadata + JSON-LD + notFound wiring.
 // They CALL `ShowPage()` and walk the returned element tree; nothing is ever
@@ -34,6 +41,46 @@ vi.mock('@/features/shows/utils', () => ({
 }))
 
 import ShowPage, { generateMetadata } from './page'
+import {
+  VENUE_RAIL_FETCH_LIMIT,
+  VENUE_RAIL_TIME_FILTER,
+} from '@/features/shows/showRails'
+
+/**
+ * The props the route hands the client tree.
+ *
+ * The page returns `ShowDetailWithLifecycle` as an UNINVOKED element inside its
+ * Suspense boundary, so nothing below it runs until it is called — which is the
+ * whole reason the rail seeding had no coverage. Calling it here executes the
+ * real component (its `connection()` is stubbed above) and returns the
+ * `<ShowDetail>` element without loading that module, because `dynamic()` only
+ * resolves on render.
+ */
+async function showDetailPropsFrom(
+  result: ReactElement
+): Promise<Record<string, unknown>> {
+  const queue: unknown[] = [result]
+  while (queue.length > 0) {
+    const node = queue.shift()
+    if (!isValidElement(node)) continue
+    const type = node.type as { name?: string }
+    if (
+      typeof node.type === 'function' &&
+      type.name === 'ShowDetailWithLifecycle'
+    ) {
+      const rendered = await (
+        node.type as (props: unknown) => Promise<ReactElement>
+      )(node.props)
+      return rendered.props as Record<string, unknown>
+    }
+    queue.push(
+      ...Children.toArray(
+        (node.props as { children?: React.ReactNode }).children
+      )
+    )
+  }
+  throw new Error('ShowDetailWithLifecycle was not found in the page tree')
+}
 
 // Minimal show payload — only the fields generateMetadata / the page body read.
 function buildShow(overrides: Record<string, unknown> = {}) {
@@ -44,7 +91,15 @@ function buildShow(overrides: Record<string, unknown> = {}) {
     description: null as string | null,
     is_sold_out: false,
     is_cancelled: false,
-    venues: [{ name: 'The Rebel Lounge', slug: 'the-rebel-lounge', city: 'Phoenix', state: 'AZ' }],
+    venues: [
+      {
+        id: 77,
+        name: 'The Rebel Lounge',
+        slug: 'the-rebel-lounge',
+        city: 'Phoenix',
+        state: 'AZ',
+      },
+    ],
     artists: [
       { name: 'Headliner Band', slug: 'headliner-band', is_headliner: true, socials: {} },
     ],
@@ -100,6 +155,34 @@ const fetchMock = vi.fn()
  */
 const timelineFetchMock = vi.fn()
 
+/**
+ * The two DISCOVERY RAIL reads, mocked per endpoint for the same reason the
+ * timeline is: the page starts all of them around the show read, so one shared
+ * mock would hand each whichever response the test queued for another.
+ */
+const alsoTonightFetchMock = vi.fn()
+const venueRailFetchMock = vi.fn()
+
+const EMPTY_RAIL = { shows: [], date: '2026-03-15', timezone: 'America/Phoenix' }
+const EMPTY_VENUE_RAIL = { shows: [], venue_id: 77, total: 0 }
+
+/**
+ * A rail response stub, which needs `text()` where `okResponse` offers only
+ * `json()`: the rails are read through `fetchListPayload`, which weighs the
+ * body against the Data Cache budget on the way through and therefore reads it
+ * as text. A stub without it fails every rail read as a thrown TypeError,
+ * which the helper swallows into the same `null` a real outage produces — so
+ * the seeding assertions would pass their "no seed" half and never the other.
+ */
+function railResponse(body: unknown): Response {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => body,
+    text: async () => JSON.stringify(body),
+  } as unknown as Response
+}
+
 const EMPTY_TIMELINE = {
   previous: null,
   next: null,
@@ -110,11 +193,15 @@ const EMPTY_TIMELINE = {
 beforeEach(() => {
   vi.clearAllMocks()
   timelineFetchMock.mockResolvedValue(okResponse(EMPTY_TIMELINE))
-  vi.stubGlobal('fetch', (url: string, init?: RequestInit) =>
-    String(url).includes('/timeline')
-      ? timelineFetchMock(url, init)
-      : fetchMock(url, init)
-  )
+  alsoTonightFetchMock.mockResolvedValue(railResponse(EMPTY_RAIL))
+  venueRailFetchMock.mockResolvedValue(railResponse(EMPTY_VENUE_RAIL))
+  vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
+    const at = String(url)
+    if (at.includes('/timeline')) return timelineFetchMock(url, init)
+    if (at.includes('/also-tonight')) return alsoTonightFetchMock(url, init)
+    if (at.includes('/venues/')) return venueRailFetchMock(url, init)
+    return fetchMock(url, init)
+  })
 })
 
 afterEach(() => {
@@ -252,10 +339,10 @@ describe('ShowPage', () => {
     expect(notFoundMock).toHaveBeenCalledTimes(1)
   })
 
-  // The two reads overlap, so each must be addressed to its own endpoint. A
-  // page that sent both to the same URL would still pass every assertion below
-  // while making two identical requests.
-  it('addresses the show and the timeline as two separate reads', async () => {
+  // The reads overlap, so each must be addressed to its own endpoint. A page
+  // that sent two of them to the same URL would still pass every assertion
+  // below while making two identical requests.
+  it('addresses the show, the timeline and both rails as separate reads', async () => {
     fetchMock.mockResolvedValueOnce(okResponse(buildShow()))
 
     await ShowPage({ params: Promise.resolve({ slug: 'test-show' }) })
@@ -267,6 +354,90 @@ describe('ShowPage', () => {
     expect(timelineFetchMock.mock.calls[0][0]).toContain(
       '/shows/test-show/timeline'
     )
+    expect(alsoTonightFetchMock).toHaveBeenCalledTimes(1)
+    expect(venueRailFetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  // The seed and the rail's own hook must ask the same QUESTION: the rows the
+  // server reads become the only page the rail ever filters. Asserted against
+  // the real constants the hook sends, never a restated literal.
+  it('asks the venue rail for the page the rail hook asks for', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(buildShow()))
+
+    await ShowPage({ params: Promise.resolve({ slug: 'test-show' }) })
+
+    const url = String(venueRailFetchMock.mock.calls[0][0])
+    expect(url).toContain(`limit=${VENUE_RAIL_FETCH_LIMIT}`)
+    expect(url).toContain(`time_filter=${VENUE_RAIL_TIME_FILTER}`)
+    expect(url).toContain('/venues/77/shows')
+  })
+
+  // Next hands route params through DECODED, so an unencoded `%2F` would
+  // re-point this server-side read at another backend path.
+  it('encodes the slug in the night rail request', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(buildShow()))
+
+    await ShowPage({ params: Promise.resolve({ slug: 'a/b?c' }) })
+
+    expect(String(alsoTonightFetchMock.mock.calls[0][0])).toContain(
+      '/shows/a%2Fb%3Fc/also-tonight'
+    )
+  })
+
+  it('asks for no venue rail when the show has no venue', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(buildShow({ venues: [] })))
+
+    await ShowPage({ params: Promise.resolve({ slug: 'venue-less-show' }) })
+
+    expect(venueRailFetchMock).not.toHaveBeenCalled()
+  })
+
+  // Both rails are discovery asides. A failing one degrades to no seed, which
+  // leaves that rail to the client query it already had — it must never take
+  // the page down or knock it out of its prerender.
+  it('still renders the show when both rail reads fail', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(buildShow()))
+    alsoTonightFetchMock.mockRejectedValue(new Error('scene down'))
+    venueRailFetchMock.mockResolvedValue(errorResponse(500))
+
+    const result = await ShowPage({ params: Promise.resolve({ slug: 'rails-down-show' }) })
+    const props = await showDetailPropsFrom(result)
+
+    expect(notFoundMock).not.toHaveBeenCalled()
+    expect(props.initialAlsoTonight).toBeUndefined()
+    expect(props.initialVenueShows).toBeUndefined()
+  })
+
+  it('seeds both rails and one clock into the client tree', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse(buildShow({ event_date: FUTURE_DATE }))
+    )
+
+    const result = await ShowPage({ params: Promise.resolve({ slug: 'seeded-show' }) })
+    const props = await showDetailPropsFrom(result)
+
+    expect(props.initialAlsoTonight).toEqual(EMPTY_RAIL)
+    expect(props.initialVenueShows).toEqual(EMPTY_VENUE_RAIL)
+    // The rails order the night against this instant rather than the reader's
+    // clock, so it has to reach them.
+    expect(Date.parse(String(props.renderedAt))).not.toBeNaN()
+    expect(props.lifecycle).toBe('upcoming')
+  })
+
+  // An archive page must not offer a reader other shows they equally cannot
+  // attend, so the night rail's rows are dropped rather than seeded.
+  it('withholds the night rail seed on a past show', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse(buildShow({ event_date: PAST_DATE }))
+    )
+
+    const result = await ShowPage({ params: Promise.resolve({ slug: 'archive-show' }) })
+    const props = await showDetailPropsFrom(result)
+
+    expect(props.lifecycle).toBe('past')
+    expect(props.initialAlsoTonight).toBeUndefined()
+    // The room's rail is forward-looking whatever the subject show's date.
+    expect(props.initialVenueShows).toEqual(EMPTY_VENUE_RAIL)
   })
 
   // The timeline is two supplementary lines. A show page must not 404 because

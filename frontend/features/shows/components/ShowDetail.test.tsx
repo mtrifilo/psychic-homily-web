@@ -227,8 +227,9 @@ import { ShowDetail } from './ShowDetail'
 
 /**
  * The instant the route would have rendered at. Required, like the lifecycle
- * beside it: the discovery rails order a night against this clock rather than
- * the reader's, so a render without one has no counterpart in production.
+ * beside it, so a render here has a counterpart in production. What the prop
+ * DOES is asserted where the rails live: this suite stubs `ShowDiscoveryRails`
+ * and cannot observe the ordering it feeds.
  */
 const DETAIL_RENDERED_AT = '2026-08-13T00:00:00.000Z'
 

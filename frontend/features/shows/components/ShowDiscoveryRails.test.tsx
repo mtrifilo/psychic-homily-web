@@ -310,6 +310,10 @@ describe('ShowDiscoveryRails', () => {
     const age = row.children[3]
     expect(age).toHaveTextContent('all ages')
     expect(age).toHaveClass('uppercase')
+    // The column is narrow enough to clip a long value at `xl`, so the whole
+    // of it rides on `title` — the recovery a mouse has, in the only band
+    // where the clipping happens.
+    expect(age).toHaveAttribute('title', 'all ages')
   })
 
   it('reserves the age column when a row states no policy at all', () => {

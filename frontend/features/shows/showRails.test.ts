@@ -100,7 +100,7 @@ describe('buildAlsoTonightRail', () => {
     const rail = buildAlsoTonightRail(makeAlsoTonightPayload(), 99)
     expect(rail?.rows[0]?.room).toBe('Empty Bottle')
     expect(rail?.rows[0]?.figure).toBe('$15')
-    expect(rail?.variant).toBe('night')
+    expect(rail?.kind).toBe('night')
   })
 
   it('leaves an absent cell EMPTY rather than collapsing its column', () => {
@@ -114,7 +114,7 @@ describe('buildAlsoTonightRail', () => {
     )
     expect(rail?.rows[0]?.room).toBeNull()
     expect(rail?.rows[0]?.figure).toBeNull()
-    expect(rail?.variant).toBe('night')
+    expect(rail?.kind).toBe('night')
   })
 
   it('bills the row with the mock’s separator, not the scene views’ comma', () => {
@@ -355,7 +355,7 @@ describe('buildMoreAtVenueRail', () => {
 
   it('reserves no room column — the room is the heading', () => {
     const rail = buildMoreAtVenueRail(makeRailVenue(), [makeVenueShow()], 2, 99)
-    expect(rail?.variant).toBe('room')
+    expect(rail?.kind).toBe('room')
     expect(rail?.rows[0]?.room).toBeNull()
   })
 
@@ -811,6 +811,50 @@ describe('live-night ordering', () => {
       '/shows/s1',
       '/shows/s2',
     ])
+  })
+})
+
+// Both rails are rendered on the server and again on the hydrating client, so
+// every clock-dependent cell has to be a function of the instant it is GIVEN.
+// Two fresh reads straddling New Year would print two different headings and
+// two different leads for one payload, which fails hydration for the page.
+describe('one clock, two renders', () => {
+  const NIGHT = makeAlsoTonightPayload({
+    is_tonight: false,
+    date: '2027-03-14',
+    shows: [makeAlsoTonightShow({ starts_at: '2027-03-15T01:00:00Z' })],
+  })
+
+  it('reads the heading year off the passed instant, not a fresh clock', () => {
+    const inDecember = new Date('2026-12-31T21:00:00Z')
+    const inJanuary = new Date('2027-01-01T10:00:00Z')
+
+    expect(buildAlsoTonightRail(NIGHT, 99, inDecember)?.title).toBe(
+      'Also / Sun Mar 14, 2027 · Chicago'
+    )
+    expect(buildAlsoTonightRail(NIGHT, 99, inJanuary)?.title).toBe(
+      'Also / Sun Mar 14 · Chicago'
+    )
+    // The bracket's accessible name is composed from the same parts, so it
+    // moves with the heading rather than drifting from it.
+    expect(alsoTonightRailTitle(NIGHT, inDecember)).toBe(
+      'Also / Sun Mar 14, 2027 · Chicago'
+    )
+  })
+
+  it('reads the venue lead year off the passed instant too', () => {
+    const rows = (now: Date) =>
+      buildMoreAtVenueRail(
+        makeRailVenue(),
+        [makeVenueShow({ event_date: '2027-09-05T01:00:00Z' })],
+        1,
+        99,
+        new Set(),
+        now
+      )?.rows[0]?.lead
+
+    expect(rows(new Date('2026-12-31T21:00:00Z'))).toBe("SEP 04 '27")
+    expect(rows(new Date('2027-01-01T10:00:00Z'))).toBe('SEP 04')
   })
 })
 
