@@ -137,7 +137,10 @@ func TestCredentialReadsGoThroughTheSharedHelpers(t *testing.T) {
 			if strings.Contains(flat, `"Authorization"`) && !credentialReaderFiles[path] {
 				t.Errorf("%s reads the Authorization header; a second parse is how a limiter and an authenticator start disagreeing about the caller. Call credentialFromRequest, credentialFromHumaContext, or bearerTokenFromHeader.", path)
 			}
-			if strings.Contains(flat, `Cookie(config.AuthCookieName)`) && path != "internal/api/middleware/jwt.go" {
+			readsAuthCookie := strings.Contains(flat, `Cookie(config.AuthCookieName)`) ||
+				strings.Contains(flat, `Cookie(ctx, config.AuthCookieName)`) ||
+				strings.Contains(flat, `"auth_token"`)
+			if readsAuthCookie && path != "internal/api/middleware/jwt.go" {
 				t.Errorf("%s reads the auth cookie directly; credentialFromRequest and credentialFromHumaContext own that read.", path)
 			}
 		}

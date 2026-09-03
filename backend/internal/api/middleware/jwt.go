@@ -114,9 +114,12 @@ func bearerTokenFromHeader(authHeader string) string {
 //
 // Every middleware that resolves a caller reads the request through this
 // function or through credentialFromHumaContext, and the two agree on every
-// header shape (TestCredentialReadersAgree). Two readers that disagreed would
-// let a request be exempted from a rate limit as one principal while being
-// authenticated as another, which is a bypass rather than a parsing detail.
+// header shape a client can put on the wire (TestCredentialReadersAgree). Two
+// readers that disagreed would let a request be exempted from a rate limit as
+// one principal while being authenticated as another, which is a bypass rather
+// than a parsing detail. TestCredentialReadsGoThroughTheSharedHelpers holds
+// that for this package and for routes; a reader added elsewhere is on the
+// author.
 //
 // validatedAPIToken is the one deliberate exception: it reads only the
 // Authorization header, which can only meter a caller this would have exempted,

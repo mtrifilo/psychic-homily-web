@@ -55,13 +55,18 @@ func TestAPITokenBypassThroughRouter(t *testing.T) {
 		return router
 	}
 
-	post := func(router *chi.Mux, path, header, ip string) int {
+	// Returns the status and asserts the operation actually ran: humaFromHTTP's
+	// failure mode is a bare 200 with an empty body, which every "not 429"
+	// assertion below would otherwise accept.
+	post := func(t *testing.T, router *chi.Mux, path, header, ip string) int {
+		t.Helper()
 		req := httptest.NewRequest("POST", path, strings.NewReader(`{}`))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", header)
 		req.RemoteAddr = ip
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
+		assertReachedHandler(t, w.Code, w.Body.String(), path)
 		return w.Code
 	}
 
@@ -81,7 +86,7 @@ func TestAPITokenBypassThroughRouter(t *testing.T) {
 		t.Run(h.name, func(t *testing.T) {
 			router := newRouter()
 			for i := 0; i < h.limit+5; i++ {
-				if code := post(router, h.path, liveToken, "198.51.100.77:4444"); code == http.StatusTooManyRequests {
+				if code := post(t, router, h.path, liveToken, "198.51.100.77:4444"); code == http.StatusTooManyRequests {
 					t.Fatalf("request %d returned 429: the live API token is not reaching the %s bypass, so RouteContext.ValidateAPIToken is not wired", i+1, h.name)
 				}
 			}
@@ -94,11 +99,11 @@ func TestAPITokenBypassThroughRouter(t *testing.T) {
 		router := newRouter()
 		limit := middleware.ShowCreateRequestsPerHour
 		for i := 0; i < limit; i++ {
-			if code := post(router, "/shows", "Bearer "+adminSession, "198.51.100.78:4444"); code == http.StatusTooManyRequests {
+			if code := post(t, router, "/shows", "Bearer "+adminSession, "198.51.100.78:4444"); code == http.StatusTooManyRequests {
 				t.Fatalf("request %d/%d was rate limited early on a fresh router", i+1, limit)
 			}
 		}
-		if code := post(router, "/shows", "Bearer "+adminSession, "198.51.100.78:4444"); code != http.StatusTooManyRequests {
+		if code := post(t, router, "/shows", "Bearer "+adminSession, "198.51.100.78:4444"); code != http.StatusTooManyRequests {
 			t.Errorf("request %d returned %d, want 429: show creation has no admin-JWT hatch", limit+1, code)
 		}
 	})
@@ -107,7 +112,7 @@ func TestAPITokenBypassThroughRouter(t *testing.T) {
 	t.Run("admin session bypasses tag create", func(t *testing.T) {
 		router := newRouter()
 		for i := 0; i < middleware.TagCreateRequestsPerHour+5; i++ {
-			if code := post(router, "/entities/artist/1/tags", "Bearer "+adminSession, "198.51.100.79:4444"); code == http.StatusTooManyRequests {
+			if code := post(t, router, "/entities/artist/1/tags", "Bearer "+adminSession, "198.51.100.79:4444"); code == http.StatusTooManyRequests {
 				t.Fatalf("request %d returned 429: the admin-JWT hatch on tag creation is shut", i+1)
 			}
 		}

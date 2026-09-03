@@ -158,19 +158,19 @@ func SkipRateLimitForAdmin(jwtService *auth.JWTService, validateAPIToken func(st
 			// in is the wrapped limiter's business: the tag and show limiters
 			// passed in here key by IP, the engagement one by user.
 			//
-			// COST, both checks being database lookups that run BEFORE the
-			// limiter: a phk_-prefixed bearer costs an api_tokens read plus the
-			// last_used_at write ValidateToken fires on success, and pays it
-			// again in the authenticating middleware, which validates the same
-			// token independently. It pays that even when the token names
-			// nothing and even when the limiter is about to reject the request,
-			// so a forged-prefix flood is an unmetered read amplifier on these
-			// write routes, which have no anonymous per-IP budget in front of
-			// them the way public reads do.
+			// COST: a phk_-prefixed bearer costs an api_tokens read here plus
+			// the last_used_at write ValidateToken fires on success, and pays
+			// both again in the authenticating middleware, which validates the
+			// same token independently. Only the phk_ branch is driveable by an
+			// attacker; isAdminTokenRequest reaches its user lookup only after
+			// verifying the token's signature.
 			//
-			// The order is still the right one: validating after the limiter
-			// would make a live token increment the bucket it is meant to skip,
-			// which is the guarantee bulk imports depend on.
+			// Validation runs BEFORE the limiter, so a forged prefix buys that
+			// read even on a request about to be rejected. That order is
+			// deliberate and matches RateLimitPublicReadsByAuthState, which
+			// takes the same exposure for the same reason: validating after the
+			// limiter would make a live token increment the bucket it is meant
+			// to skip, which is the guarantee bulk imports depend on.
 			if validatedAPIToken(validateAPIToken, r) || isAdminTokenRequest(jwtService, r) {
 				next.ServeHTTP(w, r)
 				return

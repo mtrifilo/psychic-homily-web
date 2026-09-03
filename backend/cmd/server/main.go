@@ -284,8 +284,7 @@ func main() {
 	sc := services.NewServiceContainer(database, cfg)
 
 	// A phk_ bearer is trusted only where APITokenService.ValidateToken resolves
-	// it to a live token. The route-level limiters build the same adapter from
-	// the same service (RouteContext.ValidateAPIToken).
+	// it to a live token.
 	//
 	// PSY-1362/1373/1814: rate-limit public-READ traffic (GET/HEAD) by auth state —
 	// anonymous per-IP (100/min), authenticated per-USER (300/min, so shared-IP
