@@ -337,13 +337,59 @@ describe('ticketLineSegments', () => {
 })
 
 describe('ShowTicketRow', () => {
-  it('renders Buy Tickets as an outbound bracket in a new tab', () => {
+  /** The middot line above the verb row, read as flat text. */
+  function ticketLine(): string {
+    return screen.getByTestId('ticket-line').textContent ?? ''
+  }
+
+  // THE PAID-REFERRAL RULE, with no partner ID configured: an outbound vendor
+  // anchor is withheld and the vendor is NAMED on the line instead, so the
+  // reader still knows where the ticket is sold.
+  it('names a known vendor and renders no link without a partner ID', () => {
     render(
-      <ShowTicketRow lifecycle="upcoming" show={makeShow({ ticket_url: 'https://tix.example/1' })} />
+      <ShowTicketRow
+        lifecycle="upcoming"
+        show={makeShow({ price: 25, ticket_url: 'https://www.ticketweb.com/event/2' })}
+      />
+    )
+
+    expect(
+      screen.queryByRole('link', { name: /Buy tickets/i })
+    ).not.toBeInTheDocument()
+    expect(ticketLine()).toContain('$25')
+    expect(ticketLine()).toContain('TicketWeb')
+  })
+
+  // An unrecognized host has no name written down, so the line states the
+  // hostname, which is a fact about the URL rather than a claim about a
+  // company. `www.` is not part of how a reader names a site.
+  it('names an unknown vendor by hostname', () => {
+    render(
+      <ShowTicketRow
+        lifecycle="upcoming"
+        show={makeShow({ price: 25, ticket_url: 'https://www.tix.example/1' })}
+      />
+    )
+
+    expect(
+      screen.queryByRole('link', { name: /Buy tickets/i })
+    ).not.toBeInTheDocument()
+    expect(ticketLine()).toContain('tix.example')
+  })
+
+  // FREE ADMISSION IS THE EXEMPTION: an RSVP link on a show that states a
+  // price of zero is not a ticket referral, nobody is paid either way, and the
+  // click is the reader's only route in. It links whatever the vendor is.
+  it('keeps a free show RSVP link for any vendor', () => {
+    render(
+      <ShowTicketRow
+        lifecycle="upcoming"
+        show={makeShow({ price: 0, ticket_url: 'https://rsvp.example/1' })}
+      />
     )
 
     const buy = screen.getByRole('link', { name: /^Buy tickets\b/i })
-    expect(buy).toHaveAttribute('href', 'https://tix.example/1')
+    expect(buy).toHaveAttribute('href', 'https://rsvp.example/1')
     expect(buy).toHaveAttribute('target', '_blank')
     expect(buy).toHaveAttribute('rel', 'noopener noreferrer')
     // Anchored above so the ↗ cannot drift into the announced name, and the
@@ -351,11 +397,43 @@ describe('ShowTicketRow', () => {
     expect(
       buy.getAttribute('aria-label')?.match(/opens in a new tab/g)
     ).toHaveLength(1)
+    // The vendor name is what an unlinked referral leaves behind; a linked one
+    // already names the vendor by being clickable.
+    expect(ticketLine()).not.toContain('rsvp.example')
+  })
+
+  // Zero is a price, but an unpriced show is not a free one: with no price
+  // column stated at all the referral is a referral like any other.
+  it('withholds the link for an unpriced show', () => {
+    render(
+      <ShowTicketRow
+        lifecycle="upcoming"
+        show={makeShow({ ticket_url: 'https://rsvp.example/1' })}
+      />
+    )
+
+    expect(
+      screen.queryByRole('link', { name: /Buy tickets/i })
+    ).not.toBeInTheDocument()
+  })
+
+  // A zero advance price beside a real door price still charges for entry.
+  it('withholds the link when only the advance price is zero', () => {
+    render(
+      <ShowTicketRow
+        lifecycle="upcoming"
+        show={makeShow({ price: 0, door_price: 15, ticket_url: 'https://rsvp.example/1' })}
+      />
+    )
+
+    expect(
+      screen.queryByRole('link', { name: /Buy tickets/i })
+    ).not.toBeInTheDocument()
   })
 
   // Affiliate tagging is a config flip, not a markup change: the same row
-  // renders a raw href today and a tagged, qualified one once the environment
-  // carries a partner ID.
+  // withholds the anchor today and renders a tagged, qualified one once the
+  // environment carries a partner ID.
   describe('with an affiliate partner ID configured', () => {
     beforeEach(() => {
       process.env.NEXT_PUBLIC_IMPACT_PARTNER_ID = '1234567'
@@ -379,12 +457,17 @@ describe('ShowTicketRow', () => {
         'https://www.ticketweb.com/event/2?irmp=1234567'
       )
       expect(buy).toHaveAttribute('rel', 'noopener noreferrer sponsored')
+      expect(ticketLine()).not.toContain('TicketWeb')
     })
 
     // The stored value carried the tag, and we only ever append at render, so
     // it was planted by whoever submitted the show. The link still renders as
     // stored; the report is what makes the row findable.
-    it('renders a planted tag untouched, qualified, and reports it', () => {
+    // A planted tag credits somebody else, so `ticketLink` refuses to append
+    // ours and the click is not paid for: the anchor is withheld on a vendor
+    // that is otherwise configured. The report still fires, because it is
+    // about the stored value rather than about what this row renders.
+    it('withholds the link for a planted tag and still reports it', () => {
       render(
         <ShowTicketRow
           lifecycle="upcoming"
@@ -395,12 +478,10 @@ describe('ShowTicketRow', () => {
         />
       )
 
-      const buy = screen.getByRole('link', { name: /^Buy tickets\b/i })
-      expect(buy).toHaveAttribute(
-        'href',
-        'https://www.ticketweb.com/event/2?irmp=9999999'
-      )
-      expect(buy).toHaveAttribute('rel', 'noopener noreferrer sponsored')
+      expect(
+        screen.queryByRole('link', { name: /Buy tickets/i })
+      ).not.toBeInTheDocument()
+      expect(ticketLine()).toContain('TicketWeb')
       expect(reportPlantedTicketTag).toHaveBeenCalledWith({
         entityType: 'show',
         entityId: 4242,
@@ -422,7 +503,9 @@ describe('ShowTicketRow', () => {
       expect(reportPlantedTicketTag).not.toHaveBeenCalled()
     })
 
-    it('leaves an unknown vendor raw and unqualified', () => {
+    // The partner ID is per NETWORK, and a vendor outside every program can
+    // never carry one: a configured build still withholds its link.
+    it('withholds the link for a vendor with no affiliate entry', () => {
       render(
         <ShowTicketRow
           lifecycle="upcoming"
@@ -430,16 +513,24 @@ describe('ShowTicketRow', () => {
         />
       )
 
-      const buy = screen.getByRole('link', { name: /^Buy tickets\b/i })
-      expect(buy).toHaveAttribute('href', 'https://tix.example/1')
-      expect(buy).toHaveAttribute('rel', 'noopener noreferrer')
+      expect(
+        screen.queryByRole('link', { name: /Buy tickets/i })
+      ).not.toBeInTheDocument()
+      expect(ticketLine()).toContain('tix.example')
     })
   })
 
   // The backend stores ticket urls as typed; the repair is scheme-anchored
-  // and case-insensitive, not a bare prefix test.
+  // and case-insensitive, not a bare prefix test. Asserted on FREE shows,
+  // which are the case where an arbitrary host still renders an anchor to
+  // read the repaired href off.
   it('repairs a scheme-less ticket url to https', () => {
-    render(<ShowTicketRow lifecycle="upcoming" show={makeShow({ ticket_url: 'tix.example/1' })} />)
+    render(
+      <ShowTicketRow
+        lifecycle="upcoming"
+        show={makeShow({ price: 0, ticket_url: 'tix.example/1' })}
+      />
+    )
 
     expect(screen.getByRole('link', { name: /Buy tickets/i })).toHaveAttribute(
       'href',
@@ -449,7 +540,10 @@ describe('ShowTicketRow', () => {
 
   it('leaves an uppercase scheme alone and repairs protocol-relative urls', () => {
     const { rerender } = render(
-      <ShowTicketRow lifecycle="upcoming" show={makeShow({ ticket_url: 'HTTPS://tix.example/1' })} />
+      <ShowTicketRow
+        lifecycle="upcoming"
+        show={makeShow({ price: 0, ticket_url: 'HTTPS://tix.example/1' })}
+      />
     )
     expect(screen.getByRole('link', { name: /Buy tickets/i })).toHaveAttribute(
       'href',
@@ -457,7 +551,10 @@ describe('ShowTicketRow', () => {
     )
 
     rerender(
-      <ShowTicketRow lifecycle="upcoming" show={makeShow({ ticket_url: '//tix.example/1' })} />
+      <ShowTicketRow
+        lifecycle="upcoming"
+        show={makeShow({ price: 0, ticket_url: '//tix.example/1' })}
+      />
     )
     expect(screen.getByRole('link', { name: /Buy tickets/i })).toHaveAttribute(
       'href',
@@ -469,7 +566,10 @@ describe('ShowTicketRow', () => {
   // resolving under /shows/.
   it('prefixes a value that merely starts with the letters http', () => {
     render(
-      <ShowTicketRow lifecycle="upcoming" show={makeShow({ ticket_url: 'httpfoo.example/1' })} />
+      <ShowTicketRow
+        lifecycle="upcoming"
+        show={makeShow({ price: 0, ticket_url: 'httpfoo.example/1' })}
+      />
     )
     expect(screen.getByRole('link', { name: /Buy tickets/i })).toHaveAttribute(
       'href',

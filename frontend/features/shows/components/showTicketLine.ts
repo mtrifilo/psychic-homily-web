@@ -4,7 +4,12 @@ import { saysSoldOut } from './showSaleState'
 import { showIsArchived } from '@/lib/utils/showTiming'
 import { formatPrice } from '@/lib/utils/formatters'
 import { statedShowPrices } from '@/lib/utils/showPrice'
-import { repairTicketUrl, ticketLink } from '@/lib/tickets/ticketVendors'
+import {
+  carriesOurAffiliateTag,
+  repairTicketUrl,
+  ticketLink,
+  ticketVendorLabel,
+} from '@/lib/tickets/ticketVendors'
 import type { TicketLink } from '@/lib/tickets/ticketVendors'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import type { ShowResponse } from '../types'
@@ -38,8 +43,8 @@ function storedTicketUrl(show: ShowResponse): string | null {
  * under a stripe that says CANCELLED or PAST SHOW is the page arguing with
  * itself, and the click is the half that costs a reader money. This is THE
  * derivation of "is there somewhere to buy": {@link ticketLineSegments}
- * branches on it and the Buy Tickets bracket consumes it, so a refusal
- * added here reaches both.
+ * branches on it and {@link ticketOffer} consumes it, so a refusal added
+ * here reaches both.
  *
  * The repair itself is {@link repairTicketUrl}, shared with the festival
  * page's ticket link so the two surfaces cannot disagree about what a stored
@@ -47,10 +52,11 @@ function storedTicketUrl(show: ShowResponse): string | null {
  *
  * NOT the href a buy affordance renders, and NOT exported for exactly that
  * reason. This answers "may this be offered, and at what URL", which is the
- * question the `ON SALE` words ask; the URL it returns is UNTAGGED, so a Buy
- * Tickets surface built on it would ship an unmonetized, unqualified link and
- * no test would notice. {@link buyTicketsLink} is the exported one, and is
- * what a new surface should render.
+ * question the `ON SALE` words ask; the URL it returns is UNTAGGED and
+ * carries no paid-referral gate, so a Buy Tickets surface built on it would
+ * ship an unmonetized, unqualified link and no test would notice.
+ * {@link ticketOffer} is the exported one, and is what a new surface should
+ * render.
  */
 function ticketHref(
   show: ShowResponse,
@@ -64,9 +70,9 @@ function ticketHref(
 }
 
 /**
- * What the Buy Tickets bracket renders: the href plus whether it is a paid
- * link that has to be qualified with `rel="sponsored"`. Null when there is
- * nothing to offer.
+ * What the ticket surface renders for a stored ticket URL: the resolved link,
+ * whether an outbound anchor is offered at all, and the vendor's name for when
+ * it is not. Null when there is nothing to offer.
  *
  * Two steps that stay separate on purpose. {@link ticketHref} answers "may
  * this show be offered, and at what URL" and is also what the `ON SALE` words
@@ -74,16 +80,56 @@ function ticketHref(
  * which the words have no opinion about. Composing them here rather than in
  * the component keeps every derivation of the Buy Tickets href in this file.
  *
- * Until the affiliate application is approved and the environment carries a
- * partner ID, `href` is `ticketHref`'s value unchanged and `sponsored` is
- * false for every vendor.
+ * `linked` is the site's PAID-REFERRAL RULE, and it is the whole reason this
+ * shape exists: an outbound vendor anchor renders only when the click is paid
+ * for ({@link carriesOurAffiliateTag}), so a vendor with no affiliate entry,
+ * a network with no partner ID configured, and a URL carrying a tag somebody
+ * else planted all render as the vendor's NAME instead of a link.
+ *
+ * FREE ADMISSION IS THE EXEMPTION ({@link isFreeAdmission}): an RSVP or
+ * guestlist link on a show that states a price of zero is not a ticket
+ * referral, nobody is paid either way, and the click is the reader's only
+ * route in. It stays linked whatever the vendor is.
+ *
+ * `link` is present even when `linked` is false, because the planted-tag
+ * report is about the stored value rather than about what this page renders.
  */
-export function buyTicketsLink(
+export interface TicketOffer {
+  link: TicketLink
+  linked: boolean
+  /** Null only for a value that yields no host; see {@link ticketVendorLabel}. */
+  vendorName: string | null
+}
+
+export function ticketOffer(
   show: ShowResponse,
   lifecycle: ShowLifecycleState
-): TicketLink | null {
+): TicketOffer | null {
   const href = ticketHref(show, lifecycle)
-  return href === null ? null : ticketLink(href)
+  if (href === null) return null
+  const link = ticketLink(href)
+  return {
+    link,
+    linked: isFreeAdmission(show) || carriesOurAffiliateTag(link),
+    vendorName: ticketVendorLabel(href),
+  }
+}
+
+/**
+ * Whether admission is FREE: the show states a price and every price it states
+ * is zero.
+ *
+ * Stating zero and stating nothing are different facts, which is why this
+ * reads {@link statedShowPrices} rather than testing `show.price`. A show with
+ * no price recorded is unpriced, not free, and an unpriced show's ticket link
+ * is a vendor referral like any other.
+ *
+ * Both columns count. A show with a zero advance price and a real door price
+ * charges for entry.
+ */
+function isFreeAdmission(show: ShowResponse): boolean {
+  const prices = statedShowPrices(show)
+  return prices.length > 0 && prices.every(price => price === 0)
 }
 
 /**
@@ -195,10 +241,11 @@ function saysPastRegister(
  * cancelled or past show makes neither: `SOLD OUT` asserts the event is
  * happening and tickets are gone, `ON SALE` that they can be bought.
  * `SOLD OUT` swaps `ON SALE` per the mock; `ON SALE` requires somewhere to
- * actually buy — it branches on {@link ticketHref}, the same nullability the
- * Buy Tickets bracket derives from via {@link buyTicketsLink}, so the words
- * and the affordance cannot drift. (The bracket renders the TAGGED href;
- * `ticketHref` answers only whether there is anything to offer.) The price half is {@link ticketPriceSegments}: one price renders
+ * actually buy — it branches on {@link ticketHref}, the same nullability
+ * {@link ticketOffer} derives from, so the words and the affordance cannot
+ * drift. `ON SALE` is a claim about the SHOW, so it is independent of whether
+ * this site links out: an unpaid referral is withheld, and tickets are still
+ * on sale. The price half is {@link ticketPriceSegments}: one price renders
  * bare, an advance/door pair renders as the mock's `$35 ADV · DOOR $40`. The
  * mock's trailing `CASH` is a separate fact with no column and no source that
  * states it reliably, so the line does not claim it. Both numbers are read
@@ -213,6 +260,12 @@ function saysPastRegister(
  * line is in that register at all and {@link hasTicketCommerce} whether it
  * has anything to close out; cancellation and an unreadable date are handled
  * in the former, with the reasons.
+ *
+ * The VENDOR segment is what an unpaid referral leaves behind: when
+ * {@link ticketOffer} refuses the outbound anchor, the line still names who
+ * sells the ticket (`$25 · TicketWeb`), so a reader knows where to go. It is
+ * absent whenever the anchor renders, which already names the vendor by being
+ * clickable, and absent on every state that has nothing to offer.
  *
  * The age segment is a venue-less fallback: the venue module's facts line
  * owns the age fact, but a show with no venue row never mounts that module,
@@ -239,6 +292,10 @@ export function ticketLineSegments(
     segments.push('ON SALE')
   }
   segments.push(...ticketPriceSegments(show))
+  const offer = ticketOffer(show, lifecycle)
+  if (offer && !offer.linked && offer.vendorName) {
+    segments.push(offer.vendorName)
+  }
   if (saysPastRegister(show, lifecycle) && hasTicketCommerce(show)) {
     segments.push('NO LONGER AVAILABLE')
   }

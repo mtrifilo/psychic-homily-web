@@ -210,9 +210,9 @@ export function generateBreadcrumbSchema(
  * is not one we recognize.
  *
  * Reads the shared vendor table (`lib/tickets/ticketVendors`), which is also
- * what the visible Buy Tickets link resolves against, so the company this page
- * names and the company it links to can never disagree. The URL itself is
- * never emitted here — only the name — so this reads a user-supplied field
+ * what the visible ticket surface names the vendor from, so the company this
+ * page names and the company the page shows can never disagree. The URL itself
+ * is never emitted here — only the name — so this reads a user-supplied field
  * purely to look up a constant.
  */
 function ticketVendorName(ticketUrl: string | undefined): string | undefined {

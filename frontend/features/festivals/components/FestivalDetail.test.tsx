@@ -238,7 +238,7 @@ describe('FestivalDetail', () => {
     expect(screen.getByTestId('festival-lineup')).toHaveTextContent('Lineup (1)')
   })
 
-  it('renders the website and ticket links when present', () => {
+  it('renders the website link, and names the ticket vendor unlinked', () => {
     mockUseFestival.mockReturnValue({
       data: makeFestival({
         website: 'https://form.com',
@@ -252,9 +252,12 @@ describe('FestivalDetail', () => {
     expect(
       screen.getByRole('link', { name: 'Official Website' })
     ).toHaveAttribute('href', 'https://form.com')
-    expect(screen.getByRole('link', { name: 'Buy Tickets' })).toHaveAttribute(
-      'href',
-      'https://tickets.com'
+    // THE PAID-REFERRAL RULE. A festival states no price, so it has no
+    // free-admission exemption: with no partner ID the vendor is named and the
+    // anchor is withheld.
+    expect(screen.queryByRole('link', { name: 'Buy Tickets' })).toBeNull()
+    expect(screen.getByTestId('festival-ticket-vendor')).toHaveTextContent(
+      'tickets.com'
     )
   })
 
@@ -281,8 +284,9 @@ describe('FestivalDetail', () => {
   // at all, so the value shipped as a relative href that navigated under
   // /festivals/ and could never be tagged.
   it('repairs a scheme-less ticket url instead of rendering it relative', () => {
+    process.env.NEXT_PUBLIC_IMPACT_PARTNER_ID = '1234567'
     mockUseFestival.mockReturnValue({
-      data: makeFestival({ ticket_url: 'tickets.example/1' }),
+      data: makeFestival({ ticket_url: 'ticketweb.com/event/1' }),
       isLoading: false,
       error: null,
     })
@@ -290,7 +294,7 @@ describe('FestivalDetail', () => {
 
     expect(screen.getByRole('link', { name: 'Buy Tickets' })).toHaveAttribute(
       'href',
-      'https://tickets.example/1'
+      'https://ticketweb.com/event/1?irmp=1234567'
     )
   })
 
@@ -307,6 +311,7 @@ describe('FestivalDetail', () => {
 
     expect(screen.queryByRole('heading', { name: 'Links' })).toBeNull()
     expect(screen.queryByRole('link', { name: 'Buy Tickets' })).toBeNull()
+    expect(screen.queryByTestId('festival-ticket-vendor')).toBeNull()
   })
 
   // The gate and the anchor read the same value: gating the section on the raw
@@ -323,8 +328,28 @@ describe('FestivalDetail', () => {
     })
     renderWithProviders(<FestivalDetail idOrSlug="form-arcosanti" />)
 
-    expect(screen.getByRole('link', { name: 'Buy Tickets' })).toBeInTheDocument()
+    expect(screen.getByTestId('festival-ticket-vendor')).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Official Website' })).toBeNull()
+  })
+
+  // A planted tag credits somebody else, so this build never appends ours and
+  // the click is not paid for: the anchor is withheld even on a configured
+  // vendor.
+  it('withholds the anchor for a planted tag on a configured vendor', () => {
+    process.env.NEXT_PUBLIC_IMPACT_PARTNER_ID = '1234567'
+    mockUseFestival.mockReturnValue({
+      data: makeFestival({
+        ticket_url: 'https://www.ticketweb.com/event/2?irmp=9999999',
+      }),
+      isLoading: false,
+      error: null,
+    })
+    renderWithProviders(<FestivalDetail idOrSlug="form-arcosanti" />)
+
+    expect(screen.queryByRole('link', { name: 'Buy Tickets' })).toBeNull()
+    expect(screen.getByTestId('festival-ticket-vendor')).toHaveTextContent(
+      'TicketWeb'
+    )
   })
 
   it('renders no script-bearing ticket href', () => {

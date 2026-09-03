@@ -3,15 +3,18 @@
  * (the name structured data is willing to print) and how an outbound link to
  * them is tagged once the site is an affiliate.
  *
- * Two surfaces read it and must not drift: the visible Buy Tickets link on the
- * show and festival pages, and the `seller` name in the show's `MusicEvent`
+ * Two surfaces read it and must not drift: the visible ticket surface on the
+ * show and festival pages, which names the vendor and links to it only when
+ * the click is paid for, and the `seller` name in the show's `MusicEvent`
  * JSON-LD, which names the company without linking to it.
  *
- * It owns classification ({@link resolveTicketVendor}), repair
- * ({@link repairTicketUrl}) and tagging ({@link ticketLink}). Call sites own
- * only their own POLICY: `ticketHref` in
- * `features/shows/components/showTicketLine` layers the show's refusals
- * (cancelled, sold out, past) on top of the repair.
+ * It owns classification ({@link resolveTicketVendor}), naming
+ * ({@link ticketVendorLabel}), repair ({@link repairTicketUrl}), tagging
+ * ({@link ticketLink}) and the paid-link test
+ * ({@link carriesOurAffiliateTag}). Call sites own only their own POLICY:
+ * `ticketHref` in `features/shows/components/showTicketLine` layers the show's
+ * refusals (cancelled, sold out, past) on top of the repair, and `ticketOffer`
+ * beside it layers the free-admission exemption on top of the paid-link test.
  *
  * {@link ticketLink} must stay TOTAL. Callers are not required to repair
  * first, and `show.ticket_url` is open contribution that publishes without
@@ -65,8 +68,9 @@ export interface TicketVendor {
   name: string
   /**
    * Present only for vendors inside an affiliate program the site has applied
-   * to. Absent means outbound links to this vendor stay untagged forever, no
-   * matter what partner IDs are configured.
+   * to. Absent means links to this vendor stay untagged forever, no matter
+   * what partner IDs are configured, and therefore that the ticket surfaces
+   * name the vendor instead of linking to it.
    */
   affiliate?: VendorAffiliate
 }
@@ -587,4 +591,55 @@ export function ticketLink(
     sponsored: true,
     plantedTag: null,
   }
+}
+
+/**
+ * The name to print for the vendor behind a stored ticket URL, or null when
+ * the value yields no host at all.
+ *
+ * A known vendor prints the name written down in
+ * {@link TICKET_VENDORS_BY_DOMAIN}; anything else prints its own hostname,
+ * which is a fact about the URL rather than a claim about a company. That
+ * split is why this is not `resolveTicketVendor(...)?.name`: an unrecognized
+ * host still has to be nameable on a surface that no longer links to it.
+ *
+ * Scheme-less values resolve, matching {@link resolveTicketVendor}'s tolerance
+ * for contributor paste. `www.` is dropped because it is not part of how a
+ * reader names the site.
+ */
+export function ticketVendorLabel(
+  rawUrl: string | undefined | null
+): string | null {
+  const known = resolveTicketVendor(rawUrl)
+  if (known) return known.name
+
+  const raw = rawUrl?.trim()
+  if (!raw) return null
+  const candidate = ABSOLUTE_HTTP_URL.test(raw)
+    ? raw
+    : `https://${raw.replace(/^\/+/, '')}`
+  try {
+    const host = normalizeHost(new URL(candidate).hostname)
+    return host.replace(/^www\./, '') || null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Whether the href in this {@link TicketLink} carries OUR partner ID, i.e.
+ * whether a click on it is paid.
+ *
+ * The one derivation of that, because `sponsored` deliberately answers the
+ * different question of whether the link must be qualified: it is also true
+ * for a tag a contributor planted, which credits somebody else. Only
+ * {@link ticketLink}'s tagging branch produces a sponsored link with no
+ * planted tag, so the conjunction is the whole test.
+ *
+ * False for every link on a build with no partner ID configured, which is the
+ * gate the show and festival ticket surfaces render their outbound anchor
+ * behind.
+ */
+export function carriesOurAffiliateTag(link: TicketLink): boolean {
+  return link.sponsored && link.plantedTag === null
 }

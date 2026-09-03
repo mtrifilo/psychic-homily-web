@@ -9,7 +9,7 @@ import {
 import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 import { MiddotSegments } from './MiddotSegments'
 import { ShowAddToCalendar } from './ShowAddToCalendar'
-import { buyTicketsLink, ticketLineSegments } from './showTicketLine'
+import { ticketLineSegments, ticketOffer } from './showTicketLine'
 import { usePlantedTicketTagReport } from '@/lib/tickets/usePlantedTicketTagReport'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import type { ShowResponse } from '../types'
@@ -54,16 +54,16 @@ export function ShowTicketRow({ show, lifecycle }: ShowTicketRowProps) {
     show.title,
     show.artists.map(artist => artist.name)
   )
-  // The one derivation of "is there somewhere to buy" (showTicketLine):
-  // null for cancelled, sold-out, and past shows, so neither the sale-state
-  // words nor this bracket can argue with the stripe. It also carries the
-  // vendor's affiliate tagging, which is a pass-through until a partner ID is
-  // configured.
-  const buyLink = buyTicketsLink(show, lifecycle)
+  // The one derivation of "is there somewhere to buy" and of whether this site
+  // links there (showTicketLine): null for cancelled, sold-out and past shows,
+  // so neither the sale-state words nor this bracket can argue with the
+  // stripe, and `linked` false for a referral nobody pays us for, in which
+  // case the vendor is named in the line above instead.
+  const offer = ticketOffer(show, lifecycle)
   // An affiliate tag in a STORED ticket url was planted by whoever submitted
-  // the show, since we only ever append ours at render. The link still renders
-  // as stored; this only makes the row findable.
-  usePlantedTicketTagReport('show', show.id, buyLink?.plantedTag)
+  // the show, since we only ever append ours at render. Reported for every
+  // show that has one, including the ones this row declines to link.
+  usePlantedTicketTagReport('show', show.id, offer?.link.plantedTag)
 
   return (
     <div data-testid="show-ticket-row">
@@ -74,16 +74,16 @@ export function ShowTicketRow({ show, lifecycle }: ShowTicketRowProps) {
       />
 
       <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-        {buyLink && (
+        {offer?.linked && (
           // Keeps the pre-existing announced name: the ↗ is a VISUAL outbound
           // marker, and letting it into the accessible name has a screen
           // reader read "north east arrow" right before the suffix says the
           // same thing in words. Only the new-tab claim moved to BracketLink.
           <BracketLink
             label="Buy Tickets ↗"
-            href={buyLink.href}
+            href={offer.link.href}
             external
-            sponsored={buyLink.sponsored}
+            sponsored={offer.link.sponsored}
             ariaLabel="Buy tickets"
           />
         )}

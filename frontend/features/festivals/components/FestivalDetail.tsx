@@ -29,7 +29,12 @@ import {
   StatsList,
 } from '@/components/shared'
 import { EntityCollections } from '@/features/collections'
-import { repairTicketUrl, ticketLink } from '@/lib/tickets/ticketVendors'
+import {
+  carriesOurAffiliateTag,
+  repairTicketUrl,
+  ticketLink,
+  ticketVendorLabel,
+} from '@/lib/tickets/ticketVendors'
 import { usePlantedTicketTagReport } from '@/lib/tickets/usePlantedTicketTagReport'
 import { outboundRel } from '@/lib/outboundRel'
 import { Badge } from '@/components/ui/badge'
@@ -135,6 +140,13 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
     festival?.id ?? '',
     ticketBuyLink?.plantedTag
   )
+  // The site links a ticket vendor only when the click is paid for. A festival
+  // states no price, so it has no free-admission exemption to apply: without
+  // our tag on the href, the vendor is NAMED and not linked.
+  const ticketVendorName = ticketBuyLink
+    ? ticketVendorLabel(repairedTicketUrl)
+    : null
+  const ticketLinkIsPaid = !!ticketBuyLink && carriesOurAffiliateTag(ticketBuyLink)
 
   if (isLoading) {
     return (
@@ -204,7 +216,11 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
   // what a bare `website` means on every surface that reads it, which is a
   // wider change than this one.
   const websiteHref = festival.website?.trim() || null
-  const hasLinks = !!websiteHref || !!ticketBuyLink || hasSocialLinks
+  // The ticket row is present when it renders EITHER shape: the paid outbound
+  // anchor, or the vendor's name. Gating on the link alone would put a Links
+  // heading over nothing for a value that yields no host.
+  const hasTicketRow = ticketLinkIsPaid || !!ticketVendorName
+  const hasLinks = !!websiteHref || hasTicketRow || hasSocialLinks
 
   const statsItems = [
     { label: 'Artists', value: festival.artist_count },
@@ -406,17 +422,28 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
                   Official Website
                 </a>
               )}
-              {ticketBuyLink && (
-                <a
-                  href={ticketBuyLink.href}
-                  target="_blank"
-                  rel={outboundRel(ticketBuyLink.sponsored)}
-                  className="flex items-center gap-2 text-primary hover:text-primary/80 transition-colors text-sm"
-                >
-                  <Ticket className="h-4 w-4" />
-                  Buy Tickets
-                </a>
-              )}
+              {ticketBuyLink &&
+                (ticketLinkIsPaid ? (
+                  <a
+                    href={ticketBuyLink.href}
+                    target="_blank"
+                    rel={outboundRel(ticketBuyLink.sponsored)}
+                    className="flex items-center gap-2 text-primary hover:text-primary/80 transition-colors text-sm"
+                  >
+                    <Ticket className="h-4 w-4" />
+                    Buy Tickets
+                  </a>
+                ) : (
+                  ticketVendorName && (
+                    <span
+                      data-testid="festival-ticket-vendor"
+                      className="flex items-center gap-2 text-muted-foreground text-sm"
+                    >
+                      <Ticket className="h-4 w-4" />
+                      {ticketVendorName}
+                    </span>
+                  )
+                ))}
               {hasSocialLinks && <SocialLinks social={festival.social!} />}
             </div>
           </div>

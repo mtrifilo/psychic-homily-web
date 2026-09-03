@@ -2,9 +2,11 @@ import { describe, it, expect, afterEach } from 'vitest'
 import {
   TICKET_VENDORS_BY_DOMAIN,
   affiliatePartnerIds,
+  carriesOurAffiliateTag,
   repairTicketUrl,
   resolveTicketVendor,
   ticketLink,
+  ticketVendorLabel,
 } from './ticketVendors'
 import type { AffiliatePartnerIds } from './ticketVendors'
 
@@ -513,5 +515,66 @@ describe('ticketLink with an Impact partner ID configured', () => {
     for (const url of hostile) {
       expect(() => ticketLink(url, IMPACT)).not.toThrow()
     }
+  })
+})
+
+describe('ticketVendorLabel', () => {
+  it('prints the written-down name for a known vendor', () => {
+    expect(ticketVendorLabel('https://www.ticketweb.com/event/1')).toBe(
+      'TicketWeb'
+    )
+    expect(ticketVendorLabel('https://dice.fm/event/1')).toBe('DICE')
+  })
+
+  // A host we have not written a name for still has to be nameable on a
+  // surface that no longer links to it, and its own hostname is the only fact
+  // available. `www.` is not part of how a reader names a site.
+  it('falls back to the hostname for an unknown vendor', () => {
+    expect(ticketVendorLabel('https://www.tix.example/1')).toBe('tix.example')
+    expect(ticketVendorLabel('https://box-office.venue.example/e/2')).toBe(
+      'box-office.venue.example'
+    )
+  })
+
+  it('resolves a scheme-less value, matching classification', () => {
+    expect(ticketVendorLabel('ticketweb.com/e/1')).toBe('TicketWeb')
+    expect(ticketVendorLabel('tix.example/1')).toBe('tix.example')
+  })
+
+  it('is null when there is no host to name', () => {
+    expect(ticketVendorLabel(null)).toBeNull()
+    expect(ticketVendorLabel('   ')).toBeNull()
+    expect(ticketVendorLabel('http://')).toBeNull()
+  })
+})
+
+describe('carriesOurAffiliateTag', () => {
+  const TICKETWEB = 'https://www.ticketweb.com/event/2'
+
+  it('is false for every link on a build with no partner ID', () => {
+    expect(carriesOurAffiliateTag(ticketLink(TICKETWEB, NO_PARTNERS))).toBe(
+      false
+    )
+    expect(
+      carriesOurAffiliateTag(ticketLink('https://tix.example/1', NO_PARTNERS))
+    ).toBe(false)
+  })
+
+  it('is true only for a link this build tagged itself', () => {
+    expect(carriesOurAffiliateTag(ticketLink(TICKETWEB, IMPACT))).toBe(true)
+    // A vendor outside every program can never be tagged, however the build is
+    // configured.
+    expect(
+      carriesOurAffiliateTag(ticketLink('https://tix.example/1', IMPACT))
+    ).toBe(false)
+  })
+
+  // The whole point of the separate derivation: a planted tag makes the link
+  // SPONSORED (it is a paid link, and Google's policy is about the link) while
+  // crediting somebody else, so it is not one we are paid for.
+  it('is false for a sponsored link carrying somebody else\'s tag', () => {
+    const planted = ticketLink(`${TICKETWEB}?irmp=9999999`, IMPACT)
+    expect(planted.sponsored).toBe(true)
+    expect(carriesOurAffiliateTag(planted)).toBe(false)
   })
 })
