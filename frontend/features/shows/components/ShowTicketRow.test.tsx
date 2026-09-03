@@ -14,13 +14,6 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/shows/test-show',
 }))
 
-// The planted-tag warning is a Sentry side effect; this file asserts that the
-// row FIRES it, and plantedTagTelemetry's own tests cover dedupe and scrubbing.
-const reportPlantedTicketTag = vi.fn()
-vi.mock('@/lib/tickets/plantedTagTelemetry', () => ({
-  reportPlantedTicketTag: (...args: unknown[]) => reportPlantedTicketTag(...args),
-}))
-
 vi.mock('../hooks/useSavedShows', () => ({
   useSaveShow: () => ({ mutate: vi.fn(), isPending: false }),
   useShowSaveCount: () => ({ data: undefined }),
@@ -490,7 +483,6 @@ describe('ShowTicketRow', () => {
   describe('with an affiliate partner ID configured', () => {
     beforeEach(() => {
       process.env.NEXT_PUBLIC_IMPACT_PARTNER_ID = '1234567'
-      reportPlantedTicketTag.mockClear()
     })
     afterEach(() => {
       delete process.env.NEXT_PUBLIC_IMPACT_PARTNER_ID
@@ -513,14 +505,10 @@ describe('ShowTicketRow', () => {
       expect(ticketLine()).not.toContain('TicketWeb')
     })
 
-    // The stored value carried the tag, and we only ever append at render, so
-    // it was planted by whoever submitted the show. The link still renders as
-    // stored; the report is what makes the row findable.
     // A planted tag credits somebody else, so `ticketLink` refuses to append
     // ours and the click is not paid for: the anchor is withheld on a vendor
-    // that is otherwise configured. The report still fires, because it is
-    // about the stored value rather than about what this row renders.
-    it('withholds the link for a planted tag and still reports it', () => {
+    // that is otherwise configured, and the row names the vendor instead.
+    it('withholds the link for a planted tag', () => {
       render(
         <ShowTicketRow
           lifecycle="upcoming"
@@ -535,25 +523,6 @@ describe('ShowTicketRow', () => {
         screen.queryByRole('link', { name: /Buy tickets/i })
       ).not.toBeInTheDocument()
       expect(ticketLine()).toContain('TicketWeb')
-      expect(reportPlantedTicketTag).toHaveBeenCalledWith({
-        entityType: 'show',
-        entityId: 4242,
-        tag: {
-          param: 'irmp',
-          host: 'www.ticketweb.com',
-          matchesConfiguredPartner: false,
-        },
-      })
-    })
-
-    it('reports nothing for a link this build tagged itself', () => {
-      render(
-        <ShowTicketRow
-          lifecycle="upcoming"
-          show={makeShow({ ticket_url: 'https://www.ticketweb.com/event/2' })}
-        />
-      )
-      expect(reportPlantedTicketTag).not.toHaveBeenCalled()
     })
 
     // The partner ID is per NETWORK, and a vendor outside every program can

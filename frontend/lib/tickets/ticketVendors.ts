@@ -372,7 +372,7 @@ function affiliateParamKey(key: string): string {
  * affiliate entry and a host not in the table at all. Scoping the check to the
  * matched vendor left every host but one publishing planted tags unqualified.
  */
-const KNOWN_AFFILIATE_PARAMS: ReadonlySet<string> = new Set(
+export const KNOWN_AFFILIATE_PARAMS: ReadonlySet<string> = new Set(
   [
     // Every network's parameter, whether or not a vendor currently uses it: a
     // planted tag is planted regardless of which vendors we have onboarded.

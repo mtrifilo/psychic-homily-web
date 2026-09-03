@@ -25,6 +25,14 @@ func NewDataQualityService(database *gorm.DB) *DataQualityService {
 	return &DataQualityService{db: database}
 }
 
+// Categories whose finding is a planted affiliate tag on a stored ticket URL
+// (PSY-1976). Named constants because three places have to agree on the
+// spelling: the definition, the display order, and the admin-only set.
+const (
+	categoryShowsPlantedTicketTag     = "shows_planted_ticket_tag"
+	categoryFestivalsPlantedTicketTag = "festivals_planted_ticket_tag"
+)
+
 // categoryDefinitions maps category keys to their metadata.
 var categoryDefinitions = map[string]struct {
 	Label       string
@@ -66,6 +74,16 @@ var categoryDefinitions = map[string]struct {
 		EntityType:  "show",
 		Description: "Upcoming approved shows with no price set",
 	},
+	categoryShowsPlantedTicketTag: {
+		Label:       "Shows With Planted Ticket Tags",
+		EntityType:  "show",
+		Description: "Approved shows whose stored ticket URL credits somebody else's affiliate account",
+	},
+	categoryFestivalsPlantedTicketTag: {
+		Label:       "Festivals With Planted Ticket Tags",
+		EntityType:  "festival",
+		Description: "Festivals whose stored ticket URL credits somebody else's affiliate account",
+	},
 	"releases_missing_year": {
 		Label:       "Releases Missing Year",
 		EntityType:  "release",
@@ -82,7 +100,31 @@ var categoryOrder = []string{
 	"venues_unverified_with_shows",
 	"shows_no_billing_order",
 	"shows_missing_price",
+	categoryShowsPlantedTicketTag,
+	categoryFestivalsPlantedTicketTag,
 	"releases_missing_year",
+}
+
+// adminOnlyCategories are dashboard categories withheld from the public
+// /contribute surface. A planted affiliate tag is a moderation finding about a
+// contributor-writable column, and the list of rows carrying one is a map of
+// links already monetized for a stranger.
+var adminOnlyCategories = map[string]bool{
+	categoryShowsPlantedTicketTag:     true,
+	categoryFestivalsPlantedTicketTag: true,
+}
+
+// contributeCategoryOrder is the public slice of categoryOrder.
+var contributeCategoryOrder = publicCategories(categoryOrder)
+
+func publicCategories(keys []string) []string {
+	public := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if !adminOnlyCategories[key] {
+			public = append(public, key)
+		}
+	}
+	return public
 }
 
 // --- Loose Ends contribution categories (PSY-1483) ---
@@ -157,10 +199,14 @@ var looseEndsCategoryOrder = []string{
 
 // GetSummary returns counts per data quality category.
 func (s *DataQualityService) GetSummary() (*contracts.DataQualitySummary, error) {
+	return s.summaryForCategories(categoryOrder)
+}
+
+func (s *DataQualityService) summaryForCategories(keys []string) (*contracts.DataQualitySummary, error) {
 	summary := &contracts.DataQualitySummary{}
 	totalItems := 0
 
-	for _, key := range categoryOrder {
+	for _, key := range keys {
 		def := categoryDefinitions[key]
 		count, err := s.getCategoryCount(key)
 		if err != nil {
@@ -208,6 +254,10 @@ func (s *DataQualityService) GetCategoryItems(category string, limit, offset int
 		return s.getShowsNoBillingOrder(limit, offset)
 	case "shows_missing_price":
 		return s.getShowsMissingPrice(limit, offset)
+	case categoryShowsPlantedTicketTag:
+		return s.getShowsPlantedTicketTag(limit, offset)
+	case categoryFestivalsPlantedTicketTag:
+		return s.getFestivalsPlantedTicketTag(limit, offset)
 	case "releases_missing_year":
 		return s.getReleasesMissingYear(limit, offset)
 	default:
@@ -223,7 +273,7 @@ func (s *DataQualityService) GetCategoryItems(category string, limit, offset int
 // list is public. Category counts are the true totals; the item lists are
 // capped and rotated (see GetContributeCategoryItems).
 func (s *DataQualityService) GetContributeSummary(viewerID *uint) (*contracts.DataQualitySummary, error) {
-	summary, err := s.GetSummary()
+	summary, err := s.summaryForCategories(contributeCategoryOrder)
 	if err != nil {
 		return nil, err
 	}
@@ -269,6 +319,11 @@ func (s *DataQualityService) GetContributeCategoryItems(category string, viewerI
 	case categoryChartingArtistsMissingLinks:
 		return s.getChartingArtistsMissingLinks(viewerID, looseEndsLimit(limit), offset)
 	default:
+		if adminOnlyCategories[category] {
+			// Unknown rather than forbidden: this surface does not confirm
+			// that an admin-only category exists.
+			return nil, 0, apperrors.ErrDataQualityUnknownCategory(category)
+		}
 		return s.GetCategoryItems(category, limit, offset)
 	}
 }
@@ -533,6 +588,18 @@ func (s *DataQualityService) getCategoryCount(category string) (int, error) {
 			SELECT COUNT(*) FROM shows
 			WHERE status = 'approved' AND event_date >= NOW() AND price IS NULL AND door_price IS NULL
 		`).Scan(&count).Error
+
+	case categoryShowsPlantedTicketTag:
+		err = s.db.Raw(`
+			SELECT COUNT(*) FROM shows
+			WHERE status = 'approved' AND `+plantedTagColumnSQL("ticket_url"),
+			plantedTagPattern).Scan(&count).Error
+
+	case categoryFestivalsPlantedTicketTag:
+		err = s.db.Raw(`
+			SELECT COUNT(*) FROM festivals
+			WHERE `+plantedTagColumnSQL("ticket_url"),
+			plantedTagPattern).Scan(&count).Error
 
 	case "releases_missing_year":
 		err = s.db.Raw(`
@@ -911,6 +978,106 @@ func (s *DataQualityService) getShowsMissingPrice(limit, offset int) ([]*contrac
 			Name:       r.Title,
 			Slug:       slug,
 			Reason:     "No price set for upcoming show",
+			ShowCount:  0,
+		})
+	}
+	return items, total, nil
+}
+
+// getShowsPlantedTicketTag reports approved shows whose stored ticket URL
+// already credits an affiliate account.
+//
+// Past shows are included: their pages stay published and keep rendering the
+// stored value, so the finding does not expire with the date. Newest first,
+// because a planted tag is a thing somebody just did.
+//
+// The count query in the summary switch above carries the SAME predicate; the
+// two must move together or the dashboard's badge disagrees with its own list.
+func (s *DataQualityService) getShowsPlantedTicketTag(limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
+	var total int64
+	err := s.db.Raw(`
+		SELECT COUNT(*) FROM shows
+		WHERE status = 'approved' AND `+plantedTagColumnSQL("ticket_url"),
+		plantedTagPattern).Scan(&total).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	type row struct {
+		ID        uint
+		Title     string
+		Slug      *string
+		TicketURL string
+	}
+	var rows []row
+	err = s.db.Raw(`
+		SELECT id, title, slug, ticket_url
+		FROM shows
+		WHERE status = 'approved' AND `+plantedTagColumnSQL("ticket_url")+`
+		ORDER BY id DESC
+		LIMIT ? OFFSET ?
+	`, plantedTagPattern, limit, offset).Scan(&rows).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	items := make([]*contracts.DataQualityItem, 0, len(rows))
+	for _, r := range rows {
+		slug := ""
+		if r.Slug != nil {
+			slug = *r.Slug
+		}
+		items = append(items, &contracts.DataQualityItem{
+			EntityType: "show",
+			EntityID:   r.ID,
+			Name:       r.Title,
+			Slug:       slug,
+			Reason:     plantedTagReason(r.TicketURL),
+			ShowCount:  0,
+		})
+	}
+	return items, total, nil
+}
+
+// getFestivalsPlantedTicketTag is the show query applied to the peer surface:
+// festivals.ticket_url is written through the same contributor-facing edit path
+// and rendered by the same vendor module.
+func (s *DataQualityService) getFestivalsPlantedTicketTag(limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
+	var total int64
+	err := s.db.Raw(`
+		SELECT COUNT(*) FROM festivals
+		WHERE `+plantedTagColumnSQL("ticket_url"),
+		plantedTagPattern).Scan(&total).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	type row struct {
+		ID        uint
+		Name      string
+		Slug      string
+		TicketURL string
+	}
+	var rows []row
+	err = s.db.Raw(`
+		SELECT id, name, slug, ticket_url
+		FROM festivals
+		WHERE `+plantedTagColumnSQL("ticket_url")+`
+		ORDER BY id DESC
+		LIMIT ? OFFSET ?
+	`, plantedTagPattern, limit, offset).Scan(&rows).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	items := make([]*contracts.DataQualityItem, 0, len(rows))
+	for _, r := range rows {
+		items = append(items, &contracts.DataQualityItem{
+			EntityType: "festival",
+			EntityID:   r.ID,
+			Name:       r.Name,
+			Slug:       r.Slug,
+			Reason:     plantedTagReason(r.TicketURL),
 			ShowCount:  0,
 		})
 	}
