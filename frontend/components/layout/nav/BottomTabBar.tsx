@@ -36,9 +36,9 @@ import type { NavDestination, NavLink } from './navData'
 // lists). Account is auth-aware: a /auth link for every viewer not settled as
 // signed in (anonymous, and unsettled too), an account sheet mirroring the
 // UserMenu entries once signed in, carrying the unread-notification badge on
-// both the tab and the sheet's Notifications row
-// (PSY-1819 — below `sm` the top bar's bell is hidden, so without this there is
-// no unread affordance on a phone at all).
+// both the tab and the sheet's Notifications row (PSY-1819 — below `sm` the
+// top bar's bell is hidden, so without this there is no unread affordance on
+// a phone at all).
 //
 // Rendered by AppShell below `xl` on every page — matching PrimaryNav's
 // xl:flex, so the lg–xl band (tablets) keeps a primary nav; AppShell adds the
@@ -314,14 +314,15 @@ export function BottomTabBar() {
   // signal, so the tab's destination, its active set and its badge cannot
   // disagree about who is looking. It is `authStatus`, not `isLoading`, per
   // the rule on the AuthStatus type: `isLoading` is false both before the
-  // profile fetch starts and after it fails, and in either window an
-  // `isLoading` gate falls through to a claim the context has not settled.
+  // profile fetch starts and after it fails, so an `isLoading` gate has two
+  // windows where it falls through to a claim the context has not settled.
+  // The `user !== null` conjunct narrows the type for `user.email` below;
+  // 'authenticated' already implies it.
   const isSettledAuthenticated = authStatus === 'authenticated' && user !== null
 
   // The canonical account list (navData, PSY-1821) with the username-aware
   // Profile href already resolved. Admin stays in the list (adminOnly) so the
   // tab's active state covers every account route; rendering filters it.
-  // Viewers who never read it (anonymous, unsettled) don't get it built.
   const accountItems = isSettledAuthenticated ? accountNavItems(user) : []
 
   // At most one tab lights up (off-map routes like /help light none). Primary
@@ -369,15 +370,12 @@ export function BottomTabBar() {
           <BrowseSheetBody user={user} pathname={pathname} />
         </SheetTab>
 
-        {/* The auth-aware Account cell. The sheet asserts an identity (the viewer's
-            email as its subtitle, their account destinations, their unread
-            count, sign out), so it is what a settled 'authenticated' buys;
-            every other status gets the anonymous /auth link, which names no
-            viewer and is the tab's only route to sign-in. That is the rule
-            UserMenu applies to the desktop bar, and both bars are on screen
-            together at tablet widths, so they have to agree. Either arm fills
-            the same one of five equal grid columns, so the cell does not jump
-            when auth settles. */}
+        {/* The auth-aware Account cell. The sheet names a viewer, so it is
+            what a settled 'authenticated' buys; every other status gets the
+            /auth link, which names none. That is the rule UserMenu applies to
+            the desktop bar, and both bars are on screen together at tablet
+            widths, so they have to agree. Either arm fills the same one of
+            five equal grid columns, so the cell does not jump on settle. */}
         {isSettledAuthenticated ? (
           <SheetTab
             label="Account"

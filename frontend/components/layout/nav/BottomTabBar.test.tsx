@@ -7,6 +7,7 @@ import { primaryLinks } from './PrimaryNav'
 import { mobileBrowseHrefs, primaryTabs, sidebarGroups } from './navData'
 import { BOTTOM_TAB_BAR_BOX } from '@/test/layoutContracts'
 import type { AuthStatus } from '@/lib/context/AuthContext'
+import { makeAuthFixture, type MockAuthContextValue } from '@/test/authFixture'
 
 let mockPathname = '/'
 vi.mock('next/navigation', () => ({
@@ -35,35 +36,15 @@ vi.mock('next/link', () => {
 
 const mockLogout = vi.fn()
 type MockUser = { email: string; username?: string; is_admin: boolean }
-type MockAuthContextValue = {
-  user: MockUser | null
-  isAuthenticated: boolean
-  authStatus: AuthStatus
-  isLoading: boolean
-  logout: () => void
-}
 
-// One fixture builder, matching TopBar.test.tsx's, because the two bars gate
-// the Account affordance on the same signal. It pins one coupling:
-// `isAuthenticated` derives from `authStatus` and cannot be overridden, so no
-// test describes a viewer whose two auth signals disagree. `isLoading` stays
-// overridable, because the two pending windows this bar has to survive differ
-// in it.
-function authFixture(
-  overrides: Partial<Omit<MockAuthContextValue, 'isAuthenticated'>> = {}
-): MockAuthContextValue {
-  const authStatus = overrides.authStatus ?? 'anonymous'
-  return {
-    user: null,
-    authStatus,
-    isLoading: authStatus === 'pending',
-    logout: mockLogout,
-    ...overrides,
-    isAuthenticated: authStatus === 'authenticated',
-  }
-}
+// The same shared builder TopBar.test.tsx uses (test/authFixture.ts), because
+// the two bars gate the Account affordance on the same signal and must be
+// described in the same terms.
+const authFixture = makeAuthFixture<MockUser>(mockLogout)
 
-const mockAuthContext = vi.fn<() => MockAuthContextValue>(() => authFixture())
+const mockAuthContext = vi.fn<() => MockAuthContextValue<MockUser>>(() =>
+  authFixture()
+)
 vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => mockAuthContext(),
 }))

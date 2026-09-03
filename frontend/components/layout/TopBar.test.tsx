@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { TopBar } from './TopBar'
 import type { AuthStatus } from '@/lib/context/AuthContext'
+import { makeAuthFixture, type MockAuthContextValue } from '@/test/authFixture'
 
 let mockPathname = '/'
 vi.mock('next/navigation', () => ({
@@ -17,40 +18,23 @@ vi.mock('next/image', () => ({
 }))
 
 const mockLogout = vi.fn()
-type MockAuthContextValue = {
-  user: {
-    email: string
-    username?: string
-    first_name?: string
-    last_name?: string
-    is_admin: boolean
-  } | null
-  isAuthenticated: boolean
-  authStatus: AuthStatus
-  isLoading: boolean
-  logout: () => void
+type MockUser = {
+  email: string
+  username?: string
+  first_name?: string
+  last_name?: string
+  is_admin: boolean
 }
 
-// One fixture builder rather than a literal per test. It pins one coupling:
-// `isAuthenticated` derives from `authStatus` and cannot be overridden, so no
-// test asserts against a viewer whose two auth signals disagree. `user` and
-// `isLoading` stay overridable, because the cells that matter here differ in
-// them.
-function authFixture(
-  overrides: Partial<Omit<MockAuthContextValue, 'isAuthenticated'>> = {}
-): MockAuthContextValue {
-  const authStatus = overrides.authStatus ?? 'anonymous'
-  return {
-    user: null,
-    authStatus,
-    isLoading: authStatus === 'pending',
-    logout: mockLogout,
-    ...overrides,
-    isAuthenticated: authStatus === 'authenticated',
-  }
-}
+// The shared builder (test/authFixture.ts) states the coupling this suite
+// relies on: `isAuthenticated` derives from `authStatus` and is not
+// overridable, while `isLoading` is, because the two pending cells below
+// differ in it.
+const authFixture = makeAuthFixture<MockUser>(mockLogout)
 
-const mockAuthContext = vi.fn<() => MockAuthContextValue>(() => authFixture())
+const mockAuthContext = vi.fn<() => MockAuthContextValue<MockUser>>(() =>
+  authFixture()
+)
 vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => mockAuthContext(),
 }))
@@ -209,7 +193,7 @@ describe('TopBar', () => {
     ])('keeps the login link and asserts no identity %s', (_label, isLoading) => {
       mockAuthContext.mockReturnValue(authFixture({ authStatus: 'pending', isLoading }))
       render(<TopBar />)
-      expect(screen.getAllByText('login / sign-up').length).toBeGreaterThanOrEqual(1)
+      expect(screen.getByText('login / sign-up')).toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'User menu' })).not.toBeInTheDocument()
       expect(screen.queryByRole('link', { name: '+ Submit' })).not.toBeInTheDocument()
       expect(screen.queryByTestId('notification-bell')).not.toBeInTheDocument()
@@ -226,16 +210,11 @@ describe('TopBar', () => {
       const slotOf = (authStatus: AuthStatus) => {
         mockAuthContext.mockReturnValue(authFixture({ authStatus }))
         const { unmount } = render(<TopBar />)
-        const html = screen
-          .getAllByText('login / sign-up')
-          .map(node => node.outerHTML)
-          .join('')
+        const html = screen.getByText('login / sign-up').outerHTML
         unmount()
         return html
       }
-      const pending = slotOf('pending')
-      expect(pending).not.toEqual('')
-      expect(pending).toEqual(slotOf('anonymous'))
+      expect(slotOf('pending')).toEqual(slotOf('anonymous'))
     })
 
     // The override built at login makes the viewer authenticated before the

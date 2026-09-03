@@ -31,6 +31,15 @@ import { AuthError, isDefinitiveUnauthenticated } from '@/lib/errors'
  * bounced logged-in users to /auth. Anything that acts on "this viewer is
  * anonymous" must gate on `authStatus === 'anonymous'`.
  *
+ * What 'pending' has to suppress is narrower than "everything an anonymous
+ * viewer would see". A control that NAMES a viewer (an avatar, an email, a
+ * personal count, an account menu, a CTA offered only to signed-in users)
+ * requires `authStatus === 'authenticated'`. A control that names none is not
+ * an act on either answer: a plain sign-in link claims nothing about who is
+ * looking, and 'pending' is reached by a rate-limited anonymous visitor as
+ * readily as by a signed-in one, so suppressing it takes a route away from
+ * the viewer most likely to want it. Both nav bars render it while pending.
+ *
  * The guarantee, stated exactly, because a weaker version of this sentence was
  * wrong once already: 'anonymous' is reached only from a DEFINITIVE answer:
  * the profile query resolved with no user, or it failed with a 401, which is

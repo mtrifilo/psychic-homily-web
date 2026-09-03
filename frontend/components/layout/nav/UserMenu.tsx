@@ -31,15 +31,11 @@ import { NotificationBell } from '@/features/notifications'
 export function UserMenu() {
   const { user, authStatus, logout } = useAuthContext()
 
-  // One gate, stated once: only the cluster below asserts an identity (the
-  // avatar's initials, the viewer's email, their notification count, a Submit
-  // CTA offered to signed-in users), so only it requires a settled
-  // 'authenticated' per the rule on the AuthStatus type.
-  //
-  // The `login / sign-up` link is the fall-through for every other status,
-  // 'pending' included: it names no viewer, and it is this bar's only route to
-  // /auth, which an unsettled viewer may well need (an anonymous visitor whose
-  // profile fetch is rate-limited reads 'pending' too).
+  // Only the cluster below names a viewer, so only it requires a settled
+  // 'authenticated' (see the AuthStatus type). The `login / sign-up` link is
+  // the fall-through for every other status, 'pending' included: it is this
+  // bar's only route to /auth, and an unsettled viewer may be an anonymous one
+  // whose profile fetch was rate-limited.
   if (authStatus === 'authenticated' && user) {
     // The canonical account destination list (navData, PSY-1821) — Profile's
     // username-aware href, the Profile/Settings split, and each entry's icon
