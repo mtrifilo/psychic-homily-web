@@ -20,11 +20,16 @@ interface RequestCardProps {
 }
 
 export function RequestCard({ request }: RequestCardProps) {
-  const { isAuthenticated } = useAuthContext()
+  const { isAuthenticated, authStatus } = useAuthContext()
   const voteMutation = useVoteRequest()
   const removeVoteMutation = useRemoveVoteRequest()
 
   const userVote = request.user_vote ?? 0
+  // `authStatus === 'anonymous'`, not `!isAuthenticated`, for the title only:
+  // "Log in to vote" is a claim about the viewer, and the unsettled window is
+  // not entitled to make it. The control stays disabled in both, so the
+  // unsettled viewer gets the neutral name. See AuthStatus in
+  // lib/context/AuthContext.
 
   const handleUpvote = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -67,7 +72,7 @@ export function RequestCard({ request }: RequestCardProps) {
                 : 'text-muted-foreground/50 hover:text-green-600 dark:hover:text-green-400',
               !isAuthenticated && 'cursor-default opacity-50'
             )}
-            title={isAuthenticated ? 'Upvote' : 'Log in to vote'}
+            title={authStatus === 'anonymous' ? 'Log in to vote' : 'Upvote'}
             aria-label="Upvote"
           >
             <ThumbsUp className="h-4 w-4" />
@@ -92,7 +97,7 @@ export function RequestCard({ request }: RequestCardProps) {
                 : 'text-muted-foreground/50 hover:text-red-600 dark:hover:text-red-400',
               !isAuthenticated && 'cursor-default opacity-50'
             )}
-            title={isAuthenticated ? 'Downvote' : 'Log in to vote'}
+            title={authStatus === 'anonymous' ? 'Log in to vote' : 'Downvote'}
             aria-label="Downvote"
           >
             <ThumbsDown className="h-4 w-4" />

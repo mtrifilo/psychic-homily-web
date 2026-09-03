@@ -23,9 +23,8 @@
  */
 
 import { useState } from 'react'
-import { redirect } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
-import { useAuthContext } from '@/lib/context/AuthContext'
+import { useAuthRouteGuard } from '@/lib/hooks/common/useAuthRouteGuard'
 import { cn } from '@/lib/utils'
 import { BracketLink } from '@/components/shared/BracketLink'
 import {
@@ -41,7 +40,7 @@ import { InlineErrorBanner } from '@/components/shared/InlineErrorBanner'
 type InboxView = 'unread' | 'all'
 
 export default function NotificationInboxPage() {
-  const { isAuthenticated, isLoading: authLoading } = useAuthContext()
+  const gate = useAuthRouteGuard('redirect')
   const { data, isLoading, isError, error } = useUserNotifications({ limit: 50 })
   const markRead = useMarkNotificationsRead()
   const [view, setView] = useState<InboxView>('unread')
@@ -50,16 +49,13 @@ export default function NotificationInboxPage() {
   const entries = data?.notifications ?? []
   const { unread, read } = partitionNotificationsByRead(entries)
 
-  if (authLoading) {
+  // Only 'loading' and 'ready' reach here: 'redirect' mode throws.
+  if (gate !== 'ready') {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     )
-  }
-
-  if (!isAuthenticated) {
-    redirect('/auth')
   }
 
   const handleMarkRowRead = (entry: NotificationLogEntry) => {

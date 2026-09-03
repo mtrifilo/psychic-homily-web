@@ -28,11 +28,14 @@ vi.mock('@tanstack/react-query', async () => {
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush, replace: mockReplace }),
   useSearchParams: () => mockSearchParams,
+  usePathname: () => '/contribute/submissions',
+  redirect: vi.fn(),
 }))
 
-vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => mockUseAuthContext(),
-}))
+vi.mock('@/lib/context/AuthContext', async () => {
+  const { deriveMockAuthSignals } = await import('@/test/authFixture')
+  return { useAuthContext: () => deriveMockAuthSignals(mockUseAuthContext()) }
+})
 
 vi.mock('../hooks', () => ({
   useMySubmissions: (...args: unknown[]) => mockUseMySubmissions(...args),
@@ -135,9 +138,9 @@ describe('ShowSubmissionsConsole', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockSearchParams = new URLSearchParams()
+    window.history.replaceState({}, '', '/contribute/submissions')
     mockUseAuthContext.mockReturnValue({
-      isAuthenticated: true,
-      isLoading: false,
+      authStatus: 'authenticated',
       user: { id: '1', is_admin: false },
     })
     mockUseMySubmissions.mockReturnValue({
@@ -148,10 +151,9 @@ describe('ShowSubmissionsConsole', () => {
     })
   })
 
-  it('redirects unauthenticated viewers with a return path', async () => {
+  it('redirects settled-anonymous viewers with a return path', async () => {
     mockUseAuthContext.mockReturnValue({
-      isAuthenticated: false,
-      isLoading: false,
+      authStatus: 'anonymous',
       user: null,
     })
 
@@ -172,9 +174,15 @@ describe('ShowSubmissionsConsole', () => {
 
   it('preserves the console query when redirecting to authentication', async () => {
     mockSearchParams = new URLSearchParams('submitted=private&source=show-form')
+    // The canonical returnTo reads the browser's own query string, so the
+    // location has to carry it rather than only the router mock.
+    window.history.replaceState(
+      {},
+      '',
+      '/contribute/submissions?submitted=private&source=show-form'
+    )
     mockUseAuthContext.mockReturnValue({
-      isAuthenticated: false,
-      isLoading: false,
+      authStatus: 'anonymous',
       user: null,
     })
 
@@ -185,6 +193,27 @@ describe('ShowSubmissionsConsole', () => {
         '/auth?returnTo=%2Fcontribute%2Fsubmissions%3Fsubmitted%3Dprivate%26source%3Dshow-form'
       )
     })
+  })
+
+  it('does not redirect while auth is unsettled', async () => {
+    // 'pending' is a signed-in viewer whose profile has not arrived as often
+    // as it is anyone else, and this guard cannot tell them apart.
+    mockUseAuthContext.mockReturnValue({
+      // TERMINAL pending: `isLoading` false while the status is still
+      // unsettled, which is the window an `isLoading` gate cannot see.
+      authStatus: 'pending',
+      user: null,
+      isLoading: false,
+    })
+
+    renderWithProviders(<ShowSubmissionsConsole />)
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('heading', { name: 'Show submissions' })
+      ).toBeNull()
+    })
+    expect(mockPush).not.toHaveBeenCalled()
   })
 
   it('renders the dedicated empty state and Contribute links', () => {

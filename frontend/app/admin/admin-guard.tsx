@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Loader2, Shield } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { useAuthRouteGuard } from '@/lib/hooks/common/useAuthRouteGuard'
 
 export default function AdminGuard({
   children,
@@ -11,23 +12,19 @@ export default function AdminGuard({
   children: React.ReactNode
 }) {
   const router = useRouter()
-  const { user, isAuthenticated, isLoading } = useAuthContext()
+  const { user } = useAuthContext()
+  const gate = useAuthRouteGuard()
 
+  // The admin check layers on top of a settled identity: it asks what this
+  // viewer may do, which is only answerable once the guard says who they are.
   useEffect(() => {
-    // Redirect non-authenticated users to login
-    if (!isLoading && !isAuthenticated) {
-      router.push('/auth?returnTo=%2Fadmin')
-      return
-    }
-
-    // Redirect non-admin users to home
-    if (!isLoading && isAuthenticated && !user?.is_admin) {
+    if (gate !== 'ready') return
+    if (!user?.is_admin) {
       router.push('/')
     }
-  }, [isAuthenticated, isLoading, user, router])
+  }, [gate, user, router])
 
-  // Show loading state while checking auth
-  if (isLoading) {
+  if (gate === 'loading') {
     return (
       <div className="flex min-h-[calc(100vh-64px)] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -35,8 +32,8 @@ export default function AdminGuard({
     )
   }
 
-  // Don't render if not authenticated (will redirect)
-  if (!isAuthenticated) {
+  // Don't render while the sign-in navigation is in flight
+  if (gate === 'blank') {
     return null
   }
 

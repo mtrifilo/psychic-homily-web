@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { redirect } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { useAuthRouteGuard } from '@/lib/hooks/common/useAuthRouteGuard'
 import { useInfiniteSavedShows, useUnsaveShow } from '@/features/shows'
 import type { SavedShowResponse } from '@/features/shows'
 import {
@@ -883,7 +884,8 @@ function ActiveLibraryContent({
   searchParams: ReturnType<typeof useSearchParams>
 }) {
   const router = useRouter()
-  const { isAuthenticated, isLoading: authLoading, user } = useAuthContext()
+  const { user } = useAuthContext()
+  const gate = useAuthRouteGuard('redirect')
   const followingTabCounts = useFollowingTabCounts()
   const currentUserId = user?.id ? Number(user.id) : undefined
   const savedReleaseCount = useSavedReleases(1, 0, currentUserId)
@@ -946,11 +948,8 @@ function ActiveLibraryContent({
     })
   }
 
-  if (!authLoading && !isAuthenticated) {
-    redirect('/auth')
-  }
-
-  if (authLoading) {
+  // Only 'loading' and 'ready' reach here: 'redirect' mode throws.
+  if (gate !== 'ready') {
     return (
       <div className="flex justify-center items-center min-h-screen">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />

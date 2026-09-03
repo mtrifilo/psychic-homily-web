@@ -10,14 +10,20 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { buildAuthHref } from '@/lib/auth-href'
 
 interface LoginPromptDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   title?: string
   description?: string
-  returnTo?: string
+  /**
+   * The sign-in destination, already built. Required, and an href rather than
+   * a bare `returnTo`, because the caller resolves it at click time from the
+   * browser's own location (`useAuthGatedAction`). A default here could only
+   * be a destination that discards where the reader was, which is the bug the
+   * required prop exists to make unwritable.
+   */
+  authHref: string
 }
 
 export function LoginPromptDialog({
@@ -25,10 +31,8 @@ export function LoginPromptDialog({
   onOpenChange,
   title = 'Sign in required',
   description = 'You need to be signed in to perform this action.',
-  returnTo = '/',
+  authHref,
 }: LoginPromptDialogProps) {
-  const authHref = buildAuthHref(returnTo)
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">

@@ -1,7 +1,6 @@
 'use client'
 
 import { Heart } from 'lucide-react'
-import { usePathname, useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { BracketLink } from './BracketLink'
 import { useSaveShowToggle, useShowSaveCount } from '@/features/shows'
@@ -13,6 +12,7 @@ import {
 import { cn } from '@/lib/utils'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { useAutoDismissBanner } from '@/lib/hooks/common'
+import { useAuthGatedAction } from '@/lib/hooks/common/useAuthGatedAction'
 
 // How long a save failure stays on screen before auto-hiding.
 const ERROR_DISMISS_MS = 3000
@@ -46,8 +46,6 @@ export function SaveButton({
   disabled = false,
 }: SaveButtonProps) {
   const { isAuthenticated, authStatus, user } = useAuthContext()
-  const router = useRouter()
-  const pathname = usePathname()
 
   // List views pass saveData in from one batched request. Standalone usages
   // (show detail page, library rows) fetch their own. While a batch is in
@@ -73,9 +71,9 @@ export function SaveButton({
     user?.id
   )
   // Disabled while unsettled, as every control in this class is: it ships
-  // ENABLED in server HTML with pre-hydration click replay, and its handler
-  // routes on `!isAuthenticated`, which reads false for a signed-in viewer whose
-  // profile has not landed. See AuthStatus in lib/context/AuthContext.
+  // ENABLED in server HTML with pre-hydration click replay, and a click that
+  // lands while the viewer's identity is unknown can only guess. See
+  // AuthStatus in lib/context/AuthContext.
   const isDisabled = disabled || isLoading || authStatus === 'pending'
   // Shared auto-dismiss primitive rather than a hand-rolled timer, which must
   // not outlive unmount. See useAutoDismissBanner / useDismissTimer (PSY-1664).
@@ -85,21 +83,9 @@ export function SaveButton({
     clear: clearSaveError,
   } = useAutoDismissBanner<true>(ERROR_DISMISS_MS)
 
-  const handleClick = async (e: React.MouseEvent) => {
-    e.preventDefault() // Prevent any parent link clicks
-    e.stopPropagation()
-
-    // Unreachable while the control renders disabled; defence in depth for the
-    // redirect below, which cannot tell "no session" from "profile in flight".
-    if (authStatus === 'pending') return
-
-    // Matches FollowButton: render for anonymous visitors so the public save
-    // count stays visible, and send them to sign-in on click.
-    if (!isAuthenticated) {
-      const returnTo = `${pathname}${window.location.search}`
-      router.push(`/auth?returnTo=${encodeURIComponent(returnTo)}`)
-      return
-    }
+  // Rendered for anonymous visitors so the public save count stays visible,
+  // which is why the hook's anonymous branch is reachable here at all.
+  const { onClick: handleClick } = useAuthGatedAction(async () => {
     if (isDisabled) return
 
     try {
@@ -108,7 +94,7 @@ export function SaveButton({
     } catch {
       showSaveError(true)
     }
-  }
+  })
 
   // `authStatus === 'anonymous'`, not `!isAuthenticated`: the sign-in wording
   // is a claim about the viewer, and the unsettled window is not yet entitled

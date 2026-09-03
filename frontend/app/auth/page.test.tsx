@@ -21,15 +21,19 @@ vi.mock('next/navigation', () => ({
 
 // AuthContext is mocked with mutable state so individual tests can toggle the
 // authenticated / loading state the page branches on.
-let mockAuthState = {
+let mockAuthState: {
+  setUser: ReturnType<typeof vi.fn>
+  authStatus: 'pending' | 'anonymous' | 'authenticated'
+  isLoading?: boolean
+} = {
   setUser: vi.fn(),
-  isAuthenticated: false,
-  isLoading: false,
+  authStatus: 'anonymous',
 }
 
-vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => mockAuthState,
-}))
+vi.mock('@/lib/context/AuthContext', async () => {
+  const { deriveMockAuthSignals } = await import('@/test/authFixture')
+  return { useAuthContext: () => deriveMockAuthSignals(mockAuthState) }
+})
 
 // Captures the per-call options `LoginForm` hands `useLogin().mutate`, so a
 // test can drive the success callback with a real login payload.
@@ -90,8 +94,7 @@ describe('AuthPage', () => {
     mockSearchParams = new URLSearchParams()
     mockAuthState = {
       setUser: vi.fn(),
-      isAuthenticated: false,
-      isLoading: false,
+      authStatus: 'anonymous',
     }
   })
 
@@ -272,8 +275,7 @@ describe('AuthPage', () => {
       setSearchParams('returnTo=%2Flibrary')
       mockAuthState = {
         setUser: vi.fn(),
-        isAuthenticated: true,
-        isLoading: false,
+        authStatus: 'authenticated',
       }
 
       renderWithProviders(<AuthPage />)
@@ -288,8 +290,7 @@ describe('AuthPage', () => {
     it('redirects to "/" when authenticated with no returnTo', async () => {
       mockAuthState = {
         setUser: vi.fn(),
-        isAuthenticated: true,
-        isLoading: false,
+        authStatus: 'authenticated',
       }
 
       renderWithProviders(<AuthPage />)
@@ -299,18 +300,37 @@ describe('AuthPage', () => {
       })
     })
 
-    it('does not redirect while auth state is still loading', () => {
+    it('spins while the profile fetch is in flight', () => {
       mockAuthState = {
         setUser: vi.fn(),
-        isAuthenticated: false,
+        authStatus: 'pending',
         isLoading: true,
       }
 
       renderWithProviders(<AuthPage />)
 
       expect(mockPush).not.toHaveBeenCalled()
-      // Loading branch shows a spinner, not the tabs.
       expect(screen.queryByRole('tab', { name: 'Sign in' })).not.toBeInTheDocument()
+    })
+
+    // The page this rule exists for. A profile fetch that failed without
+    // answering (429, 5xx, network, 403) leaves `authStatus` terminally
+    // 'pending', and a viewer in that state may be carrying a dead session and
+    // needing exactly this form. Gating the form on 'pending' would spin
+    // forever; `isLoading` goes false when the query errors, so it renders.
+    it('serves the sign-in form once a failed profile settles nothing', () => {
+      mockAuthState = {
+        setUser: vi.fn(),
+        authStatus: 'pending',
+        isLoading: false,
+      }
+
+      renderWithProviders(<AuthPage />)
+
+      expect(mockPush).not.toHaveBeenCalled()
+      expect(
+        screen.getByRole('tab', { name: 'Sign in' })
+      ).toBeInTheDocument()
     })
   })
 

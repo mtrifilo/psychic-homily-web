@@ -342,9 +342,13 @@ describe('BottomTabBar', () => {
   })
 
   describe('Account tab', () => {
-    it('is a login link when anonymous', () => {
+    it('is a login link back to the page the viewer is on', () => {
+      mockPathname = '/artists/calexico'
       render(<BottomTabBar />)
-      expect(screen.getByRole('link', { name: 'Account' })).toHaveAttribute('href', '/auth')
+      expect(screen.getByRole('link', { name: 'Account' })).toHaveAttribute(
+        'href',
+        '/auth?returnTo=%2Fartists%2Fcalexico'
+      )
     })
 
     it('lights up on /auth when anonymous', () => {
@@ -387,6 +391,8 @@ describe('BottomTabBar', () => {
       mockAuthContext.mockReturnValue(authFixture({ authStatus: 'pending', isLoading }))
       render(<BottomTabBar />)
       const tab = screen.getByRole('link', { name: 'Account' })
+      // Bare: `buildAuthHref` omits a destination the auth page would discard,
+      // and the viewer is already on `/auth`.
       expect(tab).toHaveAttribute('href', '/auth')
       // A real destination, so it carries the current-page state its route
       // earns: `accountActive` falls to `isActive('/auth')` on this arm.

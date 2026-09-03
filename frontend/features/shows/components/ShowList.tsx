@@ -41,7 +41,7 @@ import { formatShowCountLabel } from '../utils'
 export function ShowList() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { user, isAuthenticated, isLoading: authLoading } = useAuthContext()
+  const { user, isAuthenticated, authStatus } = useAuthContext()
   const isAdmin = user?.is_admin ?? false
   const [isPending, startTransition] = useTransition()
   const { data: profileData } = useProfile()
@@ -121,8 +121,7 @@ export function ShowList() {
   // stands down).
   const { appliedGeoDefault, notifyUserInteracted } = useGeoDefaultCity({
     cities,
-    isAuthenticated,
-    authLoading,
+    authStatus,
     favoriteCities,
     hasExistingSelection,
     enableClientFetch: true,

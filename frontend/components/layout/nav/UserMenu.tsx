@@ -12,7 +12,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { usePathname } from 'next/navigation'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { buildAuthHref } from '@/lib/auth-href'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { getUserInitials, getUserDisplayName } from './userDisplay'
 import { accountNavItems, visibleNavItems } from './navData'
@@ -126,15 +128,27 @@ export function UserMenu() {
     )
   }
 
-  // `shrink-0 whitespace-nowrap` for the same reason the authenticated controls
-  // carry it (the Button base variant): the search field is the top bar's only
-  // slack absorber, so nothing else here may give. Without it this link was
-  // shrinkable, and the flex algorithm split any shortfall between it and the
-  // search — stacking "login /" over "sign-up" at 640px and 1280px, which is
-  // where the anonymous bar ran out of room (PSY-1638).
+  return <SignInLink />
+}
+
+// Its own component so that `usePathname`, which re-renders on every client
+// navigation, is subscribed to only on the render that reads it. Held in
+// `UserMenu` it would re-render the signed-in cluster (Submit, the bell, the
+// account dropdown and its two nav-item filters) on every route change.
+//
+// `shrink-0 whitespace-nowrap` for the same reason the authenticated controls
+// carry it (the Button base variant): the search field is the top bar's only
+// slack absorber, so nothing else here may give. Without it this link was
+// shrinkable, and the flex algorithm split any shortfall between it and the
+// search — stacking "login /" over "sign-up" at 640px and 1280px, which is
+// where the anonymous bar ran out of room (PSY-1638).
+function SignInLink() {
+  const pathname = usePathname()
   return (
     <Link
-      href="/auth"
+      // The render-time grade of the destination: the pathname alone. See
+      // `currentLocationReturnTo` for why a query string cannot be read here.
+      href={buildAuthHref(pathname)}
       className="shrink-0 whitespace-nowrap text-sm text-muted-foreground transition-colors hover:text-primary"
     >
       login / sign-up

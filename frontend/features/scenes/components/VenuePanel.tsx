@@ -2,11 +2,11 @@
 
 import { useEffect, useMemo, useRef } from 'react'
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
 import { DismissableLayer } from '@radix-ui/react-dismissable-layer'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { useAuthGatedAction } from '@/lib/hooks/common/useAuthGatedAction'
 // Deep import, not the `@/components/shared` barrel: the barrel drags in every
 // shared component (and their AuthContext/router dependencies) for one button,
 // and it is the path the Atlas suites already mock.
@@ -101,9 +101,7 @@ interface VenuePanelProps {
 export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
   const closeRef = useRef<HTMLButtonElement>(null)
   const sectionRef = useRef<HTMLElement>(null)
-  const router = useRouter()
-  const pathname = usePathname()
-  const { isAuthenticated } = useAuthContext()
+  const { authStatus } = useAuthContext()
 
   // Focus the close control on open and hand focus back on close — the same
   // move (and the same containment guard) as ScenePreviewPanel, the Atlas's
@@ -187,26 +185,32 @@ export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
   const provenanceSegments = venueProvenanceSegments(provenance)
 
   // The control stays in the tab order while inert (see the button below), so
-  // this guard is what actually stops a second write — not the browser.
-  const confirmInert = confirm.isPending || hasConfirmed
+  // this guard is what actually stops a second write, not the browser.
+  // 'pending' joins the inert set for the reason every control in this class
+  // disables there: a tap whose only possible outcomes are "write as a viewer
+  // we cannot identify" and "send a signed-in viewer to the sign-in form" has
+  // no correct answer.
+  const confirmInert =
+    confirm.isPending || hasConfirmed || authStatus === 'pending'
 
-  // ONE sign-in destination for both routes into it — the pre-tap redirect below
-  // and the expired-session link under the error. They were built separately and
-  // had already drifted (one preserved the query string, the other dropped it).
-  // /atlas carries no URL state today so the drift was invisible, which is
-  // exactly what makes it a trap for whoever adds some.
-  const signInHref = () => {
-    const search = typeof window === 'undefined' ? '' : window.location.search
-    return `/auth?returnTo=${encodeURIComponent(`${pathname}${search}`)}`
-  }
+  // ONE sign-in destination for both routes into it: the pre-tap redirect the
+  // hook issues, and the expired-session link under the error below.
+  const { onClick: gatedConfirm, buildAuthHrefForHere: signInHref } =
+    useAuthGatedAction(() => confirm.mutate(venue.id))
 
-  const handleConfirm = () => {
-    if (confirmInert) return
-    if (!isAuthenticated) {
-      router.push(signInHref())
+  // Inert outranks the auth branch, and the order is load-bearing HERE and
+  // nowhere else in this class: every sibling control renders natively
+  // `disabled`, so a click cannot reach their handler at all, while this one
+  // stays clickable on purpose (see the button below). Without this, a viewer
+  // whose session died after confirming would be pushed to /auth by tapping a
+  // button that reads "✓ Confirmed", losing the map they were panning.
+  const handleConfirm = (event: React.MouseEvent) => {
+    if (confirmInert) {
+      event.preventDefault()
+      event.stopPropagation()
       return
     }
-    confirm.mutate(venue.id)
+    gatedConfirm(event)
   }
 
   return (
@@ -312,6 +316,11 @@ export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
               {confirm.error?.status === 401 && (
                 <>
                   {' '}
+                  {/* Called during render, which `buildAuthHrefForHere`
+                      documents as event-time only. Legal here and nowhere
+                      else in this file: the branch paints only after a client
+                      mutation returned 401, so there is no render without a
+                      browser location. */}
                   <Link
                     href={signInHref()}
                     className="underline underline-offset-4"

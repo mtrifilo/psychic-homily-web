@@ -20,15 +20,18 @@ const mockFetchNextPage = vi.fn(async () => ({ hasNextPage: false }))
 let mockSearchParams = new URLSearchParams()
 
 vi.mock('next/navigation', () => ({
-  usePathname: () => '/library?tab=releases',
+  // A real pathname carries no query string; the query lives in
+  // `mockSearchParams` below.
+  usePathname: () => '/library',
   useRouter: () => ({ replace: mockReplace }),
   useSearchParams: () => mockSearchParams,
   redirect: (path: string) => mockRedirect(path),
 }))
 
-vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => mockUseAuthContext(),
-}))
+vi.mock('@/lib/context/AuthContext', async () => {
+  const { deriveMockAuthSignals } = await import('@/test/authFixture')
+  return { useAuthContext: () => deriveMockAuthSignals(mockUseAuthContext()) }
+})
 
 // Stub the heavy feature modules so this suite stays focused on the Library
 // chrome and the compact saved-show row contract introduced by PSY-1440.
@@ -151,8 +154,7 @@ import LibraryPage from './page'
 
 function setAuthenticated() {
   mockUseAuthContext.mockReturnValue({
-    isAuthenticated: true,
-    isLoading: false,
+    authStatus: 'authenticated',
     user: { id: '1', email: 'alice@example.com', is_admin: false },
   })
 }
@@ -1264,16 +1266,36 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
   })
 
   describe('auth', () => {
-    it('redirects unauthenticated users to /auth', () => {
+    it('redirects settled-anonymous users to /auth with a returnTo', () => {
       mockUseAuthContext.mockReturnValue({
-        isAuthenticated: false,
-        isLoading: false,
+        authStatus: 'anonymous',
         user: null,
       })
 
       renderWithProviders(<LibraryPage />)
 
-      expect(mockRedirect).toHaveBeenCalledWith('/auth')
+      expect(mockRedirect).toHaveBeenCalledWith(
+        '/auth?returnTo=%2Flibrary'
+      )
+    })
+
+    it('does not redirect while auth is unsettled', () => {
+      // 'pending' is a signed-in viewer whose profile has not arrived as
+      // often as it is anyone else, and this guard cannot tell them apart.
+      mockUseAuthContext.mockReturnValue({
+        // TERMINAL pending: `isLoading` false while the status is still
+        // unsettled, which is the window an `isLoading` gate cannot see.
+        authStatus: 'pending',
+        user: null,
+        isLoading: false,
+      })
+
+      renderWithProviders(<LibraryPage />)
+
+      expect(mockRedirect).not.toHaveBeenCalled()
+      expect(
+        screen.queryByRole('heading', { name: 'Library' })
+      ).not.toBeInTheDocument()
     })
   })
 })

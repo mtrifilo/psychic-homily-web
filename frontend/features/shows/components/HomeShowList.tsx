@@ -19,7 +19,7 @@ import { GeoDefaultAffordance } from '@/components/filters/GeoDefaultAffordance'
 import { SaveDefaultsButton } from '@/components/filters/SaveDefaultsButton'
 
 export function HomeShowList() {
-  const { user, isAuthenticated, isLoading: authLoading } = useAuthContext()
+  const { user, isAuthenticated, authStatus } = useAuthContext()
   const isAdmin = user?.is_admin ?? false
   const { data: profileData } = useProfile()
   // The user's explicit pick this visit — null until they touch the filter.
@@ -59,8 +59,7 @@ export function HomeShowList() {
   // favoriteCities is non-empty); a user interaction nulls the derived value.
   const { appliedGeoDefault, notifyUserInteracted } = useGeoDefaultCity({
     cities,
-    isAuthenticated,
-    authLoading,
+    authStatus,
     favoriteCities,
     hasExistingSelection: userSelection !== null,
     enableClientFetch: true,

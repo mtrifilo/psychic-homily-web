@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { AUTH_PATH, buildAuthHref } from '@/lib/auth-href'
 import { ExternalLink, LayoutGrid, LogOut, Moon, Sun, User } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -336,7 +337,7 @@ export function BottomTabBar() {
   const primaryActive = primaryTabs.some(t => isActive(t.href))
   const accountActive = isSettledAuthenticated
     ? accountItems.some(i => isActive(i.href)) || isActive(PROFILE_CLAIM_HREF)
-    : isActive('/auth')
+    : isActive(AUTH_PATH)
   const browseActive =
     !primaryActive && !accountActive && mobileBrowseHrefs.some(isActive)
 
@@ -397,7 +398,10 @@ export function BottomTabBar() {
           </SheetTab>
         ) : (
           <Link
-            href="/auth"
+            // The render-time grade of the destination: the pathname alone.
+            // See `currentLocationReturnTo` for why a query string cannot be
+            // read here.
+            href={buildAuthHref(pathname)}
             aria-current={accountActive ? 'page' : undefined}
             className={tabClassName(accountActive)}
           >

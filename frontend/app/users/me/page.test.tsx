@@ -8,12 +8,15 @@ const mockUseOwnContributorProfile = vi.fn()
 const mockUseMyCollections = vi.fn()
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ replace: mockReplace }),
+  useRouter: () => ({ replace: mockReplace, push: vi.fn() }),
+  usePathname: () => '/users/me',
+  redirect: vi.fn(),
 }))
 
-vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => mockUseAuthContext(),
-}))
+vi.mock('@/lib/context/AuthContext', async () => {
+  const { deriveMockAuthSignals } = await import('@/test/authFixture')
+  return { useAuthContext: () => deriveMockAuthSignals(mockUseAuthContext()) }
+})
 
 vi.mock('@/features/auth', () => ({
   useOwnContributorProfile: () => mockUseOwnContributorProfile(),
@@ -40,8 +43,7 @@ const CLAIM_USER = {
 
 function setClaimAuth(userOverrides: Record<string, unknown> = {}) {
   mockUseAuthContext.mockReturnValue({
-    isAuthenticated: true,
-    isLoading: false,
+    authStatus: 'authenticated',
     user: { ...CLAIM_USER, ...userOverrides },
   })
 }

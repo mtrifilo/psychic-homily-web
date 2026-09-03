@@ -1,5 +1,6 @@
 'use client'
 
+import type { AuthStatus } from '@/lib/context/AuthContext'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as Sentry from '@sentry/nextjs'
 import type { CityState, CityWithCount } from './CityFilters'
@@ -53,11 +54,16 @@ interface GeoApiResponse {
 interface UseGeoDefaultCityParams {
   /** Cities that currently have shows (from `useShowCities`); the has-shows gate. */
   cities: CityWithCount[]
-  /** Whether the visitor is authenticated. Geo applies to anon visitors only. */
-  isAuthenticated: boolean
-  /** Whether auth is still resolving. The hook waits — seeding geo while auth
-   *  is in-flight could wrongly seed a user whose favorites should win. */
-  authLoading: boolean
+  /**
+   * The settled-auth signal. Geo applies to a SETTLED anonymous visitor only.
+   *
+   * `authStatus`, not an `isAuthenticated` / `isLoading` pair: `isLoading` is
+   * false both before the profile fetch starts and after it fails without
+   * answering, and in either window a signed-in viewer reads as anonymous with
+   * no favourites, so the hook would seed the IP-geo city over favourites that
+   * simply have not arrived. See AuthStatus in lib/context/AuthContext.
+   */
+  authStatus: AuthStatus
   /** The authed user's favorite cities. Non-empty → the hook stands down
    *  entirely (favorites win; the caller seeds them). */
   favoriteCities: CityState[]
@@ -178,8 +184,7 @@ function useGeoSource(
 
 export function useGeoDefaultCity({
   cities,
-  isAuthenticated,
-  authLoading,
+  authStatus,
   favoriteCities,
   hasExistingSelection,
   geoFromServer,
@@ -190,15 +195,14 @@ export function useGeoDefaultCity({
   // very next render after the flip.
   const [userInteracted, setUserInteracted] = useState(false)
 
-  // Eligibility: only anon visitors with no favorites, no existing selection,
-  // and no prior interaction, once auth has settled. Gates BOTH the client
-  // fetch (efficiency: an authed / favorited visitor never hits the edge) and
-  // the derived default. Waiting on authLoading matters: deriving the anon
-  // geo default while auth is still resolving could wrongly show geo for a
-  // user who turns out to be authenticated (whose favorites should win).
+  // Eligibility: only a SETTLED anonymous visitor, with no favorites, no
+  // existing selection and no prior interaction. Gates BOTH the client fetch
+  // (efficiency: an authed / favorited visitor never hits the edge) and the
+  // derived default. Waiting for the settle matters: deriving the anon geo
+  // default while the viewer's identity is unknown shows geo to someone whose
+  // favorites should have won.
   const eligible =
-    !authLoading &&
-    !isAuthenticated &&
+    authStatus === 'anonymous' &&
     favoriteCities.length === 0 &&
     !hasExistingSelection &&
     !userInteracted

@@ -13,22 +13,24 @@ import SubmitShowPage from './page'
 // and the tests would still pass with the click handler deleted.
 
 let mockAuth: {
-  isAuthenticated: boolean
-  isLoading: boolean
+  authStatus: 'pending' | 'anonymous' | 'authenticated'
   user: { email: string; email_verified: boolean; is_admin?: boolean } | null
+  isLoading?: boolean
 } = {
-  isAuthenticated: true,
-  isLoading: false,
+  authStatus: 'authenticated',
   user: { email: 'user@example.com', email_verified: false },
 }
 
-vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => mockAuth,
-}))
+vi.mock('@/lib/context/AuthContext', async () => {
+  const { deriveMockAuthSignals } = await import('@/test/authFixture')
+  return { useAuthContext: () => deriveMockAuthSignals(mockAuth) }
+})
 
 const mockPush = vi.fn()
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: mockPush }),
+  useRouter: () => ({ push: mockPush, replace: vi.fn() }),
+  usePathname: () => '/shows/submit',
+  redirect: vi.fn(),
 }))
 
 vi.mock('@/lib/api', async importOriginal => ({
@@ -52,10 +54,34 @@ describe('SubmitShowPage verification gate', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockAuth = {
-      isAuthenticated: true,
-      isLoading: false,
+      authStatus: 'authenticated',
       user: { email: 'user@example.com', email_verified: false },
     }
+  })
+
+  it('neither redirects nor asks for verification while auth is unsettled', () => {
+    // The verification gate asks what this viewer may do, which is only
+    // answerable once the guard has settled who they are.
+    // TERMINAL pending: `isLoading` false while the status is still
+    // unsettled, which is the window an `isLoading` gate cannot see and the
+    // one this guard exists for.
+    mockAuth = { authStatus: 'pending', user: null, isLoading: false }
+
+    renderWithProviders(<SubmitShowPage />)
+
+    expect(mockPush).not.toHaveBeenCalled()
+    expect(
+      screen.queryByRole('heading', { name: 'One step before you post.' })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByTestId('show-form')).not.toBeInTheDocument()
+  })
+
+  it('redirects a settled-anonymous visitor to /auth with a returnTo', () => {
+    mockAuth = { authStatus: 'anonymous', user: null }
+
+    renderWithProviders(<SubmitShowPage />)
+
+    expect(mockPush).toHaveBeenCalledWith('/auth?returnTo=%2Fshows%2Fsubmit')
   })
 
   it('blocks an unverified user behind the submission-desk gate', () => {

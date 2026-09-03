@@ -22,15 +22,17 @@ let mockSearchParams = new URLSearchParams()
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: mockReplace, push: mockPush }),
+  usePathname: () => '/profile',
   useSearchParams: () => mockSearchParams,
   // `redirect()` halts rendering in production by throwing; in tests we mock it
   // to a no-op spy so the unauthenticated path can be asserted without throwing.
   redirect: (path: string) => mockRedirect(path),
 }))
 
-vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => mockUseAuthContext(),
-}))
+vi.mock('@/lib/context/AuthContext', async () => {
+  const { deriveMockAuthSignals } = await import('@/test/authFixture')
+  return { useAuthContext: () => deriveMockAuthSignals(mockUseAuthContext()) }
+})
 
 vi.mock('@/features/auth', () => ({
   useUpdateProfile: () => mockUseUpdateProfile(),
@@ -64,8 +66,7 @@ const AUTHED_USER = {
 
 function setAuthenticated(overrides: Record<string, unknown> = {}) {
   mockUseAuthContext.mockReturnValue({
-    isAuthenticated: true,
-    isLoading: false,
+    authStatus: 'authenticated',
     user: AUTHED_USER,
     ...overrides,
   })
@@ -383,16 +384,20 @@ describe('ProfilePage (PSY-683)', () => {
   })
 
   describe('authentication gate', () => {
-    it('redirects unauthenticated users to /auth', () => {
-      setAuthenticated({ isAuthenticated: false, user: null })
+    it('redirects settled-anonymous users to /auth with a returnTo', () => {
+      setAuthenticated({ authStatus: 'anonymous', user: null })
 
       renderWithProviders(<ProfilePage />)
 
-      expect(mockRedirect).toHaveBeenCalledWith('/auth')
+      expect(mockRedirect).toHaveBeenCalledWith('/auth?returnTo=%2Fprofile')
     })
 
-    it('shows a loading spinner (no redirect) while auth state is resolving', () => {
-      setAuthenticated({ isAuthenticated: false, isLoading: true, user: null })
+    it('shows a loading spinner (no redirect) while auth is unsettled', () => {
+      // 'pending' is a signed-in viewer whose profile has not arrived as often
+      // as it is anyone else, and this guard cannot tell them apart.
+      // TERMINAL pending: `isLoading` false while the status is still
+      // unsettled, which is the window an `isLoading` gate cannot see.
+      setAuthenticated({ authStatus: 'pending', user: null, isLoading: false })
 
       renderWithProviders(<ProfilePage />)
 

@@ -23,24 +23,20 @@
  * custom-alerts row (`app/settings/notifications/page.tsx`).
  */
 
-import { useAuthContext } from '@/lib/context/AuthContext'
-import { redirect } from 'next/navigation'
+import { useAuthRouteGuard } from '@/lib/hooks/common/useAuthRouteGuard'
 import { Loader2 } from 'lucide-react'
 import { FilterList } from '@/features/notifications'
 
 export default function NotificationFiltersPage() {
-  const { isAuthenticated, isLoading } = useAuthContext()
+  const gate = useAuthRouteGuard('redirect')
 
-  if (isLoading) {
+  // Only 'loading' and 'ready' reach here: 'redirect' mode throws.
+  if (gate !== 'ready') {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     )
-  }
-
-  if (!isAuthenticated) {
-    redirect('/auth')
   }
 
   return (

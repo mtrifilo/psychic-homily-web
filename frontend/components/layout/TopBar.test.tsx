@@ -202,6 +202,22 @@ describe('TopBar', () => {
       expect(document.querySelector('.animate-spin')).toBeNull()
     })
 
+    // PSY-2002. The link carries the page the viewer is on, so signing in
+    // from the bar returns them to it rather than to the site root. Built
+    // during render, so it carries the pathname without the query string:
+    // there is no browser location in the markup this also produces.
+    it.each(['pending', 'anonymous'] as const)(
+      'sends the %s viewer back to the page they were on',
+      authStatus => {
+        mockPathname = '/artists/calexico'
+        mockAuthContext.mockReturnValue(authFixture({ authStatus }))
+        render(<TopBar />)
+        expect(
+          screen.getByRole('link', { name: 'login / sign-up' })
+        ).toHaveAttribute('href', '/auth?returnTo=%2Fartists%2Fcalexico')
+      }
+    )
+
     // The pending and settled-anonymous slots are the SAME markup, which is
     // what keeps the row from reflowing when a pending read settles to
     // anonymous. The comparison is of the whole SLOT, not of the link alone:

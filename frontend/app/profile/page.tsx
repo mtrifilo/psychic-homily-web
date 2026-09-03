@@ -4,8 +4,8 @@ import { Suspense, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { useAuthRouteGuard } from '@/lib/hooks/common/useAuthRouteGuard'
 import { useUpdateProfile } from '@/features/auth'
-import { redirect } from 'next/navigation'
 import { Loader2, Check } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -257,7 +257,8 @@ function ProfileTab() {
 function ProfilePageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { user, isAuthenticated, isLoading: authLoading } = useAuthContext()
+  const { user } = useAuthContext()
+  const gate = useAuthRouteGuard('redirect')
 
   // Get current tab from URL or default to "profile"
   const currentTab = searchParams.get('tab') || 'profile'
@@ -276,12 +277,8 @@ function ProfilePageContent() {
     router.replace(newPath, { scroll: false })
   }
 
-  // Redirect if not authenticated
-  if (!authLoading && !isAuthenticated) {
-    redirect('/auth')
-  }
-
-  if (authLoading) {
+  // Only 'loading' and 'ready' reach here: 'redirect' mode throws.
+  if (gate !== 'ready') {
     return (
       <div className="flex justify-center items-center min-h-screen">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />

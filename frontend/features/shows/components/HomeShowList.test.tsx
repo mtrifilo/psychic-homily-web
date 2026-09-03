@@ -10,19 +10,19 @@ import type { ShowResponse } from '../types'
 // without TS narrowing from the default-null literal.
 type MockAuthContextValue = {
   user: { id: string } | null
-  isAuthenticated: boolean
-  isLoading: boolean
+  authStatus: 'pending' | 'anonymous' | 'authenticated'
+  isLoading?: boolean
   logout: () => void
 }
 const mockAuthContext = vi.fn<() => MockAuthContextValue>(() => ({
   user: null,
-  isAuthenticated: false,
-  isLoading: false,
+  authStatus: 'anonymous',
   logout: vi.fn(),
 }))
-vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => mockAuthContext(),
-}))
+vi.mock('@/lib/context/AuthContext', async () => {
+  const { deriveMockAuthSignals } = await import('@/test/authFixture')
+  return { useAuthContext: () => deriveMockAuthSignals(mockAuthContext()) }
+})
 
 // Mock show hooks
 const mockUseUpcomingShows = vi.fn()
@@ -112,8 +112,7 @@ describe('HomeShowList', () => {
     mockUseProfile.mockReturnValue({ data: null as unknown })
     mockAuthContext.mockReturnValue({
       user: null,
-      isAuthenticated: false,
-      isLoading: false,
+      authStatus: 'anonymous',
       logout: vi.fn(),
     })
     mockUseShowCities.mockReturnValue({
@@ -269,8 +268,7 @@ describe('HomeShowList', () => {
     it('shows save defaults button for authenticated user with different selection', () => {
       mockAuthContext.mockReturnValue({
         user: { id: '1' },
-        isAuthenticated: true,
-        isLoading: false,
+        authStatus: 'authenticated',
         logout: vi.fn(),
       })
       mockUseShowCities.mockReturnValue({
@@ -362,8 +360,7 @@ describe('HomeShowList', () => {
       const fetchSpy = mockGeoFetch({ city: 'Omaha', state: 'NE' })
       mockAuthContext.mockReturnValue({
         user: { id: '1' },
-        isAuthenticated: true,
-        isLoading: false,
+        authStatus: 'authenticated',
         logout: vi.fn(),
       })
       render(<HomeShowList />)
@@ -376,8 +373,7 @@ describe('HomeShowList', () => {
     const withFavoritePhoenix = () => {
       mockAuthContext.mockReturnValue({
         user: { id: '1' },
-        isAuthenticated: true,
-        isLoading: false,
+        authStatus: 'authenticated',
         logout: vi.fn(),
       })
       mockUseProfile.mockReturnValue({

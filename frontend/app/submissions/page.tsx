@@ -1,10 +1,8 @@
 'use client'
 
-import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Loader2, ClipboardList, Music, ArrowRight } from 'lucide-react'
-import { useAuthContext } from '@/lib/context/AuthContext'
+import { useAuthRouteGuard } from '@/lib/hooks/common/useAuthRouteGuard'
 import { Button } from '@/components/ui/button'
 import { MyPendingEditsList } from '@/features/contributions'
 
@@ -15,24 +13,15 @@ import { MyPendingEditsList } from '@/features/contributions'
  * renders the signed-in user's own pending entity edits — status,
  * moderator response (when rejected), and a link to the affected entity
  * — so contributors can track the lifecycle of edits they suggested via
- * EntityEditDrawer. Anonymous users redirect to /auth.
+ * EntityEditDrawer. Settled-anonymous viewers redirect to /auth.
  *
  * Show submission has its own home at /shows/submit (the form itself is
  * gated on email verification there).
  */
 export default function SubmissionsPage() {
-  const router = useRouter()
-  const { isAuthenticated, isLoading } = useAuthContext()
+  const gate = useAuthRouteGuard()
 
-  // Redirect unauthenticated users to login. Mirrors the previous /submissions
-  // behaviour so existing bookmarks land on the same auth flow.
-  useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      router.push('/auth?returnTo=%2Fsubmissions')
-    }
-  }, [isAuthenticated, isLoading, router])
-
-  if (isLoading) {
+  if (gate === 'loading') {
     return (
       <div className="flex min-h-[calc(100vh-64px)] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -40,7 +29,7 @@ export default function SubmissionsPage() {
     )
   }
 
-  if (!isAuthenticated) {
+  if (gate === 'blank') {
     return null
   }
 

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
@@ -18,6 +18,7 @@ import {
   X,
 } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { useAuthRouteGuard } from '@/lib/hooks/common/useAuthRouteGuard'
 import { queryKeys } from '@/lib/queryClient'
 import {
   formatShowDate,
@@ -392,7 +393,8 @@ export function ShowSubmissionsConsole() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const queryClient = useQueryClient()
-  const { isAuthenticated, isLoading: authLoading, user } = useAuthContext()
+  const { isAuthenticated, user } = useAuthContext()
+  const gate = useAuthRouteGuard()
   const [submissionsOffset, setSubmissionsOffset] = useState(0)
   const submissionUserId = user?.id
   const { data, isLoading, error, refetch } = useMySubmissions({
@@ -405,7 +407,6 @@ export function ShowSubmissionsConsole() {
   const isPrivateSubmission = searchParams.get('submitted') === 'private'
   const showSuccessDialog = !dialogDismissed && isPrivateSubmission
   const currentUserId = user?.id ? Number(user.id) : undefined
-  const queryString = searchParams.toString()
   const refreshSubmissions = useCallback(() => {
     void queryClient.invalidateQueries({
       queryKey: queryKeys.mySubmissions.all,
@@ -419,15 +420,6 @@ export function ShowSubmissionsConsole() {
       )
     }
   }, [data?.shows.length, refreshSubmissions, submissionsOffset])
-
-  useEffect(() => {
-    if (!authLoading && !isAuthenticated) {
-      const returnTo = queryString
-        ? `${SHOW_SUBMISSIONS_PATH}?${queryString}`
-        : SHOW_SUBMISSIONS_PATH
-      router.push(`/auth?returnTo=${encodeURIComponent(returnTo)}`)
-    }
-  }, [authLoading, isAuthenticated, queryString, router])
 
   const handleDialogClose = (open: boolean) => {
     if (open) return
@@ -444,11 +436,11 @@ export function ShowSubmissionsConsole() {
     )
   }
 
-  if (authLoading) {
+  if (gate === 'loading') {
     return <ShowSubmissionsLoading />
   }
 
-  if (!isAuthenticated) {
+  if (gate === 'blank') {
     return null
   }
 

@@ -18,6 +18,7 @@ import {
   queryKeys,
   createInvalidateQueries,
   refreshViewerTierQueries,
+  releaseExpiredSessionLatch,
   resetViewerTierQueries,
 } from '@/lib/queryClient'
 import { authLogger } from '@/lib/utils/authLogger'
@@ -317,6 +318,8 @@ export const refetchFailedProfileOnly = (query: {
   Date.now() - query.state.errorUpdatedAt > PROFILE_ERROR_REFETCH_FLOOR_MS
 
 export const useProfile = () => {
+  const queryClient = useQueryClient()
+
   return useQuery({
     queryKey: queryKeys.auth.profile,
     queryFn: async (): Promise<UserProfile> => {
@@ -332,6 +335,13 @@ export const useProfile = () => {
 
       if (response.success && response.user) {
         authLogger.profileFetch(true, response.user.id, response.request_id)
+        // A payload naming a viewer means a session is live in this tab, which
+        // is what re-arms the expiry re-mask. It hangs off the QUERY rather
+        // than the session-entry mutations because not every way into a
+        // session runs one here: a viewer who signs in on another tab reaches
+        // this state through the focus refetch below, and a latch still held
+        // then would let the next expiry keep painting their data.
+        releaseExpiredSessionLatch(queryClient)
       } else {
         authLogger.profileFetch(false, undefined, response.request_id)
       }

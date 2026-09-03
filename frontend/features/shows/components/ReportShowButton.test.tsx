@@ -5,25 +5,27 @@ import { ReportShowButton } from './ReportShowButton'
 
 vi.mock('next/navigation', () => ({
   usePathname: () => '/shows/test-show',
+  useRouter: () => ({ push: mockPush, replace: vi.fn() }),
 }))
+const mockPush = vi.fn()
 
-// Return type widened so individual tests can override `user`/`isAuthenticated`
+// Return type widened so individual tests can override `user`/`authStatus`
 // without TS narrowing from the default-null literal.
 type MockAuthContextValue = {
   user: { id: string; is_admin: boolean } | null
-  isAuthenticated: boolean
-  isLoading: boolean
+  authStatus: 'pending' | 'anonymous' | 'authenticated'
+  isLoading?: boolean
   logout: () => void
 }
 const mockAuthContext = vi.fn<() => MockAuthContextValue>(() => ({
   user: null,
-  isAuthenticated: false,
-  isLoading: false,
+  authStatus: 'anonymous',
   logout: vi.fn(),
 }))
-vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => mockAuthContext(),
-}))
+vi.mock('@/lib/context/AuthContext', async () => {
+  const { deriveMockAuthSignals } = await import('@/test/authFixture')
+  return { useAuthContext: () => deriveMockAuthSignals(mockAuthContext()) }
+})
 
 type MockMyShowReportValue = {
   data: { report: { id: number; report_type: string } | null } | undefined
@@ -45,8 +47,12 @@ vi.mock('./ReportShowDialog', () => ({
 }))
 
 vi.mock('@/features/auth', () => ({
-  LoginPromptDialog: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="login-prompt">Login Prompt</div> : null,
+  LoginPromptDialog: ({ open, authHref }: { open: boolean; authHref?: string }) =>
+    open ? (
+      <div data-testid="login-prompt" data-auth-href={authHref}>
+        Login Prompt
+      </div>
+    ) : null,
 }))
 
 describe('ReportShowButton', () => {
@@ -54,8 +60,7 @@ describe('ReportShowButton', () => {
     vi.clearAllMocks()
     mockAuthContext.mockReturnValue({
       user: null,
-      isAuthenticated: false,
-      isLoading: false,
+      authStatus: 'anonymous',
       logout: vi.fn(),
     })
     mockMyShowReport.mockReturnValue({
@@ -77,6 +82,23 @@ describe('ReportShowButton', () => {
     expect(screen.getByTestId('login-prompt')).toBeInTheDocument()
   })
 
+  // The destination is resolved when the prompt opens, not during render: the
+  // dialog is mounted closed in server markup, where there is no location to
+  // read a query string from. The query string is what nine hand-rolled copies
+  // of this formula had already lost at four of them.
+  it('carries the whole current location into the prompt destination', async () => {
+    window.history.replaceState({}, '', '/shows/test-show?tab=bill')
+    const user = userEvent.setup()
+    render(<ReportShowButton showId={1} showTitle="Test Show" />)
+
+    await user.click(screen.getByRole('button', { name: /Report Issue/ }))
+    expect(screen.getByTestId('login-prompt')).toHaveAttribute(
+      'data-auth-href',
+      '/auth?returnTo=%2Fshows%2Ftest-show%3Ftab%3Dbill'
+    )
+    window.history.replaceState({}, '', '/')
+  })
+
   it('does not open report dialog when unauthenticated', async () => {
     const user = userEvent.setup()
     render(<ReportShowButton showId={1} showTitle="Test Show" />)
@@ -88,8 +110,7 @@ describe('ReportShowButton', () => {
   it('renders "Report Issue" button for authenticated user who has not reported', () => {
     mockAuthContext.mockReturnValue({
       user: { id: '1', is_admin: false },
-      isAuthenticated: true,
-      isLoading: false,
+      authStatus: 'authenticated',
       logout: vi.fn(),
     })
     render(<ReportShowButton showId={1} showTitle="Test Show" />)
@@ -99,8 +120,7 @@ describe('ReportShowButton', () => {
   it('opens report dialog when authenticated user clicks report', async () => {
     mockAuthContext.mockReturnValue({
       user: { id: '1', is_admin: false },
-      isAuthenticated: true,
-      isLoading: false,
+      authStatus: 'authenticated',
       logout: vi.fn(),
     })
     const user = userEvent.setup()
@@ -113,8 +133,7 @@ describe('ReportShowButton', () => {
   it('shows "Reported" button when user has already reported', () => {
     mockAuthContext.mockReturnValue({
       user: { id: '1', is_admin: false },
-      isAuthenticated: true,
-      isLoading: false,
+      authStatus: 'authenticated',
       logout: vi.fn(),
     })
     mockMyShowReport.mockReturnValue({
@@ -131,8 +150,7 @@ describe('ReportShowButton', () => {
   it('disables button while loading report status', () => {
     mockAuthContext.mockReturnValue({
       user: { id: '1', is_admin: false },
-      isAuthenticated: true,
-      isLoading: false,
+      authStatus: 'authenticated',
       logout: vi.fn(),
     })
     mockMyShowReport.mockReturnValue({
@@ -152,8 +170,7 @@ describe('ReportShowButton', () => {
   it('does not flash "Reported" when query is loading with undefined data', () => {
     mockAuthContext.mockReturnValue({
       user: { id: '1', is_admin: false },
-      isAuthenticated: true,
-      isLoading: false,
+      authStatus: 'authenticated',
       logout: vi.fn(),
     })
     mockMyShowReport.mockReturnValue({
@@ -166,6 +183,29 @@ describe('ReportShowButton', () => {
     expect(screen.getByRole('button', { name: /Report Issue/ })).toBeDisabled()
   })
 
+  // The sign-in prompt is a claim about the viewer, and `!isAuthenticated`
+  // reads true both for a viewer with no session and for one whose profile has
+  // not arrived. The unsettled window gets neither dialog and no redirect.
+  it('offers neither dialog while auth is unsettled', async () => {
+    mockAuthContext.mockReturnValue({
+      // TERMINAL pending: `isLoading` false while the status is still
+      // unsettled, which is the window an `isLoading` gate cannot see.
+      user: null,
+      authStatus: 'pending',
+      isLoading: false,
+      logout: vi.fn(),
+    })
+    const user = userEvent.setup()
+    render(<ReportShowButton showId={1} showTitle="Test Show" />)
+
+    const button = screen.getByRole('button', { name: /Report Issue/ })
+    expect(button).toBeDisabled()
+    await user.click(button)
+    expect(screen.queryByTestId('login-prompt')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('report-dialog')).not.toBeInTheDocument()
+    expect(mockPush).not.toHaveBeenCalled()
+  })
+
   // The bracket variant is the provenance footer's dense [Report issue]
   // affordance; its behaviour must match the Button variant's, only the
   // rendering differs.
@@ -174,8 +214,7 @@ describe('ReportShowButton', () => {
       const user = userEvent.setup()
       mockAuthContext.mockReturnValue({
         user: { id: '1', is_admin: false },
-        isAuthenticated: true,
-        isLoading: false,
+        authStatus: 'authenticated',
         logout: vi.fn(),
       })
       render(
@@ -201,8 +240,7 @@ describe('ReportShowButton', () => {
     it('renders a disabled [Reported] bracket after reporting', () => {
       mockAuthContext.mockReturnValue({
         user: { id: '1', is_admin: false },
-        isAuthenticated: true,
-        isLoading: false,
+        authStatus: 'authenticated',
         logout: vi.fn(),
       })
       mockMyShowReport.mockReturnValue({

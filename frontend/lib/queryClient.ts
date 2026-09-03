@@ -202,6 +202,101 @@ function profileAlreadyKnowsAnonymous(
   return data?.success === false
 }
 
+// Does the profile cache still hold a payload that NAMES a signed-in viewer?
+//
+// This is what separates "a session ended" from "an anonymous viewer's request
+// was refused". TanStack retains the last successful `data` when a refetch
+// errors, so after a session dies the signed-in payload is still here, beside
+// the 401 that killed it. An anonymous viewer's cache holds the `{ success:
+// false }` sentinel instead, or nothing at all, and their 401s must not spend
+// a reset on caches that already hold anonymous answers.
+function profileNamesAViewer(client: QueryClient | undefined): boolean {
+  if (!client) return false
+  const data = client.getQueryData(queryKeys.auth.profile) as
+    | { success?: boolean; user?: unknown }
+    | undefined
+  return data?.success === true && data.user != null
+}
+
+// One viewer-tier reset per expiry episode, per client.
+//
+// Keyed by the client rather than held as a module boolean so its lifetime is
+// the lifetime of the thing it guards. `dropExpiredSessionCaches` is only ever
+// handed the browser singleton today, so a module flag would behave the same;
+// the WeakSet is what keeps that true if a second client is ever passed one.
+//
+// Released by `releaseExpiredSessionLatch`, which is called from the profile
+// query's own success path. It cannot hang off a session-entry mutation alone:
+// a viewer who signs in on another tab re-enters a session here through
+// `useProfile`'s focus refetch, with no mutation and no cache-refresh call in
+// this tab, and a latch still held there means the NEXT expiry re-masks
+// nothing.
+const viewerTierResetForExpiredSession = new WeakSet<QueryClient>()
+
+/**
+ * Re-arm the expiry reset. Called whenever the profile query resolves to a
+ * payload that names a viewer, which is the one event that means "a session is
+ * live here now" no matter which path established it.
+ */
+export function releaseExpiredSessionLatch(queryClient: QueryClient) {
+  viewerTierResetForExpiredSession.delete(queryClient)
+}
+
+/**
+ * Session expiry has no logout, so this is the only path that takes the
+ * previous viewer's privileged payloads off the screen: a 401 on the profile
+ * query or on any authed request means the session behind the cached answers
+ * is gone, and `resetViewerTierQueries` re-masks them the way logout does.
+ *
+ * The latch is not an optimization. The reset pushes every mounted observer of
+ * those families into a pending state, so each refetches with the same dead
+ * cookie and 401s again, back into this handler; unlatched, each of those
+ * errors would reset the families that produced it and the cycle has no fixed
+ * point. Latched, an expiry costs exactly one reset and one refetch per
+ * mounted family.
+ *
+ * The profile query is deliberately not reset here. Its own error IS the
+ * settle: `AuthContext` reads a definitive 401 as 'anonymous' ahead of any
+ * retained payload, and the invalidation `recoverFromSessionExpiry` runs is
+ * what asks the question again.
+ */
+function dropExpiredSessionCaches(client: QueryClient) {
+  if (viewerTierResetForExpiredSession.has(client)) return
+  if (!profileNamesAViewer(client)) return
+  viewerTierResetForExpiredSession.add(client)
+  void resetViewerTierQueries(client)
+}
+
+/**
+ * The one recovery a definitive 401 triggers, shared by the query cache and
+ * the mutation cache: a write refused for a dead session says exactly what a
+ * read's 401 says.
+ *
+ * `erroredQueryKey` is the key of the query that failed, when a query is what
+ * failed. The profile query is excluded from the INVALIDATION only: asking it
+ * again in reply to its own answer is the cascade this handler exists to
+ * avoid, while the reset above is if anything more warranted there.
+ */
+function recoverFromSessionExpiry(erroredQueryKey?: readonly unknown[]) {
+  const client = browserQueryClient
+  if (!client) return
+
+  dropExpiredSessionCaches(client)
+
+  const erroredOnProfile =
+    erroredQueryKey?.[0] === 'auth' && erroredQueryKey?.[1] === 'profile'
+  if (erroredOnProfile) return
+
+  // Skip the invalidation if the profile cache already encodes the "logged
+  // out" answer, either as an error from a prior 401 or as the
+  // `{ success: false }` payload seeded by the SSR pre-hydration. Invalidating
+  // in that case turns the SSR-seeded cache into a wasted client refetch that
+  // races with the very auth-gated buttons the seed was meant to make safe.
+  if (profileAlreadyKnowsAnonymous(client)) return
+
+  client.invalidateQueries({ queryKey: queryKeys.auth.profile })
+}
+
 // Function to create query client (for use in provider)
 function makeQueryClient() {
   // Create caches with global error handlers
@@ -209,39 +304,20 @@ function makeQueryClient() {
     onError: (error, query) => {
       reportExhaustedRateLimit(error, query)
 
-      // When a session expires, invalidate the profile query to update auth state.
-      // We intentionally DON'T call queryClient.clear() here — clearing causes all
-      // active queries to refetch, each getting 401, each triggering this handler
-      // again, creating an infinite cascade of clears and refetches.
+      // `queryClient.clear()` is deliberately NOT part of the recovery below:
+      // clearing makes every active query refetch, each getting 401, each
+      // arriving back here, which is an unbounded cascade of clears and
+      // refetches.
       if (isSessionExpiredError(error)) {
-        if (query.queryKey[0] !== 'auth' || query.queryKey[1] !== 'profile') {
-          // Skip the invalidation if the profile cache already encodes
-          // the "logged out" answer — either as an error from a prior
-          // 401, or as the `{ success: false }` payload seeded by the
-          // SSR pre-hydration. Invalidating in that case turns the
-          // SSR-seeded cache into a wasted client refetch that races
-          // with the very auth-gated buttons the seed was meant to
-          // make safe.
-          if (!profileAlreadyKnowsAnonymous(browserQueryClient)) {
-            browserQueryClient?.invalidateQueries({
-              queryKey: queryKeys.auth.profile,
-            })
-          }
-        }
+        recoverFromSessionExpiry(query.queryKey)
       }
     },
   })
 
   const mutationCache = new MutationCache({
     onError: error => {
-      // When a session expires during a mutation, invalidate profile to update
-      // auth state. Same rationale as above — don't clear the entire cache.
       if (isSessionExpiredError(error)) {
-        if (!profileAlreadyKnowsAnonymous(browserQueryClient)) {
-          browserQueryClient?.invalidateQueries({
-            queryKey: queryKeys.auth.profile,
-          })
-        }
+        recoverFromSessionExpiry()
       }
     },
   })

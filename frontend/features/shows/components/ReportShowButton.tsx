@@ -1,12 +1,12 @@
 'use client'
 
 import { useState } from 'react'
-import { usePathname } from 'next/navigation'
 import { Flag, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { BracketLink } from '@/components/shared/BracketLink'
 import { useMyShowReport } from '../hooks/useShowReports'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { useAuthGatedAction } from '@/lib/hooks/common/useAuthGatedAction'
 import { ReportShowDialog } from './ReportShowDialog'
 import { LoginPromptDialog } from '@/features/auth'
 
@@ -31,13 +31,19 @@ export function ReportShowButton({
   size = 'sm',
   className,
 }: ReportShowButtonProps) {
-  const pathname = usePathname()
-  const { isAuthenticated } = useAuthContext()
+  const { isAuthenticated, authStatus } = useAuthContext()
   const { data: myReport, isLoading } = useMyShowReport(
     isAuthenticated ? showId : null
   )
   const [isReportDialogOpen, setIsReportDialogOpen] = useState(false)
   const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false)
+  // Captured when the prompt opens rather than derived during render: the
+  // canonical destination reads `window.location.search`, which a render can
+  // be produced without. Null until the first anonymous click, which is also
+  // what holds the dialog out of the tree below.
+  const [loginPromptAuthHref, setLoginPromptAuthHref] = useState<string | null>(
+    null
+  )
 
   // PSY-476: `myReport?.report !== null` is true when the query is still
   // loading (`myReport` undefined → `undefined !== null` → true), which
@@ -46,13 +52,18 @@ export function ReportShowButton({
   // mean "no existing report".
   const hasReported = !isLoading && myReport?.report != null
 
-  const handleClick = () => {
-    if (isAuthenticated) {
-      setIsReportDialogOpen(true)
-    } else {
+  // The sign-in affordance here is a dialog rather than a navigation, so the
+  // hook hands over the href instead of pushing it. The pending bail is the
+  // part that matters: `!isAuthenticated` reads true for a signed-in viewer
+  // whose profile has not arrived, and offering them a sign-in dialog is the
+  // same misread the redirect makes elsewhere.
+  const { onClick: handleClick } = useAuthGatedAction(
+    () => setIsReportDialogOpen(true),
+    authHref => {
+      setLoginPromptAuthHref(authHref)
       setIsLoginPromptOpen(true)
     }
-  }
+  )
 
   // If user has already reported, show a disabled "Reported" affordance
   if (isAuthenticated && hasReported) {
@@ -83,7 +94,7 @@ export function ReportShowButton({
         <BracketLink
           label="Report issue"
           onClick={handleClick}
-          disabled={isLoading}
+          disabled={isLoading || authStatus === 'pending'}
           title="Report an issue with this show"
           className={className}
         />
@@ -92,7 +103,7 @@ export function ReportShowButton({
           variant={variant}
           size={size}
           onClick={handleClick}
-          disabled={isLoading}
+          disabled={isLoading || authStatus === 'pending'}
           title="Report an issue with this show"
         >
           <Flag className="h-4 w-4 mr-2" />
@@ -109,13 +120,13 @@ export function ReportShowButton({
         />
       )}
 
-      {!isAuthenticated && (
+      {!isAuthenticated && loginPromptAuthHref && (
         <LoginPromptDialog
           open={isLoginPromptOpen}
           onOpenChange={setIsLoginPromptOpen}
           title="Sign in to report"
           description="You need to be signed in to report an issue with this show. This helps us prevent abuse and keep our community safe."
-          returnTo={pathname}
+          authHref={loginPromptAuthHref}
         />
       )}
     </>

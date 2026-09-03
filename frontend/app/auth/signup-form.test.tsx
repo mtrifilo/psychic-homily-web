@@ -48,15 +48,18 @@ vi.mock('@/features/auth', () => ({
 
 // Mutable so a test can flip the viewer to authenticated mid-signup, which is
 // what the real `useRegister` does when it awaits a profile refetch.
-let mockAuthState = {
+let mockAuthState: {
+  setUser: ReturnType<typeof vi.fn>
+  authStatus: 'pending' | 'anonymous' | 'authenticated'
+} = {
   setUser: vi.fn(),
-  isAuthenticated: false,
-  isLoading: false,
+  authStatus: 'anonymous',
 }
 
-vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => mockAuthState,
-}))
+vi.mock('@/lib/context/AuthContext', async () => {
+  const { deriveMockAuthSignals } = await import('@/test/authFixture')
+  return { useAuthContext: () => deriveMockAuthSignals(mockAuthState) }
+})
 
 vi.mock('@/app/auth/_components/passkey-login', () => ({
   PasskeyLoginButton: (): null => null,
@@ -90,8 +93,7 @@ describe('SignupForm deferred validation', () => {
     mockRegisterMutate.mockReset()
     mockAuthState = {
       setUser: vi.fn(),
-      isAuthenticated: false,
-      isLoading: false,
+      authStatus: 'anonymous',
     }
   })
 
@@ -318,8 +320,7 @@ describe('SignupForm deferred validation', () => {
       // The session now exists, but the register callback has not run yet.
       mockAuthState = {
         setUser: vi.fn(),
-        isAuthenticated: true,
-        isLoading: false,
+        authStatus: 'authenticated',
       }
       act(() => {
         rerender()
@@ -339,8 +340,7 @@ describe('SignupForm deferred validation', () => {
       })
       mockAuthState = {
         setUser: vi.fn(),
-        isAuthenticated: true,
-        isLoading: false,
+        authStatus: 'authenticated',
       }
       act(() => {
         rerender()

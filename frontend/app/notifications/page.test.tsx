@@ -14,20 +14,25 @@ const mockUseMarkRead = vi.fn(() => ({
   isError: false,
   error: null as Error | null,
 }))
-const mockAuthContext = vi.fn(() => ({
-  isAuthenticated: true,
-  isLoading: false,
-  user: { id: 1 },
-}))
+const mockAuthContext = vi.fn(
+  (): {
+    authStatus: 'pending' | 'anonymous' | 'authenticated'
+    user: { id: number }
+    isLoading?: boolean
+  } => ({ authStatus: 'authenticated', user: { id: 1 } })
+)
 const mockRedirect = vi.fn()
 
-vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => mockAuthContext(),
-}))
+vi.mock('@/lib/context/AuthContext', async () => {
+  const { deriveMockAuthSignals } = await import('@/test/authFixture')
+  return { useAuthContext: () => deriveMockAuthSignals(mockAuthContext()) }
+})
 
 vi.mock('next/navigation', async importOriginal => ({
   ...(await importOriginal<object>()),
   redirect: (...args: unknown[]) => mockRedirect(...args),
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  usePathname: () => '/notifications',
 }))
 
 vi.mock('@/features/notifications/hooks', async importOriginal => ({
@@ -74,8 +79,7 @@ describe('NotificationInboxPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockAuthContext.mockReturnValue({
-      isAuthenticated: true,
-      isLoading: false,
+      authStatus: 'authenticated',
       user: { id: 1 },
     })
   })
@@ -217,10 +221,9 @@ describe('NotificationInboxPage', () => {
     ).toBeInTheDocument()
   })
 
-  it('redirects to /auth when not authenticated', () => {
+  it('redirects a settled-anonymous viewer to /auth with a returnTo', () => {
     mockAuthContext.mockReturnValue({
-      isAuthenticated: false,
-      isLoading: false,
+      authStatus: 'anonymous',
       user: null as never,
     })
     mockUseUserNotifications.mockReturnValue({
@@ -230,6 +233,31 @@ describe('NotificationInboxPage', () => {
       error: null,
     })
     render(<NotificationInboxPage />)
-    expect(mockRedirect).toHaveBeenCalledWith('/auth')
+    expect(mockRedirect).toHaveBeenCalledWith(
+      '/auth?returnTo=%2Fnotifications'
+    )
+  })
+
+  it('does not redirect while auth is unsettled', () => {
+    // 'pending' is a signed-in viewer whose profile has not arrived as often
+    // as it is anyone else, and this guard cannot tell them apart.
+    mockAuthContext.mockReturnValue({
+      // TERMINAL pending: `isLoading` false while the status is still
+      // unsettled, which is the window an `isLoading` gate cannot see.
+      authStatus: 'pending',
+      user: null as never,
+      isLoading: false,
+    })
+    mockUseUserNotifications.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: false,
+      error: null,
+    })
+    render(<NotificationInboxPage />)
+    expect(mockRedirect).not.toHaveBeenCalled()
+    expect(
+      screen.queryByRole('heading', { name: /Notifications/ })
+    ).not.toBeInTheDocument()
   })
 })

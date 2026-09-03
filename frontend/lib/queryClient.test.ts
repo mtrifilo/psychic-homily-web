@@ -467,4 +467,209 @@ describe('queryClient module', () => {
       )
     })
   })
+
+  // PSY-1946. Session expiry has no logout, so a 401 is the only signal that
+  // the privileged payloads on screen belong to a session that has ended.
+  describe('session expiry re-masks viewer-tier caches', () => {
+    const expired = () =>
+      Object.assign(new Error('Unauthorized'), { status: 401 })
+
+    // The state a viewer is in when their session dies mid-view: the profile
+    // query still holds the payload that named them, because TanStack retains
+    // the last success when a refetch errors.
+    function seedSignedInProfile(client: {
+      setQueryData: (key: readonly unknown[], data: unknown) => void
+    }) {
+      client.setQueryData(['auth', 'profile'], {
+        success: true,
+        user: { id: 6, email: 'alice@example.com' },
+      })
+    }
+
+    // The families a reset touched, in call order. Written once because the
+    // cast and the key-shape assumption are the same in every assertion below.
+    function resetFamilies(spy: { mock: { calls: unknown[][] } }): unknown[] {
+      return spy.mock.calls.map(
+        ([options]) => (options as { queryKey: unknown[] }).queryKey[0]
+      )
+    }
+
+    async function fail401(
+      client: {
+        fetchQuery: (options: {
+          queryKey: readonly unknown[]
+          queryFn: () => Promise<unknown>
+          retry: boolean
+          staleTime: number
+        }) => Promise<unknown>
+      },
+      queryKey: readonly unknown[]
+    ) {
+      await client
+        .fetchQuery({
+          queryKey,
+          queryFn: () => Promise.reject(expired()),
+          retry: false,
+          // `fetchQuery` honours the 15-minute default, so a key that already
+          // carries data resolves from cache and never reaches the handler.
+          // The profile key is exactly that key here.
+          staleTime: 0,
+        })
+        .catch(() => undefined)
+    }
+
+    it('resets the viewer-tier families once for a burst of 401s', async () => {
+      const { getQueryClient } = await import('./queryClient')
+      const client = getQueryClient()
+      seedSignedInProfile(client)
+
+      const resetQueries = vi.spyOn(client, 'resetQueries')
+
+      // An entity page's parallel reads all 401 together when a session ends.
+      await fail401(client, ['revisions', 'entity', 'venues', 1])
+      await fail401(client, ['comments', 'entity', 'venues', 1])
+      await fail401(client, ['collections', 'entity', 'venues', 1])
+
+      const families = resetFamilies(resetQueries)
+      expect(families).toContain('revisions')
+      expect(families).toContain('comments')
+      expect(families).toContain('collections')
+
+      // One reset PER FAMILY, from one episode. Unlatched, the refetch each
+      // reset starts would 401 with the same dead cookie and reset again.
+      expect(families.filter(f => f === 'revisions')).toHaveLength(1)
+    })
+
+    it('does not reset again when the reset\'s own refetch 401s', async () => {
+      const { getQueryClient } = await import('./queryClient')
+      const client = getQueryClient()
+      seedSignedInProfile(client)
+
+      await fail401(client, ['revisions', 'entity', 'venues', 1])
+      const resetQueries = vi.spyOn(client, 'resetQueries')
+
+      // The refetch the reset above started, answered the same way.
+      await fail401(client, ['revisions', 'entity', 'venues', 1])
+
+      expect(resetQueries).not.toHaveBeenCalled()
+    })
+
+    it('spends no reset on an anonymous viewer whose request was refused', async () => {
+      const { getQueryClient } = await import('./queryClient')
+      const client = getQueryClient()
+      // The sentinel the SSR prefetch seeds for a viewer with no session.
+      client.setQueryData(['auth', 'profile'], {
+        success: false,
+        error_code: 'TOKEN_MISSING',
+      })
+      const resetQueries = vi.spyOn(client, 'resetQueries')
+
+      await fail401(client, ['revisions', 'entity', 'venues', 1])
+
+      expect(resetQueries).not.toHaveBeenCalled()
+    })
+
+    // The re-arm hangs off the profile query resolving to a named viewer, not
+    // off a session-entry mutation. A viewer who signs in on another tab
+    // re-enters a session here through the focus refetch, with no mutation in
+    // this tab; a latch still held then would let the next expiry re-mask
+    // nothing.
+    it('re-arms when a profile resolves to a named viewer again', async () => {
+      const { getQueryClient, releaseExpiredSessionLatch } = await import(
+        './queryClient'
+      )
+      const client = getQueryClient()
+      seedSignedInProfile(client)
+
+      await fail401(client, ['revisions', 'entity', 'venues', 1])
+
+      releaseExpiredSessionLatch(client)
+      seedSignedInProfile(client)
+      const resetQueries = vi.spyOn(client, 'resetQueries')
+
+      await fail401(client, ['revisions', 'entity', 'venues', 1])
+
+      expect(resetQueries).toHaveBeenCalled()
+    })
+
+    // The AC PSY-1946 states: expiry mid-view, on a mounted observer. A spy on
+    // `resetQueries` proves the call, not the consequence, and the consequence
+    // is the whole point: `clear()` was rejected for this job precisely because
+    // it leaves a mounted observer painting what it last saw.
+    it('takes the payload off a mounted observer, not just out of the cache', async () => {
+      const { getQueryClient } = await import('./queryClient')
+      const client = getQueryClient()
+      seedSignedInProfile(client)
+
+      const revisionsKey = ['revisions', 'entity', 'venues', 1]
+      client.setQueryData(revisionsKey, { address: '1502 E 6th St' })
+
+      const observer = new QueryObserver(client, {
+        queryKey: revisionsKey,
+        // The privileged payload is already cached, so this observer would
+        // keep painting it forever without the reset.
+        queryFn: () => Promise.resolve({ address: '(hidden)' }),
+        staleTime: Infinity,
+      })
+      const seen: unknown[] = []
+      const unsubscribe = observer.subscribe(result => seen.push(result.data))
+      expect(observer.getCurrentResult().data).toEqual({
+        address: '1502 E 6th St',
+      })
+
+      await fail401(client, ['comments', 'entity', 'venues', 1])
+      await vi.waitFor(() =>
+        expect(observer.getCurrentResult().data).toEqual({
+          address: '(hidden)',
+        })
+      )
+
+      // It left the screen rather than being swapped in place: the observer was
+      // notified with no data before the anonymous payload arrived.
+      expect(seen).toContain(undefined)
+      unsubscribe()
+    })
+
+    // A write refused for a dead session says what a read's 401 says, and the
+    // mutation cache is a separate handler that has to agree.
+    it('recovers from an expiry that surfaces through a mutation', async () => {
+      const { getQueryClient } = await import('./queryClient')
+      const client = getQueryClient()
+      seedSignedInProfile(client)
+      const resetQueries = vi.spyOn(client, 'resetQueries')
+
+      await client
+        .getMutationCache()
+        .build(client, { mutationFn: () => Promise.reject(expired()) })
+        .execute(undefined)
+        .catch(() => undefined)
+
+      expect(resetFamilies(resetQueries)).toContain('revisions')
+    })
+
+    it('resets on the profile query own 401, which is the settle', async () => {
+      const { getQueryClient } = await import('./queryClient')
+      const client = getQueryClient()
+      seedSignedInProfile(client)
+      const resetQueries = vi.spyOn(client, 'resetQueries')
+
+      await fail401(client, ['auth', 'profile'])
+
+      expect(resetFamilies(resetQueries)).toContain('revisions')
+    })
+
+    it('leaves the profile query itself out of the reset', async () => {
+      const { getQueryClient } = await import('./queryClient')
+      const client = getQueryClient()
+      seedSignedInProfile(client)
+      const resetQueries = vi.spyOn(client, 'resetQueries')
+
+      await fail401(client, ['revisions', 'entity', 'venues', 1])
+
+      // AuthContext reads the profile's definitive 401 as 'anonymous' ahead of
+      // any retained payload, so its error IS the settle; resetting it would
+      // discard the answer.
+      expect(resetFamilies(resetQueries)).not.toContain('auth')
+    })
+  })
 })

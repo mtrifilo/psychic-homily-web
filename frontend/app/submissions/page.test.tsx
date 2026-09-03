@@ -7,12 +7,15 @@ const mockUseMyPendingEdits = vi.fn()
 const mockUseCancelPendingEdit = vi.fn()
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: mockPush }),
+  useRouter: () => ({ push: mockPush, replace: vi.fn() }),
+  usePathname: () => '/submissions',
+  redirect: vi.fn(),
 }))
 
-vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => mockUseAuthContext(),
-}))
+vi.mock('@/lib/context/AuthContext', async () => {
+  const { deriveMockAuthSignals } = await import('@/test/authFixture')
+  return { useAuthContext: () => deriveMockAuthSignals(mockUseAuthContext()) }
+})
 
 // Mock the contributions feature module — the page consumes
 // `<MyPendingEditsList />`, which in turn consumes the hooks below. We mock
@@ -38,10 +41,9 @@ describe('SubmissionsPage (PSY-600)', () => {
     })
   })
 
-  it('redirects unauthenticated users to /auth with the correct returnTo', async () => {
+  it('redirects settled-anonymous users to /auth with the correct returnTo', async () => {
     mockUseAuthContext.mockReturnValue({
-      isAuthenticated: false,
-      isLoading: false,
+      authStatus: 'anonymous',
       user: null,
     })
     mockUseMyPendingEdits.mockReturnValue({
@@ -57,10 +59,33 @@ describe('SubmissionsPage (PSY-600)', () => {
     })
   })
 
+  it('does not redirect while auth is unsettled', async () => {
+    // 'pending' is a signed-in viewer whose profile has not arrived as often
+    // as it is anyone else, and this guard cannot tell them apart.
+    mockUseAuthContext.mockReturnValue({
+      // TERMINAL pending: `isLoading` false while the status is still
+      // unsettled, which is the window an `isLoading` gate cannot see.
+      authStatus: 'pending',
+      user: null,
+      isLoading: false,
+    })
+    mockUseMyPendingEdits.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: false,
+    })
+
+    renderWithProviders(<SubmissionsPage />)
+
+    await waitFor(() => {
+      expect(screen.queryByText('My Submissions')).not.toBeInTheDocument()
+    })
+    expect(mockPush).not.toHaveBeenCalled()
+  })
+
   it('renders the empty state when the user has no pending edits', async () => {
     mockUseAuthContext.mockReturnValue({
-      isAuthenticated: true,
-      isLoading: false,
+      authStatus: 'authenticated',
       user: { id: 1, email: 'alice@example.com' },
     })
     mockUseMyPendingEdits.mockReturnValue({
@@ -80,8 +105,7 @@ describe('SubmissionsPage (PSY-600)', () => {
 
   it('renders rows for each pending edit with status, entity link, and rejection reason', async () => {
     mockUseAuthContext.mockReturnValue({
-      isAuthenticated: true,
-      isLoading: false,
+      authStatus: 'authenticated',
       user: { id: 1, email: 'alice@example.com' },
     })
     mockUseMyPendingEdits.mockReturnValue({
@@ -158,8 +182,7 @@ describe('SubmissionsPage (PSY-600)', () => {
 
   it('renders an error state when the pending-edits query fails', async () => {
     mockUseAuthContext.mockReturnValue({
-      isAuthenticated: true,
-      isLoading: false,
+      authStatus: 'authenticated',
       user: { id: 1, email: 'alice@example.com' },
     })
     mockUseMyPendingEdits.mockReturnValue({

@@ -176,7 +176,7 @@ function AdminPageContent() {
   // into useState + a sync effect) keeps the two from desyncing and avoids the
   // react-hooks/set-state-in-effect cascade.
   const activeTab: string = isValidTab(tabParam) ? tabParam : 'dashboard'
-  const { user, isLoading, isAuthenticated } = useAuthContext()
+  const { user } = useAuthContext()
   const isAdmin = !!user?.is_admin
   const router = useRouter()
 
@@ -187,16 +187,21 @@ function AdminPageContent() {
     router.replace(url, { scroll: false })
   }, [router])
 
+  // No identity gate here. `app/admin/layout.tsx` wraps every admin route in
+  // `AdminGuard`, which renders children only for a settled, signed-in admin,
+  // so this component cannot mount for anyone else. A second guard would be
+  // unreachable and free to disagree with the one that runs.
+  //
+  // The demotion stays as the layout's own belt: `AdminGuard` renders Access
+  // Denied for a non-admin, and this sends them home.
   useEffect(() => {
-    if (isLoading) return
-    if (!isAuthenticated) {
-      router.replace('/auth')
-    } else if (!isAdmin) {
+    if (!user) return
+    if (!isAdmin) {
       router.replace('/')
     }
-  }, [isLoading, isAuthenticated, isAdmin, router])
+  }, [user, isAdmin, router])
 
-  if (isLoading || !isAuthenticated || !isAdmin) {
+  if (!isAdmin) {
     return (
       <div className="flex min-h-[calc(100vh-64px)] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />

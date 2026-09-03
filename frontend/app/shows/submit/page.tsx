@@ -1,11 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState } from 'react'
 import Link from 'next/link'
 import * as Sentry from '@sentry/nextjs'
 import { Loader2, Music } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { useAuthRouteGuard } from '@/lib/hooks/common/useAuthRouteGuard'
 import { useSendVerificationEmail } from '@/features/auth'
 // Imported by module path, not through the `@/features/auth` barrel, so a suite
 // that mocks the barrel still runs the real countdown.
@@ -163,13 +163,13 @@ function EmailVerificationRequired() {
  *
  * Moved here from /submissions in PSY-600 to free up that path for the
  * contributor pending-edits surface. Behaviour preserved:
- *   - anonymous → redirect to login (returnTo back here)
+ *   - settled anonymous → redirect to login (returnTo back here)
  *   - authenticated but unverified email → "Verify email" gate
  *   - authenticated + verified (or admin) → form
  */
 export default function SubmitShowPage() {
-  const router = useRouter()
-  const { isAuthenticated, isLoading, user } = useAuthContext()
+  const { user } = useAuthContext()
+  const gate = useAuthRouteGuard()
 
   const [extractedData, setExtractedData] = useState<
     ExtractedShowData | undefined
@@ -184,13 +184,7 @@ export default function SubmitShowPage() {
     setExtractionVersion(v => v + 1)
   }
 
-  useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      router.push('/auth?returnTo=%2Fshows%2Fsubmit')
-    }
-  }, [isAuthenticated, isLoading, router])
-
-  if (isLoading) {
+  if (gate === 'loading') {
     return (
       <div className="flex min-h-[calc(100vh-64px)] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -198,10 +192,12 @@ export default function SubmitShowPage() {
     )
   }
 
-  if (!isAuthenticated) {
+  if (gate === 'blank') {
     return null
   }
 
+  // Layered on a settled identity: the verification gate asks what this viewer
+  // may do, which the guard above has to answer "who" for first.
   const canSubmit = user?.is_admin || user?.email_verified
 
   if (!canSubmit) {

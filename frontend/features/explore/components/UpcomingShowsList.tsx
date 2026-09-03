@@ -99,7 +99,7 @@ export function UpcomingShowsList({
   limit = 5,
   geoDefaultCity = null,
 }: UpcomingShowsListProps) {
-  const { isAuthenticated, isLoading: authLoading } = useAuthContext()
+  const { isAuthenticated, authStatus } = useAuthContext()
   const { data: profileData } = useProfile()
   const [, startTransition] = useTransition()
 
@@ -141,8 +141,7 @@ export function UpcomingShowsList({
   // so no client fetch here (enableClientFetch defaults false).
   const { appliedGeoDefault, notifyUserInteracted } = useGeoDefaultCity({
     cities,
-    isAuthenticated,
-    authLoading,
+    authStatus,
     favoriteCities,
     hasExistingSelection: citiesState !== null,
     geoFromServer: geoDefaultCity,

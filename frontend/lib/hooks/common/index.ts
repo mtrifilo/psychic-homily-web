@@ -48,6 +48,13 @@ export {
   type EntitySearchResults,
 } from './useEntitySearch'
 
+// NOT exported here on purpose: `useAuthGatedAction` and `useAuthRouteGuard`.
+// Their consumers are auth-gated leaf controls and route guards, and this
+// barrel re-exports the react-query-backed follow / revisions / search hooks
+// above, so importing either through it would pull that graph into every route
+// they reach. Same reasoning as the note below. Import the hook files
+// directly.
+
 // NOT exported here on purpose: `usePreAttachImageFailureRef`. Its callers are
 // leaf image components, and this barrel also re-exports the react-query-backed
 // follow / revisions / search hooks above, so importing it would pull that
