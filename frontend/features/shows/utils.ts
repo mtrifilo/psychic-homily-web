@@ -218,10 +218,10 @@ export function billHometown(artist: PlaceableArtist): string | null {
  * An act's home location as a show surface states it: `based in Issaquah, WA`.
  * Null when there is no location to state.
  *
- * THE one spelling of that prefix. It is for a surface that prints an act's
- * location beside a VENUE's city, where a bare place name after the act's name
- * reads as where the show is; a surface with no venue beside it does not need
- * the words and does not call this.
+ * For a surface that prints one act's location right after its NAME, where a
+ * bare place name reads as where the show is. Prose that already says what it
+ * is describing ("bands based in Phoenix") writes its own sentence and does
+ * not need this.
  *
  * Takes the formatted location rather than the artist so the caller keeps its
  * own composition.

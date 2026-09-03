@@ -5,9 +5,9 @@ import { showIsArchived } from '@/lib/utils/showTiming'
 import { formatPrice } from '@/lib/utils/formatters'
 import { statedShowPrices } from '@/lib/utils/showPrice'
 import {
+  namesTicketHost,
   repairTicketUrl,
   ticketOffer,
-  ticketVendorLabel,
 } from '@/lib/tickets/ticketVendors'
 import type { TicketOffer } from '@/lib/tickets/ticketVendors'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
@@ -66,9 +66,7 @@ function ticketHref(
     return null
   }
   const repaired = repairTicketUrl(raw)
-  // `ticketVendorLabel` is null exactly when the value names no host, which is
-  // the same question asked once instead of twice.
-  return repaired && ticketVendorLabel(repaired) ? repaired : null
+  return repaired && namesTicketHost(repaired) ? repaired : null
 }
 
 /**
@@ -149,6 +147,8 @@ function ticketPriceSegments(show: ShowResponse): string[] {
  * The link is read through {@link storedTicketUrl} rather than
  * {@link ticketHref}, which refuses past shows by design — the question here
  * is what the show sold while it was upcoming, not what a reader can buy now.
+ * It does share `ticketHref`'s host test, because a value naming no host was
+ * never something a reader could buy.
  *
  * A LINK OUTRANKS A ZERO PRICE, deliberately: a free show with an RSVP or
  * guestlist link did have a reservation to close out, and `Free · NO LONGER
@@ -167,7 +167,10 @@ function ticketPriceSegments(show: ShowResponse): string[] {
  * `ON SALE`, and a line that never said anything has nothing to un-say.
  */
 function hasTicketCommerce(show: ShowResponse): boolean {
-  if (storedTicketUrl(show) || show.is_sold_out) return true
+  // The link counts only when it names a host, matching what `ticketHref`
+  // would have offered while the show was upcoming. A value that names none
+  // was never a sale, so there is nothing for the past register to close out.
+  if (namesTicketHost(storedTicketUrl(show)) || show.is_sold_out) return true
   // The same zero that {@link formatPrice} renders as "Free"; keep the two
   // in step if a price ever becomes something other than a plain number.
   return (show.price ?? 0) > 0 || (show.door_price ?? 0) > 0
@@ -242,11 +245,11 @@ function saysPastRegister(
  * the anchor renders, which names the vendor by being clickable, and absent
  * on every state that has nothing to offer.
  *
- * `offer` is a parameter so the row that renders the anchor can derive it
- * ONCE and hand it here: the name and the anchor are mutually exclusive. The
- * default re-derives from the same inputs for a caller that wants the line
- * alone, so it agrees by construction; a caller passing an offer built from a
- * DIFFERENT show or lifecycle would not, and nothing here checks that.
+ * `offer` is REQUIRED, and required rather than defaulted so the caller
+ * cannot end up with two of them: the vendor name here and the anchor beside
+ * it are mutually exclusive, and a second derivation would agree only by
+ * coincidence. It must be {@link showTicketOffer} of the same show and
+ * lifecycle; nothing here can check that.
  *
  * The age segment is a venue-less fallback: the venue module's facts line
  * owns the age fact, but a show with no venue row never mounts that module,
@@ -256,7 +259,7 @@ function saysPastRegister(
 export function ticketLineSegments(
   show: ShowResponse,
   lifecycle: ShowLifecycleState,
-  offer: TicketOffer | null = showTicketOffer(show, lifecycle)
+  offer: TicketOffer | null
 ): string[] {
   const timing = showTimingInput(show)
   const segments: string[] = []

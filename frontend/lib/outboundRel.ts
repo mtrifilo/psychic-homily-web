@@ -6,33 +6,33 @@
 const HYGIENE_TOKENS = ['noopener', 'noreferrer']
 
 /**
- * The `rel` for an outbound anchor: the hygiene tokens, plus `sponsored` when
- * the link is monetized and `ugc` when the destination is contributor-supplied
- * and nobody is paid for it.
+ * The `rel` for an outbound anchor: the hygiene tokens, plus the link-spam
+ * qualifiers Google defines.
  *
- * One owner for the rule as it applies to MONETIZED links, which is set by
- * Google's link-spam policy rather than by this codebase. Two call sites need
- * that and cannot share a component: `BracketLink` is a generic primitive that
- * must not learn what a ticket vendor is, and the festival page's ticket link
- * is an icon-and-text anchor matched to its neighbours rather than a bracket.
+ * One owner for the rule, which is set by Google's link-spam policy rather
+ * than by this codebase. `sponsored` is for a paid link; `ugc` is for a
+ * destination a contributor chose that earns the site nothing. Both are hints
+ * not to pass ranking credit, and both are ADDITIVE by construction:
+ * qualifying a link can never cost it its opener and referrer protection.
  *
- * NOT yet the owner for outbound `rel` site-wide. Roughly thirty anchors still
- * hardcode `rel="noopener noreferrer"` — including the "Official Website" link
- * directly above the festival ticket link, and the radio station/show links.
- * Those are contributor-submitted destinations that want `ugc` too; passing it
- * here is one anchor opting in, not the sweep.
+ * NOT yet the owner for outbound `rel` site-wide: many anchors still hardcode
+ * the hygiene pair, including the "Official Website" link directly above the
+ * festival ticket link. This function is where that sweep should land, not
+ * evidence that it happened.
  *
- * `ugc` is for a destination a contributor chose that earns the site nothing:
- * the free-admission ticket link is the one such anchor today, and it is the
- * only outbound ticket link that can render on a build with no partner ID, so
- * leaving it unqualified would concentrate every unpaid outbound ticket click
- * on an unreviewed, contributor-set field.
- *
- * Both tokens are ADDITIVE by construction: qualifying a link can never cost
- * it its opener and referrer protection. They are not mutually exclusive to
- * this function, though no caller sets both today.
+ * An OPTIONS object rather than positional flags. The qualifiers are
+ * same-typed and read as order-independent, so a transposed pair would
+ * produce a plausible-but-wrong `rel` with no type error.
  */
-export function outboundRel(sponsored = false, ugc = false): string {
+export interface OutboundRelOptions {
+  sponsored?: boolean
+  ugc?: boolean
+}
+
+export function outboundRel({
+  sponsored = false,
+  ugc = false,
+}: OutboundRelOptions = {}): string {
   return [
     ...HYGIENE_TOKENS,
     ...(sponsored ? ['sponsored'] : []),

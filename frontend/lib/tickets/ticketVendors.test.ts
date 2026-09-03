@@ -664,6 +664,22 @@ describe('ticketOffer', () => {
     })
   })
 
+  // AN IMPACT PARTNER ID IS PUBLIC: it rides in every tagged href the site
+  // renders and is inlined into the browser bundle. Accepting a stored tag
+  // that merely carries it would let any URL buy a `rel="sponsored"` anchor to
+  // an arbitrary host that pays us nothing.
+  it('refuses a stored tag carrying our own public partner id', () => {
+    for (const raw of [
+      'https://evil.example/anything?irmp=1234567',
+      'https://tix.example/x?irmp=1234567',
+      // Repeated parameter: which value the vendor reads is a guess, so the
+      // presence of ours in one segment settles nothing.
+      `${TICKETWEB}?irmp=1234567&irmp=9999999`,
+    ]) {
+      expect(ticketOffer(raw, { partnerIds: IMPACT }).linked).toBe(false)
+    }
+  })
+
   // A value naming no host has nothing to link and nothing to name.
   it('has neither a link nor a name for a value that names no host', () => {
     for (const raw of ['https://', 'https:///', 'https://javascript:alert(1)']) {

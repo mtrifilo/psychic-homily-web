@@ -144,8 +144,8 @@ function BillLabels({
  * "Modest Mouse [Epic] Location Unknown" states something the bill was not
  * asked to state.
  *
- * The `based in` prefix is {@link basedInPhrase}, shared with the listen
- * module so one act's home city is worded the same twice on one page. It is
+ * The `based in` prefix is {@link basedInPhrase}, so an act's home city is
+ * worded the same wherever it is printed after a name. It is
  * VISIBLE copy, unlike the screen-reader-only connective {@link BillLabels}
  * carries: beside a venue in another city a bare place name reads as where
  * the show is, and the words that fix that belong on the screen. Being

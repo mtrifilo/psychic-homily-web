@@ -50,7 +50,25 @@ vi.mock('@/components/shared', async importOriginal => ({
 }))
 
 import { ShowTicketRow } from './ShowTicketRow'
-import { ticketLineSegments } from './showTicketLine'
+import {
+  showTicketOffer,
+  ticketLineSegments as ticketLineSegmentsWithOffer,
+} from './showTicketLine'
+
+/**
+ * The line as the row renders it: the offer derived from the same show and
+ * lifecycle, which is the only pairing the production caller ever passes.
+ */
+function ticketLineSegments(
+  show: ShowResponse,
+  lifecycle: ShowLifecycleState
+): string[] {
+  return ticketLineSegmentsWithOffer(
+    show,
+    lifecycle,
+    showTicketOffer(show, lifecycle)
+  )
+}
 
 function makeShow(overrides: Partial<ShowResponse> = {}): ShowResponse {
   return {
@@ -352,6 +370,20 @@ describe('ticketLineSegments with a hostless ticket url', () => {
       expect(segments).toEqual(['8PM', '$25'])
     }
   )
+
+  // NO LONGER AVAILABLE is the past tense of ON SALE, so the two must agree
+  // about what counted as a sale. A priceless past show whose only commerce
+  // was a hostless url has nothing to un-say.
+  it.each(['https://', '/', 'javascript:alert(1)'])(
+    'has nothing to close out in the past register for %s',
+    ticket_url => {
+      const segments = ticketLineSegments(
+        makeShow({ ticket_url }),
+        'past'
+      )
+      expect(segments).not.toContain('NO LONGER AVAILABLE')
+    }
+  )
 })
 
 describe('ShowTicketRow', () => {
@@ -392,7 +424,7 @@ describe('ShowTicketRow', () => {
     expect(
       screen.queryByRole('link', { name: /Buy tickets/i })
     ).not.toBeInTheDocument()
-    expect(ticketLine()).toContain('tix.example')
+    expect(ticketLine()).toMatch(/(^|·\s)tix\.example($|\s)/)
   })
 
   // FREE ADMISSION IS THE EXEMPTION: an RSVP link on a show that states a
@@ -537,7 +569,7 @@ describe('ShowTicketRow', () => {
       expect(
         screen.queryByRole('link', { name: /Buy tickets/i })
       ).not.toBeInTheDocument()
-      expect(ticketLine()).toContain('tix.example')
+      expect(ticketLine()).toMatch(/(^|·\s)tix\.example($|\s)/)
     })
   })
 

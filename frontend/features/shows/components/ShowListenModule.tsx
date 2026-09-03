@@ -170,9 +170,8 @@ function ShowListenCard({ card }: { card: ListenCard }) {
     )
   )
   if (hometown) {
-    // Same formatter as the bill block above: one act's home city is stated
-    // twice on this page and the two must read alike. Visible copy, so the
-    // announced text matches what is on screen.
+    // The shared formatter, so this reads the same as the bill block above.
+    // Visible copy, so the announced text matches what is on screen.
     push('hometown', hometown)
   }
   push('source', source)

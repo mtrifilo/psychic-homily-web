@@ -79,7 +79,7 @@ export interface BracketLinkProps
    * `href` points OUTSIDE the app: renders a plain anchor with
    * `target="_blank"` and the outbound `rel` instead of a Next `<Link>`, and
    * appends "(opens in a new tab)" to the accessible name. The `rel` is the
-   * hygiene tokens, plus `sponsored` when that prop is set — composed by
+   * hygiene tokens, plus any qualifier prop that is set — composed by
    * `lib/outboundRel`, never by a call site.
    *
    * The visible outbound marker is the CALLER's choice, not this component's:
@@ -298,7 +298,7 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
             {...anchorProps}
             href={trimmedHref}
             target="_blank"
-            rel={outboundRel(sponsored, ugc)}
+            rel={outboundRel({ sponsored, ugc })}
           >
             {content}
           </a>

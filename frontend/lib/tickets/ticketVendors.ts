@@ -3,19 +3,17 @@
  * (the name structured data is willing to print) and how an outbound link to
  * them is tagged once the site is an affiliate.
  *
- * Two surfaces read it and must not drift: the visible ticket surface on the
- * show and festival pages, which names the vendor and links to it only when
- * the click is paid for, and the `seller` name in the show's `MusicEvent`
- * JSON-LD, which names the company without linking to it.
+ * The visible ticket surfaces name the vendor and link to it only when the
+ * click is paid for; the `seller` name in the show's `MusicEvent` JSON-LD
+ * names the company without linking to it. They must not drift about who a
+ * stored URL belongs to.
  *
  * It owns classification ({@link resolveTicketVendor}), naming
  * ({@link ticketVendorLabel}), repair ({@link repairTicketUrl}), tagging
  * ({@link ticketLink}), the paid-link test ({@link carriesOurAffiliateTag})
- * and the rule the visible surfaces render ({@link ticketOffer}). Call sites
- * own only their own POLICY: `showTicketOffer` in
- * `features/shows/components/showTicketLine` layers the show's refusals
- * (cancelled, sold out, past) and computes the free-admission exemption
- * {@link ticketOffer} takes as an input.
+ * and the rule the visible surfaces render ({@link ticketOffer}). A call site
+ * owns only its own POLICY: which refusals apply before there is anything to
+ * offer, and whether admission is free.
  *
  * {@link ticketLink} must stay TOTAL. Callers are not required to repair
  * first, and `show.ticket_url` is open contribution that publishes without
@@ -160,6 +158,19 @@ export function resolveTicketVendor(
   if (host === null) return undefined
   const domain = vendorDomainFor(host)
   return domain ? TICKET_VENDORS_BY_DOMAIN[domain] : undefined
+}
+
+/**
+ * Whether a stored ticket URL names a host at all.
+ *
+ * The question "is this a destination", asked directly. A caller needing it
+ * must not reach for {@link ticketVendorLabel} instead: that one answers a
+ * DISPLAY question and is null for a hostless value only incidentally, so a
+ * future placeholder for unnamed vendors would silently turn every such value
+ * back into a destination.
+ */
+export function namesTicketHost(rawUrl: string | undefined | null): boolean {
+  return ticketUrlHost(rawUrl) !== null
 }
 
 /**
@@ -643,13 +654,23 @@ export function ticketVendorLabel(
 }
 
 /**
- * Whether the href in this {@link TicketLink} carries OUR partner ID, i.e.
- * whether a click on it is paid.
+ * Whether THIS BUILD appended our partner ID to the href, which is the only
+ * form of "the click is paid for" this module will act on.
  *
- * A different question from `sponsored`, which is also true for a tag a
- * contributor planted and therefore credits somebody else. Only
- * {@link ticketLink}'s tagging branch produces a sponsored link with no
- * planted tag, so the conjunction is the whole test.
+ * A different question from `sponsored`, which is also true for a tag found in
+ * the STORED value. Only {@link ticketLink}'s tagging branch produces a
+ * sponsored link with no planted tag, so the conjunction is the whole test.
+ *
+ * DELIBERATELY CONSERVATIVE, and it costs a real case: a stored value that
+ * already credits our own configured ID pays us just as much, and is reported
+ * as planted rather than linked. Crediting it needs a conjunctive test - the
+ * host must resolve to a vendor with an affiliate entry, the parameter must be
+ * that vendor's own, and the parameter must occur once, since a repeated one
+ * makes which value the vendor reads a guess. `matchesConfiguredPartner` alone
+ * is NOT that test: it is host- and vendor-agnostic by design (see
+ * {@link KNOWN_AFFILIATE_PARAMS}), and an Impact partner ID is public, so
+ * accepting it would let any URL carrying `?irmp=<our id>` render a
+ * `rel="sponsored"` anchor to an arbitrary host that pays us nothing.
  */
 export function carriesOurAffiliateTag(link: TicketLink): boolean {
   return link.sponsored && link.plantedTag === null
@@ -665,18 +686,32 @@ export function carriesOurAffiliateTag(link: TicketLink): boolean {
  * the vendor's NAME instead of a link. The show page and the festival page
  * both call this, so the rule cannot have two answers.
  *
- * DISCRIMINATED on `linked` so the rule cannot be forgotten: there is no
- * `href` to read on the refused shape, which makes an ungated outbound anchor
- * a type error rather than a convention.
+ * DISCRIMINATED on `linked`, which is the key a render site must branch on:
+ * narrowing through it gives an `href` of type `string`, while reading `href`
+ * off the un-narrowed union gives `string | undefined`. A site that branches
+ * on anything else (a derived string, a separate boolean) gets the second
+ * shape, and `<a href={undefined}>` is legal JSX, so the discriminant is a
+ * strong hint rather than a compiler-enforced gate.
  *
  * `freeAdmission` is the one exemption, and it is an INPUT because only the
  * caller knows: an RSVP or guestlist link on an event that states a price of
- * zero is the reader's only route in. It requires an UNMONETIZED link, so it
- * cannot be used to publish a tag somebody else planted: a zero price is
- * contributor-writable on the same unreviewed form as the URL, and without
- * that conjunction the pair would be a two-field switch for turning any
- * stranger's affiliate link into a live anchor. Festivals record no price and
- * never pass it.
+ * zero is the reader's only route in. Festivals record no price and never
+ * pass it.
+ *
+ * THE EXEMPTION IS THE WEAK POINT, and its limit is worth stating exactly. It
+ * refuses a link carrying an affiliate parameter THIS MODULE KNOWS
+ * ({@link KNOWN_AFFILIATE_PARAMS}, which is built from the vendor table and
+ * today holds `irmp` alone). It is not a test for monetization in general: a
+ * stored `?aff=`, `?tag=` or `?cjevent=` is invisible to it, and price and
+ * ticket_url are contributor-writable on the same unreviewed form. Such a
+ * link renders, qualified `ugc` so it passes no ranking credit, but it does
+ * send readers somewhere that may pay a stranger. Closing the class means
+ * either narrowing what the exemption accepts or dropping it; both are
+ * product decisions rather than something to infer here.
+ *
+ * The href it links must be an absolute http(s) URL. A scheme-less value
+ * reaches this function as a RELATIVE href, and linking one navigates inside
+ * this site instead of out.
  *
  * `plantedTag` rides both shapes, because the report is about the STORED
  * value rather than about what a page renders.
@@ -693,9 +728,9 @@ export type TicketOffer = {
       linked: true
       href: string
       /**
-       * Google's link-spam qualification for this href. Exactly one is true:
-       * a paid link is `sponsored`, and the free-admission exemption is a
-       * contributor-supplied destination nobody pays for, which is `ugc`.
+       * Google's link-spam qualification for this href: a paid link is
+       * `sponsored`, and a free-admission link is a contributor-supplied
+       * destination nobody pays for, which is `ugc`.
        */
       sponsored: boolean
       ugc: boolean
@@ -710,17 +745,23 @@ export function ticketOffer(
     partnerIds,
   }: { freeAdmission?: boolean; partnerIds?: AffiliatePartnerIds } = {}
 ): TicketOffer {
-  const link = partnerIds ? ticketLink(rawUrl, partnerIds) : ticketLink(rawUrl)
+  const link = ticketLink(rawUrl, partnerIds ?? affiliatePartnerIds())
   const vendorName = ticketVendorLabel(rawUrl)
   const shared = { vendorName, plantedTag: link.plantedTag }
 
   // A value that names no host is not a destination: there is nothing to
   // navigate to and nobody to name, so no shape of this offer may link it.
-  if (vendorName === null) return { ...shared, linked: false }
+  // The scheme floor is the same refusal for a value that would render as a
+  // relative href; both are checked here rather than at the call sites so a
+  // third surface inherits them.
+  if (!namesTicketHost(rawUrl) || !ABSOLUTE_HTTP_URL.test(rawUrl.trim())) {
+    return { ...shared, linked: false }
+  }
 
   const paid = carriesOurAffiliateTag(link)
-  // The exemption never covers a monetized link: `sponsored` is true for a tag
-  // somebody else planted, and linking that would publish their referral.
+  // `sponsored` is true for any affiliate parameter this module recognizes,
+  // so a tag that credits somebody else keeps the exemption from linking it.
+  // See the docblock for what this test does NOT catch.
   const unpaidButFree = freeAdmission && !link.sponsored
   if (!paid && !unpaidButFree) return { ...shared, linked: false }
 

@@ -87,6 +87,11 @@ describe('reportPlantedTicketTag', () => {
       'ticket_host',
     ])
     expect(Object.keys(options.extra).sort()).toEqual(['entityId', 'renderedAs'])
+    // The operator-facing sentence, pinned: it is what somebody triaging the
+    // event acts on, and it must not outlive the behaviour it describes.
+    expect(options.extra.renderedAs).toBe(
+      'stored value unmodified; no outbound anchor rendered'
+    )
   })
 
   // A hostile extra field on the tag must not ride along, whatever a future

@@ -267,7 +267,7 @@ type ShowArtistLabel struct {
 // Labels is populated by responses built through the full detail reads,
 // ShowService.GetShow / GetShowBySlug. Both back the single route
 // GET /shows/{show_id} (it takes an ID or a slug, see GetShowHandler), which is
-// what renders the bill as "Artist [Label] based in City, ST". Responses
+// what renders the bill with each act's labels and home location. Responses
 // assembled by the plain show-response builders instead - the list endpoints, create,
 // approve/reject/publish, and the venue and saved-show projections - leave it
 // nil so omitempty drops the key, rather than paying two extra queries per show
