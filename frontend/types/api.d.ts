@@ -4351,6 +4351,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/entity-requests/batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post entity requests batch */
+        post: operations["post-entity-requests-batch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/explore/shuffle-target": {
         parameters: {
             query?: never;
@@ -9786,6 +9803,26 @@ export interface components {
              */
             reply_permission?: string;
         };
+        CreateEntityRequestBatchRequestBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/CreateEntityRequestBatchRequestBody.json
+             */
+            readonly $schema?: string;
+            /** @description The submissions to file, at most 200. Each is validated, deduped and stored on its own: a refused item never withholds its siblings, and every item has exactly one result at its own index. */
+            items: components["schemas"]["EntityRequestBatchItem"][] | null;
+        };
+        CreateEntityRequestBatchResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/CreateEntityRequestBatchResponseBody.json
+             */
+            readonly $schema?: string;
+            /** @description One result per submitted item, in the order the items were sent. */
+            results: components["schemas"]["EntityRequestBatchResult"][] | null;
+        };
         CreateEntityRequestRequestBody: {
             /**
              * Format: uri
@@ -10762,6 +10799,49 @@ export interface components {
             source_detail?: unknown;
             /** Format: date-time */
             updated_at: string;
+        };
+        EntityRequestBatchItem: {
+            /** @description FE-side confirm step (only relevant to trusted_contributor tier) */
+            confirmed?: boolean;
+            /** @description Entity type to request (artist, venue, label, release, show, festival) */
+            entity_type: string;
+            /** @description Typed creation payload for the entity_type. The name (or title) is required on every type and must be 255 characters or fewer; a venue's city must be 100 characters or fewer and its state 10; a festival's edition_year must be between 0 and 9999, where 0 or an absent value means the edition year is taken from start_date. Lengths count CHARACTERS and are measured before trimming, so trailing whitespace counts. A show payload may carry the bill as artists: [{name, set_type?}], name only, no id, at most 50 acts. A payload bill NEVER infers a headliner from list order: an act with no set_type is stored as 'performer', so a bill naming no 'headliner' creates a show with no headliner row. State set_type 'headliner' explicitly when the source names one. When set_type is present it must be one of: headliner,direct_support,opener,special_guest,dj,performer. */
+            payload: unknown;
+            /** @description How the request originated (ai_extraction, paste_mode, manual); defaults to manual */
+            source_context?: string;
+            /** @description Optional origin context (source URL + excerpt), chiefly for AI extraction; shown in the admin moderation queue */
+            source_detail?: components["schemas"]["EntityRequestSourceDetail"];
+        };
+        EntityRequestBatchResult: {
+            /**
+             * Format: int64
+             * @description The catalog entity an auto-approved request was fulfilled into. Absent for a queued request.
+             */
+            created_entity_id?: number;
+            /** @description The stored request's decision_state (pending or approved). Absent on refused. */
+            decision_state?: string;
+            /** @description Why this item was refused, in the single route's own words. Present only on refused. */
+            error?: string;
+            /**
+             * Format: int64
+             * @description The HTTP status the single route would have answered this item with (422 for a rejected payload, 409 for a conflicting catalog entity, 500 for a server fault). Present only on refused.
+             */
+            error_status?: number;
+            /**
+             * Format: int64
+             * @description The stored request's id. Present on created and replaced, absent on refused. On a replacement it is the id of the row that already existed.
+             */
+            id?: number;
+            /**
+             * Format: int64
+             * @description The zero-based position of this item in the request's items array. Results are returned in that order and every item has exactly one.
+             */
+            index: number;
+            /**
+             * @description created = a new request was filed; replaced = this submission overwrote the requester's own queued request under the same dedup key (a correction); refused = nothing was stored, see error.
+             * @enum {string}
+             */
+            status: "created" | "replaced" | "refused";
         };
         EntityRequestSourceDetail: {
             /** @description Source text excerpt the request was extracted from */
@@ -28543,6 +28623,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CreateEntityRequestResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "post-entity-requests-batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateEntityRequestBatchRequestBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateEntityRequestBatchResponseBody"];
                 };
             };
             /** @description Error */

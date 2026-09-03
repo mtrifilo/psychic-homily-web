@@ -165,8 +165,8 @@ function createAffordanceFor(
 // (PSY-1948's `replaced`).
 type RequestOutcome = 'created' | 'requested' | 'queued' | 'updated'
 
-/** The queue-create response, aliased from the generated OpenAPI types. */
-type CreateEntityRequestResponse = components['schemas']['CreateEntityRequestResponseBody']
+/** The batch queue-create response, aliased from the generated OpenAPI types. */
+type EntityRequestBatchResponse = components['schemas']['CreateEntityRequestBatchResponseBody']
 
 /** The chip word for each outcome. Exhaustive: a new outcome is a build error. */
 const REQUEST_OUTCOME_LABEL: Record<RequestOutcome, string> = {
@@ -191,11 +191,16 @@ interface QueueEntityRequestVars {
 }
 
 /**
- * Local queue-create mutation (PSY-853). Intentionally NOT a shared exported
- * hook — PSY-845 posts to the same POST /entity-requests endpoint from a
- * different component (AddItemsPicker) and a small, deliberate duplication is
- * preferred over premature coupling while both land in parallel. A follow-up
- * dedups once both have shipped (see coordination note in the ticket).
+ * Local queue-create mutation (PSY-853, moved onto the batch route by PSY-2005).
+ * Intentionally NOT a shared exported hook — AddItemsPicker posts to the same
+ * endpoint from a different surface with a different lifecycle (a whole paste at
+ * once, versus one row when the user acts on it), so the two share the endpoint
+ * rather than a hook.
+ *
+ * One item per call: this surface files a row when the user presses its button,
+ * and there is no moment at which it holds a set of rows to file. Using the batch
+ * route anyway is what keeps both callers on ONE server-side path, so a per-item
+ * rule cannot hold on one surface and not the other.
  *
  * The body carries source_context: 'ai_extraction' so the admin moderation
  * surface can see the request originated from the AI collection flow.
@@ -203,15 +208,19 @@ interface QueueEntityRequestVars {
 function useQueueEntityRequest() {
   return useMutation({
     mutationFn: async (vars: QueueEntityRequestVars) => {
-      const response = await fetch('/api/entity-requests', {
+      const response = await fetch('/api/entity-requests/batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          entity_type: vars.entityType,
-          payload: { name: vars.name },
-          source_context: 'ai_extraction',
-          confirmed: vars.confirmed,
+          items: [
+            {
+              entity_type: vars.entityType,
+              payload: { name: vars.name },
+              source_context: 'ai_extraction',
+              confirmed: vars.confirmed,
+            },
+          ],
         }),
       })
 
@@ -230,25 +239,37 @@ function useQueueEntityRequest() {
       // backend rename fails the build here rather than reporting every
       // submission as a first filing forever. Partial because the response is
       // parsed, not validated: the fields are still narrowed below.
-      const data = (body ?? {}) as Partial<CreateEntityRequestResponse>
+      const data = (body ?? {}) as Partial<EntityRequestBatchResponse>
+      const result = data.results?.[0]
 
-      // PSY-1008: an auto-approved request now fulfills the entity inline and
+      // A batch answers 200 for a well-formed batch whatever its items did, so a
+      // refusal arrives HERE rather than on the status line. It is thrown so the
+      // row's own error surface reports it, which is where a failed submission
+      // already lands.
+      if (!result) {
+        throw new Error('Failed to submit entity request')
+      }
+      if (result.status === 'refused') {
+        throw new Error(result.error || 'Failed to submit entity request')
+      }
+
+      // PSY-1008: an auto-approved request fulfills the entity inline and
       // returns created_entity_id. When present, the caller stages the new
       // entity into the collection (true create-and-add). decision_state still
       // distinguishes approved from pending for the non-fulfilled fallback.
       const createdEntityId =
-        typeof data.created_entity_id === 'number'
-          ? data.created_entity_id
+        typeof result.created_entity_id === 'number'
+          ? result.created_entity_id
           : undefined
-      // `replaced` reports a correction to the requester's own queued request.
+      // A 'replaced' item is a correction to the requester's own queued request.
       // It ranks below the two approved outcomes: it can only be true of a
       // pending row, and "the entity exists" outranks it if both ever applied.
       const outcome: RequestOutcome =
         createdEntityId !== undefined
           ? 'created'
-          : data.decision_state === 'approved'
+          : result.decision_state === 'approved'
             ? 'requested'
-            : data.replaced === true
+            : result.status === 'replaced'
               ? 'updated'
               : 'queued'
       return { outcome, rowKey: vars.rowKey, createdEntityId }

@@ -15,6 +15,7 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
+	authm "psychic-homily-backend/internal/models/auth"
 	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
 	servicesshared "psychic-homily-backend/internal/services/shared"
@@ -122,11 +123,57 @@ type CreateEntityRequestResponseBody struct {
 
 // CreateEntityRequestHandler handles POST /entity-requests.
 //
+// An auth check over submitEntityRequest, which owns the pipeline and is shared
+// with the batch route, so the two routes cannot validate or dedup differently.
+func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, req *CreateEntityRequestRequest) (*CreateEntityRequestResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	created, replaced, err := h.submitEntityRequest(ctx, user, entityRequestSubmission{
+		EntityType:    req.Body.EntityType,
+		Payload:       req.Body.Payload,
+		SourceContext: req.Body.SourceContext,
+		SourceDetail:  req.Body.SourceDetail,
+		Confirmed:     req.Body.Confirmed,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &CreateEntityRequestResponse{Body: &CreateEntityRequestResponseBody{
+		EntityRequestFields: (*EntityRequestFields)(created),
+		Replaced:            replaced,
+	}}, nil
+}
+
+// entityRequestSubmission is one contributor submission as it arrives, before
+// any of it has been checked. The single route carries one; the batch route
+// carries up to maxEntityRequestBatchItems of them. Both hand it to
+// submitEntityRequest, which is the only place a submission becomes a row.
+type entityRequestSubmission struct {
+	EntityType    string
+	Payload       json.RawMessage
+	SourceContext string
+	SourceDetail  *communitym.EntityRequestSourceDetail
+	Confirmed     bool
+}
+
+// submitEntityRequest runs ONE contributor submission through the queue-create
+// pipeline: validate, store (replacing the requester's colliding pending row
+// when there is one), fulfil an auto-approval, and record the audit row. It is
+// the ONLY path from a submission to a row, so the single and batch routes
+// cannot validate or dedup differently.
+//
+// Every error it returns is already an HTTP error, so a caller either returns it
+// or, on the batch route, reads its status off huma.StatusError.
+//
 // Tier policy lives in PSY-869's service (autoApproves): contributor/new_user
 // file a PENDING request (never autonomously create the entity, per
 // feedback_human_verify_ai_entity_data); admin/local_ambassador (and confirmed
 // trusted_contributor) auto-approve. The service stamps decided_by/at on
-// auto-approve. This handler is a thin validator + pass-through.
+// auto-approve. This is a thin validator + pass-through.
 //
 // PSY-1948 — RESUBMISSION REPLACES: a request matching an existing PENDING one
 // on (entity_type, requester, normalized name, occurrence) overwrites that row's
@@ -162,37 +209,32 @@ type CreateEntityRequestResponseBody struct {
 // Only queueing tiers reach this path at all. An auto-approving tier's row is
 // stamped 'approved' before the INSERT, so it never collides with the
 // pending-only index and never replaces anything.
-func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, req *CreateEntityRequestRequest) (*CreateEntityRequestResponse, error) {
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil {
-		return nil, huma.Error401Unauthorized("Authentication required")
-	}
-
-	entityType := strings.TrimSpace(req.Body.EntityType)
+func (h *EntityRequestHandler) submitEntityRequest(ctx context.Context, user *authm.User, sub entityRequestSubmission) (*communitym.EntityRequest, bool, error) {
+	entityType := strings.TrimSpace(sub.EntityType)
 	if !communitym.IsValidEntityRequestType(entityType) {
-		return nil, huma.Error422UnprocessableEntity("Invalid entity type '" + entityType + "'")
+		return nil, false, huma.Error422UnprocessableEntity("Invalid entity type '" + entityType + "'")
 	}
 
 	// source_context defaults to manual when omitted; any provided value must
 	// be a recognized source.
-	sourceContext := strings.TrimSpace(req.Body.SourceContext)
+	sourceContext := strings.TrimSpace(sub.SourceContext)
 	if sourceContext == "" {
 		sourceContext = communitym.EntityRequestSourceManual
 	}
 	if !communitym.IsValidEntityRequestSource(sourceContext) {
-		return nil, huma.Error422UnprocessableEntity("Invalid source context '" + sourceContext + "'")
+		return nil, false, huma.Error422UnprocessableEntity("Invalid source context '" + sourceContext + "'")
 	}
 
-	if len(strings.TrimSpace(string(req.Body.Payload))) == 0 {
-		return nil, huma.Error422UnprocessableEntity("Payload is required")
+	if len(strings.TrimSpace(string(sub.Payload))) == 0 {
+		return nil, false, huma.Error422UnprocessableEntity("Payload is required")
 	}
 
 	// Validate the payload decodes cleanly into its typed struct (rejects
 	// unknown fields / wrong shape / missing required fields) at the trust
 	// boundary, so a malformed contributor payload is rejected here rather than
 	// stored as junk in the queue and failing confusingly on admin approve.
-	if err := communitym.ValidateEntityRequestPayload(entityType, req.Body.Payload); err != nil {
-		return nil, huma.Error422UnprocessableEntity("Invalid payload for " + entityType + ": " + err.Error())
+	if err := communitym.ValidateEntityRequestPayload(entityType, sub.Payload); err != nil {
+		return nil, false, huma.Error422UnprocessableEntity("Invalid payload for " + entityType + ": " + err.Error())
 	}
 
 	// PSY-1858: a show payload may carry the bill the contributor knew. Its roles
@@ -206,8 +248,8 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 	// bill's STRUCTURE was already checked by ValidateEntityRequestPayload above.
 	// Ordered ahead of the image-URL guard because it is a pure in-memory check
 	// and that one can resolve DNS.
-	if err := validateShowPayloadBillRoles(entityType, req.Body.Payload); err != nil {
-		return nil, err
+	if err := validateShowPayloadBillRoles(entityType, sub.Payload); err != nil {
+		return nil, false, err
 	}
 
 	// PSY-1675: the payload's image_url rides onto a real entity at fulfillment
@@ -217,26 +259,26 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 	// NOTHING re-applies it at fulfillment — validatePayloadImageURL has exactly
 	// two call sites, this one and the decide handler's pre-claim check — which is
 	// why that check's read has to be the one the claim commits against.
-	if err := validatePayloadImageURL(ctx, entityType, req.Body.Payload); err != nil {
-		return nil, err
+	if err := validatePayloadImageURL(ctx, entityType, sub.Payload); err != nil {
+		return nil, false, err
 	}
 
 	// Normalize the optional source detail (trim, drop empties) and cap its
 	// fields at the trust boundary. An all-empty detail becomes nil so the row
 	// stores NULL rather than an empty object.
-	sourceDetail, err := normalizeSourceDetail(req.Body.SourceDetail)
+	sourceDetail, err := normalizeSourceDetail(sub.SourceDetail)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	// Every check above this line runs before a replacement too, so a
 	// resubmission that fails validation is a 422 that leaves the queued payload
 	// exactly as it was (PSY-1948).
-	created, superseded, err := h.entityRequestService.CreateRequest(user, entityType, req.Body.Payload, sourceContext, sourceDetail, req.Body.Confirmed)
+	created, superseded, err := h.entityRequestService.CreateRequest(user, entityType, sub.Payload, sourceContext, sourceDetail, sub.Confirmed)
 	replaced := superseded != nil
 	if err != nil {
 		if mapped := shared.MapEntityRequestError(err); mapped != nil {
-			return nil, mapped
+			return nil, false, mapped
 		}
 		logger.FromContext(ctx).Error("entity_request_create_failed",
 			"user_id", user.ID,
@@ -244,7 +286,7 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 			"source_context", sourceContext,
 			"error", err.Error(),
 		)
-		return nil, huma.Error500InternalServerError("Failed to create entity request")
+		return nil, false, huma.Error500InternalServerError("Failed to create entity request")
 	}
 
 	// Auto-approve fulfillment (PSY-1008): when a trusted tier's request lands
@@ -298,9 +340,9 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 				// not 500 — inline create-and-add of an already-existing entity is
 				// a benign conflict, not a server fault.
 				if mapped := mapFulfillmentError(ferr); mapped != nil {
-					return nil, mapped
+					return nil, false, mapped
 				}
-				return nil, huma.Error500InternalServerError("Request approved but creating the entity failed: " + ferr.Error())
+				return nil, false, huma.Error500InternalServerError("Request approved but creating the entity failed: " + ferr.Error())
 			}
 		}
 	}
@@ -338,10 +380,7 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 		})
 	}
 
-	return &CreateEntityRequestResponse{Body: &CreateEntityRequestResponseBody{
-		EntityRequestFields: (*EntityRequestFields)(created),
-		Replaced:            replaced,
-	}}, nil
+	return created, replaced, nil
 }
 
 // ============================================================================

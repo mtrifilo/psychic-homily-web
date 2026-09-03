@@ -27,6 +27,11 @@ func setupEntityRequestRoutes(rc RouteContext) {
 	// User: file an entity-creation request (consumed by PSY-845 + PSY-853).
 	huma.Post(rc.Protected, "/entity-requests", entityRequestHandler.CreateEntityRequestHandler)
 
+	// User: file many at once (PSY-2005). The collection paste flow resolves a
+	// whole textarea in one pass, so its zero-result lines are one request rather
+	// than one per line. Same validation and dedup as the single route, per item.
+	huma.Post(rc.Protected, "/entity-requests/batch", entityRequestHandler.CreateEntityRequestBatchHandler)
+
 	// Admin: moderation queue (consumed by PSY-871).
 	huma.Get(rc.Admin, "/admin/entity-requests", entityRequestHandler.AdminListEntityRequestsHandler)
 	huma.Post(rc.Admin, "/admin/entity-requests/{id}/decide", entityRequestHandler.AdminDecideEntityRequestHandler)

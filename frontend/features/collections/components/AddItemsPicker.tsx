@@ -91,11 +91,12 @@ import { ENTITY_ICONS, REPLACED_REQUEST_EXPLANATION } from './collectionDetailSh
 import type { components } from '@/types/api'
 
 /**
- * The queue-create response, aliased from the generated OpenAPI types so a
+ * The batch queue-create response, aliased from the generated OpenAPI types so a
  * backend rename fails the build here instead of silently reporting every
  * submission as a first filing.
  */
-type CreateEntityRequestResponse = components['schemas']['CreateEntityRequestResponseBody']
+type EntityRequestBatchResponse = components['schemas']['CreateEntityRequestBatchResponseBody']
+type EntityRequestBatchResult = components['schemas']['EntityRequestBatchResult']
 
 // ──────────────────────────────────────────────
 // Types
@@ -170,6 +171,11 @@ interface ParsedPasteLine {
  *   - `queuing`       — zero results ⇒ entity_request POST in flight
  *   - `queued`        — zero results ⇒ request filed for admin review
  *   - `queue_failed`  — zero results ⇒ the request POST errored (retryable)
+ *   - `queue_refused` — zero results ⇒ the server refused THIS line's content
+ *                       (e.g. a name past the 255-character cap). Distinct from
+ *                       `queue_failed` because re-sending the same line is
+ *                       refused the same way: the line has to change first, so
+ *                       the row offers the reason instead of a Retry.
  */
 type PreviewStatus =
   | 'matched'
@@ -180,6 +186,7 @@ type PreviewStatus =
   | 'queuing'
   | 'queued'
   | 'queue_failed'
+  | 'queue_refused'
 
 /** A candidate offered for an AMBIGUOUS plain-text line's [Pick] dropdown. */
 interface PreviewCandidate {
@@ -206,6 +213,12 @@ interface PreviewRow {
    * count that reads `status` still means what it meant.
    */
   replaced?: boolean
+  /**
+   * `queue_refused` rows only: the server's own words for why this line was
+   * refused. The reason is per line, so it is on the row rather than on a
+   * surface shared by the whole paste.
+   */
+  refusal?: string
 }
 
 /** Max candidates surfaced in an AMBIGUOUS line's [Pick] dropdown. */
@@ -267,23 +280,18 @@ export function parsePasteLine(line: string): ParsedPasteLine {
 // ──────────────────────────────────────────────
 
 /**
- * LOCAL queue-create call (PSY-845). Posts an `entity_request` to PSY-997's
- * `POST /entity-requests` so a plain-text line with ZERO matches becomes an
- * admin-reviewable artist-creation request rather than being silently dropped.
+ * LOCAL queue-create call (PSY-845, batched by PSY-2005). Posts every
+ * zero-result line of one paste to `POST /entity-requests/batch` in ONE request,
+ * so a plain-text line with no matches becomes an admin-reviewable
+ * artist-creation request rather than being silently dropped.
  *
- * Deliberately LOCAL (not a shared exported hook): PSY-853 posts to the same
- * endpoint from AICollectionFiller in parallel. Keeping each consumer's
- * queue-create local avoids a cross-PR file collision; a future ticket dedups
- * the two into one shared hook. The small duplication is intentional (see
- * coordination note on PSY-845).
+ * Deliberately LOCAL (not a shared exported hook): AICollectionFiller posts to
+ * the same endpoint from a different surface, one item at a time as the user
+ * acts on a row, and the two consumers share the endpoint rather than a hook.
  *
- * A plain async function, NOT a `useMutation` hook: a single paste can queue
- * several zero-result lines CONCURRENTLY (the bounded worker pool), and one
- * shared `useMutation` observer only tracks the latest in-flight mutation —
- * rapid successive `.mutate()` calls drop earlier per-call callbacks, so only
- * the last line would end up queued. Per-call `apiRequest` has no such shared
- * state; usePastePreview owns the per-row status, so the hook's
- * data/isPending/error were unused anyway.
+ * A plain async function, NOT a `useMutation` hook: usePastePreview owns the
+ * per-row status, so the hook's data/isPending/error would be unused, and a
+ * retry of one row runs beside a paste's own batch.
  *
  * Entity type is `artist`: a bare plain-text line in a music collection picker
  * is overwhelmingly an artist name, and `artist` is the only entity_request
@@ -292,19 +300,39 @@ export function parsePasteLine(line: string): ParsedPasteLine {
  * file a well-formed request. The admin reviewing the queue retypes /
  * reclassifies if it was actually a release or venue.
  *
- * The resolved `replaced` says the request landed on the requester's own queued
- * row under this name rather than filing a new one. Anything but `true` reads
- * as a first filing, which is the claim that stays true either way.
+ * Results come back one per item, at the index the item was sent at, so the
+ * caller reads each line's own outcome: `replaced` says the request landed on
+ * the requester's own queued row under this name rather than filing a new one,
+ * and `refused` says nothing was stored for that line and why.
  */
-function queueEntityRequest(name: string): Promise<{ replaced: boolean }> {
-  return apiRequest<CreateEntityRequestResponse>(API_ENDPOINTS.COLLECTIONS.ENTITY_REQUESTS, {
-    method: 'POST',
-    body: JSON.stringify({
-      entity_type: 'artist',
-      payload: { name },
-      source_context: 'paste_mode',
-    }),
-  }).then(res => ({ replaced: res?.replaced === true }))
+function queueEntityRequestBatch(names: string[]): Promise<EntityRequestBatchResult[]> {
+  return apiRequest<EntityRequestBatchResponse>(
+    API_ENDPOINTS.COLLECTIONS.ENTITY_REQUESTS_BATCH,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        items: names.map(name => ({
+          entity_type: 'artist',
+          payload: { name },
+          source_context: 'paste_mode',
+        })),
+      }),
+    }
+  ).then(res => res?.results ?? [])
+}
+
+/**
+ * The dedup key the queue endpoint applies to an artist request: the trimmed,
+ * case-folded name. Two lines of one paste that share it are ONE request, so
+ * sending both would have the second land on the row the first just filed and
+ * come back reported as a correction of a request the user never made.
+ *
+ * Case folding is `toLowerCase`, and the server folds in Postgres. The two agree
+ * on the ASCII names this picker sends; a locale-specific disagreement collapses
+ * one row too few, which files a second request rather than mislabelling one.
+ */
+function pasteQueueKey(raw: string): string {
+  return raw.trim().toLowerCase()
 }
 
 // ──────────────────────────────────────────────
@@ -486,20 +514,77 @@ function usePastePreview(pasteText: string): {
     []
   )
 
-  // File a queue-for-review request for a zero-result plain-text line.
-  // Extracted so the initial pass AND retryQueue share one code path. Each
-  // call is an independent POST (see queueEntityRequest) so concurrent
-  // zero-result lines each get their own request + row update. Returns the
-  // settle promise so the bounded worker pool can AWAIT it — that keeps a
-  // 200-junk-line paste from firing 200 simultaneous POSTs (the same
-  // "don't hammer the backend" bound the search side gets). retryQueue, a
-  // single user-triggered call, ignores the return (fire-and-forget).
-  const fileQueueRequest = useCallback(
-    (generation: number, index: number, raw: string): Promise<void> => {
-      updateRow(generation, index, { status: 'queuing' })
-      return queueEntityRequest(raw).then(
-        ({ replaced }) => updateRow(generation, index, { status: 'queued', replaced }),
-        () => updateRow(generation, index, { status: 'queue_failed' })
+  // File a queue-for-review request for every zero-result plain-text line of one
+  // paste, in ONE round trip. Extracted so the initial pass AND retryQueue share
+  // one code path.
+  //
+  // Lines sharing the queue's dedup key are sent ONCE and every row that shares
+  // it reads the same result. Sending them all would file the first and have the
+  // rest land on it, so the paste would report a correction the user did not
+  // make. The collapsed rows are still rows: each shows the outcome of the
+  // request its line produced.
+  //
+  // An item the server refused is terminal for that line, so it lands on
+  // queue_refused with the server's reason rather than on the retryable
+  // queue_failed. A transport failure has no per-item answer, so every line in
+  // the batch is retryable.
+  const fileQueueBatch = useCallback(
+    (generation: number, entries: { raw: string; index: number }[]): Promise<void> => {
+      if (entries.length === 0) return Promise.resolve()
+
+      const order: string[] = []
+      const rowsByKey = new Map<string, number[]>()
+      for (const entry of entries) {
+        const key = pasteQueueKey(entry.raw)
+        const rows = rowsByKey.get(key)
+        if (rows) {
+          rows.push(entry.index)
+          continue
+        }
+        rowsByKey.set(key, [entry.index])
+        order.push(entry.raw)
+      }
+
+      for (const entry of entries) {
+        updateRow(generation, entry.index, { status: 'queuing' })
+      }
+
+      const applyToRows = (key: string, next: Partial<PreviewRow>) => {
+        for (const index of rowsByKey.get(key) ?? []) {
+          updateRow(generation, index, next)
+        }
+      }
+
+      return queueEntityRequestBatch(order).then(
+        results => {
+          const byIndex = new Map(results.map(r => [r.index, r]))
+          order.forEach((raw, itemIndex) => {
+            const key = pasteQueueKey(raw)
+            const result = byIndex.get(itemIndex)
+            if (!result) {
+              // An item with no result was neither filed nor refused, so the row
+              // says the request did not land and stays retryable.
+              applyToRows(key, { status: 'queue_failed' })
+              return
+            }
+            if (result.status === 'refused') {
+              applyToRows(key, {
+                status: 'queue_refused',
+                refusal: result.error ?? undefined,
+              })
+              return
+            }
+            applyToRows(key, {
+              status: 'queued',
+              replaced: result.status === 'replaced',
+            })
+          })
+        },
+        () => {
+          for (const entry of entries) {
+            updateRow(generation, entry.index, { status: 'queue_failed' })
+          }
+        }
       )
     },
     [updateRow]
@@ -581,6 +666,11 @@ function usePastePreview(pasteText: string): {
       .filter((e) => parsed[e.index].url === null)
 
     if (plaintextEntries.length > 0) {
+      // Zero-result lines collected across the whole search pass and filed as ONE
+      // batch when it settles. The pass is concurrent, so this is appended to
+      // from several workers; JS runs them on one thread, and each push happens
+      // in a single synchronous continuation, so the array needs no lock.
+      const toQueue: { raw: string; index: number }[] = []
       void runWithConcurrency(
         plaintextEntries,
         PLAINTEXT_SEARCH_CONCURRENCY,
@@ -617,14 +707,18 @@ function usePastePreview(pasteText: string): {
                 .map(toPreviewItem),
             })
           } else {
-            // Zero results ⇒ queue for admin review. Await the POST so it
-            // counts against the concurrency budget — without this, a paste
-            // of N all-junk lines would fire N POSTs at once (the search
-            // bound would be moot for the queue side).
-            await fileQueueRequest(generation, entry.index, entry.raw)
+            // Zero results ⇒ queue for admin review, once the whole pass has
+            // settled. Collected rather than filed here so a paste of N
+            // zero-result lines is ONE request instead of N: the tail of a large
+            // paste is what a per-line POST puts at the mercy of any per-request
+            // ceiling.
+            toQueue.push({ raw: entry.raw, index: entry.index })
           }
         }
-      )
+      ).then(() => {
+        if (generationRef.current !== generation) return
+        void fileQueueBatch(generation, toQueue)
+      })
     }
     // Only re-resolve when the debounced paste text changes. alreadyStaged is
     // computed at render time off the current stagedItems prop (PastePreviewRow),
@@ -650,15 +744,16 @@ function usePastePreview(pasteText: string): {
     []
   )
 
-  // Retry a failed queue POST for a zero-result line (against the CURRENT
-  // generation so it survives the row-bounds check).
+  // Retry a failed queue request for a zero-result line (against the CURRENT
+  // generation so it survives the row-bounds check). One row, so one item; a
+  // refused row is not retryable and has no Retry to press.
   const retryQueue = useCallback(
     (rowIndex: number) => {
       const row = previewRows[rowIndex]
       if (!row || row.status !== 'queue_failed') return
-      fileQueueRequest(generationRef.current, rowIndex, row.raw)
+      void fileQueueBatch(generationRef.current, [{ raw: row.raw, index: rowIndex }])
     },
-    [previewRows, fileQueueRequest]
+    [previewRows, fileQueueBatch]
   )
 
   return { previewRows, pickCandidate, retryQueue }
@@ -1208,6 +1303,11 @@ function PasteModePane({
       r.status === 'queuing' ||
       r.status === 'queue_failed'
   ).length
+  // A refused line has its own tally: it is NOT for review, and counting it
+  // there would tell the user an admin will see a line nothing filed.
+  const refusedCount = previewRows.filter(
+    (r) => r.status === 'queue_refused'
+  ).length
 
   // "Add all" affordance: stages every matched row at once. Bypasses the
   // per-row [Add] button so the canon-list use case (200 URLs pasted) is
@@ -1265,6 +1365,7 @@ function PasteModePane({
               loadingCount > 0 && `${loadingCount} resolving`,
               ambiguousCount > 0 && `${ambiguousCount} need a pick`,
               queuedCount > 0 && `${queuedCount} for review`,
+              refusedCount > 0 && `${refusedCount} refused`,
               unresolvedCount > 0 && `${unresolvedCount} unresolved`,
             ]
               .filter(Boolean)
@@ -1444,6 +1545,18 @@ function PastePreviewRow({
             Retry
           </Button>
         )}
+        {/* A refused line offers no Retry: the server refused this line's own
+            content, so re-sending it unchanged is refused the same way. */}
+        {row.status === 'queue_refused' && (
+          <Badge
+            variant="secondary"
+            className="text-[10px] px-1.5 py-0 shrink-0 bg-destructive/10 text-destructive motion-safe:animate-in motion-safe:fade-in"
+            data-testid="add-items-picker-paste-row-refused"
+          >
+            <AlertCircle className="h-3 w-3 mr-0.5" />
+            REFUSED
+          </Badge>
+        )}
         {row.status === 'unresolved' && (
           <Badge
             variant="secondary"
@@ -1454,6 +1567,18 @@ function PastePreviewRow({
           </Badge>
         )}
       </div>
+
+      {/* REFUSED: the server's own reason, on the row it belongs to. Nothing was
+          filed for this line, and the reason is what says which edit would make
+          it filable. */}
+      {row.status === 'queue_refused' && row.refusal && (
+        <p
+          className="ml-10 mt-1.5 text-xs text-destructive"
+          data-testid="add-items-picker-paste-row-refusal"
+        >
+          {row.refusal}
+        </p>
+      )}
 
       {/* AMBIGUOUS: inline [Pick] candidate dropdown (≤5). Picking promotes the
           row to MATCH. Mirrors AICollectionFiller's "did you mean" chip row. */}

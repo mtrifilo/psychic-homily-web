@@ -484,7 +484,8 @@ describe('AICollectionFiller', () => {
   }
 
   /**
-   * Stub global.fetch with a single JSON response for the entity-request POST.
+   * Stub global.fetch with a single JSON response for the entity-request batch
+   * POST. This surface files ONE item per call, so the answer carries one result.
    * createdEntityId (PSY-1008) is included when provided — that's the
    * auto-approve-fulfilled path that triggers inline create-and-add.
    */
@@ -492,19 +493,24 @@ describe('AICollectionFiller', () => {
     decisionState: 'approved' | 'pending',
     ok = true,
     createdEntityId?: number,
-    // PSY-1948's replacement flag. The endpoint always sends it; default false
-    // so the existing callers keep describing a first filing.
-    replaced = false
+    // PSY-1948's replacement, reported per item as the 'replaced' status. Default
+    // 'created' so the existing callers keep describing a first filing.
+    status: 'created' | 'replaced' = 'created'
   ) {
     const fetchMock = vi.fn().mockResolvedValue({
       ok,
       json: async () => ({
-        id: 7,
-        decision_state: decisionState,
-        replaced,
-        ...(createdEntityId !== undefined
-          ? { created_entity_id: createdEntityId }
-          : {}),
+        results: [
+          {
+            index: 0,
+            status,
+            id: 7,
+            decision_state: decisionState,
+            ...(createdEntityId !== undefined
+              ? { created_entity_id: createdEntityId }
+              : {}),
+          },
+        ],
       }),
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -604,12 +610,13 @@ describe('AICollectionFiller', () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
     const [url, init] = fetchMock.mock.calls[0]
-    expect(url).toBe('/api/entity-requests')
+    expect(url).toBe('/api/entity-requests/batch')
     const body = JSON.parse((init as RequestInit).body as string)
-    expect(body.confirmed).toBe(true)
-    expect(body.entity_type).toBe('artist')
-    expect(body.source_context).toBe('ai_extraction')
-    expect(body.payload).toEqual({ name: 'Some Made Up Band' })
+    expect(body.items).toHaveLength(1)
+    expect(body.items[0].confirmed).toBe(true)
+    expect(body.items[0].entity_type).toBe('artist')
+    expect(body.items[0].source_context).toBe('ai_extraction')
+    expect(body.items[0].payload).toEqual({ name: 'Some Made Up Band' })
   })
 
   it('queue path POSTs an entity_request and shows a "Queued" chip', async () => {
@@ -625,10 +632,11 @@ describe('AICollectionFiller', () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
     const [url, init] = fetchMock.mock.calls[0]
-    expect(url).toBe('/api/entity-requests')
+    expect(url).toBe('/api/entity-requests/batch')
     const body = JSON.parse((init as RequestInit).body as string)
-    expect(body.confirmed).toBe(false)
-    expect(body.source_context).toBe('ai_extraction')
+    expect(body.items).toHaveLength(1)
+    expect(body.items[0].confirmed).toBe(false)
+    expect(body.items[0].source_context).toBe('ai_extraction')
 
     // Pending decision_state → "Queued" chip; create/queue button replaced.
     const chip = await screen.findByTestId(
@@ -685,7 +693,7 @@ describe('AICollectionFiller', () => {
 
   it('a replaced submission reads "Updated", not "Queued"', async () => {
     mockUser = { is_admin: false, user_tier: 'contributor' }
-    stubFetch('pending', true, undefined, true)
+    stubFetch('pending', true, undefined, 'replaced')
     const user = userEvent.setup()
     await extractOneUnmatchedRow(user)
 
@@ -710,7 +718,7 @@ describe('AICollectionFiller', () => {
 
   it('a first filing keeps "Queued" and carries no replacement explanation', async () => {
     mockUser = { is_admin: false, user_tier: 'contributor' }
-    stubFetch('pending', true, undefined, false)
+    stubFetch('pending', true, undefined, 'created')
     const user = userEvent.setup()
     await extractOneUnmatchedRow(user)
 

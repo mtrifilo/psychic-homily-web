@@ -293,6 +293,10 @@ export const API_ENDPOINTS = {
     // PSY-845 (AddItemsPicker plain-text queue-for-review) + PSY-853
     // (AICollectionFiller). Auth-gated (rc.Protected).
     ENTITY_REQUESTS: `${API_BASE_URL}/entity-requests`,
+    // PSY-2005: file many at once. Same per-item validation and dedup as the
+    // single route, one result per item, so a refused line never withholds its
+    // siblings.
+    ENTITY_REQUESTS_BATCH: `${API_BASE_URL}/entity-requests/batch`,
     ITEM: (slug: string, itemId: number) =>
       `${API_BASE_URL}/collections/${slug}/items/${itemId}`,
     UPDATE_ITEM: (slug: string, itemId: number) =>
