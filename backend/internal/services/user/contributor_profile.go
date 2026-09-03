@@ -296,23 +296,30 @@ func (s *ContributorProfileService) UpdatePrivacySettings(userID uint, settings 
 // GetContributionStats computes aggregate contribution counts for a user, as
 // the caller in viewer is allowed to see them.
 //
-// FOUR counts are narrowed to what viewer may see, and they are the four with a
-// filtered public sibling to be differenced against: shows_submitted (against
-// the contributions timeline), revisions_made (against the total
-// GET /users/{id}/revisions reports), collection_items_added (against the
-// add_collection_item rows in that same timeline) and collection_subscriptions
-// (against GET /auth/collections). A whole number differenced against a filtered
+// EVERY count sourced from audit_logs, shows, revisions or collections is
+// narrowed to what viewer may see, because each has a filtered public sibling to
+// be differenced against: the audit-sourced counters (moderation_actions,
+// releases_created, labels_created, festivals_created) against the contributions
+// timeline, which reads the same rows for the same actor through the same
+// condition; shows_submitted against that timeline too; revisions_made against
+// the total GET /users/{id}/revisions reports; collection_items_added against
+// the add_collection_item rows in the timeline; and collection_subscriptions
+// against GET /auth/collections. A whole number differenced against a filtered
 // one is a count of withheld rows published as arithmetic. The zero viewer is
 // the anonymous tier.
 //
-// The remaining gated-entity counts here are deliberately NOT narrowed, and a
-// new one should not assume it is covered: moderation_actions (approve_show /
-// reject_show over audit_logs), reports_filed and reports_resolved all still
-// count rows naming entities the viewer cannot see. They are left whole because
-// none has a filtered sibling to be differenced against, and because moderation
-// counts in particular describe the MODERATOR rather than the entity. That is a
-// judgement, not an oversight, and the next person to add a counter over a gated
-// entity has to make it again.
+// TWO gated-entity counts here are deliberately NOT narrowed, and a new one
+// should not assume it is covered: reports_filed and reports_resolved count rows
+// of the three report TABLES, not audit rows, so the timeline's condition does
+// not reach them and there is no spelling of the rule for a polymorphic
+// entity_reports row that an unregistered entity type would not silently drop
+// the count for. What a report's existence discloses, and to whom, is a product
+// question rather than a spelling one; it is recorded in
+// contributionStatsDispositions in the test beside this file rather than left
+// unstated.
+//
+// A counter added over a gated entity has to make that judgement again, and the
+// disposition test is what forces it.
 //
 // The counts a viewer is allowed to see therefore differ per caller, and the
 // owner and an admin see their own totals unchanged. Nothing about this
@@ -340,6 +347,18 @@ func (s *ContributorProfileService) GetContributionStats(userID uint, viewer con
 	// counted separately below so the contributor activity feed stops
 	// dual-rendering trusted-user direct-edits and the stats counters read
 	// from a single source of truth.
+	//
+	// NARROWED BY THE TIMELINE'S OWN CONDITION, from the same builder the
+	// timeline and the activity heatmap use. This scan and
+	// GetContributionHistory read audit_logs for the same actor and both are
+	// anonymous, so a count taken whole beside a filtered listing of the same
+	// rows is a count of the withheld ones published as arithmetic:
+	// moderation_actions carries approve_show and reject_show, and a rejected
+	// show is gated by definition.
+	//
+	// The condition passes every row naming an entity type with no read-time
+	// rule, so the release, label and festival counters below are unaffected.
+	auditVisible, auditVisibleArgs := contributionVisibilitySQL("audit_logs", viewer)
 	type actionCount struct {
 		Action string
 		Count  int64
@@ -348,6 +367,7 @@ func (s *ContributorProfileService) GetContributionStats(userID uint, viewer con
 	s.db.Model(&adminm.AuditLog{}).
 		Select("action, count(*) as count").
 		Where("actor_id = ?", userID).
+		Where(auditVisible, auditVisibleArgs...).
 		Group("action").
 		Scan(&actionCounts)
 
@@ -416,8 +436,24 @@ func (s *ContributorProfileService) GetContributionStats(userID uint, viewer con
 	// Pending entity edits submitted
 	s.db.Model(&adminm.PendingEntityEdit{}).Where("submitted_by = ?", userID).Count(&stats.PendingEditsSubmitted)
 
-	// Community participation: votes
-	s.db.Model(&catalogm.TagVote{}).Where("user_id = ?", userID).Count(&stats.TagVotesCast)
+	// Community participation: votes.
+	//
+	// tag_votes is POLYMORPHIC, so a row can name a gated show or a private
+	// collection, and the routes that write it are gated on exactly that
+	// (handlers/catalog.VoteTagHandler). The count takes the same registry-backed
+	// condition every other polymorphic surface takes, so a vote the caller could
+	// not have cast is not counted for them either. catalogm.TagEntityTypes and
+	// the registry hold the same seven types, so nothing is dropped for being
+	// unregistered.
+	//
+	// The other two name no gated entity: relationship votes are artist-to-artist
+	// and request votes name a community request.
+	tagVotesVisible, tagVotesVisibleArgs := shared.VisibleCommentEntitySQL(
+		"tag_votes.entity_type", "tag_votes.entity_id", viewer)
+	s.db.Model(&catalogm.TagVote{}).
+		Where("user_id = ?", userID).
+		Where(tagVotesVisible, tagVotesVisibleArgs...).
+		Count(&stats.TagVotesCast)
 	s.db.Model(&catalogm.ArtistRelationshipVote{}).Where("user_id = ?", userID).Count(&stats.RelationshipVotesCast)
 	s.db.Model(&communitym.RequestVote{}).Where("user_id = ?", userID).Count(&stats.RequestVotesCast)
 

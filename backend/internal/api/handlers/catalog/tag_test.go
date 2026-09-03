@@ -2,8 +2,12 @@ package catalog
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"testing"
+
+	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	apperrors "psychic-homily-backend/internal/errors"
@@ -436,5 +440,105 @@ func TestTagWriteRoutes_AllowAVisibleEntity(t *testing.T) {
 	}
 	if called != 1 {
 		t.Errorf("the tag service was called %d times, want 1", called)
+	}
+}
+
+// THE SHOW HALF of the same gate, and the refusal's SHAPE.
+//
+// The four write routes above are exercised against a collection, which proves
+// the gate is called but not that it answers the SHOW rule: an entity type the
+// checker ignored would pass every one of those subtests. These run the show
+// arm, with the real rule in the checker so the viewer has to reach it, and then
+// compare the refusal a gated show gets against the one an id nobody has used
+// gets.
+//
+// That comparison is the acceptance criterion. A write against a gated show has
+// to be indistinguishable from a write against a show that never existed, or the
+// write route is an existence oracle over a dense id space, which is what the
+// tag family was.
+func TestTagWriteRoutes_RefuseAGatedShowExactlyLikeAMissingOne(t *testing.T) {
+	const submitterID = uint(2)
+	const gatedShowID = uint(7)
+	const neverUsedShowID = uint(99999999)
+
+	// The show rule: an admin and the submitter see a gated show, nobody else
+	// does, and NO caller sees a show that is not there.
+	showRule := &testhelpers.MockShowVisibility{
+		ShowVisibleToFn: func(showID uint, viewer contracts.ShowViewer) bool {
+			if showID == neverUsedShowID {
+				return false
+			}
+			return viewer.IsAdmin || viewer.UserID == submitterID
+		},
+		CollectionVisibleToFn: func(uint, contracts.ShowViewer) bool { return false },
+	}
+
+	addTag := func(t *testing.T, user *authm.User, showID uint) (*int, error) {
+		t.Helper()
+		reached := 0
+		mock := &testhelpers.MockTagService{
+			AddTagToEntityFn: func(uint, string, string, uint, uint, string) (*catalogm.EntityTag, error) {
+				reached++
+				return &catalogm.EntityTag{}, nil
+			},
+		}
+		h := NewTagHandler(mock, nil, showRule)
+		req := &AddTagToEntityRequest{EntityType: "show", EntityID: fmt.Sprint(showID)}
+		req.Body.TagID = 3
+		_, err := h.AddTagToEntityHandler(testhelpers.CtxWithUser(user), req)
+		return &reached, err
+	}
+
+	for _, tier := range []struct {
+		name string
+		user *authm.User
+		want int
+	}{
+		{"an authenticated stranger", &authm.User{ID: 3}, 404},
+		{"the show's submitter", &authm.User{ID: submitterID}, 0},
+		{"an admin", &authm.User{ID: 6, IsAdmin: true}, 0},
+	} {
+		t.Run(tier.name, func(t *testing.T) {
+			reached, err := addTag(t, tier.user, gatedShowID)
+			if tier.want == 0 {
+				if err != nil {
+					t.Fatalf("a caller entitled to the show was refused: %v", err)
+				}
+				if *reached != 1 {
+					t.Errorf("the tag service ran %d times for a granted caller, want 1", *reached)
+				}
+				return
+			}
+			testhelpers.AssertHumaError(t, err, tier.want)
+			if *reached != 0 {
+				t.Errorf("the tag service ran %d times for a refused caller, want 0", *reached)
+			}
+		})
+	}
+
+	// The pair that has to be one answer.
+	//
+	// The detail ECHOES the id the caller sent, which is not a disclosure: they
+	// chose it. What must not differ is anything else, so the comparison
+	// substitutes each request's own id back out and then demands byte equality.
+	// Comparing the raw strings would pass a refusal that named the show's TITLE
+	// for the gated id, which is the shape this is guarding against.
+	stranger := &authm.User{ID: 3}
+	_, gatedErr := addTag(t, stranger, gatedShowID)
+	_, missingErr := addTag(t, stranger, neverUsedShowID)
+
+	var gatedModel, missingModel *huma.ErrorModel
+	if !errors.As(gatedErr, &gatedModel) || !errors.As(missingErr, &missingModel) {
+		t.Fatalf("expected two *huma.ErrorModel refusals, got %T and %T", gatedErr, missingErr)
+	}
+	gatedShape := strings.ReplaceAll(gatedModel.Detail, fmt.Sprint(gatedShowID), "{id}")
+	missingShape := strings.ReplaceAll(missingModel.Detail, fmt.Sprint(neverUsedShowID), "{id}")
+	if gatedModel.Status != missingModel.Status ||
+		gatedModel.Title != missingModel.Title ||
+		gatedShape != missingShape {
+		t.Errorf("a gated show answers %d/%q/%q and a show id nobody has used answers %d/%q/%q; "+
+			"the difference is an existence oracle over a dense id space",
+			gatedModel.Status, gatedModel.Title, gatedModel.Detail,
+			missingModel.Status, missingModel.Title, missingModel.Detail)
 	}
 }

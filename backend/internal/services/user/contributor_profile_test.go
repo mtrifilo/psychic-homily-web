@@ -453,9 +453,17 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionStats_ModerationActions() {
 	user := suite.createTestUser("moderator")
 
-	suite.auditLog.LogAction(user.ID, "approve_show", "show", 1, nil)
-	suite.auditLog.LogAction(user.ID, "reject_show", "show", 2, nil)
-	suite.auditLog.LogAction(user.ID, "verify_venue", "venue", 1, nil)
+	// REAL shows, because the audit arm is now gated: a row naming a show that
+	// does not exist fails closed, exactly as the same row does in the
+	// contributions timeline this count sits beside.
+	submitter := suite.createTestUser("moderatedsubmitter")
+	approved := suite.createShow(submitter.ID, "Approved Show")
+	alsoApproved := suite.createShow(submitter.ID, "Another Approved Show")
+	venue := suite.createVenue(submitter.ID, "Moderated Venue")
+
+	suite.auditLog.LogAction(user.ID, "approve_show", "show", approved.ID, nil)
+	suite.auditLog.LogAction(user.ID, "reject_show", "show", alsoApproved.ID, nil)
+	suite.auditLog.LogAction(user.ID, "verify_venue", "venue", venue.ID, nil)
 
 	stats, err := suite.profileService.GetContributionStats(user.ID, contracts.ShowViewer{UserID: user.ID})
 
@@ -471,9 +479,12 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 	suite.createShow(user.ID, "My Show")
 	suite.createVenue(user.ID, "My Venue")
 
-	// Audit actions
+	// Audit actions. The show-typed row names a real approved show, because the
+	// audit arm withholds a row naming a show nobody can resolve. Submitted by
+	// somebody else, so it moderates rather than inflating shows_submitted.
+	moderated := suite.createShow(suite.createTestUser("mixedsubmitter").ID, "Moderated Show")
 	suite.auditLog.LogAction(user.ID, "create_release", "release", 1, nil)
-	suite.auditLog.LogAction(user.ID, "approve_show", "show", 99, nil)
+	suite.auditLog.LogAction(user.ID, "approve_show", "show", moderated.ID, nil)
 
 	stats, err := suite.profileService.GetContributionStats(user.ID, contracts.ShowViewer{UserID: user.ID})
 
@@ -2533,4 +2544,77 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatm
 	}
 	suite.Equal(auditEntries, strangerDays,
 		"the heatmap and the timeline must count the same audit rows for the same viewer")
+}
+
+// THE AUDIT-SOURCED COUNTERS MOVE WITH THE VIEWER, and they agree with the
+// timeline that lists the same rows.
+//
+// moderation_actions counts approve_show and reject_show, and a REJECTED show is
+// gated by definition, so the whole count sat beside a filtered listing of its
+// own rows: subtracting one from the other reported how many gated shows this
+// moderator had touched. Both now read audit_logs through one condition.
+//
+// The tag-vote count is here for the same reason on a different table: tag_votes
+// is polymorphic, so a vote on a gated show or a private collection was counted
+// for everyone.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionStats_NarrowsGatedAuditRows() {
+	moderator := suite.createTestUser("gatedauditmod")
+	submitter := suite.createTestUser("gatedauditsubmitter")
+
+	open := suite.createShow(submitter.ID, "Open Show")
+	gated := suite.createShow(submitter.ID, "Gated Show")
+	suite.Require().NoError(
+		suite.db.Model(&catalogm.Show{}).Where("id = ?", gated.ID).
+			Update("status", catalogm.ShowStatusRejected).Error)
+
+	suite.auditLog.LogAction(moderator.ID, "approve_show", "show", open.ID, nil)
+	suite.auditLog.LogAction(moderator.ID, "reject_show", "show", gated.ID, nil)
+
+	// One tag vote on each show, cast by the moderator.
+	for i, showID := range []uint{open.ID, gated.ID} {
+		tag := &catalogm.Tag{
+			Name:     fmt.Sprintf("gated audit tag %d", i),
+			Slug:     fmt.Sprintf("gated-audit-tag-%d-%d", i, showID),
+			Category: "genre",
+		}
+		suite.Require().NoError(suite.db.Create(tag).Error)
+		suite.Require().NoError(suite.db.Create(&catalogm.TagVote{
+			TagID: tag.ID, EntityType: "show", EntityID: showID,
+			UserID: moderator.ID, Vote: 1,
+		}).Error)
+	}
+
+	anonymous, err := suite.profileService.GetContributionStats(moderator.ID, contracts.ShowViewer{})
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), anonymous.ModerationActions,
+		"the rejected show's moderation row is still counted for an anonymous reader")
+	suite.Equal(int64(1), anonymous.TagVotesCast,
+		"the tag vote on the rejected show is still counted for an anonymous reader")
+
+	// The submitter sees their own gated show, so both of its rows come back.
+	toSubmitter, err := suite.profileService.GetContributionStats(
+		moderator.ID, contracts.ShowViewer{UserID: submitter.ID})
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), toSubmitter.ModerationActions)
+	suite.Equal(int64(2), toSubmitter.TagVotesCast)
+
+	// An admin sees every show, so the counts are whole for them too. This arm is
+	// what proves the narrowing is a VISIBILITY test rather than a filter that
+	// drops non-approved rows for everybody.
+	toAdmin, err := suite.profileService.GetContributionStats(
+		moderator.ID, contracts.ShowViewer{UserID: moderator.ID, IsAdmin: true})
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), toAdmin.ModerationActions)
+	suite.Equal(int64(2), toAdmin.TagVotesCast)
+
+	// AND THE COUNT AGREES WITH THE LISTING it sits beside. The equality is the
+	// point: a difference between these two numbers is the withheld row reported
+	// as arithmetic, which is what the gate exists to close. Scoped to the show
+	// entity type so the two really are counting the same rows.
+	entries, total, err := suite.profileService.GetContributionHistory(
+		moderator.ID, 50, 0, "show", contracts.ShowViewer{})
+	suite.Require().NoError(err)
+	suite.Equal(anonymous.ModerationActions, total,
+		"the anonymous moderation count and the anonymous show timeline disagree")
+	suite.Len(entries, int(total))
 }

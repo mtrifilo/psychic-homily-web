@@ -687,20 +687,20 @@ func (h *ShowHandler) GetShowHandler(ctx context.Context, req *GetShowRequest) (
 		)
 	}
 
-	// Access control: non-approved shows require authorization
-	if show.Status != "approved" {
-		user := middleware.GetUserFromContext(ctx)
-		isAdmin := user != nil && user.IsAdmin
-		isSubmitter := user != nil && show.SubmittedBy != nil && *show.SubmittedBy == user.ID
-
-		if !isAdmin && !isSubmitter {
-			logger.FromContext(ctx).Warn("show_access_denied",
-				"show_id", show.ID,
-				"status", show.Status,
-				"request_id", requestID,
-			)
-			return nil, huma.Error404NotFound("Show not found")
-		}
+	// Access control. THIS ROUTE IS THE RULE, and it evaluates the rule from the
+	// one place it lives (services/shared/show_visibility.go) rather than
+	// restating it: every other surface that serves a show reads that file, so a
+	// second spelling here is the one that would drift.
+	//
+	// The row is already loaded, so the predicate takes its status and submitter
+	// instead of a second lookup by id.
+	if !servicesshared.LoadedShowVisibleTo(show.Status, show.SubmittedBy, middleware.GetShowViewerFromContext(ctx)) {
+		logger.FromContext(ctx).Warn("show_access_denied",
+			"show_id", show.ID,
+			"status", show.Status,
+			"request_id", requestID,
+		)
+		return nil, huma.Error404NotFound("Show not found")
 	}
 
 	logger.FromContext(ctx).Debug("show_get_success",
