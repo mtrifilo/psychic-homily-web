@@ -1,0 +1,21 @@
+[
+  { "entity_type": "artist", "name": "Paper Tigers" },
+  { "entity_type": "artist", "name": "North of Nowhere" },
+  { "entity_type": "artist", "name": "Glass Arcade" },
+  { "entity_type": "artist", "name": "Salt and Cedar" },
+  { "entity_type": "venue", "name": "Rhythm Room", "city": "Phoenix", "state": "AZ" },
+  {
+    "entity_type": "show",
+    "event_date": "2026-05-08",
+    "city": "Phoenix",
+    "state": "AZ",
+    "price": 15,
+    "artists": [
+      { "name": "Paper Tigers" },
+      { "name": "North of Nowhere" },
+      { "name": "Glass Arcade" },
+      { "name": "Salt and Cedar" }
+    ],
+    "venues": [{ "name": "Rhythm Room", "city": "Phoenix", "state": "AZ" }]
+  }
+]

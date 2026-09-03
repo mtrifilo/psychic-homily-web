@@ -4,6 +4,7 @@ import {
   scoreEntitySet,
   scoreFestivalFields,
   scoreBillingTiers,
+  scoreShowFields,
   scoreExtraction,
   parseModelBatch,
   formatScore,
@@ -249,5 +250,161 @@ describe("formatScore", () => {
     const text = formatScore(s);
     expect(text).toContain("missed:");
     expect(text).toContain("hallucinated: Ghost Band");
+  });
+});
+
+// The two show fields the extraction rules govern by an "only when stated"
+// rule. Both are scored on ABSENCE as well as value, which is the whole point:
+// a spurious door price and a headliner read off list order are the failures
+// the show-flyer fixtures exist to catch, and neither shows up in a recall
+// metric.
+describe("scoreShowFields", () => {
+  const splitPriceGolden: BatchItem[] = [
+    {
+      entity_type: "show",
+      event_date: "2026-04-18",
+      city: "Phoenix",
+      state: "AZ",
+      price: 20,
+      door_price: 25,
+      artists: [
+        { name: "Desert Hymn", is_headliner: true, set_type: "headliner" },
+        { name: "Copper Ghost", set_type: "special_guest" },
+        { name: "Low Ember", set_type: "opener" },
+      ],
+      venues: [{ name: "Valley Bar", city: "Phoenix", state: "AZ" }],
+    },
+  ];
+
+  const barePriceGolden: BatchItem[] = [
+    {
+      entity_type: "show",
+      event_date: "2026-05-08",
+      city: "Phoenix",
+      state: "AZ",
+      price: 15,
+      artists: [{ name: "Paper Tigers" }, { name: "Glass Arcade" }],
+      venues: [{ name: "Rhythm Room", city: "Phoenix", state: "AZ" }],
+    },
+  ];
+
+  test("a faithful split price and stated roles score 1", () => {
+    const s = scoreShowFields(splitPriceGolden, splitPriceGolden);
+    expect(s.shows).toEqual({ expected: 1, matched: 1, missed: [] });
+    expect(s.prices.rate).toBe(1);
+    expect(s.billRoles.rate).toBe(1);
+  });
+
+  test("a dropped door price is a price mismatch, not a silent pass", () => {
+    const actual: BatchItem[] = [{ ...splitPriceGolden[0], door_price: undefined }];
+    const s = scoreShowFields(splitPriceGolden, actual);
+    expect(s.prices.matched).toBe(1);
+    expect(s.prices.comparable).toBe(2);
+    expect(s.prices.mismatches[0]).toContain("door_price: expected 25, got null");
+  });
+
+  test("a door price the source never stated is a mismatch", () => {
+    const actual: BatchItem[] = [{ ...barePriceGolden[0], door_price: 15 }];
+    const s = scoreShowFields(barePriceGolden, actual);
+    expect(s.prices.rate).toBe(0.5);
+    expect(s.prices.mismatches[0]).toContain("door_price: expected null, got 15");
+  });
+
+  test("a price written as a currency string still matches its number", () => {
+    const actual: BatchItem[] = [{ ...barePriceGolden[0], price: "$15" }];
+    expect(scoreShowFields(barePriceGolden, actual).prices.rate).toBe(1);
+  });
+
+  test("a price that is not a number matches nothing, including an absent one", () => {
+    const actual: BatchItem[] = [{ ...barePriceGolden[0], price: "donation" }];
+    expect(scoreShowFields(barePriceGolden, actual).prices.rate).toBe(0.5);
+  });
+
+  test("zero is a stated price, not silence", () => {
+    const free: BatchItem[] = [{ ...barePriceGolden[0], price: 0 }];
+    const omitted: BatchItem[] = [{ ...barePriceGolden[0], price: undefined }];
+    expect(scoreShowFields(free, omitted).prices.rate).toBe(0.5);
+    expect(scoreShowFields(free, free).prices.rate).toBe(1);
+  });
+
+  test("a role read off list order is a bill-role mismatch", () => {
+    // The classic failure: nothing on the flyer named a headliner, and the
+    // model designated the first act anyway.
+    const actual: BatchItem[] = [
+      {
+        ...barePriceGolden[0],
+        artists: [{ name: "Paper Tigers", is_headliner: true }, { name: "Glass Arcade" }],
+      },
+    ];
+    const s = scoreShowFields(barePriceGolden, actual);
+    expect(s.billRoles.matched).toBe(1);
+    expect(s.billRoles.comparable).toBe(2);
+    expect(s.billRoles.mismatches[0]).toContain("expected null, got headliner");
+  });
+
+  test("performer and an absent set_type are the same silence", () => {
+    const actual: BatchItem[] = [
+      {
+        ...barePriceGolden[0],
+        artists: [
+          { name: "Paper Tigers", set_type: "performer" },
+          { name: "Glass Arcade", set_type: "  " },
+        ],
+      },
+    ];
+    expect(scoreShowFields(barePriceGolden, actual).billRoles.rate).toBe(1);
+  });
+
+  test("a flattened role is a mismatch", () => {
+    const actual: BatchItem[] = [
+      {
+        ...splitPriceGolden[0],
+        artists: [
+          { name: "Desert Hymn", is_headliner: true, set_type: "headliner" },
+          { name: "Copper Ghost" },
+          { name: "Low Ember", set_type: "opener" },
+        ],
+      },
+    ];
+    const s = scoreShowFields(splitPriceGolden, actual);
+    expect(s.billRoles.matched).toBe(2);
+    expect(s.billRoles.mismatches[0]).toContain("expected special_guest, got null");
+  });
+
+  test("an act the model never produced is left to artist recall", () => {
+    const actual: BatchItem[] = [
+      { ...splitPriceGolden[0], artists: [{ name: "Desert Hymn", set_type: "headliner" }] },
+    ];
+    const s = scoreShowFields(splitPriceGolden, actual);
+    expect(s.billRoles.comparable).toBe(1);
+    expect(s.billRoles.rate).toBe(1);
+  });
+
+  test("a show on a different date is missed, and grades no fields", () => {
+    const actual: BatchItem[] = [{ ...splitPriceGolden[0], event_date: "2026-04-19" }];
+    const s = scoreShowFields(splitPriceGolden, actual);
+    expect(s.shows.matched).toBe(0);
+    expect(s.shows.missed).toEqual(["2026-04-18|valley bar"]);
+    expect(s.prices.comparable).toBe(0);
+    expect(s.prices.rate).toBe(1);
+  });
+
+  test("a batch with no shows scores a vacuous 1 and reports nothing", () => {
+    const s = scoreShowFields(golden, golden);
+    expect(s.shows.expected).toBe(0);
+    expect(s.prices.rate).toBe(1);
+    expect(formatScore(scoreExtraction(golden, golden))).not.toContain("Show prices");
+  });
+
+  test("show fields are reported but do not move overall", () => {
+    // A fixture's overall stays comparable with the number it recorded before
+    // this metric existed.
+    const perfect = scoreExtraction(splitPriceGolden, splitPriceGolden).overall;
+    const wrongPrice = scoreExtraction(splitPriceGolden, [
+      { ...splitPriceGolden[0], door_price: undefined },
+    ]);
+    expect(wrongPrice.overall).toBe(perfect);
+    expect(wrongPrice.showFields.prices.rate).toBe(0.5);
+    expect(formatScore(wrongPrice)).toContain("Show prices (absence included): 1/2");
   });
 });

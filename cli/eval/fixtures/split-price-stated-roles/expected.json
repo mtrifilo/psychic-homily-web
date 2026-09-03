@@ -1,0 +1,20 @@
+[
+  { "entity_type": "artist", "name": "Desert Hymn" },
+  { "entity_type": "artist", "name": "Copper Ghost" },
+  { "entity_type": "artist", "name": "Low Ember" },
+  { "entity_type": "venue", "name": "Valley Bar", "city": "Phoenix", "state": "AZ" },
+  {
+    "entity_type": "show",
+    "event_date": "2026-04-18",
+    "city": "Phoenix",
+    "state": "AZ",
+    "price": 20,
+    "door_price": 25,
+    "artists": [
+      { "name": "Desert Hymn", "is_headliner": true, "set_type": "headliner" },
+      { "name": "Copper Ghost", "set_type": "special_guest" },
+      { "name": "Low Ember", "set_type": "opener" }
+    ],
+    "venues": [{ "name": "Valley Bar", "city": "Phoenix", "state": "AZ" }]
+  }
+]

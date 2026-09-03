@@ -119,6 +119,45 @@ export default function assert(output: string, context: AssertContext): GradingR
       reason: `Billing-tier agreement ${score.billingTierAgreement.matched}/${score.billingTierAgreement.comparable}`,
       namedScores: { billing_tier_agreement: score.billingTierAgreement.rate },
     },
+    // Show prices and bill roles are graded at 1.0, not 0.8: both are
+    // "state it only when the source states it" rules, so a single spurious
+    // door price or inferred headliner is the whole failure the metric exists
+    // to see. A fixture with no golden shows scores a vacuous 1 and reports
+    // nothing, which is why the reason line names the counts.
+    {
+      pass: score.showFields.prices.rate >= 1,
+      score: score.showFields.prices.rate,
+      reason:
+        `Show prices (absence included) ${score.showFields.prices.matched}/${score.showFields.prices.comparable}` +
+        (score.showFields.prices.mismatches.length
+          ? `: ${score.showFields.prices.mismatches.join("; ")}`
+          : ""),
+      namedScores: { show_price_agreement: score.showFields.prices.rate },
+    },
+    {
+      pass: score.showFields.billRoles.rate >= 1,
+      score: score.showFields.billRoles.rate,
+      reason:
+        `Bill roles (absence included) ${score.showFields.billRoles.matched}/${score.showFields.billRoles.comparable}` +
+        (score.showFields.billRoles.mismatches.length
+          ? `: ${score.showFields.billRoles.mismatches.join("; ")}`
+          : ""),
+      namedScores: { bill_role_agreement: score.showFields.billRoles.rate },
+    },
+    {
+      pass: score.showFields.shows.missed.length === 0,
+      score:
+        score.showFields.shows.expected === 0
+          ? 1
+          : score.showFields.shows.matched / score.showFields.shows.expected,
+      reason: `Shows ${score.showFields.shows.matched}/${score.showFields.shows.expected} matched on date + venue`,
+      namedScores: {
+        show_recall:
+          score.showFields.shows.expected === 0
+            ? 1
+            : score.showFields.shows.matched / score.showFields.shows.expected,
+      },
+    },
   ];
 
   // No hard pass/fail gate (per PSY-935 — thresholds are a later user decision).
@@ -134,6 +173,8 @@ export default function assert(output: string, context: AssertContext): GradingR
       artist_recall: score.artists.recall,
       venue_recall: score.venues.recall,
       billing_tier_agreement: score.billingTierAgreement.rate,
+      show_price_agreement: score.showFields.prices.rate,
+      bill_role_agreement: score.showFields.billRoles.rate,
       schema_valid: schemaValid ? 1 : 0,
     },
   };
