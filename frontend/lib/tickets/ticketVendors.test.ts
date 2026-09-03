@@ -583,6 +583,7 @@ describe('carriesOurAffiliateTag', () => {
 describe('ticketOffer', () => {
   const TICKETWEB = 'https://www.ticketweb.com/event/2'
   const UNKNOWN = 'https://box-office.example/e/1'
+  const PLANTED = `${TICKETWEB}?irmp=9999999`
 
   // THE paid-referral rule. Read with no partner ID configured, which is the
   // state the site ships in.
@@ -597,22 +598,21 @@ describe('ticketOffer', () => {
   })
 
   it('links a vendor this build tagged, and only that vendor', () => {
-    process.env.NEXT_PUBLIC_IMPACT_PARTNER_ID = '1234567'
-    const known = ticketOffer(TICKETWEB)
+    const known = ticketOffer(TICKETWEB, { partnerIds: IMPACT })
     expect(known.linked).toBe(true)
-    expect(known.link.href).toBe(`${TICKETWEB}?irmp=1234567`)
-    expect(known.link.sponsored).toBe(true)
-    expect(ticketOffer(UNKNOWN).linked).toBe(false)
+    if (!known.linked) throw new Error('unreachable')
+    expect(known.href).toBe(`${TICKETWEB}?irmp=1234567`)
+    expect(known.sponsored).toBe(true)
+    expect(known.ugc).toBe(false)
+    expect(ticketOffer(UNKNOWN, { partnerIds: IMPACT }).linked).toBe(false)
   })
 
   // A tag somebody else planted makes the link sponsored without making it
   // ours, so it is not a click we are paid for.
   it('withholds the link for a planted tag on a configured vendor', () => {
-    process.env.NEXT_PUBLIC_IMPACT_PARTNER_ID = '1234567'
-    const planted = ticketOffer(`${TICKETWEB}?irmp=9999999`)
-    expect(planted.link.sponsored).toBe(true)
-    expect(planted.link.plantedTag).not.toBeNull()
+    const planted = ticketOffer(PLANTED, { partnerIds: IMPACT })
     expect(planted.linked).toBe(false)
+    expect(planted.plantedTag).not.toBeNull()
     expect(planted.vendorName).toBe('TicketWeb')
   })
 
@@ -621,18 +621,55 @@ describe('ticketOffer', () => {
   it('links any vendor when the caller says admission is free', () => {
     const offer = ticketOffer(UNKNOWN, { freeAdmission: true })
     expect(offer.linked).toBe(true)
-    expect(offer.link.href).toBe(UNKNOWN)
-    expect(offer.link.sponsored).toBe(false)
+    if (!offer.linked) throw new Error('unreachable')
+    expect(offer.href).toBe(UNKNOWN)
+    expect(offer.sponsored).toBe(false)
+    // Contributor-chosen destination that earns the site nothing.
+    expect(offer.ugc).toBe(true)
+  })
+
+  // THE REGRESSION THIS PAIR EXISTS FOR. A zero price and a ticket URL are
+  // both contributor-writable on the same unreviewed form, so an exemption
+  // that ignored the planted tag would be a two-field switch for publishing
+  // any stranger's affiliate link as a live anchor.
+  it('refuses the free-admission exemption for a planted tag', () => {
+    expect(ticketOffer(PLANTED, { freeAdmission: true }).linked).toBe(false)
+    expect(
+      ticketOffer(PLANTED, { freeAdmission: true, partnerIds: IMPACT }).linked
+    ).toBe(false)
+  })
+
+  // Our OWN tag still wins on a free show: the click is paid for, so it is
+  // qualified as sponsored rather than as user-generated.
+  it('prefers our own tag over the exemption on a free show', () => {
+    const offer = ticketOffer(TICKETWEB, {
+      freeAdmission: true,
+      partnerIds: IMPACT,
+    })
+    expect(offer.linked).toBe(true)
+    if (!offer.linked) throw new Error('unreachable')
+    expect(offer.href).toBe(`${TICKETWEB}?irmp=1234567`)
+    expect(offer.sponsored).toBe(true)
+    expect(offer.ugc).toBe(false)
   })
 
   // The report is about the STORED value, so it survives the refusal to link.
-  it('carries the link even when the anchor is withheld', () => {
-    const offer = ticketOffer(`${TICKETWEB}?irmp=9999999`)
+  it('carries the planted tag even when the anchor is withheld', () => {
+    const offer = ticketOffer(PLANTED)
     expect(offer.linked).toBe(false)
-    expect(offer.link.plantedTag).toEqual({
+    expect(offer.plantedTag).toEqual({
       param: 'irmp',
       host: 'www.ticketweb.com',
       matchesConfiguredPartner: false,
     })
+  })
+
+  // A value naming no host has nothing to link and nothing to name.
+  it('has neither a link nor a name for a value that names no host', () => {
+    for (const raw of ['https://', 'https:///', 'https://javascript:alert(1)']) {
+      const offer = ticketOffer(raw, { freeAdmission: true })
+      expect(offer.linked).toBe(false)
+      expect(offer.vendorName).toBeNull()
+    }
   })
 })

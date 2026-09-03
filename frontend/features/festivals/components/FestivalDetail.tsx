@@ -106,11 +106,10 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
   // report below is a hook and cannot sit behind them. Tolerates an absent
   // festival: every branch yields null until the fetch resolves.
   //
-  // The same repair and the same vendor table the show page's Buy Tickets
-  // bracket reads, so a stored value means one thing on both surfaces. Without
-  // the repair a scheme-less `ticket_url` rendered as a relative href that
-  // navigated under /festivals/, and could never be tagged. A pass-through
-  // until a partner ID is configured.
+  // The same repair and the same vendor table the show page's ticket row
+  // reads, so a stored value means one thing on both surfaces. The repair is
+  // what keeps a scheme-less `ticket_url` from resolving as a relative href
+  // under /festivals/.
   //
   // The http(s) floor is this anchor's own, because it is a raw <a> rather
   // than a BracketLink (which carries the same floor for the same reason).
@@ -132,7 +131,7 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
     repairedTicketUrl && /^https?:\/\//i.test(repairedTicketUrl)
       ? ticketOffer(repairedTicketUrl)
       : null
-  usePlantedTicketTagReport('festival', festival?.id ?? '', offer?.link.plantedTag)
+  usePlantedTicketTagReport('festival', festival?.id ?? '', offer?.plantedTag)
 
   if (isLoading) {
     return (
@@ -410,9 +409,9 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
               )}
               {ticketRow === 'link' && offer && (
                 <a
-                  href={offer.link.href}
+                  href={offer.href}
                   target="_blank"
-                  rel={outboundRel(offer.link.sponsored)}
+                  rel={outboundRel(offer.sponsored, offer.ugc)}
                   className="flex items-center gap-2 text-primary hover:text-primary/80 transition-colors text-sm"
                 >
                   <Ticket className="h-4 w-4" />
@@ -422,9 +421,9 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
               {ticketRow === 'name' && (
                 <span
                   data-testid="festival-ticket-vendor"
-                  className="flex items-center gap-2 text-muted-foreground text-sm"
+                  className="flex min-w-0 items-center gap-2 break-words text-muted-foreground text-sm"
                 >
-                  <Ticket className="h-4 w-4" />
+                  <Ticket className="h-4 w-4 shrink-0" />
                   {offer?.vendorName}
                 </span>
               )}

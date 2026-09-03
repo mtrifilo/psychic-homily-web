@@ -4,7 +4,11 @@ import { saysSoldOut } from './showSaleState'
 import { showIsArchived } from '@/lib/utils/showTiming'
 import { formatPrice } from '@/lib/utils/formatters'
 import { statedShowPrices } from '@/lib/utils/showPrice'
-import { repairTicketUrl, ticketOffer } from '@/lib/tickets/ticketVendors'
+import {
+  repairTicketUrl,
+  ticketOffer,
+  ticketVendorLabel,
+} from '@/lib/tickets/ticketVendors'
 import type { TicketOffer } from '@/lib/tickets/ticketVendors'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import type { ShowResponse } from '../types'
@@ -41,6 +45,11 @@ function storedTicketUrl(show: ShowResponse): string | null {
  * only caller, so a refusal added here reaches the words and the affordance
  * together.
  *
+ * Null too for a value that names no HOST (`https://`, `/`, a repaired
+ * `javascript:` value). Such a value is not somewhere to buy: there is no
+ * anchor to render and no vendor to name, so without this refusal the line
+ * would claim ON SALE and then point the reader nowhere.
+ *
  * The repair itself is {@link repairTicketUrl}, shared with the festival
  * page's ticket link so the two surfaces cannot disagree about what a stored
  * value means. This function owns only the refusals above.
@@ -56,7 +65,10 @@ function ticketHref(
   if (!raw || show.is_cancelled || show.is_sold_out || lifecycle === 'past') {
     return null
   }
-  return repairTicketUrl(raw)
+  const repaired = repairTicketUrl(raw)
+  // `ticketVendorLabel` is null exactly when the value names no host, which is
+  // the same question asked once instead of twice.
+  return repaired && ticketVendorLabel(repaired) ? repaired : null
 }
 
 /**
@@ -231,8 +243,10 @@ function saysPastRegister(
  * on every state that has nothing to offer.
  *
  * `offer` is a parameter so the row that renders the anchor can derive it
- * ONCE and hand it here: the name and the anchor are mutually exclusive, and
- * two independent derivations would only agree by coincidence.
+ * ONCE and hand it here: the name and the anchor are mutually exclusive. The
+ * default re-derives from the same inputs for a caller that wants the line
+ * alone, so it agrees by construction; a caller passing an offer built from a
+ * DIFFERENT show or lifecycle would not, and nothing here checks that.
  *
  * The age segment is a venue-less fallback: the venue module's facts line
  * owns the age fact, but a show with no venue row never mounts that module,

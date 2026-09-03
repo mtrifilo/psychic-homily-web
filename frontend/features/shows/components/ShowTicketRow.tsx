@@ -62,16 +62,17 @@ export function ShowTicketRow({ show, lifecycle }: ShowTicketRowProps) {
     show.artists.map(artist => artist.name)
   )
   // An affiliate tag in a STORED ticket url was planted by whoever submitted
-  // the show, since we only ever append ours at render. Reported for every
-  // show that has one, including the ones this row declines to link.
-  usePlantedTicketTagReport('show', show.id, offer?.link.plantedTag)
+  // the show, since we only ever append ours at render. Reported whenever this
+  // row has an offer at all, linked or not; the states with no offer (past,
+  // cancelled, sold out) report nothing.
+  usePlantedTicketTagReport('show', show.id, offer?.plantedTag)
 
   return (
     <div data-testid="show-ticket-row">
       <MiddotSegments
         segments={segments}
         data-testid="ticket-line"
-        className="font-mono text-sm font-medium tabular-nums"
+        className="font-mono text-sm font-medium tabular-nums break-words"
       />
 
       <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
@@ -82,9 +83,10 @@ export function ShowTicketRow({ show, lifecycle }: ShowTicketRowProps) {
           // same thing in words. Only the new-tab claim moved to BracketLink.
           <BracketLink
             label="Buy Tickets ↗"
-            href={offer.link.href}
+            href={offer.href}
             external
-            sponsored={offer.link.sponsored}
+            sponsored={offer.sponsored}
+            ugc={offer.ugc}
             ariaLabel="Buy tickets"
           />
         )}

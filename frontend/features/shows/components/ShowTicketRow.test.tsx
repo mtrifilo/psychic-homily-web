@@ -336,6 +336,24 @@ describe('ticketLineSegments', () => {
   })
 })
 
+// A stored value that names no HOST is not somewhere to buy: there is no
+// anchor to render and no vendor to name, so the line must not claim ON SALE
+// and then point the reader nowhere. `ticket_url` is open contribution, and
+// `repairTicketUrl` turns a script-bearing value into an absolute-looking one.
+describe('ticketLineSegments with a hostless ticket url', () => {
+  it.each(['https://', '/', 'javascript:alert(1)'])(
+    'says nothing about a sale for %s',
+    ticket_url => {
+      const segments = ticketLineSegments(
+        makeShow({ ticket_url, price: 25 }),
+        'upcoming'
+      )
+      expect(segments).not.toContain('ON SALE')
+      expect(segments).toEqual(['8PM', '$25'])
+    }
+  )
+})
+
 describe('ShowTicketRow', () => {
   /** The middot line above the verb row, read as flat text. */
   function ticketLine(): string {
@@ -391,7 +409,10 @@ describe('ShowTicketRow', () => {
     const buy = screen.getByRole('link', { name: /^Buy tickets\b/i })
     expect(buy).toHaveAttribute('href', 'https://rsvp.example/1')
     expect(buy).toHaveAttribute('target', '_blank')
-    expect(buy).toHaveAttribute('rel', 'noopener noreferrer')
+    // `ugc`, not `sponsored`: the destination is contributor-chosen and earns
+    // the site nothing, and this is the only outbound ticket link that renders
+    // on a build with no partner ID.
+    expect(buy).toHaveAttribute('rel', 'noopener noreferrer ugc')
     // Anchored above so the ↗ cannot drift into the announced name, and the
     // new-tab claim must be present exactly once.
     expect(

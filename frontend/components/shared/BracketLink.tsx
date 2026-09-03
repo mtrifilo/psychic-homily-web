@@ -118,14 +118,20 @@ export interface BracketLinkProps
    * qualified, and an unqualified affiliate link is the site's own ranking at
    * risk, not the vendor's.
    *
-   * Derive it, never assert it: the ticket call site passes what `ticketLink`
-   * in `lib/tickets/ticketVendors` reports, which is the only thing that knows
-   * whether a partner ID was actually attached. A hand-set `sponsored` on a
-   * link carrying no tag is a claim about money that is simply false.
-   * Ignored without `external`, since the internal `<Link>` branch points
-   * inside this site.
+   * Derive it, never assert it: the ticket call site passes what
+   * `ticketOffer` in `lib/tickets/ticketVendors` reports, which is the only
+   * thing that knows whether OUR partner ID was actually attached. A hand-set
+   * `sponsored` on a link carrying no tag is a claim about money that is
+   * simply false. Ignored without `external`, since the internal `<Link>`
+   * branch points inside this site.
    */
   sponsored?: boolean
+  /**
+   * This outbound destination was chosen by a contributor and earns the site
+   * nothing, so `rel` gains `ugc`. Same derive-never-assert rule as
+   * `sponsored`, and the same `external` gate.
+   */
+  ugc?: boolean
   /** Visual variant. `danger` is red for destructive actions like [Remove] / [Delete] / [X]. */
   variant?: 'default' | 'danger'
   /**
@@ -176,6 +182,7 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
       variant = 'default',
       external = false,
       sponsored = false,
+      ugc = false,
       disabled = false,
       title,
       ariaLabel,
@@ -291,7 +298,7 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
             {...anchorProps}
             href={trimmedHref}
             target="_blank"
-            rel={outboundRel(sponsored)}
+            rel={outboundRel(sponsored, ugc)}
           >
             {content}
           </a>

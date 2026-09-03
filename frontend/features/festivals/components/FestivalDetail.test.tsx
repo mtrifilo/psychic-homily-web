@@ -169,8 +169,8 @@ function makeFestival(
 }
 
 describe('FestivalDetail', () => {
-  // No test may leak a configured partner ID into the cases that assert an
-  // untagged, unqualified ticket link.
+  // No test may leak a configured partner ID into the cases that assert a
+  // withheld ticket link.
   afterEach(() => {
     delete process.env.NEXT_PUBLIC_IMPACT_PARTNER_ID
   })
@@ -352,16 +352,22 @@ describe('FestivalDetail', () => {
     )
   })
 
-  it('renders no script-bearing ticket href', () => {
+  // A script-bearing value survives `repairTicketUrl` as the absolute-looking
+  // `https://javascript:alert(1)`, which names no host. Asserted with a partner
+  // ID configured, because without one NO value renders an anchor and the
+  // assertion would hold for the wrong reason.
+  it('renders neither a href nor a vendor name for a script-bearing value', () => {
+    process.env.NEXT_PUBLIC_IMPACT_PARTNER_ID = '1234567'
     mockUseFestival.mockReturnValue({
-      data: makeFestival({ ticket_url: 'javascript:alert(1)' }),
+      data: makeFestival({ ticket_url: 'javascript:alert(1)', website: null }),
       isLoading: false,
       error: null,
     })
     renderWithProviders(<FestivalDetail idOrSlug="form-arcosanti" />)
 
-    const buy = screen.queryByRole('link', { name: 'Buy Tickets' })
-    expect(buy?.getAttribute('href') ?? '').not.toMatch(/^javascript:/i)
+    expect(screen.queryByRole('link', { name: 'Buy Tickets' })).toBeNull()
+    expect(screen.queryByTestId('festival-ticket-vendor')).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Links' })).toBeNull()
   })
 
   it('renders the venues section with venue links', () => {

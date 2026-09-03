@@ -7,19 +7,19 @@
  * `show.ticket_url` is open contribution that publishes without review, and
  * this app never writes an affiliate tag into the database: `ticketLink`
  * appends ours at render time and returns a string. So a tag found in a STORED
- * value was put there by whoever submitted the row, and today the only
- * consequence is that the page renders it with `rel="sponsored"` and declines
- * to add ours beside it. That is correct link hygiene and completely silent.
- * Nothing tells anyone the row exists, so a contributor monetizing our
- * traffic, or an automated probe testing whether we strip tags, produces no
- * signal at all.
+ * value was put there by whoever submitted the row. `ticketOffer` refuses to
+ * render an outbound anchor for such a value, since the click would pay
+ * whoever planted the tag. That refusal is correct and completely silent.
+ * Nothing tells anyone the row exists, so a contributor trying to monetize
+ * our traffic, or an automated probe testing whether we strip tags, produces
+ * no signal at all.
  *
  * WHAT THIS IS AND IS NOT
  *
- * It is the OPERATOR-FACING half only: a warning, so somebody can look. The
- * link still renders exactly as stored; nothing here changes a href, blocks a
- * submission, or edits a row. The moderation-queue flag that lets an admin
- * actually clear one is a separate, filed follow-up.
+ * It is the OPERATOR-FACING half only: a warning, so somebody can look.
+ * Nothing here changes a href, blocks a submission, or edits a row. The
+ * moderation-queue flag that lets an admin actually clear one is a separate,
+ * filed follow-up.
  *
  * WHAT LEAVES THE PROCESS
  *
@@ -66,7 +66,7 @@
 import * as Sentry from '@sentry/nextjs'
 import type { PlantedTicketTag } from './ticketVendors'
 
-/** Entities whose ticket URL this app renders as an outbound link. */
+/** Entities whose ticket URL this app resolves for rendering. */
 export type TicketTagEntityType = 'show' | 'festival'
 
 export interface PlantedTagReport {
@@ -192,10 +192,11 @@ function reportPlantedTicketTagUnguarded(report: PlantedTagReport): void {
       },
       extra: {
         entityId,
-        // Stated rather than implied: whoever reads this event should know the
-        // link was left alone on purpose, and that qualification already
-        // happened, before deciding what to do about the row.
-        renderedAs: 'unmodified, with rel="sponsored"',
+        // Stated rather than implied: whoever reads this event should know
+        // the stored value was left alone on purpose, and that the page
+        // renders no outbound anchor for it, before deciding what to do about
+        // the row. A free-admission exemption cannot override this.
+        renderedAs: 'stored value unmodified; no outbound anchor rendered',
       },
     }
   )

@@ -34,11 +34,14 @@ import type { ShowResponse, ArtistResponse } from '../types'
  * the act has no placeable location.
  *
  * Both halves are shared with the show page: {@link billHometown} for the
- * parts (country included unless the state is set and the country is USA/US)
- * and {@link basedInPhrase} for the prefix. This line sits beside the SHOW's
- * city, where a bare place name after an act's name reads as where the show
- * is, and one act must not be worded two ways across the card and the page it
- * opens.
+ * parts and {@link basedInPhrase} for the prefix. This line sits beside the
+ * SHOW's city, where a bare place name after an act's name reads as where the
+ * show is, and one act must not be worded two ways across the card and the
+ * page it opens.
+ *
+ * {@link billHometown} counts COUNTRY as placeable, so an act carrying only a
+ * country states it, and its country is included unless the state is set and
+ * the country is USA/US.
  */
 function ArtistBase({ artist }: { artist: ArtistResponse }) {
   const base = basedInPhrase(billHometown(artist))

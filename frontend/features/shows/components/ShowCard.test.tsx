@@ -544,7 +544,32 @@ describe('ShowCard', () => {
       ).toBeInTheDocument()
     })
 
-    it('prints nothing for an act with no city or state', async () => {
+    // COUNTRY ALONE now counts, because the shared rule counts it. This card
+    // printed nothing for such an act before it adopted `billHometown`.
+    it('states a country-only location', async () => {
+      const user = userEvent.setup()
+      const show = makeShow({
+        artists: [
+          makeArtist({
+            id: 1,
+            name: 'Band',
+            is_headliner: true,
+            city: '',
+            state: '',
+            country: 'Japan',
+            socials: { bandcamp: 'https://band.bandcamp.com' },
+          }),
+        ],
+      })
+      render(<ShowCard show={show} isAdmin={false} />)
+
+      await user.click(
+        screen.getByRole('button', { name: /discover artist music/i })
+      )
+      expect(screen.getByText('based in Japan')).toBeInTheDocument()
+    })
+
+    it('prints nothing for an act with no placeable location at all', async () => {
       const user = userEvent.setup()
       const show = makeShow({
         artists: [

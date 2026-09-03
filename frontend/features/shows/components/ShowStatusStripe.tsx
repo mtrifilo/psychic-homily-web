@@ -29,8 +29,7 @@ interface ShowStatusStripeProps {
  *
  * TONAL, not inverted: the muted surface and foreground text of the page's own
  * palette, bounded by hairline rules in the border token. The band separates
- * itself from the page by tint and by its rules rather than by reversing the
- * page's contrast, which reads the same way in both themes.
+ * itself from the page by tint rather than by reversing the page's contrast.
  *
  * `min-h-11` rather than a hard height so the longest state (TONIGHT with
  * doors, music and the estimated end) can wrap on a narrow screen instead of

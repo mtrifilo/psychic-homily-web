@@ -471,7 +471,11 @@ function splitUrlForTagging(url: string): {
 }
 
 /**
- * A stored ticket URL turned into the href the page actually renders.
+ * A stored ticket URL turned into a tagged href and its qualification.
+ *
+ * NOT by itself the decision to render an anchor. {@link ticketOffer} is the
+ * gate every visible surface goes through, and a surface that calls this
+ * directly ships an outbound link the site is not paid for.
  *
  * With no partner ID configured for the vendor's network, or for a vendor
  * outside an affiliate program, or for a value that is not an absolute http(s)
@@ -635,9 +639,7 @@ export function ticketVendorLabel(
   const host = ticketUrlHost(rawUrl)
   if (host === null) return null
   const domain = vendorDomainFor(host)
-  return domain
-    ? TICKET_VENDORS_BY_DOMAIN[domain].name
-    : host.replace(/^www\./, '') || null
+  return domain ? TICKET_VENDORS_BY_DOMAIN[domain].name : host.replace(/^www\./, '')
 }
 
 /**
@@ -654,8 +656,7 @@ export function carriesOurAffiliateTag(link: TicketLink): boolean {
 }
 
 /**
- * What a ticket surface renders for one stored URL: the resolved link,
- * whether an outbound anchor is offered at all, and the vendor's name.
+ * What a ticket surface renders for one stored URL.
  *
  * THE paid-referral rule, and the reason it lives here rather than on either
  * surface: an outbound vendor anchor renders only when the click is paid for,
@@ -664,33 +665,70 @@ export function carriesOurAffiliateTag(link: TicketLink): boolean {
  * the vendor's NAME instead of a link. The show page and the festival page
  * both call this, so the rule cannot have two answers.
  *
+ * DISCRIMINATED on `linked` so the rule cannot be forgotten: there is no
+ * `href` to read on the refused shape, which makes an ungated outbound anchor
+ * a type error rather than a convention.
+ *
  * `freeAdmission` is the one exemption, and it is an INPUT because only the
  * caller knows: an RSVP or guestlist link on an event that states a price of
- * zero is not a ticket referral, nobody is paid either way, and the click is
- * the reader's only route in. Festivals record no price, so they never pass
- * it.
+ * zero is the reader's only route in. It requires an UNMONETIZED link, so it
+ * cannot be used to publish a tag somebody else planted: a zero price is
+ * contributor-writable on the same unreviewed form as the URL, and without
+ * that conjunction the pair would be a two-field switch for turning any
+ * stranger's affiliate link into a live anchor. Festivals record no price and
+ * never pass it.
  *
- * `link` is present even when `linked` is false: the planted-tag report is
- * about the STORED value, not about what a page renders.
+ * `plantedTag` rides both shapes, because the report is about the STORED
+ * value rather than about what a page renders.
  *
  * `vendorName` is null only for a value that names no host
- * ({@link ticketVendorLabel}), so a caller with nothing to link has nothing
- * to name either.
+ * ({@link ticketVendorLabel}), and such a value is never `linked`: there is
+ * nothing to navigate to and nobody to name.
  */
-export interface TicketOffer {
-  link: TicketLink
-  linked: boolean
+export type TicketOffer = {
   vendorName: string | null
-}
+  plantedTag: PlantedTicketTag | null
+} & (
+  | {
+      linked: true
+      href: string
+      /**
+       * Google's link-spam qualification for this href. Exactly one is true:
+       * a paid link is `sponsored`, and the free-admission exemption is a
+       * contributor-supplied destination nobody pays for, which is `ugc`.
+       */
+      sponsored: boolean
+      ugc: boolean
+    }
+  | { linked: false; href?: never; sponsored?: never; ugc?: never }
+)
 
 export function ticketOffer(
   rawUrl: string,
-  { freeAdmission = false }: { freeAdmission?: boolean } = {}
+  {
+    freeAdmission = false,
+    partnerIds,
+  }: { freeAdmission?: boolean; partnerIds?: AffiliatePartnerIds } = {}
 ): TicketOffer {
-  const link = ticketLink(rawUrl)
+  const link = partnerIds ? ticketLink(rawUrl, partnerIds) : ticketLink(rawUrl)
+  const vendorName = ticketVendorLabel(rawUrl)
+  const shared = { vendorName, plantedTag: link.plantedTag }
+
+  // A value that names no host is not a destination: there is nothing to
+  // navigate to and nobody to name, so no shape of this offer may link it.
+  if (vendorName === null) return { ...shared, linked: false }
+
+  const paid = carriesOurAffiliateTag(link)
+  // The exemption never covers a monetized link: `sponsored` is true for a tag
+  // somebody else planted, and linking that would publish their referral.
+  const unpaidButFree = freeAdmission && !link.sponsored
+  if (!paid && !unpaidButFree) return { ...shared, linked: false }
+
   return {
-    link,
-    linked: freeAdmission || carriesOurAffiliateTag(link),
-    vendorName: ticketVendorLabel(rawUrl),
+    ...shared,
+    linked: true,
+    href: link.href,
+    sponsored: paid,
+    ugc: !paid,
   }
 }
