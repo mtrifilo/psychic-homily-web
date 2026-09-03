@@ -41,6 +41,28 @@ test.describe('Shows list', () => {
     ).toBeVisible()
   })
 
+  // The advance/door pair has to survive the whole stack to be worth
+  // rendering: the list query has to select door_price, the response has to
+  // carry it, and the card has to spell the pair rather than the advance half
+  // alone. A component test proves only the last of those. `e2e-door-price-split`
+  // is the seeded row carrying both columns.
+  test('renders the advance/door price split on a list row', async ({
+    page,
+  }) => {
+    await page.goto('/shows')
+
+    const splitRow = page.getByRole('article', {
+      name: 'E2E [door-price-split]',
+    })
+    await expect(splitRow).toBeVisible({ timeout: 10_000 })
+    await expect(splitRow).toContainText('$20/$25')
+    // The glyphs are aria-hidden and paired with a spelled-out sibling, so a
+    // screen reader is not left reading a price as punctuation.
+    await expect(
+      splitRow.getByText('$20 advance, $25 at the door')
+    ).toBeAttached()
+  })
+
   test('pagination loads more shows', async ({ page }) => {
     await page.goto('/shows')
 

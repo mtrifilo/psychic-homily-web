@@ -54,6 +54,11 @@ const (
 	edgeCaseFestivalSlug   = "desert-daze-exemplar-2026" // PSY-657 social:{} canary
 	exemplarShowSlug       = "the-path-tour-exemplar-at-the-rhythm-room-exemplar"
 	exemplarCollectionSlug = "psychic-homily-staff-picks-exemplar"
+
+	// The two price shapes no other exemplar produces: a show with both
+	// columns, and a show with only the door column.
+	exemplarSplitPriceShowSlug = "advance-door-split-exemplar"
+	exemplarDoorOnlyShowSlug   = "door-only-price-exemplar"
 )
 
 // tagSpec is one tag to create-and-apply: display name, URL slug, and
@@ -71,6 +76,9 @@ func strptr(s string) *string { return &s }
 
 // intptr is a tiny helper to take the address of an int literal inline.
 func intptr(i int) *int { return &i }
+
+// fltptr is a tiny helper to take the address of a float literal inline.
+func fltptr(f float64) *float64 { return &f }
 
 // fullSocial returns a Social struct with every platform populated, for the
 // rich exemplars whose AC requires all social.{...} fields non-empty.
@@ -109,6 +117,7 @@ func seedRichExemplars(db *gorm.DB) {
 	seedEdgeCaseFestival(db) // PSY-657 social:{} canary
 	showID := seedExemplarShow(db, admin.ID, artistID, venueID)
 	seedExemplarArtistShows(db, artistID, venueID)
+	seedExemplarPriceShows(db, artistID, venueID)
 	seedExemplarSimilarArtists(db, artistID)
 	seedExemplarCollection(db, admin.ID, artistID, venueID, labelID, showID)
 
@@ -749,6 +758,85 @@ func seedExemplarArtistShows(db *gorm.DB, artistID, venueID uint) {
 		}
 	}
 	fmt.Printf("  ✅ tracked shows (3 upcoming + 3 past) for venue/artist exemplars\n")
+}
+
+// seedExemplarPriceShows attaches the two price shapes no other seeded show
+// carries: an advance/door split, and a door price recorded with no advance
+// price. Every other seeded show sets at most `price`, so the split register
+// the list surfaces spell `$20/$25` and the NULL-advance branch have no row to
+// render against a dev database.
+//
+// Both are upcoming, so they appear on `/shows` rather than only in the
+// archive, and both take day offsets distinct from every other exemplar show
+// billing this artist at this venue: show_dedup_keys holds
+// UNIQUE (artist_id, venue_id, event_date) and is rebuilt by trigger from the
+// show_artists insert below.
+func seedExemplarPriceShows(db *gorm.DB, artistID, venueID uint) {
+	if artistID == 0 || venueID == 0 {
+		return
+	}
+
+	type priced struct {
+		slug      string
+		title     string
+		dayOffset int
+		price     *float64
+		doorPrice *float64
+	}
+	shows := []priced{
+		{
+			slug:      exemplarSplitPriceShowSlug,
+			title:     "Marissa Nadler (Exemplar): Advance/Door Split",
+			dayOffset: 42,
+			price:     fltptr(20),
+			doorPrice: fltptr(25),
+		},
+		{
+			slug:      exemplarDoorOnlyShowSlug,
+			title:     "Marissa Nadler (Exemplar): Door Only",
+			dayOffset: 70,
+			price:     nil,
+			doorPrice: fltptr(15),
+		},
+	}
+
+	for _, s := range shows {
+		var existing catalogm.Show
+		if db.Where("slug = ?", s.slug).First(&existing).Error == nil {
+			continue
+		}
+		eventDate := time.Now().Add(time.Duration(s.dayOffset) * 24 * time.Hour).UTC()
+		show := &catalogm.Show{
+			Title:          s.title,
+			Slug:           strptr(s.slug),
+			EventDate:      eventDate,
+			City:           strptr("Phoenix"),
+			State:          strptr("AZ"),
+			Price:          s.price,
+			DoorPrice:      s.doorPrice,
+			AgeRequirement: strptr("21+"),
+			Status:         catalogm.ShowStatusApproved,
+			Source:         catalogm.ShowSourceUser,
+		}
+		err := db.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Create(show).Error; err != nil {
+				return err
+			}
+			if err := tx.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: venueID}).Error; err != nil {
+				return err
+			}
+			return tx.Create(&catalogm.ShowArtist{
+				ShowID:   show.ID,
+				ArtistID: artistID,
+				Position: 0,
+				SetType:  contracts.SetTypeHeadliner,
+			}).Error
+		})
+		if err != nil {
+			log.Printf("Warning: failed to create priced show %s: %v", s.slug, err)
+		}
+	}
+	fmt.Printf("  ✅ price exemplars (advance/door split + door only)\n")
 }
 
 // seedExemplarSimilarArtists creates 3+ similar-artist edges from the exemplar
