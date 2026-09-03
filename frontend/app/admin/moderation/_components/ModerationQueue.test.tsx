@@ -910,6 +910,204 @@ describe('ModerationQueue', () => {
     expect(screen.queryByText(partialBillWarning)).not.toBeInTheDocument()
   })
 
+  // ─── Payload bill prefill (PSY-1955) ─────────────────────────────────────
+  //
+  // The form seeds its rows from the bill the contributor recorded on the
+  // request payload, so approving does not re-type it. The form still sends an
+  // explicit show_artists, which is what makes an act the admin removed stay
+  // removed: the endpoint never merges a body bill with the payload's.
+
+  /** A show request whose payload carries a bill. */
+  function showRequestWithBill(artists: unknown): AdminEntityRequest {
+    return {
+      ...mockEntityRequest,
+      id: 11,
+      entity_type: 'show',
+      payload: {
+        title: 'Big Fest',
+        event_date: '2026-07-01',
+        city: 'Phoenix',
+        state: 'AZ',
+        artists,
+      },
+      source_detail: null,
+    }
+  }
+
+  it('seeds the bill from the payload, keeping stated roles and leaving the rest unstated', () => {
+    setDefaultMocks({
+      requests: [
+        showRequestWithBill([
+          { name: 'Boris', set_type: 'headliner' },
+          { name: 'Earth' },
+          { name: '  Sleep  ', set_type: 'direct_support' },
+        ]),
+      ],
+    })
+
+    render(<ModerationQueue />)
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }))
+
+    expect(screen.getByLabelText('Artist 1 name')).toHaveValue('Boris')
+    expect(screen.getByLabelText('Artist 2 name')).toHaveValue('Earth')
+    // Names are trimmed on the way in: the trimmed name is what the endpoint
+    // measures and stores.
+    expect(screen.getByLabelText('Artist 3 name')).toHaveValue('Sleep')
+    expect(screen.queryByLabelText('Artist 4 name')).not.toBeInTheDocument()
+
+    // The role control carries the payload's role, and says nothing for the
+    // act that stated none — bill order never designates one.
+    expect(screen.getByRole('combobox', { name: 'Artist 1 bill role' })).toHaveTextContent(
+      'Headliner'
+    )
+    expect(screen.getByRole('combobox', { name: 'Artist 2 bill role' })).toHaveTextContent(
+      'Role not stated'
+    )
+    expect(screen.getByRole('combobox', { name: 'Artist 3 bill role' })).toHaveTextContent(
+      'Direct support'
+    )
+  })
+
+  it('stops printing the bill as raw JSON in the payload preview', () => {
+    setDefaultMocks({
+      requests: [showRequestWithBill([{ name: 'Boris', set_type: 'headliner' }])],
+    })
+
+    render(<ModerationQueue />)
+
+    expect(screen.queryByText('artists:')).not.toBeInTheDocument()
+    expect(screen.queryByText(/\[\{"name":"Boris"/)).not.toBeInTheDocument()
+    // The rest of the payload still previews.
+    expect(screen.getByText('event_date:')).toBeInTheDocument()
+  })
+
+  it('submits the seeded bill with each act on the role the payload stated', () => {
+    const mutate = vi.fn()
+    mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+    setDefaultMocks({
+      requests: [
+        showRequestWithBill([
+          { name: 'Boris', set_type: 'headliner' },
+          { name: 'Earth' },
+        ]),
+      ],
+    })
+
+    render(<ModerationQueue />)
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }))
+    fireEvent.change(screen.getByLabelText('Venue name'), { target: { value: 'Valley Bar' } })
+    fireEvent.click(screen.getByRole('button', { name: /create show/i }))
+
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 11,
+        decision: 'approved',
+        show_venue: { name: 'Valley Bar', city: 'Phoenix', state: 'AZ' },
+        // set_type is ABSENT on the unstated act (a present "" is a 422) and
+        // is_headliner is always sent, so an unstated act cannot pick up the
+        // backend's position-0 fallback.
+        show_artists: [
+          { name: 'Boris', is_headliner: true, set_type: 'headliner' },
+          { name: 'Earth', is_headliner: false },
+        ],
+      }),
+      expect.anything()
+    )
+  })
+
+  it('drops a removed act from the submitted bill', () => {
+    const mutate = vi.fn()
+    mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+    setDefaultMocks({
+      requests: [
+        showRequestWithBill([
+          { name: 'Boris', set_type: 'headliner' },
+          { name: 'Hallucinated Act' },
+          { name: 'Earth' },
+        ]),
+      ],
+    })
+
+    render(<ModerationQueue />)
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }))
+    fireEvent.change(screen.getByLabelText('Venue name'), { target: { value: 'Valley Bar' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Remove artist 2' }))
+    fireEvent.click(screen.getByRole('button', { name: /create show/i }))
+
+    // The removed act is gone from the body, and the body is the whole bill:
+    // the endpoint never merges it back from the payload.
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        show_artists: [
+          { name: 'Boris', is_headliner: true, set_type: 'headliner' },
+          { name: 'Earth', is_headliner: false },
+        ],
+      }),
+      expect.anything()
+    )
+  })
+
+  it('degrades a role outside the vocabulary to unstated rather than inventing one', () => {
+    setDefaultMocks({
+      requests: [showRequestWithBill([{ name: 'Boris', set_type: 'co-headliner-ish' }])],
+    })
+
+    render(<ModerationQueue />)
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }))
+
+    expect(screen.getByLabelText('Artist 1 name')).toHaveValue('Boris')
+    expect(screen.getByRole('combobox', { name: 'Artist 1 bill role' })).toHaveTextContent(
+      'Role not stated'
+    )
+  })
+
+  it.each([
+    ['no artists key at all', undefined],
+    ['an artists value that is not an array', { name: 'Boris' }],
+    ['a null artists value', null],
+    ['entries that are not objects', ['Boris', 42, null]],
+    ['entries with no usable name', [{ set_type: 'headliner' }, { name: '   ' }, { name: 7 }]],
+  ])('falls back to one blank row for %s', (_label, artists) => {
+    setDefaultMocks({ requests: [showRequestWithBill(artists)] })
+
+    render(<ModerationQueue />)
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }))
+
+    // The queue rendered, and the form opened on today's single blank row.
+    expect(screen.getByLabelText('Artist 1 name')).toHaveValue('')
+    expect(screen.queryByLabelText('Artist 2 name')).not.toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Artist 1 bill role' })).toHaveTextContent(
+      'Role not stated'
+    )
+  })
+
+  it('seeds the rescue form from the payload bill too', () => {
+    const mutate = vi.fn()
+    mockUseRescueEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+    const orphan: AdminEntityRequest = {
+      ...showRequestWithBill([{ name: 'Boris', set_type: 'headliner' }]),
+      id: 12,
+      decision_state: 'approved',
+      created_entity_id: undefined,
+    }
+    setDefaultMocks({ rescue: [orphan] })
+
+    render(<ModerationQueue />)
+    fireEvent.click(screen.getByText('Needs attention'))
+    fireEvent.click(screen.getByRole('button', { name: /^fulfill$/i }))
+    fireEvent.change(screen.getByLabelText('Venue name'), { target: { value: 'Valley Bar' } })
+    fireEvent.click(screen.getByRole('button', { name: /create show/i }))
+
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 12,
+        action: 'fulfill',
+        show_artists: [{ name: 'Boris', is_headliner: true, set_type: 'headliner' }],
+      }),
+      expect.anything()
+    )
+  })
+
   it('cancel closes the show form without mutating', () => {
     const mutate = vi.fn()
     mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
