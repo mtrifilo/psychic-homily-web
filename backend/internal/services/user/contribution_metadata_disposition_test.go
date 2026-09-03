@@ -705,9 +705,9 @@ func TestEntityRequestActionsAreRecognisedByName(t *testing.T) {
 		// ALSO appears in the allowlist publishing keys would be two answers to
 		// one question.
 		if len(contributionMetadataKeys[action]) > 0 {
-			t.Errorf("%q is an entity-request action and publishes metadata keys %v: these "+
-				"rows reach only the requester and admins, and their metadata carries the "+
-				"superseded-payload digest and the requester's id",
+			t.Errorf("%q is an entity-request action and publishes metadata keys %v: a "+
+				"fulfilled request's row is served to EVERY tier, and this metadata carries "+
+				"the superseded-payload digest and the requester's id",
 				action, contributionMetadataKeys[action])
 		}
 	}

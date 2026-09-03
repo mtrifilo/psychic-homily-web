@@ -2845,13 +2845,25 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPercentileRan
 func (suite *ContributorProfileServiceIntegrationTestSuite) createEntityRequestForHistory(
 	requesterID uint, entityType string,
 ) *communitym.EntityRequest {
+	return suite.createDecidedEntityRequest(requesterID, entityType, nil,
+		communitym.EntityRequestStatePending)
+}
+
+// createDecidedEntityRequest writes a request in a chosen state. createEntityID
+// is what the visibility rule actually reads: a request that created a catalog
+// entity is public, whatever its decision_state says.
+func (suite *ContributorProfileServiceIntegrationTestSuite) createDecidedEntityRequest(
+	requesterID uint, entityType string, createdEntityID *uint,
+	state communitym.EntityRequestDecisionState,
+) *communitym.EntityRequest {
 	payload := json.RawMessage(`{"name":"Requested Thing"}`)
 	request := &communitym.EntityRequest{
-		EntityType:    entityType,
-		Payload:       &payload,
-		RequesterID:   requesterID,
-		SourceContext: communitym.EntityRequestSourceManual,
-		DecisionState: communitym.EntityRequestStatePending,
+		EntityType:      entityType,
+		Payload:         &payload,
+		RequesterID:     requesterID,
+		SourceContext:   communitym.EntityRequestSourceManual,
+		DecisionState:   state,
+		CreatedEntityID: createdEntityID,
 	}
 	suite.Require().NoError(suite.db.Create(request).Error)
 	return request
@@ -2969,13 +2981,14 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 // request was withheld or served on the basis of whichever show happened to
 // share its number.
 //
-// The rule: requester or admin. Four routes read entity_requests and each serves
-// one of those two tiers: POST /entity-requests hands the row back to the
-// requester who filed it, and the admin list, decide and fulfill routes serve an
-// admin. Anonymous and stranger tiers get nothing anywhere, and this rule is
-// those two tiers written as a predicate.
+// The rule is keyed on created_entity_id. A request that produced a catalog
+// entity is PUBLIC, because that entity is public and this row is the only
+// record that its contributor made it. A request that produced nothing, whatever
+// its decision_state, is REQUESTER-OR-ADMIN, because it names content that has
+// not been published and may never be.
 //
-// Four tiers, and the total moves with the page in every one of them.
+// Four viewer tiers against three request states, and the total moves with the
+// page in every combination.
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_EntityRequestRowsAreDecidedAgainstEntityRequests() {
 	requester := suite.createTestUser("requestactor")
 	stranger := suite.createTestUser("requeststranger")
@@ -2991,20 +3004,35 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	suite.auditLog.LogAction(requester.ID, "queue_entity_request", "show", request.ID,
 		map[string]interface{}{"request_id": request.ID, "decision_state": "pending"})
 
+	// A REJECTED request, which names content that will never be published.
+	rejected := suite.createDecidedEntityRequest(requester.ID, "artist", nil,
+		communitym.EntityRequestStateRejected)
+	suite.auditLog.LogAction(requester.ID, "reject_entity_request", "artist", rejected.ID,
+		map[string]interface{}{"request_id": rejected.ID})
+
+	// An APPROVED AND FULFILLED request. Its artist is public, and for every
+	// requested type but show this row is the only record that the requester
+	// created it.
+	createdArtistID := uint(31337)
+	fulfilled := suite.createDecidedEntityRequest(requester.ID, "artist", &createdArtistID,
+		communitym.EntityRequestStateApproved)
+	suite.auditLog.LogAction(requester.ID, "auto_approve_entity_request", "artist", fulfilled.ID,
+		map[string]interface{}{"request_id": fulfilled.ID, "created_entity_id": createdArtistID})
+
 	// The colliding show is still this actor's own approved submission, so every
-	// tier sees that one row whatever it is told about the request.
+	// tier sees that one row whatever it is told about the requests.
 	const submissionRows = 1
 
 	for _, tier := range []struct {
-		name      string
-		viewer    contracts.ShowViewer
-		seesRow   bool
-		reasoning string
+		name              string
+		viewer            contracts.ShowViewer
+		seesUnfulfilled   bool
+		unfulfilledReason string
 	}{
 		{"anonymous", contracts.ShowViewer{}, false,
-			"a pending request names unpublished content and no route serves it anonymously"},
+			"a request that created nothing names unpublished content"},
 		{"stranger", contracts.ShowViewer{UserID: stranger.ID}, false,
-			"a signed-in stranger is the same tier as an anonymous reader here"},
+			"a signed-in stranger is the same tier as an anonymous reader for those"},
 		{"requester", contracts.ShowViewer{UserID: requester.ID}, true,
 			"the requester filed the row and already holds its content"},
 		{"admin", contracts.ShowViewer{UserID: stranger.ID, IsAdmin: true}, true,
@@ -3016,24 +3044,83 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 		suite.EqualValues(len(entries), total,
 			"%s: the total must count the same rows the page contains", tier.name)
 
-		var sawRequest bool
+		seen := map[string]bool{}
 		for _, e := range entries {
-			if e.Action == "queue_entity_request" {
-				sawRequest = true
-				suite.Empty(e.EntityName,
-					"%s: a request id resolved a name out of the shows table", tier.name)
-				suite.Nil(e.Metadata,
-					"%s: the entity-request family publishes no metadata key", tier.name)
+			if !contributionEntityRequestActions[e.Action] {
+				continue
 			}
+			seen[e.Action] = true
+			suite.Empty(e.EntityName,
+				"%s: a request id resolved a name out of the catalog table its type names", tier.name)
+			suite.Nil(e.Metadata,
+				"%s: the entity-request family publishes no metadata key", tier.name)
 		}
-		suite.Equal(tier.seesRow, sawRequest, "%s: %s", tier.name, tier.reasoning)
 
-		expected := submissionRows
-		if tier.seesRow {
-			expected++
+		// THE FULFILLED ROW IS PUBLIC IN EVERY TIER, and it is what makes the
+		// two assertions below about the RULE rather than about the arm having
+		// withheld everything.
+		suite.True(seen["auto_approve_entity_request"],
+			"%s: a request that created a public artist must be public too", tier.name)
+
+		suite.Equal(tier.seesUnfulfilled, seen["queue_entity_request"],
+			"%s (pending): %s", tier.name, tier.unfulfilledReason)
+		suite.Equal(tier.seesUnfulfilled, seen["reject_entity_request"],
+			"%s (rejected): %s", tier.name, tier.unfulfilledReason)
+
+		expected := submissionRows + 1 // the fulfilled row, always
+		if tier.seesUnfulfilled {
+			expected += 2 // the pending and rejected rows
 		}
 		suite.Len(entries, expected, "%s", tier.name)
 	}
+}
+
+// AN APPROVED REQUEST THAT CREATED NOTHING IS STILL PRIVATE, which is the case
+// that decides whether the rule reads created_entity_id or decision_state.
+//
+// A show approval whose fulfilment deferred is approved and has created no show
+// (handlers/community/entity_request.go leaves it for the PSY-1088 rescue
+// queue). Reading the state would publish a row naming a show that does not
+// exist; reading the column withholds it until the rescue endpoint fills it in.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_ApprovedButUnfulfilledRequestsStayPrivate() {
+	requester := suite.createTestUser("orphanrequester")
+	stranger := suite.createTestUser("orphanstranger")
+
+	orphan := suite.createDecidedEntityRequest(requester.ID, "show", nil,
+		communitym.EntityRequestStateApproved)
+	suite.auditLog.LogAction(requester.ID, "approve_entity_request", "show", orphan.ID,
+		map[string]interface{}{"request_id": orphan.ID})
+
+	for _, viewer := range []contracts.ShowViewer{{}, {UserID: stranger.ID}} {
+		entries, total, err := suite.profileService.GetContributionHistory(
+			requester.ID, 50, 0, "", viewer)
+		suite.Require().NoError(err)
+		suite.EqualValues(len(entries), total)
+		suite.Empty(entries,
+			"an approval that created nothing names a show that does not exist")
+	}
+
+	own, ownTotal, err := suite.profileService.GetContributionHistory(
+		requester.ID, 50, 0, "", contracts.ShowViewer{UserID: requester.ID})
+	suite.Require().NoError(err)
+	suite.EqualValues(len(own), ownTotal)
+	suite.Require().Len(own, 1, "the requester still sees their own orphaned approval")
+
+	// AND IT BECOMES PUBLIC WHEN THE RESCUE ENDPOINT FILLS THE COLUMN IN, which
+	// is what makes the assertions above about the column rather than about the
+	// arm refusing this row on some other ground.
+	createdShowID := uint(909)
+	suite.Require().NoError(suite.db.Model(&communitym.EntityRequest{}).
+		Where("id = ?", orphan.ID).Update("created_entity_id", createdShowID).Error)
+
+	entries, total, err := suite.profileService.GetContributionHistory(
+		requester.ID, 50, 0, "", contracts.ShowViewer{})
+	suite.Require().NoError(err)
+	suite.EqualValues(len(entries), total)
+	suite.Require().Len(entries, 1, "a fulfilled approval is public")
+	suite.Equal("approve_entity_request", entries[0].Action)
+	suite.Empty(entries[0].EntityName)
+	suite.Nil(entries[0].Metadata)
 }
 
 // A REQUEST THAT NO LONGER EXISTS IS WITHHELD FROM EVERYONE, including the

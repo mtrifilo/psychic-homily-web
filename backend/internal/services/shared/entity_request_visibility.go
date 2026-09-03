@@ -5,34 +5,44 @@ import (
 )
 
 // =============================================================================
-// ENTITY REQUESTS: REQUESTER OR ADMIN, AND NOBODY ELSE
+// ENTITY REQUESTS: FULFILLED IS PUBLIC, UNFULFILLED IS REQUESTER OR ADMIN
 // =============================================================================
 //
-// entity_requests rows are the contributor queue. Every route that reads the
-// table serves it to one of two tiers and no other: GET /admin/entity-requests
-// and the admin decide and fulfill routes to an ADMIN, and POST /entity-requests
-// back to the REQUESTER who just filed it. No route serves a request row to a
-// stranger or to an anonymous caller, and this rule is those two tiers written
-// as a predicate.
+// entity_requests rows are the contributor queue, and created_entity_id is what
+// splits them. THE COLUMN IS THE RULE, not decision_state:
 //
-// WHAT THE RULE DOES NOT DISTINGUISH IS decision_state. A PENDING row names
-// content that has not been published and a REJECTED one names content that
-// never will be, which is the case the rule was written for; an APPROVED and
-// fulfilled row names a catalog entity that IS public, and it is refused on the
-// same terms. That is the conservative answer and it has a cost: for every
-// requested type but show, fulfilment records no other actor-attributed row
-// (handlers/community/entity_request_fulfill.go stamps a submitter on the show
-// branch alone), so a trusted contributor's created entities appear on no public
-// timeline. Narrowing the refusal to rows with no created_entity_id is a
-// one-line change here; it is not made because who may see that a request was
-// filed, and by whom, is a product question rather than a code one.
+//   - created_entity_id IS NOT NULL: the request produced a catalog entity that
+//     is itself public, so that this contributor asked for it is public too.
+//     EVERY tier sees the row.
+//   - created_entity_id IS NULL: the request names content that has not been
+//     published and may never be. Only the REQUESTER and an ADMIN see it.
+//
+// KEYED ON THE COLUMN RATHER THAN ON decision_state because the two disagree in
+// the case that matters. An approved show request whose fulfilment deferred
+// (handlers/community/entity_request.go leaves it approved-but-unfulfilled for
+// the PSY-1088 rescue queue) is approved and has created nothing, so it stays
+// private until the rescue endpoint fills the column in. Reading the state
+// instead would publish a row naming a show that does not exist.
+//
+// WHY THE PUBLIC TIER EXISTS AT ALL: POST /entity-requests is the only route by
+// which a non-admin creates an artist, venue, label, release or festival, and
+// fulfilment stamps a submitter on the SHOW branch alone
+// (handlers/community/entity_request_fulfill.go), so for every other type this
+// audit row is the sole record that the contributor made the thing. Refusing it
+// to strangers would erase their public contribution history.
+//
+// WHAT THE PUBLIC TIER DISCLOSES is bounded by what the row still carries once
+// the timeline is done with it: the action, the requested type, the request id
+// and a timestamp. The name is suppressed, because a request id is not a catalog
+// id, and the metadata is withheld by the allowlist, so nothing here publishes
+// the payload, the requester id, or the superseded-submission digest.
 //
 // A REQUEST THAT NO LONGER EXISTS is refused to everybody, which is what keeps a
 // deleted row and a withheld one one answer.
 //
 // The REQUESTER tier also means a requester sees, on an ADMIN's public timeline,
-// that this admin decided their request and when. That is the rule as stated:
-// they already hold the row, and it names no third party.
+// that this admin decided their own request and when. That is the rule as
+// stated: they already hold the row, and it names no third party.
 
 // visibleEntityRequestsAlias is the alias the spelling below binds the
 // entity_requests table to.
@@ -63,9 +73,10 @@ const visibleEntityRequestsAlias = "visible_entity_request"
 // everyone else does not would make the pair of answers an oracle over the
 // request id space.
 //
-// An ANONYMOUS caller is refused without a probe: with no user id there is no
-// requester branch to satisfy and no admin branch to take, so the condition is
-// constant FALSE and binds nothing.
+// An ANONYMOUS caller STILL PAYS THE PROBE, because the public tier is a
+// property of the request rather than of the caller: with no user id there is no
+// requester branch to add, so the condition is the fulfilled test alone and binds
+// nothing.
 //
 // A row whose idExpr names no request is NOT visible, which is what lets a
 // caller answer the same for a refused request and a deleted one. That holds for
@@ -81,15 +92,30 @@ func VisibleEntityRequestTextIDExistsSQL(idExpr string, viewer contracts.ShowVie
 		return entityRequestExistsSQL(idExpr, "TRUE"), nil
 	}
 	if viewer.UserID == 0 {
-		return "FALSE", nil
+		return entityRequestExistsSQL(idExpr, entityRequestFulfilledSQL), nil
 	}
-	return entityRequestExistsSQL(idExpr, visibleEntityRequestsAlias+".requester_id = ?"),
+	// Built by concatenation rather than written whole so the requester branch
+	// DISAPPEARS for a caller with no id instead of comparing against user 0,
+	// which is VisibleShowPredicateSQL's reason for the same shape. The
+	// parentheses are written here and not left to the caller: this OR sits
+	// inside an EXISTS whose other conjunct is the id correlation, and a form
+	// where that correlation bound inside the OR would answer true whenever any
+	// fulfilled request existed at all.
+	return entityRequestExistsSQL(idExpr,
+			"("+entityRequestFulfilledSQL+" OR "+visibleEntityRequestsAlias+".requester_id = ?)"),
 		[]interface{}{viewer.UserID}
 }
 
+// entityRequestFulfilledSQL is the public-tier test: the request created a
+// catalog entity, so the row is answerable to everyone.
+//
+// ONE SPELLING, spliced into both non-admin tiers, so the anonymous answer and
+// the authenticated one cannot come to differ about what fulfilled means.
+const entityRequestFulfilledSQL = visibleEntityRequestsAlias + ".created_entity_id IS NOT NULL"
+
 // entityRequestExistsSQL wraps an entity_requests condition in the correlated
-// EXISTS both tiers use, so they cannot correlate on different columns or cast
-// the id differently from one another.
+// EXISTS all three tiers use, so they cannot correlate on different columns or
+// cast the id differently from one another.
 func entityRequestExistsSQL(idExpr, cond string) string {
 	return entityExistsSQL("entity_requests", visibleEntityRequestsAlias,
 		textIDAsBigintSQL(idExpr), cond)
