@@ -40,15 +40,19 @@ var rangedOrOpenEnded = regexp.MustCompile(`(?i)^\s*(?:(?:-|–|—|to\b)\s*\$?\
 // doorMatcher marks an amount as the price AT THE DOOR.
 //
 // skipAfter and skipBefore are what separate the price label from the DOORS
-// TIME, which is the same word: "$20, doors at 7" and "$20, 8pm doors" each
-// state one price. The forward guard matches a clock or a bare hour but NOT a
-// figure carrying a "+", because an age restriction is the commonest thing to
-// follow a real door price and refusing every digit threw away both halves of
-// exactly the listings this parser exists to read.
+// TIME, which is the same word: "$20, doors at 7", "$20, doors: 7pm" and
+// "$20, 8pm doors" each state one price. Both guards step over the punctuation
+// a listing writes between the word and the clock, or "doors: 7pm" reads as a
+// door price of twenty dollars.
+//
+// The forward guard matches a clock or a bare hour but NOT a figure carrying a
+// "+", because an age restriction is the commonest thing to follow a real door
+// price and refusing every digit threw away both halves of exactly the
+// listings this parser exists to read.
 var doorMatcher = labelMatcher{
 	pattern:    regexp.MustCompile(`(?i)\b(?:at\s+the\s+door|doors?|d\.o\.s\.?|dos|day[\s-]of[\s-]the[\s-]show|day[\s-]of[\s-]show|day[\s-]of)\b`),
-	skipAfter:  regexp.MustCompile(`(?i)^\s*(?:open|at\s+\d|@|\d{1,2}(?::\d{2})?\s*[ap]\.?m\.?|\d{1,2}:\d{2}|\d{1,2}(?:[^\d+]|$))`),
-	skipBefore: regexp.MustCompile(`(?i)(?:\d{1,2}(?::\d{2})?\s*[ap]\.?m\.?|\d{1,2}:\d{2})\s*$`),
+	skipAfter:  regexp.MustCompile(`(?i)^(?:[\s:.,;|(-]*(?:open|@|\d{1,2}(?::\d{2})?\s*[ap]\.?m\.?|\d{1,2}:\d{2})|\s*(?:at\s+(?:\d|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b|\d{1,2}(?:[^\d+]|$)))`),
+	skipBefore: regexp.MustCompile(`(?i)(?:\d{1,2}(?::\d{2})?\s*[ap]\.?m\.?|\d{1,2}:\d{2})[\s:.,;|-]*$`),
 }
 
 // advanceMatcher marks an amount as the price bought AHEAD of the night.
@@ -191,6 +195,13 @@ func parseEventPrices(s string) (advance, door *float64) {
 	}
 	if rangedOrOpenEnded.MatchString(normalized[amounts[advanceIdx][1]:]) ||
 		rangedOrOpenEnded.MatchString(normalized[amounts[doorIdx][1]:]) {
+		return nil, nil
+	}
+	// An advance price ABOVE the door price is not a split any listing states:
+	// the door half exists to say the price goes UP on the night. Reaching that
+	// pair means the second figure was an INCREMENT, not a price, which is what
+	// "$20 advance, $5 more at the door" says: the door costs twenty-five.
+	if *values[advanceIdx] > *values[doorIdx] {
 		return nil, nil
 	}
 	return values[advanceIdx], values[doorIdx]

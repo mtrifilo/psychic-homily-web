@@ -101,12 +101,29 @@ func TestParseEventPrices_SourceShapes(t *testing.T) {
 		{"price plus a fee", "$20 (plus $3 fees)", nil, nil},
 		{"tier ahead of the split", "$30 VIP / $20 adv / $25 door", nil, nil},
 
+		// A figure on the door side that is smaller than the advance price is
+		// an INCREMENT, not a price: "$5 more at the door" says the door costs
+		// twenty-five. Storing 5 there would publish a five dollar door price.
+		{"increment on the door side", "$20 advance, $5 more at the door", nil, nil},
+		{"increment spelled add", "$20 advance, add $5 at the door", nil, nil},
+		{"fee on the door side", "$20 adv, $2 fee at the door", nil, nil},
+		{"surcharge on the door side", "$20 adv, $3 surcharge at the door", nil, nil},
+		{"increment on the day of show", "$20 adv / $5 more day of show", nil, nil},
+
 		// A door word that belongs to the doors TIME states no second price,
 		// and cannot take an amount the listing calls an advance price.
 		{"doors time", "$20, doors at 7", floatPtr(20), nil},
 		{"doors open", "$20 doors open 8pm", floatPtr(20), nil},
 		{"doors time beside a pair", "$20/$25, doors at 7", nil, nil},
 		{"bare hour after doors", "$20, doors 7", floatPtr(20), nil},
+		{"colon before the doors time", "$20, doors: 7pm", floatPtr(20), nil},
+		{"pipe and colon", "$20 | Doors: 8pm", floatPtr(20), nil},
+		{"dash before the doors time", "$20 Doors - 8pm", floatPtr(20), nil},
+		{"full stop before the doors time", "$20 doors. 8pm", floatPtr(20), nil},
+		{"24 hour doors time", "$20 DOORS: 7:30", floatPtr(20), nil},
+		{"doors time in words", "$20, doors at seven", floatPtr(20), nil},
+		{"doors time written first with a dash", "$20, 8pm - doors", floatPtr(20), nil},
+		{"cover beside a punctuated doors time", "$10 cover, doors: 9pm", floatPtr(10), nil},
 		{"advance price beside a doors time", "$15 advance, doors 6", floatPtr(15), nil},
 		{"doors time written first", "$20, 8pm doors", floatPtr(20), nil},
 		{"cover beside a doors time", "$10 cover, 9pm doors", floatPtr(10), nil},
