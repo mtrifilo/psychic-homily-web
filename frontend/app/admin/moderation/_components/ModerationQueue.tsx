@@ -588,6 +588,81 @@ function parsePayloadBill(payload: Record<string, unknown> | null): ShowArtistRo
   return rows
 }
 
+/**
+ * How a stated bill role reads inside the compact card line, or `null` for a
+ * role that designates nothing and is therefore not annotated at all.
+ *
+ * Lowercase, matching the show page's parenthetical annotation register rather
+ * than the form's sentence-case option labels: this is a reading of the bill,
+ * not a control.
+ *
+ * `performer` maps to `null` because it is one of the two spellings of "slot
+ * unknown" (the other being an absent key, which parsePayloadBill reads as
+ * UNSTATED_ROLE). Annotating it would print a role nobody stated, which is
+ * exactly what this line must not do. The same distinction curatesABillSlot
+ * makes for the warning predicate.
+ *
+ * Typed as an exhaustive Record so a role added to the backend vocabulary stops
+ * this file building until somebody decides how it reads here.
+ */
+const BILL_LINE_ROLE_LABELS: Record<SetType, string | null> = {
+  headliner: 'headliner',
+  direct_support: 'direct support',
+  opener: 'opener',
+  special_guest: 'special guest',
+  dj: 'DJ',
+  performer: null,
+}
+
+/**
+ * Acts printed in full on the compact line before the rest become a count.
+ *
+ * A scan affordance, not a cap on the bill: the count states exactly how many
+ * acts it stands for, and the form still opens on every one of them.
+ */
+const BILL_LINE_MAX_ACTS = 5
+
+/**
+ * The bill a show request carries, as one line an admin can read without
+ * opening the form.
+ *
+ * The reject and scan paths never open the form, so without this the bill is
+ * invisible on them. It is a READING, never an editing surface: the form is
+ * where a bill is changed.
+ *
+ * Renders nothing at all for a payload with no readable bill, which covers a
+ * bill-less request and a malformed `artists` value alike — parsePayloadBill
+ * drops what it cannot read, so a malformed payload costs its own card this
+ * line and not the whole queue.
+ *
+ * Takes the whole request so the entity-type gate lives here rather than at
+ * each card: a bill is a show's field, exactly as the backend's
+ * ShowPayloadArtists answers nil for every other type.
+ */
+function PayloadBillLine({ request }: { request: AdminEntityRequest }) {
+  const bill = request.entity_type === 'show' ? parsePayloadBill(request.payload) : []
+  if (bill.length === 0) return null
+
+  const shown = bill.slice(0, BILL_LINE_MAX_ACTS)
+  const overflow = bill.length - shown.length
+  const acts = shown.map(row => {
+    const label = row.set_type === UNSTATED_ROLE ? null : BILL_LINE_ROLE_LABELS[row.set_type]
+    return label === null ? row.name : `${row.name} (${label})`
+  })
+
+  return (
+    <p
+      className="mt-1 flex items-baseline gap-1 text-sm text-muted-foreground"
+      data-testid="moderation-bill-line"
+    >
+      {/* Names alone read as an unlabelled list out of visual context. */}
+      <span className="sr-only">Bill: </span>
+      <span className="min-w-0 truncate">{acts.join(' · ')}</span>
+      {overflow > 0 && <span className="shrink-0">+{overflow}</span>}
+    </p>
+  )
+}
+
 /** A payload string field, or '' when the payload does not carry one. */
 function payloadString(payload: Record<string, unknown> | null, key: string): string {
   const value = payload?.[key]
@@ -987,6 +1062,9 @@ function RequestCard({
           </div>
         </div>
 
+        {/* The bill, readable without opening the form */}
+        <PayloadBillLine request={request} />
+
         {/* Attribution + source context */}
         <div className="mt-2 text-sm text-muted-foreground">
           <span>
@@ -1142,6 +1220,9 @@ function WithdrawnRequestCard({ request }: { request: AdminEntityRequest }) {
           </div>
         </div>
 
+        {/* The bill: this card has no form at all, so it is the only reading */}
+        <PayloadBillLine request={request} />
+
         <div className="mt-2 text-sm text-muted-foreground">
           <span>
             by{' '}
@@ -1259,6 +1340,9 @@ function RescueCard({
         <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
           Approved but never created — fulfill it or void it.
         </p>
+
+        {/* The bill, readable without opening the form */}
+        <PayloadBillLine request={request} />
 
         {/* Attribution */}
         <div className="mt-2 text-sm text-muted-foreground">
