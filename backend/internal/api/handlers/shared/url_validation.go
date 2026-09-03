@@ -83,7 +83,7 @@ var urlFieldSpecs = map[string]urlFieldSpec{
 	"image_url":       {displayName: "Image URL", maxLength: 2048, fetched: true},
 	"cover_image_url": {displayName: "Cover image URL", maxLength: 2048},
 	"cover_art_url":   {displayName: "Cover art URL", maxLength: 2048},
-	"ticket_url":      {displayName: "Ticket URL", maxLength: 500},
+	"ticket_url":      {displayName: "Ticket URL", maxLength: utils.MaxTicketURLLen},
 	"instagram":       {displayName: "Instagram URL", maxLength: 255},
 	"facebook":        {displayName: "Facebook URL", maxLength: 500},
 	"twitter":         {displayName: "Twitter URL", maxLength: 255},

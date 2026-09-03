@@ -25,51 +25,94 @@ func NewDataQualityService(database *gorm.DB) *DataQualityService {
 	return &DataQualityService{db: database}
 }
 
-// categoryDefinitions maps category keys to their metadata.
-var categoryDefinitions = map[string]struct {
+// Categories whose finding is a planted affiliate tag on a stored ticket URL.
+const (
+	categoryShowsPlantedTicketTag     = "shows_planted_ticket_tag"
+	categoryFestivalsPlantedTicketTag = "festivals_planted_ticket_tag"
+)
+
+// Who may see a category. Stated per definition rather than as a separate
+// exclusion list, so a category cannot be added without answering the question:
+// the zero value is neither of these and categoryDefinitionsDeclareAnAudience
+// fails on it.
+//
+// audienceAdmin is for a finding ABOUT a contributor rather than a gap a
+// contributor could fill. Publishing the list of rows carrying a planted
+// affiliate tag would hand an unreviewed audience a map of the links already
+// monetized for a stranger.
+const (
+	audiencePublic = "public"
+	audienceAdmin  = "admin"
+)
+
+type categoryDefinition struct {
 	Label       string
 	EntityType  string
 	Description string
-}{
+	Audience    string
+}
+
+// categoryDefinitions maps category keys to their metadata.
+var categoryDefinitions = map[string]categoryDefinition{
 	"artists_missing_links": {
 		Label:       "Artists Missing Links",
 		EntityType:  "artist",
 		Description: "Artists with no social links or website set",
+		Audience:    audiencePublic,
 	},
 	"artists_missing_location": {
 		Label:       "Artists Missing Location",
 		EntityType:  "artist",
 		Description: "Artists with no city or state set",
+		Audience:    audiencePublic,
 	},
 	"artists_no_aliases": {
 		Label:       "Artists Without Aliases",
 		EntityType:  "artist",
 		Description: "Artists with 5+ shows but no aliases (potential disambiguation needed)",
+		Audience:    audiencePublic,
 	},
 	"venues_missing_social": {
 		Label:       "Venues Missing Social",
 		EntityType:  "venue",
 		Description: "Venues with no social links or website set",
+		Audience:    audiencePublic,
 	},
 	"venues_unverified_with_shows": {
 		Label:       "Unverified Venues With Shows",
 		EntityType:  "venue",
 		Description: "Unverified venues that have 3+ approved shows",
+		Audience:    audiencePublic,
 	},
 	"shows_no_billing_order": {
 		Label:       "Shows Without Billing Order",
 		EntityType:  "show",
 		Description: "Upcoming shows with 2+ artists but no billing differentiation",
+		Audience:    audiencePublic,
 	},
 	"shows_missing_price": {
 		Label:       "Shows Missing Price",
 		EntityType:  "show",
 		Description: "Upcoming approved shows with no price set",
+		Audience:    audiencePublic,
+	},
+	categoryShowsPlantedTicketTag: {
+		Label:       "Shows With Planted Ticket Tags",
+		EntityType:  "show",
+		Description: "Approved shows whose stored ticket URL credits somebody else's affiliate account",
+		Audience:    audienceAdmin,
+	},
+	categoryFestivalsPlantedTicketTag: {
+		Label:       "Festivals With Planted Ticket Tags",
+		EntityType:  "festival",
+		Description: "Festivals whose stored ticket URL credits somebody else's affiliate account",
+		Audience:    audienceAdmin,
 	},
 	"releases_missing_year": {
 		Label:       "Releases Missing Year",
 		EntityType:  "release",
 		Description: "Releases with no release year set",
+		Audience:    audiencePublic,
 	},
 }
 
@@ -82,7 +125,22 @@ var categoryOrder = []string{
 	"venues_unverified_with_shows",
 	"shows_no_billing_order",
 	"shows_missing_price",
+	categoryShowsPlantedTicketTag,
+	categoryFestivalsPlantedTicketTag,
 	"releases_missing_year",
+}
+
+// contributeCategoryOrder is the public slice of categoryOrder.
+var contributeCategoryOrder = categoriesForAudience(categoryOrder, audiencePublic)
+
+func categoriesForAudience(keys []string, audience string) []string {
+	matching := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if categoryDefinitions[key].Audience == audience {
+			matching = append(matching, key)
+		}
+	}
+	return matching
 }
 
 // --- Loose Ends contribution categories (PSY-1483) ---
@@ -157,10 +215,14 @@ var looseEndsCategoryOrder = []string{
 
 // GetSummary returns counts per data quality category.
 func (s *DataQualityService) GetSummary() (*contracts.DataQualitySummary, error) {
+	return s.summaryForCategories(categoryOrder)
+}
+
+func (s *DataQualityService) summaryForCategories(keys []string) (*contracts.DataQualitySummary, error) {
 	summary := &contracts.DataQualitySummary{}
 	totalItems := 0
 
-	for _, key := range categoryOrder {
+	for _, key := range keys {
 		def := categoryDefinitions[key]
 		count, err := s.getCategoryCount(key)
 		if err != nil {
@@ -208,6 +270,8 @@ func (s *DataQualityService) GetCategoryItems(category string, limit, offset int
 		return s.getShowsNoBillingOrder(limit, offset)
 	case "shows_missing_price":
 		return s.getShowsMissingPrice(limit, offset)
+	case categoryShowsPlantedTicketTag, categoryFestivalsPlantedTicketTag:
+		return s.getPlantedTicketTag(category, limit, offset)
 	case "releases_missing_year":
 		return s.getReleasesMissingYear(limit, offset)
 	default:
@@ -223,7 +287,7 @@ func (s *DataQualityService) GetCategoryItems(category string, limit, offset int
 // list is public. Category counts are the true totals; the item lists are
 // capped and rotated (see GetContributeCategoryItems).
 func (s *DataQualityService) GetContributeSummary(viewerID *uint) (*contracts.DataQualitySummary, error) {
-	summary, err := s.GetSummary()
+	summary, err := s.summaryForCategories(contributeCategoryOrder)
 	if err != nil {
 		return nil, err
 	}
@@ -269,6 +333,11 @@ func (s *DataQualityService) GetContributeCategoryItems(category string, viewerI
 	case categoryChartingArtistsMissingLinks:
 		return s.getChartingArtistsMissingLinks(viewerID, looseEndsLimit(limit), offset)
 	default:
+		if categoryDefinitions[category].Audience != audiencePublic {
+			// Unknown rather than forbidden: this surface does not confirm
+			// that an admin-only category exists.
+			return nil, 0, apperrors.ErrDataQualityUnknownCategory(category)
+		}
 		return s.GetCategoryItems(category, limit, offset)
 	}
 }
@@ -533,6 +602,15 @@ func (s *DataQualityService) getCategoryCount(category string) (int, error) {
 			SELECT COUNT(*) FROM shows
 			WHERE status = 'approved' AND event_date >= NOW() AND price IS NULL AND door_price IS NULL
 		`).Scan(&count).Error
+
+	case categoryShowsPlantedTicketTag, categoryFestivalsPlantedTicketTag:
+		// Counted through the list's own matcher, so the badge and the list it
+		// opens can never disagree.
+		findings, ferr := s.plantedTagFindings(category)
+		if ferr != nil {
+			return 0, ferr
+		}
+		return len(findings), nil
 
 	case "releases_missing_year":
 		err = s.db.Raw(`

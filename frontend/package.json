@@ -23,7 +23,8 @@
     "sitemap:check": "bun run lib/sitemap-monitor/cli.ts",
     "og:egress": "bun run scripts/og-font-egress-probe.tsx",
     "api:types": "bash ../scripts/gen-api-types.sh",
-    "api:types:check": "bash ../scripts/gen-api-types.sh && git diff --exit-code -- types/api.d.ts"
+    "api:types:check": "bash ../scripts/gen-api-types.sh && git diff --exit-code -- types/api.d.ts",
+    "affiliate:params": "bun run ../scripts/gen-affiliate-params.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",

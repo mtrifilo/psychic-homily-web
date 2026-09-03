@@ -14,6 +14,7 @@ import {
   Users,
   BadgeCheck,
   DollarSign,
+  Link2Off,
   ListOrdered,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -35,6 +36,8 @@ const categoryIcons: Record<string, LucideIcon> = {
   venues_unverified_with_shows: BadgeCheck,
   shows_no_billing_order: ListOrdered,
   shows_missing_price: DollarSign,
+  shows_planted_ticket_tag: Link2Off,
+  festivals_planted_ticket_tag: Link2Off,
   releases_missing_year: Calendar,
 }
 
@@ -50,6 +53,8 @@ function getEntityUrl(item: DataQualityItem): string {
       return `/shows/${slug}`
     case 'release':
       return `/releases/${slug}`
+    case 'festival':
+      return `/festivals/${slug}`
     default:
       return '#'
   }

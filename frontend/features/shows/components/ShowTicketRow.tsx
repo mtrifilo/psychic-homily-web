@@ -10,7 +10,6 @@ import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 import { MiddotSegments } from './MiddotSegments'
 import { ShowAddToCalendar } from './ShowAddToCalendar'
 import { showTicketOffer, ticketLineSegments } from './showTicketLine'
-import { usePlantedTicketTagReport } from '@/lib/tickets/usePlantedTicketTagReport'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import type { ShowResponse } from '../types'
 
@@ -61,12 +60,6 @@ export function ShowTicketRow({ show, lifecycle }: ShowTicketRowProps) {
     show.title,
     show.artists.map(artist => artist.name)
   )
-  // An affiliate tag in a STORED ticket url was planted by whoever submitted
-  // the show, since we only ever append ours at render. Reported whenever this
-  // row has an offer at all, linked or not; the states with no offer (past,
-  // cancelled, sold out) report nothing.
-  usePlantedTicketTagReport('show', show.id, offer?.plantedTag)
-
   return (
     <div data-testid="show-ticket-row">
       <MiddotSegments

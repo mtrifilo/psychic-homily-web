@@ -56,6 +56,7 @@ func (suite *DataQualityServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM show_artists")
 	_, _ = sqlDB.Exec("DELETE FROM show_venues")
 	_, _ = sqlDB.Exec("DELETE FROM shows")
+	_, _ = sqlDB.Exec("DELETE FROM festivals")
 	_, _ = sqlDB.Exec("DELETE FROM releases")
 	_, _ = sqlDB.Exec("DELETE FROM user_bookmarks")
 	_, _ = sqlDB.Exec("DELETE FROM artists")
@@ -172,7 +173,7 @@ func (suite *DataQualityServiceIntegrationTestSuite) TestGetSummary_Empty() {
 	summary, err := suite.service.GetSummary()
 	suite.Require().NoError(err)
 	suite.Equal(0, summary.TotalItems)
-	suite.Len(summary.Categories, 8)
+	suite.Len(summary.Categories, len(categoryOrder))
 
 	// All counts should be 0 in an empty DB
 	for _, cat := range summary.Categories {
@@ -662,8 +663,8 @@ func (suite *DataQualityServiceIntegrationTestSuite) TestContributeSummary_Authe
 	for _, cat := range summary.Categories {
 		counts[cat.Key] = cat.Count
 	}
-	// 8 global categories + 2 loose-ends.
-	suite.Len(summary.Categories, 10)
+	// Every public global category plus both loose-ends categories.
+	suite.Len(summary.Categories, len(contributeCategoryOrder)+2)
 	suite.Equal(1, counts[categoryFollowedArtistsMissingLinks])
 	suite.Equal(1, counts[categoryChartingArtistsMissingLinks])
 }
@@ -683,7 +684,7 @@ func (suite *DataQualityServiceIntegrationTestSuite) TestContributeSummary_AnonO
 	// Followed is authed-only → omitted; charting present.
 	suite.False(keys[categoryFollowedArtistsMissingLinks], "followed category must be omitted for anon")
 	suite.True(keys[categoryChartingArtistsMissingLinks], "charting category must be present for anon")
-	suite.Len(summary.Categories, 9)
+	suite.Len(summary.Categories, len(contributeCategoryOrder)+1)
 }
 
 // =============================================================================

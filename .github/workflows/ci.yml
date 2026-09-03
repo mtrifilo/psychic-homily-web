@@ -351,6 +351,22 @@ jobs:
           fi
           echo "OK: frontend/types/api.d.ts matches the backend spec"
 
+      # The Go affiliate-parameter list is generated from the frontend vendor
+      # table, which is the one place the app writes down which parameters
+      # credit an affiliate.
+      - name: Regenerate affiliate params and assert no drift
+        run: |
+          bun run scripts/gen-affiliate-params.ts
+          if ! git diff --exit-code -- backend/internal/services/admin/affiliate_params_gen.go; then
+            echo ""
+            echo "ERROR: backend/internal/services/admin/affiliate_params_gen.go is stale"
+            echo "relative to frontend/lib/tickets/ticketVendors.ts."
+            echo "Regenerate and commit the result:"
+            echo "  cd frontend && bun run affiliate:params"
+            exit 1
+          fi
+          echo "OK: affiliate_params_gen.go matches the frontend vendor table"
+
   # PSY-1679: split the unit suite across 4 parallel shards. It was a single
   # ~10.5min job and the long pole in CI.
   #

@@ -644,7 +644,6 @@ describe('ticketOffer', () => {
   it('withholds the link for a planted tag on a configured vendor', () => {
     const planted = ticketOffer(PLANTED, { partnerIds: IMPACT })
     expect(planted.linked).toBe(false)
-    expect(planted.plantedTag).not.toBeNull()
     expect(planted.vendorName).toBe('TicketWeb')
   })
 
@@ -685,15 +684,12 @@ describe('ticketOffer', () => {
     expect(offer.ugc).toBe(false)
   })
 
-  // The report is about the STORED value, so it survives the refusal to link.
-  it('carries the planted tag even when the anchor is withheld', () => {
+  // A planted tag is somebody else's credit, so the click is not paid for and
+  // the anchor is withheld even on a vendor that is otherwise configured.
+  it('withholds the anchor for a planted tag', () => {
     const offer = ticketOffer(PLANTED)
     expect(offer.linked).toBe(false)
-    expect(offer.plantedTag).toEqual({
-      param: 'irmp',
-      host: 'www.ticketweb.com',
-      matchesConfiguredPartner: false,
-    })
+    expect(offer.vendorName).toBe('TicketWeb')
   })
 
   // AN IMPACT PARTNER ID IS PUBLIC: it rides in every tagged href the site

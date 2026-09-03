@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 	"unicode"
 
 	"gorm.io/gorm"
@@ -377,14 +378,17 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 		if musicAt == nil && event.ShowTime != nil && *event.ShowTime != "" {
 			descParts = append(descParts, fmt.Sprintf("Show: %s", *event.ShowTime))
 		}
-		if event.TicketURL != nil && *event.TicketURL != "" {
-			descParts = append(descParts, fmt.Sprintf("Tickets: %s", *event.TicketURL))
-		}
 		var description *string
 		if len(descParts) > 0 {
-			desc := strings.Join(descParts, " | ")
+			desc := strings.Join(descParts, ticketDescriptionSeparator)
 			description = &desc
 		}
+
+		// The vendor URL is a column, never prose. Text in `description` is
+		// reprinted verbatim by the show page and by the JSON-LD `description`,
+		// so a URL kept there is an outbound vendor reference that the ticket
+		// surfaces' paid-link gate cannot withhold.
+		ticketURL := scrapedTicketURL(event.TicketURL)
 
 		// Create the show — use initialStatus, but always override to pending for potential duplicates
 		status := initialStatus
@@ -419,6 +423,7 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 			Price:             advancePrice,
 			DoorPrice:         doorPrice,
 			AgeRequirement:    event.AgeRestriction,
+			TicketURL:         ticketURL,
 		}
 
 		if event.IsSoldOut != nil && *event.IsSoldOut {
@@ -656,6 +661,21 @@ func (s *DiscoveryService) updateShowFromEvent(existing *catalogm.Show, event *c
 		if composedPairIsSane(existing, newPrice, newDoorPrice) {
 			recordPrice("price", "price", existing.Price, newPrice)
 			recordPrice("door_price", "doorPrice", existing.DoorPrice, newDoorPrice)
+		}
+	}
+
+	// Compare ticket URL under the same absence rule price uses: a re-scrape
+	// that states none leaves the stored value alone. A venue dropping the
+	// ticket link from a listing has not announced that the show stopped
+	// selling tickets.
+	if scraped := scrapedTicketURL(event.TicketURL); scraped != nil {
+		if existing.TicketURL == nil || *existing.TicketURL != *scraped {
+			updates["ticket_url"] = *scraped
+			oldStr := "nil"
+			if existing.TicketURL != nil {
+				oldStr = *existing.TicketURL
+			}
+			changes = append(changes, fmt.Sprintf("ticketURL: %s -> %s", oldStr, *scraped))
 		}
 	}
 
@@ -1062,6 +1082,29 @@ func parseArtistsFromTitle(title string) []string {
 
 	// No separator found, treat entire title as single artist
 	return []string{strings.TrimSpace(title)}
+}
+
+// scrapedTicketURL reads the ticket URL a scrape stated, or nil when it stated
+// none this writer can store.
+//
+// Blank collapses to nil, which both call sites want: a scraper reading an
+// empty attribute reports "" and "   " interchangeably, and the update path
+// treats "stated nothing" as "leave the stored value alone".
+//
+// The value must clear the same bar every other writer onto ticket_url clears
+// (utils.ValidateHTTPURL, via shared.ValidateURLField on the edit paths): the
+// column is a destination the render surfaces link, and the content here is an
+// extraction over third-party HTML. A value wider than the column is nil for
+// the same reason a truncated URL is worse than none.
+func scrapedTicketURL(raw *string) *string {
+	trimmed := utils.NilIfBlankPtr(raw)
+	if trimmed == nil || utf8.RuneCountInString(*trimmed) > utils.MaxTicketURLLen {
+		return nil
+	}
+	if utils.ValidateHTTPURL(*trimmed, "ticket_url") != nil {
+		return nil
+	}
+	return trimmed
 }
 
 // ptrStr safely dereferences a string pointer, returning "" if nil
