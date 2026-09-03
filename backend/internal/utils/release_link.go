@@ -221,6 +221,14 @@ func ValidateReleaseLink(platform, rawURL string) error {
 			releaseLinkURLLabel, MaxReleaseLinkURLLen,
 		)
 	}
+	// Separated from the refusal below because the host sentence misdirects when
+	// the value never parsed: "must be on bandcamp.com" is unhelpful for
+	// ".../album/100%-pure", which IS on bandcamp.com and is simply not a URL.
+	// That sentence is what an operator reads in the enrichment sweep's error
+	// list, so it has to name the real problem.
+	if _, err := url.Parse(rawURL); err != nil {
+		return fmt.Errorf("%s must be a valid URL (got %q)", releaseLinkURLLabel, rawURL)
+	}
 	if !isAnchoredPlatformURL(rawURL, bases) {
 		return fmt.Errorf(
 			"%s link must be an http or https URL on %s (got %q)",

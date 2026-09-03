@@ -152,6 +152,17 @@ describe('isRenderableReleaseLink', () => {
     expect(isRenderableReleaseLink({ platform: 'bandcamp', url: long })).toBe(false)
   })
 
+  // The cap is a BYTE count, as the column and the Go gate measure it. Counting
+  // UTF-16 units instead let a multibyte URL pass here and 422 at the server.
+  it('counts the cap in bytes, not UTF-16 units', () => {
+    const multibyte = `https://kingbuffalo.bandcamp.com/album/${'é'.repeat(1200)}`
+    expect(multibyte.length).toBeLessThan(MAX_RELEASE_LINK_URL_LENGTH)
+    expect(isRenderableReleaseLink({ platform: 'bandcamp', url: multibyte })).toBe(false)
+    expect(releaseLinkRefusal({ platform: 'bandcamp', url: multibyte })).toContain(
+      'characters or fewer'
+    )
+  })
+
   it('refuses an empty URL', () => {
     expect(isRenderableReleaseLink({ platform: 'bandcamp', url: '' })).toBe(false)
   })

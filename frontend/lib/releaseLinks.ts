@@ -79,12 +79,16 @@ export const OFFERED_RELEASE_LINK_PLATFORM_KEYS = RELEASE_LINK_PLATFORM_KEYS.fil
  * the write boundary and this gate agree about what fits rather than because
  * anything below objects.
  *
- * The two count differently: Go counts BYTES, this counts UTF-16 code units, so
- * a long multibyte URL can be refused by the writer and accepted here. That is
- * the safe direction (nothing storable becomes unrenderable) and the corpus pins
- * only the number.
+ * Counted in BYTES, as Go counts it. `String.length` counts UTF-16 code units,
+ * which is a different number for any multibyte URL, and the corpus pins only
+ * the number.
  */
 export const MAX_RELEASE_LINK_URL_LENGTH = 2048
+
+/** The stored byte length, which is what the column and the Go cap measure. */
+function urlByteLength(url: string): number {
+  return new TextEncoder().encode(url).length
+}
 
 /** The shape both the gate and the label lookup need from a stored row. */
 export interface ReleaseLinkLike {
@@ -213,6 +217,14 @@ function parseHttpUrl(raw: string): URL | null {
  * key and echoes the submitted value, this one names the label a curator just
  * picked. Both name the hosts that work, which is the part a submitter acts on.
  *
+ * Nor is it the same PARSER, and the residue is stated rather than papered over:
+ * a malformed percent escape in the path or fragment is a parse failure to Go
+ * and ordinary text to this parser, so a value of that shape passes here and
+ * gets a clean 422 from the server, which both add surfaces render. That is the
+ * tolerable direction for a hint. The other direction, blocking something the
+ * server would take, is reachable only through EDGE_WHITESPACE and only from a
+ * caller that does not trim, which neither add surface is.
+ *
  * An empty URL returns null: an untouched field is not yet a mistake. Whether
  * empty may be submitted is the caller's own concern.
  *
@@ -228,7 +240,7 @@ export function releaseLinkRefusal(link: ReleaseLinkLike): string | null {
     return `Platform must be one of: ${RELEASE_LINK_PLATFORM_KEYS.join(', ')}`
   }
   if (!link.url.trim()) return null
-  if (link.url.length > MAX_RELEASE_LINK_URL_LENGTH) {
+  if (urlByteLength(link.url) > MAX_RELEASE_LINK_URL_LENGTH) {
     return `URL must be ${MAX_RELEASE_LINK_URL_LENGTH} characters or fewer`
   }
 
@@ -322,7 +334,7 @@ export function isRenderableReleaseLink(link: ReleaseLinkLike): boolean {
   const entry = platformEntry(link.platform)
   if (!entry) return false
   const url = stripUrlWhitespace(link.url)
-  if (!url || url.length > MAX_RELEASE_LINK_URL_LENGTH) return false
+  if (!url || urlByteLength(url) > MAX_RELEASE_LINK_URL_LENGTH) return false
   const parsed = parseHttpUrl(url)
   if (parsed === null) return false
   if (parsed.username !== '' || parsed.password !== '') return false

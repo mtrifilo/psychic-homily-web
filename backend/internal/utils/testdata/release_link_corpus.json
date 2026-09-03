@@ -91,7 +91,7 @@
     {
       "platform": "bandcamp",
       "url": "https://band%63amp.com/album/x",
-      "why": "percent escape in the host: Go's parser keeps it and the ASCII rule refuses it, the browser decodes it to bandcamp.com. Refused at write time so the column never holds a host the two layers spell differently",
+      "why": "percent escape in the host: Go's url.Parse refuses it outright (it rejects any host %XX below %80, except %25), so the ASCII rule never runs. The browser decodes it to bandcamp.com. Refused at write time so the column never holds a host the two layers spell differently",
       "alsoRefusedByReader": false
     },
     {

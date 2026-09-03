@@ -121,6 +121,12 @@ func TestValidateReleaseLinkRefusesUnbrowsableURL(t *testing.T) {
 	assert.Error(t, ValidateReleaseLink("bandcamp", "https://kingbuffalo.bandcamp.com:99999/album/x"))
 
 	assert.Error(t, ValidateReleaseLink("bandcamp", "https://xn--a.bandcamp.com/album/x"))
+	// A value that never parsed says so, rather than being told it must be on a
+	// host it already names. This sentence is what an operator reads in the
+	// enrichment sweep's error list.
+	assert.ErrorContains(t,
+		ValidateReleaseLink("bandcamp", "https://kingbuffalo.bandcamp.com/album/100%-pure"),
+		"must be a valid URL")
 	// Well-formed punycode is refused too: no platform host in the registry is
 	// an IDN, so the whole spelling is out rather than only the malformed ones.
 	assert.Error(t, ValidateReleaseLink("bandcamp", "https://xn--80ak6aa92e.bandcamp.com/album/x"))
