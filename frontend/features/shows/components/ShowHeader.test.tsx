@@ -468,6 +468,31 @@ describe('ShowHeader layout', () => {
       expect(screen.queryByText(/Sun, Aug 16/)).not.toBeInTheDocument()
     })
 
+    it('marks the guessed day with the tilde the page uses for estimates', () => {
+      // PSY-1964. The same register as the stripe's ENDS ~11PM and the venue
+      // facts' CAP ~500: the date is the one claim this page still makes on
+      // the fallback, and unmarked it reads as a checked fact.
+      render(<ShowHeader lifecycle="upcoming" show={berlinShow()} />)
+
+      expect(screen.getByText('~Sat, Aug 15')).toBeInTheDocument()
+    })
+
+    it('leaves the day unmarked once the venue carries its own zone', () => {
+      // The marker has to be caused by the missing zone and nothing else.
+      const show = berlinShow()
+      render(
+        <ShowHeader
+          lifecycle="upcoming"
+          show={{
+            ...show,
+            venues: [{ ...show.venues[0], timezone: 'Europe/Berlin' }],
+          }}
+        />
+      )
+
+      expect(screen.queryByText(/~/)).toBeNull()
+    })
+
     it('names no hour anywhere in the header', () => {
       render(<ShowHeader lifecycle="upcoming" show={berlinShow()} />)
 

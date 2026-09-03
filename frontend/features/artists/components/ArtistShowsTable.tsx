@@ -90,6 +90,10 @@ function ShowRow({ show }: { show: ArtistShow }) {
         <ShowPrice show={show} fallback={ABSENT} />
       </td>
       <td className="whitespace-nowrap text-right text-muted-foreground">
+        {/* Empty, not `ABSENT`, on a guessed zone. The en dash says "nobody
+            recorded this"; a withheld clock is a time the row HAS and declines
+            to name on a zone it cannot trust. The cell stays for the column
+            count. */}
         {formatShowTime(show.event_date, zone.state, zone.timezone)}
       </td>
     </tr>

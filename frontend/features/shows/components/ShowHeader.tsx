@@ -4,7 +4,8 @@ import { Fragment, useCallback, useState } from 'react'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
-import { formatShowDate, resolveShowTimezone } from '@/lib/utils/formatters'
+import { resolveShowTimezone } from '@/lib/utils/formatters'
+import { showPageDate } from '../showPageDate'
 import { ShowFlyerPlate } from './ShowFlyerPlate'
 import { ShowTicketRow } from './ShowTicketRow'
 import { saysSoldOut } from './showSaleState'
@@ -307,16 +308,16 @@ export function ShowHeader({
           {/* A DATE AND NOTHING ELSE. The zone here may be the fallback
               (`FALLBACK_SHOW_TIMEZONE` in `lib/utils/timeUtils`, which carries
               why that day is still the best available answer), so this line
-              deliberately builds nothing hour-level on it: the start time moved
-              to `ShowTicketRow` in Wave 1C and refuses on a guessed zone, as the
-              stripe above does for DOORS / MUSIC / TONIGHT.
+              builds nothing hour-level on it: the start time lives in
+              `ShowTicketRow` and refuses on a guessed zone, as the stripe above
+              does for DOORS / MUSIC / TONIGHT.
 
-              Whether a guessed day should also be MARKED as one for the reader
-              is a design question with no locked answer; it is deliberately not
-              invented here. PSY-1964 holds it, and lists the other three date
-              renders on this page any answer has to cover. */}
+              A guessed day is MARKED `~`. `features/shows/showPageDate` carries
+              which renders mark and which do not: the gig timeline spine below
+              prints this same day unmarked, because its zone arrives already
+              resolved. */}
           <span className="text-lg font-bold text-primary">
-            {formatShowDate(show.event_date, timing.state, false, timing.timezone)}
+            {showPageDate(show.event_date, timing.state, timing.timezone)}
           </span>
           {/* Through the shared derivation, not `show.is_sold_out` directly.
               This page states SOLD OUT twice — here and in the ticket row

@@ -99,12 +99,6 @@ describe('formatShowDate', () => {
 describe('formatShowTime', () => {
   const utcDate = '2026-03-15T02:30:00Z'
 
-  it('defaults to AZ timezone', () => {
-    // 02:30 UTC = 7:30 PM in America/Phoenix (UTC-7, no DST)
-    const result = formatShowTime(utcDate)
-    expect(result).toBe('7:30 PM')
-  })
-
   it('respects explicit state timezone', () => {
     const resultAZ = formatShowTime(utcDate, 'AZ')
     const resultNY = formatShowTime(utcDate, 'NY')
@@ -112,6 +106,36 @@ describe('formatShowTime', () => {
     expect(resultAZ).toBe('7:30 PM')
     expect(resultNY).toBe('10:30 PM')
     expect(resultAZ).not.toBe(resultNY)
+  })
+
+  describe('withholds the clock rather than naming an hour on a guess', () => {
+    // Every case below resolves to the fallback zone, whose reading of this
+    // instant is 7:30 PM — the same string the genuine Phoenix row above
+    // prints, and therefore indistinguishable from it once rendered.
+    it('is null when nothing at all is known about the venue', () => {
+      expect(formatShowTime(utcDate)).toBeNull()
+    })
+
+    it('is null for a blank state and no venue timezone', () => {
+      expect(formatShowTime(utcDate, '')).toBeNull()
+    })
+
+    it('is null for a state outside the US map', () => {
+      // Naming a region is not naming a zone. This is the case PSY-1965's
+      // review surfaced: 'England' resolves to the same fallback as ''.
+      expect(formatShowTime(utcDate, 'England')).toBeNull()
+      expect(formatShowTime(utcDate, 'Tokyo')).toBeNull()
+    })
+
+    it('is null when the venue timezone is malformed and the state is not US', () => {
+      expect(formatShowTime(utcDate, 'England', 'Not/AZone')).toBeNull()
+    })
+
+    it('still prints when a non-US venue carries its own IANA zone', () => {
+      // The withholding is about missing knowledge, not about being outside the
+      // US: a geocoded Berlin venue names its hour like any other.
+      expect(formatShowTime(utcDate, 'England', 'Europe/Berlin')).toBe('3:30 AM')
+    })
   })
 })
 
@@ -121,7 +145,7 @@ describe('formatShowTimeCompact', () => {
   it('resolves the zone by the same chain as formatShowTime', () => {
     // Same instant, same zones, only the register differs — which is the whole
     // contract: a rail must never resolve a room's clock by its own rule.
-    expect(formatShowTimeCompact(utcDate)).toBe('7:30PM')
+    expect(formatShowTimeCompact(utcDate, 'AZ')).toBe('7:30PM')
     expect(formatShowTimeCompact(utcDate, 'NY')).toBe('10:30PM')
   })
 
@@ -130,6 +154,31 @@ describe('formatShowTimeCompact', () => {
       '10:30PM'
     )
   })
+
+  // The refusal is shared too, or a rail would print an hour under a header
+  // that withheld one. Same predicate, same cases as `formatShowTime` above.
+  it('withholds the clock on a guessed zone, like its sibling', () => {
+    expect(formatShowTimeCompact(utcDate)).toBeNull()
+    expect(formatShowTimeCompact(utcDate, '')).toBeNull()
+    expect(formatShowTimeCompact(utcDate, 'England')).toBeNull()
+    expect(formatShowTimeCompact(utcDate, 'England', 'Not/AZone')).toBeNull()
+  })
+
+  it('still prints when a non-US venue carries its own IANA zone', () => {
+    expect(formatShowTimeCompact(utcDate, 'England', 'Europe/Berlin')).toBe(
+      '3:30AM'
+    )
+  })
+
+  // Both registers refuse the same rows, so a surface can move between them
+  // without gaining a clock it had withheld.
+  it.each(['', 'England', 'Tokyo'])(
+    'agrees with formatShowTime about withholding (%s)',
+    state => {
+      expect(formatShowTimeCompact(utcDate, state)).toBeNull()
+      expect(formatShowTime(utcDate, state)).toBeNull()
+    }
+  )
 })
 
 describe('venue timezone preference (PSY-986)', () => {

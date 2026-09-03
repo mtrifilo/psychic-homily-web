@@ -163,6 +163,23 @@ describe('formatShowStartTime', () => {
   it.each([undefined, 'not-a-date'])('returns null for an unusable instant (%s)', raw => {
     expect(formatShowStartTime(show({ starts_at: raw as never }))).toBeNull()
   })
+
+  // The scene's zone is what normally rescues a zone-less row here, so the
+  // refusal only bites when the SCENE has none either: a day page assembled
+  // before any of its venues were geocoded.
+  it('returns null when neither the row nor the scene supplies a zone', () => {
+    expect(
+      formatShowStartTime(show({ venue_timezone: '', venue_state: '' }))
+    ).toBeNull()
+  })
+
+  it('returns null for a venue state outside the US map with no scene zone', () => {
+    expect(
+      formatShowStartTime(
+        show({ venue_timezone: '', venue_state: 'England' })
+      )
+    ).toBeNull()
+  })
 })
 
 

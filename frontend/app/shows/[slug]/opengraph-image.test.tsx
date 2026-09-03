@@ -143,6 +143,39 @@ describe('the show OG route', () => {
     expect(isPng(bytes)).toBe(true)
   }, 30000)
 
+  // The marked STRING is asserted in `features/shows/showPageDate.test.ts`, and
+  // its width budgets in `features/shows/showOgLayout.test.ts`. What only this
+  // test can see is that the route still reaches that helper and still returns
+  // a card: a zone-less venue must produce different pixels from a zoned one on
+  // the same instant and the same fallback zone. Pixel inequality is a weak
+  // signal — it cannot say WHICH glyph differed — so read it as a wiring check,
+  // not as an assertion that the tilde was drawn.
+  it('still renders a card, with a different date row, for a guessed zone', async () => {
+    const zoneless = {
+      ...BASE_SHOW,
+      venues: [{ name: 'Sleeping Village', city: 'Chicago', state: '' }],
+    }
+    const zoned = {
+      ...BASE_SHOW,
+      venues: [
+        {
+          name: 'Sleeping Village',
+          city: 'Chicago',
+          state: '',
+          timezone: 'America/Phoenix',
+        },
+      ],
+    }
+    const { res, bytes } = await render(zoneless)
+    const { bytes: control } = await render(zoned)
+
+    expect(res.status).toBe(200)
+    expect(isPng(bytes)).toBe(true)
+    // Same instant, same fallback zone, same day: the only difference between
+    // these two cards is the marker.
+    expect(bytes.byteLength).not.toBe(control.byteLength)
+  }, 30000)
+
   // The badge is the one reader-facing CLAIM this card makes about state, and
   // it outlives a correction: a settled card holds for a day with an equal
   // stale-while-revalidate window, so a stale SOLD OUT can survive the page

@@ -88,6 +88,13 @@ function SubmissionShowCard({
   const canPublish =
     (show.status === 'private' || show.status === 'rejected') && canManage
   const headingId = `submission-show-${show.id}`
+  // Null on a guessed zone. The meta line drops the segment WITH its leading
+  // bullet, so the row reads as one fact fewer rather than as a stray divider.
+  const startTime = formatShowTime(
+    show.event_date,
+    show.state,
+    show.venues?.[0]?.timezone
+  )
 
   return (
     <article
@@ -318,14 +325,7 @@ function SubmissionShowCard({
             {show.age_requirement && (
               <span>&nbsp;•&nbsp;{show.age_requirement}</span>
             )}
-            <span>
-              &nbsp;•&nbsp;
-              {formatShowTime(
-                show.event_date,
-                show.state,
-                show.venues?.[0]?.timezone
-              )}
-            </span>
+            {startTime && <span>&nbsp;•&nbsp;{startTime}</span>}
             {SHOW_LIST_FEATURE_POLICY.ownership.showDetailsLink && (
               <>
                 <span>&nbsp;•&nbsp;</span>

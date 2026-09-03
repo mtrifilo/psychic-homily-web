@@ -128,26 +128,38 @@ const STATE_TIMEZONES: Record<string, string> = {
  * `isShowTimezoneResolved`, which wraps it) is how a caller tells a known zone
  * from this one.
  *
- * WHERE THAT IS ENFORCED TODAY, stated narrowly because it is not a site-wide
- * rule and reads as one if you squint. The SHOW PAGE asks first and prints no
- * CLOCK when the answer is no: Wave 1A (PSY-1684) put the gate on the stripe,
- * which drops DOORS, MUSIC and TONIGHT; Wave 1C (PSY-1686) extended it to
- * `startTimeFactSegment` and `doorsMusicFactSegment` in
- * `features/shows/components/showStatusStripeCopy.ts`, which both return null.
+ * WHERE THAT IS ENFORCED, stated narrowly because it is not a site-wide rule
+ * and reads as one if you squint. Three FRONTEND READ paths ask
+ * `isShowTimezoneResolved` first and say less when the answer is no:
+ * `formatShowTime` (`./formatters`) returns null, so a listing surface drops
+ * its time segment and the separator that introduced it; `startTimeFactSegment`
+ * and `doorsMusicFactSegment` in
+ * `features/shows/components/showStatusStripeCopy.ts` return null, and the
+ * stripe drops DOORS, MUSIC and TONIGHT with them; and `MusicEvent.startDate`
+ * in `lib/seo/jsonld.ts` degrades to a bare calendar date rather than composing
+ * an offset out of this zone.
  *
- * Three things on that same page are NOT gated, and each is a separate ticket
- * because each needs a different decision:
- * - The DATE renders through the guess unmarked, here and in the stripe, plus
- *   two hand-rolled copies in `app/shows/[slug]/page.tsx` (meta description)
- *   and `app/shows/[slug]/opengraph-image.tsx` (share card). Whether to mark it
- *   is PSY-1964.
- * - `getShowLifecycleState` (`./showTiming`) resolves through here with no gate,
- *   so a zone-less venue east of Phoenix keeps ON SALE and [Buy Tickets] live
- *   past its own midnight — about nine hours for Berlin. See PSY-1963.
- * - `formatShowTime` has no gate at all, so its 11 listing call sites (ShowCard,
- *   CompactShowRow, ShowSubmissionsConsole, the artist/venue show tables,
- *   library, the scene panels, sceneDay) and `MusicEvent.startDate` in
- *   `lib/seo/jsonld.ts` name an hour on this guess. Also PSY-1963.
+ * A DATE is a weaker claim and is still rendered on this constant. The show
+ * page marks it `~` (`features/shows/showPageDate`, the same register as
+ * `ENDS ~11PM` and `CAP ~500`); listing surfaces do not.
+ *
+ * WHAT STILL BUILDS A CLOCK ON THIS VALUE, none of it gated:
+ * - The edit form, both legs. `show-form-utils.ts` seeds its time input from
+ *   `parseISOToDateAndTime(event_date, resolveShowTimezone(...))` and
+ *   `ShowForm`'s submit composes the instant back through the same resolver.
+ *   That pair is the round trip described above, so the wall clock it shows is
+ *   the one the submitter typed; it must not be withheld.
+ * - `getShowLifecycleState` (`./showTiming`) compares venue-local calendar days
+ *   through here, so a zone-less venue east of Phoenix keeps ON SALE and the
+ *   ticket bracket live past its own midnight. That function carries the
+ *   measured consequence and why gating it is a product decision.
+ * - Anything reading a zone the BACKEND already resolved. Several payloads
+ *   send `utils.EventLocation(...).String()` rather than the venue's raw
+ *   nullable column, and this constant's name does not survive that: the
+ *   frontend cannot tell a real Phoenix zone from a surrendered one, so
+ *   `isShowTimezoneResolved` answers yes for both.
+ * - The Go twin, `backend/internal/utils/timezone.go`, which is the same value
+ *   with the same job and feeds the reminder email, the ICS feeds and Discord.
  */
 export const FALLBACK_SHOW_TIMEZONE = 'America/Phoenix'
 
@@ -376,6 +388,32 @@ export function toZonedISOString(
   const match = p('timeZoneName').match(/GMT([+-]\d{2}:\d{2})/)
   const offset = match ? match[1] : '+00:00'
   return `${p('year')}-${p('month')}-${p('day')}T${hour}:${p('minute')}:${p('second')}${offset}`
+}
+
+/**
+ * The calendar day an instant falls on in `timezone`, as a bare
+ * `YYYY-MM-DD` string: schema.org `Date` rather than `DateTime`.
+ *
+ * The weaker sibling of {@link toZonedISOString}, for the case where the zone
+ * is {@link FALLBACK_SHOW_TIMEZONE} rather than one the row supplies. An
+ * offset-bearing timestamp built on that zone states a wall clock nobody
+ * entered; a date states only the day, which is the strongest claim the
+ * fallback supports. Both forms are valid for `MusicEvent.startDate`.
+ *
+ * `timezone` must be a valid IANA name.
+ */
+export function toZonedDateOnly(
+  utcDateString: string,
+  timezone: string
+): string {
+  // The date half of the sibling above rather than a second formatter of its
+  // own: that function assembles its result as year, month, day, `T`, clock, so
+  // the two cannot answer different days for one instant. Ten characters covers
+  // a four-digit year, which is every year `Intl` will be handed here; a
+  // one-to-three-digit year would truncate, and so would the sibling's own
+  // offset-bearing form, which is where that input has to be rejected instead.
+  // The direct assertions in `timeUtils.test.ts` hold the prefix in place.
+  return toZonedISOString(utcDateString, timezone).slice(0, 10)
 }
 
 /**

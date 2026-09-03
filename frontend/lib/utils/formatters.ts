@@ -47,14 +47,20 @@ export function resolveShowTimezone(
  * next to a venue name. Formatting a date is a weaker claim and can live with
  * the fallback; naming an hour cannot.
  *
- * That split is the show page's policy, not a per-surface preference. Wave 1A
- * (PSY-1684) wrote the refusing half into `showStatusStripeCopy` — no DOORS, no
- * MUSIC, no TONIGHT on a guessed zone — and Wave 1C (PSY-1686) extended it to
- * the start time and the venue module's times line. The accepting half is every
- * date render on that page, which prints the fallback's calendar day rather
- * than printing nothing. `FALLBACK_SHOW_TIMEZONE` (`./timeUtils`) carries why
- * that day is the best available answer instead of an arbitrary one, and which
- * surfaces do NOT yet ask this question.
+ * The refusing half runs through {@link formatShowTime}, which returns null
+ * rather than a guessed clock, through `startTimeFactSegment` and
+ * `doorsMusicFactSegment` in
+ * `features/shows/components/showStatusStripeCopy.ts`, which drop DOORS, MUSIC
+ * and TONIGHT, and through `MusicEvent.startDate` in `lib/seo/jsonld.ts`, which
+ * degrades to a bare calendar date. The accepting half is every date render,
+ * which prints the fallback's calendar day rather than printing nothing, marked
+ * with `~` on the show page (`features/shows/showPageDate`).
+ *
+ * ANSWERS ABOUT NAMEABILITY, NOT ACCURACY. A state the map lists is `true` even
+ * where the state spans zones, so El Paso reads on America/Chicago and prints
+ * an hour that is one out. `FALLBACK_SHOW_TIMEZONE` (`./timeUtils`) carries why
+ * its own day is still the best available answer, and enumerates what is not
+ * gated at all.
  */
 export function isShowTimezoneResolved(
   state?: string | null,
@@ -100,6 +106,10 @@ export function isValidTimeZone(tz: string): boolean {
 /**
  * Format a show date in the venue's timezone: "Mon, Dec 1" or "Mon Dec 1, 2026".
  * Pass the venue's `timezone` when available; `state` is the fallback.
+ *
+ * Unmarked even when the zone is a guess. No formatter in this module marks:
+ * whether a guessed day is flagged for the reader is a per-surface decision,
+ * and `features/shows/showPageDate` owns it for the one surface that flags.
  */
 export function formatShowDate(
   dateString: string,
@@ -192,14 +202,35 @@ export function formatShowMonth(
 }
 
 /**
- * Format a show time in the venue's timezone: "7:30 PM".
+ * A show time in the venue's timezone ("7:30 PM"), or `null` when this row's
+ * zone is not known and an hour would therefore be a guess.
+ *
+ * The null is the contract, not a convenience. `resolveShowTimezone` always
+ * answers with SOME zone, so a formatter that returned a plain string would
+ * print `FALLBACK_SHOW_TIMEZONE`'s clock for a venue with no resolved
+ * `timezone` and a state outside the US map, and that clock can be many hours
+ * off. Returning `null` puts the decision in the type, so a caller cannot print
+ * an hour on the guess without first writing the branch that says what its row
+ * shows instead. The contract for that branch: drop the time AND whatever
+ * separator introduced it, and put no placeholder copy in its place. A row in a
+ * fixed table keeps its cell and leaves it empty, which is the same statement
+ * in a shape a column count cannot lose.
+ *
+ * Formatting a DATE on the same guess is a weaker claim and stays allowed; see
+ * {@link isShowTimezoneResolved}.
+ *
+ * There is no NaN guard: an unreadable `dateString` still formats as "Invalid
+ * Date". A caller that also renders a date has already had to answer that,
+ * and gating on it here would collapse two different refusals into one null.
+ *
  * Pass the venue's `timezone` when available; `state` is the fallback.
  */
 export function formatShowTime(
   dateString: string,
   state?: string | null,
   timezone?: string | null
-): string {
+): string | null {
+  if (!isShowTimezoneResolved(state, timezone)) return null
   return formatTimeInTimezone(dateString, resolveShowTimezone(state, timezone))
 }
 
@@ -221,12 +252,24 @@ export function formatShowTime(
  * Shares `resolveShowTimezone` with `formatShowTime` deliberately: the register
  * is the only thing that differs, so a rail can never resolve a room's clock by
  * a different rule than the line above it.
+ *
+ * It shares the REFUSAL for the same reason. `null` when the row's zone is not
+ * known, on the same predicate and with the same contract as
+ * {@link formatShowTime}: drop the segment and whatever separator introduced
+ * it, and put no placeholder in its place. A register is a way of saying an
+ * hour, not a licence to say one the site is guessing at, and a rail sitting
+ * under a header that withheld its clock must not print one.
+ *
+ * Distinct from the `''` this returns for an unreadable instant, which
+ * `formatCompactTimeInTimezone` decides. Both render as nothing; only one of
+ * them is a claim the caller had to decide about.
  */
 export function formatShowTimeCompact(
   dateString: string,
   state?: string | null,
   timezone?: string | null
-): string {
+): string | null {
+  if (!isShowTimezoneResolved(state, timezone)) return null
   return formatCompactTimeInTimezone(
     dateString,
     resolveShowTimezone(state, timezone)

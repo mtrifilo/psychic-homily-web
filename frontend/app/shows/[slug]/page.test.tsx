@@ -30,15 +30,16 @@ vi.mock('next/server', () => ({
 // read that as "the dynamic() boundary is covered" — it is not exercised here
 // at all. If a future test renders the tree, stub the component FILE, not this
 // module: since PSY-1772 the page imports it by path, not through the barrel.)
-vi.mock('@/features/shows/utils', () => ({
-  // The page reads the show's timezone inputs to compute the status stripe's
-  // lifecycle. This is the only value the page takes from the feature.
-  showTimingInput: (show: { event_date: string }) => ({
-    eventDate: show.event_date,
-    state: null,
-    timezone: null,
-  }),
-}))
+vi.mock('@/features/shows/utils', async importOriginal => {
+  // Only `showTimingInput` is taken from the feature, and it is taken REAL: it
+  // now decides which calendar the metadata description is dated on, so a stub
+  // that answered a fixed zone would let every assertion below agree with a
+  // page that disagreed with itself. Stubbing the rest keeps the module's
+  // component imports out of this suite.
+  const { showTimingInput } =
+    await importOriginal<typeof import('@/features/shows/utils')>()
+  return { showTimingInput }
+})
 
 import ShowPage, { generateMetadata } from './page'
 import {
@@ -272,6 +273,60 @@ describe('generateMetadata', () => {
 
     // Generated form: "{headliner} live at {venue} on {date}".
     expect(meta.description).toContain('Headliner Band live at The Rebel Lounge on')
+  })
+
+  it('dates the generated description on the venue calendar', async () => {
+    // 03:00Z is the previous evening in Phoenix, so a description built on the
+    // raw instant would name the wrong day in the search result.
+    fetchMock.mockResolvedValueOnce(
+      okResponse(buildShow({ event_date: '2026-09-10T03:00:00Z' }))
+    )
+
+    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'test-show' }) })
+
+    expect(meta.description).toContain('on Wednesday, September 9, 2026')
+  })
+
+  it('marks the day in the description when the venue zone is a guess', async () => {
+    // PSY-1964: the meta description is one of the four date renders on this
+    // page, and they mark together or the page contradicts itself.
+    fetchMock.mockResolvedValueOnce(
+      okResponse(
+        buildShow({
+          event_date: '2026-09-10T03:00:00Z',
+          venues: [
+            { name: 'Hall Ohne Zone', slug: 'hall', city: 'Berlin', state: '' },
+          ],
+        })
+      )
+    )
+
+    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'test-show' }) })
+
+    expect(meta.description).toContain('on ~Wednesday, September 9, 2026')
+  })
+
+  it('dates a venue-less show on its OWN state, like every other render', async () => {
+    // The header, the stripe and the share card all resolve the zone through
+    // `showTimingInput`, which falls back to the show row's state when there is
+    // no venue. A description that read only `venues[0].state` would name a
+    // different day here than the page it describes, and mark it as a guess
+    // while the page did not.
+    fetchMock.mockResolvedValueOnce(
+      okResponse(
+        buildShow({
+          venues: [],
+          state: 'NY',
+          // 06:30Z is Nov 13 in New York and Nov 12 in the fallback zone.
+          event_date: '2026-11-13T06:30:00Z',
+        })
+      )
+    )
+
+    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'test-show' }) })
+
+    expect(meta.description).toContain('on Friday, November 13, 2026')
+    expect(meta.description).not.toContain('~')
   })
 
   it('sets the canonical URL to https://psychichomily.com/shows/{slug}', async () => {

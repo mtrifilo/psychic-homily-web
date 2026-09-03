@@ -858,6 +858,50 @@ describe('one clock, two renders', () => {
   })
 })
 
+describe('the also-tonight lead withholds a guessed clock', () => {
+  // The rail sits on the show page, under a header that refuses to name an
+  // hour on an unresolved zone. Printing one here would contradict it in the
+  // same viewport, in the compact register instead of the spoken one.
+  const zoneless = (overrides = {}) =>
+    makeAlsoTonightPayload({
+      timezone: '',
+      shows: [
+        makeAlsoTonightShow({
+          venue_state: '',
+          venue_timezone: '',
+          starts_at: '2026-08-13T01:00:00Z',
+          ...overrides,
+        }),
+      ],
+    })
+
+  it('leaves the lead empty when neither the row nor the scene has a zone', () => {
+    expect(buildAlsoTonightRail(zoneless(), 99)?.rows[0]?.lead).toBeNull()
+  })
+
+  it('leaves it empty for a venue state outside the US map', () => {
+    expect(
+      buildAlsoTonightRail(zoneless({ venue_state: 'England' }), 99)?.rows[0]
+        ?.lead
+    ).toBeNull()
+  })
+
+  it('still names the hour when the row carries its own zone', () => {
+    expect(
+      buildAlsoTonightRail(
+        zoneless({ venue_timezone: 'Europe/Berlin' }),
+        99
+      )?.rows[0]?.lead
+    ).toBe('3AM')
+  })
+
+  it('keeps the bill and the room on a row whose clock it withheld', () => {
+    const row = buildAlsoTonightRail(zoneless(), 99)?.rows[0]
+    expect(row?.title).toBeTruthy()
+    expect(row?.room).toBeTruthy()
+  })
+})
+
 describe('venueRailShowsUrl', () => {
   it('sends the limit the rail hook sends, read from the constant', () => {
     // The server and the hook must ask the same QUESTION. The rows the server

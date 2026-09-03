@@ -408,8 +408,12 @@ function NextShowRow({ show, artistId }: { show: ArtistShow; artistId: number })
   const date = formatPanelShowDate(show.event_date, venue?.state, venue?.timezone)
   // An unparseable date means we can't state a time either — `formatShowTime`
   // has no NaN guard and would render the literal "Invalid Date". One check
-  // gates both halves, exactly as VenuePanel's ShowRow does.
-  const time = date ? formatShowTime(show.event_date, venue?.state, venue?.timezone) : ''
+  // gates both halves, exactly as VenuePanel's ShowRow does. A guessed venue
+  // zone is the helper's own null, and `filter(Boolean)` below drops either
+  // absence along with its separator.
+  const time = date
+    ? formatShowTime(show.event_date, venue?.state, venue?.timezone)
+    : null
   // `?? []` and not a bare `.map`: a show served without a bill must degrade,
   // not throw — `/atlas` has no route-level error boundary.
   const others = (show.artists ?? [])

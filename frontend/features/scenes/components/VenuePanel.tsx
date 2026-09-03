@@ -526,8 +526,12 @@ function ShowRow({
   // An unparseable date means we can't state a time either. `formatShowTime`
   // has no NaN guard of its own — it would render the literal string "Invalid
   // Date" into the meta line beside an empty date gutter — so the row's one
-  // date check gates both halves.
-  const time = date ? formatShowTime(show.event_date, state, venue.timezone) : ''
+  // date check gates both halves. A guessed venue zone is the helper's own
+  // null, and the meta line's `filter(Boolean)` drops either absence along
+  // with its separator.
+  const time = date
+    ? formatShowTime(show.event_date, state, venue.timezone)
+    : null
   const title = showDisplayTitle(
     show.title,
     // `?? []` rather than a bare `.map`: an absent bill must degrade to

@@ -69,7 +69,10 @@ describe('generateBreadcrumbSchema', () => {
 describe('generateMusicEventSchema', () => {
   const baseShow = {
     date: '2026-03-15T20:00:00Z',
-    venue: { name: 'The Rebel Lounge' },
+    // `state` carries the zone: without it the venue's zone is a GUESS and
+    // `startDate` degrades to a bare date, which would make every assertion
+    // below about the offset form vacuous.
+    venue: { name: 'The Rebel Lounge', state: 'AZ' },
     artists: [{ name: 'Test Band', is_headliner: true }],
   }
 
@@ -80,11 +83,59 @@ describe('generateMusicEventSchema', () => {
     expect(schema['@type']).toBe('MusicEvent')
     expect(schema.name).toBeDefined()
     // startDate is rendered in the venue's local time with offset (PSY-986):
-    // 20:00Z at The Rebel Lounge (AZ default → America/Phoenix, UTC-7) = 1:00 PM.
+    // 20:00Z at The Rebel Lounge (AZ → America/Phoenix, UTC-7) = 1:00 PM.
     expect(schema.startDate).toBe('2026-03-15T13:00:00-07:00')
     expect(schema.location).toBeDefined()
     expect(schema.eventAttendanceMode).toBe('https://schema.org/OfflineEventAttendanceMode')
     expect(schema.eventStatus).toBeDefined()
+  })
+
+  describe('startDate says only as much as the zone supports', () => {
+    it('carries the venue-local offset when the venue supplies a zone', () => {
+      const schema = generateMusicEventSchema({
+        ...baseShow,
+        venue: { name: 'Berghain', state: '', timezone: 'Europe/Berlin' },
+      })
+      expect(schema.startDate).toBe('2026-03-15T21:00:00+01:00')
+    })
+
+    it('degrades to a bare calendar date when the state is blank', () => {
+      const schema = generateMusicEventSchema({
+        ...baseShow,
+        venue: { name: 'Hall Ohne Zone', state: '' },
+      })
+      expect(schema.startDate).toBe('2026-03-15')
+    })
+
+    it('degrades to a bare calendar date for a state outside the US map', () => {
+      // Naming a region is not naming a zone: `resolveShowTimezone` answers
+      // FALLBACK_SHOW_TIMEZONE for 'England' exactly as it does for ''.
+      const schema = generateMusicEventSchema({
+        ...baseShow,
+        venue: { name: 'The Windmill', state: 'England' },
+      })
+      expect(schema.startDate).toBe('2026-03-15')
+    })
+
+    it('is the day the fallback reads, not the UTC day', () => {
+      // 03:00Z is the evening BEFORE in the fallback zone (UTC-7), which is the
+      // day the submit path composed. The date-only form keeps that day rather
+      // than moving the show forward by one.
+      const schema = generateMusicEventSchema({
+        ...baseShow,
+        date: '2026-03-15T03:00:00Z',
+        venue: { name: 'Hall Ohne Zone', state: '' },
+      })
+      expect(schema.startDate).toBe('2026-03-14')
+    })
+
+    it('emits the raw instant for a show with no venue at all', () => {
+      const schema = generateMusicEventSchema({
+        ...baseShow,
+        venue: undefined,
+      })
+      expect(schema.startDate).toBe('2026-03-15T20:00:00Z')
+    })
   })
 
   // Name generation

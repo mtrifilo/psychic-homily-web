@@ -128,6 +128,12 @@ function SavedShowCard({
     show.state,
     show.venues?.[0]?.timezone
   )
+  // Null on a guessed zone; the date column then holds the date alone.
+  const startTime = formatShowTime(
+    show.event_date,
+    show.state,
+    show.venues?.[0]?.timezone
+  )
 
   return (
     <article
@@ -143,13 +149,11 @@ function SavedShowCard({
         <span className="hidden md:inline">
           {dateBadge.dayOfWeek} {dateBadge.monthDay}
         </span>
-        <div className="mt-0.5 hidden text-[11px] font-normal normal-case text-muted-foreground md:block">
-          {formatShowTime(
-            show.event_date,
-            show.state,
-            show.venues?.[0]?.timezone
-          )}
-        </div>
+        {startTime && (
+          <div className="mt-0.5 hidden text-[11px] font-normal normal-case text-muted-foreground md:block">
+            {startTime}
+          </div>
+        )}
       </div>
 
       <div className="min-w-0 self-center">

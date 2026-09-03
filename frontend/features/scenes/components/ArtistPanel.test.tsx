@@ -348,6 +348,39 @@ describe('ArtistPanel', () => {
       )
     })
 
+    // The row joins its parts with a middot, so a withheld clock has to take
+    // its separator with it rather than leaving a trailing "· ".
+    it('names no hour when the venue zone is a guess, and no trailing separator', () => {
+      mockUseArtistShows.mockReturnValue({
+        data: {
+          shows: [
+            {
+              id: 900,
+              slug: 's',
+              title: '',
+              event_date: '2026-08-02T02:00:00Z',
+              price: null,
+              age_requirement: null,
+              venue: {
+                id: 1,
+                slug: 'hall',
+                name: 'HALL',
+                city: 'Berlin',
+                state: '',
+                timezone: null,
+              },
+              artists: [{ id: 10, slug: 'die-spitz', name: 'Die Spitz' }],
+            },
+          ],
+          artist_id: 10,
+          total: 1,
+        },
+      })
+      renderPanel()
+      expect(screen.getByText(/HALL/)).toHaveTextContent('SAT 8/1 · HALL')
+      expect(screen.queryByText(/PM/)).not.toBeInTheDocument()
+    })
+
     // Requests a full page and slices for display, rather than a two-row page.
     //
     // Originally a correctness requirement: `artistQueryKeys.shows()` keyed

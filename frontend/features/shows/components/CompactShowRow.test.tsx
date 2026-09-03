@@ -215,4 +215,43 @@ describe('CompactShowRow', () => {
     const dateBadgeLink = links.find(l => l.getAttribute('href') === '/shows/test-show')
     expect(dateBadgeLink).toBeDefined()
   })
+
+  describe('the clock is withheld on a guessed zone', () => {
+    // 03:00Z reads as the previous evening in the fallback zone, so a row that
+    // printed this clock would also be carrying a wrong day beside it.
+    const guessedShow = { ...baseShow, event_date: '2026-09-10T03:00:00Z' }
+    const FALLBACK_CLOCK = /8:00\s?PM/
+
+    it('names the hour when the state map knows the state', () => {
+      render(<CompactShowRow show={guessedShow} state="AZ" />)
+      expect(screen.getByText(FALLBACK_CLOCK)).toBeInTheDocument()
+    })
+
+    it('names no hour for a blank state and no venue timezone', () => {
+      render(<CompactShowRow show={guessedShow} state="" />)
+      expect(screen.queryByText(FALLBACK_CLOCK)).not.toBeInTheDocument()
+    })
+
+    it('names no hour for a state outside the US map', () => {
+      render(<CompactShowRow show={guessedShow} state="England" />)
+      expect(screen.queryByText(FALLBACK_CLOCK)).not.toBeInTheDocument()
+    })
+
+    it('names the hour again once the venue carries its own zone', () => {
+      render(
+        <CompactShowRow
+          show={guessedShow}
+          state="England"
+          timezone="Europe/Berlin"
+        />
+      )
+      expect(screen.getByText(/5:00\s?AM/)).toBeInTheDocument()
+    })
+
+    it('keeps the date badge and the price on a row with no time', () => {
+      render(<CompactShowRow show={guessedShow} state="" />)
+      expect(screen.getByText(/SEP 9/i)).toBeInTheDocument()
+      expect(screen.getByText('$15')).toBeInTheDocument()
+    })
+  })
 })

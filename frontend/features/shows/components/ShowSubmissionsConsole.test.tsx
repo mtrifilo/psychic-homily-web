@@ -216,6 +216,67 @@ describe('ShowSubmissionsConsole', () => {
     )
   })
 
+  describe('the meta line withholds a clock on a guessed zone', () => {
+    // 03:00Z is 8:00 PM the previous day in the fallback zone.
+    function zonelessShow() {
+      const show = makeShow(1, 'approved')
+      return {
+        ...show,
+        event_date: '2026-09-10T03:00:00Z',
+        state: '',
+        venues: [{ ...show.venues[0], state: '', timezone: null }],
+      } as ShowResponse
+    }
+
+    it('names the hour when the venue carries a zone', () => {
+      const show = zonelessShow()
+      mockUseMySubmissions.mockReturnValue({
+        data: {
+          shows: [
+            {
+              ...show,
+              venues: [{ ...show.venues[0], timezone: 'America/Phoenix' }],
+            },
+          ],
+          total: 1,
+        },
+        isLoading: false,
+        error: null,
+      })
+      renderWithProviders(<ShowSubmissionsConsole />)
+      expect(screen.getByText(/8:00\s?PM/)).toBeTruthy()
+    })
+
+    it('names no hour, and leaves no doubled bullet, when it does not', () => {
+      mockUseMySubmissions.mockReturnValue({
+        data: { shows: [zonelessShow()], total: 1 },
+        isLoading: false,
+        error: null,
+      })
+      renderWithProviders(<ShowSubmissionsConsole />)
+      expect(screen.queryByText(/8:00\s?PM/)).toBeNull()
+
+      // The segment leaves WITH its leading bullet. A trailing-bullet check
+      // could not see that: `Details` always follows, so the line never ends on
+      // a divider either way. What the dropped segment can leave behind is two
+      // adjacent ones, which is what this asserts.
+      const meta = screen.getByText(/Venue 1/).closest('div') as HTMLElement
+      const text = meta.textContent ?? ''
+      expect(text).toContain('$20')
+      expect(text.replace(/\s|\u00a0/g, '')).not.toContain('\u2022\u2022')
+    })
+
+    it('keeps the date on a row whose time it withheld', () => {
+      mockUseMySubmissions.mockReturnValue({
+        data: { shows: [zonelessShow()], total: 1 },
+        isLoading: false,
+        error: null,
+      })
+      renderWithProviders(<ShowSubmissionsConsole />)
+      expect(screen.getByText(/Sep 9/)).toBeTruthy()
+    })
+  })
+
   it('preserves owner controls for approved and private shows', async () => {
     const user = userEvent.setup()
     mockUseMySubmissions.mockReturnValue({

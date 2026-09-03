@@ -3,6 +3,7 @@ import {
   resolveShowTimezone,
 } from '@/lib/utils/formatters'
 import { formatCompactTimeInTimezone } from '@/lib/utils/timeUtils'
+import { markGuessedShowDay } from '../showPageDate'
 import { formatShowDateBadge } from '@/lib/utils/showDateBadge'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 
@@ -157,17 +158,31 @@ export function startTimeFactSegment(
   return formatStripeTime(startedAt, timeZone)
 }
 
-/** "WED, AUG 12 2026" */
-function formatStripeFullDate(instant: number, timeZone: string): string {
-  const part = partsOf(instant, timeZone, {
+/**
+ * "WED, AUG 12 2026", or "~WED, AUG 12 2026" when the zone that decided the day
+ * is the fallback.
+ *
+ * Takes the input rather than the resolved zone: by the time
+ * `resolveShowTimezone` has returned, a guessed America/Phoenix and a Phoenix
+ * venue's real one are the same string, so the marker cannot be derived from it.
+ */
+function formatStripeFullDate(
+  instant: number,
+  input: Pick<ShowStatusStripeInput, 'state' | 'timezone'>
+): string {
+  const part = partsOf(instant, resolveShowTimezone(input.state, input.timezone), {
     weekday: 'short',
     month: 'short',
     day: 'numeric',
     year: 'numeric',
   })
-  return `${part('weekday').toUpperCase()}, ${part('month').toUpperCase()} ${part(
-    'day'
-  )} ${part('year')}`
+  return markGuessedShowDay(
+    `${part('weekday').toUpperCase()}, ${part('month').toUpperCase()} ${part(
+      'day'
+    )} ${part('year')}`,
+    input.state,
+    input.timezone
+  )
 }
 
 /**
@@ -225,7 +240,7 @@ export function buildShowStatusStripeSegments(
     // The mock's tail ("SETLIST + RECORDINGS BELOW") is deliberately absent:
     // those modules are not built, and a band that points at them would be
     // pointing at nothing. It belongs to the ticket that ships them.
-    return ['PAST SHOW', formatStripeFullDate(startedAt, timeZone)]
+    return ['PAST SHOW', formatStripeFullDate(startedAt, input)]
   }
 
   // The whole times line hangs off `doors_at`. A show with only a music time
@@ -272,6 +287,10 @@ export function buildShowStatusStripeSegments(
  * ways. It is handed the instant this module already validated rather than the
  * raw field, so the shared helper is never the one deciding what an
  * unparseable date means.
+ *
+ * A guessed day is marked ONCE, on the leading segment. These two segments are
+ * one date printed in two parts, so `~SAT · AUG 15` says the date is a guess
+ * while `~SAT · ~AUG 15` would read as two separate estimates.
  */
 function upcomingDateSegments(
   startedAt: number,
@@ -282,5 +301,8 @@ function upcomingDateSegments(
     input.state,
     input.timezone
   )
-  return [dayOfWeek, monthDay]
+  return [
+    markGuessedShowDay(dayOfWeek, input.state, input.timezone),
+    monthDay,
+  ]
 }

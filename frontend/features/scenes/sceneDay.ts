@@ -126,8 +126,15 @@ export function formatPointerDay(
  * venue zone, and rendering it against a different one is how a listed time
  * ends up disagreeing with the date heading above it.
  *
- * Returns null when the payload cannot supply a usable instant — a row with no
- * time still lists its bill and venue, which is most of its value.
+ * Returns null when the payload cannot supply a usable instant, and again when
+ * `formatShowTime` refuses: no row timezone, no scene zone, and a
+ * `venue_state` the US map does not list. A row with no time still lists its
+ * bill and venue, which is most of its value.
+ *
+ * The refusal is narrower than it looks, because `sceneTimezone` reaches it as
+ * a zone the BACKEND already resolved. When that resolution surrendered to its
+ * own fallback the string is indistinguishable from a real one here, so this
+ * still prints an hour. Closing that needs the payload to say it surrendered.
  */
 export function formatShowStartTime(
   show: SceneDayShow,
@@ -142,9 +149,12 @@ export function formatShowStartTime(
  * The same start time in the COMPACT ledger register — `8PM`, `7:30PM`.
  *
  * For dense fixed-width lead columns; see {@link formatShowTimeCompact} for why
- * two registers are allowed to share a page. Identical zone resolution and
- * identical instant guard to `formatShowStartTime` above, so a surface can move
- * between the two registers without moving a clock.
+ * two registers are allowed to share a page. Identical zone resolution, the
+ * same instant guard and the same refusal as `formatShowStartTime` above, so a
+ * surface can move between the registers without moving a clock and without
+ * gaining one it had withheld. The same narrowing applies: `sceneTimezone`
+ * arrives already resolved, so a scene whose own resolution surrendered still
+ * prints an hour here.
  */
 export function formatShowStartTimeCompact(
   show: SceneDayShow,
