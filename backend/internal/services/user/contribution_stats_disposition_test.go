@@ -61,10 +61,10 @@ func (d statsDisposition) String() string {
 	return "unknown statsDisposition"
 }
 
-// contributionStatsDispositions is the whole inventory, keyed by the struct
+// contributionStatDispositions is the whole inventory, keyed by the struct
 // field name. A field missing here fails the test, and adding one is a claim
 // about it.
-var contributionStatsDispositions = map[string]statsDisposition{
+var contributionStatDispositions = map[string]statsDisposition{
 	// Sourced from audit_logs through the timeline's own condition, so these
 	// four count exactly the rows GET /users/{username}/contributions lists for
 	// the same actor. moderation_actions is the one that needed it:
@@ -123,7 +123,7 @@ func TestEveryContributionStatHasADisposition(t *testing.T) {
 	var undecided []string
 	for i := range fields.NumField() {
 		name := fields.Field(i).Name
-		if _, ok := contributionStatsDispositions[name]; !ok {
+		if _, ok := contributionStatDispositions[name]; !ok {
 			undecided = append(undecided, name)
 		}
 	}
@@ -134,9 +134,36 @@ func TestEveryContributionStatHasADisposition(t *testing.T) {
 			"collection visibility rules:\n  %v\n\nA counter is a listing restated as one "+
 			"number, and this profile is anonymous, so a whole count beside a filtered "+
 			"listing of the same rows publishes the withheld ones by subtraction. Add each "+
-			"to contributionStatsDispositions with the disposition that is TRUE of it, and "+
+			"to contributionStatDispositions with the disposition that is TRUE of it, and "+
 			"if it is statsOpen, say in the entry why.",
 			len(undecided), undecided)
+	}
+}
+
+// statsOpenCounters is the set of counters that CAN name a gated entity and are
+// deliberately not narrowed. Every one of them is a live disclosure.
+//
+// Pinned as a set rather than left to the map above, so adding an open counter
+// is a two-line change a reviewer sees rather than one word in a table. The
+// direction that matters is growth: narrowing one of these is a fix and only
+// needs this list shortened.
+var statsOpenCounters = map[string]bool{
+	"ReportsFiled":    true,
+	"ReportsResolved": true,
+}
+
+func TestNoNewOpenContributionStat(t *testing.T) {
+	for name, disposition := range contributionStatDispositions {
+		if disposition == statsOpen && !statsOpenCounters[name] {
+			t.Errorf("%s is recorded %s and is not in statsOpenCounters: a counter that can "+
+				"name a gated entity and is not narrowed publishes the withheld rows by "+
+				"subtraction on an anonymous profile. Narrow it, or add it here with the "+
+				"reason in its map entry.", name, disposition)
+		}
+		if disposition != statsOpen && statsOpenCounters[name] {
+			t.Errorf("%s is listed in statsOpenCounters but is recorded %s — remove it from "+
+				"the list, the disclosure is closed", name, disposition)
+		}
 	}
 }
 
@@ -151,7 +178,7 @@ func TestContributionStatsDispositionsHasNoStaleEntries(t *testing.T) {
 	}
 
 	var stale []string
-	for name := range contributionStatsDispositions {
+	for name := range contributionStatDispositions {
 		if !known[name] {
 			stale = append(stale, name)
 		}
@@ -159,7 +186,7 @@ func TestContributionStatsDispositionsHasNoStaleEntries(t *testing.T) {
 
 	if len(stale) > 0 {
 		sort.Strings(stale)
-		t.Errorf("%d entr(ies) in contributionStatsDispositions name fields that are not on "+
+		t.Errorf("%d entr(ies) in contributionStatDispositions name fields that are not on "+
 			"contracts.ContributionStats:\n  %v", len(stale), stale)
 	}
 }

@@ -1,6 +1,7 @@
 package shared
 
 import (
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	servicesshared "psychic-homily-backend/internal/services/shared"
 )
@@ -42,6 +43,22 @@ func ShowSubResourceVisible(checker contracts.ShowVisibilityInterface, showID ui
 		return false
 	}
 	return checker.ShowVisibleTo(showID, viewer)
+}
+
+// ShowRowVisible is ShowSubResourceVisible for a route that has ALREADY LOADED
+// the show it is deciding about.
+//
+// The detail route is the one caller: it has the row in hand, so asking the
+// checker by id would re-read the two columns it is already holding. It takes no
+// checker for the same reason, and so there is no nil-checker tier to fail
+// closed on; what makes it safe is that it cannot answer from a row it does not
+// have.
+//
+// Here rather than called directly from the handler so that every show gate in
+// the handler layer goes through one door, and a reader comparing two routes in
+// the same file finds one vocabulary.
+func ShowRowVisible(status string, submittedBy *uint, viewer contracts.ShowViewer) bool {
+	return servicesshared.LoadedShowVisibleTo(catalogm.ShowStatus(status), submittedBy, viewer)
 }
 
 // EntitySubResourceVisible is ShowSubResourceVisible for a polymorphic route,

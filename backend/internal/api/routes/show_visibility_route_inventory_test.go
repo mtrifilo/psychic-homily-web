@@ -135,37 +135,6 @@ var showAddressableRoutes = map[string]showRouteDisposition{
 	"GET /entities/{entity_type}/{entity_id}/subscribe/status": gated,
 	"POST /entities/{entity_type}/{entity_id}/mark-read":       gated,
 
-	// The COMMENT-ID family. Every one of these is addressed by a comment id and
-	// resolves the parent entity out of the comment, so a show reaches all of
-	// them without appearing in the path. They are gated in Go rather than in
-	// SQL, by separate shared.EntitySubResourceVisible calls in
-	// handlers/engagement, and the refusal is the answer a comment id nobody has
-	// used already gets.
-	//
-	// Comment ids are DENSE and sequential, which is what makes the family worth
-	// enumerating: a route here that answered differently for a gated parent
-	// would be walkable over the whole table.
-	"GET /comments/{comment_id}":                  gated,
-	"GET /comments/{comment_id}/thread":           gated,
-	"POST /comments/{comment_id}/replies":         gated,
-	"PUT /comments/{comment_id}":                  gated,
-	"DELETE /comments/{comment_id}":               gated,
-	"PUT /comments/{comment_id}/reply-permission": gated,
-	"POST /comments/{comment_id}/vote":            gated,
-	"DELETE /comments/{comment_id}/vote":          gated,
-	// Gated in the SERVICE rather than in the handler
-	// (services/admin/entity_report.go resolves the comment's parent and asks
-	// the registry), which is why it is worth an entry beside its handler-gated
-	// siblings: reading the handler alone would say it is open. Its
-	// `/shows/{show_id}/report` sibling is deliberately NOT gated; see the
-	// deferred write oracles below.
-	"POST /comments/{entity_id}/report":         gated,
-	"GET /admin/comments/{comment_id}/edits":    adminOnly,
-	"POST /admin/comments/{comment_id}/hide":    adminOnly,
-	"POST /admin/comments/{comment_id}/restore": adminOnly,
-	"POST /admin/comments/{comment_id}/approve": adminOnly,
-	"POST /admin/comments/{comment_id}/reject":  adminOnly,
-
 	// Public-tier gates: these answer the same for everyone.
 	"GET /shows/{show_id}/calendar.ics":               gated,
 	"HEAD /shows/{show_id}/calendar.ics":              gated,
@@ -344,4 +313,11 @@ func TestFollowRoutesRefuseShows(t *testing.T) {
 				"body: %s", path, w.Code, w.Body.String())
 		}
 	}
+}
+
+// The comment-id family reaches a show through the comment's parent, and is
+// enumerated once for both inventories in comment_id_route_family_test.go.
+func init() {
+	addRoutes(showAddressableRoutes, commentIDGatedRoutes, gated)
+	addRoutes(showAddressableRoutes, commentIDAdminRoutes, adminOnly)
 }

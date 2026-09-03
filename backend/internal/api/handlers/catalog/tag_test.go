@@ -2,12 +2,9 @@ package catalog
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"testing"
-
-	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	apperrors "psychic-homily-backend/internal/errors"
@@ -447,22 +444,20 @@ func TestTagWriteRoutes_AllowAVisibleEntity(t *testing.T) {
 //
 // The four write routes above are exercised against a collection, which proves
 // the gate is called but not that it answers the SHOW rule: an entity type the
-// checker ignored would pass every one of those subtests. These run the show
-// arm, with the real rule in the checker so the viewer has to reach it, and then
-// compare the refusal a gated show gets against the one an id nobody has used
-// gets.
+// checker ignored would pass every one of those subtests.
 //
-// That comparison is the acceptance criterion. A write against a gated show has
-// to be indistinguishable from a write against a show that never existed, or the
-// write route is an existence oracle over a dense id space, which is what the
-// tag family was.
+// The acceptance criterion is the last assertion. A write against a gated show
+// has to be indistinguishable from a write against a show that never existed, or
+// the write route is an existence oracle over a dense id space, which is what
+// the tag family was.
 func TestTagWriteRoutes_RefuseAGatedShowExactlyLikeAMissingOne(t *testing.T) {
 	const submitterID = uint(2)
 	const gatedShowID = uint(7)
 	const neverUsedShowID = uint(99999999)
 
-	// The show rule: an admin and the submitter see a gated show, nobody else
-	// does, and NO caller sees a show that is not there.
+	// The real show rule, plus the one fact that outranks it: NO caller sees a
+	// show that is not there, an admin included. Without that arm the never-used
+	// id would be granted to the admin and the pair below would not be a pair.
 	showRule := &testhelpers.MockShowVisibility{
 		ShowVisibleToFn: func(showID uint, viewer contracts.ShowViewer) bool {
 			if showID == neverUsedShowID {
@@ -473,8 +468,7 @@ func TestTagWriteRoutes_RefuseAGatedShowExactlyLikeAMissingOne(t *testing.T) {
 		CollectionVisibleToFn: func(uint, contracts.ShowViewer) bool { return false },
 	}
 
-	addTag := func(t *testing.T, user *authm.User, showID uint) (*int, error) {
-		t.Helper()
+	addTag := func(user *authm.User, showID uint) (int, error) {
 		reached := 0
 		mock := &testhelpers.MockTagService{
 			AddTagToEntityFn: func(uint, string, string, uint, uint, string) (*catalogm.EntityTag, error) {
@@ -486,32 +480,37 @@ func TestTagWriteRoutes_RefuseAGatedShowExactlyLikeAMissingOne(t *testing.T) {
 		req := &AddTagToEntityRequest{EntityType: "show", EntityID: fmt.Sprint(showID)}
 		req.Body.TagID = 3
 		_, err := h.AddTagToEntityHandler(testhelpers.CtxWithUser(user), req)
-		return &reached, err
+		return reached, err
 	}
 
+	stranger := &authm.User{ID: 3}
+	admin := &authm.User{ID: 6, IsAdmin: true}
+
 	for _, tier := range []struct {
-		name string
-		user *authm.User
-		want int
+		name   string
+		user   *authm.User
+		showID uint
+		want   int
 	}{
-		{"an authenticated stranger", &authm.User{ID: 3}, 404},
-		{"the show's submitter", &authm.User{ID: submitterID}, 0},
-		{"an admin", &authm.User{ID: 6, IsAdmin: true}, 0},
+		{"an authenticated stranger", stranger, gatedShowID, 404},
+		{"the show's submitter", &authm.User{ID: submitterID}, gatedShowID, 0},
+		{"an admin", admin, gatedShowID, 0},
+		{"an admin, on a show id nobody has used", admin, neverUsedShowID, 404},
 	} {
 		t.Run(tier.name, func(t *testing.T) {
-			reached, err := addTag(t, tier.user, gatedShowID)
+			reached, err := addTag(tier.user, tier.showID)
 			if tier.want == 0 {
 				if err != nil {
 					t.Fatalf("a caller entitled to the show was refused: %v", err)
 				}
-				if *reached != 1 {
-					t.Errorf("the tag service ran %d times for a granted caller, want 1", *reached)
+				if reached != 1 {
+					t.Errorf("the tag service ran %d times for a granted caller, want 1", reached)
 				}
 				return
 			}
 			testhelpers.AssertHumaError(t, err, tier.want)
-			if *reached != 0 {
-				t.Errorf("the tag service ran %d times for a refused caller, want 0", *reached)
+			if reached != 0 {
+				t.Errorf("the tag service ran %d times for a refused caller, want 0", reached)
 			}
 		})
 	}
@@ -519,26 +518,13 @@ func TestTagWriteRoutes_RefuseAGatedShowExactlyLikeAMissingOne(t *testing.T) {
 	// The pair that has to be one answer.
 	//
 	// The detail ECHOES the id the caller sent, which is not a disclosure: they
-	// chose it. What must not differ is anything else, so the comparison
-	// substitutes each request's own id back out and then demands byte equality.
-	// Comparing the raw strings would pass a refusal that named the show's TITLE
-	// for the gated id, which is the shape this is guarding against.
-	stranger := &authm.User{ID: 3}
-	_, gatedErr := addTag(t, stranger, gatedShowID)
-	_, missingErr := addTag(t, stranger, neverUsedShowID)
-
-	var gatedModel, missingModel *huma.ErrorModel
-	if !errors.As(gatedErr, &gatedModel) || !errors.As(missingErr, &missingModel) {
-		t.Fatalf("expected two *huma.ErrorModel refusals, got %T and %T", gatedErr, missingErr)
-	}
-	gatedShape := strings.ReplaceAll(gatedModel.Detail, fmt.Sprint(gatedShowID), "{id}")
-	missingShape := strings.ReplaceAll(missingModel.Detail, fmt.Sprint(neverUsedShowID), "{id}")
-	if gatedModel.Status != missingModel.Status ||
-		gatedModel.Title != missingModel.Title ||
-		gatedShape != missingShape {
-		t.Errorf("a gated show answers %d/%q/%q and a show id nobody has used answers %d/%q/%q; "+
-			"the difference is an existence oracle over a dense id space",
-			gatedModel.Status, gatedModel.Title, gatedModel.Detail,
-			missingModel.Status, missingModel.Title, missingModel.Detail)
-	}
+	// chose it. The normalizer substitutes each request's own id back out so what
+	// is compared is everything else; comparing raw would pass a refusal that named
+	// the show's TITLE for the gated id, which is the shape this guards against.
+	_, gatedErr := addTag(stranger, gatedShowID)
+	_, missingErr := addTag(stranger, neverUsedShowID)
+	testhelpers.AssertSameRefusal(t, gatedErr, missingErr, func(detail string) string {
+		detail = strings.ReplaceAll(detail, fmt.Sprint(gatedShowID), "{id}")
+		return strings.ReplaceAll(detail, fmt.Sprint(neverUsedShowID), "{id}")
+	})
 }

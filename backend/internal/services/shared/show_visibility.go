@@ -29,11 +29,11 @@ import (
 //
 // The spellings differ because the callers are not the same shape:
 //
-//   - LoadedShowVisibleTo answers from a show's status and submitter, for a
-//     caller that already holds the row. The detail route is one.
-//   - ShowVisibleTo answers for ONE already-identified show id. It reads those
-//     two columns and asks LoadedShowVisibleTo, so the two Go callers evaluate
-//     the same expression rather than two that must be kept in step.
+//   - LoadedShowVisibleTo is the Go spelling, over a show's status and
+//     submitter, for a caller that already holds the row. The detail route is
+//     one, through handlers/shared.ShowRowVisible.
+//   - ShowVisibleTo is that same predicate with a LOOKUP in front, for a caller
+//     holding only an id. It is not a second spelling of the rule.
 //   - VisibleShowPredicateSQL is the same rule over a shows-table alias, for a
 //     query already reading shows.
 //   - VisibleShowExistsSQL wraps that in a correlated EXISTS, for a query
@@ -54,9 +54,8 @@ import (
 // every one of them, comparing each to a hand-written truth table rather than
 // to the others. A shared bug cannot make them agree and be wrong together.
 //
-// GET /shows/{id} is INSIDE that matrix rather than beside it: the handler calls
-// LoadedShowVisibleTo, so the route the truth table describes is decided by a
-// spelling the truth table checks.
+// GET /shows/{id} is INSIDE that matrix rather than beside it, because the
+// handler evaluates one of the forms above instead of restating the rule.
 //
 // EVERY spelling fails closed. A missing show row, a nil db, a zero id and a
 // failed lookup all resolve to "not visible" for a non-admin. Withholding a
@@ -107,19 +106,22 @@ const visibleShowsAlias = "visible_show"
 //
 // The rule as a pure function of the two facts it decides on, for a caller
 // holding the row: the detail route, which has just loaded the show it is about
-// to serve, and ShowVisibleTo, which loads those two columns and asks this. A
-// handler that re-derived them inline would be a second rule, and the second
-// rule is the one that misses the next status value.
+// to serve, and ShowVisibleTo, which loads those two columns and asks this.
 //
 // submittedBy is a pointer because the column is nullable, and a NULL submitter
 // matches nobody: an anonymous submission is not the caller's own, whoever the
 // caller is. The zero viewer is the anonymous tier and matches no submitter
 // either, since user ids start at 1.
-func LoadedShowVisibleTo(status string, submittedBy *uint, viewer contracts.ShowViewer) bool {
+//
+// status is catalogm.ShowStatus rather than a bare string so a caller holding a
+// response DTO has to convert deliberately. A security predicate that accepted
+// any string would decide on display text the day one of those fields is
+// repurposed.
+func LoadedShowVisibleTo(status catalogm.ShowStatus, submittedBy *uint, viewer contracts.ShowViewer) bool {
 	if viewer.IsAdmin {
 		return true
 	}
-	if status == string(catalogm.ShowStatusApproved) {
+	if status == catalogm.ShowStatusApproved {
 		return true
 	}
 	return viewer.UserID != 0 && submittedBy != nil && *submittedBy == viewer.UserID
@@ -127,16 +129,17 @@ func LoadedShowVisibleTo(status string, submittedBy *uint, viewer contracts.Show
 
 // ShowVisibleTo reports whether viewer may see show showID at all.
 //
-// The Go spelling of the detail route's predicate, for a caller holding an id
-// rather than a row. Returns false when the show does not exist, which is the
-// same answer GET /shows/{id} gives by 404ing, and false on any lookup failure.
+// LoadedShowVisibleTo with a lookup in front, for a caller holding an id rather
+// than a row. Returns false when the show does not exist, which is the same
+// answer GET /shows/{id} gives by 404ing, and false on any lookup failure.
 //
-// It reads the two columns and hands them to LoadedShowVisibleTo rather than
-// asking the database to decide, so the id-holding and the row-holding callers
-// evaluate ONE expression of the rule. That also removes the OR-precedence
-// hazard a compound WHERE carries: there is no OR left in this statement to
-// parenthesise.
+// It reads the two columns and asks the predicate rather than asking the
+// database to decide, which also removes the OR-precedence hazard a compound
+// WHERE carries: there is no OR left in this statement to parenthesise.
 func ShowVisibleTo(db *gorm.DB, showID uint, viewer contracts.ShowViewer) bool {
+	// A LOOKUP SHORT-CIRCUIT, not a second rule. LoadedShowVisibleTo answers the
+	// same for an admin; skipping the read here also keeps an admin's answer true
+	// for a show id that carries no row, which the load below would refuse.
 	if viewer.IsAdmin {
 		return true
 	}
@@ -145,7 +148,7 @@ func ShowVisibleTo(db *gorm.DB, showID uint, viewer contracts.ShowViewer) bool {
 	}
 
 	var row struct {
-		Status      string
+		Status      catalogm.ShowStatus
 		SubmittedBy *uint
 	}
 	err := db.Model(&catalogm.Show{}).

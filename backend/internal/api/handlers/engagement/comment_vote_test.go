@@ -2,11 +2,8 @@ package engagement
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"testing"
-
-	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	apperrors "psychic-homily-backend/internal/errors"
@@ -331,38 +328,6 @@ type commentVoteTier struct {
 // collection both parents in this matrix hang off.
 const commentVoteOwnerID = uint(2)
 
-// showParentTiers is the show rule: an admin and the show's own submitter see a
-// gated show, nobody else does.
-var showParentTiers = []commentVoteTier{
-	{"anonymous", nil, 401},
-	{"an authenticated stranger", &authm.User{ID: 3}, 404},
-	{"the show's submitter", &authm.User{ID: commentVoteOwnerID}, 200},
-	{"an admin", &authm.User{ID: 6, IsAdmin: true}, 200},
-}
-
-// privateCollectionParentTiers is the collection rule, which has NO admin term:
-// a private collection is its creator's alone. The two lists differing on that
-// one row is the point of running both.
-var privateCollectionParentTiers = []commentVoteTier{
-	{"anonymous", nil, 401},
-	{"an authenticated stranger", &authm.User{ID: 3}, 404},
-	{"the collection's creator", &authm.User{ID: commentVoteOwnerID}, 200},
-	{"an admin", &authm.User{ID: 6, IsAdmin: true}, 404},
-}
-
-// gatedParentVisibility answers the two real rules for a parent owned by
-// commentVoteOwnerID.
-func gatedParentVisibility() *testhelpers.MockShowVisibility {
-	return &testhelpers.MockShowVisibility{
-		ShowVisibleToFn: func(_ uint, viewer contracts.ShowViewer) bool {
-			return viewer.IsAdmin || viewer.UserID == commentVoteOwnerID
-		},
-		CollectionVisibleToFn: func(_ uint, viewer contracts.ShowViewer) bool {
-			return viewer.UserID == commentVoteOwnerID
-		},
-	}
-}
-
 // commentParentReader resolves every comment id to a parent of one entity type.
 func commentParentReader(entityType string) *testhelpers.MockCommentService {
 	return &testhelpers.MockCommentService{
@@ -393,16 +358,30 @@ func voteServiceRecordingReach(reached *int) *testhelpers.MockCommentVoteService
 // lands inside a discussion they may not read. Comment ids are dense and
 // sequential, so an answer that varied with the parent's existence is walkable.
 //
-// The show row and the collection row differ on the admin, and that difference
-// is the reason both run: a gate that granted every admin would pass the show
-// half and publish every private collection's comment scores.
+// The two tier tables differ on the ADMIN row, and that difference is the reason
+// both run: a gate that granted every admin would pass the show half and publish
+// every private collection's comment scores.
 func TestCommentVote_ParentVisibilityMatrix(t *testing.T) {
+	stranger := &authm.User{ID: 3}
+	owner := &authm.User{ID: commentVoteOwnerID}
+	admin := &authm.User{ID: 6, IsAdmin: true}
+
 	for _, tc := range []struct {
 		entityType string
 		tiers      []commentVoteTier
 	}{
-		{"show", showParentTiers},
-		{"collection", privateCollectionParentTiers},
+		{"show", []commentVoteTier{
+			{"anonymous", nil, 401},
+			{"an authenticated stranger", stranger, 404},
+			{"the show's submitter", owner, 200},
+			{"an admin", admin, 200},
+		}},
+		{"collection", []commentVoteTier{
+			{"anonymous", nil, 401},
+			{"an authenticated stranger", stranger, 404},
+			{"the collection's creator", owner, 200},
+			{"an admin", admin, 404},
+		}},
 	} {
 		t.Run(tc.entityType, func(t *testing.T) {
 			for _, tier := range tc.tiers {
@@ -411,11 +390,12 @@ func TestCommentVote_ParentVisibilityMatrix(t *testing.T) {
 					if tier.user != nil {
 						ctx = testhelpers.CtxWithUser(tier.user)
 					}
+					gate := testhelpers.GatedEntityVisibility(commentVoteOwnerID)
 
 					t.Run("vote", func(t *testing.T) {
 						reached := 0
 						h := NewCommentVoteHandler(voteServiceRecordingReach(&reached),
-							commentParentReader(tc.entityType), gatedParentVisibility())
+							commentParentReader(tc.entityType), gate)
 						req := &VoteCommentRequest{CommentID: "42"}
 						req.Body.Direction = 1
 						resp, err := h.VoteCommentHandler(ctx, req)
@@ -425,7 +405,7 @@ func TestCommentVote_ParentVisibilityMatrix(t *testing.T) {
 					t.Run("unvote", func(t *testing.T) {
 						reached := 0
 						h := NewCommentVoteHandler(voteServiceRecordingReach(&reached),
-							commentParentReader(tc.entityType), gatedParentVisibility())
+							commentParentReader(tc.entityType), gate)
 						resp, err := h.UnvoteCommentHandler(ctx, &UnvoteCommentRequest{CommentID: "42"})
 						assertVoteOutcome(t, tier.want, reached, err, resp == nil)
 					})
@@ -457,34 +437,25 @@ func assertVoteOutcome(t *testing.T, want, reached int, err error, respNil bool)
 	}
 }
 
-// THE REFUSALS ARE ONE RESPONSE, field for field.
-//
-// The whole value of the gate is that a gated parent and a comment id nobody has
-// used are indistinguishable. A stranger's refusal on a gated show, on a private
-// collection and on a comment that does not exist must therefore carry the same
-// status, title and detail; a difference in any of the three is the oracle
-// restated in the error body.
+// A stranger's refusal on a gated show and on a private collection is the answer
+// a comment id nobody has used gets.
 func TestCommentVote_EveryRefusalIsTheSameResponse(t *testing.T) {
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 3})
 
-	refusal := func(t *testing.T, reader CommentReader, vis *testhelpers.MockShowVisibility) *huma.ErrorModel {
-		t.Helper()
+	refusal := func(reader CommentReader, vis *testhelpers.MockShowVisibility) error {
 		h := NewCommentVoteHandler(&testhelpers.MockCommentVoteService{}, reader, vis)
 		req := &VoteCommentRequest{CommentID: "42"}
 		req.Body.Direction = 1
 		_, err := h.VoteCommentHandler(ctx, req)
-		var model *huma.ErrorModel
-		if !errors.As(err, &model) {
-			t.Fatalf("expected a *huma.ErrorModel, got %T: %v", err, err)
-		}
-		return model
+		return err
 	}
 
 	absent := &testhelpers.MockCommentService{
 		GetCommentFn: func(uint) (*contracts.CommentResponse, error) { return nil, nil },
 	}
+	want := refusal(absent, testhelpers.AllShowsVisible())
+	gate := testhelpers.GatedEntityVisibility(commentVoteOwnerID)
 
-	want := refusal(t, absent, testhelpers.AllShowsVisible())
 	for _, tc := range []struct {
 		name   string
 		reader CommentReader
@@ -492,10 +463,8 @@ func TestCommentVote_EveryRefusalIsTheSameResponse(t *testing.T) {
 		{"a comment on a gated show", commentParentReader("show")},
 		{"a comment on a private collection", commentParentReader("collection")},
 	} {
-		got := refusal(t, tc.reader, gatedParentVisibility())
-		if got.Status != want.Status || got.Title != want.Title || got.Detail != want.Detail {
-			t.Errorf("%s answers %d/%q/%q, and a comment that does not exist answers %d/%q/%q",
-				tc.name, got.Status, got.Title, got.Detail, want.Status, want.Title, want.Detail)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			testhelpers.AssertSameRefusal(t, refusal(tc.reader, gate), want, nil)
+		})
 	}
 }

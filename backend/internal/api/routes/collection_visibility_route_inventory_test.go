@@ -191,37 +191,6 @@ var collectionAddressableRoutes = map[string]collectionRouteDisposition{
 	"PUT /collections/{slug}/feature": collectionAdminOnly,
 	"PUT /crates/{slug}/feature":      collectionAdminOnly,
 
-	// The COMMENT-ID family. A comment hangs off a collection as readily as off
-	// a show, so every route addressed by a comment id can name a private
-	// collection without the path saying so. All eight take the same gate the
-	// polymorphic comment routes above take, and the two vote routes carry the
-	// comment's live SCORE in their response, so a caller refused the thread
-	// would otherwise watch its activity move.
-	//
-	// The admin rows are the moderation queue's own remedies, which are the
-	// documented exception in services/shared/collection_visibility.go: the
-	// pending-comment queue serves an admin a comment on a private collection,
-	// and a queue whose remedies refused it would be one they could not act on.
-	"GET /comments/{comment_id}":                  collectionGated,
-	"GET /comments/{comment_id}/thread":           collectionGated,
-	"POST /comments/{comment_id}/replies":         collectionGated,
-	"PUT /comments/{comment_id}":                  collectionGated,
-	"DELETE /comments/{comment_id}":               collectionGated,
-	"PUT /comments/{comment_id}/reply-permission": collectionGated,
-	"POST /comments/{comment_id}/vote":            collectionGated,
-	"DELETE /comments/{comment_id}/vote":          collectionGated,
-	// Gated in the SERVICE rather than in the handler
-	// (services/admin/entity_report.go resolves the comment's parent and asks
-	// the registry), so reading the handler alone would say it is open. The
-	// refusal withholds the reported comment's body excerpt as well as its
-	// parent's identity.
-	"POST /comments/{entity_id}/report":         collectionGated,
-	"GET /admin/comments/{comment_id}/edits":    collectionAdminOnly,
-	"POST /admin/comments/{comment_id}/hide":    collectionAdminOnly,
-	"POST /admin/comments/{comment_id}/restore": collectionAdminOnly,
-	"POST /admin/comments/{comment_id}/approve": collectionAdminOnly,
-	"POST /admin/comments/{comment_id}/reject":  collectionAdminOnly,
-
 	// Polymorphic routes a collection cannot reach.
 	"GET /revisions/{entity_type}/{entity_id}":                  collectionNotAddressable,
 	"GET /admin/pending-edits/entity/{entity_type}/{entity_id}": collectionNotAddressable,
@@ -328,4 +297,11 @@ func TestCollectionAndCrateRoutesAgree(t *testing.T) {
 				"and must answer alike", key, disposition, twin, twinDisposition)
 		}
 	}
+}
+
+// The comment-id family reaches a collection through the comment's parent, and
+// is enumerated once for both inventories in comment_id_route_family_test.go.
+func init() {
+	addRoutes(collectionAddressableRoutes, commentIDGatedRoutes, collectionGated)
+	addRoutes(collectionAddressableRoutes, commentIDAdminRoutes, collectionAdminOnly)
 }

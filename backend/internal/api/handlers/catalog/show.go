@@ -695,14 +695,10 @@ func (h *ShowHandler) GetShowHandler(ctx context.Context, req *GetShowRequest) (
 		return nil, refuseShowAsMissing()
 	}
 
-	// Access control. THIS ROUTE IS THE RULE, and it evaluates the rule from the
-	// one place it lives (services/shared/show_visibility.go) rather than
-	// restating it: every other surface that serves a show reads that file, so a
-	// second spelling here is the one that would drift.
-	//
-	// The row is already loaded, so the predicate takes its status and submitter
-	// instead of a second lookup by id.
-	if !servicesshared.LoadedShowVisibleTo(show.Status, show.SubmittedBy, middleware.GetShowViewerFromContext(ctx)) {
+	// Access control, from the one place the rule lives
+	// (services/shared/show_visibility.go), reached through the same
+	// handlers/shared door every other gated show route in this file uses.
+	if !shared.ShowRowVisible(show.Status, show.SubmittedBy, middleware.GetShowViewerFromContext(ctx)) {
 		logger.FromContext(ctx).Warn("show_access_denied",
 			"show_id", show.ID,
 			"status", show.Status,

@@ -93,17 +93,60 @@ type contributionRow struct {
 	Source     string
 }
 
-// moderationActions are audit_log actions that count as moderation, not content creation.
-var moderationActions = map[string]bool{
-	"approve_show":          true,
-	"reject_show":           true,
-	"verify_venue":          true,
-	"approve_venue_edit":    true,
-	"reject_venue_edit":     true,
-	"dismiss_report":        true,
-	"resolve_report":        true,
-	"dismiss_artist_report": true,
-	"resolve_artist_report": true,
+// contributionStatCounter selects the counter an audit action feeds.
+type contributionStatCounter func(*contracts.ContributionStats) *int64
+
+func moderationActionsCounter(s *contracts.ContributionStats) *int64 { return &s.ModerationActions }
+func releasesCreatedCounter(s *contracts.ContributionStats) *int64   { return &s.ReleasesCreated }
+func labelsCreatedCounter(s *contracts.ContributionStats) *int64     { return &s.LabelsCreated }
+func festivalsCreatedCounter(s *contracts.ContributionStats) *int64  { return &s.FestivalsCreated }
+
+// contributionStatActions is every audit_log action GetContributionStats reads,
+// mapped to the counter it feeds.
+//
+// IT IS ALSO THE QUERY'S OWN ALLOWLIST, and that is the reason it is a map
+// rather than a switch. The visibility condition spliced into that query is a
+// per-row correlated EXISTS — up to three of them for a collection-typed row,
+// one of which joins collection_items — so a group nobody consumes pays the
+// whole subplan to produce a number that is discarded. On a heavy contributor
+// the comment and subscription rows that pay it outnumber the rows that are
+// counted, and this is an anonymous, uncached read.
+//
+// None of these actions is ever written with entity_type "collection", so the
+// filter also makes the collection arm of the condition unreachable.
+var contributionStatActions = map[string]contributionStatCounter{
+	// Moderation, not content creation.
+	"approve_show":          moderationActionsCounter,
+	"reject_show":           moderationActionsCounter,
+	"verify_venue":          moderationActionsCounter,
+	"approve_venue_edit":    moderationActionsCounter,
+	"reject_venue_edit":     moderationActionsCounter,
+	"dismiss_report":        moderationActionsCounter,
+	"resolve_report":        moderationActionsCounter,
+	"dismiss_artist_report": moderationActionsCounter,
+	"resolve_artist_report": moderationActionsCounter,
+
+	// Content creation. PSY-618 moved edit_<type> rows to
+	// entity_edit_audit_logs, which is counted separately below.
+	"create_release":         releasesCreatedCounter,
+	"create_label":           labelsCreatedCounter,
+	"create_festival":        festivalsCreatedCounter,
+	"add_festival_artist":    festivalsCreatedCounter,
+	"remove_festival_artist": festivalsCreatedCounter,
+	"update_festival_artist": festivalsCreatedCounter,
+	"add_festival_venue":     festivalsCreatedCounter,
+	"remove_festival_venue":  festivalsCreatedCounter,
+}
+
+// contributionStatActionNames is the map's keys, sorted so the emitted statement
+// is byte-identical across processes.
+func contributionStatActionNames() []string {
+	names := make([]string, 0, len(contributionStatActions))
+	for action := range contributionStatActions {
+		names = append(names, action)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // =============================================================================
@@ -308,18 +351,10 @@ func (s *ContributorProfileService) UpdatePrivacySettings(userID uint, settings 
 // one is a count of withheld rows published as arithmetic. The zero viewer is
 // the anonymous tier.
 //
-// TWO gated-entity counts here are deliberately NOT narrowed, and a new one
-// should not assume it is covered: reports_filed and reports_resolved count rows
-// of the three report TABLES, not audit rows, so the timeline's condition does
-// not reach them and there is no spelling of the rule for a polymorphic
-// entity_reports row that an unregistered entity type would not silently drop
-// the count for. What a report's existence discloses, and to whom, is a product
-// question rather than a spelling one; it is recorded in
-// contributionStatsDispositions in the test beside this file rather than left
-// unstated.
-//
-// A counter added over a gated entity has to make that judgement again, and the
-// disposition test is what forces it.
+// TWO gated-entity counts here are deliberately NOT narrowed: reports_filed and
+// reports_resolved. Every counter's position, theirs included, is recorded in
+// contributionStatDispositions in the test beside this file, and a counter added
+// over a gated entity fails that test until it records one.
 //
 // The counts a viewer is allowed to see therefore differ per caller, and the
 // owner and an admin see their own totals unchanged. Nothing about this
@@ -348,16 +383,10 @@ func (s *ContributorProfileService) GetContributionStats(userID uint, viewer con
 	// dual-rendering trusted-user direct-edits and the stats counters read
 	// from a single source of truth.
 	//
-	// NARROWED BY THE TIMELINE'S OWN CONDITION, from the same builder the
-	// timeline and the activity heatmap use. This scan and
-	// GetContributionHistory read audit_logs for the same actor and both are
-	// anonymous, so a count taken whole beside a filtered listing of the same
-	// rows is a count of the withheld ones published as arithmetic:
-	// moderation_actions carries approve_show and reject_show, and a rejected
-	// show is gated by definition.
-	//
-	// The condition passes every row naming an entity type with no read-time
-	// rule, so the release, label and festival counters below are unaffected.
+	// Narrowed by the TIMELINE'S OWN condition, from the same builder the
+	// timeline and the activity heatmap use, so the three surfaces cannot
+	// disagree about the same rows. The condition passes every row naming an
+	// entity type with no read-time rule.
 	auditVisible, auditVisibleArgs := contributionVisibilitySQL("audit_logs", viewer)
 	type actionCount struct {
 		Action string
@@ -367,25 +396,14 @@ func (s *ContributorProfileService) GetContributionStats(userID uint, viewer con
 	s.db.Model(&adminm.AuditLog{}).
 		Select("action, count(*) as count").
 		Where("actor_id = ?", userID).
+		Where("action IN ?", contributionStatActionNames()).
 		Where(auditVisible, auditVisibleArgs...).
 		Group("action").
 		Scan(&actionCounts)
 
 	for _, ac := range actionCounts {
-		if moderationActions[ac.Action] {
-			stats.ModerationActions += ac.Count
-		} else {
-			switch ac.Action {
-			case "create_release":
-				stats.ReleasesCreated += ac.Count
-			case "create_label":
-				stats.LabelsCreated += ac.Count
-			case "create_festival",
-				"add_festival_artist", "remove_festival_artist",
-				"update_festival_artist",
-				"add_festival_venue", "remove_festival_venue":
-				stats.FestivalsCreated += ac.Count
-			}
+		if counter := contributionStatActions[ac.Action]; counter != nil {
+			*counter(stats) += ac.Count
 		}
 	}
 

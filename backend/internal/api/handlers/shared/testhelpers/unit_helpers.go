@@ -41,6 +41,73 @@ func humaErrorModel(t *testing.T, err error, expectedStatus int) *huma.ErrorMode
 	return he
 }
 
+// HumaErrorModel extracts the *huma.ErrorModel from err without asserting a
+// status, for a caller that wants to compare two refusals against each other
+// rather than against a constant. Fatals if err is not one.
+func HumaErrorModel(t *testing.T, err error) *huma.ErrorModel {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected error, got nil")
+		return nil
+	}
+	var he *huma.ErrorModel
+	if !errors.As(err, &he) {
+		t.Fatalf("expected *huma.ErrorModel, got %T: %v", err, err)
+		return nil
+	}
+	return he
+}
+
+// AssertSameRefusal asserts that two refusals are ONE response.
+//
+// The acceptance criterion of every entity-visibility gate in this codebase: a
+// gated entity and an id nobody has used must answer alike, or the route is an
+// existence oracle over a dense id space. Lives here rather than being respelled
+// per package so the definition of "same response" has one home and a field
+// added to the comparison covers every gated route at once.
+//
+// normalize is applied to both Detail strings first, for routes whose refusal
+// ECHOES the id the caller supplied. Echoing it back is not a disclosure, so
+// those callers substitute their own id out and compare the shape. Pass nil when
+// the two details must match byte for byte.
+func AssertSameRefusal(t *testing.T, gotErr, wantErr error, normalize func(string) string) {
+	t.Helper()
+	got := HumaErrorModel(t, gotErr)
+	want := HumaErrorModel(t, wantErr)
+	if got == nil || want == nil {
+		return
+	}
+	gotDetail, wantDetail := got.Detail, want.Detail
+	if normalize != nil {
+		gotDetail, wantDetail = normalize(gotDetail), normalize(wantDetail)
+	}
+	if got.Status != want.Status || got.Title != want.Title || gotDetail != wantDetail {
+		t.Errorf("the two refusals differ: %d/%q/%q vs %d/%q/%q — a caller who can tell "+
+			"them apart can walk the id space",
+			got.Status, got.Title, got.Detail, want.Status, want.Title, want.Detail)
+	}
+}
+
+// GatedEntityVisibility is the REAL pair of visibility rules for entities owned
+// by ownerID, for a test whose subject IS the gate.
+//
+// AllShowsVisible is the permissive opt-out; this is its counterpart, and the
+// two rules deliberately DIFFER on the admin: an admin sees every show and no
+// private collection (services/shared/collection_visibility.go). A gate proven
+// only against a checker that refuses everything would pass with the entity type
+// ignored and the viewer discarded, so the asymmetry is what makes a matrix
+// using this non-vacuous.
+func GatedEntityVisibility(ownerID uint) *MockShowVisibility {
+	return &MockShowVisibility{
+		ShowVisibleToFn: func(_ uint, viewer contracts.ShowViewer) bool {
+			return viewer.IsAdmin || viewer.UserID == ownerID
+		},
+		CollectionVisibleToFn: func(_ uint, viewer contracts.ShowViewer) bool {
+			return viewer.UserID == ownerID
+		},
+	}
+}
+
 // AssertHumaError checks that an error is a *huma.ErrorModel with the
 // expected HTTP status. Used by every handler unit test that exercises
 // huma's error path.

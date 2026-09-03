@@ -630,23 +630,18 @@ func TestGetShowHandler_GatedAndMissingAnswerAlike(t *testing.T) {
 	}
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 
-	refusal := func(svc *testhelpers.MockShowService, id string) *huma.ErrorModel {
-		t.Helper()
-		h := NewShowHandler(svc, nil, nil, nil, nil, nil, nil, testhelpers.AllShowsVisible())
+	// The injected gate is the ZERO MockShowVisibility, which refuses everything,
+	// and it is not consulted on this path: the detail route holds the row it is
+	// deciding about, so it evaluates the rule from that row's own status and
+	// submitter. Passing the permissive helper here would suggest the refusal
+	// came from the checker.
+	refusal := func(svc *testhelpers.MockShowService, id string) error {
+		h := NewShowHandler(svc, nil, nil, nil, nil, nil, nil, &testhelpers.MockShowVisibility{})
 		_, err := h.GetShowHandler(ctx, &GetShowRequest{ShowID: id})
-		var model *huma.ErrorModel
-		if !errors.As(err, &model) {
-			t.Fatalf("expected a *huma.ErrorModel, got %T: %v", err, err)
-		}
-		return model
+		return err
 	}
 
-	got := refusal(gated, "1")
-	want := refusal(missing, "99999999")
-	if got.Status != want.Status || got.Title != want.Title || got.Detail != want.Detail {
-		t.Errorf("a gated show answers %d/%q/%q and a show id nobody has used answers %d/%q/%q",
-			got.Status, got.Title, got.Detail, want.Status, want.Title, want.Detail)
-	}
+	testhelpers.AssertSameRefusal(t, refusal(gated, "1"), refusal(missing, "99999999"), nil)
 }
 
 // ============================================================================
