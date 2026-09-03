@@ -179,11 +179,15 @@ func (s *SkipRateLimitAPITokenSuite) TestNonAdminSessionJWTIsLimited() {
 	s.Equal(http.StatusTooManyRequests, s.send(handler, "Bearer "+token, "", "10.0.0.4:101"))
 }
 
-// PSY-2017: a token whose scope this build does not grant a bypass to is metered
+// PSY-2017: a token carrying a scope this build does not understand is metered
 // end to end, against the production validator. The row is edited directly
 // because CreateToken only ever mints the admin scope, which is exactly how a
 // future lesser scope would first appear.
-func (s *SkipRateLimitAPITokenSuite) TestNonBypassScopeTokenIsLimited() {
+//
+// What refuses it here is adminsvc's knownTokenScopes, which runs first; the
+// limiter's own apiTokenBypassScopes cannot be reached while the two lists hold
+// the same single scope. TestAPITokenBypassScopes pins that second half.
+func (s *SkipRateLimitAPITokenSuite) TestUnknownScopeTokenIsLimited() {
 	admin := s.createUser("scoped-owner@test.com", true)
 	created, err := s.tokenSvc.CreateToken(admin.ID, nil, 30)
 	s.Require().NoError(err)

@@ -41,7 +41,7 @@ const (
 // splits a paste into chunks of its QUEUE_BATCH_MAX_ITEMS (200, the endpoint's
 // cap), so a 600-line paste is 3 back-to-back requests and a full retry of it is
 // 3 more; AICollectionFiller files one row per click from the same session, at
-// human click rate. Halving the shared burst window leaves 5x headroom over that
+// human click rate. Halving the shared burst LIMIT leaves 5x headroom over that
 // 6-request paste while keeping the 1:10 burst-to-sustained ratio the shared
 // budget uses.
 const (
@@ -82,12 +82,16 @@ func mutationUserKeyFunc(r *http.Request) (string, error) {
 // keyed by the user id RateLimitMutationsByUser stashes in context (NOT by IP,
 // so shared-IP logged-in users each get their own bucket). Every call mints its
 // OWN httprate store, so two budgets built here never draw on one counter.
+//
+// The 429 names this window's own length in Retry-After, so an hour bucket does
+// not tell a caller to come back in a minute. That value reaches the picker's
+// countdown copy through ApiError.retryAfter.
 func perUserMutationLimiter(limit int, window time.Duration) func(http.Handler) http.Handler {
 	return httprate.Limit(
 		limit,
 		window,
 		httprate.WithKeyFuncs(mutationUserKeyFunc),
-		httprate.WithLimitHandler(RateLimitExceededHandler),
+		httprate.WithLimitHandler(rateLimitExceededHandlerAfter(window)),
 	)
 }
 

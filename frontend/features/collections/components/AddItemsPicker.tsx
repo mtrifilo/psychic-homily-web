@@ -385,8 +385,9 @@ async function queueEntityRequestBatch(
  * What a chunk's failure leaves for the rows it covered, alongside whatever the
  * earlier chunks did answer.
  *
- * `stoppedAtItem` is the index of the first name the run never sent, so the
- * reason lands only on the rows the failure actually covers. An earlier chunk
+ * `stoppedAtItem` is the index of the first name the run got no answer for: the
+ * failed chunk starts there, so the reason lands only on the rows that failure
+ * actually covers. An earlier chunk
  * that answered for some of its items and not others is a server contract
  * breach, and those rows stay retryable with no words put in the server's mouth.
  * Both fields are absent when the run finished, and `stoppedReason` is also
@@ -705,7 +706,15 @@ function usePastePreview(pasteText: string): {
 
       updateRows(
         generation,
-        new Map(entries.map((e) => [e.index, { status: 'queuing' as const }]))
+        new Map(
+          entries.map((e) => [
+            e.index,
+            // queueError is cleared, not merely left: updateRows merges patches,
+            // so a retry would otherwise render "nothing was filed" beside its
+            // own in-flight filing.
+            { status: 'queuing' as const, queueError: undefined },
+          ])
+        )
       )
 
       const settleAll = (next: Partial<PreviewRow>) =>

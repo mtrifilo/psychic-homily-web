@@ -20,8 +20,9 @@ import (
 // independently. It keys per USER (not IP), so shared-IP logged-in users never
 // collide.
 
-// EnableEngagementMutationRateLimitsEnvVar is an OPT-IN flag: the limiter is a
-// pass-through noop unless this is set to "1". Opt-in (not a default-on
+// EnableEngagementMutationRateLimitsEnvVar is an OPT-IN flag gating BOTH this
+// limiter and EntityRequestBatchRateLimiter: each is a pass-through noop unless
+// this is set to "1". Opt-in (not a default-on
 // kill-switch) is what makes the policy's "observe 429 on stage before prod"
 // rollout real: ship inert everywhere, enable on stage, watch 429 rates, then
 // enable in prod. It also keeps CI/E2E runs unthrottled without any harness
@@ -59,11 +60,11 @@ func IsEngagementMutationRateLimitEnabled(getenv func(string) string) bool {
 // mass-confirming is exactly the abuse this ceiling exists to bound.
 //
 // Filing and withdrawing a single entity request join it for the same reason.
-// Both frontend surfaces file through the batch route, so the loop a
-// contributor can actually drive is one batch file plus one withdraw, bounded
-// by the tighter of the two budgets; the single route is the API and CLI shape,
-// and sharing one counter with withdraw is what keeps a future caller of it
-// from getting a fresh allowance for each half of that loop.
+// Both frontend surfaces file through the batch route and no caller in this
+// repo posts to the single route, so the loop a contributor can drive today is
+// one batch file plus one withdraw, bounded by the tighter of the two budgets.
+// Sharing one counter with withdraw is what keeps a future caller of the single
+// route from getting a fresh allowance for each half of that loop.
 var engagementMutationPathPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`^/saved-shows/[^/]+$`),
 	regexp.MustCompile(`^/saved-releases/[^/]+$`),
@@ -86,11 +87,15 @@ func isEngagementMutationRequest(r *http.Request) bool {
 	if r.Method != http.MethodPost && r.Method != http.MethodDelete {
 		return false
 	}
-	if engagementMutationExactPaths[r.URL.Path] {
+	// The ESCAPED path is the string chi routes on. Matching the decoded one
+	// would let /entity-requests/a%2Fb/withdraw route while reading as four
+	// segments here, so a route the server serves would not be metered.
+	path := r.URL.EscapedPath()
+	if engagementMutationExactPaths[path] {
 		return true
 	}
 	for _, re := range engagementMutationPathPatterns {
-		if re.MatchString(r.URL.Path) {
+		if re.MatchString(path) {
 			return true
 		}
 	}

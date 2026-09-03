@@ -78,9 +78,10 @@ var infraPathsExemptFromRateLimit = []string{"/health", "/health/ready"}
 // the authenticated per-user bucket either.
 //
 // The templates come from the registrations in calendar.go, so this list and
-// the router agree by construction. /calendar/token CRUD is NOT one of them: it
-// is a three-segment path under /calendar/ whose second segment is "token", and
-// no calendar token validates under that name.
+// the router agree by construction. /calendar/token CRUD is NOT one of them:
+// the legacy alias template does read "token" out of that path as a candidate,
+// and what stops it there is the phcal_ pre-filter in validatedFeedToken, which
+// answers false before any lookup runs.
 var personalFeedRouteTemplates = []string{
 	savedShowsFeedRoute,
 	followsActivityFeedRoute,
@@ -147,6 +148,10 @@ func validatedFeedToken(validate func(string) bool, path string) bool {
 		return false
 	}
 	token := personalFeedTokenFromPath(path)
+	// The caller passes the ESCAPED path, so a percent-encoded spelling of the
+	// prefix does not resolve here. Deciding on the decoded form would exempt
+	// /feeds/phcal%5f<live token>/... on a token the router then hands to the
+	// handler still encoded, which rejects it: an unmetered 401 generator.
 	if !strings.HasPrefix(token, engagement.CalendarTokenPrefix) {
 		return false
 	}
@@ -260,6 +265,6 @@ func skipRateLimitForPaths(limiter func(http.Handler) http.Handler, paths ...str
 // token increment the bucket it is meant to skip.
 func skipRateLimitForValidatedFeedToken(limiter func(http.Handler) http.Handler, validateFeedToken func(string) bool) func(http.Handler) http.Handler {
 	return limitWhen(limiter, func(r *http.Request) bool {
-		return !validatedFeedToken(validateFeedToken, r.URL.Path)
+		return !validatedFeedToken(validateFeedToken, r.URL.EscapedPath())
 	})
 }

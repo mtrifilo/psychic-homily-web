@@ -6,8 +6,8 @@ import (
 	engagementh "psychic-homily-backend/internal/api/handlers/engagement"
 )
 
-// personalFeedRoutes are the route templates whose {token} segment IS the
-// credential: the caller authenticates by holding the URL, with no session and
+// The personal-feed route templates below are the ones whose {token} segment IS
+// the credential: the caller authenticates by holding the URL, with no session and
 // no Authorization header. Declared once and read by BOTH the registrations
 // below and the public-read limiter's exemption (public_read_rate_limit.go), so
 // a feed path spelled one way in the router and another in the exemption cannot

@@ -16,10 +16,12 @@ import (
 // priced the same; and metering the paste flow out of the shared budget would
 // let a contributor's paste session 429 their own follows and saves.
 //
-// It is metered per REQUEST, not per item. A per-item price would refuse a
-// paste's later chunks mid-flight, which is the failure the batch route exists
-// to remove. What bounds rows is the endpoint's per-request item cap and its
-// per-item dedup, not this limiter.
+// It is metered per REQUEST, not per item, which is the decision recorded on
+// PSY-1991: pricing a chunk by its length would refuse a paste's tail on the
+// first oversized paste. The consequence is that this limiter bounds requests
+// and NOT rows: at the ceilings below a single account can file
+// EntityRequestBatchBurstPerMinute x the endpoint's 200-item cap in a minute.
+// Nothing here caps a queue depth, and the PR body carries that number.
 //
 // Flag posture is the engagement limiter's: this is inert unless
 // ENABLE_ENGAGEMENT_MUTATION_RATE_LIMITS is set, so both entity-request budgets
@@ -33,7 +35,8 @@ const EntityRequestBatchPath = "/entity-requests/batch"
 // isEntityRequestBatchRequest reports whether a request is a batch file (POST on
 // the batch path). Nothing else on the path shape is a write.
 func isEntityRequestBatchRequest(r *http.Request) bool {
-	return r.Method == http.MethodPost && r.URL.Path == EntityRequestBatchPath
+	// EscapedPath is the string chi routes on; see isEngagementMutationRequest.
+	return r.Method == http.MethodPost && r.URL.EscapedPath() == EntityRequestBatchPath
 }
 
 // EntityRequestBatchRateLimiter returns the chi middleware that throttles batch

@@ -58,6 +58,76 @@ func mkEngagementToken(t *testing.T, jwtService *auth.JWTService, id uint) strin
 
 // An authenticated user is metered per-user: past the burst cap the same user
 // is 429'd with a Retry-After header (the AC's "61st mutation → 429", scaled).
+// The batch budget's HOUR window: without this, wiring the burst limiter twice,
+// or building the sustained one on time.Minute, ships green. The burst window is
+// stubbed wide open so only the hour window can reject.
+func TestRateLimitEntityRequestBatchSustained_LimitsAtItsOwnCeiling(t *testing.T) {
+	jwtService := newTestJWTService()
+	token := mkEngagementToken(t, jwtService, 1)
+	burst := httprate.Limit(EntityRequestBatchSustainedPerHour*2, time.Minute,
+		httprate.WithKeyFuncs(mutationUserKeyFunc),
+		httprate.WithLimitHandler(RateLimitExceededHandler))
+	handler := RateLimitMutationsByUser(jwtService, burst, RateLimitEntityRequestBatchSustained())(okHandler())
+
+	send := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/entity-requests/batch", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		return rr
+	}
+
+	for i := 0; i < EntityRequestBatchSustainedPerHour; i++ {
+		if rr := send(); rr.Code != http.StatusOK {
+			t.Fatalf("request %d within the hour ceiling: status = %d, want 200", i, rr.Code)
+		}
+	}
+	rr := send()
+	if rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("request past the hour ceiling: status = %d, want 429", rr.Code)
+	}
+	// The hour window must not tell the caller to retry in a minute: that value
+	// becomes the client's countdown.
+	if got := rr.Header().Get("Retry-After"); got != "3600" {
+		t.Errorf("Retry-After = %q, want 3600 (the window this limiter meters)", got)
+	}
+}
+
+// The two budgets are distinct instances, so spending one leaves the other. The
+// burst pair is covered in routes; this pins the sustained pair, which is what a
+// copy-paste of the burst constructor would break.
+func TestEntityRequestBatchSustained_IsNotTheEngagementSustained(t *testing.T) {
+	jwtService := newTestJWTService()
+	token := mkEngagementToken(t, jwtService, 1)
+	wideBurst := func() func(http.Handler) http.Handler {
+		return httprate.Limit(EngagementMutationSustainedPerHour*2, time.Minute,
+			httprate.WithKeyFuncs(mutationUserKeyFunc),
+			httprate.WithLimitHandler(RateLimitExceededHandler))
+	}
+	batch := RateLimitMutationsByUser(jwtService, wideBurst(), RateLimitEntityRequestBatchSustained())(okHandler())
+	engagement := RateLimitMutationsByUser(jwtService, wideBurst(), RateLimitEngagementMutationSustained())(okHandler())
+
+	send := func(h http.Handler) int {
+		req := httptest.NewRequest(http.MethodPost, "/entity-requests/batch", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		return rr.Code
+	}
+
+	for i := 0; i < EntityRequestBatchSustainedPerHour; i++ {
+		if code := send(batch); code != http.StatusOK {
+			t.Fatalf("batch request %d: status = %d, want 200", i, code)
+		}
+	}
+	if code := send(batch); code != http.StatusTooManyRequests {
+		t.Fatalf("batch past its hour ceiling: status = %d, want 429", code)
+	}
+	if code := send(engagement); code != http.StatusOK {
+		t.Errorf("engagement hour window after the batch one is spent: status = %d, want 200", code)
+	}
+}
+
 func TestRateLimitMutationsByUser_AuthenticatedIsPerUserLimited(t *testing.T) {
 	jwtService := newTestJWTService()
 	token := mkEngagementToken(t, jwtService, 42)

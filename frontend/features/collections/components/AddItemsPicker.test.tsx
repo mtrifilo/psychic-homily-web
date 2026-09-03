@@ -1240,6 +1240,51 @@ describe('AddItemsPicker', () => {
     ).not.toBeInTheDocument()
   })
 
+  // The message describes a filing that did not happen. While its own retry is in
+  // flight it is no longer true, so it clears when the row goes back to queuing.
+  it('Paste mode: the rate-limit message clears while its retry is in flight', async () => {
+    let release: ((v: unknown) => void) | undefined
+    let call = 0
+    mockApiRequest.mockImplementation(async (...args: unknown[]) => {
+      call += 1
+      if (call === 1) {
+        throw Object.assign(new Error('Rate limit exceeded'), {
+          status: 429,
+          retryAfter: 30,
+        })
+      }
+      await new Promise(resolve => {
+        release = resolve
+      })
+      return batchAnswer(args)
+    })
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await user.click(screen.getByTestId('tab-paste'))
+    await pasteInto(user, 'Junk Line')
+
+    expect(
+      await screen.findByTestId('add-items-picker-paste-row-queue-error')
+    ).toHaveTextContent('retry in 30s')
+
+    await user.click(
+      screen.getByTestId('add-items-picker-paste-row-retry-queue')
+    )
+
+    // The retry is still in flight: the row says it is filing and says nothing
+    // about a filing that did not happen.
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId('add-items-picker-paste-row-queue-error')
+      ).not.toBeInTheDocument()
+    )
+    expect(release).toBeDefined()
+    release?.(undefined)
+    expect(
+      await screen.findByTestId('add-items-picker-paste-row-queued')
+    ).toBeInTheDocument()
+  })
+
   // PSY-2005: an item the server refused is terminal for that line, so it says
   // why and offers no Retry, while its siblings are filed regardless.
   it('Paste mode: a refused item reports its reason and never blocks its siblings', async () => {

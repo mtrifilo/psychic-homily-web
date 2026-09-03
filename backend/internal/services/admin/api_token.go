@@ -38,6 +38,11 @@ const (
 // admin's privileges. Every scope added here needs its own answer in
 // middleware's bypass allowlist too: authenticating and skipping a rate limiter
 // are separate grants.
+//
+// This gate is on AUTHENTICATION, not only on limiter bypasses: ValidateToken is
+// what resolves a phk_ bearer for the JWT middleware, so a row whose scope is
+// absent here stops authenticating entirely. CreateToken only ever writes
+// TokenScopeAdmin and the column defaults to it, so no minted token is affected.
 var knownTokenScopes = map[string]bool{TokenScopeAdmin: true}
 
 // APITokenService handles API token operations
