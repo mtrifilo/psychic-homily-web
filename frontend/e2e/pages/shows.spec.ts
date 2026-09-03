@@ -41,6 +41,39 @@ test.describe('Shows list', () => {
     ).toBeVisible()
   })
 
+  // A door price has to survive the whole stack to be worth recording: the
+  // list query has to select door_price, the response has to carry it, and the
+  // card has to read both columns rather than the advance one alone. A
+  // component test proves only the last of those. `e2e-door-price-split` and
+  // `e2e-door-price-only` are the two seeded rows that record one.
+  test('renders the advance/door price split on a list row', async ({
+    page,
+  }) => {
+    await page.goto('/shows')
+
+    const splitRow = page.getByRole('article', {
+      name: 'E2E [door-price-split]',
+    })
+    await expect(splitRow).toBeVisible({ timeout: 10_000 })
+    await expect(splitRow).toContainText('$20/$25')
+    // The glyphs are aria-hidden and paired with a spelled-out sibling, so a
+    // screen reader is not left reading a price as punctuation.
+    await expect(
+      splitRow.getByText('$20 advance, $25 at the door')
+    ).toBeAttached()
+
+    // A door price with no advance price reads as a bare number, so the check
+    // that matters is that it is served at all: a list gating on
+    // `price != null` renders this row with no price and still passes a
+    // substring assertion on the row's other text.
+    const doorOnlyRow = page.getByRole('article', {
+      name: 'E2E [door-price-only]',
+    })
+    await expect(doorOnlyRow).toBeVisible()
+    await expect(doorOnlyRow).toContainText('$15')
+    await expect(doorOnlyRow).not.toContainText('/$')
+  })
+
   test('pagination loads more shows', async ({ page }) => {
     await page.goto('/shows')
 

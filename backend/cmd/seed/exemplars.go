@@ -72,6 +72,9 @@ func strptr(s string) *string { return &s }
 // intptr is a tiny helper to take the address of an int literal inline.
 func intptr(i int) *int { return &i }
 
+// fltptr is a tiny helper to take the address of a float literal inline.
+func fltptr(f float64) *float64 { return &f }
+
 // fullSocial returns a Social struct with every platform populated, for the
 // rich exemplars whose AC requires all social.{...} fields non-empty.
 func fullSocial(handle string) catalogm.Social {
@@ -109,6 +112,7 @@ func seedRichExemplars(db *gorm.DB) {
 	seedEdgeCaseFestival(db) // PSY-657 social:{} canary
 	showID := seedExemplarShow(db, admin.ID, artistID, venueID)
 	seedExemplarArtistShows(db, artistID, venueID)
+	seedExemplarPriceShows(db, artistID, venueID)
 	seedExemplarSimilarArtists(db, artistID)
 	seedExemplarCollection(db, admin.ID, artistID, venueID, labelID, showID)
 
@@ -749,6 +753,100 @@ func seedExemplarArtistShows(db *gorm.DB, artistID, venueID uint) {
 		}
 	}
 	fmt.Printf("  ✅ tracked shows (3 upcoming + 3 past) for venue/artist exemplars\n")
+}
+
+// seedExemplarPriceShows attaches the two price shapes no other seeded show
+// carries. Every other show this seed writes sets at most Price, so the
+// advance/door pair a list surface spells `$20/$25` has no row to render
+// against a dev database.
+//
+// The door-only row renders identically to an advance-only one by design:
+// statedShowPrices collapses a lone price of either column to one number. It
+// exists so the guards that DO read the columns separately have something to
+// fail against, namely hasStatedPrice, which decides whether the separator
+// beside the price appears, and offerShowPrice, which falls back to the door
+// column for the schema.org Offer.
+//
+// Both are upcoming, so they appear on `/shows` rather than only in the
+// archive. Their day offsets are distinct from every other exemplar show
+// billing this artist at this venue, because show_dedup_keys holds
+// UNIQUE (artist_id, venue_id, event_date) and is rebuilt by trigger from the
+// show_artists insert below. What makes a RE-seed safe is not the offsets
+// though: it is the per-slug probe, which skips a show that already exists.
+func seedExemplarPriceShows(db *gorm.DB, artistID, venueID uint) {
+	if artistID == 0 || venueID == 0 {
+		return
+	}
+
+	type priced struct {
+		slug      string
+		title     string
+		dayOffset int
+		price     *float64
+		doorPrice *float64
+	}
+	shows := []priced{
+		{
+			slug:      "exemplar-advance-door-split",
+			title:     "Marissa Nadler (Exemplar): Advance/Door Split",
+			dayOffset: 42,
+			price:     fltptr(20),
+			doorPrice: fltptr(25),
+		},
+		{
+			slug:      "exemplar-door-only-price",
+			title:     "Marissa Nadler (Exemplar): Door Only",
+			dayOffset: 70,
+			price:     nil,
+			doorPrice: fltptr(15),
+		},
+	}
+
+	for _, s := range shows {
+		// A probe error is NOT "not found": treating a dropped connection as
+		// absence sends us into a create that then trips the slug unique index,
+		// reporting a conflict instead of the real fault.
+		var existing catalogm.Show
+		switch err := db.Where("slug = ?", s.slug).First(&existing).Error; {
+		case err == nil:
+			continue
+		case !errors.Is(err, gorm.ErrRecordNotFound):
+			log.Printf("Warning: failed to probe priced show %s: %v", s.slug, err)
+			continue
+		}
+
+		eventDate := time.Now().Add(time.Duration(s.dayOffset) * 24 * time.Hour).UTC()
+		show := &catalogm.Show{
+			Title:          s.title,
+			Slug:           strptr(s.slug),
+			EventDate:      eventDate,
+			City:           strptr("Phoenix"),
+			State:          strptr("AZ"),
+			Price:          s.price,
+			DoorPrice:      s.doorPrice,
+			AgeRequirement: strptr("21+"),
+			Status:         catalogm.ShowStatusApproved,
+			Source:         catalogm.ShowSourceUser,
+		}
+		err := db.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Create(show).Error; err != nil {
+				return err
+			}
+			if err := tx.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: venueID}).Error; err != nil {
+				return err
+			}
+			return tx.Create(&catalogm.ShowArtist{
+				ShowID:   show.ID,
+				ArtistID: artistID,
+				Position: 0,
+				SetType:  contracts.SetTypeHeadliner,
+			}).Error
+		})
+		if err != nil {
+			log.Printf("Warning: failed to create priced show %s: %v", s.slug, err)
+		}
+	}
+	fmt.Printf("  ✅ price exemplars (advance/door split + door only)\n")
 }
 
 // seedExemplarSimilarArtists creates 3+ similar-artist edges from the exemplar

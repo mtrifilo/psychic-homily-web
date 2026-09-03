@@ -487,6 +487,46 @@ BEGIN
   RETURNING id INTO s_id;
   INSERT INTO show_venues (show_id, venue_id) VALUES (s_id, v_id);
   INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (s_id, a_id, 0, 'headliner');
+
+  -- shows.spec.ts "renders the advance/door price split on a list row".
+  -- The only two seeded rows that record a door price: every other seeded show
+  -- leaves both columns NULL, so the `$20/$25` list register and the door-only
+  -- fallback have nothing to render without them. Both are read-only for the
+  -- spec.
+  --
+  -- Every row in this block bills the same artist at the same venue, and
+  -- show_dedup_keys holds UNIQUE (artist_id, venue_id, event_date), so each
+  -- takes the next whole hour after the row before it. These are the last two,
+  -- at +6 and +7; append the next fixture at +8.
+  INSERT INTO shows (title, event_date, city, state, status, price, door_price, slug, created_at, updated_at)
+  VALUES (
+    'E2E [door-price-split]',
+    NOW() + INTERVAL '6 hours',
+    'Phoenix', 'AZ', 'approved',
+    20, 25,
+    'e2e-door-price-split',
+    NOW(), NOW()
+  )
+  RETURNING id INTO s_id;
+  INSERT INTO show_venues (show_id, venue_id) VALUES (s_id, v_id);
+  INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (s_id, a_id, 0, 'headliner');
+
+  -- A door price with no advance price. It renders as a bare `$15`, the same
+  -- as an advance-only show, so what it guards is not a second register but
+  -- the columns being read separately: a list that gated on `price != null`
+  -- would drop this number entirely.
+  INSERT INTO shows (title, event_date, city, state, status, door_price, slug, created_at, updated_at)
+  VALUES (
+    'E2E [door-price-only]',
+    NOW() + INTERVAL '7 hours',
+    'Phoenix', 'AZ', 'approved',
+    15,
+    'e2e-door-price-only',
+    NOW(), NOW()
+  )
+  RETURNING id INTO s_id;
+  INSERT INTO show_venues (show_id, venue_id) VALUES (s_id, v_id);
+  INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (s_id, a_id, 0, 'headliner');
 END $$;
 SQL
 
