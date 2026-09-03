@@ -391,6 +391,40 @@ func EntityIdentityFenceSQL(entityType, alias string, viewer contracts.ShowViewe
 	return "FALSE", nil
 }
 
+// VisibleEntityExistsSQL returns a condition, true when the entity of
+// entityType named by entityIDExpr is one viewer may see, plus its bind
+// arguments.
+//
+// EntityIdentityFenceSQL's sibling for a query that holds the id in some OTHER
+// table's column rather than selecting from the entity's own table: a junction
+// row's container id, a foreign key. It carries the same two conventions, and
+// for the same reasons: the rule is looked up in the registry rather than
+// written out at the call site, and a condition is ALWAYS returned so the caller
+// splices it in unconditionally: `TRUE` where no rule applies, `FALSE` for a type
+// nobody registered.
+//
+// The entity type is a caller-side CONSTANT here, unlike the polymorphic forms,
+// which read it from a column. That is what a junction table is: show_artists
+// holds show ids and only show ids, so there is no per-row type to test.
+//
+// entityIDExpr is SQL the CALLER controls and must be a literal in the calling
+// code. Nothing derived from a request may reach it.
+func VisibleEntityExistsSQL(entityType, entityIDExpr string, viewer contracts.ShowViewer) (string, []interface{}) {
+	rule, ok := entityVisibilityRuleFor(entityType)
+	if !ok {
+		return "FALSE", nil
+	}
+	switch rule {
+	case ruleAlwaysVisible:
+		return "TRUE", nil
+	case ruleShow:
+		return VisibleShowExistsSQL(entityIDExpr, viewer)
+	case ruleCollection:
+		return VisibleCollectionExistsSQL(entityIDExpr, viewer)
+	}
+	return "FALSE", nil
+}
+
 // =============================================================================
 // THE TWO SQL SKELETONS EVERY PER-TYPE RULE IS BUILT FROM
 // =============================================================================

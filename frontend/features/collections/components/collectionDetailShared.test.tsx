@@ -80,15 +80,18 @@ describe('useAutoDismissError (PSY-609 contract)', () => {
 
   it('re-arms the dismiss window when a fresh error object carries identical copy', () => {
     // PSY-957 semantics: two consecutive failures whose formatted copy is the
-    // same (e.g. two 403s → "This collection is private.") still re-arm the
+    // same (e.g. two 403s → the permission copy) still re-arm the
     // window off the LATEST failure. The pre-PSY-957 `[message]`-keyed effect
     // did not re-arm on an identical string; the entry-identity keying does.
-    const formatSame = () => 'This collection is private.'
+    const formatSame = () =>
+      'You do not have permission to change this collection.'
     const { result, rerender } = renderHook(
       ({ e }: { e: unknown }) => useAutoDismissError(e, true, formatSame),
       { initialProps: { e: new Error('a') as unknown } }
     )
-    expect(result.current).toBe('This collection is private.')
+    expect(result.current).toBe(
+      'You do not have permission to change this collection.'
+    )
 
     // Part-way through the first window, a new error object (same copy) fires.
     act(() => {
@@ -101,7 +104,9 @@ describe('useAutoDismissError (PSY-609 contract)', () => {
     act(() => {
       vi.advanceTimersByTime(2000)
     })
-    expect(result.current).toBe('This collection is private.')
+    expect(result.current).toBe(
+      'You do not have permission to change this collection.'
+    )
 
     act(() => {
       vi.advanceTimersByTime(1000)
@@ -151,18 +156,32 @@ describe('useAutoDismissError (PSY-609 contract)', () => {
 // delegates to it as of PSY-957, so its copy is load-bearing on three
 // surfaces (detail like/unlike, reorder, card like/unlike).
 describe('describeCollectionMutationError (PSY-609)', () => {
-  it('renders dedicated copy for 403 (private target)', () => {
+  it('renders permission copy for 403', () => {
     const err = Object.assign(new Error('forbidden'), { status: 403 })
     expect(describeCollectionMutationError(err, 'fallback')).toBe(
-      'This collection is private.'
+      'You do not have permission to change this collection.'
     )
   })
 
-  it('renders unlike-specific copy for 403 with unlikePrivate', () => {
+  // A 403 is only reachable on a collection the viewer CAN see, because every
+  // "you may not see this" refusal is a 404. Copy naming privacy here would
+  // restate the fact the API withholds, and would be false besides.
+  it('does not describe a 403 as a privacy refusal', () => {
     const err = Object.assign(new Error('forbidden'), { status: 403 })
-    expect(
-      describeCollectionMutationError(err, 'fallback', { unlikePrivate: true })
-    ).toBe('This collection is private — your like was removed.')
+    expect(describeCollectionMutationError(err, 'fallback')).not.toMatch(
+      /privat/i
+    )
+  })
+
+  // The 404 branch is the privacy refusal now, and it must render the server's
+  // own neutral message rather than any copy of this helper's.
+  it('passes a 404 through to the server message', () => {
+    const err = Object.assign(new Error("Collection 'some-slug' not found"), {
+      status: 404,
+    })
+    expect(describeCollectionMutationError(err, 'fallback')).toBe(
+      "Collection 'some-slug' not found"
+    )
   })
 
   it('falls back to the error message for non-403 errors', () => {

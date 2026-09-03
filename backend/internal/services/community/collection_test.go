@@ -474,7 +474,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBy
 // containing the search term.
 func (suite *CollectionServiceIntegrationTestSuite) updateCollectionDescription(slug string, userID uint, description string) {
 	desc := description
-	_, err := suite.collectionService.UpdateCollection(slug, userID, false,
+	_, _, err := suite.collectionService.UpdateCollection(slug, userID, false,
 		&contracts.UpdateCollectionRequest{Description: &desc})
 	suite.Require().NoError(err)
 }
@@ -825,7 +825,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_BasicFi
 
 	newTitle := "Updated Title"
 	newDesc := "Updated description"
-	resp, err := suite.collectionService.UpdateCollection(created.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
+	resp, _, err := suite.collectionService.UpdateCollection(created.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
 		Title:       &newTitle,
 		Description: &newDesc,
 	})
@@ -841,7 +841,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_TitleCh
 	oldSlug := created.Slug
 
 	newTitle := "Brand New Title"
-	resp, err := suite.collectionService.UpdateCollection(created.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
+	resp, _, err := suite.collectionService.UpdateCollection(created.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
 		Title: &newTitle,
 	})
 
@@ -857,7 +857,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_BoolFie
 
 	collab := false
 	pub := false
-	resp, err := suite.collectionService.UpdateCollection(created.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
+	resp, _, err := suite.collectionService.UpdateCollection(created.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
 		Collaborative: &collab,
 		IsPublic:      &pub,
 	})
@@ -869,7 +869,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_BoolFie
 
 func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_NotFound() {
 	newTitle := "Anything"
-	resp, err := suite.collectionService.UpdateCollection("nonexistent-slug", 1, false, &contracts.UpdateCollectionRequest{
+	resp, _, err := suite.collectionService.UpdateCollection("nonexistent-slug", 1, false, &contracts.UpdateCollectionRequest{
 		Title: &newTitle,
 	})
 
@@ -889,7 +889,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_Forbidd
 	created := suite.createPublicCollection(creator, "Protected Collection")
 
 	newTitle := "Hacked!"
-	resp, err := suite.collectionService.UpdateCollection(created.Slug, other.ID, false, &contracts.UpdateCollectionRequest{
+	resp, _, err := suite.collectionService.UpdateCollection(created.Slug, other.ID, false, &contracts.UpdateCollectionRequest{
 		Title: &newTitle,
 	})
 
@@ -907,7 +907,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_AdminCa
 	created := suite.createPublicCollection(creator, "Admin Editable")
 
 	newTitle := "Admin Updated"
-	resp, err := suite.collectionService.UpdateCollection(created.Slug, admin.ID, true, &contracts.UpdateCollectionRequest{
+	resp, _, err := suite.collectionService.UpdateCollection(created.Slug, admin.ID, true, &contracts.UpdateCollectionRequest{
 		Title: &newTitle,
 	})
 
@@ -919,7 +919,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_NoChang
 	user := suite.createTestUser("NoopUpdater")
 	created := suite.createBasicCollection(user, "Stable Collection")
 
-	resp, err := suite.collectionService.UpdateCollection(created.Slug, user.ID, false, &contracts.UpdateCollectionRequest{})
+	resp, _, err := suite.collectionService.UpdateCollection(created.Slug, user.ID, false, &contracts.UpdateCollectionRequest{})
 
 	suite.Require().NoError(err)
 	suite.Equal("Stable Collection", resp.Title)
@@ -1008,7 +1008,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_Descrip
 	created := suite.createBasicCollection(user, "Will Reject Long Update")
 
 	longDesc := strings.Repeat("b", contracts.MaxCollectionDescriptionLength+1)
-	resp, err := suite.collectionService.UpdateCollection(created.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
+	resp, _, err := suite.collectionService.UpdateCollection(created.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
 		Description: &longDesc,
 	})
 
@@ -1030,7 +1030,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_Display
 
 	// Default → ranked
 	mode := communitym.CollectionDisplayModeRanked
-	resp, err := suite.collectionService.UpdateCollection(created.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
+	resp, _, err := suite.collectionService.UpdateCollection(created.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
 		DisplayMode: &mode,
 	})
 	suite.Require().NoError(err)
@@ -1039,7 +1039,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_Display
 
 	// Ranked → unranked (data preserved)
 	mode = communitym.CollectionDisplayModeUnranked
-	resp, err = suite.collectionService.UpdateCollection(resp.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
+	resp, _, err = suite.collectionService.UpdateCollection(resp.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
 		DisplayMode: &mode,
 	})
 	suite.Require().NoError(err)
@@ -1052,7 +1052,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_Invalid
 	created := suite.createBasicCollection(user, "Bad Mode")
 
 	bogus := "ranked-by-vibes"
-	resp, err := suite.collectionService.UpdateCollection(created.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
+	resp, _, err := suite.collectionService.UpdateCollection(created.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
 		DisplayMode: &bogus,
 	})
 
@@ -2465,7 +2465,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_Private
 	priv := suite.createBasicCollection(user, "Flip Empty")
 
 	pub := true
-	resp, err := suite.collectionService.UpdateCollection(priv.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
+	resp, _, err := suite.collectionService.UpdateCollection(priv.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
 		IsPublic: &pub,
 	})
 	suite.Require().NoError(err)
@@ -2480,7 +2480,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_PublicT
 	pub := suite.createPublicCollection(user, "Initially Public")
 
 	makePrivate := false
-	resp, err := suite.collectionService.UpdateCollection(pub.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
+	resp, _, err := suite.collectionService.UpdateCollection(pub.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
 		IsPublic: &makePrivate,
 	})
 	suite.Require().NoError(err)
@@ -2494,7 +2494,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_PublicE
 	pub := suite.createPublicCollection(user, "Edit Me")
 
 	newTitle := "Edited Title"
-	resp, err := suite.collectionService.UpdateCollection(pub.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
+	resp, _, err := suite.collectionService.UpdateCollection(pub.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
 		Title: &newTitle,
 	})
 	suite.Require().NoError(err)
@@ -2876,7 +2876,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddTagToCollection_Colla
 
 	coll := suite.createPublicCollection(creator, "Collab Curator")
 	collab := true
-	_, err := suite.collectionService.UpdateCollection(coll.Slug, creator.ID, false,
+	_, _, err := suite.collectionService.UpdateCollection(coll.Slug, creator.ID, false,
 		&contracts.UpdateCollectionRequest{Collaborative: &collab})
 	suite.Require().NoError(err)
 

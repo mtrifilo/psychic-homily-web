@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -395,18 +396,18 @@ func TestCollectionSubscriptionsMirrorTheDetailRoute(t *testing.T) {
 				if !hasWatchingEntryOfType(items, "collection", gated) {
 					t.Errorf("the watching list withheld the private collection from %s, who may read it; body: %s", c.name, body)
 				}
+				// The creator's row carries the TITLE, not "collection #<id>",
+				// and that half is what makes the stranger's half a real
+				// assertion: the enrichment resolves a collection's title now, so
+				// what withholds it from a stranger is the identity fence rather
+				// than a lookup that fails for every caller alike.
+				if name := watchingEntryName(items, "collection", gated); name != watchGatedCollectionTitle {
+					t.Errorf("the watching list named the creator's own private collection %q, want %q; body: %s",
+						name, watchGatedCollectionTitle, body)
+				}
 			} else {
 				// The ID ALONE is the whole of what an enumeration oracle needs,
 				// so the row must be ABSENT rather than merely unnamed.
-				//
-				// The id is also, today, ALL this row would have disclosed: the
-				// watching list renders a collection as "collection #<id>"
-				// because CommentEntityPathAndTable names a `name` column the
-				// collections table does not have, so the title lookup errors and
-				// is skipped. That bug is not fixed here — a privacy change must
-				// not widen a disclosure path on its way past — which is exactly
-				// why this asserts on the ID and the ROW rather than on the title.
-				// See services/shared/comment_entity_names.go.
 				if hasWatchingEntryOfType(items, "collection", gated) {
 					t.Errorf("the watching list published the private collection's id to %s; body: %s", c.name, body)
 				}
@@ -417,6 +418,13 @@ func TestCollectionSubscriptionsMirrorTheDetailRoute(t *testing.T) {
 			}
 			if !hasWatchingEntryOfType(items, "collection", open) {
 				t.Errorf("the watching list dropped the PUBLIC collection for %s; body: %s", c.name, body)
+			}
+			// The control on the enrichment itself. Without it, a regression that
+			// broke the title lookup for EVERY collection would still satisfy
+			// both arms above.
+			if name := watchingEntryName(items, "collection", open); name != watchOpenCollectionTitle {
+				t.Errorf("the watching list named the PUBLIC collection %q for %s, want %q; body: %s",
+					name, c.name, watchOpenCollectionTitle, body)
 			}
 			// The count moves with the page, or the withheld row is published as
 			// arithmetic to an account that already knows what it subscribed to.
@@ -447,6 +455,12 @@ func TestCollectionSubscriptionsMirrorTheDetailRoute(t *testing.T) {
 			if c.mayRead {
 				if !strings.Contains(string(body), gatedCollectionComment) {
 					t.Errorf("the inbox withheld the private collection from %s, who may read it; body: %s", c.name, body)
+				}
+				// Paired with the title suppression below, for the watching
+				// list's reason: the creator's row NAMES the collection, so the
+				// stranger's missing title is the fence.
+				if !strings.Contains(string(body), watchGatedCollectionTitle) {
+					t.Errorf("the inbox did not name the creator's own private collection; body: %s", body)
 				}
 			} else if strings.Contains(string(body), gatedCollectionComment) ||
 				strings.Contains(string(body), watchGatedCollectionTitle) ||
@@ -780,6 +794,95 @@ func TestCollectionOwnerWritesRefuseLikeAMissingCollection(t *testing.T) {
 		code, body := do(t, http.MethodDelete, "/collections/"+target.Slug, adminToken, nil)
 		if code >= 400 {
 			t.Errorf("an admin was refused the delete on a private collection: %d; body: %s", code, body)
+		}
+	})
+
+	// A write that leaves the collection unreadable to its writer answers 204,
+	// not the read-back's 404. The remedy is a WRITE power, so an update that
+	// does not publish still commits, and reporting it as not-found would call a
+	// successful write a failure and invite a retry of an update that landed.
+	t.Run("an admin's non-publishing update commits and answers 204", func(t *testing.T) {
+		const moderated = "moderated from the report queue"
+		target := testhelpers.CreateCollection(t, td.DB, creator.ID,
+			"Reported And Edited", "reported-and-edited", false)
+
+		code, body := do(t, http.MethodPut, "/collections/"+target.Slug, adminToken,
+			[]byte(`{"description":"`+moderated+`"}`))
+		if code != http.StatusNoContent {
+			t.Fatalf("an admin's non-publishing update on a private collection = %d, want 204; body: %s", code, body)
+		}
+		// 204 MEANS NO BODY. A field of a collection the caller may not read must
+		// not travel in the success answer, which is the whole reason the read
+		// stays refused below.
+		if len(bytes.TrimSpace(body)) != 0 {
+			t.Errorf("the 204 carried a body: %s", body)
+		}
+
+		// The write LANDED. Read from the table, because every route that would
+		// report it refuses this caller, which is the situation being tested.
+		var stored struct {
+			Description *string
+			IsPublic    bool
+		}
+		if err := td.DB.Table("collections").
+			Select("description, is_public").
+			Where("id = ?", target.ID).
+			Scan(&stored).Error; err != nil {
+			t.Fatalf("read the moderated collection back: %v", err)
+		}
+		if stored.Description == nil || *stored.Description != moderated {
+			t.Errorf("the update did not commit: description = %v", stored.Description)
+		}
+		if stored.IsPublic {
+			t.Errorf("the update published the collection; the 204 case requires it stay private")
+		}
+
+		// AND THE READ IS STILL REFUSED. 204 is about the write; it grants
+		// nothing, so the detail route answers the admin exactly as before.
+		if readCode, readBody := do(t, http.MethodGet, "/collections/"+target.Slug, adminToken, nil); readCode != http.StatusNotFound {
+			t.Errorf("the detail route answered the admin %d after the 204, want 404; body: %s", readCode, readBody)
+		}
+
+		// The creator's control: the same PUT by somebody who may read the result
+		// still returns the body, so the 204 is the refusal and not the route
+		// having lost its response.
+		creatorToken := mintToken(t, sc, creator)
+		ownCode, ownBody := do(t, http.MethodPut, "/collections/"+target.Slug, creatorToken,
+			[]byte(`{"description":"the creator can still see this"}`))
+		if ownCode != http.StatusOK || !strings.Contains(string(ownBody), "the creator can still see this") {
+			t.Errorf("the creator's own update answered %d; body: %s", ownCode, ownBody)
+		}
+	})
+
+	// A PUT THAT UPDATES NOTHING IS NOT A WRITE, and it must not answer as one.
+	// The 204 above reports a successful write; a request naming no updatable
+	// field has none, so answering it 204 would tell an admin that a
+	// title-derived slug they guessed names a real private collection, with no
+	// side effect to pay for it. It answers exactly as an unused slug does.
+	t.Run("an admin's no-op update is not an existence oracle", func(t *testing.T) {
+		target := testhelpers.CreateCollection(t, td.DB, creator.ID,
+			"Reported And Untouched", "reported-and-untouched", false)
+
+		gatedCode, gatedBody := do(t, http.MethodPut, "/collections/"+target.Slug, adminToken, []byte(`{}`))
+		missingCode, missingBody := do(t, http.MethodPut, "/collections/"+missingSlug, adminToken, []byte(`{}`))
+
+		if gatedCode != http.StatusNotFound {
+			t.Errorf("an empty PUT on a private collection answered the admin %d, want 404; body: %s",
+				gatedCode, gatedBody)
+		}
+		gatedNorm := strings.ReplaceAll(string(gatedBody), target.Slug, "<slug>")
+		missingNorm := strings.ReplaceAll(string(missingBody), missingSlug, "<slug>")
+		if gatedCode != missingCode || !sameErrorMessage([]byte(gatedNorm), []byte(missingNorm)) {
+			t.Errorf("an empty PUT answers %d/%s for a private collection but %d/%s for a slug nobody "+
+				"has used; the difference is the oracle",
+				gatedCode, gatedNorm, missingCode, missingNorm)
+		}
+
+		// The control: the SAME caller, the same collection, one field named.
+		// That request is a write, and it gets the 204.
+		if code, body := do(t, http.MethodPut, "/collections/"+target.Slug, adminToken,
+			[]byte(`{"description":"a real moderation edit"}`)); code != http.StatusNoContent {
+			t.Errorf("an admin's real update answered %d, want 204; body: %s", code, body)
 		}
 	})
 }

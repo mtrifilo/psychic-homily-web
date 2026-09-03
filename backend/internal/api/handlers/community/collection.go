@@ -3,6 +3,7 @@ package community
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 
@@ -306,8 +307,12 @@ type UpdateCollectionHandlerRequest struct {
 }
 
 // UpdateCollectionHandlerResponse represents the response for updating a collection
+//
+// Status carries 204 for the one case that has no body: a write that landed on a
+// collection the caller may not read back. See UpdateCollectionHandler.
 type UpdateCollectionHandlerResponse struct {
-	Body *contracts.CollectionDetailResponse
+	Status int
+	Body   *contracts.CollectionDetailResponse
 }
 
 // UpdateCollectionHandler handles PUT /collections/{slug}
@@ -334,7 +339,7 @@ func (h *CollectionHandler) UpdateCollectionHandler(ctx context.Context, req *Up
 		DisplayMode:   req.Body.DisplayMode,
 	}
 
-	collection, err := h.collectionService.UpdateCollection(req.Slug, user.ID, user.IsAdmin, serviceReq)
+	collection, collectionID, err := h.collectionService.UpdateCollection(req.Slug, user.ID, user.IsAdmin, serviceReq)
 	if err != nil {
 		collErr := shared.MapCollectionError(err)
 		if collErr != nil {
@@ -350,14 +355,36 @@ func (h *CollectionHandler) UpdateCollectionHandler(ctx context.Context, req *Up
 		)
 	}
 
-	// Audit log (fire and forget)
+	// Audit log (fire and forget). Stamped with the id the service resolved from
+	// the row it authorised the write against, which is the only id available on
+	// the 204 path.
 	if h.auditLogService != nil {
 		servicesshared.GoSafe(ctx, "audit_log", func() {
-			h.auditLogService.LogAction(user.ID, "update_collection", "collection", collection.ID, nil)
+			h.auditLogService.LogAction(user.ID, "update_collection", "collection", collectionID, nil)
 		})
 	}
 
-	return &UpdateCollectionHandlerResponse{Body: collection}, nil
+	// 204 WHEN THE WRITE LANDED AND THERE IS NOTHING THE CALLER MAY READ.
+	// Returning the read's 404 would report a successful write as a failure and
+	// invite a retry of an update that already applied; 204 says committed, no
+	// body.
+	//
+	// The service decides this on the WRITE, not on the caller. An admin whose
+	// update does not flip is_public is the case the moderation exception needs
+	// (the remedy is a write power, not a read one), and a caller whose
+	// collection stops being readable to them between the write and the read
+	// reaches it on the same terms. A request that updates nothing is not a write
+	// and still gets the refusal.
+	//
+	// The refusal itself is NOT softened by this: the collection is still
+	// unreadable, and no field of it appears in a 204. A caller who RENAMES a
+	// collection on this path therefore does not learn the regenerated slug,
+	// because the slug is a field of a collection they may not read.
+	if collection == nil {
+		return &UpdateCollectionHandlerResponse{Status: http.StatusNoContent}, nil
+	}
+
+	return &UpdateCollectionHandlerResponse{Status: http.StatusOK, Body: collection}, nil
 }
 
 // ============================================================================

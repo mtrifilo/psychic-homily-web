@@ -570,12 +570,30 @@ func hasWatchingEntry(items []contracts.WatchingItem, showID uint) bool {
 // routinely share a number and a check on the id alone would report the wrong
 // row present.
 func hasWatchingEntryOfType(items []contracts.WatchingItem, entityType string, entityID uint) bool {
+	_, found := watchingEntryOfType(items, entityType, entityID)
+	return found
+}
+
+// watchingEntryOfType returns the row itself, so a caller can assert on what the
+// list RENDERED for it rather than only on its presence.
+func watchingEntryOfType(items []contracts.WatchingItem, entityType string, entityID uint) (contracts.WatchingItem, bool) {
 	for _, item := range items {
 		if item.EntityType == entityType && item.EntityID == entityID {
-			return true
+			return item, true
 		}
 	}
-	return false
+	return contracts.WatchingItem{}, false
+}
+
+// watchingEntryName returns the display name the list rendered for one row, or
+// "" when the row is absent.
+//
+// The absent case and the un-enriched case are DIFFERENT and a caller must not
+// confuse them: a row the enrichment could not resolve renders
+// "<type> #<id>", never an empty string, so a "" answer means no row.
+func watchingEntryName(items []contracts.WatchingItem, entityType string, entityID uint) string {
+	item, _ := watchingEntryOfType(items, entityType, entityID)
+	return item.EntityName
 }
 
 // assertInbox reads GET /me/notifications and pins both the row count and the

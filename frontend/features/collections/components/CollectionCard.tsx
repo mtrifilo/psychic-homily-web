@@ -47,10 +47,10 @@ export function CollectionCard({ collection }: CollectionCardProps) {
   const unlikeMutation = useUnlikeCollection()
   // PSY-609: like/unlike are optimistic-rollback hooks; on a 4xx the heart
   // snaps back but the user got no explanation. Keep an auto-dismiss
-  // banner in the card so the *reason* is visible for ~3s. 403 (private
-  // target) gets dedicated copy. PSY-957: timer lifecycle + error copy come
-  // from the feature's shared banner primitives instead of a hand-rolled
-  // setTimeout + inline 403 formatting.
+  // banner in the card so the *reason* is visible for ~3s. 403 gets dedicated
+  // permission copy. PSY-957: timer lifecycle + error copy come from the
+  // feature's shared banner primitives instead of a hand-rolled setTimeout +
+  // inline formatting.
   const {
     value: likeError,
     show: showLikeError,
@@ -74,15 +74,14 @@ export function CollectionCard({ collection }: CollectionCardProps) {
         await likeMutation.mutateAsync({ slug: collection.slug })
       }
     } catch (err) {
-      // 403 (private target) + message/generic fallbacks share copy with
-      // the detail page via describeCollectionMutationError.
+      // 403 + message/generic fallbacks share copy with the detail page via
+      // describeCollectionMutationError.
       showLikeError(
         describeCollectionMutationError(
           err,
           wasLiked
             ? 'Failed to unlike collection.'
-            : 'Failed to like collection.',
-          { unlikePrivate: wasLiked }
+            : 'Failed to like collection.'
         )
       )
     }

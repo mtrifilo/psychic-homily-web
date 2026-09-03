@@ -535,8 +535,9 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 	// A FENCED SOURCE ANSWERS LIKE A DELETED ONE, so the raw FK goes with the
 	// snapshot: `ON DELETE SET NULL` leaves a deleted source's FK null, and
 	// keeping a gated source's id would restore the pair as "this id exists and
-	// you may not see it". The listing responses still carry the raw FK, which is
-	// an id with no name or slug beside it and is recorded as a follow-up.
+	// you may not see it". The listing builders carry the same rule through
+	// batchVisibleForkSources, so no collection response publishes an id this one
+	// drops.
 	forkedFrom := s.resolveForkedFromInfo(collection.ForkedFromCollectionID, viewerID)
 	forkedFromID := collection.ForkedFromCollectionID
 	if forkedFrom == nil {
@@ -795,6 +796,9 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 	// currently-featured rows have an open run; the map is absent otherwise.
 	openRuns := s.batchOpenFeatureRuns(collectionIDs)
 
+	// The fork source, fenced against the caller. See batchVisibleForkSources.
+	forkSources := s.batchVisibleForkSources(collections, contracts.ShowViewer{UserID: filters.ViewerID})
+
 	// Build responses
 	responses := make([]*contracts.CollectionListResponse, len(collections))
 	for i, c := range collections {
@@ -828,7 +832,7 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 			SubscriberCount:        subscriberCounts[c.ID],
 			ContributorCount:       contributorCounts[c.ID],
 			ForksCount:             forkCounts[c.ID],
-			ForkedFromCollectionID: c.ForkedFromCollectionID,
+			ForkedFromCollectionID: forkSources[c.ID],
 			EntityTypeCounts:       entityTypeCounts[c.ID],
 			LikeCount:              likeCounts[c.ID],
 			UserLikesThis:          userLikes[c.ID],
@@ -977,29 +981,29 @@ func applySearchRelevanceOrder(query *gorm.DB, pattern string) *gorm.DB {
 // collection, and the entity-report queue serves an admin reports naming private
 // collections, so an admin refused this route could see the report and do
 // nothing about it. Every other collection write refuses them.
-func (s *CollectionService) UpdateCollection(slug string, userID uint, isAdmin bool, req *contracts.UpdateCollectionRequest) (*contracts.CollectionDetailResponse, error) {
+func (s *CollectionService) UpdateCollection(slug string, userID uint, isAdmin bool, req *contracts.UpdateCollectionRequest) (*contracts.CollectionDetailResponse, uint, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
 	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, apperrors.ErrCollectionNotFound(slug)
+			return nil, 0, apperrors.ErrCollectionNotFound(slug)
 		}
-		return nil, fmt.Errorf("failed to get collection: %w", err)
+		return nil, 0, fmt.Errorf("failed to get collection: %w", err)
 	}
 
 	// Invisible answers as missing, BEFORE ownership, so a caller who may not
 	// see the collection cannot tell a private slug from an unused one.
 	if !collection.IsPublic && collection.CreatorID != userID && !isAdmin {
-		return nil, apperrors.ErrCollectionNotFound(slug)
+		return nil, 0, apperrors.ErrCollectionNotFound(slug)
 	}
 
 	// Check ownership
 	if collection.CreatorID != userID && !isAdmin {
-		return nil, apperrors.ErrCollectionForbidden(slug)
+		return nil, 0, apperrors.ErrCollectionForbidden(slug)
 	}
 
 	updates := map[string]interface{}{}
@@ -1017,7 +1021,7 @@ func (s *CollectionService) UpdateCollection(slug string, userID uint, isAdmin b
 	}
 	if req.Description != nil {
 		if len(*req.Description) > contracts.MaxCollectionDescriptionLength {
-			return nil, fmt.Errorf("description exceeds maximum length of %d characters", contracts.MaxCollectionDescriptionLength)
+			return nil, 0, fmt.Errorf("description exceeds maximum length of %d characters", contracts.MaxCollectionDescriptionLength)
 		}
 		updates["description"] = *req.Description
 	}
@@ -1032,17 +1036,21 @@ func (s *CollectionService) UpdateCollection(slug string, userID uint, isAdmin b
 	}
 	if req.DisplayMode != nil {
 		if !communitym.IsValidCollectionDisplayMode(*req.DisplayMode) {
-			return nil, apperrors.ErrCollectionInvalidRequest(
+			return nil, 0, apperrors.ErrCollectionInvalidRequest(
 				fmt.Sprintf("display_mode must be 'ranked' or 'unranked', got %q", *req.DisplayMode),
 			)
 		}
 		updates["display_mode"] = *req.DisplayMode
 	}
 
-	if len(updates) > 0 {
+	// WHETHER A WRITE LANDED is what the refused read-back is allowed to be
+	// reported as, below. A request that names no updatable field writes nothing,
+	// so there is no success to report and the read's refusal stands.
+	wrote := len(updates) > 0
+	if wrote {
 		err = s.db.Model(&communitym.Collection{}).Where("id = ?", collection.ID).Updates(updates).Error
 		if err != nil {
-			return nil, fmt.Errorf("failed to update collection: %w", err)
+			return nil, 0, fmt.Errorf("failed to update collection: %w", err)
 		}
 	}
 
@@ -1054,11 +1062,42 @@ func (s *CollectionService) UpdateCollection(slug string, userID uint, isAdmin b
 
 	// READ BACK AS THE CALLER, which is what makes the admin exception a WRITE
 	// power and not a read one. An admin who edits a private collection without
-	// publishing it gets the update applied and a not-found response, because
-	// GetBySlug refuses them exactly as it does everywhere else. The is_public
-	// flip returns a body because the flip is what makes the collection
-	// readable, and that is the remedy the report queue needs.
-	return s.GetBySlug(retrieveSlug, userID)
+	// publishing it cannot read it back, because GetBySlug refuses them exactly
+	// as it does everywhere else. The is_public flip DOES return a body, because
+	// the flip is what makes the collection readable, and that is the remedy the
+	// report queue needs.
+	//
+	// A REFUSED READ-BACK IS NOT A FAILED WRITE, and this is where the two stop
+	// being reported as one thing. The refusal is swallowed here and answered as
+	// a nil detail with a nil error, so the caller can say "committed, nothing to
+	// show" rather than returning the read's 404 for an update that landed.
+	//
+	// THE CONDITION IS THE WRITE, NOT THE CALLER. Nothing below reads isAdmin or
+	// the collection's visibility: an admin whose update leaves the collection
+	// private is the case this route exists to serve, and a creator whose
+	// collection is renamed or removed underneath them between the write and the
+	// read reaches it too. Both wrote successfully and neither can read the
+	// result, which is one answer, not two.
+	//
+	// ONLY WHERE A WRITE ACTUALLY LANDED. A request that updates nothing gets the
+	// refusal, unchanged: reporting success for it would answer differently for
+	// an existing private collection than for a slug nobody has used, on a
+	// request with no side effect, which is an existence oracle over
+	// title-derived slugs rather than a write power. The exception this route
+	// carries is a power to CHANGE a reported collection, and a no-op change is
+	// not an exercise of it.
+	//
+	// Only the not-found refusal is swallowed: any other error from the read-back
+	// is a real failure and is returned.
+	detail, err := s.GetBySlug(retrieveSlug, userID)
+	if err != nil {
+		var collErr *apperrors.CollectionError
+		if wrote && errors.As(err, &collErr) && collErr.Code == apperrors.CodeCollectionNotFound {
+			return nil, collection.ID, nil
+		}
+		return nil, collection.ID, err
+	}
+	return detail, collection.ID, nil
 }
 
 // DeleteCollection deletes a collection.
@@ -2120,6 +2159,9 @@ func (s *CollectionService) GetUserCollections(userID uint, search string, limit
 	userLikes := s.batchCheckUserLikes(userID, collectionIDs)
 	// PSY-354: tag chips on library cards.
 	tagsByCollection := s.batchListCollectionTagSummaries(collectionIDs)
+	// The fork source, fenced against the caller. userID IS the viewer on this
+	// self-scoped listing. See batchVisibleForkSources.
+	forkSources := s.batchVisibleForkSources(collections, contracts.ShowViewer{UserID: userID})
 
 	responses := make([]*contracts.CollectionListResponse, len(collections))
 	for i, c := range collections {
@@ -2145,14 +2187,21 @@ func (s *CollectionService) GetUserCollections(userID uint, search string, limit
 			SubscriberCount:        subscriberCounts[c.ID],
 			ContributorCount:       contributorCounts[c.ID],
 			ForksCount:             forkCounts[c.ID],
-			ForkedFromCollectionID: c.ForkedFromCollectionID,
-			EntityTypeCounts:       entityTypeCounts[c.ID],
-			NewSinceLastVisit:      newCounts[c.ID],
-			LikeCount:              likeCounts[c.ID],
-			UserLikesThis:          userLikes[c.ID],
-			Tags:                   tags,
-			CreatedAt:              c.CreatedAt,
-			UpdatedAt:              c.UpdatedAt,
+			ForkedFromCollectionID: forkSources[c.ID],
+			// The fork STATUS of the caller's own collections, which the fenced
+			// id above cannot answer: it is absent both for an original and for a
+			// fork of a source the caller may not see. The per-tier create cap
+			// partitions on exactly this, so a client counting originals off the
+			// id counts the second case as the first. Rows the caller did not
+			// create leave it false: see the contract field.
+			IsFork:            c.CreatorID == userID && c.ForkedFromCollectionID != nil,
+			EntityTypeCounts:  entityTypeCounts[c.ID],
+			NewSinceLastVisit: newCounts[c.ID],
+			LikeCount:         likeCounts[c.ID],
+			UserLikesThis:     userLikes[c.ID],
+			Tags:              tags,
+			CreatedAt:         c.CreatedAt,
+			UpdatedAt:         c.UpdatedAt,
 		}
 	}
 
@@ -2295,6 +2344,8 @@ func (s *CollectionService) GetEntityCollections(entityType string, entityID uin
 	likeCounts := s.batchCountLikes(collectionIDs)
 	// PSY-354: tag chips on entity-collection cards.
 	tagsByCollection := s.batchListCollectionTagSummaries(collectionIDs)
+	// The fork source, fenced against the caller. See batchVisibleForkSources.
+	forkSources := s.batchVisibleForkSources(collections, contracts.ShowViewer{UserID: viewerID})
 
 	responses := make([]*contracts.CollectionListResponse, len(collections))
 	for i, c := range collections {
@@ -2320,7 +2371,7 @@ func (s *CollectionService) GetEntityCollections(entityType string, entityID uin
 			SubscriberCount:        subscriberCounts[c.ID],
 			ContributorCount:       contributorCounts[c.ID],
 			ForksCount:             forkCounts[c.ID],
-			ForkedFromCollectionID: c.ForkedFromCollectionID,
+			ForkedFromCollectionID: forkSources[c.ID],
 			EntityTypeCounts:       entityTypeCounts[c.ID],
 			LikeCount:              likeCounts[c.ID],
 			Tags:                   tags,
@@ -2382,6 +2433,13 @@ func (s *CollectionService) GetUserPublicCollections(userID uint, limit, offset 
 	likeCounts := s.batchCountLikes(collectionIDs)
 	// PSY-354: tag chips on profile-page cards.
 	tagsByCollection := s.batchListCollectionTagSummaries(collectionIDs)
+	// The fork source, fenced at the PUBLIC TIER, because no viewer is threaded
+	// through this call, the same reason UserLikesThis is left false above. The
+	// profile page therefore drops a fork source that is private EVEN FOR its own
+	// creator reading their own profile, which is the safe direction of that
+	// limitation: it withholds an id somebody already has rather than publishing
+	// one they do not.
+	forkSources := s.batchVisibleForkSources(collections, contracts.ShowViewer{})
 
 	responses := make([]*contracts.CollectionListResponse, len(collections))
 	for i, c := range collections {
@@ -2407,7 +2465,7 @@ func (s *CollectionService) GetUserPublicCollections(userID uint, limit, offset 
 			SubscriberCount:        subscriberCounts[c.ID],
 			ContributorCount:       contributorCounts[c.ID],
 			ForksCount:             forkCounts[c.ID],
-			ForkedFromCollectionID: c.ForkedFromCollectionID,
+			ForkedFromCollectionID: forkSources[c.ID],
 			EntityTypeCounts:       entityTypeCounts[c.ID],
 			LikeCount:              likeCounts[c.ID],
 			Tags:                   tags,
@@ -3004,6 +3062,70 @@ func (s *CollectionService) batchCountForks(collectionIDs []uint) map[uint]int {
 		counts[r.ForkedFromCollectionID] = r.Count
 	}
 	return counts
+}
+
+// batchVisibleForkSources answers, per collection on a page, the
+// forked_from_collection_id that page may PUBLISH to viewer: the recorded id
+// when viewer may see the source, and nothing at all otherwise. A collection
+// absent from the map has no publishable source, so callers index it directly
+// into the response field and a missing key reads as null.
+//
+// THE LISTING'S SPELLING OF resolveForkedFromInfo'S RULE. The detail route drops
+// the raw FK alongside the snapshot, so a gated source answers exactly like a
+// deleted one, whose FK `ON DELETE SET NULL` has already nulled. A listing that
+// kept the integer would restore the pair the detail route closed: an id that
+// exists, with no title or slug beside it, on a row that says a private
+// collection is what this one was forked from.
+//
+// One statement per page over the DISTINCT sources referenced, not one probe per
+// row. A failed probe withholds every source on the page rather than falling
+// back to the raw column, for VisibleTagUsageCounts' reason: a fallback is the
+// disclosure with an extra step.
+func (s *CollectionService) batchVisibleForkSources(collections []communitym.Collection, viewer contracts.ShowViewer) map[uint]*uint {
+	publishable := make(map[uint]*uint, len(collections))
+
+	sourceIDs := make([]uint, 0, len(collections))
+	seen := make(map[uint]struct{}, len(collections))
+	for _, c := range collections {
+		// A zero names no collection and passes no visibility arm, so it is
+		// treated as absent rather than probed for.
+		if c.ForkedFromCollectionID == nil || *c.ForkedFromCollectionID == 0 {
+			continue
+		}
+		if _, dup := seen[*c.ForkedFromCollectionID]; dup {
+			continue
+		}
+		seen[*c.ForkedFromCollectionID] = struct{}{}
+		sourceIDs = append(sourceIDs, *c.ForkedFromCollectionID)
+	}
+	if len(sourceIDs) == 0 {
+		return publishable
+	}
+
+	visibility, visibilityArgs := shared.VisibleCollectionPredicateSQL("collections", viewer)
+	var visibleIDs []uint
+	err := s.db.Model(&communitym.Collection{}).
+		Where("id IN ?", sourceIDs).
+		Where(visibility, visibilityArgs...).
+		Pluck("id", &visibleIDs).Error
+	if err != nil {
+		log.Printf("warning: failed to fence collection fork sources: %v", err)
+		return publishable
+	}
+
+	visible := make(map[uint]struct{}, len(visibleIDs))
+	for _, id := range visibleIDs {
+		visible[id] = struct{}{}
+	}
+	for _, c := range collections {
+		if c.ForkedFromCollectionID == nil {
+			continue
+		}
+		if _, ok := visible[*c.ForkedFromCollectionID]; ok {
+			publishable[c.ID] = c.ForkedFromCollectionID
+		}
+	}
+	return publishable
 }
 
 // batchCountLikes returns like counts keyed by collection ID. Live COUNT —

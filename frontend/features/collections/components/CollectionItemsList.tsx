@@ -877,9 +877,10 @@ function CollectionItemRow({
           />
           {updateMutation.isError && (
             <p className="text-xs text-destructive">
-              {updateMutation.error instanceof Error
-                ? updateMutation.error.message
-                : 'Failed to update notes'}
+              {describeCollectionMutationError(
+                updateMutation.error,
+                'Failed to update notes'
+              )}
             </p>
           )}
           <div className="flex gap-2">

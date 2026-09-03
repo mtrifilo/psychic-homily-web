@@ -791,7 +791,7 @@ type MockCollectionService struct {
 	GetBySlugFn                          func(string, uint) (*contracts.CollectionDetailResponse, error)
 	GetByIDFn                            func(uint, uint) (*contracts.CollectionDetailResponse, error)
 	ListCollectionsFn                    func(contracts.CollectionFilters, int, int) ([]*contracts.CollectionListResponse, int64, error)
-	UpdateCollectionFn                   func(string, uint, bool, *contracts.UpdateCollectionRequest) (*contracts.CollectionDetailResponse, error)
+	UpdateCollectionFn                   func(string, uint, bool, *contracts.UpdateCollectionRequest) (*contracts.CollectionDetailResponse, uint, error)
 	DeleteCollectionFn                   func(string, uint, bool) (uint, error)
 	AddItemFn                            func(string, uint, *contracts.AddCollectionItemRequest) (*contracts.CollectionItemResponse, uint, error)
 	BulkAddItemsFn                       func(string, uint, *contracts.BulkAddCollectionItemsRequest) (*contracts.BulkAddCollectionItemsResponse, uint, error)
@@ -846,11 +846,11 @@ func (m *MockCollectionService) ListCollections(filters contracts.CollectionFilt
 	}
 	return nil, 0, nil
 }
-func (m *MockCollectionService) UpdateCollection(slug string, userID uint, isAdmin bool, req *contracts.UpdateCollectionRequest) (*contracts.CollectionDetailResponse, error) {
+func (m *MockCollectionService) UpdateCollection(slug string, userID uint, isAdmin bool, req *contracts.UpdateCollectionRequest) (*contracts.CollectionDetailResponse, uint, error) {
 	if m.UpdateCollectionFn != nil {
 		return m.UpdateCollectionFn(slug, userID, isAdmin, req)
 	}
-	return nil, nil
+	return nil, 0, nil
 }
 func (m *MockCollectionService) DeleteCollection(slug string, userID uint, isAdmin bool) (uint, error) {
 	if m.DeleteCollectionFn != nil {

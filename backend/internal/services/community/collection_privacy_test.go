@@ -148,6 +148,127 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_HidesAPrivateF
 	suite.Equal(source.Slug, owned.ForkedFrom.Slug)
 }
 
+// THE LISTINGS CARRY THE DETAIL ROUTE'S FORK RULE. The detail route drops the
+// raw forked_from_collection_id alongside the snapshot; a listing that kept the
+// integer would republish the pair the detail route closed, as an id that exists
+// with nothing beside it.
+//
+// All four builders are walked, because they are four assignments of the same
+// field and three of them being right is the state this test exists to end.
+func (suite *CollectionServiceIntegrationTestSuite) TestListings_DropAPrivateForkSourceID() {
+	creator := suite.createTestUser("forklistcreator")
+	stranger := suite.createTestUser("forkliststranger")
+
+	source := suite.createPublicCollection(creator, "Fork List Source")
+	clone, err := suite.collectionService.CloneCollection(source.Slug, stranger.ID)
+	suite.Require().NoError(err)
+
+	// An item on the clone, so GetEntityCollections has something to return it
+	// for. Its entity is irrelevant to the assertion; its presence is not.
+	artist := suite.createTestArtist("Fork List Backlink Artist")
+	_, _, err = suite.collectionService.AddItem(clone.Slug, stranger.ID,
+		&contracts.AddCollectionItemRequest{EntityType: "artist", EntityID: artist.ID})
+	suite.Require().NoError(err)
+
+	// forkSourceID reads the clone's row out of one listing, by id, and returns
+	// the fork-source field it carried. Fails the test if the clone is missing:
+	// an absent row would otherwise read as "no source published" and pass.
+	forkSourceID := func(name string, rows []*contracts.CollectionListResponse) *uint {
+		for _, r := range rows {
+			if r.ID == clone.ID {
+				return r.ForkedFromCollectionID
+			}
+		}
+		suite.Failf("listing did not contain the clone", "listing: %s", name)
+		return nil
+	}
+
+	// The two builders that take a viewer, and the two that do not. The split is
+	// the point: only the first pair can answer differently for the source's own
+	// creator, and asserting the creator's case against the other two would be
+	// asserting against a parameter they never receive.
+	viewerScopedListings := func(viewerID uint) map[string][]*contracts.CollectionListResponse {
+		browse, _, err := suite.collectionService.ListCollections(
+			contracts.CollectionFilters{ViewerID: viewerID}, 100, 0)
+		suite.Require().NoError(err)
+		backlinks, err := suite.collectionService.GetEntityCollections("artist", artist.ID, viewerID, 100)
+		suite.Require().NoError(err)
+		return map[string][]*contracts.CollectionListResponse{
+			"ListCollections":      browse,
+			"GetEntityCollections": backlinks,
+		}
+	}
+	// GetUserCollections is the clone owner's own library and GetUserPublicCollections
+	// is their public profile; both are scoped to that user rather than to a viewer.
+	selfScopedListings := func() map[string][]*contracts.CollectionListResponse {
+		library, _, err := suite.collectionService.GetUserCollections(stranger.ID, "", 100, 0)
+		suite.Require().NoError(err)
+		profile, _, err := suite.collectionService.GetUserPublicCollections(stranger.ID, 100, 0)
+		suite.Require().NoError(err)
+		return map[string][]*contracts.CollectionListResponse{
+			"GetUserCollections":       library,
+			"GetUserPublicCollections": profile,
+		}
+	}
+	allListings := func(viewerID uint) map[string][]*contracts.CollectionListResponse {
+		out := viewerScopedListings(viewerID)
+		for name, rows := range selfScopedListings() {
+			out[name] = rows
+		}
+		return out
+	}
+
+	// The control, and it is what separates the gate from a field nobody sets:
+	// while the source is public, every listing publishes its id.
+	for name, rows := range allListings(stranger.ID) {
+		got := forkSourceID(name, rows)
+		suite.Require().NotNil(got, "%s dropped a PUBLIC fork source", name)
+		suite.Equal(source.ID, *got, "%s named the wrong fork source", name)
+	}
+
+	suite.Require().NoError(suite.db.Table("collections").
+		Where("id = ?", source.ID).Update("is_public", false).Error)
+
+	for name, rows := range allListings(stranger.ID) {
+		suite.Nil(forkSourceID(name, rows),
+			"%s published the id of a fork source the caller may not see", name)
+	}
+
+	// The source's own creator keeps it on the listings that carry a viewer.
+	// GetUserPublicCollections is not one of them: it takes no viewer at all, so
+	// it fences at the public tier and drops the id for everybody, which is the
+	// safe direction of that limitation rather than a second rule.
+	for name, rows := range viewerScopedListings(creator.ID) {
+		got := forkSourceID(name, rows)
+		suite.Require().NotNil(got, "%s withheld the fork source from the source's own creator", name)
+		suite.Equal(source.ID, *got)
+	}
+
+	// THE FORK STATUS SURVIVES THE FENCE on the caller's own library, and this is
+	// the half a client needs. The per-tier create cap partitions owned
+	// originals from forks, and the fenced id cannot make that split: it is
+	// absent for an original AND for a fork of a hidden source. is_fork answers
+	// it without naming the source.
+	library, _, err := suite.collectionService.GetUserCollections(stranger.ID, "", 100, 0)
+	suite.Require().NoError(err)
+	var sawClone, sawOriginal bool
+	for _, r := range library {
+		switch r.ID {
+		case clone.ID:
+			sawClone = true
+			suite.True(r.IsFork, "the caller's own fork reports is_fork even with its source fenced")
+			suite.Nil(r.ForkedFromCollectionID, "the fence still drops the id")
+		case source.ID:
+			sawOriginal = true
+			suite.False(r.IsFork, "somebody else's collection is not reported as the caller's fork")
+		}
+	}
+	suite.True(sawClone, "the library did not contain the clone")
+	// The stranger subscribed to nothing, so the source is absent from their
+	// library; naming the miss keeps the arm above honest about what it checked.
+	suite.False(sawOriginal, "the source is not in the stranger's library")
+}
+
 // A COLLECTION THE CALLER CANNOT READ IS NOT ONE THEY MAY TAG, whatever
 // `collaborative` says. The slug-addressed tag write returns the collection's
 // tag list, so it is a read as well as a write.
@@ -337,9 +458,9 @@ func (suite *CollectionServiceIntegrationTestSuite) TestOwnerWritesRefuseAPrivat
 	// UpdateCollection and DeleteCollection admit an admin (the moderation
 	// remedies), so the stranger is the caller here and the admin arm is asserted
 	// in the route matrix.
-	_, updateErr := suite.collectionService.UpdateCollection(shut.Slug, stranger.ID, false,
+	_, _, updateErr := suite.collectionService.UpdateCollection(shut.Slug, stranger.ID, false,
 		&contracts.UpdateCollectionRequest{Title: &notes})
-	_, updateMissingErr := suite.collectionService.UpdateCollection(missingSlug, stranger.ID, false,
+	_, _, updateMissingErr := suite.collectionService.UpdateCollection(missingSlug, stranger.ID, false,
 		&contracts.UpdateCollectionRequest{Title: &notes})
 	suite.Equal(codeOf(updateMissingErr), codeOf(updateErr), "PUT /collections/{slug}")
 

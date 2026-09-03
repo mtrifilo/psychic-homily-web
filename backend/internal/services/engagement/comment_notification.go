@@ -218,53 +218,45 @@ func stripMarkdownToPlain(body string) string {
 
 // buildEntityURL returns the frontend URL for the parent entity, or a
 // best-effort fallback if the entity's slug cannot be resolved.
+//
+// The path segment and the table both come from
+// engagementm.CommentEntityPathAndTable, which is where the per-type mapping is
+// decided for every surface that resolves a comment's parent.
 func (s *CommentNotificationService) buildEntityURL(entityType engagementm.CommentEntityType, entityID uint) string {
-	tableName, ok := engagementm.ValidCommentEntityTypes[entityType]
+	pathSegment, tableName, _, ok := engagementm.CommentEntityPathAndTable(string(entityType))
 	if !ok {
 		return s.frontendURL
 	}
 	var slug string
-	// Not every entity has a slug — pluck it, ignore errors, fall back to ID.
+	// Not every entity has a slug: pluck it, ignore errors, fall back to ID.
 	_ = s.db.Table(tableName).Where("id = ?", entityID).Pluck("slug", &slug).Error
-	var pathSegment string
-	switch entityType {
-	case engagementm.CommentEntityArtist:
-		pathSegment = "artists"
-	case engagementm.CommentEntityVenue:
-		pathSegment = "venues"
-	case engagementm.CommentEntityShow:
-		pathSegment = "shows"
-	case engagementm.CommentEntityRelease:
-		pathSegment = "releases"
-	case engagementm.CommentEntityLabel:
-		pathSegment = "labels"
-	case engagementm.CommentEntityFestival:
-		pathSegment = "festivals"
-	case engagementm.CommentEntityCollection:
-		pathSegment = "collections"
-	default:
-		pathSegment = tableName
-	}
 	if slug != "" {
 		return fmt.Sprintf("%s/%s/%s", s.frontendURL, pathSegment, slug)
 	}
 	return fmt.Sprintf("%s/%s/%d", s.frontendURL, pathSegment, entityID)
 }
 
-// buildEntityName returns a display name for the entity (name/title) for use
-// in email subjects/bodies. Falls back to "<entity_type> #<id>".
+// buildEntityName returns a display name for the entity for use in email
+// subjects and bodies. Falls back to "<entity_type> #<id>".
+//
+// THE DISPLAY COLUMN IS NOT UNIFORM and is read from
+// engagementm.CommentEntityPathAndTable rather than decided here, because a
+// wrong column is not a caught error: it is an undefined-column failure inside
+// this query, which the fallback below renders as a deleted entity.
+//
+// NO VISIBILITY FENCE HERE, unlike shared.LoadCommentEntityNames, and that is a
+// property of WHO reaches this function rather than an omission: the fan-out
+// narrows its recipients with whereRecipientMaySeeCommentParent before any
+// message is assembled, so every caller of this has already been decided against
+// the parent. A caller that resolves a name for somebody the fan-out did not
+// admit would need its own fence.
 func (s *CommentNotificationService) buildEntityName(entityType engagementm.CommentEntityType, entityID uint) string {
-	tableName, ok := engagementm.ValidCommentEntityTypes[entityType]
+	_, tableName, nameCol, ok := engagementm.CommentEntityPathAndTable(string(entityType))
 	if !ok {
 		return fmt.Sprintf("%s #%d", entityType, entityID)
 	}
-	// Most entities have a `name` column; shows have `title` instead.
-	column := "name"
-	if entityType == engagementm.CommentEntityShow {
-		column = "title"
-	}
 	var name string
-	if err := s.db.Table(tableName).Where("id = ?", entityID).Pluck(column, &name).Error; err == nil && name != "" {
+	if err := s.db.Table(tableName).Where("id = ?", entityID).Pluck(nameCol, &name).Error; err == nil && name != "" {
 		return name
 	}
 	return fmt.Sprintf("%s #%d", entityType, entityID)

@@ -532,12 +532,15 @@ describe('CollectionDetail', () => {
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
   })
 
+  // A real Error, which is the only shape this can be: apiRequest throws
+  // ApiError / AuthError / a network TypeError, all Error instances, and
+  // TanStack types a mutation's error as Error.
   it('shows error message in dialog when deletion fails', async () => {
     mockDeleteMutation.mockReturnValue({
       mutate: mockDeleteMutate,
       isPending: false,
       isError: true,
-      error: { message: 'Server error' },
+      error: new Error('Server error'),
     })
     const user = userEvent.setup()
     render(<CollectionDetail slug="test-collection" />)
@@ -546,6 +549,30 @@ describe('CollectionDetail', () => {
     await user.click(findTrashButton())
 
     expect(screen.getByText('Server error')).toBeInTheDocument()
+  })
+
+  // The delete banner takes the same copy helper as every other collection
+  // mutation banner, so a 403 does not print the server's "Access denied for
+  // collection '<slug>'" back at the reader.
+  it('shows the permission copy in the delete dialog on 403', async () => {
+    mockDeleteMutation.mockReturnValue({
+      mutate: mockDeleteMutate,
+      isPending: false,
+      isError: true,
+      error: Object.assign(
+        new Error("Access denied for collection 'test-collection'"),
+        { status: 403 }
+      ),
+    })
+    const user = userEvent.setup()
+    render(<CollectionDetail slug="test-collection" />)
+
+    await user.click(findTrashButton())
+
+    expect(
+      screen.getByText('You do not have permission to change this collection.')
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Access denied/)).not.toBeInTheDocument()
   })
 
   it('shows "Deleting..." text when deletion is pending in dialog', async () => {
@@ -2064,7 +2091,7 @@ describe('CollectionDetail', () => {
       )
     })
 
-    it('uses the privacy-aware copy on subscribe 403', () => {
+    it('uses the permission copy on subscribe 403', () => {
       mockAuthContext.mockReturnValue({
         user: { id: '99' },
         isAuthenticated: true,
@@ -2079,7 +2106,7 @@ describe('CollectionDetail', () => {
       })
       render(<CollectionDetail slug="test-collection" />)
       expect(screen.getByTestId('subscribe-error')).toHaveTextContent(
-        'This collection is private.'
+        'You do not have permission to change this collection.'
       )
     })
 
@@ -2094,7 +2121,7 @@ describe('CollectionDetail', () => {
       expect(screen.getByTestId('like-error')).toHaveTextContent('rate limit')
     })
 
-    it('renders the unlike error banner with privacy-aware copy on 403', () => {
+    it('renders the unlike error banner with the permission copy on 403', () => {
       mockUnlikeMutation.mockReturnValue({
         mutate: mockUnlikeMutate,
         isPending: false,
@@ -2103,7 +2130,7 @@ describe('CollectionDetail', () => {
       })
       render(<CollectionDetail slug="test-collection" />)
       expect(screen.getByTestId('unlike-error')).toHaveTextContent(
-        /your like was removed/i
+        'You do not have permission to change this collection.'
       )
     })
 

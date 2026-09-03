@@ -104,6 +104,12 @@ export function useResolveEntityReport() {
  * Coupled with `useResolveEntityReport` at the call site so a single click
  * in the moderation queue both hides the collection AND clears the report
  * (the same shape `useAdminHideComment` provides for comment reports).
+ *
+ * MAY SUCCEED WITH NO BODY. The flip makes the collection unreadable to
+ * everyone but its creator, so an admin who is not the creator gets 204 rather
+ * than the updated collection; an admin who IS the creator still gets 200 and a
+ * body. `apiRequest` resolves a 204 to `undefined`, which is why the return type
+ * is void and why nothing here reads the response.
  */
 export function useAdminHideCollection() {
   const queryClient = useQueryClient()

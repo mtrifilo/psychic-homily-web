@@ -1672,8 +1672,8 @@ const commentInboxExcerptMaxRunes = 140
 
 // commentEntityPathAndTable maps the CommentEntityType strings owned by
 // the engagement package onto the frontend path segment + DB table name
-// the inbox enrichment query needs. Show is the only entity whose name
-// column is "title" rather than "name".
+// the inbox enrichment query needs. The display column is not uniform:
+// shows, releases and collections spell it "title", the rest "name".
 //
 // The list and the entity-type-string values are validated by the
 // engagementm.ValidCommentEntityTypes map at row-write time, so any

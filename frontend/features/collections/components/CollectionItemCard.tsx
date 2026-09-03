@@ -47,6 +47,7 @@ import { getEntityUrl, getEntityTypeLabel, type CollectionItem } from '../types'
 import { MarkdownContent } from './MarkdownContent'
 import { Button } from '@/components/ui/button'
 import { useRemoveCollectionItem } from '../hooks'
+import { describeCollectionMutationError } from './collectionDetailShared'
 
 /**
  * Lucide icon table per entity type — used as the image fallback when the
@@ -429,6 +430,12 @@ function CollectionItemCardRemoveControl({
             the click didn't take effect. Sticky while the confirm UI is
             open; clears as soon as the user clicks Remove again or
             Cancels (mutation state transitions to pending/idle).
+
+            Through describeCollectionMutationError like every other collection
+            mutation banner, so no collection-mutation failure renders the
+            server's own message here. That message names the collection back at
+            the reader ("Access denied for collection '<slug>'"), which is a
+            shape no banner in this feature should print.
           */}
           {removeMutation.isError && (
             <div
@@ -445,10 +452,10 @@ function CollectionItemCardRemoveControl({
                 aria-hidden="true"
               />
               <span className="flex-1">
-                {removeMutation.error instanceof Error &&
-                removeMutation.error.message
-                  ? removeMutation.error.message
-                  : 'Failed to remove this item.'}
+                {describeCollectionMutationError(
+                  removeMutation.error,
+                  'Failed to remove this item.'
+                )}
               </span>
             </div>
           )}

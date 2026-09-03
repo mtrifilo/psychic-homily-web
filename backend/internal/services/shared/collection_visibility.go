@@ -59,11 +59,11 @@ import (
 //     admin the report while every remedy refused them is a queue they cannot
 //     act on. They are moderation powers on moderated routes.
 //     WHAT PUT DOES NOT DO IS LET AN ADMIN READ ONE. It applies the update and
-//     then returns GetBySlug against the CALLER, so an admin who edits a private
-//     collection without publishing it gets the write applied and a not-found
-//     back. Only the is_public flip returns a body, because the flip is what
-//     makes the collection readable. That is the remedy working and the read
-//     staying refused, not a half-finished exception.
+//     then reads back with GetBySlug against the CALLER, so an admin who edits a
+//     private collection without publishing it gets the write applied and 204:
+//     committed, and nothing they may see. Only the is_public flip returns a
+//     body, because the flip is what makes the collection readable. That is the
+//     remedy working and the read staying refused, not a half-finished exception.
 //     PUT /collections/{slug}/feature reaches one too, and it is listed here
 //     because the code does not test visibility rather than because it needs to:
 //     it publishes nothing (empty response, and both featured-collection chart

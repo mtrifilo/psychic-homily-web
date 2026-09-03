@@ -1981,6 +1981,79 @@ func (suite *TagServiceIntegrationTestSuite) TestListTags_PageIsMonotonicInTheDi
 	assertMonotonic(catalogm.TagEntityCollection, "GET /tags?entity_type=collection")
 }
 
+// THE TRANSITIVE FACET COUNTS CARRY THE CONTAINER'S OWN VISIBILITY RULE.
+//
+// `?entity_type=show` counts shows whose lineup includes a tagged artist, and
+// nothing about that derivation implies the shows are ones a public reader may
+// see. Counting them anyway republishes the /shows listing's withheld rows as a
+// number beside it, and since the listing is ordered by these counts, as a
+// position too.
+//
+// The festival arm shares the same query builder and must NOT gain a term: a
+// festival has no read-time visibility rule, its `status` is lifecycle. That
+// half is asserted so a change that gated everything transitively is caught as
+// loudly as the ungated one was.
+func (suite *TagServiceIntegrationTestSuite) TestTransitiveFacetCountsGateTheContainer() {
+	user := suite.createTestUser("facet-user")
+	tag := suite.createTag("facet-transitive", "genre")
+	artistID := suite.createArtist("Facet Transitive Artist")
+	_, err := suite.tagService.AddTagToEntity(tag.ID, "", catalogm.TagEntityArtist, artistID, user.ID, "")
+	suite.Require().NoError(err)
+
+	// Two shows billing that artist, one approved and one pending. The pending
+	// one is the row the /shows listing withholds from an anonymous reader.
+	seedShow := func(title string, status catalogm.ShowStatus) uint {
+		slug := fmt.Sprintf("facet-%s-%d", status, time.Now().UnixNano())
+		show := &catalogm.Show{
+			Title:     title,
+			Slug:      &slug,
+			EventDate: time.Now().Add(72 * time.Hour),
+			Status:    status,
+		}
+		suite.Require().NoError(suite.db.Create(show).Error)
+		suite.Require().NoError(suite.db.Create(&catalogm.ShowArtist{
+			ShowID: show.ID, ArtistID: artistID, Position: 1,
+		}).Error)
+		return show.ID
+	}
+	seedShow("Facet Approved Show", catalogm.ShowStatusApproved)
+	pendingID := seedShow("Facet Pending Show", catalogm.ShowStatusPending)
+
+	// One festival billing the same artist, for the ungated arm.
+	fest := &catalogm.Festival{
+		Name:        "Facet Fest",
+		Slug:        fmt.Sprintf("facet-fest-%d", time.Now().UnixNano()),
+		SeriesSlug:  "facet-fest",
+		EditionYear: 2027,
+		StartDate:   "2027-06-01",
+		EndDate:     "2027-06-03",
+	}
+	suite.Require().NoError(suite.db.Create(fest).Error)
+	suite.Require().NoError(suite.db.Exec(
+		"INSERT INTO festival_artists (festival_id, artist_id) VALUES (?, ?)",
+		fest.ID, artistID).Error)
+
+	facetCount := func(entityType string) int {
+		tags, _, err := suite.tagService.ListTags("", tag.Name, nil, "usage", 50, 0, entityType, nil)
+		suite.Require().NoError(err)
+		suite.Require().Len(tags, 1)
+		return tags[0].UsageCount
+	}
+
+	suite.Assert().Equal(1, facetCount(catalogm.TagEntityShow),
+		"the show facet counted the pending show a public reader may not see")
+	suite.Assert().Equal(1, facetCount(catalogm.TagEntityFestival),
+		"the festival facet lost its row; a festival has no read-time visibility rule")
+
+	// APPROVING THE PENDING SHOW MOVES THE COUNT. Without this the assertion
+	// above is satisfied by a term that excludes every show.
+	suite.Require().NoError(suite.db.Model(&catalogm.Show{}).
+		Where("id = ?", pendingID).
+		Update("status", catalogm.ShowStatusApproved).Error)
+	suite.Assert().Equal(2, facetCount(catalogm.TagEntityShow),
+		"approving the second show did not move the facet count")
+}
+
 func (suite *TagServiceIntegrationTestSuite) TestUsageCountAgreesAcrossEveryPublicSurface() {
 	user := suite.createTestUser("usagecount-user")
 	tag := suite.createTag("usage-count-agreement", "genre")

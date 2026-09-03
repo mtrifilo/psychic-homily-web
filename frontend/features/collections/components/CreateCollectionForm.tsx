@@ -53,16 +53,22 @@ export function CreateCollectionForm({
   const createMutation = useCreateCollection()
   const bulkAddMutation = useBulkAddCollectionItems()
   const { user } = useAuthContext()
-  // PSY-358: per-tier owned-collection cap. Read user's collections so we
+  // PSY-358: per-tier owned-collection cap. Read the user's collections so we
   // can render "X of Y collections" before they submit. We filter to OWNED
-  // (creator_id == user.id) and exclude FORKS — same shape the backend
-  // uses for enforcement. Admins bypass the cap entirely.
+  // (creator_id == user.id) and exclude FORKS, the same partition the backend
+  // enforces on. Admins bypass the cap entirely.
+  //
+  // FORK STATUS COMES FROM `is_fork`, NOT from `forked_from_collection_id`.
+  // That id is viewer-dependent: it is dropped when the source is one the
+  // viewer may not see, so an absent id means "original OR fork of something
+  // hidden" and counting on it would count a fork as an original and block a
+  // create the backend would allow.
   const myCollections = useMyCollections()
   const ownedCount = useMemo(() => {
     if (!user?.id) return 0
     const userId = Number(user.id)
     return (myCollections.data?.collections ?? []).filter(
-      (c) => c.creator_id === userId && c.forked_from_collection_id == null
+      (c) => c.creator_id === userId && !c.is_fork
     ).length
   }, [myCollections.data?.collections, user?.id])
 

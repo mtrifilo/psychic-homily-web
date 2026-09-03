@@ -9,6 +9,7 @@ import {
   useDeleteCollection,
 } from '../hooks'
 import type { Collection } from '../types'
+import { describeCollectionMutationError } from '../components/collectionDetailShared'
 import { Switch } from '@/components/ui/switch'
 import { EntityTypeBadge } from '@/components/shared'
 import { AdminTable, type AdminTableColumn } from '@/components/admin/AdminTable'
@@ -198,9 +199,10 @@ function CollectionDetailPanel({
 
       {deleteCollection.error && (
         <p className="text-sm text-red-400">
-          {deleteCollection.error instanceof Error
-            ? deleteCollection.error.message
-            : 'Delete failed'}
+          {describeCollectionMutationError(
+            deleteCollection.error,
+            'Delete failed'
+          )}
         </p>
       )}
     </div>
