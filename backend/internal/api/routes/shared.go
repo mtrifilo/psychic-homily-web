@@ -2,7 +2,6 @@ package routes
 
 import (
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -25,30 +24,25 @@ type RouteContext struct {
 	Admin     *huma.Group                // Admin-only Huma API group (auth + IsAdmin enforced upstream)
 	SC        *services.ServiceContainer // All instantiated services
 	Cfg       *config.Config             // Application configuration
+
+	// ValidateAPIToken reports whether a bearer string is a live API token.
+	// Built once in SetupRoutes so every rate-limiter bypass in this package
+	// asks the same question of the same service.
+	ValidateAPIToken func(string) bool
 }
 
-// rateLimitUnlessAPIToken wraps httprate.Limit but skips rate limiting for
-// requests authenticated with an API token (phk_ prefix). API tokens are
-// admin-only and trusted — they shouldn't be throttled during batch imports.
-func rateLimitUnlessAPIToken(requestLimit int, windowLength time.Duration) func(http.Handler) http.Handler {
-	limiter := httprate.Limit(
+// rateLimitUnlessValidatedAPIToken is a per-IP limiter with ONE hatch: a
+// validated API token, so batch imports by the ph CLI are not throttled. It is
+// SkipRateLimitForAdmin with the admin-JWT hatch withheld, which is the nil JWT
+// service: an admin session is metered here even though it is exempt on tag
+// creation. TestAPITokenBypassThroughRouter pins both halves of that asymmetry.
+func rateLimitUnlessValidatedAPIToken(validateAPIToken func(string) bool, requestLimit int, windowLength time.Duration) func(http.Handler) http.Handler {
+	return middleware.SkipRateLimitForAdmin(nil, validateAPIToken, httprate.Limit(
 		requestLimit,
 		windowLength,
 		httprate.WithKeyFuncs(middleware.KeyByClientIP),
 		httprate.WithLimitHandler(rateLimitHandler),
-	)
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			auth := r.Header.Get("Authorization")
-			if strings.HasPrefix(auth, "Bearer phk_") {
-				// API token — bypass rate limit
-				next.ServeHTTP(w, r)
-				return
-			}
-			// Normal request — apply rate limit
-			limiter(next).ServeHTTP(w, r)
-		})
-	}
+	))
 }
 
 // rateLimitHandler handles rate limit exceeded responses with JSON

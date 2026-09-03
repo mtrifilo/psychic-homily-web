@@ -283,6 +283,9 @@ func main() {
 	// Create service container (all services instantiated once)
 	sc := services.NewServiceContainer(database, cfg)
 
+	// A phk_ bearer is trusted only where APITokenService.ValidateToken resolves
+	// it to a live token.
+	//
 	// PSY-1362/1373/1814: rate-limit public-READ traffic (GET/HEAD) by auth state —
 	// anonymous per-IP (100/min), authenticated per-USER (300/min, so shared-IP
 	// logged-in users don't collide), validated phk_ API tokens exempt (ingest
@@ -291,20 +294,19 @@ func main() {
 	// registered before routes). OPT-IN (default noop) for stage-first rollout:
 	// set ENABLE_PUBLIC_READ_RATE_LIMITS=1 per environment (stage, observe 429
 	// rates, then prod).
-	router.Use(routes.PublicReadRateLimiter(sc.JWT, func(token string) bool {
-		_, _, err := sc.APIToken.ValidateToken(token)
-		return err == nil
-	}, os.Getenv))
+	validateAPIToken := middleware.APITokenValidator(sc.APIToken)
+
+	router.Use(routes.PublicReadRateLimiter(sc.JWT, validateAPIToken, os.Getenv))
 
 	// PSY-1482: rate-limit authenticated engagement-toggle mutations (save/unsave
 	// show+release, follow/unfollow entity+scene) against a SHARED per-USER budget
 	// (60/min burst + 600/hr sustained, both must pass). Public-read limiting
 	// exempts writes, so these mutations otherwise had no ceiling on rc.Protected.
-	// Admin JWTs and trusted phk_ tokens bypass. Mounted after sc (needs sc.JWT),
+	// Admin JWTs and validated API tokens bypass. Mounted after sc (needs sc.JWT),
 	// before SetupRoutes (chi middleware must register before routes). OPT-IN
 	// (default noop): set ENABLE_ENGAGEMENT_MUTATION_RATE_LIMITS=1 per environment
 	// (stage, observe 429 rates, then prod).
-	router.Use(routes.EngagementMutationRateLimiter(sc.JWT, os.Getenv))
+	router.Use(routes.EngagementMutationRateLimiter(sc.JWT, validateAPIToken, os.Getenv))
 
 	// PSY-1734: gzip compressible response bodies. Mounted LAST of the global
 	// middleware, i.e. INSIDE the rate limiters, so a rejected request is never

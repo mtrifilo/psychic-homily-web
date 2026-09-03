@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -26,9 +27,14 @@ import (
 // Note the two groups do NOT share a bypass mechanism, which the ticket's plan
 // had merged into one:
 //
-//	POST /shows            rateLimitUnlessAPIToken     (phk_ only)
-//	POST /shows/ai-process plain httprate.Limit        (no bypass)
-//	tag create / tag vote  SkipRateLimitForAdmin       (phk_ OR admin JWT)
+//	POST /shows            rateLimitUnlessValidatedAPIToken  (validated API token only)
+//	POST /shows/ai-process plain httprate.Limit               (no bypass)
+//	tag create / tag vote  SkipRateLimitForAdmin              (validated API token OR admin JWT)
+//
+// The tokens these tests send resolve to no row in any database, so this file
+// is the NEGATIVE half of the bypass contract: an unvalidated phk_ earns
+// nothing. The positive half, that a live token really does bypass through this
+// same router, is TestAPITokenBypassThroughRouter.
 
 func newTestRouter(t *testing.T) *chi.Mux {
 	t.Helper()
@@ -143,16 +149,49 @@ func TestShowCreateStillRateLimited(t *testing.T) {
 	}
 }
 
-// The hatch the ph CLI depends on: a phk_ token must stay unthrottled through the
-// bridge, or bulk show imports start failing partway.
-func TestShowCreateAPITokenBypasses(t *testing.T) {
-	router := newTestRouter(t)
+// A phk_ header that names no live token does not open the show-create hatch,
+// in either the well-formed or the trailing-field shape. Show creation feeds
+// the admin approval queue, so the limiter is the only thing standing between
+// a logged-in account and a flooded queue.
+func TestShowCreateUnvalidatedAPITokenDoesNotBypass(t *testing.T) {
 	const ip = "203.0.113.22:1234"
-	hdrs := map[string]string{"Authorization": "Bearer phk_deadbeef"}
+	limit := middleware.ShowCreateRequestsPerHour
 
-	for i := 0; i < middleware.ShowCreateRequestsPerHour+5; i++ {
-		if code := send(t, router, "POST", "/shows", ip, hdrs); code == http.StatusTooManyRequests {
-			t.Fatalf("phk_ request %d returned 429 — the API-token bypass did NOT survive the move", i+1)
+	for _, hdr := range []string{"Bearer phk_deadbeef", "Bearer phk_deadbeef trailing"} {
+		t.Run(hdr, func(t *testing.T) {
+			// Each case gets its own router: httprate keys by IP, so a shared
+			// one would arrive already saturated.
+			router := newTestRouter(t)
+			hdrs := map[string]string{"Authorization": hdr}
+			for i := 0; i < limit; i++ {
+				if code := send(t, router, "POST", "/shows", ip, hdrs); code == http.StatusTooManyRequests {
+					t.Fatalf("request %d/%d was rate limited early (429)", i+1, limit)
+				}
+			}
+			if code := send(t, router, "POST", "/shows", ip, hdrs); code != http.StatusTooManyRequests {
+				t.Errorf("request %d returned %d, want 429: an unvalidated phk_ must not bypass show creation",
+					limit+1, code)
+			}
+		})
+	}
+}
+
+// The hatch the ph CLI depends on, at the limiter: a token the validator
+// accepts stays unthrottled past the cap, or bulk show imports start failing
+// partway.
+func TestRateLimitUnlessValidatedAPIToken_ValidatedTokenBypasses(t *testing.T) {
+	const live = "phk_live"
+	mw := rateLimitUnlessValidatedAPIToken(func(token string) bool { return token == live }, 1, time.Hour)
+	handler := mw(okRoutesHandler())
+
+	for i := 0; i < 5; i++ {
+		req := httptest.NewRequest("POST", "/shows", nil)
+		req.Header.Set("Authorization", "Bearer "+live)
+		req.RemoteAddr = "203.0.113.28:1234"
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("request %d: status = %d, want 200 (a live API token must bypass)", i+1, rr.Code)
 		}
 	}
 }
@@ -196,16 +235,21 @@ func TestTagCreateStillRateLimited(t *testing.T) {
 	}
 }
 
-func TestTagCreateAPITokenBypasses(t *testing.T) {
+// Same for tag creation: the prefix is not the hatch.
+func TestTagCreateUnvalidatedAPITokenDoesNotBypass(t *testing.T) {
 	router := newTestRouter(t)
 	const ip = "203.0.113.26:1234"
 	const path = "/entities/artist/1/tags"
 	hdrs := map[string]string{"Authorization": "Bearer phk_deadbeef"}
+	limit := middleware.TagCreateRequestsPerHour
 
-	for i := 0; i < middleware.TagCreateRequestsPerHour+5; i++ {
+	for i := 0; i < limit; i++ {
 		if code := send(t, router, "POST", path, ip, hdrs); code == http.StatusTooManyRequests {
-			t.Fatalf("phk_ request %d returned 429 — SkipRateLimitForAdmin's token hatch did NOT survive the move", i+1)
+			t.Fatalf("request %d/%d was rate limited early (429)", i+1, limit)
 		}
+	}
+	if code := send(t, router, "POST", path, ip, hdrs); code != http.StatusTooManyRequests {
+		t.Errorf("request %d returned %d, want 429: an unvalidated phk_ must not bypass tag creation", limit+1, code)
 	}
 }
 
@@ -232,16 +276,21 @@ func TestTagVoteRateLimitIsSharedAcrossPostAndDelete(t *testing.T) {
 	}
 }
 
-func TestTagVoteAPITokenBypasses(t *testing.T) {
+// And for tag voting, where the budget guards vote manipulation.
+func TestTagVoteUnvalidatedAPITokenDoesNotBypass(t *testing.T) {
 	router := newTestRouter(t)
-	const ip = "203.0.113.28:1234"
+	const ip = "203.0.113.29:1234"
 	const path = "/tags/1/entities/artist/1/votes"
 	hdrs := map[string]string{"Authorization": "Bearer phk_deadbeef"}
+	limit := middleware.TagVoteRequestsPerMinute
 
-	for i := 0; i < middleware.TagVoteRequestsPerMinute+5; i++ {
+	for i := 0; i < limit; i++ {
 		if code := send(t, router, "POST", path, ip, hdrs); code == http.StatusTooManyRequests {
-			t.Fatalf("phk_ request %d returned 429 — the tag-vote token bypass did NOT survive the move", i+1)
+			t.Fatalf("request %d/%d was rate limited early (429)", i+1, limit)
 		}
+	}
+	if code := send(t, router, "POST", path, ip, hdrs); code != http.StatusTooManyRequests {
+		t.Errorf("request %d returned %d, want 429: an unvalidated phk_ must not bypass tag voting", limit+1, code)
 	}
 }
 

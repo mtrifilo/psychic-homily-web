@@ -94,7 +94,7 @@ func TestIsEngagementMutationRequest(t *testing.T) {
 func TestEngagementMutationRateLimiter_NotEnabledIsNoop(t *testing.T) {
 	jwtService := newEngagementJWTService()
 	token := engagementToken(t, jwtService, 1)
-	mw := EngagementMutationRateLimiter(jwtService, func(string) string { return "" })
+	mw := EngagementMutationRateLimiter(jwtService, noAPITokens, func(string) string { return "" })
 	handler := mw(okRoutesHandler())
 
 	for i := 0; i < middleware.EngagementMutationBurstPerMinute+5; i++ {
@@ -114,7 +114,7 @@ func TestEngagementMutationRateLimiter_NotEnabledIsNoop(t *testing.T) {
 func TestEngagementMutationRateLimiter_EnabledLimits61stMutation(t *testing.T) {
 	jwtService := newEngagementJWTService()
 	token := engagementToken(t, jwtService, 1)
-	mw := EngagementMutationRateLimiter(jwtService, enableEngagementEnv)
+	mw := EngagementMutationRateLimiter(jwtService, noAPITokens, enableEngagementEnv)
 	handler := mw(okRoutesHandler())
 
 	for i := 0; i < middleware.EngagementMutationBurstPerMinute; i++ {
@@ -146,7 +146,7 @@ func TestEngagementMutationRateLimiter_EnabledLimits61stMutation(t *testing.T) {
 func TestEngagementMutationRateLimiter_SaveAndFollowShareCounter(t *testing.T) {
 	jwtService := newEngagementJWTService()
 	token := engagementToken(t, jwtService, 1)
-	mw := EngagementMutationRateLimiter(jwtService, enableEngagementEnv)
+	mw := EngagementMutationRateLimiter(jwtService, noAPITokens, enableEngagementEnv)
 	handler := mw(okRoutesHandler())
 
 	for i := 0; i < middleware.EngagementMutationBurstPerMinute; i++ {
@@ -179,7 +179,7 @@ func TestEngagementMutationRateLimiter_SaveAndFollowShareCounter(t *testing.T) {
 func TestEngagementMutationRateLimiter_VenueConfirmIsLimited(t *testing.T) {
 	jwtService := newEngagementJWTService()
 	token := engagementToken(t, jwtService, 1)
-	mw := EngagementMutationRateLimiter(jwtService, enableEngagementEnv)
+	mw := EngagementMutationRateLimiter(jwtService, noAPITokens, enableEngagementEnv)
 	handler := mw(okRoutesHandler())
 
 	confirm := func(path string) *httptest.ResponseRecorder {
@@ -218,20 +218,72 @@ func TestEngagementMutationRateLimiter_VenueConfirmIsLimited(t *testing.T) {
 	}
 }
 
-// A trusted phk_ API token bypasses the limiter well past the cap.
-func TestEngagementMutationRateLimiter_APITokenBypasses(t *testing.T) {
-	mw := EngagementMutationRateLimiter(newEngagementJWTService(), enableEngagementEnv)
+// noAPITokens is the validator for tests where no phk_ token is live: every
+// candidate is rejected, so a request is exempt only if it earns it some other
+// way.
+func noAPITokens(string) bool { return false }
+
+// A validated API token bypasses the limiter well past the cap: the ph CLI must
+// not be throttled mid-import.
+func TestEngagementMutationRateLimiter_ValidatedAPITokenBypasses(t *testing.T) {
+	const live = "phk_live"
+	validate := func(token string) bool { return token == live }
+	mw := EngagementMutationRateLimiter(newEngagementJWTService(), validate, enableEngagementEnv)
 	handler := mw(okRoutesHandler())
 
 	for i := 0; i < middleware.EngagementMutationBurstPerMinute+5; i++ {
 		req := httptest.NewRequest(http.MethodPost, "/saved-shows/1", nil)
-		req.Header.Set("Authorization", "Bearer phk_deadbeef")
+		req.Header.Set("Authorization", "Bearer "+live)
 		req.RemoteAddr = "7.7.7.10:100"
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
 		if rr.Code != http.StatusOK {
-			t.Fatalf("phk_ request %d: status = %d, want 200 (API token must bypass)", i, rr.Code)
+			t.Fatalf("phk_ request %d: status = %d, want 200 (a live API token must bypass)", i, rr.Code)
 		}
+	}
+}
+
+// A cookie-authenticated caller cannot buy its way out of the engagement budget
+// by naming a phk_ token it does not hold.
+//
+// The header shape matters, because it decides which credential BOTH layers
+// read. "Bearer <token> trailing" is not a Bearer credential to
+// bearerTokenFromHeader, so the authenticator authenticates the request from
+// its cookie; the limiter must therefore meter it as that cookie session. A
+// well-formed "Bearer phk_forged" is the opposite case: the header wins over
+// the cookie for both layers, so the request is not a session to the limiter
+// and is a 401 to the authenticator. middleware's
+// TestHumaJWT_JunkAPITokenHeader_DoesNotFallBackToCookie pins that half.
+func TestEngagementMutationRateLimiter_ForgedAPITokenOverCookieSessionIsLimited(t *testing.T) {
+	const live = "phk_live"
+	validate := func(token string) bool { return token == live }
+
+	jwtService := newEngagementJWTService()
+	token := engagementToken(t, jwtService, 4242)
+	mw := EngagementMutationRateLimiter(jwtService, validate, enableEngagementEnv)
+	handler := mw(okRoutesHandler())
+
+	send := func() int {
+		req := httptest.NewRequest(http.MethodPost, "/saved-shows/1", nil)
+		req.Header.Set("Authorization", "Bearer "+live+" trailing")
+		req.AddCookie(&http.Cookie{Name: "auth_token", Value: token})
+		req.RemoteAddr = "7.7.7.12:100"
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code == http.StatusTooManyRequests && rr.Header().Get("Retry-After") != "60" {
+			t.Errorf("Retry-After = %q, want %q", rr.Header().Get("Retry-After"), "60")
+		}
+		return rr.Code
+	}
+
+	for i := 0; i < middleware.EngagementMutationBurstPerMinute; i++ {
+		if code := send(); code != http.StatusOK {
+			t.Fatalf("request %d: status = %d, want 200 (under the burst cap)", i+1, code)
+		}
+	}
+	if code := send(); code != http.StatusTooManyRequests {
+		t.Errorf("request %d: status = %d, want 429 (a forged phk_ must not exempt a cookie session)",
+			middleware.EngagementMutationBurstPerMinute+1, code)
 	}
 }
 
@@ -240,7 +292,7 @@ func TestEngagementMutationRateLimiter_APITokenBypasses(t *testing.T) {
 func TestEngagementMutationRateLimiter_UnrelatedWritesNotLimited(t *testing.T) {
 	jwtService := newEngagementJWTService()
 	token := engagementToken(t, jwtService, 1)
-	mw := EngagementMutationRateLimiter(jwtService, enableEngagementEnv)
+	mw := EngagementMutationRateLimiter(jwtService, noAPITokens, enableEngagementEnv)
 	handler := mw(okRoutesHandler())
 
 	for i := 0; i < middleware.EngagementMutationBurstPerMinute+5; i++ {

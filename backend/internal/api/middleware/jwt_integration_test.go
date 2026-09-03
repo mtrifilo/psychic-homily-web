@@ -134,6 +134,80 @@ func (s *JWTMiddlewareIntegrationSuite) TestHumaJWT_ValidCookieToken_UserInConte
 	s.Equal("cookie@test.com", *ctxUser.Email)
 }
 
+// A parseable Bearer header IS the credential: the cookie behind it is not
+// consulted, so naming an unknown API token does not ride a live session.
+func (s *JWTMiddlewareIntegrationSuite) TestHumaJWT_JunkAPITokenHeader_DoesNotFallBackToCookie() {
+	user := s.createActiveUser("junk-header@test.com")
+	token, err := s.jwtService.CreateToken(user)
+	s.Require().NoError(err)
+
+	mw := HumaJWTMiddleware(s.jwtService)
+	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+	req.Header.Set("Authorization", "Bearer "+APITokenPrefix+"junk")
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token})
+	ctx, _ := newHumaContext(s.T(), req)
+
+	nextCalled := false
+	mw(ctx, func(next huma.Context) { nextCalled = true })
+
+	s.False(nextCalled, "an unknown API token must not be rescued by the cookie behind it")
+}
+
+// The converse: a header with extra fields is not a Bearer credential, so the
+// request is authenticated from its cookie. This is the shape the rate limiters
+// must not read a phk_ prefix out of.
+func (s *JWTMiddlewareIntegrationSuite) TestHumaJWT_MalformedBearerHeader_UsesCookie() {
+	user := s.createActiveUser("malformed-header@test.com")
+	token, err := s.jwtService.CreateToken(user)
+	s.Require().NoError(err)
+
+	mw := HumaJWTMiddleware(s.jwtService)
+	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+	req.Header.Set("Authorization", "Bearer "+APITokenPrefix+"junk trailing")
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token})
+	ctx, _ := newHumaContext(s.T(), req)
+
+	nextCalled := false
+	var ctxUser *authm.User
+	mw(ctx, func(next huma.Context) {
+		nextCalled = true
+		if u, ok := next.Context().Value(UserContextKey).(*authm.User); ok {
+			ctxUser = u
+		}
+	})
+
+	s.True(nextCalled, "the cookie should have authenticated the request")
+	s.Require().NotNil(ctxUser)
+	s.Equal(user.ID, ctxUser.ID)
+}
+
+// A second Cookie header line is legal HTTP, and the auth cookie may sit on it.
+// The huma reader collects every line, as net/http does.
+func (s *JWTMiddlewareIntegrationSuite) TestHumaJWT_AuthCookieOnSecondCookieLine() {
+	user := s.createActiveUser("second-cookie-line@test.com")
+	token, err := s.jwtService.CreateToken(user)
+	s.Require().NoError(err)
+
+	mw := HumaJWTMiddleware(s.jwtService)
+	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+	req.Header.Add("Cookie", "junk=1")
+	req.Header.Add("Cookie", "auth_token="+token)
+	ctx, _ := newHumaContext(s.T(), req)
+
+	nextCalled := false
+	var ctxUser *authm.User
+	mw(ctx, func(next huma.Context) {
+		nextCalled = true
+		if u, ok := next.Context().Value(UserContextKey).(*authm.User); ok {
+			ctxUser = u
+		}
+	})
+
+	s.True(nextCalled, "the auth cookie was on the second Cookie line and must still be read")
+	s.Require().NotNil(ctxUser)
+	s.Equal(user.ID, ctxUser.ID)
+}
+
 func (s *JWTMiddlewareIntegrationSuite) TestHumaJWT_ValidToken_InactiveUser_Rejected() {
 	user := s.createInactiveUser("inactive@test.com")
 	token, err := s.jwtService.CreateToken(user)

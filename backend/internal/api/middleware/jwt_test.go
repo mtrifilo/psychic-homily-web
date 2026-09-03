@@ -536,6 +536,26 @@ func TestHumaJWTMiddleware_InvalidAPIToken(t *testing.T) {
 	}
 }
 
+// bearerTokenFromHeader is the one parse every credential reader shares, so its
+// exact acceptance set decides which credential a request is presenting.
+func TestBearerTokenFromHeader(t *testing.T) {
+	cases := map[string]string{
+		"Bearer abc123":       "abc123",
+		"Bearer phk_abc":      "phk_abc",
+		"Bearer abc123 extra": "",
+		"Bearer  abc123":      "",
+		"Bearer":              "",
+		"bearer abc123":       "",
+		"Basic dXNlcjpwYXNz":  "",
+		"":                    "",
+	}
+	for header, want := range cases {
+		if got := bearerTokenFromHeader(header); got != want {
+			t.Errorf("bearerTokenFromHeader(%q) = %q, want %q", header, got, want)
+		}
+	}
+}
+
 func TestHumaJWTMiddleware_InvalidAuthHeaderFormat(t *testing.T) {
 	jwtService := newTestJWTService()
 	mw := HumaJWTMiddleware(jwtService)

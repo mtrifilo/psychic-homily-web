@@ -38,11 +38,11 @@ func setupTagRoutes(rc RouteContext) {
 	// collide with a limiter meant for anonymous/IP-level abuse.
 	//
 	// PSY-1598: on the MAIN api via a Huma group. Note this group's bypass is
-	// SkipRateLimitForAdmin, NOT rateLimitUnlessAPIToken — it exempts admin JWTs
-	// as well as phk_ tokens, so the conversion has to preserve two escape
-	// hatches, not one.
+	// SkipRateLimitForAdmin, NOT rateLimitUnlessValidatedAPIToken: it exempts
+	// admin JWTs as well as validated API tokens, so the conversion has to
+	// preserve two escape hatches, not one.
 	tagCreateGroup := huma.NewGroup(rc.API, "")
-	tagCreateGroup.UseMiddleware(humaFromHTTP(middleware.SkipRateLimitForAdmin(rc.SC.JWT, httprate.Limit(
+	tagCreateGroup.UseMiddleware(humaFromHTTP(middleware.SkipRateLimitForAdmin(rc.SC.JWT, rc.ValidateAPIToken, httprate.Limit(
 		middleware.TagCreateRequestsPerHour,
 		time.Hour,
 		httprate.WithKeyFuncs(middleware.KeyByClientIP),
@@ -61,7 +61,7 @@ func setupTagRoutes(rc RouteContext) {
 	// tag creation above. Both the POST and the DELETE share this one group, so
 	// they share one limiter budget exactly as they did under the chi group.
 	tagVoteGroup := huma.NewGroup(rc.API, "")
-	tagVoteGroup.UseMiddleware(humaFromHTTP(middleware.SkipRateLimitForAdmin(rc.SC.JWT, httprate.Limit(
+	tagVoteGroup.UseMiddleware(humaFromHTTP(middleware.SkipRateLimitForAdmin(rc.SC.JWT, rc.ValidateAPIToken, httprate.Limit(
 		middleware.TagVoteRequestsPerMinute,
 		time.Minute,
 		httprate.WithKeyFuncs(middleware.KeyByClientIP),

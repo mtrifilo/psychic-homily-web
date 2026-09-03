@@ -42,28 +42,7 @@ func JWTMiddleware(jwtService *auth.JWTService) func(http.Handler) http.Handler 
 				"path", r.URL.Path,
 			)
 
-			var token string
-			var tokenSource string
-
-			// First, try to get token from Authorization header
-			authHeader := r.Header.Get("Authorization")
-			if authHeader != "" {
-				// Extract token from "Bearer <token>"
-				tokenParts := strings.Split(authHeader, " ")
-				if len(tokenParts) == 2 && tokenParts[0] == "Bearer" {
-					token = tokenParts[1]
-					tokenSource = "header"
-				}
-			}
-
-			// If no token in header, try to get from HTTP-only cookie
-			if token == "" {
-				cookie, err := r.Cookie("auth_token")
-				if err == nil && cookie.Value != "" {
-					token = cookie.Value
-					tokenSource = "cookie"
-				}
-			}
+			token, tokenSource := credentialFromRequest(r)
 
 			if token == "" {
 				logger.AuthWarn(ctx, "jwt_token_missing",
@@ -108,8 +87,70 @@ func JWTMiddleware(jwtService *auth.JWTService) func(http.Handler) http.Handler 
 	}
 }
 
-// APITokenPrefix is the prefix for API tokens (used to identify token type)
-const APITokenPrefix = "phk_"
+// APITokenPrefix identifies an API-token credential. Defined as the prefix the
+// token generator actually mints, so a change there cannot leave a reader
+// classifying live tokens as something else.
+const APITokenPrefix = adminsvc.TokenPrefix
+
+// bearerTokenFromHeader returns the credential in a "Bearer <token>"
+// Authorization header, or "" for anything else: another scheme, a different
+// case, more than the two fields, or a separator that is not a single space.
+//
+// The accepted set is narrower than RFC 7235 allows. It is the set the
+// authenticating middleware accepted before this became the shared parse, so a
+// lowercase scheme or a tab separator is rejected here exactly as it always
+// was, rather than newly accepted somewhere it once was not.
+func bearerTokenFromHeader(authHeader string) string {
+	scheme, token, ok := strings.Cut(authHeader, " ")
+	if !ok || scheme != "Bearer" || token == "" || strings.ContainsRune(token, ' ') {
+		return ""
+	}
+	return token
+}
+
+// credentialFromRequest returns the credential a request presents and where it
+// came from ("header", "cookie", or "" for neither): a parseable Bearer header
+// wins, otherwise the auth cookie.
+//
+// Every middleware that resolves a caller reads the request through this
+// function or through credentialFromHumaContext, and the two agree on every
+// header shape a client can put on the wire (TestCredentialReadersAgree). Two
+// readers that disagreed would let a request be exempted from a rate limit as
+// one principal while being authenticated as another, which is a bypass rather
+// than a parsing detail. TestCredentialReadsGoThroughTheSharedHelpers holds
+// that for this package and for routes; a reader added elsewhere is on the
+// author.
+//
+// validatedAPIToken is the one deliberate exception: it reads only the
+// Authorization header, which can only meter a caller this would have exempted,
+// never the reverse. Its doc says why.
+func credentialFromRequest(r *http.Request) (token, source string) {
+	if t := bearerTokenFromHeader(r.Header.Get("Authorization")); t != "" {
+		return t, "header"
+	}
+	if c, err := r.Cookie(config.AuthCookieName); err == nil && c.Value != "" {
+		return c.Value, "cookie"
+	}
+	return "", ""
+}
+
+// credentialFromHumaContext is credentialFromRequest for a huma.Context.
+//
+// huma.ReadCookie searches EVERY Cookie header line, which is what net/http's
+// Request.Cookie does and what this middleware previously did not: it read the
+// first line only, so an auth cookie on a second line went unseen here while
+// the limiter saw it. Reading every line widens what the huma-authenticated
+// routes accept, to exactly what the net/http middleware next to them already
+// accepted.
+func credentialFromHumaContext(ctx huma.Context) (token, source string) {
+	if t := bearerTokenFromHeader(ctx.Header("Authorization")); t != "" {
+		return t, "header"
+	}
+	if c, err := huma.ReadCookie(ctx, config.AuthCookieName); err == nil && c.Value != "" {
+		return c.Value, "cookie"
+	}
+	return "", ""
+}
 
 // HumaJWTMiddleware validates JWT tokens or API tokens (Huma middleware version)
 // API tokens are identified by the "phk_" prefix and validated separately
@@ -136,30 +177,7 @@ func HumaJWTMiddleware(jwtService *auth.JWTService, sessionConfig ...config.Sess
 			"path", url.Path,
 		)
 
-		var token string
-		var tokenSource string
-
-		// First, try to get token from Authorization header
-		authHeader := ctx.Header("Authorization")
-		if authHeader != "" {
-			// Extract token from "Bearer <token>"
-			tokenParts := strings.Split(authHeader, " ")
-			if len(tokenParts) == 2 && tokenParts[0] == "Bearer" {
-				token = tokenParts[1]
-				tokenSource = "header"
-			}
-		}
-
-		// If no token in header, try to get from HTTP-only cookie
-		if token == "" {
-			if cookie := ctx.Header("Cookie"); cookie != "" {
-				req := &http.Request{Header: http.Header{"Cookie": []string{cookie}}}
-				if c, err := req.Cookie("auth_token"); err == nil && c.Value != "" {
-					token = c.Value
-					tokenSource = "cookie"
-				}
-			}
-		}
+		token, tokenSource := credentialFromHumaContext(ctx)
 
 		if token == "" {
 			logger.AuthWarn(ctx.Context(), "huma_jwt_token_missing",
@@ -242,29 +260,7 @@ func LenientHumaJWTMiddleware(jwtService *auth.JWTService, gracePeriod time.Dura
 			"path", url.Path,
 		)
 
-		var token string
-		var tokenSource string
-
-		// Try Authorization header first
-		authHeader := ctx.Header("Authorization")
-		if authHeader != "" {
-			tokenParts := strings.Split(authHeader, " ")
-			if len(tokenParts) == 2 && tokenParts[0] == "Bearer" {
-				token = tokenParts[1]
-				tokenSource = "header"
-			}
-		}
-
-		// Fall back to cookie
-		if token == "" {
-			if cookie := ctx.Header("Cookie"); cookie != "" {
-				req := &http.Request{Header: http.Header{"Cookie": []string{cookie}}}
-				if c, err := req.Cookie("auth_token"); err == nil && c.Value != "" {
-					token = c.Value
-					tokenSource = "cookie"
-				}
-			}
-		}
+		token, tokenSource := credentialFromHumaContext(ctx)
 
 		if token == "" {
 			logger.AuthWarn(ctx.Context(), "lenient_jwt_token_missing",
@@ -314,26 +310,7 @@ func OptionalHumaJWTMiddleware(jwtService *auth.JWTService) func(ctx huma.Contex
 	apiTokenService := adminsvc.NewAPITokenService(nil)
 
 	return func(ctx huma.Context, next func(huma.Context)) {
-		var token string
-
-		// Try Authorization header
-		authHeader := ctx.Header("Authorization")
-		if authHeader != "" {
-			tokenParts := strings.Split(authHeader, " ")
-			if len(tokenParts) == 2 && tokenParts[0] == "Bearer" {
-				token = tokenParts[1]
-			}
-		}
-
-		// Try cookie
-		if token == "" {
-			if cookie := ctx.Header("Cookie"); cookie != "" {
-				req := &http.Request{Header: http.Header{"Cookie": []string{cookie}}}
-				if c, err := req.Cookie("auth_token"); err == nil && c.Value != "" {
-					token = c.Value
-				}
-			}
-		}
+		token, _ := credentialFromHumaContext(ctx)
 
 		// No token — continue without user context
 		if token == "" {
