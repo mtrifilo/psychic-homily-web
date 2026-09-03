@@ -78,55 +78,43 @@ func mutationUserKeyFunc(r *http.Request) (string, error) {
 	return "user:" + strconv.FormatUint(uint64(uid), 10), nil
 }
 
-// RateLimitEngagementMutationBurst is the per-USER burst limiter:
-// EngagementMutationBurstPerMinute per user id (NOT per IP), so shared-IP
-// logged-in users each get their own bucket. Pair with
-// RateLimitMutationsByUser, which supplies the user id via context.
+// perUserMutationLimiter builds one per-USER window: limit requests per window,
+// keyed by the user id RateLimitMutationsByUser stashes in context (NOT by IP,
+// so shared-IP logged-in users each get their own bucket). Every call mints its
+// OWN httprate store, so two budgets built here never draw on one counter.
+func perUserMutationLimiter(limit int, window time.Duration) func(http.Handler) http.Handler {
+	return httprate.Limit(
+		limit,
+		window,
+		httprate.WithKeyFuncs(mutationUserKeyFunc),
+		httprate.WithLimitHandler(RateLimitExceededHandler),
+	)
+}
+
+// RateLimitEngagementMutationBurst is the shared budget's minute window. Pair
+// with RateLimitMutationsByUser, which supplies the user id via context.
 func RateLimitEngagementMutationBurst() func(http.Handler) http.Handler {
-	return httprate.Limit(
-		EngagementMutationBurstPerMinute,
-		time.Minute,
-		httprate.WithKeyFuncs(mutationUserKeyFunc),
-		httprate.WithLimitHandler(RateLimitExceededHandler),
-	)
+	return perUserMutationLimiter(EngagementMutationBurstPerMinute, time.Minute)
 }
 
-// RateLimitEngagementMutationSustained is the per-USER sustained limiter:
-// EngagementMutationSustainedPerHour per user id. Chained INSIDE the burst
-// limiter (see the ORDER note on RateLimitMutationsByUser).
-func RateLimitEngagementMutationSustained() func(http.Handler) http.Handler {
-	return httprate.Limit(
-		EngagementMutationSustainedPerHour,
-		time.Hour,
-		httprate.WithKeyFuncs(mutationUserKeyFunc),
-		httprate.WithLimitHandler(RateLimitExceededHandler),
-	)
-}
-
-// RateLimitEntityRequestBatchBurst is the per-USER burst limiter for the
-// entity-request batch route: EntityRequestBatchBurstPerMinute per user id. Its
-// own httprate store, so a paste session and the shared engagement budget never
-// draw on one counter. Pair with RateLimitMutationsByUser.
-func RateLimitEntityRequestBatchBurst() func(http.Handler) http.Handler {
-	return httprate.Limit(
-		EntityRequestBatchBurstPerMinute,
-		time.Minute,
-		httprate.WithKeyFuncs(mutationUserKeyFunc),
-		httprate.WithLimitHandler(RateLimitExceededHandler),
-	)
-}
-
-// RateLimitEntityRequestBatchSustained is the per-USER sustained limiter for the
-// entity-request batch route: EntityRequestBatchSustainedPerHour per user id.
+// RateLimitEngagementMutationSustained is the shared budget's hour window.
 // Chained INSIDE the burst limiter (see the ORDER note on
 // RateLimitMutationsByUser).
+func RateLimitEngagementMutationSustained() func(http.Handler) http.Handler {
+	return perUserMutationLimiter(EngagementMutationSustainedPerHour, time.Hour)
+}
+
+// RateLimitEntityRequestBatchBurst is the entity-request batch budget's minute
+// window.
+func RateLimitEntityRequestBatchBurst() func(http.Handler) http.Handler {
+	return perUserMutationLimiter(EntityRequestBatchBurstPerMinute, time.Minute)
+}
+
+// RateLimitEntityRequestBatchSustained is the entity-request batch budget's hour
+// window. Chained INSIDE the burst limiter (see the ORDER note on
+// RateLimitMutationsByUser).
 func RateLimitEntityRequestBatchSustained() func(http.Handler) http.Handler {
-	return httprate.Limit(
-		EntityRequestBatchSustainedPerHour,
-		time.Hour,
-		httprate.WithKeyFuncs(mutationUserKeyFunc),
-		httprate.WithLimitHandler(RateLimitExceededHandler),
-	)
+	return perUserMutationLimiter(EntityRequestBatchSustainedPerHour, time.Hour)
 }
 
 // RateLimitMutationsByUser meters an authenticated mutation against a per-user

@@ -66,6 +66,7 @@ import {
 import { useResolveCollectionItems } from '../hooks'
 import { getEntityTypeLabel, type CollectionEntityType } from '../types'
 import { apiRequest, API_ENDPOINTS, type ApiError } from '@/lib/api'
+import { isRateLimitError } from '@/lib/query-retry-policy'
 import { cn } from '@/lib/utils'
 import { AICollectionFiller } from './AICollectionFiller'
 import {
@@ -244,9 +245,9 @@ interface PreviewRow {
   withdrawError?: string
   /**
    * `queue_failed` rows only: why the filing never landed, when the server said.
-   * A batch request is refused as a whole, so every row it covered carries the
-   * same words. Absent for a failure that said nothing, such as a dropped
-   * connection, where the Retry is the whole of the message.
+   * A batch request is refused as a whole, so every row that request covered
+   * carries the same words. Absent for a failure that said nothing, such as a
+   * dropped connection, where the Retry is the whole of the message.
    */
   queueError?: string
 }
@@ -369,7 +370,7 @@ async function queueEntityRequestBatch(
       // queue_failed, which is exactly the rows this chunk and the ones after it
       // cover. Stopping is deliberate: the next chunk is one more request at the
       // same server the last one just failed against.
-      return { results, stoppedReason: queueFailureReason(err) }
+      return { results, stoppedReason: queueFailureReason(err), stoppedAtItem: sent }
     }
     // Each chunk indexes from zero, so the offset restores the caller's own
     // positions and the results read as one list.
@@ -382,12 +383,19 @@ async function queueEntityRequestBatch(
 
 /**
  * What a chunk's failure leaves for the rows it covered, alongside whatever the
- * earlier chunks did answer. `stoppedReason` is undefined when the run finished,
- * and also when a failure carried nothing worth showing.
+ * earlier chunks did answer.
+ *
+ * `stoppedAtItem` is the index of the first name the run never sent, so the
+ * reason lands only on the rows the failure actually covers. An earlier chunk
+ * that answered for some of its items and not others is a server contract
+ * breach, and those rows stay retryable with no words put in the server's mouth.
+ * Both fields are absent when the run finished, and `stoppedReason` is also
+ * absent when a failure carried nothing worth showing.
  */
 interface QueueBatchOutcome {
   results: EntityRequestBatchResult[]
   stoppedReason?: string
+  stoppedAtItem?: number
 }
 
 /**
@@ -396,19 +404,22 @@ interface QueueBatchOutcome {
  * A 429 is the case worth naming: the batch route has a per-request budget, so a
  * paste large enough to split can exhaust it partway and leave its tail unfiled.
  * Saying so is what keeps those rows from reading as ordinary in-flight work.
- * `retryAfter` is absent whenever CORS does not expose the header, so the copy
- * has to read without it.
+ *
+ * The countdown is dropped unless `retryAfter` is a usable number: the header is
+ * unreadable across origins, and `ApiError.retryAfter` is public interface, so
+ * the copy has to read without it.
  *
  * Every other failure returns undefined: the row already offers a Retry, and a
  * generic restatement of "it failed" beside it is noise.
  */
 function queueFailureReason(err: unknown): string | undefined {
-  const status = (err as ApiError | undefined)?.status
-  if (status !== 429) return undefined
+  if (!isRateLimitError(err)) return undefined
   const retryAfter = (err as ApiError).retryAfter
-  return retryAfter !== undefined
-    ? `Too many requests. Nothing was filed for this line; retry in ${retryAfter}s.`
-    : 'Too many requests. Nothing was filed for this line; wait a moment and retry.'
+  const when =
+    typeof retryAfter === 'number' && Number.isFinite(retryAfter) && retryAfter > 0
+      ? `retry in ${retryAfter}s`
+      : 'wait a moment and retry'
+  return `Too many requests. Nothing was filed for this line; ${when}.`
 }
 
 /**
@@ -701,7 +712,7 @@ function usePastePreview(pasteText: string): {
         new Map(entries.map((e) => [e.index, next]))
 
       return queueEntityRequestBatch(order).then(
-        ({ results, stoppedReason }) => {
+        ({ results, stoppedReason, stoppedAtItem }) => {
           const byIndex = new Map(results.map((r) => [r.index, r]))
           // The verdict already reported for a request id, so a second item that
           // landed on the same row repeats it instead of claiming a correction.
@@ -713,9 +724,14 @@ function usePastePreview(pasteText: string): {
             let patch: Partial<PreviewRow>
             if (!result) {
               // An item with no result was neither filed nor refused, so the row
-              // says the request did not land and stays retryable, carrying the
-              // reason the run stopped when there was one.
-              patch = { status: 'queue_failed', queueError: stoppedReason }
+              // says the request did not land and stays retryable. It carries the
+              // reason only if it is one of the items the failed chunk covered.
+              const covered =
+                stoppedAtItem !== undefined && itemIndex >= stoppedAtItem
+              patch = {
+                status: 'queue_failed',
+                queueError: covered ? stoppedReason : undefined,
+              }
             } else if (result.status === 'refused') {
               patch =
                 result.error_status !== undefined && result.error_status >= 500
@@ -1835,8 +1851,8 @@ function PastePreviewRow({
         )}
       </div>
 
-      {/* Why a filing never landed, on the rows it covered. A batch request is
-          refused whole, so identical copy on each of them is the truth. */}
+      {/* Why a filing never landed, on the rows the failed request covered. A
+          batch request is refused whole, so identical copy on each is the truth. */}
       {row.queueError && (
         <p
           className="ml-10 mt-1.5 text-xs text-destructive"

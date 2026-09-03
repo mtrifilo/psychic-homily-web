@@ -78,10 +78,12 @@ func TestEntityRequestBatchRateLimiter_LimitsPastBurstCap(t *testing.T) {
 	}
 }
 
-// The picker splits a paste into chunks of the endpoint's 200-item cap, so a
-// 600-line paste is three back-to-back requests and a full retry of it is three
-// more. The whole flow must clear the burst window with room to spare, which is
-// the constraint the cap was chosen against.
+// The constraint the burst cap was chosen against, written as an executable
+// record of the derivation: the picker splits a paste into chunks of the
+// endpoint's 200-item cap, so a 600-line paste is three back-to-back requests
+// and a full retry of it is three more. It cannot see the picker's own chunk
+// size, which lives in TypeScript; what it pins is that lowering the cap below
+// that flow fails here rather than in a contributor's paste.
 func TestEntityRequestBatchRateLimiter_SixHundredLinePasteAndRetryComplete(t *testing.T) {
 	const pasteLines = 600
 	const pickerChunkSize = 200

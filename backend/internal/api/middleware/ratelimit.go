@@ -188,12 +188,6 @@ func SkipRateLimitForAdmin(jwtService *auth.JWTService, validateAPIToken func(st
 // added later from silently inheriting the bypasses admin holds.
 var apiTokenBypassScopes = map[string]bool{adminsvc.TokenScopeAdmin: true}
 
-// apiTokenScopeMayBypass answers the allowlist question for one validated
-// token's scope. Named so the rule can be read and tested without a database.
-func apiTokenScopeMayBypass(scope string) bool {
-	return apiTokenBypassScopes[scope]
-}
-
 // APITokenValidator adapts an API token service to the predicate the limiter
 // bypasses take: true only for a token APITokenService.ValidateToken resolves
 // to a live row whose scope is in apiTokenBypassScopes. Whatever that method
@@ -216,7 +210,7 @@ func APITokenValidator(svc *adminsvc.APITokenService) func(string) bool {
 		if err != nil || apiToken == nil {
 			return false
 		}
-		return apiTokenScopeMayBypass(apiToken.Scope)
+		return apiTokenBypassScopes[apiToken.Scope]
 	}
 }
 
@@ -334,6 +328,12 @@ func RateLimitPublicReadAuthenticatedIPCeiling() func(http.Handler) http.Handler
 // Authorization header carries the phk_ prefix, so a visitor GET never hits the
 // database here. Admin session JWTs still route to the per-user 300/min bucket,
 // not this bypass.
+//
+// A FOURTH state is layered OUTSIDE this function, in
+// routes.PublicReadRateLimiter: a request whose path carries a validated
+// phcal_ personal-feed token skips the limiter entirely (PSY-2017). Path
+// matching lives beside the feed registrations, which is why it is not a case
+// here; an audit of what skips this limiter has to read both.
 //
 // Failed validation falls through to anonLimiter, so the DB lookup runs BEFORE
 // the per-IP cap. That order is load-bearing: validating after the limiter

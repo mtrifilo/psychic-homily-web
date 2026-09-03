@@ -56,21 +56,5 @@ func EntityRequestBatchRateLimiter(jwtService *auth.JWTService, validateAPIToken
 			middleware.RateLimitEntityRequestBatchSustained(),
 		),
 	)
-	return limitEntityRequestBatchOnly(limiter)
-}
-
-// limitEntityRequestBatchOnly applies the limiter only to the batch route; every
-// other request passes through, so the batch budget never 429s an unrelated
-// endpoint.
-func limitEntityRequestBatchOnly(limiter func(http.Handler) http.Handler) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		limited := limiter(next)
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if isEntityRequestBatchRequest(r) {
-				limited.ServeHTTP(w, r)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
+	return limitWhen(limiter, isEntityRequestBatchRequest)
 }

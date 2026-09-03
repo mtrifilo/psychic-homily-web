@@ -48,32 +48,22 @@ func TestFeedRoutesAndExemptionTemplatesAgree(t *testing.T) {
 	}
 }
 
-// The legacy /calendar/{token} alias must stay registered: it is the one feed
-// shape whose exemption cannot be inferred from the /feeds/ prefix, and the
-// token CRUD paths beside it must NOT be feed shapes.
-func TestLegacyCalendarAliasAndTokenCRUDAreDistinct(t *testing.T) {
+// The legacy /calendar/{token} alias lives under /calendar/ rather than /feeds/,
+// so the prefix sweep above cannot see it. Its registration is checked by name.
+//
+// What that alias reads as by SHAPE is pinned by TestPersonalFeedTokenFromPath
+// and TestPublicReadRateLimiter_NonPrefixedFeedPathDoesNotHitValidateCallback,
+// which cover the /calendar/token CRUD path beside it.
+func TestLegacyCalendarAliasIsRegistered(t *testing.T) {
 	routes := chiRoutes(t, newTestRouter(t))
 
-	found := false
 	for _, pattern := range routes[http.MethodGet] {
 		if pattern == legacyCalendarFeedRoute {
-			found = true
+			return
 		}
 	}
-	if !found {
-		t.Errorf("router does not serve %q, but the legacy iCal alias is in the exemption templates",
-			legacyCalendarFeedRoute)
-	}
-
-	// /calendar/token is a real registered path and reads as a feed token by
-	// SHAPE, which is exactly why the exemption validates the token rather than
-	// trusting the shape: no calendar token is ever named "token".
-	if got := personalFeedTokenFromPath("/calendar/token"); got != "token" {
-		t.Errorf("personalFeedTokenFromPath(%q) = %q, want %q", "/calendar/token", got, "token")
-	}
-	if validatedFeedToken(func(string) bool { return true }, "/calendar/token") {
-		t.Error("/calendar/token was treated as a personal feed, but it carries no phcal_ token")
-	}
+	t.Errorf("router does not serve %q, but the legacy iCal alias is in the exemption templates",
+		legacyCalendarFeedRoute)
 }
 
 // The entity-request limiters match on concrete request paths, so the patterns

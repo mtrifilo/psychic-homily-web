@@ -91,21 +91,39 @@ var personalFeedRouteTemplates = []string{
 // where the plaintext token goes.
 const feedRouteTokenPlaceholder = "{token}"
 
+// feedRouteMatcher is one template split around its {token} placeholder.
+type feedRouteMatcher struct{ prefix, suffix string }
+
+// personalFeedRouteMatchers is personalFeedRouteTemplates split once at init,
+// because personalFeedTokenFromPath runs on every public read the site serves.
+// A template with no placeholder panics here rather than silently matching every
+// path under its prefix.
+var personalFeedRouteMatchers = func() []feedRouteMatcher {
+	matchers := make([]feedRouteMatcher, 0, len(personalFeedRouteTemplates))
+	for _, template := range personalFeedRouteTemplates {
+		prefix, suffix, found := strings.Cut(template, feedRouteTokenPlaceholder)
+		if !found {
+			panic("personal-feed route template without a " + feedRouteTokenPlaceholder + " segment: " + template)
+		}
+		matchers = append(matchers, feedRouteMatcher{prefix: prefix, suffix: suffix})
+	}
+	return matchers
+}()
+
 // personalFeedTokenFromPath returns the plaintext token a request path carries
 // in a personal-feed route's {token} segment, or "" when the path is not one of
 // those routes. Matching the FULL route shape (not a bare /feeds/ prefix) is
 // what keeps an unrelated path under /feeds/ from reaching the token lookup at
 // all.
 func personalFeedTokenFromPath(path string) string {
-	for _, template := range personalFeedRouteTemplates {
-		prefix, suffix, found := strings.Cut(template, feedRouteTokenPlaceholder)
-		if !found || len(path) <= len(prefix)+len(suffix) {
+	for _, m := range personalFeedRouteMatchers {
+		if len(path) <= len(m.prefix)+len(m.suffix) {
 			continue
 		}
-		if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) {
+		if !strings.HasPrefix(path, m.prefix) || !strings.HasSuffix(path, m.suffix) {
 			continue
 		}
-		token := path[len(prefix) : len(path)-len(suffix)]
+		token := path[len(m.prefix) : len(path)-len(m.suffix)]
 		if strings.Contains(token, "/") {
 			continue
 		}
@@ -187,6 +205,23 @@ const FollowsBatchPath = "/follows/batch"
 // an unmetered batch aggregate query simply because the endpoint takes a body.
 var readViaPostPaths = []string{SaveCountsBatchPath, ReleaseSaveCountsBatchPath, FollowsBatchPath}
 
+// limitWhen wraps a limiter so only the requests inScope reports on reach it;
+// everything else passes straight through to the handler. Every globally mounted
+// limiter in this package is scoped this way, so a budget can never 429 a route
+// it was not built for.
+func limitWhen(limiter func(http.Handler) http.Handler, inScope func(*http.Request) bool) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		limited := limiter(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if inScope(r) {
+				limited.ServeHTTP(w, r)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // limitReadMethodsOnly applies the limiter to safe read methods (GET/HEAD) plus
 // the read-via-POST batch endpoints above. Genuine writes (POST/PUT/PATCH/
 // DELETE) pass through — they keep their own dedicated limiters, so a shared
@@ -197,18 +232,11 @@ func limitReadMethodsOnly(limiter func(http.Handler) http.Handler) func(http.Han
 	for _, p := range readViaPostPaths {
 		readPosts[p] = true
 	}
-	return func(next http.Handler) http.Handler {
-		limited := limiter(next)
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			isRead := r.Method == http.MethodGet || r.Method == http.MethodHead
-			isReadViaPost := r.Method == http.MethodPost && readPosts[r.URL.Path]
-			if isRead || isReadViaPost {
-				limited.ServeHTTP(w, r)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
+	return limitWhen(limiter, func(r *http.Request) bool {
+		isRead := r.Method == http.MethodGet || r.Method == http.MethodHead
+		isReadViaPost := r.Method == http.MethodPost && readPosts[r.URL.Path]
+		return isRead || isReadViaPost
+	})
 }
 
 // skipRateLimitForPaths wraps a limiter so exact-match paths bypass it entirely.
@@ -217,16 +245,7 @@ func skipRateLimitForPaths(limiter func(http.Handler) http.Handler, paths ...str
 	for _, p := range paths {
 		exempt[p] = true
 	}
-	return func(next http.Handler) http.Handler {
-		limited := limiter(next)
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if exempt[r.URL.Path] {
-				next.ServeHTTP(w, r)
-				return
-			}
-			limited.ServeHTTP(w, r)
-		})
-	}
+	return limitWhen(limiter, func(r *http.Request) bool { return !exempt[r.URL.Path] })
 }
 
 // skipRateLimitForValidatedFeedToken wraps a limiter so a personal-feed request
@@ -240,14 +259,7 @@ func skipRateLimitForPaths(limiter func(http.Handler) http.Handler, paths ...str
 // and for the same reason: validating after the limiter would make a live feed
 // token increment the bucket it is meant to skip.
 func skipRateLimitForValidatedFeedToken(limiter func(http.Handler) http.Handler, validateFeedToken func(string) bool) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		limited := limiter(next)
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if validatedFeedToken(validateFeedToken, r.URL.Path) {
-				next.ServeHTTP(w, r)
-				return
-			}
-			limited.ServeHTTP(w, r)
-		})
-	}
+	return limitWhen(limiter, func(r *http.Request) bool {
+		return !validatedFeedToken(validateFeedToken, r.URL.Path)
+	})
 }

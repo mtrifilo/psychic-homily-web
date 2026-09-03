@@ -701,7 +701,7 @@ func TestRateLimitPublicReadsByAuthState_OwnCapRejectionsDoNotDrainSharedCeiling
 // PSY-2017: skipping a limiter is a SEPARATE grant from authenticating. A scope
 // that adminsvc later learns to validate stays metered until it is named in the
 // bypass allowlist, which is what "a new scope is limited by default" means.
-func TestAPITokenScopeMayBypass(t *testing.T) {
+func TestAPITokenBypassScopes(t *testing.T) {
 	cases := map[string]bool{
 		adminsvc.TokenScopeAdmin: true,
 		"readonly":               false,
@@ -709,8 +709,8 @@ func TestAPITokenScopeMayBypass(t *testing.T) {
 		"":                       false,
 	}
 	for scope, want := range cases {
-		if got := apiTokenScopeMayBypass(scope); got != want {
-			t.Errorf("apiTokenScopeMayBypass(%q) = %v, want %v", scope, got, want)
+		if got := apiTokenBypassScopes[scope]; got != want {
+			t.Errorf("apiTokenBypassScopes[%q] = %v, want %v", scope, got, want)
 		}
 	}
 }

@@ -58,16 +58,25 @@ func IsEngagementMutationRateLimitEnabled(getenv func(string) string) bool {
 // allowance on follows. Confirmation counts are freshness evidence, so cheap
 // mass-confirming is exactly the abuse this ceiling exists to bound.
 //
-// Filing and withdrawing a single entity request join it for the same reason,
-// and one more: withdrawing frees the request's dedup key, so file → withdraw →
-// file under one name is only bounded when BOTH halves spend from one budget.
+// Filing and withdrawing a single entity request join it for the same reason.
+// Both frontend surfaces file through the batch route, so the loop a
+// contributor can actually drive is one batch file plus one withdraw, bounded
+// by the tighter of the two budgets; the single route is the API and CLI shape,
+// and sharing one counter with withdraw is what keeps a future caller of it
+// from getting a fresh allowance for each half of that loop.
 var engagementMutationPathPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`^/saved-shows/[^/]+$`),
 	regexp.MustCompile(`^/saved-releases/[^/]+$`),
 	regexp.MustCompile(`^/[^/]+/[^/]+/follow$`),
 	regexp.MustCompile(`^/venues/[^/]+/confirm$`),
-	regexp.MustCompile(`^/entity-requests$`),
 	regexp.MustCompile(`^/entity-requests/[^/]+/withdraw$`),
+}
+
+// engagementMutationExactPaths are the in-scope paths that carry no parameter.
+// They are matched by comparison rather than by a regexp that would spell the
+// same literal, and are checked first so the common case costs no match at all.
+var engagementMutationExactPaths = map[string]bool{
+	"/entity-requests": true,
 }
 
 // isEngagementMutationRequest reports whether a request is an in-scope mutation
@@ -76,6 +85,9 @@ var engagementMutationPathPatterns = []*regexp.Regexp{
 func isEngagementMutationRequest(r *http.Request) bool {
 	if r.Method != http.MethodPost && r.Method != http.MethodDelete {
 		return false
+	}
+	if engagementMutationExactPaths[r.URL.Path] {
+		return true
 	}
 	for _, re := range engagementMutationPathPatterns {
 		if re.MatchString(r.URL.Path) {
@@ -107,21 +119,5 @@ func EngagementMutationRateLimiter(jwtService *auth.JWTService, validateAPIToken
 			middleware.RateLimitEngagementMutationSustained(),
 		),
 	)
-	return limitEngagementMutationsOnly(limiter)
-}
-
-// limitEngagementMutationsOnly applies the limiter only to the in-scope
-// mutations; every other request (reads, unrelated writes) passes through so a
-// shared budget never 429s an unrelated endpoint.
-func limitEngagementMutationsOnly(limiter func(http.Handler) http.Handler) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		limited := limiter(next)
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if isEngagementMutationRequest(r) {
-				limited.ServeHTTP(w, r)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
+	return limitWhen(limiter, isEngagementMutationRequest)
 }

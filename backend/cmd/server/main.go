@@ -314,11 +314,13 @@ func main() {
 	router.Use(routes.EngagementMutationRateLimiter(sc.JWT, validateAPIToken, os.Getenv))
 
 	// PSY-1991: rate-limit batch entity-request filing against its OWN per-user
-	// budget (30/min burst + 300/hr sustained, both must pass), metered per
-	// request rather than per submission. Separate from the shared budget above
-	// because one batch request carries up to 200 submissions. Admin JWTs and
-	// validated API tokens bypass. Shares the engagement limiter's opt-in flag,
-	// so both entity-request budgets arrive in an environment together.
+	// budget (middleware.EntityRequestBatchBurstPerMinute +
+	// EntityRequestBatchSustainedPerHour, both must pass), metered per request
+	// rather than per submission. Separate from the shared budget above because
+	// one batch request carries many submissions; the numbers and their
+	// derivation live with the constants. Admin JWTs and validated API tokens
+	// bypass. Shares the engagement limiter's opt-in flag, so both
+	// entity-request budgets arrive in an environment together.
 	router.Use(routes.EntityRequestBatchRateLimiter(sc.JWT, validateAPIToken, os.Getenv))
 
 	// PSY-1734: gzip compressible response bodies. Mounted LAST of the global
