@@ -10,9 +10,11 @@ import (
 //
 // entity_requests rows are the contributor queue: a pending row carries a
 // payload naming content that has not been published, and a rejected one names
-// content that never will be. The only route that reads the table is
-// GET /admin/entity-requests, so an anonymous or stranger tier has no read of
-// this content anywhere else in the API.
+// content that never will be. Every route that reads the table serves it to one
+// of two tiers and no other: GET /admin/entity-requests and the admin decide and
+// fulfill routes to an ADMIN, and POST /entity-requests back to the REQUESTER
+// who just filed it. No route serves a request row to a stranger or to an
+// anonymous caller, and this rule is those two tiers written as a predicate.
 //
 // The rule this file spells is therefore the narrowest one that still lets the
 // two parties who already hold the row see it: the request's own REQUESTER, and
@@ -40,9 +42,10 @@ const visibleEntityRequestsAlias = "visible_entity_request"
 // on the row identifies the table its id belongs to except the action.
 //
 // THE ADMIN TIER STILL PAYS THE EXISTENCE PROBE rather than short-circuiting to
-// TRUE, unlike VisibleShowPredicateSQL. A row whose request has been deleted
-// names nothing, and an admin seeing it while everyone else does not would make
-// the pair of answers an oracle over the request id space.
+// a bare TRUE, which is where this differs from VisibleShowExistsSQL. A row
+// whose request has been deleted names nothing, and an admin seeing it while
+// everyone else does not would make the pair of answers an oracle over the
+// request id space.
 //
 // An ANONYMOUS caller is refused without a probe: with no user id there is no
 // requester branch to satisfy and no admin branch to take, so the condition is

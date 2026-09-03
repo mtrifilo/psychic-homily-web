@@ -15,16 +15,25 @@ import (
 	"testing"
 )
 
-// Every audit action written anywhere under internal/ must have a recorded
-// position on what its metadata may publish.
+// Every audit action THIS SWEEP CAN SEE must have a recorded position on what
+// its metadata may publish.
 //
-// audit_logs.metadata and entity_edit_audit_logs.metadata are written by around
-// a hundred call sites in nine packages and read by GET
-// /users/{username}/contributions, which takes optional auth and serves the
-// `contributions` field visible by default. Every writer therefore decides, by
-// accident, what becomes public under its actor's own username. The allowlist in
-// contributor_profile.go is the answer; this file is what stops a writer from
-// shipping without consulting it.
+// audit_logs.metadata and entity_edit_audit_logs.metadata are written from over
+// a hundred places and read by GET /users/{username}/contributions, which takes
+// optional auth and serves the `contributions` field visible by default. Every
+// writer therefore decides, by accident, what becomes public under its actor's
+// own username. The allowlist in contributor_profile.go is the answer; this file
+// is what stops a writer from shipping without consulting it.
+//
+// WHAT IT SEES, stated as a bound rather than as a claim about the whole tree:
+// non-test files under internal/, and within them the two audit-service methods
+// named in auditActionWriters plus composite literals of the audit MODEL, which
+// is how five writers record an action without going through the service. A
+// writer reached by any other spelling — a differently named wrapper method, a
+// helper in another module, a raw SQL insert — is invisible here, and nothing
+// fails. The runtime default is what covers that case: an action this file never
+// saw is an action contributionMetadataKeys has no entry for, and the projection
+// publishes nothing for it.
 //
 // It walks the SOURCE rather than a registry the writers call, because there is
 // no such registry: the writers pass an action string to a service, and any
@@ -50,6 +59,17 @@ const auditActionArgIndex = 1
 var auditActionWriters = map[string]string{
 	"LogAction":     "",
 	"LogEntityEdit": "edit_",
+}
+
+// auditModelLiterals are the audit MODELS whose composite literals record an
+// action without calling the service, and the field each one records it in.
+//
+// Five writers build one of these and Create it directly, three of them with a
+// real actor id, so their rows reach a public contributions timeline exactly
+// like a LogAction row does. Keyed on the type name alone because the model is
+// imported under a package alias that differs between packages.
+var auditModelLiterals = map[string]string{
+	"AuditLog": "Action",
 }
 
 // writtenAction is one action string a writer can produce, with where it was
@@ -137,53 +157,7 @@ func sweepAuditWriters() sweptTree {
 		if parseErr != nil {
 			return fmt.Errorf("cannot parse %s: %w", path, parseErr)
 		}
-
-		// String literals bound to each identifier in the WHOLE FILE, so a call
-		// site passing a local variable resolves to the strings that variable
-		// can hold. File-wide rather than function-wide on purpose: it
-		// over-approximates when one name is reused across functions, and an
-		// over-approximation demands MORE dispositions than the writers need,
-		// which is the direction that cannot leak.
-		//
-		// Built LAZILY: 25 of the 500-odd files under internal/ hold an audit
-		// writer, and the rest would pay a second full AST walk for a map
-		// nothing reads.
-		var literals map[string][]writtenAction
-		fileLiterals := func() map[string][]writtenAction {
-			if literals == nil {
-				literals = stringLiteralsByIdent(file)
-			}
-			return literals
-		}
-
-		ast.Inspect(file, func(node ast.Node) bool {
-			call, ok := node.(*ast.CallExpr)
-			if !ok {
-				return true
-			}
-			selector, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok {
-				return true
-			}
-			prefix, ok := auditActionWriters[selector.Sel.Name]
-			if !ok || len(call.Args) <= auditActionArgIndex {
-				return true
-			}
-			position := fset.Position(call.Pos()).String()
-			resolved, ok := resolveActionExpr(call.Args[auditActionArgIndex], fileLiterals())
-			if !ok {
-				swept.unresolved = append(swept.unresolved, position)
-				return true
-			}
-			for _, r := range resolved {
-				swept.actions = append(swept.actions, writtenAction{
-					action:   prefix + r.action,
-					position: position,
-					isPrefix: r.isPrefix,
-				})
-			}
-			return true
-		})
+		sweepFile(fset, file, &swept)
 		return nil
 	})
 	if walkErr != nil {
@@ -192,41 +166,221 @@ func sweepAuditWriters() sweptTree {
 	return swept
 }
 
-// stringLiteralsByIdent maps each identifier bound to a string literal anywhere
-// in the file to every literal it can hold. Assignments (`x := "a"`, `x = "b"`)
-// and declarations (`const x = "a"`, `var x = "a"`) both count, so a variable set
-// in one branch and reset in another resolves to both, and hoisting an action
-// into a package constant does not break the sweep.
-func stringLiteralsByIdent(file *ast.File) map[string][]writtenAction {
-	literals := map[string][]writtenAction{}
-	record := func(name string, expr ast.Expr) {
-		// Nested resolution is not attempted: the right-hand side must be a
-		// literal or a literal-prefixed concatenation, never another variable,
-		// so this cannot follow a chain into a value the sweep would guess at.
-		if resolved, ok := resolveActionExpr(expr, nil); ok {
-			literals[name] = append(literals[name], resolved...)
+// identScope is what an identifier passed to a writer may be resolved against.
+//
+// SCOPED PER FUNCTION, and that is the point rather than an optimisation. A
+// file-wide table resolves a wrapper's `action` PARAMETER to whatever literal
+// some other function in the file happens to bind to a variable of that name,
+// which is a confident WRONG answer where the sweep's whole value is that it
+// answers or fails. Shadowed names are refused for the same reason.
+type identScope struct {
+	// bound holds literals bound to a name by an assignment or declaration
+	// within the function, or at file level.
+	bound map[string][]writtenAction
+	// shadowed holds names the function receives rather than binds:
+	// parameters, results and receivers, of the function and of any literal
+	// inside it. A name here is REFUSED even when something binds it too, so a
+	// name reused both ways fails loudly rather than resolving to half its
+	// values.
+	shadowed map[string]bool
+}
+
+func (sc identScope) resolve(name string) ([]writtenAction, bool) {
+	if sc.shadowed[name] {
+		return nil, false
+	}
+	bound, ok := sc.bound[name]
+	if !ok || len(bound) == 0 {
+		return nil, false
+	}
+	return bound, true
+}
+
+// sweepFile records every action the file's audit writers produce.
+//
+// It walks the file ONCE PER FUNCTION so each call site is resolved against the
+// names in scope where it appears, plus the file's own declarations.
+func sweepFile(fset *token.FileSet, file *ast.File, swept *sweptTree) {
+	fileBound := map[string][]writtenAction{}
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			bindLiterals(spec, fileBound)
 		}
 	}
-	ast.Inspect(file, func(node ast.Node) bool {
-		switch decl := node.(type) {
+
+	// Bodies first, each with its own scope; then the file's declarations, for
+	// a writer called from a package-level initialiser.
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok {
+			continue
+		}
+		// THE WRITER'S OWN BODY IS NOT A WRITE SITE. LogAction builds the audit
+		// model from the action its CALLER passed, so reading its literal would
+		// report the method's parameter as an unreadable action while the real
+		// call sites are already recorded one frame up.
+		_, isWriterItself := auditActionWriters[fn.Name.Name]
+		sweepNode(fset, fn.Body, scopeOf(fn, fileBound), swept, !isWriterItself)
+	}
+	for _, decl := range file.Decls {
+		if gen, ok := decl.(*ast.GenDecl); ok {
+			sweepNode(fset, gen, identScope{bound: fileBound, shadowed: map[string]bool{}}, swept, true)
+		}
+	}
+}
+
+// scopeOf builds the resolution scope for one function: the literals its body
+// binds and the file's, minus every name it or a literal inside it receives.
+func scopeOf(fn *ast.FuncDecl, fileBound map[string][]writtenAction) identScope {
+	sc := identScope{bound: map[string][]writtenAction{}, shadowed: map[string]bool{}}
+	for name, values := range fileBound {
+		sc.bound[name] = values
+	}
+	shadowFields(fn.Recv, sc.shadowed)
+	if fn.Type != nil {
+		shadowFields(fn.Type.Params, sc.shadowed)
+		shadowFields(fn.Type.Results, sc.shadowed)
+	}
+	if fn.Body == nil {
+		return sc
+	}
+	ast.Inspect(fn.Body, func(node ast.Node) bool {
+		switch n := node.(type) {
+		case *ast.FuncLit:
+			shadowFields(n.Type.Params, sc.shadowed)
+			shadowFields(n.Type.Results, sc.shadowed)
 		case *ast.AssignStmt:
-			for i, lhs := range decl.Lhs {
+			for i, lhs := range n.Lhs {
 				ident, ok := lhs.(*ast.Ident)
-				if !ok || i >= len(decl.Rhs) {
+				if !ok || i >= len(n.Rhs) {
 					continue
 				}
-				record(ident.Name, decl.Rhs[i])
+				recordLiteral(ident.Name, n.Rhs[i], sc.bound)
 			}
 		case *ast.ValueSpec:
-			for i, name := range decl.Names {
-				if i < len(decl.Values) {
-					record(name.Name, decl.Values[i])
-				}
-			}
+			bindLiterals(n, sc.bound)
 		}
 		return true
 	})
-	return literals
+	return sc
+}
+
+func shadowFields(fields *ast.FieldList, shadowed map[string]bool) {
+	if fields == nil {
+		return
+	}
+	for _, field := range fields.List {
+		for _, name := range field.Names {
+			shadowed[name.Name] = true
+		}
+	}
+}
+
+func bindLiterals(spec ast.Spec, bound map[string][]writtenAction) {
+	value, ok := spec.(*ast.ValueSpec)
+	if !ok {
+		return
+	}
+	for i, name := range value.Names {
+		if i < len(value.Values) {
+			recordLiteral(name.Name, value.Values[i], bound)
+		}
+	}
+}
+
+// recordLiteral binds one name to the strings an expression can produce.
+//
+// Nested resolution is not attempted: the expression must be a literal or a
+// literal-prefixed concatenation, never another identifier, so this cannot
+// follow a chain into a value the sweep would have to guess at.
+func recordLiteral(name string, expr ast.Expr, bound map[string][]writtenAction) {
+	if resolved, ok := resolveActionExpr(expr, identScope{}); ok {
+		bound[name] = append(bound[name], resolved...)
+	}
+}
+
+// sweepNode records the writers inside one node, resolved against one scope.
+func sweepNode(fset *token.FileSet, node ast.Node, scope identScope, swept *sweptTree, readModelLiterals bool) {
+	if node == nil {
+		return
+	}
+	ast.Inspect(node, func(n ast.Node) bool {
+		var prefix string
+		var actionExpr ast.Expr
+
+		switch expr := n.(type) {
+		case *ast.CallExpr:
+			selector, ok := expr.Fun.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			writerPrefix, ok := auditActionWriters[selector.Sel.Name]
+			if !ok || len(expr.Args) <= auditActionArgIndex {
+				return true
+			}
+			prefix, actionExpr = writerPrefix, expr.Args[auditActionArgIndex]
+
+		case *ast.CompositeLit:
+			field, ok := auditModelLiterals[compositeTypeName(expr)]
+			if !ok || !readModelLiterals {
+				return true
+			}
+			actionExpr = compositeFieldValue(expr, field)
+			if actionExpr == nil {
+				// A literal that sets no action field records no action: the
+				// zero value is the empty string, which no disposition covers
+				// and the projection publishes nothing for.
+				return true
+			}
+
+		default:
+			return true
+		}
+
+		position := fset.Position(n.Pos()).String()
+		resolved, ok := resolveActionExpr(actionExpr, scope)
+		if !ok {
+			swept.unresolved = append(swept.unresolved, position)
+			return true
+		}
+		for _, r := range resolved {
+			swept.actions = append(swept.actions, writtenAction{
+				action:   prefix + r.action,
+				position: position,
+				isPrefix: r.isPrefix,
+			})
+		}
+		return true
+	})
+}
+
+// compositeTypeName is the composite literal's type name without its package
+// qualifier, so a model imported under different aliases reads the same.
+func compositeTypeName(lit *ast.CompositeLit) string {
+	switch typ := lit.Type.(type) {
+	case *ast.Ident:
+		return typ.Name
+	case *ast.SelectorExpr:
+		return typ.Sel.Name
+	}
+	return ""
+}
+
+func compositeFieldValue(lit *ast.CompositeLit, field string) ast.Expr {
+	for _, element := range lit.Elts {
+		kv, ok := element.(*ast.KeyValueExpr)
+		if !ok {
+			continue
+		}
+		if key, ok := kv.Key.(*ast.Ident); ok && key.Name == field {
+			return kv.Value
+		}
+	}
+	return nil
 }
 
 // resolveActionExpr reads the action strings one expression can produce.
@@ -235,8 +389,9 @@ func stringLiteralsByIdent(file *ast.File) map[string][]writtenAction {
 //
 //   - a string literal, which is the action;
 //   - a string literal concatenated with anything, which is a PREFIX;
-//   - an identifier the file binds string literals to.
-func resolveActionExpr(expr ast.Expr, literals map[string][]writtenAction) ([]writtenAction, bool) {
+//   - an identifier the SCOPE binds string literals to, and that the enclosing
+//     function does not merely receive.
+func resolveActionExpr(expr ast.Expr, scope identScope) ([]writtenAction, bool) {
 	switch e := expr.(type) {
 	case *ast.BasicLit:
 		if e.Kind != token.STRING {
@@ -263,11 +418,7 @@ func resolveActionExpr(expr ast.Expr, literals map[string][]writtenAction) ([]wr
 		return []writtenAction{{action: prefix, isPrefix: true}}, true
 
 	case *ast.Ident:
-		bound, ok := literals[e.Name]
-		if !ok || len(bound) == 0 {
-			return nil, false
-		}
-		return bound, true
+		return scope.resolve(e.Name)
 	}
 	return nil, false
 }
@@ -313,7 +464,11 @@ func TestEveryAuditActionHasAMetadataDisposition(t *testing.T) {
 		"default, so an undispositioned action is a writer deciding by accident what becomes "+
 		"public. Add each to contributionMetadataKeys with the keys it may publish, or to nil "+
 		"to publish none; a family assembled from a literal prefix goes in "+
-		"contributionMetadataWithheldPrefixes instead.",
+		"contributionMetadataWithheldPrefixes instead.\n\nIF THE ACTION'S entity_id IS AN "+
+		"entity_requests ID rather than an id in the table its entity_type names, the entry "+
+		"belongs in contributionEntityRequestActions instead, and that map's missing-entry "+
+		"default is the UNSAFE one: a row it does not name is judged against whichever "+
+		"catalog row shares the request's number.",
 		len(undecided), strings.Join(names, "\n  "))
 }
 
@@ -375,7 +530,19 @@ func TestEntityRequestActionsAreRecognisedByName(t *testing.T) {
 	written := map[string]bool{}
 	for _, w := range auditActionsWritten(t) {
 		written[w.action] = true
-		if w.isPrefix || !strings.Contains(w.action, "entity_request") {
+		if !strings.Contains(w.action, "entity_request") {
+			continue
+		}
+		// PREFIX FAMILIES ARE CHECKED TOO. An action built as
+		// `"decide_entity_request_" + state` reaches the timeline as a whole
+		// action naming a request, and exempting it here would let the family
+		// be dispositioned for metadata while its rows are still judged by the
+		// entity-type arms.
+		if w.isPrefix {
+			t.Errorf("%s: %q builds an action naming entity requests at run time. "+
+				"contributionEntityRequestActions is an exact-match set, so no member of "+
+				"this family can be registered in it: spell each action out as a literal.",
+				w.position, w.action)
 			continue
 		}
 		if !contributionEntityRequestActions[w.action] {
@@ -387,11 +554,13 @@ func TestEntityRequestActionsAreRecognisedByName(t *testing.T) {
 		}
 	}
 
+	// NO STALE-ENTRY CHECK ON THIS MAP, unlike contributionMetadataKeys, and the
+	// asymmetry is the point: a missing entry here is judged by the wrong arms,
+	// so it is the unsafe direction, while a stale one only withholds rows for
+	// an action nothing writes. Demanding that every entry name a live writer
+	// would make a RETIRED action's entry unshippable, and rows written under
+	// the old name outlive the writer.
 	for action := range contributionEntityRequestActions {
-		if !written[action] {
-			t.Errorf("contributionEntityRequestActions names %q, which no writer under "+
-				"internal/ produces", action)
-		}
 		// The family is dispositioned by its membership here, so an entry that
 		// ALSO appears in the allowlist publishing keys would be two answers to
 		// one question.
@@ -404,15 +573,44 @@ func TestEntityRequestActionsAreRecognisedByName(t *testing.T) {
 	}
 }
 
+// sweepSource runs the real sweep over one synthetic file, so these tests
+// exercise the same path the tree walk does rather than a simplified stand-in.
+func sweepSource(t *testing.T, src string) sweptTree {
+	t.Helper()
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "synthetic.go", src, 0)
+	if err != nil {
+		t.Fatalf("cannot parse the synthetic source: %v", err)
+	}
+	var swept sweptTree
+	sweepFile(fset, file, &swept)
+	return swept
+}
+
+func sweptExactAndPrefixes(swept sweptTree) (exact, prefixes []string) {
+	for _, w := range swept.actions {
+		if w.isPrefix {
+			prefixes = append(prefixes, w.action)
+			continue
+		}
+		exact = append(exact, w.action)
+	}
+	slices.Sort(exact)
+	exact = slices.Compact(exact)
+	slices.Sort(prefixes)
+	prefixes = slices.Compact(prefixes)
+	return exact, prefixes
+}
+
 // THE SHAPES THE SWEEP ACCEPTS, pinned against synthetic source rather than
 // against the tree.
 //
-// The tree spells every action as an inline literal today, so the identifier and
-// declaration branches are exercised by nothing that ships. They exist so that
-// hoisting an action into a constant, which is the obvious refactor, does not
-// fail the guard in a package nobody touched.
-func TestResolveActionExprReadsTheAcceptedShapes(t *testing.T) {
-	const src = `package p
+// The tree spells almost every action as an inline literal, so the declaration
+// branches are exercised by little that ships. They exist so that hoisting an
+// action into a constant, which is the obvious refactor, does not fail the guard
+// in a package nobody touched.
+func TestSweepReadsTheAcceptedShapes(t *testing.T) {
+	swept := sweepSource(t, `package p
 
 const hoisted = "const_action"
 
@@ -430,50 +628,25 @@ func f(s S, entityType string) {
 	s.LogAction(1, local, "artist", 1, nil)
 	s.LogEntityEdit(1, "scene", 1, nil)
 }
-`
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "synthetic.go", src, 0)
-	if err != nil {
-		t.Fatalf("cannot parse the synthetic source: %v", err)
-	}
-	literals := stringLiteralsByIdent(file)
 
-	var exact, prefixes []string
-	ast.Inspect(file, func(node ast.Node) bool {
-		call, ok := node.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		selector, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok {
-			return true
-		}
-		writerPrefix, ok := auditActionWriters[selector.Sel.Name]
-		if !ok {
-			return true
-		}
-		resolved, ok := resolveActionExpr(call.Args[auditActionArgIndex], literals)
-		if !ok {
-			t.Errorf("the sweep could not read the action at %s", fset.Position(call.Pos()))
-			return true
-		}
-		for _, r := range resolved {
-			if r.isPrefix {
-				prefixes = append(prefixes, writerPrefix+r.action)
-				continue
-			}
-			exact = append(exact, writerPrefix+r.action)
-		}
-		return true
+// The MODEL literal, which five writers use instead of the service.
+func g(db DB) {
+	db.Create(&adminm.AuditLog{
+		ActorID:    &actorID,
+		Action:     "model_literal_action",
+		EntityType: "tag",
 	})
+}
+`)
 
-	slices.Sort(exact)
-	exact = slices.Compact(exact)
-	slices.Sort(prefixes)
+	if len(swept.unresolved) != 0 {
+		t.Errorf("the sweep could not read %v", swept.unresolved)
+	}
+	exact, prefixes := sweptExactAndPrefixes(swept)
 
 	wantExact := []string{
-		"const_action", "edit_scene", "literal_action",
-		"local_action", "other_local_action", "var_action",
+		"const_action", "edit_scene", "literal_action", "local_action",
+		"model_literal_action", "other_local_action", "var_action",
 	}
 	if !slices.Equal(exact, wantExact) {
 		t.Errorf("exact actions = %v, want %v", exact, wantExact)
@@ -483,41 +656,74 @@ func f(s S, entityType string) {
 	}
 }
 
+// A WRAPPER'S PARAMETER IS REFUSED, NOT SUBSTITUTED.
+//
+// The scope is per function precisely so that this file cannot answer the
+// wrapper's action with a literal some other function binds to a variable of the
+// same name. A confident wrong answer here is worse than no guard at all: it
+// would report a disposition for an action nobody writes while the action that
+// IS written passes unexamined, including past the entity-request tripwire.
+func TestSweepRefusesAWrappersParameter(t *testing.T) {
+	swept := sweepSource(t, `package p
+
+func approve(s S, id uint) {
+	action := "approve_show"
+	s.LogAction(id, action, "show", id, nil)
+}
+
+func record(s S, actorID uint, action string, entityType string, id uint) {
+	s.LogAction(actorID, action, entityType, id, nil)
+}
+`)
+
+	exact, _ := sweptExactAndPrefixes(swept)
+	if !slices.Equal(exact, []string{"approve_show"}) {
+		t.Errorf("exact actions = %v, want [approve_show]: the wrapper's parameter must "+
+			"resolve to nothing, never to the other function's local", exact)
+	}
+	if len(swept.unresolved) != 1 {
+		t.Errorf("unresolved = %v, want exactly the wrapper's call site", swept.unresolved)
+	}
+}
+
+// A NAME THE FUNCTION RECEIVES IS REFUSED EVEN WHEN IT ALSO BINDS IT, so a name
+// used both ways fails loudly instead of resolving to half its values.
+func TestSweepRefusesAShadowedName(t *testing.T) {
+	swept := sweepSource(t, `package p
+
+func mixed(s S, action string, flag bool) {
+	if flag {
+		action = "reassigned_action"
+	}
+	s.LogAction(1, action, "artist", 1, nil)
+}
+`)
+
+	if len(swept.actions) != 0 {
+		t.Errorf("actions = %v, want none: the name is a parameter as well as an "+
+			"assignment target, so its full set of values is not knowable here", swept.actions)
+	}
+	if len(swept.unresolved) != 1 {
+		t.Errorf("unresolved = %v, want exactly the one call site", swept.unresolved)
+	}
+}
+
 // AN EXPRESSION THE SWEEP CANNOT READ ANSWERS FALSE, which is what turns an
 // unreadable call site into a failure rather than into a silent gap.
-func TestResolveActionExprRefusesWhatItCannotRead(t *testing.T) {
-	const src = `package p
+func TestSweepRefusesWhatItCannotRead(t *testing.T) {
+	swept := sweepSource(t, `package p
 
-func f(s S, action string) {
-	s.LogAction(1, action, "artist", 1, nil)
+func f(s S) {
 	s.LogAction(1, resolveIt(), "artist", 1, nil)
+	s.LogAction(1, someStruct.Field, "artist", 1, nil)
 }
-`
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "synthetic.go", src, 0)
-	if err != nil {
-		t.Fatalf("cannot parse the synthetic source: %v", err)
+`)
+
+	if len(swept.actions) != 0 {
+		t.Errorf("actions = %v, want none", swept.actions)
 	}
-	literals := stringLiteralsByIdent(file)
-
-	var refused int
-	ast.Inspect(file, func(node ast.Node) bool {
-		call, ok := node.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		selector, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok || selector.Sel.Name != "LogAction" {
-			return true
-		}
-		if _, ok := resolveActionExpr(call.Args[auditActionArgIndex], literals); !ok {
-			refused++
-		}
-		return true
-	})
-
-	if refused != 2 {
-		t.Errorf("refused %d unreadable actions, want 2: an unbound parameter and a call "+
-			"result are both actions the sweep must decline rather than guess at", refused)
+	if len(swept.unresolved) != 2 {
+		t.Errorf("refused %v, want two: a call result and a field selector are both "+
+			"actions the sweep must decline rather than guess at", swept.unresolved)
 	}
 }

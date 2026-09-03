@@ -859,14 +859,18 @@ func (h *EntityRequestHandler) fulfillAndRecord(ctx context.Context, req *commun
 // addSupersededMetadata records what a replacement overwrote onto the audit
 // row's metadata, and does nothing when there was no replacement (PSY-1978).
 //
-// NOTHING USER-AUTHORED GOES IN HERE. audit_logs.metadata is not a private
-// moderation artifact: GetContributionHistory selects it verbatim by actor_id
-// and /users/{username}/contributions serves that to an ANONYMOUS caller under
-// the default privacy settings. This row's actor is the REQUESTER, so anything
-// written here is published under their own username, unmoderated. What goes in
-// is therefore the superseded source_context (an enum, and this same metadata
-// already carries the live one), the payload's SHA-256 and byte length, and
-// whether a source detail existed.
+// NOTHING USER-AUTHORED GOES IN HERE, and the reason is a property of the
+// COLUMN rather than of any one reader. audit_logs.metadata has no per-row
+// access control of its own: what reaches a caller is whatever each reading
+// surface decides to project, and this row's actor is the REQUESTER, so anything
+// published from it is published under their own username. The contributions
+// timeline projects an allowlist and this action is not on it
+// (services/user/contributor_profile.go), which is a decision that surface can
+// revisit; it is not a guarantee this writer may lean on.
+//
+// What goes in is therefore the superseded source_context (an enum, and this
+// same metadata already carries the live one), the payload's SHA-256 and byte
+// length, and whether a source detail existed.
 //
 // A digest is what the ticket asks this record for: enough to tell that AI
 // provenance was dropped, and enough to identify a candidate payload as the one

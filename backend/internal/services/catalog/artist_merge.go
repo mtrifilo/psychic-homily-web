@@ -192,10 +192,12 @@ func lockMergeArtists(tx *gorm.DB, canonicalID, mergeFromID uint) (*catalogm.Art
 // Both tables move with editHistoryCarriesNoRedaction. The re-point cannot
 // change who can see this content, because neither read path is scoped by the
 // entity: pending-edit content reaches its submitter (GET /my/pending-edits,
-// scoped by submitted_by) and admins, and entity_edit_audit_logs.metadata is
-// served on the anonymous contributions feed scoped by ACTOR
-// (services/user/contributor_profile.go), not by entity_id. See the constant for
-// what has to change if either gains an entity-scoped gate.
+// scoped by submitted_by) and admins, and entity_edit_audit_logs rows are read
+// on the contributions feed scoped by ACTOR
+// (services/user/contributor_profile.go), not by entity_id — their metadata is
+// withheld there by the projection's allowlist, so only the row's existence and
+// its entity id are published. See the constant for what has to change if
+// either gains an entity-scoped gate.
 //
 // Split out rather than folded into the shared inventory so the decision is made
 // once, in the open, instead of being implied by a table's presence in a list.

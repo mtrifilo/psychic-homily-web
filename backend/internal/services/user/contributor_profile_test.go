@@ -2247,8 +2247,9 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: stranger.ID})
 	suite.Require().NoError(err)
 	suite.Require().Len(entries, 1, "the clone is public, so the contribution stays")
-	suite.NotContains(entries[0].Metadata, "source_slug")
-	suite.NotContains(entries[0].Metadata, "source_id")
+	suite.Nil(entries[0].Metadata,
+		"the two source keys are the only ones this action publishes, so scrubbing them "+
+			"must leave the field absent rather than an empty object")
 
 	own, _, err := suite.profileService.GetContributionHistory(
 		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: actor.ID})
@@ -2256,6 +2257,42 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	suite.Require().Len(own, 1)
 	suite.Equal(source.Slug, own[0].Metadata["source_slug"],
 		"the creator keeps the attribution to their own private source")
+}
+
+// A STALE FORK SLUG IS DROPPED EVEN WHEN THE SOURCE IS VISIBLE.
+//
+// clone_collection freezes the source's slug at clone time while the id beside
+// it keeps naming the source. A rename regenerates the slug and frees the old
+// string for another collection to claim, so publishing the frozen one names a
+// collection this row's gate never looked at. The id survives; the stale slug
+// does not.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_DropsAStaleCloneSourceSlug() {
+	actor := suite.createTestUser("staleslugactor")
+	stranger := suite.createTestUser("staleslugstranger")
+
+	source := suite.createCollectionForHistory(actor.ID, "Stale Source", "stale-source-history", true)
+	clone := suite.createCollectionForHistory(actor.ID, "Stale Clone", "stale-clone-history", true)
+	suite.auditLog.LogAction(actor.ID, "clone_collection", "collection", clone.ID,
+		map[string]interface{}{"source_slug": source.Slug, "source_id": source.ID})
+
+	// The source is renamed, and a DIFFERENT collection takes the freed slug.
+	suite.Require().NoError(suite.db.Model(&communitym.Collection{}).
+		Where("id = ?", source.ID).Update("slug", "stale-source-history-renamed").Error)
+	claimer := suite.createTestUser("staleslugclaimer")
+	suite.createCollectionForHistory(claimer.ID, "Claimed", "stale-source-history", false)
+
+	entries, _, err := suite.profileService.GetContributionHistory(
+		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: stranger.ID})
+	suite.Require().NoError(err)
+	suite.Require().Len(entries, 1, "the clone row is the only audited action here")
+	cloneRow := entries[0]
+	suite.Require().Equal(contributionCloneAction, cloneRow.Action)
+	suite.Require().NotNil(cloneRow.Metadata, "the source is visible, so the id survives")
+	suite.NotContains(cloneRow.Metadata, "source_slug",
+		"the frozen slug now names another collection and must not be published")
+	sourceID, ok := metadataUint(cloneRow.Metadata["source_id"])
+	suite.Require().True(ok)
+	suite.Equal(source.ID, sourceID, "the id still names the source it was recorded for")
 }
 
 // THE PROFILE'S COLLECTION COUNTS ARE NARROWED TOO, because they sit on the same
@@ -2783,7 +2820,14 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 			"entity_id":     gated.ID,
 		})
 	suite.auditLog.LogAction(actor.ID, "clone_collection", "collection", collection.ID,
-		map[string]interface{}{"source_slug": source.Slug, "source_id": source.ID})
+		map[string]interface{}{
+			"source_slug": source.Slug,
+			"source_id":   source.ID,
+			// NOT ALLOWLISTED, on the one action that publishes anything. This
+			// is what makes the assertion below about the per-key projection
+			// rather than about the action's presence in the map.
+			"source_creator_id": actor.ID,
+		})
 
 	// THE OWNER'S OWN VIEW, which is the widest tier this endpoint serves: the
 	// allowlist does not vary by viewer, so what the owner sees is the ceiling.
@@ -2822,6 +2866,8 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	sourceID, ok := metadataUint(cloneMetadata["source_id"])
 	suite.Require().True(ok, "source_id did not read back as an id")
 	suite.Equal(source.ID, sourceID)
+	suite.NotContains(cloneMetadata, "source_creator_id",
+		"an unlisted key on an action that publishes other keys must still be dropped")
 }
 
 // AN ACTION WITH NO ENTRY IN THE ALLOWLIST PUBLISHES NOTHING, which is the same

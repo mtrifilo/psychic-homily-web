@@ -753,15 +753,14 @@ var contributionEntityRequestActions = map[string]bool{
 	"rescue_void_entity_request":    true,
 }
 
-var contributionEntityRequestActionNames = slices.Sorted(maps.Keys(contributionEntityRequestActions))
-
-// contributionEntityRequestActionNames is the map's keys as the IN-list the
-// gate binds.
+// contributionEntityRequestActionNames is the map's keys as the IN-list the gate
+// binds.
 //
-// Built ONCE, at init: the set is a compile-time constant and the builder that
-// reads it runs three times per profile request. Sorted so a logged statement's
-// bind list can be compared between processes, which Go's randomised map
-// iteration would otherwise deny.
+// Built once, at package init, rather than per call: the set never changes after
+// init and three separate routes build the condition that reads it. Sorted so a
+// logged statement's bind list can be compared between processes, which Go's
+// randomised map iteration would otherwise deny.
+var contributionEntityRequestActionNames = slices.Sorted(maps.Keys(contributionEntityRequestActions))
 
 // =============================================================================
 // WHAT audit_logs.metadata MAY PUBLISH
@@ -771,8 +770,9 @@ var contributionEntityRequestActionNames = slices.Sorted(maps.Keys(contributionE
 // contributions timeline publishes, keyed by action. Every other key on every
 // other action is dropped.
 //
-// audit_logs.metadata is written by ~100 call sites across nine packages and is
-// served, verbatim before this map existed, by GET /users/{username}/contributions
+// audit_logs.metadata is written from over a hundred places across five handler
+// packages and three service packages, and is served, verbatim before this map
+// existed, by GET /users/{username}/contributions
 // — optional auth, `contributions` visible by default, so an ANONYMOUS caller
 // under the ACTOR's own username. Without an allowlist every writer decides by
 // accident what becomes public: an admin's rejection reason, a moderation note,
@@ -840,49 +840,51 @@ var contributionMetadataKeys = map[string][]string{
 	// serves, plus batch counters nobody reads. Withheld because the timeline
 	// resolves an entity's name through enrichEntityNames, which is gated,
 	// while these are copies frozen at write time behind no gate at all.
-	"create_artist":                     nil,
-	"add_artist_alias":                  nil,
-	"delete_artist_alias":               nil,
-	"merge_artists":                     nil,
-	"create_artist_relationship":        nil,
-	"delete_artist_relationship":        nil,
-	"derive_artist_relationships":       nil,
-	"create_festival":                   nil,
-	"delete_festival":                   nil,
-	"add_festival_artist":               nil,
-	"update_festival_artist":            nil,
-	"remove_festival_artist":            nil,
-	"add_festival_venue":                nil,
-	"remove_festival_venue":             nil,
-	"create_label":                      nil,
-	"delete_label":                      nil,
-	"add_artist_to_label":               nil,
-	"add_release_to_label":              nil,
-	"create_release":                    nil,
-	"delete_release":                    nil,
-	"add_release_link":                  nil,
-	"remove_release_link":               nil,
-	"create_tag":                        nil,
-	"update_tag":                        nil,
-	"delete_tag":                        nil,
-	"create_tag_alias":                  nil,
-	"delete_tag_alias":                  nil,
-	"bulk_import_tag_aliases":           nil,
-	"snooze_low_quality_tag":            nil,
-	"bulk_low_quality_tags":             nil,
-	"create_venue":                      nil,
-	"create_radio_station":              nil,
-	"update_radio_station":              nil,
-	"delete_radio_station":              nil,
-	"create_radio_show":                 nil,
-	"update_radio_show":                 nil,
-	"delete_radio_show":                 nil,
-	"trigger_radio_station_sync":        nil,
-	"trigger_radio_show_backfill":       nil,
-	"link_radio_play":                   nil,
-	"bulk_link_radio_plays":             nil,
-	"rematch_radio_plays":               nil,
-	"cancel_radio_sync_run":             nil,
+	"create_artist":               nil,
+	"add_artist_alias":            nil,
+	"delete_artist_alias":         nil,
+	"merge_artists":               nil,
+	"create_artist_relationship":  nil,
+	"delete_artist_relationship":  nil,
+	"derive_artist_relationships": nil,
+	"create_festival":             nil,
+	"delete_festival":             nil,
+	"add_festival_artist":         nil,
+	"update_festival_artist":      nil,
+	"remove_festival_artist":      nil,
+	"add_festival_venue":          nil,
+	"remove_festival_venue":       nil,
+	"create_label":                nil,
+	"delete_label":                nil,
+	"add_artist_to_label":         nil,
+	"add_release_to_label":        nil,
+	"create_release":              nil,
+	"delete_release":              nil,
+	"add_release_link":            nil,
+	"remove_release_link":         nil,
+	"create_tag":                  nil,
+	"update_tag":                  nil,
+	"delete_tag":                  nil,
+	"create_tag_alias":            nil,
+	"delete_tag_alias":            nil,
+	"bulk_import_tag_aliases":     nil,
+	"snooze_low_quality_tag":      nil,
+	"bulk_low_quality_tags":       nil,
+	"create_venue":                nil,
+	"create_radio_station":        nil,
+	"update_radio_station":        nil,
+	"delete_radio_station":        nil,
+	"create_radio_show":           nil,
+	"update_radio_show":           nil,
+	"delete_radio_show":           nil,
+	"trigger_radio_station_sync":  nil,
+	"trigger_radio_show_backfill": nil,
+	"link_radio_play":             nil,
+	"bulk_link_radio_plays":       nil,
+	"rematch_radio_plays":         nil,
+	"cancel_radio_sync_run":       nil,
+
+	// handlers/pipeline. A triage decision and the suggestion it acted on.
 	"update_streaming_discovery_status": nil,
 	"accept_link_suggestion":            nil,
 	"reject_link_suggestion":            nil,
@@ -919,6 +921,21 @@ var contributionMetadataKeys = map[string][]string{
 	"subscribe_comments":      nil,
 	"unsubscribe_comments":    nil,
 	"create_field_note":       nil,
+
+	// The SERVICE writers, which build the audit model directly rather than
+	// calling LogAction. Three of them carry a real actor id, so their rows
+	// reach a public timeline exactly like a LogAction row does: merge results
+	// name the losing entity and count what moved, and set_tag_parent names the
+	// parent it attached. The last three write no actor at all
+	// (services/admin/cleanup.go, services/admin/auto_promotion.go), so no
+	// timeline can select them; they are dispositioned anyway because the row
+	// that decides is the writer's, not the reader's.
+	"set_tag_parent":       nil,
+	"merge_tags":           nil,
+	"merge_venues":         nil,
+	"prune_downvoted_tags": nil,
+	"tier_promotion":       nil,
+	"tier_demotion":        nil,
 
 	// entity_edit_audit_logs, whose rows enter the union with a synthesised
 	// "edit_<entity_type>" action and their metadata intact. Four writers pass
@@ -1113,41 +1130,12 @@ func (s *ContributorProfileService) GetContributionHistory(userID uint, limit, o
 		auditQuery, showQuery, venueQuery, entityEditQuery, entityEditAuditQuery)
 
 	// The visibility gate, applied to the unified result so one condition covers
-	// every source. One arm per entity type that has a read-time rule:
-	// contributionShowEntityTypes are the two discriminators a show row can
-	// carry, and "collection" is the third. Anything else passes.
+	// every source. What it decides and why is contributionVisibilitySQL's own
+	// documentation, and it is not restated here: two copies of a gate's
+	// reasoning is one copy that stops being true.
 	//
-	// The collection arm reads entity_id TWO WAYS because the audit writers store
-	// two kinds of id under that discriminator, and contributionCollectionActions
-	// is the disposition of each. The CASE picks per row, so neither family is
-	// judged against the other's table, and an action with NO disposition answers
-	// FALSE rather than falling into whichever branch is written last.
-	//
-	// The item branch also accepts the parent named by the metadata's
-	// collection_id, because collection_items are hard-deleted and a
-	// remove_collection_item row names an item that no longer exists. An id is
-	// never reissued, so that reference stays true.
-	//
-	// A THIRD ARM CARRIES THE ROWS THAT RECORD NO USABLE collection_id, and it is
-	// keyed on the metadata SLUG. It selects the rows written before the writers
-	// recorded an id, and the rows that recorded the 0 sentinel, which names no
-	// collection and so passes the id arm no more than a missing key does.
-	// Without this arm every such row whose item has since been removed, which
-	// is every remove_collection_item row ever written since the item is deleted
-	// by definition, is withheld from its own author on a public collection, and
-	// from the total as well as the page. The slug's weakness is real (a rename
-	// frees the string, so a later collection can take it) and it is confined to
-	// this arm for that reason. The item writers now take the parent id from the
-	// service that authorised the write, so the arm takes no new rows.
-	//
-	// Parentheses written out rather than left to the driver, and the entity-type
-	// filter ANDed after: the binding this pins is
-	// `(not a show OR visible) AND (not a collection OR visible) AND type = x`,
-	// never a form where the trailing AND binds inside one of the ORs, which
-	// would publish every gated row.
-	//
-	// Placeholders bind by POSITION, so the arguments below are appended in
-	// statement order.
+	// The entity-type filter is ANDed AFTER it. Placeholders bind by POSITION,
+	// so the arguments below are appended in statement order.
 	filter, filterArgs := contributionVisibilitySQL("unified", viewer)
 	entityFilter := " WHERE " + filter
 	args = append(args, filterArgs...)
@@ -1231,17 +1219,22 @@ func (s *ContributorProfileService) scrubCloneSourceMetadata(entries []*contract
 	// The QUERY is skipped when no row names a source id; the delete loop below
 	// is not, because a row can carry source_slug with no usable source_id and
 	// the slug is the disclosure.
+	visibleSlugs := make(map[uint]string)
 	visibleIDs := make(map[uint]bool)
 	if len(sourceIDs) > 0 {
 		visible, visibleArgs := shared.VisibleCollectionPredicateSQL("collections", viewer)
-		var rows []struct{ ID uint }
+		var rows []struct {
+			ID   uint
+			Slug string
+		}
 		s.db.Table("collections").
-			Select("id").
+			Select("id, slug").
 			Where("id IN ?", sourceIDs).
 			Where(visible, visibleArgs...).
 			Scan(&rows)
 		for _, r := range rows {
 			visibleIDs[r.ID] = true
+			visibleSlugs[r.ID] = r.Slug
 		}
 	}
 
@@ -1255,6 +1248,14 @@ func (s *ContributorProfileService) scrubCloneSourceMetadata(entries []*contract
 		}
 		id, ok := metadataUint(e.Metadata["source_id"])
 		if ok && visibleIDs[id] {
+			// THE STORED SLUG IS FROZEN AT CLONE TIME and the id is not. A
+			// rename regenerates the slug and frees the old string for another
+			// collection to claim, so a stale one names a collection this gate
+			// never looked at. The id stays; the slug goes unless it still
+			// names the source it was recorded for.
+			if stored, isString := e.Metadata["source_slug"].(string); isString && stored != visibleSlugs[id] {
+				delete(e.Metadata, "source_slug")
+			}
 			continue
 		}
 		// An unreadable source id is removed on the same terms as a missing one,
