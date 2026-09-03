@@ -71,6 +71,16 @@ func TestIsEngagementMutationRequest(t *testing.T) {
 		{http.MethodPost, "/venues/42/confirm", true},
 		{http.MethodPost, "/artists/42/confirm", false},
 		{http.MethodGet, "/venues/42/confirm", false},
+		// PSY-1991 single entity-request file and withdraw. The batch route is
+		// deliberately absent: it carries up to 200 submissions and has its own
+		// budget, so matching it here would put a paste on the toggle budget.
+		{http.MethodPost, "/entity-requests", true},
+		{http.MethodPost, "/entity-requests/42/withdraw", true},
+		{http.MethodPost, EntityRequestBatchPath, false},
+		{http.MethodGet, "/entity-requests", false},
+		{http.MethodPost, "/entity-requests/42", false},
+		{http.MethodPost, "/admin/entity-requests", false},
+		{http.MethodPost, "/admin/entity-requests/42/decide", false},
 		// Reads and read-shaped helpers are NOT mutations.
 		{http.MethodGet, "/saved-shows/42", false},
 		{http.MethodGet, "/saved-shows", false},
@@ -311,4 +321,67 @@ func okRoutesHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
+}
+
+// PSY-1991: withdrawing frees the request's dedup key, so filing the same name
+// again is accepted. That loop is only bounded when BOTH halves spend from one
+// budget, which is why file and withdraw share the toggle counter rather than
+// getting one each.
+func TestEngagementMutationRateLimiter_FileAndWithdrawShareOneCounter(t *testing.T) {
+	jwtService := newEngagementJWTService()
+	token := engagementToken(t, jwtService, 1)
+	mw := EngagementMutationRateLimiter(jwtService, noAPITokens, enableEngagementEnv)
+	handler := mw(okRoutesHandler())
+
+	send := func(path string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.RemoteAddr = "7.7.7.20:100"
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		return rr
+	}
+
+	// One file plus one withdraw per cycle, so the burst window covers half as
+	// many cycles as it does single mutations.
+	cycles := middleware.EngagementMutationBurstPerMinute / 2
+	for i := 0; i < cycles; i++ {
+		if rr := send("/entity-requests"); rr.Code != http.StatusOK {
+			t.Fatalf("file %d within cap: status = %d, want 200", i, rr.Code)
+		}
+		if rr := send(fmt.Sprintf("/entity-requests/%d/withdraw", i+1)); rr.Code != http.StatusOK {
+			t.Fatalf("withdraw %d within cap: status = %d, want 200", i, rr.Code)
+		}
+	}
+	if rr := send("/entity-requests"); rr.Code != http.StatusTooManyRequests {
+		t.Errorf("file after %d file+withdraw cycles: status = %d, want 429 (one shared counter)", cycles, rr.Code)
+	}
+}
+
+// The same shared counter covers entity-request filing and the engagement
+// toggles, so a contributor cannot spend a fresh allowance on requests after
+// exhausting one on follows.
+func TestEngagementMutationRateLimiter_FileSharesTheToggleCounter(t *testing.T) {
+	jwtService := newEngagementJWTService()
+	token := engagementToken(t, jwtService, 1)
+	mw := EngagementMutationRateLimiter(jwtService, noAPITokens, enableEngagementEnv)
+	handler := mw(okRoutesHandler())
+
+	send := func(path string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.RemoteAddr = "7.7.7.21:100"
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		return rr
+	}
+
+	for i := 0; i < middleware.EngagementMutationBurstPerMinute; i++ {
+		if rr := send("/artists/1/follow"); rr.Code != http.StatusOK {
+			t.Fatalf("follow %d within cap: status = %d, want 200", i, rr.Code)
+		}
+	}
+	if rr := send("/entity-requests"); rr.Code != http.StatusTooManyRequests {
+		t.Errorf("file after the follow budget is spent: status = %d, want 429 (one shared counter)", rr.Code)
+	}
 }

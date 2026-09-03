@@ -65,7 +65,7 @@ import {
 } from '@/lib/hooks/common/useEntitySearch'
 import { useResolveCollectionItems } from '../hooks'
 import { getEntityTypeLabel, type CollectionEntityType } from '../types'
-import { apiRequest, API_ENDPOINTS } from '@/lib/api'
+import { apiRequest, API_ENDPOINTS, type ApiError } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { AICollectionFiller } from './AICollectionFiller'
 import {
@@ -242,6 +242,13 @@ interface PreviewRow {
    * `queued` on a failure, because the request they name still is.
    */
   withdrawError?: string
+  /**
+   * `queue_failed` rows only: why the filing never landed, when the server said.
+   * A batch request is refused as a whole, so every row it covered carries the
+   * same words. Absent for a failure that said nothing, such as a dropped
+   * connection, where the Retry is the whole of the message.
+   */
+  queueError?: string
 }
 
 /** Max candidates surfaced in an AMBIGUOUS line's [Pick] dropdown. */
@@ -335,7 +342,7 @@ export function parsePasteLine(line: string): ParsedPasteLine {
  */
 async function queueEntityRequestBatch(
   names: string[]
-): Promise<EntityRequestBatchResult[]> {
+): Promise<QueueBatchOutcome> {
   const results: EntityRequestBatchResult[] = []
   for (let sent = 0; sent < names.length; sent += QUEUE_BATCH_MAX_ITEMS) {
     const chunk = names.slice(sent, sent + QUEUE_BATCH_MAX_ITEMS)
@@ -354,7 +361,7 @@ async function queueEntityRequestBatch(
           }),
         }
       )
-    } catch {
+    } catch (err) {
       // A failed chunk RESOLVES with what the earlier ones answered rather than
       // rejecting. Rejecting would mark every row failed, including the ones
       // already filed, and retrying those would file replacements the
@@ -362,7 +369,7 @@ async function queueEntityRequestBatch(
       // queue_failed, which is exactly the rows this chunk and the ones after it
       // cover. Stopping is deliberate: the next chunk is one more request at the
       // same server the last one just failed against.
-      break
+      return { results, stoppedReason: queueFailureReason(err) }
     }
     // Each chunk indexes from zero, so the offset restores the caller's own
     // positions and the results read as one list.
@@ -370,7 +377,38 @@ async function queueEntityRequestBatch(
       results.push({ ...result, index: result.index + sent })
     }
   }
-  return results
+  return { results }
+}
+
+/**
+ * What a chunk's failure leaves for the rows it covered, alongside whatever the
+ * earlier chunks did answer. `stoppedReason` is undefined when the run finished,
+ * and also when a failure carried nothing worth showing.
+ */
+interface QueueBatchOutcome {
+  results: EntityRequestBatchResult[]
+  stoppedReason?: string
+}
+
+/**
+ * The words a row gets when its chunk never landed (PSY-1991).
+ *
+ * A 429 is the case worth naming: the batch route has a per-request budget, so a
+ * paste large enough to split can exhaust it partway and leave its tail unfiled.
+ * Saying so is what keeps those rows from reading as ordinary in-flight work.
+ * `retryAfter` is absent whenever CORS does not expose the header, so the copy
+ * has to read without it.
+ *
+ * Every other failure returns undefined: the row already offers a Retry, and a
+ * generic restatement of "it failed" beside it is noise.
+ */
+function queueFailureReason(err: unknown): string | undefined {
+  const status = (err as ApiError | undefined)?.status
+  if (status !== 429) return undefined
+  const retryAfter = (err as ApiError).retryAfter
+  return retryAfter !== undefined
+    ? `Too many requests. Nothing was filed for this line — retry in ${retryAfter}s.`
+    : 'Too many requests. Nothing was filed for this line — wait a moment and retry.'
 }
 
 /**
@@ -663,7 +701,7 @@ function usePastePreview(pasteText: string): {
         new Map(entries.map((e) => [e.index, next]))
 
       return queueEntityRequestBatch(order).then(
-        (results) => {
+        ({ results, stoppedReason }) => {
           const byIndex = new Map(results.map((r) => [r.index, r]))
           // The verdict already reported for a request id, so a second item that
           // landed on the same row repeats it instead of claiming a correction.
@@ -675,15 +713,17 @@ function usePastePreview(pasteText: string): {
             let patch: Partial<PreviewRow>
             if (!result) {
               // An item with no result was neither filed nor refused, so the row
-              // says the request did not land and stays retryable.
-              patch = { status: 'queue_failed' }
+              // says the request did not land and stays retryable, carrying the
+              // reason the run stopped when there was one.
+              patch = { status: 'queue_failed', queueError: stoppedReason }
             } else if (result.status === 'refused') {
               patch =
                 result.error_status !== undefined && result.error_status >= 500
-                  ? { status: 'queue_failed' }
+                  ? { status: 'queue_failed', queueError: undefined }
                   : {
                       status: 'queue_refused',
                       refusal: result.error ?? undefined,
+                      queueError: undefined,
                     }
             } else {
               const id = result.id ?? undefined
@@ -693,6 +733,7 @@ function usePastePreview(pasteText: string): {
                 replaced: result.status === 'replaced',
                 requestId: id,
                 withdrawError: undefined,
+                queueError: undefined,
               }
               if (id !== undefined && seen === undefined) {
                 verdictByRequest.set(id, patch)
@@ -707,7 +748,11 @@ function usePastePreview(pasteText: string): {
         // rejecting, so reaching here means it threw for a reason it does not
         // handle. Every row settles retryable, which is the safe reading of an
         // answer nobody got.
-        () => updateRows(generation, settleAll({ status: 'queue_failed' }))
+        (err) =>
+          updateRows(
+            generation,
+            settleAll({ status: 'queue_failed', queueError: queueFailureReason(err) })
+          )
       )
     },
     [updateRows]
@@ -1466,13 +1511,18 @@ function PasteModePane({
     (r) => r.status === 'loading' || r.status === 'searching'
   ).length
   const ambiguousCount = previewRows.filter((r) => r.status === 'ambiguous').length
-  // Queued + queuing + queue_failed all count toward "for review" — the line
-  // had no match and is (or will be) an admin-reviewable request.
+  // Queued + queuing count toward "for review": the line had no match and either
+  // is an admin-reviewable request or has one in flight.
   const queuedCount = previewRows.filter(
-    (r) =>
-      r.status === 'queued' ||
-      r.status === 'queuing' ||
-      r.status === 'queue_failed'
+    (r) => r.status === 'queued' || r.status === 'queuing'
+  ).length
+  // A row whose filing failed gets its own tally rather than joining "for
+  // review". Nothing was stored for it, so counting it there tells the user an
+  // admin will see a line no admin will (PSY-1991) — the same reasoning that
+  // gives a refused line its own count below. It stays retryable, and the tally
+  // is what says how many lines the Retry is for.
+  const queueFailedCount = previewRows.filter(
+    (r) => r.status === 'queue_failed'
   ).length
   // A withdrawn line has left the review queue, so it leaves that tally too;
   // counting it there would promise an admin will see something nobody will.
@@ -1541,6 +1591,7 @@ function PasteModePane({
               loadingCount > 0 && `${loadingCount} resolving`,
               ambiguousCount > 0 && `${ambiguousCount} need a pick`,
               queuedCount > 0 && `${queuedCount} for review`,
+              queueFailedCount > 0 && `${queueFailedCount} not filed`,
               refusedCount > 0 && `${refusedCount} refused`,
               withdrawnCount > 0 && `${withdrawnCount} withdrawn`,
               unresolvedCount > 0 && `${unresolvedCount} unresolved`,
@@ -1783,6 +1834,17 @@ function PastePreviewRow({
           </Badge>
         )}
       </div>
+
+      {/* Why a filing never landed, on the rows it covered. A batch request is
+          refused whole, so identical copy on each of them is the truth. */}
+      {row.queueError && (
+        <p
+          className="ml-10 mt-1.5 text-xs text-destructive"
+          data-testid="add-items-picker-paste-row-queue-error"
+        >
+          {row.queueError}
+        </p>
+      )}
 
       {/* A failed withdrawal, on every row naming the request it was for. The
           rows are still queued, so the message is the only thing that changed. */}

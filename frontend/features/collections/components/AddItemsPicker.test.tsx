@@ -1126,6 +1126,120 @@ describe('AddItemsPicker', () => {
     ).toHaveLength(1)
   }, 20000)
 
+  // PSY-1991: the batch route has a per-request budget, so a paste large enough
+  // to split can exhaust it partway. The rows the 429 covered were never filed,
+  // so they must say so and must NOT sit in the "for review" tally telling the
+  // contributor an admin will see them.
+  it('Paste mode: a 429 on a later chunk is reported on the rows it did not file', async () => {
+    const lines = Array.from({ length: 201 }, (_, i) => `Junk Line ${i}`)
+    let call = 0
+    mockApiRequest.mockImplementation(async (...args: unknown[]) => {
+      call += 1
+      if (call === 2) {
+        throw Object.assign(new Error('Rate limit exceeded'), {
+          status: 429,
+          retryAfter: 45,
+        })
+      }
+      return batchAnswer(args)
+    })
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await user.click(screen.getByTestId('tab-paste'))
+    await pasteInto(user, lines.join('\n'))
+
+    await waitFor(
+      () =>
+        expect(
+          screen.getAllByTestId('add-items-picker-paste-row-queued')
+        ).toHaveLength(200),
+      { timeout: 10000 }
+    )
+
+    const errors = screen.getAllByTestId('add-items-picker-paste-row-queue-error')
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toHaveTextContent('retry in 45s')
+    // The unfiled line is retryable and counted apart from the filed ones.
+    expect(
+      screen.getAllByTestId('add-items-picker-paste-row-retry-queue')
+    ).toHaveLength(1)
+    const summary = screen.getByTestId('add-items-picker-paste-summary')
+    expect(summary).toHaveTextContent('200 for review')
+    expect(summary).toHaveTextContent('1 not filed')
+    expect(summary).not.toHaveTextContent('201 for review')
+  }, 20000)
+
+  // Retry-After is unreadable across origins in production, so the copy has to
+  // read without it rather than printing an empty countdown.
+  it('Paste mode: a 429 with no Retry-After still names the reason', async () => {
+    mockApiRequest.mockImplementation(async () => {
+      throw Object.assign(new Error('Rate limit exceeded'), { status: 429 })
+    })
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await user.click(screen.getByTestId('tab-paste'))
+    await pasteInto(user, 'Junk Line')
+
+    const error = await screen.findByTestId(
+      'add-items-picker-paste-row-queue-error'
+    )
+    expect(error).toHaveTextContent('Too many requests')
+    expect(error).not.toHaveTextContent('undefined')
+    const summary = screen.getByTestId('add-items-picker-paste-summary')
+    expect(summary).toHaveTextContent('1 not filed')
+    expect(summary).not.toHaveTextContent('for review')
+  })
+
+  // A failure the server said nothing about is not dressed up: the row keeps its
+  // Retry and adds no message, which is what it did before PSY-1991.
+  it('Paste mode: a non-429 failure adds no message beside the Retry', async () => {
+    mockApiRequest.mockImplementation(async () => {
+      throw new Error('network down')
+    })
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await user.click(screen.getByTestId('tab-paste'))
+    await pasteInto(user, 'Junk Line')
+
+    expect(
+      await screen.findByTestId('add-items-picker-paste-row-retry-queue')
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByTestId('add-items-picker-paste-row-queue-error')
+    ).not.toBeInTheDocument()
+  })
+
+  // A retry that succeeds clears the rate-limit message with the failure it
+  // described: a stale reason beside a filed row is a false statement.
+  it('Paste mode: a successful retry clears the rate-limit message', async () => {
+    let call = 0
+    mockApiRequest.mockImplementation(async (...args: unknown[]) => {
+      call += 1
+      if (call === 1) {
+        throw Object.assign(new Error('Rate limit exceeded'), {
+          status: 429,
+          retryAfter: 30,
+        })
+      }
+      return batchAnswer(args)
+    })
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await user.click(screen.getByTestId('tab-paste'))
+    await pasteInto(user, 'Junk Line')
+
+    await user.click(
+      await screen.findByTestId('add-items-picker-paste-row-retry-queue')
+    )
+
+    expect(
+      await screen.findByTestId('add-items-picker-paste-row-queued')
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByTestId('add-items-picker-paste-row-queue-error')
+    ).not.toBeInTheDocument()
+  })
+
   // PSY-2005: an item the server refused is terminal for that line, so it says
   // why and offers no Retry, while its siblings are filed regardless.
   it('Paste mode: a refused item reports its reason and never blocks its siblings', async () => {

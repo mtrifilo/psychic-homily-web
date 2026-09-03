@@ -29,11 +29,11 @@ func TestRateLimitEngagementMutationSustained_ReturnsMiddleware(t *testing.T) {
 // without sending 60 requests. The sustained window stays generous so only the
 // burst limiter trips here.
 func engagementMW(jwtService *auth.JWTService) func(http.Handler) http.Handler {
-	burst := httprate.Limit(1, time.Minute, httprate.WithKeyFuncs(engagementUserKeyFunc),
+	burst := httprate.Limit(1, time.Minute, httprate.WithKeyFuncs(mutationUserKeyFunc),
 		httprate.WithLimitHandler(RateLimitExceededHandler))
-	sustained := httprate.Limit(1000, time.Hour, httprate.WithKeyFuncs(engagementUserKeyFunc),
+	sustained := httprate.Limit(1000, time.Hour, httprate.WithKeyFuncs(mutationUserKeyFunc),
 		httprate.WithLimitHandler(RateLimitExceededHandler))
-	return RateLimitEngagementMutationsByUser(jwtService, burst, sustained)
+	return RateLimitMutationsByUser(jwtService, burst, sustained)
 }
 
 func mutationReq(remoteAddr, bearer string) *http.Request {
@@ -58,7 +58,7 @@ func mkEngagementToken(t *testing.T, jwtService *auth.JWTService, id uint) strin
 
 // An authenticated user is metered per-user: past the burst cap the same user
 // is 429'd with a Retry-After header (the AC's "61st mutation → 429", scaled).
-func TestRateLimitEngagementMutationsByUser_AuthenticatedIsPerUserLimited(t *testing.T) {
+func TestRateLimitMutationsByUser_AuthenticatedIsPerUserLimited(t *testing.T) {
 	jwtService := newTestJWTService()
 	token := mkEngagementToken(t, jwtService, 42)
 	handler := engagementMW(jwtService)(okHandler())
@@ -78,14 +78,14 @@ func TestRateLimitEngagementMutationsByUser_AuthenticatedIsPerUserLimited(t *tes
 // BOTH windows are enforced: with a generous burst but a tiny sustained cap, the
 // second mutation trips the SUSTAINED (hour) limiter — proving it is actually
 // chained, not just the burst window (policy: stricter of the two wins).
-func TestRateLimitEngagementMutationsByUser_SustainedWindowEnforced(t *testing.T) {
+func TestRateLimitMutationsByUser_SustainedWindowEnforced(t *testing.T) {
 	jwtService := newTestJWTService()
 	token := mkEngagementToken(t, jwtService, 42)
-	burst := httprate.Limit(1000, time.Minute, httprate.WithKeyFuncs(engagementUserKeyFunc),
+	burst := httprate.Limit(1000, time.Minute, httprate.WithKeyFuncs(mutationUserKeyFunc),
 		httprate.WithLimitHandler(RateLimitExceededHandler))
-	sustained := httprate.Limit(1, time.Hour, httprate.WithKeyFuncs(engagementUserKeyFunc),
+	sustained := httprate.Limit(1, time.Hour, httprate.WithKeyFuncs(mutationUserKeyFunc),
 		httprate.WithLimitHandler(RateLimitExceededHandler))
-	handler := RateLimitEngagementMutationsByUser(jwtService, burst, sustained)(okHandler())
+	handler := RateLimitMutationsByUser(jwtService, burst, sustained)(okHandler())
 
 	if rr := serve(handler, mutationReq("9.9.9.9:1000", token)); rr.Code != http.StatusOK {
 		t.Fatalf("first mutation: status = %d, want 200", rr.Code)
@@ -99,7 +99,7 @@ func TestRateLimitEngagementMutationsByUser_SustainedWindowEnforced(t *testing.T
 // a save path, a follow on a DIFFERENT path from the same user is still 429'd.
 // (Routing to distinct handlers is proven at the routes level; here the wrapper
 // keys purely on user id, so any two in-scope requests share the bucket.)
-func TestRateLimitEngagementMutationsByUser_SaveAndFollowShareCounter(t *testing.T) {
+func TestRateLimitMutationsByUser_SaveAndFollowShareCounter(t *testing.T) {
 	jwtService := newTestJWTService()
 	token := mkEngagementToken(t, jwtService, 7)
 	handler := engagementMW(jwtService)(okHandler())
@@ -117,7 +117,7 @@ func TestRateLimitEngagementMutationsByUser_SaveAndFollowShareCounter(t *testing
 
 // Two different users each get their own bucket — a per-user key, not a shared
 // one — even on the same IP.
-func TestRateLimitEngagementMutationsByUser_UsersDoNotCollide(t *testing.T) {
+func TestRateLimitMutationsByUser_UsersDoNotCollide(t *testing.T) {
 	jwtService := newTestJWTService()
 	tokenA := mkEngagementToken(t, jwtService, 42)
 	tokenB := mkEngagementToken(t, jwtService, 99)
@@ -136,7 +136,7 @@ func TestRateLimitEngagementMutationsByUser_UsersDoNotCollide(t *testing.T) {
 // Unauthenticated requests pass through untouched (no user id to key on; the
 // downstream JWT middleware 401s them). They are NOT collapsed into a shared
 // bucket, so an anonymous flood can't 429 a legitimate authenticated user.
-func TestRateLimitEngagementMutationsByUser_UnauthenticatedPassesThrough(t *testing.T) {
+func TestRateLimitMutationsByUser_UnauthenticatedPassesThrough(t *testing.T) {
 	handler := engagementMW(newTestJWTService())(okHandler())
 
 	for i := 0; i < 5; i++ {
@@ -150,7 +150,7 @@ func TestRateLimitEngagementMutationsByUser_UnauthenticatedPassesThrough(t *test
 // — httprate turns the key-func error into a 428 — rather than silently keying
 // every request into one shared bucket. A detectable misuse, not a site-wide
 // budget.
-func TestRateLimitEngagementMutationsByUser_StandaloneLimiterFailsLoud(t *testing.T) {
+func TestRateLimitMutationsByUser_StandaloneLimiterFailsLoud(t *testing.T) {
 	handler := RateLimitEngagementMutationBurst()(okHandler())
 	rr := serve(handler, mutationReq("9.9.9.9:1000", ""))
 	if rr.Code != http.StatusPreconditionRequired {

@@ -13,10 +13,11 @@ import (
 )
 
 // Engagement-mutation rate-limit ceilings (PSY-1482; policy locked in PSY-1460).
-// ONE shared per-user budget covers show/release save+unsave AND entity/scene
-// follow+unfollow — the same inline UX burst on Broadsheet chart rows, so a
-// separate budget per action would just invite "rotate which button to spam."
-// A request must clear BOTH windows (stricter wins).
+// ONE shared per-user budget covers show/release save+unsave, entity/scene
+// follow+unfollow, venue confirm, and single entity-request file+withdraw — the
+// same inline UX burst on Broadsheet chart rows, so a separate budget per action
+// would just invite "rotate which button to spam." A request must clear BOTH
+// windows (stricter wins).
 const (
 	// EngagementMutationBurstPerMinute caps short bursts at ~1/sec — enough to
 	// walk a Top-100 drill-down with inline saves/follows, far below scraper
@@ -29,25 +30,50 @@ const (
 	EngagementMutationSustainedPerHour = 600
 )
 
-// engagementUserIDKey is the context key under which
-// RateLimitEngagementMutationsByUser stashes the authenticated user id so the
+// Entity-request BATCH ceilings (PSY-1991). Its own per-user budget, separate
+// from the shared one above, because one batch request carries up to
+// community.maxEntityRequestSubmissions submissions while every mutation on the
+// shared budget carries exactly one. Metering is per REQUEST, so these numbers
+// bound requests and not filed rows; the row bound is the endpoint's own
+// per-request item cap plus its per-item dedup.
+//
+// Both numbers are read off the paste flow that drives the endpoint. The picker
+// splits a paste into chunks of its QUEUE_BATCH_MAX_ITEMS (200, the endpoint's
+// cap), so a 600-line paste is 3 back-to-back requests and a full retry of it is
+// 3 more; AICollectionFiller files one row per click from the same session, at
+// human click rate. Halving the shared burst window leaves 5x headroom over that
+// 6-request paste while keeping the 1:10 burst-to-sustained ratio the shared
+// budget uses.
+const (
+	// EntityRequestBatchBurstPerMinute caps back-to-back batch requests from one
+	// user. A paste larger than 30 chunks (6000 zero-result lines) 429s its tail,
+	// which the picker reports on the rows it did not file.
+	EntityRequestBatchBurstPerMinute = 30
+
+	// EntityRequestBatchSustainedPerHour caps scripted paste churn without biting
+	// a contributor working through a long AI-extracted list one row at a time.
+	EntityRequestBatchSustainedPerHour = 300
+)
+
+// mutationUserIDKey is the context key under which
+// RateLimitMutationsByUser stashes the authenticated user id so the
 // per-user limiters' key func can read it without re-parsing the token. It is
 // deliberately distinct from the public-read limiter's key so the two never
 // share a bucket even though both key "user:<id>".
-type engagementUserIDKey struct{}
+type mutationUserIDKey struct{}
 
-// engagementUserKeyFunc keys the engagement limiters by the user id
-// RateLimitEngagementMutationsByUser stashes in context. If the value is absent
+// mutationUserKeyFunc keys every per-user mutation limiter by the user id
+// RateLimitMutationsByUser stashes in context. If the value is absent
 // it FAILS LOUD (httprate turns a key-func error into a 428) rather than
 // silently keying every request into one shared bucket — so mounting a bare
-// engagement limiter without the wrapper that sets the id is a detectable
+// per-user limiter without the wrapper that sets the id is a detectable
 // misuse, not a single site-wide budget.
-func engagementUserKeyFunc(r *http.Request) (string, error) {
-	uid, ok := r.Context().Value(engagementUserIDKey{}).(uint)
+func mutationUserKeyFunc(r *http.Request) (string, error) {
+	uid, ok := r.Context().Value(mutationUserIDKey{}).(uint)
 	if !ok {
 		return "", fmt.Errorf(
-			"engagementUserKeyFunc: no authenticated user id in context; " +
-				"engagement limiters must be mounted via RateLimitEngagementMutationsByUser")
+			"mutationUserKeyFunc: no authenticated user id in context; " +
+				"per-user mutation limiters must be mounted via RateLimitMutationsByUser")
 	}
 	return "user:" + strconv.FormatUint(uint64(uid), 10), nil
 }
@@ -55,33 +81,60 @@ func engagementUserKeyFunc(r *http.Request) (string, error) {
 // RateLimitEngagementMutationBurst is the per-USER burst limiter:
 // EngagementMutationBurstPerMinute per user id (NOT per IP), so shared-IP
 // logged-in users each get their own bucket. Pair with
-// RateLimitEngagementMutationsByUser, which supplies the user id via context.
+// RateLimitMutationsByUser, which supplies the user id via context.
 func RateLimitEngagementMutationBurst() func(http.Handler) http.Handler {
 	return httprate.Limit(
 		EngagementMutationBurstPerMinute,
 		time.Minute,
-		httprate.WithKeyFuncs(engagementUserKeyFunc),
+		httprate.WithKeyFuncs(mutationUserKeyFunc),
 		httprate.WithLimitHandler(RateLimitExceededHandler),
 	)
 }
 
 // RateLimitEngagementMutationSustained is the per-USER sustained limiter:
 // EngagementMutationSustainedPerHour per user id. Chained INSIDE the burst
-// limiter (see the ORDER note on RateLimitEngagementMutationsByUser).
+// limiter (see the ORDER note on RateLimitMutationsByUser).
 func RateLimitEngagementMutationSustained() func(http.Handler) http.Handler {
 	return httprate.Limit(
 		EngagementMutationSustainedPerHour,
 		time.Hour,
-		httprate.WithKeyFuncs(engagementUserKeyFunc),
+		httprate.WithKeyFuncs(mutationUserKeyFunc),
 		httprate.WithLimitHandler(RateLimitExceededHandler),
 	)
 }
 
-// RateLimitEngagementMutationsByUser meters authenticated engagement-toggle
-// mutations (save/follow) against a SHARED per-user budget: it stashes the user
-// id from the verified session JWT into context and routes the request through
-// burstLimiter (minute) OUTER and sustainedLimiter (hour) INNER — a request
-// must clear both.
+// RateLimitEntityRequestBatchBurst is the per-USER burst limiter for the
+// entity-request batch route: EntityRequestBatchBurstPerMinute per user id. Its
+// own httprate store, so a paste session and the shared engagement budget never
+// draw on one counter. Pair with RateLimitMutationsByUser.
+func RateLimitEntityRequestBatchBurst() func(http.Handler) http.Handler {
+	return httprate.Limit(
+		EntityRequestBatchBurstPerMinute,
+		time.Minute,
+		httprate.WithKeyFuncs(mutationUserKeyFunc),
+		httprate.WithLimitHandler(RateLimitExceededHandler),
+	)
+}
+
+// RateLimitEntityRequestBatchSustained is the per-USER sustained limiter for the
+// entity-request batch route: EntityRequestBatchSustainedPerHour per user id.
+// Chained INSIDE the burst limiter (see the ORDER note on
+// RateLimitMutationsByUser).
+func RateLimitEntityRequestBatchSustained() func(http.Handler) http.Handler {
+	return httprate.Limit(
+		EntityRequestBatchSustainedPerHour,
+		time.Hour,
+		httprate.WithKeyFuncs(mutationUserKeyFunc),
+		httprate.WithLimitHandler(RateLimitExceededHandler),
+	)
+}
+
+// RateLimitMutationsByUser meters an authenticated mutation against a per-user
+// budget: it stashes the user id from the verified session JWT into context and
+// routes the request through burstLimiter (minute) OUTER and sustainedLimiter
+// (hour) INNER — a request must clear both. Which budget that is comes from the
+// limiters passed in: callers sharing one pair of limiters share one bucket,
+// callers passing their own pair get their own.
 //
 // UNAUTHENTICATED requests PASS THROUGH untouched: these endpoints sit behind a
 // JWT middleware that 401s anonymous callers anyway, and the policy meters per
@@ -89,8 +142,9 @@ func RateLimitEngagementMutationSustained() func(http.Handler) http.Handler {
 // avoids keying a "user:0" bucket for requests that can never mutate.
 //
 // This is the per-user CORE only. Admin / validated-API-token BYPASS is layered by
-// wrapping this in SkipRateLimitForAdmin (see routes.EngagementMutationRateLimiter),
-// reusing that audited helper rather than re-deriving the bypass condition here.
+// wrapping this in SkipRateLimitForAdmin (see routes.EngagementMutationRateLimiter
+// and routes.EntityRequestBatchRateLimiter), reusing that audited helper rather
+// than re-deriving the bypass condition here.
 //
 // ORDER — burst OUTER, sustained INNER: httprate increments a limiter's counter
 // only when the request clears that limiter's own limit. With burst OUTER, a
@@ -99,12 +153,12 @@ func RateLimitEngagementMutationSustained() func(http.Handler) http.Handler {
 // hour budget. Both windows are keyed by the SAME user, so unlike the
 // public-read per-IP ceiling there is no cross-user collateral either way; this
 // order just matches the policy doc (outer = minute burst).
-func RateLimitEngagementMutationsByUser(jwtService *auth.JWTService, burstLimiter, sustainedLimiter func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+func RateLimitMutationsByUser(jwtService *auth.JWTService, burstLimiter, sustainedLimiter func(http.Handler) http.Handler) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		limited := burstLimiter(sustainedLimiter(next))
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if uid, ok := sessionUserID(jwtService, r); ok {
-				ctx := context.WithValue(r.Context(), engagementUserIDKey{}, uid)
+				ctx := context.WithValue(r.Context(), mutationUserIDKey{}, uid)
 				limited.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
