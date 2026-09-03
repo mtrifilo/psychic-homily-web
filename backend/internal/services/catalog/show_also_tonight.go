@@ -29,7 +29,7 @@ const showAlsoTonightCap = 20
 //     reader in Berlin opening a Chicago show page is asking what else is on that
 //     night in Chicago, and a 21:00 Chicago set is already the next UTC day.
 //   - The clock is the ROOM's own zone when it has one, and the metro's modal
-//     clock otherwise (see alsoTonightLocation for why that order and not the
+//     clock otherwise (see alsoTonightClock for why that order and not the
 //     reverse).
 //   - The window is a strict calendar day, [start, end), taken from the same
 //     calendarDate arithmetic the scene-day page uses — not the 6am night
@@ -64,8 +64,7 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 	// EVERY blank-city venue in the state, plus a "---il" slug that resolves to
 	// nothing.
 	if strings.TrimSpace(subject.VenueCity) == "" || strings.TrimSpace(subject.VenueState) == "" {
-		venueLoc, venueZone := subject.venueZone()
-		return emptyAlsoTonight(subject, venueLoc, venueZone), nil
+		return emptyAlsoTonight(subject), nil
 	}
 
 	scope := s.scopeFor(subject.VenueCity, subject.VenueState)
@@ -74,7 +73,7 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 	// answers. Passing it back into GetSceneShowsInRange re-resolves the SAME
 	// scope, which is how every other scene caller addresses a metro.
 	city, state := metroDisplayIdentity(scope.metro, scope.city, scope.state)
-	loc, zone := s.alsoTonightZone(subject, scope, state)
+	loc, zone := s.alsoTonightClock(subject, scope, state)
 
 	// Half-open [start, end), both ends from the CALENDAR — see calendarDate.start
 	// for why this is not `time.Date(..., 0, 0, 0, 0, loc)`.
@@ -96,8 +95,7 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 		// otherwise perfectly serveable.
 		var sceneErr *apperrors.SceneError
 		if errors.As(err, &sceneErr) && sceneErr.Code == apperrors.CodeSceneNotFound {
-			venueLoc, venueZone := subject.venueZone()
-			return emptyAlsoTonight(subject, venueLoc, venueZone), nil
+			return emptyAlsoTonight(subject), nil
 		}
 		return nil, err
 	}
@@ -153,7 +151,7 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 	}, nil
 }
 
-// alsoTonightZone is the clock this show's date is read on, plus the zone name
+// alsoTonightClock is the clock this show's date is read on, plus the zone name
 // the rail may publish: the room's own zone when it has one, otherwise the
 // metro's modal clock.
 //
@@ -169,7 +167,7 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 // The room's own column cannot be wrong about the room. Where the two disagree
 // the metro straddles a zone boundary, and the show's own night is the thing
 // worth getting right.
-func (s *SceneService) alsoTonightZone(subject *alsoTonightSubject, scope sceneScope, state string) (*time.Location, *string) {
+func (s *SceneService) alsoTonightClock(subject *alsoTonightSubject, scope sceneScope, state string) (*time.Location, *string) {
 	if strings.TrimSpace(subject.VenueTimezone) != "" {
 		return subject.venueZone()
 	}
@@ -281,7 +279,8 @@ func (s *SceneService) resolveAlsoTonightSubject(idOrSlug string) (*alsoTonightS
 // in the best zone available, and nothing else. Scene identity is deliberately
 // left blank rather than filled with the venue's raw city, so a client cannot
 // render a "see all" link to a scene page that would 404.
-func emptyAlsoTonight(subject *alsoTonightSubject, loc *time.Location, zone *string) *contracts.ShowAlsoTonightResponse {
+func emptyAlsoTonight(subject *alsoTonightSubject) *contracts.ShowAlsoTonightResponse {
+	loc, zone := subject.venueZone()
 	return &contracts.ShowAlsoTonightResponse{
 		Date:     dateOf(subject.EventDate.In(loc)).String(),
 		Timezone: zone,

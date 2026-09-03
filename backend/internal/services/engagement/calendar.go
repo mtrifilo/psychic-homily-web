@@ -19,7 +19,6 @@ import (
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
-	"psychic-homily-backend/internal/utils"
 )
 
 // icalLocalTimeFormat is RFC 5545's "date with local time" layout
@@ -354,9 +353,9 @@ func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]by
 // answer, so it is still published; duration has no representation in a
 // DATE-valued event and is dropped with the hour it belonged to.
 func setVenueLocalEventTimes(event *ics.VEvent, start time.Time, duration time.Duration, venueTimezone *string, venueState string) {
-	loc := utils.EventLocation(venueTimezone, venueState)
+	loc, resolved := shared.EventLocationResolved(venueTimezone, venueState)
 
-	if !shared.IsShowTimezoneResolved(venueTimezone, venueState) {
+	if !resolved {
 		localStart := start.In(loc)
 		event.SetAllDayStartAt(localStart)
 		event.SetAllDayEndAt(localStart.AddDate(0, 0, 1))

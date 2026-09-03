@@ -1516,9 +1516,9 @@ func (m *MockEmailService) SendAccountRecoveryEmail(toEmail string, token string
 	}
 	return nil
 }
-func (m *MockEmailService) SendShowReminderEmail(toEmail string, showTitle string, showURL string, unsubscribeURL string, event contracts.LocalizedEventTime, venues []string) error {
+func (m *MockEmailService) SendShowReminderEmail(toEmail string, showTitle string, showURL string, unsubscribeURL string, eventTime contracts.LocalizedEventTime, venues []string) error {
 	if m.SendShowReminderEmailFn != nil {
-		return m.SendShowReminderEmailFn(toEmail, showTitle, showURL, unsubscribeURL, event, venues)
+		return m.SendShowReminderEmailFn(toEmail, showTitle, showURL, unsubscribeURL, eventTime, venues)
 	}
 	return nil
 }

@@ -23,6 +23,7 @@ import { queryKeys } from '@/lib/queryClient'
 import {
   formatShowDate,
   formatShowTime,
+  isShowTimezoneResolved,
   resolveShowTimezone,
 } from '@/lib/utils/formatters'
 import { formatTimeInTimezone } from '@/lib/utils/timeUtils'
@@ -96,21 +97,22 @@ function SubmissionShowCard({
   const startTime = formatShowTime(
     show.event_date,
     show.state,
-    show.venues?.[0]?.timezone
+    venue?.timezone
   )
   // The clock the SUBMITTER typed, read back on the same fallback the submit
   // path wrote it under, so this is a round trip rather than a second guess.
   //
-  // Shown only where the row is actionable, and labelled, because it is the one
-  // hour the site refuses to publish: an unlabelled clock here would make the
-  // same claim the show page withholds. Someone who can edit the venue is
-  // exactly who can turn it back into a fact, and the fix is the venue's zone,
-  // not the show's time.
+  // Shown only where the row is actionable, and labelled IN WORDS rather than
+  // with `showPageDate`'s `~`: that marker says a printed value is an estimate,
+  // and this is the opposite claim — an exact wall time whose ZONE is unknown,
+  // which is why it is the one hour the site refuses to publish. Someone who can
+  // edit the venue is exactly who can turn it back into a fact, and the fix is
+  // the venue's zone, not the show's time.
   const unresolvedZoneStartTime =
-    canManage && startTime === null
+    canManage && !isShowTimezoneResolved(show.state, venue?.timezone)
       ? formatTimeInTimezone(
           show.event_date,
-          resolveShowTimezone(show.state, show.venues?.[0]?.timezone)
+          resolveShowTimezone(show.state, venue?.timezone)
         )
       : null
 

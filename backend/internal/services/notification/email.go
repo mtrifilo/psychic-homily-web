@@ -242,15 +242,16 @@ const (
 // contracts.LocalizedEventTime): naming an hour there would state a time read
 // off the Arizona fallback, which for a non-US room is wrong by hours. The date
 // carries the whole line on its own in that case.
-func (s *EmailService) SendShowReminderEmail(toEmail, showTitle, showURL, unsubscribeURL string, event contracts.LocalizedEventTime, venues []string) error {
+func (s *EmailService) SendShowReminderEmail(toEmail, showTitle, showURL, unsubscribeURL string, eventTime contracts.LocalizedEventTime, venues []string) error {
 	if !s.IsConfigured() {
 		return fmt.Errorf("email service is not configured")
 	}
 
-	formattedDate := event.At.Format(showReminderDateOnlyLayout)
-	if event.ZoneResolved {
-		formattedDate = event.At.Format(showReminderDateTimeLayout)
+	dateLayout := showReminderDateOnlyLayout
+	if eventTime.ZoneResolved {
+		dateLayout = showReminderDateTimeLayout
 	}
+	formattedDate := eventTime.At.Format(dateLayout)
 	venueText := ""
 	if len(venues) > 0 {
 		venueText = fmt.Sprintf(`<p style="font-size: 16px; color: #444;">Venue: <strong>%s</strong></p>`, strings.Join(venues, ", "))

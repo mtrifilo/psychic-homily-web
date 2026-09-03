@@ -27,25 +27,23 @@ const (
 	discordShowDateTimeLayout = "Jan 2, 2006 3:04 PM"
 )
 
-// showResponseZone resolves the event-time location for a ShowResponse from its
+// showResponseClock resolves the event-time location for a ShowResponse from its
 // first venue's timezone, falling back to the show's state, and reports whether
 // that zone is one the site knows. Show notifications previously formatted the
 // raw UTC instant, so an evening US show (e.g. 8 PM Central, stored as 01:00Z
 // the next day) rendered as "1:00 AM" on the wrong date. (PSY-996)
-func showResponseZone(show *contracts.ShowResponse) (*time.Location, bool) {
+func showResponseClock(show *contracts.ShowResponse) (*time.Location, bool) {
 	if len(show.Venues) > 0 {
-		return utils.EventLocation(show.Venues[0].Timezone, show.Venues[0].State),
-			shared.IsShowTimezoneResolved(show.Venues[0].Timezone, show.Venues[0].State)
+		return shared.EventLocationResolved(show.Venues[0].Timezone, show.Venues[0].State)
 	}
-	state := derefString(show.State)
-	return utils.EventLocation(nil, state), shared.IsShowTimezoneResolved(nil, state)
+	return shared.EventLocationResolved(nil, derefString(show.State))
 }
 
 // discordShowDate is the show's calendar date on the room's own clock. Always
 // printed: the fallback's day is the best available answer even when the zone
 // behind it is a guess.
 func discordShowDate(show *contracts.ShowResponse) string {
-	loc, _ := showResponseZone(show)
+	loc, _ := showResponseClock(show)
 	return show.EventDate.In(loc).Format(discordShowDateLayout)
 }
 
@@ -53,11 +51,12 @@ func discordShowDate(show *contracts.ShowResponse) string {
 // knows. For a room outside the US map with no stored zone the hour would be the
 // Arizona fallback's reading, wrong by hours, so the line stops at the date.
 func discordShowDateTime(show *contracts.ShowResponse) string {
-	loc, resolved := showResponseZone(show)
-	if !resolved {
-		return show.EventDate.In(loc).Format(discordShowDateLayout)
+	loc, resolved := showResponseClock(show)
+	layout := discordShowDateLayout
+	if resolved {
+		layout = discordShowDateTimeLayout
 	}
-	return show.EventDate.In(loc).Format(discordShowDateTimeLayout)
+	return show.EventDate.In(loc).Format(layout)
 }
 
 // derefString returns the pointed-to string, or "" when nil.

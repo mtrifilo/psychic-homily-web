@@ -70,7 +70,7 @@ type SceneDigestGroup struct {
 //
 // The flag travels WITH the instant rather than beside it so a caller cannot
 // localize on one input and decide publishability on another.
-// shared.IsShowTimezoneResolved answers it.
+// shared.EventLocationResolved answers it.
 type LocalizedEventTime struct {
 	At           time.Time
 	ZoneResolved bool
@@ -86,7 +86,7 @@ type EmailServiceInterface interface {
 	SendVerificationEmail(toEmail, token string) error
 	SendMagicLinkEmail(toEmail, token string) error
 	SendAccountRecoveryEmail(toEmail, token string, daysRemaining int) error
-	SendShowReminderEmail(toEmail, showTitle, showURL, unsubscribeURL string, event LocalizedEventTime, venues []string) error
+	SendShowReminderEmail(toEmail, showTitle, showURL, unsubscribeURL string, eventTime LocalizedEventTime, venues []string) error
 	SendFilterNotificationEmail(toEmail, subject, htmlBody, unsubscribeURL string) error
 	// Each takes an HMAC-signed unsubscribeURL (RFC 8058 one-click).
 	SendTierPromotionEmail(toEmail, username, oldTier, newTier, reason, unsubscribeURL string, newPermissions []string) error

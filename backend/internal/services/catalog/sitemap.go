@@ -673,9 +673,13 @@ func (s *SitemapService) sceneWeekEntries(ctx context.Context) ([]contracts.Site
 	return entries, nil
 }
 
-// sceneLocation mirrors SceneService.sceneLocation: modal verified-venue
-// timezone, falling back to the state map. Duplicated rather than shared so
-// SitemapService does not grow a SceneService dependency for one query.
+// sceneLocation mirrors the LOCATION half of SceneService.sceneLocation: modal
+// verified-venue timezone, falling back to the state map. Duplicated rather than
+// shared so SitemapService does not grow a SceneService dependency for one query.
+//
+// It returns no publishable zone name, because a sitemap names no zone: its
+// dates are lastmod stamps read on the best clock available, and a surrendered
+// fallback is still the best clock for that.
 func (s *SitemapService) sceneLocation(scope sceneScope, state string) *time.Location {
 	if s.db == nil {
 		return utils.EventLocation(nil, state)

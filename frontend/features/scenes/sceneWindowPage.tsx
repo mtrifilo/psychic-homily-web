@@ -91,11 +91,11 @@ export const getSceneWindow = cache(
     // best available answer, and it is the same day every other surface files
     // this scene's nights under. Only a CLOCK is refused on the fallback.
     //
-    // The remaining fallback is UTC's date, NOT the week's first day, for a
-    // zone string the runtime cannot load at all: anchoring on the week's Monday
-    // would put up to six already-finished nights at the top of a window whose
-    // label promises the ones ahead, which is the exact dishonesty the rolling
-    // bound exists to prevent. UTC's date is within a day of any scene's.
+    // The trailing UTC date is defence only: `resolveShowTimezone` answers with
+    // a zone `Intl` accepts in every branch. It is UTC's date rather than the
+    // week's Monday because anchoring on the Monday would put up to six
+    // already-finished nights at the top of a window whose label promises the
+    // ones ahead.
     const bucketZone = resolveShowTimezone(first.state, timezone)
     const tonight = sceneTonightDate(now, bucketZone) ?? calendarDateInZone(now, 'UTC')
 

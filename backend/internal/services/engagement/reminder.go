@@ -15,7 +15,6 @@ import (
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
-	"psychic-homily-backend/internal/utils"
 )
 
 // Default reminder check interval (30 minutes)
@@ -187,9 +186,10 @@ func (s *ReminderService) runReminderCycle() {
 		if locState == "" && row.State != nil {
 			locState = *row.State
 		}
+		loc, zoneResolved := shared.EventLocationResolved(info.timezone, locState)
 		localizedEvent := contracts.LocalizedEventTime{
-			At:           row.EventDate.In(utils.EventLocation(info.timezone, locState)),
-			ZoneResolved: shared.IsShowTimezoneResolved(info.timezone, locState),
+			At:           row.EventDate.In(loc),
+			ZoneResolved: zoneResolved,
 		}
 
 		showURL := fmt.Sprintf("%s/shows/%s", s.frontendURL, row.ShowSlug)

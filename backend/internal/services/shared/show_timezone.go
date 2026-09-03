@@ -6,11 +6,12 @@ import (
 	"psychic-homily-backend/internal/utils"
 )
 
-// IsShowTimezoneResolved reports whether a show can be given a zone the site
-// actually KNOWS, rather than the America/Phoenix default utils.EventLocation
-// surrenders to.
+// EventLocationResolved resolves the location a show's date and time are read
+// on, and reports whether that location is one the site actually KNOWS rather
+// than the America/Phoenix default utils.EventLocation surrenders to.
 //
-// It is the Go twin of the frontend's isShowTimezoneResolved
+// The location it returns is utils.EventLocation's, branch for branch. The
+// second value is the Go twin of the frontend's isShowTimezoneResolved
 // (frontend/lib/utils/formatters.ts) and answers the same question on the same
 // two inputs: a venue timezone the runtime can load, or a state the US map
 // carries. The two implementations are kept in step by hand, exactly as
@@ -28,43 +29,37 @@ import (
 // have to keep.
 //
 // A non-US state is never inferred from: "England" is not in the map, and
-// GetTimezoneForState answers America/Phoenix for it, which is the whole defect
-// this predicate exists to catch.
-func IsShowTimezoneResolved(timezone *string, stateFallback string) bool {
+// GetTimezoneForState answers America/Phoenix for it, which is the defect this
+// exists to catch.
+//
+// Both halves come from ONE call so a caller cannot read a date on one input
+// and decide publishability on another, and so time.LoadLocation runs at most
+// once per row: the explicit zone is loaded here rather than being loaded to
+// build the location and probed again to answer the question.
+func EventLocationResolved(timezone *string, stateFallback string) (*time.Location, bool) {
 	if timezone != nil && *timezone != "" {
-		if _, err := time.LoadLocation(*timezone); err == nil {
-			return true
+		if loc, err := time.LoadLocation(*timezone); err == nil {
+			return loc, true
 		}
 		// A malformed IANA string is not an answer; fall through to the state
 		// map, which is where utils.EventLocation goes next.
 	}
-	return utils.HasTimezoneForState(stateFallback)
+	return utils.EventLocation(nil, stateFallback), utils.HasTimezoneForState(stateFallback)
 }
 
-// PublishedZone is the zone name a payload may carry alongside a show's
-// instant: the location's own name when the zone is known, nil when the
-// resolution surrendered to the fallback.
+// EventZone is the payload form: the location a date is read on, and the zone
+// NAME a payload may publish beside it.
 //
-// nil rather than the empty string, because a client's gate is a presence check
-// and "" would pass a naive one while a missing key cannot. An absent zone is
-// the signal to withhold the clock; the date still renders, on whatever the
-// client's own fallback resolves to.
-func PublishedZone(loc *time.Location, resolved bool) *string {
-	if !resolved || loc == nil {
-		return nil
+// The name is nil exactly when EventLocationResolved says no. nil rather than
+// the empty string, because a client's gate is a presence check and "" would
+// pass a naive one while a missing key cannot. An absent zone is the signal to
+// withhold the clock; the date still renders, on whatever the client's own
+// fallback resolves to.
+func EventZone(timezone *string, stateFallback string) (*time.Location, *string) {
+	loc, resolved := EventLocationResolved(timezone, stateFallback)
+	if !resolved {
+		return loc, nil
 	}
 	name := loc.String()
-	return &name
-}
-
-// EventZone resolves both halves at once for a caller holding a venue's own
-// columns: the location its date and time are read on, and the zone name the
-// payload may publish.
-//
-// One call rather than two, so the location and the nullable name cannot be
-// derived from different inputs, and so time.LoadLocation runs once per row
-// rather than twice.
-func EventZone(timezone *string, stateFallback string) (*time.Location, *string) {
-	loc := utils.EventLocation(timezone, stateFallback)
-	return loc, PublishedZone(loc, IsShowTimezoneResolved(timezone, stateFallback))
+	return loc, &name
 }

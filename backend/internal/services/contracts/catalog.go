@@ -1626,10 +1626,7 @@ type SceneWeekDay struct {
 // rooms, not an exhaustive listing, so the page must name the rooms it draws
 // from rather than implying it lists everything happening in the city.
 //
-// Timezone is NULL when the scene has no zone the site knows, on the same rule
-// SceneDayResponse states: the week's dates are still computed and served on the
-// Arizona default, and the null zone is what tells a client not to build an hour
-// on the same guess.
+// Timezone is NULL under the rule SceneDayResponse states in full.
 type SceneWeekResponse struct {
 	Slug      string  `json:"slug"`
 	SceneName string  `json:"scene_name"` // "City, ST"
@@ -1842,12 +1839,9 @@ type ShowAlsoTonightResponse struct {
 	// A strict calendar date, so a 00:30 set files under the date it starts on.
 	// "Tonight" is a different question, answered by IsTonight.
 	Date string `json:"date"`
-	// Timezone is the IANA zone the date and its window were computed in.
-	//
-	// NULL when neither the subject room nor the metro answers with a zone the
-	// site knows. Date is still served, computed on the Arizona default, because
-	// a fallback DAY is the best available answer; the null zone is what tells a
-	// client not to build an HOUR on the same guess.
+	// Timezone is the IANA zone the date and its window were computed in, NULL
+	// when neither the subject room nor the metro names one. Same rule
+	// SceneDayResponse states in full.
 	Timezone *string `json:"timezone"`
 	// IsTonight says this date is the one a reader standing in the scene right
 	// now would call "tonight" — which is NOT simply Date == today. Until 06:00
@@ -1874,16 +1868,14 @@ type ShowAlsoTonightResponse struct {
 // link to it, and read its date on the right clock.
 //
 // Timezone is RESOLVED, never the venue's raw nullable column: each entry names
-// a different room, so a client that received the column would have to redo
-// utils.EventLocation's timezone-then-state fallback per entry to avoid printing
-// a Berlin date on a Phoenix clock. The server already holds both inputs, so it
-// answers once.
+// a different room, so a client that received the column would have to redo the
+// timezone-then-state fallback per entry to avoid printing a Berlin date on a
+// Phoenix clock. The server already holds both inputs, so it answers once
+// (shared.EventZone).
 //
-// NULL when neither input answers — a room with no stored zone in a state
-// outside the US map. That is a refusal, not a gap the client should fill: the
-// only zone left is the Arizona default, and an hour read off it is wrong by
-// hours for the non-US rooms this case is made of. A client renders the DATE
-// (its own fallback day is still the best answer) and no clock.
+// NULL when neither input answers, under the rule SceneDayResponse states in
+// full. That is a refusal, not a gap the client should fill: a client renders
+// the DATE and no clock.
 //
 // VenueSlug and ShowSlug can be empty: both columns are nullable, and a client
 // must render an empty slug as unlinked text rather than building `/venues/`,
