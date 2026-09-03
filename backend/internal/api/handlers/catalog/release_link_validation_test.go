@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -111,6 +112,59 @@ func (s *ReleaseHandlerIntegrationSuite) TestAddExternalLink_AcceptsEveryRegiste
 		resp, err := s.handler.AddExternalLinkHandler(ctx, req)
 		s.Require().NoError(err, "platform %s", tc.platform)
 		s.Equal(tc.platform, resp.Body.Platform)
+	}
+}
+
+// TestExternalLinkAuditRecordsThePair pins the audit entries as an evidence
+// trail rather than a counter. release_external_links carries no created_by and
+// a removal hard-deletes the row, so the add entry is the only record of who put
+// a URL under a platform label, and the remove entry's link_id is the only thing
+// that ties a deletion back to it.
+func (s *ReleaseHandlerIntegrationSuite) TestExternalLinkAuditRecordsThePair() {
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	release := s.createReleaseViaService("Audited Link Album")
+	ctx := testhelpers.CtxWithUser(admin)
+
+	// The handler logs from a goroutine, so the assertions read from a channel.
+	entries := make(chan map[string]interface{}, 4)
+	audit := &testhelpers.MockAuditLogService{
+		LogActionFn: func(_ uint, action, _ string, _ uint, metadata map[string]interface{}) {
+			if action == "add_release_link" || action == "remove_release_link" {
+				entries <- metadata
+			}
+		},
+	}
+	handler := NewReleaseHandler(s.deps.ReleaseService, s.deps.ArtistService, audit, nil)
+
+	addReq := &AddExternalLinkRequest{ReleaseID: fmt.Sprintf("%d", release.ID)}
+	addReq.Body.Platform = "bandcamp"
+	addReq.Body.URL = "https://kingbuffalo.bandcamp.com/album/regenerator"
+	addResp, err := handler.AddExternalLinkHandler(ctx, addReq)
+	s.Require().NoError(err)
+
+	added := s.nextAuditEntry(entries)
+	s.Equal("bandcamp", added["platform"])
+	s.Equal("https://kingbuffalo.bandcamp.com/album/regenerator", added["url"])
+	s.EqualValues(addResp.Body.ID, added["link_id"])
+
+	_, err = handler.RemoveExternalLinkHandler(ctx, &RemoveExternalLinkRequest{
+		ReleaseID: fmt.Sprintf("%d", release.ID),
+		LinkID:    fmt.Sprintf("%d", addResp.Body.ID),
+	})
+	s.Require().NoError(err)
+
+	removed := s.nextAuditEntry(entries)
+	s.EqualValues(addResp.Body.ID, removed["link_id"])
+}
+
+func (s *ReleaseHandlerIntegrationSuite) nextAuditEntry(entries chan map[string]interface{}) map[string]interface{} {
+	s.T().Helper()
+	select {
+	case metadata := <-entries:
+		return metadata
+	case <-time.After(10 * time.Second):
+		s.Require().Fail("no audit entry was logged")
+		return nil
 	}
 }
 

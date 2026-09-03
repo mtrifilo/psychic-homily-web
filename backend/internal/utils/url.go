@@ -372,13 +372,13 @@ func ValidateSocialHost(field, fieldName, value string) error {
 	if err != nil {
 		return nil
 	}
-	if hostMatchesBase(strings.ToLower(u.Hostname()), bases) {
+	if hostMatchesAnyBase(strings.ToLower(u.Hostname()), bases) {
 		return nil
 	}
 	return fmt.Errorf("%s must be a link on %s", fieldName, strings.Join(bases, " or "))
 }
 
-// hostMatchesBase reports whether an already-lowercased host equals one of the
+// hostMatchesAnyBase reports whether an already-lowercased host equals one of the
 // bases or is a subdomain of one.
 //
 // The leading dot is load-bearing: it rejects "notbandcamp.com" and
@@ -391,7 +391,7 @@ func ValidateSocialHost(field, fieldName, value string) error {
 // before reaching here, because Go and a browser can read one differently;
 // ValidateSocialHost does not. A caller reaching for this helper inherits the
 // suffix rule and nothing else.
-func hostMatchesBase(host string, bases []string) bool {
+func hostMatchesAnyBase(host string, bases []string) bool {
 	for _, base := range bases {
 		if host == base || strings.HasSuffix(host, "."+base) {
 			return true

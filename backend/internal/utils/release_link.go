@@ -86,7 +86,21 @@ var releaseLinkPlatformHosts = map[string][]string{
 // separator, U+00AD is deleted outright. Restricting the host to the bytes a
 // real platform host is made of removes every one of those cases instead of
 // reimplementing UTS-46 in Go.
-var asciiHostRe = regexp.MustCompile(`^[a-z0-9.-]+$`)
+//
+// It accepts both cases and is applied to the host AS PARSED, before any
+// folding. Lowercasing first would defeat it: strings.ToLower uses simple case
+// mapping, so "EVİL.bandcamp.com" (U+0130) folds to the pure-ASCII
+// "evil.bandcamp.com" and sails through, while the browser punycodes the same
+// input to "xn--evil-swc.bandcamp.com". Two different Bandcamp accounts from one
+// stored string.
+var asciiHostRe = regexp.MustCompile(`^[A-Za-z0-9.-]+$`)
+
+// asciiPlatformRe is the same rule for the platform key, and for the same
+// reason: every key in the registry is ASCII, and folding before checking lets
+// U+0130 in "TİDAL" reach the table as "tidal" here while JavaScript's
+// SpecialCasing folds it to "ti̇dal" and finds nothing. That row would be stored
+// with a 201 and render no link at all.
+var asciiPlatformRe = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
 
 // ReleaseLinkPlatforms returns every platform a release link may name, sorted.
 //
@@ -96,18 +110,23 @@ func ReleaseLinkPlatforms() []string {
 	return slices.Sorted(maps.Keys(releaseLinkPlatformHosts))
 }
 
-// ReleaseLinkPlatformHosts returns the host bases allowlisted for a platform,
+// ReleaseLinkHostsFor returns the host bases allowlisted for a platform,
 // and whether the platform is known at all.
 //
 // The lookup lowercases but does NOT trim: the enrichment writer's dedup index
 // is on LOWER(platform), so the system has always treated "Bandcamp" and
 // "bandcamp" as one platform, while a padded value is a different string that
-// would be stored padded and looked up by nothing.
+// would be stored padded and looked up by nothing. Non-ASCII is refused before
+// the fold, so the two languages cannot fold the same key to different strings
+// (see asciiPlatformRe).
 //
 // The returned slice is a copy: the table is a security allowlist in a leaf
 // package everything imports, so a caller holding the live slice could widen it
 // for the whole process.
-func ReleaseLinkPlatformHosts(platform string) ([]string, bool) {
+func ReleaseLinkHostsFor(platform string) ([]string, bool) {
+	if !asciiPlatformRe.MatchString(platform) {
+		return nil, false
+	}
 	bases, ok := releaseLinkPlatformHosts[strings.ToLower(platform)]
 	if !ok {
 		return nil, false
@@ -148,6 +167,12 @@ func ReleaseLinkPlatformHosts(platform string) ([]string, bool) {
 //   - http or https only, matching the scheme rule every other URL field in
 //     this codebase applies. Everything else (javascript:, data:, mailto:) is
 //     refused.
+//   - No userinfo. No real platform URL carries any, and the release card prints
+//     the stored URL as its caption, truncated from the right, so
+//     "https://your-account-is-suspended.example.com@open.spotify.com/album/x"
+//     reads as another domain with the real host cut off. The href was never the
+//     problem there; the label plus the visible text was, which is why the
+//     render gate refuses it too rather than treating it as a lenient case.
 //   - The host is ASCII-only in the [a-z0-9.-] set, so the suffix anchor means
 //     the same thing to Go and to a browser (see asciiHostRe).
 //   - No label spelled in punycode. Go treats "xn--" as four ordinary bytes,
@@ -179,7 +204,7 @@ func ValidateReleaseLink(platform, rawURL string) error {
 	if strings.TrimSpace(rawURL) == "" {
 		return fmt.Errorf("%s is required", releaseLinkURLLabel)
 	}
-	bases, known := ReleaseLinkPlatformHosts(platform)
+	bases, known := ReleaseLinkHostsFor(platform)
 	if !known {
 		return fmt.Errorf(
 			"%s must be one of: %s (got %q)",
@@ -214,10 +239,14 @@ func isAnchoredPlatformURL(rawURL string, bases []string) bool {
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return false
 	}
-	host := strings.ToLower(u.Hostname())
-	if !asciiHostRe.MatchString(host) {
+	if u.User != nil {
 		return false
 	}
+	// Checked BEFORE the fold; see asciiHostRe.
+	if !asciiHostRe.MatchString(u.Hostname()) {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
 	for _, label := range strings.Split(host, ".") {
 		if strings.HasPrefix(label, punycodePrefix) {
 			return false
@@ -230,7 +259,7 @@ func isAnchoredPlatformURL(rawURL string, bases []string) bool {
 			return false
 		}
 	}
-	return hostMatchesBase(host, bases)
+	return hostMatchesAnyBase(host, bases)
 }
 
 const (

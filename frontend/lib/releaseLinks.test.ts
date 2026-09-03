@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
 
 import {
+  OFFERED_RELEASE_LINK_PLATFORM_KEYS,
   MAX_RELEASE_LINK_URL_LENGTH,
   RELEASE_LINK_PLATFORMS,
   RELEASE_LINK_PLATFORM_KEYS,
@@ -65,6 +66,24 @@ describe('cross-language corpus (the write gate and this gate are one rule)', ()
     }
   )
 
+  // The third edge of the mirror, and the one that was missing: the write-side
+  // hint has to refuse EVERYTHING the write gate refuses, or it green-lights a
+  // value the server 422s. Driving only the render gate through the corpus is
+  // how four UTS-46 rows sat approved by the hint with both suites green.
+  it.each(corpus.refused.map((c) => [c.platform, c.url, c.why] as const))(
+    'the write-side hint refuses %s %s (%s)',
+    (platform, url) => {
+      expect(releaseLinkRefusal({ platform, url })).not.toBeNull()
+    }
+  )
+
+  it.each(corpus.renderable.map((c) => [c.platform, c.url] as const))(
+    'the write-side hint accepts anything the backend will store: %s %s',
+    (platform, url) => {
+      expect(releaseLinkRefusal({ platform, url })).toBeNull()
+    }
+  )
+
   const mustAlsoRefuse = corpus.refused.filter((c) => c.alsoRefusedByReader)
   it.each(mustAlsoRefuse.map((c) => [c.platform, c.url, c.why] as const))(
     'refuses %s %s (%s)',
@@ -113,12 +132,13 @@ describe('the write-side hint and the render gate', () => {
 })
 
 describe('isRenderableReleaseLink', () => {
-  // String.trim() strips these; the URL parser does not, so the href would be a
-  // relative path that lands nowhere. Certifying it would be worse than hiding it.
+  // String.trim() strips these; the URL parser does not. Leading, that makes the
+  // whole value unparseable, so certifying it would render an href that lands
+  // same-origin on a 404. Trailing is conservative: one rule for both.
   it.each([
     ['non-breaking space', '\u00A0'],
     ['byte order mark', '\uFEFF'],
-  ])('refuses a URL padded with a %s, which a browser will not follow', (_name, pad) => {
+  ])('refuses a URL padded with a %s, which the URL parser does not strip', (_name, pad) => {
     expect(
       isRenderableReleaseLink({
         platform: 'bandcamp',
@@ -246,6 +266,23 @@ describe('releaseLinkRefusal', () => {
         url: 'https://kingbuffalo.bandcamp.com/album/ok',
       })
     ).toBeNull()
+  })
+})
+
+// Which platforms the pickers offer is a product decision, not a consequence of
+// the registry, so it is pinned by name. The picker tests derive their
+// expectation FROM this flag, so without this nothing would notice it moving.
+describe('the offered subset', () => {
+  it('is the seven the picker carried before this registry existed', () => {
+    expect(OFFERED_RELEASE_LINK_PLATFORM_KEYS).toEqual([
+      'bandcamp',
+      'spotify',
+      'apple_music',
+      'youtube',
+      'discogs',
+      'tidal',
+      'soundcloud',
+    ])
   })
 })
 

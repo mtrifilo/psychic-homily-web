@@ -61,9 +61,9 @@ export interface ReleaseExternalLink {
  *
  * Derived from `RELEASE_LINK_PLATFORMS`, the registry the render gate and the
  * backend write gate both read, so the picker cannot offer a platform the
- * backend refuses. It offers the registry's `offered` subset rather than all of
- * it: a platform whose anchor would refuse the URLs a curator can actually
- * paste has no business in a dropdown.
+ * backend refuses. It offers that registry's `offered` subset rather than all
+ * of it, because the accepted set is wider than the set a curator is invited to
+ * type; which platforms are offered is decided at the registry.
  */
 export const EXTERNAL_LINK_PLATFORMS = OFFERED_RELEASE_LINK_PLATFORM_KEYS.map(
   value => ({

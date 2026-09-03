@@ -320,7 +320,13 @@ function LinkAddRow({
         </Button>
       </div>
 
-      {refusal && <p className="text-sm text-destructive">{refusal}</p>}
+      {/* role="alert" because the refusal appears while typing, after the field
+          already has focus, so nothing else would announce it. */}
+      {refusal && (
+        <p role="alert" className="text-sm text-destructive">
+          {refusal}
+        </p>
+      )}
     </>
   )
 }

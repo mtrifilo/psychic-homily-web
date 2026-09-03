@@ -600,11 +600,15 @@ func (h *ReleaseHandler) RemoveExternalLinkHandler(ctx context.Context, req *Rem
 		)
 	}
 
-	// Audit log (fire and forget)
+	// Audit log (fire and forget). The row is hard-deleted, so link_id is what
+	// ties this entry to the add entry that recorded the platform and the URL;
+	// without it a removal leaves no way to say what was removed.
 	if h.auditLogService != nil {
 		releaseID, _ := strconv.ParseUint(req.ReleaseID, 10, 32)
 		servicesshared.GoSafe(ctx, "audit_log", func() {
-			h.auditLogService.LogAction(user.ID, "remove_release_link", "release", uint(releaseID), nil)
+			h.auditLogService.LogAction(user.ID, "remove_release_link", "release", uint(releaseID), map[string]interface{}{
+				"link_id": linkID,
+			})
 		})
 	}
 

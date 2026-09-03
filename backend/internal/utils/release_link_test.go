@@ -71,24 +71,36 @@ func TestReleaseLinkCorpusPinsTheRegistry(t *testing.T) {
 	assert.ElementsMatch(t, ReleaseLinkPlatforms(), slices.Collect(maps.Keys(corpus.Platforms)),
 		"the corpus and the Go registry name different platforms")
 	for platform, wantHosts := range corpus.Platforms {
-		gotHosts, ok := ReleaseLinkPlatformHosts(platform)
+		gotHosts, ok := ReleaseLinkHostsFor(platform)
 		if assert.True(t, ok, "corpus platform %q is missing from the Go registry", platform) {
 			assert.ElementsMatch(t, wantHosts, gotHosts,
 				"host anchors disagree for %q", platform)
 		}
 	}
+
+	// Registry membership alone is not enough. A platform with no `renderable`
+	// case has hosts that neither parser is ever run against, so the anchor is
+	// unpoliced and a later removal is silent in both languages.
+	exercised := map[string]bool{}
+	for _, c := range corpus.Renderable {
+		exercised[strings.ToLower(c.Platform)] = true
+	}
+	for _, platform := range ReleaseLinkPlatforms() {
+		assert.True(t, exercised[platform],
+			"platform %q has no renderable corpus case, so its hosts are never exercised", platform)
+	}
 }
 
-// TestReleaseLinkPlatformHostsIsNotMutable pins the copy in the accessor. The
+// TestReleaseLinkHostsForIsNotMutable pins the copy in the accessor. The
 // table is a security allowlist in a leaf package everything imports, so a
 // caller holding the live slice could widen it for the whole process.
-func TestReleaseLinkPlatformHostsIsNotMutable(t *testing.T) {
-	hosts, ok := ReleaseLinkPlatformHosts("bandcamp")
+func TestReleaseLinkHostsForIsNotMutable(t *testing.T) {
+	hosts, ok := ReleaseLinkHostsFor("bandcamp")
 	require.True(t, ok)
 	hosts[0] = "evil.test"
 
 	assert.Error(t, ValidateReleaseLink("bandcamp", "https://evil.test/album/x"))
-	again, _ := ReleaseLinkPlatformHosts("bandcamp")
+	again, _ := ReleaseLinkHostsFor("bandcamp")
 	assert.Equal(t, []string{"bandcamp.com"}, again)
 }
 

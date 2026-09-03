@@ -50,9 +50,11 @@ import {
 } from '../lib/collectionGraphNeighbors'
 
 // The finders live in lib/releaseLinks so this panel and the release page share
-// one selection rule and one render gate. They were private copies here, byte
-// for byte identical to the release page's, which is a divergence waiting to
-// happen rather than one that had happened.
+// one selection rule and one render gate. They were private copies here whose
+// logic matched the release page's, so the duplication was a divergence waiting
+// to happen rather than one that had happened. The swap is not behaviour-neutral
+// for this panel: it gains the render gate, and a pathname test in place of a
+// substring test over the whole URL.
 import { findBandcampEmbedUrl, findSpotifyEmbedUrl } from '@/lib/releaseLinks'
 
 function locationMeta(node: CollectionGraphNode): string | null {

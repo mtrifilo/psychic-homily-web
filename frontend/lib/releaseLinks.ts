@@ -12,8 +12,10 @@ import { isBandcampReleaseUrl } from './bandcamp'
  *
  * `offered` is what keeps those two questions distinct without a second list.
  * "What may be stored and rendered" is wider than "what do we invite a curator
- * to type": the seed writes youtube_music rows, and a platform is only offered
- * once its anchor is known to accept the URLs a curator would actually paste.
+ * to type": the seed writes youtube_music rows nobody typed. The offered set is
+ * the seven the picker carried before PSY-1996, unchanged; widening it is a
+ * product call, not a consequence of merging the two lists. For amazon_music it
+ * is also a correctness call, noted at its entry.
  *
  * The platform key is what a reader sees next to the URL, so an unanchored URL
  * is worse than a dead link: an arbitrary host wearing a name they trust.
@@ -40,10 +42,11 @@ export const RELEASE_LINK_PLATFORMS = {
     offered: true,
   },
   youtube: { label: 'YouTube', hosts: ['youtube.com', 'youtu.be'], offered: true },
-  // Not offered: the anchor is the US music host, and Amazon Music's regional
-  // storefronts are separate registrable domains, so a picker entry would invite
-  // a URL the gate refuses. Kept in the registry because the label and the
-  // render gate still have to answer for rows that exist.
+  // Offering this one would be wrong as well as new: the anchor is the US music
+  // host, and Amazon Music's regional storefronts are separate registrable
+  // domains, so the dropdown would invite URLs the gate refuses. Kept in the
+  // registry because the label and the render gate still answer for rows that
+  // exist.
   amazon_music: { label: 'Amazon Music', hosts: ['music.amazon.com'], offered: false },
   youtube_music: {
     label: 'YouTube Music',
@@ -99,6 +102,48 @@ export interface ReleaseLinkLike {
  */
 const ASCII_HOST = /^[a-z0-9.-]+$/
 
+/** Printable ASCII, which is all a raw authority may be made of. */
+const PRINTABLE_ASCII = /^[!-~]+$/
+
+/**
+ * Whitespace at either edge, under the union of what Go's strings.TrimSpace and
+ * this language's trim() strip. Neither set contains the other: Go strips U+0085
+ * and not U+FEFF, JavaScript the reverse. A value either would strip is one the
+ * two layers would disagree about, so the write-side mirror refuses all of them.
+ */
+const EDGE_WHITESPACE = /^[\s\u0085]|[\s\u0085]$/
+
+/** C0 controls and DEL, which Go's url.Parse refuses anywhere in a URL. */
+const C0_CONTROL = /[\u0000-\u001F\u007F]/
+
+/**
+ * The authority as WRITTEN: the bytes between "://" and the first "/", "?" or
+ * "#", before any parser has touched them.
+ *
+ * This exists because `URL.hostname` is the WRONG input for a rule about what
+ * Go will accept. By the time the WHATWG parser hands back a hostname it has
+ * already run UTS-46 and folded the host to ASCII, so an ASCII test on it can
+ * never see the non-ASCII bytes it is there to reject, and the hint approves
+ * values the server refuses. Go sees the bytes; so does this.
+ */
+function rawAuthority(raw: string): string | null {
+  const start = raw.indexOf('://')
+  if (start < 0) return null
+  const rest = raw.slice(start + 3)
+  const end = rest.search(/[/?#]/)
+  const authority = end < 0 ? rest : rest.slice(0, end)
+  return authority || null
+}
+
+/**
+ * Every registry key is ASCII, and the key is checked against this BEFORE it is
+ * folded. Folding first would let the two languages disagree: Go's
+ * strings.ToLower uses simple case mapping and turns "TİDAL" (U+0130) into
+ * "tidal", while this language's SpecialCasing turns it into "ti̇dal" and
+ * finds nothing, so the row stores with a 201 and renders no link.
+ */
+const ASCII_PLATFORM = /^[A-Za-z0-9_]+$/
+
 /**
  * The registry entry for a platform, or null.
  *
@@ -107,6 +152,7 @@ const ASCII_HOST = /^[a-z0-9.-]+$/
  * while a padded value is a different string that would be stored padded.
  */
 function platformEntry(platform: string) {
+  if (!ASCII_PLATFORM.test(platform)) return null
   const key = platform.toLowerCase()
   return Object.prototype.hasOwnProperty.call(RELEASE_LINK_PLATFORMS, key)
     ? RELEASE_LINK_PLATFORMS[key as ReleaseLinkPlatform]
@@ -153,11 +199,15 @@ function parseHttpUrl(raw: string): URL | null {
  * The refusal to show beside a URL field someone is filling in, or null.
  *
  * This mirrors the WRITE gate, utils.ValidateReleaseLink, not the render gate
- * below: its job is to say in advance what the server will say, so it has to be
- * the same strictness. Notably it refuses a host a browser would normalize onto
- * the platform (a fullwidth letter, a soft hyphen), because the server does; the
+ * below: its job is to say in advance what the server will say, so it applies
+ * the same rules. Notably it refuses a host a browser would normalize onto the
+ * platform (a fullwidth letter, a soft hyphen), because the server does; the
  * render gate deliberately does not, and that asymmetry is the point of having
  * two functions rather than one.
+ *
+ * The same RULES, not the same sentence: the server's wording names the platform
+ * key and echoes the submitted value, this one names the label a curator just
+ * picked. Both name the hosts that work, which is the part a submitter acts on.
  *
  * An empty URL returns null: an untouched field is not yet a mistake. Whether
  * empty may be submitted is the caller's own concern.
@@ -179,9 +229,24 @@ export function releaseLinkRefusal(link: ReleaseLinkLike): string | null {
   }
 
   const onPlatform = (() => {
-    // Judged exactly as it would be stored, like the server: the callers submit
-    // url.trim(), so this sees the value that will be written.
-    if (link.url !== link.url.trim()) return false
+    // Judged exactly as it would be stored, like the server. Go's TrimSpace and
+    // this language's trim() do not cover the same code points, so the edges are
+    // tested against the union of both: whatever either would strip is a value
+    // the two layers would disagree about.
+    if (EDGE_WHITESPACE.test(link.url)) return false
+    // Go's url.Parse refuses any C0 control anywhere; this parser strips the
+    // surrounding ones and would otherwise let them through.
+    if (C0_CONTROL.test(link.url)) return false
+
+    // The authority AS WRITTEN, which is what Go judges. Non-ASCII here is what
+    // UTS-46 folds away, a backslash and a percent escape are what Go's parser
+    // refuses outright, and an "@" is userinfo, which no real platform URL
+    // carries and which the release card would print under the platform's name.
+    const authority = rawAuthority(link.url)
+    if (authority === null) return false
+    if (!PRINTABLE_ASCII.test(authority)) return false
+    if (/[\\@%]/.test(authority)) return false
+
     const parsed = parseHttpUrl(link.url)
     if (parsed === null) return false
     const host = parsed.hostname.toLowerCase()
@@ -209,8 +274,11 @@ const MAX_TCP_PORT = 65535
  *
  * `String.trim()` is the wrong tool for deciding whether a stored value will
  * resolve, because it also strips U+00A0 and U+FEFF, which the URL parser keeps.
- * A value padded with those is not a link a browser will follow, so certifying
- * it would render an href that lands nowhere.
+ * LEADING, those make the whole value unparseable, so trimming with `trim()`
+ * certified an href that resolves same-origin and 404s. Trailing, they survive
+ * into the path and the link does reach the platform, so refusing the row is
+ * conservative rather than necessary; one rule for both is worth more than the
+ * one row it costs.
  */
 function stripUrlWhitespace(raw: string): string {
   return raw.replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, '')
@@ -231,9 +299,14 @@ function stripUrlWhitespace(raw: string): string {
  * keeps its link, where the writer refuses to store any more of them. The shared
  * corpus records each such case and why the value still lands on-platform.
  *
- * Being lenient is not the same as being loose: what it will not do is certify a
- * value the browser would refuse to follow, which is why the whitespace it
- * strips is exactly the whitespace the URL parser strips.
+ * Being lenient is not the same as being loose. It will not certify a value the
+ * browser would refuse to follow, which is why the whitespace it strips is
+ * exactly the whitespace the URL parser strips. And it refuses userinfo, which
+ * is the one place "will a browser reach the platform" is the wrong question to
+ * ask: the card prints the stored URL as its caption and truncates from the
+ * right, so "https://your-account-is-suspended.example.com@open.spotify.com/…"
+ * reads as another domain with the real host cut off the end, while the click
+ * does land on Spotify. The destination was never the harm there.
  */
 export function isRenderableReleaseLink(link: ReleaseLinkLike): boolean {
   const entry = platformEntry(link.platform)
@@ -241,7 +314,9 @@ export function isRenderableReleaseLink(link: ReleaseLinkLike): boolean {
   const url = stripUrlWhitespace(link.url)
   if (!url || url.length > MAX_RELEASE_LINK_URL_LENGTH) return false
   const parsed = parseHttpUrl(url)
-  return parsed !== null && hostIsAnchored(parsed, entry.hosts)
+  if (parsed === null) return false
+  if (parsed.username !== '' || parsed.password !== '') return false
+  return hostIsAnchored(parsed, entry.hosts)
 }
 
 /**

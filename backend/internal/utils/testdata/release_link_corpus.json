@@ -77,6 +77,24 @@
       "alsoRefusedByReader": true
     },
     {
+      "platform": "TİDAL",
+      "url": "https://tidal.com/browse/album/123456",
+      "why": "U+0130 in the platform key. Go's simple case mapping folds it to 'tidal' and finds the registry; JavaScript's SpecialCasing folds it to 'ti̇dal' and finds nothing. Both sides refuse a non-ASCII key BEFORE folding, or the row stores with a 201 and renders no link",
+      "alsoRefusedByReader": true
+    },
+    {
+      "platform": "bandcamp",
+      "url": "https://EVİL.bandcamp.com/album/x",
+      "why": "the same code point in the HOST. Folding first would have made this pure ASCII to Go ('evil.bandcamp.com') while the browser punycodes it to 'xn--evil-swc.bandcamp.com': two different Bandcamp accounts from one stored string. The ASCII rule runs before the fold. The reader is lenient because the browser's answer is still a bandcamp.com subdomain",
+      "alsoRefusedByReader": false
+    },
+    {
+      "platform": "bandcamp",
+      "url": "https://band%63amp.com/album/x",
+      "why": "percent escape in the host: Go's parser keeps it and the ASCII rule refuses it, the browser decodes it to bandcamp.com. Refused at write time so the column never holds a host the two layers spell differently",
+      "alsoRefusedByReader": false
+    },
+    {
       "platform": "bandcamp",
       "url": "https://evil.test/album/x?ref=bandcamp.com",
       "why": "foreign host carrying the platform name in the query; a substring check would pass it",
@@ -188,6 +206,12 @@
       "platform": "bandcamp",
       "url": "https://xn--a.bandcamp.com/album/x",
       "why": "malformed punycode label: Go sees four ordinary bytes, the browser's parser decodes it, fails, and throws, so the row could never render",
+      "alsoRefusedByReader": true
+    },
+    {
+      "platform": "spotify",
+      "url": "https://your-account-is-suspended.example.com@open.spotify.com/album/x",
+      "why": "userinfo. Both parsers agree the host is open.spotify.com, so the click is safe and the reader's usual question, 'will a browser reach the platform', answers yes. It is the wrong question here: the card prints the stored URL as its caption and truncates from the right, so this reads as another domain with the real host cut off. Refused on BOTH sides for that reason, not for the destination",
       "alsoRefusedByReader": true
     },
     {

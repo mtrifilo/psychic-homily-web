@@ -172,7 +172,9 @@ export function AddReleaseLinkDialog({
                 aria-invalid={urlFormatError !== null}
               />
               {urlFormatError && (
-                <p className="text-sm text-destructive">{urlFormatError}</p>
+                <p role="alert" className="text-sm text-destructive">
+                  {urlFormatError}
+                </p>
               )}
             </div>
           </div>
