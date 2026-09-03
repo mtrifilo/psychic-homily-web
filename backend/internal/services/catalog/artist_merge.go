@@ -194,7 +194,7 @@ func lockMergeArtists(tx *gorm.DB, canonicalID, mergeFromID uint) (*catalogm.Art
 // entity: pending-edit content reaches its submitter (GET /my/pending-edits,
 // scoped by submitted_by) and admins, and entity_edit_audit_logs rows are read
 // on the contributions feed scoped by ACTOR
-// (services/user/contributor_profile.go), not by entity_id — their metadata is
+// (services/user/contributor_profile.go), not by entity_id. Their metadata is
 // withheld there by the projection's allowlist, so only the row's existence and
 // its entity id are published. See the constant for what has to change if
 // either gains an entity-scoped gate.

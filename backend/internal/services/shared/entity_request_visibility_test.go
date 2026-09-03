@@ -2,6 +2,7 @@ package shared_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -26,6 +27,14 @@ func wantEntityRequestVisible(viewerIsRequester, viewerIsAdmin, requestExists bo
 		return false
 	}
 	return viewerIsRequester || viewerIsAdmin
+}
+
+// entityRequestCase is one id state every viewer tier is checked against. The
+// missing id runs through the SAME truth table as the real one, so "refused to
+// both" is a row of the table rather than a hardcoded assertion beside it.
+type entityRequestCase struct {
+	name   string
+	exists bool
 }
 
 func TestEntityRequestVisibilityMatrix(t *testing.T) {
@@ -56,25 +65,37 @@ func TestEntityRequestVisibilityMatrix(t *testing.T) {
 		{"an admin", contracts.ShowViewer{UserID: strangerID, IsAdmin: true}, false, true},
 	}
 
-	for _, v := range viewers {
-		cond, args := shared.VisibleEntityRequestExistsSQL("e.entity_id", v.viewer)
+	// THE ID ARRIVES AS TEXT, which is the shape the timeline evaluates it in:
+	// the gate reads the request id out of the audit row's JSON metadata,
+	// because catalog merges rewrite the entity_id column for these rows.
+	cases := []entityRequestCase{
+		{"an existing request", true},
+		// A REQUEST THAT IS NOT THERE MUST ANSWER LIKE A REFUSED ONE, or the
+		// pair enumerates the request id space: an id that answers "absent" and
+		// one that answers "not yours" would be distinguishable.
+		{"a request id that names no row", false},
+	}
 
-		want := wantEntityRequestVisible(v.isRequester, v.isAdmin, true)
-		// countEntityRowMatching is the synthetic-one-row probe the show and
-		// collection matrices use. Its entity_type column is inert here: this
-		// condition reads the id alone, which is what makes an ACTION-keyed
-		// family necessary in the first place.
-		if got := countEntityRowMatching(t, td.DB, "artist", request.ID, cond, args); (got > 0) != want {
-			t.Errorf("VisibleEntityRequestExistsSQL for %s matched %d rows for an existing request, want visible=%v",
-				v.name, got, want)
+	for _, v := range viewers {
+		cond, args := shared.VisibleEntityRequestTextIDExistsSQL("meta.value", v.viewer)
+
+		for _, c := range cases {
+			id := request.ID
+			if !c.exists {
+				id = request.ID + 100000
+			}
+			want := wantEntityRequestVisible(v.isRequester, v.isAdmin, c.exists)
+			got := countTextExprMatching(t, td.DB, fmt.Sprint(id), cond, args)
+			if (got > 0) != want {
+				t.Errorf("VisibleEntityRequestTextIDExistsSQL for %s and %s matched %d rows, want visible=%v",
+					v.name, c.name, got, want)
+			}
 		}
 
-		// A REQUEST THAT IS NOT THERE ANSWERS THE SAME AS A REFUSED ONE. Without
-		// this the pair enumerates the request id space: an id that answers
-		// "absent" and one that answers "not yours" would be distinguishable.
-		missing := request.ID + 100000
-		if got := countEntityRowMatching(t, td.DB, "artist", missing, cond, args); got != 0 {
-			t.Errorf("VisibleEntityRequestExistsSQL served %s a request id that names no row", v.name)
+		// A NON-NUMERIC id answers "no such request" rather than raising inside
+		// the statement it is spliced into.
+		if got := countTextExprMatching(t, td.DB, "not-an-id", cond, args); got != 0 {
+			t.Errorf("VisibleEntityRequestTextIDExistsSQL served %s a non-numeric id", v.name)
 		}
 	}
 }

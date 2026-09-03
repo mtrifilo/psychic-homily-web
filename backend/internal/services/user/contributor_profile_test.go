@@ -2259,6 +2259,79 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 		"the creator keeps the attribution to their own private source")
 }
 
+// A CATALOG MERGE DOES NOT MOVE AN ENTITY-REQUEST ROW ONTO ANOTHER USER'S
+// REQUEST.
+//
+// repointEntityRefs (services/catalog/entity_ref_repoint.go) rewrites
+// audit_logs.entity_id keyed on (entity_type, entity_id) alone. Entity-request
+// rows store the REQUESTED catalog type in entity_type, so merging the artist
+// whose id equals a request's id rewrites that request's rows to the canonical
+// artist's number. Deciding those rows by entity_id would then judge them
+// against whichever request holds THAT number, which is somebody else's.
+//
+// The gate reads the metadata's request_id instead, which no merge statement
+// touches. This replays the merge's UPDATE against a row whose rewritten
+// entity_id names a stranger's request, and the row must still answer for the
+// request that wrote it.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_EntityRequestRowsSurviveAMergeRepoint() {
+	requester := suite.createTestUser("mergerequester")
+	stranger := suite.createTestUser("mergestranger")
+
+	mine := suite.createEntityRequestForHistory(requester.ID, "artist")
+	// The request the rewritten entity_id will land on. A DIFFERENT user's, so
+	// a gate reading entity_id would serve this row to them and withhold it
+	// from its own author.
+	theirs := suite.createEntityRequestForHistory(stranger.ID, "artist")
+
+	suite.auditLog.LogAction(requester.ID, "queue_entity_request", "artist", mine.ID,
+		map[string]interface{}{"request_id": mine.ID})
+
+	// The merge's own statement, replayed verbatim over the same key.
+	suite.Require().NoError(suite.db.Exec(
+		"UPDATE audit_logs SET entity_id = ? WHERE entity_type = ? AND entity_id = ?",
+		theirs.ID, "artist", mine.ID).Error)
+
+	own, ownTotal, err := suite.profileService.GetContributionHistory(
+		requester.ID, 50, 0, "", contracts.ShowViewer{UserID: requester.ID})
+	suite.Require().NoError(err)
+	suite.EqualValues(len(own), ownTotal)
+	suite.Require().Len(own, 1, "the author keeps their own row after a merge rewrote its entity_id")
+	suite.Equal("queue_entity_request", own[0].Action)
+
+	other, otherTotal, err := suite.profileService.GetContributionHistory(
+		requester.ID, 50, 0, "", contracts.ShowViewer{UserID: stranger.ID})
+	suite.Require().NoError(err)
+	suite.EqualValues(len(other), otherTotal)
+	suite.Empty(other,
+		"the user who owns the request the merge pointed at must not be served this row")
+}
+
+// A ROW THAT RECORDS NO USABLE request_id FALLS BACK TO entity_id, which is what
+// keeps the rows written before the key was recorded on their own author's
+// timeline. A stored 0 names no request and counts as absent, the same reading
+// the collection arm gives its own sentinel.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_EntityRequestRowsFallBackToEntityID() {
+	requester := suite.createTestUser("fallbackrequester")
+	stranger := suite.createTestUser("fallbackstranger")
+	request := suite.createEntityRequestForHistory(requester.ID, "artist")
+
+	suite.auditLog.LogAction(requester.ID, "queue_entity_request", "artist", request.ID, nil)
+	suite.auditLog.LogAction(requester.ID, "approve_entity_request", "artist", request.ID,
+		map[string]interface{}{"request_id": 0})
+
+	own, ownTotal, err := suite.profileService.GetContributionHistory(
+		requester.ID, 50, 0, "", contracts.ShowViewer{UserID: requester.ID})
+	suite.Require().NoError(err)
+	suite.EqualValues(len(own), ownTotal)
+	suite.Len(own, 2, "a missing key and a zero sentinel both fall back to entity_id")
+
+	anon, anonTotal, err := suite.profileService.GetContributionHistory(
+		requester.ID, 50, 0, "", contracts.ShowViewer{UserID: stranger.ID})
+	suite.Require().NoError(err)
+	suite.EqualValues(len(anon), anonTotal)
+	suite.Empty(anon, "the fallback is a reference, not a bypass")
+}
+
 // A STALE FORK SLUG IS DROPPED EVEN WHEN THE SOURCE IS VISIBLE.
 //
 // clone_collection freezes the source's slug at clone time while the id beside
@@ -2894,9 +2967,11 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 // request was withheld or served on the basis of whichever show happened to
 // share its number.
 //
-// The rule: requester or admin. A pending request names content that has not
-// been published and the only route that reads the table is
-// GET /admin/entity-requests, so anonymous and stranger tiers get nothing.
+// The rule: requester or admin. Four routes read entity_requests and each serves
+// one of those two tiers: POST /entity-requests hands the row back to the
+// requester who filed it, and the admin list, decide and fulfill routes serve an
+// admin. Anonymous and stranger tiers get nothing anywhere, and this rule is
+// those two tiers written as a predicate.
 //
 // Four tiers, and the total moves with the page in every one of them.
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_EntityRequestRowsAreDecidedAgainstEntityRequests() {
@@ -2968,7 +3043,8 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	requestID := request.ID
 	suite.Require().NoError(suite.db.Delete(&communitym.EntityRequest{}, requestID).Error)
 
-	suite.auditLog.LogAction(requester.ID, "queue_entity_request", "artist", requestID, nil)
+	suite.auditLog.LogAction(requester.ID, "queue_entity_request", "artist", requestID,
+		map[string]interface{}{"request_id": requestID})
 
 	for _, viewer := range []contracts.ShowViewer{
 		{},
@@ -2992,7 +3068,8 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatmap_WithholdsEntityRequestDays() {
 	requester := suite.createTestUser("heatmaprequester")
 	request := suite.createEntityRequestForHistory(requester.ID, "artist")
-	suite.auditLog.LogAction(requester.ID, "queue_entity_request", "artist", request.ID, nil)
+	suite.auditLog.LogAction(requester.ID, "queue_entity_request", "artist", request.ID,
+		map[string]interface{}{"request_id": request.ID})
 
 	anon, err := suite.profileService.GetActivityHeatmap(requester.ID, contracts.ShowViewer{})
 	suite.Require().NoError(err)

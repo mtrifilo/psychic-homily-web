@@ -719,15 +719,15 @@ var contributionCloneSourceKeys = []string{"source_slug", "source_id"}
 // action nothing writes.
 const contributionCloneAction = "clone_collection"
 
-// contributionEntityRequestActions is every audit action whose entity_id is an
-// entity_requests row id.
+// contributionEntityRequestActions is every audit action whose row names an
+// entity request rather than a catalog entity.
 //
-// THE ROW'S entity_type LIES ABOUT WHICH TABLE THAT ID BELONGS TO. The entity
-// request writers store the REQUESTED catalog type ("show", "artist", …) so an
-// admin query by entity_type reaches them, and the request's own id beside it.
-// Nothing else on the row distinguishes it from an audit row that really names a
-// show, so the ACTION is the only discriminator, and it is the one this map
-// keys on.
+// THE ROW'S entity_type LIES ABOUT WHICH TABLE ITS entity_id BELONGS TO. The
+// entity request writers store the REQUESTED catalog type ("show", "artist", …)
+// so an admin query by entity_type reaches them, and the request's own id beside
+// it. Nothing else on the row distinguishes it from an audit row that really
+// names a show, so the ACTION is the only discriminator, and it is the one this
+// map keys on.
 //
 // An action missing here is judged by the entity-type arms, which read entity_id
 // as an id in the table entity_type names. For a request that is an unrelated
@@ -753,6 +753,24 @@ var contributionEntityRequestActions = map[string]bool{
 	"rescue_void_entity_request":    true,
 }
 
+// contributionEntityRequestMetadataID is the metadata key every entity request
+// writer records the request's own id under, and the id the gate decides those
+// rows against.
+//
+// NOT entity_id, WHICH CATALOG MERGES REWRITE. repointEntityRefs
+// (services/catalog/entity_ref_repoint.go) updates audit_logs keyed on
+// (entity_type, entity_id) alone, so merging the artist, venue or show whose id
+// equals a request's id moves that request's rows onto the canonical entity's
+// number. Deciding those rows by entity_id would then judge them against an
+// unrelated user's request. The metadata key is outside that statement's reach,
+// and all four writers record it (handlers/community/entity_request.go and
+// entity_request_rescue.go).
+//
+// entity_id remains the FALLBACK for a row that records no usable key, which is
+// the same shape the collection arm takes for the rows written before its
+// writers recorded a parent id.
+const contributionEntityRequestMetadataID = "request_id"
+
 // contributionEntityRequestActionNames is the map's keys as the IN-list the gate
 // binds.
 //
@@ -770,11 +788,11 @@ var contributionEntityRequestActionNames = slices.Sorted(maps.Keys(contributionE
 // contributions timeline publishes, keyed by action. Every other key on every
 // other action is dropped.
 //
-// audit_logs.metadata is written from over a hundred places across five handler
-// packages and three service packages, and is served, verbatim before this map
-// existed, by GET /users/{username}/contributions
-// — optional auth, `contributions` visible by default, so an ANONYMOUS caller
-// under the ACTOR's own username. Without an allowlist every writer decides by
+// audit_logs.metadata is written from 98 places across five handler packages and
+// two service packages, and is served, verbatim before this map existed, by
+// GET /users/{username}/contributions: optional auth, with `contributions`
+// visible by default, so an ANONYMOUS caller reads it under the ACTOR's own
+// username. Without an allowlist every writer decides by
 // accident what becomes public: an admin's rejection reason, a moderation note,
 // a report id, the id of a gated show a report names.
 //
@@ -803,7 +821,9 @@ var contributionMetadataKeys = map[string][]string{
 	// gated a second time, per viewer and per row, by scrubCloneSourceMetadata.
 	//
 	// A PUBLISHED KEY NEEDS A GATE OVER ITS OWN REFERENT, which is why the
-	// collection family below publishes none. Their slug and collection_id name
+	// collection family below publishes none, and why
+	// TestOnlyGatedActionsPublishMetadataKeys fails for a second action added
+	// here with keys and no gate behind them. Their slug and collection_id name
 	// a collection, and the arm serving those rows is a three-way OR: a row can
 	// pass on its live parent while the key names something else. A legacy item
 	// row carrying no collection_id passes on that parent and still holds a
@@ -837,9 +857,11 @@ var contributionMetadataKeys = map[string][]string{
 	"revision_rollback": nil,
 
 	// handlers/catalog. Names and ids the entity's own public route already
-	// serves, plus batch counters nobody reads. Withheld because the timeline
-	// resolves an entity's name through enrichEntityNames, which is gated,
-	// while these are copies frozen at write time behind no gate at all.
+	// serves, plus batch counters nobody reads. Withheld because a name copied
+	// into metadata is frozen at write time and answers for no reader: the
+	// timeline resolves a name through enrichEntityNames instead, which reads
+	// the entity's own row, so a merged, renamed or deleted entity stops being
+	// named rather than being named as it once was.
 	"create_artist":               nil,
 	"add_artist_alias":            nil,
 	"delete_artist_alias":         nil,
@@ -890,9 +912,9 @@ var contributionMetadataKeys = map[string][]string{
 	"reject_link_suggestion":            nil,
 
 	// handlers/community, reports and requests. report_id, report_type and
-	// notes are the moderation queue's own fields, and show_id on the two show
-	// report actions names a show that may be gated while the row itself is
-	// typed "show_report" and passes every entity-type arm untouched.
+	// notes are the moderation queue's own fields, and show_id on the three
+	// show report actions names a show that may be gated while the row itself
+	// is typed "show_report" and passes every entity-type arm untouched.
 	"resolve_entity_report":    nil,
 	"dismiss_entity_report":    nil,
 	"dismiss_report":           nil,
@@ -923,13 +945,17 @@ var contributionMetadataKeys = map[string][]string{
 	"create_field_note":       nil,
 
 	// The SERVICE writers, which build the audit model directly rather than
-	// calling LogAction. Three of them carry a real actor id, so their rows
-	// reach a public timeline exactly like a LogAction row does: merge results
-	// name the losing entity and count what moved, and set_tag_parent names the
-	// parent it attached. The last three write no actor at all
-	// (services/admin/cleanup.go, services/admin/auto_promotion.go), so no
-	// timeline can select them; they are dispositioned anyway because the row
-	// that decides is the writer's, not the reader's.
+	// calling LogAction: five of them, producing the six actions below.
+	//
+	// THREE CARRY A REAL ACTOR ID (services/catalog/tag_hierarchy.go,
+	// tag_merge.go, venue_merge.go), so their rows reach a public timeline
+	// exactly like a LogAction row does, and their metadata names the losing
+	// entity, counts what each merge moved, or names the parent a tag was
+	// attached to. The other two write no actor at all
+	// (services/admin/cleanup.go, services/admin/auto_promotion.go), so the
+	// timeline, which selects on actor_id, can never reach their rows; the three
+	// actions they produce are dispositioned anyway, because what a row may
+	// publish is a property of the writer rather than of who happens to read it.
 	"set_tag_parent":       nil,
 	"merge_tags":           nil,
 	"merge_venues":         nil,
@@ -976,7 +1002,7 @@ var contributionMetadataWithheldPrefixes = []string{
 // publish: the allowlisted keys of its action that the row actually carries.
 //
 // Returns nil rather than an empty map when nothing survives, so the field is
-// omitted from the response instead of rendering as `{}` — a row with a
+// omitted from the response instead of rendering as `{}`, so a row with a
 // withheld key and a row with no metadata at all answer alike.
 func projectContributionMetadata(action string, metadata map[string]interface{}) map[string]interface{} {
 	keys := contributionMetadataKeys[action]
@@ -1009,10 +1035,14 @@ func projectContributionMetadata(action string, metadata map[string]interface{})
 //
 // THE ACTION IS READ BEFORE THE ENTITY TYPE, because a row's entity_type does
 // not by itself say which table its entity_id belongs to. The entity request
-// writers store the REQUESTED catalog type beside a REQUEST id, so an
-// outermost CASE splits those rows off by action first and decides them against
+// writers store the REQUESTED catalog type beside a REQUEST id, so an outermost
+// CASE splits those rows off by action first and decides them against
 // entity_requests; only the remaining rows reach the entity-type arms, where
 // entity_id does mean an id in the table entity_type names.
+//
+// The request arm reads its id from the METADATA rather than from entity_id,
+// because catalog merges rewrite that column for these rows. See
+// contributionEntityRequestMetadataID.
 //
 // Then one arm per entity type that has a read-time rule:
 // contributionShowEntityTypes are the two discriminators a show row can carry,
@@ -1036,12 +1066,20 @@ func contributionVisibilitySQL(alias string, viewer contracts.ShowViewer) (strin
 	parentIDExpr := alias + ".metadata->>'collection_id'"
 	legacySlugExpr := alias + ".metadata->>'slug'"
 
+	// THE REQUEST ID THE GATE TRUSTS, in the order it trusts it: the metadata
+	// key first, entity_id only where the row records no usable one. A stored
+	// empty string and a stored 0 both name no request, so both fall through to
+	// the column rather than resolving to nothing and withholding the row from
+	// its own author.
+	requestIDExpr := "COALESCE(NULLIF(NULLIF(" + alias + ".metadata->>'" +
+		contributionEntityRequestMetadataID + "', ''), '0'), " + entityIDExpr + "::text)"
+
 	visibleShows, visibleShowsArgs := shared.VisibleShowExistsSQL(entityIDExpr, viewer)
 	visibleItemParents, visibleItemParentArgs := shared.VisibleCollectionItemExistsSQL(entityIDExpr, viewer)
 	visibleByParentID, visibleByParentIDArgs := shared.VisibleCollectionTextIDExistsSQL(parentIDExpr, viewer)
 	visibleByLegacySlug, visibleByLegacySlugArgs := shared.VisibleCollectionSlugExistsSQL(legacySlugExpr, viewer)
 	visibleCollections, visibleCollectionArgs := shared.VisibleCollectionExistsSQL(entityIDExpr, viewer)
-	visibleRequests, visibleRequestArgs := shared.VisibleEntityRequestExistsSQL(entityIDExpr, viewer)
+	visibleRequests, visibleRequestArgs := shared.VisibleEntityRequestTextIDExistsSQL(requestIDExpr, viewer)
 
 	// THE SENTINEL COUNTS AS ABSENT on the slug arm's key test. A stored
 	// `"collection_id": 0` names no collection, so the parent-id arm answers no
