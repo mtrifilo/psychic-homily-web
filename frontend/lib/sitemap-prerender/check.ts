@@ -13,12 +13,16 @@
  *   UNREACHABLE   | warm        | all                | 200, previous document
  *
  * Counts are written as "all" rather than a number on purpose: the shard count
- * is a property of app/sitemap-shards.ts and has already changed twice (10 with
- * PSY-1622's families, 14 once PSY-1763 split releases into slug ranges), while
- * the BEHAVIOUR each row describes did not. Rows 1 and 3 were re-measured at 14
- * shards on PSY-1763 — `14 of 14 shards have a fallback document` against a
- * healthy backend, and `13 of 14 shards have no fallback document` with the
- * backend down, naming each releases sub-shard.
+ * is a property of app/sitemap-shards.ts and has already changed three times
+ * (10 with PSY-1622's families, 14 once PSY-1763 split releases into slug
+ * ranges, 39 once PSY-2018 split shows into event months), while the BEHAVIOUR
+ * each row describes did not. Rows 1 and 3 were measured at 14 shards on
+ * PSY-1763 — `14 of 14 shards have a fallback document` against a healthy
+ * backend, and `13 of 14 shards have no fallback document` with the backend
+ * down, naming each releases sub-shard. Rows 1 and 3 were measured again at 39
+ * on PSY-2018 — `39 of 39 shards have a fallback document` against a healthy
+ * backend, and `38 of 39 shards have no fallback document` with the backend
+ * unreachable, exit 1.
  *
  * The stale-serving fallback the sitemap needs is the PRERENDERED BODY that
  * `next build` writes to disk. It ships inside the deployment, so it survives a
@@ -316,7 +320,7 @@ export function shardIdFromRoute(route: string): string | null {
  * must not BLOCK on the difference.
  *
  * A brand-new family: the backend has no rows either, so the empty document is
- * true and nothing is missing. A slug range of a family the backend already
+ * true and nothing is missing. A sub-shard of a family the backend already
  * serves: the rows exist and go unannounced, so a share of a live family leaves
  * the index. Naming which case applies is the difference between a reassuring
  * message and an accurate one.

@@ -40,8 +40,8 @@
  *   Backend reachable at build time (the normal production path):
  *     ├ ● /sitemap/[__metadata_id__]         1h      1y
  *     prerender-manifest: renderingMode STATIC, initialRevalidateSeconds 3600,
- *     initialExpireSeconds 31536000, and a rendered body on disk for all
- *     fourteen shards (`14 of 14 shards have a fallback document`). A later
+ *     initialExpireSeconds 31536000, and a rendered body on disk for EVERY
+ *     shard. A later
  *     backend outage is SURVIVED — every shard served 200 with the previous
  *     document. It survives a COLD Data Cache too: deleting
  *     `.next/cache/fetch-cache` before starting still served 200 from the
@@ -51,11 +51,11 @@
  *   Backend unreachable at build time, clean build cache (degraded):
  *     ├ ƒ /sitemap/[__metadata_id__]                     ← no window at all
  *     ├ ● /sitemap/[__metadata_id__] └ /sitemap/pages.xml
- *     Only the pages shard prerenders — it makes no network call. All thirteen
- *     entity shards lose their body, re-render per request, and return 500
- *     while the backend is down. `/sitemap-index` still 200s, advertising
- *     thirteen shards that all 500. `next build` alone EXITS 0, so this used to
- *     ship silently and persist until some later deploy.
+ *     Only the pages shard prerenders — it makes no network call. EVERY entity
+ *     shard loses its body, re-renders per request, and returns 500 while the
+ *     backend is down. `/sitemap-index` still 200s, advertising shards that all
+ *     500. `next build` alone EXITS 0, so this used to ship silently and
+ *     persist until some later deploy.
  *
  *   Backend unreachable at build time, WARM build cache:
  *     All shards prerender anyway, from in-window Data Cache entries —
@@ -272,9 +272,9 @@ const UNKNOWN_FAMILY_STATUSES = new Set([400, 422])
  * failing on a race nobody can sequence away.
  *
  * For a new FAMILY the document is also TRUE — a backend without the family
- * genuinely has no such URLs to announce. For a new SLUG RANGE of a family the
- * backend already serves (PSY-1763) it is not: those rows exist and go
- * unannounced until the backend learns the id.
+ * genuinely has no such URLs to announce. For a new SUB-SHARD of a family the
+ * backend already serves it is not: those rows exist and go unannounced until
+ * the backend learns the id.
  *
  * What this does NOT buy is a prerendered body. Next only writes a Data Cache
  * entry for a 200, so a 422'd shard is uncached, renders per request, and ships
@@ -442,7 +442,7 @@ function pagesShard(): MetadataRoute.Sitemap {
 }
 
 /**
- * One shard per entity family — or per slug range, for a family that outgrew a
+ * One shard per entity family — or per sub-shard, for a family that outgrew a
  * single Data Cache entry — plus a pages shard. String ids become
  * `/sitemap/{id}.xml` under the `/sitemap-index` document.
  */

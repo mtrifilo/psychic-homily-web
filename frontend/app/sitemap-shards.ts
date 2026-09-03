@@ -23,9 +23,9 @@ export const PAGES_SHARD_ID = 'pages'
 /**
  * The entity families the sitemap covers.
  *
- * FAMILIES, not shard ids — the two stopped being the same thing when
- * `releases` and `shows` were sub-sharded (see RELEASE_SHARD_IDS and
- * SHOW_SHARD_IDS). Anything counting or
+ * FAMILIES, not shard ids — the two are not the same thing, because `shows` and
+ * `releases` are each served by several documents (SHOW_SHARD_IDS and
+ * RELEASE_SHARD_IDS). Anything counting or
  * classifying URLs wants this list; anything enumerating DOCUMENTS wants
  * ENTITY_SHARD_IDS below. Keep in sync with the Huma `family` enum on
  * GET /sitemap/entries and with `sitemapFamilies` in
@@ -84,7 +84,7 @@ void _assertNoMissingFamily
  * shard family to watch next, and a whole family rather than a range.
  *
  * SHARDS HERE ARE LEGITIMATELY EMPTY, which slug ranges never are. See
- * SPARSE_SUB_SHARD_FAMILIES below.
+ * subShardsCanBeEmpty below.
  */
 export const SHOW_SHARD_IDS = [
   'shows-before-2026',
@@ -142,9 +142,8 @@ export const SHOW_SHARD_IDS = [
  *   releases-n-s  489,967  23.4%
  *   releases-t-z  428,751  20.4%
  *
- * against 97.3% for the family as one document. `artists`, at 40.8%, is now the
- * largest sitemap entry — so this is the shard family to watch next, and it is
- * a whole family rather than a range.
+ * against 97.3% for the family as one document. The family to watch next is
+ * named on SHOW_SHARD_IDS above, alongside the measurement that ranks it.
  *
  * HOW IT GROWS. Add a cut point and split ONE range. Every other range keeps
  * both its id and its exact contents, so re-tuning churns only the range being

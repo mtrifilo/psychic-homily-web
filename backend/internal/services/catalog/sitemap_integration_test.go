@@ -405,6 +405,102 @@ func TestSitemapEntriesShowSubShardsCoverTheFamilyExactly(t *testing.T) {
 	}
 }
 
+// TestEverySubShardedFamilyIsActuallyNarrowed is the guard the two family-
+// specific tests above cannot be: it is driven by the shard TABLE, so a family
+// added to sitemapShardsByFamily inherits it without anyone writing a third
+// hand-rolled near-duplicate.
+//
+// The failure it exists to catch is a missing `shard.narrow` at a new family's
+// call site in Entries. Nothing else notices: the table is generic, the wire
+// enum accepts the ids, every shard answers 200, and each one returns the WHOLE
+// family — so the over-cap payload sharding exists to prevent is served by every
+// shard at once, with a green build and a green test run. Here it shows up as
+// each shard serving the full row set instead of a slice of it.
+//
+// Deliberately does NOT assert per-family placement or emptiness: which rows
+// land where is the business of the family-specific tests above, which seed for
+// it. This asserts only the two properties that must hold for EVERY sub-sharded
+// family — the shards partition the family, and no shard is the whole of it.
+func TestEverySubShardedFamilyIsActuallyNarrowed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	td := testutil.SetupTestPostgres(t)
+	defer td.Cleanup()
+
+	// Two rows per family, placed in different shards, so "narrowed" is
+	// distinguishable from "returns everything". The shows pair straddles a
+	// month boundary and the releases pair a slug cut point.
+	for i, slug := range []string{"aardvark-tapes", "zephyr"} {
+		release := &catalogm.Release{Title: fmt.Sprintf("Narrow Release %d", i), Slug: strPtr(slug)}
+		if err := td.DB.Create(release).Error; err != nil {
+			t.Fatalf("seed release %q: %v", slug, err)
+		}
+	}
+	for i, at := range []time.Time{
+		time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC),
+	} {
+		show := &catalogm.Show{
+			Title:     fmt.Sprintf("Narrow Show %d", i),
+			Slug:      strPtr(fmt.Sprintf("narrow-show-%d", i)),
+			EventDate: at,
+			Status:    catalogm.ShowStatusApproved,
+		}
+		if err := td.DB.Create(show).Error; err != nil {
+			t.Fatalf("seed show %d: %v", i, err)
+		}
+	}
+
+	service := NewSitemapService(td.DB)
+	// Read the populated field by family so the assertions below stay generic.
+	rowsOf := map[string]func(*contracts.SitemapEntries) []contracts.SitemapEntry{
+		"shows":    func(e *contracts.SitemapEntries) []contracts.SitemapEntry { return e.Shows },
+		"releases": func(e *contracts.SitemapEntries) []contracts.SitemapEntry { return e.Releases },
+	}
+
+	for family, shards := range sitemapShardsByFamily {
+		read, ok := rowsOf[family]
+		if !ok {
+			t.Fatalf("family %q is sub-sharded but this test cannot read its rows — add it to rowsOf", family)
+		}
+
+		whole, err := service.Entries(context.Background(), family)
+		if err != nil {
+			t.Fatalf("Entries(%s): %v", family, err)
+		}
+		wholeSlugs := sitemapSlugsOf(read(whole))
+		if len(wholeSlugs) < 2 {
+			t.Fatalf("family %q seeded %d rows, need at least 2 in different shards", family, len(wholeSlugs))
+		}
+
+		owner := map[string]string{}
+		for _, shard := range shards {
+			entries, err := service.Entries(context.Background(), shard.id)
+			if err != nil {
+				t.Fatalf("Entries(%s): %v", shard.id, err)
+			}
+			slugs := sitemapSlugsOf(read(entries))
+			if len(slugs) == len(wholeSlugs) && len(wholeSlugs) > 1 {
+				t.Errorf("shard %q served all %d rows of %q — its call site in Entries is not narrowing",
+					shard.id, len(slugs), family)
+			}
+			for _, slug := range slugs {
+				if prev, dup := owner[slug]; dup {
+					t.Errorf("slug %q is served by both %q and %q — the %q shards overlap", slug, prev, shard.id, family)
+				}
+				owner[slug] = shard.id
+			}
+		}
+
+		for _, slug := range wholeSlugs {
+			if _, ok := owner[slug]; !ok {
+				t.Errorf("slug %q of family %q belongs to no shard — the partition has a gap", slug, family)
+			}
+		}
+	}
+}
+
 // TestSitemapEntriesIssuesOneQueryPerSimpleFamily is the regression guard for
 // the defect this service was built to fix — see contracts.SitemapEntry.
 // Scene and scene_weeks use their own multi-query projections (joins + timezone

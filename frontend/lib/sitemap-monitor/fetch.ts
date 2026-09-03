@@ -111,10 +111,11 @@ async function requestFollowing(
 ): Promise<Response> {
   // ONE budget for the whole redirect chain, not one per hop. A per-hop signal
   // multiplies: 6 hops × 2 attempts × 30s is 6 minutes for a single document,
-  // and the documents are walked in SEQUENCE, so that blows the job's
-  // timeout-minutes. The runner then kills the process, main()'s crash handler
-  // never runs, and NO alert is posted — the monitor goes silent exactly when
-  // an origin is unhealthy, which is the failure class it exists to eliminate.
+  // and only SHARD_FETCH_CONCURRENCY documents are in flight at a time, so that
+  // blows the job's timeout-minutes. The runner then kills the process, main()'s
+  // crash handler never runs, and NO alert is posted — the monitor goes silent
+  // exactly when an origin is unhealthy, which is the failure class it exists
+  // to eliminate.
   //
   // The shard count binds the same budget, divided by the pool: every
   // SHARD_FETCH_CONCURRENCY shards added to app/sitemap-shards.ts costs another
@@ -228,7 +229,7 @@ async function fetchDocument(url: string, config: MonitorConfig): Promise<string
  *
  * NOT cosmetic. app/sitemap-index/route.ts hardcodes the production base URL in
  * every `<loc>`, so the index served by stage — or by a preview deployment —
- * lists `https://psychichomily.com/sitemap/shows.xml`. Following those links
+ * lists `https://psychichomily.com/sitemap/artists.xml`. Following those links
  * verbatim would silently measure PRODUCTION while reporting the stage target,
  * which is worse than not checking at all. Verified against stage on
  * 2026-07-30.
@@ -260,7 +261,7 @@ export function rebaseOnTarget(loc: string, target: string): string {
  * clock while staying an order of magnitude under any per-minute limit, and it
  * does not have to move when the shard count does.
  */
-const SHARD_FETCH_CONCURRENCY = 6
+export const SHARD_FETCH_CONCURRENCY = 6
 
 /**
  * Run `worker` over `items` with at most `limit` in flight, returning results in
@@ -411,42 +412,52 @@ export async function walkSitemap(config: MonitorConfig): Promise<SitemapObserva
       continue
     }
     const { id, xml } = outcome
-    // A shard must be a urlset. An index here would mean nested sharding
-    // this monitor does not understand, and counting it as zero URLs would
-    // read as a catastrophically empty family.
-    const shape = detectShape(xml)
-    if (shape !== 'urlset') {
-      observation.errors.push(`shard "${id}" served a <${shape}> where a <urlset> was expected`)
-      continue
+    // PARSING IS INSIDE THE PER-SHARD BOUNDARY, not only fetching. Two throws
+    // below are reachable from a shard that answered 200 — `detectShape` on a
+    // body that is not a sitemap document, and `new URL` inside `rebaseOnTarget`
+    // on a `<loc>` that is not a URL — because `fetchDocument` checks the status
+    // and nothing else. Letting either escape discards every other shard's
+    // observations and reports a crash naming no shard at all.
+    try {
+      // A shard must be a urlset. An index here would mean nested sharding
+      // this monitor does not understand, and counting it as zero URLs would
+      // read as a catastrophically empty family.
+      const shape = detectShape(xml)
+      if (shape !== 'urlset') {
+        observation.errors.push(`shard "${id}" served a <${shape}> where a <urlset> was expected`)
+        continue
+      }
+      // The shard id is NOT the family once a family is sub-sharded: counting
+      // `releases-a-e` as its own bucket would leave `releases` observed at
+      // zero, which the evaluator reports as a vanished family — a false alarm
+      // that looks exactly like the real incident. Resolved through the shared
+      // table so a new sub-shard cannot reintroduce the confusion.
+      //
+      // NOT `?? 'other'`: `format.ts` prints the unclassified tally only for
+      // the single-document shape, so an id that fell through would have its
+      // URLs counted into a bucket the report never shows. An id that resolves
+      // to no family here is a table inconsistency, not a URL to bucket — the
+      // `known.has(id)` guard above should already have rejected it — so say so
+      // and skip rather than swallow it.
+      const family = id === PAGES_SHARD_ID ? PAGES_SHARD_ID : shardFamily(id)
+      if (!family) {
+        observation.errors.push(
+          `shard "${id}" is listed and known but maps to no family — the shard table is inconsistent`
+        )
+        continue
+      }
+      const bucket: LocBucket = family
+      const locs = parseUrlset(xml)
+      // One at a time, not `push(...locs)`: the releases family is already ~20k
+      // entries and spreading it into the argument list approaches the engine's
+      // stack argument limit.
+      for (const loc of locs) recordLoc(observation, bucket, loc, config.target)
+      if (bucket === 'shows') collectShowDates(locs, observation.showDates)
+      countInto(observation, bucket, locs.length)
+      locsPerShard.set(id, locs.length)
+    } catch (error) {
+      observation.errors.push(`shard "${id}": ${(error as Error).message}`)
     }
-    // The shard id is NOT the family once a family is sub-sharded: counting
-    // `releases-a-e` as its own bucket would leave `releases` observed at
-    // zero, which the evaluator reports as a vanished family — a false alarm
-    // that looks exactly like the real incident. Resolved through the shared
-    // table so a new sub-shard cannot reintroduce the confusion.
-    //
-    // NOT `?? 'other'`: `format.ts` prints the unclassified tally only for
-    // the single-document shape, so an id that fell through would have its
-    // URLs counted into a bucket the report never shows. An id that resolves
-    // to no family here is a table inconsistency, not a URL to bucket — the
-    // `known.has(id)` guard above should already have rejected it — so say so
-    // and skip rather than swallow it.
-    const family = id === PAGES_SHARD_ID ? PAGES_SHARD_ID : shardFamily(id)
-    if (!family) {
-      observation.errors.push(
-        `shard "${id}" is listed and known but maps to no family — the shard table is inconsistent`
-      )
-      continue
-    }
-    const bucket: LocBucket = family
-    const locs = parseUrlset(xml)
-    // One at a time, not `push(...locs)`: the releases family is already ~20k
-    // entries and spreading it into the argument list approaches the engine's
-    // stack argument limit.
-    for (const loc of locs) recordLoc(observation, bucket, loc, config.target)
-    if (bucket === 'shows') collectShowDates(locs, observation.showDates)
-    countInto(observation, bucket, locs.length)
-    locsPerShard.set(id, locs.length)
   }
 
   // Every shard the sitemap claims to emit must actually be listed. A shard
@@ -499,16 +510,22 @@ export async function walkSitemap(config: MonitorConfig): Promise<SitemapObserva
   // year after next and most of it is empty on any given day, so this would fire
   // on nearly every run and get the whole monitor muted.
   //
-  // WHAT THAT COSTS, stated rather than glossed. It is family-granular while the
-  // property is per-shard: a COLD shows month going dark is tens of URLs and
-  // genuinely below caring, but a HOT one is ~23% of the family against a 20%
-  // default drift tolerance — three points of margin, which is exactly the
-  // "coincidence of where the cut points fell" this check was added not to
-  // depend on. Two things still cover a hot month: the per-shard membership
-  // check above names a shard missing from the index whatever its size, and
-  // drift catches the loss if it clears tolerance. The clean fix is per-SHARD
-  // expected counts from the API, which would retire this heuristic and its
-  // exemption together; fetchExpectedCounts below is per-family today.
+  // WHAT THAT COSTS, stated rather than glossed, because it is a real hole and
+  // it WIDENS. The exemption is family-granular while the property is
+  // per-shard, so a shows month serving an empty document is unreported
+  // whatever its size. What is left covering it is the family drift check, at a
+  // 20% default tolerance — and a month's share of the family only falls as the
+  // span fills. The hottest month is ~28% of the shows URLs today, because the
+  // catalogue is concentrated into four months; past shows never age out, so at
+  // six or more populated months every month is under tolerance and a dark one
+  // has NO signal at all. The per-shard membership check above is not the
+  // backstop either: it fires on a shard missing from the index, and the index
+  // is generated from a static table, so a shard that renders empty is always
+  // listed.
+  //
+  // The fix is per-SHARD expected counts from the API, which retires this
+  // heuristic and its exemption together; fetchExpectedCounts below is
+  // per-family today.
   for (const [shardId, count] of locsPerShard) {
     if (count > 0 || shardId === PAGES_SHARD_ID) continue
     const family = shardFamily(shardId)

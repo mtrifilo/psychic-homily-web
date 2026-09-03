@@ -192,6 +192,27 @@ func TestShowShardYearsAreContiguous(t *testing.T) {
 	}
 }
 
+// TestShowShardYearsStayAheadOfTheCalendar is the only automated warning that
+// the enumerated span is running out, and it is deliberately time-dependent.
+//
+// Nothing else fires until it is too late: every other test here passes for any
+// span, and the data-cache budget gate does not warn — it fails the production
+// build at 80% of the cap, which is the incident this sharding exists to end.
+// Shows are ingested on a rolling forward horizon, so the open tail shard starts
+// filling as soon as dates in the year after the span are announced and crosses
+// the gate a few months later.
+//
+// Requiring the span to reach NEXT year buys roughly twelve months of notice: it
+// goes red on 1 January of the last enumerated year, long before anything is
+// dated past the span. Fixing it is the four-edit procedure on showShardYears.
+func TestShowShardYearsStayAheadOfTheCalendar(t *testing.T) {
+	last := showShardYears[len(showShardYears)-1]
+	if want := time.Now().UTC().Year() + 1; last < want {
+		t.Errorf("showShardYears ends at %d, but shows dated %d and later already fall in the open tail shard. "+
+			"Append years through %d — see the four-edit procedure on showShardYears.", last, last+1, want)
+	}
+}
+
 // TestShowShardsAreMonthlyAndUTC pins the two facts the ids promise: each
 // enumerated shard covers exactly one UTC calendar month, and its id names that
 // month. A shard whose id said 2026-09 while its range covered October would be

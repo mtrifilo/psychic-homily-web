@@ -67,12 +67,19 @@ var sitemapFamilies = []string{
 //     ReleaseService.UpdateRelease), and it stays balanced because the letter
 //     mix of titles is a property of how records get named. Measured on
 //     releaseShards.
-//   - A calendar range over the event date is stable for shows because the date
-//     is the fact the URL is built from, and every past bucket is frozen once
-//     its month ends. It is NOT self-balancing — the live buckets grow and the
-//     old ones do not — so the grain is chosen small enough that a fully
-//     ingested bucket still fits, rather than re-cut as the mix moves. Measured
-//     on showShards.
+//   - A calendar range over the event date is stable for shows in the sense
+//     that matters most — every PAST bucket is frozen once its month ends, and
+//     past shows are the bulk of the corpus — but it is NOT as stable as a slug
+//     range, and the difference is worth knowing before re-cutting it. A show's
+//     slug is generated once, by CreateShow; UpdateShow changes event_date
+//     without regenerating it. So rescheduling an upcoming show moves it between
+//     shards while leaving the URL a crawler already has unchanged, which is
+//     exactly what the releases key rules out. Accepted rather than solved:
+//     reschedules are a small, bounded share of an upcoming month, and the cost
+//     is that two documents change instead of one.
+//     It is also NOT self-balancing — the live buckets grow and the old ones do
+//     not — so the grain is chosen small enough that a fully ingested bucket
+//     still fits, rather than re-cut as the mix moves. Measured on showShards.
 //
 // HOW IT GROWS. Add a cut point and split ONE range. Every other range keeps
 // both its id and its exact contents, so re-tuning churns only the range being
@@ -169,12 +176,37 @@ const showShardColumn = "event_date"
 // showShardYears are the calendar years the shows family is enumerated by month
 // for. Ascending and contiguous, asserted by TestShowShardYearsAreContiguous.
 //
-// EXTENDING THIS IS ROUTINE, ROUGHLY ANNUAL MAINTENANCE. Everything dated at or
-// after the year following the last one here lands in the single open tail
-// shard, which then grows without bound. The frontend's data-cache budget gate
-// fails the build at 80% of the cap, so the failure mode is a red build with
-// headroom left rather than a silently uncached shard — but it is still a
-// build-blocking failure. Append the next year while the tail is small.
+// EXTENDING THIS IS ROUTINE, ROUGHLY ANNUAL MAINTENANCE, AND NOTHING WARNS
+// FIRST. Everything dated at or after the year following the last one here
+// lands in the single open tail shard, which then grows without bound. The only
+// automated signal is the frontend's data-cache budget gate, and it does not
+// warn — assertFetchFitsDataCache returns quietly below 80% of the cap and
+// FAILS at it. So the first notice that the tail has outgrown its entry is a
+// blocked production deploy, which is the incident this scheme was built to end.
+// Append the next year while the tail is still small rather than waiting to be
+// told.
+//
+// APPENDING A YEAR IS FOUR EDITS, and this is the only place anyone will be
+// standing when they make the first one. Doing only the first leaves the new
+// ids rejected with 422, which the generator degrades to empty documents — a
+// green `go build` and a green `go test ./internal/services/catalog/...`, since
+// every structural test here passes for ANY span. The failures land in other
+// packages, so do all four:
+//
+//  1. this list;
+//  2. the `enum` tag on GetSitemapEntriesRequest.Family in
+//     internal/api/handlers/catalog/sitemap.go. It is a struct-tag literal huma
+//     reads directly, so it cannot call SitemapFamilyValuesCSV() — print the
+//     value to paste with `go test ./internal/api/handlers/catalog/ -run
+//     TestSitemapFamilyEnumMatchesTheService`, whose diff is the new tag;
+//  3. `bun run api:types` in frontend/, which regenerates the wire enum;
+//  4. SHOW_SHARD_IDS in frontend/app/sitemap-shards.ts, which tsc then checks
+//     against that enum in both directions.
+//
+// The tail shard's id moves with the span (shows-from-2028 becomes
+// shows-from-2029) and the document at the old path stops existing. That is the
+// one id this scheme does churn — it is the range being split, and the shards
+// on either side of it keep their ids and their contents.
 var showShardYears = []int{2026, 2027}
 
 // showShards partitions the shows family by UTC event month, plus one open
@@ -190,19 +222,35 @@ var showShardYears = []int{2026, 2027}
 // discovery ingests a rolling horizon of upcoming shows and past shows never
 // age out.
 //
-// A month is the coarsest grain that fits with room to grow. The two fully
-// ingested months on that same day were 2026-09 at 366,852 bytes and 2026-10 at
-// 352,557 — 23% of the cache item cap once encoded, against the releases
-// sub-shards' 20-27%. That leaves a fully ingested month about 2.5x of headroom
-// below the 60% line and 4x below the cap, on a corpus growing at roughly 3,800
-// shows a month. The month grain is also what keeps this family under the
-// sitemap protocol's 50,000-URL-per-document limit, which a year shard would
-// reach on the same growth curve as the byte cap.
+// A month is the coarsest grain that fits with room to grow. Serving these
+// bounds from a database holding the production show catalogue, the two fully
+// ingested months answered 380,528 and 377,804 raw bytes — 24.2% and 24.1% of
+// the cache item cap once the frontend had written them, against the releases
+// sub-shards' 20-27%. So a fully ingested month has 3.3x of headroom below the
+// 80% gate and 4.1x below the cap, on a corpus growing at roughly 3,800 shows a
+// month. The month grain is also what keeps this family under the sitemap
+// protocol's 50,000-URL-per-document limit, which a year shard would reach on
+// the same growth curve as the byte cap.
 //
 // TOTALITY. The head shard is open below and the tail shard is open above, so
 // every event_date lands in exactly one range whatever the enumerated span is —
 // the argument releaseShards rests on, applied to instants. Show.EventDate is
 // NOT NULL, so there is no undated bucket to provide.
+//
+// AN ID NAMES ITS UTC MONTH, NOT THE SLUG DATES INSIDE IT, and for this
+// catalogue those differ by a day. utils.GenerateShowSlug dates a slug in the
+// VENUE's zone, and a US evening show is stored at 02:00-05:00 UTC the
+// following day, so shows-2026-09 holds slugs dated roughly 2026-08-31 to
+// 2026-09-29. Harmless — the bucket appears in no URL and the partition is
+// total and disjoint either way — but do not read a shard id as a filter over
+// slug dates when chasing a specific show.
+//
+// MOST OF THESE SHARDS SERVE AN EMPTY DOCUMENT TODAY, since the catalogue
+// occupies four months of the enumerated span. That is deliberate: the ids are
+// a fixed table on both sides, so the index can list every shard and the
+// monitor can name one that goes missing. An index that omitted empties would
+// trade that named error for silence, and it would have to be computed from the
+// data rather than the table.
 func showShards() []sitemapShard {
 	first := showShardYears[0]
 	last := showShardYears[len(showShardYears)-1]

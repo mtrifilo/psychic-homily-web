@@ -8,7 +8,13 @@ import {
   SITEMAP_FAMILIES,
 } from '@/app/sitemap-shards'
 import { resolveConfig } from './config'
-import { fetchExpectedCounts, rebaseOnTarget, sampleUrls, walkSitemap } from './fetch'
+import {
+  fetchExpectedCounts,
+  rebaseOnTarget,
+  sampleUrls,
+  SHARD_FETCH_CONCURRENCY,
+  walkSitemap,
+} from './fetch'
 
 const STAGE = 'https://stage.psychichomily.com'
 
@@ -190,7 +196,7 @@ describe('walkSitemap', () => {
         // assertion below meaningful.
         await new Promise<void>(resolve => {
           release.push(resolve)
-          if (release.length >= 6) release.reverse().forEach(r => r())
+          if (release.length >= SHARD_FETCH_CONCURRENCY) release.reverse().forEach(r => r())
         })
         inFlight--
         return xmlResponse('not a sitemap document', 500)
@@ -200,12 +206,43 @@ describe('walkSitemap', () => {
     const observation = await walkSitemap(testConfig({ SITEMAP_MONITOR_TARGET: STAGE }))
 
     expect(peak).toBeGreaterThan(1)
-    expect(peak).toBeLessThanOrEqual(6)
+    expect(peak).toBeLessThanOrEqual(SHARD_FETCH_CONCURRENCY)
     // Every shard failed, so the errors are one per shard and must appear in
     // the order the index listed them, not the order the fetches settled.
     expect(observation.errors).toEqual(
       ALL_IDS.map(id => expect.stringContaining(`shard "${id}"`))
     )
+  })
+
+  /**
+   * PARSING failures stay per-shard too, not just fetch failures.
+   *
+   * Both inputs below reach a throw AFTER the fetch succeeded: `fetchDocument`
+   * checks only `response.ok`, so a 200 carrying an edge interstitial reaches
+   * `detectShape`, and a `<loc>` that is not a URL reaches `new URL` inside
+   * `rebaseOnTarget`. If either escaped, the run would lose every other shard's
+   * observations and report a crash naming no shard at all.
+   */
+  it.each([
+    ['a 200 that is not a sitemap document', '<html><body>gateway</body></html>'],
+    ['a malformed loc', `<urlset><url><loc>not a url</loc></url></urlset>`],
+  ])('keeps going when one shard serves %s', async (_label, body) => {
+    const [broken] = ENTITY_SHARD_IDS
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.endsWith('/sitemap-index')) return xmlResponse(index(ALL_IDS))
+        if (url.endsWith(`/${broken}.xml`)) return xmlResponse(body)
+        return xmlResponse(urlset(['https://psychichomily.com/artists/a']))
+      })
+    )
+
+    const observation = await walkSitemap(testConfig({ SITEMAP_MONITOR_TARGET: STAGE }))
+
+    expect(observation.errors.some(e => e.includes(`shard "${broken}"`))).toBe(true)
+    // The rest of the walk still happened, which is what makes this a per-shard
+    // boundary rather than a caught-and-abandoned run.
+    expect(observation.observedByFamily.artists).toBeGreaterThan(0)
   })
 
   /**
@@ -288,7 +325,7 @@ describe('walkSitemap', () => {
 
     /**
      * The shows shards are calendar months, so an empty one is a month nobody
-     * has booked yet rather than a lost document — SPARSE_SUB_SHARD_FAMILIES.
+     * has booked yet rather than a lost document — subShardsCanBeEmpty.
      * Reported, this would fire on almost every run: the enumerated span runs
      * to the end of the year after next.
      */
