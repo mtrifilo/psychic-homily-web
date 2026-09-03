@@ -14,11 +14,12 @@ import (
 // The display column CommentEntityPathAndTable names has to be the column the
 // table actually spells, and nothing in the enrichment path says so when it is
 // not: LoadCommentEntityNames logs the undefined-column error and skips the
-// batch, so the surface renders "<type> #<id>" and looks like an entity that was
-// deleted. Two types were wrong that way and neither test nor route noticed.
+// batch, so the surface renders "<type> #<id>" and reads as an entity that was
+// deleted.
 //
 // This probe runs the SELECT the loader builds, per type, and fails on the error
-// the loader swallows.
+// the loader swallows. LIMIT 0 still parses the projection, so it decides the
+// column and not the fixture.
 func TestEveryCommentParentTableSpellsItsDisplayColumn(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -48,8 +49,7 @@ func TestEveryCommentParentTableSpellsItsDisplayColumn(t *testing.T) {
 	}
 }
 
-// The identity fence, asserted directly. It could not fire before the display
-// column was corrected, because the SELECT it guards never executed.
+// The identity fence, asserted directly.
 //
 // The two halves are one test because either alone passes for the wrong reason:
 // a fence that withheld everything satisfies the stranger's half, and a loader

@@ -9418,6 +9418,7 @@ export interface components {
             /** Format: int64 */
             id: number;
             is_featured: boolean;
+            is_fork?: boolean;
             is_public: boolean;
             /** Format: int64 */
             item_count: number;

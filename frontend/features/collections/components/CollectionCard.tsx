@@ -47,10 +47,10 @@ export function CollectionCard({ collection }: CollectionCardProps) {
   const unlikeMutation = useUnlikeCollection()
   // PSY-609: like/unlike are optimistic-rollback hooks; on a 4xx the heart
   // snaps back but the user got no explanation. Keep an auto-dismiss
-  // banner in the card so the *reason* is visible for ~3s. 403 (private
-  // target) gets dedicated copy. PSY-957: timer lifecycle + error copy come
-  // from the feature's shared banner primitives instead of a hand-rolled
-  // setTimeout + inline 403 formatting.
+  // banner in the card so the *reason* is visible for ~3s. 403 gets dedicated
+  // permission copy. PSY-957: timer lifecycle + error copy come from the
+  // feature's shared banner primitives instead of a hand-rolled setTimeout +
+  // inline formatting.
   const {
     value: likeError,
     show: showLikeError,

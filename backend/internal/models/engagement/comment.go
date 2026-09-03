@@ -75,7 +75,7 @@ var ValidCommentEntityTypes = map[CommentEntityType]string{
 //
 // THE COLUMN IS THE ONE THE TABLE ACTUALLY SPELLS, and it is not uniform: shows,
 // releases and collections carry `title`, the rest carry `name`. A wrong column
-// is not a caught error at this layer — it becomes an undefined-column failure
+// is not a caught error at this layer: it becomes an undefined-column failure
 // inside the batch SELECT that reads it, which the enrichment logs and skips, so
 // the surface degrades to "<type> #<id>" rather than failing loudly.
 func CommentEntityPathAndTable(entityType string) (path, table, nameCol string, ok bool) {

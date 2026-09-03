@@ -141,10 +141,20 @@ export interface Collection {
   /** Public fork count — number of collections that cloned this one. PSY-351. */
   forks_count: number
   /**
-   * Set when this collection was created via clone. May be set even when
-   * `forked_from` is absent (the source was deleted post-fork). PSY-351.
+   * The source this collection was cloned from, present only when the viewer
+   * may see that source. Absent for an original, for a source that was
+   * deleted, and for one the viewer may not read: those three are one answer,
+   * so this field cannot be used to decide whether a collection is a fork.
+   * PSY-351.
    */
   forked_from_collection_id?: number | null
+  /**
+   * Whether this collection was created by cloning another, without naming
+   * which. Sent only by `GET /auth/collections`, and there only for the
+   * caller's own collections; false or absent everywhere else. Use this, not
+   * `forked_from_collection_id`, to partition owned originals from forks.
+   */
+  is_fork?: boolean
   entity_type_counts?: Record<string, number> | null
   /**
    * PSY-350: number of items added to this collection by other users since

@@ -395,7 +395,7 @@ describe('CollectionCard', () => {
   // optimistic-rollback snap-back has a visible reason. Auto-dismisses
   // after ~3s but the assertion only checks initial render.
   describe('like/unlike error banner (PSY-609)', () => {
-    it('renders a 403-private error banner when liking fails on a private collection', async () => {
+    it('renders the permission copy when liking fails with 403', async () => {
       mockIsAuthenticated = true
       mockLikeMutateAsync.mockRejectedValueOnce(
         Object.assign(new Error('forbidden'), { status: 403 })

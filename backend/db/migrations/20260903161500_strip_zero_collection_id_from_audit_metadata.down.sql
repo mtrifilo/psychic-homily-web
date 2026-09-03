@@ -1,11 +1,11 @@
 -- Deliberately a no-op.
 --
--- The up migration removes a key whose only value was 0, and 0 named no
--- collection. Putting it back would restore rows that pass no visibility arm and
--- are withheld from their own author, which is the defect the removal exists to
--- clear. There is also nothing to distinguish a row this migration stripped from
--- one written before the key existed, so a reversal could not target the right
--- rows even if it were wanted.
+-- The up migration removes a key whose only value was 0, and 0 names no
+-- collection. The read gate treats that value as an absent key, so the rows read
+-- the same either way and there is nothing for a reversal to restore. There is
+-- also nothing distinguishing a row this migration stripped from one written
+-- before the key existed, so a reversal could not target the right rows even if
+-- it were wanted.
 --
 -- Rolling back means reverting the application code, not re-stamping zeros.
 SELECT 1;

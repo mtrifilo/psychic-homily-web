@@ -267,8 +267,21 @@ type CollectionListResponse struct {
 	// ForkedFromCollectionID carries the detail route's rule: present only when
 	// the viewer may see the source. See CollectionDetailResponse's field and
 	// CollectionService.batchVisibleForkSources.
-	ForkedFromCollectionID *uint          `json:"forked_from_collection_id,omitempty"`
-	EntityTypeCounts       map[string]int `json:"entity_type_counts"`
+	ForkedFromCollectionID *uint `json:"forked_from_collection_id,omitempty"`
+	// IsFork reports whether this collection was created by cloning another one,
+	// WITHOUT naming which. It exists because ForkedFromCollectionID above is
+	// viewer-dependent and cannot answer that question: a source the viewer may
+	// not see is dropped, so an absent id means "no fork OR a fork of something
+	// you may not see" and a client counting originals would count the second
+	// case as the first.
+	//
+	// POPULATED ONLY BY GetUserCollections, and there only for rows the CALLER
+	// CREATED. It is a fact about the caller's own collection on the caller's own
+	// library, so it names nothing about anybody else's; every listing another
+	// person reads leaves it false. Absent on every other surface, like
+	// NewSinceLastVisit below.
+	IsFork           bool           `json:"is_fork,omitempty"`
+	EntityTypeCounts map[string]int `json:"entity_type_counts"`
 	// NewSinceLastVisit is the count of items added to this collection after
 	// the viewer's `last_visited_at` cursor on the subscription. Always 0
 	// for collections the viewer is not subscribed to (or for unauthed
@@ -521,9 +534,12 @@ type CollectionServiceInterface interface {
 	// an error, and callers must not stamp it.
 	ListCollections(filters CollectionFilters, limit, offset int) ([]*CollectionListResponse, int64, error)
 	// UpdateCollection applies the update and then reads the collection back AS
-	// THE CALLER, so an admin who edits a private collection without publishing
-	// it gets a NIL detail with a nil error: the write landed and there is
-	// nothing they may read. The id comes back either way, and it is what the
+	// THE CALLER. A NIL DETAIL WITH A NIL ERROR means the write landed and the
+	// caller may not read the result: an admin editing a private collection
+	// without publishing it is the case this serves, and any caller whose
+	// collection stops being readable to them between the write and the read
+	// reaches it too. A request that updates nothing is not a write and gets the
+	// read's refusal instead. The id comes back on every path, and it is what the
 	// handler answers 204 on and what the audit row is stamped with.
 	UpdateCollection(slug string, userID uint, isAdmin bool, req *UpdateCollectionRequest) (*CollectionDetailResponse, uint, error)
 	DeleteCollection(slug string, userID uint, isAdmin bool) (uint, error)

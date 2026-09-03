@@ -2,17 +2,19 @@
 --
 -- A collection audit row's metadata carries the parent collection's id so the
 -- contributions timeline can decide the row against that collection. An earlier
--- writer resolved that id by a lookup that could fail, and stamped the failure's
--- zero. Zero names no collection, so such a row passes no arm of the timeline's
--- gate on the id and, with the key PRESENT, could not fall through to the older
--- slug arm either: it was withheld from everyone, including its own author on a
--- public collection.
+-- writer resolved that id by a lookup that could fail and stamped the failure's
+-- zero. Zero names no collection, so a row carrying it is decided by the older
+-- metadata-slug arm instead, which the read gate reaches by treating the
+-- sentinel as an absent key (`contributionVisibilitySQL`'s `parentIDAbsent`).
 --
--- The writers cannot produce one any more; every collection mutation now returns
--- the id of the row it loaded to authorise the write. What remains is the rows
--- written before that, and this removes the key from them so they carry the same
--- shape as the rows written before the key existed at all -- absent -- and are
--- decided by the slug arm that shape was built for.
+-- THOSE ROWS READ CORRECTLY TODAY. This is not a fix for a row being withheld;
+-- it is what lets the read gate stop carrying a special case for a value no
+-- writer can produce any more. Every collection mutation now returns the id of
+-- the row it loaded to authorise the write, so the sentinel is bounded to rows
+-- written before that. Stripping the key gives them the same shape as the rows
+-- written before the key existed at all, which is the shape the slug arm was
+-- built for, and `parentIDAbsent`'s `= '0'` branch can then be deleted with the
+-- arm itself rather than outliving it.
 --
 -- WHAT THIS DOES NOT DO is backfill the real id from the recorded slug. That is
 -- the change that would let the slug arm be deleted, and it is a separate

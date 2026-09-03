@@ -771,7 +771,7 @@ const VIEWER_TIER_QUERY_KEYS: readonly (readonly unknown[])[] = [
   // branch on purpose: the rest of the `tags` family is served by unauthed
   // routes and would only be refetched for nothing.
   queryKeys.tags.entityTagsAll,
-  // Collections vary the most: a private collection 403s for anyone but its
+  // Collections vary the most: a private collection 404s for anyone but its
   // creator, `user_likes_this` and `is_subscribed` are per-viewer, the
   // entity-collections list unions in the viewer's own private collections,
   // and nested tags carry `user_vote`.

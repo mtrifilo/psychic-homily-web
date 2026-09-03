@@ -50,16 +50,19 @@ export const REPLACED_REQUEST_EXPLANATION =
  * Render a 4xx mutation failure with dedicated copy for 403. Falls back to the
  * server's `detail`/`message` for everything else, then to the caller's copy.
  *
- * A 403 MEANS PERMISSION, NEVER PRIVACY. Every collection refusal that means
- * "you may not see this" is a 404 carrying the same body an unused slug gets,
- * so a 403 is only reachable on a collection the viewer CAN see and may not
- * edit: a public collection they neither created nor were admitted to as a
- * collaborator.
+ * A 403 MEANS PERMISSION, NEVER PRIVACY. Every collection service refusal that
+ * means "you may not see this" is a 404 carrying the same body an unused slug
+ * gets, and each tests visibility BEFORE ownership, so a 403 from the collection
+ * API is a collection the viewer can see and is not permitted to change. Which
+ * callers are permitted differs per route (creator only for the collection and
+ * the reorder, creator or item adder for the item writes), which is why the copy
+ * names permission rather than a role.
  *
  * The copy therefore says permission and says nothing about visibility. Copy
  * naming privacy here would restate in the UI the fact the API answers 404 to
- * withhold, and it would be wrong besides: on the only status that reaches this
- * branch, the collection is public.
+ * withhold. This branch keys on the status alone, so a 403 raised outside the
+ * collection API (an edge or auth layer) renders it too; that is the same
+ * trade-off the previous copy made, on a message that is now neutral.
  */
 export function describeCollectionMutationError(
   err: unknown,

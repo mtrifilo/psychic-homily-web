@@ -432,10 +432,10 @@ function CollectionItemCardRemoveControl({
             Cancels (mutation state transitions to pending/idle).
 
             Through describeCollectionMutationError like every other collection
-            mutation banner: this is the surface a 403 actually reaches, since
-            the confirm control is the one an owner still sees after losing the
-            collection, and the raw server string it used to print named the
-            collection back at the reader.
+            mutation banner, so no collection-mutation failure renders the
+            server's own message here. That message names the collection back at
+            the reader ("Access denied for collection '<slug>'"), which is a
+            shape no banner in this feature should print.
           */}
           {removeMutation.isError && (
             <div

@@ -312,6 +312,10 @@ func TestEntityVisibleToFailsClosedOnAnUnregisteredType(t *testing.T) {
 				t.Errorf("EntityIdentityFenceSQL for unregistered type %q = %q, want a closed fence",
 					entityType, fence)
 			}
+			if fence, _ := VisibleEntityExistsSQL(entityType, "t.entity_id", v.viewer); fence != "FALSE" {
+				t.Errorf("VisibleEntityExistsSQL for unregistered type %q = %q, want a closed fence",
+					entityType, fence)
+			}
 		}
 	}
 }

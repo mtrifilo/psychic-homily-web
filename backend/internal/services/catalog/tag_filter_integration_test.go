@@ -791,6 +791,39 @@ func (s *TagFilterIntegrationTestSuite) TestListTags_ShowEntityType_CityScoped()
 		}
 	}
 	s.Equal(3, bothShoegaze, "Phoenix+Tucson union covers all shoegaze shows")
+
+	// THE CITY FILTER IS NOT A VISIBILITY FILTER, and the city-scoped count
+	// carries the show rule as well. A pending show in the filtered city is one
+	// the /shows listing beside this facet withholds, so counting it would
+	// republish that row as a number and, since the listing is ordered by these
+	// counts, as a position.
+	phxPending := s.seedShowInCity("PHX-SG-PENDING", "Phoenix", "AZ")
+	s.Require().NoError(s.db.Model(&catalogm.Show{}).
+		Where("id = ?", phxPending).
+		Update("status", catalogm.ShowStatusPending).Error)
+	s.addArtistToShow(phxPending, sgArtist, 0)
+
+	withPending, _, err := s.tagService.ListTags("", "", nil, "name", 50, 0, catalogm.TagEntityShow, phx)
+	s.Require().NoError(err)
+	pendingCounts := map[string]int{}
+	for _, t := range withPending {
+		pendingCounts[t.Slug] = t.UsageCount
+	}
+	s.Equal(2, pendingCounts["shoegaze"],
+		"the Phoenix facet counted a PENDING Phoenix show the /shows listing withholds")
+
+	// Approving it moves the count, which is what separates the gate from a term
+	// that excludes every show in the filtered city.
+	s.Require().NoError(s.db.Model(&catalogm.Show{}).
+		Where("id = ?", phxPending).
+		Update("status", catalogm.ShowStatusApproved).Error)
+	approved, _, err := s.tagService.ListTags("", "", nil, "name", 50, 0, catalogm.TagEntityShow, phx)
+	s.Require().NoError(err)
+	approvedCounts := map[string]int{}
+	for _, t := range approved {
+		approvedCounts[t.Slug] = t.UsageCount
+	}
+	s.Equal(3, approvedCounts["shoegaze"], "approving the Phoenix show did not move the facet count")
 }
 
 // TestListTags_FestivalEntityType_Transitive mirrors the show test for

@@ -243,6 +243,30 @@ func (suite *CollectionServiceIntegrationTestSuite) TestListings_DropAPrivateFor
 		suite.Require().NotNil(got, "%s withheld the fork source from the source's own creator", name)
 		suite.Equal(source.ID, *got)
 	}
+
+	// THE FORK STATUS SURVIVES THE FENCE on the caller's own library, and this is
+	// the half a client needs. The per-tier create cap partitions owned
+	// originals from forks, and the fenced id cannot make that split: it is
+	// absent for an original AND for a fork of a hidden source. is_fork answers
+	// it without naming the source.
+	library, _, err := suite.collectionService.GetUserCollections(stranger.ID, "", 100, 0)
+	suite.Require().NoError(err)
+	var sawClone, sawOriginal bool
+	for _, r := range library {
+		switch r.ID {
+		case clone.ID:
+			sawClone = true
+			suite.True(r.IsFork, "the caller's own fork reports is_fork even with its source fenced")
+			suite.Nil(r.ForkedFromCollectionID, "the fence still drops the id")
+		case source.ID:
+			sawOriginal = true
+			suite.False(r.IsFork, "somebody else's collection is not reported as the caller's fork")
+		}
+	}
+	suite.True(sawClone, "the library did not contain the clone")
+	// The stranger subscribed to nothing, so the source is absent from their
+	// library; naming the miss keeps the arm above honest about what it checked.
+	suite.False(sawOriginal, "the source is not in the stranger's library")
 }
 
 // A COLLECTION THE CALLER CANNOT READ IS NOT ONE THEY MAY TAG, whatever

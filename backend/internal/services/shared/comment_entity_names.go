@@ -50,8 +50,9 @@ type EntityNameRow struct {
 // THE FENCE IS WHAT MAKES A RESOLVED TITLE SAFE TO RENDER. The SELECT below asks
 // each parent table for its display column, so a private collection's title is
 // in reach of this query and is withheld only because the fence is spliced in
-// unconditionally. Deleting it does not break a test on the happy path; it
-// publishes the titles of the collections the callers' row gates then drop.
+// unconditionally. TestLoadCommentEntityNamesFencesPrivateCollections asserts
+// both directions of that: the creator's title resolves and every other tier's
+// is absent, so removing the fence fails rather than passing quietly.
 func LoadCommentEntityNames(db *gorm.DB, idsByType map[string][]uint, viewer contracts.ShowViewer) map[string]map[uint]EntityNameRow {
 	out := make(map[string]map[uint]EntityNameRow, len(idsByType))
 	for entityType, ids := range idsByType {

@@ -853,6 +853,38 @@ func TestCollectionOwnerWritesRefuseLikeAMissingCollection(t *testing.T) {
 			t.Errorf("the creator's own update answered %d; body: %s", ownCode, ownBody)
 		}
 	})
+
+	// A PUT THAT UPDATES NOTHING IS NOT A WRITE, and it must not answer as one.
+	// The 204 above reports a successful write; a request naming no updatable
+	// field has none, so answering it 204 would tell an admin that a
+	// title-derived slug they guessed names a real private collection, with no
+	// side effect to pay for it. It answers exactly as an unused slug does.
+	t.Run("an admin's no-op update is not an existence oracle", func(t *testing.T) {
+		target := testhelpers.CreateCollection(t, td.DB, creator.ID,
+			"Reported And Untouched", "reported-and-untouched", false)
+
+		gatedCode, gatedBody := do(t, http.MethodPut, "/collections/"+target.Slug, adminToken, []byte(`{}`))
+		missingCode, missingBody := do(t, http.MethodPut, "/collections/"+missingSlug, adminToken, []byte(`{}`))
+
+		if gatedCode != http.StatusNotFound {
+			t.Errorf("an empty PUT on a private collection answered the admin %d, want 404; body: %s",
+				gatedCode, gatedBody)
+		}
+		gatedNorm := strings.ReplaceAll(string(gatedBody), target.Slug, "<slug>")
+		missingNorm := strings.ReplaceAll(string(missingBody), missingSlug, "<slug>")
+		if gatedCode != missingCode || !sameErrorMessage([]byte(gatedNorm), []byte(missingNorm)) {
+			t.Errorf("an empty PUT answers %d/%s for a private collection but %d/%s for a slug nobody "+
+				"has used; the difference is the oracle",
+				gatedCode, gatedNorm, missingCode, missingNorm)
+		}
+
+		// The control: the SAME caller, the same collection, one field named.
+		// That request is a write, and it gets the 204.
+		if code, body := do(t, http.MethodPut, "/collections/"+target.Slug, adminToken,
+			[]byte(`{"description":"a real moderation edit"}`)); code != http.StatusNoContent {
+			t.Errorf("an admin's real update answered %d, want 204; body: %s", code, body)
+		}
+	})
 }
 
 // THE COMMENT-ID WRITES ANSWER LIKE THE COMMENT-ID READS.

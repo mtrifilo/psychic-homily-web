@@ -836,8 +836,10 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
 
           {deleteMutation.isError && (
             <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-              {deleteMutation.error?.message ||
-                'Failed to delete collection. Please try again.'}
+              {describeCollectionMutationError(
+                deleteMutation.error,
+                'Failed to delete collection. Please try again.'
+              )}
             </div>
           )}
 

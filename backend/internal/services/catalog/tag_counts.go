@@ -102,18 +102,21 @@ func tagUsageCountOrderBySQL() string {
 //
 // cities narrows the show scope to the active city filter and is ignored for
 // every other type, which is the rule computeEntityTypeTagCounts already states.
+//
+// WHICH TYPES ARE TRANSITIVE is artistLineupJunctions' decision, read here
+// rather than restated as a switch: a second list of the same two types is a
+// second place for the pair to disagree, and disagreeing means a type routed to
+// a builder that has no junction for it.
 func (s *TagService) visibleTagUsageCountQuery(entityType string, cities []contracts.CityStateFilter) tagUsageCountQuery {
-	switch entityType {
-	case "":
+	if entityType == "" {
 		sql, args := shared.VisibleTagUsageCountSQL()
 		return tagUsageCountQuery{sql: sql, args: args}
-	case catalogm.TagEntityShow:
-		if len(cities) > 0 {
-			return transitiveArtistTagUsageInShowCitiesQuery(cities)
-		}
-		return transitiveArtistTagUsageQuery(catalogm.TagEntityShow)
-	case catalogm.TagEntityFestival:
-		return transitiveArtistTagUsageQuery(catalogm.TagEntityFestival)
+	}
+	if entityType == catalogm.TagEntityShow && len(cities) > 0 {
+		return transitiveArtistTagUsageInShowCitiesQuery(cities)
+	}
+	if _, transitive := artistLineupJunctions[entityType]; transitive {
+		return transitiveArtistTagUsageQuery(entityType)
 	}
 	return directEntityTypeTagUsageQuery(entityType)
 }
@@ -148,10 +151,10 @@ func directEntityTypeTagUsageQuery(entityType string) tagUsageCountQuery {
 // artistLineupJunctions is the lineup table each transitively-counted container
 // type is billed through, keyed by the registry's own entity-type spelling.
 //
-// One key means one entry: the junction table and its container column are
-// properties of the container type, not choices a caller makes, so they are not
-// parameters that could be passed inconsistently with the type whose visibility
-// rule is looked up beside them.
+// One key means one entry: within this file the junction table and its container
+// column are read from the container type rather than passed beside it, so a
+// caller cannot pair `show` with the festival junction and get a count that
+// silently answers about the wrong table.
 var artistLineupJunctions = map[string]struct {
 	table             string
 	containerIDColumn string
@@ -176,11 +179,12 @@ const artistLineupArtistIDColumn = "artist_id"
 //
 // A containerEntityType with no lineup junction counts NOTHING rather than
 // counting everything, which is the same direction the registry's own zero value
-// takes: only the two types visibleTagUsageCountQuery routes here have an entry.
+// takes. visibleTagUsageCountQuery routes on this same map, so the branch is
+// unreachable through it; it is the answer for a caller that arrives another way.
 func transitiveArtistTagUsageQuery(containerEntityType string) tagUsageCountQuery {
 	junction, ok := artistLineupJunctions[containerEntityType]
 	if !ok {
-		return tagUsageCountQuery{sql: "SELECT NULL::bigint AS tag_id, 0::bigint AS count WHERE FALSE"}
+		return tagUsageCountQuery{sql: "SELECT 0::bigint AS tag_id, 0::bigint AS count WHERE FALSE"}
 	}
 	containerVisible, containerVisibleArgs := shared.VisibleEntityExistsSQL(
 		containerEntityType,

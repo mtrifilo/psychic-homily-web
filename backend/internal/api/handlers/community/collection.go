@@ -308,8 +308,8 @@ type UpdateCollectionHandlerRequest struct {
 
 // UpdateCollectionHandlerResponse represents the response for updating a collection
 //
-// Status carries 204 for the one case that has no body: an admin whose update
-// leaves the collection unreadable to them. See UpdateCollectionHandler.
+// Status carries 204 for the one case that has no body: a write that landed on a
+// collection the caller may not read back. See UpdateCollectionHandler.
 type UpdateCollectionHandlerResponse struct {
 	Status int
 	Body   *contracts.CollectionDetailResponse
@@ -364,14 +364,22 @@ func (h *CollectionHandler) UpdateCollectionHandler(ctx context.Context, req *Up
 		})
 	}
 
-	// 204 WHEN THE WRITE LANDED AND THERE IS NOTHING THE CALLER MAY READ. Reached
-	// by an admin whose update does not flip is_public: the moderation remedy is
-	// a write power, not a read one, so the read-back refuses them. Returning the
-	// read's 404 would report a successful write as a failure and invite a retry
-	// of an update that already applied; 204 says committed, no body.
+	// 204 WHEN THE WRITE LANDED AND THERE IS NOTHING THE CALLER MAY READ.
+	// Returning the read's 404 would report a successful write as a failure and
+	// invite a retry of an update that already applied; 204 says committed, no
+	// body.
+	//
+	// The service decides this on the WRITE, not on the caller. An admin whose
+	// update does not flip is_public is the case the moderation exception needs
+	// (the remedy is a write power, not a read one), and a caller whose
+	// collection stops being readable to them between the write and the read
+	// reaches it on the same terms. A request that updates nothing is not a write
+	// and still gets the refusal.
 	//
 	// The refusal itself is NOT softened by this: the collection is still
-	// unreadable, and no field of it appears in a 204.
+	// unreadable, and no field of it appears in a 204. A caller who RENAMES a
+	// collection on this path therefore does not learn the regenerated slug,
+	// because the slug is a field of a collection they may not read.
 	if collection == nil {
 		return &UpdateCollectionHandlerResponse{Status: http.StatusNoContent}, nil
 	}

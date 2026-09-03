@@ -398,7 +398,7 @@ func EntityIdentityFenceSQL(entityType, alias string, viewer contracts.ShowViewe
 // EntityIdentityFenceSQL's sibling for a query that holds the id in some OTHER
 // table's column rather than selecting from the entity's own table: a junction
 // row's container id, a foreign key. It carries the same two conventions, and
-// for the same reasons — the rule is looked up in the registry rather than
+// for the same reasons: the rule is looked up in the registry rather than
 // written out at the call site, and a condition is ALWAYS returned so the caller
 // splices it in unconditionally: `TRUE` where no rule applies, `FALSE` for a type
 // nobody registered.

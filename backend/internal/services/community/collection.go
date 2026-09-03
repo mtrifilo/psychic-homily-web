@@ -1043,7 +1043,11 @@ func (s *CollectionService) UpdateCollection(slug string, userID uint, isAdmin b
 		updates["display_mode"] = *req.DisplayMode
 	}
 
-	if len(updates) > 0 {
+	// WHETHER A WRITE LANDED is what the refused read-back is allowed to be
+	// reported as, below. A request that names no updatable field writes nothing,
+	// so there is no success to report and the read's refusal stands.
+	wrote := len(updates) > 0
+	if wrote {
 		err = s.db.Model(&communitym.Collection{}).Where("id = ?", collection.ID).Updates(updates).Error
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to update collection: %w", err)
@@ -1066,13 +1070,29 @@ func (s *CollectionService) UpdateCollection(slug string, userID uint, isAdmin b
 	// A REFUSED READ-BACK IS NOT A FAILED WRITE, and this is where the two stop
 	// being reported as one thing. The refusal is swallowed here and answered as
 	// a nil detail with a nil error, so the caller can say "committed, nothing to
-	// show" rather than returning the read's 404 for an update that landed. Only
-	// the not-found refusal is swallowed: any other error from the read-back is a
-	// real failure and is returned.
+	// show" rather than returning the read's 404 for an update that landed.
+	//
+	// THE CONDITION IS THE WRITE, NOT THE CALLER. Nothing below reads isAdmin or
+	// the collection's visibility: an admin whose update leaves the collection
+	// private is the case this route exists to serve, and a creator whose
+	// collection is renamed or removed underneath them between the write and the
+	// read reaches it too. Both wrote successfully and neither can read the
+	// result, which is one answer, not two.
+	//
+	// ONLY WHERE A WRITE ACTUALLY LANDED. A request that updates nothing gets the
+	// refusal, unchanged: reporting success for it would answer differently for
+	// an existing private collection than for a slug nobody has used, on a
+	// request with no side effect, which is an existence oracle over
+	// title-derived slugs rather than a write power. The exception this route
+	// carries is a power to CHANGE a reported collection, and a no-op change is
+	// not an exercise of it.
+	//
+	// Only the not-found refusal is swallowed: any other error from the read-back
+	// is a real failure and is returned.
 	detail, err := s.GetBySlug(retrieveSlug, userID)
 	if err != nil {
 		var collErr *apperrors.CollectionError
-		if errors.As(err, &collErr) && collErr.Code == apperrors.CodeCollectionNotFound {
+		if wrote && errors.As(err, &collErr) && collErr.Code == apperrors.CodeCollectionNotFound {
 			return nil, collection.ID, nil
 		}
 		return nil, collection.ID, err
@@ -2139,7 +2159,7 @@ func (s *CollectionService) GetUserCollections(userID uint, search string, limit
 	userLikes := s.batchCheckUserLikes(userID, collectionIDs)
 	// PSY-354: tag chips on library cards.
 	tagsByCollection := s.batchListCollectionTagSummaries(collectionIDs)
-	// The fork source, fenced against the caller — userID IS the viewer on this
+	// The fork source, fenced against the caller. userID IS the viewer on this
 	// self-scoped listing. See batchVisibleForkSources.
 	forkSources := s.batchVisibleForkSources(collections, contracts.ShowViewer{UserID: userID})
 
@@ -2168,13 +2188,20 @@ func (s *CollectionService) GetUserCollections(userID uint, search string, limit
 			ContributorCount:       contributorCounts[c.ID],
 			ForksCount:             forkCounts[c.ID],
 			ForkedFromCollectionID: forkSources[c.ID],
-			EntityTypeCounts:       entityTypeCounts[c.ID],
-			NewSinceLastVisit:      newCounts[c.ID],
-			LikeCount:              likeCounts[c.ID],
-			UserLikesThis:          userLikes[c.ID],
-			Tags:                   tags,
-			CreatedAt:              c.CreatedAt,
-			UpdatedAt:              c.UpdatedAt,
+			// The fork STATUS of the caller's own collections, which the fenced
+			// id above cannot answer: it is absent both for an original and for a
+			// fork of a source the caller may not see. The per-tier create cap
+			// partitions on exactly this, so a client counting originals off the
+			// id counts the second case as the first. Rows the caller did not
+			// create leave it false: see the contract field.
+			IsFork:            c.CreatorID == userID && c.ForkedFromCollectionID != nil,
+			EntityTypeCounts:  entityTypeCounts[c.ID],
+			NewSinceLastVisit: newCounts[c.ID],
+			LikeCount:         likeCounts[c.ID],
+			UserLikesThis:     userLikes[c.ID],
+			Tags:              tags,
+			CreatedAt:         c.CreatedAt,
+			UpdatedAt:         c.UpdatedAt,
 		}
 	}
 
@@ -2407,7 +2434,7 @@ func (s *CollectionService) GetUserPublicCollections(userID uint, limit, offset 
 	// PSY-354: tag chips on profile-page cards.
 	tagsByCollection := s.batchListCollectionTagSummaries(collectionIDs)
 	// The fork source, fenced at the PUBLIC TIER, because no viewer is threaded
-	// through this call — the same reason UserLikesThis is left false above. The
+	// through this call, the same reason UserLikesThis is left false above. The
 	// profile page therefore drops a fork source that is private EVEN FOR its own
 	// creator reading their own profile, which is the safe direction of that
 	// limitation: it withholds an id somebody already has rather than publishing
