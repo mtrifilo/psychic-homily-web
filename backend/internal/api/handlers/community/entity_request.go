@@ -474,8 +474,10 @@ type ShowVenueInput struct {
 // the headliner flag from it).
 //
 // Bill ORDER can still have a say: an entry that states neither field is read as
-// the headliner when it is first on the bill. Three things narrow that, and only
-// the last two apply to an ADMIN-supplied bill like this one:
+// the headliner when it is first on the bill. Three things narrow that, and which
+// apply depends on where the bill came from. This type carries both an
+// admin-supplied bill and one built from the request payload (payloadShowBill),
+// so all three can reach these values:
 //
 //   - A bill adopted from the request PAYLOAD is suppressed whole, whatever it
 //     states, because a contributor's list order is not evidence of billing.

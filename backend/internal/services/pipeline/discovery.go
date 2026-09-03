@@ -194,16 +194,23 @@ func (s *DiscoveryService) ImportFromJSON(filepath string, dryRun bool) (*contra
 // internal/services/catalog/show.go, carries the rationale and the reason not to
 // align it.
 //
-// The venue match is scoped to (name, city), the pair venues are unique on, so a
-// same-named room in another metro is a different room here as it is there.
-// VenueConfig is the only source of both halves on this path.
+// The venue match is by NAME ALONE, deliberately, and does NOT copy the
+// (name, city) scoping catalog's guard uses. The city here could only come from
+// VenueConfig, which is a compile-time constant, while venues.city is editable
+// from the admin surface. The moment the two disagree this predicate stops
+// matching, the import proceeds, and FindOrCreateVenue -- city-scoped in both its
+// exact and its normalized branch -- forks a SECOND venue row, which the
+// id-keyed shows_artist_venue_eventdate_uniq cannot see either. That is the
+// duplicate-venue failure the normalized branch exists to prevent. No two
+// VenueConfig entries share a name, so scoping would refuse nothing new in
+// exchange.
 //
 // Local consequence: a hit tallies the event as DUPLICATE and skips it, while a miss
 // falls through to the import, where the dedup index refuses a single-venue collision
 // as a raw error instead. Narrowing this predicate turns clean DUPLICATE tallies into
 // ERRORs there, and on a multi-venue show admits the duplicate outright. The status
 // filter above already produces that raw-error outcome for a private colliding show.
-func (s *DiscoveryService) checkHeadlinerDuplicate(headlinerName, venueName, venueCity string, eventDate time.Time) *catalogm.Show {
+func (s *DiscoveryService) checkHeadlinerDuplicate(headlinerName, venueName string, eventDate time.Time) *catalogm.Show {
 	var existingShow catalogm.Show
 	err := s.db.
 		Joins("JOIN show_artists ON shows.id = show_artists.show_id").
@@ -212,7 +219,7 @@ func (s *DiscoveryService) checkHeadlinerDuplicate(headlinerName, venueName, ven
 		Joins("JOIN venues ON show_venues.venue_id = venues.id").
 		Where("LOWER(artists.name) = LOWER(?)", headlinerName).
 		Where("(show_artists.set_type = ? OR show_artists.position = 0)", "headliner").
-		Where("LOWER(venues.name) = LOWER(?) AND LOWER(venues.city) = LOWER(?)", venueName, venueCity).
+		Where("LOWER(venues.name) = LOWER(?)", venueName).
 		Where("shows.event_date = ?", eventDate).
 		Where("shows.status NOT IN ?", []catalogm.ShowStatus{catalogm.ShowStatusRejected, catalogm.ShowStatusPrivate}).
 		First(&existingShow).Error
@@ -301,14 +308,13 @@ func (s *DiscoveryService) importEvent(event *contracts.DiscoveredEvent, dryRun 
 	// Check if there's a rejected show at the same venue at the same exact
 	// event_date. This prevents re-importing events that were previously
 	// rejected. Keyed on the FULL event_date timestamp (PSY-559) so a rejected
-	// matinee does not block a legitimate evening import at the same venue, and
-	// on (name, city) so a rejection at a same-named room in another metro does
-	// not skip a legitimate import here.
+	// matinee does not block a legitimate evening import at the same venue, and on
+	// the venue NAME alone for the reason recorded on checkHeadlinerDuplicate.
 	var rejectedShow catalogm.Show
 	err = s.db.Joins("JOIN show_venues ON shows.id = show_venues.show_id").
 		Joins("JOIN venues ON show_venues.venue_id = venues.id").
-		Where("LOWER(venues.name) = LOWER(?) AND LOWER(venues.city) = LOWER(?) AND shows.event_date = ? AND shows.status = ?",
-			venueConfig.Name, venueConfig.City, eventDate, catalogm.ShowStatusRejected).
+		Where("LOWER(venues.name) = LOWER(?) AND shows.event_date = ? AND shows.status = ?",
+			venueConfig.Name, eventDate, catalogm.ShowStatusRejected).
 		First(&rejectedShow).Error
 	if err == nil {
 		return fmt.Sprintf("REJECTED: %s matches previously rejected show #%d at %s on %s",
@@ -321,7 +327,7 @@ func (s *DiscoveryService) importEvent(event *contracts.DiscoveredEvent, dryRun 
 	// Determine the headliner name from billing data (preferred) or artist list.
 	headlinerName := s.resolveHeadlinerName(event)
 	if headlinerName != "" {
-		if dupShow := s.checkHeadlinerDuplicate(headlinerName, venueConfig.Name, venueConfig.City, eventDate); dupShow != nil {
+		if dupShow := s.checkHeadlinerDuplicate(headlinerName, venueConfig.Name, eventDate); dupShow != nil {
 			return fmt.Sprintf("DUPLICATE: %s at %s on %s (matches existing show #%d: %s)",
 				event.Title, venueConfig.Name, eventDate.Format("2006-01-02 15:04"), dupShow.ID, dupShow.Title), "duplicate"
 		}
@@ -567,8 +573,13 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 
 		// Generate slug for the show. Ranked on the curated role first, because
 		// the slug is persisted and does not regenerate when the bill is
-		// curated later.
+		// curated later. Falls back to the same placeholder CreateShow uses when
+		// every entry was skipped as an empty name, so the slug never carries an
+		// empty artist segment.
 		headlinerName := catalog.ResolveHeadlinerName(billForSlug)
+		if headlinerName == "" {
+			headlinerName = "unknown"
+		}
 		// The slug date is read in the venue's own zone (PSY-1873); venueConfig
 		// carries only a state, and the state map answers Phoenix for anything
 		// outside the US.
@@ -1184,13 +1195,11 @@ func (s *DiscoveryService) CheckEvents(events []contracts.CheckEventInput) (*con
 		// an hour either side of it.
 		endOfDay := startOfDay.AddDate(0, 0, 1)
 
-		// Scoped to (name, city), the pair venues are unique on, so a show at a
-		// same-named room in another metro is never reported as this event.
 		var matchedShow catalogm.Show
 		err = s.db.Joins("JOIN show_venues ON show_venues.show_id = shows.id").
 			Joins("JOIN venues ON show_venues.venue_id = venues.id").
-			Where("LOWER(venues.name) = LOWER(?) AND LOWER(venues.city) = LOWER(?) AND shows.event_date >= ? AND shows.event_date < ?",
-				venueConfig.Name, venueConfig.City, startOfDay, endOfDay).
+			Where("LOWER(venues.name) = LOWER(?) AND shows.event_date >= ? AND shows.event_date < ?",
+				venueConfig.Name, startOfDay, endOfDay).
 			Select("shows.id, shows.source_venue, shows.source_event_id, shows.status, shows.price, shows.age_requirement, shows.description, shows.event_date, shows.is_sold_out, shows.is_cancelled").
 			First(&matchedShow).Error
 		if err != nil {

@@ -51,8 +51,9 @@ import (
 // the slot (suppressPositionInferenceWhenHeadlinerNamed). A bill reaches this
 // shape when its top act is pinned off the headline slot instead: by its own
 // caller (set_type 'performer', or is_headliner false), by ConfirmShowImport,
-// which pins every frontmatter entry, or by the community fulfiller, which pins
-// the acts an admin left silent on a bill that states any set_type.
+// which pins every frontmatter entry unconditionally, or by the community
+// fulfiller, which pins the silent acts of an admin-typed bill that states any
+// set_type, and of every bill adopted from a contributor's request payload.
 //
 // NOT covered here, deliberately, in three groups:
 //
@@ -128,10 +129,12 @@ import (
 //     and pipeline/discovery.go's checkHeadlinerDuplicate. The act each one
 //     PROBES is resolved separately from the slug: catalog's by
 //     probedHeadlinerNames off the request, discovery's by its own
-//     resolveHeadlinerName off the scraped payload, which ranks a curated
-//     headliner first and then the lowest 1-based billing_order. That is the
-//     same ordering ResolveHeadlinerName encodes on a different position
-//     convention, so the two are not interchangeable as written. They keep the
+//     resolveHeadlinerName off the scraped payload, which takes the FIRST act in
+//     list order that states 'headliner' and otherwise the lowest 1-based
+//     billing_order, where 0 means absent. ResolveHeadlinerName takes the
+//     lowest-POSITION curated headliner on a 0-based position, so the two
+//     disagree on a tied or multi-headliner bill and are not interchangeable as
+//     written. They keep the
 //     `(set_type = 'headliner' OR position = 0)` disjunction, which is NOT
 //     equivalent to this rule and is deliberately broader: they ask whether a
 //     write would collide, not which row tops a bill. The error directions stay
@@ -177,9 +180,10 @@ func headlineSlotSQL(alias string) string {
 	END)`
 }
 
-// HeadlineCandidate is one act of a bill as an in-memory writer holds it, just
-// before the show_artists rows exist to query. SetType is the raw value that
-// writer will store; it is normalized here, so a caller need not pre-map it.
+// HeadlineCandidate is one act of a bill as an in-memory writer holds it. Name
+// and Position are what that writer will store. SetType is normalized here, so a
+// caller may pass either the label its payload carried or the value it has
+// already resolved.
 type HeadlineCandidate struct {
 	Name     string
 	SetType  string
@@ -189,8 +193,9 @@ type HeadlineCandidate struct {
 // ResolveHeadlinerName names the act that tops `bill`, for writers that must
 // pick a headliner from a request or export payload rather than from
 // show_artists. It is the in-memory counterpart of the group-1 RESOLVE reads
-// documented above, and takes the same ranking: a curated 'headliner' outranks
-// everything, then lowest position, then bill order as the stable tiebreak.
+// documented above and ranks on the same two keys, curated 'headliner' first and
+// then lowest position. The third key differs: those reads break a tie on a
+// stable row id, which does not exist yet here, so this breaks it on bill order.
 //
 // It always names an act when the bill has one, because its callers write the
 // answer into a slug and a slug needs a name. That is what separates it from

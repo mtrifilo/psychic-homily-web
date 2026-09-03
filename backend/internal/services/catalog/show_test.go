@@ -4119,7 +4119,7 @@ artists:
 	resp, err := suite.showService.PreviewShowImport(content)
 	suite.Require().NoError(err)
 	suite.False(resp.CanImport, "the confirm path refuses this, so the preview must not offer it")
-	suite.Contains(resp.Warnings, "Venue is missing city")
+	suite.Contains(resp.Warnings, "Venue 'No City Room' is missing city")
 
 	_, err = suite.showService.ConfirmShowImport(content, true)
 	suite.Require().Error(err, "confirm must refuse exactly what preview refused")
@@ -4241,47 +4241,6 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_VenueIdentifiedByID
 		SubmitterIsAdmin:  true,
 	})
 	suite.Require().NoError(err, "a different room, also given by id, is not a collision")
-}
-
-// The guard's two halves must agree about the same row. An act left silent
-// beside a named headliner is written 'performer' at position 0, which the
-// STORED-row half matches, so the REQUEST half has to probe it: otherwise the
-// write declines to check the one row it is about to make matchable, and on a
-// multi-venue show the artist-level index cannot see that collision either.
-//
-// The silent act repeats across the two bills and the named headliner does not,
-// so only the position-0 act can produce the refusal.
-func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_SilentActBesideANamedHeadlinerIsProbed() {
-	user := suite.createTestUser()
-	eventDate := suite.uniqueEventDate()
-	venue := []contracts.CreateShowVenue{{Name: "Asymmetric Guard Room", City: "Phoenix", State: "AZ"}}
-
-	build := func(title, headliner string) *contracts.CreateShowRequest {
-		return &contracts.CreateShowRequest{
-			Title:     title,
-			EventDate: eventDate,
-			City:      "Phoenix",
-			State:     "AZ",
-			Venues:    venue,
-			Artists: []contracts.CreateShowArtist{
-				{Name: "Asymmetric Silent Act"},
-				{Name: headliner, SetType: strPtr(contracts.SetTypeHeadliner)},
-			},
-			SubmittedByUserID: &user.ID,
-			SubmitterIsAdmin:  true,
-		}
-	}
-
-	first, err := suite.showService.CreateShow(build("Asymmetric First", "Asymmetric Headliner A"))
-	suite.Require().NoError(err)
-	suite.Equal([]string{contracts.SetTypePerformer, contracts.SetTypeHeadliner}, suite.storedSetTypes(first.ID))
-
-	_, err = suite.showService.CreateShow(build("Asymmetric Second", "Asymmetric Headliner B"))
-	suite.Require().Error(err)
-	suite.Contains(err.Error(), "'Asymmetric Silent Act' is already performing",
-		"the position-0 act must be probed even though it stores 'performer'")
-	suite.NotContains(strings.ToLower(err.Error()), "duplicated key",
-		"the guard refuses this, so the index never has to")
 }
 
 // The same city scoping at the guard itself, without the import surface: the

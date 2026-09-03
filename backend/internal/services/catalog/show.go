@@ -10,6 +10,7 @@ import (
 	"hash/fnv"
 	"log"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -112,10 +113,11 @@ func (s *ShowService) CreateShow(req *contracts.CreateShowRequest) (*contracts.S
 		return nil, err
 	}
 
-	// One bill for the whole create. checkDuplicateHeadlinerConflicts must
-	// resolve exactly the rows associateArtists will write, so suppression runs
-	// once here, ahead of both. Copied rather than assigned onto req, which the
-	// caller owns and may still read.
+	// One bill for the whole create, resolved once here rather than at
+	// associateArtists so every later step reads the same list. The duplicate
+	// guard below is deliberately independent of it (see probedHeadlinerNames),
+	// so moving this call later would not move the guard. Copied rather than
+	// assigned onto req, which the caller owns and may still read.
 	createReq := *req
 	createReq.Artists = suppressPositionInferenceWhenHeadlinerNamed(req.Artists)
 	req = &createReq
@@ -375,12 +377,9 @@ func (s *ShowService) checkDuplicateHeadlinerConflicts(tx *gorm.DB, req *contrac
 	// callers naming one venue differently (one by id, one by name and city) do
 	// not serialize against each other and fall through to the unique index.
 	//
-	for _, headlinerName := range probedHeadlinerNames(req.Artists) {
-		for _, target := range venueDedupTargets(req.Venues) {
-			lockKey := fnvHash(strings.ToLower(headlinerName) + "|" + target.lockKey() + "|" + eventDate.Format(time.RFC3339Nano))
-			if err := tx.Exec("SELECT pg_advisory_xact_lock(?)", lockKey).Error; err != nil {
-				return fmt.Errorf("failed to acquire advisory lock: %w", err)
-			}
+	for _, lockKey := range showDedupLockKeys(req, eventDate) {
+		if err := tx.Exec("SELECT pg_advisory_xact_lock(?)", lockKey).Error; err != nil {
+			return fmt.Errorf("failed to acquire advisory lock: %w", err)
 		}
 	}
 
@@ -392,6 +391,23 @@ func (s *ShowService) checkDuplicateHeadlinerConflicts(tx *gorm.DB, req *contrac
 		return errors.New(message)
 	}
 	return nil
+}
+
+// showDedupLockKeys returns the advisory-lock keys a create must hold, SORTED
+// and deduplicated. The order is the point: a bill with more than one probed act
+// takes several locks, and two concurrent creates of the same bill listed in
+// opposite orders would otherwise take the same keys in opposite orders and
+// deadlock, which Postgres resolves by killing one create with a 40P01.
+func showDedupLockKeys(req *contracts.CreateShowRequest, eventDate time.Time) []int64 {
+	var keys []int64
+	for _, headlinerName := range probedHeadlinerNames(req.Artists) {
+		for _, target := range venueDedupTargets(req.Venues) {
+			keys = append(keys,
+				fnvHash(strings.ToLower(headlinerName)+"|"+target.lockKey()+"|"+eventDate.Format(time.RFC3339Nano)))
+		}
+	}
+	slices.Sort(keys)
+	return slices.Compact(keys)
 }
 
 // probedHeadlinerNames returns the acts the duplicate predicate probes: the
@@ -411,6 +427,12 @@ func (s *ShowService) checkDuplicateHeadlinerConflicts(tx *gorm.DB, req *contrac
 // deliberate: suppression changes what an act STORES, never whether this write
 // puts that artist on that bill at that venue at that instant, which is the only
 // question a duplicate guard asks.
+//
+// The mirror holds only for acts that carry a NAME. An act given by id alone --
+// which the create schema accepts, and which the ph CLI sends for every act it
+// resolved to an existing artist -- contributes an empty name here, and the probe
+// matches nothing on it. Unlike the venue half, this is not resolved to an id;
+// closing it needs its own ticket.
 //
 // Names are deduplicated case-insensitively, matching the LOWER() comparison the
 // probe runs, so one act cannot take two locks and two queries.
@@ -447,12 +469,14 @@ func probedHeadlinerNames(artists []contracts.CreateShowArtist) []string {
 // shows_artist_venue_eventdate_uniq, as a raw driver error where the index
 // reaches and not at all where it does not.
 //
-// Both halves of the name branch are EXACT lower-cased matches, so neither is a
-// barrier against a caller who wants a duplicate: a padded or differently spelled
-// name or city misses here, and misses FindOrCreateVenue's exact branch too, so
-// the write lands on a fresh venue row that the id-keyed index cannot collide
-// with either. This is a guard against accidental resubmission, not an integrity
-// boundary.
+// Both halves of the name branch are EXACT lower-cased matches, so this is a
+// guard against accidental resubmission rather than an integrity boundary. What
+// a missed match falls through to depends on which half missed. A name that
+// misses here but NORMALIZES equal within the same city resolves to the existing
+// venue row, so the index refuses the write as a raw driver error. A name that
+// does not, or any city that differs at all (the normalized branch is city-exact
+// too), resolves to a fresh venue row, and an id-keyed index cannot collide
+// across two venue ids.
 //
 // A venue carrying neither an id nor a name is dropped: associateVenues cannot
 // resolve one either, and it would otherwise match every venue whose name is
@@ -511,7 +535,9 @@ func (t venueDedupTarget) displayName() string {
 // findRequestDuplicate is THE create-path duplicate predicate, from a request to
 // a finished refusal message ("" when the request collides with nothing). The
 // create guard turns that message into an error and PreviewShowImport turns it
-// into a warning, so a preview cannot offer an import the confirm path rejects.
+// into a warning, so the two cannot disagree about whether a file DUPLICATES an
+// existing show. Every other way a confirm can fail is that surface's own
+// problem, not this one's.
 //
 // Both sides read the same rule: probedHeadlinerNames mirrors the stored-row
 // match below, and neither depends on whether position inference has been
@@ -2269,9 +2295,8 @@ func validateShowArtistSetTypes(artists []contracts.CreateShowArtist) error {
 // not letting it fire alongside a headliner somebody DID name: see
 // suppressPositionInferenceWhenHeadlinerNamed, which disarms it for the create
 // and update paths so one bill cannot end up with an UNSTATED second headliner
-// row. Two acts
-// that each state 'headliner' still resolve to two headliner rows; nothing here
-// validates headliner count.
+// row. Two acts that each state 'headliner' still resolve to two headliner rows;
+// nothing here validates headliner count.
 func resolveArtistRole(a contracts.CreateShowArtist, position int) (setType string, isHeadliner bool) {
 	if value := curatedSetType(a); contracts.IsValidSetType(value) {
 		return value, value == contracts.SetTypeHeadliner
@@ -2331,9 +2356,10 @@ func claimsHeadlineSlot(a contracts.CreateShowArtist) bool {
 //
 // This is the one inference rule the show CREATE and UPDATE paths share, in one
 // sentence: bill position is read as a role only while no act on that bill has
-// named a headliner. CreateShow applies it ahead of its duplicate guard, so the
-// guard resolves exactly the rows associateArtists then writes;
-// UpdateShowWithRelations applies it ahead of replaceShowArtists.
+// named a headliner. CreateShow applies it to the request it then writes;
+// UpdateShowWithRelations applies it ahead of replaceShowArtists. It decides what
+// an act STORES and nothing else: the duplicate guard reads each act's own signal
+// plus bill index, so it answers the same whether this has run or not.
 //
 // The defect it closes: a caller that leaves one act silent beside a curated one,
 // {"artists":[{"name":"Earth"},{"name":"Boris","set_type":"headliner"}]},
@@ -2365,6 +2391,12 @@ func claimsHeadlineSlot(a contracts.CreateShowArtist) bool {
 // act in the headline slot instead. A position-0 act still reaches 'performer'
 // two ways: its own caller says so (is_headliner:false or set_type:'performer'),
 // or this function pins it because another act named the headliner.
+//
+// So the two endpoints answer that one bill differently, and that disagreement
+// is OPEN rather than settled: PSY-1705 holds that a stated bill is a complete
+// statement, PSY-1704 that the resulting headliner-less bill is a write-path
+// defect. Settling it needs a decision about what a described bill naming no
+// headliner MEANS, taken across every write path at once.
 //
 // Non-mutating: the input is returned as-is when there is nothing to suppress,
 // which also preserves a nil slice (nil means "leave the associations untouched"
@@ -3216,8 +3248,10 @@ func (s *ShowService) PreviewShowImport(content []byte) (*contracts.ImportPrevie
 			{"state", venueData.State},
 		} {
 			if strings.TrimSpace(required.value) == "" {
+				// Named by whichever field the file did supply, so a
+				// multi-venue file says which entry is short.
 				response.Warnings = append(response.Warnings,
-					fmt.Sprintf("Venue is missing %s", required.field))
+					fmt.Sprintf("Venue '%s' is missing %s", venueData.Name, required.field))
 				response.CanImport = false
 			}
 		}
@@ -3276,9 +3310,17 @@ func (s *ShowService) PreviewShowImport(content []byte) (*contracts.ImportPrevie
 	}
 
 	// Duplicate check, run through the SAME predicate the confirm path runs, on a
-	// request built by the same function from the same frontmatter, so CanImport
-	// cannot promise an import that then 422s. Only SubmitterIsAdmin differs, and
-	// nothing in findRequestDuplicate reads it.
+	// request built by the same function from the same frontmatter, so the two
+	// cannot disagree about whether this file duplicates an existing show. Only
+	// SubmitterIsAdmin differs, and nothing in findRequestDuplicate reads it.
+	//
+	// This is not a general claim that CanImport implies a successful confirm.
+	// The checks above cover the venue fields FindOrCreateVenue requires; three
+	// shapes still preview clean and fail on confirm: an artist entry with no
+	// name (associateArtists refuses it), a venue name that only NORMALIZES onto
+	// an existing room (venueDedupTarget records that fall-through), and, in a
+	// bulk import, two files that collide with each other rather than with the
+	// database, since every preview runs before any confirm.
 	importReq, err := showImportCreateRequest(parsed, false)
 	if err != nil {
 		// The confirm path rejects an unparseable date outright, so the preview

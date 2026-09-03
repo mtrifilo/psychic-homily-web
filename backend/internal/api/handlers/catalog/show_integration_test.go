@@ -371,7 +371,7 @@ func (s *ShowHandlerIntegrationSuite) TestCreateShow_CarriesShowTimes() {
 
 // PSY-1943 through the create endpoint as Huma runs it: Resolve first, then the
 // handler. A bill that curates an opener and says nothing about the top act must
-// still name a headliner, which is what a defaulted is_headliner destroyed.
+// still name a headliner, which requires Resolve to leave the nil flag nil.
 //
 // Resolve is called explicitly because these suites invoke the handler function
 // directly; without it the request never passes through the code this pins.
@@ -405,6 +405,43 @@ func (s *ShowHandlerIntegrationSuite) TestCreateShowEndpoint_PartiallyCuratedBil
 		Order("position ASC").
 		Pluck("set_type", &setTypes).Error)
 	s.Equal([]string{"headliner", "opener"}, setTypes)
+}
+
+// The create endpoint's twin of TestUpdateShow_StatedBillDoesNotInferASecondHeadliner,
+// so both endpoints pin the shared suppression rule end to end rather than only
+// the service pinning create. Its pair above is what stops a defaulted flag being
+// reintroduced here: an edit that defaults the flag leaves THIS test green and
+// breaks that one.
+func (s *ShowHandlerIntegrationSuite) TestCreateShowEndpoint_StatedBillDoesNotInferASecondHeadliner() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Stated Bill Create Room", "Phoenix", "AZ")
+
+	ctx := testhelpers.CtxWithUser(user)
+	title := "Endpoint Stated Bill"
+	headliner := "headliner"
+	req := &CreateShowRequest{}
+	req.Body.Title = &title
+	req.Body.EventDate = time.Now().UTC().AddDate(0, 0, 28)
+	req.Body.City = "Phoenix"
+	req.Body.State = "AZ"
+	req.Body.Venues = []Venue{{ID: &venue.ID}}
+	req.Body.Artists = []Artist{
+		{Name: testhelpers.StringPtr("Endpoint Earth")},
+		{Name: testhelpers.StringPtr("Endpoint Boris"), SetType: &headliner},
+	}
+	s.Require().Empty(req.Body.Resolve(nil))
+
+	resp, err := s.handler.CreateShowHandler(ctx, req)
+	s.Require().NoError(err)
+	s.Require().Len(resp.Body.Artists, 2)
+	s.False(*resp.Body.Artists[0].IsHeadliner, "the act nobody designated must not be promoted")
+	s.True(*resp.Body.Artists[1].IsHeadliner)
+
+	var headlinerRows int64
+	s.Require().NoError(s.deps.DB.Model(&catalogm.ShowArtist{}).
+		Where("show_id = ? AND set_type = ?", resp.Body.ID, "headliner").
+		Count(&headlinerRows).Error)
+	s.EqualValues(1, headlinerRows, "a create must write exactly the headliner the caller stated")
 }
 
 // TestCreateShow_RejectsMusicBeforeDoors pins the one ordering rule that is
@@ -769,10 +806,9 @@ func (s *ShowHandlerIntegrationSuite) TestUpdateShow_RejectsURLShapedInstagramHa
 }
 
 // PSY-1860 at the endpoint the ticket names. A nil is_headliner reaches
-// resolveArtistRole, whose position-0 fallback used to promote the act the
-// caller said nothing about -- giving the show TWO set_type='headliner' rows,
-// with the undesignated one winning every `ORDER BY position ASC LIMIT 1`
-// headliner read.
+// resolveArtistRole, whose position-0 fallback would promote the act the caller
+// said nothing about, giving the show TWO set_type='headliner' rows with the
+// undesignated one winning every `ORDER BY position ASC LIMIT 1` headliner read.
 //
 // Asserted through the HTTP handler rather than the service alone to cover the
 // endpoint the ticket actually names, end to end: the handler's artist mapping,

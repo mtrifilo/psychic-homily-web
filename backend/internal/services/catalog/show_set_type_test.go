@@ -822,9 +822,9 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_UndescribedBillInfe
 	suite.Equal(1, suite.storedHeadlinerCount(created.ID))
 }
 
-// storedHeadlinerCount counts the rows an update actually wrote into the
-// headliner slot, which is the fact PSY-1860 is about -- storedSetTypes alone
-// would still pass a bill that promoted the wrong act to a sole headliner.
+// storedHeadlinerCount counts the rows a write actually put into the headliner
+// slot. storedSetTypes alone would still pass a bill that promoted the wrong act
+// to a sole headliner.
 func (suite *ShowServiceIntegrationTestSuite) storedHeadlinerCount(showID uint) int {
 	var count int64
 	suite.Require().NoError(
@@ -863,11 +863,12 @@ var setTypeTestDateOffset int
 //
 // The bill names a headliner further down, so the top act is suppressed to
 // 'performer' and its own signal claims nothing: the ONLY thing that puts it in
-// the probe set is its bill index. Delete that arm and this case is the one that
-// notices, because the "no headliners stated" fallback cannot cover for it here.
-// Only the top act repeats across the two bookings, so the refusal can come from
-// the pre-check alone; the message assertions prove it did rather than the unique
-// index catching the same collision as a driver error.
+// the probe set is its bill index. Delete that arm and this case notices, while
+// a bill nobody describes would not, because there the top act claims the slot
+// through its own signal too. Only the top act repeats across the two bookings,
+// so the refusal can come from the pre-check alone; the message assertions prove
+// it did rather than the unique index catching the same collision as a driver
+// error.
 func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_PositionZeroWithNoSignalIsDuplicateChecked() {
 	user := suite.createTestUser()
 	eventDate := suite.uniqueEventDate()

@@ -629,9 +629,10 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 		return fmt.Sprintf("ERROR: Invalid musicAt '%s': %v", *show.MusicAt, err), "error"
 	}
 
-	// Get venue identity for deduplication. Name and city together, because that
-	// is the pair venues are unique on and the pair FindOrCreateVenue resolves
-	// below; a name alone reaches same-named rooms in other cities.
+	// Get venue identity for deduplication: name, and city when the payload
+	// carries one. Venues are unique on (lower(name), lower(city)) and the venue
+	// lookup further down resolves on that pair, so a name alone reaches
+	// same-named rooms in other cities.
 	venueName, venueCity := "", ""
 	if len(show.Venues) > 0 {
 		venueName = show.Venues[0].Name
@@ -644,11 +645,19 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 	// EventDate round-trips through RFC3339 on export/import, preserving time-of-day.
 	if venueName != "" {
 		var existingShow catalogm.Show
-		err := s.db.Joins("JOIN show_venues ON shows.id = show_venues.show_id").
+		dupQuery := s.db.Joins("JOIN show_venues ON shows.id = show_venues.show_id").
 			Joins("JOIN venues ON show_venues.venue_id = venues.id").
-			Where("LOWER(shows.title) = LOWER(?) AND LOWER(venues.name) = LOWER(?) AND LOWER(venues.city) = LOWER(?) AND shows.event_date = ?",
-				show.Title, venueName, venueCity, eventDate).
-			First(&existingShow).Error
+			Where("LOWER(shows.title) = LOWER(?) AND LOWER(venues.name) = LOWER(?) AND shows.event_date = ?",
+				show.Title, venueName, eventDate)
+		// ExportedVenue.City is a plain string with no validation, so a
+		// hand-written or pre-city payload can arrive blank. Narrowing on a blank
+		// city would match nothing, let the import proceed, and fork a second
+		// venue row that the id-keyed dedup index cannot see; matching on the
+		// name alone there keeps the pre-city behaviour.
+		if venueCity != "" {
+			dupQuery = dupQuery.Where("LOWER(venues.city) = LOWER(?)", venueCity)
+		}
+		err := dupQuery.First(&existingShow).Error
 		if err == nil {
 			// Backfill slugs for the existing show and its associated entities
 			if !dryRun {
