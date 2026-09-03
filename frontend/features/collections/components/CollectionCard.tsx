@@ -74,15 +74,14 @@ export function CollectionCard({ collection }: CollectionCardProps) {
         await likeMutation.mutateAsync({ slug: collection.slug })
       }
     } catch (err) {
-      // 403 (private target) + message/generic fallbacks share copy with
-      // the detail page via describeCollectionMutationError.
+      // 403 + message/generic fallbacks share copy with the detail page via
+      // describeCollectionMutationError.
       showLikeError(
         describeCollectionMutationError(
           err,
           wasLiked
             ? 'Failed to unlike collection.'
-            : 'Failed to like collection.',
-          { unlikePrivate: wasLiked }
+            : 'Failed to like collection.'
         )
       )
     }

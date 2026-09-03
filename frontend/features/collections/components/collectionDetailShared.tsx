@@ -47,27 +47,30 @@ export const REPLACED_REQUEST_EXPLANATION =
   'Your earlier request was replaced with this one'
 
 /**
- * PSY-609: render a 4xx mutation failure with copy that handles the common
- * "this collection is private" case (403). Falls back to the server's
- * `detail`/`message` for everything else, then to a generic copy.
+ * Render a 4xx mutation failure with dedicated copy for 403. Falls back to the
+ * server's `detail`/`message` for everything else, then to the caller's copy.
  *
- * `unlikePrivate` toggles the wording for the like-vs-unlike asymmetry —
- * unlike on a 403 means the target was made private after the like, which
- * deserves slightly different copy from "you can't like a private collection".
+ * A 403 MEANS PERMISSION, NEVER PRIVACY. Every collection refusal that means
+ * "you may not see this" is a 404 carrying the same body an unused slug gets,
+ * so a 403 is only reachable on a collection the viewer CAN see and may not
+ * edit: a public collection they neither created nor were admitted to as a
+ * collaborator.
+ *
+ * The copy therefore says permission and says nothing about visibility. Copy
+ * naming privacy here would restate in the UI the fact the API answers 404 to
+ * withhold, and it would be wrong besides: on the only status that reaches this
+ * branch, the collection is public.
  */
 export function describeCollectionMutationError(
   err: unknown,
-  fallback: string,
-  context?: { unlikePrivate?: boolean }
+  fallback: string
 ): string {
   const status =
     err && typeof err === 'object' && 'status' in err
       ? Number((err as { status?: number }).status)
       : undefined
   if (status === 403) {
-    return context?.unlikePrivate
-      ? 'This collection is private — your like was removed.'
-      : 'This collection is private.'
+    return 'You do not have permission to change this collection.'
   }
   if (err instanceof Error && err.message) return err.message
   return fallback

@@ -578,6 +578,21 @@ func hasWatchingEntryOfType(items []contracts.WatchingItem, entityType string, e
 	return false
 }
 
+// watchingEntryName returns the display name the list rendered for one row, or
+// "" when the row is absent.
+//
+// The absent case and the un-enriched case are DIFFERENT and a caller must not
+// confuse them: a row the enrichment could not resolve renders
+// "<type> #<id>", never an empty string, so a "" answer means no row.
+func watchingEntryName(items []contracts.WatchingItem, entityType string, entityID uint) string {
+	for _, item := range items {
+		if item.EntityType == entityType && item.EntityID == entityID {
+			return item.EntityName
+		}
+	}
+	return ""
+}
+
 // assertInbox reads GET /me/notifications and pins both the row count and the
 // unread count, returning the raw body.
 //

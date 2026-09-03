@@ -30,11 +30,12 @@ interface CollectionPageProps {
  * Query cache under `queryKeys.collections.detail(slug)` so the client
  * `useCollection` hook resolves from cache instead of refetching.
  *
- * Privacy: backend `GetBySlug` returns 403 for unauthorized access to
- * private collections; we treat any non-2xx as null and fall through to
- * `notFound()`, so the SSR payload never contains data the viewer isn't
- * authorized to see. Authenticated requests use `cache: 'no-store'` to
- * avoid cross-user cache pollution; anonymous requests stay on ISR.
+ * Privacy: backend `GetBySlug` answers 404 for a private collection the
+ * viewer may not see, with the same body a slug nobody has used gets; we
+ * treat any non-2xx as null and fall through to `notFound()`, so the SSR
+ * payload never contains data the viewer isn't authorized to see.
+ * Authenticated requests use `cache: 'no-store'` to avoid cross-user cache
+ * pollution; anonymous requests stay on ISR.
  */
 const getCollection = cache(
   async (slug: string): Promise<CollectionDetailData | null> => {

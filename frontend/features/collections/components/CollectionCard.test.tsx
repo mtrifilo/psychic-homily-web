@@ -411,7 +411,9 @@ describe('CollectionCard', () => {
       await waitFor(() =>
         expect(
           screen.getByTestId('collection-card-like-error')
-        ).toHaveTextContent('This collection is private.')
+        ).toHaveTextContent(
+          'You do not have permission to change this collection.'
+        )
       )
     })
 
@@ -433,7 +435,7 @@ describe('CollectionCard', () => {
       )
     })
 
-    it('renders a privacy-aware unlike error when unliking fails with 403', async () => {
+    it('renders the permission copy when unliking fails with 403', async () => {
       mockIsAuthenticated = true
       mockUnlikeMutateAsync.mockRejectedValueOnce(
         Object.assign(new Error('forbidden'), { status: 403 })
@@ -449,7 +451,9 @@ describe('CollectionCard', () => {
       await waitFor(() =>
         expect(
           screen.getByTestId('collection-card-like-error')
-        ).toHaveTextContent(/your like was removed/i)
+        ).toHaveTextContent(
+          'You do not have permission to change this collection.'
+        )
       )
     })
 

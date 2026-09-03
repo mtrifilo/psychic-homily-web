@@ -2064,7 +2064,7 @@ describe('CollectionDetail', () => {
       )
     })
 
-    it('uses the privacy-aware copy on subscribe 403', () => {
+    it('uses the permission copy on subscribe 403', () => {
       mockAuthContext.mockReturnValue({
         user: { id: '99' },
         isAuthenticated: true,
@@ -2079,7 +2079,7 @@ describe('CollectionDetail', () => {
       })
       render(<CollectionDetail slug="test-collection" />)
       expect(screen.getByTestId('subscribe-error')).toHaveTextContent(
-        'This collection is private.'
+        'You do not have permission to change this collection.'
       )
     })
 
@@ -2094,7 +2094,7 @@ describe('CollectionDetail', () => {
       expect(screen.getByTestId('like-error')).toHaveTextContent('rate limit')
     })
 
-    it('renders the unlike error banner with privacy-aware copy on 403', () => {
+    it('renders the unlike error banner with the permission copy on 403', () => {
       mockUnlikeMutation.mockReturnValue({
         mutate: mockUnlikeMutate,
         isPending: false,
@@ -2103,7 +2103,7 @@ describe('CollectionDetail', () => {
       })
       render(<CollectionDetail slug="test-collection" />)
       expect(screen.getByTestId('unlike-error')).toHaveTextContent(
-        /your like was removed/i
+        'You do not have permission to change this collection.'
       )
     })
 

@@ -47,16 +47,11 @@ type EntityNameRow struct {
 // one drops the row first. A caller that comes through here inherits the first
 // for free and still owes the second.
 //
-// THE COLLECTION FENCE CANNOT FIRE TODAY, and saying so is the point of this
-// paragraph. engagementm.CommentEntityPathAndTable returns "name" as the display
-// column for both `collection` and `release`, and both tables spell it `title` —
-// so the SELECT below fails with an undefined-column error for every batch of
-// either type, is logged and skipped, and both callers fall back to rendering
-// "<type> #<id>". Whoever fixes the column has TWO types to fix. The fence is added anyway, and it is not decoration: the
-// column bug is a display defect somebody will fix, and fixing it must not be
-// the edit that starts publishing private collections' titles. The fence is
-// therefore in place BEFORE the column is corrected, and the row gates upstream
-// are what actually close the leak: they do not depend on this.
+// THE FENCE IS WHAT MAKES A RESOLVED TITLE SAFE TO RENDER. The SELECT below asks
+// each parent table for its display column, so a private collection's title is
+// in reach of this query and is withheld only because the fence is spliced in
+// unconditionally. Deleting it does not break a test on the happy path; it
+// publishes the titles of the collections the callers' row gates then drop.
 func LoadCommentEntityNames(db *gorm.DB, idsByType map[string][]uint, viewer contracts.ShowViewer) map[string]map[uint]EntityNameRow {
 	out := make(map[string]map[uint]EntityNameRow, len(idsByType))
 	for entityType, ids := range idsByType {
@@ -65,8 +60,8 @@ func LoadCommentEntityNames(db *gorm.DB, idsByType map[string][]uint, viewer con
 			continue
 		}
 		var rows []EntityNameRow
-		// Aliased SELECT so shows (column "title") and the rest (column
-		// "name") scan into the same struct field.
+		// Aliased SELECT so the tables spelling the display column "title"
+		// and the ones spelling it "name" scan into the same struct field.
 		q := db.Table(table).
 			Select(fmt.Sprintf("id, %s AS name, slug", nameCol)).
 			Where("id IN ?", ids)

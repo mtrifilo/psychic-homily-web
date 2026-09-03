@@ -3,6 +3,7 @@ package community
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 
@@ -306,8 +307,12 @@ type UpdateCollectionHandlerRequest struct {
 }
 
 // UpdateCollectionHandlerResponse represents the response for updating a collection
+//
+// Status carries 204 for the one case that has no body: an admin whose update
+// leaves the collection unreadable to them. See UpdateCollectionHandler.
 type UpdateCollectionHandlerResponse struct {
-	Body *contracts.CollectionDetailResponse
+	Status int
+	Body   *contracts.CollectionDetailResponse
 }
 
 // UpdateCollectionHandler handles PUT /collections/{slug}
@@ -334,7 +339,7 @@ func (h *CollectionHandler) UpdateCollectionHandler(ctx context.Context, req *Up
 		DisplayMode:   req.Body.DisplayMode,
 	}
 
-	collection, err := h.collectionService.UpdateCollection(req.Slug, user.ID, user.IsAdmin, serviceReq)
+	collection, collectionID, err := h.collectionService.UpdateCollection(req.Slug, user.ID, user.IsAdmin, serviceReq)
 	if err != nil {
 		collErr := shared.MapCollectionError(err)
 		if collErr != nil {
@@ -350,14 +355,28 @@ func (h *CollectionHandler) UpdateCollectionHandler(ctx context.Context, req *Up
 		)
 	}
 
-	// Audit log (fire and forget)
+	// Audit log (fire and forget). Stamped with the id the service resolved from
+	// the row it authorised the write against, which is the only id available on
+	// the 204 path.
 	if h.auditLogService != nil {
 		servicesshared.GoSafe(ctx, "audit_log", func() {
-			h.auditLogService.LogAction(user.ID, "update_collection", "collection", collection.ID, nil)
+			h.auditLogService.LogAction(user.ID, "update_collection", "collection", collectionID, nil)
 		})
 	}
 
-	return &UpdateCollectionHandlerResponse{Body: collection}, nil
+	// 204 WHEN THE WRITE LANDED AND THERE IS NOTHING THE CALLER MAY READ. Reached
+	// by an admin whose update does not flip is_public: the moderation remedy is
+	// a write power, not a read one, so the read-back refuses them. Returning the
+	// read's 404 would report a successful write as a failure and invite a retry
+	// of an update that already applied; 204 says committed, no body.
+	//
+	// The refusal itself is NOT softened by this: the collection is still
+	// unreadable, and no field of it appears in a 204.
+	if collection == nil {
+		return &UpdateCollectionHandlerResponse{Status: http.StatusNoContent}, nil
+	}
+
+	return &UpdateCollectionHandlerResponse{Status: http.StatusOK, Body: collection}, nil
 }
 
 // ============================================================================

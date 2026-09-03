@@ -1,11 +1,47 @@
 package routes
 
 import (
+	"net/http"
+
 	"github.com/danielgtaylor/huma/v2"
 
 	communityh "psychic-homily-backend/internal/api/handlers/community"
 	"psychic-homily-backend/internal/api/middleware"
 )
+
+// declareCollectionUpdateNoContent documents PUT /collections/{slug}'s second
+// success status.
+//
+// The handler chooses its status at runtime through the output struct's Status
+// field, which huma reads but does not document, so the operation would
+// otherwise publish only the 200 that its body type implies. A status a client
+// can receive and the spec does not name is a contract the generated frontend
+// types cannot describe.
+//
+// Registered on both the canonical and the legacy path, because both are the
+// same handler and a spec that documented one and not the other would say the
+// two behave differently.
+func declareCollectionUpdateNoContent(o *huma.Operation) {
+	if o.Responses == nil {
+		o.Responses = map[string]*huma.Response{}
+	}
+	o.Responses["204"] = &huma.Response{
+		Description: "The update was applied and the caller may not read the result. " +
+			"Reached by an admin whose update leaves a collection private.",
+	}
+	// THE ERROR CODES HAVE TO BE NAMED ONCE A SECOND SUCCESS IS. huma emits its
+	// catch-all `default` error response only for an operation with exactly one
+	// declared response and no explicit error list, so declaring the 204 above
+	// silently removes the ErrorModel from this operation's document unless the
+	// codes are listed here.
+	o.Errors = []int{
+		http.StatusUnauthorized,        // no session
+		http.StatusForbidden,           // visible, not editable
+		http.StatusNotFound,            // never used, or gated
+		http.StatusUnprocessableEntity, // request validation, invalid display_mode
+		http.StatusInternalServerError,
+	}
+}
 
 // setupCollectionRoutes configures collection endpoints.
 // Both /collections/ and /crates/ paths are registered for backward compatibility.
@@ -33,14 +69,16 @@ func setupCollectionRoutes(rc RouteContext) {
 
 	// Protected collection endpoints — canonical /collections/ paths
 	huma.Post(rc.Protected, "/collections", collectionHandler.CreateCollectionHandler)
-	huma.Put(rc.Protected, "/collections/{slug}", collectionHandler.UpdateCollectionHandler)
+	huma.Put(rc.Protected, "/collections/{slug}", collectionHandler.UpdateCollectionHandler,
+		declareCollectionUpdateNoContent)
 	huma.Delete(rc.Protected, "/collections/{slug}", collectionHandler.DeleteCollectionHandler)
 	// Clone/fork (PSY-351). Auth required, no trust-tier gate.
 	huma.Post(rc.Protected, "/collections/{slug}/clone", collectionHandler.CloneCollectionHandler)
 
 	// Protected collection endpoints — legacy /crates/ paths (backward compat)
 	huma.Post(rc.Protected, "/crates", collectionHandler.CreateCollectionHandler)
-	huma.Put(rc.Protected, "/crates/{slug}", collectionHandler.UpdateCollectionHandler)
+	huma.Put(rc.Protected, "/crates/{slug}", collectionHandler.UpdateCollectionHandler,
+		declareCollectionUpdateNoContent)
 	huma.Delete(rc.Protected, "/crates/{slug}", collectionHandler.DeleteCollectionHandler)
 	huma.Post(rc.Protected, "/crates/{slug}/clone", collectionHandler.CloneCollectionHandler)
 

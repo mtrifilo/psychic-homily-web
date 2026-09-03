@@ -512,7 +512,12 @@ type CollectionServiceInterface interface {
 	// write, so the id is free here and cannot fail. A zero comes back only with
 	// an error, and callers must not stamp it.
 	ListCollections(filters CollectionFilters, limit, offset int) ([]*CollectionListResponse, int64, error)
-	UpdateCollection(slug string, userID uint, isAdmin bool, req *UpdateCollectionRequest) (*CollectionDetailResponse, error)
+	// UpdateCollection applies the update and then reads the collection back AS
+	// THE CALLER, so an admin who edits a private collection without publishing
+	// it gets a NIL detail with a nil error: the write landed and there is
+	// nothing they may read. The id comes back either way, and it is what the
+	// handler answers 204 on and what the audit row is stamped with.
+	UpdateCollection(slug string, userID uint, isAdmin bool, req *UpdateCollectionRequest) (*CollectionDetailResponse, uint, error)
 	DeleteCollection(slug string, userID uint, isAdmin bool) (uint, error)
 	AddItem(slug string, userID uint, req *AddCollectionItemRequest) (*CollectionItemResponse, uint, error)
 	// BulkAddItems commits a batch of items in one transaction with

@@ -142,10 +142,10 @@ func TestCommentEntityPathAndTable(t *testing.T) {
 		{"artist", "artists", "artists", "name", true},
 		{"venue", "venues", "venues", "name", true},
 		{"show", "shows", "shows", "title", true},
-		{"release", "releases", "releases", "name", true},
+		{"release", "releases", "releases", "title", true},
 		{"label", "labels", "labels", "name", true},
 		{"festival", "festivals", "festivals", "name", true},
-		{"collection", "collections", "collections", "name", true},
+		{"collection", "collections", "collections", "title", true},
 		{"", "", "", "", false},
 		{"bogus_type", "", "", "", false},
 	}

@@ -72,6 +72,12 @@ var ValidCommentEntityTypes = map[CommentEntityType]string{
 // Single source of truth for enrichment surfaces (notification inbox,
 // watching list) that resolve a comment's parent entity into a
 // name + URL.
+//
+// THE COLUMN IS THE ONE THE TABLE ACTUALLY SPELLS, and it is not uniform: shows,
+// releases and collections carry `title`, the rest carry `name`. A wrong column
+// is not a caught error at this layer — it becomes an undefined-column failure
+// inside the batch SELECT that reads it, which the enrichment logs and skips, so
+// the surface degrades to "<type> #<id>" rather than failing loudly.
 func CommentEntityPathAndTable(entityType string) (path, table, nameCol string, ok bool) {
 	switch CommentEntityType(entityType) {
 	case CommentEntityArtist:
@@ -81,13 +87,13 @@ func CommentEntityPathAndTable(entityType string) (path, table, nameCol string, 
 	case CommentEntityShow:
 		return "shows", "shows", "title", true
 	case CommentEntityRelease:
-		return "releases", "releases", "name", true
+		return "releases", "releases", "title", true
 	case CommentEntityLabel:
 		return "labels", "labels", "name", true
 	case CommentEntityFestival:
 		return "festivals", "festivals", "name", true
 	case CommentEntityCollection:
-		return "collections", "collections", "name", true
+		return "collections", "collections", "title", true
 	default:
 		return "", "", "", false
 	}

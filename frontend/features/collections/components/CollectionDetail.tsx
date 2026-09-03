@@ -148,8 +148,8 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
   // PSY-609: like/unlike use optimistic-rollback — when the server rejects
   // the action, the optimistic state snaps back but until now the user got
   // no explanation. Auto-dismiss the banner after ~3s so it doesn't
-  // accumulate after the user moves on. The 403 case (private target)
-  // gets dedicated copy via describeCollectionMutationError.
+  // accumulate after the user moves on. The 403 case gets dedicated
+  // permission copy via describeCollectionMutationError.
   const formatLikeError = useCallback(
     (err: unknown) =>
       describeCollectionMutationError(err, 'Failed to like collection.'),
@@ -157,9 +157,7 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
   )
   const formatUnlikeError = useCallback(
     (err: unknown) =>
-      describeCollectionMutationError(err, 'Failed to unlike collection.', {
-        unlikePrivate: true,
-      }),
+      describeCollectionMutationError(err, 'Failed to unlike collection.'),
     []
   )
   const likeError = useAutoDismissError(
@@ -676,8 +674,8 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
               - Like / unlike (PSY-352): optimistic-rollback hooks; the
                 snap-back of the heart is the visual signal, the banner
                 just explains the *why* and auto-dismisses after ~3s so
-                it doesn't accrue after the user moves on. 403 (private
-                target) renders dedicated copy via describeCollectionMutationError.
+                it doesn't accrue after the user moves on. 403 renders
+                dedicated permission copy via describeCollectionMutationError.
             */}
             {/* PSY-894 D4: edit-save success confirmation — the form has
                 already closed and the header re-rendered with new values;
