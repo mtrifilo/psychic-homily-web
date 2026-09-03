@@ -109,11 +109,9 @@ func TestVenueCalendarFeedPathResolves(t *testing.T) {
 func TestVenueCalendarFeedIsNotExemptFromRateLimiting(t *testing.T) {
 	path := "/venues/the-rebel-lounge/calendar.ics"
 
-	for _, prefix := range personalFeedPathPrefixesExemptFromRateLimit {
-		if len(path) >= len(prefix) && path[:len(prefix)] == prefix {
-			t.Errorf("venue feed path %q matches rate-limit exemption prefix %q — a public "+
-				"unauthenticated feed must stay metered", path, prefix)
-		}
+	if token := personalFeedTokenFromPath(path); token != "" {
+		t.Errorf("venue feed path %q reads as personal-feed token %q — a public unauthenticated feed must stay metered",
+			path, token)
 	}
 	for _, exact := range infraPathsExemptFromRateLimit {
 		if path == exact {

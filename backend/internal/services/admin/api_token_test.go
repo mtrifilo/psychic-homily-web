@@ -206,6 +206,35 @@ func (suite *APITokenIntegrationTestSuite) TestValidateToken_InactiveUser() {
 	suite.Equal("user account is not active", err.Error())
 }
 
+// PSY-2017: the scope gate is an ALLOWLIST. A scope this service does not know
+// is refused outright rather than falling through the admin check, so adding one
+// to the column without deciding its privileges cannot inherit admin's.
+func (suite *APITokenIntegrationTestSuite) TestValidateToken_UnknownScopeIsRefused() {
+	user := suite.createTestUser(true, true)
+	createResp, err := suite.svc.CreateToken(user.ID, nil, 90)
+	suite.Require().NoError(err)
+
+	// The service only ever mints TokenScopeAdmin, so a lesser scope is written
+	// straight to the row the way a future feature would introduce one.
+	suite.Require().NoError(suite.db.Model(&adminm.APIToken{}).
+		Where("id = ?", createResp.ID).
+		Update("scope", "readonly").Error)
+
+	_, _, err = suite.svc.ValidateToken(createResp.Token)
+	suite.Require().Error(err)
+	suite.Equal("unsupported token scope", err.Error())
+}
+
+// The allowlist holds exactly what CreateToken mints. A scope added to it needs
+// its own answer in the limiter bypass allowlist, which is why the two lists are
+// separate.
+func TestKnownTokenScopes(t *testing.T) {
+	assert.True(t, knownTokenScopes[TokenScopeAdmin], "the minted scope must validate")
+	assert.False(t, knownTokenScopes["readonly"], "an undeclared scope must not validate")
+	assert.False(t, knownTokenScopes[""], "an empty scope must not validate")
+	assert.Len(t, knownTokenScopes, 1, "every scope added here needs a bypass decision too")
+}
+
 func (suite *APITokenIntegrationTestSuite) TestValidateToken_NonAdminUser() {
 	user := suite.createTestUser(false, true) // active but not admin
 	createResp, err := suite.svc.CreateToken(user.ID, nil, 90)

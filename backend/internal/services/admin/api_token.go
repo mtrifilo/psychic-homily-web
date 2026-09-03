@@ -25,7 +25,20 @@ const (
 	TokenLength = 32
 	// TokenPrefix is prepended to tokens for easy identification
 	TokenPrefix = "phk_" // "psychic homily key"
+
+	// TokenScopeAdmin is the scope CreateToken mints and the only scope this
+	// service understands. It carries the privileges of the admin account that
+	// owns the token.
+	TokenScopeAdmin = "admin"
 )
+
+// knownTokenScopes is the ALLOWLIST ValidateToken checks a stored scope against.
+// A scope absent from it is refused rather than treated as admin, so adding a
+// scope to the column without deciding what it may do cannot silently inherit
+// admin's privileges. Every scope added here needs its own answer in
+// middleware's bypass allowlist too: authenticating and skipping a rate limiter
+// are separate grants.
+var knownTokenScopes = map[string]bool{TokenScopeAdmin: true}
 
 // APITokenService handles API token operations
 type APITokenService struct {
@@ -81,7 +94,7 @@ func (s *APITokenService) CreateToken(userID uint, description *string, expirati
 		UserID:      userID,
 		TokenHash:   tokenHash,
 		Description: description,
-		Scope:       "admin",
+		Scope:       TokenScopeAdmin,
 		ExpiresAt:   time.Now().Add(time.Duration(expirationDays) * 24 * time.Hour),
 	}
 
@@ -134,7 +147,11 @@ func (s *APITokenService) ValidateToken(plainToken string) (*authm.User, *adminm
 		return nil, nil, fmt.Errorf("user account is not active")
 	}
 
-	if token.Scope == "admin" && !token.User.IsAdmin {
+	if !knownTokenScopes[token.Scope] {
+		return nil, nil, fmt.Errorf("unsupported token scope")
+	}
+
+	if token.Scope == TokenScopeAdmin && !token.User.IsAdmin {
 		return nil, nil, fmt.Errorf("user is not an admin")
 	}
 

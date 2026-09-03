@@ -84,11 +84,9 @@ func TestSceneCalendarFeedPathResolves(t *testing.T) {
 func TestSceneCalendarFeedIsNotExemptFromRateLimiting(t *testing.T) {
 	path := "/scenes/phoenix-az/calendar.ics"
 
-	for _, prefix := range personalFeedPathPrefixesExemptFromRateLimit {
-		if len(path) >= len(prefix) && path[:len(prefix)] == prefix {
-			t.Errorf("scene feed path %q matches rate-limit exemption prefix %q — a public "+
-				"unauthenticated feed must stay metered", path, prefix)
-		}
+	if token := personalFeedTokenFromPath(path); token != "" {
+		t.Errorf("scene feed path %q reads as personal-feed token %q — a public unauthenticated feed must stay metered",
+			path, token)
 	}
 	for _, exact := range infraPathsExemptFromRateLimit {
 		if path == exact {

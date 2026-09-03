@@ -14,6 +14,7 @@ import (
 	"psychic-homily-backend/internal/respond"
 	adminsvc "psychic-homily-backend/internal/services/admin"
 	"psychic-homily-backend/internal/services/auth"
+	engagementsvc "psychic-homily-backend/internal/services/engagement"
 )
 
 // Rate limit configurations for different endpoint types
@@ -180,11 +181,24 @@ func SkipRateLimitForAdmin(jwtService *auth.JWTService, validateAPIToken func(st
 	}
 }
 
+// apiTokenBypassScopes is the ALLOWLIST of token scopes that skip a rate
+// limiter. Authenticating and skipping a limiter are separate grants: a scope
+// added to adminsvc's knownTokenScopes authenticates, and stays METERED until it
+// is named here as well. Inverting the question this way is what keeps a scope
+// added later from silently inheriting the bypasses admin holds.
+var apiTokenBypassScopes = map[string]bool{adminsvc.TokenScopeAdmin: true}
+
+// apiTokenScopeMayBypass answers the allowlist question for one validated
+// token's scope. Named so the rule can be read and tested without a database.
+func apiTokenScopeMayBypass(scope string) bool {
+	return apiTokenBypassScopes[scope]
+}
+
 // APITokenValidator adapts an API token service to the predicate the limiter
 // bypasses take: true only for a token APITokenService.ValidateToken resolves
-// to a live row. Whatever that method rejects, the bypass rejects, including a
-// database error, so a degraded database meters callers rather than exempting
-// them.
+// to a live row whose scope is in apiTokenBypassScopes. Whatever that method
+// rejects, the bypass rejects, including a database error, so a degraded
+// database meters callers rather than exempting them.
 //
 // The predicate is not cheap: each call is a hashed api_tokens read, and a
 // successful one also queues a last_used_at write. Callers reach it through
@@ -198,8 +212,35 @@ func APITokenValidator(svc *adminsvc.APITokenService) func(string) bool {
 		return nil
 	}
 	return func(token string) bool {
-		_, _, err := svc.ValidateToken(token)
-		return err == nil
+		_, apiToken, err := svc.ValidateToken(token)
+		if err != nil || apiToken == nil {
+			return false
+		}
+		return apiTokenScopeMayBypass(apiToken.Scope)
+	}
+}
+
+// CalendarTokenValidator adapts the calendar service to the predicate the
+// public-read limiter's personal-feed exemption takes: true only for a
+// plaintext feed token CalendarService.ValidateCalendarToken resolves to a live
+// row on an active user. Whatever that method rejects, the exemption rejects,
+// including a database error, so a degraded database meters feed pollers rather
+// than exempting them.
+//
+// Each call is a hashed calendar_tokens read against a unique index. Callers
+// reach it through validatedFeedToken, which invokes it only for a request whose
+// path is a personal-feed shape carrying a phcal_-prefixed token.
+//
+// A nil service yields a nil predicate, which validatedFeedToken reads as "no
+// usable token". The parameter is the concrete service rather than an interface
+// so that comparison sees an actual nil.
+func CalendarTokenValidator(svc *engagementsvc.CalendarService) func(string) bool {
+	if svc == nil {
+		return nil
+	}
+	return func(token string) bool {
+		user, err := svc.ValidateCalendarToken(token)
+		return err == nil && user != nil
 	}
 }
 

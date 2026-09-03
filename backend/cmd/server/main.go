@@ -296,7 +296,11 @@ func main() {
 	// rates, then prod).
 	validateAPIToken := middleware.APITokenValidator(sc.APIToken)
 
-	router.Use(routes.PublicReadRateLimiter(sc.JWT, validateAPIToken, os.Getenv))
+	// PSY-2017: a personal feed or calendar URL skips the public-read limiter only
+	// when the phcal_ token in its path resolves to a live calendar_tokens row.
+	validateFeedToken := middleware.CalendarTokenValidator(sc.Calendar)
+
+	router.Use(routes.PublicReadRateLimiter(sc.JWT, validateAPIToken, validateFeedToken, os.Getenv))
 
 	// PSY-1482: rate-limit authenticated one-row mutations (save/unsave
 	// show+release, follow/unfollow entity+scene, venue confirm, and PSY-1991's
