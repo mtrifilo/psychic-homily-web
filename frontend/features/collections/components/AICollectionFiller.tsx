@@ -164,6 +164,14 @@ function createAffordanceFor(
 // (PSY-1948's `replaced`).
 type RequestOutcome = 'created' | 'requested' | 'queued' | 'updated'
 
+/** The chip word for each outcome. Exhaustive: a new outcome is a build error. */
+const REQUEST_OUTCOME_LABEL: Record<RequestOutcome, string> = {
+  created: 'Added',
+  requested: 'Requested',
+  queued: 'Queued',
+  updated: 'Updated',
+}
+
 interface QueueEntityRequestVars {
   /** The unmatched row this request was filed from (used for per-row state). */
   rowKey: string
@@ -220,13 +228,9 @@ function useQueueEntityRequest() {
         typeof data?.created_entity_id === 'number'
           ? data.created_entity_id
           : undefined
-      // PSY-1948 answers `replaced: true` when the submission corrected the
-      // requester's own queued request instead of filing a new one. It is
-      // read AFTER the two approved outcomes because it can only ever be true
-      // of a pending row (an auto-approving tier is stamped 'approved' before
-      // the insert and so never meets the pending-only dedup index), and
-      // because "the entity exists" is the more useful thing to say when both
-      // could apply.
+      // `replaced` reports a correction to the requester's own queued request.
+      // It ranks below the two approved outcomes: it can only be true of a
+      // pending row, and "the entity exists" outranks it if both ever applied.
       const outcome: RequestOutcome =
         createdEntityId !== undefined
           ? 'created'
@@ -802,6 +806,7 @@ function ExtractedRow({
   const hasSuggestions =
     !item.matched_artist_id && (item.artist_suggestions?.length ?? 0) > 0
   const isNew = !item.matched_artist_id && !hasSuggestions
+  const isReplaced = requestOutcome === 'updated'
 
   return (
     <div
@@ -880,22 +885,12 @@ function ExtractedRow({
               variant="secondary"
               className="text-xs shrink-0 motion-safe:animate-in motion-safe:fade-in"
               data-testid="ai-collection-filler-row-request-chip"
-              title={
-                requestOutcome === 'updated' ? REPLACED_REQUEST_EXPLANATION : undefined
-              }
+              // Both spellings of the explanation are required; see the
+              // constant's own contract.
+              title={isReplaced ? REPLACED_REQUEST_EXPLANATION : undefined}
             >
-              {requestOutcome === 'created'
-                ? 'Added'
-                : requestOutcome === 'queued'
-                  ? 'Queued'
-                  : requestOutcome === 'updated'
-                    ? 'Updated'
-                    : 'Requested'}
-              {/* The chip's own word does not say WHICH request is queued, and
-                  a title attribute reaches neither a screen reader nor a touch
-                  device. An aria-label would not survive either: the Badge
-                  renders a bare <div>, on which browsers drop it. */}
-              {requestOutcome === 'updated' && (
+              {REQUEST_OUTCOME_LABEL[requestOutcome]}
+              {isReplaced && (
                 <span className="sr-only"> {REPLACED_REQUEST_EXPLANATION}</span>
               )}
             </Badge>

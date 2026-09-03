@@ -34,13 +34,14 @@ export const ENTITY_ICONS: Record<string, React.ElementType> = {
 }
 
 /**
- * What a `replaced: true` creation request means to the person who filed it
- * (PSY-1975): the queue holds ONE request under this name, and it now carries
- * what they just submitted.
+ * What a `replaced: true` creation request means to the person who filed it:
+ * the queue holds ONE request under this name, and it now carries what they
+ * just submitted. Shared by both queue-create surfaces (the AI filler's per-row
+ * chip, the paste picker's per-line chip) so the sentence cannot drift.
  *
- * Defined once because both queue-create surfaces (the AI filler's per-row chip
- * and the paste picker's per-line chip) say it, and two copies of a sentence
- * the owner wrote are two sentences that drift.
+ * Every chip that shows it must carry it BOTH as a `title` and as sr-only text.
+ * A title reaches neither a screen reader nor a touch device, and `aria-label`
+ * is not an option: Badge renders a bare <div>, on which browsers drop it.
  */
 export const REPLACED_REQUEST_EXPLANATION =
   'Your earlier request was replaced with this one'

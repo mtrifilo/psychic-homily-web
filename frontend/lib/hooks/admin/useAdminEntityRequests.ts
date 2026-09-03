@@ -160,7 +160,10 @@ export interface DecideEntityRequestVars {
  *
  * A show request may carry its own bill on the payload (PSY-1858). To fulfil
  * THAT bill rather than a typed one, send use_payload_artists and omit
- * show_artists. No UI does this yet; the moderation form is PSY-1955.
+ * show_artists. The moderation form does NOT take that route: it seeds its
+ * rows from the same payload and always sends the resulting show_artists, so
+ * an act the admin removed is absent from the submitted bill. The flag is here
+ * for API clients that have no form to edit.
  *
  * Invalidates the request queue + the entity lists an approval may have grown.
  */

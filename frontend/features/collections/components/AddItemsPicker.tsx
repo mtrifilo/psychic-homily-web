@@ -88,6 +88,14 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { ENTITY_ICONS, REPLACED_REQUEST_EXPLANATION } from './collectionDetailShared'
+import type { components } from '@/types/api'
+
+/**
+ * The queue-create response, aliased from the generated OpenAPI types so a
+ * backend rename fails the build here instead of silently reporting every
+ * submission as a first filing.
+ */
+type CreateEntityRequestResponse = components['schemas']['CreateEntityRequestResponseBody']
 
 // ──────────────────────────────────────────────
 // Types
@@ -192,10 +200,10 @@ interface PreviewRow {
    */
   candidates?: PreviewCandidate[]
   /**
-   * `queued` rows only (PSY-1975): the request corrected the requester's own
-   * earlier queued request under this name rather than filing a new one. A
-   * separate field rather than a status, because the row is queued for review
-   * either way and every count that reads `status` still means what it meant.
+   * `queued` rows only: the request corrected the requester's own earlier
+   * queued request under this name rather than filing a new one. A field and
+   * not a status, because the row is queued for review either way and every
+   * count that reads `status` still means what it meant.
    */
   replaced?: boolean
 }
@@ -284,13 +292,12 @@ export function parsePasteLine(line: string): ParsedPasteLine {
  * file a well-formed request. The admin reviewing the queue retypes /
  * reclassifies if it was actually a release or venue.
  *
- * The resolved `replaced` (PSY-1975) says the request landed on the requester's
- * own queued row under this name rather than filing a new one. It is narrowed
- * here rather than trusted off the response: anything but `true` is reported as
- * a first filing, which is the claim that stays true either way.
+ * The resolved `replaced` says the request landed on the requester's own queued
+ * row under this name rather than filing a new one. Anything but `true` reads
+ * as a first filing, which is the claim that stays true either way.
  */
 function queueEntityRequest(name: string): Promise<{ replaced: boolean }> {
-  return apiRequest<{ replaced?: boolean }>(API_ENDPOINTS.COLLECTIONS.ENTITY_REQUESTS, {
+  return apiRequest<CreateEntityRequestResponse>(API_ENDPOINTS.COLLECTIONS.ENTITY_REQUESTS, {
     method: 'POST',
     body: JSON.stringify({
       entity_type: 'artist',
@@ -489,9 +496,7 @@ function usePastePreview(pasteText: string): {
   // single user-triggered call, ignores the return (fire-and-forget).
   const fileQueueRequest = useCallback(
     (generation: number, index: number, raw: string): Promise<void> => {
-      // `replaced` is cleared on the way in so a retry cannot inherit the
-      // verdict of the attempt before it.
-      updateRow(generation, index, { status: 'queuing', replaced: false })
+      updateRow(generation, index, { status: 'queuing' })
       return queueEntityRequest(raw).then(
         ({ replaced }) => updateRow(generation, index, { status: 'queued', replaced }),
         () => updateRow(generation, index, { status: 'queue_failed' })
@@ -1410,12 +1415,9 @@ function PastePreviewRow({
             Queuing…
           </Badge>
         )}
-        {/* PSY-1975: a replaced row is still queued for review, so it keeps the
-            pending register and only its word changes — UPDATED says which
-            request the queue now holds. `title` reaches neither a screen reader
-            nor a touch device, and the Badge renders a bare <div>, on which
-            browsers drop an aria-label, so the sentence is also carried as
-            sr-only text. */}
+        {/* A replaced row is still queued for review, so it keeps the pending
+            register and only its word changes. Both spellings of the
+            explanation are required; see the constant's own contract. */}
         {row.status === 'queued' && (
           <Badge
             variant="secondary"
