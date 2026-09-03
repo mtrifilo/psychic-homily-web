@@ -91,6 +91,7 @@ type reminderEmailCall struct {
 	ShowURL        string
 	UnsubscribeURL string
 	EventDate      time.Time
+	ZoneResolved   bool
 	Venues         []string
 }
 
@@ -104,13 +105,14 @@ func (m *mockReminderEmailService) SendMagicLinkEmail(_, _ string) error {
 func (m *mockReminderEmailService) SendAccountRecoveryEmail(_ string, _ string, _ int) error {
 	return nil
 }
-func (m *mockReminderEmailService) SendShowReminderEmail(toEmail, showTitle, showURL, unsubscribeURL string, eventDate time.Time, venues []string) error {
+func (m *mockReminderEmailService) SendShowReminderEmail(toEmail, showTitle, showURL, unsubscribeURL string, event contracts.LocalizedEventTime, venues []string) error {
 	m.calls = append(m.calls, reminderEmailCall{
 		ToEmail:        toEmail,
 		ShowTitle:      showTitle,
 		ShowURL:        showURL,
 		UnsubscribeURL: unsubscribeURL,
-		EventDate:      eventDate,
+		EventDate:      event.At,
+		ZoneResolved:   event.ZoneResolved,
 		Venues:         venues,
 	})
 	if m.shouldError {
@@ -298,6 +300,7 @@ func (s *ReminderServiceIntegrationTestSuite) TestRunReminderCycle_SendsReminder
 	s.Contains(call.UnsubscribeURL, "/unsubscribe/show-reminders")
 	s.Require().Len(call.Venues, 1)
 	s.Equal(venue.Name, call.Venues[0])
+	s.True(call.ZoneResolved, "an Arizona room's zone is nameable, so the email may print an hour")
 
 	// Verify reminder_sent_at was set (deduplication)
 	var bookmark engagementm.UserBookmark
@@ -306,6 +309,28 @@ func (s *ReminderServiceIntegrationTestSuite) TestRunReminderCycle_SendsReminder
 		First(&bookmark).Error
 	s.Require().NoError(err)
 	s.NotNil(bookmark.ReminderSentAt, "reminder_sent_at should be set after sending")
+}
+
+// The reminder carries the zone's resolvedness to the email service, which is
+// what lets that service drop the clock rather than print the Arizona
+// fallback's reading of it for a room nothing can name a zone for.
+func (s *ReminderServiceIntegrationTestSuite) TestRunReminderCycle_UnresolvedVenueZoneIsReported() {
+	user := s.createTestUserWithPrefs(true)
+	show := s.createShowAt("London Show", time.Now().Add(24*time.Hour), user.ID)
+	// The show row's own state is the fallback the reminder reads when the venue
+	// has none, so both have to be outside the US map for this to be the
+	// unresolved case rather than an Arizona one.
+	s.Require().NoError(s.db.Model(show).Update("state", "England").Error)
+	venue := s.createVenueForShow(show.ID, "The Windmill")
+	s.Require().NoError(s.db.Model(venue).
+		Updates(map[string]any{"city": "London", "state": "England"}).Error)
+	s.saveShow(user.ID, show.ID)
+
+	s.reminderService.RunReminderCycleNow()
+
+	s.Require().Len(s.emailMock.calls, 1)
+	s.False(s.emailMock.calls[0].ZoneResolved,
+		"England is not in the US map and the room stores no zone")
 }
 
 func (s *ReminderServiceIntegrationTestSuite) TestRunReminderCycle_MultipleVenues() {

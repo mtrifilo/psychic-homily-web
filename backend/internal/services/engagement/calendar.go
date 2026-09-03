@@ -18,6 +18,7 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -342,8 +343,26 @@ func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]by
 // (Google Calendar, Apple Calendar, and modern Outlook all do this). If no
 // usable zone resolves (loc collapses to UTC) we fall back to the prior UTC
 // instant. (PSY-987)
+//
+// A room whose zone the site cannot NAME — no stored venues.timezone and a state
+// outside the US map, which is what a non-US room without a geocode looks like —
+// gets an ALL-DAY event instead: DTSTART;VALUE=DATE on the fallback's reading of
+// the calendar day, DTEND the day after it (RFC 5545 makes a DATE-valued DTEND
+// exclusive). A TZID form here would state a wall clock derived from the Arizona
+// default, and an ICS is copied onto a subscriber's device, so that guess would
+// outlive any later correction to the venue. The DAY is still the best available
+// answer, so it is still published; duration has no representation in a
+// DATE-valued event and is dropped with the hour it belonged to.
 func setVenueLocalEventTimes(event *ics.VEvent, start time.Time, duration time.Duration, venueTimezone *string, venueState string) {
 	loc := utils.EventLocation(venueTimezone, venueState)
+
+	if !shared.IsShowTimezoneResolved(venueTimezone, venueState) {
+		localStart := start.In(loc)
+		event.SetAllDayStartAt(localStart)
+		event.SetAllDayEndAt(localStart.AddDate(0, 0, 1))
+		return
+	}
+
 	tzid := loc.String()
 	if tzid == "" || tzid == "UTC" {
 		event.SetStartAt(start)

@@ -147,6 +147,30 @@ func TestVenueFeed_FallsBackToStateTimezone(t *testing.T) {
 		"a missing venues.timezone must fall back to the state map, not UTC")
 }
 
+// A venue with no explicit zone AND a state outside the US map has nothing left
+// to fall back to but the Arizona default, so the feed publishes the DAY and
+// refuses the hour. RFC 5545 makes a DATE-valued DTEND exclusive, hence the
+// following day.
+func TestVenueFeed_UnresolvedZoneIsAllDay(t *testing.T) {
+	venue := testVenue(func(v *contracts.VenueDetailResponse) {
+		v.Timezone = nil
+		v.State = "England"
+		v.City = "London"
+	})
+	out := renderFeed(venue, []catalogm.Show{testShow(1, nil)}, nil)
+
+	assert.Contains(t, out, "DTSTART;VALUE=DATE:20260814",
+		"stored 2026-08-15T03:00Z reads as Aug 14 on the fallback, and the day is still published")
+	assert.Contains(t, out, "DTEND;VALUE=DATE:20260815")
+	assert.NotContains(t, out, "DTSTART;TZID=", "no zone may be named for this room")
+	assert.NotContains(t, out, "T200000", "no wall clock may be published for it either")
+	// The properties that make a re-sync an UPDATE rather than a duplicate are
+	// untouched by the withholding.
+	assert.Contains(t, out, "UID:")
+	assert.Contains(t, out, "DTSTAMP:")
+	assert.Contains(t, out, "SEQUENCE:")
+}
+
 // UID stability is what makes an edit update the event instead of duplicating
 // it, so it must survive changes to every mutable field.
 func TestVenueFeed_UIDSurvivesEdits(t *testing.T) {

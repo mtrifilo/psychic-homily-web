@@ -19,16 +19,45 @@ import (
 	"psychic-homily-backend/internal/utils"
 )
 
-// showResponseLocation resolves the event-time location for a ShowResponse from
-// its first venue's timezone, falling back to the show's state. Show
-// notifications previously formatted the raw UTC instant, so an evening US show
-// (e.g. 8 PM Central, stored as 01:00Z the next day) rendered as "1:00 AM" on
-// the wrong date. (PSY-996)
-func showResponseLocation(show *contracts.ShowResponse) *time.Location {
+// Discord's two date registers for a show. The date-only one is not a
+// truncation of the other: it is what a post says when the hour it would print
+// is a guess.
+const (
+	discordShowDateLayout     = "Jan 2, 2006"
+	discordShowDateTimeLayout = "Jan 2, 2006 3:04 PM"
+)
+
+// showResponseZone resolves the event-time location for a ShowResponse from its
+// first venue's timezone, falling back to the show's state, and reports whether
+// that zone is one the site knows. Show notifications previously formatted the
+// raw UTC instant, so an evening US show (e.g. 8 PM Central, stored as 01:00Z
+// the next day) rendered as "1:00 AM" on the wrong date. (PSY-996)
+func showResponseZone(show *contracts.ShowResponse) (*time.Location, bool) {
 	if len(show.Venues) > 0 {
-		return utils.EventLocation(show.Venues[0].Timezone, show.Venues[0].State)
+		return utils.EventLocation(show.Venues[0].Timezone, show.Venues[0].State),
+			shared.IsShowTimezoneResolved(show.Venues[0].Timezone, show.Venues[0].State)
 	}
-	return utils.EventLocation(nil, derefString(show.State))
+	state := derefString(show.State)
+	return utils.EventLocation(nil, state), shared.IsShowTimezoneResolved(nil, state)
+}
+
+// discordShowDate is the show's calendar date on the room's own clock. Always
+// printed: the fallback's day is the best available answer even when the zone
+// behind it is a guess.
+func discordShowDate(show *contracts.ShowResponse) string {
+	loc, _ := showResponseZone(show)
+	return show.EventDate.In(loc).Format(discordShowDateLayout)
+}
+
+// discordShowDateTime adds the hour, and only when the zone is one the site
+// knows. For a room outside the US map with no stored zone the hour would be the
+// Arizona fallback's reading, wrong by hours, so the line stops at the date.
+func discordShowDateTime(show *contracts.ShowResponse) string {
+	loc, resolved := showResponseZone(show)
+	if !resolved {
+		return show.EventDate.In(loc).Format(discordShowDateLayout)
+	}
+	return show.EventDate.In(loc).Format(discordShowDateTimeLayout)
 }
 
 // derefString returns the pointed-to string, or "" when nil.
@@ -146,7 +175,7 @@ func (s *DiscordService) NotifyNewShow(show *contracts.ShowResponse, submitterEm
 
 	embed := DiscordEmbed{
 		Title:       fmt.Sprintf("New Show: %s", show.Title),
-		Description: fmt.Sprintf("Event Date: %s", show.EventDate.In(showResponseLocation(show)).Format("Jan 2, 2006 3:04 PM")),
+		Description: fmt.Sprintf("Event Date: %s", discordShowDateTime(show)),
 		Color:       ColorBlue,
 		Timestamp:   time.Now().UTC().Format(time.RFC3339),
 		Fields:      fields,
@@ -198,7 +227,7 @@ func (s *DiscordService) NotifyShowApproved(show *contracts.ShowResponse) {
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Fields: []DiscordEmbedField{
 			{Name: "Show ID", Value: fmt.Sprintf("%d", show.ID), Inline: true},
-			{Name: "Event Date", Value: show.EventDate.In(showResponseLocation(show)).Format("Jan 2, 2006"), Inline: true},
+			{Name: "Event Date", Value: discordShowDate(show), Inline: true},
 			{Name: "Venue(s)", Value: venues, Inline: false},
 			{Name: "Actions", Value: viewLink, Inline: false},
 		},
@@ -223,7 +252,7 @@ func (s *DiscordService) NotifyShowRejected(show *contracts.ShowResponse, reason
 		Timestamp:   time.Now().UTC().Format(time.RFC3339),
 		Fields: []DiscordEmbedField{
 			{Name: "Show ID", Value: fmt.Sprintf("%d", show.ID), Inline: true},
-			{Name: "Event Date", Value: show.EventDate.In(showResponseLocation(show)).Format("Jan 2, 2006"), Inline: true},
+			{Name: "Event Date", Value: discordShowDate(show), Inline: true},
 			{Name: "Venue(s)", Value: venues, Inline: false},
 			{Name: "Actions", Value: adminLink, Inline: false},
 		},

@@ -423,6 +423,43 @@ func TestNotifyNewShow_Success(t *testing.T) {
 	assert.True(t, hasActions, "pending show should have actions field")
 }
 
+// The new-show embed is the one Discord surface that names an hour, so it is
+// the one that has to stop when the zone behind that hour is the Arizona
+// fallback. The date survives; the room and the bill are unaffected.
+func TestNotifyNewShow_UnresolvedZoneWithholdsTheClock(t *testing.T) {
+	at := time.Date(2026, 7, 16, 3, 0, 0, 0, time.UTC)
+
+	t.Run("zone the site cannot name", func(t *testing.T) {
+		svc, payloads, _ := setupDiscordTest(t)
+		svc.NotifyNewShow(&contracts.ShowResponse{
+			ID:        11,
+			Title:     "Windmill Night",
+			EventDate: at,
+			Status:    "approved",
+			Venues:    []contracts.VenueResponse{{Name: "The Windmill", City: "London", State: "England"}},
+		}, "submitter@test.com")
+
+		payload := parseWebhookPayload(t, waitForPayload(t, payloads))
+		require.Len(t, payload.Embeds, 1)
+		assert.Equal(t, "Event Date: Jul 15, 2026", payload.Embeds[0].Description)
+	})
+
+	t.Run("state map still names one", func(t *testing.T) {
+		svc, payloads, _ := setupDiscordTest(t)
+		svc.NotifyNewShow(&contracts.ShowResponse{
+			ID:        12,
+			Title:     "Rebel Night",
+			EventDate: at,
+			Status:    "approved",
+			Venues:    []contracts.VenueResponse{{Name: "The Rebel Lounge", City: "Phoenix", State: "AZ"}},
+		}, "submitter@test.com")
+
+		payload := parseWebhookPayload(t, waitForPayload(t, payloads))
+		require.Len(t, payload.Embeds, 1)
+		assert.Equal(t, "Event Date: Jul 15, 2026 8:00 PM", payload.Embeds[0].Description)
+	})
+}
+
 func TestNotifyNewShow_NotConfigured(t *testing.T) {
 	svc := &DiscordService{enabled: false}
 	payloads := make(chan []byte, 1)

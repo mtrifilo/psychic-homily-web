@@ -187,7 +187,10 @@ func (s *ReminderService) runReminderCycle() {
 		if locState == "" && row.State != nil {
 			locState = *row.State
 		}
-		localizedEvent := row.EventDate.In(utils.EventLocation(info.timezone, locState))
+		localizedEvent := contracts.LocalizedEventTime{
+			At:           row.EventDate.In(utils.EventLocation(info.timezone, locState)),
+			ZoneResolved: shared.IsShowTimezoneResolved(info.timezone, locState),
+		}
 
 		showURL := fmt.Sprintf("%s/shows/%s", s.frontendURL, row.ShowSlug)
 		unsubscribeURL := GenerateUnsubscribeURL(s.frontendURL, row.UserID, s.jwtSecret)

@@ -188,6 +188,53 @@ func TestGenerateICSFeed_VenueLocalTime(t *testing.T) {
 	assert.NotContains(t, icsStr, "DTSTART:"+eventDate.UTC().Format("20060102T150405")+"Z")
 }
 
+// A room whose zone the site cannot name gets an ALL-DAY event. The TZID form
+// would state a wall clock derived from the Arizona default, and an ICS is
+// copied onto a subscriber's device, so the guess would outlive any later
+// correction to the venue.
+func TestGenerateICSFeed_UnresolvedZoneIsAllDay(t *testing.T) {
+	fallbackLoc, err := time.LoadLocation("America/Phoenix")
+	assert.NoError(t, err)
+
+	eventDate := time.Now().Add(48 * time.Hour)
+	localDay := eventDate.In(fallbackLoc)
+
+	mockShows := []*contracts.SavedShowResponse{
+		{
+			ShowResponse: contracts.ShowResponse{
+				ID:        9,
+				Slug:      "windmill-show",
+				Title:     "Windmill Show",
+				EventDate: eventDate,
+				Status:    "approved",
+				Venues: []contracts.VenueResponse{
+					{ID: 2, Name: "The Windmill", City: "London", State: "England"},
+				},
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+			},
+		},
+	}
+	mockSvc := &mockSavedShowSvc{shows: mockShows, total: 1}
+
+	svc := &CalendarService{db: &gorm.DB{}, savedShowSvc: mockSvc}
+	data, err := svc.GenerateICSFeed(1, "https://psychichomily.com")
+	assert.NoError(t, err)
+
+	icsStr := string(data)
+	assert.Contains(t, icsStr, "DTSTART;VALUE=DATE:"+localDay.Format("20060102"))
+	assert.Contains(t, icsStr, "DTEND;VALUE=DATE:"+localDay.AddDate(0, 0, 1).Format("20060102"))
+	// Nothing anywhere in the feed names an hour for this show.
+	assert.NotContains(t, icsStr, "DTSTART;TZID=")
+	assert.NotContains(t, icsStr, "DTSTART:"+eventDate.UTC().Format("20060102T150405")+"Z")
+	// Identity and revision properties keep their ordinary semantics, so a client
+	// that already synced this show updates the event it holds rather than
+	// gaining a second one.
+	assert.Contains(t, icsStr, "UID:show-9@psychichomily.com")
+	assert.Contains(t, icsStr, "CREATED:")
+	assert.Contains(t, icsStr, "LAST-MODIFIED:")
+}
+
 func TestGenerateICSFeed_SoldOutLabel(t *testing.T) {
 	mockShows := []*contracts.SavedShowResponse{
 		{
