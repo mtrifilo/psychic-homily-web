@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -33,16 +34,6 @@ func boundsAscend(from, before any) bool {
 	return false
 }
 
-// shardsByFamily groups the table the way each partition has to be read: a
-// family's shards partition that family, and say nothing about any other.
-func shardsByFamily() map[string][]sitemapShard {
-	grouped := map[string][]sitemapShard{}
-	for _, shard := range sitemapShards {
-		grouped[shard.family] = append(grouped[shard.family], shard)
-	}
-	return grouped
-}
-
 // TestSitemapShardsPartitionTheirFamilies is the structural half of the
 // sub-shard guard — no database, so it runs in short mode too.
 //
@@ -56,12 +47,11 @@ func shardsByFamily() map[string][]sitemapShard {
 // disjoint exactly when it is contiguous and open at both outer ends, so those
 // are what this asserts, per family.
 func TestSitemapShardsPartitionTheirFamilies(t *testing.T) {
-	grouped := shardsByFamily()
-	if len(grouped) == 0 {
-		t.Fatal("sitemapShards is empty — no family is sub-sharded")
+	if len(sitemapShardsByFamily) == 0 {
+		t.Fatal("sitemapShardsByFamily is empty — no family is sub-sharded")
 	}
 
-	for family, shards := range grouped {
+	for family, shards := range sitemapShardsByFamily {
 		if len(shards) < 2 {
 			t.Errorf("family %q has %d shard(s) — sub-sharding needs at least 2", family, len(shards))
 			continue
@@ -76,6 +66,12 @@ func TestSitemapShardsPartitionTheirFamilies(t *testing.T) {
 		}
 
 		for i, shard := range shards {
+			// The field must agree with the key it is filed under: everything
+			// downstream reads `shard.family` rather than the group it came from,
+			// so a mismatch would narrow one family's scope with another's bounds.
+			if shard.family != family {
+				t.Errorf("shard %q is filed under %q but names family %q", shard.id, family, shard.family)
+			}
 			// The id is the wire value AND the frontend's route segment, so a
 			// stray separator or a missing family prefix breaks the sitemap index
 			// rather than only reading oddly. It is also what makes ids unique
@@ -143,29 +139,39 @@ func TestSitemapShardByIDRejectsAFamilyName(t *testing.T) {
 	}
 }
 
-// TestSitemapShardForFamilyIsolatesTheCutColumn pins the guard that keeps a
-// shard's range predicate off another family's scope. Without it a shows shard
-// reaching the releases branch would narrow `releases.event_date`, which does
-// not exist, or a column that coincidentally does.
-func TestSitemapShardForFamilyIsolatesTheCutColumn(t *testing.T) {
-	for _, shard := range sitemapShards {
-		if got := shard.forFamily(shard.family); got == nil {
-			t.Errorf("%q.forFamily(%q) = nil, want the shard itself", shard.id, shard.family)
-		}
-		for family := range shardsByFamily() {
-			if family == shard.family {
-				continue
-			}
-			if got := shard.forFamily(family); got != nil {
-				t.Errorf("%q.forFamily(%q) = %q, want nil — a shard must not narrow another family", shard.id, family, got.id)
-			}
+// TestSitemapShardsFlattenInFamilyOrder pins the ordering the wire enum is
+// built from. Ranging sitemapShardsByFamily directly would reorder
+// SitemapFamilyValues() on every run, so the enum literal on
+// GetSitemapEntriesRequest could never be kept equal to it.
+func TestSitemapShardsFlattenInFamilyOrder(t *testing.T) {
+	want := []string{}
+	for _, family := range sitemapFamilies {
+		for _, shard := range sitemapShardsByFamily[family] {
+			want = append(want, shard.id)
 		}
 	}
 
-	var absent *sitemapShard
-	if got := absent.forFamily("shows"); got != nil {
-		t.Errorf("(nil).forFamily(\"shows\") = %q, want nil", got.id)
+	got := make([]string, 0, len(sitemapShards))
+	for _, shard := range sitemapShards {
+		got = append(got, shard.id)
 	}
+
+	if !slices.Equal(got, want) {
+		t.Errorf("sitemapShards ids = %v, want %v", got, want)
+	}
+	// A family sub-sharded but absent from sitemapFamilies would be dropped by
+	// the flatten and never reach the enum, so its ids would 422 forever.
+	if len(got) != countShards() {
+		t.Errorf("sitemapShards holds %d ids, sitemapShardsByFamily holds %d — a family was dropped by the flatten", len(got), countShards())
+	}
+}
+
+func countShards() int {
+	n := 0
+	for _, shards := range sitemapShardsByFamily {
+		n += len(shards)
+	}
+	return n
 }
 
 // TestShowShardYearsAreContiguous pins the assumption showShards' totality
@@ -191,7 +197,7 @@ func TestShowShardYearsAreContiguous(t *testing.T) {
 // month. A shard whose id said 2026-09 while its range covered October would be
 // invisible to every other check here.
 func TestShowShardsAreMonthlyAndUTC(t *testing.T) {
-	for _, shard := range shardsByFamily()["shows"] {
+	for _, shard := range sitemapShardsByFamily["shows"] {
 		if shard.from == nil || shard.before == nil {
 			continue // the open head and tail shards
 		}

@@ -63,39 +63,25 @@ void _assertNoMissingFamily
 /**
  * The UTC event months the `shows` family is served in (PSY-2018).
  *
- * WHY. Same cap as the releases sub-shards below, reached the same way: on
- * 2026-09-03 the shows family answered 1,267,618 raw bytes over 13,096 rows,
- * which is 1.61 MiB as a base64 cache entry — 81% of the 2.00 MiB cap, past the
- * 80% warn band, and it failed the production frontend build.
+ * WHY MONTHS, why the span runs to the end of the year after next, and what
+ * extending it costs: all of that lives with the predicate that enforces it, in
+ * `showShards` in backend/internal/services/catalog/sitemap.go. That is the
+ * normative statement; this note carries only what is frontend-specific and
+ * points there for the rest, the way RELEASE_SHARD_IDS below does.
  *
- * WHY MONTHS and not the years the year-anchored archives elsewhere on the site
- * use. Measured on the same day, every one of those 13,096 shows is dated 2026
- * or 2027, and 2026 alone is 1,244,629 raw bytes — 79% of the ~1.50 MiB raw
- * budget. A year shard would be born inside the warn band. A half-year is no
- * better (2026-07 to 2026-12 is 1,221,226 bytes by itself). Discovery ingests a
- * rolling horizon of upcoming shows and past shows never age out, so there is
- * one dense year that keeps getting denser rather than a decade of thin ones to
- * spread over. The reasoning and the growth rule are stated normatively with
- * the predicate that enforces them, in `showShards` in
- * backend/internal/services/catalog/sitemap.go.
+ * What a build actually wrote, read out of `.next/cache/fetch-cache` against
+ * the production show catalogue — these are the entry sizes Next's own cap is
+ * applied to, not the raw body scaled by the base64 ratio:
  *
- * What a build wrote against the production show catalogue, read out of
- * `.next/cache/fetch-cache` — the entry sizes Next's own cap is applied to:
+ *   shows-2026-09  508,268  24.2% of the cap
+ *   shows-2026-10  504,636  24.1%
+ *   shows-2026-11  300,744  14.3%
+ *   shows-2026-08  278,752  13.3%
  *
- *   shows-2026-09  489,340  23.3% of the cap
- *   shows-2026-10  470,268  22.4%
- *   shows-2026-11  275,624  13.1%
- *   shows-2026-08  261,432  12.5%
- *
- * against 81% for the family as one document. Every other shows shard is under
- * 4%. `artists`, at 40.8%, is again the largest sitemap entry.
- *
- * THE SPAN IS HAND-MAINTAINED, ROUGHLY ANNUALLY. `shows-before-2026` is open
- * below and `shows-from-2028` is open above, which is what makes the partition
- * total; everything dated 2028 or later therefore accumulates in that one tail
- * shard until the next year is enumerated on both sides. The data-cache budget
- * gate fails the build at 80% of the cap, so forgetting is a red build with
- * headroom rather than a silently uncached shard — but it is still a red build.
+ * against 80.6% for the family as one document, which is what failed the
+ * production build. Every other shows shard is under 4%. `artists`, at 918,744
+ * raw bytes and so 58.4% of the cap, is now the largest sitemap entry — the
+ * shard family to watch next, and a whole family rather than a range.
  *
  * SHARDS HERE ARE LEGITIMATELY EMPTY, which slug ranges never are. See
  * SPARSE_SUB_SHARD_FAMILIES below.
@@ -219,36 +205,31 @@ void _assertEveryWireValueServed
  * A family absent from this table is served by a single shard whose id IS the
  * family name, which is the case for eight of the ten.
  *
- * Valued `readonly WireFamily[]`, not `readonly string[]`: an id written here
+ * `ids` is `readonly WireFamily[]`, not `readonly string[]`: an id written here
  * that the backend does not accept would be fetched, 422'd, and degraded to an
  * empty document — a shard silently serving nothing. Typing it against the
  * generated enum makes that a compile error instead.
+ *
+ * `partitionKey` is REQUIRED so that declaring a family sub-sharded forces
+ * saying how, in the same edit. It is what the monitor's empty-shard rule turns
+ * on, and defaulting it would default a new calendar-keyed family into alarming
+ * on nearly every run — see subShardsCanBeEmpty and its call site in
+ * lib/sitemap-monitor/fetch.ts, which carry the reasoning and the residual gap.
  */
-const SUB_SHARD_IDS: Partial<Record<Family, readonly WireFamily[]>> = {
-  shows: SHOW_SHARD_IDS,
-  releases: RELEASE_SHARD_IDS,
+interface SubShards {
+  ids: readonly WireFamily[]
+  /** What the ranges are cut on. See subShardsCanBeEmpty. */
+  partitionKey: 'slug' | 'calendar'
+}
+const SUB_SHARDS: Partial<Record<Family, SubShards>> = {
+  shows: { ids: SHOW_SHARD_IDS, partitionKey: 'calendar' },
+  releases: { ids: RELEASE_SHARD_IDS, partitionKey: 'slug' },
 }
 
-/**
- * Families whose sub-shards can be empty without anything being wrong.
- *
- * The monitor treats a shard serving no URLs while a sibling of the same family
- * serves some as a lost document (`walkSitemap` in lib/sitemap-monitor/fetch).
- * That inference is sound for a SLUG range, where every range of a non-empty
- * catalogue holds rows, and false for a CALENDAR range, where a month with no
- * shows is an ordinary fact about the calendar: the enumerated span runs to the
- * end of the year after next, and most of it is not booked yet.
- *
- * Listing the family here is narrower than relaxing the rule, and the loss is
- * bounded rather than total. A shows month that goes dark is still caught by
- * the per-shard index-listing check (a shard missing from `/sitemap-index` is
- * named outright, whatever its size), and a dark HOT month is a fifth of the
- * family, well past the 20% default drift tolerance. What is given up is
- * detection of a dark COLD month, which is tens of URLs.
- */
-export const SPARSE_SUB_SHARD_FAMILIES: ReadonlySet<Family> = new Set<Family>([
-  'shows',
-])
+/** Whether a family's sub-shards can be empty without anything being wrong. */
+export function subShardsCanBeEmpty(family: Family): boolean {
+  return SUB_SHARDS[family]?.partitionKey === 'calendar'
+}
 
 /**
  * Which family each entity shard id carries rows for.
@@ -261,7 +242,7 @@ export const SPARSE_SUB_SHARD_FAMILIES: ReadonlySet<Family> = new Set<Family>([
  */
 const FAMILY_BY_SHARD_ID = new Map<string, Family>()
 for (const family of SITEMAP_FAMILIES) {
-  for (const id of SUB_SHARD_IDS[family] ?? [family]) {
+  for (const id of SUB_SHARDS[family]?.ids ?? [family]) {
     // THROW rather than overwrite. `Map.set` would silently keep the last
     // writer, so two families claiming one id would yield a table that looks
     // consistent, an ENTITY_SHARD_IDS one entry short, and a family whose URLs

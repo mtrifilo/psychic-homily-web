@@ -7,7 +7,7 @@ import {
   RELEASE_SHARD_IDS,
   shardFamily,
   SHOW_SHARD_IDS,
-  SPARSE_SUB_SHARD_FAMILIES,
+  subShardsCanBeEmpty,
   shardRoutePath,
   SITEMAP_FAMILIES,
   type Family,
@@ -24,7 +24,7 @@ import {
  */
 describe('the shard table', () => {
   it('serves every family with at least one shard', () => {
-    // Not vacuous: `SUB_SHARD_IDS[family] ?? [family]` falls back only on
+    // Not vacuous: `SUB_SHARDS[family]?.ids ?? [family]` falls back only on
     // undefined, so mapping a family to an EMPTY array would enumerate it here
     // and serve it nowhere — a whole family silently absent from the sitemap.
     const served = new Set(ENTITY_SHARD_IDS.map(id => shardFamily(id)))
@@ -99,74 +99,72 @@ describe('the shows sub-shards', () => {
   })
 
   /**
-   * The head and tail ids are what make the partition total: everything before
-   * the enumerated span and everything after it has somewhere to go. A span
-   * enumerated without them would drop every show outside it from the sitemap
-   * with each remaining shard still rendering a valid document.
+   * The list must be exactly a head shard, every month of a contiguous run of
+   * whole years, and a tail shard — and three different mistakes hide behind
+   * ids that all look well formed on their own:
+   *
+   *   - a skipped month or year is a gap, and the shows dated inside it belong
+   *     to no shard at all;
+   *   - a head or tail that does not meet the span leaves a year served by
+   *     nothing, or served twice;
+   *   - a reordering breaks nothing here but scrambles `/sitemap-index`.
+   *
+   * Rebuilt from the span the head and tail themselves declare, so extending
+   * the years is still a one-table edit. The backend asserts the contiguity
+   * half against its own table (TestShowShardYearsAreContiguous); this is the
+   * frontend half, which is the side that decides which documents get fetched.
    */
-  it('bracket the enumerated months with an open head and an open tail', () => {
-    const months = SHOW_SHARD_IDS.filter(id => /^shows-\d{4}-\d{2}$/.test(id))
-    expect(months.length).toBeGreaterThan(0)
+  it('is a head shard, every month of a whole-year span, and a tail shard', () => {
+    const head = /^shows-before-(\d{4})$/.exec(SHOW_SHARD_IDS[0])
+    const tail = /^shows-from-(\d{4})$/.exec(SHOW_SHARD_IDS[SHOW_SHARD_IDS.length - 1])
+    expect(head).not.toBeNull()
+    expect(tail).not.toBeNull()
 
-    const open = SHOW_SHARD_IDS.filter(id => !months.includes(id))
-    expect(open).toHaveLength(2)
-    expect(open[0]).toMatch(/^shows-before-\d{4}$/)
-    expect(open[1]).toMatch(/^shows-from-\d{4}$/)
-    expect(SHOW_SHARD_IDS[0]).toBe(open[0])
-    expect(SHOW_SHARD_IDS[SHOW_SHARD_IDS.length - 1]).toBe(open[1])
-  })
+    const first = Number(head![1])
+    const last = Number(tail![1]) - 1
+    expect(last).toBeGreaterThanOrEqual(first)
 
-  /**
-   * A skipped month is the failure this list cannot show by reading: every id
-   * would still look well formed, and the shows dated inside the gap would
-   * belong to no shard at all. The backend asserts the same property against
-   * its own table (TestShowShardYearsAreContiguous); this is the frontend half,
-   * which is the side that decides which documents get fetched.
-   */
-  it('enumerates every month of every year in the span, in order', () => {
-    const months = SHOW_SHARD_IDS.filter(id => /^shows-\d{4}-\d{2}$/.test(id))
+    const expected = [`shows-before-${first}`]
+    for (let year = first; year <= last; year++) {
+      for (let month = 1; month <= 12; month++) {
+        expected.push(`shows-${year}-${String(month).padStart(2, '0')}`)
+      }
+    }
+    expected.push(`shows-from-${last + 1}`)
 
-    expect(months.length % 12).toBe(0)
-    const expected = months.map((_, i) => {
-      const first = Number(months[0].slice('shows-'.length, 'shows-'.length + 4))
-      return `shows-${first + Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}`
-    })
-    expect(months).toEqual(expected)
-  })
-
-  /**
-   * The open shards must meet the enumerated span exactly. `shows-before-2026`
-   * next to a span starting in 2027 is a whole year served by nothing, and
-   * `shows-from-2027` next to a span ending in 2027 is a year served twice.
-   */
-  it('anchors the open shards to the ends of the span', () => {
-    const months = SHOW_SHARD_IDS.filter(id => /^shows-\d{4}-\d{2}$/.test(id))
-    const firstYear = months[0].slice('shows-'.length, 'shows-'.length + 4)
-    const lastYear = months[months.length - 1].slice('shows-'.length, 'shows-'.length + 4)
-
-    expect(SHOW_SHARD_IDS[0]).toBe(`shows-before-${firstYear}`)
-    expect(SHOW_SHARD_IDS[SHOW_SHARD_IDS.length - 1]).toBe(`shows-from-${Number(lastYear) + 1}`)
+    expect([...SHOW_SHARD_IDS]).toEqual(expected)
   })
 })
 
 /**
- * A family listed here is exempt from the monitor's empty-sibling check, so the
- * list has to stay a deliberate statement about how a family is keyed rather
- * than a place to silence an alarm.
+ * `subShardsCanBeEmpty` decides whether the monitor treats an empty shard as a
+ * lost document, so it has to stay a statement about how a family is keyed
+ * rather than a place to silence an alarm.
  */
-describe('the sparse sub-shard families', () => {
-  it('names only families that are actually sub-sharded', () => {
-    for (const family of SPARSE_SUB_SHARD_FAMILIES) {
+describe('subShardsCanBeEmpty', () => {
+  it('is true only for a family that is actually sub-sharded', () => {
+    for (const family of SITEMAP_FAMILIES) {
+      if (!subShardsCanBeEmpty(family)) continue
       const shards = ENTITY_SHARD_IDS.filter(id => shardFamily(id) === family)
       expect(shards).not.toEqual([family])
       expect(shards.length).toBeGreaterThan(1)
     }
   })
 
+  it('exempts the calendar-keyed shows months', () => {
+    // The span runs to the end of the year after next, so most of it is empty
+    // on any given day and the check would fire on nearly every run.
+    expect(subShardsCanBeEmpty('shows')).toBe(true)
+  })
+
   it('does not exempt the slug-keyed releases ranges', () => {
     // Every slug range of a non-empty catalogue holds rows, so an empty one
     // there IS a lost document and must keep alarming.
-    expect(SPARSE_SUB_SHARD_FAMILIES.has('releases')).toBe(false)
+    expect(subShardsCanBeEmpty('releases')).toBe(false)
+  })
+
+  it('does not exempt a family served by a single shard', () => {
+    expect(subShardsCanBeEmpty('artists')).toBe(false)
   })
 })
 

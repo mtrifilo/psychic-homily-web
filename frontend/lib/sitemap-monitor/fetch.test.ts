@@ -163,6 +163,52 @@ describe('walkSitemap', () => {
   })
 
   /**
+   * The shards are fetched concurrently, and both halves of that are
+   * load-bearing.
+   *
+   * The BOUND is what keeps the walk off the origin's anonymous per-IP rate
+   * limiter: unbounded, a 40-shard index would open 40 sockets at once and the
+   * monitor would be measuring the limiter. The ORDER is what keeps the report
+   * diffable — `errors`, `showDates` and `locsByBucket` are order-dependent
+   * accumulators, so folding results as they land would make two runs over an
+   * identical sitemap print different documents.
+   */
+  it('fetches shards with bounded concurrency and folds them in index order', async () => {
+    let inFlight = 0
+    let peak = 0
+    const release: Array<() => void> = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.endsWith('/sitemap-index')) return xmlResponse(index(ALL_IDS))
+        inFlight++
+        peak = Math.max(peak, inFlight)
+        // Hold every shard open until the whole first wave has arrived, so the
+        // peak is a real observation rather than a scheduling accident. The
+        // LAST-listed shard resolves first, which is what makes the ordering
+        // assertion below meaningful.
+        await new Promise<void>(resolve => {
+          release.push(resolve)
+          if (release.length >= 6) release.reverse().forEach(r => r())
+        })
+        inFlight--
+        return xmlResponse('not a sitemap document', 500)
+      })
+    )
+
+    const observation = await walkSitemap(testConfig({ SITEMAP_MONITOR_TARGET: STAGE }))
+
+    expect(peak).toBeGreaterThan(1)
+    expect(peak).toBeLessThanOrEqual(6)
+    // Every shard failed, so the errors are one per shard and must appear in
+    // the order the index listed them, not the order the fetches settled.
+    expect(observation.errors).toEqual(
+      ALL_IDS.map(id => expect.stringContaining(`shard "${id}"`))
+    )
+  })
+
+  /**
    * Per SHARD, not per family. A sub-sharded family loses only a fraction of
    * its URLs when one of its documents goes missing — well inside the
    * per-family drift tolerance — so a family-level check would pass while a
@@ -247,7 +293,7 @@ describe('walkSitemap', () => {
      * to the end of the year after next.
      */
     it('is NOT reported for a family whose ranges are legitimately sparse', async () => {
-      const showShards = ENTITY_SHARD_IDS.filter(id => shardFamily(id) === 'shows')
+      const showShards: readonly string[] = SHOW_SHARD_IDS
       const [darkMonth, ...litMonths] = showShards
       expect(litMonths.length).toBeGreaterThan(0)
 

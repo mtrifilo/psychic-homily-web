@@ -7,28 +7,35 @@
  * first two measurements were themselves wrong because they only tested ONE of
  * the two cases below. Re-measure BOTH after any Next upgrade.
  *
- * With `generateSitemaps()` (PSY-1622) the route shards by family, and the
- * `releases` family is further sharded by slug range (PSY-1763). Each shard
- * fetches `GET /sitemap/entries?family=…` with its OWN id as the value, so each
- * Next Data Cache entry stays under the ~1.50 MiB effective budget (2 MiB cap,
- * body base64-encoded). Children live at `/sitemap/{id}.xml`; the index is
+ * With `generateSitemaps()` (PSY-1622) the route shards by family, and two
+ * families are sharded further still: `releases` by slug range (PSY-1763) and
+ * `shows` by UTC event month (PSY-2018). Each shard fetches
+ * `GET /sitemap/entries?family=…` with its OWN id as the value, so each Next
+ * Data Cache entry stays under the ~1.50 MiB effective budget (2 MiB cap, body
+ * base64-encoded). Children live at `/sitemap/{id}.xml`; the index is
  * `/sitemap-index` (robots points there). `/sitemap.xml` 308s to the index — do
  * not add `app/sitemap.xml/route.ts` (collides with the metadata
  * `[__metadata_id__]` route).
  *
  * SHARDING BY FAMILY ALONE STOPPED BEING ENOUGH, and that was measured rather
- * than assumed: on 2026-08-09 the whole `releases` family answered 1,530,206
+ * than assumed. On 2026-08-09 the whole `releases` family answered 1,530,206
  * raw bytes, which is 2,040,275 as a base64 cache entry — 1.95 MiB of the
- * 2.00 MiB cap, 97.3%. `fetchShard` weighs every response, so a genuine breach
- * fails the build; the sub-shards keep the largest release entry at 26.9% of
- * the cap. The scheme, its measured balance and how to split it again are
- * documented on RELEASE_SHARD_IDS in ./sitemap-shards.ts.
+ * 2.00 MiB cap, 97.3%. On 2026-09-03 `shows` answered 1,267,618 raw bytes, 1.61
+ * MiB encoded, 80.6% — past the warn line, which failed the production build.
+ * `fetchShard` weighs every response, so a genuine breach fails the build; the
+ * sub-shards keep the largest release entry at 26.9% of the cap and the largest
+ * shows entry at 24.2%. Each scheme, its measured balance and how to split it
+ * again are documented on RELEASE_SHARD_IDS and SHOW_SHARD_IDS in
+ * ./sitemap-shards.ts.
  *
  * The route mode is CONDITIONAL on whether the build-time fetch succeeds, and
  * the build's fetch Data Cache is a second input. All four rows measured by
  * build → `next start` → kill the backend → curl. The first two were
  * RE-MEASURED on PSY-1763, against a database holding the production release
- * catalogue, once the shard count went from 10 to 14:
+ * catalogue, once the shard count went from 10 to 14. Row 1 was re-measured
+ * again on PSY-2018 at 39 shards, against a database holding the production
+ * show catalogue (`39 of 39 shards have a fallback document`); rows 2 to 4 were
+ * NOT, so read their counts as the count they were taken at:
  *
  *   Backend reachable at build time (the normal production path):
  *     ├ ● /sitemap/[__metadata_id__]         1h      1y
@@ -288,15 +295,17 @@ const UNKNOWN_FAMILY_STATUSES = new Set([400, 422])
  *
  * A SUB-SHARD id is not a schema key, so `FAMILY_ROUTES` cannot cover it — but
  * it IS in the generated `operations` type, because it is a value of the
- * `family` query enum. `RELEASE_SHARD_IDS` is declared `satisfies readonly
- * WireFamily[]` against exactly that, so a renamed sub-shard fails
+ * `family` query enum. `SHOW_SHARD_IDS` and `RELEASE_SHARD_IDS` are declared
+ * `satisfies readonly WireFamily[]` against exactly that, so a renamed
+ * sub-shard fails
  * `bun run api:types` and then `tsc`, the same two steps a renamed family fails
  * on. The backend's own enum is separately asserted against its shard table
  * (TestSitemapFamilyEnumMatchesTheService), so neither side can drift alone.
  *
  * `shardId` is what goes on the wire and `family` is which key of the response
- * carries the rows: they are the same string for nine of the ten families, and
- * differ for every releases sub-shard. Passing both rather than deriving one
+ * carries the rows: they are the same string for eight of the ten families, and
+ * differ for every shows and releases sub-shard. Passing both rather than
+ * deriving one
  * from the other keeps this function ignorant of which families are sharded.
  *
  * Sharded by `?family=` so each generateSitemaps() id gets its own Data Cache

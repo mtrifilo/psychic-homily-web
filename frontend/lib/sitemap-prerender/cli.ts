@@ -87,6 +87,10 @@ async function probeFamily(shardId: string): Promise<FamilyVerdict> {
     const res = await fetch(url, {
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     })
+    // Only the status is read, so release the body rather than buffering a
+    // whole family's projection for it — a `served` verdict on a hot shows
+    // month would otherwise pull ~380 KB per probe.
+    await res.body?.cancel()
     // Keep this list identical to UNKNOWN_FAMILY_STATUSES in app/sitemap.ts:
     // the two answer the same question, one at render time and one after the
     // build, and a shard excused here must be one the route degrades to empty.

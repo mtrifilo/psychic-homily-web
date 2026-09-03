@@ -366,7 +366,7 @@ func TestSitemapEntriesShowSubShardsCoverTheFamilyExactly(t *testing.T) {
 	}
 
 	owner := map[string]string{}
-	for _, shard := range shardsByFamily()["shows"] {
+	for _, shard := range sitemapShardsByFamily["shows"] {
 		entries, err := service.Entries(context.Background(), shard.id)
 		if err != nil {
 			t.Fatalf("Entries(%s): %v", shard.id, err)

@@ -240,9 +240,10 @@ func monthStartUTC(year int, month time.Month) time.Time {
 	return time.Date(year, month, 1, 0, 0, 0, 0, time.UTC)
 }
 
-// sitemapShards is every sub-shard of every family, in sitemapFamilies order —
-// the order the frontend's FAMILY_BY_SHARD_ID walks, so the two tables
-// enumerate identically.
+// sitemapShardsByFamily is the definition: which families are sub-sharded, and
+// into what. Grouped rather than flat because a shard's family is what decides
+// which scope its bounds may narrow, and a map key cannot disagree with the
+// group it keys.
 //
 // Keep the ids in sync with SHOW_SHARD_IDS and RELEASE_SHARD_IDS in
 // frontend/app/sitemap-shards.ts and with the `family` enum on
@@ -250,16 +251,21 @@ func monthStartUTC(year int, month time.Month) time.Time {
 // half is test-enforced (TestSitemapFamilyEnumMatchesTheService); the frontend
 // half is enforced by `bun run api:types` regenerating the wire enum those
 // lists are declared against, so a renamed id fails tsc there.
-var sitemapShards = buildSitemapShards()
+var sitemapShardsByFamily = map[string][]sitemapShard{
+	"shows":    showShards(),
+	"releases": releaseShards,
+}
 
-func buildSitemapShards() []sitemapShard {
-	byFamily := map[string][]sitemapShard{
-		"shows":    showShards(),
-		"releases": releaseShards,
-	}
+// sitemapShards is every sub-shard, flattened in sitemapFamilies order — the
+// order the frontend's FAMILY_BY_SHARD_ID walks, so the two tables enumerate
+// identically. Ranging a map directly would put the enum in a different order
+// on every run.
+var sitemapShards = flattenSitemapShards()
+
+func flattenSitemapShards() []sitemapShard {
 	shards := []sitemapShard{}
 	for _, family := range sitemapFamilies {
-		shards = append(shards, byFamily[family]...)
+		shards = append(shards, sitemapShardsByFamily[family]...)
 	}
 	return shards
 }
@@ -297,20 +303,6 @@ func sitemapShardByID(id string) *sitemapShard {
 		}
 	}
 	return nil
-}
-
-// forFamily returns the shard when it slices family, and nil otherwise.
-//
-// Load-bearing rather than ceremonial: a shard carries the COLUMN its range is
-// taken on, and each family's scope resolves to a different table. Applying one
-// family's shard to another family's scope would either error on an unknown
-// column or, worse, narrow on a column that happens to exist there too.
-// Resolving through this makes every call site name the family it is narrowing.
-func (shard *sitemapShard) forFamily(family string) *sitemapShard {
-	if shard == nil || shard.family != family {
-		return nil
-	}
-	return shard
 }
 
 // narrow applies the shard's bounds to its family's scope. A nil shard is the
@@ -391,6 +383,14 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 
 	// A sub-shard id resolves to the family it slices plus the range to slice
 	// it by, so everything downstream reasons in families only.
+	//
+	// THIS IS ALSO WHAT KEEPS A SHARD'S BOUNDS OFF ANOTHER FAMILY'S SCOPE. A
+	// shard carries the COLUMN its range is taken on, and each family's scope
+	// resolves to a different table. Because family becomes the shard's own
+	// family here, the only want() branch a non-nil shard can reach is that
+	// family's, so each `shard.narrow` below is narrowing a scope the column
+	// exists on. Nothing re-checks it downstream: a wrong column is a query
+	// error, not a quietly wrong answer.
 	shard := sitemapShardByID(family)
 	if shard != nil {
 		family = shard.family
@@ -415,7 +415,7 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 		// entriesFor requires.
 		shows, err := s.entriesFor(
 			ctx,
-			shard.forFamily("shows").narrow(
+			shard.narrow(
 				s.db.Model(&catalogm.Show{}).Where("status = ?", catalogm.ShowStatusApproved),
 			),
 		)
@@ -477,7 +477,7 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 		// A nil shard is the whole family; the range predicate lives on the
 		// shard so the scope here stays the plain single-table projection
 		// entriesFor requires.
-		releases, err := s.entriesFor(ctx, shard.forFamily("releases").narrow(s.db.Model(&catalogm.Release{})))
+		releases, err := s.entriesFor(ctx, shard.narrow(s.db.Model(&catalogm.Release{})))
 		if err != nil {
 			return nil, fmt.Errorf("failed to collect release sitemap entries: %w", err)
 		}
