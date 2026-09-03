@@ -886,3 +886,33 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_IncludesUn
 	suite.Empty(rail.Shows[0].VenueAddress,
 		"an unverified room's street address must never be published, here as anywhere else")
 }
+
+// The rail row carries BOTH halves of the age answer: the event's own override
+// and the room's house default. Either one alone is wrong on a real slice of
+// rows, so a row that inherits the house policy and a row that overrides it are
+// asserted together.
+func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_CarriesEventAgeOverrideAndHouseDefault() {
+	loc := suite.alsoTonightLoc()
+	chicago := suite.createAlsoTonightVenue("Empty Bottle", "Chicago", "IL")
+	house := suite.createAlsoTonightVenue("Sleeping Village", "Chicago", "IL")
+	suite.Require().NoError(suite.db.Model(house).Update("age_policy", "21+").Error)
+
+	subject := suite.createAlsoTonightShow("subject", chicago.ID,
+		time.Date(2026, time.September, 18, 20, 0, 0, 0, loc), catalogm.ShowStatusApproved)
+	inherits := suite.createAlsoTonightShow("inherits", house.ID,
+		time.Date(2026, time.September, 18, 21, 0, 0, 0, loc), catalogm.ShowStatusApproved)
+	overrides := suite.createAlsoTonightShow("overrides", house.ID,
+		time.Date(2026, time.September, 18, 22, 0, 0, 0, loc), catalogm.ShowStatusApproved)
+	suite.Require().NoError(suite.db.Model(overrides).Update("age_requirement", "all ages").Error)
+
+	rail, err := suite.sceneService.GetShowAlsoTonight(fmt.Sprint(subject.ID))
+	suite.Require().NoError(err)
+	suite.Require().Equal([]uint{inherits.ID, overrides.ID}, suite.showIDs(fmt.Sprint(subject.ID)))
+	suite.Require().Len(rail.Shows, 2)
+
+	suite.Empty(rail.Shows[0].AgeRequirement, "a show with no override of its own states none")
+	suite.Equal("21+", rail.Shows[0].VenueAgePolicy)
+	suite.Equal("all ages", rail.Shows[1].AgeRequirement)
+	suite.Equal("21+", rail.Shows[1].VenueAgePolicy,
+		"the house default travels alongside the override rather than being replaced by it")
+}

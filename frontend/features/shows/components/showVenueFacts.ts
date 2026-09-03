@@ -1,4 +1,5 @@
 import { doorsMusicFactSegment } from './showStatusStripeCopy'
+import { governingAgeRequirement } from '../showAge'
 import { showTimingInput } from '../utils'
 import type { ShowResponse, VenueResponse } from '../types'
 
@@ -23,7 +24,10 @@ function ageFactSegment(
       ? override
       : `${override} (event override; house default ${house})`
   }
-  return override || house || null
+  // WHICH value governs is `governingAgeRequirement`, shared with the discovery
+  // rails; the branch above is this line's own register, which names the
+  // disagreement the rails' single ledger cell has no room to say.
+  return governingAgeRequirement(override, house)
 }
 
 /**

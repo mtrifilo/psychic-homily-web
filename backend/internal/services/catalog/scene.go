@@ -911,21 +911,23 @@ func (s *SceneService) GetSceneShowsInRange(city, state string, from, to time.Ti
 	windowEnd := to
 
 	type showRow struct {
-		ID            uint      `gorm:"column:id"`
-		Slug          string    `gorm:"column:slug"`
-		Title         string    `gorm:"column:title"`
-		EventDate     time.Time `gorm:"column:event_date"`
-		Price         *float64  `gorm:"column:price"`
-		DoorPrice     *float64  `gorm:"column:door_price"`
-		IsSoldOut     bool      `gorm:"column:is_sold_out"`
-		IsCancelled   bool      `gorm:"column:is_cancelled"`
-		VenueName     string    `gorm:"column:venue_name"`
-		VenueSlug     string    `gorm:"column:venue_slug"`
-		VenueAddress  string    `gorm:"column:venue_address"`
-		VenueCity     string    `gorm:"column:venue_city"`
-		VenueState    string    `gorm:"column:venue_state"`
-		VenueCountry  string    `gorm:"column:venue_country"`
-		VenueTimezone string    `gorm:"column:venue_timezone"`
+		ID             uint      `gorm:"column:id"`
+		Slug           string    `gorm:"column:slug"`
+		Title          string    `gorm:"column:title"`
+		EventDate      time.Time `gorm:"column:event_date"`
+		Price          *float64  `gorm:"column:price"`
+		DoorPrice      *float64  `gorm:"column:door_price"`
+		AgeRequirement string    `gorm:"column:age_requirement"`
+		IsSoldOut      bool      `gorm:"column:is_sold_out"`
+		IsCancelled    bool      `gorm:"column:is_cancelled"`
+		VenueName      string    `gorm:"column:venue_name"`
+		VenueSlug      string    `gorm:"column:venue_slug"`
+		VenueAddress   string    `gorm:"column:venue_address"`
+		VenueCity      string    `gorm:"column:venue_city"`
+		VenueState     string    `gorm:"column:venue_state"`
+		VenueCountry   string    `gorm:"column:venue_country"`
+		VenueTimezone  string    `gorm:"column:venue_timezone"`
+		VenueAgePolicy string    `gorm:"column:venue_age_policy"`
 	}
 	// Placeholder order: venue predicate, then status/window bounds.
 	args := append(append([]any{}, vargs...), catalogm.ShowStatusApproved, now, windowEnd, limit)
@@ -953,6 +955,7 @@ func (s *SceneService) GetSceneShowsInRange(city, state string, from, to time.Ti
 		SELECT * FROM (
 			SELECT DISTINCT ON (s.id)
 			       s.id, COALESCE(s.slug, '') AS slug, s.title, s.event_date, s.price, s.door_price,
+			       COALESCE(s.age_requirement, '') AS age_requirement,
 			       s.is_sold_out, s.is_cancelled,
 			       v.name AS venue_name,
 			       COALESCE(v.slug, '') AS venue_slug,
@@ -960,7 +963,8 @@ func (s *SceneService) GetSceneShowsInRange(city, state string, from, to time.Ti
 			       v.city AS venue_city,
 			       v.state AS venue_state,
 			       COALESCE(v.country, '') AS venue_country,
-			       COALESCE(v.timezone, '') AS venue_timezone
+			       COALESCE(v.timezone, '') AS venue_timezone,
+			       COALESCE(v.age_policy, '') AS venue_age_policy
 			FROM shows s
 			JOIN show_venues sv ON sv.show_id = s.id
 			JOIN venues v ON v.id = sv.venue_id
@@ -1012,24 +1016,26 @@ func (s *SceneService) GetSceneShowsInRange(city, state string, from, to time.Ti
 		}
 
 		results[i] = contracts.SceneShowSummary{
-			ID:            r.ID,
-			Slug:          r.Slug,
-			Title:         r.Title,
-			EventDate:     r.EventDate.In(loc).Format("2006-01-02"),
-			StartsAt:      r.EventDate.UTC(),
-			Price:         r.Price,
-			DoorPrice:     r.DoorPrice,
-			VenueName:     r.VenueName,
-			ArtistNames:   artistNames,
-			Artists:       artists,
-			IsSoldOut:     r.IsSoldOut,
-			IsCancelled:   r.IsCancelled,
-			VenueSlug:     r.VenueSlug,
-			VenueAddress:  r.VenueAddress,
-			VenueCity:     r.VenueCity,
-			VenueState:    r.VenueState,
-			VenueCountry:  r.VenueCountry,
-			VenueTimezone: r.VenueTimezone,
+			ID:             r.ID,
+			Slug:           r.Slug,
+			Title:          r.Title,
+			EventDate:      r.EventDate.In(loc).Format("2006-01-02"),
+			StartsAt:       r.EventDate.UTC(),
+			Price:          r.Price,
+			DoorPrice:      r.DoorPrice,
+			AgeRequirement: r.AgeRequirement,
+			VenueName:      r.VenueName,
+			ArtistNames:    artistNames,
+			Artists:        artists,
+			IsSoldOut:      r.IsSoldOut,
+			IsCancelled:    r.IsCancelled,
+			VenueSlug:      r.VenueSlug,
+			VenueAddress:   r.VenueAddress,
+			VenueCity:      r.VenueCity,
+			VenueState:     r.VenueState,
+			VenueCountry:   r.VenueCountry,
+			VenueTimezone:  r.VenueTimezone,
+			VenueAgePolicy: r.VenueAgePolicy,
 		}
 	}
 	return results, nil
