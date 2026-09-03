@@ -2249,7 +2249,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	suite.Require().Len(entries, 1, "the clone is public, so the contribution stays")
 	suite.Nil(entries[0].Metadata,
 		"the two source keys are the only ones this action publishes, so scrubbing them "+
-			"must leave the field absent rather than an empty object")
+			"must leave the entry answering like one that carried no metadata")
 
 	own, _, err := suite.profileService.GetContributionHistory(
 		actor.ID, 50, 0, "", contracts.ShowViewer{UserID: actor.ID})
@@ -2325,11 +2325,13 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	suite.EqualValues(len(own), ownTotal)
 	suite.Len(own, 2, "a missing key and a zero sentinel both fall back to entity_id")
 
-	anon, anonTotal, err := suite.profileService.GetContributionHistory(
-		requester.ID, 50, 0, "", contracts.ShowViewer{UserID: stranger.ID})
-	suite.Require().NoError(err)
-	suite.EqualValues(len(anon), anonTotal)
-	suite.Empty(anon, "the fallback is a reference, not a bypass")
+	for _, viewer := range []contracts.ShowViewer{{}, {UserID: stranger.ID}} {
+		refused, refusedTotal, err := suite.profileService.GetContributionHistory(
+			requester.ID, 50, 0, "", viewer)
+		suite.Require().NoError(err)
+		suite.EqualValues(len(refused), refusedTotal)
+		suite.Empty(refused, "the fallback is a reference, not a bypass")
+	}
 }
 
 // A STALE FORK SLUG IS DROPPED EVEN WHEN THE SOURCE IS VISIBLE.

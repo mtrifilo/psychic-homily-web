@@ -67,10 +67,12 @@ const visibleEntityRequestsAlias = "visible_entity_request"
 // requester branch to satisfy and no admin branch to take, so the condition is
 // constant FALSE and binds nothing.
 //
-// A row whose idExpr names no request is NOT visible, on the same terms every
-// other EXISTS spelling in this package gives, and textIDAsBigintSQL's
-// digits-only guard makes a non-numeric value answer "no such request" rather
-// than raising inside the statement it sits in.
+// A row whose idExpr names no request is NOT visible, which is what lets a
+// caller answer the same for a refused request and a deleted one. That holds for
+// EVERY tier here, including the admin one, which is the difference from
+// VisibleShowExistsSQL noted above. textIDAsBigintSQL's digits-only guard makes
+// a non-numeric value answer "no such request" rather than raising inside the
+// statement it sits in.
 //
 // idExpr is SQL the CALLER controls and must be a literal in the calling code.
 // Nothing derived from a request may reach it.

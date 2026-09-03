@@ -92,13 +92,13 @@ type writtenAction struct {
 
 // sweptTree is the result of the one source sweep this file performs.
 //
-// Cached: three tests read it, the walk parses every non-test file under
+// Cached: four tests read it, the walk parses every non-test file under
 // internal/, and the tree cannot change between them within a run.
 type sweptTree struct {
 	actions []writtenAction
 	// unresolved names the call sites whose action could not be read. Carried
 	// rather than reported at collection time so that the one test that owns
-	// this failure reports it once instead of all three reporting it.
+	// this failure reports it once instead of every reader reporting it.
 	unresolved []string
 	err        error
 }
@@ -272,18 +272,34 @@ func scopeOf(fn *ast.FuncDecl, fileBound map[string][]writtenAction, fileRefused
 		case *ast.FuncLit:
 			refuseFields(n.Type.Params, sc.refused)
 		case *ast.AssignStmt:
+			// A COMPOUND ASSIGNMENT BINDS NOTHING ON ITS OWN. `action += "x"`
+			// produces whatever the name already held plus "x", so reading its
+			// right-hand side as the name's value records a string no writer
+			// ever passes. Refusing is the only answer the sweep can give
+			// without evaluating the program.
+			compound := n.Tok != token.DEFINE && n.Tok != token.ASSIGN
 			for i, lhs := range n.Lhs {
 				ident, ok := lhs.(*ast.Ident)
 				if !ok {
 					continue
 				}
-				if i >= len(n.Rhs) {
-					// A multi-value assignment: what this name receives is a
-					// call's result, which the sweep cannot read.
+				if compound || i >= len(n.Rhs) {
+					// The other case is a multi-value assignment: what this
+					// name receives is a call's result, which is unreadable.
 					sc.refused[ident.Name] = true
 					continue
 				}
 				recordLiteral(ident.Name, n.Rhs[i], sc.bound, sc.refused)
+			}
+		case *ast.RangeStmt:
+			// A RANGE VARIABLE RECEIVES ITS VALUE FROM THE SEQUENCE, so it is
+			// refused like a parameter. Without this it would inherit whatever
+			// the FILE binds to the same name, which is a wrong answer rather
+			// than a refusal.
+			for _, operand := range []ast.Expr{n.Key, n.Value} {
+				if ident, ok := operand.(*ast.Ident); ok {
+					sc.refused[ident.Name] = true
+				}
 			}
 		case *ast.ValueSpec:
 			bindLiterals(n, sc.bound, sc.refused)
@@ -442,11 +458,10 @@ func modelLiteralsIn(lit *ast.CompositeLit) []*ast.CompositeLit {
 }
 
 // compositeTypeName is the composite literal's type name without its package
-// qualifier, so a model imported under different aliases reads the same.
-//
-// An ELEMENT of a slice, array or map literal carries no type of its own, so the
-// container's element type is read instead: `[]AuditLog{{Action: "x"}}` is the
-// idiomatic batch insert and its rows are writes like any other.
+// qualifier, so a model imported under different aliases reads the same, and so
+// a container of the model answers its element's name. An element literal of its
+// own carries no type node and answers "", which is modelLiteralsIn's job to
+// handle.
 func compositeTypeName(lit *ast.CompositeLit) string {
 	return typeNameOf(lit.Type)
 }
@@ -616,25 +631,51 @@ func TestContributionMetadataKeysHasNoStaleEntries(t *testing.T) {
 	}
 }
 
+// entityRequestWriterPath is the path fragment of the files that write entity
+// request audit rows. Every action written from one of them names a request.
+//
+// THE FILE IS THE STRONGER SIGNAL. An action's spelling is what a rename
+// changes, and a renamed action that no longer says "entity_request" would slip
+// past a name-only tripwire into the map whose missing-entry default is the
+// unsafe one. Where the row is written from does not change when it is renamed.
+const entityRequestWriterPath = "handlers/community/entity_request"
+
+// namesAnEntityRequest reports whether a swept write site produces an action
+// whose entity_id is a request id, by the two signals either of which is enough.
+//
+// One function so the test that walks the tree and the test that drives
+// synthetic sites decide it the same way. A second copy of this expression
+// inside a test would pass whatever the tree does, which is what a guard on the
+// unsafe default cannot afford.
+func namesAnEntityRequest(w writtenAction) bool {
+	if strings.Contains(filepath.ToSlash(w.position), entityRequestWriterPath) {
+		return true
+	}
+	return strings.Contains(w.action, "entity_request")
+}
+
 // THE ENTITY REQUEST FAMILY IS THE ONE THE ENTITY-TYPE ARMS MUST NOT JUDGE, and
 // its membership is hand-maintained. This is the tripwire on that: an action
 // naming entity requests that nobody added to the map would be decided against
 // whichever show, artist or venue happens to share the request's id.
 //
-// The match is on the name because the name is what the writers control, and a
-// false positive here is a demand for a decision rather than a leak.
+// TWO SIGNALS, either of which is enough: the file the action is written from,
+// and the action's own name. The first survives a rename and the second survives
+// a writer moving to another file. A false positive from either is a demand for
+// a decision rather than a leak.
 func TestEntityRequestActionsAreRecognisedByName(t *testing.T) {
 	written := map[string]bool{}
 	for _, w := range auditActionsWritten(t) {
 		written[w.action] = true
-		if !strings.Contains(w.action, "entity_request") {
+		if !namesAnEntityRequest(w) {
 			continue
 		}
-		// PREFIX FAMILIES ARE CHECKED TOO. An action built as
-		// `"decide_entity_request_" + state` reaches the timeline as a whole
-		// action naming a request, and exempting it here would let the family
-		// be dispositioned for metadata while its rows are still judged by the
-		// entity-type arms.
+		// PREFIX FAMILIES ARE CHECKED TOO, and this is where the FILE signal
+		// earns its place: a family built as `"decide_" + state` records only
+		// the literal half, which says nothing about requests, so a name-only
+		// test would skip it. Exempting such a family would let it be
+		// dispositioned for metadata, which is safe, while its rows are still
+		// judged by the entity-type arms, which is not.
 		if w.isPrefix {
 			t.Errorf("%s: %q builds an action naming entity requests at run time. "+
 				"contributionEntityRequestActions is an exact-match set, so no member of "+
@@ -645,8 +686,10 @@ func TestEntityRequestActionsAreRecognisedByName(t *testing.T) {
 		if !contributionEntityRequestActions[w.action] {
 			t.Errorf("%s: %q names entity requests but is not in "+
 				"contributionEntityRequestActions, so the timeline's entity-type arms will "+
-				"read its entity_id as an id in the table its entity_type names. Add it, or "+
-				"rename the action if its entity_id really is a catalog id.",
+				"read its entity_id as an id in the table its entity_type names. Add it "+
+				"there, NOT to contributionMetadataKeys: an entry in that map silences the "+
+				"disposition test while leaving this row judged against whichever catalog "+
+				"row shares the request's number.",
 				w.position, w.action)
 		}
 	}
@@ -976,6 +1019,99 @@ func TestOnlyGatedActionsPublishMetadataKeys(t *testing.T) {
 		if _, ok := contributionMetadataKeys[action]; !ok {
 			t.Errorf("contributionActionsThatPublishKeys names %q, which contributionMetadataKeys "+
 				"does not disposition at all", action)
+		}
+	}
+}
+
+// A COMPOUND ASSIGNMENT BINDS NOTHING THE SWEEP CAN READ, so the name is
+// refused rather than answered with the right-hand side alone.
+//
+// Reading `action += "purge_entity_request"` as a binding records a string no
+// writer ever passes, and the entity-request tripwire then fires on that
+// fabricated name and tells the author to register IT. Doing so turns the suite
+// green while the action actually written is still absent from the map, and its
+// request id is judged against whichever catalog row shares the number.
+func TestSweepRefusesACompoundAssignment(t *testing.T) {
+	swept := sweepSource(t, `package p
+
+func f(s S, reqID uint) {
+	action := "rescue_"
+	action += "purge_entity_request"
+	s.LogAction(1, action, "artist", reqID, nil)
+}
+`)
+
+	if len(swept.actions) != 0 {
+		t.Errorf("actions = %v, want none: neither half of a compound assignment is the "+
+			"string the writer passes", swept.actions)
+	}
+	if len(swept.unresolved) != 1 {
+		t.Errorf("unresolved = %v, want the one call site", swept.unresolved)
+	}
+}
+
+// A RANGE VARIABLE RECEIVES ITS VALUE FROM THE SEQUENCE, so it is refused like a
+// parameter rather than inheriting a file-level binding of the same name.
+func TestSweepRefusesARangeVariable(t *testing.T) {
+	swept := sweepSource(t, `package p
+
+var action = "file_level_action"
+
+func f(s S, actions []string) {
+	for _, action := range actions {
+		s.LogAction(1, action, "artist", 1, nil)
+	}
+}
+`)
+
+	if len(swept.actions) != 0 {
+		t.Errorf("actions = %v, want none: the loop variable is not the package-level "+
+			"binding that shares its name", swept.actions)
+	}
+	if len(swept.unresolved) != 1 {
+		t.Errorf("unresolved = %v, want the one call site", swept.unresolved)
+	}
+}
+
+// THE TRIPWIRE'S TWO SIGNALS, driven through the function the tree-walking test
+// uses rather than through a second copy of its expression.
+//
+// The file signal is the half that has no other cover: an action renamed away
+// from "entity_request", or a prefix family whose literal half never said it,
+// carries nothing in its name to catch. Deleting that signal must fail here.
+func TestEntityRequestTripwireSignals(t *testing.T) {
+	const writerFile = "/repo/backend/internal/api/handlers/community/entity_request.go:412:3"
+	const otherFile = "/repo/backend/internal/api/handlers/catalog/artist.go:412:3"
+
+	for _, tc := range []struct {
+		name    string
+		written writtenAction
+		want    bool
+		why     string
+	}{
+		{
+			"a prefix family written from the entity-request handlers",
+			writtenAction{action: "decide_", position: writerFile, isPrefix: true}, true,
+			"its literal half names no request, so only the file it is written from can catch it",
+		},
+		{
+			"an action renamed away from the family's vocabulary",
+			writtenAction{action: "requeue_submission", position: writerFile}, true,
+			"a rename changes the name and not the file",
+		},
+		{
+			"an action naming requests from somewhere else",
+			writtenAction{action: "purge_entity_request", position: otherFile}, true,
+			"a writer that moved out of those files still names a request",
+		},
+		{
+			"an ordinary catalog action",
+			writtenAction{action: "create_artist", position: otherFile}, false,
+			"neither signal fires, and a false positive here would demand a wrong disposition",
+		},
+	} {
+		if got := namesAnEntityRequest(tc.written); got != tc.want {
+			t.Errorf("%s: namesAnEntityRequest = %v, want %v: %s", tc.name, got, tc.want, tc.why)
 		}
 	}
 }

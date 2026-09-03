@@ -768,16 +768,21 @@ var contributionEntityRequestActions = map[string]bool{
 //
 // entity_id remains the FALLBACK for a row that records no usable key, which is
 // the same shape the collection arm takes for the rows written before its
-// writers recorded a parent id.
+// writers recorded a parent id. THE FALLBACK IS THE CORRUPTIBLE COLUMN, so a row
+// that reaches it after a merge is decided against whatever the merge left
+// behind. Every writer has recorded the key since the action existed, and
+// handlers/community's TestEntityRequestAuditRowsRecordTheRequestID is what
+// keeps that true; the fallback covers the one case the writers cannot, a
+// metadata marshal that failed and stored NULL.
 const contributionEntityRequestMetadataID = "request_id"
 
 // contributionEntityRequestActionNames is the map's keys as the IN-list the gate
 // binds.
 //
 // Built once, at package init, rather than per call: the set never changes after
-// init and three separate routes build the condition that reads it. Sorted so a
-// logged statement's bind list can be compared between processes, which Go's
-// randomised map iteration would otherwise deny.
+// init, and the condition that reads it is built at three call sites serving
+// five routes. Sorted so a logged statement's bind list can be compared between
+// processes, which Go's randomised map iteration would otherwise deny.
 var contributionEntityRequestActionNames = slices.Sorted(maps.Keys(contributionEntityRequestActions))
 
 // =============================================================================
@@ -848,9 +853,9 @@ var contributionMetadataKeys = map[string][]string{
 	// a decision about that writer's metadata rather than an omission.
 	// ---------------------------------------------------------------------
 
-	// handlers/admin. Reasons, edit ids and submitter ids are moderation
-	// artifacts; a rejection reason in particular is an admin's prose about
-	// another user's submission.
+	// handlers/admin. A rejection reason is an admin's prose about another
+	// user's submission; the rest is how the decision was taken, which is the
+	// moderation queue's own record rather than the contributor's.
 	"approve_show":      nil,
 	"reject_show":       nil,
 	"verify_venue":      nil,
@@ -1001,9 +1006,11 @@ var contributionMetadataWithheldPrefixes = []string{
 // projectContributionMetadata returns the metadata one contribution row may
 // publish: the allowlisted keys of its action that the row actually carries.
 //
-// Returns nil rather than an empty map when nothing survives, so the field is
-// omitted from the response instead of rendering as `{}`, so a row with a
-// withheld key and a row with no metadata at all answer alike.
+// Returns nil rather than an empty map when nothing survives, so that IN GO a
+// row with a withheld key and a row that carried no metadata are one value.
+// `omitempty` already hides both from the response; what nil buys is that the
+// later passes over these entries, which test the map for nil, cannot tell the
+// two apart either.
 func projectContributionMetadata(action string, metadata map[string]interface{}) map[string]interface{} {
 	keys := contributionMetadataKeys[action]
 	if len(keys) == 0 || len(metadata) == 0 {
@@ -1070,7 +1077,15 @@ func contributionVisibilitySQL(alias string, viewer contracts.ShowViewer) (strin
 	// key first, entity_id only where the row records no usable one. A stored
 	// empty string and a stored 0 both name no request, so both fall through to
 	// the column rather than resolving to nothing and withholding the row from
-	// its own author.
+	// its own author. So does a missing key, and so does a NULL metadata column.
+	//
+	// A key that is present and MALFORMED does not fall through. A negative
+	// number, an object, an array, a padded value or one too long for the cast
+	// answers no request at all, and the row is withheld from everyone. That is
+	// the recoverable direction, and it is deliberate: a value that is there but
+	// unreadable is not the same as one that was never recorded, and reading it
+	// as absent would decide the row against whatever entity_id a merge last
+	// left behind.
 	requestIDExpr := "COALESCE(NULLIF(NULLIF(" + alias + ".metadata->>'" +
 		contributionEntityRequestMetadataID + "', ''), '0'), " + entityIDExpr + "::text)"
 
@@ -1291,8 +1306,16 @@ func (s *ContributorProfileService) scrubCloneSourceMetadata(entries []*contract
 			// collection to claim, so a stale one names a collection this gate
 			// never looked at. The id stays; the slug goes unless it still
 			// names the source it was recorded for.
-			if stored, isString := e.Metadata["source_slug"].(string); isString && stored != visibleSlugs[id] {
-				delete(e.Metadata, "source_slug")
+			//
+			// A value that is not a string cannot name the source either, so it
+			// goes too. Reading the type test the other way would publish
+			// whatever an unexpected shape held, which is the fail-open
+			// direction on the one key this timeline publishes.
+			if stored, ok := e.Metadata["source_slug"]; ok {
+				text, isString := stored.(string)
+				if !isString || text != visibleSlugs[id] {
+					delete(e.Metadata, "source_slug")
+				}
 			}
 			continue
 		}
@@ -1302,9 +1325,9 @@ func (s *ContributorProfileService) scrubCloneSourceMetadata(entries []*contract
 			delete(e.Metadata, key)
 		}
 		// NIL, NOT AN EMPTIED MAP. These are the only keys the projection let
-		// through for this action, so removing them leaves nothing, and a row
-		// whose attribution was scrubbed must answer like a row that never
-		// carried one.
+		// through for this action, so removing them leaves nothing, and the
+		// entry must answer like one that carried no metadata, which is what
+		// projectContributionMetadata returns for every other action.
 		if len(e.Metadata) == 0 {
 			e.Metadata = nil
 		}
@@ -1966,8 +1989,10 @@ func (s *ContributorProfileService) enrichEntityNames(entries []*contracts.Contr
 // something other than a row of the table its entity_type names, so resolving it
 // there would publish an unrelated record's name.
 //
-// Two families qualify, and they are the two the gate itself has to special-case
-// for the same reason:
+// Two families qualify, and they are the two the gate itself has to
+// special-case for the same reason. Both name a row in ANOTHER table; an
+// entity_id of 0, which several batch actions store, names no row anywhere and
+// needs no arm because every lookup for it finds nothing:
 //
 //   - a collection ITEM action's entity_id is a collection_items id, so looking
 //     it up in collections resolves whichever collection shares that number;
