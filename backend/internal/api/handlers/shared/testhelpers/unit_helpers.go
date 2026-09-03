@@ -67,17 +67,25 @@ func HumaErrorModel(t *testing.T, err error) *huma.ErrorModel {
 // per package so the definition of "same response" has one home and a field
 // added to the comparison covers every gated route at once.
 //
-// normalize is applied to both Detail strings first, for routes whose refusal
-// ECHOES the id the caller supplied. Echoing it back is not a disclosure, so
-// those callers substitute their own id out and compare the shape. Pass nil when
-// the two details must match byte for byte.
+// It compares the WHOLE RENDERED ErrorModel, so a field added to huma's error
+// body is covered without an edit here.
 //
-// It compares the whole rendered ErrorModel, so a field added to huma's error
-// body is covered without an edit here. WHAT IT CANNOT SEE, stated so nobody
-// reads it as a proof of indistinguishability: response HEADERS (huma carries
-// Retry-After on the rate-limited arms through a wrapper this never unwraps),
-// and TIMING, which is the channel a gate placed after an expensive load leaves
-// open however identical the bodies are.
+// normalize is applied to that rendered JSON, not to Detail alone, for routes
+// whose refusal ECHOES the id the caller supplied. Echoing it back is not a
+// disclosure, so those callers substitute their own id out and compare the rest.
+// It sees the whole document, so a pattern must be QUALIFIED enough not to match
+// inside another field: `"show 4242"`, never a bare `4242`. Pass nil when the two
+// responses must match byte for byte.
+//
+// WHAT IT CANNOT SEE, stated so nobody reads a pass as proof of
+// indistinguishability:
+//   - response HEADERS, which huma carries through a wrapper this never unwraps;
+//   - TIMING, the channel a gate placed after an expensive load leaves open
+//     however identical the bodies are;
+//   - anything a MOCK cannot vary. A handler test whose checker decides on the
+//     viewer alone reaches the same branch for a gated id and a missing one, so
+//     the assertion pins the refusal helper rather than the production rule. The
+//     manual repro against a real database is what covers that.
 func AssertSameRefusal(t *testing.T, gotErr, wantErr error, normalize func(string) string) {
 	t.Helper()
 	got := HumaErrorModel(t, gotErr)

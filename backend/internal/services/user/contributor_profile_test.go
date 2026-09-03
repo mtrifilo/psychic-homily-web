@@ -2611,11 +2611,26 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 	// viewer. That direction is the property: a row the timeline withholds must
 	// not be counted, or the count reports the withheld row as arithmetic.
 	//
-	// A SUBSET, not an equality. The show-scoped timeline also carries this
-	// actor's own show SUBMISSIONS, which no counter here reads, so an equality
-	// would hold only for a fixture whose moderator submitted nothing and would
-	// break on an unrelated seeding change. The moderator's own moderation rows
-	// are identified by action instead.
+	// The rows are matched BY ACTION rather than by comparing two totals. The
+	// show-scoped timeline also carries this actor's own show submissions, which
+	// no counter here reads, so a total-to-total equality would hold only for a
+	// fixture whose moderator submitted nothing.
+	//
+	// The comparison is still like-for-like only while every moderation row this
+	// actor has is show-typed, which is what the fixture seeds. Asserted rather
+	// than assumed, so a later fixture that adds a venue or report action fails
+	// with a sentence saying why instead of an unexplained off-by-one.
+	var nonShowModeration int64
+	suite.Require().NoError(suite.db.Model(&adminm.AuditLog{}).
+		Where("actor_id = ?", moderator.ID).
+		Where("action IN ?", moderationActionNameList()).
+		Where("entity_type NOT IN ?", []string{"show", "show_edit"}).
+		Count(&nonShowModeration).Error)
+	suite.Require().Zero(nonShowModeration,
+		"this fixture's moderator has a moderation row that is not show-typed, so the "+
+			"show-scoped timeline below cannot list it and the counts are no longer "+
+			"comparable; seed it show-typed or widen the timeline query")
+
 	entries, total, err := suite.profileService.GetContributionHistory(
 		moderator.ID, 50, 0, "show", contracts.ShowViewer{})
 	suite.Require().NoError(err)
@@ -2659,6 +2674,20 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPercentileRan
 		}).Error)
 	}
 
+	// A PEER whose only tag is on the rejected show. This row is what separates
+	// the two halves of the gate: the value comes from the subject's own count,
+	// the POSITION comes from the cohort join, and without the predicate on that
+	// join this peer counts 1 and stops being "a user with fewer than the
+	// subject", moving the percentile. With it, the peer counts 0.
+	// A second tag, because entity_tags is unique on (tag, entity): the peer has
+	// to apply a different one to the same gated show.
+	peer := users[1]
+	peerTag := &catalogm.Tag{Name: "ranked peer tag", Slug: "ranked-peer-tag", Category: "genre"}
+	suite.Require().NoError(suite.db.Create(peerTag).Error)
+	suite.Require().NoError(suite.db.Create(&catalogm.EntityTag{
+		TagID: peerTag.ID, EntityType: "show", EntityID: gated.ID, AddedByUserID: peer.ID,
+	}).Error)
+
 	result, err := suite.profileService.GetPercentileRankings(tagger.ID)
 	suite.Require().NoError(err)
 
@@ -2672,4 +2701,10 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPercentileRan
 	suite.Equal(int64(1), tagsApplied.Value,
 		"the tag on the rejected show is still counted, so subtracting the leaderboard's "+
 			"public-tier count for this user reports it")
+
+	// Eleven of the twelve users hold no visible tag, the peer included, so the
+	// subject sits above all eleven.
+	suite.Equal(11*100/12, tagsApplied.Percentile,
+		"the cohort counts the peer's tag on the rejected show, so the position is "+
+			"measured against a population counted differently from the subject")
 }

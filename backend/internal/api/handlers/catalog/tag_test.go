@@ -560,10 +560,16 @@ func TestTagWriteRoutes_RefuseAGatedShowExactlyLikeAMissingOne(t *testing.T) {
 			//
 			// The detail ECHOES the id the caller sent, which is not a disclosure:
 			// they chose it. The normalizer substitutes each request's own id back
-			// out so what is compared is everything else; comparing raw would pass a
-			// refusal that named the show's TITLE for the gated id, which is the
-			// shape this guards against. The ids are QUALIFIED and multi-digit in the
-			// pattern, so the substitution cannot rewrite an unrelated number.
+			// out so what is compared is everything else, and the patterns are
+			// QUALIFIED and multi-digit so the substitution cannot rewrite an
+			// unrelated number or reach into another field.
+			//
+			// WHAT THIS PINS, exactly: that both refusals are built by
+			// refuseTagWriteAsMissingPair rather than one of them growing a message
+			// of its own. It is NOT evidence about production, because the checker
+			// here decides on the viewer alone, so both calls reach the same branch
+			// whatever id they carry. The isolated-stack repro is what walks a real
+			// gated show against a real unused id.
 			_, gatedErr := w.call(stranger, gatedShowID)
 			_, missingErr := w.call(stranger, neverUsedShowID)
 			testhelpers.AssertSameRefusal(t, gatedErr, missingErr, func(detail string) string {

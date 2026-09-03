@@ -106,8 +106,8 @@ func festivalsCreatedCounter(s *contracts.ContributionStats) *int64  { return &s
 //
 // IT IS ALSO THE QUERY'S OWN ALLOWLIST, and that is the reason it is a map
 // rather than a switch. The visibility condition spliced into that query is a
-// per-row correlated EXISTS — up to three of them for a collection-typed row,
-// one of which joins collection_items — so a group nobody consumes pays the
+// per-row correlated EXISTS, up to three of them for a collection-typed row,
+// one of which joins collection_items, so a group nobody consumes pays the
 // whole subplan to produce a number that is discarded. On a heavy contributor
 // the comment and subscription rows that pay it outnumber the rows that are
 // counted, and this is an anonymous, uncached read.
@@ -118,9 +118,9 @@ func festivalsCreatedCounter(s *contracts.ContributionStats) *int64  { return &s
 // and it is stated because the failure direction is safe: an action that started
 // carrying a collection id would be DECIDED by the arm rather than skipping it.
 //
-// A content action added here without an entry counts zero, which is also the
-// safe direction, and the disposition test forces the counter it feeds to record
-// a position before it can ship.
+// An audit action added to the WRITERS without an entry in this map counts zero,
+// which is also the safe direction, and the disposition test forces whatever
+// counter it was meant to feed to record a position before it can ship.
 var contributionStatActions = map[string]contributionStatCounter{
 	// Moderation, not content creation.
 	"approve_show":          moderationActionsCounter,
@@ -424,13 +424,15 @@ func (s *ContributorProfileService) GetContributionStats(userID uint, viewer con
 	//
 	// entity_edit_audit_logs.entity_type is a FREE COLUMN with no allowlist
 	// behind it, so which types it can carry is a property of its writers rather
-	// than a constraint. It therefore excludes the gated discriminators outright,
-	// from the same list the heatmap's two undecided arms use: a writer that
-	// starts recording a show or a collection withholds those rows instead of
-	// adding them to a counter whose recorded disposition says it is narrowed.
-	// Three of the four counters this arm feeds are also fed by the gated
-	// audit_logs scan above, so an ungated arm beside a gated one would make the
-	// pair mean two things.
+	// than a constraint.
+	//
+	// The switch below is closed over four ungated types, so today the exclusion
+	// changes NO count: it is a second lock on a door the switch already shuts.
+	// It is here because three of the four counters this arm feeds are also fed
+	// by the gated audit_logs scan above, and the disposition recorded for them
+	// says "narrowed": adding a `case "show":` would otherwise put gated rows
+	// into a counter labelled gated, with nothing failing. Same list the
+	// heatmap's two undecided arms exclude.
 	type entityEditCount struct {
 		EntityType string
 		Count      int64

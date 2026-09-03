@@ -168,9 +168,9 @@ func EntityVisibleTo(checker contracts.ShowVisibilityInterface, entityType strin
 // arguments.
 //
 // The SQL spelling of EntityVisibleTo, for ANY table where one column decides
-// what kind of id sits beside it. The comment family named it — the comments
+// what kind of id sits beside it. The comment family named it: the comments
 // table, comment_subscriptions, and the notification rows resolved through a
-// comment — and the tag family uses it too, for entity_tags and tag_votes. The
+// comment. The tag family uses it too, for entity_tags and tag_votes. The
 // name is narrower than the contract; read it as "visible polymorphic entity".
 //
 // Two parts, and BOTH are derived from the registry rather than written out:

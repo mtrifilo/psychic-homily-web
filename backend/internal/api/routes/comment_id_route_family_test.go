@@ -79,7 +79,10 @@ var commentIDRouteConflicts []string
 // selfScoped for shows and collectionSelfScoped for collections.
 func addRoutes[D comparable](m map[string]D, keys []string, disposition D) {
 	for _, key := range keys {
-		if existing, ok := m[key]; ok {
+		// A key already carrying the SAME disposition is a duplicate, not a
+		// conflict: nothing a reader reads is contradicted, so it is left alone
+		// rather than reported as two claims deciding differently.
+		if existing, ok := m[key]; ok && existing != disposition {
 			commentIDRouteConflicts = append(commentIDRouteConflicts,
 				fmt.Sprintf("%s (inventory says %v, comment-id family says %v)", key, existing, disposition))
 			continue

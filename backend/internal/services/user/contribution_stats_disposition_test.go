@@ -41,6 +41,17 @@ var moderationActionNames = func() map[string]bool {
 	return names
 }()
 
+// moderationActionNameList is moderationActionNames as a sorted slice, for a
+// query's IN clause.
+func moderationActionNameList() []string {
+	names := make([]string, 0, len(moderationActionNames))
+	for action := range moderationActionNames {
+		names = append(names, action)
+	}
+	sort.Strings(names)
+	return names
+}
+
 // statsDisposition records why a counter is safe.
 type statsDisposition int
 
@@ -130,8 +141,8 @@ var contributionStatDispositions = map[string]statsDisposition{
 	// ratio of them: it runs two queries of its own over pending_entity_edits,
 	// which ValidPendingEditEntityTypes holds to artist, venue, festival, release
 	// and label. Recorded UNGATED rather than derived, so that extending approval
-	// rate to show submissions — the obvious next step, since approve_show and
-	// reject_show already exist — has to come back here.
+	// rate to show submissions, the obvious next step since approve_show and
+	// reject_show already exist, has to come back here.
 	"ApprovalRate": statsUngated,
 
 	// OPEN, and named rather than hidden. Both read the three report TABLES
@@ -193,7 +204,7 @@ func TestNoNewOpenContributionStat(t *testing.T) {
 				"reason in its map entry.", name, disposition)
 		}
 		if disposition != statsOpen && statsOpenCounters[name] {
-			t.Errorf("%s is listed in statsOpenCounters but is recorded %s — remove it from "+
+			t.Errorf("%s is listed in statsOpenCounters but is recorded %s, so remove it from "+
 				"the list, the disclosure is closed", name, disposition)
 		}
 	}

@@ -148,7 +148,7 @@ func CollectionVisibleTo(db *gorm.DB, collectionID uint, viewer contracts.ShowVi
 
 	// One condition carrying its own parentheses, written out here rather than
 	// left to the query builder: the binding this pins is `id = X AND (is_public
-	// = TRUE OR creator_id = Y)` — never `id = X AND is_public = TRUE OR
+	// = TRUE OR creator_id = Y)`, never `id = X AND is_public = TRUE OR
 	// creator_id = Y`, which would answer yes for a private collection whenever
 	// the caller created ANY collection at all. A deliberate refusal to let a
 	// security boundary rest on framework behaviour, not a workaround for a bug.
