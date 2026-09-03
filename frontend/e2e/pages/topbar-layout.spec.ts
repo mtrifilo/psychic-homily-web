@@ -122,7 +122,9 @@ test.describe('TopBar layout', () => {
       await page.setViewportSize({ width, height: 800 })
       await page.goto('/shows')
 
-      const loginLink = 'a[href="/auth"]'
+      // The link carries `?returnTo=` for the page it sits on (buildAuthHref),
+      // so match the path prefix, not the bare href.
+      const loginLink = 'a[href^="/auth"]'
       await expect(page.locator(`header ${loginLink}`)).toBeVisible({
         timeout: 15_000,
       })
