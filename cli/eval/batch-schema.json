@@ -80,7 +80,7 @@
         },
         "doors_at": {
           "type": "string",
-          "description": "When doors open, as the venue-LOCAL wall clock the source states, e.g. \"7:00 PM\" or \"19:00\" — NOT a date and NOT an instant. The day comes from event_date and the zone from the venue, so `ph batch` stores the UTC instant the pair names. State it only when the source states it; a time is read only in the forms \"H:MM AM/PM\" and an unambiguous 24-hour \"HH:MM\" (13-23 or 00), so \"doors at 7\", \"8PM\" and a bare \"7:00\" are refused and the column stays empty. Doors alone is never stored: without music_at there is no schedule to place it in."
+          "description": "When doors open, as the venue-LOCAL wall clock the source states, e.g. \"7:00 PM\" or \"19:00\", NOT a date and NOT an instant. The day comes from event_date and the zone from the venue, so `ph batch` stores the UTC instant the pair names. State it only when the source states it; a time is read only in the forms \"H:MM AM/PM\" and an unambiguous 24-hour \"HH:MM\" (13-23 or 00), so \"doors at 7\", \"8PM\" and a bare \"7:00\" are refused and the column stays empty. Doors alone is never stored: without music_at there is no schedule to place it in."
         },
         "music_at": {
           "type": "string",

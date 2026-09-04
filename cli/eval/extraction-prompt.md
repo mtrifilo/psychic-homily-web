@@ -68,9 +68,9 @@ field. Output ONLY the JSON array — no prose, no markdown fences, no commentar
 5. **Dates**: festival `start_date`/`end_date` and show `event_date` are
    `YYYY-MM-DD`. Infer the year from the source. A date range like
    "September 18-19-20" → `start_date` first day, `end_date` last day.
-6. **Show times — LABELLED ONLY.** A show's `doors_at` / `music_at` are the
+6. **Show times, LABELLED ONLY.** A show's `doors_at` / `music_at` are the
    venue-local wall clocks the source prints, copied as shown ("7:00 PM",
-   "19:00") — not dates, not converted, never derived from each other, never
+   "19:00"): not dates, not converted, never derived from each other, never
    rounded. Emit a field ONLY when the source says in words which time it is:
    text reading "Doors" next to the clock → `doors_at`; text reading "Show",
    "Start", "Music", or "Set" next to the clock → `music_at`. **A clock printed

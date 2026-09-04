@@ -3,22 +3,34 @@
  * venue calendar states, and turning a stated pair into the UTC instants
  * `shows.doors_at` / `shows.music_at` hold.
  *
- * The parser and its refusals mirror `parseClockTime` in
- * `backend/internal/services/pipeline/discovery.go`, which writes the same two
- * columns from the discovery side. Two DELIBERATE divergences from that file's
- * `resolveShowTimes`, both stricter here:
+ * `parseClockTime` mirrors the function of the same name in
+ * `backend/internal/services/pipeline/discovery.go`, refusal for refusal, and a
+ * test parses that file's table to hold the two together. The surrounding rules
+ * diverge from its `resolveShowTimes` in three DELIBERATE places:
  *
- * 1. Nothing is written when no zone is known for the venue (see
- *    `resolveShowTimes` below). The pipeline has no such gate: its
+ * 1. STRICTER: nothing is written when no zone is known for the venue (see
+ *    `resolveShowTimes` below). The pipeline has no such gate; its
  *    `venueLocalInstant` goes through `utils.EventLocation`, which falls back to
  *    the state map and writes anyway.
- * 2. A refused pair also leaves `event_date` on the date-only convention. The
- *    pipeline's `parseEventDate` still anchors `event_date` on a stated show
- *    time that `resolveShowTimes` refused, so the two can disagree there.
+ * 2. STRICTER: a refused pair also leaves `event_date` on the date-only
+ *    convention. The pipeline's `parseEventDate` still anchors `event_date` on a
+ *    stated show time its own `resolveShowTimes` refused.
+ * 3. LOOSER: `readEventDate` accepts a naive `YYYY-MM-DDTHH:MM`, which Go's
+ *    `parseCalendarDate` rejects. That shape is this CLI's own long-standing
+ *    `event_date` contract (see `normalizeDate`), so refusing it here would
+ *    refuse times for shows the CLI still creates.
+ *
+ * KNOWN LIMITATION, shared with the pipeline: a listing dated the 4th that
+ * states a music time of 12:30 AM is read as 00:30 ON the 4th, not as the small
+ * hours of the 5th. Reading it the other way means inferring a day rollover the
+ * source did not state, which is the one thing this module will not do. Unlike
+ * the doors/music pair, there is nothing to check it against, so it is written
+ * rather than refused, and `event_date` follows it.
  */
 
 import {
   isShowTimezoneResolved,
+  localClockExists,
   localTimeToUTC,
   resolveVenueTimezone,
 } from "./timezone";
@@ -102,6 +114,9 @@ export function parseClockTime(raw: unknown): ClockTime | null {
 function isRealCalendarDay(day: string): boolean {
   const [year, month, date] = day.split("-").map(Number);
   const at = new Date(Date.UTC(year, month - 1, date));
+  // Date.UTC reads a year under 100 as 1900 + it, which would fail the round
+  // trip for every year Go's time.Parse accepts.
+  if (year < 100) at.setUTCFullYear(year);
   return (
     at.getUTCFullYear() === year &&
     at.getUTCMonth() === month - 1 &&
@@ -109,21 +124,73 @@ function isRealCalendarDay(day: string): boolean {
   );
 }
 
-/** Whether a date string states one real calendar day and no time of day. */
-export function isDateOnly(date: unknown): boolean {
-  return (
-    typeof date === "string" &&
-    /^\d{4}-\d{2}-\d{2}$/.test(date) &&
-    isRealCalendarDay(date)
-  );
+/**
+ * How a show's `event_date` reads, or null when it states no day at all.
+ *
+ * ONE reader for the whole module, because two of them disagreed: a shape check
+ * that answered "date only" and a separate slicer that answered "which day"
+ * differed on trailing whitespace, on a trailing `T`, and on an overflowing
+ * hour, and a show could get its times anchored to a day its `event_date` was
+ * about to be rejected for.
+ *
+ * The three readings are the three things the field can mean:
+ *
+ * - `day` states a calendar day and nothing else, so the writer supplies the
+ *   20:00 convention.
+ * - `local` states a wall clock with no zone, which by this CLI's contract is
+ *   venue-local.
+ * - `instant` states a zone of its own and therefore names one moment. Its
+ *   `day` is that moment read in the VENUE's zone, which is the only day a
+ *   doors or music clock can be anchored to: for a US evening show the UTC day
+ *   is already tomorrow, so taking it would put both times a full day late.
+ */
+export type EventDateReading =
+  | { kind: "day"; day: string }
+  | { kind: "local"; day: string; time: string }
+  | { kind: "instant"; day: string };
+
+const DATE_ONLY = /^(\d{4}-\d{2}-\d{2})$/;
+const DATE_AND_LOCAL_TIME = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/;
+const DATE_AND_INSTANT =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+
+export function readEventDate(raw: unknown, zone: string): EventDateReading | null {
+  if (typeof raw !== "string") return null;
+
+  const dayOnly = DATE_ONLY.exec(raw);
+  if (dayOnly) {
+    return isRealCalendarDay(dayOnly[1]) ? { kind: "day", day: dayOnly[1] } : null;
+  }
+
+  const local = DATE_AND_LOCAL_TIME.exec(raw);
+  if (local) {
+    const [, day, hour, minute, second] = local;
+    if (!isRealCalendarDay(day)) return null;
+    if (Number(hour) > 23 || Number(minute) > 59 || Number(second ?? "0") > 59) {
+      return null;
+    }
+    return { kind: "local", day, time: `${hour}:${minute}` };
+  }
+
+  if (DATE_AND_INSTANT.test(raw)) {
+    const at = Date.parse(raw);
+    if (!Number.isFinite(at)) return null;
+    return { kind: "instant", day: dayInZone(at, zone) };
+  }
+
+  return null;
 }
 
-/** The calendar day a show's `event_date` names, as `YYYY-MM-DD`, or null. */
-export function calendarDateOf(eventDate: unknown): string | null {
-  if (typeof eventDate !== "string") return null;
-  const match = /^(\d{4}-\d{2}-\d{2})(?:[T ]|$)/.exec(eventDate.trim());
-  if (match === null) return null;
-  return isRealCalendarDay(match[1]) ? match[1] : null;
+/** The calendar day an instant falls on in a zone, as `YYYY-MM-DD`. */
+function dayInZone(instant: number, zone: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: zone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(instant));
+  const p = (type: string) => parts.find((x) => x.type === type)?.value ?? "";
+  return `${p("year")}-${p("month")}-${p("day")}`;
 }
 
 /**
@@ -136,15 +203,20 @@ export type ShowTimesRefusal =
   | { reason: "unreadable-music"; music: string }
   | { reason: "doors-without-music"; doors: string }
   | { reason: "unreadable-doors"; doors: string }
+  | { reason: "clock-does-not-exist"; clock: string; day: string }
   | { reason: "music-before-doors"; doors: string; music: string };
 
 export interface ShowTimesInput {
   /** The show's `event_date` as stated, date-only or a full timestamp. */
   eventDate: unknown;
-  /** The stated door time, a local wall clock ("7:00 PM"). */
-  doorsAt: unknown;
-  /** The stated music time, a local wall clock ("8:00 PM"). */
-  musicAt: unknown;
+  /**
+   * The door time as STATED: a local wall clock ("7:00 PM"), not an instant.
+   * Named apart from `ShowTimes.doorsAt`, which is the UTC instant this module
+   * turns it into, because the two are both strings and a mix-up type-checks.
+   */
+  statedDoors: unknown;
+  /** The music time as stated, same shape as `statedDoors`. */
+  statedMusic: unknown;
   /** The matched venue's IANA zone, when it has one. */
   timezone?: string;
   /** The venue's state, the fallback the state map covers. */
@@ -198,8 +270,8 @@ function isStated(value: unknown): boolean {
  */
 export function resolveShowTimes(input: ShowTimesInput): ShowTimes {
   const refusals: ShowTimesRefusal[] = [];
-  const doorsStated = isStated(input.doorsAt);
-  const musicStated = isStated(input.musicAt);
+  const doorsStated = isStated(input.statedDoors);
+  const musicStated = isStated(input.statedMusic);
   if (!doorsStated && !musicStated) return { refusals };
 
   if (!isShowTimezoneResolved(input.state, input.timezone)) {
@@ -208,38 +280,55 @@ export function resolveShowTimes(input: ShowTimesInput): ShowTimes {
   }
   const zone = resolveVenueTimezone(input.state, input.timezone);
 
-  const date = calendarDateOf(input.eventDate);
-  if (date === null) {
+  const reading = readEventDate(input.eventDate, zone);
+  if (reading === null) {
     refusals.push({ reason: "no-calendar-day", eventDate: String(input.eventDate) });
     return { refusals };
   }
+  const date = reading.day;
 
-  const music = parseClockTime(input.musicAt);
+  const music = parseClockTime(input.statedMusic);
   if (music === null) {
     refusals.push(
       musicStated
-        ? { reason: "unreadable-music", music: String(input.musicAt) }
-        : { reason: "doors-without-music", doors: String(input.doorsAt) },
+        ? { reason: "unreadable-music", music: String(input.statedMusic) }
+        : { reason: "doors-without-music", doors: String(input.statedDoors) },
     );
     return { refusals };
   }
 
+  if (!localClockExists(date, clock(music), zone)) {
+    refusals.push({
+      reason: "clock-does-not-exist",
+      clock: String(input.statedMusic),
+      day: date,
+    });
+    return { refusals };
+  }
   const musicAt = localTimeToUTC(date, clock(music), zone);
 
-  const doors = parseClockTime(input.doorsAt);
+  const doors = parseClockTime(input.statedDoors);
   if (doors === null) {
     if (doorsStated) {
-      refusals.push({ reason: "unreadable-doors", doors: String(input.doorsAt) });
+      refusals.push({ reason: "unreadable-doors", doors: String(input.statedDoors) });
     }
     return { musicAt, refusals };
   }
 
+  if (!localClockExists(date, clock(doors), zone)) {
+    refusals.push({
+      reason: "clock-does-not-exist",
+      clock: String(input.statedDoors),
+      day: date,
+    });
+    return { musicAt, refusals };
+  }
   const doorsAt = localTimeToUTC(date, clock(doors), zone);
   if (Date.parse(musicAt) < Date.parse(doorsAt)) {
     refusals.push({
       reason: "music-before-doors",
-      doors: String(input.doorsAt),
-      music: String(input.musicAt),
+      doors: String(input.statedDoors),
+      music: String(input.statedMusic),
     });
     return { refusals };
   }

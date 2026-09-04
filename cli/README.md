@@ -139,9 +139,10 @@ previous staleness behaviour.
 
 ### Show
 ```json
-{"event_date": "2026-04-15", "city": "Required", "state": "Required", "title": "Optional", "price": 25.00, "ticket_url": "https://dice.fm/...", "artists": [{"name": "Artist", "is_headliner": true}], "venues": [{"name": "Venue", "city": "City", "state": "ST"}]}
+{"event_date": "2026-04-15", "city": "Required", "state": "Required", "title": "Optional", "price": 25.00, "doors_at": "7:30PM", "music_at": "8:30PM", "ticket_url": "https://dice.fm/...", "artists": [{"name": "Artist", "is_headliner": true}], "venues": [{"name": "Venue", "city": "City", "state": "ST"}]}
 ```
-- `event_date` accepts `YYYY-MM-DD` (auto-normalized to `YYYY-MM-DDT20:00:00Z`)
+- `event_date` accepts `YYYY-MM-DD`, anchored at 20:00 in the venue's timezone unless `music_at` states a time, which anchors it instead
+- `doors_at` / `music_at` are the venue-LOCAL wall clock the source printed (`"7:30PM"`, `"19:00"`), not instants. They are stored only when the source states a readable music time, only when a timezone is known for the venue, and never as a pair whose music time precedes its doors. The dry run names every stated time it is not storing
 - Artists and venues are resolved by name search — existing entities use their ID, new ones are created automatically
 
 ### Release

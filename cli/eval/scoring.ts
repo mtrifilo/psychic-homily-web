@@ -180,15 +180,21 @@ export function scoreBillingTiers(
  * one because those are different claims about the source.
  */
 function scheduleKeyPart(value: unknown): string {
-  if (typeof value !== "string" || value.trim() === "") return "";
+  if (typeof value !== "string" || value.trim() === "") return "none";
   const clock = parseClockTime(value);
   if (clock === null) return `?${value.trim().toLowerCase()}`;
   return `${String(clock.hour).padStart(2, "0")}:${String(clock.minute).padStart(2, "0")}`;
 }
 
-/** The pair of times one show states, as a single comparable key. */
+/**
+ * The pair of times one show states, as a single comparable key.
+ *
+ * Spelled `doors=X music=Y` rather than `X|Y` because these keys are printed
+ * back to a human in the assertion's reason, and the case the door-time fixtures
+ * exist to report is the all-absent one, which rendered as a bare `|`.
+ */
 function scheduleKey(show: BatchItem): string {
-  return `${scheduleKeyPart(show.doors_at)}|${scheduleKeyPart(show.music_at)}`;
+  return `doors=${scheduleKeyPart(show.doors_at)} music=${scheduleKeyPart(show.music_at)}`;
 }
 
 /**
@@ -208,9 +214,11 @@ function scheduleKey(show: BatchItem): string {
  * named in `invented`.
  *
  * The denominator is every golden show, which folds one MISSING show into this
- * metric as a missing schedule. That is the price of not keying on the show, and
- * it is bounded: `artists` already reports what was dropped, and `invented`
- * separates "made a time up" from "did not produce the show at all".
+ * metric as a missing schedule; `artists` already reports what was dropped, so
+ * the two together say which happened. `invented` collects every extra schedule
+ * the model produced, INCLUDING an all-absent one from a spurious extra show, so
+ * a non-empty `invented` means "produced a schedule the golden does not have",
+ * not always "made a time up" - read the key it names.
  */
 export function scoreShowTimes(expected: BatchItem[], actual: BatchItem[]): ShowTimesScore {
   const expectedKeys = itemsOfType(expected, "show").map(scheduleKey);
