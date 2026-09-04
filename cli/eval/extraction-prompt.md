@@ -81,7 +81,7 @@ field. Output ONLY the JSON array — no prose, no markdown fences, no commentar
    `:00` (`Show: 9 pm` → `"9:00 pm"`), which states nothing the source did not.
    Worked three ways:
    - `DOORS 6:00 PM · MUSIC 6:45 PM` → `"doors_at": "6:00 PM", "music_at": "6:45 PM"`
-   - `Doors: 5 pm // Show: 6 pm` → `"doors_at": "5:00 pm", "music_at": "6:00 pm"`
+   - `DOORS 5PM / SET 6PM` → `"doors_at": "5:00PM", "music_at": "6:00PM"`
    - `TUE FEB 17 · 11:15PM` → **no `doors_at`, no `music_at`**
 7. **series_slug** is a stable kebab-case slug for the festival series WITHOUT the
    year (e.g. "Riot Fest 2026" → `riot-fest`). `edition_year` carries the year.

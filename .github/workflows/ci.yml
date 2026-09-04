@@ -493,11 +493,19 @@ jobs:
     # in step forever: rename or split that file and the gate silently stops
     # running, which is the exact drift it exists to catch.
     #
-    # The cost argument for filtering does not hold either. Measured 2026-09-04:
-    # install 0s warm / test 1s / typecheck 1s locally, and the whole job is
-    # checkout + setup-bun + install + two commands. It runs in parallel with
-    # the rest of CI, so its contribution to PR wall-clock is ~0 and the
-    # `feedback_ci_time_budget` ceiling is not in play.
+    # The cost argument for filtering does not hold either. Measured 2026-09-04
+    # with an EMPTY bun cache, which is what a runner has: install 8s, typecheck
+    # 1s, test 1s. It runs in parallel with the rest of CI, so its contribution
+    # to PR wall-clock is small and the `feedback_ci_time_budget` ceiling is not
+    # in play. Two caveats a future reader should not have to rediscover: that
+    # 8s is a local network, and the tree is 1.5 GB / 498 packages, nearly all
+    # of it `promptfoo`, which is a devDependency this job never uses (it runs
+    # only typecheck and the suite). `promptfoo` stays in `devDependencies`
+    # because `cd cli && bun run eval` is a documented manual command and moving
+    # it behind `bunx` would make that command re-resolve a bare npm name every
+    # run (see `pattern_bunx_local_tool_footgun`). If this job's install ever
+    # shows up in the CI budget, splitting the eval harness into its own
+    # manifest is the fix, not a path filter.
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -873,11 +881,12 @@ jobs:
     # positive: e2e-tests has no needs and shares this job's push+main gate,
     # and e2e-report skips only under the same `!cancelled()` guard this
     # job carries, so the two skip together. Scoped to main-branch pushes.
-    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.migration-lint.result == 'failure' || needs.migration-reversibility.result == 'failure' || needs.backend-tests.result == 'failure' || needs.backend-lint.result == 'failure' || needs.mocks-gen-check.result == 'failure' || needs.api-types-check.result == 'failure' || needs.frontend-unit-tests.result == 'failure' || needs.frontend-lint.result == 'failure' || needs.e2e-tests.result != 'success' || needs.e2e-report.result != 'success') }}
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.migration-lint.result == 'failure' || needs.migration-reversibility.result == 'failure' || needs.backend-tests.result == 'failure' || needs.backend-lint.result == 'failure' || needs.mocks-gen-check.result == 'failure' || needs.api-types-check.result == 'failure' || needs.frontend-unit-tests.result == 'failure' || needs.frontend-lint.result == 'failure' || needs.cli-tests.result == 'failure' || needs.e2e-tests.result != 'success' || needs.e2e-report.result != 'success') }}
     needs:
       - migration-lint
       - migration-reversibility
       - backend-tests
+      - cli-tests
       - backend-lint
       - mocks-gen-check
       - api-types-check

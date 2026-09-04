@@ -73,6 +73,11 @@ Each org has a row here AND a row in "Door / music times per source" below. A re
 
 Registry rows are hints — always re-inspect DOM/API on refresh.
 
+The rule above governs the TRANSFORM path, which reads named source fields. The vision path (`/ingest` from a
+screenshot) is deliberately stricter: a rendered card shows no field names, so `cli/eval/extraction-prompt.md`
+rule 6 emits a time only for a visible `Doors` / `Show` word. The same Empty Bottle show therefore gets a
+`music_at` through a transform and none through a screenshot, on purpose.
+
 ## Door / music times per source
 
 What each registered source states about its own clocks, and what the transform may emit. Surveyed 2026-09-04; re-check on refresh like every other row.
@@ -86,7 +91,7 @@ What each registered source states about its own clocks, and what the transform 
 | **Schubas + Lincoln Hall** (LH-ST) | `.doorsTime` `Doors 7:30PM` and `.showTime` `Show 8:30PM`, both labelled on the card | BOTH |
 | **Sleeping Village** | `dateTime` `Thu, Jun 11 9pm - 1am`; the FIRST half is the published event start, the second is a close time. `lineup.standard[].time` is a per-ACT set time, not the night's start | `music_at` from the start half only |
 | **Metro Baltimore** | same Plot widget, `dateTime` `Fri, Sep 4 7:00PM`, one published start | `music_at` |
-| **Zebulon** | Dice `date` / `date_end` instants plus `timezone`; no doors field and no field naming a start | neither, pending a call on whether `date` is doors or first set |
+| **Zebulon** | Dice `date` / `date_end`; a start-and-end pair, structurally the same statement as the Plot `dateTime` range, published as instants plus a `timezone` | `music_at` from `date`, converted to the venue's local clock; no doors field |
 | **Cactus Club** | `.eventTime` ` 6:30PM`, the card's published event time | `music_at` |
 | **Pabst Theater Group** | `StartDateTime`, venue-local; the field names the role | `music_at` |
 | **Lodge Room** | `eventDate` `09/04/2026 8:30 pm` AND `doors` `7:30 pm` in the same `eventObjects.push` | BOTH |
