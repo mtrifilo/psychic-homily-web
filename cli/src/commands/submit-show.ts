@@ -291,7 +291,13 @@ export function venueZone(
 ): { state?: string; timezone?: string } {
   const matched = venues[0];
   if (matched?.id !== undefined) {
-    return { state: matched.matchedState, timezone: matched.timezone };
+    // `??`, not `||`: a stored empty state is the row's answer and the read
+    // surfaces honour it. Only an ABSENT one falls through, which is the same
+    // gesture `showTimingInput` makes with `venue?.state ?? show.state`.
+    return {
+      state: matched.matchedState ?? input.state,
+      timezone: matched.timezone,
+    };
   }
   return { state: input.venues[0]?.state || input.state };
 }
@@ -399,6 +405,70 @@ export function buildShowPayload(plan: ShowPlan): Record<string, unknown> {
   return payload;
 }
 
+/** Only the two columns this path fills, as the API serves them. */
+interface StoredShowTimes {
+  doors_at?: string | null;
+  music_at?: string | null;
+}
+
+export interface TimeBackfill {
+  doorsAt?: string;
+  musicAt?: string;
+}
+
+/**
+ * Which stated times may be written onto a show that already exists.
+ *
+ * THE INVARIANT: only a column the stored row leaves EMPTY is ever filled. A
+ * stored time is the curated value and outranks a re-scrape, so it is never
+ * overwritten and never cleared. Returns nothing when the row already answers
+ * both questions.
+ *
+ * The pair is judged as it will END UP, stored plus incoming, because that is
+ * what `validateShowTimeOrder` judges on the server
+ * (`backend/internal/api/handlers/catalog/show.go`). Filling a doors time that
+ * lands after the stored music time would be refused there, so it is not sent.
+ */
+export function timesToBackfill(
+  stored: StoredShowTimes,
+  times: ShowTimes,
+): TimeBackfill | null {
+  const fill: TimeBackfill = {};
+  if (!stored.doors_at && times.doorsAt !== undefined) fill.doorsAt = times.doorsAt;
+  if (!stored.music_at && times.musicAt !== undefined) fill.musicAt = times.musicAt;
+  if (fill.doorsAt === undefined && fill.musicAt === undefined) return null;
+
+  const doors = fill.doorsAt ?? stored.doors_at ?? undefined;
+  const music = fill.musicAt ?? stored.music_at ?? undefined;
+  if (doors && music && Date.parse(music) < Date.parse(doors)) return null;
+
+  return fill;
+}
+
+/**
+ * Fill the door and music times an already-existing show is missing.
+ *
+ * A re-ingest of a calendar that has since published its times is the only way
+ * a show created before them ever gets them, and the create path cannot help:
+ * the show is a duplicate and is skipped. See `timesToBackfill` for what may be
+ * written.
+ */
+export async function backfillShowTimes(
+  client: APIClient,
+  showId: number,
+  times: ShowTimes,
+): Promise<TimeBackfill | null> {
+  const stored = await client.get<StoredShowTimes>(`/shows/${showId}`);
+  const fill = timesToBackfill(stored ?? {}, times);
+  if (fill === null) return null;
+
+  const body: Record<string, unknown> = {};
+  if (fill.doorsAt !== undefined) body.doors_at = fill.doorsAt;
+  if (fill.musicAt !== undefined) body.music_at = fill.musicAt;
+  await client.put(`/shows/${showId}`, body);
+  return fill;
+}
+
 /** Main entry point: validate, resolve, preview, and optionally submit shows. */
 export async function submitShows(
   client: APIClient,
@@ -488,7 +558,32 @@ export async function submitShows(
   if (duplicateCount > 0) {
     for (const plan of duplicatePlans) {
       const label = plan.input.title || `${plan.input.event_date} show`;
-      display.info(`EXISTING: ${label} (ID: ${plan.duplicate!.existingShowId}) — skipping`);
+      const id = plan.duplicate!.existingShowId!;
+      display.info(`EXISTING: ${label} (ID: ${id}) — skipping`);
+
+      const times = planShowTimes(plan);
+      const states = times.doorsAt !== undefined || times.musicAt !== undefined;
+      if (!states) continue;
+
+      if (!confirm) {
+        display.info(`  times stated; --confirm fills only the columns show ${id} leaves empty`);
+        continue;
+      }
+      try {
+        const filled = await backfillShowTimes(client, id, times);
+        if (filled === null) {
+          display.info(`  EXISTING: times not backfilled (show ${id} already has them)`);
+        } else {
+          const parts = [
+            filled.doorsAt ? `doors_at ${filled.doorsAt}` : null,
+            filled.musicAt ? `music_at ${filled.musicAt}` : null,
+          ].filter(Boolean);
+          display.success(`  Backfilled ${parts.join(", ")} on show ${id}`);
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        display.error(`  Failed to backfill times on show ${id}: ${message}`);
+      }
     }
   }
 
@@ -638,13 +733,19 @@ export function describeShowTimeRefusal(refusal: ShowTimesRefusal): string {
     case "unreadable-music":
       return `music time not stored: "${quoteSourceValue(refusal.music)}" is not a readable time, so no doors time is stored either`;
     case "doors-without-music":
-      return `doors time not stored: the source states no music time, and doors alone is half a schedule`;
+      return `doors time "${quoteSourceValue(refusal.doors)}" not stored: the source states no music time, and doors alone is half a schedule`;
     case "unreadable-doors":
       return `doors time not stored: "${quoteSourceValue(refusal.doors)}" is not a readable time`;
     case "music-before-doors":
       return `doors/music times not stored: music at "${quoteSourceValue(refusal.music)}" is before doors at "${quoteSourceValue(refusal.doors)}", which states a day this listing did not`;
-    case "clock-does-not-exist":
-      return `time not stored: "${quoteSourceValue(refusal.clock)}" is an hour that does not exist on ${refusal.day} in this venue's timezone, because the clocks moved forward through it`;
+    case "clock-does-not-exist": {
+      const also = refusal.alsoDropped
+        ? `, which also drops the readable doors time "${quoteSourceValue(refusal.alsoDropped)}"`
+        : "";
+      return `time not stored: "${quoteSourceValue(refusal.clock)}" is an hour that does not exist on ${refusal.day} in this venue's timezone, because the clocks moved forward through it${also}`;
+    }
+    case "small-hours-music":
+      return `doors/music times not stored: a music time of "${quoteSourceValue(refusal.music)}" before ${refusal.cutoff} on a date-only listing does not say which day it belongs to, so event_date keeps the 20:00 convention rather than moving back to it`;
   }
 }
 
@@ -683,10 +784,10 @@ function displayPreview(plans: ShowPlan[], resolvedTags?: ResolvedTag[][]): void
         ? "from state, venue not created yet"
         : "from state";
     const payload = buildShowPayload(plan);
-    display.kv("Date", plan.input.event_date);
+    display.kv("Date", quoteSourceValue(String(plan.input.event_date)));
     display.kv(
       "Anchored",
-      `${payload.event_date} ${gray(`(${previewZone}, ${zoneSource})`)}`
+      `${quoteSourceValue(String(payload.event_date))} ${gray(`(${previewZone}, ${zoneSource})`)}`
     );
     display.kv("Location", `${plan.input.city}, ${plan.input.state}`);
 
@@ -696,20 +797,33 @@ function displayPreview(plans: ShowPlan[], resolvedTags?: ResolvedTag[][]): void
     // says so here, since the preview is the only place a reader can still fix
     // it.
     const times = planShowTimes(plan);
-    if (times.doorsAt !== undefined) {
+    // Same `(zone, source)` suffix the Anchored line carries: these instants are
+    // decided by the zone, and for a venue this run has not created yet the zone
+    // the confirmed run uses is not the one shown here.
+    const zoneNote = gray(`(${previewZone}, ${zoneSource})`);
+    if (plan.duplicate?.isDuplicate) {
+      // This show is not being created, so these instants are not what the run
+      // writes. What it may do instead is fill columns the stored row lacks,
+      // which is reported per show in the duplicate summary.
+      if (times.doorsAt !== undefined || times.musicAt !== undefined) {
+        display.kv("Times", "existing show; only absent columns can be filled");
+      }
+    } else if (times.doorsAt !== undefined) {
       display.kv(
         "Doors",
-        `${quoteSourceValue(String(plan.input.doors_at))} ${gray(`-> ${times.doorsAt}`)}`,
+        `${quoteSourceValue(String(plan.input.doors_at))} ${gray(`-> ${times.doorsAt}`)} ${zoneNote}`,
       );
     }
-    if (times.musicAt !== undefined) {
+    if (!plan.duplicate?.isDuplicate && times.musicAt !== undefined) {
       display.kv(
         "Music",
-        `${quoteSourceValue(String(plan.input.music_at))} ${gray(`-> ${times.musicAt}`)}`,
+        `${quoteSourceValue(String(plan.input.music_at))} ${gray(`-> ${times.musicAt}`)} ${zoneNote}`,
       );
     }
-    for (const refusal of times.refusals) {
-      display.warn(describeShowTimeRefusal(refusal));
+    if (!plan.duplicate?.isDuplicate) {
+      for (const refusal of times.refusals) {
+        display.warn(describeShowTimeRefusal(refusal));
+      }
     }
     // event_date only yields to music_at when it states no time of its own, so
     // an input that states both can put two different clocks on one show.

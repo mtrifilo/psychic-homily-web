@@ -477,6 +477,47 @@ jobs:
         working-directory: ./frontend
         run: bun run lint
 
+  cli-tests:
+    name: CLI Tests
+    runs-on: ubuntu-latest
+    # ALWAYS-RUN, NOT PATH-FILTERED, and that is deliberate. `backend-image.yml`
+    # argues the general case at length: a path-filtered workflow reports NOTHING
+    # on a PR that misses the filter rather than a neutral status, so it can
+    # never become a required check without bricking the merge queue.
+    #
+    # This job has a second, specific reason. Its most valuable test is the
+    # drift gate in `cli/test/showTimes.test.ts`, which parses the clock-parser
+    # table out of `backend/internal/services/pipeline/discovery_test.go` and
+    # holds the TypeScript parser to every verdict in it. Expressing that as a
+    # path list means naming a Go test file from a CLI job and keeping the two
+    # in step forever: rename or split that file and the gate silently stops
+    # running, which is the exact drift it exists to catch.
+    #
+    # The cost argument for filtering does not hold either. Measured 2026-09-04:
+    # install 0s warm / test 1s / typecheck 1s locally, and the whole job is
+    # checkout + setup-bun + install + two commands. It runs in parallel with
+    # the rest of CI, so its contribution to PR wall-clock is ~0 and the
+    # `feedback_ci_time_budget` ceiling is not in play.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        working-directory: ./cli
+        run: bun install --frozen-lockfile
+
+      # Typecheck first: it is the stricter gate and the faster signal, so a type
+      # error fails the job without waiting on the suite.
+      - name: Typecheck (tsc --noEmit)
+        working-directory: ./cli
+        run: bun run typecheck
+
+      - name: Test (bun test)
+        working-directory: ./cli
+        run: bun test
+
   e2e-smoke:
     name: E2E Smoke (PR)
     # PSY-446: fast PR feedback. Runs only `@smoke`-tagged Playwright tests

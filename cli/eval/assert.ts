@@ -191,17 +191,19 @@ export default function assert(output: string, context: AssertContext): GradingR
         `${score.showFields.shows.hallucinated.length} hallucinated`,
       namedScores: { show_recall: score.showFields.shows.rate },
     },
-    // Door / music times, graded at 1.0 for the same reason prices and bill
-    // roles are: "state it only when the source states it" has no partial
-    // credit, and one invented clock is the whole failure the door-time
-    // fixtures exist to see.
-    {
+  ];
+
+  // A fixture whose golden states no shows has nothing to say about show times.
+  // Reporting 1.0 there reads as "perfect" and drags the cross-fixture average
+  // toward it, so the component and its named score are omitted entirely.
+  if (score.showTimes.expected > 0) {
+    componentResults.push({
       pass: score.showTimes.recall >= 1 && score.showTimes.invented.length === 0,
       score: score.showTimes.recall,
       reason: `Show times ${score.showTimes.found}/${score.showTimes.expected} schedules matched (missed: ${score.showTimes.missed.join(", ") || "none"}; invented: ${score.showTimes.invented.join(", ") || "none"})`,
       namedScores: { show_times_agreement: score.showTimes.recall },
-    },
-  ];
+    });
+  }
 
   // No hard pass/fail gate (per PSY-935 — thresholds are a later user decision).
   // We surface the score and always "pass" the run so the eval reports numbers
@@ -219,7 +221,9 @@ export default function assert(output: string, context: AssertContext): GradingR
       show_recall: score.showFields.shows.rate,
       show_price_agreement: score.showFields.prices.rate,
       bill_role_agreement: score.showFields.billRoles.rate,
-      show_times_agreement: score.showTimes.recall,
+      ...(score.showTimes.expected > 0
+        ? { show_times_agreement: score.showTimes.recall }
+        : {}),
       schema_valid: schemaValid ? 1 : 0,
     },
   };

@@ -1,8 +1,11 @@
 # Ingest troubleshooting & gotchas
 
 - **`event_date` is stored as a timestamp, not a bare date.** `YYYY-MM-DD` normalizes to **20:00 venue-local → UTC** (PSY-985/986). `2026-07-17` at a CA venue → `2026-07-18T03:00:00Z`. Expected — don't "correct" it.
+  **Unless the batch states a `music_at`** (PSY-1947): a stated music time IS the show's start, so it anchors `event_date` in place of the 20:00 convention and the row reads `event_date == music_at`. Shows ingested before that change keep their 20:00 anchor; a re-ingest does not move them, and backfilling them to their stated music times is a separate pass that has not been built.
+  The exception's exception: below **06:00 venue-local on a date-only listing** the source has not said which day the clock belongs to, so both times are refused and the 20:00 anchor stands.
 
 - **`422 SHOW_CREATE_FAILED` on re-submit usually means duplicate.** Backend enforces unique `(artist, venue, event_date)`. Verify existence before assuming failure.
+  Because `music_at` can move `event_date` off the 20:00 anchor, that uniqueness key is NOT stable across a change in the times a calendar publishes. The CLI's own day-window duplicate check is what actually guards a re-ingest: it resolves the venue-local day through the same reader and zone the writer uses, so it brackets the instant the writer is about to store even when `event_date` states its own zone.
 
 - **Don't verify shows via artist search count.** Use date window or per-artist endpoint:
   ```bash
