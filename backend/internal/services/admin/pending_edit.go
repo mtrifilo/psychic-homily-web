@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -447,21 +449,23 @@ var shapedURLFields = map[string]struct {
 // It is keyed on FIELD NAME, so it covers artist, venue, label and festival
 // alike: the allowlists share these names.
 //
-// It covers every URL field the shared registry knows, which is a SUPERSET of
-// what today's *AllowedEditFields maps expose: cover_image_url, for instance,
-// belongs to collections and is not editable through this pipeline at all. A
-// superset on purpose: an entry costs one map lookup on a field that never
-// appears, and a field added to an allowlist later is guarded on arrival rather
-// than on someone remembering this file.
+// It is a SUPERSET of what today's *AllowedEditFields maps expose:
+// cover_image_url, for instance, belongs to collections and is not editable
+// through this pipeline at all. A superset on purpose: an entry costs one map
+// lookup on a field that never appears, and a field added to an allowlist later
+// is guarded on arrival rather than on someone remembering this file.
+//
+// It is NOT the handler registry's field list, in either direction: flyer_url is
+// here and not there (that registry leaves it length-only), bandcamp_embed_url
+// is there and not here (shapedURLFields owns it). The two answer different
+// questions.
 //
 // Only the platform fields carry a host anchor; the rest get the scheme rule,
 // which is still the difference between writing a link and writing
 // "javascript:..." into a rendered attribute.
 //
-// image_url is HERE for its scheme rule but its host is NOT resolved: the SSRF
-// guard needs a context.Context this function does not take. That residue is
-// stated on validateApplyURLs; the approve path resolves it separately in
-// revalidateFetchedURLs, the rollback path does not resolve it at all.
+// image_url is HERE for its scheme rule alone; its HOST is resolved separately,
+// by revalidateFetchedURLs, which both apply paths call with a context.
 var applyURLFields = map[string]string{
 	"instagram":       "Instagram URL",
 	"facebook":        "Facebook URL",
@@ -478,14 +482,51 @@ var applyURLFields = map[string]string{
 	"image_url":       "Image URL",
 }
 
+// approveURLFields is the subset of applyURLFields an APPROVE re-checks: the
+// fields whose value the submit handler already held to this rule.
+//
+// The two apply paths judge different values, and that is why they judge
+// different field sets. Rollback writes OldValue, which NOTHING has ever
+// validated, so it checks everything it can. Approve writes NewValue, which the
+// submit handler checked, so approve is a SECOND run of a rule that already ran
+// once; running it on a field submit does not check would refuse an edit the
+// contributor was allowed to file and could never fix, blocking the unrelated
+// fields recorded beside it.
+//
+// flyer_url is the field that difference exists for: it is deliberately absent
+// from the handler's urlFieldSpecs (length-only, matching the festival endpoint
+// that writes it directly), and the seed itself stores a relative
+// "/seed-placeholders/festival.svg" in it. Rollback has refused that shape
+// since PSY-1966 and still does.
+//
+// TestApproveURLFieldsMatchHandlerRegistry is the tripwire: it derives this set
+// from applyURLFields and the handler registry, so a field registered there
+// later is re-checked on approve without anyone remembering this file.
+var approveURLFields = map[string]string{
+	"instagram":       "Instagram URL",
+	"facebook":        "Facebook URL",
+	"twitter":         "Twitter URL",
+	"youtube":         "YouTube URL",
+	"spotify":         "Spotify URL",
+	"soundcloud":      "SoundCloud URL",
+	"bandcamp":        "Bandcamp URL",
+	"website":         "Website URL",
+	"ticket_url":      "Ticket URL",
+	"cover_art_url":   "Cover art URL",
+	"cover_image_url": "Cover image URL",
+	"image_url":       "Image URL",
+}
+
 // validateApplyURLs re-runs the forward paths' URL rules over the values an
 // apply is about to write, and reports one that must not go live.
 //
-// ONE function for BOTH apply paths, called by Rollback and by
-// ApprovePendingEdit. They are the two ways a contributor-filed value reaches a
-// live column, and a rule that holds on only one of them is the asymmetry this
-// exists to make impossible: the value is judged where it goes live, whichever
-// button an admin pressed.
+// ONE function for BOTH apply paths, called by Rollback with applyURLFields and
+// by ApprovePendingEdit with approveURLFields. They are the two ways a
+// contributor-filed value reaches a live column, and a RULE that held on only
+// one of them is the asymmetry this exists to make impossible: the value is
+// judged where it goes live, whichever button an admin pressed. The field sets
+// differ because the two paths judge values with different histories; see
+// approveURLFields.
 //
 // WHY THIS IS NOT PARANOIA: see applyURLFields.
 //
@@ -506,13 +547,16 @@ var applyURLFields = map[string]string{
 // flyer fields, which have no platform to anchor to.
 //
 // image_url gets its SCHEME rule here but not its host guard: that resolves DNS
-// and needs a context.Context this function does not take. The approve path
-// resolves it separately in revalidateFetchedURLs; a rollback can still restore
-// an image_url pointing at an internal address, which is the one part of the
-// forward contract that path cannot reproduce. Threading a context through
-// Rollback is its own change.
-func validateApplyURLs(updates map[string]interface{}) error {
-	for field, displayName := range applyURLFields {
+// and needs a context.Context this function does not take. Both apply paths run
+// revalidateFetchedURLs, which does take one, so the host is covered there
+// rather than here.
+//
+// Fields are visited in sorted order so a row that breaks more than one rule
+// reports the same field every run. Map order would make the message, and any
+// test asserting it, depend on the runtime.
+func validateApplyURLs(updates map[string]interface{}, fields map[string]string) error {
+	for _, field := range slices.Sorted(maps.Keys(fields)) {
+		displayName := fields[field]
 		value, present, err := updateStringValue(updates, field, displayName)
 		if err != nil {
 			return err
@@ -813,7 +857,7 @@ func (s *PendingEditService) ApprovePendingEdit(ctx context.Context, editID uint
 	// most specific reason: an image_url resolving to a private address, or a
 	// bandcamp_embed_url that is not a release page, says so rather than falling
 	// back to the scheme rule's wording.
-	if err := validateApplyURLs(updates); err != nil {
+	if err := validateApplyURLs(updates, approveURLFields); err != nil {
 		slog.Default().Warn("pending_edit_blocked_url_rule",
 			"edit_id", edit.ID,
 			"entity_type", edit.EntityType,

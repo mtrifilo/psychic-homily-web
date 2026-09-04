@@ -486,7 +486,9 @@ func NormalizeInstagramHandle(raw string) (string, error) {
 			trimmed,
 		)
 	}
-	// The same base a stored bare handle resolves to, so the value this writes
-	// and the value the read gate derives cannot name different pages.
-	return socialHandleBases["instagram"] + handle, nil
+	// The literal, not socialHandleBases["instagram"]: a map miss there yields ""
+	// and would silently store a bare handle where a URL is contracted.
+	// TestSocialHandleBasesMatchCorpus asserts the two agree, which is the drift
+	// protection without the failure mode.
+	return "https://instagram.com/" + handle, nil
 }

@@ -38,11 +38,12 @@ var socialHandleBases = map[string]string{
 // value RESOLVES to, so a legacy handle is judged by where it lands rather than
 // by the fact that it is not a URL.
 //
-// It is for the writers that do not sit behind an HTTP request struct: the
-// admin data import, cmd/seed and cmd/festival-entry. Those carry values from
-// an operator's YAML, JSON export or prompt, where the handle shape is normal
-// and predates every gate; ValidateSocialURLs at the HTTP boundary refuses it,
-// which is correct there because a contributor form has no legacy rows.
+// It is for the writers that carry values this system stored BEFORE the anchor
+// existed: the admin data import (whose body is normally an export of this
+// database) and cmd/seed (whose YAML holds bare handles). The HTTP boundary's
+// ValidateSocialURLs refuses a handle, correctly, because a contributor form
+// has no legacy rows; cmd/festival-entry uses that stricter spelling for the
+// same reason, so it does not call this.
 //
 // The value is judged, never rewritten: the caller stores what it was given, so
 // a row that survives this reads back exactly as it was written.
@@ -52,8 +53,8 @@ var socialHandleBases = map[string]string{
 // storableButUnrenderable rows in the shared corpus, and they are storable
 // through every path, not only this one.
 func ValidateStoredSocialValue(field, fieldName, value string) error {
-	raw := strings.TrimSpace(value)
-	if raw == "" {
+	raw := stripURLEdgeWhitespace(value)
+	if strings.TrimSpace(raw) == "" {
 		return nil
 	}
 	candidate, ok := resolveStoredSocialValue(field, raw)
@@ -69,9 +70,10 @@ func ValidateStoredSocialValue(field, fieldName, value string) error {
 // resolveStoredSocialValue turns a stored value into the URL a reader resolves
 // it to, and reports false for a value that resolves to nothing.
 //
-// Every branch produces an https URL or nothing, so widening the tolerance can
-// only ever produce a URL for the anchor to judge, never a link off the
-// platform and never a non-http scheme.
+// Every branch produces an http(s) URL or nothing, and every result goes
+// through the anchor in the caller, so widening the tolerance can only ever
+// produce a URL for the anchor to judge, never a link off the platform and
+// never a non-http scheme.
 //
 // CROSS-LANGUAGE MIRROR: normalizeSocialValue in frontend/lib/socialLinks.ts.
 func resolveStoredSocialValue(field, raw string) (string, bool) {
@@ -85,6 +87,12 @@ func resolveStoredSocialValue(field, raw string) (string, bool) {
 	// what separates a domain from a value that is neither URL nor handle:
 	// without it a stored "123" repairs to https://123, which every browser
 	// resolves to the host 0.0.0.123.
+	//
+	// The dot is a floor, not a proof of a domain: a dotted numeric value is
+	// still read as an IPv4 address by a browser. The anchor below refuses every
+	// such value on the seven anchored fields; on the unanchored ones it is a
+	// link to an address on the reader's own network, which nothing here can
+	// tell apart from a deliberate one.
 	if strings.Contains(raw, ".") {
 		return "https://" + raw, true
 	}
@@ -119,6 +127,21 @@ func isSocialHandleShaped(raw string) bool {
 	return !strings.Contains(value, "/") &&
 		!strings.Contains(value, ".com") &&
 		!strings.Contains(value, ".org")
+}
+
+// stripURLEdgeWhitespace removes the surrounding characters a URL parser itself
+// removes: C0 controls and space, and nothing else.
+//
+// strings.TrimSpace is the wrong tool for deciding whether a stored value will
+// resolve, because it also strips U+00A0 and the other Unicode spaces, which the
+// browser's URL parser KEEPS. A leading U+00A0 (what you get pasting a handle
+// out of a rendered page) makes the whole value unparseable to a reader, so a
+// gate that trimmed it would certify a value that renders no link at all: the
+// one direction the shared corpus forbids.
+//
+// CROSS-LANGUAGE MIRROR: stripUrlWhitespace in frontend/lib/urlAnchor.ts.
+func stripURLEdgeWhitespace(raw string) string {
+	return strings.TrimFunc(raw, func(r rune) bool { return r <= 0x20 })
 }
 
 // hasHTTPSchemePrefix reports whether a value already carries its own http or
@@ -191,4 +214,47 @@ func ValidateStoredSocialColumns(columns SocialColumns) error {
 		}
 	}
 	return nil
+}
+
+// DropUnrenderableSocialColumns clears every social column that would not render
+// as the link its column claims, and returns the field names it cleared.
+//
+// It is for a BULK writer moving rows it did not author, where refusing the
+// whole row costs more than the bad value does. The admin import is that case:
+// a refused artist there is not merely skipped, because the show pass recreates
+// it by name with no initializer, losing its location, its verified flag and the
+// seven columns that were fine. Clearing one column keeps the rest of the row
+// and still stores nothing a reader would refuse.
+//
+// The caller MUST report the returned names. Dropping a value silently is the
+// one outcome neither this nor a refusal may produce: the operator has to learn
+// which value did not survive, so they can fix it at the source.
+//
+// A single-row writer calls ValidateStoredSocialColumns and refuses instead:
+// there is no rest-of-the-row to save, and the operator is right there.
+func DropUnrenderableSocialColumns(columns *SocialColumns) []string {
+	targets := [...]struct {
+		field string
+		value **string
+	}{
+		{"instagram", &columns.Instagram},
+		{"facebook", &columns.Facebook},
+		{"twitter", &columns.Twitter},
+		{"youtube", &columns.YouTube},
+		{"spotify", &columns.Spotify},
+		{"soundcloud", &columns.SoundCloud},
+		{"bandcamp", &columns.Bandcamp},
+		{"website", &columns.Website},
+	}
+	var dropped []string
+	for _, t := range targets {
+		if *t.value == nil {
+			continue
+		}
+		if err := ValidateStoredSocialValue(t.field, SocialFieldLabels[t.field], **t.value); err != nil {
+			dropped = append(dropped, t.field)
+			*t.value = nil
+		}
+	}
+	return dropped
 }

@@ -20,12 +20,15 @@ import (
 // answers a different question: "every URL field an APPLY can write", and what
 // the two apply paths can write is the union of the per-entity edit allowlists.
 //
-// Without this, adding one URL field to any *AllowedEditFields silently reopens
+// Adding one URL field to any *AllowedEditFields without adding it here reopens
 // the hole on both paths at once: a contributor-supplied value reaching the
-// column with none of its forward rules, and nothing fails.
+// column with none of its forward rules.
 //
-// A field counts as a URL field when the canonical handler registry says so, so
-// this cannot drift from what "is a URL field" means everywhere else.
+// WHAT IT DOES NOT CATCH, because a field counts as a URL field only when the
+// canonical handler registry says so: a `*_url` column added to an allowlist and
+// to NEITHER registry is skipped here silently. flyer_url is that shape today.
+// Widening the definition of "URL field" is a change to urlFieldSpecs, which is
+// where the definition belongs.
 func TestApplyURLFieldsCoverEveryEditableURLField(t *testing.T) {
 	allowlists := map[string]map[string]bool{
 		"artist":   catalogm.ArtistAllowedEditFields,
@@ -82,4 +85,34 @@ func TestSocialLabelsAgreeAcrossLayers(t *testing.T) {
 				"the HTTP boundary names %q differently from utils.SocialFieldLabels", field)
 		}
 	}
+}
+
+// TestApproveURLFieldsMatchHandlerRegistry derives the approve-side set rather
+// than trusting the literal, so the difference between the two apply paths stays
+// a RULE and not a hand-maintained exception.
+//
+// The rule: approve re-checks a field iff the submit handler already checked it,
+// which is exactly applyURLFields intersected with the handler's URL registry.
+// A field registered there later comes under the approve gate with no edit here;
+// one dropped from applyURLFields leaves both.
+func TestApproveURLFieldsMatchHandlerRegistry(t *testing.T) {
+	known := make(map[string]bool)
+	for _, field := range handlershared.URLFieldNames() {
+		known[field] = true
+	}
+
+	want := map[string]string{}
+	for field, displayName := range applyURLFields {
+		if known[field] {
+			want[field] = displayName
+		}
+	}
+	assert.Equal(t, want, approveURLFields)
+
+	// The one field the two sets differ by today, named so a change to it is a
+	// deliberate edit here rather than a silent pass.
+	assert.NotContains(t, approveURLFields, "flyer_url",
+		"flyer_url is length-only at submit, so refusing it at approve strands an edit a contributor was allowed to file")
+	assert.Contains(t, applyURLFields, "flyer_url",
+		"rollback writes an OldValue nothing ever validated, so it keeps the wider set")
 }

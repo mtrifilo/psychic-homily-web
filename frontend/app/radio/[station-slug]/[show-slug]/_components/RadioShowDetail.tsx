@@ -14,6 +14,7 @@ import {
   isLiveNow,
 } from '@/features/radio'
 import type { RadioTopArtist, RadioTopLabel } from '@/features/radio'
+import { unanchoredLinkHref } from '@/lib/socialLinks'
 import { EpisodeArchiveTable } from './EpisodeArchiveTable'
 
 interface RadioShowDetailProps {
@@ -165,6 +166,10 @@ export default function RadioShowDetail({ stationSlug, showSlug }: RadioShowDeta
     ? `/radio/${stationSlug}/${showSlug}/${latestEpisode.air_date}`
     : null
 
+  // Written verbatim from a station feed, so it is a third-party string
+  // reaching an href; same gate as the station columns.
+  const archiveHref = unanchoredLinkHref(show.archive_url)
+
   const metaParts = [
     show.schedule_display,
     show.station_name,
@@ -195,13 +200,9 @@ export default function RadioShowDetail({ stationSlug, showSlug }: RadioShowDeta
                 </span>
               )}
             </h1>
-            {show.archive_url && (
+            {archiveHref && (
               <Button asChild variant="outline" size="sm" className="shrink-0">
-                <a
-                  href={show.archive_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
+                <a href={archiveHref} target="_blank" rel="noopener noreferrer">
                   Archive
                   <ArrowUpRight className="h-3.5 w-3.5 ml-1" />
                 </a>

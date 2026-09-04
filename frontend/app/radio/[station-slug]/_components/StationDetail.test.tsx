@@ -111,10 +111,11 @@ describe('StationDetail header outbound links', () => {
     render(<StationDetail stationSlug="kexp" />)
   }
 
-  it('renders the website and donate buttons for absolute http urls', () => {
+  it('renders the website, donate and listen buttons for absolute http urls', () => {
     renderWith({
       website: 'https://kexp.org',
       donation_url: 'https://give.kexp.org',
+      stream_url: 'https://kexp.streamguys1.com/kexp160.aac',
     })
     expect(screen.getByRole('link', { name: /website/i })).toHaveAttribute(
       'href',
@@ -124,16 +125,25 @@ describe('StationDetail header outbound links', () => {
       'href',
       'https://give.kexp.org'
     )
+    expect(screen.getByRole('link', { name: /listen live/i })).toHaveAttribute(
+      'href',
+      'https://kexp.streamguys1.com/kexp160.aac'
+    )
   })
 
+  // stream_url is included: whether a non-http stream scheme should be STORED is
+  // a different question, but a value that reaches an href is a link.
   it.each([
     ['javascript:alert(1)'],
     ['data:text/html,<script>alert(1)</script>'],
     ['not a url'],
     ['https://user@kexp.org/'],
   ])('renders no button at all for a refused value (%s)', value => {
-    renderWith({ website: value, donation_url: value })
+    renderWith({ website: value, donation_url: value, stream_url: value })
     expect(screen.queryByRole('link', { name: /website/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /donate/i })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: /listen live/i })
+    ).not.toBeInTheDocument()
   })
 })

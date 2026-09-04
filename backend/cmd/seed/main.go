@@ -934,11 +934,16 @@ func seedRadioStationsAndShows(database *gorm.DB) (int, int) {
 // The STORED-value spelling of the rule, so the YAML's bare handles still load;
 // utils.ValidateStoredSocialValue carries why that spelling exists.
 //
-// Every writer in this binary that sets Social calls it: the two YAML loops and
-// each rich exemplar. An exemplar's values are Go literals rather than operator
-// input, so the gate is insurance there rather than validation, but a template
-// typo that put one of them off-platform would otherwise seed a row this
-// project's own read gate refuses to render.
+// Called by every writer in this binary that sets the TYPED social columns
+// (catalogm.Social): the two YAML loops and the four rich exemplars. An
+// exemplar's values are Go literals rather than operator input, so the gate is
+// insurance there, but a template typo would otherwise seed a row this project's
+// own read gate refuses to render.
+//
+// NOT called for festivals.social, which is a different column: free-form JSONB
+// with no typed struct, written as a raw literal by seedExemplarFestival. This
+// signature cannot take it, and what keys that column may hold is not a question
+// this rule answers.
 func mustHoldSocialColumns(entity, name string, social catalogm.Social) {
 	if err := utils.ValidateStoredSocialColumns(utils.SocialColumns{
 		Instagram:  social.Instagram,

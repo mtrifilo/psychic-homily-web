@@ -29,6 +29,10 @@ type socialLinkCorpus struct {
 	RefusedByWriter         []struct {
 		socialCorpusCase
 		RendersAnyway bool `json:"rendersAnyway"`
+		// GoParserRefuses marks a rendersAnyway row the reader keeps only
+		// because the two languages parse it differently, not because the
+		// legacy tolerance resolves it.
+		GoParserRefuses bool `json:"goParserRefuses"`
 	} `json:"refusedByWriter"`
 }
 

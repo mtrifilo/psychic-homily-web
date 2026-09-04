@@ -369,7 +369,7 @@ func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUs
 	if err := revalidateShapedURLs(updates); err != nil {
 		return err
 	}
-	if err := validateApplyURLs(updates); err != nil {
+	if err := validateApplyURLs(updates, applyURLFields); err != nil {
 		return err
 	}
 	if err := revalidateFetchedURLs(ctx, updates); err != nil {

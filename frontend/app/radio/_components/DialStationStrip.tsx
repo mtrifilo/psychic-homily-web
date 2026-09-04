@@ -110,7 +110,9 @@ export function DialStationStrip({ station }: DialStationStripProps) {
       <div className="flex items-center gap-4 md:flex-col md:items-end md:gap-2">
         {/* Reads the same operator-entered `website` column as the channel-row
             bracket below, through the same gate, so the two consumers of one
-            value cannot disagree about whether it is a link. */}
+            value cannot disagree about whether it is a link. This is the READ
+            half only: nothing validates the radio URL columns on write, which
+            is tracked in PSY-1953. */}
         {stationWebsiteHref && (
           <Button asChild size="sm">
             <a href={stationWebsiteHref} target="_blank" rel="noopener noreferrer">
@@ -364,10 +366,11 @@ function DialChannelRow({
         </span>
       )}
       {/* Gated before it becomes an href: the column is operator-entered free
-          text. A value that is not an absolute http(s) URL is dropped rather
-          than rendered as BracketLink's greyed disabled bracket, which would
-          read as a disabled feature instead of bad data. Same gate as the
-          station sidebar and the Listen button above. */}
+          text. What the gate returns is a value a browser resolves to an
+          absolute http(s) URL (a scheme-less domain is repaired); anything else
+          is dropped rather than rendered as BracketLink's greyed disabled
+          bracket, which would read as a disabled feature instead of bad data.
+          Same gate as the station sidebar and the Listen button above. */}
       {channelWebsiteHref && (
         <BracketLink
           label="listen"
