@@ -55,6 +55,12 @@ func Connect(cfg *config.Config) error {
 		return err
 	}
 
+	// The pool shape is logged, not just configured. A connection ceiling is the
+	// kind of assumption that fails silently -- a wrong number keeps serving and
+	// simply does the wrong thing -- so it has to be readable from a deploy's
+	// logs rather than inferred from the code.
+	log.Printf("✅ Database connected successfully (pool: max_open=%d max_idle=%d conn_max_lifetime=%s)",
+		cfg.Database.MaxOpenConns, cfg.Database.MaxIdleConns, cfg.Database.ConnMaxLifetime)
 	return nil
 }
 
@@ -64,12 +70,7 @@ func Connect(cfg *config.Config) error {
 // (a batch's per-item background writes, alert fan-out, discovery import) can
 // open a connection per unit of work until the SERVER refuses, which surfaces
 // as "too many connections" on unrelated requests rather than as slowness here.
-// A bounded pool queues instead.
-//
-// The shape is logged because a pool ceiling is exactly the kind of assumption
-// that fails silently: a wrong number keeps serving and simply does the wrong
-// thing, so it has to be readable from a deploy's logs rather than inferred
-// from the code (see internal/config for the env vars that set it).
+// A bounded pool queues instead. The numbers come from internal/config.
 func applyPoolBounds(gormDB *gorm.DB, cfg config.DatabaseConfig) error {
 	sqlDB, err := gormDB.DB()
 	if err != nil {
@@ -79,9 +80,6 @@ func applyPoolBounds(gormDB *gorm.DB, cfg config.DatabaseConfig) error {
 	sqlDB.SetMaxOpenConns(cfg.MaxOpenConns)
 	sqlDB.SetMaxIdleConns(cfg.MaxIdleConns)
 	sqlDB.SetConnMaxLifetime(cfg.ConnMaxLifetime)
-
-	log.Printf("✅ Database connected successfully (pool: max_open=%d max_idle=%d conn_max_lifetime=%s)",
-		cfg.MaxOpenConns, cfg.MaxIdleConns, cfg.ConnMaxLifetime)
 	return nil
 }
 

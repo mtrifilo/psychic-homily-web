@@ -667,9 +667,14 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_NarrowsNumericValues(
 	s.Equal(original, *restored.Capacity, "rollback must restore the exact prior capacity")
 }
 
-// A rollback restores history, so it deliberately does NOT apply the capacity
-// range. Values stored before the bound existed must stay undoable.
-func (s *RevisionServiceIntegrationTestSuite) TestRollback_RestoresOutOfRangeHistoricalValue() {
+// Rollback applies no range check of its own, and venues_capacity_range is what
+// refuses an out-of-range historical capacity.
+//
+// Rollback is the write path the constraint is aimed at: every forward path
+// range-checks a capacity, and this one writes a client-supplied OldValue that
+// none of those gates ever saw. The trade is that an undo of a capacity outside
+// the range is refused rather than restored.
+func (s *RevisionServiceIntegrationTestSuite) TestRollback_OutOfRangeHistoricalCapacityIsRefused() {
 	user := s.createTestUser()
 	venue := s.createTestVenue("Legacy Capacity Venue")
 
@@ -683,13 +688,15 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_RestoresOutOfRangeHis
 	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "venue", venue.ID).
 		Order("id DESC").First(&recorded).Error)
 
-	s.Require().NoError(s.svc.Rollback(context.Background(), recorded.ID, user.ID),
-		"undo must not be blocked by a bound the historical value predates")
+	err := s.svc.Rollback(context.Background(), recorded.ID, user.ID)
+	s.Require().Error(err, "the column refuses a capacity the forward paths would also refuse")
+	s.Contains(err.Error(), "outside the range its column accepts",
+		"the admin gets the reason, not the driver's constraint name")
 
 	var restored catalogm.Venue
 	s.Require().NoError(s.db.First(&restored, venue.ID).Error)
 	s.Require().NotNil(restored.Capacity)
-	s.Equal(0, *restored.Capacity)
+	s.Equal(550, *restored.Capacity, "a refused rollback must leave the entity untouched")
 }
 
 // A rollback that restores a venue's city/state must RE-DERIVE the columns the

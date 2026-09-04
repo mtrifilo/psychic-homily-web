@@ -43,6 +43,11 @@ func TestNoAuditWriteBypassesTheBoundedWriter(t *testing.T) {
 		if readErr != nil {
 			return readErr
 		}
+		// One pass over the bytes before paying for the split: the normal case is
+		// no match in any of a thousand files.
+		if !unbounded.Match(content) {
+			return nil
+		}
 		for i, line := range strings.Split(string(content), "\n") {
 			if unbounded.MatchString(line) {
 				rel, _ := filepath.Rel(root, path)

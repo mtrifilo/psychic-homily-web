@@ -41,6 +41,20 @@ func IsDuplicateKey(err error) bool {
 	return errors.Is(err, gorm.ErrDuplicatedKey)
 }
 
+// IsCheckConstraintViolation reports whether err is a Postgres check-constraint
+// violation (SQLSTATE 23514).
+//
+// Like IsDuplicateKey this keys on a translated GORM sentinel rather than the
+// driver message, which names the constraint and is not part of any contract a
+// caller should read or repeat back to a client.
+//
+// The caller it exists for is a write that cannot pre-validate what it is
+// writing: the revision rollback restores a stored OldValue that no forward gate
+// ever saw, so the column is where an out-of-range value is caught.
+func IsCheckConstraintViolation(err error) bool {
+	return errors.Is(err, gorm.ErrCheckConstraintViolated)
+}
+
 // IsSerializationFailure reports whether err is a Postgres serialization_failure
 // (SQLSTATE 40001) — a transient concurrency conflict that is safe to retry.
 //

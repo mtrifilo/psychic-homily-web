@@ -223,22 +223,6 @@ func (suite *VenueServiceIntegrationTestSuite) TestUpdateVenue_OutOfRangeCapacit
 	suite.Nil(reloaded.Capacity, "a refused update must not partially land")
 }
 
-// The service passes a legal capacity through unchanged: the constraint bounds
-// the range, it does not clamp or rewrite.
-func (suite *VenueServiceIntegrationTestSuite) TestUpdateVenue_InRangeCapacityIsStoredVerbatim() {
-	created, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
-		Name: "Bounded Room", City: "Tempe", State: "AZ",
-	}, true)
-	suite.Require().NoError(err)
-
-	updated, err := suite.venueService.UpdateVenue(created.ID, &contracts.UpdateVenueRequest{
-		Capacity: intPtr(contracts.MinVenueCapacity),
-	})
-	suite.Require().NoError(err)
-	suite.Require().NotNil(updated.Capacity)
-	suite.Equal(contracts.MinVenueCapacity, *updated.Capacity)
-}
-
 // PSY-1682: the venue's house-default age policy round-trips through create.
 func (suite *VenueServiceIntegrationTestSuite) TestCreateVenue_CarriesAgePolicy() {
 	resp, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{

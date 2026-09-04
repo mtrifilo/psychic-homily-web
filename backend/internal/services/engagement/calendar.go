@@ -63,11 +63,9 @@ const (
 // LRU-style. The TTL is two minutes and a cold rebuild is one query, so a crude
 // bound that is obviously correct beats an LRU that is subtly wrong.
 //
-// Worst case is this count times a feed payload. The ICS feed is capped at 500
-// shows (~450 bytes per event, so ~225KB) and the Atom feed at 100 entries, which
-// puts the ceiling near 29MB for the ICS cache and well under that for the Atom
-// one. Real subscribers save tens of shows, not hundreds, so the realistic
-// figure is a fraction of that, but the ceiling is what a bound is for.
+// The ceiling this buys is this count times a feed payload, and a feed payload
+// is itself bounded: the ICS feed carries at most 500 shows and the Atom feed at
+// most followsActivityMaxItems entries.
 const personalFeedCacheMaxEntries = 128
 
 type icsFeedCacheEntry struct {
@@ -79,23 +77,24 @@ type icsFeedCacheEntry struct {
 //
 // Callers hand it the bytes they are about to return and get back a copy on
 // read, so a cached payload can never be mutated through the slice a caller
-// holds.
+// holds. Both copies are made outside the lock: a payload is up to a few
+// hundred kilobytes, and calendar clients poll concurrently.
 type personalFeedCache struct {
-	mu      sync.Mutex
+	mu      sync.RWMutex
 	entries map[uint]icsFeedCacheEntry
 }
 
 // load returns a copy of a live entry. An expired entry is dropped and reads as
 // a miss, so a user who keeps polling never accumulates stale bytes.
 func (c *personalFeedCache) load(userID uint) ([]byte, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
 	entry, ok := c.entries[userID]
+	c.mu.RUnlock()
 	if !ok {
 		return nil, false
 	}
 	if !time.Now().Before(entry.expiresAt) {
-		delete(c.entries, userID)
+		c.delete(userID)
 		return nil, false
 	}
 	out := make([]byte, len(entry.data))
@@ -127,8 +126,8 @@ func (c *personalFeedCache) delete(userID uint) {
 }
 
 func (c *personalFeedCache) len() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return len(c.entries)
 }
 

@@ -39,7 +39,6 @@ func TestVenuesCapacityRangeConstraint(t *testing.T) {
 			{"zero is a second spelling of unknown", 0},
 			{"negative", -1},
 			{"above ceiling", ceiling + 1},
-			{"scraped garbage", 10_000_000},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {

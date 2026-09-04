@@ -14,6 +14,7 @@ import (
 	adminm "psychic-homily-backend/internal/models/admin"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/services/shared/revisiondiff"
 )
 
@@ -391,6 +392,14 @@ func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUs
 
 	result := s.db.Table(tableName).Where("id = ?", revision.EntityID).Updates(updates)
 	if result.Error != nil {
+		// A column CHECK is the one refusal this path can provoke and cannot
+		// pre-empt, since it writes an OldValue no forward gate ever saw. The
+		// driver message names the constraint and says nothing an admin can act
+		// on, so it is replaced rather than passed through: the handler answers
+		// 422 with whatever comes back from here.
+		if shared.IsCheckConstraintViolation(result.Error) {
+			return fmt.Errorf("cannot roll back: a value in this revision is outside the range its column accepts")
+		}
 		return fmt.Errorf("failed to apply rollback: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {

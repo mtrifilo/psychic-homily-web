@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"strconv"
@@ -208,9 +209,9 @@ const (
 	DefaultDBMaxOpenConns = 20
 
 	// DefaultDBMaxIdleConns is how many of those stay open when unused. Idle
-	// connections are what make a burst cheap, so this is deliberately close to
-	// the open ceiling rather than the database/sql default of 2, which would
-	// have a batch open and close a connection per item.
+	// connections are what make a burst cheap, so this is half the open ceiling
+	// rather than the database/sql default of 2, which would have a burst open
+	// and close a connection per unit of work.
 	DefaultDBMaxIdleConns = 10
 
 	// DefaultDBConnMaxLifetimeMinutes retires a connection on a fixed schedule.
@@ -225,9 +226,8 @@ type DatabaseConfig struct {
 	URL string
 
 	// MaxOpenConns, MaxIdleConns and ConnMaxLifetime are applied to the
-	// database/sql pool behind GORM in db.Connect. Unset, database/sql leaves
-	// max-open UNLIMITED, which is what lets a burst of fire-and-forget writes
-	// open a connection each and exhaust the server's ceiling.
+	// database/sql pool behind GORM by db.applyPoolBounds, whose doc carries the
+	// argument for bounding it at all.
 	MaxOpenConns    int
 	MaxIdleConns    int
 	ConnMaxLifetime time.Duration
@@ -551,42 +551,6 @@ func GetEnv(key, defaultValue string) string {
 // getEnvAsInt safely parses an environment variable as an integer.
 // Returns the parsed integer if the env var exists and is valid,
 // otherwise returns the provided default value.
-// databaseConfigFromEnv reads the connection string and the pool bounds.
-//
-// The bounds are clamped rather than trusted. A non-positive DB_MAX_OPEN_CONNS
-// means UNLIMITED to database/sql, which is the exact state this config exists
-// to leave, so it falls back to the default instead. Idle above open is
-// silently reduced by database/sql; reducing it here means the logged pool
-// shape is the one in effect.
-func databaseConfigFromEnv() DatabaseConfig {
-	maxOpen := getEnvAsInt(EnvDBMaxOpenConns, DefaultDBMaxOpenConns)
-	if maxOpen < 1 {
-		log.Printf("Environment variable %s must be at least 1 (0 or less means unlimited), using default %d",
-			EnvDBMaxOpenConns, DefaultDBMaxOpenConns)
-		maxOpen = DefaultDBMaxOpenConns
-	}
-
-	maxIdle := getEnvAsInt(EnvDBMaxIdleConns, DefaultDBMaxIdleConns)
-	if maxIdle < 0 {
-		maxIdle = 0
-	}
-	if maxIdle > maxOpen {
-		maxIdle = maxOpen
-	}
-
-	lifetimeMinutes := getEnvAsInt(EnvDBConnMaxLifetimeMinutes, DefaultDBConnMaxLifetimeMinutes)
-	if lifetimeMinutes < 0 {
-		lifetimeMinutes = 0
-	}
-
-	return DatabaseConfig{
-		URL:             GetEnv(EnvDatabaseURL, "postgres://psychicadmin:secretpassword@localhost:5432/psychicdb?sslmode=disable"),
-		MaxOpenConns:    maxOpen,
-		MaxIdleConns:    maxIdle,
-		ConnMaxLifetime: time.Duration(lifetimeMinutes) * time.Minute,
-	}
-}
-
 func getEnvAsInt(key string, defaultValue int) int {
 	if value := os.Getenv(key); value != "" {
 		intValue, err := strconv.Atoi(value)
@@ -596,6 +560,49 @@ func getEnvAsInt(key string, defaultValue int) int {
 		log.Printf("Environment variable %s has invalid integer value, using default", key)
 	}
 	return defaultValue
+}
+
+// databaseConfigFromEnv reads the connection string and the pool bounds.
+//
+// Only two of the clamps change behaviour. A non-positive DB_MAX_OPEN_CONNS
+// means UNLIMITED to database/sql, which is the state applyPoolBounds exists to
+// leave, so it falls back to the default; and idle above open is reduced here
+// because database/sql reduces it silently, which would make the logged pool
+// shape a different one from the pool in effect.
+//
+// The lifetime ceiling is an overflow guard: minutes are multiplied into a
+// Duration, and a large enough value wraps NEGATIVE, which database/sql reads as
+// "never retire a connection" - the opposite of what a caller asking for a long
+// lifetime meant.
+func databaseConfigFromEnv() DatabaseConfig {
+	maxOpen := getEnvAsInt(EnvDBMaxOpenConns, DefaultDBMaxOpenConns)
+	if maxOpen < 1 {
+		log.Printf("Environment variable %s must be at least 1 (0 or less means unlimited), using default %d",
+			EnvDBMaxOpenConns, DefaultDBMaxOpenConns)
+		maxOpen = DefaultDBMaxOpenConns
+	}
+
+	maxIdle := getEnvAsInt(EnvDBMaxIdleConns, DefaultDBMaxIdleConns)
+	if maxIdle > maxOpen {
+		maxIdle = maxOpen
+	}
+
+	lifetimeMinutes := getEnvAsInt(EnvDBConnMaxLifetimeMinutes, DefaultDBConnMaxLifetimeMinutes)
+	if lifetimeMinutes < 0 {
+		lifetimeMinutes = 0
+	}
+	if maxLifetimeMinutes := int(math.MaxInt64 / int64(time.Minute)); lifetimeMinutes > maxLifetimeMinutes {
+		log.Printf("Environment variable %s is too large to express as a duration, using %d",
+			EnvDBConnMaxLifetimeMinutes, maxLifetimeMinutes)
+		lifetimeMinutes = maxLifetimeMinutes
+	}
+
+	return DatabaseConfig{
+		URL:             GetEnv(EnvDatabaseURL, "postgres://psychicadmin:secretpassword@localhost:5432/psychicdb?sslmode=disable"),
+		MaxOpenConns:    maxOpen,
+		MaxIdleConns:    maxIdle,
+		ConnMaxLifetime: time.Duration(lifetimeMinutes) * time.Minute,
+	}
 }
 
 // getEnvAsBool safely parses an environment variable as a boolean.
