@@ -114,6 +114,15 @@ export default function assert(output: string, context: AssertContext): GradingR
       ),
     },
     {
+      pass: score.showTimes.rate >= 1,
+      score: score.showTimes.rate,
+      reason: `Show times ${score.showTimes.matched}/${score.showTimes.expected.length} schedules matched (${score.showTimes.invented.length} invented)`,
+      namedScores: {
+        show_times_agreement: score.showTimes.rate,
+        show_times_invented: score.showTimes.invented.length,
+      },
+    },
+    {
       pass: score.billingTierAgreement.rate >= 0.8,
       score: score.billingTierAgreement.rate,
       reason: `Billing-tier agreement ${score.billingTierAgreement.matched}/${score.billingTierAgreement.comparable}`,
@@ -134,6 +143,7 @@ export default function assert(output: string, context: AssertContext): GradingR
       artist_recall: score.artists.recall,
       venue_recall: score.venues.recall,
       billing_tier_agreement: score.billingTierAgreement.rate,
+      show_times_agreement: score.showTimes.rate,
       schema_valid: schemaValid ? 1 : 0,
     },
   };

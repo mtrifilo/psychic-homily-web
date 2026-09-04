@@ -9,6 +9,8 @@
  * harness if promptfoo is ever dropped.
  */
 
+import { parseClockTime } from "../src/lib/showTimes";
+
 export interface BatchItem {
   entity_type: string;
   name?: string;
@@ -43,9 +45,23 @@ export interface FestivalFieldScore {
   correct: boolean;
 }
 
+export interface ShowTimesScore {
+  /** One entry per golden show: the schedule it states. */
+  expected: string[];
+  /** Golden schedules the model did not produce. */
+  missed: string[];
+  /** Schedules the model produced that no golden show states. */
+  invented: string[];
+  matched: number;
+  /** matched / expected.length, in [0, 1]; 1.0 when there are no golden shows. */
+  rate: number;
+}
+
 export interface ExtractionScore {
   artists: EntityScore;
   venues: EntityScore;
+  /** Agreement between the golden shows' stated schedules and the model's. */
+  showTimes: ShowTimesScore;
   /** Per-festival field correctness (name, dates, slug, year). */
   festivalFields: FestivalFieldScore[];
   /** Fraction of golden lineup artists whose billing_tier matches in the model output. */
@@ -152,6 +168,76 @@ export function scoreBillingTiers(
 }
 
 /**
+ * One stated time as the fact it names rather than as it was typed: the clock
+ * "HH:MM" when the time is readable, "?" plus the raw text when the source
+ * stated something unreadable, and "" when nothing was stated.
+ *
+ * Read through the same parser the ingest path uses, so a model that writes
+ * "7:30 PM" for an image reading "7:30PM" agrees with the golden: both reach
+ * `shows.doors_at` as the same instant, and a spacing difference is not an
+ * extraction error. A stated-but-unreadable value stays distinct from an absent
+ * one because those are different claims about the source.
+ */
+function scheduleKeyPart(value: unknown): string {
+  if (typeof value !== "string" || value.trim() === "") return "";
+  const clock = parseClockTime(value);
+  if (clock === null) return `?${value.trim().toLowerCase()}`;
+  return `${String(clock.hour).padStart(2, "0")}:${String(clock.minute).padStart(2, "0")}`;
+}
+
+/** The pair of times one show states, as a single comparable key. */
+function scheduleKey(show: BatchItem): string {
+  return `${scheduleKeyPart(show.doors_at)}|${scheduleKeyPart(show.music_at)}`;
+}
+
+/**
+ * Compare the schedules the golden shows state against the model's, as
+ * MULTISETS rather than per show.
+ *
+ * The two failure modes these fixtures exist to catch are both answerable
+ * without deciding which extracted show is which: a labelled door/show time the
+ * model dropped, and a time the model invented from a listing that labelled
+ * none. Matching show-to-show would need a key built from the event date or the
+ * bill, which would make a year the source never printed, or one misread band
+ * name, read as a missing TIME. Multiset comparison keeps this metric about the
+ * clocks.
+ *
+ * A golden show whose listing states no time contributes the empty schedule, so
+ * a model that invents one for it scores zero here and the invented value is
+ * named in `invented`.
+ */
+export function scoreShowTimes(expected: BatchItem[], actual: BatchItem[]): ShowTimesScore {
+  const expectedKeys = itemsOfType(expected, "show").map(scheduleKey);
+  const remaining = new Map<string, number>();
+  for (const key of expectedKeys) remaining.set(key, (remaining.get(key) ?? 0) + 1);
+
+  const invented: string[] = [];
+  let matched = 0;
+  for (const key of itemsOfType(actual, "show").map(scheduleKey)) {
+    const left = remaining.get(key) ?? 0;
+    if (left > 0) {
+      remaining.set(key, left - 1);
+      matched++;
+    } else {
+      invented.push(key);
+    }
+  }
+
+  const missed: string[] = [];
+  for (const [key, count] of remaining) {
+    for (let i = 0; i < count; i++) missed.push(key);
+  }
+
+  return {
+    expected: expectedKeys,
+    missed,
+    invented,
+    matched,
+    rate: expectedKeys.length === 0 ? 1 : matched / expectedKeys.length,
+  };
+}
+
+/**
  * Score a model's extraction against the golden batch.
  *
  * `overall` weights artist recall most heavily (it is the dominant correctness
@@ -180,15 +266,26 @@ export function scoreExtraction(expected: BatchItem[], actual: BatchItem[]): Ext
       ? 1
       : festivalFields.filter((f) => f.correct).length / festivalFields.length;
   const billingComponent = billingTierAgreement.rate;
+  const showTimes = scoreShowTimes(expected, actual);
 
   // Weights: artists dominate; venue/festival/billing are secondary signals.
+  // Show times join the average only for a fixture whose golden HAS shows, and
+  // the weights are renormalized rather than reserved, so a fixture with none
+  // scores exactly what it scored before this component existed.
+  const components: Array<{ score: number; weight: number }> = [
+    { score: artistComponent, weight: 0.55 },
+    { score: venueComponent, weight: 0.1 },
+    { score: festivalComponent, weight: 0.2 },
+    { score: billingComponent, weight: 0.15 },
+  ];
+  if (showTimes.expected.length > 0) {
+    components.push({ score: showTimes.rate, weight: 0.15 });
+  }
+  const totalWeight = components.reduce((sum, c) => sum + c.weight, 0);
   const overall =
-    0.55 * artistComponent +
-    0.1 * venueComponent +
-    0.2 * festivalComponent +
-    0.15 * billingComponent;
+    components.reduce((sum, c) => sum + c.weight * c.score, 0) / totalWeight;
 
-  return { artists, venues, festivalFields, billingTierAgreement, overall };
+  return { artists, venues, showTimes, festivalFields, billingTierAgreement, overall };
 }
 
 /** Human-readable one-screen summary of an ExtractionScore. */
@@ -206,6 +303,15 @@ export function formatScore(score: ExtractionScore): string {
   lines.push(`Venues: ${v.found}/${v.expected} found (recall ${(v.recall * 100).toFixed(1)}%)`);
   if (v.missed.length) lines.push(`  missed: ${v.missed.join(", ")}`);
   if (v.hallucinated.length) lines.push(`  hallucinated: ${v.hallucinated.join(", ")}`);
+
+  const t = score.showTimes;
+  if (t.expected.length > 0) {
+    lines.push(
+      `Show times: ${t.matched}/${t.expected.length} schedules matched (${(t.rate * 100).toFixed(1)}%)`,
+    );
+    if (t.missed.length) lines.push(`  missed: ${t.missed.join(", ")}`);
+    if (t.invented.length) lines.push(`  invented: ${t.invented.join(", ")}`);
+  }
 
   lines.push("Festival fields:");
   for (const f of score.festivalFields) {

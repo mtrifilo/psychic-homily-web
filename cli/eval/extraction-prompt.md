@@ -37,7 +37,7 @@ field. Output ONLY the JSON array — no prose, no markdown fences, no commentar
 - **show**: `event_date` (`YYYY-MM-DD`), `city`, `state`, `artists`
   (array of `{name, is_headliner?}`, ≥1), `venues`
   (array of `{name, city, state}`, ≥1) — all required. Optional: `title`,
-  `price`, `ticket_url`.
+  `price`, `ticket_url`, and `doors_at` / `music_at` (labelled clocks only, rule 6).
 - **release**: `title`, `artists` (≥1) required. Optional: `release_type`
   (`lp`/`ep`/`single`/`compilation`/`live`/`remix`/`demo`), `release_year`,
   `external_links`, `tags`.
@@ -68,7 +68,19 @@ field. Output ONLY the JSON array — no prose, no markdown fences, no commentar
 5. **Dates**: festival `start_date`/`end_date` and show `event_date` are
    `YYYY-MM-DD`. Infer the year from the source. A date range like
    "September 18-19-20" → `start_date` first day, `end_date` last day.
-6. **series_slug** is a stable kebab-case slug for the festival series WITHOUT the
+6. **Show times — LABELLED ONLY.** A show's `doors_at` / `music_at` are the
+   venue-local wall clocks the source prints, copied as shown ("7:00 PM",
+   "19:00") — not dates, not converted, never derived from each other, never
+   rounded. Emit a field ONLY when the source says in words which time it is:
+   text reading "Doors" next to the clock → `doors_at`; text reading "Show",
+   "Start", "Music", or "Set" next to the clock → `music_at`. **A clock printed
+   with no such word gets NEITHER field, however obvious it looks.** A venue
+   calendar that prints one bare time per listing is the common case, and that
+   time is as often the door time as the first set; omit both fields and let the
+   date stand alone. Worked both ways:
+   - `Doors 7:30PM` / `Show 8:30PM` → `"doors_at": "7:30PM", "music_at": "8:30PM"`
+   - `FRI SEPTEMBER 11    10:00PM` → **no `doors_at`, no `music_at`**
+7. **series_slug** is a stable kebab-case slug for the festival series WITHOUT the
    year (e.g. "Riot Fest 2026" → `riot-fest`). `edition_year` carries the year.
 7. **Venue**: when a single primary venue/park is named, emit it as a `venue`
    entity (with `city`, `state`) AND reference it from the festival's `venues`

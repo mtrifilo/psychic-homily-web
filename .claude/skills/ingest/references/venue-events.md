@@ -38,6 +38,7 @@ See [troubleshooting.md](troubleshooting.md) for show dedup, timezone, verify en
 
 - **Exclude:** `private event, karaoke, trivia, bingo, sing-along, dance party, drag, burlesque, pride party, wrestling, comedy, zine fest, *moved to*, two day pass, cancelled`. **Keep** `★ Local Show ★`, free residency nights.
 - **Clean names** — strip presents/anniversary/afterparty suffixes; drop presenter tokens; comma-split joined acts.
+- **Door / music times** — emit `doors_at` / `music_at` on the show item ONLY when the source names WHICH time it is: a visible `Doors` / `Show` label, or a field whose own name states the role (`doors`, `.start-time`, `dates.start.localTime`, `StartDateTime`). A bare clock on a card names neither, and `ph batch` will not store a guess. Values are the venue-LOCAL wall clock as printed (`"7:30PM"`, `"19:00"`), never an instant and never a date. A feed whose field is 24-hour by contract must be rendered `H:MM AM/PM` (and its seconds trimmed) before emitting, because the shared parser reads a bare `11:30` as either half of the day and refuses it. `music_at` is the show's start and anchors `event_date`; doors alone is never stored. See the per-source table below.
 
 ```js
 // node: reads <venue>-raw.json [{date, acts:[...]}] -> /tmp/ph-ingest.json
@@ -69,3 +70,24 @@ const isJunk = s => !s || /\bpresents$|^free monday\s*w\/?$|two day pass$/i.test
 | **The Sinkhole** (St. Louis, MO) | `https://sinkholerecords.com/events/` | **WordPress + RHP Events** — plain `curl` SSR. `/events/page/N/` soft-404s (same 33 cards). Etix CTAs when on-sale. | None — page 1 lists all upcoming (~33). Dates are `Wed, Jul 29` (no year; infer 2026+). | Single venue → **St. Louis, MO** (7423 S Broadway; id **12**; IG/Twitter `@sinkholestl`). Register vs events URL. Enrich address/website/socials on refresh. | Card `#eventTitle h2` + `#eventDate`; split lineup on ` w/ ` then commas (keep `&`/`and`). Strip `: … tour` / anniversary suffixes. Prefer `etix.com` CTA as `ticket_url` (ignore more-info event permalinks). Pre-created **Wic Whitney** / **Dan Spencer** / **Still** vs Whitney / Jon Spencer / Still Do fuzzy. First run 2026-07-29 (→ production): **33 shows**. |
 
 Registry rows are hints — always re-inspect DOM/API on refresh.
+
+## Door / music times per source
+
+What each registered source states about its own clocks, and what the transform may emit. Surveyed 2026-09-04; re-check on refresh like every other row.
+
+| Venue org | What the source states | Emit |
+| --- | --- | --- |
+| **First Avenue** | nothing — the list view carries no time on any card | neither |
+| **Empty Bottle** | `.start-time` on `.eb-item`; the class names the role, the rendered card prints the clock bare | `music_at` only (the widget has no doors field) |
+| **Thalia Hall** + **Tack Room** | `dates.start.localTime`, `"20:00:00"` — 24-hour by contract, no `doorsTime` in the payload | `music_at` only, seconds trimmed and re-rendered `H:MM AM/PM` |
+| **Club Congress** | documented `[itemprop=startDate] content="YYYY-MM-DD HH:MM:SS"`; the calendar no longer server-renders to plain `curl`, so this row is unverified | `music_at` once re-inspected |
+| **Schubas + Lincoln Hall** (LH-ST) | `.doorsTime` `Doors 7:30PM` and `.showTime` `Show 8:30PM`, both labelled on the card | BOTH |
+| **Sleeping Village** | `dateTime` `Thu, Jun 11 9pm - 1am` — an unlabelled range | neither |
+| **Metro Baltimore** | same Plot `dateTime`, `Fri, Sep 4 7:00PM` — one unlabelled clock | neither |
+| **Zebulon** | Dice `date` / `date_end` instants plus `timezone`; no doors field and no field naming a start | neither, pending a call on whether `date` is doors or first set |
+| **Cactus Club** | `.eventTime` ` 6:30PM` — one unlabelled clock, and the event page never labels it either | neither |
+| **Pabst Theater Group** | `StartDateTime`, venue-local; the field names the role | `music_at` |
+| **Lodge Room** | `eventDate` `09/04/2026 8:30 pm` AND `doors` `7:30 pm` in the same `eventObjects.push` | BOTH |
+| **Baby's All Right** | list cards carry the date only; the detail page's JSON-LD `startDate` has the time | `music_at`, only on the optional detail-enrichment pass |
+| **Mama Tried** | Squarespace `startDate` epoch ms | `music_at`, converted through `America/New_York` |
+| **The Sinkhole** | `Doors: 7:30 pm // Show:  8 pm` — both labelled, but the show time prints with no minutes | neither: the shared parser refuses a meridiem clock with no `:MM`, and doors alone is never stored |

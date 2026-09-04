@@ -9,6 +9,13 @@ import * as display from "../lib/display";
 import { green, yellow, dim, gray } from "../lib/ansi";
 import { resolveVenueTimezone, localTimeToUTC } from "../lib/timezone";
 import { isValidSetType } from "../lib/setType";
+import { resolveShowTimes } from "../lib/showTimes";
+import type { ShowTimes } from "../lib/showTimes";
+
+/** Whether a date string states a calendar day and no time of day. */
+function isDateOnly(date: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(date);
+}
 
 /**
  * Normalize a date string to an ISO 8601 UTC timestamp.
@@ -30,7 +37,7 @@ export function normalizeDate(
   const zone = resolveVenueTimezone(state, timezone);
 
   // Date only: default to 20:00 local time
-  if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+  if (isDateOnly(date)) {
     return localTimeToUTC(date, "20:00", zone);
   }
 
@@ -78,6 +85,14 @@ interface ShowInput {
    * from the advance price. Never derived from `price`.
    */
   door_price?: number;
+  /**
+   * The stated door time as a LOCAL WALL CLOCK ("7:00 PM"), not an instant. The
+   * `shows.doors_at` column it feeds holds a UTC instant; the conversion is
+   * buildShowPayload's, because only there is the venue's timezone known.
+   */
+  doors_at?: string;
+  /** The stated music time, same shape and same conversion as `doors_at`. */
+  music_at?: string;
   age_requirement?: string;
   description?: string;
   ticket_url?: string;
@@ -250,18 +265,54 @@ export async function resolveVenues(
   return resolved;
 }
 
+/**
+ * The door and music instants this plan will store, plus any note explaining a
+ * stated time that is not being stored.
+ *
+ * Exported so the dry run reports exactly what the payload will carry rather
+ * than a second derivation of it.
+ */
+export function planShowTimes(plan: ShowPlan): ShowTimes {
+  return resolveShowTimes({
+    eventDate: plan.input.event_date,
+    doorsAt: plan.input.doors_at,
+    musicAt: plan.input.music_at,
+    state: planVenueState(plan),
+    timezone: plan.venues[0]?.timezone,
+  });
+}
+
+/**
+ * The state whose zone anchors this show's wall clocks: the matched venue's,
+ * else the one stated on the venue input, else the show's own.
+ */
+function planVenueState(plan: ShowPlan): string | undefined {
+  return plan.venues[0]?.state || plan.input.venues[0]?.state || plan.input.state;
+}
+
 /** Build the API request body for creating a show. */
 export function buildShowPayload(plan: ShowPlan): Record<string, unknown> {
   // Determine the zone the show's wall-clock time is expressed in.
   // The matched venue's own IANA zone is the authority; the state (first
   // venue's, else show-level) is the fallback for a venue we are about to
   // create. See resolveVenueTimezone (PSY-1873).
-  const venueState =
-    plan.venues[0]?.state || plan.input.venues[0]?.state || plan.input.state;
+  const venueState = planVenueState(plan);
   const venueTimezone = plan.venues[0]?.timezone;
 
+  const times = planShowTimes(plan);
+
   const payload: Record<string, unknown> = {
-    event_date: normalizeDate(plan.input.event_date, venueState, venueTimezone),
+    // A stated music time IS the show's start, so it anchors event_date rather
+    // than sitting beside a different one: the status stripe prints the start
+    // time from event_date and MUSIC from music_at, and two clocks for one fact
+    // is a contradiction on the page. The 20:00 default normalizeDate applies to
+    // a date-only input is the convention for "no time known", so a known one
+    // replaces it. An event_date that states its own time is left alone; the
+    // caller stated both.
+    event_date:
+      times.musicAt !== undefined && isDateOnly(plan.input.event_date)
+        ? times.musicAt
+        : normalizeDate(plan.input.event_date, venueState, venueTimezone),
     city: plan.input.city,
     state: plan.input.state,
     artists: plan.artists.map((a) => {
@@ -302,6 +353,8 @@ export function buildShowPayload(plan: ShowPlan): Record<string, unknown> {
   if (plan.input.door_price !== undefined) {
     payload.door_price = plan.input.door_price;
   }
+  if (times.doorsAt !== undefined) payload.doors_at = times.doorsAt;
+  if (times.musicAt !== undefined) payload.music_at = times.musicAt;
   if (plan.input.age_requirement) payload.age_requirement = plan.input.age_requirement;
   if (plan.input.description) payload.description = plan.input.description;
   if (plan.input.ticket_url) payload.ticket_url = plan.input.ticket_url;
@@ -536,6 +589,22 @@ function displayPreview(plans: ShowPlan[], resolvedTags?: ResolvedTag[][]): void
       `${buildShowPayload(plan).event_date} ${gray(`(${previewZone}, ${zoneSource})`)}`
     );
     display.kv("Location", `${plan.input.city}, ${plan.input.state}`);
+
+    // The stated wall clock next to the instant it becomes, for the same reason
+    // the Anchored line prints both: the zone is what decides, and a wrong one
+    // is only visible as a UTC timestamp. A stated time that is NOT being stored
+    // says so here, since the preview is the only place a reader can still fix
+    // it.
+    const times = planShowTimes(plan);
+    if (times.doorsAt !== undefined) {
+      display.kv("Doors", `${plan.input.doors_at} ${gray(`-> ${times.doorsAt}`)}`);
+    }
+    if (times.musicAt !== undefined) {
+      display.kv("Music", `${plan.input.music_at} ${gray(`-> ${times.musicAt}`)}`);
+    }
+    for (const note of times.notes) {
+      display.warn(note);
+    }
 
     const priceLine = showPriceLine(plan.input);
     if (priceLine) {

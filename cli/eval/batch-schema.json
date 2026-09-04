@@ -78,6 +78,14 @@
           "type": ["number", "string"],
           "description": "Price at the door. Present ONLY when the source states a separate door / day-of-show price alongside the advance price in `price`; never derived from `price`."
         },
+        "doors_at": {
+          "type": "string",
+          "description": "When doors open, as the venue-LOCAL wall clock the source states, e.g. \"7:00 PM\" or \"19:00\" — NOT a date and NOT an instant. The day comes from event_date and the zone from the venue, so `ph batch` stores the UTC instant the pair names. State it only when the source states it; a time is read only in the forms \"H:MM AM/PM\" and an unambiguous 24-hour \"HH:MM\" (13-23 or 00), so \"doors at 7\", \"8PM\" and a bare \"7:00\" are refused and the column stays empty. Doors alone is never stored: without music_at there is no schedule to place it in."
+        },
+        "music_at": {
+          "type": "string",
+          "description": "When the first set starts, same venue-local wall-clock shape and same readable-forms rule as doors_at. This is the show's start time, so it also anchors event_date when event_date states only a calendar day. A music time earlier than the stated doors_at is a listing that crossed midnight without saying so; neither time is stored."
+        },
         "ticket_url": { "type": "string", "pattern": "^https?://" },
         "artists": {
           "type": "array",
