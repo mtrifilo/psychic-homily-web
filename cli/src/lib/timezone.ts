@@ -74,6 +74,36 @@ export function getTimezoneForState(state: string): string {
 }
 
 /**
+ * Whether the state map actually covers this state, as opposed to handing back
+ * its America/Phoenix default.
+ *
+ * The default is indistinguishable from a real answer once getTimezoneForState
+ * has returned, so a caller that needs to know whether a show's zone is KNOWN
+ * rather than assumed has to ask before resolving. Mirrors hasTimezoneForState
+ * in frontend/lib/utils/timeUtils.ts, which the read surfaces gate their clocks
+ * on.
+ */
+export function hasTimezoneForState(state?: string): boolean {
+  return !!state && state.toUpperCase() in STATE_TIMEZONES;
+}
+
+/**
+ * Whether a zone can be resolved for a show from the venue's own zone or from
+ * the state map, rather than from the America/Phoenix default.
+ *
+ * Mirrors isShowTimezoneResolved in frontend/lib/utils/formatters.ts. The read
+ * surfaces that print a clock (the status stripe's DOORS / MUSIC / start-time
+ * segments, MusicEvent.startDate) all refuse when this is false, so a write path
+ * that stores a time on the default stores an instant nothing renders.
+ */
+export function isShowTimezoneResolved(
+  state?: string,
+  timezone?: string,
+): boolean {
+  return (!!timezone && isValidTimeZone(timezone)) || hasTimezoneForState(state);
+}
+
+/**
  * Resolve the IANA zone a show's wall-clock time should be read in.
  *
  * Precedence, and the reason it is stated in one place: a venue that is already

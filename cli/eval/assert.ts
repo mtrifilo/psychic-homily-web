@@ -191,6 +191,18 @@ export default function assert(output: string, context: AssertContext): GradingR
         `${score.showFields.shows.hallucinated.length} hallucinated`,
       namedScores: { show_recall: score.showFields.shows.rate },
     },
+    // Door / music times, graded at 1.0 for the same reason prices and bill
+    // roles are: "state it only when the source states it" has no partial
+    // credit, and one invented clock is the whole failure the door-time
+    // fixtures exist to see.
+    {
+      pass: score.showTimes.rate >= 1 && score.showTimes.invented.length === 0,
+      score: score.showTimes.rate,
+      reason:
+        `Show times ${score.showTimes.matched}/${score.showTimes.expected.length} schedules matched ` +
+        `(missed: ${score.showTimes.missed.join(", ") || "none"}; invented: ${score.showTimes.invented.join(", ") || "none"})`,
+      namedScores: { show_times_agreement: score.showTimes.rate },
+    },
   ];
 
   // No hard pass/fail gate (per PSY-935 — thresholds are a later user decision).
@@ -209,6 +221,7 @@ export default function assert(output: string, context: AssertContext): GradingR
       show_recall: score.showFields.shows.rate,
       show_price_agreement: score.showFields.prices.rate,
       bill_role_agreement: score.showFields.billRoles.rate,
+      show_times_agreement: score.showTimes.rate,
       schema_valid: schemaValid ? 1 : 0,
     },
   };

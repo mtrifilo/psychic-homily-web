@@ -10,7 +10,9 @@ output against the golden JSON.
 ```
 fixtures/
 └── <fixture-slug>/
-    ├── poster.png      # the input image (flyer / lineup / playlist screenshot)
+    ├── poster.png      # the input image (flyer / lineup / playlist screenshot
+    │                   # / venue-listing capture; name it for what it is —
+    │                   # promptfooconfig.yaml points at the file by name)
     ├── poster.html     # (synthetic fixtures only) the source the PNG renders from
     └── expected.json   # the human-verified golden batch JSON
 ```
@@ -26,6 +28,8 @@ for reproducibility; see PSY-935.)
 | `riot-fest-2026`    | Riot Fest 2026 poster        | 1 venue + 102 artists + 1 festival (lineup with billing tiers) | 2026-05-31 Stage ingest, 100% link rate |
 | `split-price-stated-roles`   | **Synthetic** show flyer | 1 venue + 3 artists + 1 show; states `$20 ADV / $25 DOOR` and a role for every act | by construction (see below) |
 | `single-price-unstated-roles` | **Synthetic** show flyer | 1 venue + 4 artists + 1 show; states one price and no roles | by construction (see below) |
+| `lh-st-lincoln-hall-2026-09` | `https://lh-st.com/` events page, captured 2026-09-04 | 1 venue + 2 artists + 1 show, **labelled** `Doors 7:30PM` / `Show 8:30PM` | golden read off the capture; `2026` from the site's own show slug `/shows/09-04-2026-wolves-of-glendale/`, which the image does not print |
+| `empty-bottle-2026-09` | `https://www.emptybottle.com/` events page, captured 2026-09-04 | 1 venue + 5 artists + 2 shows, each printing ONE **unlabelled** time | golden read off the capture; years from the page's own listing order, which the image does not print |
 
 ### The two show-flyer fixtures
 
@@ -60,6 +64,22 @@ cd frontend && ./node_modules/.bin/playwright screenshot --viewport-size=800,110
 
 They are scored by `show_price_agreement` and `bill_role_agreement` (see
 `cli/eval/assert.ts` for how those are graded).
+
+### The door-time pair
+
+The two venue-listing fixtures are a matched positive/negative case for
+`doors_at` / `music_at`, and they are only meaningful together:
+
+- **Positive** — Lincoln Hall labels both times, so both belong on the show.
+- **Negative** — Empty Bottle prints a bare `10:00PM` with no label. The golden
+  states NEITHER field: nothing on the page says whether that clock is doors or
+  the first set, and `ph batch` refuses a time the source did not name. A model
+  that files it as `music_at` scores zero on `show_times_agreement` and the
+  invented value is named in the assertion's reason.
+
+Both are live captures rather than posters because the `ph batch` path ingests
+venue calendars; the registry of those calendars is in
+`.claude/skills/ingest/references/venue-events.md`.
 
 ## Adding a new fixture
 

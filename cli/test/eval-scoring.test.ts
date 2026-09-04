@@ -5,6 +5,7 @@ import {
   scoreFestivalFields,
   scoreBillingTiers,
   scoreShowFields,
+  scoreShowTimes,
   scoreExtraction,
   listMismatches,
   MAX_REPORTED_MISMATCHES,
@@ -491,5 +492,96 @@ describe("scoreShowFields", () => {
     expect(wrongPrice.overall).toBe(perfect);
     expect(wrongPrice.showFields.prices.rate).toBe(0.5);
     expect(formatScore(wrongPrice)).toContain("Show prices (absence included): 1/2");
+  });
+});
+
+// -- scoreShowTimes ----------------------------------------------------------
+
+function show(times: { doors_at?: string; music_at?: string }): BatchItem {
+  return {
+    entity_type: "show",
+    event_date: "2026-09-04",
+    city: "Chicago",
+    state: "IL",
+    artists: [{ name: "Wolves of Glendale" }],
+    venues: [{ name: "Lincoln Hall" }],
+    ...times,
+  };
+}
+
+describe("scoreShowTimes", () => {
+  test("a labelled pair reproduced exactly scores 1", () => {
+    const g = [show({ doors_at: "7:30PM", music_at: "8:30PM" })];
+    const s = scoreShowTimes(g, [show({ doors_at: "7:30PM", music_at: "8:30PM" })]);
+    expect(s.rate).toBe(1);
+    expect(s.invented).toEqual([]);
+    expect(s.missed).toEqual([]);
+  });
+
+  test("spacing is not an extraction error, because both reach the same instant", () => {
+    const g = [show({ doors_at: "7:30PM", music_at: "8:30PM" })];
+    const s = scoreShowTimes(g, [show({ doors_at: "7:30 pm", music_at: "8:30 PM" })]);
+    expect(s.rate).toBe(1);
+  });
+
+  test("a dropped door time is a miss, not a match", () => {
+    const g = [show({ doors_at: "7:30PM", music_at: "8:30PM" })];
+    const s = scoreShowTimes(g, [show({ music_at: "8:30PM" })]);
+    expect(s.rate).toBe(0);
+    expect(s.missed).toEqual(["19:30|20:30"]);
+  });
+
+  test("a time invented for a listing that labelled none scores zero and is named", () => {
+    const g = [show({}), show({})];
+    const s = scoreShowTimes(g, [show({ music_at: "10:00PM" }), show({})]);
+    expect(s.matched).toBe(1);
+    expect(s.rate).toBe(0.5);
+    expect(s.invented).toEqual(["|22:00"]);
+  });
+
+  test("a stated but unreadable time stays distinct from an absent one", () => {
+    const g = [show({ music_at: "doors at 7" })];
+    const s = scoreShowTimes(g, [show({})]);
+    expect(s.rate).toBe(0);
+    expect(s.missed).toEqual(["|?doors at 7"]);
+  });
+
+  test("a fixture with no shows scores 1 and reports nothing", () => {
+    const s = scoreShowTimes(golden, golden);
+    expect(s.expected).toEqual([]);
+    expect(s.rate).toBe(1);
+  });
+});
+
+describe("scoreExtraction with shows", () => {
+  test("overall stays the four-component weighting, shows or no shows", () => {
+    const actual: BatchItem[] = [
+      { entity_type: "venue", name: "Douglas Park", city: "Chicago", state: "IL" },
+      { entity_type: "artist", name: "Tool" },
+      { entity_type: "artist", name: "Pixies" },
+      golden[4],
+    ];
+    const s = scoreExtraction(golden, actual);
+    const artistRecall = 2 / 3;
+    expect(s.overall).toBeCloseTo(0.55 * artistRecall + 0.1 + 0.2 + 0.15, 10);
+  });
+
+  test("invented show times are reported WITHOUT moving overall", () => {
+    // Show-time agreement sits beside `overall`, like show prices and bill
+    // roles: folding it in would give a fixture with no shows a vacuous perfect
+    // component and make scores incomparable across fixtures. The assertion
+    // layer is what gates on it.
+    const g = [...golden, show({})];
+    const clean = scoreExtraction(g, [...golden, show({})]);
+    const invented = scoreExtraction(g, [...golden, show({ music_at: "10:00PM" })]);
+    expect(invented.showTimes.rate).toBe(0);
+    expect(clean.showTimes.rate).toBe(1);
+    expect(invented.overall).toBeCloseTo(clean.overall, 10);
+  });
+
+  test("formatScore reports the schedule line only when the golden has shows", () => {
+    expect(formatScore(scoreExtraction(golden, golden))).not.toContain("Show times:");
+    const g = [...golden, show({ doors_at: "7:30PM", music_at: "8:30PM" })];
+    expect(formatScore(scoreExtraction(g, g))).toContain("Show times: 1/1");
   });
 });

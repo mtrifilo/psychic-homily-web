@@ -42,7 +42,8 @@ field. Output ONLY the JSON array — no prose, no markdown fences, no commentar
 - **show**: `event_date` (`YYYY-MM-DD`), `city`, `state`, `artists`
   (array of `{name, is_headliner?, set_type?}`, ≥1), `venues`
   (array of `{name, city, state}`, ≥1) — all required. Optional: `title`,
-  `price`, `door_price`, `ticket_url`.
+  `price`, `door_price`, `ticket_url`, and `doors_at` / `music_at` (labelled
+  clocks only, rule 6).
 - **release**: `title`, `artists` (≥1) required. Optional: `release_type`
   (`lp`/`ep`/`single`/`compilation`/`live`/`remix`/`demo`), `release_year`,
   `external_links`, `tags`.
@@ -73,14 +74,26 @@ field. Output ONLY the JSON array — no prose, no markdown fences, no commentar
 5. **Dates**: festival `start_date`/`end_date` and show `event_date` are
    `YYYY-MM-DD`. Infer the year from the source. A date range like
    "September 18-19-20" → `start_date` first day, `end_date` last day.
-6. **series_slug** is a stable kebab-case slug for the festival series WITHOUT the
+6. **Show times — LABELLED ONLY.** A show's `doors_at` / `music_at` are the
+   venue-local wall clocks the source prints, copied as shown ("7:00 PM",
+   "19:00") — not dates, not converted, never derived from each other, never
+   rounded. Emit a field ONLY when the source says in words which time it is:
+   text reading "Doors" next to the clock → `doors_at`; text reading "Show",
+   "Start", "Music", or "Set" next to the clock → `music_at`. **A clock printed
+   with no such word gets NEITHER field, however obvious it looks.** A venue
+   calendar that prints one bare time per listing is the common case, and that
+   time is as often the door time as the first set; omit both fields and let the
+   date stand alone. Worked both ways:
+   - `Doors 7:30PM` / `Show 8:30PM` → `"doors_at": "7:30PM", "music_at": "8:30PM"`
+   - `FRI SEPTEMBER 11    10:00PM` → **no `doors_at`, no `music_at`**
+7. **series_slug** is a stable kebab-case slug for the festival series WITHOUT the
    year (e.g. "Riot Fest 2026" → `riot-fest`). `edition_year` carries the year.
-7. **Venue**: when a single primary venue/park is named, emit it as a `venue`
+8. **Venue**: when a single primary venue/park is named, emit it as a `venue`
    entity (with `city`, `state`) AND reference it from the festival's `venues`
    array as `{"name": ..., "is_primary": true}`.
-8. **Multi-show posts / tours**: emit one `show` per date, each with its own
+9. **Multi-show posts / tours**: emit one `show` per date, each with its own
    venue, city, state, and the full artist lineup for that date.
-9. **Social links → full on-platform URLs** (the backend rejects bare handles).
+10. **Social links → full on-platform URLs** (the backend rejects bare handles).
    An `@handle` becomes a profile URL on the platform shown: Instagram `@h` →
    `https://instagram.com/h`, Twitter/X `@h` → `https://twitter.com/h`. For
    Facebook, YouTube, Spotify, SoundCloud, and Bandcamp, capture the full URL as
@@ -91,12 +104,12 @@ field. Output ONLY the JSON array — no prose, no markdown fences, no commentar
    (`*.bandcamp.com`); any other off-platform link → `website`. Applies to
    artist, venue, and label. Include a link only when it clearly maps to the
    entity; skip when ambiguous.
-10. **Tags**: add `genre` / `locale` tags only when confidently identifiable from
+11. **Tags**: add `genre` / `locale` tags only when confidently identifiable from
     the source. String tags default to genre; locale/other use
     `{"name": ..., "category": ...}`. Do not guess.
-11. **Skip non-music entries**: DJ interludes, radio commercials, trivia nights,
+12. **Skip non-music entries**: DJ interludes, radio commercials, trivia nights,
     "tickets on sale", sponsor logos, and other non-entity text.
-12. **Show prices — `price` is the advance price, `door_price` the day-of one.**
+13. **Show prices — `price` is the advance price, `door_price` the day-of one.**
     A single price goes on `price` alone. Emit `door_price` ONLY when the source
     states a SEPARATE door / day-of-show price beside the advance one
     ("$20 adv / $25 door", "$15 presale, $18 at the door"). Never derive one
@@ -104,7 +117,7 @@ field. Output ONLY the JSON array — no prose, no markdown fences, no commentar
     `door_price` for a source that names one price. A door price stated with no
     advance price goes on `door_price` alone. Numbers only: `20`, not `"$20"`;
     `0` means free and is a price, not silence.
-13. **Show bill roles (`set_type`) — only when the source states the slot.**
+14. **Show bill roles (`set_type`) — only when the source states the slot.**
     The vocabulary is `headliner`, `direct_support`, `opener`, `special_guest`,
     `dj`, `performer`. Emit it only for an act whose slot the source states in
     words ("HEADLINER", "with special guest X", "supporting", "openers:", "DJ
@@ -118,7 +131,7 @@ field. Output ONLY the JSON array — no prose, no markdown fences, no commentar
     an act the source calls the headliner, alongside `set_type: "headliner"`.
     (Festival lineups use `billing_tier` instead, per rule 4, and that one IS
     read off visual hierarchy — the two fields are not the same question.)
-14. **Other metadata — only when explicitly shown, never infer:** `country`
+15. **Other metadata — only when explicitly shown, never infer:** `country`
     (when a country is named, e.g. "Berlin, Germany"); venue `zipcode` (only from
     a full street address); label `founded_year` (e.g. "est. 1998" → `1998`);
     `description` (a short bio / about blurb ONLY if one is literally present —

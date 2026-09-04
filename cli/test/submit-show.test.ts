@@ -4,6 +4,7 @@ import {
   resolveArtists,
   resolveVenues,
   buildShowPayload,
+  planShowTimes,
   normalizeDate,
   showPriceLine,
   billRoleTag,
@@ -429,6 +430,100 @@ describe("buildShowPayload", () => {
   test("carries a free show's zero rather than dropping it", () => {
     const payload = buildShowPayload(planWithPrices({ price: 0 }));
     expect(payload.price).toBe(0);
+  });
+
+  // -- doors_at / music_at ---------------------------------------------------
+
+  /** A Chicago show at a venue whose own zone is known, plus whatever times. */
+  function planWithTimes(times: { doors_at?: string; music_at?: string }): ShowPlan {
+    return {
+      input: {
+        event_date: "2026-09-04",
+        city: "Chicago",
+        state: "IL",
+        ...times,
+        artists: [{ name: "Wolves of Glendale" }],
+        venues: [{ name: "Lincoln Hall", city: "Chicago", state: "IL" }],
+      },
+      artists: [{ id: 1, name: "Wolves of Glendale", status: "existing" }],
+      venues: [
+        {
+          id: 2,
+          name: "Lincoln Hall",
+          state: "IL",
+          timezone: "America/Chicago",
+          status: "existing",
+        },
+      ],
+      valid: true,
+      errors: [],
+    };
+  }
+
+  test("converts a stated pair to venue-local instants", () => {
+    const payload = buildShowPayload(
+      planWithTimes({ doors_at: "7:30PM", music_at: "8:30PM" }),
+    );
+    // 2026-09-04 is CDT, UTC-5.
+    expect(payload.doors_at).toBe("2026-09-05T00:30:00Z");
+    expect(payload.music_at).toBe("2026-09-05T01:30:00Z");
+  });
+
+  test("a stated music time anchors event_date, so the two agree", () => {
+    const payload = buildShowPayload(
+      planWithTimes({ doors_at: "7:30PM", music_at: "8:30PM" }),
+    );
+    expect(payload.event_date).toBe(payload.music_at);
+  });
+
+  test("a date-only show with no stated music time keeps the 20:00 convention", () => {
+    const payload = buildShowPayload(planWithTimes({}));
+    expect(payload.event_date).toBe("2026-09-05T01:00:00Z");
+    expect("doors_at" in payload).toBe(false);
+    expect("music_at" in payload).toBe(false);
+  });
+
+  test("an event_date that states its own time is not moved by music_at", () => {
+    const plan = planWithTimes({ music_at: "8:30PM" });
+    plan.input.event_date = "2026-09-04T21:00";
+    const payload = buildShowPayload(plan);
+    expect(payload.event_date).toBe("2026-09-05T02:00:00Z");
+    expect(payload.music_at).toBe("2026-09-05T01:30:00Z");
+  });
+
+  test("a doors-only listing writes neither column", () => {
+    const payload = buildShowPayload(planWithTimes({ doors_at: "7:30PM" }));
+    expect("doors_at" in payload).toBe(false);
+    expect("music_at" in payload).toBe(false);
+  });
+
+  test("a contradictory pair writes neither column", () => {
+    const payload = buildShowPayload(
+      planWithTimes({ doors_at: "11:00 PM", music_at: "12:00 AM" }),
+    );
+    expect("doors_at" in payload).toBe(false);
+    expect("music_at" in payload).toBe(false);
+  });
+
+  test("an unreadable door time leaves the readable music time standing", () => {
+    const payload = buildShowPayload(
+      planWithTimes({ doors_at: "doors at 7", music_at: "8:30PM" }),
+    );
+    expect("doors_at" in payload).toBe(false);
+    expect(payload.music_at).toBe("2026-09-05T01:30:00Z");
+  });
+
+  test("a venue with no resolvable zone writes neither column and says why", () => {
+    const plan = planWithTimes({ doors_at: "7:30PM", music_at: "8:30PM" });
+    plan.input.state = "England";
+    plan.input.venues[0].state = "England";
+    plan.venues[0].state = "England";
+    plan.venues[0].timezone = undefined;
+
+    const payload = buildShowPayload(plan);
+    expect("doors_at" in payload).toBe(false);
+    expect("music_at" in payload).toBe(false);
+    expect(planShowTimes(plan).notes[0]).toContain("no timezone is known");
   });
 });
 
