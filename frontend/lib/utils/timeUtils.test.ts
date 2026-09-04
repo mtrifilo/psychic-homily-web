@@ -632,3 +632,45 @@ describe('combineDateTimeToUTC across DST transitions', () => {
     )
   })
 })
+
+describe('the form round trip across a DST transition', () => {
+  // The show form writes an instant with combineDateTimeToUTC and reads it back
+  // with parseISOToDateAndTime, both in the venue's zone. A wall clock that
+  // survives that round trip is one the editor sees as the clock the submitter
+  // typed.
+
+  it.each([
+    ['2027-03-28', '01:30', 'Europe/Berlin'],
+    ['2027-03-14', '20:00', 'America/Chicago'],
+    ['2026-11-01', '00:30', 'America/Chicago'],
+    ['2026-11-01', '02:30', 'America/Chicago'],
+    ['2026-10-25', '03:30', 'Europe/Berlin'],
+  ])('%s %s in %s reads back as the clock that was written', (date, time, zone) => {
+    const stored = combineDateTimeToUTC(date, time, zone)
+    expect(parseISOToDateAndTime(stored, zone)).toEqual({ date, time })
+  })
+
+  it('re-saving an ambiguous clock moves the instant to the occurrence the resolver picks', () => {
+    // A fall-back overlap has two instants for one clock, so the round trip
+    // through a wall clock cannot preserve which one a row holds. Reading the
+    // EARLIER Chicago occurrence gives 01:30, and writing 01:30 back gives that
+    // same earlier one; reading the LATER one gives 01:30 too, and writing it
+    // back moves the row an hour. This is a property of the overlap, not of a
+    // zone, and it is why an ambiguous clock is stored rather than refused: one
+    // of the two instants is always right and both render the clock the
+    // submitter sees.
+    const earlier = '2026-11-01T06:30:00Z'
+    const later = '2026-11-01T07:30:00Z'
+    const zone = 'America/Chicago'
+
+    expect(parseISOToDateAndTime(earlier, zone)).toEqual({
+      date: '2026-11-01',
+      time: '01:30',
+    })
+    expect(parseISOToDateAndTime(later, zone)).toEqual({
+      date: '2026-11-01',
+      time: '01:30',
+    })
+    expect(combineDateTimeToUTC('2026-11-01', '01:30', zone)).toBe(earlier)
+  })
+})
