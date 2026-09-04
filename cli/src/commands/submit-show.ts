@@ -9,15 +9,22 @@ import * as display from "../lib/display";
 import { green, yellow, dim, gray } from "../lib/ansi";
 import { resolveVenueTimezone, localTimeToUTC } from "../lib/timezone";
 import { isValidSetType, statedSlot } from "../lib/setType";
-import { isDateOnly, resolveShowTimes } from "../lib/showTimes";
+import { readEventDate, resolveShowTimes } from "../lib/showTimes";
 import type { ShowTimes, ShowTimesRefusal } from "../lib/showTimes";
 
 /**
  * Normalize a date string to an ISO 8601 UTC timestamp.
  *
- * When only a date (YYYY-MM-DD) is provided, defaults to 20:00 local time.
- * When a date+time without timezone is provided, treats it as local time.
- * In both cases, converts from the venue's local timezone to UTC.
+ * A date with no time of day takes 20:00 venue-local, the repo's convention for
+ * "the source stated a day and no clock". A date with a naive time takes that
+ * time, read venue-local. A date that already states a zone names its own
+ * instant and is passed through.
+ *
+ * Anything else is returned unchanged, which sends it to the API to be rejected
+ * per show rather than guessed at here. `readEventDate` is deliberately strict
+ * about the shapes above, so a value that reaches this branch is one no reader
+ * in this repo can place on a calendar; the dry run prints it on the Anchored
+ * line and `resolveShowTimes` refuses the show's times for the same reason.
  *
  * @param date     - Date string (YYYY-MM-DD, YYYY-MM-DDTHH:MM, or full ISO 8601)
  * @param state    - Venue state, used only when no venue timezone is known
@@ -30,20 +37,17 @@ export function normalizeDate(
   timezone?: string,
 ): string {
   const zone = resolveVenueTimezone(state, timezone);
+  const reading = readEventDate(date, zone);
+  if (reading === null) return date;
 
-  // Date only: default to 20:00 local time
-  if (isDateOnly(date)) {
-    return localTimeToUTC(date, "20:00", zone);
+  switch (reading.kind) {
+    case "day":
+      return localTimeToUTC(reading.day, "20:00", zone);
+    case "local":
+      return localTimeToUTC(reading.day, reading.time, zone);
+    case "instant":
+      return date;
   }
-
-  // Date+time but no timezone suffix (Z or +/-offset): treat as local time
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(date)) {
-    const [datePart, timePart] = date.split("T");
-    return localTimeToUTC(datePart, timePart, zone);
-  }
-
-  // Already has timezone info — return as-is
-  return date;
 }
 
 // -- Types -------------------------------------------------------------------
@@ -281,12 +285,20 @@ export async function resolveVenues(
  * print. Only a venue this run is about to CREATE has no row to read, and then
  * the stated location is all there is.
  */
-function planVenueZone(plan: ShowPlan): { state?: string; timezone?: string } {
-  const matched = plan.venues[0];
+export function venueZone(
+  venues: ResolvedVenue[],
+  input: { state: string; venues: ShowVenueInput[] },
+): { state?: string; timezone?: string } {
+  const matched = venues[0];
   if (matched?.id !== undefined) {
     return { state: matched.matchedState, timezone: matched.timezone };
   }
-  return { state: plan.input.venues[0]?.state || plan.input.state };
+  return { state: input.venues[0]?.state || input.state };
+}
+
+/** The zone a built plan's clocks are read in. */
+function planVenueZone(plan: ShowPlan): { state?: string; timezone?: string } {
+  return venueZone(plan.venues, plan.input);
 }
 
 /**
@@ -300,8 +312,8 @@ export function planShowTimes(plan: ShowPlan): ShowTimes {
   const zone = planVenueZone(plan);
   return resolveShowTimes({
     eventDate: plan.input.event_date,
-    doorsAt: plan.input.doors_at,
-    musicAt: plan.input.music_at,
+    statedDoors: plan.input.doors_at,
+    statedMusic: plan.input.music_at,
     state: zone.state,
     timezone: zone.timezone,
   });
@@ -321,10 +333,14 @@ export function planShowTimes(plan: ShowPlan): ShowTimes {
  * caller stated both.
  */
 function showStartInstant(plan: ShowPlan, times: ShowTimes): string {
-  if (times.musicAt !== undefined && isDateOnly(plan.input.event_date)) {
+  const zone = planVenueZone(plan);
+  const reading = readEventDate(
+    plan.input.event_date,
+    resolveVenueTimezone(zone.state, zone.timezone),
+  );
+  if (times.musicAt !== undefined && reading?.kind === "day") {
     return times.musicAt;
   }
-  const zone = planVenueZone(plan);
   return normalizeDate(plan.input.event_date, zone.state, zone.timezone);
 }
 
@@ -417,10 +433,11 @@ export async function submitShows(
     const resolvedArtistIds = artists.filter((a) => a.id !== undefined).map((a) => a.id!);
     const resolvedArtistNames = artists.map((a) => a.name);
 
-    // Match buildShowPayload's timezone source so the dedup window aligns with
-    // how event_date will be stored (venue-local evening → UTC).
-    const venueState = venues[0]?.state || show.venues[0]?.state || show.state;
-    const venueTimezone = venues[0]?.timezone;
+    // The dedup window and the instant this show will be written at must be
+    // read in ONE zone, or the window brackets a day the row does not land on
+    // and the duplicate is missed. `venueZone` is that one source; see its doc
+    // for why a matched venue's own row wins over the state the batch claimed.
+    const zone = venueZone(venues, show);
 
     const duplicate = await checkShowDuplicate(
       client,
@@ -428,8 +445,8 @@ export async function submitShows(
       resolvedVenueIds,
       resolvedArtistIds,
       resolvedArtistNames,
-      venueState,
-      venueTimezone,
+      zone.state,
+      zone.timezone,
     );
 
     plans.push({
@@ -588,6 +605,25 @@ export function billRoleTag(artist: { is_headliner?: boolean; set_type?: string 
 }
 
 /**
+ * A source-supplied string, made safe to print in a preview a person approves.
+ *
+ * Batch values are extracted by a model from scraped third-party pages, so they
+ * are attacker-influenced text on its way to a terminal. Control characters are
+ * removed because a cursor-movement escape can rewrite lines already printed for
+ * an EARLIER show, and the length is capped because an unbounded value scrolls
+ * the rest of the batch out of the scrollback. Either one lets the preview
+ * describe something other than what the confirmed run will send.
+ *
+ * Scoped to the values this command interpolates. The same treatment belongs on
+ * every source-derived string `display` prints, which is a wider change than
+ * this one.
+ */
+function quoteSourceValue(value: string): string {
+  const stripped = value.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, "");
+  return stripped.length > 120 ? `${stripped.slice(0, 120)}...` : stripped;
+}
+
+/**
  * One line saying which stated time is not being stored, and why.
  *
  * The wording lives here rather than in `resolveShowTimes` because it is dry-run
@@ -598,15 +634,17 @@ export function describeShowTimeRefusal(refusal: ShowTimesRefusal): string {
     case "no-timezone":
       return "doors/music times not stored: no timezone is known for this venue, so the clock would be anchored on the America/Phoenix default";
     case "no-calendar-day":
-      return `doors/music times not stored: "${refusal.eventDate}" does not name a calendar day to anchor them to`;
+      return `doors/music times not stored: "${quoteSourceValue(refusal.eventDate)}" does not name a calendar day to anchor them to`;
     case "unreadable-music":
-      return `music time not stored: "${refusal.music}" is not a readable time, so no doors time is stored either`;
+      return `music time not stored: "${quoteSourceValue(refusal.music)}" is not a readable time, so no doors time is stored either`;
     case "doors-without-music":
       return `doors time not stored: the source states no music time, and doors alone is half a schedule`;
     case "unreadable-doors":
-      return `doors time not stored: "${refusal.doors}" is not a readable time`;
+      return `doors time not stored: "${quoteSourceValue(refusal.doors)}" is not a readable time`;
     case "music-before-doors":
-      return `doors/music times not stored: music at "${refusal.music}" is before doors at "${refusal.doors}", which states a day this listing did not`;
+      return `doors/music times not stored: music at "${quoteSourceValue(refusal.music)}" is before doors at "${quoteSourceValue(refusal.doors)}", which states a day this listing did not`;
+    case "clock-does-not-exist":
+      return `time not stored: "${quoteSourceValue(refusal.clock)}" is an hour that does not exist on ${refusal.day} in this venue's timezone, because the clocks moved forward through it`;
   }
 }
 
@@ -635,7 +673,15 @@ function displayPreview(plans: ShowPlan[], resolvedTags?: ResolvedTag[][]): void
     // is the case worth a second look for a venue outside the US.
     const zone = planVenueZone(plan);
     const previewZone = resolveVenueTimezone(zone.state, zone.timezone);
-    const zoneSource = zone.timezone ? "venue" : "from state";
+    // `ph batch` creates venues before shows, so a venue named in this same file
+    // does not exist during the dry run and DOES during the confirmed one, where
+    // its freshly geocoded row supplies a different zone. Saying which of the
+    // two this line is reading is what keeps the preview honest.
+    const zoneSource = zone.timezone
+      ? "venue"
+      : plan.venues[0]?.id === undefined
+        ? "from state, venue not created yet"
+        : "from state";
     const payload = buildShowPayload(plan);
     display.kv("Date", plan.input.event_date);
     display.kv(
@@ -651,10 +697,16 @@ function displayPreview(plans: ShowPlan[], resolvedTags?: ResolvedTag[][]): void
     // it.
     const times = planShowTimes(plan);
     if (times.doorsAt !== undefined) {
-      display.kv("Doors", `${plan.input.doors_at} ${gray(`-> ${times.doorsAt}`)}`);
+      display.kv(
+        "Doors",
+        `${quoteSourceValue(String(plan.input.doors_at))} ${gray(`-> ${times.doorsAt}`)}`,
+      );
     }
     if (times.musicAt !== undefined) {
-      display.kv("Music", `${plan.input.music_at} ${gray(`-> ${times.musicAt}`)}`);
+      display.kv(
+        "Music",
+        `${quoteSourceValue(String(plan.input.music_at))} ${gray(`-> ${times.musicAt}`)}`,
+      );
     }
     for (const refusal of times.refusals) {
       display.warn(describeShowTimeRefusal(refusal));

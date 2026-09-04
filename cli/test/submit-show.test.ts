@@ -5,6 +5,8 @@ import {
   resolveVenues,
   buildShowPayload,
   planShowTimes,
+  venueZone,
+  describeShowTimeRefusal,
   normalizeDate,
   showPriceLine,
   billRoleTag,
@@ -12,8 +14,9 @@ import {
   type ShowPlan,
 } from "../src/commands/submit-show";
 import { APIClient } from "../src/lib/api";
-import { checkShowDuplicate } from "../src/lib/duplicates";
+import { checkShowDuplicate, showDedupWindow } from "../src/lib/duplicates";
 import { validateShow } from "../src/lib/schemas";
+import type { ShowTimesRefusal } from "../src/lib/showTimes";
 
 // -- Mock helpers ------------------------------------------------------------
 
@@ -36,6 +39,32 @@ function createMockClient(overrides: {
   }
 
   return client;
+}
+
+/** A Chicago show at a venue whose own zone is known, plus whatever times. */
+function planWithTimes(times: { doors_at?: string; music_at?: string }): ShowPlan {
+  return {
+    input: {
+      event_date: "2026-09-04",
+      city: "Chicago",
+      state: "IL",
+      ...times,
+      artists: [{ name: "Wolves of Glendale" }],
+      venues: [{ name: "Lincoln Hall", city: "Chicago", state: "IL" }],
+    },
+    artists: [{ id: 1, name: "Wolves of Glendale", status: "existing" }],
+    venues: [
+      {
+        id: 2,
+        name: "Lincoln Hall",
+        state: "IL",
+        timezone: "America/Chicago",
+        status: "existing",
+      },
+    ],
+    valid: true,
+    errors: [],
+  };
 }
 
 // -- parseShowInput ----------------------------------------------------------
@@ -434,31 +463,6 @@ describe("buildShowPayload", () => {
 
   // -- doors_at / music_at ---------------------------------------------------
 
-  /** A Chicago show at a venue whose own zone is known, plus whatever times. */
-  function planWithTimes(times: { doors_at?: string; music_at?: string }): ShowPlan {
-    return {
-      input: {
-        event_date: "2026-09-04",
-        city: "Chicago",
-        state: "IL",
-        ...times,
-        artists: [{ name: "Wolves of Glendale" }],
-        venues: [{ name: "Lincoln Hall", city: "Chicago", state: "IL" }],
-      },
-      artists: [{ id: 1, name: "Wolves of Glendale", status: "existing" }],
-      venues: [
-        {
-          id: 2,
-          name: "Lincoln Hall",
-          state: "IL",
-          timezone: "America/Chicago",
-          status: "existing",
-        },
-      ],
-      valid: true,
-      errors: [],
-    };
-  }
 
   test("converts a stated pair to venue-local instants", () => {
     const payload = buildShowPayload(
@@ -1432,5 +1436,134 @@ describe("normalizeDate", () => {
 
   test("an empty venue timezone falls back to the state map", () => {
     expect(normalizeDate("2026-04-15", "NY", "")).toBe("2026-04-16T00:00:00Z");
+  });
+});
+
+// -- venue zone -------------------------------------------------------------
+
+describe("venueZone", () => {
+  test("carries the matched venue ROW's state and zone, not the batch's claim", async () => {
+    // The wiring under test is resolveVenues copying `state` off the search hit.
+    // Without it every existing venue reads as stateless and the times refuse.
+    const client = createMockClient({
+      get: async () => ({
+        venues: [
+          { id: 7, name: "Lincoln Hall", slug: "lincoln-hall", city: "Chicago", state: "IL", timezone: "America/Chicago" },
+        ],
+      }),
+    });
+
+    const resolved = await resolveVenues(client, [
+      { name: "Lincoln Hall", city: "Chicago", state: "NY" },
+    ]);
+    expect(resolved[0].matchedState).toBe("IL");
+    expect(resolved[0].timezone).toBe("America/Chicago");
+
+    expect(venueZone(resolved, { state: "NY", venues: [{ name: "Lincoln Hall", state: "NY" }] })).toEqual({
+      state: "IL",
+      timezone: "America/Chicago",
+    });
+  });
+
+  test("a stored empty state is an answer, and it is carried as one", async () => {
+    const client = createMockClient({
+      get: async () => ({
+        venues: [{ id: 7, name: "Lincoln Hall", slug: "lincoln-hall", city: "Chicago", state: "" }],
+      }),
+    });
+
+    const resolved = await resolveVenues(client, [
+      { name: "Lincoln Hall", city: "Chicago", state: "IL" },
+    ]);
+    expect(resolved[0].matchedState).toBe("");
+    expect(venueZone(resolved, { state: "IL", venues: [{ name: "Lincoln Hall", state: "IL" }] })).toEqual({
+      state: "",
+      timezone: undefined,
+    });
+  });
+
+  test("a venue this run will create has no row, so the stated location stands", () => {
+    const resolved = [{ name: "Boom Leeds", state: "England", status: "new" as const }];
+    expect(venueZone(resolved, { state: "England", venues: [{ name: "Boom Leeds", state: "England" }] })).toEqual({
+      state: "England",
+    });
+  });
+
+  test("the dedup window and the written instant read one zone", () => {
+    // These two used to be resolved separately, so a batch claiming a state the
+    // matched row disagrees with searched one calendar day and wrote another.
+    const plan = planWithTimes({ music_at: "9:00PM" });
+    plan.venues[0].timezone = undefined;
+    plan.venues[0].matchedState = "AZ";
+    plan.input.state = "IL";
+    plan.input.venues[0].state = "IL";
+
+    const zone = venueZone(plan.venues, plan.input);
+    const written = buildShowPayload(plan).event_date as string;
+    const window = showDedupWindow(plan.input.event_date, zone.state, zone.timezone);
+
+    expect(Date.parse(window.fromDate)).toBeLessThanOrEqual(Date.parse(written));
+    expect(Date.parse(written)).toBeLessThanOrEqual(Date.parse(window.toDate));
+  });
+
+  test("event_date follows the venue row too, not only the clocks", () => {
+    // The row is stateless and unzoned, so every clock on this show resolves
+    // through the America/Phoenix default -- including the date-only anchor,
+    // which is the zone the page will bucket the day in.
+    const plan = planWithTimes({});
+    plan.venues[0].timezone = undefined;
+    plan.venues[0].matchedState = "";
+    plan.input.state = "IL";
+    plan.input.venues[0].state = "IL";
+
+    expect(buildShowPayload(plan).event_date).toBe("2026-09-05T03:00:00Z");
+  });
+});
+
+// -- refusal copy -----------------------------------------------------------
+
+describe("describeShowTimeRefusal", () => {
+  const cases: Array<[ShowTimesRefusal, string]> = [
+    [{ reason: "no-timezone" }, "no timezone is known"],
+    [{ reason: "no-calendar-day", eventDate: "next Friday" }, "next Friday"],
+    [{ reason: "unreadable-music", music: "TBD" }, "TBD"],
+    [{ reason: "doors-without-music", doors: "7:30PM" }, "no music time"],
+    [{ reason: "unreadable-doors", doors: "doors at 7" }, "doors at 7"],
+    [
+      { reason: "music-before-doors", doors: "11:00 PM", music: "12:00 AM" },
+      "is before doors at",
+    ],
+    [
+      { reason: "clock-does-not-exist", clock: "2:30 AM", day: "2026-03-08" },
+      "does not exist on 2026-03-08",
+    ],
+  ];
+
+  for (const [refusal, fragment] of cases) {
+    test(`${refusal.reason} names the reason`, () => {
+      const line = describeShowTimeRefusal(refusal);
+      expect(line).toContain(fragment);
+      expect(line.length).toBeGreaterThan(20);
+    });
+  }
+
+  test("strips control characters out of a source-supplied value", () => {
+    // A cursor-movement escape in a scraped value would rewrite lines already
+    // printed for an earlier show in the same preview.
+    const line = describeShowTimeRefusal({
+      reason: "unreadable-music",
+      music: "TBD\u001b[2K\u001b[8A rewritten",
+    });
+    expect(line).not.toContain("\u001b");
+    expect(line).toContain("TBD[2K[8A rewritten");
+  });
+
+  test("caps a value long enough to scroll the batch out of the terminal", () => {
+    const line = describeShowTimeRefusal({
+      reason: "unreadable-doors",
+      doors: "x".repeat(5000),
+    });
+    expect(line.length).toBeLessThan(300);
+    expect(line).toContain("...");
   });
 });

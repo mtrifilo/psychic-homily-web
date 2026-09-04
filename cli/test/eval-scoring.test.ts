@@ -528,22 +528,22 @@ describe("scoreShowTimes", () => {
     const g = [show({ doors_at: "7:30PM", music_at: "8:30PM" })];
     const s = scoreShowTimes(g, [show({ music_at: "8:30PM" })]);
     expect(s.recall).toBe(0);
-    expect(s.missed).toEqual(["19:30|20:30"]);
+    expect(s.missed).toEqual(["doors=19:30 music=20:30"]);
   });
 
-  test("a time invented for a listing that labelled none scores zero and is named", () => {
+  test("a time invented for a listing that labelled none loses that listing and is named", () => {
     const g = [show({}), show({})];
     const s = scoreShowTimes(g, [show({ music_at: "10:00PM" }), show({})]);
     expect(s.found).toBe(1);
     expect(s.recall).toBe(0.5);
-    expect(s.invented).toEqual(["|22:00"]);
+    expect(s.invented).toEqual(["doors=none music=22:00"]);
   });
 
   test("a stated but unreadable time stays distinct from an absent one", () => {
     const g = [show({ music_at: "doors at 7" })];
     const s = scoreShowTimes(g, [show({})]);
     expect(s.recall).toBe(0);
-    expect(s.missed).toEqual(["|?doors at 7"]);
+    expect(s.missed).toEqual(["doors=none music=?doors at 7"]);
   });
 
   test("a fixture with no shows scores 1 and reports nothing", () => {

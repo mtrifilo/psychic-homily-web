@@ -3,8 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   parseClockTime,
-  calendarDateOf,
-  isDateOnly,
+  readEventDate,
   resolveShowTimes,
 } from "../src/lib/showTimes";
 
@@ -72,9 +71,13 @@ describe("parseClockTime", () => {
     for (const m of goTest.matchAll(table)) {
       rows.push([JSON.parse(`"${m[1]}"`), Number(m[2]), Number(m[3]), m[4] === "true"]);
     }
-    // The table is the corpus this parser exists to agree with; an empty or
-    // truncated read would pass every assertion below without checking one.
-    expect(rows.length).toBeGreaterThanOrEqual(25);
+    // The table is the corpus this parser exists to agree with, so an empty or
+    // truncated read would pass every assertion below without checking one. The
+    // count is EXACT: a row deleted on the Go side is a case this parser stops
+    // being held to, which is the drift this gate exists to catch. If the Go
+    // table legitimately grew or shrank, read the new rows and change this
+    // number deliberately.
+    expect(rows.length).toBe(27);
     expect(rows.some(([, , , ok]) => ok)).toBe(true);
     expect(rows.some(([, , , ok]) => !ok)).toBe(true);
 
@@ -91,19 +94,71 @@ describe("parseClockTime", () => {
 
 // -- calendarDateOf ----------------------------------------------------------
 
-describe("calendarDateOf", () => {
-  test("reads a date-only string", () => {
-    expect(calendarDateOf("2026-09-04")).toBe("2026-09-04");
+describe("readEventDate", () => {
+  const chicago = "America/Chicago";
+
+  test("a bare day is a day", () => {
+    expect(readEventDate("2026-09-04", chicago)).toEqual({
+      kind: "day",
+      day: "2026-09-04",
+    });
   });
 
-  test("reads the day out of a full timestamp", () => {
-    expect(calendarDateOf("2026-09-04T20:00:00Z")).toBe("2026-09-04");
+  test("a naive time is venue-local", () => {
+    expect(readEventDate("2026-09-04T21:00", chicago)).toEqual({
+      kind: "local",
+      day: "2026-09-04",
+      time: "21:00",
+    });
+    expect(readEventDate("2026-09-04T21:00:30", chicago)).toEqual({
+      kind: "local",
+      day: "2026-09-04",
+      time: "21:00",
+    });
   });
 
-  test("refuses anything that does not start with a calendar day", () => {
-    expect(calendarDateOf("Sep 4 2026")).toBeNull();
-    expect(calendarDateOf("")).toBeNull();
-    expect(calendarDateOf(undefined)).toBeNull();
+  test("a zoned timestamp names its day in the VENUE's zone, not in UTC", () => {
+    // 2026-09-06T01:00Z is 8 PM on September 5 in Chicago. Reading the UTC day
+    // would anchor the show's clocks a full day late.
+    expect(readEventDate("2026-09-06T01:00:00Z", chicago)).toEqual({
+      kind: "instant",
+      day: "2026-09-05",
+    });
+    expect(readEventDate("2026-09-06T01:00:00Z", "Europe/London")).toEqual({
+      kind: "instant",
+      day: "2026-09-06",
+    });
+  });
+
+  test("an offset timestamp reads the same way", () => {
+    expect(readEventDate("2026-09-05T20:00:00-05:00", chicago)).toEqual({
+      kind: "instant",
+      day: "2026-09-05",
+    });
+  });
+
+  const unreadable = [
+    "Sep 4 2026",
+    "",
+    "2026-09-05 ",
+    " 2026-09-05",
+    "2026-09-05T",
+    "2026-09-05 20:00",
+    "2026-09-05T25:00",
+    "2026-09-05T20:61",
+    "2026-02-31",
+    "2026-13-45",
+  ];
+
+  for (const raw of unreadable) {
+    test(`refuses ${JSON.stringify(raw)}`, () => {
+      expect(readEventDate(raw, chicago)).toBeNull();
+    });
+  }
+
+  test("refuses a value that is not a string", () => {
+    expect(readEventDate(undefined, chicago)).toBeNull();
+    expect(readEventDate(20260904, chicago)).toBeNull();
   });
 });
 
@@ -114,7 +169,7 @@ describe("resolveShowTimes", () => {
 
   test("writes both instants for a stated pair, anchored in the venue's zone", () => {
     // 2026-09-04 is CDT (UTC-5).
-    const times = resolveShowTimes({ ...chicago, doorsAt: "7:30PM", musicAt: "8:30PM" });
+    const times = resolveShowTimes({ ...chicago, statedDoors: "7:30PM", statedMusic: "8:30PM" });
     expect(times.doorsAt).toBe("2026-09-05T00:30:00Z");
     expect(times.musicAt).toBe("2026-09-05T01:30:00Z");
     expect(times.refusals).toEqual([]);
@@ -125,15 +180,15 @@ describe("resolveShowTimes", () => {
       eventDate: "2026-07-15",
       state: "CA",
       timezone: "America/Los_Angeles",
-      doorsAt: undefined,
-      musicAt: "8:00 PM",
+      statedDoors: undefined,
+      statedMusic: "8:00 PM",
     });
     const winter = resolveShowTimes({
       eventDate: "2026-01-15",
       state: "CA",
       timezone: "America/Los_Angeles",
-      doorsAt: undefined,
-      musicAt: "8:00 PM",
+      statedDoors: undefined,
+      statedMusic: "8:00 PM",
     });
     expect(summer.musicAt).toBe("2026-07-16T03:00:00Z");
     expect(winter.musicAt).toBe("2026-01-16T04:00:00Z");
@@ -144,47 +199,47 @@ describe("resolveShowTimes", () => {
       eventDate: "2026-09-04",
       state: "AZ",
       timezone: "America/Chicago",
-      doorsAt: undefined,
-      musicAt: "8:00 PM",
+      statedDoors: undefined,
+      statedMusic: "8:00 PM",
     });
     expect(times.musicAt).toBe("2026-09-05T01:00:00Z");
   });
 
   test("says nothing when the source stated nothing", () => {
-    const times = resolveShowTimes({ ...chicago, doorsAt: undefined, musicAt: undefined });
+    const times = resolveShowTimes({ ...chicago, statedDoors: undefined, statedMusic: undefined });
     expect(times).toEqual({ refusals: [] });
   });
 
   test("writes music alone when the source states only a show time", () => {
-    const times = resolveShowTimes({ ...chicago, doorsAt: undefined, musicAt: "8:30PM" });
+    const times = resolveShowTimes({ ...chicago, statedDoors: undefined, statedMusic: "8:30PM" });
     expect(times.musicAt).toBe("2026-09-05T01:30:00Z");
     expect(times.doorsAt).toBeUndefined();
     expect(times.refusals).toEqual([]);
   });
 
   test("refuses a doors-only listing and says why", () => {
-    const times = resolveShowTimes({ ...chicago, doorsAt: "7:30PM", musicAt: undefined });
+    const times = resolveShowTimes({ ...chicago, statedDoors: "7:30PM", statedMusic: undefined });
     expect(times.doorsAt).toBeUndefined();
     expect(times.musicAt).toBeUndefined();
     expect(times.refusals).toEqual([{ reason: "doors-without-music", doors: "7:30PM" }]);
   });
 
   test("refuses both when the stated music time is unreadable", () => {
-    const times = resolveShowTimes({ ...chicago, doorsAt: "7:30PM", musicAt: "TBD" });
+    const times = resolveShowTimes({ ...chicago, statedDoors: "7:30PM", statedMusic: "TBD" });
     expect(times.doorsAt).toBeUndefined();
     expect(times.musicAt).toBeUndefined();
     expect(times.refusals).toEqual([{ reason: "unreadable-music", music: "TBD" }]);
   });
 
   test("keeps a readable music time when only the door time is unreadable", () => {
-    const times = resolveShowTimes({ ...chicago, doorsAt: "doors at 7", musicAt: "8:30PM" });
+    const times = resolveShowTimes({ ...chicago, statedDoors: "doors at 7", statedMusic: "8:30PM" });
     expect(times.musicAt).toBe("2026-09-05T01:30:00Z");
     expect(times.doorsAt).toBeUndefined();
     expect(times.refusals).toEqual([{ reason: "unreadable-doors", doors: "doors at 7" }]);
   });
 
   test("writes neither half of a contradictory pair", () => {
-    const times = resolveShowTimes({ ...chicago, doorsAt: "11:00 PM", musicAt: "12:00 AM" });
+    const times = resolveShowTimes({ ...chicago, statedDoors: "11:00 PM", statedMusic: "12:00 AM" });
     expect(times.doorsAt).toBeUndefined();
     expect(times.musicAt).toBeUndefined();
     expect(times.refusals).toEqual([
@@ -193,7 +248,7 @@ describe("resolveShowTimes", () => {
   });
 
   test("accepts an equal pair, which is a schedule and not a contradiction", () => {
-    const times = resolveShowTimes({ ...chicago, doorsAt: "9:00PM", musicAt: "9:00PM" });
+    const times = resolveShowTimes({ ...chicago, statedDoors: "9:00PM", statedMusic: "9:00PM" });
     expect(times.doorsAt).toBe("2026-09-05T02:00:00Z");
     expect(times.musicAt).toBe("2026-09-05T02:00:00Z");
   });
@@ -203,8 +258,8 @@ describe("resolveShowTimes", () => {
       eventDate: "2026-09-04",
       state: "England",
       timezone: undefined,
-      doorsAt: "7:30PM",
-      musicAt: "8:30PM",
+      statedDoors: "7:30PM",
+      statedMusic: "8:30PM",
     });
     expect(times.doorsAt).toBeUndefined();
     expect(times.musicAt).toBeUndefined();
@@ -216,8 +271,8 @@ describe("resolveShowTimes", () => {
       eventDate: "2026-09-04",
       state: "IL",
       timezone: "Not/AZone",
-      doorsAt: undefined,
-      musicAt: "8:30PM",
+      statedDoors: undefined,
+      statedMusic: "8:30PM",
     });
     expect(times.musicAt).toBe("2026-09-05T01:30:00Z");
   });
@@ -227,8 +282,8 @@ describe("resolveShowTimes", () => {
       eventDate: "next Friday",
       state: "IL",
       timezone: "America/Chicago",
-      doorsAt: undefined,
-      musicAt: "8:30PM",
+      statedDoors: undefined,
+      statedMusic: "8:30PM",
     });
     expect(times.musicAt).toBeUndefined();
     expect(times.refusals).toEqual([
@@ -244,8 +299,7 @@ describe("impossible calendar days", () => {
 
   for (const day of impossible) {
     test(`refuses ${day}`, () => {
-      expect(calendarDateOf(day)).toBeNull();
-      expect(isDateOnly(day)).toBe(false);
+      expect(readEventDate(day, "America/Chicago")).toBeNull();
     });
   }
 
@@ -254,8 +308,8 @@ describe("impossible calendar days", () => {
       eventDate: "2026-02-31",
       state: "IL",
       timezone: "America/Chicago",
-      doorsAt: "7:30PM",
-      musicAt: "8:30PM",
+      statedDoors: "7:30PM",
+      statedMusic: "8:30PM",
     });
     expect(times.doorsAt).toBeUndefined();
     expect(times.musicAt).toBeUndefined();
@@ -265,9 +319,14 @@ describe("impossible calendar days", () => {
   });
 
   test("real days on either side still read", () => {
-    expect(calendarDateOf("2026-02-28")).toBe("2026-02-28");
-    expect(calendarDateOf("2028-02-29")).toBe("2028-02-29");
-    expect(isDateOnly("2026-12-31")).toBe(true);
+    expect(readEventDate("2026-02-28", "America/Chicago")).toEqual({
+      kind: "day",
+      day: "2026-02-28",
+    });
+    expect(readEventDate("2028-02-29", "America/Chicago")).toEqual({
+      kind: "day",
+      day: "2028-02-29",
+    });
   });
 });
 
@@ -293,8 +352,8 @@ describe("a value that is not a string", () => {
       eventDate: "2026-09-04",
       state: "IL",
       timezone: "America/Chicago",
-      doorsAt: undefined,
-      musicAt: 1930,
+      statedDoors: undefined,
+      statedMusic: 1930,
     });
     expect(times.musicAt).toBeUndefined();
     expect(times.refusals).toEqual([{ reason: "unreadable-music", music: "1930" }]);
@@ -305,9 +364,54 @@ describe("a value that is not a string", () => {
       eventDate: "2026-09-04",
       state: "IL",
       timezone: "America/Chicago",
-      doorsAt: null,
-      musicAt: null,
+      statedDoors: null,
+      statedMusic: null,
     });
     expect(times).toEqual({ refusals: [] });
+  });
+});
+
+describe("known limitations, pinned so they stay decisions", () => {
+  test("an after-midnight music time reads as the small hours of the STATED day", () => {
+    // Reading "12:30 AM" on a listing dated the 4th as the 5th would infer a day
+    // rollover the source did not state. The pipeline reads it the same way.
+    const times = resolveShowTimes({
+      eventDate: "2026-09-04",
+      state: "IL",
+      timezone: "America/Chicago",
+      statedDoors: undefined,
+      statedMusic: "12:30 AM",
+    });
+    expect(times.musicAt).toBe("2026-09-04T05:30:00Z");
+    expect(times.refusals).toEqual([]);
+  });
+
+  test("a clock inside a spring-forward gap is refused rather than shifted", () => {
+    // 2:30 AM does not happen on 2026-03-08 in Chicago. localTimeToUTC still
+    // returns Go's instant, which reads back as 1:30 AM; storing that would
+    // publish a clock the source did not print.
+    const times = resolveShowTimes({
+      eventDate: "2026-03-08",
+      state: "IL",
+      timezone: "America/Chicago",
+      statedDoors: "1:30 AM",
+      statedMusic: "2:30 AM",
+    });
+    expect(times.musicAt).toBeUndefined();
+    expect(times.doorsAt).toBeUndefined();
+    expect(times.refusals).toEqual([
+      { reason: "clock-does-not-exist", clock: "2:30 AM", day: "2026-03-08" },
+    ]);
+  });
+
+  test("a clock inside a fall-back repeat is stored, because it did happen", () => {
+    const times = resolveShowTimes({
+      eventDate: "2026-11-01",
+      state: "IL",
+      timezone: "America/Chicago",
+      statedDoors: undefined,
+      statedMusic: "1:30 AM",
+    });
+    expect(times.musicAt).toBe("2026-11-01T06:30:00Z");
   });
 });

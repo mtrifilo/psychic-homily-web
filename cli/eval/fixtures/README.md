@@ -11,7 +11,7 @@ output against the golden JSON.
 fixtures/
 └── <fixture-slug>/
     ├── poster.png      # the input image (flyer / lineup / playlist screenshot
-    │                   # / venue-listing capture; name it for what it is —
+    │                   # / venue-listing capture; name it for what it is:
     │                   # promptfooconfig.yaml points at the file by name)
     ├── poster.html     # (synthetic fixtures only) the source the PNG renders from
     └── expected.json   # the human-verified golden batch JSON
@@ -70,18 +70,27 @@ They are scored by `show_price_agreement` and `bill_role_agreement` (see
 The two venue-listing fixtures are a matched positive/negative case for
 `doors_at` / `music_at`, and they are only meaningful together:
 
-- **Positive** — Lincoln Hall labels both times, so both belong on the show.
-- **Negative** — Empty Bottle prints a bare `10:00PM` with no label. The golden
+- **Positive**: Lincoln Hall labels both times, so both belong on the show.
+- **Negative**: Empty Bottle prints a bare `10:00PM` with no label. The golden
   states NEITHER field: nothing on the rendered page says whether that clock is
   doors or the first set, and `ph batch` refuses a time the source did not name.
-  A model that files it as `music_at` scores zero on `show_times_agreement` and
-  the invented value is named in the assertion's reason.
+  A model that files it as `music_at` loses that listing's schedule, so labelling
+  one of the two cards scores 0.5 and labelling both scores 0; either way the
+  value it invented is named in the assertion's reason.
 
 Empty Bottle appears in the registry's own per-source table as a `music_at`
 source, which is not a contradiction: there the transform reads the DOM, whose
 `.start-time` class names the role. This fixture is a CAPTURE of the rendered
 card, where that name is not on screen. The two paths see different sources and
-so answer differently.
+so answer differently, which means one Empty Bottle show gets a `music_at` or
+not depending on which path ingested it. That split is a live inconsistency, not
+a settled design; it is recorded here so the decision is made deliberately.
+
+Both goldens carry `city` / `state` that the images do NOT print. The batch
+schema requires them on a show and a venue, and a model that knows Lincoln Hall
+and Empty Bottle supplies Chicago, IL; a fixture that omitted them would fail
+the schema gate for a reason unrelated to what it is testing. They are not
+scored.
 
 Both are live captures rather than posters because the `ph batch` path ingests
 venue calendars; the registry of those calendars is in

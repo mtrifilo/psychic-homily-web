@@ -1,8 +1,13 @@
 /**
  * Timezone utilities for converting local venue times to UTC.
  *
- * The state→timezone mapping mirrors the frontend's getTimezoneForState()
+ * The state to timezone mapping mirrors the frontend's getTimezoneForState()
  * in frontend/lib/utils/timeUtils.ts. Keep them in sync.
+ *
+ * `localTimeToUTC` and the frontend's `combineDateTimeToUTC` no longer agree:
+ * this one probes the zone offset twice and matches Go for a wall clock inside a
+ * DST transition, the frontend's probes once and does not. Reconciling them is a
+ * frontend change with its own gates, not something to do quietly from here.
  */
 
 /** Map of US state abbreviations to IANA timezones. */
@@ -156,10 +161,13 @@ function isValidTimeZone(name: string): boolean {
  * spring-forward night is exactly such a clock.
  *
  * A wall clock that does not exist (the hour a spring-forward skips) has no
- * correct answer. Neither candidate reads back as the requested clock, and this
- * returns the post-transition one, which is what Go's `time.Date` normalizes to
- * for the same input. A clock that happens twice (fall-back) resolves to the
- * first, also matching Go.
+ * correct answer, and one that happens twice (fall-back) has two. For both,
+ * this returns the instant Go's `time.Date` returns for the same wall clock and
+ * zone, verified against Go across every 2025-2027 transition in 30 zones. That
+ * agreement is the whole specification: which side of the transition it lands
+ * on varies by zone and is not a rule worth restating here. A caller that must
+ * not store a clock the source could not have meant should ask
+ * `localClockExists` first.
  *
  * @param dateStr  Date in YYYY-MM-DD format
  * @param timeStr  Time in HH:MM or HH:MM:SS format
@@ -218,4 +226,31 @@ export function localTimeToUTC(
 
   // Return as RFC3339 without milliseconds (Go's time.Time expects this)
   return new Date(chosen).toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+/**
+ * Whether this wall clock exists on this day in this zone.
+ *
+ * False only inside the hour a spring-forward skips, where `localTimeToUTC` must
+ * still return something and returns the instant Go does. A writer that refuses
+ * to store a time the source did not state asks this first: 2:30 AM on a
+ * spring-forward night is not a time that happened, and storing it as 1:30 AM
+ * publishes a clock nobody printed.
+ */
+export function localClockExists(
+  dateStr: string,
+  timeStr: string,
+  timezone: string,
+): boolean {
+  const instant = Date.parse(localTimeToUTC(dateStr, timeStr, timezone));
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(instant));
+  const p = (type: string) => parts.find((x) => x.type === type)?.value ?? "";
+  const hour = p("hour") === "24" ? "00" : p("hour");
+  const [wantedHour, wantedMinute] = timeStr.split(":");
+  return hour === wantedHour && p("minute") === wantedMinute;
 }
