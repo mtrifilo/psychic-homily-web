@@ -92,69 +92,83 @@ func TestHeaderSafeSubjectCaps(t *testing.T) {
 // discarded, so the name vanishes from a subject that still has room for it.
 func TestSubjectEntityNameSanitizesBeforeBounding(t *testing.T) {
 	padded := strings.Repeat("\r\n", 60) + "Valley Bar"
-	assert.Equal(t, "Valley Bar", subjectEntityName(padded),
+	assert.Equal(t, "Valley Bar", entityNameForSubject(padded),
 		"leading line breaks must not consume the entity budget")
 
 	spacePadded := strings.Repeat(" ", 40) + strings.Repeat("V", 100)
-	assert.Equal(t, strings.Repeat("V", 100), subjectEntityName(spacePadded),
+	assert.Equal(t, strings.Repeat("V", 100), entityNameForSubject(spacePadded),
 		"leading spaces must not consume the entity budget either")
 
 	// The bound itself still applies, to the sanitized value.
 	assert.Equal(t, maxEmailSubjectEntityRunes+1,
-		len([]rune(subjectEntityName(strings.Repeat("V", maxEmailSubjectEntityRunes+50)))))
+		len([]rune(entityNameForSubject(strings.Repeat("V", maxEmailSubjectEntityRunes+50)))))
 }
 
 // =============================================================================
 // The guard
 // =============================================================================
 
-// chokepoint is the one method allowed to name resend.SendEmailRequest or reach
-// the Resend client, identified by receiver as well as by name so that a method
-// called send on some other type is not silently exempt.
+// chokepointMethod is the one method allowed to name resend.SendEmailRequest or
+// reach the Resend client, identified by receiver as well as by name so that a
+// method called send on some other type is not silently exempt.
 const (
-	chokepoint         = "send"
+	chokepointMethod   = "send"
 	chokepointReceiver = "EmailService"
 )
 
 // rogueSendSites walks one parsed file and returns the positions where
-// resend.SendEmailRequest is named, or the Resend client's Emails field is
-// touched, outside the chokepoint. One walk, so the guard below and the
-// meta-test that proves the guard can fail assert on the same predicate.
+// resend.SendEmailRequest is named, or the Resend client is reached, outside
+// the chokepoint. One walk, so the guard below and the meta-test that proves
+// the guard can fail assert on the same predicate.
 //
+// The walk covers the whole file rather than its function declarations, so a
+// package-level var holding a request or a func literal that sends is caught.
 // It looks for the TYPE NAME rather than for a composite literal, so
 // `var p resend.SendEmailRequest` and `new(resend.SendEmailRequest)` are caught
-// too, and for the Emails FIELD rather than for a Send call, so hoisting the
-// service into a local (`c := s.client.Emails; c.Send(p)`) is caught as well.
-// The resend package's local name is read from the file's own imports, so an
-// aliased import does not slip past.
-func rogueSendSites(fset *token.FileSet, file *ast.File) (requests, clients []token.Position) {
-	pkg := resendLocalName(file)
-
-	for _, decl := range file.Decls {
-		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || isChokepoint(fn) {
-			continue
-		}
-		ast.Inspect(fn, func(n ast.Node) bool {
-			sel, ok := n.(*ast.SelectorExpr)
-			if !ok {
-				return true
-			}
-			switch {
-			case pkg != "" && sel.Sel.Name == "SendEmailRequest" && isIdent(sel.X, pkg):
-				requests = append(requests, fset.Position(sel.Pos()))
-			case sel.Sel.Name == "Emails":
-				clients = append(clients, fset.Position(sel.Pos()))
-			}
-			return true
-		})
+// too, and for the client's service FIELDS rather than for a Send call, so
+// hoisting one into a local (`c := s.client.Emails; c.Send(p)`) is caught as
+// well. Emails and Batch are both fields on resend.Client that can send. The
+// resend package's local name comes from the file's own imports; a dot-import
+// makes every identifier ambiguous, so the walk reports the import itself.
+func rogueSendSites(fset *token.FileSet, file *ast.File) (requestSites, clientSites []token.Position) {
+	pkg, dot := resendLocalName(file)
+	if dot {
+		requestSites = append(requestSites, fset.Position(file.Pos()))
 	}
-	return requests, clients
+
+	ast.Inspect(file, func(n ast.Node) bool {
+		if fn, ok := n.(*ast.FuncDecl); ok && isChokepoint(fn) {
+			return false
+		}
+		sel, ok := n.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		switch {
+		case pkg != "" && sel.Sel.Name == "SendEmailRequest" && isIdent(sel.X, pkg):
+			requestSites = append(requestSites, fset.Position(sel.Pos()))
+		case isResendService(sel):
+			clientSites = append(clientSites, fset.Position(sel.Pos()))
+		}
+		return true
+	})
+	return requestSites, clientSites
+}
+
+// isResendService reports whether sel selects a sending service off a field
+// named client, e.g. s.client.Emails or b.client.Batch. Anchoring on the field
+// name keeps an unrelated struct field called Emails from failing the guard.
+func isResendService(sel *ast.SelectorExpr) bool {
+	if sel.Sel.Name != "Emails" && sel.Sel.Name != "Batch" {
+		return false
+	}
+	inner, ok := sel.X.(*ast.SelectorExpr)
+	return ok && inner.Sel.Name == "client"
 }
 
 // isChokepoint reports whether fn is EmailService.send.
 func isChokepoint(fn *ast.FuncDecl) bool {
-	if fn.Name.Name != chokepoint || fn.Recv == nil || len(fn.Recv.List) != 1 {
+	if fn.Name.Name != chokepointMethod || fn.Recv == nil || len(fn.Recv.List) != 1 {
 		return false
 	}
 	recv := fn.Recv.List[0].Type
@@ -169,22 +183,25 @@ func isIdent(expr ast.Expr, name string) bool {
 	return ok && ident.Name == name
 }
 
-// resendLocalName returns the name the resend SDK is bound to in this file, or
-// "" if the file does not import it.
-func resendLocalName(file *ast.File) string {
+// resendLocalName returns the name the resend SDK is bound to in this file and
+// whether it is dot-imported. The name is "" if the file does not import it.
+func resendLocalName(file *ast.File) (name string, dot bool) {
 	for _, imp := range file.Imports {
 		if imp.Path == nil || !strings.Contains(imp.Path.Value, "resend-go") {
 			continue
 		}
-		if imp.Name != nil {
-			return imp.Name.Name
+		if imp.Name == nil {
+			return "resend", false
 		}
-		return "resend"
+		if imp.Name.Name == "." {
+			return "", true
+		}
+		return imp.Name.Name, false
 	}
-	return ""
+	return "", false
 }
 
-// TestResendRequestsAreBuiltOnlyBySend is the structural half of this defence.
+// TestOnlySendReachesResend is the structural half of this defence.
 // headerSafeSubject cannot be forgotten by a new sender as long as the request
 // type is named in exactly one method and the client is reached from exactly
 // one method, so this test fails a second construction site or a second call
@@ -192,8 +209,9 @@ func resendLocalName(file *ast.File) string {
 //
 // The check is syntactic on purpose. It runs against the package's own source,
 // so it catches a sender added tomorrow, which a test that enumerates today's
-// senders cannot.
-func TestResendRequestsAreBuiltOnlyBySend(t *testing.T) {
+// senders cannot. Its reach is this directory: a new package that imported the
+// SDK would be outside it.
+func TestOnlySendReachesResend(t *testing.T) {
 	entries, err := os.ReadDir(".")
 	require.NoError(t, err)
 
@@ -210,14 +228,15 @@ func TestResendRequestsAreBuiltOnlyBySend(t *testing.T) {
 		file, parseErr := parser.ParseFile(fset, filepath.Join(".", name), nil, 0)
 		require.NoError(t, parseErr, "parsing %s", name)
 
-		requests, clients := rogueSendSites(fset, file)
-		for _, pos := range requests {
+		requestSites, clientSites := rogueSendSites(fset, file)
+		for _, pos := range requestSites {
 			t.Errorf("%s: names resend.SendEmailRequest outside %s.%s, "+
-				"which is how headerSafeSubject gets bypassed", pos, chokepointReceiver, chokepoint)
+				"which is how headerSafeSubject gets bypassed",
+				pos, chokepointReceiver, chokepointMethod)
 		}
-		for _, pos := range clients {
+		for _, pos := range clientSites {
 			t.Errorf("%s: reaches the Resend client outside %s.%s",
-				pos, chokepointReceiver, chokepoint)
+				pos, chokepointReceiver, chokepointMethod)
 		}
 	}
 
@@ -226,12 +245,13 @@ func TestResendRequestsAreBuiltOnlyBySend(t *testing.T) {
 
 // TestGuardRejectsASecondConstructionSite proves the guard is not vacuous, and
 // proves it against the evasions a guard like this usually misses rather than
-// only against the copy-paste case.
+// only against the copy-paste case. Every row here was a live hole at some
+// point in this ticket's review.
 func TestGuardRejectsASecondConstructionSite(t *testing.T) {
 	tests := []struct {
-		name              string
-		src               string
-		requests, clients int
+		name                      string
+		src                       string
+		requestSites, clientSites int
 	}{
 		{
 			name: "the copy-paste case",
@@ -245,7 +265,7 @@ func sendRogue(s *EmailService) error {
 	return err
 }
 `,
-			requests: 1, clients: 1,
+			requestSites: 1, clientSites: 1,
 		},
 		{
 			name: "a var declaration instead of a composite literal",
@@ -260,7 +280,39 @@ func sendRogue(s *EmailService) error {
 	return err
 }
 `,
-			requests: 1, clients: 1,
+			requestSites: 1, clientSites: 1,
+		},
+		{
+			name: "a package-level var and a func literal",
+			src: `package notification
+
+import resend "github.com/resend/resend-go/v2"
+
+var leaked = &resend.SendEmailRequest{Subject: "raw"}
+
+var doSend = func(s *EmailService) {
+	_, _ = s.client.Emails.Send(leaked)
+}
+`,
+			requestSites: 1, clientSites: 1,
+		},
+		{
+			name: "the batch service instead of Emails",
+			src: `package notification
+
+import resend "github.com/resend/resend-go/v2"
+
+type digestBatcher struct {
+	client  *resend.Client
+	pending []*resend.SendEmailRequest
+}
+
+func (b *digestBatcher) flush() error {
+	_, err := b.client.Batch.Send(b.pending)
+	return err
+}
+`,
+			requestSites: 1, clientSites: 1,
 		},
 		{
 			name: "an aliased import",
@@ -273,7 +325,20 @@ func sendRogue(s *EmailService) error {
 	return err
 }
 `,
-			requests: 1, clients: 1,
+			requestSites: 1, clientSites: 1,
+		},
+		{
+			name: "a dot import",
+			src: `package notification
+
+import . "github.com/resend/resend-go/v2"
+
+func sendRogue(s *EmailService) error {
+	_, err := s.client.Emails.Send(&SendEmailRequest{Subject: "raw"})
+	return err
+}
+`,
+			requestSites: 1, clientSites: 1,
 		},
 		{
 			name: "the client hoisted into a local",
@@ -285,7 +350,7 @@ func sendRogue(s *EmailService, p any) error {
 	return err
 }
 `,
-			requests: 0, clients: 1,
+			requestSites: 0, clientSites: 1,
 		},
 		{
 			name: "a method named send on another type",
@@ -297,7 +362,17 @@ func (s *NotificationFilterService) send(p *resend.SendEmailRequest) error {
 	return nil
 }
 `,
-			requests: 1, clients: 0,
+			requestSites: 1, clientSites: 0,
+		},
+		{
+			name: "an unrelated field called Emails is not a client",
+			src: `package notification
+
+type digest struct{ Emails []string }
+
+func count(d digest) int { return len(d.Emails) }
+`,
+			requestSites: 0, clientSites: 0,
 		},
 		{
 			name: "the chokepoint itself is exempt",
@@ -311,7 +386,7 @@ func (s *EmailService) send(msg outboundEmail) error {
 	return err
 }
 `,
-			requests: 0, clients: 0,
+			requestSites: 0, clientSites: 0,
 		},
 	}
 
@@ -321,9 +396,9 @@ func (s *EmailService) send(msg outboundEmail) error {
 			file, err := parser.ParseFile(fset, "rogue.go", tt.src, 0)
 			require.NoError(t, err)
 
-			requests, clients := rogueSendSites(fset, file)
-			assert.Len(t, requests, tt.requests, "request-type sites")
-			assert.Len(t, clients, tt.clients, "client sites")
+			requestSites, clientSites := rogueSendSites(fset, file)
+			assert.Len(t, requestSites, tt.requestSites, "request-type sites")
+			assert.Len(t, clientSites, tt.clientSites, "client sites")
 		})
 	}
 }
@@ -347,51 +422,54 @@ func TestEverySenderSubjectIsHeaderSafe(t *testing.T) {
 	senders := []struct {
 		name string
 		call func(svc *EmailService) error
+		// list is false for a message with no list to leave, which is the
+		// only reason send may omit the RFC 8058 headers.
+		list bool
 	}{
 		{"verification", func(svc *EmailService) error {
 			return svc.SendVerificationEmail("u@test.com", injectionProbe)
-		}},
+		}, false},
 		{"magic_link", func(svc *EmailService) error {
 			return svc.SendMagicLinkEmail("u@test.com", injectionProbe)
-		}},
+		}, false},
 		{"account_recovery", func(svc *EmailService) error {
 			return svc.SendAccountRecoveryEmail("u@test.com", injectionProbe, 7)
-		}},
+		}, false},
 		{"show_reminder", func(svc *EmailService) error {
 			return svc.SendShowReminderEmail("u@test.com", injectionProbe, "http://x/s", unsubURL,
 				contracts.LocalizedEventTime{}, []string{injectionProbe})
-		}},
+		}, true},
 		{"filter_notification", func(svc *EmailService) error {
 			return svc.SendFilterNotificationEmail("u@test.com", injectionProbe, "<p>body</p>", unsubURL)
-		}},
+		}, true},
 		{"tier_promotion", func(svc *EmailService) error {
 			return svc.SendTierPromotionEmail("u@test.com", injectionProbe, "new_user", injectionProbe,
 				injectionProbe, unsubURL, []string{injectionProbe})
-		}},
+		}, true},
 		{"tier_demotion", func(svc *EmailService) error {
 			return svc.SendTierDemotionEmail("u@test.com", injectionProbe, "contributor", "new_user",
 				injectionProbe, unsubURL)
-		}},
+		}, true},
 		{"tier_demotion_warning", func(svc *EmailService) error {
 			return svc.SendTierDemotionWarningEmail("u@test.com", injectionProbe, injectionProbe,
 				0.2, 0.5, unsubURL)
-		}},
+		}, true},
 		{"edit_approved", func(svc *EmailService) error {
 			return svc.SendEditApprovedEmail("u@test.com", injectionProbe, "artist", injectionProbe,
 				"http://x/a", unsubURL)
-		}},
+		}, true},
 		{"edit_rejected", func(svc *EmailService) error {
 			return svc.SendEditRejectedEmail("u@test.com", injectionProbe, "artist", injectionProbe,
 				injectionProbe, unsubURL)
-		}},
+		}, true},
 		{"comment_notification", func(svc *EmailService) error {
 			return svc.SendCommentNotification("u@test.com", injectionProbe, "artist", injectionProbe,
 				injectionProbe, "http://x/a", unsubURL)
-		}},
+		}, true},
 		{"mention_notification", func(svc *EmailService) error {
 			return svc.SendMentionNotification("u@test.com", injectionProbe, "artist", injectionProbe,
 				injectionProbe, "http://x/a", unsubURL)
-		}},
+		}, true},
 		{"collection_digest", func(svc *EmailService) error {
 			return svc.SendCollectionDigestEmail("u@test.com", []contracts.CollectionDigestGroup{{
 				CollectionTitle: injectionProbe,
@@ -401,7 +479,7 @@ func TestEverySenderSubjectIsHeaderSafe(t *testing.T) {
 					AddedBy: injectionProbe,
 				}},
 			}}, unsubURL)
-		}},
+		}, true},
 		{"scene_digest", func(svc *EmailService) error {
 			return svc.SendSceneDigestEmail("u@test.com", []contracts.SceneDigestGroup{{
 				SceneName: injectionProbe,
@@ -411,27 +489,83 @@ func TestEverySenderSubjectIsHeaderSafe(t *testing.T) {
 					ShowURL: "http://x/show",
 				}},
 			}}, unsubURL)
-		}},
+		}, true},
 	}
 
 	for _, sender := range senders {
 		t.Run(sender.name, func(t *testing.T) {
 			svc, emails, _ := setupEmailTest(t)
 			require.NoError(t, sender.call(svc))
-			assertHeaderSafe(t, (<-emails).Subject)
+
+			sent := <-emails
+			assertHeaderSafe(t, sent.Subject)
+
+			// send omits the unsubscribe headers when unsubscribeURL is
+			// empty, and an unset struct field is empty, so forgetting the
+			// field on a new list sender is a silent RFC 8058 regression.
+			// Assert it here, where every sender is already enumerated.
+			if sender.list {
+				assert.Equal(t, "<"+unsubURL+">", sent.Headers["List-Unsubscribe"],
+					"a list message must carry List-Unsubscribe")
+				assert.Equal(t, "List-Unsubscribe=One-Click", sent.Headers["List-Unsubscribe-Post"],
+					"a list message must advertise RFC 8058 one-click")
+			} else {
+				assert.NotContains(t, sent.Headers, "List-Unsubscribe",
+					"a message with no list to leave must not offer one")
+			}
 		})
 	}
 }
 
-// TestFilterSenderSubjectsAreHeaderSafe covers the four subjects composed
-// outside EmailService and handed to SendFilterNotificationEmail: the filter
-// match and scene-follow subjects in filter_service.go, and the artist and
-// venue alert subjects in artist_follow_notify.go / venue_follow_notify.go.
+// TestSubjectCopySurvivesAnOverlongName pins what the entity bound is for. The
+// whole-subject cap alone would cut from the end, so a scraped name long enough
+// to fill it takes the sentence with it and the reader learns nothing.
+func TestSubjectCopySurvivesAnOverlongName(t *testing.T) {
+	huge := strings.Repeat("\u03a9", maxEmailSubjectRunes+100)
+
+	t.Run("show reminder", func(t *testing.T) {
+		svc, emails, _ := setupEmailTest(t)
+		require.NoError(t, svc.SendShowReminderEmail("u@test.com", huge, "http://x/s",
+			"http://api.test.local/u", contracts.LocalizedEventTime{}, nil))
+		assert.Contains(t, (<-emails).Subject, "is tomorrow")
+	})
+
+	t.Run("collection digest", func(t *testing.T) {
+		svc, emails, _ := setupEmailTest(t)
+		require.NoError(t, svc.SendCollectionDigestEmail("u@test.com",
+			[]contracts.CollectionDigestGroup{{
+				CollectionTitle: huge,
+				CollectionURL:   "http://x/c",
+				Items: []contracts.CollectionDigestEntry{{
+					EntityName: "A", EntityType: "artist", EntityURL: "http://x/a", AddedBy: "B",
+				}},
+			}}, "http://api.test.local/u"))
+		assert.Contains(t, (<-emails).Subject, "1 item")
+	})
+
+	t.Run("scene digest", func(t *testing.T) {
+		svc, emails, _ := setupEmailTest(t)
+		require.NoError(t, svc.SendSceneDigestEmail("u@test.com",
+			[]contracts.SceneDigestGroup{{
+				SceneName: huge,
+				SceneURL:  "http://x/s",
+				Shows: []contracts.SceneDigestShow{{
+					DisplayTitle: "A", Date: "Sat Aug 29", VenueName: "V", ShowURL: "http://x/show",
+				}},
+			}}, "http://api.test.local/u"))
+		assert.Contains(t, (<-emails).Subject, "The next 7 days in")
+	})
+}
+
+// TestFilterSenderSubjectsAreHeaderSafe records the SHAPE of the four subjects
+// composed outside EmailService and handed to SendFilterNotificationEmail, and
+// asserts that shape survives the shared sender.
 //
-// They are exercised through the sender they all share rather than through
-// their own services, which need a database. That is the whole coverage claim:
-// a subject composed anywhere upstream becomes header-safe by passing through
-// this one method.
+// It does not execute filter_service.go, artist_follow_notify.go or
+// venue_follow_notify.go: the strings below are copies, so a change to one of
+// those format strings does not fail here. What it does establish is the claim
+// that matters for this ticket, which the composers themselves cannot: whatever
+// an upstream composer hands the shared sender comes out header-safe.
 func TestFilterSenderSubjectsAreHeaderSafe(t *testing.T) {
 	upstream := map[string]string{
 		"filter match": `New show matching "` + injectionProbe + `"`,

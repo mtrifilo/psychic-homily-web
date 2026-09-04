@@ -23,10 +23,11 @@ import (
 // =============================================================================
 
 type capturedEmail struct {
-	From    string   `json:"from"`
-	To      []string `json:"to"`
-	Subject string   `json:"subject"`
-	Html    string   `json:"html"`
+	From    string            `json:"from"`
+	To      []string          `json:"to"`
+	Subject string            `json:"subject"`
+	Html    string            `json:"html"`
+	Headers map[string]string `json:"headers"`
 }
 
 func setupEmailTest(t *testing.T) (*EmailService, chan capturedEmail, *httptest.Server) {

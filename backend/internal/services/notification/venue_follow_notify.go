@@ -1092,7 +1092,7 @@ func (s *NotificationFilterService) sendVenueShowAlertEmail(
 
 	subject := fmt.Sprintf("%s at %s",
 		venueAlertShowCountPhrase(len(mailable)),
-		subjectEntityName(batch.venueName))
+		entityNameForSubject(batch.venueName))
 
 	if err := s.sendEmail(email, subject, html, unsubscribeURL); err != nil {
 		sentry.WithScope(func(scope *sentry.Scope) {

@@ -813,7 +813,7 @@ func (s *NotificationFilterService) sendFilterEmail(userID uint, filterID uint, 
 
 	html := buildFilterEmailHTML(filterName, show.Title, c.date, c.venueText, c.artistText, c.priceText, c.showURL, unsubscribeURL)
 
-	subject := fmt.Sprintf("New show matching \"%s\"", filterName)
+	subject := fmt.Sprintf(`New show matching "%s"`, entityNameForSubject(filterName))
 	if err := s.sendEmail(email, subject, html, unsubscribeURL); err != nil {
 		sentry.WithScope(func(scope *sentry.Scope) {
 			scope.SetTag("service", "notification_filter")
