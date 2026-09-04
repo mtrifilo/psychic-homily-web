@@ -396,6 +396,113 @@ describe('VenueEditForm', () => {
       expect(mockMutate).not.toHaveBeenCalled()
     })
 
+    it('rejects a one-character state on an exempt venue', async () => {
+      // The exemption relaxes the rule to "blank, or a state". Accepting a
+      // single character would be a one-way door: the venue stops being exempt
+      // the moment a non-blank state is on file, so the next save would fail
+      // the two-character floor against a value this form wrote, and the
+      // server refuses an empty string that would undo it.
+      const user = userEvent.setup()
+      const venue = makeVenue({
+        city: 'Berlin',
+        state: '',
+        timezone: 'Europe/Berlin',
+      })
+      renderWithProviders(
+        <VenueEditForm
+          key={venue.id}
+          venue={venue}
+          open
+          onOpenChange={vi.fn()}
+        />
+      )
+
+      await user.type(screen.getByLabelText(/^State$/i), 'A')
+      await user.click(screen.getByRole('button', { name: /Save Changes/i }))
+
+      expect(await screen.findByText(/State is required/i)).toBeInTheDocument()
+      expect(mockMutate).not.toHaveBeenCalled()
+    })
+
+    it('accepts a real state typed into an exempt venue', async () => {
+      const user = userEvent.setup()
+      const venue = makeVenue({
+        city: 'Berlin',
+        state: '',
+        timezone: 'Europe/Berlin',
+      })
+      renderWithProviders(
+        <VenueEditForm
+          key={venue.id}
+          venue={venue}
+          open
+          onOpenChange={vi.fn()}
+        />
+      )
+
+      await user.type(screen.getByLabelText(/^State$/i), 'NH')
+      await user.click(screen.getByRole('button', { name: /Save Changes/i }))
+
+      await waitFor(() => expect(mockMutate).toHaveBeenCalledTimes(1))
+      const [vars] = mockMutate.mock.calls[0] as [
+        { data: Record<string, unknown> },
+      ]
+      expect(vars.data.state).toBe('NH')
+    })
+
+    it('keeps the requirement when the venue state is whitespace rather than empty', () => {
+      // Not exempt: the stored value is one the form can leave alone, and
+      // `min(2)` passes on it, so the save works without the exemption.
+      const venue = makeVenue({
+        city: 'Berlin',
+        state: '   ',
+        timezone: 'Europe/Berlin',
+      })
+      renderWithProviders(
+        <VenueEditForm
+          key={venue.id}
+          venue={venue}
+          open
+          onOpenChange={vi.fn()}
+        />
+      )
+
+      expect(screen.getByLabelText(/^State \*/i)).toBeInTheDocument()
+    })
+
+    it('keeps the exemption when a refetch fills the state under the open dialog', () => {
+      // `key={venue.id}` pins identity, not columns, and this prop rides a
+      // refetching query. A rule recomputed per render would revoke the
+      // exemption mid-edit and fail a save the form had already called legal,
+      // while TanStack Form still holds the mount-time defaultValues.
+      const venue = makeVenue({
+        city: 'Berlin',
+        state: '',
+        timezone: 'Europe/Berlin',
+      })
+      const { rerender } = renderWithProviders(
+        <VenueEditForm
+          key={venue.id}
+          venue={venue}
+          open
+          onOpenChange={vi.fn()}
+        />
+      )
+
+      expect(screen.queryByLabelText(/^State \*/i)).not.toBeInTheDocument()
+
+      rerender(
+        <VenueEditForm
+          key={venue.id}
+          venue={{ ...venue, state: 'NH' }}
+          open
+          onOpenChange={vi.fn()}
+        />
+      )
+
+      expect(screen.queryByLabelText(/^State \*/i)).not.toBeInTheDocument()
+    })
+
     it('still blocks clearing a state that is on file, whatever the venue zone', async () => {
       const user = userEvent.setup()
       const venue = makeVenue({ timezone: 'America/Phoenix', country: 'Germany' })

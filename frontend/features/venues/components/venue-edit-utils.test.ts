@@ -118,10 +118,17 @@ describe('venueMayOmitState', () => {
     ).toBe(false)
   })
 
-  it('treats a whitespace-only state as blank', () => {
+  it('does not treat a whitespace-only state as blank', () => {
+    // A whitespace state is a value the form can leave alone, so it needs no
+    // exemption. Calling it blank would make clearing it legal at the form and
+    // rejected at the server, which is the trade this rule exists to avoid.
     expect(
-      venueMayOmitState({ state: '   ', timezone: 'Europe/Berlin', country: null })
-    ).toBe(true)
+      venueMayOmitState({
+        state: '   ',
+        timezone: 'Europe/Berlin',
+        country: null,
+      })
+    ).toBe(false)
   })
 })
 

@@ -42,9 +42,13 @@ const SUCCESS_CLOSE_DELAY_MS = 1500
  * by `venueMayOmitState`, which owns why. Every other venue keeps the plain
  * requirement, and so does a state the user cleared.
  *
- * The two-character floor is a US postal-abbreviation check, not a length rule
- * about states in general: it predates any non-US venue reaching this form and
- * is kept for the venues it does describe.
+ * The exempt variant relaxes the requirement to "blank, or a state", NOT to
+ * "anything". The two-character floor is a US postal-abbreviation check, and
+ * dropping it outright would accept a one-character state that the exemption
+ * then revokes itself over: `venueMayOmitState` answers false for any non-blank
+ * state, so the next save on that venue would fail the floor against a value
+ * this form had just written, and the server refuses to take it back
+ * (`PUT /venues/{id}` answers 422 to `state: ""`).
  */
 const makeVenueEditSchema = (stateIsOptional: boolean) =>
   z.object({
@@ -52,7 +56,11 @@ const makeVenueEditSchema = (stateIsOptional: boolean) =>
     address: z.string(),
     city: z.string().min(1, 'City is required'),
     state: stateIsOptional
-      ? z.string()
+      ? z
+          .string()
+          .refine(value => value === '' || value.length >= 2, {
+            message: 'State is required',
+          })
       : z.string().min(2, 'State is required'),
     zipcode: z.string(),
     instagram: z.string(),
@@ -113,10 +121,14 @@ export function VenueEditForm({
 
   const isAdmin = user?.is_admin ?? false
 
-  // Whether this venue's state field is optional. Read off the venue prop,
-  // which the `key` contract above pins for the life of the mounted form, so
-  // the rule cannot change under a user mid-edit.
-  const stateIsOptional = venueMayOmitState(venue)
+  // Whether this venue's state field is optional.
+  //
+  // Captured once, at mount, for the same reason TanStack Form reads
+  // `defaultValues` once: it has to describe the values the form is holding.
+  // `key={venue.id}` pins the venue's IDENTITY across renders, not its columns,
+  // and this prop rides a refetching query, so a recomputed rule could revoke
+  // the exemption mid-edit and fail a save the form had already called legal.
+  const [stateIsOptional] = useState(() => venueMayOmitState(venue))
   const venueEditSchema = stateIsOptional
     ? VENUE_EDIT_SCHEMA_STATE_OPTIONAL
     : VENUE_EDIT_SCHEMA_STATE_REQUIRED

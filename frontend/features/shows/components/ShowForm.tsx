@@ -150,10 +150,11 @@ const showFormFields = {
  *
  * This is deliberately STRICTER than the backend. `associateVenues` resolves a
  * venue carrying an id by primary key and would accept any of those, since only
- * its (name, city, state) fallback, `VenueService.FindOrCreateVenue` in
- * backend/internal/services/catalog/venue.go, reads the state at all. The
- * backend has no stake in the zone; this rule does, because the field it
- * guards is what the submit composes event_date from.
+ * its id-less fallback, `VenueService.FindOrCreateVenue` in
+ * backend/internal/services/catalog/venue.go, reads the state at all: it
+ * REQUIRES one, matches on (name, city), and spends the state on the new
+ * venue's slug. The backend has no stake in the zone; this rule does, because
+ * the field it guards is what the submit composes event_date from.
  *
  * The rule sits on the venue object rather than the state field so it can read
  * the id; `path` puts the message back on the state field, which is where the
@@ -259,10 +260,10 @@ export function ShowForm({
   )
 
   // The locked venue's location line. formatLocation, not a template, so a
-  // venue with no state on file does not render a trailing comma; the venue is
-  // passed structurally so a `country` added to PrefilledVenue flows through
-  // without another edit here. Its stand-alone placeholder is dropped rather
-  // than printed beside a venue name that already stated the place.
+  // venue with no state on file does not render a trailing comma. Its
+  // stand-alone placeholder is dropped rather than printed beside a venue name
+  // that already stated the place. PrefilledVenue carries no `country`, so this
+  // line names city and state only, where the venue's own page names all three.
   const prefilledLocationText = prefilledVenue
     ? formatLocation(prefilledVenue)
     : ''
@@ -447,6 +448,13 @@ export function ShowForm({
           title: value.title || undefined,
           event_date: eventDate,
           city: value.venue.city,
+          // Sent as-is, including the blank the venue rule above allows for a
+          // prefilled venue with its own zone. A create has no stored column to
+          // preserve, so there is no key to omit the way the edit branch does,
+          // and `shows.state` is the honest empty for a venue outside the US
+          // state map. It costs the row its place in the shows-cities
+          // aggregation, which drops an empty state, so the city never becomes
+          // a filter option.
           state: value.venue.state,
           price,
           door_price: doorPrice,

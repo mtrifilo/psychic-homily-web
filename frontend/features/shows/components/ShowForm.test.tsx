@@ -963,8 +963,9 @@ describe('ShowForm: a blank venue state is otherwise still rejected', () => {
     expect(mockShowSubmit.mutate).not.toHaveBeenCalled()
   })
 
-  // A venue typed in by name is resolved by (name, city, state), so the state
-  // is the only thing that could identify its zone.
+  // A venue typed in by name carries no id, so the payload describes it by
+  // name, city and state, and `FindOrCreateVenue` requires the state. Nothing
+  // else about such a venue could identify a zone.
   it('blocks a create on a brand new venue typed in by name', async () => {
     const user = userEvent.setup()
     renderWithProviders(<ShowForm mode="create" redirectOnCreate={false} />)
@@ -1359,6 +1360,12 @@ describe('ShowForm: creating on a prefilled state-less venue', () => {
     expect(submission.state).toBe('')
   })
 
+  // A DEAD END, pinned as the honest refusal rather than as good UX: the State
+  // field is disabled for every prefilled venue, so the message names something
+  // the user cannot supply here. Accepting the submit instead would anchor the
+  // show to FALLBACK_SHOW_TIMEZONE, which for a venue outside the US state map
+  // is a wrong instant written silently. The repair is on the venue, which the
+  // venue editor now accepts.
   it('blocks a prefilled state-less venue with no resolved zone', async () => {
     const user = userEvent.setup()
     renderWithProviders(
@@ -1374,6 +1381,21 @@ describe('ShowForm: creating on a prefilled state-less venue', () => {
 
     expect(await screen.findByText('State is required')).toBeInTheDocument()
     expect(mockShowSubmit.mutate).not.toHaveBeenCalled()
+  })
+
+  it('renders no location segment when the venue has neither city nor state', () => {
+    renderWithProviders(
+      <ShowForm
+        mode="create"
+        prefilledVenue={{ ...zonedBerlinVenue, city: '' }}
+        redirectOnCreate={false}
+      />
+    )
+
+    // formatLocation's stand-alone placeholder, printed beside a venue name,
+    // would state something this line was not asked to state.
+    expect(screen.queryByText(/Location Unknown/i)).not.toBeInTheDocument()
+    expect(screen.getByText('Kesselhaus')).toBeInTheDocument()
   })
 
   it('renders the locked venue line without a trailing comma when the state is blank', () => {

@@ -27,11 +27,14 @@ export interface VenueEditFormValues {
  * map does not describe, is a complete record, and the editor must not demand
  * an invented state before it will save an address fix.
  *
- * Only a venue whose STORED state is already blank qualifies. Clearing a state
+ * Only a venue whose STORED state is EXACTLY blank qualifies. Clearing a state
  * that is on file keeps the requirement, because `PUT /venues/{id}` answers 422
  * to `state: ""` and `detectVenueChanges` sends the field exactly when it
  * changed: exempting a clear would trade an inline message for a server error.
- * A blank state that was blank on arrival is never sent at all.
+ * A blank state that was blank on arrival is never sent at all. The test is
+ * `!== ''` rather than a trim for that reason: a whitespace state is a value
+ * the form can leave alone, and treating it as blank would make clearing it
+ * legal here and rejected there.
  *
  * The country half is a weaker signal than the zone half. It says the state map
  * does not apply, not which zone does; such a venue still renders on
@@ -44,11 +47,19 @@ export interface VenueEditFormValues {
  * known blank, so the only live question is whether the venue's own zone STRING
  * names a zone, which is the distinction `formatters.ts` exports
  * `isValidTimeZone` to answer.
+ *
+ * KNOWN GAP: `venues.timezone` is DERIVED from the same location this venue is
+ * missing part of (`applyGeocoding` in the venue service), so for a US town
+ * entered without its state the zone can be a same-name city abroad. This rule
+ * reads that zone as evidence and stops prompting for the state, which is the
+ * one edit that would re-derive it. The zone is already wrong for such a venue
+ * before anyone opens this form; what is lost is an accidental repair, not a
+ * correct value.
  */
 export function venueMayOmitState(
   venue: Pick<Venue, 'state' | 'timezone' | 'country'>
 ): boolean {
-  if (venue.state.trim() !== '') return false
+  if (venue.state !== '') return false
   if (venue.timezone && isValidTimeZone(venue.timezone)) return true
   const country = venue.country?.trim() ?? ''
   return country !== '' && !isUnitedStatesCountry(country)
