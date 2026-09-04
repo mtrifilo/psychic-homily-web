@@ -316,12 +316,15 @@ export function EntityEditDrawer({
             inviting a resubmit, because a 409 is also how a duplicate queued
             edit is reported, and resubmitting that one fails again. */}
         {editMutation.isError && (
-          <div className="mx-4 rounded-md border border-red-800 bg-red-950/50 p-4">
-            <p className="text-sm text-red-400">
+          /* Semantic destructive tokens, not raw Tailwind reds: those resolve to
+             one dark-mode palette, which on the light ground this drawer renders
+             against left the message barely legible. */
+          <div className="mx-4 rounded-md border border-destructive/40 bg-destructive/10 p-4">
+            <p className="text-sm text-destructive">
               {(editMutation.error as Error)?.message || 'Failed to submit edit'}
             </p>
             {isConflictError(editMutation.error) && (
-              <p className="mt-1 text-sm text-red-400">
+              <p className="mt-1 text-sm text-destructive">
                 This form has been refreshed with the current values.
               </p>
             )}
