@@ -6,7 +6,7 @@ import {
   FALLBACK_SHOW_TIMEZONE,
   getTimezoneForState,
   combineDateTimeToUTC,
-  localClockExists,
+  resolveLocalClockToUTC,
   formatInTimezone,
   formatDateInTimezone,
   formatTimeInTimezone,
@@ -565,7 +565,7 @@ describe('cross-language DST corpus (this resolver and the Go writers are one ru
   it.each(
     dstCorpus.cases.map(c => [`${c.date} ${c.clock} ${c.zone}`, c] as const)
   )('%s agrees with the corpus about whether the clock exists', (_name, c) => {
-    expect(localClockExists(c.date, c.clock, c.zone)).toBe(c.exists)
+    expect(resolveLocalClockToUTC(c.date, c.clock, c.zone).exists).toBe(c.exists)
   })
 })
 
@@ -574,8 +574,8 @@ describe('combineDateTimeToUTC across DST transitions', () => {
   // fact rather than a row index.
 
   it('keeps a doors/music pair an hour apart across a spring-forward gap', () => {
-    // A single offset probe reads the wrong side of the transition and lands
-    // both of these on 2026-03-28T23:30Z: two stated clocks, one instant.
+    // The one-probe form below is what this replaced, run here so the claim is
+    // executable: it lands both stated clocks on one instant.
     const doors = combineDateTimeToUTC('2026-03-29', '00:30', 'Europe/Berlin')
     const music = combineDateTimeToUTC('2026-03-29', '01:30', 'Europe/Berlin')
     expect(doors).toBe('2026-03-28T23:30:00Z')
@@ -584,17 +584,17 @@ describe('combineDateTimeToUTC across DST transitions', () => {
   })
 
   it('reports the skipped hour as nonexistent in a US zone', () => {
-    expect(localClockExists('2026-03-08', '01:30', 'America/Chicago')).toBe(true)
-    expect(localClockExists('2026-03-08', '02:30', 'America/Chicago')).toBe(
+    expect(resolveLocalClockToUTC('2026-03-08', '01:30', 'America/Chicago').exists).toBe(true)
+    expect(resolveLocalClockToUTC('2026-03-08', '02:30', 'America/Chicago').exists).toBe(
       false
     )
-    expect(localClockExists('2026-03-08', '03:00', 'America/Chicago')).toBe(true)
+    expect(resolveLocalClockToUTC('2026-03-08', '03:00', 'America/Chicago').exists).toBe(true)
   })
 
   it('reports the skipped hour as nonexistent in a European zone', () => {
-    expect(localClockExists('2026-03-29', '01:30', 'Europe/Berlin')).toBe(true)
-    expect(localClockExists('2026-03-29', '02:30', 'Europe/Berlin')).toBe(false)
-    expect(localClockExists('2026-03-29', '03:30', 'Europe/Berlin')).toBe(true)
+    expect(resolveLocalClockToUTC('2026-03-29', '01:30', 'Europe/Berlin').exists).toBe(true)
+    expect(resolveLocalClockToUTC('2026-03-29', '02:30', 'Europe/Berlin').exists).toBe(false)
+    expect(resolveLocalClockToUTC('2026-03-29', '03:30', 'Europe/Berlin').exists).toBe(true)
   })
 
   it('accepts a clock a fall-back makes happen twice, and picks one', () => {
@@ -602,11 +602,11 @@ describe('combineDateTimeToUTC across DST transitions', () => {
     // comes back varies by zone rather than following a rule, so both are
     // pinned. Chicago lands on the earlier occurrence (still on daylight time)
     // and Berlin on the later one (already on standard time).
-    expect(localClockExists('2026-11-01', '01:30', 'America/Chicago')).toBe(true)
+    expect(resolveLocalClockToUTC('2026-11-01', '01:30', 'America/Chicago').exists).toBe(true)
     expect(combineDateTimeToUTC('2026-11-01', '01:30', 'America/Chicago')).toBe(
       '2026-11-01T06:30:00Z'
     )
-    expect(localClockExists('2026-10-25', '02:30', 'Europe/Berlin')).toBe(true)
+    expect(resolveLocalClockToUTC('2026-10-25', '02:30', 'Europe/Berlin').exists).toBe(true)
     expect(combineDateTimeToUTC('2026-10-25', '02:30', 'Europe/Berlin')).toBe(
       '2026-10-25T01:30:00Z'
     )
@@ -619,25 +619,26 @@ describe('combineDateTimeToUTC across DST transitions', () => {
     expect(combineDateTimeToUTC('2026-06-15', '20:00', 'Europe/Berlin')).toBe(
       '2026-06-15T18:00:00Z'
     )
-    expect(localClockExists('2026-07-15', '20:00', 'America/Chicago')).toBe(true)
-    expect(localClockExists('2026-06-15', '20:00', 'Europe/Berlin')).toBe(true)
+    expect(resolveLocalClockToUTC('2026-07-15', '20:00', 'America/Chicago').exists).toBe(true)
+    expect(resolveLocalClockToUTC('2026-06-15', '20:00', 'Europe/Berlin').exists).toBe(true)
   })
 
   it('holds on a transition night in a zone whose step is 30 minutes', () => {
-    expect(localClockExists('2026-10-04', '02:15', 'Australia/Lord_Howe')).toBe(
+    expect(resolveLocalClockToUTC('2026-10-04', '02:15', 'Australia/Lord_Howe').exists).toBe(
       false
     )
-    expect(localClockExists('2026-10-04', '01:45', 'Australia/Lord_Howe')).toBe(
+    expect(resolveLocalClockToUTC('2026-10-04', '01:45', 'Australia/Lord_Howe').exists).toBe(
       true
     )
   })
 })
 
 describe('the form round trip across a DST transition', () => {
-  // The show form writes an instant with combineDateTimeToUTC and reads it back
-  // with parseISOToDateAndTime, both in the venue's zone. A wall clock that
-  // survives that round trip is one the editor sees as the clock the submitter
-  // typed.
+  // The show form writes an instant through resolveFormEventDate, which calls
+  // resolveLocalClockToUTC, and reads it back with parseISOToDateAndTime in the
+  // same zone. combineDateTimeToUTC below is that same resolver's instant half.
+  // A wall clock that survives the round trip is one the editor sees as the
+  // clock the submitter typed.
 
   it.each([
     ['2027-03-28', '01:30', 'Europe/Berlin'],
@@ -672,5 +673,101 @@ describe('the form round trip across a DST transition', () => {
       time: '01:30',
     })
     expect(combineDateTimeToUTC('2026-11-01', '01:30', zone)).toBe(earlier)
+  })
+})
+
+/**
+ * The one-probe resolution this module replaced: read the zone's offset once, at
+ * the wall clock interpreted as UTC, and subtract it.
+ *
+ * Written out here rather than described in a comment so the difference between
+ * the two algorithms is something the suite runs. It is a test fixture; nothing
+ * in `lib/` calls it.
+ */
+function singleProbeCombine(
+  dateString: string,
+  timeString: string,
+  timezone: string
+): string {
+  const [year, month, day] = dateString.split('-').map(Number)
+  const [hours, minutes] = timeString.split(':').map(Number)
+  const wanted = Date.UTC(year, month - 1, day, hours, minutes, 0, 0)
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date(wanted))
+  const p = (type: string) => Number(parts.find(x => x.type === type)?.value ?? 0)
+  const hour = p('hour') === 24 ? 0 : p('hour')
+  const offset =
+    Date.UTC(p('year'), p('month') - 1, p('day'), hour, p('minute'), 0, 0) - wanted
+  return new Date(wanted - offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
+}
+
+describe('the one-probe resolution this module replaced', () => {
+  it('collapses a stated doors and music pair onto one instant', () => {
+    const doors = singleProbeCombine('2026-03-29', '00:30', 'Europe/Berlin')
+    const music = singleProbeCombine('2026-03-29', '01:30', 'Europe/Berlin')
+    expect(doors).toBe(music)
+    expect(combineDateTimeToUTC('2026-03-29', '00:30', 'Europe/Berlin')).not.toBe(
+      combineDateTimeToUTC('2026-03-29', '01:30', 'Europe/Berlin')
+    )
+  })
+
+  it('disagrees with the corpus on rows that bracket a transition', () => {
+    // The corpus is what the two-probe form is held to, so the rows the one-probe
+    // form gets wrong are the size of the defect. Asserted as a floor rather than
+    // an exact number so adding corpus rows does not fail it.
+    const wrong = dstCorpus.cases.filter(
+      c => singleProbeCombine(c.date, c.clock, c.zone) !== c.utc
+    )
+    expect(wrong.length).toBeGreaterThanOrEqual(10)
+    expect(
+      dstCorpus.cases.filter(
+        c => combineDateTimeToUTC(c.date, c.clock, c.zone) !== c.utc
+      )
+    ).toHaveLength(0)
+  })
+})
+
+describe('the corpus ambiguous flag', () => {
+  // Go re-derives this column from the zone's own transitions. Asserting it here
+  // too is what stops it being a Go-side self-check that TypeScript carries and
+  // never reads.
+  const readsAs = (instantMs: number, zone: string) =>
+    parseISOToDateAndTime(new Date(instantMs).toISOString(), zone)
+
+  it.each(
+    dstCorpus.cases
+      .filter(c => c.ambiguous)
+      .map(c => [`${c.date} ${c.clock} ${c.zone}`, c] as const)
+  )('%s has a second instant reading as the same clock', (_name, c) => {
+    const chosen = Date.parse(c.utc)
+    const twins = [-60, -30, 30, 60]
+      .map(m => chosen + m * 60_000)
+      .filter(t => {
+        const r = readsAs(t, c.zone)
+        return r.date === c.date && r.time === c.clock
+      })
+    expect(twins.length).toBeGreaterThan(0)
+  })
+
+  it.each(
+    dstCorpus.cases
+      .filter(c => !c.ambiguous && c.exists)
+      .map(c => [`${c.date} ${c.clock} ${c.zone}`, c] as const)
+  )('%s has exactly one instant reading as that clock', (_name, c) => {
+    const chosen = Date.parse(c.utc)
+    const twins = [-120, -60, -30, 30, 60, 120]
+      .map(m => chosen + m * 60_000)
+      .filter(t => {
+        const r = readsAs(t, c.zone)
+        return r.date === c.date && r.time === c.clock
+      })
+    expect(twins).toHaveLength(0)
   })
 })

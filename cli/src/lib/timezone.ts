@@ -117,8 +117,17 @@ function isValidTimeZone(name: string): boolean {
 /**
  * Convert a local date+time in a given timezone to a UTC ISO 8601 string.
  *
- * Uses the same Intl.DateTimeFormat offset-probing approach as the frontend's
- * combineDateTimeToUTC() in frontend/lib/utils/timeUtils.ts.
+ * Probes the zone's offset ONCE, at the wall clock interpreted as UTC. That
+ * instant is up to a day from the answer, so on a night the zone's clocks move
+ * this reads the offset on the wrong side of the transition and returns an
+ * instant an hour from the one Go's time.Date returns for the same wall clock.
+ * Two stated clocks either side of a spring-forward gap collapse onto one.
+ *
+ * The frontend answers that question in
+ * frontend/lib/utils/timeUtils.resolveLocalClockToUTC, which probes twice and is
+ * held to backend/internal/utils/testdata/dst_clock_corpus.json. This function
+ * disagrees with that corpus on the rows that bracket a transition and does not
+ * read it.
  *
  * @param dateStr  Date in YYYY-MM-DD format
  * @param timeStr  Time in HH:MM or HH:MM:SS format
