@@ -143,9 +143,11 @@ func ErrPendingEditInvalidRequest(message string) *PendingEditError {
 // fields whose claimed previous value disagrees with the entity.
 //
 // The message is user-facing and says only that the field moved, never what it
-// moved to: the same submission may name a field this submitter is not served
-// (an unverified venue's address), so quoting the current value here would be a
-// disclosure channel that no read gate covers.
+// moved to. Field NAMES are safe here because a submission can only name a field
+// its entity's edit allowlist exposes; a VALUE would not be, since the same
+// submission may name a field whose stored value the entity withholds from this
+// reader. deriveOldValues holds the other half of that rule, deriving the
+// withheld view rather than the column for exactly those fields.
 func ErrPendingEditStaleValue(fields []string) *PendingEditError {
 	subject := "This field has"
 	if len(fields) > 1 {

@@ -584,9 +584,33 @@ describe('RevisionHistory - partial rollback report', () => {
 
     await expandFirstRevision()
 
-    expect(screen.getByText(/1 field was left unchanged/)).toBeInTheDocument()
+    expect(screen.getByText(/Partial rollback\. 1 field was left unchanged/)).toBeInTheDocument()
     expect(screen.getByText('spotify')).toBeInTheDocument()
     expect(screen.getByText(/Spotify URL must be on spotify\.com/)).toBeInTheDocument()
+  })
+
+  it('names every skipped field when more than one was refused', async () => {
+    mockUseRollbackRevision.mockReturnValue({
+      mutate: mockRollbackMutate,
+      isPending: false,
+      variables: 1,
+      data: {
+        success: true,
+        applied_fields: ['name'],
+        skipped_fields: [
+          { field: 'spotify', reason: 'Spotify URL must be on spotify.com' },
+          { field: 'website', reason: 'Website URL must use http or https scheme' },
+        ],
+      },
+      isError: false,
+      error: null,
+    })
+
+    await expandFirstRevision()
+
+    expect(screen.getByText(/2 fields were left unchanged/)).toBeInTheDocument()
+    expect(screen.getByText('spotify')).toBeInTheDocument()
+    expect(screen.getByText('website')).toBeInTheDocument()
   })
 
   it('reports nothing extra when every field was restored', async () => {

@@ -539,7 +539,7 @@ describe('EntityEditDrawer stale-value conflict (PSY-1998)', () => {
     suggestEditState.error = null
   })
 
-  it('shows the server message and says the form was refreshed', () => {
+  it('shows the server message and says what the refreshed preview now compares against', () => {
     suggestEditState.isError = true
     suggestEditState.error = Object.assign(
       new Error('This field has changed since you loaded the form: name.'),
@@ -551,7 +551,9 @@ describe('EntityEditDrawer stale-value conflict (PSY-1998)', () => {
     expect(
       screen.getByText(/This field has changed since you loaded the form: name\./)
     ).toBeInTheDocument()
-    expect(screen.getByText(/This form has been refreshed with the current values/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/The changes preview below now compares your edit against the current values/)
+    ).toBeInTheDocument()
   })
 
   it('does not claim a reload happened on an ordinary failure', () => {
@@ -564,7 +566,7 @@ describe('EntityEditDrawer stale-value conflict (PSY-1998)', () => {
 
     expect(screen.getByText('Summary is required')).toBeInTheDocument()
     expect(
-      screen.queryByText(/This form has been refreshed with the current values/)
+      screen.queryByText(/The changes preview below now compares your edit/)
     ).not.toBeInTheDocument()
   })
 })

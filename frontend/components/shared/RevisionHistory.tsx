@@ -52,7 +52,7 @@ function FieldChangeDiff({ change }: { change: FieldChange }) {
 }
 
 /** No rollback has touched this row, shared so a render allocates nothing. */
-const NO_SKIPPED_FIELDS: RollbackSkippedField[] = []
+const NO_SKIPPED_FIELDS: readonly RollbackSkippedField[] = []
 
 /**
  * One row's view of the single rollback mutation every row shares.
@@ -63,7 +63,7 @@ const NO_SKIPPED_FIELDS: RollbackSkippedField[] = []
  */
 interface RowRollbackState {
   /** Fields the last rollback of THIS revision refused to restore. */
-  skipped: RollbackSkippedField[]
+  skipped: readonly RollbackSkippedField[]
   /** Message from a rollback of THIS revision the server refused whole. */
   error: string | null
   /** Whether the rollback in flight is THIS row's. */
@@ -78,6 +78,11 @@ interface RowRollbackState {
  * reads as a completed undo while part of the edit is still in place. The
  * failure case is here for the same reason, since a rollback the server refuses
  * outright otherwise leaves the panel unchanged and silent.
+ *
+ * The copy states what happened and does not reassure. A revision written before
+ * the submit-time derivation can carry a previous value nobody vetted, and only
+ * the URL and numeric fields have a gate, so "the other fields were restored" is
+ * not by itself good news.
  */
 function RollbackOutcome({ skipped, error }: RowRollbackState) {
   if (error) {
@@ -91,7 +96,7 @@ function RollbackOutcome({ skipped, error }: RowRollbackState) {
   return (
     <div className="mt-2 text-xs" role="status">
       <p className="text-muted-foreground">
-        Restored the other fields. {skipped.length} field
+        Partial rollback. {skipped.length} field
         {skipped.length === 1 ? ' was' : 's were'} left unchanged:
       </p>
       <ul className="mt-1 space-y-0.5">
@@ -242,7 +247,9 @@ export function RevisionHistory({ entityType, entityId, isAdmin = false }: Revis
     offset,
   })
 
-  const rollback = useRollbackRevision()
+  // The entity type is handed to the hook so a successful rollback refreshes the
+  // page around this panel, not just the panel. See useRollbackRevision.
+  const rollback = useRollbackRevision(entityType)
 
   const total = data?.total ?? 0
   const revisions = data?.revisions ?? []

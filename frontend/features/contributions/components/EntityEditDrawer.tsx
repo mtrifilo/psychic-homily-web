@@ -311,10 +311,13 @@ export function EntityEditDrawer({
         {/* Error state. A conflict is not a failure of the submission but a
             report that the entity is not in the state the form described, so the
             server's message says what moved and the line below states what
-            already happened: useSuggestEdit refetches the entity on 409 and this
-            form reads its previous values from it. Stating the refresh and not
-            inviting a resubmit, because a 409 is also how a duplicate queued
-            edit is reported, and resubmitting that one fails again. */}
+            already happened: useSuggestEdit refetches the entity on 409, and the
+            changes preview re-bases on it. It says PREVIEW rather than "the
+            form", because getValue prefers what the user typed, so the inputs
+            they touched deliberately keep their draft and do not show the new
+            value. It does not invite a resubmit either, because a 409 is also
+            how a duplicate queued edit is reported and resubmitting that one
+            fails the same way. */}
         {editMutation.isError && (
           /* Semantic destructive tokens, not raw Tailwind reds: those resolve to
              one dark-mode palette, which on the light ground this drawer renders
@@ -325,7 +328,7 @@ export function EntityEditDrawer({
             </p>
             {isConflictError(editMutation.error) && (
               <p className="mt-1 text-sm text-destructive">
-                This form has been refreshed with the current values.
+                The changes preview below now compares your edit against the current values.
               </p>
             )}
           </div>

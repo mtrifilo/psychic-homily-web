@@ -249,22 +249,70 @@ func (s *PendingEditServiceIntegrationTestSuite) TestCreatePendingEdit_AcceptsEi
 }
 
 // An unverified venue's address is served to nobody, so a submitter's claim
-// about it carries no information and must not block the edit. The value stored
-// is still the server's: the column, not the claim.
-func (s *PendingEditServiceIntegrationTestSuite) TestCreatePendingEdit_SkipsConflictOnWithheldAddress() {
+// about it carries no information and must not block the edit.
+//
+// The derived value is the WITHHELD view, not the column. A pending edit is read
+// back by its submitter, so deriving from the column would hand any authenticated
+// user the street address of a house show by asking to edit it, defeating the
+// gate on the live payload rather than mirroring it.
+func (s *PendingEditServiceIntegrationTestSuite) TestCreatePendingEdit_WithheldAddressNeitherConflictsNorLeaks() {
 	user := s.createTestUser()
 	venue := s.createTestVenue("House Show")
-	s.Require().NoError(s.db.Model(venue).Update("address", "123 Real St").Error)
+	s.Require().NoError(s.db.Model(venue).Updates(map[string]interface{}{
+		"address": "123 Real St",
+		"zipcode": "85031",
+	}).Error)
 
 	resp, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
 		EntityType: "venue",
 		EntityID:   venue.ID,
 		UserID:     user.ID,
-		Changes:    []adminm.FieldChange{{Field: "address", OldValue: nil, NewValue: "456 New St"}},
-		Summary:    "they moved",
+		Changes: []adminm.FieldChange{
+			{Field: "address", OldValue: nil, NewValue: "456 New St"},
+			{Field: "zipcode", OldValue: nil, NewValue: "85004"},
+		},
+		Summary: "they moved",
 	})
 	s.Require().NoError(err, "an unreadable field cannot produce a stale-value conflict")
-	s.Equal("123 Real St", s.storedChanges(resp.ID)["address"].OldValue)
+
+	stored := s.storedChanges(resp.ID)
+	s.Equal("", stored["address"].OldValue, "the withheld address must not be stored or served back")
+	s.Equal("", stored["zipcode"].OldValue, "the withheld zipcode must not be stored or served back")
+
+	served := resp.FieldChanges
+	for _, c := range served {
+		s.NotEqual("123 Real St", c.OldValue)
+		s.NotEqual("85031", c.OldValue)
+	}
+}
+
+// The withheld view is the SAME whatever the column holds, so the conflict
+// answer carries no bit about it. A venue with no address on file behaves
+// identically to one whose address is withheld.
+func (s *PendingEditServiceIntegrationTestSuite) TestCreatePendingEdit_WithheldAddressIsNotAnOracle() {
+	user := s.createTestUser()
+
+	withAddress := s.createTestVenue("Has An Address")
+	s.Require().NoError(s.db.Model(withAddress).Update("address", "123 Real St").Error)
+	withoutAddress := s.createTestVenue("Has No Address")
+
+	probe := func(venueID uint) error {
+		_, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+			EntityType: "venue",
+			EntityID:   venueID,
+			UserID:     user.ID,
+			Changes:    makeChanges("address", "999 Guess Ave", "456 New St"),
+			Summary:    "probing",
+		})
+		return err
+	}
+
+	withErr := probe(withAddress.ID)
+	withoutErr := probe(withoutAddress.ID)
+	s.Require().Error(withErr)
+	s.Require().Error(withoutErr)
+	s.Equal(withErr.Error(), withoutErr.Error(),
+		"the answer must not differ on whether the withheld column is set")
 }
 
 // Verifying the venue publishes the address again, so a claim about it becomes
@@ -291,9 +339,13 @@ func (s *PendingEditServiceIntegrationTestSuite) TestCreatePendingEdit_RefusesSt
 	s.Equal(apperrors.CodePendingEditStaleValue, editErr.Code)
 }
 
-// A field that is not a column on the entity is refused rather than stored with
-// the submitter's unverified claim beside it.
-func (s *PendingEditServiceIntegrationTestSuite) TestCreatePendingEdit_RefusesUnknownColumn() {
+// A field the entity's allowlist does not expose is refused rather than stored
+// with the submitter's unverified claim beside it.
+//
+// The unknown-COLUMN branch behind this one cannot be reached from any allowlist
+// today, which is what TestAllowedEditFieldsAreDerivable pins; it is the guard
+// for an allowlist that gains a name no column answers to.
+func (s *PendingEditServiceIntegrationTestSuite) TestCreatePendingEdit_RefusesFieldOutsideTheAllowlist() {
 	user := s.createTestUser()
 	artist := s.createTestArtist("Unknown Column")
 
@@ -309,6 +361,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestCreatePendingEdit_RefusesUn
 	var editErr *apperrors.PendingEditError
 	s.Require().ErrorAs(err, &editErr)
 	s.Equal(apperrors.CodePendingEditInvalidRequest, editErr.Code)
+	s.Contains(editErr.Message, "is not editable", "the allowlist branch is the one that fired")
 }
 
 // The entity-existence answer still comes from the create path, now as the
@@ -352,4 +405,76 @@ func toFloat(t *testing.T, v interface{}) float64 {
 		t.Fatalf("value %#v is not numeric", v)
 	}
 	return f
+}
+
+// A name a reporter withholds has to be a field a submission can actually carry,
+// or the withholding matches nothing and reads exactly like a gate that works.
+func TestWithheldFieldsAreEditable(t *testing.T) {
+	for entityType, newModel := range entityModels {
+		reporter, ok := newModel().(withheldEditFieldsReporter)
+		if !ok {
+			continue
+		}
+		allowed, ok := adminm.AllowedEditFields(entityType)
+		if !ok {
+			t.Fatalf("no allowlist for %s", entityType)
+		}
+		// A zero-value model withholds nothing, so ask the model's own list of
+		// gated names rather than a verdict about one instance.
+		for _, name := range namesWithheldBy(t, entityType) {
+			if !allowed[name] {
+				t.Errorf("%s: withheld field %q is not editable, so nothing is withheld by naming it",
+					entityType, name)
+			}
+		}
+		_ = reporter
+	}
+}
+
+// namesWithheldBy returns every field name the entity type's gate can withhold.
+// Venue is the only entity with a gate; a new one belongs here beside it.
+func namesWithheldBy(t *testing.T, entityType string) []string {
+	t.Helper()
+	if entityType == adminm.PendingEditEntityVenue {
+		return catalogm.VenuePrivateFields()
+	}
+	return nil
+}
+
+// release_date is the one allowlisted field whose stored type and its wire form
+// could disagree: a DATE column typed as *string, which gorm reads back as an
+// RFC3339 timestamp rather than the YYYY-MM-DD the drawer's placeholder shows.
+//
+// The claim is taken from the model gorm just read, because that IS the value
+// the release response passes through, and the property under test is that the
+// derivation and the response agree. A derivation that spelled the date any
+// other way would 409 every release-date edit forever and no other test would
+// notice, so the assertion is the identity rather than a hardcoded format.
+func (s *PendingEditServiceIntegrationTestSuite) TestCreatePendingEdit_DerivesDateAndYearOnRelease() {
+	user := s.createTestUser()
+	release := s.createTestRelease("Knife Man")
+	s.Require().NoError(s.db.Model(release).Updates(map[string]interface{}{
+		"release_date": "2011-10-04",
+		"release_year": 2011,
+	}).Error)
+
+	var served catalogm.Release
+	s.Require().NoError(s.db.First(&served, release.ID).Error)
+	s.Require().NotNil(served.ReleaseDate)
+
+	resp, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "release",
+		EntityID:   release.ID,
+		UserID:     user.ID,
+		Changes: []adminm.FieldChange{
+			{Field: "release_date", OldValue: *served.ReleaseDate, NewValue: "2011-10-05"},
+			{Field: "release_year", OldValue: float64(2011), NewValue: float64(2012)},
+		},
+		Summary: "correct the date",
+	})
+	s.Require().NoError(err, "a claim spelled the way the response serves the date must not conflict")
+
+	stored := s.storedChanges(resp.ID)
+	s.Equal(*served.ReleaseDate, stored["release_date"].OldValue)
+	s.EqualValues(2011, toFloat(s.T(), stored["release_year"].OldValue))
 }

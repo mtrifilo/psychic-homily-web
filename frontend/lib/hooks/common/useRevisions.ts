@@ -128,8 +128,18 @@ export function useUserRevisions(
 
 /**
  * Rollback a revision (admin only).
+ *
+ * entityType is the singular entity name whose detail queries a successful
+ * rollback invalidates, alongside the revision list. A rollback WRITES the
+ * entity, so without it the panel reports which fields it restored while the
+ * page around it still shows the values from before, which is a worse claim than
+ * saying nothing. Omit it where there is no entity page to refresh.
+ *
+ * The DETAIL prefix rather than an id-keyed key: a detail query is keyed by
+ * whatever the page routed on, which is a slug on every entity page, and this
+ * hook has only the revision id.
  */
-export function useRollbackRevision() {
+export function useRollbackRevision(entityType?: string) {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -139,6 +149,9 @@ export function useRollbackRevision() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.revisions.all })
+      if (entityType) {
+        queryClient.invalidateQueries({ queryKey: [`${entityType}s`, 'detail'] })
+      }
     },
   })
 }

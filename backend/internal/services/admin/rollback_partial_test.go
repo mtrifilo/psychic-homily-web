@@ -135,3 +135,82 @@ func (s *RevisionServiceIntegrationTestSuite) latestRevision(entityType string, 
 		Order("id DESC").First(&revision).Error)
 	return revision
 }
+
+// "422 unchanged" is two claims, and the second one is the one an admin cares
+// about: a refused rollback must not have written anything on its way to
+// refusing.
+func (s *RevisionServiceIntegrationTestSuite) TestRollback_RefusedRollbackLeavesTheEntityAlone() {
+	admin := s.createTestUser()
+	artist := s.createTestArtist(
+		fmt.Sprintf("Untouched %d", time.Now().UnixNano()), "Phoenix", "AZ", "")
+	s.Require().NoError(s.db.Table("artists").Where("id = ?", artist.ID).Updates(map[string]interface{}{
+		"website": "https://current.example.org",
+		"spotify": "https://open.spotify.com/artist/current",
+	}).Error)
+
+	changes := []adminm.FieldChange{
+		{Field: "website", OldValue: "javascript:alert(1)", NewValue: "https://current.example.org"},
+		{Field: "spotify", OldValue: "https://spotify.evil.test/", NewValue: "https://open.spotify.com/artist/current"},
+	}
+	s.Require().NoError(s.svc.RecordRevision("artist", artist.ID, admin.ID, changes, "all planted"))
+	revision := s.latestRevision("artist", artist.ID)
+
+	_, err := s.svc.Rollback(context.Background(), revision.ID, admin.ID)
+	s.Require().Error(err)
+
+	var stored map[string]interface{}
+	s.Require().NoError(s.db.Table("artists").Where("id = ?", artist.ID).Take(&stored).Error)
+	s.Equal("https://current.example.org", stored["website"])
+	s.Equal("https://open.spotify.com/artist/current", stored["spotify"])
+}
+
+// A revision naming one field twice must gate and write the SAME entry. The map
+// an update is built from collapses duplicates on its own, so a loop that read
+// the slice instead would check one occurrence and write the other.
+func (s *RevisionServiceIntegrationTestSuite) TestRollback_CollapsesARepeatedField() {
+	admin := s.createTestUser()
+	artist := s.createTestArtist(
+		fmt.Sprintf("Repeated Field %d", time.Now().UnixNano()), "Phoenix", "AZ", "")
+
+	// Written directly: RecordRevision is fed by diffs that cannot repeat a
+	// field, so a row like this only exists if something else wrote it.
+	raw := json.RawMessage(`[{"field":"description","old_value":"first","new_value":"live"},` +
+		`{"field":"description","old_value":"second","new_value":"live"}]`)
+	revision := &adminm.Revision{
+		EntityType: "artist", EntityID: artist.ID, UserID: admin.ID, FieldChanges: &raw,
+	}
+	s.Require().NoError(s.db.Create(revision).Error)
+
+	result, err := s.svc.Rollback(context.Background(), revision.ID, admin.ID)
+	s.Require().NoError(err)
+	s.Equal([]string{"description"}, result.AppliedFields, "the field is reported once")
+
+	var stored map[string]interface{}
+	s.Require().NoError(s.db.Table("artists").Where("id = ?", artist.ID).Take(&stored).Error)
+	s.Equal("second", stored["description"], "the written value is the one the update map holds")
+
+	recorded := s.latestRevision("artist", artist.ID)
+	var recordedChanges []adminm.FieldChange
+	s.Require().NoError(json.Unmarshal(*recorded.FieldChanges, &recordedChanges))
+	s.Require().Len(recordedChanges, 1)
+	s.Equal("second", recordedChanges[0].NewValue, "history records the value that was written")
+}
+
+// A revision recording no field changes has no undo to report, so it is a
+// refusal rather than a rollback that did nothing.
+func (s *RevisionServiceIntegrationTestSuite) TestRollback_RefusesARevisionWithNoChanges() {
+	admin := s.createTestUser()
+	artist := s.createTestArtist(
+		fmt.Sprintf("No Changes %d", time.Now().UnixNano()), "Phoenix", "AZ", "")
+
+	raw := json.RawMessage(`[]`)
+	revision := &adminm.Revision{
+		EntityType: "artist", EntityID: artist.ID, UserID: admin.ID, FieldChanges: &raw,
+	}
+	s.Require().NoError(s.db.Create(revision).Error)
+
+	result, err := s.svc.Rollback(context.Background(), revision.ID, admin.ID)
+	s.Require().Error(err)
+	s.Nil(result)
+	s.Contains(err.Error(), "no field changes")
+}

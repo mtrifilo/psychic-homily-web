@@ -485,9 +485,9 @@ var shapedURLFields = map[string]struct {
 // "javascript:..." into a rendered attribute.
 //
 // image_url is HERE for its scheme rule but its host is NOT resolved: the SSRF
-// guard needs a context.Context this function does not take. That residue is
-// stated on validateRollbackURLField and is the one part of the forward contract
-// this path still cannot reproduce.
+// guard needs a context.Context the function reading this map does not take.
+// Rollback runs revalidateFetchedURLField for that half, so the two gates
+// together reproduce the forward contract and neither alone does.
 var rollbackURLFields = map[string]string{
 	"instagram":       "Instagram URL",
 	"facebook":        "Facebook URL",

@@ -442,6 +442,12 @@ func (h *RevisionHandler) RollbackRevisionHandler(ctx context.Context, req *Roll
 	}
 
 	result, err := h.revisionService.Rollback(ctx, uint(revisionID), user.ID)
+	// A nil result with no error is not something the service produces, but the
+	// interface does not forbid it and every field below dereferences it. Answer
+	// like any other failed rollback rather than panicking the request.
+	if err == nil && result == nil {
+		err = fmt.Errorf("rollback returned no result")
+	}
 	if err != nil {
 		logger.FromContext(ctx).Error("revision_rollback_failed",
 			"revision_id", revisionID,

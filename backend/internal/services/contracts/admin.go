@@ -465,7 +465,8 @@ type RevisionServiceInterface interface {
 	GetRevision(revisionID uint, viewer RevisionViewer) (*adminm.Revision, error)
 	GetUserRevisions(userID uint, limit, offset int, viewer RevisionViewer) ([]adminm.Revision, int64, error)
 	// Rollback restores every field of a revision that passes the apply-side
-	// gates and reports the ones it refused. See RollbackResult.
+	// gates and reports the ones it refused. See RollbackResult. A nil error
+	// means a non-nil result.
 	Rollback(ctx context.Context, revisionID uint, adminUserID uint) (*RollbackResult, error)
 }
 
@@ -480,15 +481,19 @@ type RollbackSkippedField struct {
 //
 // A rollback is per FIELD, not per revision: the values it writes come from
 // revisions.field_changes, and a stored value can be one the apply-side gates
-// refuse (the URL rules in particular, since a pre-PSY-1998 row's old_value was
-// contributor input that nothing validated). Refusing the whole revision made
-// one such field block the undo of every honest field recorded beside it, which
-// let a contributor deny undo of their own edit.
+// refuse (the URL rules in particular, since an old_value written before the
+// submit-time derivation was contributor input that nothing validated). Refusing
+// the whole revision made one such field block the undo of every honest field
+// recorded beside it, which let a contributor deny undo of their own edit.
 //
 // So both halves are always reported and neither is optional: a partial rollback
 // that did not name what it skipped would leave an admin believing they had
 // undone an edit they had only half undone. A rollback that can restore NOTHING
 // is an error rather than a result, because there is no undo to report.
+//
+// Both slices are non-nil on every result this service returns. The generated
+// client types still declare them nullable, because that is how a Go slice is
+// published, so a client that has not read this still needs its own fallback.
 type RollbackResult struct {
 	AppliedFields []string               `json:"applied_fields" doc:"Fields restored to their previous values"`
 	SkippedFields []RollbackSkippedField `json:"skipped_fields" doc:"Fields left unchanged, with the reason for each"`

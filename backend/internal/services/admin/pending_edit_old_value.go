@@ -19,13 +19,15 @@ import (
 
 // OLD-VALUE CONTRACT
 //
-// FieldChange.OldValue on a stored pending edit is a value this server read off
-// the entity, never a value the submitter supplied. That is the whole point of
-// this file, and the reason it is load bearing is Rollback: an approved edit's
-// old/new pair is copied verbatim into revisions.field_changes, and Rollback
-// writes OldValue back into the column. A client-supplied OldValue is therefore
-// a write of arbitrary contributor input into any allowlisted column, reached by
-// pressing undo.
+// Every pending edit this file writes carries a FieldChange.OldValue the server
+// read off the entity, never one the submitter supplied. Rows already in the
+// table are not rewritten, so the table as a whole holds both kinds and the
+// apply-side gates still have to assume the worst of an old row.
+//
+// The reason it is load bearing is Rollback: an approved edit's old/new pair is
+// copied verbatim into revisions.field_changes, and Rollback writes OldValue back
+// into the column. A client-supplied OldValue is therefore a write of arbitrary
+// contributor input into any allowlisted column, reached by pressing undo.
 //
 // The apply-side URL gates in pending_edit.go stay where they are and are NOT
 // made redundant by this file. They are defence in depth over the same value:
@@ -36,6 +38,15 @@ import (
 // what the field held when the form was loaded, and a claim that disagrees with
 // the entity means the edit was composed against a value the entity no longer
 // has. That is a conflict, answered with 409, not a value to store.
+//
+// SUBMIT TIME, and the qualifier is load bearing. The derived value is what the
+// column held when the edit was QUEUED, and ApprovePendingEdit records it into
+// revisions.field_changes without re-reading the entity. The unique index admits
+// one pending edit per submitter per entity, so two submitters can queue against
+// the same value; approving both leaves the second revision recording a previous
+// value the first approval had already replaced, and rolling that one back
+// discards the first edit. Closing that needs a re-derivation inside the approve
+// transaction, which is a change to what approval means and not a rider here.
 
 // entityModels pairs each pending-edit entity type with the GORM model whose
 // columns a pending edit may name.
@@ -53,34 +64,57 @@ var entityModels = map[string]func() interface{}{
 
 // modelSchemaCache is the per-process store gorm's schema parser memoizes into,
 // so a model is walked once for the life of the process rather than once per
-// submission. Separate from the connection's own store only because that one is
-// unexported; the parse is pure, so two caches cannot disagree.
+// submission. It is separate from the connection's own store only because that
+// one is unexported.
+//
+// Entries are keyed by model TYPE, and the parse also depends on the namer, which
+// is not part of that key. One naming strategy exists in this process, so the two
+// stores cannot currently disagree; a second one would need this cache keyed by
+// namer as well, or dropped in favour of the connection's.
 var modelSchemaCache sync.Map
 
 // withheldEditFieldsReporter is implemented by an entity model that withholds
 // one of its own stored columns from the payload readers get.
 //
-// A field the submitter cannot read cannot be claimed, so a claim about it is
-// not evidence of anything and must not raise a conflict. The model implements
-// this rather than a list living here, because the model is where the gate that
-// does the withholding lives and the two would otherwise drift apart silently:
-// a field withheld by a new accessor but absent from a list over here reads as
-// an ordinary conflict and blocks the edit forever.
+// The derived old_value for such a field is the WITHHELD view, not the column.
+// A pending edit is served back to its submitter and listed on their submissions
+// page, so a derived value taken from the column would publish, to any
+// authenticated user who asks to edit the field, exactly the value the entity
+// payload refuses to serve them. An unverified venue is routinely somebody's
+// house, and its address is withheld from every reader including admins.
+//
+// Deriving the withheld view rather than exempting the field from the conflict
+// check is what makes the comparison say nothing about the column: the derived
+// value is the same whatever the column holds, so a claim matches or not on its
+// own merits and the stored value is unobservable either way.
+//
+// The model implements this rather than a list living here, because the model is
+// where the gate that does the withholding lives and the two would otherwise
+// drift apart silently: a field withheld by a new accessor but absent from a list
+// over here would be published by this path the day the accessor was added.
 type withheldEditFieldsReporter interface {
 	WithheldEditFields() []string
 }
+
+// The venue address gate is the one that exists, and it is asserted rather than
+// discovered: the reporter is looked up by type assertion, so a model that stops
+// implementing it goes back to deriving from the column with nothing failing.
+// A model that GAINS a privacy gate has to be added here in the same change, and
+// TestWithheldFieldsAreEditable checks that whatever a reporter names is a field
+// a submission can actually carry.
+var _ withheldEditFieldsReporter = (*catalogm.Venue)(nil)
 
 // deriveOldValues replaces every OldValue in changes with the value the entity
 // currently holds, and reports a conflict when the submitter claimed something
 // else.
 //
-// Returns a new slice; the input is left alone because callers marshal the
-// original for logging.
-//
 // A claim is compared with sameFieldValue, which treats nil and "" as one
 // state: the two shipping clients spell an empty field differently (the edit
 // drawer sends null, the inline editors send ""), and the columns behind these
 // fields have no reader that can tell NULL from "".
+//
+// The comparison is against the value the submitter could OBSERVE, which for a
+// withheld field is not the column. See withheldEditFieldsReporter.
 func deriveOldValues(db *gorm.DB, entityType string, entityID uint, changes []adminm.FieldChange) ([]adminm.FieldChange, error) {
 	allowed, ok := adminm.AllowedEditFields(entityType)
 	if !ok {
@@ -111,13 +145,21 @@ func deriveOldValues(db *gorm.DB, entityType string, entityID uint, changes []ad
 			return nil, apperrors.ErrPendingEditInvalidRequest(
 				fmt.Sprintf("field '%s' is not a column on %s entities", field, entityType))
 		}
+		// A withheld field derives from the UNSET value of its type, which is
+		// what its reader is served, rather than from the column. See
+		// withheldEditFieldsReporter: a pending edit is read back by its
+		// submitter, so deriving from the column would publish the value the
+		// entity payload withholds.
+		if withheld[field] {
+			column = reflect.Zero(column.Type())
+		}
 		value, err := revisiondiff.EmitValue(column)
 		if err != nil {
 			// Unreachable for an allowlisted field: TestAllowedEditFieldsAreDerivable
 			// pins every one of them against this rule.
 			return nil, apperrors.ErrPendingEditInternal(fmt.Errorf("%s.%s: %w", entityType, field, err))
 		}
-		if !withheld[field] && !sameFieldValue(out[i].OldValue, value) {
+		if !sameFieldValue(out[i].OldValue, value) {
 			stale = append(stale, field)
 		}
 		out[i].OldValue = value

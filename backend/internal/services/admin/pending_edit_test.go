@@ -312,6 +312,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM artists")
 	_, _ = sqlDB.Exec("DELETE FROM venues")
 	_, _ = sqlDB.Exec("DELETE FROM festivals")
+	_, _ = sqlDB.Exec("DELETE FROM releases")
 	_, _ = sqlDB.Exec("DELETE FROM user_preferences")
 	_, _ = sqlDB.Exec("DELETE FROM users")
 	// Reset mock email state between tests
@@ -401,6 +402,17 @@ func (s *PendingEditServiceIntegrationTestSuite) insertCorruptPendingEdit(entity
 	}
 	s.Require().NoError(s.db.Create(edit).Error)
 	return edit
+}
+
+func (s *PendingEditServiceIntegrationTestSuite) createTestRelease(title string) *catalogm.Release {
+	slug := fmt.Sprintf("test-release-%d", time.Now().UnixNano())
+	release := &catalogm.Release{
+		Title:       title,
+		Slug:        &slug,
+		ReleaseType: catalogm.ReleaseTypeLP,
+	}
+	s.Require().NoError(s.db.Create(release).Error)
+	return release
 }
 
 func makeChanges(field, oldVal, newVal string) []adminm.FieldChange {

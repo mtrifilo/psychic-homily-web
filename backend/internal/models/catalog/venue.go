@@ -173,8 +173,13 @@ func (v *Venue) PublicZipcode() *string {
 // It is the one list of those field names. VenuePrivateFields serves the readers
 // that need the names alone (revision history masks the same set at read time),
 // and WithheldEditFields serves the reader that needs a per-venue verdict. A
-// third gated column is one entry here, and revisiondiff's startup validator
-// then checks the name against what a venue revision can carry.
+// third gated column of the same shape is one entry here, and revisiondiff's
+// startup validator then checks the name against what a venue revision can carry.
+//
+// The signature covers *string columns, which is what both gated columns are. A
+// gate over another type -- the street coordinates carry the same rule inline in
+// buildVenueResponse -- needs this map generalized before it can live here, not
+// a second list beside it.
 var venuePrivateFieldGates = map[string]func(*Venue) (stored, public *string){
 	"address": func(v *Venue) (*string, *string) { return v.Address, v.PublicAddress() },
 	"zipcode": func(v *Venue) (*string, *string) { return v.Zipcode, v.PublicZipcode() },

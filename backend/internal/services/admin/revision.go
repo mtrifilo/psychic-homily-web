@@ -391,8 +391,17 @@ func (s *RevisionService) Rollback(ctx context.Context, revisionID uint, adminUs
 	if len(skipped) > 0 {
 		summary = fmt.Sprintf("%s (skipped: %s)", summary, strings.Join(result.SkippedFieldNames(), ", "))
 	}
+	// Fire-and-forget, matching the approve path and for the same reason: the
+	// entity write above has already committed, so returning an error here would
+	// report a rollback that did not happen as failed. The history row is lost
+	// and logged; the undo is not undone by saying so.
 	if err := s.RecordRevision(revision.EntityType, revision.EntityID, adminUserID, rollbackChanges, summary); err != nil {
-		return nil, err
+		logger.Default().Error("revision_rollback_record_failed",
+			"revision_id", revisionID,
+			"entity_type", revision.EntityType,
+			"entity_id", revision.EntityID,
+			"error", err.Error(),
+		)
 	}
 	return result, nil
 }
