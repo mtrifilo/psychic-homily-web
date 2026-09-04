@@ -53,7 +53,7 @@ func assertUnsubscribeWired(t *testing.T, email capturedDigestEmail, unsubURL st
 		"List-Unsubscribe must wrap the URL in <> per RFC 2369")
 	assert.Equal(t, "List-Unsubscribe=One-Click", email.Headers["List-Unsubscribe-Post"],
 		"List-Unsubscribe-Post must be exactly 'List-Unsubscribe=One-Click' per RFC 8058")
-	assert.Contains(t, email.Html, unsubURL,
+	assert.Contains(t, email.Html, `href="`+hrefEscaped(unsubURL)+`"`,
 		"the unsubscribe URL must appear as a clickable link in the email body")
 	assert.Contains(t, email.Html, "one click",
 		"the in-body opt-out card must communicate the one-click affordance")

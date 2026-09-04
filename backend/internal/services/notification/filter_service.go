@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html"
 	"log"
 	"strings"
 	"sync"
@@ -811,7 +810,11 @@ func (s *NotificationFilterService) sendFilterEmail(userID uint, filterID uint, 
 	// Unsubscribe URL (HMAC-signed)
 	unsubscribeURL := GenerateFilterUnsubscribeURL(s.frontendURL, filterID, s.jwtSecret)
 
-	html := buildFilterEmailHTML(filterName, show.Title, c.date, c.venueText, c.artistText, c.priceText, c.showURL, unsubscribeURL)
+	html, err := buildFilterEmailHTML(filterName, show.Title, c.date, c.venueText, c.artistText, c.priceText, c.showURL, unsubscribeURL)
+	if err != nil {
+		log.Printf("failed to render filter notification email for user %d: %v", userID, err)
+		return
+	}
 
 	subject := fmt.Sprintf("New show matching \"%s\"", filterName)
 	if err := s.sendEmail(email, subject, html, unsubscribeURL); err != nil {
@@ -923,10 +926,14 @@ func (s *NotificationFilterService) sendSceneFollowEmail(userID uint, sceneName 
 
 	c := s.showEmailContent(show)
 	manageURL := fmt.Sprintf("%s/following?tab=scene", s.frontendURL)
-	html := buildFilterEmailHTML(
+	html, err := buildFilterEmailHTML(
 		fmt.Sprintf("%s scene", sceneName),
 		show.Title, c.date, c.venueText, c.artistText, c.priceText, c.showURL, manageURL,
 	)
+	if err != nil {
+		log.Printf("failed to render scene-follow email for user %d: %v", userID, err)
+		return
+	}
 	subject := fmt.Sprintf("New show in %s", sceneName)
 	if err := s.sendEmail(email, subject, html, manageURL); err != nil {
 		sentry.WithScope(func(scope *sentry.Scope) {
@@ -1992,74 +1999,27 @@ func ComputeFilterUnsubscribeSignature(filterID uint, secret string) string {
 // Email template
 // ──────────────────────────────────────────────
 
-func buildFilterEmailHTML(filterName, showTitle, showDate, venueText, artistText, priceText, showURL, unsubscribeURL string) string {
-	// ESCAPE EVERY INTERPOLATED VALUE. This template is fmt.Sprintf, not
-	// html/template, so nothing escapes by default, and the values are entity text
-	// the platform does not author: show titles, artist and venue names, and a
-	// user-chosen filter name — none charset-restricted, all up to 255 chars.
-	//
-	// The exposure grew with PSY-1894. Before it, the only strings reaching this
-	// template came from shows a human admin had explicitly approved; now scraped
-	// third-party venue-calendar text reaches it automatically. An unescaped title
-	// like `</p><a href="https://evil.example/login">Verify your account</a><p>`
-	// would arrive as a working, SPF/DKIM-aligned phishing link from this
-	// platform's own sender.
-	//
-	// showURL and unsubscribeURL are built by this package from an id and an HMAC,
-	// so they carry no caller text — but they are escaped too rather than reasoned
-	// about individually, so nobody has to re-derive which arguments are safe.
-	filterName = html.EscapeString(filterName)
-	showTitle = html.EscapeString(showTitle)
-	showDate = html.EscapeString(showDate)
-	venueText = html.EscapeString(venueText)
-	artistText = html.EscapeString(artistText)
-	priceText = html.EscapeString(priceText)
-	showURL = html.EscapeString(showURL)
-	unsubscribeURL = html.EscapeString(unsubscribeURL)
-
-	venueSection := ""
-	if venueText != "" {
-		venueSection = fmt.Sprintf(`<p style="font-size: 15px; color: #444; margin: 4px 0;"><strong>Venue:</strong> %s</p>`, venueText)
-	}
-	artistSection := ""
-	if artistText != "" {
-		artistSection = fmt.Sprintf(`<p style="font-size: 15px; color: #444; margin: 4px 0;"><strong>Artists:</strong> %s</p>`, artistText)
-	}
-	priceSection := ""
-	if priceText != "" {
-		priceSection = fmt.Sprintf(`<p style="font-size: 15px; color: #444; margin: 4px 0;"><strong>Price:</strong> %s</p>`, priceText)
-	}
-
-	return fmt.Sprintf(`
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-    <div style="text-align: center; margin-bottom: 30px;">
-        <h1 style="color: #1a1a1a; margin: 0;">Psychic Homily</h1>
-    </div>
-
-    <div style="background: #f9f9f9; border-radius: 8px; padding: 30px; margin-bottom: 20px;">
-        <h2 style="margin-top: 0; color: #1a1a1a;">New show matching "%s"</h2>
-        <p style="font-size: 18px; font-weight: 600; color: #1a1a1a; margin: 8px 0;">%s</p>
-        <p style="font-size: 15px; color: #444; margin: 4px 0;"><strong>Date:</strong> %s</p>
-        %s
-        %s
-        %s
-        <p style="text-align: center; margin: 30px 0;">
-            <a href="%s" style="display: inline-block; background: #f97316; color: white; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600;">View Show</a>
-        </p>
-    </div>
-
-    <div style="text-align: center; font-size: 12px; color: #999;">
-        <p>Don't want these notifications? <a href="%s" style="color: #666;">Pause this filter</a></p>
-    </div>
-</body>
-</html>
-`, filterName, showTitle, showDate, venueSection, artistSection, priceSection, showURL, unsubscribeURL)
+// buildFilterEmailHTML renders the show-match body shared by the saved-filter
+// and scene-follow alerts.
+//
+// Every value here is entity text the platform does not author: show titles,
+// artist and venue names, and a user-chosen filter name, none charset-restricted
+// and all up to 255 chars. Scraped third-party venue-calendar text reaches this
+// body automatically, and the message ships from this platform's own
+// SPF/DKIM-aligned sender, so a title carrying markup would arrive as a working
+// link the recipient has every reason to trust. The template escapes each value
+// for the context it lands in.
+func buildFilterEmailHTML(filterName, showTitle, showDate, venueText, artistText, priceText, showURL, unsubscribeURL string) (string, error) {
+	return renderEmailTemplate(filterEmailTemplate, filterEmailData{
+		FilterName:     filterName,
+		ShowTitle:      showTitle,
+		ShowDate:       showDate,
+		VenueText:      venueText,
+		ArtistText:     artistText,
+		PriceText:      priceText,
+		ShowURL:        showURL,
+		UnsubscribeURL: unsubscribeURL,
+	})
 }
 
 // ──────────────────────────────────────────────

@@ -41,6 +41,22 @@ const (
 // casing the final one.
 const emailRowGap = "20px"
 
+// htmlEscape replaces a small set of characters with their HTML entity
+// equivalents. Intentionally minimal — the digest builder controls every
+// string passed in (titles, names, URLs come from our DB), but HTML-escaping
+// names is still the right hygiene to prevent the rare display issue with
+// "&", "<", ">", or quotes in entity names.
+func htmlEscape(s string) string {
+	r := strings.NewReplacer(
+		"&", "&amp;",
+		"<", "&lt;",
+		">", "&gt;",
+		`"`, "&quot;",
+		"'", "&#39;",
+	)
+	return r.Replace(s)
+}
+
 // emailShell wraps message blocks in the shared frame: masthead, kicker rule,
 // hairline border, and the table scaffolding email clients need.
 //
